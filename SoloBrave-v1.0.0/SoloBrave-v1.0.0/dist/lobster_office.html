@@ -1,0 +1,2079 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>龙虾办公室 - Solo Brave 管理后台</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--accent:#FF6B35;--accent-hover:#E55A2B;--accent-light:rgba(255,107,53,0.08);--accent-glow:rgba(255,107,53,0.15);--blue:#007AFF;--green:#34C759;--yellow:#FFCC00;--red:#FF3B30;--bg:#F2F2F7;--white:#FFF;--border:rgba(0,0,0,0.06);--text:#1C1C1E;--secondary:#8E8E93;--shadow-sm:0 2px 8px rgba(0,0,0,0.04);--shadow-md:0 4px 16px rgba(0,0,0,0.08);--radius-sm:10px;--radius-md:14px;--radius-lg:20px}
+body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased}
+
+/* Global Search Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.3);backdrop-filter:blur(4px);display:none;align-items:flex-start;justify-content:center;padding-top:15%;z-index:300}
+.modal-overlay.show{display:flex}
+.search-modal{width:90%;max-width:560px;background:var(--white);border-radius:var(--radius-lg);box-shadow:0 24px 48px rgba(0,0,0,0.2);overflow:hidden;animation:zoom-fade-in 0.2s ease-out}
+@keyframes zoom-fade-in{from{opacity:0;transform:scale(0.95)}to{opacity:1;transform:scale(1)}}
+.search-header{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:0.5px solid var(--border)}
+.search-icon{color:var(--secondary);flex-shrink:0}
+.search-input{flex:1;border:none;background:transparent;font-size:16px;color:var(--text);outline:none}
+.search-input::placeholder{color:#8E8E93}
+.search-results{max-height:400px;overflow-y:auto}
+.search-hint{padding:24px;text-align:center;color:var(--secondary)}
+.search-hint p{margin-bottom:16px;font-size:14px}
+.search-tags{display:flex;justify-content:center;gap:8px;flex-wrap:wrap}
+.search-tag{padding:6px 12px;background:var(--bg);border-radius:20px;font-size:12px;cursor:pointer;transition:all 0.2s}
+.search-tag:hover{background:var(--accent-light);color:var(--accent)}
+.search-result-item{display:flex;align-items:center;gap:12px;padding:12px 20px;cursor:pointer;transition:background 0.15s}
+.search-result-item:hover{background:var(--accent-light)}
+
+/* Hero Section */
+.hero-section{position:relative;padding:48px 24px 32px;text-align:center;background:linear-gradient(180deg,var(--accent-light) 0%,transparent 100%);overflow:hidden}
+.hero-glow{position:absolute;top:-80px;left:50%;transform:translateX(-50%);width:500px;height:300px;background:radial-gradient(ellipse,var(--accent-glow) 0%,transparent 70%);filter:blur(60px);pointer-events:none}
+.hero-icon{position:relative;font-size:64px;margin-bottom:16px;filter:drop-shadow(0 8px 24px rgba(255,107,53,0.35));animation:float 3s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+.hero-content h1{font-size:28px;font-weight:700;letter-spacing:-0.5px;margin-bottom:8px;background:linear-gradient(135deg,var(--accent) 0%,var(--accent-hover) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-content p{font-size:15px;color:var(--secondary);line-height:1.4}
+.header{display:flex;align-items:center;padding:12px 20px;background:rgba(255,255,255,0.8);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:0.5px solid var(--border);gap:16px;position:sticky;top:0;z-index:100}
+.header-back{width:40px;height:40px;background:var(--bg);border:none;border-radius:10px;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;z-index:101}
+.header-title{flex:1;font-size:20px;font-weight:600}
+.header-badge{background:var(--accent);color:white;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500}
+.status-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding:20px 24px}
+.status-card{background:var(--white);border-radius:var(--radius-md);padding:20px;text-align:center;box-shadow:var(--shadow-sm);transition:all 0.3s cubic-bezier(0.25,0.1,0.25,1);border:0.5px solid var(--border);position:relative;overflow:hidden}
+.status-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),var(--accent-hover));opacity:0;transition:opacity 0.3s}
+.status-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-md)}
+.status-card:hover::before{opacity:1}
+.status-card.online::before{background:linear-gradient(90deg,var(--green),#2DBE50)}
+.status-card.active::before{background:linear-gradient(90deg,var(--blue),#0070E0)}
+.status-card.error::before{background:linear-gradient(90deg,var(--red),#E03030)}
+.status-icon{width:48px;height:48px;margin:0 auto 12px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;transition:transform 0.3s ease}
+.status-card:hover .status-icon{transform:scale(1.1)}
+.status-value{font-size:28px;font-weight:700;color:var(--accent);letter-spacing:-1px}
+.status-card.online .status-value{color:var(--green)}
+.status-card.active .status-value{color:var(--blue)}
+.status-card.error .status-value{color:var(--red)}
+.status-label{font-size:12px;color:var(--secondary);margin-top:4px}
+.nav-tabs{display:flex;gap:4px;padding:0 24px;background:var(--white);border-bottom:1px solid var(--border);position:sticky;top:73px;z-index:99}
+.nav-tab{padding:14px 20px;font-size:14px;color:var(--secondary);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s}
+.nav-tab:hover{color:var(--text)}.nav-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:500}
+.main-content{padding:24px;max-width:1400px;margin:0 auto;min-height:calc(100vh - 150px)}
+.section{background:var(--white);border-radius:var(--radius-lg);padding:24px;margin-bottom:20px;box-shadow:var(--shadow-sm);border:0.5px solid var(--border)}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.section-title{font-size:18px;font-weight:600;display:flex;align-items:center;gap:8px}
+.btn{padding:10px 20px;border:none;border-radius:10px;font-size:14px;font-weight:500;cursor:pointer;transition:all 0.2s}
+.btn-primary{background:var(--accent);color:white}.btn-primary:hover{background:var(--accent-hover)}
+.btn-secondary{background:var(--bg);color:var(--text)}.btn-secondary:hover{background:var(--border)}
+.btn-danger{background:var(--red);color:white}
+.btn-sm{padding:6px 12px;font-size:12px}
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+.quick-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.quick-btn{aspect-ratio:1;background:var(--bg);border:0.5px solid var(--border);border-radius:var(--radius-md);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;transition:all 0.3s cubic-bezier(0.25,0.1,0.25,1);padding:12px}
+.quick-btn:hover{transform:translateY(-4px) scale(1.02);box-shadow:var(--shadow-md);border-color:var(--accent)}
+.quick-btn:active{transform:scale(0.95)}
+.quick-btn-label{font-size:10px;color:var(--secondary);margin-top:4px}
+.quick-btn:hover{background:var(--accent-light);transform:scale(1.05)}
+.list-item{display:flex;align-items:center;gap:12px;padding:16px;background:var(--bg);border-radius:12px;margin-bottom:12px}
+.item-avatar{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px}
+.item-info{flex:1}.item-name{font-size:15px;font-weight:500}.item-desc{font-size:13px;color:var(--secondary);margin-top:2px}
+.item-actions{display:flex;gap:8px}
+.status-dot{width:10px;height:10px;border-radius:50%}
+.status-dot.online{background:var(--green)}.status-dot.busy{background:var(--yellow)}.status-dot.offline{background:var(--secondary)}
+.tag{padding:4px 10px;border-radius:6px;font-size:12px;font-weight:500}
+.tag-success{background:rgba(52,199,89,0.12);color:var(--green)}
+.tag-warning{background:rgba(255,204,0,0.12);color:#996600}
+.data-table{width:100%;border-collapse:collapse}
+.data-table tbody tr{transition:all 0.2s}
+.data-table tbody tr:hover{background:rgba(255,107,53,0.05);transform:scale(1.002)}
+.data-table tbody tr:hover td:first-child{color:var(--accent);font-weight:500}
+
+/* FAB Menu */
+.fab-menu{position:fixed;bottom:24px;right:24px;display:flex;flex-direction:column;align-items:center;gap:12px;z-index:50}
+.fab-trigger{width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-hover));color:white;box-shadow:0 4px 16px rgba(255,107,53,0.4);display:flex;align-items:center;justify-content:center;font-size:24px;border:none;cursor:pointer;transition:all 0.3s;transform:rotate(0deg)}
+.fab-trigger:hover{transform:scale(1.1) rotate(90deg);box-shadow:0 6px 20px rgba(255,107,53,0.5)}
+.fab-trigger.active{transform:rotate(45deg)}
+.fab-item{width:48px;height:48px;border-radius:50%;background:var(--white);box-shadow:0 2px 12px rgba(0,0,0,0.12);display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;opacity:0;transform:scale(0.5) translateY(20px);transition:all 0.3s cubic-bezier(0.25,0.1,0.25,1)}
+.fab-menu.open .fab-item{opacity:1;transform:scale(1) translateY(0)}
+.fab-menu.open .fab-item:nth-child(1){transition-delay:0.05s}
+.fab-menu.open .fab-item:nth-child(2){transition-delay:0.1s}
+.fab-item:hover{background:var(--accent-light);transform:scale(1.1)!important}
+.fab-item svg{width:22px;height:22px;color:var(--accent)}
+.data-table th,.data-table td{padding:14px 16px;text-align:left;border-bottom:1px solid var(--border);font-size:14px}
+.data-table th{background:var(--bg);font-weight:500;color:var(--secondary)}
+.data-table tr:hover{background:#F8F8F8}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:1000}
+.modal-overlay.show{display:flex}
+.modal{background:var(--white);border-radius:20px;width:90%;max-width:600px;max-height:85vh;overflow:hidden;display:flex;flex-direction:column}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid var(--border)}
+.modal-title{font-size:18px;font-weight:600}
+.modal-close{width:36px;height:36px;background:var(--bg);border:none;border-radius:10px;cursor:pointer;font-size:16px}
+.modal-body{flex:1;overflow-y:auto;padding:24px}
+.modal-footer{display:flex;gap:12px;justify-content:flex-end;padding:20px 24px;border-top:1px solid var(--border)}
+.form-group{margin-bottom:16px}
+.form-label{font-size:13px;color:var(--secondary);margin-bottom:6px;display:block}
+.form-input,.form-select{width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:10px;font-size:14px}
+.form-input:focus,.form-select:focus{outline:none;border-color:var(--accent)}
+.toggle{position:relative;width:48px;height:28px;background:var(--border);border-radius:14px;cursor:pointer;transition:background 0.2s}
+.toggle.active{background:var(--green)}.toggle::after{content:'';position:absolute;top:2px;left:2px;width:24px;height:24px;background:white;border-radius:50%;transition:transform 0.2s}
+.toggle.active::after{transform:translateX(20px)}
+.toast{position:fixed;bottom:40px;left:50%;transform:translateX(-50%) translateY(100px);background:rgba(28,28,30,0.95);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);color:white;padding:14px 28px;border-radius:30px;font-size:14px;z-index:2000;opacity:0;transition:all 0.3s cubic-bezier(0.25,0.1,0.25,1);border:0.5px solid rgba(255,255,255,0.1);box-shadow:0 8px 32px rgba(0,0,0,0.2)}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+.toast.success{background:rgba(52,199,89,0.95)}
+.toast.error{background:rgba(255,59,48,0.95)}
+
+/* Skeleton Loading */
+.skeleton{background:linear-gradient(90deg,var(--bg) 25%,#E8E8ED 50%,var(--bg) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:var(--radius-sm)}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.skeleton-avatar{width:44px;height:44px;border-radius:50%}
+.skeleton-text{height:14px;width:60%;margin:8px 0}
+.skeleton-text.short{width:40%}
+
+/* Empty State */
+.empty-state{text-align:center;padding:48px 24px}
+.empty-illustration{width:120px;height:120px;margin:0 auto 20px;background:var(--bg);border-radius:50%;display:flex;align-items:center;justify-content:center}
+.empty-illustration svg{width:60px;height:60px;color:var(--secondary)}
+.empty-state h3{font-size:17px;font-weight:600;margin-bottom:8px}
+.empty-state p{font-size:14px;color:var(--secondary);margin-bottom:20px}
+
+/* Avatar Stack */
+.avatar-stack{display:flex}
+.avatar-stack .avatar{border:2px solid var(--white);box-shadow:0 2px 4px rgba(0,0,0,0.1)}
+.avatar-stack .avatar.more{margin-left:-12px;font-size:11px;color:var(--secondary);background:var(--bg)}
+
+/* Ring Progress */
+.status-ring{position:relative;width:64px;height:64px;margin:0 auto 12px}
+.status-ring svg{transform:rotate(-90deg);width:100%;height:100%}
+.ring-value{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:18px;font-weight:700;color:var(--accent)}
+.status-card.online .ring-value{color:var(--green)}
+.status-card.active .ring-value{color:var(--blue)}
+.status-card.error .ring-value{color:var(--red)}
+.ring-bg{fill:none;stroke:var(--bg);stroke-width:3}
+.ring-fill{fill:none;stroke-width:3;stroke-linecap:round;animation:ring-progress 1s ease-out}
+.ring-fill.green{stroke:var(--green)}
+.ring-fill.blue{stroke:var(--blue)}
+.ring-fill.orange{stroke:var(--accent)}
+@keyframes ring-progress{from{stroke-dasharray:0,100}}
+
+/* Lounge Zone */
+.lounge-zone{display:flex;flex-wrap:wrap;gap:12px;padding:16px;background:var(--white);border-radius:var(--radius-md);border:0.5px solid var(--border)}
+.lounge-card{display:flex;align-items:center;gap:12px;padding:16px;background:var(--bg);border-radius:var(--radius-md);min-width:200px;flex:1;border:0.5px solid var(--border);transition:all 0.2s}
+.lounge-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
+.lounge-avatar{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
+.lounge-info{flex:1;min-width:0}
+.lounge-name{font-size:14px;font-weight:600;margin-bottom:2px}
+.lounge-status{font-size:12px;color:var(--secondary);display:flex;align-items:center;gap:4px}
+.lounge-status::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--text-tertiary)}
+.lounge-activity{flex-shrink:0;width:40px}
+.lounge-bar{height:4px;background:var(--bg);border-radius:2px;overflow:hidden}
+.lounge-bar::after{content:'';display:block;height:100%;width:30%;background:linear-gradient(90deg,var(--accent),var(--accent-hover));border-radius:2px;opacity:0.5}
+.section-hint{font-size:12px;font-weight:400;color:var(--secondary);margin-left:8px}
+.lounge-highlight{background:linear-gradient(135deg,rgba(255,107,53,0.05),rgba(255,107,53,0.02));border:1px dashed var(--accent);border-radius:var(--radius-lg)}
+.lounge-count{background:var(--accent);color:white;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600}
+.lounge-wake-btn{width:36px;height:36px;border-radius:50%;background:var(--accent-light);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:all 0.2s;opacity:0}
+.lounge-card:hover .lounge-wake-btn{opacity:1}
+.lounge-wake-btn:hover{background:var(--accent);transform:scale(1.1)}
+
+/* Dark Mode */
+@media(prefers-color-scheme:dark){:root{--bg:#1C1C1E;--bg-secondary:#2C2C2E;--white:#2C2C2E;--text:#FFF;--secondary:#8E8E93;--border:rgba(255,255,255,0.1)}
+.status-card,.section{background:#2C2C2E;border-color:rgba(255,255,255,0.1)}.header{background:rgba(44,44,46,0.8)}.nav-tabs{background:#2C2C2E}.hero-section{background:linear-gradient(180deg,rgba(255,107,53,0.1) 0%,transparent 100%)}}
+
+@keyframes fadeIn{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+.tab-content{display:none}.tab-content.active{display:block}
+
+/* Skills System */
+.skills-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.skills-title{font-size:14px;font-weight:600}
+.skills-add-btn{display:flex;align-items:center;gap:4px;padding:6px 12px;background:var(--accent-light);color:var(--accent);border:none;border-radius:var(--radius-sm);font-size:12px;cursor:pointer;transition:all 0.2s}
+.skills-add-btn:hover{background:var(--accent);color:#fff}
+.skills-list{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.skill-item{display:flex;align-items:center;gap:12px;padding:12px;background:var(--bg);border-radius:var(--radius-md);transition:all 0.2s}
+.skill-item:hover{background:var(--accent-light)}
+.skill-emoji{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;background:var(--accent-light)}
+.skill-info{flex:1}
+.skill-name{font-size:14px;font-weight:500}
+.skill-level{display:flex;gap:2px;margin-top:4px}
+.skill-star{width:12px;height:12px;color:var(--text-tertiary)}
+.skill-star.filled{color:var(--yellow)}
+.skill-delete{width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--text-tertiary);display:flex;align-items:center;justify-content:center;transition:all 0.2s;opacity:0}
+.skill-item:hover .skill-delete{opacity:1}
+.skill-delete:hover{background:rgba(255,59,48,0.1);color:var(--red)}
+.skills-empty{text-align:center;padding:32px 20px}
+.skills-empty-icon{font-size:40px;margin-bottom:8px;opacity:0.5}
+.skills-empty-text{font-size:14px;color:var(--secondary);margin-bottom:16px}
+.skills-add-btn-lg{padding:8px 20px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius-md);font-size:14px;cursor:pointer;transition:all 0.2s}
+.skills-add-btn-lg:hover{background:var(--accent-hover)}
+.skills-presets{margin-top:20px;padding-top:16px;border-top:0.5px solid var(--border)}
+.skills-presets-title{font-size:12px;color:var(--secondary);margin-bottom:12px}
+.skills-presets-grid{display:flex;flex-wrap:wrap;gap:8px}
+.skill-preset{display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--bg);border:1px solid var(--border);border-radius:20px;font-size:12px;cursor:pointer;transition:all 0.2s}
+.skill-preset:hover{background:var(--accent-light);border-color:var(--accent);color:var(--accent)}
+.skill-preset.used{opacity:0.5;cursor:not-allowed}
+
+/* Memory System */
+.memory-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.memory-title{font-size:14px;font-weight:600}
+.memory-add-btn{display:flex;align-items:center;gap:4px;padding:6px 12px;background:var(--accent-light);color:var(--accent);border:none;border-radius:var(--radius-sm);font-size:12px;cursor:pointer;transition:all 0.2s}
+.memory-add-btn:hover{background:var(--accent);color:#fff}
+.memory-tabs{display:flex;gap:8px;margin-bottom:16px}
+.memory-tab{padding:6px 12px;background:var(--bg);border:none;border-radius:var(--radius-sm);font-size:12px;color:var(--secondary);cursor:pointer;transition:all 0.2s}
+.memory-tab.active{background:var(--accent);color:#fff}
+.memory-tab:hover:not(.active){background:var(--accent-light)}
+.memory-content{max-height:400px;overflow-y:auto}
+.memory-item{display:flex;gap:12px;padding:12px;background:var(--bg);border-radius:var(--radius-md);margin-bottom:8px}
+.memory-item-content{flex:1}
+.memory-item-text{font-size:14px;line-height:1.5}
+.memory-item-date{font-size:11px;color:var(--secondary);margin-top:4px}
+.memory-item-actions{display:flex;gap:4px;opacity:0;transition:opacity 0.2s}
+.memory-item:hover .memory-item-actions{opacity:1}
+.memory-action-btn{width:24px;height:24px;border-radius:4px;background:transparent;border:none;cursor:pointer;color:var(--secondary);display:flex;align-items:center;justify-content:center}
+.memory-action-btn:hover{background:var(--bg);color:var(--text)}
+.memory-empty{text-align:center;padding:32px 20px}
+.memory-empty-icon{font-size:40px;margin-bottom:8px;opacity:0.5}
+.memory-empty-text{font-size:14px;color:var(--secondary)}
+.activity-feed{max-height:300px;overflow-y:auto}
+.activity-item{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+.activity-item:last-child{border-bottom:none}
+.activity-icon{width:36px;height:36px;border-radius:50%;background:var(--accent-light);display:flex;align-items:center;justify-content:center;font-size:16px}
+.activity-text{flex:1;font-size:14px;line-height:1.5}
+.activity-time{font-size:12px;color:var(--secondary);white-space:nowrap}
+
+/* 文档库样式 */
+.docs-container{display:flex;height:100%;background:var(--white)}
+.docs-sidebar{width:240px;border-right:1px solid var(--border);padding:16px;display:flex;flex-direction:column;gap:12px}
+.docs-search input{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px}
+.docs-search input:focus{outline:none;border-color:var(--accent)}
+.docs-categories{flex:1;overflow-y:auto}
+.category-item{padding:10px 12px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;font-size:13px;transition:all 0.2s}
+.category-item:hover{background:var(--bg)}
+.category-item.active{background:var(--accent-light);color:var(--accent)}
+.category-item .count{font-size:11px;color:var(--secondary)}
+.docs-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.docs-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.docs-list{flex:1;overflow-y:auto;padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.doc-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;transition:all 0.2s;cursor:pointer}
+.doc-card:hover{box-shadow:var(--shadow-md);transform:translateY(-2px)}
+.doc-card-icon{width:40px;height:40px;border-radius:8px;background:var(--accent-light);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:12px}
+.doc-name{font-size:14px;font-weight:600;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc-meta{display:flex;gap:8px;font-size:11px;color:var(--secondary);margin-bottom:8px}
+.doc-tags{display:flex;gap:4px;flex-wrap:wrap}
+.doc-actions{display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);opacity:0;transition:opacity 0.2s}
+.doc-card:hover .doc-actions{opacity:1}
+/* 文档编辑器 */
+.doc-editor-layout{display:flex;height:100%}
+.doc-editor-pane{flex:1;display:flex;flex-direction:column}
+.doc-editor-toolbar{display:flex;gap:4px;padding:8px 12px;background:#FAFAFA;border-bottom:1px solid var(--border)}
+.doc-editor-toolbar button{padding:6px 10px;background:var(--white);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px;transition:all 0.2s}
+.doc-editor-toolbar button:hover{background:var(--accent-light);border-color:var(--accent)}
+.doc-editor-textarea{width:100%;flex:1;border:none;padding:16px;font-family:Menlo,Monaco,monospace;font-size:13px;line-height:1.6;resize:none;background:var(--white)}
+.doc-preview{flex:1;padding:16px;overflow-y:auto;background:var(--white);border-left:1px solid var(--border)}
+.doc-preview h1{font-size:24px;margin:16px 0 12px;font-weight:700}
+.doc-preview h2{font-size:20px;margin:14px 0 10px;font-weight:600}
+.doc-preview h3{font-size:16px;margin:12px 0 8px;font-weight:600}
+.doc-preview p{margin:8px 0;line-height:1.6}
+.doc-preview code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px;font-family:Menlo,Monaco,monospace}
+.doc-preview pre{background:var(--bg);padding:12px;border-radius:8px;overflow-x:auto;margin:12px 0}
+.doc-preview pre code{background:none;padding:0}
+.doc-preview table{width:100%;border-collapse:collapse;margin:12px 0}
+.doc-preview th,.doc-preview td{padding:8px 12px;border:1px solid var(--border);text-align:left}
+.doc-preview th{background:var(--bg);font-weight:600}
+.doc-preview ul,.doc-preview ol{margin:8px 0;padding-left:24px}
+.doc-preview li{margin:4px 0}
+.doc-preview blockquote{border-left:4px solid var(--accent);padding-left:12px;margin:12px 0;color:var(--secondary)}
+.doc-preview a{color:var(--accent)}
+/* 列表视图 */
+.docs-list.list-view{display:flex;flex-direction:column;gap:0}
+.docs-list.list-view .doc-card{border-radius:0;border-left:none;border-right:none}
+.docs-list.list-view .doc-card:hover{transform:none}
+
+/* 员工详情面板样式 */
+.emp-detail-tabs{flex-wrap:nowrap;overflow-x:auto;padding-bottom:0}
+.emp-detail-tab{padding:10px 16px;background:transparent;border:none;border-bottom:2px solid transparent;font-size:13px;color:var(--secondary);cursor:pointer;transition:all 0.2s;white-space:nowrap}
+.emp-detail-tab:hover{color:var(--text)}
+.emp-detail-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+/* 员工关联文档样式 */
+.emp-docs-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-top:8px}
+.emp-docs-list{display:flex;flex-direction:column;gap:8px}
+.emp-doc-item{display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg);border-radius:8px;cursor:pointer;transition:all 0.2s}
+.emp-doc-item:hover{background:var(--accent-light)}
+.emp-doc-icon{width:36px;height:36px;border-radius:8px;background:var(--white);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.emp-doc-info{flex:1;min-width:0}
+.emp-doc-name{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.emp-doc-meta{display:flex;gap:8px;font-size:11px;color:var(--secondary);margin-top:2px}
+.emp-doc-unlink{width:28px;height:28px;border-radius:50%;background:transparent;border:none;cursor:pointer;color:var(--secondary);display:flex;align-items:center;justify-content:center;opacity:0;transition:all 0.2s}
+.emp-doc-item:hover .emp-doc-unlink{opacity:1}
+.emp-doc-unlink:hover{background:rgba(255,59,48,0.1);color:var(--red)}
+.docs-list.list-view{display:flex;flex-direction:column;gap:0}
+.docs-list.list-view .doc-card{border-radius:0;border-left:none;border-right:none}
+.docs-list.list-view .doc-card:hover{transform:none}
+</style>
+</head>
+<body>
+<!-- Global Search Modal -->
+<div class="modal-overlay" id="searchModal" onclick="closeSearch()">
+<div class="search-modal" onclick="event.stopPropagation()">
+<div class="search-header">
+<svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+<input type="text" id="searchInput" class="search-input" placeholder="搜索配置、员工、任务..." oninput="performSearch(this.value)" autocomplete="off">
+<div class="search-shortcut"><kbd>Esc</kbd></div>
+</div>
+<div class="search-results" id="searchResults">
+<div class="search-hint">
+<p>💡 快速访问管理功能</p>
+<div class="search-tags">
+<span class="search-tag" onclick="switchTab('employees')">👥 员工管理</span>
+<span class="search-tag" onclick="switchTab('config')">⚙️ 系统配置</span>
+<span class="search-tag" onclick="switchTab('tasks')">📋 定时任务</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- Hero Section -->
+<div class="hero-section">
+<div class="hero-glow"></div>
+<div class="hero-icon">🦞</div>
+<div class="hero-content">
+<h1>龙虾办公室</h1>
+<p>智能协作中枢 · 让团队高效运转</p>
+</div>
+</div>
+
+<header class="header">
+<button class="header-back" onclick="window.close()">←</button>
+<div class="header-title">Solo Brave</div>
+<div class="header-badge">管理后台</div>
+</header>
+<nav class="nav-tabs">
+<div class="nav-tab active" onclick="switchTab('overview')">📊 总览</div>
+<div class="nav-tab" onclick="switchTab('skills')">🛠️ 技能</div>
+<div class="nav-tab" onclick="switchTab('memory')">🧠 记忆</div>
+<div class="nav-tab" onclick="switchTab('docs')">📚 文档</div>
+<div class="nav-tab" onclick="switchTab('config')">⚙️ 配置</div>
+<div class="nav-tab" onclick="switchTab('employees')">👥 员工</div>
+<div class="nav-tab" onclick="switchTab('tasks')">📋 任务</div>
+<div class="nav-tab" onclick="switchTab('tools')">🔧 工具</div>
+</nav>
+<main class="main-content">
+<!-- Overview Tab -->
+<div class="tab-content active" id="tab-overview">
+<div class="status-grid">
+<div class="status-card online">
+<div class="status-ring">
+<svg viewBox="0 0 36 36">
+<path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+<path class="ring-fill green" stroke-dasharray="75, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+</svg>
+<div class="ring-value" id="onlineCount">5</div>
+</div>
+<div class="status-label">在线员工</div>
+</div>
+<div class="status-card active">
+<div class="status-ring">
+<svg viewBox="0 0 36 36">
+<path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+<path class="ring-fill blue" stroke-dasharray="60, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+</svg>
+<div class="ring-value">12</div>
+</div>
+<div class="status-label">活跃对话</div>
+</div>
+<div class="status-card">
+<div class="status-ring">
+<svg viewBox="0 0 36 36">
+<path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+<path class="ring-fill orange" stroke-dasharray="50, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+</svg>
+<div class="ring-value" id="taskCount">8</div>
+</div>
+<div class="status-label">进行中任务</div>
+</div>
+<div class="status-card error">
+<div class="status-ring">
+<svg viewBox="0 0 36 36">
+<path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+<path class="ring-fill" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+</svg>
+<div class="ring-value">0</div>
+</div>
+<div class="status-label">异常状态</div>
+</div>
+</div>
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>⚡</span>快捷操作</div>
+</div>
+<div class="quick-grid">
+<button class="quick-btn" onclick="restartGateway()" title="重启网关"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg><span class="quick-btn-label">重启</span></button>
+<button class="quick-btn" onclick="backupConfig()" title="备份配置"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg><span class="quick-btn-label">备份</span></button>
+<button class="quick-btn" onclick="checkFormat()" title="格式检查"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span class="quick-btn-label">检查</span></button>
+<button class="quick-btn" onclick="optimizeCode()" title="代码优化"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg><span class="quick-btn-label">优化</span></button>
+<button class="quick-btn" onclick="showAddEmployee()" title="添加员工"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg><span class="quick-btn-label">添加</span></button>
+</div>
+</div>
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>📡</span>最近动态</div>
+</div>
+<div class="activity-feed" id="activityFeed">
+<div class="activity-item">
+<div class="activity-icon">🦞</div>
+<div class="activity-text"><strong>小龙虾</strong> 完成了页面设计任务</div>
+<div class="activity-time">3分钟前</div>
+</div>
+<div class="activity-item">
+<div class="activity-icon">👨‍💼</div>
+<div class="activity-text"><strong>大龙虾</strong> 更新了 API 文档</div>
+<div class="activity-time">15分钟前</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- Skills Tab -->
+<div class="tab-content" id="tab-skills">
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>🛠️</span>技能配置</div>
+<button class="btn btn-sm btn-primary" onclick="addSkill()">+ 添加技能</button>
+</div>
+<div class="skills-list" id="skillsList"></div>
+<div class="skills-empty" id="skillsEmpty">
+<div class="skills-empty-icon">🎯</div>
+<div class="skills-empty-text">还没有添加技能</div>
+<button class="skills-add-btn-lg" onclick="addSkill()">+ 添加第一个技能</button>
+</div>
+<div class="skills-presets">
+<div class="skills-presets-title">快速添加</div>
+<div class="skills-presets-grid" id="skillsPresets"></div>
+</div>
+</div>
+</div>
+
+<!-- Memory Tab -->
+<div class="tab-content" id="tab-memory">
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>🧠</span>上下文记忆</div>
+<button class="btn btn-sm btn-primary" onclick="addMemory()">+ 添加记忆</button>
+</div>
+<div class="memory-tabs">
+<button class="memory-tab active" data-mtab="core" onclick="switchMemoryTab('core')">核心记忆</button>
+<button class="memory-tab" data-mtab="daily" onclick="switchMemoryTab('daily')">日常记录</button>
+</div>
+<div class="memory-content" id="memoryContent"></div>
+<div class="memory-empty" id="memoryEmpty">
+<div class="memory-empty-icon">📝</div>
+<div class="memory-empty-text">还没有记忆记录</div>
+</div>
+</div>
+</div>
+
+<!-- Config Tab -->
+<div class="tab-content" id="tab-config">
+<div class="grid-2">
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>🤖</span>AI 模型配置</div>
+<button class="btn btn-sm btn-secondary" onclick="showModal('modelModal')">添加模型</button>
+</div>
+<table class="data-table">
+<thead><tr><th>模型</th><th>状态</th><th>操作</th></tr></thead>
+<tbody id="modelList">
+<tr><td>GPT-4o</td><td><span class="tag tag-success">运行中</span></td><td><button class="btn btn-sm btn-secondary" onclick="editModel('gpt4o')">编辑</button></td></tr>
+<tr><td>Claude 3.5</td><td><span class="tag tag-success">运行中</span></td><td><button class="btn btn-sm btn-secondary" onclick="editModel('claude')">编辑</button></td></tr>
+<tr><td>Gemini Pro</td><td><span class="tag tag-warning">备用</span></td><td><button class="btn btn-sm btn-secondary" onclick="editModel('gemini')">编辑</button></td></tr>
+</tbody>
+</table>
+</div>
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>📡</span>渠道配置</div>
+<button class="btn btn-sm btn-secondary" onclick="showModal('channelModal')">添加渠道</button>
+</div>
+<table class="data-table">
+<thead><tr><th>渠道</th><th>状态</th><th>操作</th></tr></thead>
+<tbody>
+<tr><td>抖音</td><td><span class="tag tag-success">已连接</span></td><td><button class="btn btn-sm btn-secondary" onclick="editChannel('douyin')">配置</button></td></tr>
+<tr><td>微信</td><td><span class="tag tag-success">已连接</span></td><td><button class="btn btn-sm btn-secondary" onclick="editChannel('weixin')">配置</button></td></tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>⚙️</span>核心配置文件</div>
+<div><button class="btn btn-sm btn-secondary" onclick="saveConfig()">💾 保存</button></div>
+</div>
+<textarea class="form-input" id="configEditor" style="font-family:monospace;min-height:200px">{
+  "gateway": {"port": 8080, "timeout": 30000},
+  "ai": {"defaultModel": "gpt4o", "temperature": 0.7},
+  "storage": {"type": "localStorage", "prefix": "sb_"}
+}</textarea>
+</div>
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>🔌</span>网关控制</div>
+</div>
+<div class="grid-2">
+<div class="list-item">
+<div class="item-info">
+<div class="item-name">网关状态</div>
+<div class="item-desc">当前运行状态</div>
+</div>
+<div><span class="tag tag-success">运行中</span></div>
+</div>
+<div class="list-item">
+<div class="item-info">
+<div class="item-name">自动备份</div>
+<div class="item-desc">每小时自动备份配置</div>
+</div>
+<div class="toggle active" onclick="this.classList.toggle('active')"></div>
+</div>
+<div class="list-item">
+<div class="item-info">
+<div class="item-name">重启网关</div>
+<div class="item-desc">重新启动网关服务</div>
+</div>
+<button class="btn btn-sm btn-danger" onclick="restartGateway()">重启</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Docs Tab -->
+<div class="tab-content" id="tab-docs" style="display:none">
+<div class="docs-layout">
+<!-- 文档侧边栏 -->
+<div class="docs-sidebar">
+<div class="docs-search">
+<input type="text" id="docsSearchInput" placeholder="🔍 搜索文档..." oninput="searchDocs(this.value)">
+</div>
+<div class="docs-categories" id="docsCategories">
+<div class="category-item active" data-cat="all" onclick="filterDocsByCat('all')">📁 全部文档 <span class="count" id="catCountAll">0</span></div>
+<div class="category-item" data-cat="project" onclick="filterDocsByCat('project')">📦 项目文档 <span class="count" id="catCountProject">0</span></div>
+<div class="category-item" data-cat="skill" onclick="filterDocsByCat('skill')">🛠️ 技能文档 <span class="count" id="catCountSkill">0</span></div>
+<div class="category-item" data-cat="template" onclick="filterDocsByCat('template')">📋 模板库 <span class="count" id="catCountTemplate">0</span></div>
+<div class="category-item" data-cat="archive" onclick="filterDocsByCat('archive')">📦 归档 <span class="count" id="catCountArchive">0</span></div>
+</div>
+<button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="showNewDocModal()">➕ 新建文档</button>
+<button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="showTemplatesModal()">📋 从模板创建</button>
+</div>
+<!-- 文档主区域 -->
+<div class="docs-main">
+<div class="docs-header">
+<div class="docs-title" id="docsTitle">全部文档</div>
+<div class="docs-actions">
+<button class="btn btn-sm btn-secondary" onclick="toggleDocView('list')">📄 列表</button>
+<button class="btn btn-sm btn-secondary" onclick="toggleDocView('grid')">🔲 卡片</button>
+<select class="form-select" style="width:auto" onchange="sortDocs(this.value)">
+<option value="recent">最近更新</option>
+<option value="created">创建时间</option>
+<option value="name">名称排序</option>
+</select>
+</div>
+</div>
+<div class="docs-container" id="docsContainer"></div>
+</div>
+</div>
+</div>
+<!-- Employees Tab -->
+<div class="tab-content" id="tab-employees">
+<!-- Lounge Section - 显眼位置 -->
+<div class="section lounge-highlight">
+<div class="section-header">
+<div class="section-title"><span>🏖️</span>休闲区 <span class="section-hint">离线员工</span></div>
+<div class="lounge-count" id="loungeCount">0</div>
+</div>
+<div class="lounge-zone" id="loungeZone"></div>
+</div>
+<!-- Employees List -->
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>👥</span>在线员工</div>
+<button class="btn btn-primary" onclick="showAddEmployee()">➕ 添加员工</button>
+</div>
+<div id="employeeList"></div>
+</div>
+</div>
+<!-- Tasks Tab -->
+<div class="tab-content" id="tab-tasks">
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>📋</span>定时任务</div>
+<button class="btn btn-primary" onclick="showModal('taskModal')">➕ 新建任务</button>
+</div>
+<table class="data-table">
+<thead><tr><th>任务名称</th><th>执行时间</th><th>状态</th><th>操作</th></tr></thead>
+<tbody id="taskList">
+<tr><td>每日数据备份</td><td>每天 00:00</td><td><span class="tag tag-success">启用</span></td><td><button class="btn btn-sm btn-secondary">编辑</button></td></tr>
+<tr><td>健康检查</td><td>每 5 分钟</td><td><span class="tag tag-success">启用</span></td><td><button class="btn btn-sm btn-secondary">编辑</button></td></tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Tools Tab -->
+<div class="tab-content" id="tab-tools">
+<div class="grid-2">
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>💾</span>配置备份</div>
+</div>
+<div class="list-item">
+<div class="item-info">
+<div class="item-name">自动版本备份</div>
+<div class="item-desc">每次保存时自动创建备份</div>
+</div>
+<div class="toggle active" onclick="this.classList.toggle('active')"></div>
+</div>
+<div style="margin-top:16px;display:flex;gap:12px">
+<button class="btn btn-secondary" onclick="backupConfig()">📦 立即备份</button>
+<button class="btn btn-primary" onclick="showModal('backupModal')">📋 查看历史</button>
+</div>
+</div>
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>✓</span>格式优化</div>
+</div>
+<div class="list-item">
+<div class="item-info">
+<div class="item-name">自动格式化代码</div>
+<div class="item-desc">保存时自动格式化</div>
+</div>
+<div class="toggle active" onclick="this.classList.toggle('active')"></div>
+</div>
+<div style="margin-top:16px">
+<button class="btn btn-primary" onclick="checkFormat()">🔍 检查格式</button>
+</div>
+</div>
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>🧹</span>缓存管理</div>
+</div>
+<div class="grid-2">
+<div class="list-item">
+<div class="item-info">
+<div class="item-name">localStorage</div>
+<div class="item-desc" id="storageSize">约 2.3 KB</div>
+</div>
+<button class="btn btn-sm btn-danger" onclick="clearCache()">清除</button>
+</div>
+</div>
+</div>
+<div class="section">
+<div class="section-header">
+<div class="section-title"><span>📝</span>操作日志</div>
+</div>
+<div class="activity-feed" id="logFeed">
+<div class="activity-item">
+<div class="activity-icon">💾</div>
+<div class="activity-text">配置已保存</div>
+<div class="activity-time">刚刚</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Add Employee Modal -->
+<div class="modal-overlay" id="addEmpModal">
+<div class="modal">
+<div class="modal-header">
+<div class="modal-title">添加员工</div>
+<button class="modal-close" onclick="closeModal('addEmpModal')">✕</button>
+</div>
+<div class="modal-body">
+<div class="form-group">
+<label class="form-label">员工名称</label>
+<input type="text" class="form-input" id="newEmpName" placeholder="输入员工名称">
+</div>
+<div class="form-group">
+<label class="form-label">AI 模型</label>
+<select class="form-select" id="newEmpModel">
+<option value="GPT-4o">GPT-4o</option>
+<option value="Claude 3.5">Claude 3.5</option>
+<option value="Gemini Pro">Gemini Pro</option>
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">角色</label>
+<select class="form-select" id="newEmpRole">
+<option value="前端工程师">前端工程师</option>
+<option value="后端工程师">后端工程师</option>
+<option value="产品经理">产品经理</option>
+<option value="设计师">设计师</option>
+<option value="测试工程师">测试工程师</option>
+<option value="运维工程师">运维工程师</option>
+</select>
+</div>
+</div>
+<div class="modal-footer">
+<button class="btn btn-secondary" onclick="closeModal('addEmpModal')">取消</button>
+<button class="btn btn-primary" onclick="addEmployee()">添加</button>
+</div>
+</div>
+</div>
+
+<!-- Employee Detail Modal -->
+<div class="modal-overlay" id="empDetailModal">
+<div class="modal" style="max-width:700px;max-height:85vh">
+<div class="modal-header">
+<div style="display:flex;align-items:center;gap:12px">
+<div class="emp-detail-avatar" id="empDetailAvatar" style="width:48px;height:48px;border-radius:50%;background:var(--accent-light);display:flex;align-items:center;justify-content:center;font-size:24px">🦞</div>
+<div>
+<div class="modal-title" id="empDetailName">员工详情</div>
+<div style="font-size:12px;color:var(--secondary)" id="empDetailRole">前端工程师</div>
+</div>
+</div>
+<button class="modal-close" onclick="closeModal('empDetailModal')">✕</button>
+</div>
+<div class="emp-detail-tabs" style="display:flex;gap:4px;padding:0 24px;background:var(--bg);border-bottom:1px solid var(--border)">
+<button class="emp-detail-tab active" data-tab="basic" onclick="switchEmpTab('basic')">📋 基本</button>
+<button class="emp-detail-tab" data-tab="docs" onclick="switchEmpTab('docs')">📚 文档</button>
+<button class="emp-detail-tab" data-tab="skills" onclick="switchEmpTab('skills')">🛠️ 技能</button>
+<button class="emp-detail-tab" data-tab="model" onclick="switchEmpTab('model')">🤖 模型</button>
+</div>
+<div class="modal-body" style="max-height:calc(85vh - 140px);overflow-y:auto">
+<!-- Basic Tab -->
+<div class="emp-tab-content" id="emp-tab-basic">
+<div class="form-group">
+<label class="form-label">员工名称</label>
+<input type="text" class="form-input" id="empDetailNameInput" placeholder="员工名称">
+</div>
+<div class="form-group">
+<label class="form-label">角色</label>
+<select class="form-select" id="empDetailRoleSelect">
+<option value="前端工程师">前端工程师</option>
+<option value="后端工程师">后端工程师</option>
+<option value="产品经理">产品经理</option>
+<option value="设计师">设计师</option>
+<option value="测试工程师">测试工程师</option>
+<option value="运维工程师">运维工程师</option>
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">状态</label>
+<select class="form-select" id="empDetailStatusSelect">
+<option value="online">🟢 在线</option>
+<option value="busy">🟠 忙碌</option>
+<option value="idle">⚪ 空闲</option>
+<option value="offline">⚫ 离线</option>
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">模型</label>
+<select class="form-select" id="empDetailModelSelect">
+<option value="GPT-4o">GPT-4o</option>
+<option value="Claude 3.5">Claude 3.5</option>
+<option value="Gemini Pro">Gemini Pro</option>
+</select>
+</div>
+<div class="modal-footer" style="padding:16px 0;border:none">
+<button class="btn btn-danger" onclick="deleteEmpFromDetail()">🗑️ 删除</button>
+<button class="btn btn-primary" onclick="saveEmpDetail()">💾 保存</button>
+</div>
+</div>
+<!-- Docs Tab -->
+<div class="emp-tab-content" id="emp-tab-docs" style="display:none">
+<div class="emp-docs-header">
+<span style="font-size:14px;font-weight:600">关联文档</span>
+<button class="btn btn-sm btn-secondary" onclick="linkDocToEmp()">🔗 关联文档</button>
+</div>
+<div class="emp-docs-list" id="empDocsList"></div>
+</div>
+<!-- Skills Tab -->
+<div class="emp-tab-content" id="emp-tab-skills" style="display:none">
+<div class="emp-docs-header">
+<span style="font-size:14px;font-weight:600">员工技能</span>
+<button class="btn btn-sm btn-secondary" onclick="addSkillToEmp()">➕ 添加技能</button>
+</div>
+<div id="empSkillsList"></div>
+</div>
+<!-- Model Tab -->
+<div class="emp-tab-content" id="emp-tab-model" style="display:none">
+<div class="form-group">
+<label class="form-label">AI 模型</label>
+<select class="form-select" id="empModelSelect">
+<option value="GPT-4o">GPT-4o</option>
+<option value="Claude 3.5">Claude 3.5</option>
+<option value="Gemini Pro">Gemini Pro</option>
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">温度参数</label>
+<input type="range" min="0" max="100" value="70" style="width:100%">
+<div style="font-size:12px;color:var(--secondary);text-align:center">0.7</div>
+</div>
+<div class="form-group">
+<label class="form-label">最大 Token</label>
+<input type="number" class="form-input" value="4096" style="width:150px">
+</div>
+</div>
+</div>
+</div>
+
+<script>
+// Global Search
+document.addEventListener('keydown',e=>{
+if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();document.getElementById('searchModal').classList.add('show');document.getElementById('searchInput')?.focus();}
+if(e.key==='Escape'){document.getElementById('searchModal').classList.remove('show');document.getElementById('searchInput')&&(document.getElementById('searchInput').value='');}
+});
+function closeSearch(){document.getElementById('searchModal').classList.remove('show');document.getElementById('searchInput')&&(document.getElementById('searchInput').value='');}
+function performSearch(q){
+const results=document.getElementById('searchResults');
+if(!results||!q)return;
+results.innerHTML=`<div class="search-hint"><p>🔍 找到 "${q}" 相关结果</p></div>`;
+}
+
+// Tab Navigation
+function switchTab(tab){
+document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+const tabs=['overview','skills','memory','docs','config','employees','tasks','tools'];
+const idx=tabs.indexOf(tab);
+if(idx>=0){document.querySelectorAll('.nav-tab')[idx].classList.add('active');}
+document.getElementById('tab-'+tab)?.classList.add('active');
+// 初始化对应的模块
+if(tab==='skills')renderSkills();
+if(tab==='memory')renderMemory();
+if(tab==='docs')renderDocs();
+}
+
+// Modal
+function showModal(id){document.getElementById(id).classList.add('show');}
+function closeModal(id){document.getElementById(id).classList.remove('show');}
+
+// Number Animation
+function animateNumber(el,target,duration=800){
+const start=parseInt(el.textContent)||0;
+const startTime=performance.now();
+function update(ct){
+const elapsed=ct-startTime;
+const progress=Math.min(elapsed/duration,1);
+const easeOut=1-Math.pow(1-progress,3);
+const current=Math.floor(start+(target-start)*easeOut);
+el.textContent=current;
+if(progress<1)requestAnimationFrame(update);
+}
+requestAnimationFrame(update);
+}
+
+// Toast
+function showToast(msg,type='default'){
+const existing=document.querySelector('.toast');
+if(existing){existing.classList.remove('show');setTimeout(()=>existing.remove(),300);}
+const toast=document.createElement('div');
+toast.className='toast '+type;
+toast.textContent=msg;
+document.body.appendChild(toast);
+requestAnimationFrame(()=>{toast.classList.add('show');});
+setTimeout(()=>{toast.classList.remove('show');setTimeout(()=>toast.remove(),300);},2500);
+}
+
+// Gateway Control
+function restartGateway(){
+showToast('🔄 正在重启网关...');
+setTimeout(()=>{showToast('✅ 网关重启成功');addLog('网关重启成功');},2000);
+}
+
+function backupConfig(){
+const config=document.getElementById('configEditor').value;
+const time=new Date().toLocaleString('zh-CN');
+const backup={time,config,id:'backup_'+Date.now()};
+let backups=JSON.parse(localStorage.getItem('sb_backups')||'[]');
+backups.unshift(backup);
+if(backups.length>10)backups=backups.slice(0,10);
+localStorage.setItem('sb_backups',JSON.stringify(backups));
+localStorage.setItem('sb_config_backup_'+Date.now(),config);
+showToast('💾 配置已备份');
+addLog('配置备份完成');
+renderBackupList();
+}
+
+function renderBackupList(){
+const list=document.getElementById('backupList');
+if(!list)return;
+const backups=JSON.parse(localStorage.getItem('sb_backups')||'[]');
+if(backups.length===0){
+list.innerHTML='<div style="text-align:center;padding:20px;color:var(--secondary)">暂无备份记录</div>';
+return;
+}
+list.innerHTML=backups.map((b,i)=>'<div class="list-item"><div class="item-info"><div class="item-name">'+b.time+'</div><div class="item-desc">备份 #'+(backups.length-i)+'</div></div><div class="item-actions"><button class="btn btn-sm btn-secondary" onclick="restoreBackup(\''+b.id+'\')">恢复</button><button class="btn btn-sm btn-danger" onclick="deleteBackup(\''+b.id+'\')">删除</button></div></div>').join('');
+}
+
+function restoreBackup(id){
+const backups=JSON.parse(localStorage.getItem('sb_backups')||'[]');
+const backup=backups.find(b=>b.id===id);
+if(backup){
+if(confirm('确定要恢复此备份吗？当前配置将被覆盖。')){
+document.getElementById('configEditor').value=backup.config;
+saveConfig();
+showToast('✅ 备份已恢复');
+}
+}
+}
+
+function deleteBackup(id){
+if(!confirm('确定要删除此备份吗？'))return;
+let backups=JSON.parse(localStorage.getItem('sb_backups')||'[]');
+backups=backups.filter(b=>b.id!==id);
+localStorage.setItem('sb_backups',JSON.stringify(backups));
+renderBackupList();
+showToast('🗑️ 备份已删除');
+}
+
+function saveConfig(){
+const config=document.getElementById('configEditor').value;
+try{JSON.parse(config);localStorage.setItem('sb_config',config);showToast('✅ 配置已保存');addLog('配置保存');}
+catch(e){showToast('❌ JSON 格式错误');}
+}
+
+function checkFormat(){
+const config=document.getElementById('configEditor').value;
+try{JSON.parse(config);showToast('✓ 格式检查通过');addLog('格式检查: 通过');}
+catch(e){showToast('❌ JSON 格式错误');addLog('格式检查: 失败');}
+}
+
+function optimizeCode(){
+showToast('⚡ 代码优化完成');
+addLog('代码优化完成');
+}
+
+function clearCache(){
+if(confirm('确定要清除所有缓存吗？')){localStorage.clear();showToast('✓ 缓存已清除');location.reload();}
+}
+
+// Skills System
+const skillPresets=[
+{name:'brainstorm',emoji:'💡',desc:'头脑风暴'},{name:'debug',emoji:'🔧',desc:'系统调试'},{name:'tdd',emoji:'🧪',desc:'测试驱动'},{name:'plan',emoji:'📋',desc:'任务规划'},{name:'code_review',emoji:'👀',desc:'代码审查'},{name:'refactor',emoji:'♻️',desc:'代码重构'}
+];
+function renderSkills(){
+const list=document.getElementById('skillsList');
+const empty=document.getElementById('skillsEmpty');
+const presets=document.getElementById('skillsPresets');
+if(!list)return;
+let skills=JSON.parse(localStorage.getItem('sb_skills')||'[]');
+if(skills.length===0){
+list.innerHTML='';empty.style.display='block';list.style.display='none';
+}else{
+empty.style.display='none';list.style.display='flex';
+list.innerHTML=skills.map(s=>'<div class="skill-item"><div class="skill-emoji">'+s.emoji+'</div><div class="skill-info"><div class="skill-name">'+s.name+'</div><div class="skill-level">'+'<span class="skill-star filled">★</span>'.repeat(s.level||3)+'</div></div><button class="skill-delete" onclick="deleteSkill(\''+s.id+'\')">✕</button></div>').join('');
+}
+if(presets)presets.innerHTML=skillPresets.map(p=>'<div class="skill-preset'+(skills.some(s=>s.name===p.name)?' used':'')+'" onclick="addSkillPreset(\''+p.name+'\',\''+p.emoji+'\')">'+p.emoji+p.desc+'</div>').join('');
+}
+function addSkill(){
+const name=prompt('输入技能名称:');
+if(!name)return;
+const emoji=prompt('输入表情符号:','')||'⚡';
+let skills=JSON.parse(localStorage.getItem('sb_skills')||'[]');
+skills.push({id:Date.now(),name,emoji,level:3});
+localStorage.setItem('sb_skills',JSON.stringify(skills));
+renderSkills();showToast('✅ 技能已添加');addLog('添加技能: '+name);
+}
+function addSkillPreset(name,emoji){
+let skills=JSON.parse(localStorage.getItem('sb_skills')||'[]');
+if(skills.some(s=>s.name===name)){showToast('该技能已添加');return;}
+skills.push({id:Date.now(),name,emoji,level:3});
+localStorage.setItem('sb_skills',JSON.stringify(skills));
+renderSkills();showToast('✅ '+name+' 已添加');addLog('添加技能: '+name);
+}
+function deleteSkill(id){
+if(!confirm('确定要删除此技能吗？'))return;
+let skills=JSON.parse(localStorage.getItem('sb_skills')||'[]');
+skills=skills.filter(s=>s.id!==id);
+localStorage.setItem('sb_skills',JSON.stringify(skills));
+renderSkills();showToast('🗑️ 技能已删除');addLog('删除技能');
+}
+
+// Memory System
+let currentMemoryTab='core';
+function switchMemoryTab(tab){
+currentMemoryTab=tab;
+document.querySelectorAll('.memory-tab').forEach(t=>t.classList.remove('active'));
+document.querySelector('.memory-tab[data-mtab="'+tab+'"]').classList.add('active');
+renderMemory();
+}
+function renderMemory(){
+const content=document.getElementById('memoryContent');
+const empty=document.getElementById('memoryEmpty');
+if(!content)return;
+let memories=JSON.parse(localStorage.getItem('sb_memories')||'[]');
+const filtered=memories.filter(m=>m.type===currentMemoryTab);
+if(filtered.length===0){
+content.innerHTML='';empty.style.display='block';content.style.display='none';
+}else{
+empty.style.display='none';content.style.display='block';
+content.innerHTML=filtered.map(m=>'<div class="memory-item"><div class="memory-item-content"><div class="memory-item-text">'+m.text.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div><div class="memory-item-date">'+m.date+'</div></div><div class="memory-item-actions"><button class="memory-action-btn" onclick="deleteMemory(\''+m.id+'\')">🗑️</button></div></div>').join('');
+}
+}
+function addMemory(){
+const text=prompt('输入记忆内容:');
+if(!text)return;
+let memories=JSON.parse(localStorage.getItem('sb_memories')||'[]');
+memories.unshift({id:Date.now(),type:currentMemoryTab,text,date:new Date().toLocaleString()});
+localStorage.setItem('sb_memories',JSON.stringify(memories));
+renderMemory();showToast('✅ 记忆已添加');addLog('添加记忆: '+text.slice(0,20));
+}
+function deleteMemory(id){
+if(!confirm('确定要删除此记忆吗？'))return;
+let memories=JSON.parse(localStorage.getItem('sb_memories')||'[]');
+memories=memories.filter(m=>m.id!==id);
+localStorage.setItem('sb_memories',JSON.stringify(memories));
+renderMemory();showToast('🗑️ 记忆已删除');addLog('删除记忆');
+}
+
+// ============ 文档库功能 ============
+// 简单 Markdown 解析器
+function parseMarkdown(text){
+if(!text)return'';
+return text
+.replace(/```(\w*)\n([\s\S]*?)```/g,'<pre><code class="lang-$1">$2</code></pre>')
+.replace(/`([^`]+)`/g,'<code>$1</code>')
+.replace(/^### (.+)$/gm,'<h3>$1</h3>')
+.replace(/^## (.+)$/gm,'<h2>$1</h2>')
+.replace(/^# (.+)$/gm,'<h1>$1</h1>')
+.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+.replace(/\*(.+?)\*/g,'<em>$1</em>')
+.replace(/^\| (.+) \|$/gm,function(m){
+const cells=m.slice(2,-2).split(' | ');
+return'<tr>'+cells.map(c=>'<td>'+c.trim()+'</td>').join('')+'</tr>';
+})
+.replace(/(<tr>.*<\/tr>)/s,function(m){return'<table>'+m+'</table>';})
+.replace(/^- \[x\] (.+)$/gm,'<div class="task-checked">☑ $1</div>')
+.replace(/^- \[ \] (.+)$/gm,'<div class="task-unchecked">☐ $1</div>')
+.replace(/^- (.+)$/gm,'<li>$1</li>')
+.replace(/(<li>.*<\/li>\n?)+/g,function(m){return'<ul>'+m+'</ul>';})
+.replace(/^\d+\. (.+)$/gm,'<li>$1</li>')
+.replace(/\n{2,}/g,'</p><p>')
+.replace(/^(?!<[hpul])(.+)$/gm,'$1')
+.replace(/\n/g,'<br>')
+.replace(/<\/p><p>/g,'</p><p style="margin:8px 0">')
+;
+}
+
+// 文档数据结构
+const docsData=JSON.parse(localStorage.getItem('sb_docs')||'{}');
+
+// 文档模板
+const docTemplates={
+'prd':{name:'PRD 模板',icon:'📋',type:'project',content:`# 产品需求文档
+
+## 1. 背景与目标
+<!-- 描述项目背景和核心目标 -->
+
+## 2. 用户故事
+作为 <角色>，我希望 <功能>，以便 <价值>
+
+## 3. 功能清单
+- [ ] 功能1
+- [ ] 功能2
+
+## 4. 验收标准
+- [ ] 标准1
+- [ ] 标准2
+
+## 5. 时间规划
+| 阶段 | 时间 | 负责人 |
+|------|------|--------|
+| 设计 | - | - |
+| 开发 | - | - |
+| 测试 | - | - |`},
+'design':{name:'设计规范',icon:'🎨',type:'skill',content:`# 设计规范
+
+## 1. 设计原则
+- 简洁优先
+- 一致性
+- 可访问性
+
+## 2. 色彩系统
+| 名称 | 色值 | 用途 |
+|------|------|------|
+| 主色 | #FF6B35 | 品牌、强调 |
+| 辅色 | #5AC8FA | 链接、信息 |
+
+## 3. 字体规范
+- 标题：17px 粗体
+- 正文：15px 常规
+- 辅助：13px 浅色`},
+'api':{name:'API 文档',icon:'🔗',type:'project',content:`# API 文档
+
+## 接口名称
+**POST** /api/v1/endpoint
+
+### 请求参数
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| id | string | 是 | 唯一标识 |
+
+### 响应示例
+\`\`\`json
+{"code": 200,"data": {}}
+\`\`\`
+
+### 错误码
+| 错误码 | 说明 |
+|--------|------|
+| 400 | 参数错误 |`},
+'meeting':{name:'会议纪要',icon:'📝',type:'project',content:`# 会议纪要
+
+## 会议信息
+- 时间：
+- 参与人：
+- 主持人：
+
+## 议题
+1.
+
+## 讨论内容
+-
+
+## 行动项
+- [ ] 
+- [ ] 
+
+## 下次会议`},
+'task':{name:'任务清单',icon:'✅',type:'project',content:`# 任务清单
+
+## 项目信息
+- 项目：
+- 开始日期：
+- 目标完成日期：
+
+## 任务列表
+### P0（必须完成）
+- [ ] 任务1
+
+### P1（尽量完成）
+- [ ] 任务2
+
+### P2（有余力）
+- [ ] 任务3`}
+};
+
+function renderDocs(){
+const container=document.getElementById('docsContainer');
+if(!container)return;
+const docs=Object.values(docsData).sort((a,b)=>b.updatedAt-a.updatedAt);
+updateDocCounts(docs);
+if(docs.length===0){
+container.innerHTML=`<div class="empty-state">
+<div class="empty-illustration" style="font-size:48px">📚</div>
+<div class="empty-title">暂无文档</div>
+<div class="empty-desc">创建第一个文档，开启知识沉淀之旅</div>
+<button class="btn btn-primary" style="margin-top:16px" onclick="showNewDocModal()">➕ 创建文档</button>
+</div>`;
+return;
+}
+renderDocsList(docs);
+}
+
+function updateDocCounts(docs){
+const counts={all:docs.length,project:0,skill:0,template:0,archive:0};
+docs.forEach(d=>{if(counts[d.type]!==undefined)counts[d.type]++;});
+Object.keys(counts).forEach(cat=>{
+const el=document.getElementById('catCount'+cat.charAt(0).toUpperCase()+cat.slice(1));
+if(el)el.textContent=counts[cat];
+});
+}
+
+function renderDocsList(docs){
+const container=document.getElementById('docsContainer');
+let view=localStorage.getItem('sb_docs_view')||'list';
+if(view==='grid'){
+container.innerHTML=`<div class="docs-grid">${docs.map(d=>renderDocCard(d)).join('')}</div>`;
+} else {
+container.innerHTML=`<div class="docs-list-view">${docs.map(d=>renderDocRow(d)).join('')}</div>`;
+}
+}
+
+function renderDocCard(d){
+return `<div class="doc-card" onclick="openDoc('${d.id}')">
+<div class="doc-icon">${d.icon||'📄'}</div>
+<div class="doc-name">${d.name}</div>
+<div class="doc-meta"><span>${getDocTypeName(d.type)}</span><span>${formatTimeAgo(d.updatedAt)}</span></div>
+<div class="doc-tags">${(d.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}</div>
+<div class="doc-actions" onclick="event.stopPropagation()">
+<button class="btn btn-sm btn-secondary" onclick="editDoc('${d.id}')">✏️</button>
+<button class="btn btn-sm btn-secondary" onclick="showDocVersions('${d.id}')">📜</button>
+<button class="btn btn-sm btn-secondary" onclick="linkDocToProject('${d.id}')">🔗</button>
+<button class="btn btn-sm btn-danger" onclick="deleteDoc('${d.id}')">🗑️</button>
+</div>
+</div>`;
+}
+
+function renderDocRow(d){
+return `<div class="doc-card" onclick="openDoc('${d.id}')" style="display:flex;flex-direction:row;align-items:center;gap:16px">
+<div class="doc-icon" style="margin:0">${d.icon||'📄'}</div>
+<div style="flex:1;min-width:0">
+<div class="doc-name">${d.name}</div>
+<div class="doc-meta"><span>${getDocTypeName(d.type)}</span><span>${formatTimeAgo(d.updatedAt)}</span>${d.projectName?'<span>📦 '+d.projectName+'</span>':''}</div>
+</div>
+<div class="doc-tags">${(d.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}</div>
+<div class="doc-actions" onclick="event.stopPropagation()" style="opacity:1;border:none;padding:0;margin:0">
+<button class="btn btn-sm btn-secondary" onclick="editDoc('${d.id}')">✏️</button>
+<button class="btn btn-sm btn-secondary" onclick="showDocVersions('${d.id}')">📜</button>
+<button class="btn btn-sm btn-secondary" onclick="linkDocToProject('${d.id}')">🔗</button>
+<button class="btn btn-sm btn-danger" onclick="deleteDoc('${d.id}')">🗑️</button>
+</div>
+</div>`;
+}
+
+function getDocTypeName(type){
+const names={project:'项目文档',skill:'技能文档',template:'模板',archive:'归档'};
+return names[type]||'文档';
+}
+
+function formatTimeAgo(ts){
+if(!ts)return'';
+const diff=Date.now()-ts;
+const mins=Math.floor(diff/60000);
+const hours=Math.floor(diff/3600000);
+const days=Math.floor(diff/86400000);
+if(mins<1)return'刚刚';
+if(mins<60)return mins+'分钟前';
+if(hours<24)return hours+'小时前';
+if(days<7)return days+'天前';
+return new Date(ts).toLocaleDateString('zh-CN');
+}(diff/60000);
+const hours=Math.floor(diff/3600000);
+const days=Math.floor(diff/86400000);
+if(mins<1)return'刚刚';
+if(mins<60)return mins+'分钟前';
+if(hours<24)return hours+'小时前';
+if(days<7)return days+'天前';
+return new Date(ts).toLocaleDateString('zh-CN');
+}
+
+function filterDocsByCat(cat){
+document.querySelectorAll('.category-item').forEach(c=>c.classList.remove('active'));
+document.querySelector(`.category-item[data-cat="${cat}"]`).classList.add('active');
+const docs=Object.values(docsData);
+const filtered=cat==='all'?docs:docs.filter(d=>d.type===cat);
+document.getElementById('docsTitle').textContent=document.querySelector(`.category-item[data-cat="${cat}"]`).textContent.replace(/\s*\d+/g,'');
+renderDocsList(filtered.sort((a,b)=>b.updatedAt-a.updatedAt));
+}
+
+function searchDocs(q){
+if(!q){renderDocs();return;}
+const docs=Object.values(docsData).filter(d=>d.name.toLowerCase().includes(q.toLowerCase())||(d.tags||[]).some(t=>t.toLowerCase().includes(q.toLowerCase())));
+document.getElementById('docsTitle').textContent='搜索结果';
+renderDocsList(docs);
+}
+
+function toggleDocView(view){
+localStorage.setItem('sb_docs_view',view);
+const docs=Object.values(docsData);
+renderDocsList(docs);
+}
+
+function sortDocs(sortBy){
+let docs=Object.values(docsData);
+switch(sortBy){
+case 'recent':docs.sort((a,b)=>b.updatedAt-a.updatedAt);break;
+case 'created':docs.sort((a,b)=>b.createdAt-a.createdAt);break;
+case 'name':docs.sort((a,b)=>a.name.localeCompare(b.name));break;
+}
+renderDocsList(docs);
+}
+
+function showNewDocModal(){
+document.getElementById('docEditorModal')?.remove();
+const modal=document.createElement('div');
+modal.className='modal-overlay';
+modal.id='docEditorModal';
+modal.innerHTML=`<div class="modal" style="max-width:1100px;max-height:90vh">
+<div class="modal-header">
+<input type="text" id="docNameInput" class="form-input" style="flex:1;font-size:18px;font-weight:600" placeholder="文档名称">
+<div style="display:flex;gap:8px;align-items:center">
+<button class="btn btn-sm" id="previewToggle" onclick="togglePreview()" style="background:var(--bg)">👁️ 预览</button>
+</div>
+<button class="modal-close" onclick="closeModal('docEditorModal')">✕</button>
+</div>
+<div class="doc-editor-layout">
+<div class="doc-editor-pane" id="editorPane">
+<div class="doc-editor-toolbar">
+<button onclick="insertMd('**','**')" title="粗体">B</button>
+<button onclick="insertMd('*','*')" title="斜体">I</button>
+<button onclick="insertMd('# ','')" title="标题">H</button>
+<button onclick="insertMd('- ','')" title="列表">•</button>
+<button onclick="insertMd('```\n','\n```')" title="代码">CODE</button>
+<button onclick="insertMd('| 列1 | 列2 |\n|------|------|\n| ','')" title="表格">TABLE</button>
+<button onclick="insertMd('\n---\n','')" title="分割线">HR</button>
+</div>
+<textarea id="docEditorTextarea" class="doc-editor-textarea" placeholder="开始编写文档..." oninput="updatePreview()"></textarea>
+</div>
+<div class="doc-preview" id="previewPane" style="display:none"></div>
+</div>
+<div class="modal-footer" style="flex-wrap:wrap;gap:8px">
+<div style="display:flex;gap:8px;flex:1;flex-wrap:wrap">
+<select id="docTypeSelect" class="form-select" style="width:auto">
+<option value="project">📦 项目文档</option>
+<option value="skill">🛠️ 技能文档</option>
+<option value="template">📋 模板</option>
+<option value="archive">📦 归档</option>
+</select>
+<input type="text" id="docTagsInput" class="form-input" style="flex:1;min-width:200px" placeholder="标签（逗号分隔）">
+<input type="hidden" id="editDocId" value="">
+</div>
+<div style="display:flex;gap:8px">
+<button class="btn btn-secondary" onclick="showTemplatesModal()">📋 模板</button>
+<button class="btn btn-secondary" onclick="exportDoc()">📤 导出</button>
+<button class="btn btn-primary" onclick="saveDoc()">💾 保存</button>
+</div>
+</div>
+</div>`;
+document.body.appendChild(modal);
+modal.classList.add('show');
+}
+
+function togglePreview(){
+const preview=document.getElementById('previewPane');
+const toggle=document.getElementById('previewToggle');
+if(preview.style.display==='none'){
+preview.style.display='flex';
+toggle.style.background='var(--accent-light)';
+toggle.style.color='var(--accent)';
+updatePreview();
+} else {
+preview.style.display='none';
+toggle.style.background='var(--bg)';
+toggle.style.color='var(--text)';
+}
+}
+
+function updatePreview(){
+const text=document.getElementById('docEditorTextarea')?.value||'';
+const preview=document.getElementById('previewPane');
+if(preview)preview.innerHTML=parseMarkdown(text);
+}
+
+function insertMd(before,after){
+const textarea=document.getElementById('docEditorTextarea');
+if(!textarea)return;
+const start=textarea.selectionStart;
+const end=textarea.selectionEnd;
+const text=textarea.value;
+const selected=text.substring(start,end);
+textarea.value=text.substring(0,start)+before+selected+after+text.substring(end);
+textarea.focus();
+textarea.selectionStart=start+before.length;
+textarea.selectionEnd=start+before.length+selected.length;
+updatePreview();
+}
+
+function exportDoc(){
+const name=document.getElementById('docNameInput')?.value||'文档';
+const content=document.getElementById('docEditorTextarea')?.value||'';
+const blob=new Blob([content],{type:'text/markdown'});
+const url=URL.createObjectURL(blob);
+const a=document.createElement('a');
+a.href=url;
+a.download=name+'.md';
+a.click();
+URL.revokeObjectURL(url);
+showToast('📤 文档已导出');
+}
+
+function showTemplatesModal(){
+const modal=document.createElement('div');
+modal.className='modal-overlay';
+modal.id='templatesModal';
+modal.innerHTML=`<div class="modal" style="max-width:600px">
+<div class="modal-header">
+<div class="modal-title">📋 文档模板</div>
+<button class="modal-close" onclick="closeModal('templatesModal')">✕</button>
+</div>
+<div class="modal-body" style="padding:16px">
+<div class="templates-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
+${Object.entries(docTemplates).map(([k,v])=>`<div class="template-card" onclick="createFromTemplate('${k}')" style="padding:20px;background:var(--bg);border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s;border:2px solid transparent" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='transparent'">
+<div style="font-size:32px;margin-bottom:8px">${v.icon}</div>
+<div style="font-weight:600;font-size:14px">${v.name}</div>
+</div>`).join('')}
+</div>
+</div>
+</div>`;
+document.body.appendChild(modal);
+modal.classList.add('show');
+}
+
+function createFromTemplate(templateId){
+closeModal('templatesModal');
+const template=docTemplates[templateId];
+if(!template)return;
+showNewDocModal();
+setTimeout(()=>{
+document.getElementById('docNameInput').value=template.name;
+document.getElementById('docEditorTextarea').value=template.content;
+document.getElementById('docTypeSelect').value=template.type||'project';
+updatePreview();
+},100);
+}
+
+function editDoc(id){
+const doc=docsData[id];
+if(!doc)return;
+showNewDocModal();
+setTimeout(()=>{
+document.getElementById('editDocId').value=id;
+document.getElementById('docNameInput').value=doc.name;
+document.getElementById('docEditorTextarea').value=doc.content||'';
+document.getElementById('docTypeSelect').value=doc.type||'project';
+document.getElementById('docTagsInput').value=(doc.tags||[]).join(',');
+updatePreview();
+},100);
+}
+
+function openDoc(id){
+editDoc(id);
+}
+
+function saveDoc(){
+const name=document.getElementById('docNameInput').value.trim();
+const content=document.getElementById('docEditorTextarea').value;
+const type=document.getElementById('docTypeSelect').value;
+const tagsStr=document.getElementById('docTagsInput').value;
+const tags=tagsStr?tagsStr.split(',').map(t=>t.trim()).filter(t=>t):[];
+const editId=document.getElementById('editDocId').value;
+if(!name){showToast('⚠️ 请输入文档名称','error');return;}
+const now=Date.now();
+if(editId){
+docsData[editId]={...docsData[editId],name,content,type,tags,updatedAt:now};
+showToast('✅ 文档已更新');
+addLog('更新文档：'+name);
+} else {
+const id='doc_'+now;
+docsData[id]={id,name,content,type,tags,createdAt:now,updatedAt:now,views:0,icon:'📄'};
+showToast('✅ 文档已创建');
+addLog('创建文档：'+name);
+}
+localStorage.setItem('sb_docs',JSON.stringify(docsData));
+closeModal('docEditorModal');
+renderDocs();
+// 同步到群公告
+if(type==='project')syncDocToBulletin(id);
+}
+
+function deleteDoc(id){
+if(!confirm('确定要删除此文档吗？'))return;
+const doc=docsData[id];
+delete docsData[id];
+localStorage.setItem('sb_docs',JSON.stringify(docsData));
+renderDocs();
+showToast('🗑️ 文档已删除');
+addLog('删除文档：'+(doc?.name||''));
+}
+
+function linkDocToProject(id){
+const doc=docsData[id];
+const projects=JSON.parse(localStorage.getItem('sb_projects')||'[]');
+if(projects.length===0){showToast('⚠️ 暂无项目组','error');return;}
+const projName=prompt('关联到项目（输入项目名称）：\n\n现有项目：\n'+projects.map(p=>'• '+p.name).join('\n'));
+if(!projName)return;
+const proj=projects.find(p=>p.name===projName);
+if(!proj){showToast('⚠️ 未找到该项目','error');return;}
+doc.project=proj.id;
+doc.projectName=proj.name;
+localStorage.setItem('sb_docs',JSON.stringify(docsData));
+showToast('✅ 已关联到项目：'+projName);
+addLog('关联文档到项目：'+doc.name+' → '+projName);
+// 同步到群公告
+syncDocToBulletin(id);
+}
+
+function syncDocToBulletin(docId){
+const doc=docsData[docId];
+if(!doc||!doc.project)return;
+const bulletinData=JSON.parse(localStorage.getItem('sb_bulletins')||'{}');
+const bulletin=bulletinData[doc.project]||{};
+if(!bulletin.docs)bulletin.docs=[];
+const existingIdx=bulletin.docs.findIndex(d=>d.path==='/docs/'+docId);
+const docEntry={name:(doc.icon||'📄')+' '+doc.name+'.md',path:'/docs/'+docId,icon:doc.icon||'📄'};
+if(existingIdx>=0){bulletin.docs[existingIdx]=docEntry;}
+else{bulletin.docs.push(docEntry);}
+bulletinData[doc.project]=bulletin;
+localStorage.setItem('sb_bulletins',JSON.stringify(bulletinData));
+}
+
+// ============ 文档版本管理 ============
+function showDocVersions(id){
+const doc=docsData[id];
+if(!doc)return;
+const versions=JSON.parse(localStorage.getItem('sb_doc_versions_'+id)||'[]');
+const currentVersion={content:doc.content,updatedAt:doc.updatedAt,label:'当前版本'};
+const allVersions=[currentVersion,...versions];
+const modal=document.createElement('div');
+modal.className='modal-overlay';
+modal.id='versionsModal';
+modal.innerHTML=`<div class="modal" style="max-width:700px;max-height:80vh">
+<div class="modal-header">
+<div class="modal-title">📜 ${doc.name} - 版本历史</div>
+<button class="modal-close" onclick="closeModal('versionsModal')">✕</button>
+</div>
+<div class="modal-body" style="max-height:60vh;overflow-y:auto">
+${allVersions.length===0?'<div style="text-align:center;padding:40px;color:var(--secondary)">暂无版本记录</div>':
+allVersions.map((v,i)=>`<div class="version-item" style="display:flex;gap:12px;padding:16px;background:var(--bg);border-radius:12px;margin-bottom:12px">
+<div style="flex:1">
+<div style="font-weight:600;margin-bottom:4px">${v.label||'版本 '+(allVersions.length-i)}</div>
+<div style="font-size:12px;color:var(--secondary)">${new Date(v.updatedAt).toLocaleString('zh-CN')}</div>
+<div style="font-size:12px;color:var(--secondary);margin-top:4px">${v.content?.length||0} 字符</div>
+</div>
+<div style="display:flex;gap:8px">
+${i>0?`<button class="btn btn-sm btn-secondary" onclick="restoreVersion('${id}',${i-1})">📥 恢复</button>`:''}
+<button class="btn btn-sm" onclick="viewVersionDiff('${id}',${i-1})">👁️ 查看</button>
+</div>
+</div>`).join('')}
+</div>
+</div>`;
+document.body.appendChild(modal);
+modal.classList.add('show');
+}
+
+function restoreVersion(docId,versionIndex){
+const versions=JSON.parse(localStorage.getItem('sb_doc_versions_'+docId)||'[]');
+if(!versions[versionIndex])return;
+if(!confirm('确定要恢复到此版本吗？当前内容将被保存为新版本。'))return;
+const doc=docsData[docId];
+// 保存当前版本
+saveDocVersion(docId,doc.content,'恢复前版本');
+// 恢复版本
+const restoreContent=versions[versionIndex].content;
+saveDocVersion(docId,restoreContent,'恢复后版本');
+doc.content=restoreContent;
+doc.updatedAt=Date.now();
+localStorage.setItem('sb_docs',JSON.stringify(docsData));
+closeModal('versionsModal');
+editDoc(docId);
+showToast('✅ 版本已恢复');
+addLog('恢复文档版本：'+doc.name);
+}
+
+function viewVersionDiff(docId,versionIndex){
+const versions=JSON.parse(localStorage.getItem('sb_doc_versions_'+docId)||'[]');
+const version=versions[versionIndex];
+if(!version)return;
+showNewDocModal();
+setTimeout(()=>{
+document.getElementById('docNameInput').value='[查看] '+docsData[docId]?.name;
+document.getElementById('docEditorTextarea').value=version.content;
+document.getElementById('docEditorTextarea').disabled=true;
+document.getElementById('docEditorTextarea').style.background='#F5F5F5';
+document.getElementById('docEditorTextarea').style.color='#999';
+document.querySelector('#docEditorModal .modal-footer').style.display='none';
+document.getElementById('previewToggle').click();
+updatePreview();
+},100);
+}
+
+function saveDocVersion(docId,content,label){
+const versions=JSON.parse(localStorage.getItem('sb_doc_versions_'+docId)||'[]');
+versions.unshift({content,updatedAt:Date.now(),label});
+// 只保留最近10个版本
+localStorage.setItem('sb_doc_versions_'+docId,JSON.stringify(versions.slice(0,10)));
+}
+
+// 更新 saveDoc 函数，添加版本保存
+const _origSaveDoc=saveDoc;
+saveDoc=function(){
+// 保存前先保存当前版本到历史
+const editId=document.getElementById('editDocId').value;
+if(editId&&docsData[editId]){
+const currentContent=docsData[editId].content;
+saveDocVersion(editId,currentContent);
+}
+// 调用原函数
+_origSaveDoc.apply(this,arguments);
+};
+
+function addLog(msg){
+const feed=document.getElementById('logFeed');
+if(!feed)return;
+const html='<div class="activity-item"><div class="activity-icon">📝</div><div class="activity-text">'+msg+'</div><div class="activity-time">刚刚</div></div>';
+feed.insertAdjacentHTML('afterbegin',html);
+if(feed.children.length>10)feed.lastElementChild.remove();
+}
+
+// Employee Management - sync with main app
+function renderEmployees(){
+const list=document.getElementById('employeeList');
+if(!list)return;
+// Load from localStorage or use default
+let emps=[
+{id:'xlcx',name:'小龙虾',role:'前端工程师',avatar:'🦞',bg:'#FF6B35',status:'online',model:'GPT-4o'},
+{id:'dlxc',name:'大龙虾',role:'后端架构师',avatar:'👨‍💼',bg:'#5AC8FA',status:'busy',model:'Claude 3.5'},
+{id:'zjg',name:'章鱼哥',role:'产品经理',avatar:'🐙',bg:'#AF52DE',status:'online',model:'GPT-4o'},
+{id:'hx',name:'海星',role:'测试工程师',avatar:'⭐',bg:'#FF2D55',status:'online',model:'Gemini Pro'},
+{id:'sy',name:'鲨鱼',role:'运维工程师',avatar:'🦈',bg:'#5856D6',status:'offline',model:'Claude 3.5'}
+];
+const saved=localStorage.getItem('sb_employees');
+if(saved){try{emps=JSON.parse(saved);}catch(e){}}
+
+// Empty state
+if(emps.length===0){
+list.innerHTML='<div class="empty-state"><div class="empty-illustration"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h3>暂无员工</h3><p>点击下方按钮添加第一位员工</p><button class="btn btn-primary" onclick="showAddEmployee()">+ 添加员工</button></div>';
+}else{
+list.innerHTML=emps.map(e=>`<div class="list-item" onclick="openEmpDetail('${e.id}')" style="cursor:pointer">
+<div class="item-avatar" style="background:linear-gradient(135deg,${e.bg||'#FF6B35'},#FFB347)">${e.avatar||'👤'}</div>
+<div class="item-info"><div class="item-name">${e.name}</div><div class="item-desc">${e.role||'未设置'} · ${e.model||'未设置'}</div></div>
+<div class="status-dot ${e.status||'offline'}"></div>
+<div class="item-actions"><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();openEmpDetail('${e.id}')">👁️</button><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteEmployee('${e.id}')">🗑️</button></div>
+</div>`).join('');
+}
+
+// Update ring values
+const onlineCount=emps.filter(e=>e.status==='online').length;
+const el=document.getElementById('onlineCount');
+if(el)el.textContent=onlineCount;
+const taskEl=document.getElementById('taskCount');
+if(taskEl)taskEl.textContent=emps.length;
+
+// Render Lounge (offline employees)
+renderLounge(emps);
+}
+function renderLounge(emps){
+const zone=document.getElementById('loungeZone');
+const count=document.getElementById('loungeCount');
+if(!zone)return;
+const offline=emps.filter(e=>e.status==='offline');
+if(count)count.textContent=offline.length;
+if(offline.length===0){
+zone.innerHTML='<div class="empty-state" style="padding:24px;text-align:center;"><div style="font-size:32px;margin-bottom:8px;">☀️</div><div style="color:var(--secondary);font-size:14px;">所有员工都在线！</div></div>';
+}else{
+zone.innerHTML=offline.map(e=>`<div class="lounge-card">
+<div class="lounge-avatar" style="background:linear-gradient(135deg,${e.bg},#FFB347)">${e.avatar}</div>
+<div class="lounge-info"><div class="lounge-name">${e.name}</div><div class="lounge-status">休息中</div></div>
+<button class="lounge-wake-btn" onclick="wakeUpEmployee('${e.id}')" title="唤醒员工">☀️</button>
+</div>`).join('');
+}
+}
+function wakeUpEmployee(empId){
+let emps=[];
+const saved=localStorage.getItem('sb_employees');
+if(saved){try{emps=JSON.parse(saved);}catch(e){}}
+const emp=emps.find(e=>e.id===empId);
+if(emp){
+emp.status='online';
+localStorage.setItem('sb_employees',JSON.stringify(emps));
+renderEmployees();
+showToast('☀️ '+emp.name+' 已上线！');
+addLog('唤醒员工: '+emp.name);
+}
+}
+
+function showAddEmployee(){
+showModal('addEmpModal');
+}
+
+function addEmployee(){
+const name=document.getElementById('newEmpName').value.trim();
+if(!name){showToast('请输入员工名称');return;}
+const role=document.getElementById('newEmpRole').value;
+const model=document.getElementById('newEmpModel').value;
+const avatars=['🦞','👨‍💼','🐙','⭐','🦈','🦀','🦑'];
+const colors=['#FF6B35','#5AC8FA','#AF52DE','#FF2D55','#5856D6','#34C759'];
+let emps=[];
+const saved=localStorage.getItem('sb_employees');
+if(saved){try{emps=JSON.parse(saved);}catch(e){}}
+const newEmp={id:'emp_'+Date.now(),name,role,avatar:avatars[emps.length%avatars.length],bg:colors[emps.length%colors.length],status:'online',model};
+emps.push(newEmp);
+localStorage.setItem('sb_employees',JSON.stringify(emps));
+closeModal('addEmpModal');
+renderEmployees();
+showToast('✅ 员工 '+name+' 添加成功');
+addLog('添加员工: '+name);
+}
+
+// Edit Employee - 使用 openEmpDetail 函数打开详情面板
+function editEmployee(id){
+openEmpDetail(id);
+}
+
+function deleteEmployee(id){
+if(!confirm('确定要删除此员工吗？'))return;
+let emps=JSON.parse(localStorage.getItem('sb_employees')||'[]');
+emps=emps.filter(e=>e.id!==id);
+localStorage.setItem('sb_employees',JSON.stringify(emps));
+localStorage.setItem('sb_employees',JSON.stringify(emps));
+renderEmployees();
+showToast('🗑️ 员工已删除');
+addLog('删除员工 ID: '+id);
+}
+
+// ============ 员工详情面板 ============
+let currentEmpDetailId=null;
+
+function openEmpDetail(id){
+currentEmpDetailId=id;
+const emps=JSON.parse(localStorage.getItem('sb_employees')||'[]');
+const emp=emps.find(e=>e.id===id);
+if(!emp){showToast('员工不存在','error');return;}
+document.getElementById('empDetailAvatar').textContent=emp.avatar||'👤';
+document.getElementById('empDetailAvatar').style.background=emp.bg?'linear-gradient(135deg,'+emp.bg+',#E55A2B)':'var(--accent-light)';
+document.getElementById('empDetailName').textContent=emp.name;
+document.getElementById('empDetailRole').textContent=emp.role||'';
+document.getElementById('empDetailNameInput').value=emp.name;
+document.getElementById('empDetailRoleSelect').value=emp.role||'前端工程师';
+document.getElementById('empDetailStatusSelect').value=emp.status||'online';
+document.getElementById('empDetailModelSelect').value=emp.model||'GPT-4o';
+document.getElementById('empModelSelect').value=emp.model||'GPT-4o';
+switchEmpTab('basic');
+showModal('empDetailModal');
+}
+
+function switchEmpTab(tab){
+document.querySelectorAll('.emp-detail-tab').forEach(t=>t.classList.remove('active'));
+document.querySelectorAll('.emp-tab-content').forEach(c=>c.style.display='none');
+document.querySelector(`.emp-detail-tab[data-tab="${tab}"]`).classList.add('active');
+document.getElementById('emp-tab-'+tab).style.display='block';
+if(tab==='docs')renderEmpDocs(currentEmpDetailId);
+if(tab==='skills')renderEmpSkills(currentEmpDetailId);
+}
+
+function saveEmpDetail(){
+const name=document.getElementById('empDetailNameInput').value.trim();
+if(!name){showToast('请输入员工名称','error');return;}
+const emps=JSON.parse(localStorage.getItem('sb_employees')||'[]');
+const idx=emps.findIndex(e=>e.id===currentEmpDetailId);
+if(idx>-1){
+emps[idx].name=name;
+emps[idx].role=document.getElementById('empDetailRoleSelect').value;
+emps[idx].status=document.getElementById('empDetailStatusSelect').value;
+emps[idx].model=document.getElementById('empDetailModelSelect').value;
+localStorage.setItem('sb_employees',JSON.stringify(emps));
+closeModal('empDetailModal');
+renderEmployees();
+showToast('✅ 员工信息已更新');
+addLog('编辑员工: '+name);
+}
+}
+
+function deleteEmpFromDetail(){
+if(!confirm('确定要删除此员工吗？'))return;
+deleteEmployee(currentEmpDetailId);
+closeModal('empDetailModal');
+}
+
+// 渲染员工关联文档
+function renderEmpDocs(empId){
+const container=document.getElementById('empDocsList');
+if(!container)return;
+const docsData=JSON.parse(localStorage.getItem('sb_docs')||'{}');
+const docs=Object.values(docsData).filter(d=>d.linkedEmployees?.includes(empId));
+if(docs.length===0){
+container.innerHTML='<div style="text-align:center;padding:40px;color:var(--secondary)"><div style="font-size:32px;margin-bottom:8px;opacity:0.5">📄</div><div>暂无关联文档</div><div style="font-size:12px;margin-top:4px">点击上方"关联文档"按钮添加</div></div>';
+return;
+}
+container.innerHTML=docs.map(d=>`<div class="emp-doc-item" onclick="openDocFromEmp('${d.id}')">
+<div class="emp-doc-icon">${d.icon||'📄'}</div>
+<div class="emp-doc-info"><div class="emp-doc-name">${d.name}</div><div class="emp-doc-meta"><span>${d.type==='project'?'📦 项目':'🛠️ 技能'}</span><span>${formatTimeAgo(d.updatedAt)}</span></div></div>
+<button class="emp-doc-unlink" onclick="event.stopPropagation();unlinkDocFromEmp('${d.id}','${empId}')">✕</button>
+</div>`).join('');
+}
+
+function openDocFromEmp(docId){
+closeModal('empDetailModal');
+editDoc(docId);
+}
+
+function linkDocToEmp(){
+const docsData=JSON.parse(localStorage.getItem('sb_docs')||'{}');
+const docs=Object.values(docsData);
+const linkedIds=docsData[currentEmpDetailId]?.linkedDocs||[];
+const unlinked=docs.filter(d=>!d.linkedEmployees?.includes(currentEmpDetailId));
+if(unlinked.length===0){showToast('⚠️ 所有文档已关联','error');return;}
+const names=unlinked.map((d,i)=>`${i+1}. ${d.icon||'📄'} ${d.name}`).join('\n');
+const num=prompt(`选择要关联的文档（输入序号）：\n\n${names}`);
+if(!num)return;
+const idx=parseInt(num)-1;
+if(idx<0||idx>=unlinked.length){showToast('无效的序号','error');return;}
+const doc=unlinked[idx];
+if(!doc.linkedEmployees)doc.linkedEmployees=[];
+doc.linkedEmployees.push(currentEmpDetailId);
+docsData[doc.id]=doc;
+localStorage.setItem('sb_docs',JSON.stringify(docsData));
+renderEmpDocs(currentEmpDetailId);
+showToast('✅ 已关联：'+doc.name);
+}
+
+function unlinkDocFromEmp(docId,empId){
+if(!confirm('确定取消关联？'))return;
+const docsData=JSON.parse(localStorage.getItem('sb_docs')||'{}');
+const doc=docsData[docId];
+if(doc&&doc.linkedEmployees){
+doc.linkedEmployees=doc.linkedEmployees.filter(id=>id!==empId);
+localStorage.setItem('sb_docs',JSON.stringify(docsData));
+renderEmpDocs(empId);
+showToast('已取消关联');
+}
+}
+
+// 渲染员工技能
+function renderEmpSkills(empId){
+const container=document.getElementById('empSkillsList');
+if(!container)return;
+const emps=JSON.parse(localStorage.getItem('sb_employees')||'[]');
+const emp=emps.find(e=>e.id===empId);
+const skills=emp?.skills||[];
+if(skills.length===0){
+container.innerHTML='<div style="text-align:center;padding:40px;color:var(--secondary)"><div style="font-size:32px;margin-bottom:8px;opacity:0.5">🛠️</div><div>暂无技能</div></div>';
+return;
+}
+container.innerHTML=skills.map(s=>`<div class="emp-doc-item">
+<div style="font-size:24px">${s.emoji||'🛠️'}</div>
+<div class="emp-doc-info"><div class="emp-doc-name">${s.name}</div><div class="emp-doc-meta">熟练度: ${'⭐'.repeat(s.level||1)}</div></div>
+</div>`).join('');
+}
+
+function addSkillToEmp(){
+const name=prompt('技能名称：');
+if(!name)return;
+const emoji=prompt('图标（默认🛠️）：')||'🛠️';
+const level=parseInt(prompt('熟练度（1-5）：')||'3');
+const emps=JSON.parse(localStorage.getItem('sb_employees')||'[]');
+const idx=emps.findIndex(e=>e.id===currentEmpDetailId);
+if(idx>-1){
+if(!emps[idx].skills)emps[idx].skills=[];
+emps[idx].skills.push({name,emoji,level:Math.min(5,Math.max(1,level))});
+localStorage.setItem('sb_employees',JSON.stringify(emps));
+renderEmpSkills(currentEmpDetailId);
+showToast('✅ 技能已添加');
+}
+}
+
+// 更新时间格式化
+function formatTimeAgo(ts){
+if(!ts)return'';
+const diff=Date.now()-ts;
+const mins=Math.floor(diff/60000);
+const hours=Math.floor(diff/3600000);
+const days=Math.floor(diff/86400000);
+if(mins<1)return'刚刚';
+if(mins<60)return mins+'分钟前';
+if(hours<24)return hours+'小时前';
+if(days<7)return days+'天前';
+return new Date(ts).toLocaleDateString('zh-CN');
+}
+
+// Edit Model
+let editingModelId=null;
+function editModel(id){
+editingModelId=id;
+const models={gpt4o:{name:'GPT-4o',provider:'OpenAI',apiKey:''},claude:{name:'Claude 3.5',provider:'Anthropic',apiKey:''},gemini:{name:'Gemini Pro',provider:'Google',apiKey:''}};
+const m=models[id]||{name:'',provider:'',apiKey:''};
+document.getElementById('editModelName').value=m.name;
+document.getElementById('editModelProvider').value=m.provider;
+document.getElementById('editModelApiKey').value=m.apiKey;
+showModal('editModelModal');
+}
+
+function saveModelEdit(){
+if(!editingModelId)return;
+const name=document.getElementById('editModelName').value.trim();
+if(!name){showToast('请输入模型名称');return;}
+let models=JSON.parse(localStorage.getItem('sb_models')||'{"gpt4o":{},"claude":{},"gemini":{}}');
+models[editingModelId]={name,provider:document.getElementById('editModelProvider').value,apiKey:document.getElementById('editModelApiKey').value};
+localStorage.setItem('sb_models',JSON.stringify(models));
+closeModal('editModelModal');
+showToast('✅ 模型配置已保存');
+addLog('编辑模型: '+name);
+editingModelId=null;
+}
+
+// Channel Config
+function editChannel(id){
+document.getElementById('editChannelId').value=id;
+document.getElementById('editChannelName').value=id==='douyin'?'抖音':id==='weixin'?'微信':id;
+document.getElementById('editChannelAppId').value='';
+document.getElementById('editChannelSecret').value='';
+showModal('channelModal');
+}
+
+function saveChannelEdit(){
+const id=document.getElementById('editChannelId').value;
+const name=document.getElementById('editChannelName').value;
+let channels=JSON.parse(localStorage.getItem('sb_channels')||'{}');
+channels[id]={name,appId:document.getElementById('editChannelAppId').value,secret:document.getElementById('editChannelSecret').value};
+localStorage.setItem('sb_channels',JSON.stringify(channels));
+closeModal('channelModal');
+showToast('✅ 渠道配置已保存');
+addLog('配置渠道: '+name);
+}
+
+// Init
+document.addEventListener('DOMContentLoaded',()=>{
+renderEmployees();
+renderBackupList();
+const size=JSON.stringify(localStorage).length;
+document.getElementById('storageSize').textContent='约 '+(size/1024).toFixed(1)+' KB';
+});
+
+// Listen for changes from main app
+window.addEventListener('storage',(e)=>{
+if(e.key==='sb_employees'){renderEmployees();}
+if(e.key==='sb_config'){const cfg=localStorage.getItem('sb_config');if(cfg)document.getElementById('configEditor').value=cfg;}
+});
+</script>
+<!-- Edit Employee Modal -->
+<div class="modal-overlay" id="editEmpModal">
+<div class="modal">
+<div class="modal-header">
+<div class="modal-title">编辑员工</div>
+<button class="modal-close" onclick="closeModal('editEmpModal')">✕</button>
+</div>
+<div class="modal-body">
+<div class="form-group">
+<label class="form-label">员工名称</label>
+<input type="text" class="form-input" id="editEmpName" placeholder="输入员工名称">
+</div>
+<div class="form-group">
+<label class="form-label">AI 模型</label>
+<select class="form-select" id="editEmpModel">
+<option value="GPT-4o">GPT-4o</option>
+<option value="Claude 3.5">Claude 3.5</option>
+<option value="Gemini Pro">Gemini Pro</option>
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">角色</label>
+<select class="form-select" id="editEmpRole">
+<option value="前端工程师">前端工程师</option>
+<option value="后端工程师">后端工程师</option>
+<option value="产品经理">产品经理</option>
+<option value="设计师">设计师</option>
+<option value="测试工程师">测试工程师</option>
+<option value="运维工程师">运维工程师</option>
+</select>
+</div>
+</div>
+<div class="modal-footer">
+<button class="btn btn-secondary" onclick="closeModal('editEmpModal')">取消</button>
+<button class="btn btn-primary" onclick="saveEmployeeEdit()">保存</button>
+</div>
+</div>
+</div>
+<!-- Edit Model Modal -->
+<div class="modal-overlay" id="editModelModal">
+<div class="modal">
+<div class="modal-header">
+<div class="modal-title">模型配置</div>
+<button class="modal-close" onclick="closeModal('editModelModal')">✕</button>
+</div>
+<div class="modal-body">
+<div class="form-group">
+<label class="form-label">模型名称</label>
+<input type="text" class="form-input" id="editModelName" placeholder="输入模型名称">
+</div>
+<div class="form-group">
+<label class="form-label">服务商</label>
+<select class="form-select" id="editModelProvider">
+<option value="OpenAI">OpenAI</option>
+<option value="Anthropic">Anthropic</option>
+<option value="Google">Google</option>
+<option value="本地模型">本地模型</option>
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">API Key</label>
+<input type="password" class="form-input" id="editModelApiKey" placeholder="输入 API Key">
+</div>
+</div>
+<div class="modal-footer">
+<button class="btn btn-secondary" onclick="closeModal('editModelModal')">取消</button>
+<button class="btn btn-primary" onclick="saveModelEdit()">保存</button>
+</div>
+</div>
+</div>
+<!-- Channel Config Modal -->
+<div class="modal-overlay" id="channelModal">
+<div class="modal">
+<div class="modal-header">
+<div class="modal-title">渠道配置</div>
+<button class="modal-close" onclick="closeModal('channelModal')">✕</button>
+</div>
+<div class="modal-body">
+<input type="hidden" id="editChannelId">
+<div class="form-group">
+<label class="form-label">渠道名称</label>
+<input type="text" class="form-input" id="editChannelName" placeholder="输入渠道名称">
+</div>
+<div class="form-group">
+<label class="form-label">App ID</label>
+<input type="text" class="form-input" id="editChannelAppId" placeholder="输入 App ID">
+</div>
+<div class="form-group">
+<label class="form-label">App Secret</label>
+<input type="password" class="form-input" id="editChannelSecret" placeholder="输入 App Secret">
+</div>
+</div>
+<div class="modal-footer">
+<button class="btn btn-secondary" onclick="closeModal('channelModal')">取消</button>
+<button class="btn btn-primary" onclick="saveChannelEdit()">保存</button>
+</div>
+</div>
+</div>
+<!-- Backup List Modal -->
+<div class="modal-overlay" id="backupModal">
+<div class="modal" style="max-width:500px">
+<div class="modal-header">
+<div class="modal-title">📋 备份历史</div>
+<button class="modal-close" onclick="closeModal('backupModal')">✕</button>
+</div>
+<div class="modal-body" style="max-height:400px;overflow-y:auto">
+<div id="backupList"></div>
+</div>
+<div class="modal-footer">
+<button class="btn btn-secondary" onclick="closeModal('backupModal')">关闭</button>
+</div>
+</div>
+</div>
+
+<!-- FAB Menu -->
+<div class="fab-menu" id="fabMenu">
+<button class="fab-item" onclick="showAddEmployee()" title="添加员工">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+</button>
+<button class="fab-item" onclick="showModal('taskModal')" title="添加任务">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+</button>
+<button class="fab-trigger" onclick="toggleFabMenu()" title="快捷操作">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+</button>
+</div>
+
+<script>
+function toggleFabMenu(){
+const fab=document.getElementById('fabMenu');
+fab.classList.toggle('open');
+document.querySelector('.fab-trigger').classList.toggle('active');
+}
+
+// Init animations
+document.addEventListener('DOMContentLoaded',()=>{
+setTimeout(()=>{
+const onlineEl=document.getElementById('onlineCount');
+if(onlineEl)animateNumber(onlineEl,parseInt(onlineEl.textContent)||5);
+const taskEl=document.getElementById('taskCount');
+if(taskEl)animateNumber(taskEl,parseInt(taskEl.textContent)||8);
+},300);
+});
+</script>
+
+<!-- 模块化JS引用 -->
+<script src="frontend/core.js"></script>
+<script src="frontend/escape.js"></script>
+<script src="frontend/store.js"></script>
+<script src="frontend/app.js"></script>
+<script src="frontend/skills.js"></script>
+<script src="frontend/tools.js"></script>
+<script src="frontend/memory.js"></script>
+<script src="frontend/knowledge-base.js"></script>
+<script src="frontend/prompt-builder.js"></script>
+<script src="frontend/channels.js"></script>
+<script src="frontend/discover.js"></script>
+<script src="frontend/features.js"></script>
+<script src="frontend/skills-panel.js"></script>
+<script src="frontend/employee_models.js"></script>
+<script src="frontend/employee_models_wizard.js"></script>
+<script src="frontend/ai-chat.js"></script>
+<script src="frontend/message-search.js"></script>
+<script src="frontend/file-upload.js"></script>
+<script src="frontend/avatar-picker.js"></script>
+</body>
+</html>
