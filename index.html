@@ -70,6 +70,13 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .list-item.active { background: var(--accent-light); }
 .list-item.active::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 20px; background: var(--accent); border-radius: 0 2px 2px 0; }
 
+/* Archive sub-list */
+.archive-sublist { display: none; padding-left: 8px; }
+.archive-sublist.show { display: block; }
+.archive-item { display: flex; align-items: center; gap: 8px; padding: 6px 14px; cursor: pointer; transition: background 0.1s; font-size: 13px; color: var(--text-secondary); }
+.archive-item:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.archive-item-time { margin-left: auto; font-size: 11px; color: var(--text-tertiary); }
+
 .avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; color: white; flex-shrink: 0; }
 .avatar.small { width: 28px; height: 28px; font-size: 12px; }
 
@@ -86,6 +93,12 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .chat-header-info { flex: 1; min-width: 0; }
 .chat-header-name { font: var(--font-lg); display: flex; align-items: center; gap: 8px; }
 .chat-header-sub { font: var(--font-micro); color: var(--text-tertiary); }
+
+/* Context Control Bar */
+.ctx-control-bar { display: flex; gap: 8px; padding: 8px 16px; background: var(--bg-secondary); border-bottom: 0.5px solid var(--separator); }
+.ctx-ctrl-btn { padding: 5px 12px; background: var(--bg-primary); border: 0.5px solid var(--separator); border-radius: var(--radius-full); font: var(--font-sm); color: var(--text-secondary); transition: all 0.15s; display: flex; align-items: center; gap: 4px; }
+.ctx-ctrl-btn:hover { background: var(--accent-light); color: var(--accent); border-color: var(--accent); }
+.ctx-ctrl-btn.danger:hover { background: rgba(255, 59, 48, 0.1); color: #FF3B30; border-color: #FF3B30; }
 
 .messages-area { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 2px; }
 
@@ -129,10 +142,72 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .context-panel { background: var(--bg-primary); border-top: 0.5px solid var(--separator); padding: 10px 14px; }
 .token-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .token-track { flex: 1; height: 4px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden; }
-.token-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-hover)); border-radius: 2px; }
+.token-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-hover)); border-radius: 2px; transition: width 0.3s ease, background 0.3s ease; }
+.token-fill.warning { background: linear-gradient(90deg, #FF9500, #FF3B30); }
 .token-num { font: var(--font-micro); color: var(--text-secondary); white-space: nowrap; }
 .ctx-btn { padding: 5px 8px; background: var(--bg-secondary); border-radius: var(--radius-sm); font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; transition: all 0.15s; }
 .ctx-btn:hover { background: var(--accent-light); color: var(--accent); }
+
+/* Unread Badge */
+.unread-badge { background: var(--accent); color: white; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 10px; margin-left: auto; min-width: 18px; text-align: center; }
+
+/* Mention Popup */
+.mention-popup { position: absolute; bottom: 100%; left: 0; margin-bottom: 8px; background: var(--bg-primary); border: 0.5px solid var(--separator); border-radius: var(--radius-md); box-shadow: var(--shadow-modal); width: 280px; max-height: 240px; overflow-y: auto; z-index: 1000; display: none; }
+.mention-popup.show { display: block; animation: popup-in 0.2s ease-out; }
+.mention-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; transition: background 0.1s; }
+.mention-item:hover, .mention-item.selected { background: var(--bg-secondary); }
+.mention-item .avatar { width: 28px; height: 28px; font-size: 12px; }
+.mention-item-info { flex: 1; min-width: 0; }
+.mention-item-name { font: var(--font-sm); }
+.mention-item-role { font: var(--font-micro); color: var(--text-secondary); }
+
+/* Slash Command Popup */
+.slash-popup { position: absolute; bottom: 100%; left: 0; margin-bottom: 8px; background: var(--bg-primary); border: 0.5px solid var(--separator); border-radius: var(--radius-md); box-shadow: var(--shadow-modal); width: 220px; z-index: 1000; display: none; }
+.slash-popup.show { display: block; animation: popup-in 0.2s ease-out; }
+.slash-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; transition: background 0.1s; border-radius: var(--radius-sm); margin: 4px; }
+.slash-item:hover, .slash-item.selected { background: var(--bg-secondary); }
+.slash-item-icon { font-size: 16px; }
+.slash-item-text { font: var(--font-sm); }
+.slash-item-desc { font: var(--font-micro); color: var(--text-secondary); }
+@keyframes popup-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Input Area with Popups */
+.chat-input-area { position: relative; }
+.chat-input-area .input-wrap { position: relative; }
+
+/* AI Status Indicator */
+.ai-status { font-size: 12px; font-weight: normal; margin-left: 8px; }
+
+/* Custom Modal */
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.4); display: none; align-items: center; justify-content: center; z-index: 2000; }
+.modal-overlay.show { display: flex; animation: modal-fade-in 0.2s ease-out; }
+@keyframes modal-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.modal-box { background: var(--bg-primary); border-radius: var(--radius-lg); box-shadow: var(--shadow-modal); padding: 20px; min-width: 280px; max-width: 400px; animation: modal-scale-in 0.2s ease-out; }
+@keyframes modal-scale-in { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+.modal-title { font: var(--font-lg); margin-bottom: 8px; }
+.modal-message { font: var(--font-md); color: var(--text-secondary); margin-bottom: 20px; line-height: 1.5; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.modal-btn { padding: 8px 16px; border-radius: var(--radius-md); font: var(--font-sm); transition: all 0.15s; }
+.modal-btn.cancel { background: var(--bg-secondary); color: var(--text-primary); }
+.modal-btn.cancel:hover { background: var(--bg-tertiary); }
+.modal-btn.confirm { background: var(--accent); color: white; }
+.modal-btn.confirm:hover { background: var(--accent-hover); }
+.modal-btn.danger { background: #FF3B30; color: white; }
+.modal-btn.danger:hover { background: #D63028; }
+
+/* Archive Panel */
+.archive-panel { position: fixed; top: 0; right: -400px; width: 380px; height: 100vh; background: var(--bg-primary); box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1); z-index: 150; transition: right 0.3s ease; display: flex; flex-direction: column; }
+.archive-panel.show { right: 0; }
+.archive-panel-header { padding: 16px; border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; justify-content: space-between; padding-top: 60px; }
+.archive-panel-title { font: var(--font-lg); }
+.archive-panel-close { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; transition: background 0.15s; }
+.archive-panel-close:hover { background: var(--bg-secondary); }
+.archive-panel-content { flex: 1; overflow-y: auto; padding: 16px; }
+.archive-session-item { padding: 12px; background: var(--bg-secondary); border-radius: var(--radius-md); margin-bottom: 10px; cursor: pointer; transition: all 0.15s; }
+.archive-session-item:hover { background: var(--accent-light); box-shadow: var(--shadow-card); }
+.archive-session-name { font: var(--font-sm); margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+.archive-session-preview { font: var(--font-xs); color: var(--text-secondary); }
+.archive-session-time { font: var(--font-micro); color: var(--text-tertiary); margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -189,6 +264,52 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
         </div>
         <div class="emp-time">14:20</div>
       </div>
+      
+      <div class="section-title">项目组</div>
+      <div class="list-item">
+        <div class="avatar small" style="background: #007AFF;">🚀</div>
+        <div class="emp-info">
+          <div class="emp-name">快速研发组</div>
+          <div class="emp-preview">群聊 · 5 人在线</div>
+        </div>
+        <div class="unread-badge">7</div>
+      </div>
+      <div class="list-item">
+        <div class="avatar small" style="background: #FF9500;">🏢</div>
+        <div class="emp-info">
+          <div class="emp-name">公司全员大群</div>
+          <div class="emp-preview">群聊 · 28 人在线</div>
+        </div>
+        <div class="unread-badge">11</div>
+      </div>
+      
+      <div class="section-title">归档</div>
+      <div class="list-item" id="archive1v1" data-archive="1v1">
+        <div class="avatar small" style="background: #8E8E93;">📁</div>
+        <div class="emp-info">
+          <div class="emp-name">1v1对话归档</div>
+          <div class="emp-preview">已归档会话</div>
+        </div>
+        <div class="unread-badge" style="background: #8E8E93;">5</div>
+      </div>
+      <div class="archive-sublist" id="archive1v1List">
+        <div class="archive-item" data-session="lucy-old">与 Lucy 讨论项目规划 <span class="archive-item-time">3天前</span></div>
+        <div class="archive-item" data-session="gates-arch">架构评审会议 <span class="archive-item-time">1周前</span></div>
+        <div class="archive-item" data-session="eric-ui">UI 设计反馈 <span class="archive-item-time">2周前</span></div>
+      </div>
+      <div class="list-item" id="archiveProject" data-archive="project">
+        <div class="avatar small" style="background: #8E8E93;">📁</div>
+        <div class="emp-info">
+          <div class="emp-name">项目组归档</div>
+          <div class="emp-preview">已归档项目</div>
+        </div>
+        <div class="unread-badge" style="background: #8E8E93;">7</div>
+      </div>
+      <div class="archive-sublist" id="archiveProjectList">
+        <div class="archive-item" data-session="project-alpha">Alpha 项目启动 <span class="archive-item-time">1个月前</span></div>
+        <div class="archive-item" data-session="project-beta">Beta 版本迭代 <span class="archive-item-time">2个月前</span></div>
+        <div class="archive-item" data-session="project-gamma">Gamma 需求整理 <span class="archive-item-time">3个月前</span></div>
+      </div>
     </div>
   </aside>
   
@@ -202,8 +323,21 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
             Lucy
             <span style="font-size: 12px; font-weight: normal; color: var(--text-secondary);">产品经理</span>
           </div>
-          <div class="chat-header-sub">🟢 在线 | 上下文 72%</div>
+          <div class="chat-header-sub">🟢 在线 | 上下文 <span id="ctxPercent">72</span>% | <span class="ai-status" id="aiStatus"></span></div>
         </div>
+      </div>
+      
+      <!-- Context Control Bar -->
+      <div class="ctx-control-bar">
+        <button class="ctx-ctrl-btn" onclick="showCompressConfirm()">
+          <span>📦</span> 压缩
+        </button>
+        <button class="ctx-ctrl-btn" onclick="showArchiveConfirm()">
+          <span>📥</span> 归档
+        </button>
+        <button class="ctx-ctrl-btn danger" onclick="showResetConfirm()">
+          <span>🔄</span> 重置
+        </button>
       </div>
       
       <div class="messages-area" id="messagesArea">
@@ -240,17 +374,48 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
       
       <div class="context-panel">
         <div class="token-bar">
-          <span style="font: var(--font-micro); color: var(--text-secondary);">上下文</span>
+          <span style="font: var(--font-micro); color: var(--text-secondary);">Token: <span id="tokenUsed">3.2K</span>/<span id="tokenMax">8K</span></span>
           <div class="token-track">
-            <div class="token-fill" style="width: 72%;"></div>
+            <div class="token-fill" id="tokenFill" style="width: 40%;"></div>
           </div>
-          <span class="token-num">72%</span>
+          <span class="token-num" id="tokenPercent">40%</span>
         </div>
       </div>
       
       <div class="chat-input-area">
         <div class="input-wrap">
-          <textarea id="messageInput" placeholder="输入消息... (Enter 发送，Shift+Enter 换行)" rows="1"></textarea>
+          <!-- Mention Popup -->
+          <div class="mention-popup" id="mentionPopup">
+            <!-- Populated by JS -->
+          </div>
+          <!-- Slash Command Popup -->
+          <div class="slash-popup" id="slashPopup">
+            <div class="slash-item" data-command="new-session">
+              <span class="slash-item-icon">✨</span>
+              <div>
+                <div class="slash-item-text">新会话</div>
+              </div>
+            </div>
+            <div class="slash-item" data-command="clear-context">
+              <span class="slash-item-icon">🗑️</span>
+              <div>
+                <div class="slash-item-text">清空上下文</div>
+              </div>
+            </div>
+            <div class="slash-item" data-command="view-office">
+              <span class="slash-item-icon">🏢</span>
+              <div>
+                <div class="slash-item-text">查看龙虾</div>
+              </div>
+            </div>
+            <div class="slash-item" data-command="help">
+              <span class="slash-item-icon">❓</span>
+              <div>
+                <div class="slash-item-text">帮助</div>
+              </div>
+            </div>
+          </div>
+          <textarea id="messageInput" placeholder="输入消息... (Enter 发送，Shift+Enter 换行，@提及，/命令)" rows="1"></textarea>
           <button class="send-btn" onclick="sendMessage()">➤</button>
         </div>
       </div>
@@ -264,27 +429,390 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 <!-- FAB Button - Quick Actions -->
 <button class="fab-button" onclick="showQuickActions()" title="快捷操作">⚡</button>
 
+<!-- Custom Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box">
+    <div class="modal-title" id="modalTitle">确认操作</div>
+    <div class="modal-message" id="modalMessage">确定要执行此操作吗？</div>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" onclick="closeModal()">取消</button>
+      <button class="modal-btn confirm" id="modalConfirmBtn" onclick="confirmModalAction()">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- Archive Panel -->
+<div class="archive-panel" id="archivePanel">
+  <div class="archive-panel-header">
+    <div class="archive-panel-title" id="archivePanelTitle">归档列表</div>
+    <button class="archive-panel-close" onclick="closeArchivePanel()">✕</button>
+  </div>
+  <div class="archive-panel-content" id="archivePanelContent">
+    <!-- Archive items will be populated here -->
+  </div>
+</div>
+
 <script src="openclaw-client.js"></script>
 <script>
-// OpenClaw Connection
-const openclaw = new OpenClawClient();
+// ========== Feature 1: BroadcastChannel to Lobster Office (P0) ==========
+const lobsterChannel = new BroadcastChannel('lobster-office');
+const currentAgent = {
+  id: 'lucy',
+  name: 'Lucy',
+  role: '产品经理',
+  status: 'idle'
+};
 
-// State
+function broadcastLobsterStatus(status) {
+  const message = {
+    type: 'lobster_status',
+    agent_id: currentAgent.id,
+    status: status,
+    name: currentAgent.name,
+    role: currentAgent.role,
+    timestamp: Date.now()
+  };
+  lobsterChannel.postMessage(message);
+  console.log('[Chat] Broadcast lobster status:', message);
+}
+
+// ========== State ==========
+const openclaw = new OpenClawClient();
 let currentSession = 'lucy';
 let messages = [];
+let currentToken = 3200; // Simulated token count
+let maxToken = 8000;
+let modalCallback = null;
 
-// Initialize
+// ========== Feature 3: Token Counter (P1) ==========
+function updateTokenDisplay() {
+  const percent = Math.round((currentToken / maxToken) * 100);
+  const displayToken = currentToken >= 1000 ? (currentToken / 1000).toFixed(1) + 'K' : currentToken;
+  const displayMax = maxToken >= 1000 ? (maxToken / 1000) + 'K' : maxToken;
+  
+  document.getElementById('tokenUsed').textContent = displayToken;
+  document.getElementById('tokenMax').textContent = displayMax;
+  document.getElementById('tokenPercent').textContent = percent + '%';
+  document.getElementById('ctxPercent').textContent = percent;
+  
+  const tokenFill = document.getElementById('tokenFill');
+  tokenFill.style.width = percent + '%';
+  
+  if (percent >= 80) {
+    tokenFill.classList.add('warning');
+  } else {
+    tokenFill.classList.remove('warning');
+  }
+}
+
+function addTokenUsage(amount) {
+  currentToken = Math.min(currentToken + amount, maxToken);
+  updateTokenDisplay();
+}
+
+// ========== Feature 2: Context Management (P1) ==========
+function showCompressConfirm() {
+  document.getElementById('modalTitle').textContent = '📦 压缩上下文';
+  document.getElementById('modalMessage').textContent = '此操作将保留关键信息，清除冗余上下文。保留最近 3 条消息。';
+  document.getElementById('modalConfirmBtn').textContent = '压缩';
+  document.getElementById('modalConfirmBtn').className = 'modal-btn confirm';
+  modalCallback = compressContext;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+function showArchiveConfirm() {
+  document.getElementById('modalTitle').textContent = '📥 归档对话';
+  document.getElementById('modalMessage').textContent = '此操作将当前对话存入归档分类，并清空当前对话列表。';
+  document.getElementById('modalConfirmBtn').textContent = '归档';
+  document.getElementById('modalConfirmBtn').className = 'modal-btn confirm';
+  modalCallback = archiveContext;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+function showResetConfirm() {
+  document.getElementById('modalTitle').textContent = '🔄 重置上下文';
+  document.getElementById('modalMessage').textContent = '此操作将完全清空所有上下文，重新开始对话。历史消息将不可恢复。';
+  document.getElementById('modalConfirmBtn').textContent = '重置';
+  document.getElementById('modalConfirmBtn').className = 'modal-btn danger';
+  modalCallback = resetContext;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('show');
+  modalCallback = null;
+}
+
+function confirmModalAction() {
+  if (modalCallback) {
+    modalCallback();
+  }
+  closeModal();
+}
+
+function compressContext() {
+  // Keep only last 3 messages
+  const area = document.getElementById('messagesArea');
+  const msgElements = area.querySelectorAll('.msg');
+  
+  if (msgElements.length > 3) {
+    for (let i = 0; i < msgElements.length - 3; i++) {
+      msgElements[i].remove();
+    }
+  }
+  
+  messages = messages.slice(-3);
+  currentToken = Math.round(currentToken * 0.4); // Reduce by 60%
+  updateTokenDisplay();
+  
+  addMessage('ai', '📦 上下文已压缩，保留了关键信息。');
+}
+
+function archiveContext() {
+  // Simulate archiving
+  const area = document.getElementById('messagesArea');
+  area.innerHTML = '';
+  messages = [];
+  currentToken = 0;
+  updateTokenDisplay();
+  
+  addMessage('ai', '📥 对话已归档到「1v1对话归档」。');
+}
+
+function resetContext() {
+  // Complete reset
+  const area = document.getElementById('messagesArea');
+  area.innerHTML = '';
+  messages = [];
+  currentToken = 0;
+  updateTokenDisplay();
+  
+  addMessage('ai', '🔄 上下文已重置，开始新的对话吧！有什么我可以帮助你的吗？');
+}
+
+// ========== Feature 4: Archive Category (P1) ==========
+const archiveData = {
+  '1v1': [
+    { id: 'lucy-old', name: '与 Lucy 讨论项目规划', preview: '讨论了 Q2 产品路线图...', time: '3天前' },
+    { id: 'gates-arch', name: '架构评审会议', preview: '评审了微服务架构方案...', time: '1周前' },
+    { id: 'eric-ui', name: 'UI 设计反馈', preview: '反馈了新版界面的优化建议...', time: '2周前' },
+    { id: 'maya-api', name: 'API 接口对接', preview: '确认了 RESTful API 规范...', time: '2周前' },
+    { id: 'alex-code', name: '代码审查', preview: '审查了登录模块代码...', time: '3周前' }
+  ],
+  'project': [
+    { id: 'project-alpha', name: 'Alpha 项目启动', preview: '项目初始化，团队组建...', time: '1个月前' },
+    { id: 'project-beta', name: 'Beta 版本迭代', preview: '完成了核心功能开发...', time: '2个月前' },
+    { id: 'project-gamma', name: 'Gamma 需求整理', preview: '收集并整理了用户需求...', time: '3个月前' },
+    { id: 'project-delta', name: 'Delta 性能优化', preview: '优化了系统响应速度...', time: '3个月前' }
+  ]
+};
+
+function toggleArchiveSublist(archiveId) {
+  const sublistId = archiveId === '1v1' ? 'archive1v1List' : 'archiveProjectList';
+  const sublist = document.getElementById(sublistId);
+  sublist.classList.toggle('show');
+}
+
+function showArchivePanel(archiveType) {
+  const panel = document.getElementById('archivePanel');
+  const title = document.getElementById('archivePanelTitle');
+  const content = document.getElementById('archivePanelContent');
+  
+  const typeName = archiveType === '1v1' ? '1v1对话归档' : '项目组归档';
+  title.textContent = typeName;
+  
+  const archives = archiveData[archiveType] || [];
+  content.innerHTML = archives.map(item => `
+    <div class="archive-session-item" data-session="${item.id}" onclick="restoreArchive('${item.id}', '${item.name}')">
+      <div class="archive-session-name">
+        <span>💬</span> ${item.name}
+      </div>
+      <div class="archive-session-preview">${item.preview}</div>
+      <div class="archive-session-time">${item.time}</div>
+    </div>
+  `).join('');
+  
+  panel.classList.add('show');
+}
+
+function closeArchivePanel() {
+  document.getElementById('archivePanel').classList.remove('show');
+}
+
+function restoreArchive(sessionId, sessionName) {
+  closeArchivePanel();
+  
+  // Clear current messages and restore
+  const area = document.getElementById('messagesArea');
+  area.innerHTML = '';
+  messages = [];
+  
+  // Add simulated restored messages
+  addMessage('ai', `📂 已恢复归档会话：「${sessionName}」`);
+  addMessage('ai', '继续上次的对话吧，有什么需要帮助的吗？');
+  
+  currentToken = 1500;
+  updateTokenDisplay();
+}
+
+// ========== Mention Feature ==========
+const members = [
+  { id: 'lucy', name: 'Lucy', role: '产品经理', avatar: '🦞', color: '#FF6B35' },
+  { id: 'gates', name: 'Gates', role: '架构师', avatar: '👨‍💻', color: '#5856D6' },
+  { id: 'eric', name: 'Eric', role: '设计师', avatar: '🧑‍🎨', color: '#34C759' },
+  { id: 'alex', name: 'Alex', role: '前端开发', avatar: '🧑‍💻', color: '#007AFF' },
+  { id: 'maya', name: 'Maya', role: '后端开发', avatar: '👩‍💻', color: '#FF9500' },
+  { id: 'bob', name: 'Bob', role: '测试工程师', avatar: '🧪', color: '#AF52DE' }
+];
+
+let mentionPopup = document.getElementById('mentionPopup');
+let selectedMentionIndex = -1;
+let mentionStartPos = -1;
+
+function renderMentionPopup(filter = '') {
+  const filtered = members.filter(m => 
+    m.name.toLowerCase().includes(filter.toLowerCase()) ||
+    m.role.toLowerCase().includes(filter.toLowerCase())
+  );
+  
+  if (filtered.length === 0) {
+    mentionPopup.innerHTML = '<div style="padding: 12px; color: var(--text-secondary); font-size: 13px;">没有找到成员</div>';
+  } else {
+    mentionPopup.innerHTML = filtered.map((m, i) => `
+      <div class="mention-item ${i === selectedMentionIndex ? 'selected' : ''}" data-id="${m.id}">
+        <div class="avatar small" style="background: ${m.color};">${m.avatar}</div>
+        <div class="mention-item-info">
+          <div class="mention-item-name">${m.name}</div>
+          <div class="mention-item-role">${m.role}</div>
+        </div>
+      </div>
+    `).join('');
+    
+    // Bind click events
+    mentionPopup.querySelectorAll('.mention-item').forEach(item => {
+      item.addEventListener('click', () => selectMention(item.dataset.id));
+    });
+  }
+  
+  selectedMentionIndex = filtered.length > 0 ? 0 : -1;
+}
+
+function showMentionPopup() {
+  mentionPopup.classList.add('show');
+  renderMentionPopup('');
+}
+
+function hideMentionPopup() {
+  mentionPopup.classList.remove('show');
+  selectedMentionIndex = -1;
+  mentionStartPos = -1;
+}
+
+function selectMention(memberId) {
+  const input = document.getElementById('messageInput');
+  const member = members.find(m => m.id === memberId);
+  if (!member) return;
+  
+  // Replace @xxx with @名字
+  const before = input.value.substring(0, mentionStartPos);
+  const after = input.value.substring(input.selectionStart);
+  input.value = before + '@' + member.name + ' ' + after;
+  
+  hideMentionPopup();
+  input.focus();
+}
+
+// ========== Slash Command Feature ==========
+let slashPopup = document.getElementById('slashPopup');
+let selectedSlashIndex = 0;
+
+const slashCommands = [
+  { id: 'new-session', icon: '✨', name: '新会话', action: () => { messages = []; document.getElementById('messagesArea').innerHTML = ''; addMessage('ai', '已开启新会话，有什么可以帮你的吗？'); }},
+  { id: 'clear-context', icon: '🗑️', name: '清空上下文', action: () => { messages = []; document.getElementById('messagesArea').innerHTML = ''; addMessage('ai', '上下文已清空。'); }},
+  { id: 'view-office', icon: '🏢', name: '查看龙虾', action: () => window.open('office.html', '_blank')},
+  { id: 'help', icon: '❓', name: '帮助', action: () => addMessage('ai', '📋 **使用帮助**\n\n• `Enter` - 发送消息\n• `Shift+Enter` - 换行\n• `@` - 提及成员\n• `/` - 使用命令\n\n**可用命令：**\n• /新会话 - 新建会话\n• /清空上下文 - 重置对话\n• /查看龙虾 - 跳转龙虾办公室\n• /帮助 - 显示帮助')}
+];
+
+function updateSlashSelection() {
+  slashPopup.querySelectorAll('.slash-item').forEach((item, i) => {
+    item.classList.toggle('selected', i === selectedSlashIndex);
+  });
+}
+
+function showSlashPopup() {
+  selectedSlashIndex = 0;
+  updateSlashSelection();
+  slashPopup.classList.add('show');
+}
+
+function hideSlashPopup() {
+  slashPopup.classList.remove('show');
+  selectedSlashIndex = 0;
+}
+
+function executeSelectedCommand() {
+  const cmd = slashCommands[selectedSlashIndex];
+  if (cmd) {
+    // Remove the slash command from input
+    const input = document.getElementById('messageInput');
+    const pos = input.value.lastIndexOf('/');
+    if (pos !== -1) {
+      input.value = input.value.substring(0, pos);
+    }
+    hideSlashPopup();
+    cmd.action();
+  }
+}
+
+// ========== AI Status Feature ==========
+const statusMap = {
+  idle: '',
+  thinking: '💭思考中...',
+  reading: '📖读文档中...',
+  using_tool: '🔧调用工具中...',
+  writing: '📝写代码中...'
+};
+
+function updateAIStatus(status) {
+  const el = document.getElementById('aiStatus');
+  el.textContent = statusMap[status] || '';
+  
+  // Feature 1: Broadcast status change to lobster office
+  currentAgent.status = status;
+  broadcastLobsterStatus(status);
+}
+
+// ========== Initialize ==========
 async function init() {
   updateConnectionStatus('connecting');
+  updateTokenDisplay();
+  
+  // Feature 1: Initial broadcast
+  broadcastLobsterStatus('idle');
   
   try {
     await openclaw.connect();
     updateConnectionStatus('online');
     console.log('[Chat] OpenClaw connected');
+    
+    // Listen for chat events
+    if (openclaw.onChatEvent) {
+      openclaw.onChatEvent((event) => {
+        if (event.type === 'chat') {
+          const payload = event.payload || {};
+          if (payload.status) {
+            updateAIStatus(payload.status);
+          }
+        }
+      });
+    }
   } catch (error) {
     console.warn('[Chat] OpenClaw not available, using offline mode');
     updateConnectionStatus('offline');
   }
+  
+  // Setup archive click handlers
+  setupArchiveHandlers();
 }
 
 function updateConnectionStatus(status) {
@@ -297,6 +825,37 @@ function updateConnectionStatus(status) {
   el.textContent = statusMap[status] || status;
 }
 
+function setupArchiveHandlers() {
+  // Archive list item click handlers
+  const archive1v1 = document.getElementById('archive1v1');
+  const archiveProject = document.getElementById('archiveProject');
+  
+  archive1v1.addEventListener('click', (e) => {
+    if (e.target.closest('.archive-sublist')) return;
+    toggleArchiveSublist('1v1');
+  });
+  
+  archiveProject.addEventListener('click', (e) => {
+    if (e.target.closest('.archive-sublist')) return;
+    toggleArchiveSublist('project');
+  });
+  
+  // Archive sublist item click handlers
+  document.getElementById('archive1v1List').addEventListener('click', (e) => {
+    const item = e.target.closest('.archive-item');
+    if (item) {
+      showArchivePanel('1v1');
+    }
+  });
+  
+  document.getElementById('archiveProjectList').addEventListener('click', (e) => {
+    const item = e.target.closest('.archive-item');
+    if (item) {
+      showArchivePanel('project');
+    }
+  });
+}
+
 // Send Message
 async function sendMessage() {
   const input = document.getElementById('messageInput');
@@ -304,9 +863,16 @@ async function sendMessage() {
   
   if (!content) return;
   
+  // Feature 1: Broadcast thinking status when sending message
+  broadcastLobsterStatus('thinking');
+  updateAIStatus('thinking');
+  
   // Add user message
   addMessage('user', content);
   input.value = '';
+  
+  // Feature 3: Add token usage on send
+  addTokenUsage(Math.floor(Math.random() * 200) + 100);
   
   // Show typing indicator
   showTyping(true);
@@ -315,18 +881,45 @@ async function sendMessage() {
     if (openclaw.connected) {
       const session = await openclaw.sessions_list(currentSession);
       await openclaw.chat_send(currentSession, content);
+      
       const history = await openclaw.chat_history(currentSession);
       
       // Simulate AI response
       setTimeout(() => {
         showTyping(false);
+        // Feature 1: Broadcast writing status
+        broadcastLobsterStatus('writing');
+        updateAIStatus('writing');
+        
         addMessage('ai', getAIResponse(content));
+        
+        // Feature 3: Add more token after response
+        addTokenUsage(Math.floor(Math.random() * 300) + 200);
+        
+        // Feature 1: Back to idle after response
+        setTimeout(() => {
+          broadcastLobsterStatus('idle');
+          updateAIStatus('idle');
+        }, 500);
       }, 1500);
     } else {
       // Offline mode
       setTimeout(() => {
         showTyping(false);
+        // Feature 1: Broadcast writing status
+        broadcastLobsterStatus('writing');
+        updateAIStatus('writing');
+        
         addMessage('ai', getAIResponse(content));
+        
+        // Feature 3: Add more token after response
+        addTokenUsage(Math.floor(Math.random() * 300) + 200);
+        
+        // Feature 1: Back to idle after response
+        setTimeout(() => {
+          broadcastLobsterStatus('idle');
+          updateAIStatus('idle');
+        }, 500);
       }, 1500);
     }
   } catch (error) {
@@ -380,15 +973,116 @@ function showQuickActions() {
 
 // Event Listeners
 document.getElementById('messageInput').addEventListener('keydown', (e) => {
+  const input = document.getElementById('messageInput');
+  const mentionVisible = mentionPopup.classList.contains('show');
+  const slashVisible = slashPopup.classList.contains('show');
+  
+  // Handle mention popup
+  if (mentionVisible) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const items = mentionPopup.querySelectorAll('.mention-item');
+      selectedMentionIndex = Math.min(selectedMentionIndex + 1, items.length - 1);
+      renderMentionPopup(input.value.substring(mentionStartPos + 1, input.selectionStart));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectedMentionIndex = Math.max(selectedMentionIndex - 1, 0);
+      renderMentionPopup(input.value.substring(mentionStartPos + 1, input.selectionStart));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const items = mentionPopup.querySelectorAll('.mention-item');
+      if (items[selectedMentionIndex]) {
+        selectMention(items[selectedMentionIndex].dataset.id);
+      }
+    } else if (e.key === 'Escape') {
+      hideMentionPopup();
+    }
+    return;
+  }
+  
+  // Handle slash popup
+  if (slashVisible) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectedSlashIndex = Math.min(selectedSlashIndex + 1, slashCommands.length - 1);
+      updateSlashSelection();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectedSlashIndex = Math.max(selectedSlashIndex - 1, 0);
+      updateSlashSelection();
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      selectedSlashIndex = (selectedSlashIndex + 1) % slashCommands.length;
+      updateSlashSelection();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      executeSelectedCommand();
+    } else if (e.key === 'Escape') {
+      hideSlashPopup();
+    }
+    return;
+  }
+  
+  // Normal Enter key
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMessage();
   }
 });
 
+// Input event for @ and / triggers
+document.getElementById('messageInput').addEventListener('input', (e) => {
+  const input = e.target;
+  const cursorPos = input.selectionStart;
+  const textBefore = input.value.substring(0, cursorPos);
+  
+  // Check for @ trigger
+  const atMatch = textBefore.match(/@([^@]*)$/);
+  if (atMatch) {
+    mentionStartPos = cursorPos - atMatch[0].length;
+    renderMentionPopup(atMatch[1]);
+    mentionPopup.classList.add('show');
+    hideSlashPopup();
+  } else {
+    if (mentionPopup.classList.contains('show')) {
+      hideMentionPopup();
+    }
+  }
+  
+  // Check for / trigger
+  const slashMatch = textBefore.match(/\/([^/]*)$/);
+  if (slashMatch && !slashMatch[0].includes(' ')) {
+    showSlashPopup();
+    hideMentionPopup();
+  } else {
+    if (slashPopup.classList.contains('show')) {
+      hideSlashPopup();
+    }
+  }
+});
+
+// Close popups on click outside
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.input-wrap')) {
+    hideMentionPopup();
+    hideSlashPopup();
+  }
+  
+  // Close modal on overlay click
+  if (e.target.id === 'modalOverlay') {
+    closeModal();
+  }
+  
+  // Close archive panel when clicking outside
+  if (!e.target.closest('.archive-panel') && !e.target.closest('[data-archive]')) {
+    closeArchivePanel();
+  }
+});
+
 // Session List Click
 document.querySelectorAll('.list-item').forEach(item => {
   item.addEventListener('click', () => {
+    if (item.closest('.archive-sublist')) return; // Skip archive subitems
     document.querySelectorAll('.list-item').forEach(i => i.classList.remove('active'));
     item.classList.add('active');
   });
