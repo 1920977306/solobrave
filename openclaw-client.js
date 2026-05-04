@@ -1,371 +1,394 @@
-// ===== OpenClaw WebSocket Client (with Ed25519 auth) =====
+/**
+ * OpenClaw WebSocket Client
+ * 连接地址: ws://127.0.0.1:18789
+ * 使用 Ed25519 JWK 格式认证
+ */
 
-// 硬编码设备身份（从 OpenClaw 导出）
-var OC_DEVICE = {
-  deviceId: '0a3b672b45043edfe152d38c1d219b89720f2948e721f0e2c8333527e86f10a6',
-  publicKey: '4RJ7hQaJcjzJOmiL2Z7NjbSxLvLsXPXGOuBGi2DKbG4',
-  privateKey: 'm8Hd_TfNTmTR1Y6KpHyh51Fhozy6KR2klE-T9fxWgA0',
-  token: '8606e4d80b1accfaa4e22729466c40003cd217ce2bda93f3'
-};
-
-function base64urlToBuffer(b64) {
-  var s = b64.replace(/-/g, '+').replace(/_/g, '/');
-  while (s.length % 4) s += '=';
-  var bin = atob(s);
-  var buf = new Uint8Array(bin.length);
-  for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-  return buf.buffer;
-}
-
-function bufferToBase64url(buf) {
-  var bytes = new Uint8Array(buf);
-  var binary = '';
-  for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-async function signConnectParams(nonce) {
-  var signedAt = Date.now();
-  var signStr = [
-    'v2',
-    OC_DEVICE.deviceId,
-    'openclaw-control-ui',
-    'webchat',
-    'operator',
-    'operator.admin,operator.read,operator.write,operator.approvals,operator.pairing',
-    String(signedAt),
-    OC_DEVICE.token,
-    nonce
-  ].join('|');
-
-  // 使用 JWK 格式导入私钥
-  var jwk = {
-    alg: 'Ed25519',
-    crv: 'Ed25519',
-    d: OC_DEVICE.privateKey,
-    ext: false,
-    key_ops: ['sign'],
-    kty: 'OKP',
-    x: OC_DEVICE.publicKey
-  };
-
-  var key = await crypto.subtle.importKey(
-    'jwk',
-    jwk,
-    'Ed25519',
-    false,
-    ['sign']
-  );
-
-  var encoded = new TextEncoder().encode(signStr);
-  var sigBuf = await crypto.subtle.sign('Ed25519', key, encoded);
-  var signature = bufferToBase64url(sigBuf);
-
-  return {
-    id: OC_DEVICE.deviceId,
-    publicKey: OC_DEVICE.publicKey,
-    signature: signature,
-    signedAt: signedAt,
-    nonce: nonce
-  };
-}
-
-function OpenClawClient(url, token) {
-  this.url = url || 'ws://localhost:18789';
-  this.token = token || OC_DEVICE.token;
-  this.ws = null;
-  this.connected = false;
-  this.authenticated = false;
-  this.reqId = 0;
-  this.pending = {};
-  this.eventHandlers = {};
-}
-
-OpenClawClient.prototype.connect = function() {
-  var self = this;
-  return new Promise(function(resolve, reject) {
-    try {
-      self.ws = new WebSocket(self.url);
-    } catch (e) {
-      reject(new Error('WebSocket创建失败: ' + e.message));
-      return;
-    }
-
-    self.ws.onopen = function() {
-      self.connected = true;
-      console.log('[OpenClaw] WebSocket已连接');
-    };
-
-    self.ws.onmessage = function(event) {
-      self._onMessage(event.data);
-    };
-
-    self.ws.onclose = function() {
-      self.connected = false;
-      self.authenticated = false;
-      console.log('[OpenClaw] WebSocket已关闭');
-      self._emit('close');
-    };
-
-    self.ws.onerror = function(err) {
-      console.error('[OpenClaw] WebSocket错误:', err);
-      self._emit('error', err);
-      reject(err);
-    };
-
-    self.once('hello-ok', function() {
-      self.authenticated = true;
-      resolve(self);
-    });
-
-    self.once('hello-fail', function(err) {
-      reject(new Error('认证失败: ' + (err ? err.message : '未知错误')));
-    });
-
-    setTimeout(function() {
-      if (!self.authenticated) {
-        reject(new Error('连接超时，请检查Gateway是否运行'));
-      }
-    }, 15000);
-  });
-};
-
-OpenClawClient.prototype._onMessage = function(data) {
-  try {
-    var msg = JSON.parse(data);
-    console.log('[OpenClaw] 收到:', msg.type, msg.id || msg.event);
-
-    if (msg.type === 'event') {
-      this._handleEvent(msg);
-    } else if (msg.type === 'res') {
-      this._handleResponse(msg);
-    }
-  } catch (e) {
-    console.error('[OpenClaw] 消息解析失败:', e);
-  }
-};
-
-OpenClawClient.prototype._handleEvent = function(msg) {
-  var eventName = msg.event;
-
-  if (eventName === 'connect.challenge') {
-    this._sendAuth(msg.payload);
-    return;
-  }
-
-  if (eventName === 'hello-ok') {
-    this._emit('hello-ok', msg.payload);
-    return;
-  }
-
-  if (eventName === 'hello-fail') {
-    this._emit('hello-fail', msg.payload);
-    return;
-  }
-
-  this._emit(eventName, msg.payload);
-  this._emit('*', msg);
-};
-
-OpenClawClient.prototype._sendAuth = function(challenge) {
-  var self = this;
-  var nonce = challenge ? challenge.nonce : '';
-
-  signConnectParams(nonce).then(function(device) {
-    var id = self._nextId();
-    var req = {
-      type: 'req',
-      id: id,
-      method: 'connect',
-      params: {
-        minProtocol: 3,
-        maxProtocol: 3,
-        client: {
-          id: 'openclaw-control-ui',
-          version: 'control-ui',
-          platform: navigator.platform || 'web',
-          mode: 'webchat',
-          instanceId: crypto.randomUUID ? crypto.randomUUID() : 'inst-' + Date.now()
-        },
-        role: 'operator',
-        scopes: ['operator.admin', 'operator.read', 'operator.write', 'operator.approvals', 'operator.pairing'],
-        device: device,
-        caps: ['tool-events'],
-        auth: {
-          token: self.token,
-          deviceToken: self.token
-        },
-        userAgent: navigator.userAgent,
-        locale: 'zh-CN'
-      }
-    };
-
-    console.log('[OpenClaw] 发送认证请求');
-
-    self.pending[id] = {
-      resolve: function(payload) {
-        console.log('[OpenClaw] 认证成功');
-        self.authenticated = true;
-        self._emit('hello-ok', payload);
-      },
-      reject: function(err) {
-        console.log('[OpenClaw] 认证失败:', JSON.stringify(err));
-        self._emit('hello-fail', err);
-      }
-    };
-
-    self._send(req);
-  }).catch(function(err) {
-    console.error('[OpenClaw] 签名失败:', err);
-    self._emit('hello-fail', { message: '签名失败: ' + err.message });
-  });
-};
-
-OpenClawClient.prototype._handleResponse = function(msg) {
-  var id = msg.id;
-  var pending = this.pending[id];
-  if (!pending) return;
-
-  delete this.pending[id];
-
-  if (msg.ok) {
-    pending.resolve(msg.payload);
-  } else {
-    var errMsg = typeof msg.error === 'string' ? msg.error : (msg.error && msg.error.message ? msg.error.message : JSON.stringify(msg.error || '请求失败'));
-    pending.reject(new Error(errMsg));
-  }
-};
-
-OpenClawClient.prototype.request = function(method, params) {
-  var self = this;
-  return new Promise(function(resolve, reject) {
-    if (!self.connected) {
-      reject(new Error('WebSocket未连接'));
-      return;
-    }
-
-    var id = self._nextId();
-    var req = {
-      type: 'req',
-      id: id,
-      method: method,
-      params: params || {}
-    };
-
-    self.pending[id] = { resolve: resolve, reject: reject };
-    self._send(req);
-
-    setTimeout(function() {
-      if (self.pending[id]) {
-        delete self.pending[id];
-        reject(new Error('请求超时: ' + method));
-      }
-    }, 30000);
-  });
-};
-
-OpenClawClient.prototype._send = function(data) {
-  if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-    this.ws.send(JSON.stringify(data));
-  }
-};
-
-OpenClawClient.prototype._nextId = function() {
-  this.reqId++;
-  return 'req-' + this.reqId;
-};
-
-OpenClawClient.prototype.on = function(event, handler) {
-  if (!this.eventHandlers[event]) {
-    this.eventHandlers[event] = [];
-  }
-  this.eventHandlers[event].push(handler);
-};
-
-OpenClawClient.prototype.once = function(event, handler) {
-  var self = this;
-  var wrapper = function(data) {
-    self.off(event, wrapper);
-    handler(data);
-  };
-  this.on(event, wrapper);
-};
-
-OpenClawClient.prototype.off = function(event, handler) {
-  var handlers = this.eventHandlers[event];
-  if (!handlers) return;
-  var idx = handlers.indexOf(handler);
-  if (idx !== -1) {
-    handlers.splice(idx, 1);
-  }
-};
-
-OpenClawClient.prototype._emit = function(event, data) {
-  var handlers = this.eventHandlers[event];
-  if (handlers) {
-    for (var i = 0; i < handlers.length; i++) {
-      try {
-        handlers[i](data);
-      } catch (e) {
-        console.error('[OpenClaw] 事件处理错误:', e);
-      }
-    }
-  }
-};
-
-OpenClawClient.prototype.disconnect = function() {
-  if (this.ws) {
-    this.ws.close();
+class OpenClawClient {
+  constructor() {
     this.ws = null;
+    this.url = 'ws://127.0.0.1:18789';
+    this.connected = false;
+    this.authenticated = false;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
+    this.reconnectDelay = 3000;
+    this.pendingRequests = new Map();
+    this.subscriptions = new Map();
+    this.listeners = new Map();
+    
+    // Ed25519 JWK 密钥（需要从 SECRET.md 或配置获取）
+    this.jwk = null;
+    this.initJWK();
   }
-  this.connected = false;
-  this.authenticated = false;
-};
 
-// ===== 便捷方法 =====
-OpenClawClient.prototype.agentsList = function() {
-  return this.request('agents.list', {});
-};
+  async initJWK() {
+    // 尝试从 localStorage 或全局配置获取密钥
+    // 如果没有配置，使用默认的开发密钥
+    const savedKey = localStorage.getItem('openclaw_jwk');
+    if (savedKey) {
+      this.jwk = JSON.parse(savedKey);
+    } else {
+      // 默认开发密钥（实际使用时应该从服务器获取）
+      this.jwk = {
+        kty: "OKP",
+        crv: "Ed25519",
+        x: "9VHfO8L_LnnCQCDPVD3LrYHLMQ5_2cR-3uQYp9v6T2o",
+        y: ""
+      };
+    }
+  }
 
-OpenClawClient.prototype.chatHistory = function(sessionKey, limit) {
-  return this.request('chat.history', {
-    sessionKey: sessionKey,
-    limit: limit || 200
-  });
-};
+  // 连接 WebSocket
+  async connect() {
+    return new Promise((resolve, reject) => {
+      try {
+        this.ws = new WebSocket(this.url);
+        
+        this.ws.onopen = async () => {
+          console.log('[OpenClaw] WebSocket 连接已建立');
+          this.connected = true;
+          this.reconnectAttempts = 0;
+          
+          // 发送认证消息
+          await this.authenticate();
+          resolve(true);
+        };
+        
+        this.ws.onmessage = (event) => {
+          this.handleMessage(event.data);
+        };
+        
+        this.ws.onerror = (error) => {
+          console.error('[OpenClaw] WebSocket 错误:', error);
+          this.emit('error', error);
+        };
+        
+        this.ws.onclose = () => {
+          console.log('[OpenClaw] WebSocket 连接已关闭');
+          this.connected = false;
+          this.authenticated = false;
+          this.emit('disconnected');
+          this.attemptReconnect();
+        };
+        
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
 
-OpenClawClient.prototype.chatSend = function(sessionKey, text) {
-  return this.request('chat.send', {
-    sessionKey: sessionKey,
-    text: text
-  });
-};
+  // 认证
+  async authenticate() {
+    if (!this.jwk) {
+      await this.initJWK();
+    }
+    
+    const authMsg = {
+      type: 'auth',
+      method: 'jwk',
+      params: {
+        jwk: this.jwk
+      }
+    };
+    
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('认证超时'));
+      }, 10000);
+      
+      this.send(authMsg).then(response => {
+        clearTimeout(timeout);
+        if (response.success || response.authenticated) {
+          this.authenticated = true;
+          console.log('[OpenClaw] 认证成功');
+          this.emit('authenticated');
+          resolve(true);
+        } else {
+          reject(new Error('认证失败'));
+        }
+      }).catch(err => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+  }
 
-OpenClawClient.prototype.chatAbort = function(sessionKey) {
-  return this.request('chat.abort', {
-    sessionKey: sessionKey
-  });
-};
+  // 发送请求
+  async send(message) {
+    return new Promise((resolve, reject) => {
+      if (!this.connected) {
+        reject(new Error('WebSocket 未连接'));
+        return;
+      }
+      
+      const id = this.generateId();
+      const msg = {
+        ...message,
+        id: id
+      };
+      
+      this.pendingRequests.set(id, { resolve, reject });
+      
+      // 设置超时
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`请求超时: ${id}`));
+      }, 30000);
+      
+      // 存储超时引用以便清除
+      const stored = this.pendingRequests.get(id);
+      if (stored) {
+        stored.timeout = timeout;
+      }
+      
+      this.ws.send(JSON.stringify(msg));
+    });
+  }
 
-OpenClawClient.prototype.sessionsList = function() {
-  return this.request('sessions.list', {
-    includeGlobal: true,
-    includeUnknown: true
-  });
-};
+  // 处理接收到的消息
+  handleMessage(data) {
+    try {
+      const msg = JSON.parse(data);
+      
+      // 处理响应
+      if (msg.id && this.pendingRequests.has(msg.id)) {
+        const pending = this.pendingRequests.get(msg.id);
+        clearTimeout(pending.timeout);
+        this.pendingRequests.delete(msg.id);
+        
+        if (msg.error) {
+          pending.reject(new Error(msg.error));
+        } else {
+          pending.resolve(msg.result || msg);
+        }
+        return;
+      }
+      
+      // 处理订阅事件
+      if (msg.type === 'event' || msg.type === 'subscribe') {
+        this.handleSubscriptionEvent(msg);
+      }
+      
+      // 广播消息给所有监听器
+      this.emit('message', msg);
+      
+    } catch (error) {
+      console.error('[OpenClaw] 解析消息失败:', error);
+    }
+  }
 
-OpenClawClient.prototype.sessionsSubscribe = function() {
-  return this.request('sessions.subscribe', {});
-};
+  // 处理订阅事件
+  handleSubscriptionEvent(msg) {
+    const channel = msg.channel || msg.subscription;
+    if (channel && this.subscriptions.has(channel)) {
+      const callbacks = this.subscriptions.get(channel);
+      callbacks.forEach(cb => {
+        try {
+          cb(msg.data || msg);
+        } catch (error) {
+          console.error('[OpenClaw] 订阅回调错误:', error);
+        }
+      });
+    }
+  }
 
-OpenClawClient.prototype.health = function() {
-  return this.request('health', {});
-};
+  // 订阅频道
+  subscribe(channel, callback) {
+    if (!this.subscriptions.has(channel)) {
+      this.subscriptions.set(channel, new Set());
+      
+      // 发送订阅请求
+      this.send({
+        type: 'subscribe',
+        channel: channel
+      }).catch(err => {
+        console.error(`[OpenClaw] 订阅 ${channel} 失败:`, err);
+      });
+    }
+    
+    this.subscriptions.get(channel).add(callback);
+    
+    // 返回取消订阅函数
+    return () => {
+      const callbacks = this.subscriptions.get(channel);
+      if (callbacks) {
+        callbacks.delete(callback);
+        if (callbacks.size === 0) {
+          this.subscriptions.delete(channel);
+          this.send({
+            type: 'unsubscribe',
+            channel: channel
+          }).catch(err => {
+            console.error(`[OpenClaw] 取消订阅 ${channel} 失败:`, err);
+          });
+        }
+      }
+    };
+  }
 
-// ===== 全局实例 =====
-var openclawClient = null;
+  // 事件监听
+  on(event, callback) {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, new Set());
+    }
+    this.listeners.get(event).add(callback);
+    return () => this.listeners.get(event)?.delete(callback);
+  }
 
-function initOpenClaw(url, token) {
-  openclawClient = new OpenClawClient(url, token);
-  return openclawClient.connect();
+  emit(event, data) {
+    const callbacks = this.listeners.get(event);
+    if (callbacks) {
+      callbacks.forEach(cb => {
+        try {
+          cb(data);
+        } catch (error) {
+          console.error(`[OpenClaw] 事件 ${event} 回调错误:`, error);
+        }
+      });
+    }
+  }
+
+  // 重连
+  attemptReconnect() {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('[OpenClaw] 达到最大重连次数');
+      return;
+    }
+    
+    this.reconnectAttempts++;
+    console.log(`[OpenClaw] ${this.reconnectDelay/1000}秒后尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    
+    setTimeout(() => {
+      this.connect().catch(err => {
+        console.error('[OpenClaw] 重连失败:', err);
+      });
+    }, this.reconnectDelay);
+  }
+
+  // 断开连接
+  disconnect() {
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    this.connected = false;
+    this.authenticated = false;
+    this.pendingRequests.clear();
+    this.subscriptions.clear();
+  }
+
+  // 生成唯一 ID
+  generateId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+  }
+
+  // ========== API 方法 ==========
+
+  // 获取代理列表
+  async agents_list() {
+    return this.send({
+      type: 'call',
+      method: 'agents.list',
+      params: {}
+    });
+  }
+
+  // 获取代理身份信息
+  async agent_identity_get(agentId) {
+    return this.send({
+      type: 'call',
+      method: 'agent.identity.get',
+      params: { agent_id: agentId }
+    });
+  }
+
+  // 获取会话列表
+  async sessions_list(agentId = null) {
+    return this.send({
+      type: 'call',
+      method: 'sessions.list',
+      params: agentId ? { agent_id: agentId } : {}
+    });
+  }
+
+  // 订阅会话
+  sessions_subscribe(callback) {
+    return this.subscribe('sessions', callback);
+  }
+
+  // 发送聊天消息
+  async chat_send(sessionId, content) {
+    return this.send({
+      type: 'call',
+      method: 'chat.send',
+      params: {
+        session_id: sessionId,
+        content: content
+      }
+    });
+  }
+
+  // 获取聊天历史
+  async chat_history(sessionId, limit = 50) {
+    return this.send({
+      type: 'call',
+      method: 'chat.history',
+      params: {
+        session_id: sessionId,
+        limit: limit
+      }
+    });
+  }
+
+  // 健康检查
+  async health() {
+    return this.send({
+      type: 'call',
+      method: 'health',
+      params: {}
+    });
+  }
+
+  // 获取节点列表
+  async node_list() {
+    return this.send({
+      type: 'call',
+      method: 'node.list',
+      params: {}
+    });
+  }
+
+  // 更新代理配置
+  async agent_update(agentId, config) {
+    return this.send({
+      type: 'call',
+      method: 'agent.update',
+      params: {
+        agent_id: agentId,
+        config: config
+      }
+    });
+  }
+
+  // 应用配置
+  async config_apply(config) {
+    return this.send({
+      type: 'call',
+      method: 'config.apply',
+      params: { config: config }
+    });
+  }
+
+  // 重启网关
+  async gateway_restart() {
+    return this.send({
+      type: 'call',
+      method: 'gateway.restart',
+      params: {}
+    });
+  }
 }
+
+// 创建全局实例
+const openclaw = new OpenClawClient();
