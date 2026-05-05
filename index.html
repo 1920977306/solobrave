@@ -1317,112 +1317,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 </button>
 </div>
 
-<!-- Employee List -->
+<!-- Employee List - 动态渲染，由 OpenClaw 驱动 -->
 <div class="list-section" id="employeeList">
-
-<!-- Category: 职能 -->
-<div class="category-section" id="cat-functions">
-  <div class="category-header" onclick="toggleCategory(this)">
-    <span class="category-arrow">&#9662;</span>
-    <span class="category-title">职能</span>
-  </div>
-  <div class="category-content">
-
-    <!-- Sub-group: 全局统筹 -->
-    <div class="sub-group" id="sub-global">
-      <div class="sub-group-header" onclick="toggleSubGroup(this)">
-        <span class="sub-group-arrow">&#9662;</span>
-        <span class="sub-group-title">全局统筹</span>
-      </div>
-      <div class="sub-group-content">
-        <div class="list-item active" data-id="xlcx">
-          <div class="avatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">&#129438;</div>
-          <div class="emp-info">
-            <div class="emp-top"><span class="emp-name">Emily</span><span class="emp-role">CEO助理</span></div>
-            <div class="emp-preview">我在读儿，帮她提提心</div>
-          </div>
-        
-          <div class="item-actions">
-            <button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(this.closest('.list-item').dataset.id)" title="编辑资料">⚙️</button>
-          </div>
-        </div>
-        <div class="list-item" data-id="dlxc">
-          <div class="avatar" style="background:linear-gradient(135deg,#5AC8FA,#007AFF);">&#128104;&#8205;&#128188;</div>
-          <div class="emp-info">
-            <div class="emp-top"><span class="emp-name">Grace</span><span class="emp-role">CHO</span></div>
-            <div class="emp-preview">营生类型</div>
-          </div>
-        
-          <div class="item-actions">
-            <button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(this.closest('.list-item').dataset.id)" title="编辑资料">⚙️</button>
-          </div>
-        </div>
-        <div class="list-item" data-id="zjg">
-          <div class="avatar" style="background:linear-gradient(135deg,#AF52DE,#8E44AD);">&#128025;</div>
-          <div class="emp-info">
-            <div class="emp-top"><span class="emp-name">Cynthia</span><span class="emp-role">COO</span></div>
-            <div class="emp-preview">比下工作</div>
-          </div>
-        
-          <div class="item-actions">
-            <button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(this.closest('.list-item').dataset.id)" title="编辑资料">⚙️</button>
-          </div>
-        </div>
-        <div class="list-item" data-id="hx">
-          <div class="avatar" style="background:linear-gradient(135deg,#FF2D55,#FF6B8A);">&#11088;</div>
-          <div class="emp-info">
-            <div class="emp-top"><span class="emp-name">Luna</span><span class="emp-role">COO</span></div>
-            <div class="emp-preview">当前使用的端是 Phone</div>
-          </div>
-        
-          <div class="item-actions">
-            <button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(this.closest('.list-item').dataset.id)" title="编辑资料">⚙️</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Sub-group: 技术团队 -->
-    <div class="sub-group" id="sub-tech">
-      <div class="sub-group-header" onclick="toggleSubGroup(this)">
-        <span class="sub-group-arrow">&#9662;</span>
-        <span class="sub-group-title">技术团队</span>
-      </div>
-      <div class="sub-group-content">
-        <div class="list-item" data-id="sy">
-          <div class="avatar" style="background:linear-gradient(135deg,#5856D6,#8B5CF6);">&#128032;</div>
-          <div class="emp-info">
-            <div class="emp-top"><span class="emp-name">Gates</span><span class="emp-role">研发负责人</span></div>
-            <div class="emp-preview">研发</div>
-          </div>
-        
-          <div class="item-actions">
-            <button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(this.closest('.list-item').dataset.id)" title="编辑资料">⚙️</button>
-          </div>
-        </div>
-    </div>
-
-    <!-- Sub-group: 业务团队 -->
-    <div class="sub-group" id="sub-business">
-      <div class="sub-group-header" onclick="toggleSubGroup(this)">
-        <span class="sub-group-arrow">&#9662;</span>
-        <span class="sub-group-title">业务团队</span>
-      </div>
-      <div class="sub-group-content">
-    </div>
-
-    <!-- Sub-group: 测试小组 -->
-    <div class="sub-group" id="sub-test">
-      <div class="sub-group-header" onclick="toggleSubGroup(this)">
-        <span class="sub-group-arrow">&#9662;</span>
-        <span class="sub-group-title">测试小组</span>
-      </div>
-      <div class="sub-group-content">
-        <!-- Empty for now -->
-      </div>
-    </div>
-
-  </div>
+  <!-- 员工列表由 JS 动态渲染，见 renderSidebarEmployees() -->
 </div>
 
 <!-- Category: 项目组 -->
@@ -1544,7 +1441,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <div class="avatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
 <div class="chat-header-info">
 <div class="chat-header-name">Emily</div>
-<div class="chat-header-role">CEO助理</div>
+<div class="chat-header-sub">在线 · CEO助理</div>
 </div>
 </div>
 </div>
@@ -2452,12 +2349,9 @@ let mentionIdx = 0;
 let slashIdx = 0;
 
 // Data
-const emps = [
-{id:'xlcx',name:'Emily',role:'CEO助理',bg:'#FF6B35',color:'#FF6B35',avatar:'🦞',status:'online',msg:'我在读儿，帮她提提心',archived:false,permission:'admin',model:'gpt-4o'},
-{id:'dlxc',name:'Grace',role:'CHO',bg:'#5AC8FA',color:'#5AC8FA',avatar:'👨‍💼',status:'busy',msg:'营生类型',archived:false,permission:'dev',model:'gpt-4o'},
-{id:'zjg',name:'Cynthia',role:'COO',bg:'#AF52DE',color:'#AF52DE',avatar:'🐙',status:'online',msg:'比下工作',archived:false,permission:'pm',model:'gpt-4o'},
-{id:'hx',name:'Luna',role:'COO',bg:'#FF2D55',color:'#FF2D55',avatar:'⭐',status:'online',msg:'当前使用的端是 Phone',archived:false,permission:'qa',model:'gpt-4o'},
-{id:'sy',name:'Gates',role:'研发负责人',bg:'#5856D6',color:'#5856D6',avatar:'🐟',status:'online',msg:'研发',archived:false,permission:'devops',model:'gpt-4o'}
+// 员工数据由 OpenClaw 驱动，初始为空，从 client 加载后动态填充
+let emps = [
+{id:'emily',name:'Emily',role:'CEO助理',bg:'#FF6B35',color:'#FF6B35',avatar:'🦞',status:'online',msg:'',archived:false,permission:'admin',model:'kimi-code'}
 ];
 
 // ========== AI 初始化 ==========
@@ -2688,6 +2582,7 @@ window.addEventListener('storage',(e)=>{
   }
 });
 loadArchive();
+renderSidebarEmployees();
 
 // Tasks data with drag support
 const tasksData = {
@@ -2843,40 +2738,24 @@ const projs = [
 // Alias for compatibility
 const employees = emps;
 
+// 动态渲染侧边栏员工列表（从 emps 数组生成 DOM）
+function renderSidebarEmployees(){
+  const list=document.getElementById('employeeList');
+  if(!list) return;
+  const visible=emps.filter(e=>!e.archived);
+  list.innerHTML=visible.map(e=>`<div class="list-item" data-id="${escapeAttr(e.id)}" draggable="true">
+<div class="item-avatar"><div class="avatar small" style="background:${escapeAttr(e.bg||'')}">${escapeHtml(e.avatar||'')}</div><div class="status-dot ${escapeAttr(e.status||'offline')}" style="position:absolute;bottom:0;right:0;width:10px;height:10px;border:2px solid var(--bg-primary);"></div></div>
+<div class="item-info"><div class="item-name">${escapeHtml(e.name||'')}</div><div class="item-msg">${getStatusIcon(e.status)} ${escapeHtml(e.msg||'')}</div></div>
+<div class="item-actions">
+<button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail('${escapeAttr(e.id)}')" title="编辑资料">⚙️</button>
+</div>
+</div>`).join('');
+  bindListEvents();
+}
+
 // Render employee list with archive/drag support
 function renderEmployeeList(){
-  const list=document.getElementById('employeeList');
-  if(!list)return;
-  const visible=emps.filter(e=>!e.archived);
-  
-  // 增量更新：只更新已存在的 list-item，不替换整个列表
-  visible.forEach(e=>{
-    let item=list.querySelector(`.list-item[data-id="${e.id}"]`);
-    if(item){
-      // 更新已有项的状态和信息
-      const dot=item.querySelector('.status-dot');
-      if(dot) dot.className='status-dot '+(e.status||'offline');
-      const msg=item.querySelector('.item-msg');
-      if(msg) msg.innerHTML=(getStatusIcon(e.status)||'')+' '+escapeHtml(e.msg||'');
-      const name=item.querySelector('.emp-name,.item-name');
-      if(name) name.textContent=e.name||'';
-      const avatar=item.querySelector('.avatar');
-      if(avatar){
-        avatar.style.background=e.bg||'';
-        avatar.textContent=e.avatar||'';
-      }
-      // 确保项可见
-      item.style.display='';
-    }
-  });
-  
-  // 隐藏已归档的项
-  list.querySelectorAll('.list-item[data-id]').forEach(item=>{
-    const id=item.dataset.id;
-    if(!visible.find(e=>e.id===id)){
-      item.style.display='none';
-    }
-  });
+  renderSidebarEmployees();
 }
 
 // Init
