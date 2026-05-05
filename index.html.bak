@@ -1206,7 +1206,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   position: absolute;
   top: 100%;
   right: 0;
-  background: var(--bg-primary);
+  background: white;
   border-radius: 10px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.15);
   padding: 6px 0;
@@ -1223,7 +1223,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   right: 12px;
   width: 12px;
   height: 12px;
-  background: var(--bg-primary);
+  background: white;
   transform: rotate(45deg);
   border-radius: 2px;
 }
@@ -1343,7 +1343,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
           </div>
         
           <div class="item-actions">
-            <button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(this.closest('.list-item').dataset.id)" title="编辑资料">⚙️</button>
+            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
           </div>
         </div>
         <div class="list-item" data-id="dlxc">
@@ -1354,7 +1354,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
           </div>
         
           <div class="item-actions">
-            <button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(this.closest('.list-item').dataset.id)" title="编辑资料">⚙️</button>
+            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
           </div>
         </div>
         <div class="list-item" data-id="zjg">
@@ -1365,7 +1365,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
           </div>
         
           <div class="item-actions">
-            <button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(this.closest('.list-item').dataset.id)" title="编辑资料">⚙️</button>
+            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
           </div>
         </div>
         <div class="list-item" data-id="hx">
@@ -1376,7 +1376,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
           </div>
         
           <div class="item-actions">
-            <button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(this.closest('.list-item').dataset.id)" title="编辑资料">⚙️</button>
+            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
           </div>
         </div>
       </div>
@@ -1397,9 +1397,21 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
           </div>
         
           <div class="item-actions">
-            <button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(this.closest('.list-item').dataset.id)" title="编辑资料">⚙️</button>
+            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
           </div>
         </div>
+        <div class="list-item" data-id="new1">
+          <div class="avatar" style="background:linear-gradient(135deg,#34C759,#30D158);">&#128049;</div>
+          <div class="emp-info">
+            <div class="emp-top"><span class="emp-name">Eric</span><span class="emp-role">运维负责人</span></div>
+            <div class="emp-preview">好 Emily 之</div>
+          </div>
+        
+          <div class="item-actions">
+            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Sub-group: 业务团队 -->
@@ -1409,6 +1421,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
         <span class="sub-group-title">业务团队</span>
       </div>
       <div class="sub-group-content">
+        <div class="list-item" data-id="new2">
+          <div class="avatar" style="background:linear-gradient(135deg,#FF9500,#FFB340);">&#128058;</div>
+          <div class="emp-info">
+            <div class="emp-top"><span class="emp-name">Olivia</span><span class="emp-role">营销负责人</span></div>
+            <div class="emp-preview">Zoe</div>
+          </div>
+        
+          <div class="item-actions">
+            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
+          </div>
+        </div>
+        <div class="list-item" data-id="new3">
+          <div class="avatar" style="background:linear-gradient(135deg,#00C7BE,#5AC8FA);">&#128048;</div>
+          <div class="emp-info">
+            <div class="emp-top"><span class="emp-name">Summer</span><span class="emp-role">设计总监</span></div>
+            <div class="emp-preview">你好 Emily! 我是 Summer, 一堂的设计总监。</div>
+          </div>
+        
+          <div class="item-actions">
+            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Sub-group: 测试小组 -->
@@ -2453,11 +2488,11 @@ let slashIdx = 0;
 
 // Data
 const emps = [
-{id:'xlcx',name:'Emily',role:'CEO助理',bg:'#FF6B35',color:'#FF6B35',avatar:'🦞',status:'online',msg:'我在读儿，帮她提提心',archived:false,permission:'admin',model:'gpt-4o'},
-{id:'dlxc',name:'Grace',role:'CHO',bg:'#5AC8FA',color:'#5AC8FA',avatar:'👨‍💼',status:'busy',msg:'营生类型',archived:false,permission:'dev',model:'gpt-4o'},
-{id:'zjg',name:'Cynthia',role:'COO',bg:'#AF52DE',color:'#AF52DE',avatar:'🐙',status:'online',msg:'比下工作',archived:false,permission:'pm',model:'gpt-4o'},
-{id:'hx',name:'Luna',role:'COO',bg:'#FF2D55',color:'#FF2D55',avatar:'⭐',status:'online',msg:'当前使用的端是 Phone',archived:false,permission:'qa',model:'gpt-4o'},
-{id:'sy',name:'Gates',role:'研发负责人',bg:'#5856D6',color:'#5856D6',avatar:'🐟',status:'online',msg:'研发',archived:false,permission:'devops',model:'gpt-4o'}
+{id:'xlcx',name:'Lucy',role:'前端工程师',bg:'#FF6B35',avatar:'🦞',status:'online',msg:'好的，正在修复中...',archived:false,permission:'admin'},
+{id:'dlxc',name:'大龙虾',role:'后端架构师',bg:'#5AC8FA',avatar:'👨‍💼',status:'busy',msg:'API文档已更新',archived:false,permission:'dev'},
+{id:'zjg',name:'章鱼哥',role:'产品经理',bg:'#AF52DE',avatar:'🐙',status:'online',msg:'PRD第3版已提交',archived:false,permission:'pm'},
+{id:'hx',name:'海星',role:'测试工程师',bg:'#FF2D55',avatar:'⭐',status:'online',msg:'测试用例通过95%',archived:false,permission:'qa'},
+{id:'sy',name:'鲨鱼',role:'运维工程师',bg:'#5856D6',avatar:'🦈',status:'online',msg:'服务器运行正常',archived:false,permission:'devops'}
 ];
 
 // ========== AI 初始化 ==========
@@ -2672,9 +2707,14 @@ function applyTemplate(templateKey){
 }
 
 function loadEmployees(){
-  // 清除旧的localStorage数据，使用代码中的最新数据
-  localStorage.removeItem('sb_employees');
-  localStorage.removeItem('sb_archived');
+  const saved=localStorage.getItem('sb_employees');
+  if(saved){
+    try{
+      const data=JSON.parse(saved);
+      emps.length=0;
+      data.forEach(e=>emps.push(e));
+    }catch(e){}
+  }
 }
 // Listen for storage changes from other pages
 window.addEventListener('storage',(e)=>{
@@ -3869,9 +3909,8 @@ drawerOpen=true;
 // Employee Detail Panel
 let currentEmpId=null;
 function openEmpDetail(empId){
-console.log("[DEBUG] openEmpDetail called, empId:", empId);
 const emp=emps.find(e=>e.id===empId);
-if(!emp){console.log("[DEBUG] emp not found in emps array, ids:", emps.map(e=>e.id));return;}
+if(!emp)return;
 currentEmpId=empId;
 selectedAvatar=emp.avatar||'🦞';
 selectedColor=emp.color||'#FF6B35';
