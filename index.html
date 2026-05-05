@@ -1303,7 +1303,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 <!-- 龙虾办公室入口 -->
 <div style="padding:0 12px 8px;">
-<a href="./office-v3.html" target="_blank" style="width:100%;padding:10px 12px;background:linear-gradient(135deg,#FF6B35,#FF9500);color:white;border:none;border-radius:var(--radius-md);font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all 0.15s;text-decoration:none;"
+<a href="./lobster-office-v3.html" target="_blank" style="width:100%;padding:10px 12px;background:linear-gradient(135deg,#FF6B35,#FF9500);color:white;border:none;border-radius:var(--radius-md);font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all 0.15s;text-decoration:none;"
  onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
 <span>🦞</span> 龙虾办公室
 </a>
@@ -2348,119 +2348,77 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 <script>
 
-// ========== 工具函数 ==========
-function escapeHtml(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function escapeAttr(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-
-// ========== 发送消息 ==========
-function sendMsg(){
-  const input = document.getElementById('msgInput');
-  const text = input.value.trim();
-  if(!text) return;
-  
-  const area = document.getElementById('messagesArea');
-  const now = new Date();
-  const timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
-  const emp = getCurrentEmployeeInfo();
-  
-  // 添加用户消息
-  const userMsg = document.createElement('div');
-  userMsg.className = 'msg own';
-  userMsg.innerHTML = `
-    <div class="msg-content">
-      <div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">${timeStr}</span></div>
-      <div class="msg-bubble">${escapeHtml(text)}</div>
-    </div>`;
-  area.appendChild(userMsg);
-  
-  input.value = '';
-  area.scrollTop = area.scrollHeight;
-  
-  // 显示打字指示器
-  const typing = document.createElement('div');
-  typing.className = 'msg';
-  typing.id = 'typingMsg';
-  typing.innerHTML = `
-    <div class="msg-avatar avatar small" style="background:${emp.bg || '#FF6B35'};">${emp.avatar || '🦞'}</div>
-    <div class="msg-content">
-      <div class="msg-sender"><span class="msg-sender-name">${escapeHtml(emp.name||'AI')}</span></div>
-      <div class="msg-bubble"><span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span> 思考中...</div>
-    </div>`;
-  area.appendChild(typing);
-  area.scrollTop = area.scrollHeight;
-  
-  // 获取文档上下文
-  const docContext = getDocContextForChat();
-  
-  // 尝试调用真实AI，否则用模拟回复
-  callRealAI(text, docContext).then(reply => {
-    const t = document.getElementById('typingMsg');
-    if(t) t.remove();
-    if(reply){
-      displayAIReply(reply, docContext, timeStr);
-      saveChatHistory(text, reply, docContext);
-    } else {
-      // 模拟回复
-      const simReplies = [
-        '收到，我来处理一下这个任务。',
-        '好的，我理解了你的需求，马上开始执行。',
-        '明白了，让我分析一下这个问题...',
-        '没问题，我会尽快完成。',
-        '了解了，我这边开始处理，预计很快就好。'
-      ];
-      const simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
-      setTimeout(() => {
-        displayAIReply(simReply, docContext, timeStr);
-        saveChatHistory(text, simReply, docContext);
-      }, 800 + Math.random() * 1200);
-    }
-  }).catch(err => {
-    const t = document.getElementById('typingMsg');
-    if(t) t.remove();
-    // 模拟回复 fallback
-    const simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
-    const simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
-    setTimeout(() => {
-      displayAIReply(simReply, docContext, timeStr);
-      saveChatHistory(text, simReply, docContext);
-    }, 800);
-  });
-}
-
 // Gear Menu Functions
 let activeGearMenu = null;
 let activeEmployeeItem = null;
-let activeGearEmpId = null;
+let activeGearEmpId = null; // 保存当前操作员工的ID
 
 function showGearMenu(event, btn){
   event.stopPropagation();
-  closeAllGearMenus();
+  event.preventDefault();
   activeEmployeeItem = btn.closest('.list-item');
-  activeGearEmpId = activeEmployeeItem?.dataset?.id || null;
-  let menu = document.getElementById('gearMenuTemplate');
-  if(!menu) return;
+  activeGearEmpId = activeEmployeeItem ? activeEmployeeItem.dataset.id : null;
+  
+  // 先关闭旧的
   let existing = document.getElementById('activeGearMenu');
   if(existing) existing.remove();
+  
+  let menu = document.getElementById('gearMenuTemplate');
+  if(!menu) return;
   let clone = menu.cloneNode(true);
   clone.id = 'activeGearMenu';
   clone.style.display = 'block';
-  clone.style.position = 'absolute';
+  clone.style.position = 'fixed';
   let rect = btn.getBoundingClientRect();
-  clone.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+  clone.style.top = (rect.bottom + 4) + 'px';
   clone.style.right = (window.innerWidth - rect.right) + 'px';
+  clone.style.zIndex = '9999';
   document.body.appendChild(clone);
   activeGearMenu = clone;
+  
+  // 阻止克隆菜单内部的点击冒泡到 document
+  clone.addEventListener('click', function(e){
+    e.stopPropagation();
+  });
+  
+  // 手动绑定菜单项点击事件，确保 onclick 生效
+  clone.querySelectorAll('.gear-menu-item').forEach(item => {
+    const onclickStr = item.getAttribute('onclick');
+    if(!onclickStr) return;
+    item.removeAttribute('onclick');
+    item.addEventListener('click', function(e){
+      e.stopPropagation();
+      e.preventDefault();
+      // 解析并执行对应的函数
+      if(onclickStr.includes('gearEditProfile')){
+        gearEditProfile();
+      } else if(onclickStr.includes('gearMoveToGroup')){
+        const match = onclickStr.match(/gearMoveToGroup\('([^']+)'\)/);
+        if(match) gearMoveToGroup(match[1]);
+      } else if(onclickStr.includes('gearPinEmployee')){
+        gearPinEmployee();
+      }
+    });
+  });
 }
 
 function closeAllGearMenus(){
   let menu = document.getElementById('activeGearMenu');
-  if(menu){ menu.remove(); activeGearMenu = null; activeEmployeeItem = null; activeGearEmpId = null; }
+  if(menu){ menu.remove(); }
+  activeGearMenu = null;
+  activeEmployeeItem = null;
+  activeGearEmpId = null;
 }
 
 function gearEditProfile(){
-  const empId = activeGearEmpId;
+  console.log('编辑资料:', activeGearEmpId);
+  if(activeGearEmpId && typeof openEmpDetail === 'function'){
+    openEmpDetail(activeGearEmpId);
+  } else if(activeEmployeeItem){
+    const nameEl = activeEmployeeItem.querySelector('.emp-name') || activeEmployeeItem.querySelector('.item-name');
+    console.log('员工名称:', nameEl ? nameEl.textContent : 'none');
+  }
   closeAllGearMenus();
-  if(empId) openEmpDetail(empId);
 }
 
 function gearMoveToGroup(groupName){
@@ -2485,10 +2443,10 @@ function gearPinEmployee(){
   closeAllGearMenus();
 }
 
-// Close menu when clicking outside
+// Close menu when clicking outside (使用 setTimeout 避免和菜单项点击竞争)
 document.addEventListener('click', function(e){
   if(activeGearMenu && !activeGearMenu.contains(e.target)){
-    closeAllGearMenus();
+    setTimeout(() => closeAllGearMenus(), 0);
   }
 });
 
@@ -2930,17 +2888,35 @@ function renderEmployeeList(){
   const list=document.getElementById('employeeList');
   if(!list)return;
   const visible=emps.filter(e=>!e.archived);
-  list.innerHTML=visible.map(e=>`<div class="list-item" data-id="${escapeAttr(e.id)}" draggable="true">
-<div class="item-avatar"><div class="avatar small" style="background:${escapeAttr(e.bg||'')}">${escapeHtml(e.avatar||'')}</div><div class="status-dot ${escapeAttr(e.status||'offline')}" style="position:absolute;bottom:0;right:0;width:10px;height:10px;border:2px solid var(--bg-primary);"></div></div>
-<div class="item-info"><div class="item-name">${escapeHtml(e.name||'')}</div><div class="item-msg">${getStatusIcon(e.status)} ${escapeHtml(e.msg||'')}</div></div>
-<div class="item-actions">
-<button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail('${escapeAttr(e.id)}');" title="员工详情">
-<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-</button>
-<button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
-</div>
-</div>`).join('');
-  bindListEvents();
+  
+  // 增量更新：只更新已存在的 list-item，不替换整个列表
+  visible.forEach(e=>{
+    let item=list.querySelector(`.list-item[data-id="${e.id}"]`);
+    if(item){
+      // 更新已有项的状态和信息
+      const dot=item.querySelector('.status-dot');
+      if(dot) dot.className='status-dot '+(e.status||'offline');
+      const msg=item.querySelector('.item-msg');
+      if(msg) msg.innerHTML=(getStatusIcon(e.status)||'')+' '+escapeHtml(e.msg||'');
+      const name=item.querySelector('.emp-name,.item-name');
+      if(name) name.textContent=e.name||'';
+      const avatar=item.querySelector('.avatar');
+      if(avatar){
+        avatar.style.background=e.bg||'';
+        avatar.textContent=e.avatar||'';
+      }
+      // 确保项可见
+      item.style.display='';
+    }
+  });
+  
+  // 隐藏已归档的项
+  list.querySelectorAll('.list-item[data-id]').forEach(item=>{
+    const id=item.dataset.id;
+    if(!visible.find(e=>e.id===id)){
+      item.style.display='none';
+    }
+  });
 }
 
 // Init
@@ -3015,7 +2991,7 @@ if(tab==='archived'){
 let contextTarget=null;
 function renderArchivedList(){
   const list=document.getElementById('employeeList');
-  const archived=emps.filter(e=>e.archived);
+  const archived=employees.filter(e=>e.archived);
   if(archived.length===0){
     list.innerHTML='<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">📦</div><div>暂无归档</div></div>';
     return;
@@ -3046,7 +3022,7 @@ function bindListEvents(){
       i.classList.remove('drag-over');
       const draggedId=e.dataTransfer.getData('text/plain');
       if(draggedId===i.dataset.id)return;
-      const emp=emps.find(x=>x.id===draggedId);
+      const emp=employees.find(x=>x.id===draggedId);
       if(emp){emp.archived=!emp.archived;renderEmployeeList();}
     });
   });
@@ -3054,7 +3030,7 @@ function bindListEvents(){
 
 function showContextMenu(x,y){
   const menu=document.getElementById('contextMenu');
-  const emp=emps.find(e=>e.id===contextTarget);
+  const emp=employees.find(e=>e.id===contextTarget);
   if(!emp)return;
   menu.querySelector('[onclick*="archive"]').style.display=emp.archived?'none':'flex';
   menu.querySelector('[onclick*="unarchive"]').style.display=emp.archived?'flex':'none';
@@ -3960,13 +3936,6 @@ document.getElementById('empUserDoc').value=emp.userDoc||'';
 document.querySelectorAll('.avatar-option').forEach(a=>a.classList.toggle('selected',a.dataset.avatar===(emp.avatar||'🦞')));
 document.getElementById('empDetailOverlay').classList.add('open');
 switchEmpDetailTab('basic');
-}
-
-// 编辑资料：打开详情面板并切到文档编辑tab
-function showEditModal(empId){
-	if(!empId) return;
-	openEmpDetail(empId);
-	setTimeout(()=> switchEmpDetailTab('docs'), 100);
 }
 
 // Skills System
