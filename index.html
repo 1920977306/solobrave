@@ -2456,8 +2456,10 @@ function closeAllGearMenus(){
 }
 
 function gearEditProfile(){
-  console.log('编辑资料:', activeEmployeeItem ? activeEmployeeItem.querySelector('.emp-name').textContent : 'none');
+  if(!activeEmployeeItem) return;
+  const empId = activeEmployeeItem.dataset.id;
   closeAllGearMenus();
+  if(empId) openEmpDetail(empId);
 }
 
 function gearMoveToGroup(groupName){
@@ -3956,6 +3958,13 @@ document.getElementById('empUserDoc').value=emp.userDoc||'';
 document.querySelectorAll('.avatar-option').forEach(a=>a.classList.toggle('selected',a.dataset.avatar===(emp.avatar||'🦞')));
 document.getElementById('empDetailOverlay').classList.add('open');
 switchEmpDetailTab('basic');
+}
+
+// 编辑资料：打开详情面板并切到文档编辑tab
+function showEditModal(empId){
+	if(!empId) return;
+	openEmpDetail(empId);
+	setTimeout(()=> switchEmpDetailTab('docs'), 100);
 }
 
 // Skills System
