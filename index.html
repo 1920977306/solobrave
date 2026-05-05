@@ -2348,6 +2348,85 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 <script>
 
+// ========== 工具函数 ==========
+function escapeHtml(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function escapeAttr(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// ========== 发送消息 ==========
+function sendMsg(){
+  const input = document.getElementById('msgInput');
+  const text = input.value.trim();
+  if(!text) return;
+  
+  const area = document.getElementById('messagesArea');
+  const now = new Date();
+  const timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  const emp = getCurrentEmployeeInfo();
+  
+  // 添加用户消息
+  const userMsg = document.createElement('div');
+  userMsg.className = 'msg own';
+  userMsg.innerHTML = `
+    <div class="msg-content">
+      <div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">${timeStr}</span></div>
+      <div class="msg-bubble">${escapeHtml(text)}</div>
+    </div>`;
+  area.appendChild(userMsg);
+  
+  input.value = '';
+  area.scrollTop = area.scrollHeight;
+  
+  // 显示打字指示器
+  const typing = document.createElement('div');
+  typing.className = 'msg';
+  typing.id = 'typingMsg';
+  typing.innerHTML = `
+    <div class="msg-avatar avatar small" style="background:${emp.bg || '#FF6B35'};">${emp.avatar || '🦞'}</div>
+    <div class="msg-content">
+      <div class="msg-sender"><span class="msg-sender-name">${escapeHtml(emp.name||'AI')}</span></div>
+      <div class="msg-bubble"><span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span> 思考中...</div>
+    </div>`;
+  area.appendChild(typing);
+  area.scrollTop = area.scrollHeight;
+  
+  // 获取文档上下文
+  const docContext = getDocContextForChat();
+  
+  // 尝试调用真实AI，否则用模拟回复
+  callRealAI(text, docContext).then(reply => {
+    const t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    if(reply){
+      displayAIReply(reply, docContext, timeStr);
+      saveChatHistory(text, reply, docContext);
+    } else {
+      // 模拟回复
+      const simReplies = [
+        '收到，我来处理一下这个任务。',
+        '好的，我理解了你的需求，马上开始执行。',
+        '明白了，让我分析一下这个问题...',
+        '没问题，我会尽快完成。',
+        '了解了，我这边开始处理，预计很快就好。'
+      ];
+      const simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
+      setTimeout(() => {
+        displayAIReply(simReply, docContext, timeStr);
+        saveChatHistory(text, simReply, docContext);
+      }, 800 + Math.random() * 1200);
+    }
+  }).catch(err => {
+    const t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    // 模拟回复 fallback
+    const simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
+    const simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
+    setTimeout(() => {
+      displayAIReply(simReply, docContext, timeStr);
+      saveChatHistory(text, simReply, docContext);
+    }, 800);
+  });
+}
+
 // Gear Menu Functions
 let activeGearMenu = null;
 let activeEmployeeItem = null;
