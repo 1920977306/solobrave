@@ -2430,11 +2430,13 @@ function sendMsg(){
 // Gear Menu Functions
 let activeGearMenu = null;
 let activeEmployeeItem = null;
+let activeGearEmpId = null;
 
 function showGearMenu(event, btn){
   event.stopPropagation();
   closeAllGearMenus();
   activeEmployeeItem = btn.closest('.list-item');
+  activeGearEmpId = activeEmployeeItem?.dataset?.id || null;
   let menu = document.getElementById('gearMenuTemplate');
   if(!menu) return;
   let existing = document.getElementById('activeGearMenu');
@@ -2452,12 +2454,11 @@ function showGearMenu(event, btn){
 
 function closeAllGearMenus(){
   let menu = document.getElementById('activeGearMenu');
-  if(menu){ menu.remove(); activeGearMenu = null; activeEmployeeItem = null; }
+  if(menu){ menu.remove(); activeGearMenu = null; activeEmployeeItem = null; activeGearEmpId = null; }
 }
 
 function gearEditProfile(){
-  if(!activeEmployeeItem) return;
-  const empId = activeEmployeeItem.dataset.id;
+  const empId = activeGearEmpId;
   closeAllGearMenus();
   if(empId) openEmpDetail(empId);
 }
@@ -2936,6 +2937,7 @@ function renderEmployeeList(){
 <button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail('${escapeAttr(e.id)}');" title="员工详情">
 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
 </button>
+<button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
 </div>
 </div>`).join('');
   bindListEvents();
@@ -3013,7 +3015,7 @@ if(tab==='archived'){
 let contextTarget=null;
 function renderArchivedList(){
   const list=document.getElementById('employeeList');
-  const archived=employees.filter(e=>e.archived);
+  const archived=emps.filter(e=>e.archived);
   if(archived.length===0){
     list.innerHTML='<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">📦</div><div>暂无归档</div></div>';
     return;
@@ -3044,7 +3046,7 @@ function bindListEvents(){
       i.classList.remove('drag-over');
       const draggedId=e.dataTransfer.getData('text/plain');
       if(draggedId===i.dataset.id)return;
-      const emp=employees.find(x=>x.id===draggedId);
+      const emp=emps.find(x=>x.id===draggedId);
       if(emp){emp.archived=!emp.archived;renderEmployeeList();}
     });
   });
@@ -3052,7 +3054,7 @@ function bindListEvents(){
 
 function showContextMenu(x,y){
   const menu=document.getElementById('contextMenu');
-  const emp=employees.find(e=>e.id===contextTarget);
+  const emp=emps.find(e=>e.id===contextTarget);
   if(!emp)return;
   menu.querySelector('[onclick*="archive"]').style.display=emp.archived?'none':'flex';
   menu.querySelector('[onclick*="unarchive"]').style.display=emp.archived?'flex':'none';
