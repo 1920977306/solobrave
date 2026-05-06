@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SoloBrave Office</title>
+  <link rel="stylesheet" href="./css/variables.css">
+  <link rel="stylesheet" href="./css/components.css">
+  <link rel="stylesheet" href="./css/layout.css">
+  <link rel="stylesheet" href="./css/chat.css">
+</head>
+<body>
+  <div id="app">
+    <aside class="sidebar glass-panel" id="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="brand-icon">SB</div>
+          <div class="brand-text">
+            <span class="brand-name">SoloBrave</span>
+            <span class="brand-tagline">AI Team</span>
+          </div>
+        </div>
+      </div>
+      <nav class="employee-list" id="employee-list"></nav>
+      <div class="sidebar-footer">
+        <div class="api-status-card" id="api-status">
+          <div class="status-indicator">
+            <span class="status-dot"></span>
+            <span class="status-text">No API</span>
+          </div>
+          <button class="btn-config" onclick="window.location.href='lobster-office.html#settings'">Config</button>
+        </div>
+        <a href="lobster-office.html" class="admin-link"><span>HQ</span> Admin</a>
+      </div>
+    </aside>
+
+    <main class="chat-main" id="chat-main">
+      <div class="chat-header glass-panel">
+        <div class="chat-employee-info" id="chat-employee-info"></div>
+        <div class="chat-actions">
+          <button class="btn-icon" onclick="clearChat()">Clear</button>
+          <button class="btn-icon" onclick="toggleKnowledge()">KB</button>
+        </div>
+      </div>
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-area glass-panel">
+        <div class="input-wrapper">
+          <textarea id="message-input" placeholder="Talk to AI employee..." rows="1" onkeydown="handleInputKeydown(event)"></textarea>
+          <button class="btn-send" onclick="sendMessage()">Send</button>
+        </div>
+        <div class="input-hints"><span>Enter to send, Shift+Enter for new line</span></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="./js/store.js"></script>
+  <script src="./js/ai-gateway.js"></script>
+
+  <script>
+  window.escapeHtml = function(t) {
+    var d = document.createElement('div');
+    d.textContent = t;
+    return d.innerHTML;
+  };
+  </script>
+
+  <script>
+  window.renderEmployeeList = function() {
+    var Store = window.SoloBraveStore;
+    var list = document.getElementById('employee-list');
+    if (!list) return;
+    var employees = Store.get('employees') || [];
+    var html = '';
+    for (var i = 0; i < employees.length; i++) {
+      var emp = employees[i];
+      var activeClass = (window.currentEmployee && window.currentEmployee.id === emp.id) ? 'active' : '';
+      html += '<div class="employee-card ' + activeClass + '" onclick="selectEmployee(\'' + emp.id + '\')">';
+      html += '<div class="employee-avatar" style="background: linear-gradient(135deg, ' + emp.gradient[0] + ' 0%, ' + emp.gradient[1] + ' 100%)">' + emp.avatar + '<span class="status-ring ' + emp.status + '"></span></div>';
+      html += '<div class="card-info"><div class="card-name">' + emp.name + '</div><div class="card-role">' + emp.role + '</div></div>';
+      html += '</div>';
+    }
+    list.innerHTML = html;
+  };
+  </script>
+
+  <script>
+  window.selectEmployee = function(employeeId) {
+    var Store = window.SoloBraveStore;
+    var employees = Store.get('employees') || [];
+    for (var i = 0; i < employees.length; i++) {
+      if (employees[i].id === employeeId) {
+        window.currentEmployee = employees[i];
+        break;
+      }
+    }
+    renderEmployeeList();
+    renderChatHeader();
+    renderMessages();
+  };
+  </script>
+
+  <script>
+  window.renderChatHeader = function() {
+    var header = document.getElementById('chat-employee-info');
+    if (!header) return;
+    if (!window.currentEmployee) {
+      header.innerHTML = '<span>Select an employee to start</span>';
+      return;
+    }
+    var emp = window.currentEmployee;
+    header.innerHTML = '<div class="employee-avatar" style="background: linear-gradient(135deg, ' + emp.gradient[0] + ' 0%, ' + emp.gradient[1] + ' 100%)">' + emp.avatar + '<span class="status-ring ' + emp.status + '"></span></div><div class="employee-details"><span class="employee-name">' + emp.name + '</span><span class="employee-role">' + emp.role + ' - ' + emp.personality + '</span></div>';
+  };
+  </script>
+
+  <script>
+  window.renderMessages = function() {
+    var container = document.getElementById('chat-messages');
+    if (!container) return;
+    if (!window.currentEmployee) {
+      container.innerHTML = '<div class="empty-state"><div class="empty-icon">SB</div><div class="empty-title">Welcome</div><div class="empty-desc">Select an AI employee from the left</div></div>';
+      return;
+    }
+    var emp = window.currentEmployee;
+    var messages = Store.getConversation(emp.id) || [];
+    if (messages.length === 0) {
+      var html = '<div class="welcome-screen">';
+      html += '<div class="employee-avatar welcome-avatar" style="background: linear-gradient(135deg, ' + emp.gradient[0] + ' 0%, ' + emp.gradient[1] + ' 100%)">' + emp.avatar + '</div>';
+      html += '<div class="welcome-title">' + emp.name + '</div>';
+      html += '<div class="welcome-desc">I am your ' + emp.role + ', skilled in ' + emp.skills.join(', ') + '.<br>How can I help?</div>';
+      html += '<div class="suggestion-chips">';
+      html += '<button class="suggestion-chip" onclick="sendQuickMessage(\'Analyze project progress\')">Analyze Progress</button>';
+      html += '<button class="suggestion-chip" onclick="sendQuickMessage(\'Product optimization suggestions\')">Optimization</button>';
+      html += '<button class="suggestion-chip" onclick="sendQuickMessage(\'Write a requirements doc\')">Requirements Doc</button>';
+      html += '<button class="suggestion-chip" onclick="sendQuickMessage(\'Summarize today tasks\')">Summarize Tasks</button>';
+      html += '</div></div>';
+      container.innerHTML = html;
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < messages.length; i++) {
+      var msg = messages[i];
+      var isUser = msg.role === 'user';
+      var avatarBg = isUser ? '#94a3b8' : emp.gradient[0];
+      var avatarBg2 = isUser ? '#64748b' : emp.gradient[1];
+      var avatarText = isUser ? 'Me' : emp.avatar;
+      var nameText = isUser ? 'Me' : emp.name;
+      html += '<div class="message-group">';
+      html += '<div class="message-header">';
+      html += '<div class="employee-avatar avatar" style="background: linear-gradient(135deg, ' + avatarBg + ' 0%, ' + avatarBg2 + ' 100%)">' + avatarText + '</div>';
+      html += '<span class="name">' + nameText + '</span>';
+      html += '<span class="time">'"      html += new Date(msg.timestamp).toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'}) + '</span>';" 
+"      html += '</div>';" 
+"      html += '<div class="message-bubble ' + msg.role + '">' + escapeHtml(msg.content) + '</div>';" 
+"      html += '</div>';" 
+"    }" 
+"    container.innerHTML = html;" 
+"    container.scrollTop = container.scrollHeight;" 
+"  };" 
+"  </script>" 
+"" 
+"  <script>" 
+"  window.sendQuickMessage = function(text) {" 
+"    var input = document.getElementById('message-input');" 
+"    if (input) { input.value = text; input.focus(); }" 
+"  };" 
+"  </script>" 
+"" 
+"  <script>" 
+"  window.handleInputKeydown = function(event) {" 
+"    if (event.key === 'Enter' && !event.shiftKey) {" 
+"      event.preventDefault();" 
+"      sendMessage();" 
+"    }" 
+"  };" 
+"  </script>" 
+"" 
+"  <script>" 
+"  window.sendMessage = async function() {" 
+"    var input = document.getElementById('message-input');" 
+"    var text = input.value.trim();" 
+"    if (!text || !window.currentEmployee) return;" 
+"    input.value = '';" 
+"    var Store = window.SoloBraveStore;" 
+"    var emp = window.currentEmployee;" 
+"    Store.addMessage(emp.id, 'user', text);" 
+"    renderMessages();" 
+"    var thinkId = Store.addMessage(emp.id, 'ai', 'Thinking...');" 
+"    renderMessages();" 
+"    try {" 
+"      var AI = window.SoloBraveAI;" 
+"      var history = Store.getConversation(emp.id).messages;" 
+"      var msgs = AI.buildMessages(emp, text, history);" 
+"      var cfg = AI.config;" 
+"      var resp = await fetch(cfg.baseUrl + '/chat/completions', {" 
+"        method: 'POST'," 
+"        headers: {'Content-Type':'application/json','Authorization':'Bearer '+cfg.apiKey}," 
+"        body: JSON.stringify({model:cfg.model, messages:msgs, stream:true})" 
+"      });" 
+"      if (!resp.ok) throw new Error('API error: ' + resp.status);" 
+"      var reader = resp.body.getReader();" 
+"      var dec = new TextDecoder();" 
+"      var full = '';" 
+"      var buf = '';" 
+"      while (true) {" 
+"        var r = await reader.read();" 
+"        if (r.done) break;" 
+"        buf += dec.decode(r.value, {stream:true});" 
+"        var lines = buf.split('\\n');" 
+"        buf = lines.pop();" 
+"        for (var i = 0; i < lines.length; i++) {" 
+"          var ln = lines[i].trim();" 
+"          if (!ln || ln.indexOf('data:') !== 0) continue;" 
+"          var d = ln.substring(5).trim();" 
+"          if (d === '[DONE]') continue;" 
+"          try {" 
+"            var j = JSON.parse(d);" 
+"            var c = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;" 
+"            if (c) {" 
+"              full += c;" 
+"              Store.updateMessage(emp.id, thinkId, full);" 
