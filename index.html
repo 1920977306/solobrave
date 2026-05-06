@@ -225,6 +225,12 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 @keyframes typing { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
 
+/* Chat Empty State */
+.chat-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 40px; text-align: center; color: var(--text-secondary); }
+.chat-empty-state .empty-avatar { width: 80px; height: 80px; border-radius: 50%; background: var(--bg-secondary); display: flex; align-items: center; justify-content: center; font-size: 40px; margin-bottom: 16px; }
+.chat-empty-state .empty-title { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+.chat-empty-state .empty-desc { font-size: 14px; line-height: 1.5; }
+
 /* Chat Input */
 .chat-input-area { padding: 10px 14px; border-top: 0.5px solid var(--separator); background: var(--bg-primary); }
 .input-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
@@ -1034,14 +1040,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .role-template-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
 .role-template-card{background:var(--bg-secondary);border:1.5px solid var(--separator);border-radius:var(--radius-md);padding:12px 8px;text-align:center;cursor:pointer;transition:all 0.2s}
 .role-template-card:hover{border-color:var(--accent);background:var(--accent-light);transform:translateY(-2px)}
-.role-template-card.selected{border-color:var(--accent);background:var(--accent-light);box-shadow:0 2px 8px rgba(255,107,53,0.15)}
+.role-template-card.selected{border-color:var(--accent);background:var(--accent-light);box-shadow:0 2px 8px rgba(255,107,53,0.15);transform:scale(1.05)}
 .role-template-emoji{font-size:28px;margin-bottom:4px}
 .role-template-name{font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:2px}
 .role-template-desc{font-size:10px;color:var(--text-tertiary);line-height:1.3}
 
 /* Avatar Image Styles */
-.wiz-avatar-opt img{width:36px;height:36px;border-radius:50%;object-fit:cover;display:block}
-.wiz-avatar-opt{padding:2px}
+.wiz-avatar-opt img{width:48px;height:48px;border-radius:50%;object-fit:cover;display:block}
+.wiz-avatar-opt{padding:3px;border-radius:50%;transition:all .2s;cursor:pointer}
+.wiz-avatar-opt:hover{transform:scale(1.15);box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:10}
+.wiz-avatar-opt.selected{box-shadow:0 0 0 3px var(--accent)}
 
 /* Category Section - Level 1 */
 .category-section { margin-bottom: 2px; }
@@ -2401,12 +2409,7 @@ function sendMsg(){
   const typing = document.createElement('div');
   typing.className = 'msg';
   typing.id = 'typingMsg';
-  typing.innerHTML = `
-    <div class="msg-avatar avatar small" style="background:${emp.bg || '#FF6B35'};">${emp.avatar || '🦞'}</div>
-    <div class="msg-content">
-      <div class="msg-sender"><span class="msg-sender-name">${escapeHtml(emp.name||'AI')}</span></div>
-      <div class="msg-bubble"><span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span> 思考中...</div>
-    </div>`;
+  typing.innerHTML = '<div class="msg-avatar avatar small" style="background:' + (emp.bg || '#FF6B35') + ';">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name||'AI') + '</span></div><div class="msg-bubble"><span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span> 思考中...</div></div>';
   area.appendChild(typing);
   area.scrollTop = area.scrollHeight;
   
@@ -2870,12 +2873,7 @@ function showReminder(){
   const area=document.getElementById('messagesArea');
   const {emp,text}=reminder;
   
-  area.insertAdjacentHTML('beforeend',`<div class="msg reminder">
-<div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,${emp.bg},${emp.bg}dd);">${emp.avatar}</div></div>
-<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">${emp.name}</span><span class="msg-sender-role">${emp.role}</span><span class="msg-sender-time">${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}</span></div>
-<div class="msg-bubble reminder-bubble">${text.replace(/\n/g,'<br>')}</div>
-</div>
-</div>`);
+  area.insertAdjacentHTML('beforeend','<div class="msg reminder"><div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,' + emp.bg + ',' + emp.bg + 'dd);">' + renderAvatar(emp, 32) + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + emp.name + '</span><span class="msg-sender-role">' + emp.role + '</span><span class="msg-sender-time">' + new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) + '</span></div><div class="msg-bubble reminder-bubble">' + text.replace(/\n/g,'<br>') + '</div></div></div>');
   area.scrollTop=area.scrollHeight;
 }
 
@@ -2950,15 +2948,11 @@ function renderEmployeeList(){
   const list=document.getElementById('employeeList');
   if(!list)return;
   const visible=emps.filter(e=>!e.archived);
-  list.innerHTML=visible.map(e=>`<div class="list-item" data-id="${escapeAttr(e.id)}" draggable="true">
-<div class="item-avatar"><div class="avatar small" style="background:${escapeAttr(e.bg||'')}">${escapeHtml(e.avatar||'')}</div><div class="status-dot ${escapeAttr(e.status||'offline')}" style="position:absolute;bottom:0;right:0;width:10px;height:10px;border:2px solid var(--bg-primary);"></div></div>
-<div class="item-info"><div class="item-name">${escapeHtml(e.name||'')}</div><div class="item-msg">${getStatusIcon(e.status)} ${escapeHtml(e.msg||'')}</div></div>
-<div class="item-actions">
-<button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail('${escapeAttr(e.id)}');" title="员工详情">
-<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-</button>
-</div>
-</div>`).join('');
+  if(visible.length===0){
+    list.innerHTML='<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方"新增员工"按钮添加第一位员工</div></div>';
+    return;
+  }
+  list.innerHTML=visible.map(e=>'<div class="list-item" data-id="'+escapeAttr(e.id)+'" draggable="true">'+renderEmployeeItem(e)+'<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(\''+escapeAttr(e.id)+'\');" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button></div></div>').join('');
   bindListEvents();
 }
 
@@ -3043,16 +3037,21 @@ function renderArchivedList(){
   bindListEvents();
 }
 
-function renderEmployeeItem(e){
-  var avatarHtml = '';
-  if(typeof e.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[e.avatar]){
-    avatarHtml = '<img src="' + escapeAttr(AVATAR_PRESETS[e.avatar]) + '" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">';
-  } else if(e.avatar && (e.avatar.indexOf('data:image') === 0 || e.avatar.indexOf('.png') > 0 || e.avatar.indexOf('.jpg') > 0 || e.avatar.indexOf('.jpeg') > 0)){
-    avatarHtml = '<img src="' + escapeAttr(e.avatar) + '" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">';
+function renderAvatar(emp, size){
+  size = size || 36;
+  if(typeof emp.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[emp.avatar]){
+    return '<img src="' + escapeAttr(AVATAR_PRESETS[emp.avatar]) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
+  } else if(emp.avatar && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0)){
+    return '<img src="' + escapeAttr(emp.avatar) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
   } else {
-    avatarHtml = escapeHtml(e.avatar || '');
+    return escapeHtml(emp.avatar || '🦞');
   }
-  return '<div class="item-avatar"><div class="avatar small" style="background:' + escapeAttr(e.bg||'') + '">' + avatarHtml + '</div><div class="status-dot ' + escapeAttr(e.status||'offline') + '" style="position:absolute;bottom:0;right:0;width:10px;height:10px;border:2px solid var(--bg-primary);"></div></div><div class="item-info"><div class="item-name">' + escapeHtml(e.name||'') + '</div><div class="item-msg">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg||'') + '</div></div>';
+}
+
+function renderEmployeeItem(e){
+  var size = 44;
+  var avatarHtml = renderAvatar(e, size);
+  return '<div class="item-avatar" style="position:relative;width:' + size + 'px;height:' + size + 'px;"><div class="avatar small" style="background:' + escapeAttr(e.bg||'') + ';width:' + size + 'px;height:' + size + 'px;">' + avatarHtml + '</div><div class="status-dot ' + escapeAttr(e.status||'offline') + '" style="position:absolute;bottom:2px;right:2px;width:12px;height:12px;border:2px solid var(--bg-primary);border-radius:50%;"></div></div><div class="item-info"><div class="item-name">' + escapeHtml(e.name||'') + '</div><div class="item-msg">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg||'') + '</div></div>';
 }
 
 function bindListEvents(){
@@ -3123,7 +3122,8 @@ document.querySelector('.chat-header-name').textContent=emp.name;
 document.querySelector('.chat-header-sub').textContent='在线 · '+emp.role;
 document.querySelector('.chat-header .avatar').textContent='🦞';
 document.querySelector('.chat-header .avatar').style.background='linear-gradient(135deg,'+emp.bg+','+emp.bg+'dd)';
-document.querySelector('.list-item[data-id="'+id+'"]').classList.add('active');
+var item=document.querySelector('.list-item[data-id="'+id+'"]');
+if(item)item.classList.add('active');
 document.getElementById('chatProgress').style.display='none';
 document.querySelector('.app-main').classList.remove('show-board');
 renderMsgs('private');
@@ -3175,17 +3175,23 @@ const msgs=type==='private'?[
 {sender:'user',text:'<span class="mention">@Lucy</span> 预计什么时候可以提测？',time:'09:15',ok:true},
 {sender:'xlcx',text:'预计 10:30 可以完成，11:00 前提测。<span class="mention">@章鱼哥</span> 请安排测试资源。',time:'09:16'}
 ];
+
+// 空状态：如果没有消息
+if(msgs.length===0){
+  area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
+  return;
+}
+
 area.innerHTML='<div class="time-separator"><span>今天 09:30</span></div>'+
 msgs.map(m=>{
 const e=emps.find(x=>x.id===m.sender);
 const own=m.sender==='user';
-return`<div class="msg ${own?'own':''}">
-${!own?`<div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,${escapeAttr(e?.bg||'#888')},${escapeAttr(e?.bg||'#888')}dd);">${escapeHtml(e?.name?.charAt(0)||'?')}</div></div>`:''}
-<div class="msg-content">
-${!own?`<div class="msg-sender"><span class="msg-sender-name">${escapeHtml(e?.name||'')}</span><span class="msg-sender-role">${escapeHtml(e?.role||'')}</span><span class="msg-sender-time">${escapeHtml(m.time||'')}</span></div>`:`<div class="msg-sender"><span class="msg-sender-time">${escapeHtml(m.time||'')}</span><span class="msg-sender-name">你</span></div>`}
-<div class="msg-bubble">${escapeHtml(m.text||'')}</div>
-</div>
-</div>`;
+return'<div class="msg '+(own?'own':'')+'">'+
+(!own?'<div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,'+escapeAttr(e?.bg||'#888')+','+escapeAttr(e?.bg||'#888')+'dd);">'+escapeHtml(e?.name?.charAt(0)||'?')+'</div></div>':'')+
+'<div class="msg-content">'+
+(!own?'<div class="msg-sender"><span class="msg-sender-name">'+escapeHtml(e?.name||'')+'</span><span class="msg-sender-role">'+escapeHtml(e?.role||'')+'</span><span class="msg-sender-time">'+escapeHtml(m.time||'')+'</span></div>':'<div class="msg-sender"><span class="msg-sender-time">'+escapeHtml(m.time||'')+'</span><span class="msg-sender-name">你</span></div>')+
+'<div class="msg-bubble">'+m.text+'</div>'+
+'</div></div>';
 }).join('')+'<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
 area.scrollTop=area.scrollHeight;
 }
@@ -3964,7 +3970,7 @@ if(!emp)return;
 currentEmpId=empId;
 selectedAvatar=emp.avatar||'🦞';
 selectedColor=emp.color||'#FF6B35';
-document.getElementById('empDetailAvatar').textContent=emp.avatar||'🦞';
+document.getElementById('empDetailAvatar').innerHTML=renderAvatar(emp, 80);
 document.getElementById('empDetailAvatar').style.background=`linear-gradient(135deg,${emp.color||'#FF6B35'},${emp.color||'#FF6B35'}dd)`;
 document.getElementById('empDetailName').textContent=emp.name;
 document.getElementById('empDetailRole').textContent=emp.role||'员工';
@@ -4175,7 +4181,7 @@ if(emp){
 if(selectedAvatar)emp.avatar=selectedAvatar;
 if(selectedColor){emp.color=selectedColor;emp.bg=selectedColor;}
 saveEmployees();
-document.getElementById('empDetailAvatar').textContent=emp.avatar;
+document.getElementById('empDetailAvatar').innerHTML=renderAvatar(emp, 80);
 document.getElementById('empDetailAvatar').style.background=`linear-gradient(135deg,${emp.color},${emp.color}dd)`;
 renderEmployeeList();
 showToast('✅ 头像已保存');
@@ -4238,7 +4244,8 @@ function renderTeamList(){
   const list=document.getElementById('teamList');
   if(!list)return;
   list.innerHTML=emps.map(e=>`<div class="team-member">
-<div class="team-avatar" style="background:${escapeAttr(e.bg||'')}">${escapeHtml(e.avatar||'')}</div>
+<div class="team-avatar" style="background:${escapeAttr(e.bg||'')};display:flex;align-items:center;justify-content:center;"
+>${renderAvatar(e, 40)}</div>
 <div class="team-info">
 <div class="team-name">${escapeHtml(e.name||'')}</div>
 <div class="team-role">${escapeHtml(e.role||'')}</div>
@@ -4438,7 +4445,7 @@ const results=document.getElementById('searchResults');
 if(!results)return;
 const lowerQ=q.toLowerCase();
 const items=[];
-emps.forEach(emp=>{if(emp.name.toLowerCase().includes(lowerQ)||emp.role?.toLowerCase().includes(lowerQ))items.push({type:'员工',name:emp.name,desc:emp.role||'员工',icon:emp.avatar,action:()=>openEmpDetail(emp.id)});});
+emps.forEach(emp=>{if(emp.name.toLowerCase().includes(lowerQ)||emp.role?.toLowerCase().includes(lowerQ))items.push({type:'员工',name:emp.name,desc:emp.role||'员工',icon:renderAvatar(emp, 24),action:()=>openEmpDetail(emp.id)});});
 Object.keys(tasksData).forEach(status=>{tasksData[status].forEach(t=>{if(t.title.toLowerCase().includes(lowerQ))items.push({type:'任务',name:t.title,desc:t.assignee||status,icon:'📋',action:()=>{toggleTaskBoard();}});});});
 if(projects.length)projects.forEach(p=>{if(p.name.toLowerCase().includes(lowerQ))items.push({type:'项目',name:p.name,desc:p.members?.length+'个成员',icon:'📁',action:()=>openProject(p.id)});});
 results.innerHTML=items.length?items.map((i,idx)=>`<div class="search-result-item" onclick="this.dataset.action&&(${i.action})();closeGlobalSearch();" data-action="${escapeAttr(i.action||'')}">
@@ -4470,7 +4477,7 @@ content.innerHTML=`<div class="lounge-empty">
 }else{
 content.innerHTML=`<div class="lounge-stat">🏖️ 休闲区 · <span>${offline.length}</span> 人休息中 / ${total} 人在线</div>
 ${offline.map(e=>`<div class="lounge-item" onclick="openEmpDetail('${escapeAttr(e.id||'')}')">
-<div class="avatar" style="background:${escapeAttr(e.bg||e.color||'#999')};opacity:0.6;">${escapeHtml(e.avatar||'')}</div>
+<div class="avatar" style="background:${escapeAttr(e.bg||e.color||'#999')};opacity:0.6;display:flex;align-items:center;justify-content:center;">${renderAvatar(e, 32)}</div>
 <div class="lounge-item-info">
 <div class="lounge-item-name">${escapeHtml(e.name||'')}</div>
 <div class="lounge-item-status">最后活跃: ${escapeHtml(e.lastActive||'刚刚')}</div>
@@ -4705,11 +4712,7 @@ function displayAIReply(replyText, docContext, timeStr){
     bubble += `<div class="ai-doc-hint">📚 已读取 ${countDocsInContext(docContext)} 个相关文档</div>`;
   }
   
-  area.insertAdjacentHTML('beforeend', `<div class="msg">
-<div class="msg-avatar"><div class="avatar small" style="${avatarBg}">${emp.avatar}</div></div>
-<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">${escapeHtml(emp.name)}</span><span class="msg-sender-role">${escapeHtml(emp.role)}</span><span class="msg-sender-time">${timeStr}</span></div>
-<div class="msg-bubble">${bubble}</div>
-</div></div>`);
+  area.insertAdjacentHTML('beforeend', '<div class="msg">\n<div class="msg-avatar"><div class="avatar small" style="' + avatarBg + '">' + renderAvatar(emp, 32) + '</div></div>\n<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name) + '</span><span class="msg-sender-role">' + escapeHtml(emp.role) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>\n<div class="msg-bubble">' + bubble + '</div>\n</div></div>');
   area.scrollTop = area.scrollHeight;
 }
 
@@ -4731,7 +4734,7 @@ function renderAvatarPicker(){
   var html='';
   for(var i=0;i<AVATAR_PRESETS.length;i++){
     var selected=i===0?' selected':'';
-    html+='<div class="wiz-avatar-opt'+selected+'" data-avatar="'+AVATAR_PRESETS[i]+'" onclick="selectWizAvatar(this)"><img src="'+AVATAR_PRESETS[i]+'" style="width:36px;height:36px;border-radius:50%;object-fit:cover;"></div>';
+    html+='<div class="wiz-avatar-opt'+selected+'" data-avatar="'+AVATAR_PRESETS[i]+'" onclick="selectWizAvatar(this)"><img src="'+AVATAR_PRESETS[i]+'" style="width:48px;height:48px;border-radius:50%;object-fit:cover;"></div>';
   }
   picker.innerHTML=html;
 }
@@ -4825,6 +4828,7 @@ function finishWizard(){
   emps.push(newEmp);saveEmployees();renderTeamList();renderEmployeeList();
   closeWizard();document.getElementById('wizName').value='';
   showToast('✅ 员工 '+name+' 创建成功！');
+  setTimeout(function(){openChat(newEmp.id);},300);
 }
 </script>
 
