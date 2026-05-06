@@ -1,13 +1,13 @@
 /**
  * OpenClaw WebSocket Client
- * 连接地址: ws://127.0.0.1:18789
+ * 连接地址: ws://192.168.1.25:18789
  * 使用 Ed25519 JWK 格式认证
  */
 
 class OpenClawClient {
   constructor() {
     this.ws = null;
-    this.url = 'ws://127.0.0.1:18789';
+    this.url = 'ws://192.168.1.25:18789';
     this.connected = false;
     this.authenticated = false;
     this.reconnectAttempts = 0;
