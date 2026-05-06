@@ -1,0 +1,1635 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🦞 龙虾办公室 - SoloBrave</title>
+<style>
+:root {
+  /* 苹果调色板 */
+  --apple-bg: #F5F5F7;
+  --apple-bg-secondary: #FFFFFF;
+  --apple-text: #1D1D1F;
+  --apple-text-secondary: #86868B;
+  --apple-text-tertiary: #AEAEB2;
+  
+  /* 场景区分色 */
+  --chat-zone: #007AFF;
+  --work-zone: #FF9500;
+  --lounge-zone: #34C759;
+  
+  /* 状态颜色 */
+  --status-thinking: #007AFF;
+  --status-done: #34C759;
+  --status-idle: #8E8E93;
+  --status-error: #FF3B30;
+  
+  /* 毛玻璃参数 */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.4);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+  
+  /* 圆角 */
+  --radius-xs: 8px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
+  --radius-capsule: 980px;
+  
+  /* 间距 */
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  
+  /* 苹果缓动 */
+  --apple-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  background: linear-gradient(180deg, #F5F5F7 0%, #E8E8ED 100%);
+  color: var(--apple-text);
+  height: 100vh;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== 整体布局 ===== */
+.office-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ===== 顶部导航栏 ===== */
+.office-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-lg);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+  z-index: 100;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.header-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+
+.header-logo .lobster-icon { font-size: 28px; }
+
+.header-actions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.header-btn {
+  background: rgba(118, 118, 128, 0.12);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-xs) 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--apple-blue);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s var(--apple-ease);
+}
+
+.header-btn:hover { background: rgba(118, 118, 128, 0.2); }
+.header-btn:active { transform: scale(0.96); }
+
+.header-right { display: flex; align-items: center; gap: var(--space-md); }
+
+.ai-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: var(--radius-capsule);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.ai-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-done);
+  box-shadow: 0 0 0 4px rgba(52, 199, 89, 0.15);
+  animation: applePulse 2s ease-in-out infinite;
+}
+
+@keyframes applePulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(52, 199, 89, 0.15); }
+  50% { box-shadow: 0 0 0 8px rgba(52, 199, 89, 0.08); }
+}
+
+.ai-status-dot.offline { background: var(--status-idle); box-shadow: none; animation: none; }
+.ai-status-dot.error { background: var(--status-error); box-shadow: 0 0 0 4px rgba(255, 59, 48, 0.15); }
+.ai-status-dot.connecting { background: #FFCC00; animation: pulse 1s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* ===== 主区域 ===== */
+.office-main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ===== 左侧区域栏 ===== */
+.zone-sidebar {
+  width: 280px;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-right: 0.5px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.zone-tabs {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-md);
+  gap: var(--space-xs);
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
+}
+
+.zone-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 14px 16px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s var(--apple-ease);
+  color: var(--apple-text);
+  position: relative;
+}
+
+.zone-tab::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 0;
+  border-radius: 0 2px 2px 0;
+  transition: height 0.2s var(--apple-ease);
+}
+
+.zone-tab[data-zone="chat"]::before { background: var(--chat-zone); }
+.zone-tab[data-zone="work"]::before { background: var(--work-zone); }
+.zone-tab[data-zone="lounge"]::before { background: var(--lounge-zone); }
+
+.zone-tab:hover { background: rgba(255, 255, 255, 0.8); }
+.zone-tab.active { background: rgba(255, 255, 255, 0.95); font-weight: 600; }
+.zone-tab.active::before { height: 24px; }
+.zone-tab[data-zone="chat"].active { color: var(--chat-zone); }
+.zone-tab[data-zone="work"].active { color: var(--work-zone); }
+.zone-tab[data-zone="lounge"].active { color: var(--lounge-zone); }
+
+.zone-tab .icon { font-size: 18px; }
+.zone-tab .count {
+  margin-left: auto;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ===== 龙虾卡片区域 ===== */
+.zone-content {
+  flex: 1;
+  padding: var(--space-lg);
+  overflow-y: auto;
+}
+
+.zone-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: var(--space-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.zone-title .zone-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.zone-title[data-zone="chat"] .zone-icon { background: rgba(0, 122, 255, 0.15); color: var(--chat-zone); }
+.zone-title[data-zone="work"] .zone-icon { background: rgba(255, 149, 0, 0.15); color: var(--work-zone); }
+.zone-title[data-zone="lounge"] .zone-icon { background: rgba(52, 199, 89, 0.15); color: var(--lounge-zone); }
+
+/* 龙虾卡片 */
+.lobster-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.lobster-card {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  padding: 12px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.lobster-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.lobster-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.lobster-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  background: #FFD60A;
+  border: 2px solid #1D1D1F;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.lobster-status-dot {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, 0.9);
+}
+
+.status-dot.online { background: var(--status-done); animation: applePulse 2s infinite; }
+.status-dot.busy { background: #FFCC00; }
+.status-dot.thinking { background: var(--status-thinking); animation: pulse 1.5s infinite; }
+.status-dot.idle { background: var(--status-idle); }
+.status-dot.offline { background: #C7C7CC; animation: none; }
+
+.lobster-info { flex: 1; }
+.lobster-name { font-size: 15px; font-weight: 600; }
+.lobster-role { font-size: 12px; color: var(--apple-text-secondary); }
+
+.lobster-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-capsule);
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.lobster-action {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--apple-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 进度条 */
+.progress-bar {
+  height: 4px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 2px;
+  margin-top: var(--space-sm);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #FFD60A;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+/* 休闲区小卡片 */
+.lobster-small-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: var(--space-sm);
+}
+
+.lobster-small-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: 16px 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s var(--apple-ease);
+}
+
+.lobster-small-card:hover {
+  transform: scale(1.05);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.lobster-small-card .lobster-avatar {
+  width: 44px;
+  height: 44px;
+  font-size: 20px;
+  margin: 0 auto 6px;
+}
+
+.lobster-small-card .lobster-name {
+  font-size: 12px;
+  color: var(--apple-text-secondary);
+}
+
+/* ===== 右侧动态面板 ===== */
+.dynamic-panel {
+  width: 300px;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-left: 0.5px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.panel-section {
+  padding: var(--space-md);
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
+}
+
+.panel-section:last-child {
+  border-bottom: none;
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-section h3 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--apple-text-secondary);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 动态 Live */
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  overflow-y: auto;
+  flex: 1;
+}
+
+.activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: var(--radius-md);
+  transition: all 0.2s;
+  animation: slideIn 0.3s var(--apple-ease);
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.activity-item:hover { background: rgba(255, 255, 255, 0.95); }
+
+.activity-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.activity-icon.online { background: rgba(52, 199, 89, 0.15); }
+.activity-icon.thinking { background: rgba(0, 122, 255, 0.15); }
+.activity-icon.idle { background: rgba(142, 142, 147, 0.15); }
+.activity-icon.done { background: rgba(52, 199, 89, 0.15); }
+
+.activity-content { flex: 1; min-width: 0; }
+.activity-name { font-weight: 600; font-size: 13px; }
+.activity-status { color: var(--apple-text-secondary); font-size: 12px; }
+.activity-time { font-size: 11px; color: var(--apple-text-tertiary); flex-shrink: 0; }
+
+/* 我的任务 */
+.task-list-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  overflow-y: auto;
+  flex: 1;
+}
+
+.task-panel-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.task-panel-item:hover { background: rgba(255, 255, 255, 0.95); }
+.task-panel-item.done { opacity: 0.6; }
+
+.task-checkbox {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.task-checkbox.checked {
+  background: var(--status-done);
+  border-color: var(--status-done);
+  color: white;
+  font-size: 11px;
+}
+
+.task-panel-title { font-size: 13px; font-weight: 500; }
+.task-panel-item.done .task-panel-title { text-decoration: line-through; }
+.task-panel-due {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 149, 0, 0.12);
+  color: var(--work-zone);
+}
+
+/* ===== 抽屉详情面板 ===== */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s;
+  z-index: 200;
+}
+
+.drawer-overlay.open { opacity: 1; visibility: visible; }
+
+.drawer-panel {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 420px;
+  max-width: 100%;
+  background: var(--apple-bg-secondary);
+  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.1);
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+  display: flex;
+  flex-direction: column;
+  z-index: 201;
+}
+
+.drawer-overlay.open .drawer-panel { transform: translateX(0); }
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
+}
+
+.drawer-back {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.drawer-back:hover { background: rgba(0, 0, 0, 0.08); }
+
+.drawer-title {
+  font-size: 18px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.drawer-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-lg);
+}
+
+/* 成员列表 */
+.member-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-xs);
+}
+
+.member-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.member-info { flex: 1; }
+.member-name { font-size: 14px; font-weight: 500; }
+.member-role { font-size: 12px; color: var(--apple-text-secondary); }
+
+.member-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--apple-text-secondary);
+}
+
+.member-config-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.member-config-btn:hover { background: rgba(0, 0, 0, 0.06); }
+
+/* 上下文进度 */
+.context-bar {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: var(--radius-sm);
+}
+
+.context-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 12px;
+}
+
+.context-track {
+  flex: 1;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.context-fill {
+  height: 100%;
+  background: var(--chat-zone);
+  border-radius: 2px;
+}
+
+/* 配置文件树 */
+.config-section { margin-top: var(--space-lg); }
+
+.config-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--apple-text-secondary);
+  margin-bottom: var(--space-sm);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.config-tree {
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+}
+
+.config-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.config-item:hover { background: rgba(0, 0, 0, 0.04); }
+.config-item.active { background: rgba(0, 122, 255, 0.1); color: var(--chat-zone); }
+
+.config-item .icon { font-size: 14px; }
+.config-item .name { flex: 1; font-size: 13px; font-family: 'SF Mono', monospace; }
+.config-item .edit-btn {
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: none;
+  background: var(--chat-zone);
+  color: white;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.config-item:hover .edit-btn { opacity: 1; }
+
+.config-folder {
+  margin-left: 20px;
+  border-left: 1px dashed rgba(0, 0, 0, 0.1);
+  padding-left: var(--space-sm);
+}
+
+.config-folder.collapsed { display: none; }
+
+/* 文件编辑器模态框 */
+.editor-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s;
+}
+
+.editor-modal.open { opacity: 1; visibility: visible; }
+
+.editor-content {
+  width: 700px;
+  max-width: 90%;
+  max-height: 80vh;
+  background: var(--apple-bg-secondary);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
+}
+
+.editor-title {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: 'SF Mono', monospace;
+}
+
+.editor-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.editor-btn {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: none;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.editor-btn.cancel { background: rgba(0, 0, 0, 0.06); color: var(--apple-text); }
+.editor-btn.save { background: var(--chat-zone); color: white; }
+.editor-btn:hover { opacity: 0.9; }
+
+.editor-body {
+  flex: 1;
+  overflow: hidden;
+  padding: var(--space-md);
+}
+
+.editor-textarea {
+  width: 100%;
+  height: 100%;
+  border: 0.5px solid rgba(0, 0, 0, 0.1);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.editor-textarea:focus {
+  outline: none;
+  border-color: var(--chat-zone);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+}
+
+/* ===== 底部状态栏 ===== */
+.office-footer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: 12px var(--space-lg);
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-top: 0.5px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+}
+
+.footer-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--apple-text-secondary);
+  padding: 8px 16px;
+  background: transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s var(--apple-ease);
+}
+
+.footer-stat:hover { background: rgba(0, 0, 0, 0.03); }
+
+.footer-stat .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.footer-stat .dot.green { background: var(--status-done); }
+.footer-stat .dot.blue { background: var(--chat-zone); }
+.footer-stat .dot.yellow { background: #FFCC00; }
+.footer-stat .dot.gray { background: var(--status-idle); }
+
+.footer-stat .count {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--apple-text);
+  margin-left: 4px;
+}
+
+/* ===== Toast 提示 ===== */
+.toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  color: white;
+  padding: 12px 24px;
+  border-radius: var(--radius-capsule);
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 9999;
+  animation: toastIn 0.3s var(--apple-ease);
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ===== 空状态 ===== */
+.empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--apple-text-secondary);
+}
+
+.empty-state .icon { font-size: 48px; margin-bottom: var(--space-md); opacity: 0.5; }
+.empty-state .text { font-size: 14px; }
+
+/* ===== 响应式 ===== */
+@media (max-width: 1200px) {
+  .dynamic-panel { width: 260px; }
+  .zone-sidebar { width: 240px; }
+}
+
+@media (max-width: 900px) {
+  .dynamic-panel { display: none; }
+  .zone-sidebar { width: 200px; }
+}
+</style>
+</head>
+<body>
+
+<div class="office-container">
+  <!-- 顶部导航 -->
+  <header class="office-header">
+    <div class="header-left">
+      <div class="header-logo">
+        <span class="lobster-icon">🦞</span>
+        <span>龙虾办公室</span>
+      </div>
+    </div>
+    
+    <div class="header-actions">
+      <button class="header-btn" onclick="restartGateway()">
+        <span>🔄</span><span>重启网关</span>
+      </button>
+      <button class="header-btn" onclick="openCoreConfig()">
+        <span>⚙️</span><span>核心配置</span>
+      </button>
+      <button class="header-btn" onclick="openModelConfig()">
+        <span>🤖</span><span>模型配置</span>
+      </button>
+    </div>
+    
+    <div class="header-right">
+      <div class="ai-status">
+        <span class="ai-status-dot" id="aiStatusDot"></span>
+        <span id="aiStatusText">连接中...</span>
+      </div>
+    </div>
+  </header>
+  
+  <!-- 主区域 -->
+  <div class="office-main">
+    <!-- 左侧区域栏 -->
+    <aside class="zone-sidebar">
+      <div class="zone-tabs">
+        <button class="zone-tab active" data-zone="chat" onclick="switchZone('chat')">
+          <span>💬</span><span>对话区</span>
+          <span class="count" id="chatCount">0</span>
+        </button>
+        <button class="zone-tab" data-zone="work" onclick="switchZone('work')">
+          <span>🧑‍💻</span><span>办公区</span>
+          <span class="count" id="workCount">0</span>
+        </button>
+        <button class="zone-tab" data-zone="lounge" onclick="switchZone('lounge')">
+          <span>🛋️</span><span>休闲区</span>
+          <span class="count" id="loungeCount">0</span>
+        </button>
+      </div>
+      
+      <!-- 龙虾卡片列表 -->
+      <div class="zone-content" id="zoneContent"></div>
+    </aside>
+    
+    <!-- 内容区 -->
+    <main class="zone-content" id="mainContent" style="padding: var(--space-lg);">
+      <div class="empty-state">
+        <div class="icon">🦞</div>
+        <div class="text">从左侧选择一个区域查看龙虾状态</div>
+      </div>
+    </main>
+    
+    <!-- 右侧动态面板 -->
+    <aside class="dynamic-panel">
+      <div class="panel-section">
+        <h3>🔴 动态 Live</h3>
+        <div class="activity-list" id="activityList">
+          <div class="empty-state" style="padding: 24px 0;">
+            <div class="icon" style="font-size: 24px;">📡</div>
+            <div class="text" style="font-size: 12px;">等待实时数据...</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="panel-section">
+        <h3>📋 我的任务</h3>
+        <div class="task-list-panel" id="taskListPanel"></div>
+      </div>
+    </aside>
+  </div>
+  
+  <!-- 底部状态栏 -->
+  <footer class="office-footer">
+    <div class="footer-stat">
+      <span class="dot green"></span>
+      <span>在线:</span>
+      <span class="count" id="statOnline">0</span>
+    </div>
+    <div class="footer-stat">
+      <span class="dot blue"></span>
+      <span>工作中:</span>
+      <span class="count" id="statWorking">0</span>
+    </div>
+    <div class="footer-stat">
+      <span class="dot gray"></span>
+      <span>空闲:</span>
+      <span class="count" id="statIdle">0</span>
+    </div>
+    <div class="footer-stat">
+      <span class="dot yellow"></span>
+      <span>待处理:</span>
+      <span class="count" id="statPending">0</span>
+    </div>
+  </footer>
+</div>
+
+<!-- 抽屉详情面板 -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()">
+  <div class="drawer-panel" onclick="event.stopPropagation()">
+    <div class="drawer-header">
+      <button class="drawer-back" onclick="closeDrawer()">←</button>
+      <div class="drawer-title" id="drawerTitle">龙虾详情</div>
+    </div>
+    <div class="drawer-content" id="drawerContent"></div>
+  </div>
+</div>
+
+<!-- 文件编辑器模态框 -->
+<div class="editor-modal" id="editorModal">
+  <div class="editor-content">
+    <div class="editor-header">
+      <div class="editor-title" id="editorTitle">SOUL.md</div>
+      <div class="editor-actions">
+        <button class="editor-btn cancel" onclick="closeEditor()">取消</button>
+        <button class="editor-btn save" onclick="saveFile()">保存</button>
+      </div>
+    </div>
+    <div class="editor-body">
+      <textarea class="editor-textarea" id="editorTextarea"></textarea>
+    </div>
+  </div>
+</div>
+
+<script src="openclaw-client.js"></script>
+<script>
+// ===== 数据状态 =====
+const state = {
+  agents: [],
+  sessions: [],
+  activities: [],
+  tasks: [],
+  currentZone: 'chat',
+  selectedAgent: null,
+  editingFile: null
+};
+
+// 模拟龙虾数据（当 OpenClaw 未连接时使用）
+const mockAgents = [
+  { id: 'lucy', name: 'Lucy', role: '产品经理', avatar: '<svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><rect width="56" height="56" rx="0" fill="#FFD60A"/><circle cx="28" cy="20" r="10" fill="#1D1D1F"/><ellipse cx="28" cy="48" rx="16" ry="14" fill="#1D1D1F"/><circle cx="24" cy="19" r="2" fill="white"/><circle cx="32" cy="19" r="2" fill="white"/></svg>', color: '#FF6B35', status: 'thinking', action: '正在思考...', progress: 60, step: 2, totalSteps: 3, messages: 47, tokens: 19 },
+  { id: 'gates', name: 'Gates', role: '研发负责人', avatar: '<svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><rect width="56" height="56" rx="0" fill="#FFD60A"/><circle cx="28" cy="20" r="10" fill="#5856D6"/><rect x="14" y="34" width="28" height="22" rx="8" fill="#5856D6"/><circle cx="24" cy="19" r="2" fill="white"/><circle cx="32" cy="19" r="2" fill="white"/></svg>', color: '#5856D6', status: 'thinking', action: '正在思考...', progress: 45, step: 1, totalSteps: 3, messages: 60, tokens: 21 },
+  { id: 'cynthia', name: 'Cynthia', role: 'COO', avatar: '<svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><rect width="56" height="56" rx="0" fill="#FFD60A"/><circle cx="28" cy="20" r="10" fill="#1D1D1F"/><ellipse cx="28" cy="48" rx="16" ry="14" fill="#1D1D1F"/><circle cx="24" cy="19" r="2" fill="white"/><circle cx="32" cy="19" r="2" fill="white"/></svg>', color: '#FF2D55', status: 'thinking', action: '正在思考...', progress: 80, step: 2, totalSteps: 3, messages: 73, tokens: 15 },
+  { id: 'eric', name: 'Eric', role: '运维负责人', avatar: '<svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><rect width="56" height="56" rx="0" fill="#FFD60A"/><circle cx="28" cy="20" r="10" fill="#007AFF"/><rect x="14" y="34" width="28" height="22" rx="8" fill="#007AFF"/><circle cx="24" cy="19" r="2" fill="white"/><circle cx="32" cy="19" r="2" fill="white"/></svg>', color: '#007AFF', status: 'busy', action: '处理中...', progress: 30, step: 1, totalSteps: 3, messages: 42, tokens: 14 },
+  { id: 'grace', name: 'Grace', role: 'CHO', avatar: '<svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><rect width="56" height="56" rx="0" fill="#FFD60A"/><circle cx="28" cy="20" r="10" fill="#34C759"/><ellipse cx="28" cy="48" rx="16" ry="14" fill="#34C759"/><circle cx="24" cy="19" r="2" fill="white"/><circle cx="32" cy="19" r="2" fill="white"/></svg>', color: '#34C759', status: 'busy', action: '处理中...', progress: 55, step: 1, totalSteps: 3, messages: 1, tokens: 1 },
+  { id: 'emily', name: 'Emily', role: 'CEO助理', avatar: '<svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><rect width="56" height="56" rx="0" fill="#FFD60A"/><circle cx="28" cy="20" r="10" fill="#FF9500"/><ellipse cx="28" cy="48" rx="16" ry="14" fill="#FF9500"/><circle cx="24" cy="19" r="2" fill="white"/><circle cx="32" cy="19" r="2" fill="white"/></svg>', color: '#FF9500', status: 'busy', action: '处理中...', progress: 40, step: 1, totalSteps: 3, messages: 5, tokens: 2 },
+  { id: 'nova', name: 'Nova', role: '测试工程师', avatar: '<svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><rect width="56" height="56" rx="0" fill="#FFD60A"/><circle cx="28" cy="20" r="10" fill="#AF52DE"/><rect x="14" y="34" width="28" height="22" rx="8" fill="#AF52DE"/><circle cx="24" cy="19" r="2" fill="white"/><circle cx="32" cy="19" r="2" fill="white"/></svg>', color: '#AF52DE', status: 'idle', action: '等待任务分配', progress: 0, step: 0, totalSteps: 3, messages: 0, tokens: 0 },
+  { id: 'mike', name: 'Mike', role: 'DevOps', avatar: '<svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><rect width="56" height="56" rx="0" fill="#FFD60A"/><circle cx="28" cy="20" r="10" fill="#00C7BE"/><rect x="14" y="34" width="28" height="22" rx="8" fill="#00C7BE"/><circle cx="24" cy="19" r="2" fill="white"/><circle cx="32" cy="19" r="2" fill="white"/></svg>', color: '#00C7BE', status: 'busy', action: '部署新版本...', progress: 90, step: 2, totalSteps: 3, messages: 41, tokens: 5 },
+  { id: 'lisa', name: 'Lisa', role: '运营', avatar: '<svg viewBox="0 0 56 56" xmlns="http://www.w3.org/2000/svg"><rect width="56" height="56" rx="0" fill="#FFD60A"/><circle cx="28" cy="20" r="10" fill="#FF2D55"/><ellipse cx="28" cy="48" rx="16" ry="14" fill="#FF2D55"/><circle cx="24" cy="19" r="2" fill="white"/><circle cx="32" cy="19" r="2" fill="white"/></svg>', color: '#FF2D55', status: 'idle', action: '查看数据报表', progress: 0, step: 0, totalSteps: 3, messages: 0, tokens: 0 },
+];
+
+const mockTasks = [
+  { id: 1, title: '健康-001-周提醒', assignee: 'lucy', status: 'todo', due: '明天 9:00' },
+  { id: 2, title: 'daily report', assignee: 'gates', status: 'done', due: '已过期' },
+  { id: 3, title: 'API 文档更新', assignee: 'eric', status: 'progress', due: '今天 18:00' },
+  { id: 4, title: 'UI 评审会议', assignee: 'grace', status: 'todo', due: '今天 15:00' },
+];
+
+// ===== 初始化 =====
+async function init() {
+  updateAIStatus('connecting', '连接中...');
+  
+  // 尝试连接 OpenClaw
+  try {
+    await openclaw.connect();
+    updateAIStatus('online', 'AI 在线');
+    await loadOpenClawData();
+    subscribeToEvents();
+  } catch (error) {
+    console.warn('[Office] OpenClaw 连接失败，使用模拟数据:', error.message);
+    updateAIStatus('offline', '离线模式');
+    // 使用模拟数据
+    state.agents = mockAgents;
+    state.tasks = mockTasks;
+    renderAll();
+  }
+  
+  // 定期更新
+  setInterval(() => {
+    if (openclaw.connected) {
+      checkHealth();
+    }
+  }, 30000);
+}
+
+// ===== 加载 OpenClaw 数据 =====
+async function loadOpenClawData() {
+  try {
+    // 获取龙虾列表
+    const agentsResult = await openclaw.agents_list();
+    if (agentsResult && agentsResult.agents) {
+      state.agents = agentsResult.agents.map(a => ({
+        id: a.id || a.agent_id,
+        name: a.name || a.identity?.name || 'Unknown',
+        role: a.role || a.identity?.role || 'AI 助手',
+        avatar: a.avatar || '🦞',
+        color: a.color || '#FF6B35',
+        status: a.status || 'online',
+        action: a.action || '就绪',
+        progress: a.progress || 0
+      }));
+    }
+    
+    // 获取会话列表
+    const sessionsResult = await openclaw.sessions_list();
+    if (sessionsResult && sessionsResult.sessions) {
+      state.sessions = sessionsResult.sessions;
+    }
+    
+    renderAll();
+  } catch (error) {
+    console.error('[Office] 加载数据失败:', error);
+  }
+}
+
+// ===== 订阅事件 =====
+function subscribeToEvents() {
+  // 订阅会话更新
+  openclaw.sessions_subscribe((data) => {
+    addActivity({
+      name: data.agent_name || data.name || 'Unknown',
+      avatar: '🦞',
+      status: data.status || 'online',
+      text: data.action || data.message || '状态更新',
+      time: formatTime(new Date())
+    });
+  });
+  
+  // 监听连接状态
+  openclaw.on('disconnected', () => {
+    updateAIStatus('offline', '连接断开');
+  });
+  
+  openclaw.on('authenticated', () => {
+    updateAIStatus('online', 'AI 在线');
+  });
+}
+
+// ===== 健康检查 =====
+async function checkHealth() {
+  try {
+    const result = await openclaw.health();
+    if (result && result.status === 'ok') {
+      updateAIStatus('online', 'AI 在线');
+    } else {
+      updateAIStatus('error', '异常');
+    }
+  } catch (error) {
+    console.warn('[Office] 健康检查失败:', error);
+  }
+}
+
+// ===== 更新 AI 状态 =====
+function updateAIStatus(status, text) {
+  const dot = document.getElementById('aiStatusDot');
+  const textEl = document.getElementById('aiStatusText');
+  
+  dot.className = 'ai-status-dot ' + status;
+  textEl.textContent = text;
+}
+
+// ===== 渲染函数 =====
+function renderAll() {
+  renderZoneContent();
+  renderActivities();
+  renderTasks();
+  updateStats();
+}
+
+function switchZone(zone) {
+  state.currentZone = zone;
+  
+  // 更新标签状态
+  document.querySelectorAll('.zone-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.zone === zone);
+  });
+  
+  renderZoneContent();
+}
+
+function renderZoneContent() {
+  const content = document.getElementById('mainContent');
+  
+  const chatAgents = state.agents.filter(a => a.status === 'online' || a.status === 'thinking');
+  const workAgents = state.agents.filter(a => a.status === 'busy');
+  const loungeAgents = state.agents.filter(a => a.status === 'idle' || a.status === 'offline');
+  
+  document.getElementById('chatCount').textContent = chatAgents.length;
+  document.getElementById('workCount').textContent = workAgents.length;
+  document.getElementById('loungeCount').textContent = loungeAgents.length;
+  
+  content.innerHTML = `
+    <div class="zone-title" data-zone="chat">
+      <div class="zone-icon" style="background: rgba(0, 122, 255, 0.15); color: #007AFF;">💬</div>
+      <span>对话区</span>
+      <span style="font-size: 14px; color: #86868B; font-weight: normal; margin-left: 8px;">(${chatAgents.length})</span>
+    </div>
+    ${chatAgents.length > 0 ? `<div class="lobster-grid">${chatAgents.map(a => renderLobsterCard(a)).join('')}</div>` : '<div style="padding: 16px; color: #AEAEB2; font-size: 13px;">当前无进行对话</div>'}
+    
+    <div class="zone-title" style="margin-top: 24px;" data-zone="work">
+      <div class="zone-icon" style="background: rgba(255, 149, 0, 0.15); color: #FF9500;">🧑‍💻</div>
+      <span>办公区</span>
+      <span style="font-size: 14px; color: #86868B; font-weight: normal; margin-left: 8px;">(${workAgents.length})</span>
+    </div>
+    ${workAgents.length > 0 ? `<div class="lobster-grid">${workAgents.map(a => renderLobsterCard(a)).join('')}</div>` : '<div style="padding: 16px; color: #AEAEB2; font-size: 13px;">当前无进行任务</div>'}
+    
+    <div class="zone-title" style="margin-top: 24px;" data-zone="lounge">
+      <div class="zone-icon" style="background: rgba(52, 199, 89, 0.15); color: #34C759;">🛋️</div>
+      <span>休闲区</span>
+      <span style="font-size: 14px; color: #86868B; font-weight: normal; margin-left: 8px;">(${loungeAgents.length})</span>
+    </div>
+    ${loungeAgents.length > 0 ? `<div class="lobster-small-grid">${loungeAgents.map(a => renderLobsterCard(a, true)).join('')}</div>` : '<div style="padding: 16px; color: #AEAEB2; font-size: 13px;">暂无空闲龙虾</div>'}
+  `;
+}
+
+function renderLobsterCard(agent, isSmall = false) {
+  const statusText = {
+    online: '在线',
+    thinking: '思考中',
+    busy: '工作中',
+    idle: '空闲',
+    offline: '离线'
+  };
+  const statusColor = {
+    online: '#34C759',
+    thinking: '#007AFF',
+    busy: '#FF9500',
+    idle: '#8E8E93',
+    offline: '#C7C7CC'
+  };
+
+  if (isSmall) {
+    return `
+      <div class="lobster-small-card" onclick="openDrawer('${agent.id}')">
+        <div class="lobster-avatar" style="background: #FFD60A; border: 2px solid #1D1D1F; border-radius: 12px;">
+          ${agent.avatar}
+          <span class="lobster-status-dot" style="background: ${statusColor[agent.status]}; position: absolute; bottom: -2px; right: -2px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></span>
+        </div>
+        <div class="lobster-name" style="font-size: 12px; margin-top: 4px;">${agent.name}</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="lobster-card" onclick="openDrawer('${agent.id}')">
+      <div class="lobster-avatar">
+        ${agent.avatar}
+        <span class="lobster-status-dot" style="background: ${statusColor[agent.status]}; position: absolute; bottom: -2px; right: -2px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></span>
+      </div>
+      <div class="lobster-info" style="flex: 1; min-width: 0;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <div class="lobster-name">${agent.name}</div>
+          <span style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: ${statusColor[agent.status]}20; color: ${statusColor[agent.status]}; font-weight: 500;">${statusText[agent.status]}</span>
+        </div>
+        <div class="lobster-role">${agent.role}</div>
+        <div style="margin-top: 4px; font-size: 12px; color: #86868B;">${agent.action}</div>
+        <div style="margin-top: 6px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <div style="flex: 1; height: 4px; background: rgba(0,0,0,0.06); border-radius: 2px; overflow: hidden;">
+              <div style="height: 100%; width: ${agent.progress}%; background: #FFD60A; border-radius: 2px;"></div>
+            </div>
+            <span style="font-size: 11px; color: #86868B; white-space: nowrap;">${agent.step}/${agent.totalSteps}</span>
+          </div>
+        </div>
+        <div style="margin-top: 4px; font-size: 11px; color: #AEAEB2;">${agent.messages}条 ${agent.tokens}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderActivities() {
+  const list = document.getElementById('activityList');
+  
+  if (state.activities.length === 0) {
+    state.activities = [
+      { name: 'Lucy', avatar: '👩‍💼', status: 'thinking', text: '开始思考产品需求', time: '15:37' },
+      { name: 'Gates', avatar: '👨‍💻', status: 'thinking', text: '优化系统架构', time: '15:36' },
+      { name: 'Cynthia', avatar: '👩‍💼', status: 'online', text: '审核运营报告', time: '15:35' },
+      { name: 'Eric', avatar: '👨‍💻', status: 'busy', text: '部署新版本 v2.3', time: '15:34' },
+      { name: 'Grace', avatar: '👩‍💼', status: 'busy', text: '处理招聘流程', time: '15:33' },
+    ];
+  }
+  
+  list.innerHTML = state.activities.slice(0, 8).map(a => `
+    <div style="display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.04);">
+      <div style="width: 28px; height: 28px; border-radius: 8px; background: #FFD60A; border: 1.5px solid #1D1D1F; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0;">${a.avatar}</div>
+      <div style="flex: 1; min-width: 0;">
+        <div style="font-size: 13px; font-weight: 500;">${a.name}</div>
+        <div style="font-size: 12px; color: #86868B;">${a.text}</div>
+      </div>
+      <div style="font-size: 11px; color: #AEAEB2; white-space: nowrap;">${a.time}</div>
+    </div>
+  `).join('');
+}
+
+function addActivity(activity) {
+  state.activities.unshift(activity);
+  if (state.activities.length > 20) {
+    state.activities.pop();
+  }
+  renderActivities();
+}
+
+function renderTasks() {
+  const list = document.getElementById('taskListPanel');
+  
+  list.innerHTML = state.tasks.slice(0, 6).map(t => {
+    const agent = state.agents.find(a => a.id === t.assignee) || mockAgents[0];
+    const isDone = t.status === 'done';
+    
+    return `
+      <div class="task-panel-item ${isDone ? 'done' : ''}" onclick="toggleTask(${t.id})">
+        <div class="task-checkbox ${isDone ? 'checked' : ''}">${isDone ? '✓' : ''}</div>
+        <div style="flex: 1;">
+          <div class="task-panel-title">${t.title}</div>
+          <div style="display: flex; gap: 8px; margin-top: 4px;">
+            <span style="font-size: 11px; color: var(--apple-text-secondary);">${agent.avatar} ${agent.name}</span>
+            <span class="task-panel-due">${t.due}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function toggleTask(taskId) {
+  const task = state.tasks.find(t => t.id === taskId);
+  if (task) {
+    task.status = task.status === 'done' ? 'todo' : 'done';
+    renderTasks();
+    updateStats();
+  }
+}
+
+function updateStats() {
+  const online = state.agents.filter(a => a.status === 'online' || a.status === 'thinking').length;
+  const working = state.agents.filter(a => a.status === 'busy').length;
+  const idle = state.agents.filter(a => a.status === 'idle').length;
+  const pending = state.tasks.filter(t => t.status === 'todo').length;
+  
+  document.getElementById('statOnline').textContent = online;
+  document.getElementById('statWorking').textContent = working;
+  document.getElementById('statIdle').textContent = idle;
+  document.getElementById('statPending').textContent = pending;
+}
+
+// ===== 抽屉详情面板 =====
+function openDrawer(agentId) {
+  const agent = state.agents.find(a => a.id === agentId);
+  if (!agent) return;
+  
+  state.selectedAgent = agent;
+  
+  document.getElementById('drawerTitle').textContent = `${agent.name} 的详情`;
+  
+  // 渲染成员列表（包含上下文进度）
+  const members = state.agents.slice(0, 4).map(a => `
+    <div class="member-item">
+      <div class="member-avatar" style="background: ${a.color}">${a.avatar}</div>
+      <div class="member-info">
+        <div class="member-name">${a.name}</div>
+        <div class="member-role">${a.role}</div>
+        <div class="context-bar">
+          <div class="context-progress">
+            <span>上下文</span>
+            <div class="context-track">
+              <div class="context-fill" style="width: ${a.progress || 0}%"></div>
+            </div>
+            <span>${a.progress || 0}%</span>
+          </div>
+        </div>
+      </div>
+      <div class="member-status">
+        <span class="status-dot ${a.status}" style="width: 8px; height: 8px;"></span>
+        ${a.status === 'online' ? '在线' : a.status === 'thinking' ? '思考中' : a.status === 'busy' ? '工作中' : '空闲'}
+      </div>
+      <button class="member-config-btn" onclick="event.stopPropagation(); openConfigPanel('${a.id}')">⚙️</button>
+    </div>
+  `).join('');
+  
+  // 配置文件树
+  const configTree = `
+    <div class="config-section">
+      <div class="config-section-title">📂 配置文件</div>
+      <div class="config-tree">
+        <div class="config-item" onclick="toggleFolder('basic')">
+          <span>📁</span><span class="name">${agent.name}/</span>
+        </div>
+        <div class="config-folder" id="folder-basic">
+          <div class="config-item" onclick="openEditor('SOUL.md', '# SoloBrave AI\\n\\n你是一个智能助手...')">
+            <span>📄</span><span class="name">SOUL.md</span>
+            <button class="edit-btn">编辑</button>
+          </div>
+          <div class="config-item" onclick="openEditor('IDENTITY.md', '# 身份设定\\n\\n名称: ${agent.name}\\n角色: ${agent.role}')">
+            <span>📄</span><span class="name">IDENTITY.md</span>
+            <button class="edit-btn">编辑</button>
+          </div>
+          <div class="config-item" onclick="openEditor('USER.md', '# 用户设定\\n\\n默认用户配置...')">
+            <span>📄</span><span class="name">USER.md</span>
+            <button class="edit-btn">编辑</button>
+          </div>
+          <div class="config-item" onclick="openEditor('TOOLS.md', '# 工具列表\\n\\n可用工具...')">
+            <span>📄</span><span class="name">TOOLS.md</span>
+            <button class="edit-btn">编辑</button>
+          </div>
+        </div>
+        <div class="config-item" onclick="toggleFolder('skills')">
+          <span>📁</span><span class="name">技能/</span>
+        </div>
+        <div class="config-folder collapsed" id="folder-skills">
+          <div class="config-item"><span>📄</span><span class="name">skill-1.md</span></div>
+          <div class="config-item"><span>📄</span><span class="name">skill-2.md</span></div>
+        </div>
+        <div class="config-item" onclick="toggleFolder('channels')">
+          <span>📁</span><span class="name">渠道/</span>
+        </div>
+        <div class="config-folder collapsed" id="folder-channels">
+          <div class="config-item"><span>📄</span><span class="name">channel-web.md</span></div>
+          <div class="config-item"><span>📄</span><span class="name">channel-api.md</span></div>
+        </div>
+        <div class="config-item" onclick="openEditor('config.json', '{\\n  "agent_id": "${agent.id}",\\n  "model": "gpt-4"\\n}')">
+          <span>📄</span><span class="name">config.json</span>
+          <button class="edit-btn">编辑</button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.getElementById('drawerContent').innerHTML = `
+    <div class="config-section">
+      <div class="config-section-title">👥 成员列表</div>
+      ${members}
+    </div>
+    <div style="margin-top: 16px;">
+      <div class="config-section-title">📅 今日日程</div>
+      <div style="background: rgba(0,0,0,0.02); border-radius: 12px; padding: 12px;">
+        <div style="font-size: 13px; color: var(--apple-text-secondary);">
+          今日: <strong style="color: var(--apple-text);">${state.tasks.filter(t => t.status === 'todo').length}</strong> 个待办
+        </div>
+      </div>
+    </div>
+    ${configTree}
+  `;
+  
+  document.getElementById('drawerOverlay').classList.add('open');
+}
+
+function closeDrawer() {
+  document.getElementById('drawerOverlay').classList.remove('open');
+  state.selectedAgent = null;
+}
+
+function toggleFolder(folderId) {
+  const folder = document.getElementById(`folder-${folderId}`);
+  if (folder) {
+    folder.classList.toggle('collapsed');
+  }
+}
+
+// ===== 文件编辑器 =====
+function openEditor(filename, content) {
+  state.editingFile = {
+    filename: filename,
+    agentId: state.selectedAgent?.id
+  };
+  
+  document.getElementById('editorTitle').textContent = filename;
+  document.getElementById('editorTextarea').value = content || '';
+  document.getElementById('editorModal').classList.add('open');
+}
+
+function closeEditor() {
+  document.getElementById('editorModal').classList.remove('open');
+  state.editingFile = null;
+}
+
+async function saveFile() {
+  const content = document.getElementById('editorTextarea').value;
+  const file = state.editingFile;
+  
+  if (!file) return;
+  
+  showToast('💾 正在保存...');
+  
+  try {
+    if (openclaw.connected && file.agentId) {
+      // 调用 OpenClaw API 更新配置
+      await openclaw.agent_update(file.agentId, {
+        [file.filename]: content
+      });
+    }
+    
+    showToast('✅ 保存成功');
+    closeEditor();
+  } catch (error) {
+    console.error('[Office] 保存失败:', error);
+    showToast('❌ 保存失败: ' + error.message);
+  }
+}
+
+// ===== 操作函数 =====
+async function restartGateway() {
+  showToast('🔄 正在重启网关...');
+  
+  try {
+    if (openclaw.connected) {
+      await openclaw.gateway_restart();
+    }
+    showToast('✅ 网关重启成功');
+  } catch (error) {
+    console.warn('[Office] 重启网关失败:', error);
+    showToast('⚠️ 重启请求已发送');
+  }
+}
+
+function openCoreConfig() {
+  showToast('⚙️ 核心配置面板开发中...');
+}
+
+function openModelConfig() {
+  showToast('🤖 打开模型配置...');
+}
+
+function openConfigPanel(agentId) {
+  openDrawer(agentId);
+}
+
+// ===== Toast 提示 =====
+function showToast(msg) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transition = 'opacity 0.3s';
+    setTimeout(() => toast.remove(), 300);
+  }, 2000);
+}
+
+// ===== 辅助函数 =====
+function formatTime(date) {
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  return `${hours}:${minutes}`;
+}
+
+// ===== 启动 =====
+document.addEventListener('DOMContentLoaded', init);
+
+// 键盘事件
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeDrawer();
+    closeEditor();
+  }
+});
+
+// 模拟实时动态（当离线时）
+setInterval(() => {
+  if (!openclaw.connected && state.agents.length > 0) {
+    const agent = state.agents[Math.floor(Math.random() * state.agents.length)];
+    const statuses = [
+      { status: 'online', text: '在线' },
+      { status: 'thinking', text: '思考中...' },
+      { status: 'done', text: '任务完成' },
+      { status: 'idle', text: '空闲中' }
+    ];
+    const st = statuses[Math.floor(Math.random() * statuses.length)];
+    
+    addActivity({
+      name: agent.name,
+      avatar: agent.avatar,
+      status: st.status,
+      text: st.text,
+      time: '刚刚'
+    });
+  }
+}, 8000);
+</script>
+
+</body>
+</html>
