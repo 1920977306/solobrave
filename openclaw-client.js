@@ -390,5 +390,6 @@ class OpenClawClient {
   }
 }
 
-// 创建全局实例
+// 创建全局实例（不自动连接，等认证协议修好后再开启）
 const openclaw = new OpenClawClient();
+console.log('[OpenClaw] 客户端已创建，mock模式运行中。输入 openclaw.connect() 可尝试真实连接');

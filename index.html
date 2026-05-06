@@ -2988,7 +2988,7 @@ if(e.key==='ArrowDown'){e.preventDefault();if(slashActive)navigateSlash(1);else 
 if(e.key==='ArrowUp'){e.preventDefault();if(slashActive)navigateSlash(-1);else if(mentionMode)selectMention(-1);}
 });
 document.getElementById('msgInput').addEventListener('input',handleInput);
-document.getElementById('mentionBtn').addEventListener('click',()=>{showMention();});
+document.getElementById('mentionBtn')?.addEventListener('click',()=>{showMention();});
 document.querySelectorAll('.mention-item').forEach(i=>i.addEventListener('click',()=>pickMention(i.dataset.id)));
 document.querySelectorAll('.drawer-tab').forEach(t=>t.addEventListener('click',()=>switchDrawerTab(t.dataset.tab)));
 document.addEventListener('click',e=>{
