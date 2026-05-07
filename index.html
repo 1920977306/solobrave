@@ -2522,74 +2522,62 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 // ========== 工具函数 ==========
 // ========== Phase 2: 权限控制 ==========
+var projects = [];
 var currentUser = null;
 var authToken = localStorage.getItem('sb_auth_token') || null;
 
 // 统一 API 请求（带认证 token）
 async function apiFetch(url, options = {}) {
-  if (!options.headers) options.headers = {};
-  options.headers['Content-Type'] = 'application/json';
   const token = localStorage.getItem('sb_auth_token');
-  if (token && token.indexOf('mock_') !== 0) {
-    options.headers['Authorization'] = 'Bearer ' + token;
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+  if (token && token !== 'null' && token !== 'local_mode') {
+    headers['Authorization'] = 'Bearer ' + token;
   }
   try {
-    const res = await fetch(url, options);
-    if (res.status === 401) {
-      // token 过期
-      currentUser = null;
-      authToken = null;
-      localStorage.removeItem('sb_auth_token');
-      localStorage.removeItem('sb_current_user');
-      showLogin();
-      throw new Error('未登录');
+    const resp = await fetch(url, { ...options, headers });
+    if (resp.status === 401) {
+      // token 过期，跳转登录
+      doLogout();
+      return null;
     }
-    return res;
+    return resp;
   } catch (e) {
-    if (e.message === '未登录') throw e;
-    console.warn('API请求失败:', e);
-    return null; // 后端没启动
+    console.error('API 请求失败:', e);
+    return null;
   }
 }
 
 // 检查认证状态
-function checkAuth() {
-  var token = localStorage.getItem('sb_auth_token');
+async function checkAuth() {
   var savedUser = localStorage.getItem('sb_current_user');
+  var savedToken = localStorage.getItem('sb_auth_token');
 
-  if (!token) {
-    showLogin();
-    return;
+  if (savedUser && savedToken && savedToken !== 'local_mode') {
+    try {
+      // 验证 token 是否仍然有效
+      const resp = await apiFetch('/api/auth/me');
+      if (resp && resp.ok) {
+        const data = await resp.json();
+        currentUser = data.user || JSON.parse(savedUser);
+        authToken = savedToken;
+        showMainApp();
+        return;
+      }
+    } catch (e) {
+      console.log('Token 验证失败', e);
+    }
+  } else if (savedUser && savedToken === 'local_mode') {
+    // 本地模式直接恢复
+    try {
+      currentUser = JSON.parse(savedUser);
+      authToken = savedToken;
+      showMainApp();
+      return;
+    } catch (e) {}
   }
 
-  // 如果是 mock token，清除并重新登录
-  if (token.indexOf('mock_') === 0) {
-    localStorage.removeItem('sb_auth_token');
-    localStorage.removeItem('sb_current_user');
-    showLogin();
-    return;
-  }
-
-  // 真实 token，验证有效性
-  fetch('/api/auth/me', {
-    headers: { 'Authorization': 'Bearer ' + token }
-  })
-  .then(function(res) {
-    if (res.ok) return res.json();
-    throw new Error('token无效');
-  })
-  .then(function(user) {
-    currentUser = user;
-    authToken = token;
-    localStorage.setItem('sb_current_user', JSON.stringify(currentUser));
-    showMainApp();
-  })
-  .catch(function() {
-    // token 无效，清掉重来
-    localStorage.removeItem('sb_auth_token');
-    localStorage.removeItem('sb_current_user');
-    showLogin();
-  });
+  // 没有有效登录，显示登录页
+  showLogin();
 }
 
 function showLogin() {
@@ -2611,7 +2599,7 @@ function showMainApp() {
 }
 
 // 登录
-function doLogin() {
+async function doLogin() {
   var username = document.getElementById('loginUsername').value.trim();
   var password = document.getElementById('loginPassword').value;
   var errorDiv = document.getElementById('loginError');
@@ -2622,20 +2610,29 @@ function doLogin() {
     return;
   }
 
-  // 调用后端 API 登录
-  fetch('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: username, password: password })
-  })
-  .then(function(res) { return res.json(); })
-  .then(function(data) {
-    if (data.token) {
-      // 登录成功
+  try {
+    const resp = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+
+    const data = await resp.json();
+
+    if (data.success && data.token) {
+      currentUser = {
+        id: data.user.id,
+        username: data.user.username,
+        name: data.user.name || data.user.username,
+        displayName: data.user.name || data.user.username,
+        role: data.user.role || 'employee',
+        avatar: data.user.avatar || 0,
+        createdAt: data.user.createdAt
+      };
       authToken = data.token;
-      currentUser = data.user;
-      localStorage.setItem('sb_auth_token', authToken);
       localStorage.setItem('sb_current_user', JSON.stringify(currentUser));
+      localStorage.setItem('sb_auth_token', data.token);
+
       errorDiv.style.display = 'none';
       showMainApp();
       showToast('✅ 登录成功，欢迎 ' + (currentUser.displayName || currentUser.name || currentUser.username));
@@ -2643,30 +2640,30 @@ function doLogin() {
       // 检查是否需要迁移本地数据
       checkLocalMigration();
     } else {
-      // 登录失败
-      errorDiv.textContent = data.error || '用户名或密码错误';
+      errorDiv.textContent = data.error || '登录失败，请检查用户名和密码';
       errorDiv.style.display = 'block';
     }
-  })
-  .catch(function(e) {
+  } catch (e) {
     // 后端未启动，降级到本地模式
-    console.warn('后端未就绪，使用本地模式');
+    console.warn('后端不可用，降级到本地模式', e);
     var isAdminUser = (username === 'admin');
     currentUser = {
-      id: 'local_admin',
+      id: 'local_' + Date.now(),
       username: username,
       name: isAdminUser ? '管理员' : username,
       displayName: isAdminUser ? '管理员' : username,
       role: isAdminUser ? 'admin' : 'employee',
-      avatar: 0
+      avatar: isAdminUser ? 0 : 1,
+      createdAt: new Date().toISOString()
     };
-    authToken = 'mock_' + Date.now();
-    localStorage.setItem('sb_auth_token', authToken);
+    authToken = 'local_mode';
     localStorage.setItem('sb_current_user', JSON.stringify(currentUser));
+    localStorage.setItem('sb_auth_token', 'local_mode');
+
     errorDiv.style.display = 'none';
     showMainApp();
     showToast('⚠️ 后端未连接，使用本地模式');
-  });
+  }
 }
 
 // 退出
@@ -2689,7 +2686,7 @@ function isEmployee() {
 }
 
 function isLocalMode() {
-  return !authToken || authToken.indexOf('mock_') === 0;
+  return !authToken || authToken === 'local_mode';
 }
 
 // 应用权限控制
@@ -4947,7 +4944,7 @@ Notification.requestPermission();
 // 更新统计卡片
 function updateStats(){
 const employeeCount=emps.length;
-const projectCount=projects.length;
+const projectCount=(typeof projects!=='undefined'?projects.length:0);
 const taskCount=(tasksData['待办']||[]).length+(tasksData['进行中']||[]).length;
 const messageCount=emps.filter(e=>e.unread>0).length;
 document.getElementById('statEmployeeCount').textContent=employeeCount;
@@ -5027,7 +5024,7 @@ const lowerQ=q.toLowerCase();
 const items=[];
 emps.forEach(emp=>{if(emp.name.toLowerCase().includes(lowerQ)||emp.role?.toLowerCase().includes(lowerQ))items.push({type:'员工',name:emp.name,desc:emp.role||'员工',icon:renderAvatar(emp, 24),action:()=>openEmpDetail(emp.id)});});
 Object.keys(tasksData).forEach(status=>{tasksData[status].forEach(t=>{if(t.title.toLowerCase().includes(lowerQ))items.push({type:'任务',name:t.title,desc:t.assignee||status,icon:'📋',action:()=>{toggleTaskBoard();}});});});
-if(projects.length)projects.forEach(p=>{if(p.name.toLowerCase().includes(lowerQ))items.push({type:'项目',name:p.name,desc:p.members?.length+'个成员',icon:'📁',action:()=>openProject(p.id)});});
+if(typeof projects!=='undefined'&&projects.length)projects.forEach(p=>{if(p.name.toLowerCase().includes(lowerQ))items.push({type:'项目',name:p.name,desc:p.members?.length+'个成员',icon:'📁',action:()=>openProject(p.id)});});
 results.innerHTML=items.length?items.map((i,idx)=>`<div class="search-result-item" onclick="this.dataset.action&&(${i.action})();closeGlobalSearch();" data-action="${escapeAttr(i.action||'')}">
 <div class="search-result-icon">${escapeHtml(i.icon||'')}</div>
 <div class="search-result-info"><div class="search-result-name">${escapeHtml(i.name||'')}</div><div class="search-result-desc">${escapeHtml(i.type||'')} · ${escapeHtml(i.desc||'')}</div></div>
@@ -5299,7 +5296,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': authToken && authToken.indexOf('mock_') !== 0 ? 'Bearer ' + authToken : '',
+      'Authorization': authToken && authToken !== 'local_mode' ? 'Bearer ' + authToken : '',
       'X-AI-API-Key': apiKey
     },
     body: JSON.stringify({
