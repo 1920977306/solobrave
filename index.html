@@ -2162,6 +2162,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <div class="provider-opt-name">智谱</div>
 <div class="provider-opt-desc">GLM-4</div>
 </button>
+<button class="provider-opt" data-provider="openclaw" onclick="selectEmpProvider(this,'openclaw')">
+<div class="provider-opt-icon">🦞</div>
+<div class="provider-opt-name">OpenClaw</div>
+<div class="provider-opt-desc">龙虾网关</div>
+</button>
 </div>
 </div>
 <div style="margin-top:12px;">
@@ -2834,12 +2839,21 @@ function sendMsg(){
   
   // 三级降级：OpenClaw WS → API 直连 → Mock
   var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
+  var empWantsOpenClaw = emp.apiProvider === 'openclaw';
   if(ocOk){
     // 优先走 OpenClaw WS
     console.log('[Chat] 使用 OpenClaw WS 发送');
     sendViaOpenClaw(emp, text, docContext, timeStr);
+  } else if(empWantsOpenClaw){
+    // 想用 OpenClaw 但连不上
+    setTimeout(function(){
+      var t = document.getElementById('typingMsg');
+      if(t) t.remove();
+      displayAIReply('⚠️ OpenClaw 网关未连接，请检查 Gateway 是否运行。', docContext, timeStr);
+      saveChatHistory(text, '⚠️ OpenClaw 网关未连接', docContext);
+    }, 500);
   } else if(emp.apiKey && emp.apiProvider && emp.apiProvider !== 'mock'){
-    console.log('[Chat] OpenClaw 未连接(connected:', typeof openclaw !== 'undefined' && openclaw.connected, 'authenticated:', typeof openclaw !== 'undefined' && openclaw.authenticated, ')，降级到 API');
+    console.log('[Chat] OpenClaw 未连接，降级到 API');
     sendViaAPI(emp, text, docContext, timeStr);
   } else {
     // Mock 回复（无真实 AI 连接时）
@@ -3066,6 +3080,14 @@ const API_PROVIDERS = {
     models: ['glm-4', 'glm-4-flash', 'glm-3-turbo'],
     defaultModel: 'glm-4',
     keyPlaceholder: '...'
+  },
+  openclaw: {
+    name: 'OpenClaw',
+    icon: '🦞',
+    baseUrl: '',
+    models: [],
+    defaultModel: 'kimi-code',
+    keyPlaceholder: '自动连接 Gateway，无需 API Key'
   },
   custom: {
     name: '自定义',
@@ -4825,6 +4847,19 @@ function selectEmpProvider(el,providerId){
   document.querySelectorAll('#empConnectProviders .provider-opt').forEach(function(o){o.classList.remove('selected');});
   el.classList.add('selected');
   empSelectedConnectProvider=providerId;
+
+  // OpenClaw 不需要 API Key
+  var apiKeyInput = document.getElementById('empConnectApiKey');
+  var apiKeySection = apiKeyInput ? apiKeyInput.parentElement : null;
+  if(providerId === 'openclaw'){
+    if(apiKeyInput) apiKeyInput.value = '';
+    if(apiKeyInput) apiKeyInput.placeholder = '无需 API Key，通过 Gateway 连接';
+    if(apiKeySection) apiKeySection.style.opacity = '0.4';
+  } else {
+    var provider = API_PROVIDERS[providerId];
+    if(apiKeyInput) apiKeyInput.placeholder = provider ? (provider.keyPlaceholder || '输入 API Key...') : '输入 API Key...';
+    if(apiKeySection) apiKeySection.style.opacity = '1';
+  }
 
   // 填充模型下拉
   var modelSelect=document.getElementById('empConnectModel');
