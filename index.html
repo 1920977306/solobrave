@@ -436,7 +436,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 /* Avatar Grid */
 .avatar-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 16px; }
-.avatar-option { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; background: var(--bg-secondary); }
+.avatar-option { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; background: var(--bg-secondary); overflow: hidden; }
 .avatar-option:hover { transform: scale(1.1); border-color: var(--accent); }
 .avatar-option.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-light); }
 .color-picker { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
@@ -1918,32 +1918,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <div class="emp-tab-pane" id="emp-tab-avatar">
 <div class="emp-doc-section">
 <div class="emp-doc-title">选择头像</div>
-<div class="avatar-grid" id="avatarGrid">
-<div class="avatar-option selected" data-avatar="🦞" data-color="#FF6B35" onclick="selectAvatar(this)">🦞</div>
-<div class="avatar-option" data-avatar="👨‍💼" data-color="#007AFF" onclick="selectAvatar(this)">👨‍💼</div>
-<div class="avatar-option" data-avatar="👩‍💻" data-color="#AF52DE" onclick="selectAvatar(this)">👩‍💻</div>
-<div class="avatar-option" data-avatar="🧙" data-color="#FF9500" onclick="selectAvatar(this)">🧙</div>
-<div class="avatar-option" data-avatar="🦊" data-color="#FF2D55" onclick="selectAvatar(this)">🦊</div>
-<div class="avatar-option" data-avatar="🐱" data-color="#5856D6" onclick="selectAvatar(this)">🐱</div>
-<div class="avatar-option" data-avatar="🐶" data-color="#34C759" onclick="selectAvatar(this)">🐶</div>
-<div class="avatar-option" data-avatar="🐰" data-color="#FF6B8A" onclick="selectAvatar(this)">🐰</div>
-<div class="avatar-option" data-avatar="🐼" data-color="#1C1C1E" onclick="selectAvatar(this)">🐼</div>
-<div class="avatar-option" data-avatar="🦁" data-color="#FFCC00" onclick="selectAvatar(this)">🦁</div>
-<div class="avatar-option" data-avatar="🐯" data-color="#FF6B00" onclick="selectAvatar(this)">🐯</div>
-<div class="avatar-option" data-avatar="🦄" data-color="#00C7BE" onclick="selectAvatar(this)">🦄</div>
-<div class="avatar-option" data-avatar="🤖" data-color="#8E8E93" onclick="selectAvatar(this)">🤖</div>
-<div class="avatar-option" data-avatar="👻" data-color="#FFFFFF" onclick="selectAvatar(this)">👻</div>
-<div class="avatar-option" data-avatar="🎅" data-color="#D63031" onclick="selectAvatar(this)">🎅</div>
-<div class="avatar-option" data-avatar="🧛" data-color="#6C5CE7" onclick="selectAvatar(this)">🧛</div>
-<div class="avatar-option" data-avatar="🦸" data-color="#0984E3" onclick="selectAvatar(this)">🦸</div>
-<div class="avatar-option" data-avatar="🧝" data-color="#00B894" onclick="selectAvatar(this)">🧝</div>
-<div class="avatar-option" data-avatar="🧟" data-color="#636E72" onclick="selectAvatar(this)">🧟</div>
-<div class="avatar-option" data-avatar="🎃" data-color="#E17055" onclick="selectAvatar(this)">🎃</div>
-<div class="avatar-option" data-avatar="🤡" data-color="#FDCB6E" onclick="selectAvatar(this)">🤡</div>
-<div class="avatar-option" data-avatar="🦎" data-color="#00B894" onclick="selectAvatar(this)">🦎</div>
-<div class="avatar-option" data-avatar="🦋" data-color="#D63031" onclick="selectAvatar(this)">🦋</div>
-<div class="avatar-option" data-avatar="🌟" data-color="#FDCB6E" onclick="selectAvatar(this)">🌟</div>
-</div>
+<div class="avatar-grid" id="avatarGrid"></div>
 </div>
 <div class="emp-doc-section">
 <div class="emp-doc-title">自定义颜色</div>
@@ -3963,7 +3938,7 @@ document.getElementById('drawerOverlay').classList.add('open');
 drawerOpen=true;
 }
 // Employee Detail Panel
-let currentEmpId=null;
+var currentEmpId=null;
 function openEmpDetail(empId){
 const emp=emps.find(e=>e.id===empId);
 if(!emp)return;
@@ -3988,8 +3963,16 @@ document.getElementById('empIdDoc').value=emp.idDoc||'';
 document.getElementById('empSoulDoc').value=emp.soulDoc||'';
 document.getElementById('empToolsDoc').value=emp.toolsDoc||'';
 document.getElementById('empUserDoc').value=emp.userDoc||'';
-// Update avatar selection
-document.querySelectorAll('.avatar-option').forEach(a=>a.classList.toggle('selected',a.dataset.avatar===(emp.avatar||'🦞')));
+// Render avatar grid with AVATAR_PRESETS
+var avatarGrid=document.getElementById('avatarGrid');
+if(avatarGrid&&typeof AVATAR_PRESETS!=='undefined'){
+  var avatarHtml='';
+  for(var i=0;i<AVATAR_PRESETS.length;i++){
+    var isSelected=i===(emp.avatar||0)?' selected':'';
+    avatarHtml+='<div class="avatar-option'+isSelected+'" data-avatar="'+i+'" onclick="selectAvatar(this)"><img src="'+AVATAR_PRESETS[i]+'" style="width:40px;height:40px;border-radius:50%;object-fit:cover;"></div>';
+  }
+  avatarGrid.innerHTML=avatarHtml;
+}
 document.getElementById('empDetailOverlay').classList.add('open');
 switchEmpDetailTab('basic');
 }
@@ -4162,12 +4145,11 @@ if(tab==='memory'&&currentEmpId){
 renderMemory('core');
 }
 }
-let selectedAvatar='',selectedColor='';
+var selectedAvatar='',selectedColor='';
 function selectAvatar(el){
 document.querySelectorAll('.avatar-option').forEach(a=>a.classList.remove('selected'));
 el.classList.add('selected');
-selectedAvatar=el.dataset.avatar;
-selectedColor=el.dataset.color;
+selectedAvatar=parseInt(el.dataset.avatar);
 }
 function selectColor(color){
 document.querySelectorAll('.color-option').forEach(c=>c.style.boxShadow='none');
@@ -4178,7 +4160,7 @@ function saveEmpAvatar(){
 if(!currentEmpId)return;
 const emp=emps.find(e=>e.id===currentEmpId);
 if(emp){
-if(selectedAvatar)emp.avatar=selectedAvatar;
+if(typeof selectedAvatar==='number')emp.avatar=selectedAvatar;
 if(selectedColor){emp.color=selectedColor;emp.bg=selectedColor;}
 saveEmployees();
 document.getElementById('empDetailAvatar').innerHTML=renderAvatar(emp, 80);
