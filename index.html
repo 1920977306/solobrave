@@ -5634,7 +5634,7 @@ function selectWizProvider(el,providerId){
   var modelSelect=document.getElementById('wizModelSelect');
   var customGroup=document.getElementById('wizCustomEndpointGroup');
   
-  if(providerId==='mock'){
+  if(providerId==='mock' || providerId==='openclaw'){
     modelGroup.style.display='none';
     customGroup.style.display='none';
   } else if(providerId==='custom'){
@@ -6804,7 +6804,7 @@ function checkQuota() {
   </div>
 </div>
 
-<script src="avatars.js"></script>
-<script src="openclaw-client.js"></script>
+<script src="avatars.js?v=1778166504"></script>
+<script src="openclaw-client.js?v=1778166504"></script>
 </body>
 </html>
