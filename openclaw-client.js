@@ -43,6 +43,7 @@ class OpenClawClient {
 
       try {
         this._clearReconnectTimer();
+        this._connectContext = { challengeTimeout, resolve, reject };
         this.ws = new WebSocket(this.url);
         
         // 等待 challenge 的超时
@@ -60,7 +61,7 @@ class OpenClawClient {
           this.emit('connected');
           
           // 立即发送认证（不再等 challenge）
-          this._sendConnectImmediate(context);
+          this._sendConnectImmediate(this._connectContext);
         };
 
         this.ws.onmessage = (event) => {
