@@ -2801,14 +2801,19 @@ function sendMsg(){
   const timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
   const emp = getCurrentEmployeeInfo();
   
+  // 清除空状态提示
+  const emptyState = area.querySelector('.chat-empty-state');
+  if(emptyState) emptyState.remove();
+  // 清除旧的 time-separator 如果存在
+  const oldSep = area.querySelector('.time-separator');
+  if(!oldSep){
+    area.insertAdjacentHTML('afterbegin','<div class="time-separator"><span>今天</span></div>');
+  }
+  
   // 添加用户消息
   const userMsg = document.createElement('div');
   userMsg.className = 'msg own';
-  userMsg.innerHTML = `
-    <div class="msg-content">
-      <div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">${timeStr}</span></div>
-      <div class="msg-bubble">${escapeHtml(text)}</div>
-    </div>`;
+  userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">'+timeStr+'</span></div><div class="msg-bubble">'+escapeHtml(text)+'</div></div>';
   area.appendChild(userMsg);
   
   input.value = '';
@@ -2825,25 +2830,61 @@ function sendMsg(){
   // 获取文档上下文
   const docContext = getDocContextForChat();
   
-  // 优先走 API，没有 Key 就走 mock
-  if(emp.apiKey && emp.apiProvider && emp.apiProvider !== 'mock'){
+  // 三级降级：OpenClaw WS → API 直连 → Mock
+  if(typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated){
+    // 优先走 OpenClaw WS
+    sendViaOpenClaw(emp, text, docContext, timeStr);
+  } else if(emp.apiKey && emp.apiProvider && emp.apiProvider !== 'mock'){
     sendViaAPI(emp, text, docContext, timeStr);
   } else {
-    // Mock 回复
+    // Mock 回复（无真实 AI 连接时）
     setTimeout(function(){
       var t = document.getElementById('typingMsg');
       if(t) t.remove();
-      var simReplies = [
-        '收到，我来处理一下这个任务。',
-        '好的，我理解了你的需求，马上开始执行。',
-        '明白了，让我分析一下这个问题...',
-        '没问题，我会尽快完成。',
-        '了解了，我这边开始处理，预计很快就好。'
-      ];
-      var simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
+      var simReply = '⚠️ 未连接 AI 服务。请先连接 OpenClaw 网关或配置 API Key。';
       displayAIReply(simReply, docContext, timeStr);
       saveChatHistory(text, simReply, docContext);
-    }, 800 + Math.random() * 1200);
+    }, 500);
+  }
+}
+
+// 通过 OpenClaw WS 发送消息
+async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
+  try {
+    var sessionKey = 'agent:' + (emp.openclawName || emp.id) + ':main';
+    var systemPrompt = '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。';
+    if(emp.systemPrompt) systemPrompt += '\n\n' + emp.systemPrompt;
+    
+    // 监听回复事件
+    var replyHandler = function(data){
+      var t = document.getElementById('typingMsg');
+      if(t) t.remove();
+      var reply = '';
+      if(data && data.content){
+        if(Array.isArray(data.content)){
+          reply = data.content.map(function(c){ return c.text || ''; }).join('');
+        } else if(typeof data.content === 'string'){
+          reply = data.content;
+        }
+      }
+      if(!reply) reply = '（AI 未返回内容）';
+      displayAIReply(reply, docContext, timeStr);
+      saveChatHistory(userMessage, reply, docContext);
+      openclaw.off('chat.message', replyHandler);
+    };
+    openclaw.on('chat.message', replyHandler);
+    
+    var result = await openclaw.sendChat(sessionKey, userMessage);
+    // 如果 sendChat 直接返回了结果（非流式）
+    if(result && result.content){
+      replyHandler(result);
+    }
+    // 否则等待 chat.message 事件（流式）
+  } catch(e){
+    console.error('[OpenClaw] 发送失败:', e);
+    var t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    displayAIReply('⚠️ OpenClaw 连接异常: ' + e.message, docContext, timeStr);
   }
 }
 
@@ -4961,10 +5002,10 @@ const employeeCount=emps.length;
 const projectCount=(typeof projects!=='undefined'?projects.length:0);
 const taskCount=(tasksData['待办']||[]).length+(tasksData['进行中']||[]).length;
 const messageCount=emps.filter(e=>e.unread>0).length;
-document.getElementById('statEmployeeCount').textContent=employeeCount;
-document.getElementById('statProjectCount').textContent=projectCount;
-document.getElementById('statTaskCount').textContent=taskCount;
-document.getElementById('statMessageCount').textContent=messageCount;
+var sec=document.getElementById('statEmployeeCount');if(sec)sec.textContent=employeeCount;
+var spc=document.getElementById('statProjectCount');if(spc)spc.textContent=projectCount;
+var stc=document.getElementById('statTaskCount');if(stc)stc.textContent=taskCount;
+var smc=document.getElementById('statMessageCount');if(smc)smc.textContent=messageCount;
 }
 
 // 快捷操作函数
