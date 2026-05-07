@@ -4841,24 +4841,22 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
     {role: 'user', content: userMessage}
   ];
   
-  var endpoint = baseUrl + '/chat/completions';
+  var targetUrl = baseUrl + '/chat/completions';
+  var proxyUrl = window.location.origin + '/api/proxy';
   
-  // 智谱 API 路径不同
-  if(emp.apiProvider === 'zhipu'){
-    endpoint = baseUrl + '/chat/completions';
-  }
-  
-  fetch(endpoint, {
+  fetch(proxyUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + apiKey
+      'Authorization': 'Bearer ' + apiKey,
+      'X-Target-URL': targetUrl
     },
     body: JSON.stringify({
       model: model,
       messages: messages,
       temperature: 0.8,
-      max_tokens: 2000
+      max_tokens: 2000,
+      stream: false
     })
   }).then(function(res){
     var t = document.getElementById('typingMsg');
@@ -4889,7 +4887,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
     if(t) t.remove();
     
     if(error.message && (error.message.indexOf('Failed to fetch') >= 0 || error.message.indexOf('NetworkError') >= 0 || error.message.indexOf('CORS') >= 0)){
-      displayAIReply('⚠️ 网络/CORS 错误\n\n浏览器直接调用 API 会遇到 CORS 限制。\n当前使用模拟回复，后续可通过后端代理解决。', docContext, timeStr);
+      displayAIReply('⚠️ 网络/代理错误\n\n无法连接到代理服务器。\n请确保 solobrave-server.py 正在运行。', docContext, timeStr);
       // CORS 错误时 fallback 到 mock
       setTimeout(function(){
         var simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
