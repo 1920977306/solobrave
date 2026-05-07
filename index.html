@@ -2027,9 +2027,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <div style="font-weight:600;margin-bottom:8px;font-size:13px;">供应商</div>
 <div id="empConnectProviders" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
 <button class="provider-opt" data-provider="mock" onclick="selectEmpProvider(this,'mock')">
-<div class="provider-opt-icon">🎭</div>
-<div class="provider-opt-name">Mock</div>
-<div class="provider-opt-desc">本地模拟</div>
+<div class="provider-opt-icon">⏸️</div>
+<div class="provider-opt-name">未配置</div>
+<div class="provider-opt-desc">暂不使用 AI</div>
 </button>
 <button class="provider-opt" data-provider="openai" onclick="selectEmpProvider(this,'openai')">
 <div class="provider-opt-icon">🤖</div>
@@ -2448,25 +2448,14 @@ function sendMsg(){
   // 获取文档上下文
   const docContext = getDocContextForChat();
   
-  // 优先走 API，没有 Key 就走 mock
+  // 始终走 API，未配置时显示错误提示
   if(emp.apiKey && emp.apiProvider && emp.apiProvider !== 'mock'){
     sendViaAPI(emp, text, docContext, timeStr);
   } else {
-    // Mock 回复
-    setTimeout(function(){
-      var t = document.getElementById('typingMsg');
-      if(t) t.remove();
-      var simReplies = [
-        '收到，我来处理一下这个任务。',
-        '好的，我理解了你的需求，马上开始执行。',
-        '明白了，让我分析一下这个问题...',
-        '没问题，我会尽快完成。',
-        '了解了，我这边开始处理，预计很快就好。'
-      ];
-      var simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
-      displayAIReply(simReply, docContext, timeStr);
-      saveChatHistory(text, simReply, docContext);
-    }, 800 + Math.random() * 1200);
+    // 未配置 API Key，显示明确提示
+    var t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    displayAIReply('⚠️ 请先在员工详情→连接中配置 API Key 和供应商', docContext, timeStr);
   }
 }
 
@@ -3181,6 +3170,8 @@ function openChat(id){
 document.querySelectorAll('.list-item').forEach(i=>i.classList.remove('active'));
 const emp=emps.find(e=>e.id===id);
 if(emp){
+localStorage.setItem('sb_current_emp',id);
+localStorage.removeItem('sb_current_proj');
 document.querySelector('.chat-header-name').textContent=emp.name;
 document.querySelector('.chat-header-sub').textContent='在线 · '+emp.role;
 document.querySelector('.chat-header .avatar').textContent='🦞';
@@ -3189,11 +3180,12 @@ var item=document.querySelector('.list-item[data-id="'+id+'"]');
 if(item)item.classList.add('active');
 document.getElementById('chatProgress').style.display='none';
 document.querySelector('.app-main').classList.remove('show-board');
-renderMsgs('private');
+loadEmployeeChatHistory(id);
 hideBulletin();
 }
 const proj=projs.find(p=>p.id===id);
 if(proj){
+localStorage.setItem('sb_current_proj',id);
 document.querySelector('.chat-header-name').innerHTML='# '+escapeHtml(proj.name||'')+' <span class="owner-badge">👑 群主</span>';
 document.querySelector('.chat-header-sub').textContent='3名成员';
 document.querySelector('.list-item[data-proj="'+id+'"]').classList.add('active');
@@ -3223,37 +3215,68 @@ function updateSupervisorStatusButton(){
   }
 }
 
-// Render Messages
-function renderMsgs(type){
+// Load employee chat history from localStorage
+function loadEmployeeChatHistory(empId){
 const area=document.getElementById('messagesArea');
-const msgs=type==='private'?[
-{sender:'xlcx',text:'你好！我是Lucy，前端工程师。有什么任务需要我处理吗？',time:'09:30'},
-{sender:'user',text:'你好！请帮我检查一下首页的响应式布局，今天需要上线。',time:'09:31',ok:true},
-{sender:'xlcx',text:'好的，我来检查一下响应式布局的问题。目前发现移动端导航菜单有溢出，我会修复它。',time:'09:32'},
-{sender:'user',text:'太好了，预计多久能完成？',time:'09:33',ok:true},
-{sender:'xlcx',text:'预计 30 分钟内完成修复，然后提交 PR 给你 review。<span class="mention">@所有人</span> 请注意查收。',time:'09:34'}
-]:[
-{sender:'zjg',text:'各位早，今天的目标是完成首页响应式适配。',time:'09:00'},
-{sender:'xlcx',text:'收到！我这边负责导航和布局适配。',time:'09:05'},
-{sender:'user',text:'<span class="mention">@Lucy</span> 预计什么时候可以提测？',time:'09:15',ok:true},
-{sender:'xlcx',text:'预计 10:30 可以完成，11:00 前提测。<span class="mention">@章鱼哥</span> 请安排测试资源。',time:'09:16'}
-];
+const emp=emps.find(e=>e.id===empId);
+if(!emp){
+  area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">选择一个员工开始聊天</div></div>';
+  return;
+}
+const historyKey='sb_chat_history_'+empId;
+const history=JSON.parse(localStorage.getItem(historyKey)||'[]');
 
-// 空状态：如果没有消息
-if(msgs.length===0){
-  area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
+if(history.length===0){
+  area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与 '+escapeHtml(emp.name)+' 开始协作<br>输入 / 查看快捷指令</div></div>';
   return;
 }
 
-area.innerHTML='<div class="time-separator"><span>今天 09:30</span></div>'+
-msgs.map(m=>{
-const e=emps.find(x=>x.id===m.sender);
-const own=m.sender==='user';
-return'<div class="msg '+(own?'own':'')+'">'+
-(!own?'<div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,'+escapeAttr(e?.bg||'#888')+','+escapeAttr(e?.bg||'#888')+'dd);">'+escapeHtml(e?.name?.charAt(0)||'?')+'</div></div>':'')+
+area.innerHTML=history.map(function(m){
+var isUser=m.role==='user';
+var isSystem=m.role==='system';
+var timeStr='';
+if(m.time){var d=new Date(m.time);timeStr=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');}
+var content=isSystem?'<em>'+escapeHtml(m.content)+'</em>':escapeHtml(m.content);
+if(isSystem)return'<div class="msg system"><div class="msg-content"><div class="msg-bubble" style="background:var(--bg-tertiary);color:var(--text-secondary);font-style:italic;">'+content+'</div></div></div>';
+return'<div class="msg '+(isUser?'own':'')+'">'+
+(!isUser?'<div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,'+escapeAttr(emp.bg||'#888')+','+escapeAttr(emp.bg||'#888')+'dd);">'+escapeHtml(emp.name.charAt(0))+'</div></div>':'')+
 '<div class="msg-content">'+
-(!own?'<div class="msg-sender"><span class="msg-sender-name">'+escapeHtml(e?.name||'')+'</span><span class="msg-sender-role">'+escapeHtml(e?.role||'')+'</span><span class="msg-sender-time">'+escapeHtml(m.time||'')+'</span></div>':'<div class="msg-sender"><span class="msg-sender-time">'+escapeHtml(m.time||'')+'</span><span class="msg-sender-name">你</span></div>')+
-'<div class="msg-bubble">'+m.text+'</div>'+
+(!isUser?'<div class="msg-sender"><span class="msg-sender-name">'+escapeHtml(emp.name)+'</span><span class="msg-sender-role">'+escapeHtml(emp.role||'')+'</span><span class="msg-sender-time">'+escapeHtml(timeStr)+'</span></div>':'<div class="msg-sender"><span class="msg-sender-time">'+escapeHtml(timeStr)+'</span><span class="msg-sender-name">你</span></div>')+
+'<div class="msg-bubble">'+content+'</div>'+
+'</div></div>';
+}).join('')+'<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
+area.scrollTop=area.scrollHeight;
+}
+
+// Render Messages for project chats (retained for project group chats)
+function renderMsgs(type){
+if(type==='private'){
+  // Private employee chat - use loadEmployeeChatHistory instead
+  var empId=localStorage.getItem('sb_current_emp')||'xlcx';
+  loadEmployeeChatHistory(empId);
+  return;
+}
+const area=document.getElementById('messagesArea');
+const projId=localStorage.getItem('sb_current_proj')||'default';
+const history=JSON.parse(localStorage.getItem('sb_chat_history_'+projId)||'[]');
+
+if(history.length===0){
+  area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与团队开始协作<br>输入 / 查看快捷指令</div></div>';
+  return;
+}
+
+area.innerHTML=history.map(function(m){
+var isUser=m.role==='user';
+var isSystem=m.role==='system';
+var timeStr='';
+if(m.time){var d=new Date(m.time);timeStr=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');}
+var content=isSystem?'<em>'+escapeHtml(m.content)+'</em>':escapeHtml(m.content);
+if(isSystem)return'<div class="msg system"><div class="msg-content"><div class="msg-bubble" style="background:var(--bg-tertiary);color:var(--text-secondary);font-style:italic;">'+content+'</div></div></div>';
+return'<div class="msg '+(isUser?'own':'')+'">'+
+(!isUser?'<div class="msg-avatar"><div class="avatar small" style="background:#AF52DE;">🐙</div></div>':'')+
+'<div class="msg-content">'+
+(!isUser?'<div class="msg-sender"><span class="msg-sender-name">群成员</span><span class="msg-sender-time">'+escapeHtml(timeStr)+'</span></div>':'<div class="msg-sender"><span class="msg-sender-time">'+escapeHtml(timeStr)+'</span><span class="msg-sender-name">你</span></div>')+
+'<div class="msg-bubble">'+content+'</div>'+
 '</div></div>';
 }).join('')+'<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
 area.scrollTop=area.scrollHeight;
@@ -4752,7 +4775,7 @@ function applyAIConfig(){
   }
   
   saveAIConfig();
-  showToast(AI_CONFIG.enabled ? '🤖 AI 已启用' : '💬 已切换为模拟 AI', 'success');
+  showToast(AI_CONFIG.enabled ? '🤖 AI 已启用' : '💬 AI 已关闭', 'success');
   closeAIConfigPanel();
 }
 
@@ -4814,10 +4837,10 @@ async function callRealAI(userMessage, context){
 function sendViaAPI(emp, userMessage, docContext, timeStr){
   var provider = API_PROVIDERS[emp.apiProvider];
   if(!provider){
-    // 供应商不存在，回退到 mock
+    // 供应商不存在，显示错误
     var t = document.getElementById('typingMsg');
     if(t) t.remove();
-    displayAIReply('⚠️ API 供应商配置错误，使用模拟回复', docContext, timeStr);
+    displayAIReply('⚠️ API 供应商配置错误，请在员工详情→连接中重新选择供应商', docContext, timeStr);
     return;
   }
   
@@ -4888,13 +4911,6 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
     
     if(error.message && (error.message.indexOf('Failed to fetch') >= 0 || error.message.indexOf('NetworkError') >= 0 || error.message.indexOf('CORS') >= 0)){
       displayAIReply('⚠️ 网络/代理错误\n\n无法连接到代理服务器。\n请确保 solobrave-server.py 正在运行。', docContext, timeStr);
-      // CORS 错误时 fallback 到 mock
-      setTimeout(function(){
-        var simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
-        var simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
-        displayAIReply(simReply, docContext, timeStr);
-        saveChatHistory(userMessage, simReply, docContext);
-      }, 500);
     } else {
       displayAIReply('⚠️ API 调用失败: ' + error.message, docContext, timeStr);
     }
@@ -4903,9 +4919,19 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
 
 // 获取当前对话的员工信息
 function getCurrentEmployeeInfo(){
-  const empId = localStorage.getItem('sb_current_emp') || 'xlcx';
-  const emp = emps.find(e => e.id === empId);
-  return emp || {id:'xlcx',name:'Lucy',role:'前端工程师',avatar:'🦞',bg:'#FF6B35'};
+  const empId = localStorage.getItem('sb_current_emp');
+  if(empId){
+    const emp = emps.find(e => e.id === empId);
+    if(emp) return emp;
+  }
+  // 尝试从当前激活的聊天列表项获取
+  var activeItem = document.querySelector('.list-item[data-id].active');
+  if(activeItem){
+    var aId = activeItem.dataset.id;
+    var aEmp = emps.find(e => e.id === aId);
+    if(aEmp){localStorage.setItem('sb_current_emp',aId); return aEmp;}
+  }
+  return {id:'default',name:'AI 助手',role:'助手',avatar:'🤖',bg:'#888'};
 }
 
 // 获取当前项目 ID
@@ -4915,13 +4941,22 @@ function getCurrentProjectId(){
 
 // 保存聊天历史
 function saveChatHistory(userMsg, aiMsg, docContext){
-  const projId = getCurrentProjectId();
-  const history = JSON.parse(localStorage.getItem('sb_chat_history_'+projId) || '[]');
+  const chatId = getCurrentChatId();
+  const history = JSON.parse(localStorage.getItem('sb_chat_history_'+chatId) || '[]');
   const now = Date.now();
   history.push({role:'user', content:userMsg, time:now});
   if(docContext && docContext.length > 0) history.push({role:'system', content:'[文档]'+docContext, time:now});
   history.push({role:'assistant', content:aiMsg, time:now});
-  localStorage.setItem('sb_chat_history_'+projId, JSON.stringify(history.slice(-50)));
+  localStorage.setItem('sb_chat_history_'+chatId, JSON.stringify(history.slice(-50)));
+}
+
+// 获取当前聊天 ID（员工用 empId，项目用 projId）
+function getCurrentChatId(){
+  var projId = localStorage.getItem('sb_current_proj');
+  if(projId) return projId;
+  var empId = localStorage.getItem('sb_current_emp');
+  if(empId) return empId;
+  return 'default';
 }
 
 // 显示 AI 回复
@@ -5630,8 +5665,8 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 <div class="model-option selected" data-provider="mock" onclick="selectWizProvider(this,'mock')">
 <div class="model-icon">🎭</div>
 <div class="model-info">
-<div class="model-name">模拟回复</div>
-<div class="model-provider">本地 Mock</div>
+<div class="model-name">暂不配置</div>
+<div class="model-provider">稍后在员工详情中配置</div>
 </div>
 <div class="model-check">✓</div>
 </div>
@@ -5686,7 +5721,7 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 <div class="form-group" id="wizApiKeyGroup">
 <label class="form-label">API Key</label>
 <input type="password" class="form-input" id="wizApiKey" placeholder="输入 API Key">
-<div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">留空则使用模拟回复</div>
+<div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">输入 API Key 以启用 AI 对话</div>
 </div>
 <div class="form-group" id="wizCustomEndpointGroup" style="display:none">
 <label class="form-label">自定义接口地址</label>
