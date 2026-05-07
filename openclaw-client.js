@@ -164,29 +164,51 @@ class OpenClawClient {
     this.emit('message', msg);
   }
 
-  async _sendConnectImmediate(context = {}) {
+  async _sendConnectImmediate() {
     if (!this._token) {
       console.warn('[OpenClaw] 无 token，使用空 token 连接');
     }
-    console.log('[OpenClaw] 发送认证请求...');
+    console.log('[OpenClaw] 发送认证请求 (token: ' + this._token.substring(0,8) + '...)');
     try {
-      const res = await this.send('connect', { 
-        token: this._token
+      // 直接通过 WebSocket 发送，绕过 this.send() 的 connected 检查
+      const id = this._generateId();
+      const msg = JSON.stringify({
+        type: 'req',
+        id: id,
+        method: 'connect',
+        params: { token: this._token }
       });
+      
+      // 设置 pending 来接收响应
+      const authPromise = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this._pending.delete(id);
+          reject(new Error('认证超时'));
+        }, 15000);
+        this._pending.set(id, { resolve, reject, timeout });
+      });
+      
+      this.ws.send(msg);
+      console.log('[OpenClaw] 认证消息已发送');
+      
+      const res = await authPromise;
+      console.log('[OpenClaw] 收到认证响应:', JSON.stringify(res));
+      
       if (res?.status === 'ok') {
         console.log('[OpenClaw] ✅ 认证成功！');
         this.authenticated = true;
         this.emit('authenticated', res);
-        if (context.resolve) context.resolve(true);
+        if (this._connectContext?.challengeTimeout) clearTimeout(this._connectContext.challengeTimeout);
+        if (this._connectContext?.resolve) this._connectContext.resolve(true);
       } else {
         console.warn('[OpenClaw] 认证失败，启用 mock 模式');
         this._enableMockMode();
-        if (context.resolve) context.resolve(true);
+        if (this._connectContext?.resolve) this._connectContext.resolve(true);
       }
     } catch (error) {
       console.warn('[OpenClaw] 认证请求失败，启用 mock 模式:', error.message);
       this._enableMockMode();
-      if (context.resolve) context.resolve(true);
+      if (this._connectContext?.resolve) this._connectContext.resolve(true);
     }
   }
 
@@ -217,17 +239,17 @@ class OpenClawClient {
         console.log('[OpenClaw] ✅ challenge 认证成功！');
         this.authenticated = true;
         this.emit('authenticated', res);
-        if (context.challengeTimeout) clearTimeout(context.challengeTimeout);
-        if (context.resolve) context.resolve(true);
+        if (this._connectContext?.challengeTimeout) clearTimeout(this._connectContext.challengeTimeout);
+        if (this._connectContext?.resolve) this._connectContext.resolve(true);
       } else {
         console.warn('[OpenClaw] 认证失败，启用 mock 模式');
         this._enableMockMode();
-        if (context.resolve) context.resolve(true);
+        if (this._connectContext?.resolve) this._connectContext.resolve(true);
       }
     } catch (error) {
       console.warn('[OpenClaw] 认证请求失败，启用 mock 模式:', error.message);
       this._enableMockMode();
-      if (context.resolve) context.resolve(true);
+      if (this._connectContext?.resolve) this._connectContext.resolve(true);
     }
   }
 
