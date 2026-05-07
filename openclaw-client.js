@@ -43,11 +43,18 @@ class OpenClawClient {
 
       try {
         this._clearReconnectTimer();
-        this._connectContext = { challengeTimeout, resolve, reject };
         this.ws = new WebSocket(this.url);
         
-        // 等待 challenge 的超时
+        // 等待 challenge 的超时（也作为认证超时）
         const challengeTimeout = setTimeout(() => {
+          console.warn('[OpenClaw] 10秒内未收到认证确认，启用 mock 模式');
+          this._enableMockMode();
+          this._cleanup();
+          resolve(true); // mock 模式也算连接成功
+        }, 10000);
+
+        // 保存上下文供 onopen 回调使用
+        this._connectContext = { challengeTimeout, resolve, reject };
           console.warn('[OpenClaw] 10秒内未收到 challenge，启用 mock 模式');
           this._enableMockMode();
           this._cleanup();
