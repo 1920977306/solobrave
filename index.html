@@ -2020,8 +2020,49 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 <!-- Connect Tab (API Provider Config) -->
 <div class="emp-tab-pane" id="emp-tab-connect">
+<!-- OpenClaw 区域 -->
+<div class="emp-doc-section" style="margin-bottom:16px;">
+<div class="emp-doc-title" style="display:flex;align-items:center;gap:8px;">
+🦞 OpenClaw 连接
+<div id="empOCStatusDot" style="width:8px;height:8px;border-radius:50%;background:#ccc;"></div>
+</div>
+<div class="emp-doc-desc" id="empOCStatusDesc">检查 OpenClaw 状态...</div>
+<div id="empOCContent" style="margin-top:12px;">
+<!-- 已连接 OpenClaw 的员工 -->
+<div id="empOCConnected" style="display:none;">
+<div style="background:var(--bg-secondary);border-radius:8px;padding:12px;margin-bottom:10px;">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+<span style="font-size:20px;">🦞</span>
+<div>
+<div style="font-weight:600;font-size:13px;" id="empOCAgentName">-</div>
+<div style="font-size:11px;color:var(--text-tertiary);" id="empOCAgentModel">-</div>
+</div>
+</div>
+<div style="margin-top:8px;">
+<div style="font-weight:600;margin-bottom:6px;font-size:12px;color:var(--text-secondary);">人设 / SOUL.md</div>
+<textarea class="form-input" id="empOCSoul" rows="3" placeholder="系统提示词..." style="font-size:12px;"></textarea>
+</div>
+</div>
+<button class="emp-action-btn primary" onclick="syncEmpToOpenClaw()" style="margin-bottom:8px;">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+同步到 OpenClaw
+</button>
+<button class="emp-action-btn" onclick="disconnectEmpOpenClaw()" style="color:#FF3B30;">
+断开 OpenClaw
+</button>
+</div>
+<!-- 未连接 OpenClaw -->
+<div id="empOCDisconnected">
+<button class="emp-action-btn" onclick="connectEmpToOpenClaw()" style="width:100%;justify-content:center;background:linear-gradient(135deg,#FF6B35,#E55A2B);color:white;border:none;">
+🦞 连接到 OpenClaw
+</button>
+</div>
+</div>
+</div>
+
+<!-- API 直连区域 -->
 <div class="emp-doc-section">
-<div class="emp-doc-title">🤖 API 连接配置</div>
+<div class="emp-doc-title">🔌 API 直连配置</div>
 <div class="emp-doc-desc">选择 AI 供应商并配置 API Key</div>
 <div style="margin-top:12px;">
 <div style="font-weight:600;margin-bottom:8px;font-size:13px;">供应商</div>
@@ -2070,8 +2111,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 </div>
 <button class="emp-action-btn primary" onclick="saveEmpConnect()">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-保存连接配置
+保存 API 连接配置
 </button>
+</div>
 </div>
 
 <!-- Channel Tab -->
@@ -2448,14 +2490,16 @@ function sendMsg(){
   // 获取文档上下文
   const docContext = getDocContextForChat();
   
-  // 始终走 API，未配置时显示错误提示
-  if(emp.apiKey && emp.apiProvider && emp.apiProvider !== 'mock'){
+  // 路由聊天：OpenClaw WS → API 代理 → 未配置提示
+  if(emp.connectionType === 'openclaw' && emp.openclawAgent){
+    sendViaOpenClaw(emp, text, docContext, timeStr);
+  } else if(emp.apiKey && emp.apiProvider && emp.apiProvider !== 'mock'){
     sendViaAPI(emp, text, docContext, timeStr);
   } else {
-    // 未配置 API Key，显示明确提示
+    // 未配置任何连接，显示明确提示
     var t = document.getElementById('typingMsg');
     if(t) t.remove();
-    displayAIReply('⚠️ 请先在员工详情→连接中配置 API Key 和供应商', docContext, timeStr);
+    displayAIReply('⚠️ 请先在员工详情→连接中配置 AI 连接（OpenClaw 或 API）', docContext, timeStr);
   }
 }
 
@@ -4336,6 +4380,11 @@ function loadEmpConnect(emp){
   document.getElementById('empConnectApiKey').value=emp.apiKey||'';
   document.getElementById('empConnectModel').value=emp.apiModel||'';
   document.getElementById('empConnectBaseUrl').value=emp.customEndpoint||'';
+
+  // 加载 OpenClaw 连接状态
+  checkOpenClawStatus().then(function(){
+    loadEmpOCConnect(emp);
+  });
 }
 function saveEmpConnect(){
   if(!currentEmpId)return;
@@ -4982,11 +5031,320 @@ window.addEventListener('DOMContentLoaded',()=>{initGlobalSearch();initTheme();i
 var wizStep=1;
 var empSelectedModel='gpt4o';
 var empSelectedProvider='mock';
+var wizSelectedConnection='openclaw'; // 'openclaw' | 'api' | 'none'
+
+// ─── OpenClaw API 辅助函数 ────────────────────────────
+var _ocGatewayStatus = 'unknown'; // 'online' | 'offline' | 'unknown'
+var _ocModels = [];
+
+async function checkOpenClawStatus(){
+  try{
+    var resp = await fetch('/api/openclaw/status');
+    var data = await resp.json();
+    _ocGatewayStatus = data.gateway || 'unknown';
+    return data;
+  }catch(e){
+    _ocGatewayStatus = 'offline';
+    return {available:false, gateway:'offline'};
+  }
+}
+
+async function loadOpenClawModels(){
+  try{
+    var resp = await fetch('/api/openclaw/models');
+    var data = await resp.json();
+    _ocModels = data.models || [];
+    return _ocModels;
+  }catch(e){
+    _ocModels = [];
+    return [];
+  }
+}
+
+function updateOCStatusUI(dotId, textId, hintId){
+  var dot = document.getElementById(dotId);
+  var text = document.getElementById(textId);
+  var hint = document.getElementById(hintId);
+  if(dot){
+    if(_ocGatewayStatus === 'online'){
+      dot.style.background = '#34C759';
+      dot.style.boxShadow = '0 0 6px rgba(52,199,89,0.5)';
+    } else if(_ocGatewayStatus === 'offline'){
+      dot.style.background = '#ccc';
+      dot.style.boxShadow = 'none';
+    }
+  }
+  if(text){
+    text.textContent = _ocGatewayStatus === 'online' ? 'OpenClaw Gateway 在线' : _ocGatewayStatus === 'offline' ? 'OpenClaw Gateway 离线' : '检查中...';
+    text.style.color = _ocGatewayStatus === 'online' ? '#34C759' : '#999';
+  }
+  if(hint){
+    hint.style.display = _ocGatewayStatus === 'offline' ? 'block' : 'none';
+  }
+}
+
+function populateOCModelSelect(selectId){
+  var sel = document.getElementById(selectId);
+  if(!sel) return;
+  if(_ocModels.length === 0){
+    sel.innerHTML = '<option value="">无可用模型</option>';
+    return;
+  }
+  var html = '';
+  for(var i=0;i<_ocModels.length;i++){
+    var m = _ocModels[i];
+    var id = m.id || m.modelId || m.name || '';
+    var name = m.name || m.id || id;
+    html += '<option value="'+id+'">'+name+'</option>';
+  }
+  sel.innerHTML = html;
+}
+
+// ─── 向导连接方式选择 ──────────────────────────────────
+function selectWizConnection(el, connType){
+  document.querySelectorAll('#wizConnectionType .model-option').forEach(function(o){o.classList.remove('selected');});
+  el.classList.add('selected');
+  wizSelectedConnection = connType;
+
+  // 显示/隐藏对应区域
+  var ocSection = document.getElementById('wizOpenClawSection');
+  var apiSection = document.getElementById('wizAPISection');
+  if(connType === 'openclaw'){
+    if(ocSection) ocSection.style.display = 'block';
+    if(apiSection) apiSection.style.display = 'none';
+  } else if(connType === 'api'){
+    if(ocSection) ocSection.style.display = 'none';
+    if(apiSection) apiSection.style.display = 'block';
+  } else {
+    if(ocSection) ocSection.style.display = 'none';
+    if(apiSection) apiSection.style.display = 'none';
+  }
+}
+
+// ─── 通过 OpenClaw 发送聊天 ────────────────────────────
+async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
+  if(typeof openclaw === 'undefined'){
+    var t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    displayAIReply('⚠️ OpenClaw 客户端未加载', docContext, timeStr);
+    return;
+  }
+
+  try{
+    // 确保已连接
+    if(!openclaw.connected){
+      await openclaw.connect();
+    }
+
+    // 构造 sessionKey
+    var sessionKey = 'agent:' + emp.openclawAgent + ':main';
+
+    // 监听回复
+    var replyHandler = function(data){
+      openclaw.off('chat.message', replyHandler);
+      var t = document.getElementById('typingMsg');
+      if(t) t.remove();
+
+      if(data && data.content){
+        var replyText = '';
+        if(Array.isArray(data.content)){
+          for(var i=0;i<data.content.length;i++){
+            if(data.content[i].type === 'text'){
+              replyText += data.content[i].text;
+            }
+          }
+        } else if(typeof data.content === 'string'){
+          replyText = data.content;
+        }
+        if(replyText){
+          displayAIReply(replyText, docContext, timeStr);
+          saveChatHistory(userMessage, replyText, docContext);
+        } else {
+          displayAIReply('⚠️ OpenClaw 返回了空回复', docContext, timeStr);
+        }
+      }
+    };
+    openclaw.on('chat.message', replyHandler);
+
+    // 发送消息
+    await openclaw.sendChat(sessionKey, userMessage);
+
+    // 设置超时
+    setTimeout(function(){
+      openclaw.off('chat.message', replyHandler);
+      var t = document.getElementById('typingMsg');
+      if(t && t.parentNode){
+        t.remove();
+        displayAIReply('⚠️ OpenClaw 响应超时', docContext, timeStr);
+      }
+    }, 60000);
+
+  }catch(err){
+    var t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    displayAIReply('⚠️ OpenClaw 连接失败: ' + (err.message || err), docContext, timeStr);
+  }
+}
+
+// ─── 员工详情 OpenClaw 操作 ────────────────────────────
+async function connectEmpToOpenClaw(){
+  if(!currentEmpId) return;
+  var emp = emps.find(function(e){return e.id===currentEmpId;});
+  if(!emp) return;
+
+  // 加载模型列表
+  await loadOpenClawModels();
+
+  // 弹出简单的连接配置
+  var modelOptions = _ocModels.map(function(m){ return '<option value="'+(m.id||m.name)+'">'+(m.name||m.id)+'</option>'; }).join('');
+  
+  var html = '<div style="padding:16px;">';
+  html += '<div style="font-weight:600;margin-bottom:12px;">🦞 连接到 OpenClaw</div>';
+  html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">龙虾名字</label>';
+  html += '<input type="text" class="form-input" id="ocConnName" value="'+(emp.name||'')+'" placeholder="Agent 名称" style="width:100%;"></div>';
+  html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">模型</label>';
+  html += '<select class="form-select" id="ocConnModel" style="width:100%;">'+modelOptions+'</select></div>';
+  html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">人设 / SOUL.md</label>';
+  html += '<textarea class="form-input" id="ocConnSoul" rows="3" placeholder="系统提示词..." style="width:100%;">'+(emp.systemPrompt||emp.soulDoc||'')+'</textarea></div>';
+  html += '<button class="emp-action-btn primary" onclick="doConnectOpenClaw()" style="width:100%;justify-content:center;">创建并连接</button>';
+  html += '</div>';
+  
+  // 复用 empDetailOverlay 内渲染
+  var content = document.getElementById('empOCContent');
+  if(content){
+    content.innerHTML = html;
+  }
+}
+
+async function doConnectOpenClaw(){
+  if(!currentEmpId) return;
+  var emp = emps.find(function(e){return e.id===currentEmpId;});
+  if(!emp) return;
+
+  var name = document.getElementById('ocConnName').value.trim();
+  var model = document.getElementById('ocConnModel').value;
+  var soul = document.getElementById('ocConnSoul').value.trim();
+
+  if(!name){ showToast('请输入龙虾名字','warning'); return; }
+
+  showToast('🦞 正在创建 OpenClaw Agent...');
+
+  try{
+    var resp = await fetch('/api/openclaw/agents/create', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name:name, model:model, soul:soul})
+    });
+    var data = await resp.json();
+
+    if(data.success){
+      emp.connectionType = 'openclaw';
+      emp.openclawAgent = name;
+      emp.openclawModel = model;
+      emp.openclawSoul = soul;
+      saveEmployees();
+      showToast('✅ OpenClaw Agent 创建成功！');
+      loadEmpOCConnect(emp);
+    } else {
+      showToast('❌ 创建失败: '+(data.error||'未知错误'),'warning');
+    }
+  }catch(e){
+    showToast('❌ 请求失败: '+e.message,'warning');
+  }
+}
+
+async function syncEmpToOpenClaw(){
+  if(!currentEmpId) return;
+  var emp = emps.find(function(e){return e.id===currentEmpId;});
+  if(!emp || !emp.openclawAgent) return;
+
+  var soul = document.getElementById('empOCSoul').value.trim();
+
+  showToast('🦞 同步中...');
+
+  try{
+    var resp = await fetch('/api/openclaw/agents/update', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name:emp.openclawAgent, soul:soul, model:emp.openclawModel})
+    });
+    var data = await resp.json();
+
+    if(data.success){
+      emp.openclawSoul = soul;
+      saveEmployees();
+      showToast('✅ 同步成功！');
+    } else {
+      showToast('❌ 同步失败: '+(data.error||'未知错误'),'warning');
+    }
+  }catch(e){
+    showToast('❌ 请求失败: '+e.message,'warning');
+  }
+}
+
+function disconnectEmpOpenClaw(){
+  if(!currentEmpId) return;
+  var emp = emps.find(function(e){return e.id===currentEmpId;});
+  if(!emp) return;
+
+  emp.connectionType = 'none';
+  emp.openclawAgent = '';
+  emp.openclawModel = '';
+  emp.openclawSoul = '';
+  saveEmployees();
+  showToast('已断开 OpenClaw 连接');
+  loadEmpOCConnect(emp);
+}
+
+function loadEmpOCConnect(emp){
+  var statusDot = document.getElementById('empOCStatusDot');
+  var statusDesc = document.getElementById('empOCStatusDesc');
+  var connected = document.getElementById('empOCConnected');
+  var disconnected = document.getElementById('empOCDisconnected');
+
+  // 更新状态指示灯
+  if(statusDot){
+    if(_ocGatewayStatus === 'online'){
+      statusDot.style.background = '#34C759';
+      statusDot.style.boxShadow = '0 0 6px rgba(52,199,89,0.5)';
+    } else {
+      statusDot.style.background = '#ccc';
+      statusDot.style.boxShadow = 'none';
+    }
+  }
+  if(statusDesc){
+    statusDesc.textContent = _ocGatewayStatus === 'online' ? 'Gateway 在线' : 'Gateway 离线';
+  }
+
+  // 显示已连接/未连接状态
+  if(emp.openclawAgent){
+    if(connected) connected.style.display = 'block';
+    if(disconnected) disconnected.style.display = 'none';
+    var nameEl = document.getElementById('empOCAgentName');
+    var modelEl = document.getElementById('empOCAgentModel');
+    var soulEl = document.getElementById('empOCSoul');
+    if(nameEl) nameEl.textContent = emp.openclawAgent;
+    if(modelEl) modelEl.textContent = emp.openclawModel || '-';
+    if(soulEl) soulEl.value = emp.openclawSoul || '';
+  } else {
+    if(connected) connected.style.display = 'none';
+    if(disconnected) disconnected.style.display = 'block';
+  }
+}
+
 function openWizard(){
   wizStep=1;
+  wizSelectedConnection='openclaw';
   renderAvatarPicker();
   updateWizardUI();
   document.getElementById('wizardOverlay').classList.add('show');
+  // 检查 OpenClaw 状态并加载模型
+  checkOpenClawStatus().then(function(){
+    updateOCStatusUI('wizOCStatusDot','wizOCStatusText','wizOCOfflineHint');
+  });
+  loadOpenClawModels().then(function(){
+    populateOCModelSelect('wizOCModelSelect');
+  });
 }
 function renderAvatarPicker(){
   var picker=document.getElementById('wizAvatarPicker');
@@ -5008,7 +5366,14 @@ function updateWizardUI(){
   document.getElementById('wiz3').style.display=wizStep===3?'block':'none';
   document.getElementById('wizPrev').style.display=wizStep>1?'inline-block':'none';
   document.getElementById('wizNext').textContent=wizStep===3?'✨ 创建员工':'下一步 →';
-  if(wizStep===3)updateWizConfirm();
+  if(wizStep===3){
+    updateWizConfirm();
+    // 触发连接方式选择，初始化区域可见性
+    selectWizConnection(
+      document.querySelector('#wizConnectionType .model-option.selected') || document.querySelector('#wizConnectionType .model-option'),
+      wizSelectedConnection
+    );
+  }
 }
 function updateWizConfirm(){
   var name=document.getElementById('wizName').value.trim()||'未命名';
@@ -5018,9 +5383,8 @@ function updateWizConfirm(){
   var group=document.getElementById('wizGroup').value;
   var statusEl=document.querySelector('.status-opt.selected');
   var status=statusEl?statusEl.dataset.status:'online';
-  var modelEl=document.querySelector('#wizModelSelect .model-option.selected');
-  var modelName=modelEl?modelEl.querySelector('.model-name').textContent:'GPT-4o';
   var sysPrompt=document.getElementById('wizSystemPrompt').value.trim();
+  var connLabel = wizSelectedConnection==='openclaw'?'🦞 OpenClaw':wizSelectedConnection==='api'?'🔌 API 直连':'🎭 暂不配置';
   document.getElementById('wizCName').textContent=name;
   document.getElementById('wizCRole').textContent=role;
   var avatarPreview=document.getElementById('wizCAvatar');
@@ -5031,7 +5395,7 @@ function updateWizConfirm(){
   }
   document.getElementById('wizCGroup').textContent=group;
   document.getElementById('wizCStatus').textContent=status==='online'?'在线':status==='busy'?'忙碌':'离线';
-  document.getElementById('wizCModel').textContent=modelName;
+  document.getElementById('wizCModel').textContent=connLabel;
   document.getElementById('wizCPrompt').textContent=sysPrompt||'(默认)';
 }
 function selectWizAvatar(el){
@@ -5128,11 +5492,51 @@ function finishWizard(){
     archived:false,
     group:group,
     systemPrompt:sysPrompt,
+    connectionType: wizSelectedConnection,
     apiProvider:apiProvider,
     apiKey:apiKey,
     apiModel:apiModel,
     customEndpoint:customEndpoint
   };
+
+  // OpenClaw 连接处理
+  if(wizSelectedConnection === 'openclaw'){
+    var ocModel = document.getElementById('wizOCModelSelect').value;
+    var ocSoul = document.getElementById('wizOCSoul').value.trim() || sysPrompt;
+    var ocCreateAgent = document.getElementById('wizOCCreateAgent').checked;
+
+    newEmp.openclawModel = ocModel;
+    newEmp.openclawSoul = ocSoul;
+
+    if(ocCreateAgent){
+      newEmp.openclawAgent = name.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5_-]/g,'-');
+      // 异步创建 OpenClaw Agent
+      fetch('/api/openclaw/agents/create',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({name:newEmp.openclawAgent, model:ocModel, soul:ocSoul})
+      }).then(function(r){return r.json();}).then(function(data){
+        if(data.success){
+          showToast('🦞 OpenClaw Agent 已创建！');
+        } else {
+          showToast('⚠️ OpenClaw 创建失败: '+(data.error||''), 'warning');
+          newEmp.connectionType = 'none';
+          newEmp.openclawAgent = '';
+          saveEmployees();
+        }
+      }).catch(function(e){
+        showToast('⚠️ OpenClaw 请求失败: '+e.message, 'warning');
+        newEmp.connectionType = 'none';
+        newEmp.openclawAgent = '';
+        saveEmployees();
+      });
+    }
+  } else if(wizSelectedConnection === 'api'){
+    newEmp.connectionType = 'api';
+  } else {
+    newEmp.connectionType = 'none';
+  }
+
   emps.push(newEmp);saveEmployees();renderTeamList();renderEmployeeList();
   closeWizard();document.getElementById('wizName').value='';
   document.getElementById('wizApiKey').value='';
@@ -5660,17 +6064,66 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 </div>
 <div id="wiz3" style="display:none">
 <div class="form-group">
-<label class="form-label">选择 API 供应商</label>
-<div class="model-select" id="wizProviderSelect">
-<div class="model-option selected" data-provider="mock" onclick="selectWizProvider(this,'mock')">
-<div class="model-icon">🎭</div>
+<label class="form-label">🔗 连接方式</label>
+<div class="model-select" id="wizConnectionType">
+<div class="model-option selected" data-conn="openclaw" onclick="selectWizConnection(this,'openclaw')">
+<div class="model-icon">🦞</div>
 <div class="model-info">
-<div class="model-name">暂不配置</div>
-<div class="model-provider">稍后在员工详情中配置</div>
+<div class="model-name">OpenClaw 龙虾</div>
+<div class="model-provider">通过 OpenClaw Gateway 运行</div>
 </div>
 <div class="model-check">✓</div>
 </div>
-<div class="model-option" data-provider="openai" onclick="selectWizProvider(this,'openai')">
+<div class="model-option" data-conn="api" onclick="selectWizConnection(this,'api')">
+<div class="model-icon">🔌</div>
+<div class="model-info">
+<div class="model-name">API 直连</div>
+<div class="model-provider">通过 CORS 代理直连 AI API</div>
+</div>
+<div class="model-check">✓</div>
+</div>
+<div class="model-option" data-conn="none" onclick="selectWizConnection(this,'none')">
+<div class="model-icon">🎭</div>
+<div class="model-info">
+<div class="model-name">暂不配置</div>
+<div class="model-provider">稍后设置</div>
+</div>
+<div class="model-check">✓</div>
+</div>
+</div>
+</div>
+
+<!-- OpenClaw 连接区域 -->
+<div id="wizOpenClawSection">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+<div id="wizOCStatusDot" style="width:8px;height:8px;border-radius:50%;background:#ccc;"></div>
+<span id="wizOCStatusText" style="font-size:12px;color:var(--text-tertiary);">检查中...</span>
+</div>
+<div id="wizOCOfflineHint" style="display:none;background:rgba(255,149,0,0.08);border:1px solid rgba(255,149,0,0.2);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#FF9500;">
+⚠️ OpenClaw Gateway 离线，请先在 Mac mini 上启动 OpenClaw Gateway
+</div>
+<div class="form-group">
+<label class="form-label">选择模型</label>
+<select class="form-select" id="wizOCModelSelect">
+<option value="">加载中...</option>
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">系统提示词 / 人设</label>
+<textarea class="form-input" id="wizOCSoul" rows="3" placeholder="你是{role}，擅长...（将写入 SOUL.md）"></textarea>
+</div>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+<input type="checkbox" id="wizOCCreateAgent" checked style="accent-color:var(--accent);">
+<label for="wizOCCreateAgent" style="font-size:13px;color:var(--text-primary);">创建为 OpenClaw Agent</label>
+</div>
+</div>
+
+<!-- API 直连区域 -->
+<div id="wizAPISection" style="display:none">
+<div class="form-group">
+<label class="form-label">选择 API 供应商</label>
+<div class="model-select" id="wizProviderSelect">
+<div class="model-option selected" data-provider="mock" onclick="selectWizProvider(this,'openai')">
 <div class="model-icon">🤖</div>
 <div class="model-info">
 <div class="model-name">OpenAI</div>
@@ -5727,6 +6180,8 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 <label class="form-label">自定义接口地址</label>
 <input type="text" class="form-input" id="wizCustomEndpoint" placeholder="https://api.example.com/v1">
 </div>
+</div>
+
 <div class="form-group">
 <label class="form-label">系统提示词 / 欢迎语</label>
 <textarea class="form-input" id="wizSystemPrompt" rows="3" placeholder="你是{role}，擅长...（留空使用默认提示词）"></textarea>
