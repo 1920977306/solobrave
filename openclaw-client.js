@@ -143,12 +143,14 @@ class OpenClawClient {
 
     // 2. 普通响应: 匹配 pending 请求（connect 响应也走这里）
     if (type === 'res' && id) {
+      console.log('[OpenClaw] 收到响应 method=' + method + ' id=' + id + ' result=' + JSON.stringify(result) + ' error=' + JSON.stringify(msg.error));
       const pending = this._pending.get(id);
       if (pending) {
         clearTimeout(pending.timeout);
         this._pending.delete(id);
         if (msg.error) {
-          pending.reject(new Error(msg.error));
+          var errMsg = typeof msg.error === 'string' ? msg.error : JSON.stringify(msg.error);
+          pending.reject(new Error(errMsg));
         } else {
           pending.resolve(result || msg);
         }
