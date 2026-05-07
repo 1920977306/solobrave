@@ -1,7 +1,12 @@
 /**
  * OpenClaw WebSocket Client
  * 连接地址: ws://192.168.1.25:18789
- * 使用 Ed25519 JWK 格式认证
+ * 协议版本: 2026.5.2 (Challenge/Connect Auth)
+ * 
+ * 消息格式:
+ * - req: {type: "req", id: string, method: string, params: object}
+ * - res: {type: "res", id: string, method: string, result: object}
+ * - event: {type: "event", method: string, params: object}
  */
 
 class OpenClawClient {
@@ -10,234 +15,342 @@ class OpenClawClient {
     this.url = 'ws://192.168.1.25:18789';
     this.connected = false;
     this.authenticated = false;
-    this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 5;
-    this.reconnectDelay = 3000;
-    this.pendingRequests = new Map();
-    this.subscriptions = new Map();
-    this.listeners = new Map();
+    this.mockMode = false;
+    this._id = 0;
+    this._pending = new Map();       // id -> {resolve, reject, timeout}
+    this._listeners = new Map();     // event -> [callbacks]
+    this._reconnectAttempts = 0;
+    this._maxReconnectAttempts = 5;
+    this._reconnectTimer = null;
     
-    // Ed25519 JWK 密钥（需要从 SECRET.md 或配置获取）
-    this.jwk = null;
-    this.initJWK();
-  }
-
-  async initJWK() {
-    // 尝试从 localStorage 或全局配置获取密钥
-    // 如果没有配置，使用默认的开发密钥
-    const savedKey = localStorage.getItem('openclaw_jwk');
-    if (savedKey) {
-      this.jwk = JSON.parse(savedKey);
-    } else {
-      // 默认开发密钥（实际使用时应该从服务器获取）
-      this.jwk = {
-        kty: "OKP",
-        crv: "Ed25519",
-        x: "9VHfO8L_LnnCQCDPVD3LrYHLMQ5_2cR-3uQYp9v6T2o",
-        y: ""
-      };
+    // Token 管理
+    this._token = localStorage.getItem('openclaw_token') || '';
+    
+    if (!this._token) {
+      console.warn('[OpenClaw] 未设置 token，请在控制台运行: openclaw.setToken("your-token")');
     }
   }
 
-  // 连接 WebSocket
+  // ========== 连接管理 ==========
+
   async connect() {
     return new Promise((resolve, reject) => {
+      // 已有连接
+      if (this.ws && this.connected) {
+        resolve(true);
+        return;
+      }
+
       try {
+        this._clearReconnectTimer();
         this.ws = new WebSocket(this.url);
         
-        this.ws.onopen = async () => {
+        // 等待 challenge 的超时
+        const challengeTimeout = setTimeout(() => {
+          console.warn('[OpenClaw] 10秒内未收到 challenge，启用 mock 模式');
+          this._enableMockMode();
+          this._cleanup();
+          resolve(true); // mock 模式也算连接成功
+        }, 10000);
+
+        this.ws.onopen = () => {
           console.log('[OpenClaw] WebSocket 连接已建立');
           this.connected = true;
-          this.reconnectAttempts = 0;
-          
-          // 发送认证消息
-          await this.authenticate();
-          resolve(true);
+          this._reconnectAttempts = 0;
+          this.emit('connected');
         };
-        
+
         this.ws.onmessage = (event) => {
-          this.handleMessage(event.data);
+          this._handleMessage(event.data, { challengeTimeout, resolve, reject });
         };
-        
+
         this.ws.onerror = (error) => {
           console.error('[OpenClaw] WebSocket 错误:', error);
           this.emit('error', error);
         };
-        
+
         this.ws.onclose = () => {
           console.log('[OpenClaw] WebSocket 连接已关闭');
-          this.connected = false;
-          this.authenticated = false;
+          this._cleanup();
           this.emit('disconnected');
-          this.attemptReconnect();
+          
+          if (!this.mockMode) {
+            this._attemptReconnect();
+          }
         };
-        
+
       } catch (error) {
-        reject(error);
+        console.warn('[OpenClaw] 连接失败，启用 mock 模式:', error.message);
+        this._enableMockMode();
+        resolve(true);
       }
     });
   }
 
-  // 认证
-  async authenticate() {
-    if (!this.jwk) {
-      await this.initJWK();
+  _cleanup() {
+    this.connected = false;
+    this.authenticated = false;
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
+      this.ws = null;
     }
-    
-    const authMsg = {
-      type: 'auth',
-      method: 'jwk',
-      params: {
-        jwk: this.jwk
-      }
-    };
-    
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('认证超时'));
-      }, 10000);
-      
-      this.send(authMsg).then(response => {
-        clearTimeout(timeout);
-        if (response.success || response.authenticated) {
-          this.authenticated = true;
-          console.log('[OpenClaw] 认证成功');
-          this.emit('authenticated');
-          resolve(true);
-        } else {
-          reject(new Error('认证失败'));
-        }
-      }).catch(err => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
+    this._clearPending();
   }
 
-  // 发送请求
-  async send(message) {
+  _clearPending() {
+    this._pending.forEach(({ timeout }) => clearTimeout(timeout));
+    this._pending.clear();
+  }
+
+  _clearReconnectTimer() {
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+  }
+
+  // ========== 消息处理 ==========
+
+  _handleMessage(data, context = {}) {
+    let msg;
+    try {
+      msg = JSON.parse(data);
+    } catch (error) {
+      console.error('[OpenClaw] 解析消息失败:', error);
+      return;
+    }
+
+    const { type, method, id, params, result } = msg;
+
+    // 1. 服务端推送: connect.challenge
+    if (type === 'event' && method === 'connect.challenge') {
+      console.log('[OpenClaw] 收到 challenge:', params?.challenge);
+      if (context.challengeTimeout) {
+        clearTimeout(context.challengeTimeout);
+      }
+      this._sendConnect(params?.challenge, context);
+      return;
+    }
+
+    // 2. 服务端响应: hello-ok
+    if (type === 'res' && method === 'connect') {
+      if (result?.status === 'ok') {
+        console.log('[OpenClaw] 认证成功');
+        this.authenticated = true;
+        this.emit('authenticated', result);
+        if (context.resolve) context.resolve(true);
+      } else {
+        console.warn('[OpenClaw] 认证失败，启用 mock 模式');
+        this._enableMockMode();
+        if (context.resolve) context.resolve(true);
+      }
+      return;
+    }
+
+    // 3. 普通响应: 匹配 pending 请求
+    if (type === 'res' && id) {
+      const pending = this._pending.get(id);
+      if (pending) {
+        clearTimeout(pending.timeout);
+        this._pending.delete(id);
+        if (msg.error) {
+          pending.reject(new Error(msg.error));
+        } else {
+          pending.resolve(result || msg);
+        }
+      }
+      return;
+    }
+
+    // 4. 服务端事件推送
+    if (type === 'event') {
+      this.emit(method, params);
+      this.emit('event', { method, params });
+      return;
+    }
+
+    // 5. 其他消息
+    this.emit('message', msg);
+  }
+
+  async _sendConnect(challenge, context = {}) {
+    if (!this._token) {
+      console.warn('[OpenClaw] 无 token，使用空 token 连接');
+    }
+
+    try {
+      const res = await this.send('connect', { 
+        token: this._token,
+        challenge 
+      });
+      
+      if (res?.status === 'ok') {
+        console.log('[OpenClaw] 认证成功');
+        this.authenticated = true;
+        this.emit('authenticated', res);
+        if (context.resolve) context.resolve(true);
+      } else {
+        console.warn('[OpenClaw] 认证失败，启用 mock 模式');
+        this._enableMockMode();
+        if (context.resolve) context.resolve(true);
+      }
+    } catch (error) {
+      console.warn('[OpenClaw] 认证请求失败，启用 mock 模式:', error.message);
+      this._enableMockMode();
+      if (context.resolve) context.resolve(true);
+    }
+  }
+
+  // ========== 发送请求 ==========
+
+  send(method, params = {}) {
+    // Mock 模式
+    if (this.mockMode) {
+      return this._mockSend(method, params);
+    }
+
     return new Promise((resolve, reject) => {
       if (!this.connected) {
         reject(new Error('WebSocket 未连接'));
         return;
       }
-      
-      const id = this.generateId();
+
+      const id = this._generateId();
       const msg = {
-        ...message,
-        id: id
+        type: 'req',
+        id,
+        method,
+        params
       };
-      
-      this.pendingRequests.set(id, { resolve, reject });
-      
-      // 设置超时
+
+      // 30秒超时
       const timeout = setTimeout(() => {
-        this.pendingRequests.delete(id);
-        reject(new Error(`请求超时: ${id}`));
+        this._pending.delete(id);
+        reject(new Error(`请求超时: ${method}`));
       }, 30000);
-      
-      // 存储超时引用以便清除
-      const stored = this.pendingRequests.get(id);
-      if (stored) {
-        stored.timeout = timeout;
-      }
-      
+
+      this._pending.set(id, { resolve, reject, timeout });
       this.ws.send(JSON.stringify(msg));
     });
   }
 
-  // 处理接收到的消息
-  handleMessage(data) {
-    try {
-      const msg = JSON.parse(data);
-      
-      // 处理响应
-      if (msg.id && this.pendingRequests.has(msg.id)) {
-        const pending = this.pendingRequests.get(msg.id);
-        clearTimeout(pending.timeout);
-        this.pendingRequests.delete(msg.id);
-        
-        if (msg.error) {
-          pending.reject(new Error(msg.error));
-        } else {
-          pending.resolve(msg.result || msg);
-        }
-        return;
-      }
-      
-      // 处理订阅事件
-      if (msg.type === 'event' || msg.type === 'subscribe') {
-        this.handleSubscriptionEvent(msg);
-      }
-      
-      // 广播消息给所有监听器
-      this.emit('message', msg);
-      
-    } catch (error) {
-      console.error('[OpenClaw] 解析消息失败:', error);
-    }
+  _generateId() {
+    return Date.now().toString(36) + '-' + (++this._id).toString(36);
   }
 
-  // 处理订阅事件
-  handleSubscriptionEvent(msg) {
-    const channel = msg.channel || msg.subscription;
-    if (channel && this.subscriptions.has(channel)) {
-      const callbacks = this.subscriptions.get(channel);
-      callbacks.forEach(cb => {
-        try {
-          cb(msg.data || msg);
-        } catch (error) {
-          console.error('[OpenClaw] 订阅回调错误:', error);
-        }
-      });
+  // ========== 重连机制 ==========
+
+  _attemptReconnect() {
+    if (this._reconnectAttempts >= this._maxReconnectAttempts) {
+      console.error('[OpenClaw] 达到最大重连次数 (5次)');
+      this._enableMockMode();
+      return;
     }
+
+    this._reconnectAttempts++;
+    // 递增延迟: 3s, 6s, 9s, 12s, 15s
+    const delay = this._reconnectAttempts * 3000;
+    
+    console.log(`[OpenClaw] ${delay/1000}秒后尝试重连 (${this._reconnectAttempts}/${this._maxReconnectAttempts})`);
+    
+    this._reconnectTimer = setTimeout(() => {
+      this.connect().catch(err => {
+        console.error('[OpenClaw] 重连失败:', err);
+      });
+    }, delay);
   }
 
-  // 订阅频道
-  subscribe(channel, callback) {
-    if (!this.subscriptions.has(channel)) {
-      this.subscriptions.set(channel, new Set());
-      
-      // 发送订阅请求
-      this.send({
-        type: 'subscribe',
-        channel: channel
-      }).catch(err => {
-        console.error(`[OpenClaw] 订阅 ${channel} 失败:`, err);
-      });
+  // ========== Mock 模式 ==========
+
+  _enableMockMode() {
+    this.mockMode = true;
+    this._cleanup();
+    console.log('%c[OpenClaw] ⚠️ Mock 模式已启用 - 使用模拟数据', 'color: orange; font-weight: bold');
+    this.emit('mockMode', true);
+  }
+
+  _mockSend(method, params) {
+    return new Promise((resolve) => {
+      // 模拟网络延迟
+      setTimeout(() => {
+        switch (method) {
+          case 'agents.list':
+            resolve({ agents: MOCK_AGENTS });
+            break;
+          case 'sessions.list':
+            resolve({ sessions: MOCK_SESSIONS });
+            break;
+          case 'chat.history':
+            resolve({ messages: MOCK_MESSAGES });
+            break;
+          case 'chat.send':
+            // 模拟回复
+            const replyText = this._getMockReply(params?.content?.[0]?.text || '');
+            this.emit('chat.message', { 
+              content: [{ type: 'text', text: replyText }],
+              sessionKey: params?.sessionKey 
+            });
+            resolve({ status: 'ok' });
+            break;
+          case 'models.list':
+            resolve({ models: MOCK_MODELS });
+            break;
+          case 'health':
+            resolve({ status: 'ok', mock: true });
+            break;
+          default:
+            resolve({ status: 'ok', mock: true });
+        }
+      }, 200 + Math.random() * 300);
+    });
+  }
+
+  _getMockReply(message) {
+    const lowerMsg = message.toLowerCase();
+    
+    if (lowerMsg.includes('你好') || lowerMsg.includes('hi') || lowerMsg.includes('hello')) {
+      return '你好！我是模拟助手。在 mock 模式下，所有功能使用模拟数据。';
+    }
+    if (lowerMsg.includes('员工') || lowerMsg.includes('列表')) {
+      return '当前员工列表: 张三(前端)、李四(后端)、王五(产品)、赵六(设计)';
+    }
+    if (lowerMsg.includes('帮助') || lowerMsg.includes('help')) {
+      return '可用命令: /agents - 查看代理, /sessions - 查看会话, /help - 帮助';
     }
     
-    this.subscriptions.get(channel).add(callback);
-    
-    // 返回取消订阅函数
-    return () => {
-      const callbacks = this.subscriptions.get(channel);
-      if (callbacks) {
-        callbacks.delete(callback);
-        if (callbacks.size === 0) {
-          this.subscriptions.delete(channel);
-          this.send({
-            type: 'unsubscribe',
-            channel: channel
-          }).catch(err => {
-            console.error(`[OpenClaw] 取消订阅 ${channel} 失败:`, err);
-          });
-        }
-      }
-    };
+    const replies = [
+      '收到！这是一条 mock 回复。',
+      '好的，消息已收到。（mock 模式）',
+      '我理解了，这是模拟回复。',
+      '好的，请问还有什么需要帮助的？'
+    ];
+    return replies[Math.floor(Math.random() * replies.length)];
   }
 
-  // 事件监听
+  // ========== Event 系统 ==========
+
   on(event, callback) {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, new Set());
+    if (!this._listeners.has(event)) {
+      this._listeners.set(event, new Set());
     }
-    this.listeners.get(event).add(callback);
-    return () => this.listeners.get(event)?.delete(callback);
+    this._listeners.get(event).add(callback);
+    
+    // 返回取消函数
+    return () => this.off(event, callback);
+  }
+
+  off(event, callback) {
+    const callbacks = this._listeners.get(event);
+    if (callbacks) {
+      callbacks.delete(callback);
+    }
   }
 
   emit(event, data) {
-    const callbacks = this.listeners.get(event);
+    const callbacks = this._listeners.get(event);
     if (callbacks) {
       callbacks.forEach(cb => {
         try {
@@ -249,147 +362,109 @@ class OpenClawClient {
     }
   }
 
-  // 重连
-  attemptReconnect() {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('[OpenClaw] 达到最大重连次数');
-      return;
-    }
-    
-    this.reconnectAttempts++;
-    console.log(`[OpenClaw] ${this.reconnectDelay/1000}秒后尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-    
-    setTimeout(() => {
-      this.connect().catch(err => {
-        console.error('[OpenClaw] 重连失败:', err);
-      });
-    }, this.reconnectDelay);
+  // ========== Token 管理 ==========
+
+  setToken(token) {
+    this._token = token;
+    localStorage.setItem('openclaw_token', token);
+    console.log('[OpenClaw] Token 已保存，重新连接后将使用新 token');
   }
 
-  // 断开连接
+  getToken() {
+    return this._token;
+  }
+
+  clearToken() {
+    this._token = '';
+    localStorage.removeItem('openclaw_token');
+    console.log('[OpenClaw] Token 已清除');
+  }
+
+  // ========== 断开连接 ==========
+
   disconnect() {
+    this._clearReconnectTimer();
+    this._reconnectAttempts = this._maxReconnectAttempts; // 防止自动重连
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
-    this.connected = false;
-    this.authenticated = false;
-    this.pendingRequests.clear();
-    this.subscriptions.clear();
-  }
-
-  // 生成唯一 ID
-  generateId() {
-    return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+    this._cleanup();
+    console.log('[OpenClaw] 已断开连接');
   }
 
   // ========== API 方法 ==========
 
-  // 获取代理列表
-  async agents_list() {
-    return this.send({
-      type: 'call',
-      method: 'agents.list',
-      params: {}
-    });
+  // 获取 agent 列表
+  async listAgents() {
+    return this.send('agents.list', {});
   }
 
-  // 获取代理身份信息
-  async agent_identity_get(agentId) {
-    return this.send({
-      type: 'call',
-      method: 'agent.identity.get',
-      params: { agent_id: agentId }
-    });
-  }
-
-  // 获取会话列表
-  async sessions_list(agentId = null) {
-    return this.send({
-      type: 'call',
-      method: 'sessions.list',
-      params: agentId ? { agent_id: agentId } : {}
-    });
-  }
-
-  // 订阅会话
-  sessions_subscribe(callback) {
-    return this.subscribe('sessions', callback);
-  }
-
-  // 发送聊天消息
-  async chat_send(sessionId, content) {
-    return this.send({
-      type: 'call',
-      method: 'chat.send',
-      params: {
-        session_id: sessionId,
-        content: content
-      }
-    });
+  // 获取 session 列表
+  async listSessions() {
+    return this.send('sessions.list', {});
   }
 
   // 获取聊天历史
-  async chat_history(sessionId, limit = 50) {
-    return this.send({
-      type: 'call',
-      method: 'chat.history',
-      params: {
-        session_id: sessionId,
-        limit: limit
-      }
+  async getChatHistory(sessionKey) {
+    return this.send('chat.history', { sessionKey });
+  }
+
+  // 发送聊天消息
+  async sendChat(sessionKey, message) {
+    return this.send('chat.send', {
+      sessionKey,
+      content: [{ type: 'text', text: message }]
     });
+  }
+
+  // 中断生成
+  async abortChat(sessionKey) {
+    return this.send('chat.abort', { sessionKey });
+  }
+
+  // 获取模型列表
+  async listModels() {
+    return this.send('models.list', {});
   }
 
   // 健康检查
   async health() {
-    return this.send({
-      type: 'call',
-      method: 'health',
-      params: {}
-    });
-  }
-
-  // 获取节点列表
-  async node_list() {
-    return this.send({
-      type: 'call',
-      method: 'node.list',
-      params: {}
-    });
-  }
-
-  // 更新代理配置
-  async agent_update(agentId, config) {
-    return this.send({
-      type: 'call',
-      method: 'agent.update',
-      params: {
-        agent_id: agentId,
-        config: config
-      }
-    });
-  }
-
-  // 应用配置
-  async config_apply(config) {
-    return this.send({
-      type: 'call',
-      method: 'config.apply',
-      params: { config: config }
-    });
-  }
-
-  // 重启网关
-  async gateway_restart() {
-    return this.send({
-      type: 'call',
-      method: 'gateway.restart',
-      params: {}
-    });
+    return this.send('health', {});
   }
 }
 
-// 创建全局实例（不自动连接，等认证协议修好后再开启）
+// ========== Mock 数据 ==========
+
+const MOCK_AGENTS = [
+  { agentId: 'lobster', name: 'Lobster', description: '主助手' },
+  { agentId: 'coder', name: 'Coder', description: '代码助手' },
+  { agentId: 'writer', name: 'Writer', description: '写作助手' }
+];
+
+const MOCK_SESSIONS = [
+  { sessionKey: 'agent:lobster:main', agentId: 'lobster', name: '主会话', createdAt: new Date().toISOString() },
+  { sessionKey: 'agent:coder:main', agentId: 'coder', name: '代码会话', createdAt: new Date().toISOString() }
+];
+
+const MOCK_MESSAGES = [
+  { role: 'user', content: [{ type: 'text', text: '你好' }], createdAt: new Date(Date.now() - 60000).toISOString() },
+  { role: 'assistant', content: [{ type: 'text', text: '你好！有什么可以帮你的吗？' }], createdAt: new Date(Date.now() - 59000).toISOString() },
+  { role: 'user', content: [{ type: 'text', text: '你是谁' }], createdAt: new Date(Date.now() - 30000).toISOString() },
+  { role: 'assistant', content: [{ type: 'text', text: '我是你的 AI 助手' }], createdAt: new Date(Date.now() - 29000).toISOString() }
+];
+
+const MOCK_MODELS = [
+  { id: 'gpt-4', name: 'GPT-4' },
+  { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
+  { id: 'claude-3', name: 'Claude 3' }
+];
+
+// ========== 全局实例 ==========
+
 const openclaw = new OpenClawClient();
-console.log('[OpenClaw] 客户端已创建，mock模式运行中。输入 openclaw.connect() 可尝试真实连接');
+
+console.log('%c[OpenClaw] 客户端已创建', 'color: green; font-weight: bold');
+console.log('  • 运行 openclaw.connect() 尝试连接');
+console.log('  • 运行 openclaw.setToken("your-token") 设置 token');
+console.log('  • 连接失败时自动启用 mock 模式');
