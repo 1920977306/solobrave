@@ -2596,6 +2596,8 @@ function showMainApp() {
   hideLogin();
   applyPermissions();
   updateUserInfo();
+  // 自动连接 OpenClaw
+  setTimeout(initOpenClaw, 1000);
 }
 
 // 登录
@@ -2886,6 +2888,41 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
     if(t) t.remove();
     displayAIReply('⚠️ OpenClaw 连接异常: ' + e.message, docContext, timeStr);
   }
+}
+
+// 初始化 OpenClaw 连接
+const OPENCLAW_CONFIG = {
+  gatewayUrl: 'ws://192.168.1.25:18789',
+  defaultToken: '8606e4d80b1accfaa4e22729466c40003cd217ce2bda93f3'
+};
+
+function initOpenClaw(){
+  if(typeof openclaw === 'undefined'){
+    console.warn('[OpenClaw] openclaw-client.js 未加载');
+    return;
+  }
+  var token = localStorage.getItem('openclaw_token') || OPENCLAW_CONFIG.defaultToken;
+  if(!token){
+    console.warn('[OpenClaw] 无 token，跳过连接');
+    return;
+  }
+  openclaw.setToken(token);
+  openclaw.on('connect', function(){
+    console.log('[OpenClaw] 已连接 Gateway');
+    localStorage.setItem('openclaw_token', token);
+    var statusEl = document.getElementById('openclawStatus');
+    if(statusEl) statusEl.textContent = '🟢 已连接';
+  });
+  openclaw.on('disconnect', function(){
+    console.log('[OpenClaw] 断开连接');
+    var statusEl = document.getElementById('openclawStatus');
+    if(statusEl) statusEl.textContent = '🔴 未连接';
+  });
+  openclaw.on('error', function(err){
+    console.error('[OpenClaw] 连接错误:', err);
+  });
+  openclaw.connect();
+  console.log('[OpenClaw] 正在连接 Gateway...');
 }
 
 // Gear Menu Functions
