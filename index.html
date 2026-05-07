@@ -195,15 +195,32 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* AI消息 - 左侧 */
 .msg { display: flex; gap: 10px; margin-bottom: 16px; max-width: 80%; align-items: flex-start; }
 .msg.own { flex-direction: row-reverse; margin-left: auto; margin-bottom: 16px; }
-.msg-avatar { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; margin-top: 2px; }
+.msg-avatar { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; margin-top: 2px; overflow: hidden; }
+.msg-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .msg-content { display: flex; flex-direction: column; gap: 4px; }
 .msg-sender { font: var(--font-sm); color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
 .msg-sender-name { font-weight: 600; }
 .msg-sender-role { font-size: 11px; color: var(--text-tertiary); font-weight: normal; }
 .msg-sender-time { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
 .msg-bubble { padding: 10px 14px; border-radius: 16px; background: #F5F5F7; font-size: 14px; line-height: 1.5; word-break: break-word; }
-.msg.own .msg-bubble { background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%); color: white; border-bottom-right-radius: 6px; box-shadow: 0 2px 8px rgba(255, 107, 53, 0.25); }
-.msg:not(.own) .msg-bubble { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); border: 0.5px solid rgba(0, 0, 0, 0.04); border-bottom-left-radius: 6px; background: #F5F5F7; }
+
+/* Apple 风格 - 用户消息（右侧，浅蓝色） */
+.msg.own .msg-bubble {
+  background: rgba(0, 122, 255, 0.1);
+  color: var(--text-primary);
+  border-radius: 16px 16px 4px 16px;
+  border: none;
+  box-shadow: none;
+}
+
+/* Apple 风格 - AI 消息（左侧，白色/浅灰） */
+.msg:not(.own) .msg-bubble {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--separator);
+  border-radius: 16px 16px 16px 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
 .msg { animation: msg-in 0.3s ease-out; }
 @keyframes msg-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 .msg.reminder .msg-bubble { background: #FFF3E0; border: 1px solid #FFB74D; }
@@ -218,12 +235,97 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 .mention { color: var(--accent); font-weight: 500; background: var(--accent-light); padding: 0 4px; border-radius: 3px; }
 
+/* ========== 代码块样式 ========== */
+.code-block {
+  position: relative;
+  background: #1e1e1e;
+  border-radius: 8px;
+  margin: 8px 0;
+  overflow: hidden;
+}
+.code-block .code-lang {
+  font-size: 11px;
+  color: #8e8e93;
+  padding: 6px 12px;
+  background: #2c2c2e;
+  border-bottom: 1px solid #3a3a3c;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+.code-block pre {
+  margin: 0;
+  padding: 12px;
+  overflow-x: auto;
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #d4d4d4;
+}
+.code-block code {
+  font-family: inherit;
+  color: inherit;
+}
+.code-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 4px 8px;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 4px;
+  color: #8e8e93;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.code-copy-btn:hover {
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+}
+.inline-code {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  color: var(--accent);
+}
+
 .typing-indicator { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
 .typing-dots { display: flex; gap: 3px; padding: 8px 12px; background: var(--bg-secondary); border-radius: 16px; }
 .typing-dot { width: 6px; height: 6px; background: var(--text-tertiary); border-radius: 50%; animation: typing 1.4s infinite; }
 .typing-dot:nth-child(2) { animation-delay: 0.2s; }
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 @keyframes typing { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
+
+/* Apple 风格 - 思考中消息 */
+.msg.typing-msg { max-width: 200px; }
+.msg.typing-msg .msg-bubble {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--separator);
+  border-radius: 16px 16px 16px 4px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.msg.typing-msg .typing-dots-inline {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.msg.typing-msg .typing-dot-inline {
+  width: 6px;
+  height: 6px;
+  background: var(--text-tertiary);
+  border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out;
+}
+.msg.typing-msg .typing-dot-inline:nth-child(2) { animation-delay: 0.2s; }
+.msg.typing-msg .typing-dot-inline:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-6px); }
+}
 
 /* Chat Empty State */
 .chat-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 40px; text-align: center; color: var(--text-secondary); }
@@ -1280,286 +1382,32 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   color: var(--text-secondary);
 }
 
-
-/* ===== Login Overlay ===== */
-.login-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
-  transition: opacity 0.4s ease;
-}
-.login-overlay.hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-.login-card {
-  width: 380px;
-  max-width: 90vw;
-  background: rgba(44, 44, 46, 0.85);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-radius: 20px;
-  border: 0.5px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  padding: 40px 32px 32px;
-  text-align: center;
-  color: #fff;
-  animation: login-card-in 0.5s cubic-bezier(0.25, 0.1, 0.25, 1);
-}
-@keyframes login-card-in {
-  from { opacity: 0; transform: scale(0.92) translateY(20px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
-}
-.login-logo {
-  font-size: 56px;
-  margin-bottom: 8px;
-  animation: login-logo-float 3s ease-in-out infinite;
-}
-@keyframes login-logo-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
-}
-.login-title {
-  font-size: 22px;
-  font-weight: 700;
-  margin-bottom: 4px;
-  letter-spacing: -0.02em;
-}
-.login-subtitle {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.5);
-  margin-bottom: 28px;
-}
-.login-input-group {
-  position: relative;
-  margin-bottom: 14px;
-}
-.login-input-group input {
-  width: 100%;
-  padding: 12px 16px 12px 40px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 0.5px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  color: #fff;
-  font-size: 15px;
-  outline: none;
-  transition: all 0.2s;
-}
-.login-input-group input::placeholder {
-  color: rgba(255, 255, 255, 0.35);
-}
-.login-input-group input:focus {
-  border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.15);
-}
-.login-input-icon {
-  position: absolute;
-  left: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 16px;
-  opacity: 0.5;
-}
-.login-btn {
-  width: 100%;
-  padding: 13px;
-  background: linear-gradient(135deg, #FF6B35, #E55A2B);
-  color: #fff;
-  border: none;
-  border-radius: 12px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-top: 6px;
-}
-.login-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
-}
-.login-btn:active {
-  transform: translateY(0);
-}
-.login-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-.login-error {
-  color: #FF6B6B;
-  font-size: 13px;
-  margin-top: 12px;
-  min-height: 20px;
-}
-.login-hint {
-  margin-top: 16px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.3);
-}
-
-/* User menu in top bar */
-.user-menu {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 8px;
-  transition: background 0.15s;
-}
-.user-menu:hover {
-  background: rgba(0, 0, 0, 0.04);
-}
-[data-theme="dark"] .user-menu:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-.user-menu-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.user-menu-dropdown {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 6px;
-  background: var(--bg-primary);
-  border: 0.5px solid var(--separator);
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-  min-width: 180px;
-  padding: 6px;
-  z-index: 200;
-  display: none;
-  animation: dropdown-in 0.15s ease;
-}
-.user-menu-dropdown.show {
-  display: block;
-}
-@keyframes dropdown-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.user-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 14px;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.user-menu-item:hover {
-  background: var(--bg-secondary);
-}
-.user-menu-item.danger {
-  color: #FF3B30;
-}
-.user-menu-divider {
-  height: 0.5px;
-  background: var(--separator);
-  margin: 4px 8px;
-}
-.user-menu-role {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  padding: 2px 8px;
-  background: var(--bg-secondary);
-  border-radius: 6px;
-}
-
-/* Migration dialog */
-.migration-dialog {
-  position: fixed;
-  inset: 0;
-  z-index: 10001;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(20px);
-}
-.migration-card {
-  width: 400px;
-  max-width: 90vw;
-  background: var(--bg-primary);
-  border-radius: 16px;
-  padding: 28px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  text-align: center;
-}
-.migration-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
-}
-.migration-title {
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 8px;
-  color: var(--text-primary);
-}
-.migration-desc {
-  font-size: 14px;
-  color: var(--text-secondary);
-  margin-bottom: 20px;
-  line-height: 1.5;
-}
-.migration-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-}
-.migration-actions button {
-  padding: 10px 24px;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  border: none;
-}
-.migration-btn-primary {
-  background: var(--accent);
-  color: #fff;
-}
-.migration-btn-secondary {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
 </style>
 </head>
 <body>
 <!-- Login Overlay -->
-<div class="login-overlay" id="loginOverlay">
-  <div class="login-card">
-    <div class="login-logo">🦞</div>
-    <div class="login-title">SoloBrave</div>
-    <div class="login-subtitle">AI Mission Control</div>
-    <div class="login-input-group">
-      <span class="login-input-icon">👤</span>
-      <input type="text" id="loginUsername" placeholder="用户名" autocomplete="username" autofocus>
+<div id="loginOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:linear-gradient(135deg,rgba(0,0,0,0.4),rgba(0,0,0,0.2));backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:center;">
+  <div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border-radius:24px;padding:40px;width:360px;max-width:90%;box-shadow:0 25px 50px rgba(0,0,0,0.15);border:1px solid rgba(255,255,255,0.3);">
+    <div style="text-align:center;margin-bottom:32px;">
+      <div style="font-size:48px;margin-bottom:12px;">🦞</div>
+      <div style="font-size:20px;font-weight:600;color:var(--text-primary);">SoloBrave</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">AI 员工管理系统</div>
     </div>
-    <div class="login-input-group">
-      <span class="login-input-icon">🔑</span>
-      <input type="password" id="loginPassword" placeholder="密码" autocomplete="current-password">
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">用户名</label>
+      <input type="text" id="loginUsername" placeholder="输入用户名..." style="width:100%;padding:12px 14px;border:1px solid var(--separator);border-radius:12px;font-size:14px;background:var(--bg-secondary);transition:all 0.2s;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--separator)'">
     </div>
-    <button class="login-btn" id="loginBtn" onclick="handleLogin()">登 录</button>
-    <div class="login-error" id="loginError"></div>
-    <div class="login-hint">默认账号: admin / admin123</div>
+    <div style="margin-bottom:24px;">
+      <label style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">密码</label>
+      <input type="password" id="loginPassword" placeholder="输入密码..." style="width:100%;padding:12px 14px;border:1px solid var(--separator);border-radius:12px;font-size:14px;background:var(--bg-secondary);transition:all 0.2s;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--separator)'">
+    </div>
+    <button id="loginBtn" onclick="doLogin()" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent-hover));color:white;font-size:15px;font-weight:600;cursor:pointer;transition:all 0.2s;box-shadow:0 4px 16px rgba(255,107,53,0.3);" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='translateY(0)'">
+      登录
+    </button>
+    <div id="loginError" style="margin-top:12px;padding:10px 12px;background:#FFF3E0;border-radius:8px;color:#E65100;font-size:13px;display:none;"></div>
+    <div style="margin-top:16px;text-align:center;font-size:12px;color:var(--text-tertiary);">
+      本地模式 · 数据存储在浏览器中
+    </div>
   </div>
 </div>
 
@@ -1619,7 +1467,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 </div>
 
 <!-- 新增员工按钮 -->
-<div style="padding:0 12px 8px;">
+<div style="padding:0 12px 8px;" data-admin-only>
 <button onclick="openWizard()" style="width:100%;padding:10px 12px;background:#AF52DE;color:white;border:none;border-radius:var(--radius-md);font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all 0.15s;"
  onmouseover="this.style.background='#8E44AD'" onmouseout="this.style.background='#AF52DE'">
 <span>➕</span> 新增员工
@@ -1875,22 +1723,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <span class="banner-url">www.solobrave.com</span>
 </div>
 <div class="banner-right">
-<div class="user-menu" id="userMenu" onclick="toggleUserMenu()">
-  <div class="banner-avatar" id="userAvatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
-  <span class="user-menu-name" id="userName">—</span>
-  <div class="user-menu-dropdown" id="userDropdown">
-    <div class="user-menu-item" id="userRoleDisplay" style="pointer-events:none;">
-      <span>👤</span><span id="userRoleText">—</span>
-    </div>
-    <div class="user-menu-divider"></div>
-    <div class="user-menu-item" onclick="handleChangePassword()">
-      <span>🔑</span><span>修改密码</span>
-    </div>
-    <div class="user-menu-item danger" onclick="handleLogout()">
-      <span>🚪</span><span>退出登录</span>
-    </div>
-  </div>
-</div>
+<div id="userInfo"></div>
+<div class="banner-avatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);" title="SoloBrave">🦞</div>
 </div>
 </div>
 
@@ -1926,7 +1760,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 <div class="msg own">
 <div class="msg-content">
-<div class="msg-sender"><span class="msg-sender-time">09:31</span><span class="msg-sender-name">你</span></div>
+<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">09:31</span></div>
 <div class="msg-bubble">你好！请帮我检查一下首页的响应式布局，今天需要上线。</div>
 </div>
 </div>
@@ -1941,27 +1775,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 <div class="msg own">
 <div class="msg-content">
-<div class="msg-sender"><span class="msg-sender-time">09:33</span><span class="msg-sender-name">你</span></div>
-<div class="msg-bubble">太好了，预计多久能完成？</div>
-</div>
-</div>
-
-<div class="msg" data-sender="xlcx">
-<div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div></div>
-<div class="msg-content">
-<div class="msg-sender"><span class="msg-sender-name">Lucy</span><span class="msg-sender-role">前端工程师</span><span class="msg-sender-time">09:34</span></div>
-<div class="msg-bubble">预计 30 分钟内完成修复，然后提交 PR 给你 review。<span class="mention">@所有人</span> 请注意查收。</div>
-</div>
-</div>
-
-<div class="typing-indicator" id="typingIndicator" style="display:none;">
-<div class="avatar small" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
-<div class="typing-dots">
-<div class="typing-dot"></div>
-<div class="typing-dot"></div>
-<div class="typing-dot"></div>
-</div>
-</div>
+<div class="msg-sender">\u
 </div>
 
 <!-- Context Menu -->
@@ -2315,57 +2129,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 <!-- Connect Tab (API Provider Config) -->
 <div class="emp-tab-pane" id="emp-tab-connect">
-<!-- OpenClaw 区域 -->
-<div class="emp-doc-section" style="margin-bottom:16px;">
-<div class="emp-doc-title" style="display:flex;align-items:center;gap:8px;">
-🦞 OpenClaw 连接
-<div id="empOCStatusDot" style="width:8px;height:8px;border-radius:50%;background:#ccc;"></div>
-</div>
-<div class="emp-doc-desc" id="empOCStatusDesc">检查 OpenClaw 状态...</div>
-<div id="empOCContent" style="margin-top:12px;">
-<!-- 已连接 OpenClaw 的员工 -->
-<div id="empOCConnected" style="display:none;">
-<div style="background:var(--bg-secondary);border-radius:8px;padding:12px;margin-bottom:10px;">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-<span style="font-size:20px;">🦞</span>
-<div>
-<div style="font-weight:600;font-size:13px;" id="empOCAgentName">-</div>
-<div style="font-size:11px;color:var(--text-tertiary);" id="empOCAgentModel">-</div>
-</div>
-</div>
-<div style="margin-top:8px;">
-<div style="font-weight:600;margin-bottom:6px;font-size:12px;color:var(--text-secondary);">人设 / SOUL.md</div>
-<textarea class="form-input" id="empOCSoul" rows="3" placeholder="系统提示词..." style="font-size:12px;"></textarea>
-</div>
-</div>
-<button class="emp-action-btn primary" onclick="syncEmpToOpenClaw()" style="margin-bottom:8px;">
-<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-同步到 OpenClaw
-</button>
-<button class="emp-action-btn" onclick="disconnectEmpOpenClaw()" style="color:#FF3B30;">
-断开 OpenClaw
-</button>
-</div>
-<!-- 未连接 OpenClaw -->
-<div id="empOCDisconnected">
-<button class="emp-action-btn" onclick="connectEmpToOpenClaw()" style="width:100%;justify-content:center;background:linear-gradient(135deg,#FF6B35,#E55A2B);color:white;border:none;">
-🦞 连接到 OpenClaw
-</button>
-</div>
-</div>
-</div>
-
-<!-- API 直连区域 -->
 <div class="emp-doc-section">
-<div class="emp-doc-title">🔌 API 直连配置</div>
+<div class="emp-doc-title">🤖 API 连接配置</div>
 <div class="emp-doc-desc">选择 AI 供应商并配置 API Key</div>
 <div style="margin-top:12px;">
 <div style="font-weight:600;margin-bottom:8px;font-size:13px;">供应商</div>
 <div id="empConnectProviders" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
 <button class="provider-opt" data-provider="mock" onclick="selectEmpProvider(this,'mock')">
-<div class="provider-opt-icon">⏸️</div>
-<div class="provider-opt-name">未配置</div>
-<div class="provider-opt-desc">暂不使用 AI</div>
+<div class="provider-opt-icon">🎭</div>
+<div class="provider-opt-name">Mock</div>
+<div class="provider-opt-desc">本地模拟</div>
 </button>
 <button class="provider-opt" data-provider="openai" onclick="selectEmpProvider(this,'openai')">
 <div class="provider-opt-icon">🤖</div>
@@ -2406,9 +2179,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 </div>
 <button class="emp-action-btn primary" onclick="saveEmpConnect()">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-保存 API 连接配置
+保存连接配置
 </button>
-</div>
 </div>
 
 <!-- Channel Tab -->
@@ -2747,8 +2519,290 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <script>
 
 // ========== 工具函数 ==========
+// ========== Phase 2: 权限控制 ==========
+var currentUser = null;
+var authToken = localStorage.getItem('sb_auth_token') || null;
+
+// 统一 API 请求（带认证 token）
+async function apiFetch(url, options = {}) {
+  if (!options.headers) options.headers = {};
+  options.headers['Content-Type'] = 'application/json';
+  const token = localStorage.getItem('sb_auth_token');
+  if (token && token.indexOf('mock_') !== 0) {
+    options.headers['Authorization'] = 'Bearer ' + token;
+  }
+  try {
+    const res = await fetch(url, options);
+    if (res.status === 401) {
+      // token 过期
+      currentUser = null;
+      authToken = null;
+      localStorage.removeItem('sb_auth_token');
+      localStorage.removeItem('sb_current_user');
+      showLogin();
+      throw new Error('未登录');
+    }
+    return res;
+  } catch (e) {
+    if (e.message === '未登录') throw e;
+    console.warn('API请求失败:', e);
+    return null; // 后端没启动
+  }
+}
+
+// 检查认证状态
+function checkAuth() {
+  var token = localStorage.getItem('sb_auth_token');
+  var savedUser = localStorage.getItem('sb_current_user');
+
+  if (!token) {
+    showLogin();
+    return;
+  }
+
+  // 如果是 mock token，直接用本地用户
+  if (token.indexOf('mock_') === 0) {
+    if (savedUser) {
+      try {
+        currentUser = JSON.parse(savedUser);
+        authToken = token;
+        showMainApp();
+        return;
+      } catch (e) {}
+    }
+    showLogin();
+    return;
+  }
+
+  // 真实 token，验证有效性
+  fetch('/api/auth/me', {
+    headers: { 'Authorization': 'Bearer ' + token }
+  })
+  .then(function(res) {
+    if (res.ok) return res.json();
+    throw new Error('token无效');
+  })
+  .then(function(user) {
+    currentUser = user;
+    authToken = token;
+    localStorage.setItem('sb_current_user', JSON.stringify(currentUser));
+    showMainApp();
+  })
+  .catch(function() {
+    // token 无效或后端未启动
+    if (savedUser && token.indexOf('mock_') === 0) {
+      try {
+        currentUser = JSON.parse(savedUser);
+        showMainApp();
+        return;
+      } catch (e) {}
+    }
+    localStorage.removeItem('sb_auth_token');
+    localStorage.removeItem('sb_current_user');
+    showLogin();
+  });
+}
+
+function showLogin() {
+  document.getElementById('loginOverlay').style.display = 'flex';
+  document.querySelector('.app-container').style.display = 'none';
+  document.querySelector('.top-banner').style.display = 'none';
+}
+
+function hideLogin() {
+  document.getElementById('loginOverlay').style.display = 'none';
+  document.querySelector('.app-container').style.display = 'flex';
+  document.querySelector('.top-banner').style.display = 'flex';
+}
+
+function showMainApp() {
+  hideLogin();
+  applyPermissions();
+  updateUserInfo();
+}
+
+// 登录
+function doLogin() {
+  var username = document.getElementById('loginUsername').value.trim();
+  var password = document.getElementById('loginPassword').value;
+  var errorDiv = document.getElementById('loginError');
+
+  if (!username || !password) {
+    errorDiv.textContent = '请输入用户名和密码';
+    errorDiv.style.display = 'block';
+    return;
+  }
+
+  // 调用后端 API 登录
+  fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: username, password: password })
+  })
+  .then(function(res) { return res.json(); })
+  .then(function(data) {
+    if (data.token) {
+      // 登录成功
+      authToken = data.token;
+      currentUser = data.user;
+      localStorage.setItem('sb_auth_token', authToken);
+      localStorage.setItem('sb_current_user', JSON.stringify(currentUser));
+      errorDiv.style.display = 'none';
+      showMainApp();
+      showToast('✅ 登录成功，欢迎 ' + (currentUser.displayName || currentUser.name || currentUser.username));
+
+      // 检查是否需要迁移本地数据
+      checkLocalMigration();
+    } else {
+      // 登录失败
+      errorDiv.textContent = data.error || '用户名或密码错误';
+      errorDiv.style.display = 'block';
+    }
+  })
+  .catch(function(e) {
+    // 后端未启动，降级到本地模式
+    console.warn('后端未就绪，使用本地模式');
+    var isAdminUser = (username === 'admin');
+    currentUser = {
+      id: 'local_admin',
+      username: username,
+      name: isAdminUser ? '管理员' : username,
+      displayName: isAdminUser ? '管理员' : username,
+      role: isAdminUser ? 'admin' : 'employee',
+      avatar: 0
+    };
+    authToken = 'mock_' + Date.now();
+    localStorage.setItem('sb_auth_token', authToken);
+    localStorage.setItem('sb_current_user', JSON.stringify(currentUser));
+    errorDiv.style.display = 'none';
+    showMainApp();
+    showToast('⚠️ 后端未连接，使用本地模式');
+  });
+}
+
+// 退出
+function doLogout() {
+  currentUser = null;
+  authToken = null;
+  localStorage.removeItem('sb_current_user');
+  localStorage.removeItem('sb_auth_token');
+  showLogin();
+  showToast('👋 已退出登录');
+}
+
+// 权限判断
+function isAdmin() {
+  return currentUser && currentUser.role === 'admin';
+}
+
+function isEmployee() {
+  return currentUser && currentUser.role === 'employee';
+}
+
+function isLocalMode() {
+  return !authToken || authToken.indexOf('mock_') === 0;
+}
+
+// 应用权限控制
+function applyPermissions() {
+  // 处理 data-admin-only 属性
+  document.querySelectorAll('[data-admin-only]').forEach(function(el) {
+    el.style.display = isAdmin() ? '' : 'none';
+  });
+
+  // 处理 data-employee-only 属性
+  document.querySelectorAll('[data-employee-only]').forEach(function(el) {
+    el.style.display = isEmployee() ? '' : 'none';
+  });
+
+  // 员工视图：隐藏管理功能
+  if (isEmployee()) {
+    // 隐藏新增员工按钮
+    var addBtn = document.querySelector('button[onclick="openWizard()"]');
+    if (addBtn) addBtn.style.display = 'none';
+
+    // 隐藏系统设置入口
+    var settingsBtn = document.querySelector('button[onclick="showSettings()"]');
+    if (settingsBtn) settingsBtn.style.display = 'none';
+  }
+}
+
+// 更新顶部栏用户信息
+function updateUserInfo() {
+  var userInfo = document.getElementById('userInfo');
+  if (userInfo && currentUser) {
+    userInfo.innerHTML = '<div style="display:flex;align-items:center;gap:8px;">' +
+      '<div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-hover));display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:600;">' +
+      ((currentUser.displayName || currentUser.name) ? (currentUser.displayName || currentUser.name).charAt(0).toUpperCase() : '?') +
+      '</div>' +
+      '<span style="font-size:13px;font-weight:500;">' + escapeHtml(currentUser.displayName || currentUser.name) + '</span>' +
+      '<button onclick="doLogout()" style="padding:4px 8px;border-radius:6px;background:var(--bg-secondary);color:var(--text-secondary);font-size:11px;cursor:pointer;border:none;" onmouseover="this.style.background=\'var(--bg-tertiary)\'" onmouseout="this.style.background=\'var(--bg-secondary)\'">退出</button>' +
+      '</div>';
+  }
+}
+
 function escapeHtml(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function escapeAttr(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// 格式化消息内容（支持代码块、换行等）
+function formatMessageContent(text){
+  if(!text) return '';
+  
+  // 处理代码块 ```code```
+  var parts = text.split(/(```[\s\S]*?```)/g);
+  var result = '';
+  
+  for(var i = 0; i < parts.length; i++){
+    var part = parts[i];
+    if(part.indexOf('```') === 0){
+      // 代码块
+      var codeContent = part.slice(3, -3).trim();
+      var firstLine = codeContent.split('\n')[0];
+      var lang = '';
+      var code = codeContent;
+      
+      if(firstLine && firstLine.indexOf(' ') === -1 && firstLine.length < 20){
+        lang = firstLine;
+        code = codeContent.slice(firstLine.length).trim();
+      }
+      
+      var langLabel = lang ? '<div class="code-lang">' + escapeHtml(lang) + '</div>' : '';
+      result += '<div class="code-block">' + langLabel + '<pre><code>' + escapeHtml(code) + '</code></pre><button class="code-copy-btn" onclick="copyCode(this)">📋 复制</button></div>';
+    } else {
+      // 普通文本 - 处理换行和行内代码
+      var formatted = part
+        .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+        .replace(/\n/g, '<br>');
+      result += formatted;
+    }
+  }
+  
+  return result;
+}
+
+// 复制代码
+function copyCode(btn){
+  var code = btn.parentElement.querySelector('code');
+  if(code){
+    var text = code.textContent;
+    if(navigator.clipboard){
+      navigator.clipboard.writeText(text).then(function(){
+        btn.textContent = '✅ 已复制';
+        setTimeout(function(){ btn.textContent = '📋 复制'; }, 2000);
+      });
+    } else {
+      // fallback
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      btn.textContent = '✅ 已复制';
+      setTimeout(function(){ btn.textContent = '📋 复制'; }, 2000);
+    }
+  }
+}
 
 // ========== 发送消息 ==========
 function sendMsg(){
@@ -2776,25 +2830,34 @@ function sendMsg(){
   
   // 显示打字指示器
   const typing = document.createElement('div');
-  typing.className = 'msg';
+  typing.className = 'msg typing-msg';
   typing.id = 'typingMsg';
-  typing.innerHTML = '<div class="msg-avatar avatar small" style="background:' + (emp.bg || '#FF6B35') + ';">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name||'AI') + '</span></div><div class="msg-bubble"><span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span> 思考中...</div></div>';
+  typing.innerHTML = '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name||'AI') + '</span><span class="msg-sender-role">' + escapeHtml(emp.role||'') + '</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div>';
   area.appendChild(typing);
   area.scrollTop = area.scrollHeight;
   
   // 获取文档上下文
   const docContext = getDocContextForChat();
   
-  // 路由聊天：OpenClaw WS → API 代理 → 未配置提示
-  if(emp.connectionType === 'openclaw' && emp.openclawAgent){
-    sendViaOpenClaw(emp, text, docContext, timeStr);
-  } else if(emp.apiKey && emp.apiProvider && emp.apiProvider !== 'mock'){
+  // 优先走 API，没有 Key 就走 mock
+  if(emp.apiKey && emp.apiProvider && emp.apiProvider !== 'mock'){
     sendViaAPI(emp, text, docContext, timeStr);
   } else {
-    // 未配置任何连接，显示明确提示
-    var t = document.getElementById('typingMsg');
-    if(t) t.remove();
-    displayAIReply('⚠️ 请先在员工详情→连接中配置 AI 连接（OpenClaw 或 API）', docContext, timeStr);
+    // Mock 回复
+    setTimeout(function(){
+      var t = document.getElementById('typingMsg');
+      if(t) t.remove();
+      var simReplies = [
+        '收到，我来处理一下这个任务。',
+        '好的，我理解了你的需求，马上开始执行。',
+        '明白了，让我分析一下这个问题...',
+        '没问题，我会尽快完成。',
+        '了解了，我这边开始处理，预计很快就好。'
+      ];
+      var simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
+      displayAIReply(simReply, docContext, timeStr);
+      saveChatHistory(text, simReply, docContext);
+    }, 800 + Math.random() * 1200);
   }
 }
 
@@ -2953,6 +3016,7 @@ const emps = [
 
 // ========== AI 初始化 ==========
 document.addEventListener('DOMContentLoaded', () => {
+  checkAuth();
   loadAIConfig();
 });
 
@@ -3163,28 +3227,6 @@ function applyTemplate(templateKey){
 }
 
 function loadEmployees(){
-  // Try server first if authenticated
-  if(window.__auth && window.__auth.token){
-    authFetch('/api/agents').then(function(r){
-      if(r.ok) return r.json();
-      throw new Error('server error');
-    }).then(function(agents){
-      if(agents && agents.length > 0){
-        emps.length = 0;
-        agents.forEach(function(a){ emps.push(a); });
-        if(typeof renderEmployeeList === 'function') renderEmployeeList();
-        return;
-      }
-      // Fallback to localStorage if server has no data
-      _loadEmployeesLocal();
-    }).catch(function(){
-      _loadEmployeesLocal();
-    });
-  } else {
-    _loadEmployeesLocal();
-  }
-}
-function _loadEmployeesLocal(){
   const saved=localStorage.getItem('sb_employees');
   if(saved){
     try{
@@ -3286,7 +3328,7 @@ function showReminder(){
   const area=document.getElementById('messagesArea');
   const {emp,text}=reminder;
   
-  area.insertAdjacentHTML('beforeend','<div class="msg reminder"><div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,' + emp.bg + ',' + emp.bg + 'dd);">' + renderAvatar(emp, 32) + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + emp.name + '</span><span class="msg-sender-role">' + emp.role + '</span><span class="msg-sender-time">' + new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) + '</span></div><div class="msg-bubble reminder-bubble">' + text.replace(/\n/g,'<br>') + '</div></div></div>');
+  area.insertAdjacentHTML('beforeend','<div class="msg reminder"><div class="msg-avatar">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + emp.name + '</span><span class="msg-sender-role">' + emp.role + '</span><span class="msg-sender-time">' + new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) + '</span></div><div class="msg-bubble reminder-bubble">' + text.replace(/\n/g,'<br>') + '</div></div></div>');
   area.scrollTop=area.scrollHeight;
 }
 
@@ -3365,8 +3407,60 @@ function renderEmployeeList(){
     list.innerHTML='<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方"新增员工"按钮添加第一位员工</div></div>';
     return;
   }
-  list.innerHTML=visible.map(e=>'<div class="list-item" data-id="'+escapeAttr(e.id)+'" draggable="true">'+renderEmployeeItem(e)+'<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(\''+escapeAttr(e.id)+'\');" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button></div></div>').join('');
+
+  // 管理员视图：按创建者分组
+  if(isAdmin()){
+    renderGroupedEmployeeList(list, visible);
+  } else {
+    // 员工视图：只显示自己的员工
+    const myEmployees = visible.filter(e => e.createdBy === currentUser?.id || !e.createdBy);
+    list.innerHTML=myEmployees.map(e=>'<div class="list-item" data-id="'+escapeAttr(e.id)+'" draggable="true">'+renderEmployeeItem(e)+'<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(\''+escapeAttr(e.id)+'\');" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button></div></div>').join('');
+  }
   bindListEvents();
+}
+
+// 管理员视图：按创建者分组显示员工
+function renderGroupedEmployeeList(list, visible){
+  // 按创建者分组
+  var groups = {};
+  var myId = currentUser?.id || 'local';
+
+  visible.forEach(function(e){
+    var creatorId = e.createdBy || myId;
+    var creatorName = e.createdByName || (creatorId === myId ? '我' : '其他用户');
+    if(!groups[creatorId]){
+      groups[creatorId] = {name: creatorName, employees: []};
+    }
+    groups[creatorId].employees.push(e);
+  });
+
+  var html = '';
+
+  // 先显示"我的员工"
+  if(groups[myId]){
+    html += renderEmployeeGroup('👤 我的员工', groups[myId].employees, false);
+    delete groups[myId];
+  }
+
+  // 再显示其他创建者的员工
+  Object.keys(groups).forEach(function(creatorId){
+    var group = groups[creatorId];
+    html += renderEmployeeGroup('👥 ' + group.name + ' 的员工', group.employees, true);
+  });
+
+  list.innerHTML = html;
+}
+
+function renderEmployeeGroup(title, employees, isOther){
+  var html = '<div style="margin-bottom:8px;">';
+  html += '<div style="padding:6px 12px;font-size:12px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;' + (isOther ? 'background:var(--bg-secondary);border-radius:6px;' : '') + '">';
+  html += title + ' <span style="font-weight:400;">(' + employees.length + ')</span>';
+  html += '</div>';
+  html += employees.map(function(e){
+    return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, isOther) + '<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(e.id) + '\');" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button></div></div>';
+  }).join('');
+  html += '</div>';
+  return html;
 }
 
 // Init
@@ -3416,7 +3510,7 @@ if(e.key==='ArrowDown'){e.preventDefault();if(slashActive)navigateSlash(1);else 
 if(e.key==='ArrowUp'){e.preventDefault();if(slashActive)navigateSlash(-1);else if(mentionMode)selectMention(-1);}
 });
 document.getElementById('msgInput').addEventListener('input',handleInput);
-document.getElementById('mentionBtn')?.addEventListener('click',()=>{showMention();});
+document.getElementById('mentionBtn').addEventListener('click',()=>{showMention();});
 document.querySelectorAll('.mention-item').forEach(i=>i.addEventListener('click',()=>pickMention(i.dataset.id)));
 document.querySelectorAll('.drawer-tab').forEach(t=>t.addEventListener('click',()=>switchDrawerTab(t.dataset.tab)));
 document.addEventListener('click',e=>{
@@ -3461,10 +3555,17 @@ function renderAvatar(emp, size){
   }
 }
 
-function renderEmployeeItem(e){
+function renderEmployeeItem(e, showCreator){
   var size = 44;
   var avatarHtml = renderAvatar(e, size);
-  return '<div class="item-avatar" style="position:relative;width:' + size + 'px;height:' + size + 'px;"><div class="avatar small" style="background:' + escapeAttr(e.bg||'') + ';width:' + size + 'px;height:' + size + 'px;">' + avatarHtml + '</div><div class="status-dot ' + escapeAttr(e.status||'offline') + '" style="position:absolute;bottom:2px;right:2px;width:12px;height:12px;border:2px solid var(--bg-primary);border-radius:50%;"></div></div><div class="item-info"><div class="item-name">' + escapeHtml(e.name||'') + '</div><div class="item-msg">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg||'') + '</div></div>';
+  var creatorTag = '';
+  
+  // 管理员视图：显示创建者标签
+  if(showCreator && isAdmin() && e.createdBy && e.createdBy !== currentUser?.id) {
+    creatorTag = '<span style="display:inline-block;margin-left:4px;padding:1px 4px;background:var(--bg-tertiary);border-radius:3px;font-size:10px;color:var(--text-tertiary);vertical-align:middle;">' + escapeHtml(e.createdByName || '其他用户') + '</span>';
+  }
+  
+  return '<div class="item-avatar" style="position:relative;width:' + size + 'px;height:' + size + 'px;"><div class="avatar small" style="background:' + escapeAttr(e.bg||'') + ';width:' + size + 'px;height:' + size + 'px;">' + avatarHtml + '</div><div class="status-dot ' + escapeAttr(e.status||'offline') + '" style="position:absolute;bottom:2px;right:2px;width:12px;height:12px;border:2px solid var(--bg-primary);border-radius:50%;"></div></div><div class="item-info"><div class="item-name">' + escapeHtml(e.name||'') + creatorTag + '</div><div class="item-msg">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg||'') + '</div></div>';
 }
 
 function bindListEvents(){
@@ -3531,30 +3632,34 @@ function openChat(id){
 document.querySelectorAll('.list-item').forEach(i=>i.classList.remove('active'));
 const emp=emps.find(e=>e.id===id);
 if(emp){
-localStorage.setItem('sb_current_emp',id);
-localStorage.removeItem('sb_current_proj');
-document.querySelector('.chat-header-name').textContent=emp.name;
-document.querySelector('.chat-header-sub').textContent='在线 · '+emp.role;
-document.querySelector('.chat-header .avatar').textContent='🦞';
-document.querySelector('.chat-header .avatar').style.background='linear-gradient(135deg,'+emp.bg+','+emp.bg+'dd)';
+var chatHeaderName=document.querySelector('.chat-header-name');
+var chatHeaderSub=document.querySelector('.chat-header-sub');
+var chatHeaderAvatar=document.querySelector('.chat-header .avatar');
+if(chatHeaderName) chatHeaderName.textContent=emp.name;
+if(chatHeaderSub) chatHeaderSub.textContent='在线 · '+emp.role;
+if(chatHeaderAvatar){chatHeaderAvatar.textContent='🦞';chatHeaderAvatar.style.background='linear-gradient(135deg,'+emp.bg+','+emp.bg+'dd)';}
 var item=document.querySelector('.list-item[data-id="'+id+'"]');
 if(item)item.classList.add('active');
-document.getElementById('chatProgress').style.display='none';
-document.querySelector('.app-main').classList.remove('show-board');
-loadEmployeeChatHistory(id);
+var chatProgress=document.getElementById('chatProgress');
+if(chatProgress) chatProgress.style.display='none';
+var appMain=document.querySelector('.app-main');
+if(appMain) appMain.classList.remove('show-board');
+renderMsgs('private');
 hideBulletin();
 }
 const proj=projs.find(p=>p.id===id);
 if(proj){
-localStorage.setItem('sb_current_proj',id);
-document.querySelector('.chat-header-name').innerHTML='# '+escapeHtml(proj.name||'')+' <span class="owner-badge">👑 群主</span>';
-document.querySelector('.chat-header-sub').textContent='3名成员';
-document.querySelector('.list-item[data-proj="'+id+'"]').classList.add('active');
-document.getElementById('chatProgress').style.display='flex';
-document.getElementById('progressFill').style.width=proj.progress+'%';
-document.getElementById('progressText').textContent=proj.progress+'%';
+var chatHeaderName2=document.querySelector('.chat-header-name');
+var chatHeaderSub2=document.querySelector('.chat-header-sub');
+if(chatHeaderName2) chatHeaderName2.innerHTML='# '+escapeHtml(proj.name||'')+' <span class="owner-badge">👑 群主</span>';
+if(chatHeaderSub2) chatHeaderSub2.textContent='3名成员';
+var projItem=document.querySelector('.list-item[data-proj="'+id+'"]');
+if(projItem) projItem.classList.add('active');
+var chatProgress2=document.getElementById('chatProgress');
+if(chatProgress2){chatProgress2.style.display='flex';document.getElementById('progressFill').style.width=proj.progress+'%';document.getElementById('progressText').textContent=proj.progress+'%';}
 renderMsgs('project');
-document.querySelector('.app-main').classList.add('show-board');
+var appMain2=document.querySelector('.app-main');
+if(appMain2) appMain2.classList.add('show-board');
 showBulletinBar(id);
 startSupervisorTimer(); // 启动督促定时器
 updateSupervisorStatusButton();
@@ -3576,68 +3681,37 @@ function updateSupervisorStatusButton(){
   }
 }
 
-// Load employee chat history from localStorage
-function loadEmployeeChatHistory(empId){
-const area=document.getElementById('messagesArea');
-const emp=emps.find(e=>e.id===empId);
-if(!emp){
-  area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">选择一个员工开始聊天</div></div>';
-  return;
-}
-const historyKey='sb_chat_history_'+empId;
-const history=JSON.parse(localStorage.getItem(historyKey)||'[]');
-
-if(history.length===0){
-  area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与 '+escapeHtml(emp.name)+' 开始协作<br>输入 / 查看快捷指令</div></div>';
-  return;
-}
-
-area.innerHTML=history.map(function(m){
-var isUser=m.role==='user';
-var isSystem=m.role==='system';
-var timeStr='';
-if(m.time){var d=new Date(m.time);timeStr=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');}
-var content=isSystem?'<em>'+escapeHtml(m.content)+'</em>':escapeHtml(m.content);
-if(isSystem)return'<div class="msg system"><div class="msg-content"><div class="msg-bubble" style="background:var(--bg-tertiary);color:var(--text-secondary);font-style:italic;">'+content+'</div></div></div>';
-return'<div class="msg '+(isUser?'own':'')+'">'+
-(!isUser?'<div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,'+escapeAttr(emp.bg||'#888')+','+escapeAttr(emp.bg||'#888')+'dd);">'+escapeHtml(emp.name.charAt(0))+'</div></div>':'')+
-'<div class="msg-content">'+
-(!isUser?'<div class="msg-sender"><span class="msg-sender-name">'+escapeHtml(emp.name)+'</span><span class="msg-sender-role">'+escapeHtml(emp.role||'')+'</span><span class="msg-sender-time">'+escapeHtml(timeStr)+'</span></div>':'<div class="msg-sender"><span class="msg-sender-time">'+escapeHtml(timeStr)+'</span><span class="msg-sender-name">你</span></div>')+
-'<div class="msg-bubble">'+content+'</div>'+
-'</div></div>';
-}).join('')+'<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
-area.scrollTop=area.scrollHeight;
-}
-
-// Render Messages for project chats (retained for project group chats)
+// Render Messages
 function renderMsgs(type){
-if(type==='private'){
-  // Private employee chat - use loadEmployeeChatHistory instead
-  var empId=localStorage.getItem('sb_current_emp')||'xlcx';
-  loadEmployeeChatHistory(empId);
-  return;
-}
 const area=document.getElementById('messagesArea');
-const projId=localStorage.getItem('sb_current_proj')||'default';
-const history=JSON.parse(localStorage.getItem('sb_chat_history_'+projId)||'[]');
+const msgs=type==='private'?[
+{sender:'xlcx',text:'你好！我是Lucy，前端工程师。有什么任务需要我处理吗？',time:'09:30'},
+{sender:'user',text:'你好！请帮我检查一下首页的响应式布局，今天需要上线。',time:'09:31',ok:true},
+{sender:'xlcx',text:'好的，我来检查一下响应式布局的问题。目前发现移动端导航菜单有溢出，我会修复它。',time:'09:32'},
+{sender:'user',text:'太好了，预计多久能完成？',time:'09:33',ok:true},
+{sender:'xlcx',text:'预计 30 分钟内完成修复，然后提交 PR 给你 review。<span class="mention">@所有人</span> 请注意查收。',time:'09:34'}
+]:[
+{sender:'zjg',text:'各位早，今天的目标是完成首页响应式适配。',time:'09:00'},
+{sender:'xlcx',text:'收到！我这边负责导航和布局适配。',time:'09:05'},
+{sender:'user',text:'<span class="mention">@Lucy</span> 预计什么时候可以提测？',time:'09:15',ok:true},
+{sender:'xlcx',text:'预计 10:30 可以完成，11:00 前提测。<span class="mention">@章鱼哥</span> 请安排测试资源。',time:'09:16'}
+];
 
-if(history.length===0){
-  area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与团队开始协作<br>输入 / 查看快捷指令</div></div>';
+// 空状态：如果没有消息
+if(msgs.length===0){
+  area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
   return;
 }
 
-area.innerHTML=history.map(function(m){
-var isUser=m.role==='user';
-var isSystem=m.role==='system';
-var timeStr='';
-if(m.time){var d=new Date(m.time);timeStr=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');}
-var content=isSystem?'<em>'+escapeHtml(m.content)+'</em>':escapeHtml(m.content);
-if(isSystem)return'<div class="msg system"><div class="msg-content"><div class="msg-bubble" style="background:var(--bg-tertiary);color:var(--text-secondary);font-style:italic;">'+content+'</div></div></div>';
-return'<div class="msg '+(isUser?'own':'')+'">'+
-(!isUser?'<div class="msg-avatar"><div class="avatar small" style="background:#AF52DE;">🐙</div></div>':'')+
+area.innerHTML='<div class="time-separator"><span>今天 09:30</span></div>'+
+msgs.map(m=>{
+const e=emps.find(x=>x.id===m.sender);
+const own=m.sender==='user';
+return'<div class="msg '+(own?'own':'')+'">'+
+(!own?'<div class="msg-avatar">'+renderAvatar(e, 32)+'</div>':'')+
 '<div class="msg-content">'+
-(!isUser?'<div class="msg-sender"><span class="msg-sender-name">群成员</span><span class="msg-sender-time">'+escapeHtml(timeStr)+'</span></div>':'<div class="msg-sender"><span class="msg-sender-time">'+escapeHtml(timeStr)+'</span><span class="msg-sender-name">你</span></div>')+
-'<div class="msg-bubble">'+content+'</div>'+
+(!own?'<div class="msg-sender"><span class="msg-sender-name">'+escapeHtml(e?.name||'')+'</span><span class="msg-sender-role">'+escapeHtml(e?.role||'')+'</span><span class="msg-sender-time">'+escapeHtml(m.time||'')+'</span></div>':'<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">'+escapeHtml(m.time||'')+'</span></div>')+
+'<div class="msg-bubble">'+m.text+'</div>'+
 '</div></div>';
 }).join('')+'<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
 area.scrollTop=area.scrollHeight;
@@ -4697,11 +4771,6 @@ function loadEmpConnect(emp){
   document.getElementById('empConnectApiKey').value=emp.apiKey||'';
   document.getElementById('empConnectModel').value=emp.apiModel||'';
   document.getElementById('empConnectBaseUrl').value=emp.customEndpoint||'';
-
-  // 加载 OpenClaw 连接状态
-  checkOpenClawStatus().then(function(){
-    loadEmpOCConnect(emp);
-  });
 }
 function saveEmpConnect(){
   if(!currentEmpId)return;
@@ -5141,7 +5210,7 @@ function applyAIConfig(){
   }
   
   saveAIConfig();
-  showToast(AI_CONFIG.enabled ? '🤖 AI 已启用' : '💬 AI 已关闭', 'success');
+  showToast(AI_CONFIG.enabled ? '🤖 AI 已启用' : '💬 已切换为模拟 AI', 'success');
   closeAIConfigPanel();
 }
 
@@ -5203,10 +5272,10 @@ async function callRealAI(userMessage, context){
 function sendViaAPI(emp, userMessage, docContext, timeStr){
   var provider = API_PROVIDERS[emp.apiProvider];
   if(!provider){
-    // 供应商不存在，显示错误
+    // 供应商不存在，回退到 mock
     var t = document.getElementById('typingMsg');
     if(t) t.remove();
-    displayAIReply('⚠️ API 供应商配置错误，请在员工详情→连接中重新选择供应商', docContext, timeStr);
+    displayAIReply('⚠️ API 供应商配置错误，使用模拟回复', docContext, timeStr);
     return;
   }
   
@@ -5230,25 +5299,26 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
     {role: 'user', content: userMessage}
   ];
   
-  var targetUrl = baseUrl + '/chat/completions';
-  var proxyUrl = window.location.origin + '/api/proxy';
+  var endpoint = baseUrl + '/chat/completions';
   
-  // SoloBrave auth: send token + AI key separately
-  var _authToken = window.__auth && window.__auth.token ? window.__auth.token : '';
-  fetch(proxyUrl, {
+  // 智谱 API 路径不同
+  if(emp.apiProvider === 'zhipu'){
+    endpoint = baseUrl + '/chat/completions';
+  }
+  
+  fetch('/api/proxy', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + _authToken,
-      'X-AI-API-Key': apiKey,
-      'X-Target-URL': targetUrl
+      'Authorization': authToken && authToken.indexOf('mock_') !== 0 ? 'Bearer ' + authToken : '',
+      'X-AI-API-Key': apiKey
     },
     body: JSON.stringify({
+      endpoint: endpoint,
       model: model,
       messages: messages,
       temperature: 0.8,
-      max_tokens: 2000,
-      stream: false
+      max_tokens: 2000
     })
   }).then(function(res){
     var t = document.getElementById('typingMsg');
@@ -5279,7 +5349,14 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
     if(t) t.remove();
     
     if(error.message && (error.message.indexOf('Failed to fetch') >= 0 || error.message.indexOf('NetworkError') >= 0 || error.message.indexOf('CORS') >= 0)){
-      displayAIReply('⚠️ 网络/代理错误\n\n无法连接到代理服务器。\n请确保 solobrave-server.py 正在运行。', docContext, timeStr);
+      displayAIReply('⚠️ 网络/CORS 错误\n\n浏览器直接调用 API 会遇到 CORS 限制。\n当前使用模拟回复，后续可通过后端代理解决。', docContext, timeStr);
+      // CORS 错误时 fallback 到 mock
+      setTimeout(function(){
+        var simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
+        var simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
+        displayAIReply(simReply, docContext, timeStr);
+        saveChatHistory(userMessage, simReply, docContext);
+      }, 500);
     } else {
       displayAIReply('⚠️ API 调用失败: ' + error.message, docContext, timeStr);
     }
@@ -5288,19 +5365,9 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
 
 // 获取当前对话的员工信息
 function getCurrentEmployeeInfo(){
-  const empId = localStorage.getItem('sb_current_emp');
-  if(empId){
-    const emp = emps.find(e => e.id === empId);
-    if(emp) return emp;
-  }
-  // 尝试从当前激活的聊天列表项获取
-  var activeItem = document.querySelector('.list-item[data-id].active');
-  if(activeItem){
-    var aId = activeItem.dataset.id;
-    var aEmp = emps.find(e => e.id === aId);
-    if(aEmp){localStorage.setItem('sb_current_emp',aId); return aEmp;}
-  }
-  return {id:'default',name:'AI 助手',role:'助手',avatar:'🤖',bg:'#888'};
+  const empId = localStorage.getItem('sb_current_emp') || 'xlcx';
+  const emp = emps.find(e => e.id === empId);
+  return emp || {id:'xlcx',name:'Lucy',role:'前端工程师',avatar:'🦞',bg:'#FF6B35'};
 }
 
 // 获取当前项目 ID
@@ -5310,22 +5377,13 @@ function getCurrentProjectId(){
 
 // 保存聊天历史
 function saveChatHistory(userMsg, aiMsg, docContext){
-  const chatId = getCurrentChatId();
-  const history = JSON.parse(localStorage.getItem('sb_chat_history_'+chatId) || '[]');
+  const projId = getCurrentProjectId();
+  const history = JSON.parse(localStorage.getItem('sb_chat_history_'+projId) || '[]');
   const now = Date.now();
   history.push({role:'user', content:userMsg, time:now});
   if(docContext && docContext.length > 0) history.push({role:'system', content:'[文档]'+docContext, time:now});
   history.push({role:'assistant', content:aiMsg, time:now});
-  localStorage.setItem('sb_chat_history_'+chatId, JSON.stringify(history.slice(-50)));
-}
-
-// 获取当前聊天 ID（员工用 empId，项目用 projId）
-function getCurrentChatId(){
-  var projId = localStorage.getItem('sb_current_proj');
-  if(projId) return projId;
-  var empId = localStorage.getItem('sb_current_emp');
-  if(empId) return empId;
-  return 'default';
+  localStorage.setItem('sb_chat_history_'+projId, JSON.stringify(history.slice(-50)));
 }
 
 // 显示 AI 回复
@@ -5333,14 +5391,21 @@ function displayAIReply(replyText, docContext, timeStr){
   const area = document.getElementById('messagesArea');
   const hasDocs = docContext && docContext.length > 0;
   const emp = getCurrentEmployeeInfo();
-  const avatarBg = emp.bg ? `background:${emp.bg};` : 'background:linear-gradient(135deg,#FF6B35,#E55A2B);';
+  const avatarBg = emp.bg ? 'background:' + emp.bg + ';' : 'background:linear-gradient(135deg,#FF6B35,#E55A2B);';
   
-  let bubble = escapeHtml(replyText);
+  var bubble = formatMessageContent(replyText);
   if(hasDocs && replyText.indexOf('📚') === -1){
-    bubble += `<div class="ai-doc-hint">📚 已读取 ${countDocsInContext(docContext)} 个相关文档</div>`;
+    bubble += '<div class="ai-doc-hint">📚 已读取 ' + countDocsInContext(docContext) + ' 个相关文档</div>';
   }
   
-  area.insertAdjacentHTML('beforeend', '<div class="msg">\n<div class="msg-avatar"><div class="avatar small" style="' + avatarBg + '">' + renderAvatar(emp, 32) + '</div></div>\n<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name) + '</span><span class="msg-sender-role">' + escapeHtml(emp.role) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>\n<div class="msg-bubble">' + bubble + '</div>\n</div></div>');
+  var html = '<div class="msg">\n';
+  html += '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>\n';
+  html += '<div class="msg-content">\n';
+  html += '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name) + '</span><span class="msg-sender-role">' + escapeHtml(emp.role) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>\n';
+  html += '<div class="msg-bubble">' + bubble + '</div>\n';
+  html += '</div></div>';
+  
+  area.insertAdjacentHTML('beforeend', html);
   area.scrollTop = area.scrollHeight;
 }
 
@@ -5351,320 +5416,11 @@ window.addEventListener('DOMContentLoaded',()=>{initGlobalSearch();initTheme();i
 var wizStep=1;
 var empSelectedModel='gpt4o';
 var empSelectedProvider='mock';
-var wizSelectedConnection='openclaw'; // 'openclaw' | 'api' | 'none'
-
-// ─── OpenClaw API 辅助函数 ────────────────────────────
-var _ocGatewayStatus = 'unknown'; // 'online' | 'offline' | 'unknown'
-var _ocModels = [];
-
-async function checkOpenClawStatus(){
-  try{
-    var resp = await authFetch('/api/openclaw/status');
-    var data = await resp.json();
-    _ocGatewayStatus = data.gateway || 'unknown';
-    return data;
-  }catch(e){
-    _ocGatewayStatus = 'offline';
-    return {available:false, gateway:'offline'};
-  }
-}
-
-async function loadOpenClawModels(){
-  try{
-    var resp = await authFetch('/api/openclaw/models');
-    var data = await resp.json();
-    _ocModels = data.models || [];
-    return _ocModels;
-  }catch(e){
-    _ocModels = [];
-    return [];
-  }
-}
-
-function updateOCStatusUI(dotId, textId, hintId){
-  var dot = document.getElementById(dotId);
-  var text = document.getElementById(textId);
-  var hint = document.getElementById(hintId);
-  if(dot){
-    if(_ocGatewayStatus === 'online'){
-      dot.style.background = '#34C759';
-      dot.style.boxShadow = '0 0 6px rgba(52,199,89,0.5)';
-    } else if(_ocGatewayStatus === 'offline'){
-      dot.style.background = '#ccc';
-      dot.style.boxShadow = 'none';
-    }
-  }
-  if(text){
-    text.textContent = _ocGatewayStatus === 'online' ? 'OpenClaw Gateway 在线' : _ocGatewayStatus === 'offline' ? 'OpenClaw Gateway 离线' : '检查中...';
-    text.style.color = _ocGatewayStatus === 'online' ? '#34C759' : '#999';
-  }
-  if(hint){
-    hint.style.display = _ocGatewayStatus === 'offline' ? 'block' : 'none';
-  }
-}
-
-function populateOCModelSelect(selectId){
-  var sel = document.getElementById(selectId);
-  if(!sel) return;
-  if(_ocModels.length === 0){
-    sel.innerHTML = '<option value="">无可用模型</option>';
-    return;
-  }
-  var html = '';
-  for(var i=0;i<_ocModels.length;i++){
-    var m = _ocModels[i];
-    var id = m.id || m.modelId || m.name || '';
-    var name = m.name || m.id || id;
-    html += '<option value="'+id+'">'+name+'</option>';
-  }
-  sel.innerHTML = html;
-}
-
-// ─── 向导连接方式选择 ──────────────────────────────────
-function selectWizConnection(el, connType){
-  document.querySelectorAll('#wizConnectionType .model-option').forEach(function(o){o.classList.remove('selected');});
-  el.classList.add('selected');
-  wizSelectedConnection = connType;
-
-  // 显示/隐藏对应区域
-  var ocSection = document.getElementById('wizOpenClawSection');
-  var apiSection = document.getElementById('wizAPISection');
-  if(connType === 'openclaw'){
-    if(ocSection) ocSection.style.display = 'block';
-    if(apiSection) apiSection.style.display = 'none';
-  } else if(connType === 'api'){
-    if(ocSection) ocSection.style.display = 'none';
-    if(apiSection) apiSection.style.display = 'block';
-  } else {
-    if(ocSection) ocSection.style.display = 'none';
-    if(apiSection) apiSection.style.display = 'none';
-  }
-}
-
-// ─── 通过 OpenClaw 发送聊天 ────────────────────────────
-async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
-  if(typeof openclaw === 'undefined'){
-    var t = document.getElementById('typingMsg');
-    if(t) t.remove();
-    displayAIReply('⚠️ OpenClaw 客户端未加载', docContext, timeStr);
-    return;
-  }
-
-  try{
-    // 确保已连接
-    if(!openclaw.connected){
-      await openclaw.connect();
-    }
-
-    // 构造 sessionKey
-    var sessionKey = 'agent:' + emp.openclawAgent + ':main';
-
-    // 监听回复
-    var replyHandler = function(data){
-      openclaw.off('chat.message', replyHandler);
-      var t = document.getElementById('typingMsg');
-      if(t) t.remove();
-
-      if(data && data.content){
-        var replyText = '';
-        if(Array.isArray(data.content)){
-          for(var i=0;i<data.content.length;i++){
-            if(data.content[i].type === 'text'){
-              replyText += data.content[i].text;
-            }
-          }
-        } else if(typeof data.content === 'string'){
-          replyText = data.content;
-        }
-        if(replyText){
-          displayAIReply(replyText, docContext, timeStr);
-          saveChatHistory(userMessage, replyText, docContext);
-        } else {
-          displayAIReply('⚠️ OpenClaw 返回了空回复', docContext, timeStr);
-        }
-      }
-    };
-    openclaw.on('chat.message', replyHandler);
-
-    // 发送消息
-    await openclaw.sendChat(sessionKey, userMessage);
-
-    // 设置超时
-    setTimeout(function(){
-      openclaw.off('chat.message', replyHandler);
-      var t = document.getElementById('typingMsg');
-      if(t && t.parentNode){
-        t.remove();
-        displayAIReply('⚠️ OpenClaw 响应超时', docContext, timeStr);
-      }
-    }, 60000);
-
-  }catch(err){
-    var t = document.getElementById('typingMsg');
-    if(t) t.remove();
-    displayAIReply('⚠️ OpenClaw 连接失败: ' + (err.message || err), docContext, timeStr);
-  }
-}
-
-// ─── 员工详情 OpenClaw 操作 ────────────────────────────
-async function connectEmpToOpenClaw(){
-  if(!currentEmpId) return;
-  var emp = emps.find(function(e){return e.id===currentEmpId;});
-  if(!emp) return;
-
-  // 加载模型列表
-  await loadOpenClawModels();
-
-  // 弹出简单的连接配置
-  var modelOptions = _ocModels.map(function(m){ return '<option value="'+(m.id||m.name)+'">'+(m.name||m.id)+'</option>'; }).join('');
-  
-  var html = '<div style="padding:16px;">';
-  html += '<div style="font-weight:600;margin-bottom:12px;">🦞 连接到 OpenClaw</div>';
-  html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">龙虾名字</label>';
-  html += '<input type="text" class="form-input" id="ocConnName" value="'+(emp.name||'')+'" placeholder="Agent 名称" style="width:100%;"></div>';
-  html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">模型</label>';
-  html += '<select class="form-select" id="ocConnModel" style="width:100%;">'+modelOptions+'</select></div>';
-  html += '<div style="margin-bottom:10px;"><label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">人设 / SOUL.md</label>';
-  html += '<textarea class="form-input" id="ocConnSoul" rows="3" placeholder="系统提示词..." style="width:100%;">'+(emp.systemPrompt||emp.soulDoc||'')+'</textarea></div>';
-  html += '<button class="emp-action-btn primary" onclick="doConnectOpenClaw()" style="width:100%;justify-content:center;">创建并连接</button>';
-  html += '</div>';
-  
-  // 复用 empDetailOverlay 内渲染
-  var content = document.getElementById('empOCContent');
-  if(content){
-    content.innerHTML = html;
-  }
-}
-
-async function doConnectOpenClaw(){
-  if(!currentEmpId) return;
-  var emp = emps.find(function(e){return e.id===currentEmpId;});
-  if(!emp) return;
-
-  var name = document.getElementById('ocConnName').value.trim();
-  var model = document.getElementById('ocConnModel').value;
-  var soul = document.getElementById('ocConnSoul').value.trim();
-
-  if(!name){ showToast('请输入龙虾名字','warning'); return; }
-
-  showToast('🦞 正在创建 OpenClaw Agent...');
-
-  try{
-    var resp = await authFetch('/api/openclaw/agents/create', {
-      method: 'POST',
-      headers: Object.assign({'Content-Type': 'application/json'}, getAuthHeaders()),
-      body: JSON.stringify({name:name, model:model, soul:soul})
-    });
-    var data = await resp.json();
-
-    if(data.success){
-      emp.connectionType = 'openclaw';
-      emp.openclawAgent = name;
-      emp.openclawModel = model;
-      emp.openclawSoul = soul;
-      saveEmployees();
-      showToast('✅ OpenClaw Agent 创建成功！');
-      loadEmpOCConnect(emp);
-    } else {
-      showToast('❌ 创建失败: '+(data.error||'未知错误'),'warning');
-    }
-  }catch(e){
-    showToast('❌ 请求失败: '+e.message,'warning');
-  }
-}
-
-async function syncEmpToOpenClaw(){
-  if(!currentEmpId) return;
-  var emp = emps.find(function(e){return e.id===currentEmpId;});
-  if(!emp || !emp.openclawAgent) return;
-
-  var soul = document.getElementById('empOCSoul').value.trim();
-
-  showToast('🦞 同步中...');
-
-  try{
-    var resp = await authFetch('/api/openclaw/agents/update', {
-      method: 'POST',
-      headers: Object.assign({'Content-Type': 'application/json'}, getAuthHeaders()),
-      body: JSON.stringify({name:emp.openclawAgent, soul:soul, model:emp.openclawModel})
-    });
-    var data = await resp.json();
-
-    if(data.success){
-      emp.openclawSoul = soul;
-      saveEmployees();
-      showToast('✅ 同步成功！');
-    } else {
-      showToast('❌ 同步失败: '+(data.error||'未知错误'),'warning');
-    }
-  }catch(e){
-    showToast('❌ 请求失败: '+e.message,'warning');
-  }
-}
-
-function disconnectEmpOpenClaw(){
-  if(!currentEmpId) return;
-  var emp = emps.find(function(e){return e.id===currentEmpId;});
-  if(!emp) return;
-
-  emp.connectionType = 'none';
-  emp.openclawAgent = '';
-  emp.openclawModel = '';
-  emp.openclawSoul = '';
-  saveEmployees();
-  showToast('已断开 OpenClaw 连接');
-  loadEmpOCConnect(emp);
-}
-
-function loadEmpOCConnect(emp){
-  var statusDot = document.getElementById('empOCStatusDot');
-  var statusDesc = document.getElementById('empOCStatusDesc');
-  var connected = document.getElementById('empOCConnected');
-  var disconnected = document.getElementById('empOCDisconnected');
-
-  // 更新状态指示灯
-  if(statusDot){
-    if(_ocGatewayStatus === 'online'){
-      statusDot.style.background = '#34C759';
-      statusDot.style.boxShadow = '0 0 6px rgba(52,199,89,0.5)';
-    } else {
-      statusDot.style.background = '#ccc';
-      statusDot.style.boxShadow = 'none';
-    }
-  }
-  if(statusDesc){
-    statusDesc.textContent = _ocGatewayStatus === 'online' ? 'Gateway 在线' : 'Gateway 离线';
-  }
-
-  // 显示已连接/未连接状态
-  if(emp.openclawAgent){
-    if(connected) connected.style.display = 'block';
-    if(disconnected) disconnected.style.display = 'none';
-    var nameEl = document.getElementById('empOCAgentName');
-    var modelEl = document.getElementById('empOCAgentModel');
-    var soulEl = document.getElementById('empOCSoul');
-    if(nameEl) nameEl.textContent = emp.openclawAgent;
-    if(modelEl) modelEl.textContent = emp.openclawModel || '-';
-    if(soulEl) soulEl.value = emp.openclawSoul || '';
-  } else {
-    if(connected) connected.style.display = 'none';
-    if(disconnected) disconnected.style.display = 'block';
-  }
-}
-
 function openWizard(){
   wizStep=1;
-  wizSelectedConnection='openclaw';
   renderAvatarPicker();
   updateWizardUI();
   document.getElementById('wizardOverlay').classList.add('show');
-  // 检查 OpenClaw 状态并加载模型
-  checkOpenClawStatus().then(function(){
-    updateOCStatusUI('wizOCStatusDot','wizOCStatusText','wizOCOfflineHint');
-  });
-  loadOpenClawModels().then(function(){
-    populateOCModelSelect('wizOCModelSelect');
-  });
 }
 function renderAvatarPicker(){
   var picker=document.getElementById('wizAvatarPicker');
@@ -5686,14 +5442,7 @@ function updateWizardUI(){
   document.getElementById('wiz3').style.display=wizStep===3?'block':'none';
   document.getElementById('wizPrev').style.display=wizStep>1?'inline-block':'none';
   document.getElementById('wizNext').textContent=wizStep===3?'✨ 创建员工':'下一步 →';
-  if(wizStep===3){
-    updateWizConfirm();
-    // 触发连接方式选择，初始化区域可见性
-    selectWizConnection(
-      document.querySelector('#wizConnectionType .model-option.selected') || document.querySelector('#wizConnectionType .model-option'),
-      wizSelectedConnection
-    );
-  }
+  if(wizStep===3)updateWizConfirm();
 }
 function updateWizConfirm(){
   var name=document.getElementById('wizName').value.trim()||'未命名';
@@ -5703,8 +5452,9 @@ function updateWizConfirm(){
   var group=document.getElementById('wizGroup').value;
   var statusEl=document.querySelector('.status-opt.selected');
   var status=statusEl?statusEl.dataset.status:'online';
+  var modelEl=document.querySelector('#wizModelSelect .model-option.selected');
+  var modelName=modelEl?modelEl.querySelector('.model-name').textContent:'GPT-4o';
   var sysPrompt=document.getElementById('wizSystemPrompt').value.trim();
-  var connLabel = wizSelectedConnection==='openclaw'?'🦞 OpenClaw':wizSelectedConnection==='api'?'🔌 API 直连':'🎭 暂不配置';
   document.getElementById('wizCName').textContent=name;
   document.getElementById('wizCRole').textContent=role;
   var avatarPreview=document.getElementById('wizCAvatar');
@@ -5715,7 +5465,7 @@ function updateWizConfirm(){
   }
   document.getElementById('wizCGroup').textContent=group;
   document.getElementById('wizCStatus').textContent=status==='online'?'在线':status==='busy'?'忙碌':'离线';
-  document.getElementById('wizCModel').textContent=connLabel;
+  document.getElementById('wizCModel').textContent=modelName;
   document.getElementById('wizCPrompt').textContent=sysPrompt||'(默认)';
 }
 function selectWizAvatar(el){
@@ -5812,51 +5562,14 @@ function finishWizard(){
     archived:false,
     group:group,
     systemPrompt:sysPrompt,
-    connectionType: wizSelectedConnection,
     apiProvider:apiProvider,
     apiKey:apiKey,
     apiModel:apiModel,
-    customEndpoint:customEndpoint
+    customEndpoint:customEndpoint,
+    createdBy:currentUser?.id||'local',
+    createdByName:currentUser?.name||'本地用户',
+    createdAt:new Date().toISOString()
   };
-
-  // OpenClaw 连接处理
-  if(wizSelectedConnection === 'openclaw'){
-    var ocModel = document.getElementById('wizOCModelSelect').value;
-    var ocSoul = document.getElementById('wizOCSoul').value.trim() || sysPrompt;
-    var ocCreateAgent = document.getElementById('wizOCCreateAgent').checked;
-
-    newEmp.openclawModel = ocModel;
-    newEmp.openclawSoul = ocSoul;
-
-    if(ocCreateAgent){
-      newEmp.openclawAgent = name.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5_-]/g,'-');
-      // 异步创建 OpenClaw Agent
-      authFetch('/api/openclaw/agents/create',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({name:newEmp.openclawAgent, model:ocModel, soul:ocSoul})
-      }).then(function(r){return r.json();}).then(function(data){
-        if(data.success){
-          showToast('🦞 OpenClaw Agent 已创建！');
-        } else {
-          showToast('⚠️ OpenClaw 创建失败: '+(data.error||''), 'warning');
-          newEmp.connectionType = 'none';
-          newEmp.openclawAgent = '';
-          saveEmployees();
-        }
-      }).catch(function(e){
-        showToast('⚠️ OpenClaw 请求失败: '+e.message, 'warning');
-        newEmp.connectionType = 'none';
-        newEmp.openclawAgent = '';
-        saveEmployees();
-      });
-    }
-  } else if(wizSelectedConnection === 'api'){
-    newEmp.connectionType = 'api';
-  } else {
-    newEmp.connectionType = 'none';
-  }
-
   emps.push(newEmp);saveEmployees();renderTeamList();renderEmployeeList();
   closeWizard();document.getElementById('wizName').value='';
   document.getElementById('wizApiKey').value='';
@@ -6384,66 +6097,17 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 </div>
 <div id="wiz3" style="display:none">
 <div class="form-group">
-<label class="form-label">🔗 连接方式</label>
-<div class="model-select" id="wizConnectionType">
-<div class="model-option selected" data-conn="openclaw" onclick="selectWizConnection(this,'openclaw')">
-<div class="model-icon">🦞</div>
-<div class="model-info">
-<div class="model-name">OpenClaw 龙虾</div>
-<div class="model-provider">通过 OpenClaw Gateway 运行</div>
-</div>
-<div class="model-check">✓</div>
-</div>
-<div class="model-option" data-conn="api" onclick="selectWizConnection(this,'api')">
-<div class="model-icon">🔌</div>
-<div class="model-info">
-<div class="model-name">API 直连</div>
-<div class="model-provider">通过 CORS 代理直连 AI API</div>
-</div>
-<div class="model-check">✓</div>
-</div>
-<div class="model-option" data-conn="none" onclick="selectWizConnection(this,'none')">
-<div class="model-icon">🎭</div>
-<div class="model-info">
-<div class="model-name">暂不配置</div>
-<div class="model-provider">稍后设置</div>
-</div>
-<div class="model-check">✓</div>
-</div>
-</div>
-</div>
-
-<!-- OpenClaw 连接区域 -->
-<div id="wizOpenClawSection">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-<div id="wizOCStatusDot" style="width:8px;height:8px;border-radius:50%;background:#ccc;"></div>
-<span id="wizOCStatusText" style="font-size:12px;color:var(--text-tertiary);">检查中...</span>
-</div>
-<div id="wizOCOfflineHint" style="display:none;background:rgba(255,149,0,0.08);border:1px solid rgba(255,149,0,0.2);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#FF9500;">
-⚠️ OpenClaw Gateway 离线，请先在 Mac mini 上启动 OpenClaw Gateway
-</div>
-<div class="form-group">
-<label class="form-label">选择模型</label>
-<select class="form-select" id="wizOCModelSelect">
-<option value="">加载中...</option>
-</select>
-</div>
-<div class="form-group">
-<label class="form-label">系统提示词 / 人设</label>
-<textarea class="form-input" id="wizOCSoul" rows="3" placeholder="你是{role}，擅长...（将写入 SOUL.md）"></textarea>
-</div>
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-<input type="checkbox" id="wizOCCreateAgent" checked style="accent-color:var(--accent);">
-<label for="wizOCCreateAgent" style="font-size:13px;color:var(--text-primary);">创建为 OpenClaw Agent</label>
-</div>
-</div>
-
-<!-- API 直连区域 -->
-<div id="wizAPISection" style="display:none">
-<div class="form-group">
 <label class="form-label">选择 API 供应商</label>
 <div class="model-select" id="wizProviderSelect">
-<div class="model-option selected" data-provider="mock" onclick="selectWizProvider(this,'openai')">
+<div class="model-option selected" data-provider="mock" onclick="selectWizProvider(this,'mock')">
+<div class="model-icon">🎭</div>
+<div class="model-info">
+<div class="model-name">模拟回复</div>
+<div class="model-provider">本地 Mock</div>
+</div>
+<div class="model-check">✓</div>
+</div>
+<div class="model-option" data-provider="openai" onclick="selectWizProvider(this,'openai')">
 <div class="model-icon">🤖</div>
 <div class="model-info">
 <div class="model-name">OpenAI</div>
@@ -6494,14 +6158,12 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 <div class="form-group" id="wizApiKeyGroup">
 <label class="form-label">API Key</label>
 <input type="password" class="form-input" id="wizApiKey" placeholder="输入 API Key">
-<div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">输入 API Key 以启用 AI 对话</div>
+<div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">留空则使用模拟回复</div>
 </div>
 <div class="form-group" id="wizCustomEndpointGroup" style="display:none">
 <label class="form-label">自定义接口地址</label>
 <input type="text" class="form-input" id="wizCustomEndpoint" placeholder="https://api.example.com/v1">
 </div>
-</div>
-
 <div class="form-group">
 <label class="form-label">系统提示词 / 欢迎语</label>
 <textarea class="form-input" id="wizSystemPrompt" rows="3" placeholder="你是{role}，擅长...（留空使用默认提示词）"></textarea>
@@ -6565,7 +6227,8 @@ function showToast(msg, type) {
   <div class="fab-menu-item" onclick="showAISwitcher()">🔄 切换AI</div>
   <div class="fab-menu-item" onclick="startNewChat()">➕ 新建对话</div>
   <div class="fab-menu-item" onclick="showGlobalSearch()">🔍 全局搜索</div>
-  <div class="fab-menu-item" onclick="showSettings()">⚙️ 设置</div>
+  <div class="fab-menu-item" onclick="showUserManagement()" data-admin-only>👥 用户管理</div>
+  <div class="fab-menu-item" onclick="showSettings()" data-admin-only>⚙️ 设置</div>
 </div>
 
 <!-- FAB Button -->
@@ -6598,6 +6261,15 @@ function showToast(msg, type) {
   gap: 10px;
 }
 .fab-menu-item:hover { background: var(--bg-secondary); }
+
+/* ========== User Management Panel ========== */
+.user-management-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 400px; max-width: 100%; background: var(--bg-primary); box-shadow: var(--shadow-modal); transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); display: flex; flex-direction: column; z-index: 260; }
+.user-management-panel.open { transform: translateX(0); }
+.user-management-header { display: flex; align-items: center; justify-content: space-between; padding: 20px; border-bottom: 0.5px solid var(--separator); }
+.user-management-title { font-size: 18px; font-weight: 600; }
+.user-management-close { width: 32px; height: 32px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-secondary); }
+.user-management-close:hover { background: var(--bg-secondary); }
+.user-management-content { flex: 1; overflow-y: auto; padding: 20px; }
 
 /* 连接配置面板 */
 #empConnectProviders .provider-opt {
@@ -6704,331 +6376,299 @@ function showSettings() {
     alert('设置面板');
   }
 }
+
+// ========== 用户管理面板 ==========
+function showUserManagement() {
+  if (!isAdmin()) {
+    showToast('⚠️ 只有管理员可以管理用户');
+    return;
+  }
+  document.getElementById('userManagementPanel').classList.add('open');
+  loadUserList();
+}
+
+function closeUserManagement() {
+  document.getElementById('userManagementPanel').classList.remove('open');
+}
+
+// 加载用户列表
+function loadUserList() {
+  var list = document.getElementById('userList');
+  if (!list) return;
+
+  apiFetch('/api/users').then(function(res) {
+    if (!res) {
+      // 后端没启动，用 localStorage 降级
+      var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
+      // 添加当前用户
+      if (currentUser) {
+        var exists = users.find(function(u) { return u.id === currentUser.id; });
+        if (!exists) {
+          users.push(currentUser);
+          localStorage.setItem('sb_users', JSON.stringify(users));
+        }
+      }
+      renderUserList(list, users);
+      return;
+    }
+    return res.json();
+  }).then(function(users) {
+    if (users) renderUserList(list, users);
+  });
+}
+
+function renderUserList(list, users) {
+  if (users.length === 0) {
+    list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">👥</div><div>暂无用户</div></div>';
+    return;
+  }
+  list.innerHTML = users.map(function(u) {
+    var displayName = u.displayName || u.name || u.username;
+    return '<div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--bg-secondary);border-radius:8px;margin-bottom:8px;">' +
+      '<div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-hover));display:flex;align-items:center;justify-content:center;color:white;font-size:14px;font-weight:600;">' + (displayName ? displayName.charAt(0).toUpperCase() : '?') + '</div>' +
+      '<div style="flex:1;">' +
+      '<div style="font-size:14px;font-weight:600;">' + escapeHtml(displayName) + '</div>' +
+      '<div style="font-size:12px;color:var(--text-tertiary);">@' + escapeHtml(u.username) + ' · ' + (u.role === 'admin' ? '👑 管理员' : '🦞 员工') + '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;">' +
+      '<button onclick="editUser(\'' + escapeAttr(u.id) + '\')" style="padding:4px 8px;border-radius:4px;background:var(--bg-tertiary);border:none;cursor:pointer;font-size:12px;">编辑</button>' +
+      (u.id !== currentUser?.id ? '<button onclick="deleteUser(\'' + escapeAttr(u.id) + '\')" style="padding:4px 8px;border-radius:4px;background:#FF3B30;color:white;border:none;cursor:pointer;font-size:12px;">删除</button>' : '') +
+      '</div>' +
+      '</div>';
+  }).join('');
+}
+
+// 创建用户
+function createUser() {
+  if (!isAdmin()) {
+    showToast('⚠️ 只有管理员可以创建用户');
+    return;
+  }
+
+  var username = prompt('输入用户名:');
+  if (!username) return;
+  var password = prompt('输入密码:');
+  if (!password) return;
+  var displayName = prompt('输入显示名称:', username);
+  var role = confirm('是否设为管理员?\n(确定=管理员, 取消=员工)');
+
+  var newUser = { username: username, password: password, role: role ? 'admin' : 'employee', displayName: displayName || username };
+
+  apiFetch('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(newUser)
+  }).then(function(res) {
+    if (res && res.ok) {
+      showToast('✅ 用户 ' + username + ' 创建成功');
+      loadUserList();
+    } else {
+      return res ? res.json() : null;
+    }
+  }).then(function(data) {
+    if (data && data.error) showToast('⚠️ ' + data.error);
+  }).catch(function() {
+    // 后端未启动，存 localStorage
+    var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
+    newUser.id = 'user_' + Date.now();
+    newUser.name = newUser.displayName;
+    users.push(newUser);
+    localStorage.setItem('sb_users', JSON.stringify(users));
+    showToast('✅ 用户已创建（本地模式）');
+    loadUserList();
+  });
+}
+
+// 删除用户
+function deleteUser(userId) {
+  if (!isAdmin()) {
+    showToast('⚠️ 只有管理员可以删除用户');
+    return;
+  }
+
+  if (!confirm('确定要删除这个用户吗?')) return;
+
+  apiFetch('/api/users/' + userId, { method: 'DELETE' }).then(function(res) {
+    if (res && res.ok) {
+      showToast('✅ 用户已删除');
+      loadUserList();
+    } else {
+      return res ? res.json() : null;
+    }
+  }).then(function(data) {
+    if (data && data.error) showToast('⚠️ ' + data.error);
+  }).catch(function() {
+    // 本地降级
+    var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
+    users = users.filter(function(u) { return u.id !== userId; });
+    localStorage.setItem('sb_users', JSON.stringify(users));
+    showToast('✅ 用户已删除（本地模式）');
+    loadUserList();
+  });
+}
+
+// 编辑用户
+function editUser(userId) {
+  if (!isAdmin()) {
+    showToast('⚠️ 只有管理员可以编辑用户');
+    return;
+  }
+
+  // 先尝试从后端获取用户，或从本地缓存
+  apiFetch('/api/users/' + userId).then(function(res) {
+    if (!res) {
+      // 后端未启动，用 localStorage
+      var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
+      var user = users.find(function(u) { return u.id === userId; });
+      if (user) performEditUser(user, users);
+      return null;
+    }
+    return res.json();
+  }).then(function(user) {
+    if (user) performEditUserAPI(user);
+  }).catch(function() {
+    var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
+    var user = users.find(function(u) { return u.id === userId; });
+    if (user) performEditUser(user, users);
+  });
+}
+
+function performEditUserAPI(user) {
+  var newName = prompt('修改显示名称:', user.displayName || user.name || user.username);
+  if (newName === null) return;
+  var newRole = confirm('是否设为管理员?\n(确定=管理员, 取消=员工)');
+
+  apiFetch('/api/users/' + user.id, {
+    method: 'PUT',
+    body: JSON.stringify({ displayName: newName, role: newRole ? 'admin' : 'employee' })
+  }).then(function(res) {
+    if (res && res.ok) {
+      showToast('✅ 用户信息已更新');
+      loadUserList();
+    } else {
+      return res ? res.json() : null;
+    }
+  }).then(function(data) {
+    if (data && data.error) showToast('⚠️ ' + data.error);
+  }).catch(function() {
+    showToast('⚠️ 更新失败');
+  });
+}
+
+function performEditUser(user, users) {
+  var newName = prompt('修改用户名:', user.name || user.username);
+  if (newName === null) return;
+
+  var newRole = confirm('是否设为管理员?\n(确定=管理员, 取消=员工)');
+
+  user.name = newName;
+  user.displayName = newName;
+  user.role = newRole ? 'admin' : 'employee';
+
+  localStorage.setItem('sb_users', JSON.stringify(users));
+  showToast('✅ 用户信息已更新（本地模式）');
+  loadUserList();
+}
+
+// 配额管理
+function setUserQuota(userId) {
+
+// 数据迁移检查：本地 localStorage 数据同步到后端
+function checkLocalMigration() {
+  var localEmps = JSON.parse(localStorage.getItem('emps') || '[]');
+  if (localEmps.length === 0) return;
+
+  if (!confirm('检测到本地有 ' + localEmps.length + ' 个员工数据，是否同步到服务器？\n\n同步后数据将保存在服务器，可在任何设备访问。')) {
+    return;
+  }
+
+  var success = 0, fail = 0;
+  var promises = localEmps.map(function(emp) {
+    return apiFetch('/api/agents', {
+      method: 'POST',
+      body: JSON.stringify(Object.assign({}, emp, {
+        createdBy: currentUser?.id,
+        createdByName: currentUser?.displayName || currentUser?.name
+      }))
+    }).then(function(res) {
+      if (res && res.ok) success++;
+      else fail++;
+    }).catch(function() { fail++; });
+  });
+
+  Promise.all(promises).then(function() {
+    showToast('迁移完成：成功 ' + success + ' 个' + (fail > 0 ? '，失败 ' + fail + ' 个' : ''));
+    if (fail === 0) {
+      localStorage.removeItem('emps');
+      // 清理聊天记录
+      localEmps.forEach(function(emp) {
+        localStorage.removeItem('sb_chat_history_' + emp.id);
+      });
+    }
+    // 重新加载
+    if (typeof renderEmployeeList === 'function') renderEmployeeList();
+  });
+}
+
+function setUserQuota(userId) {
+  if (!isAdmin()) {
+    showToast('⚠️ 只有管理员可以设置配额');
+    return;
+  }
+
+  var quota = prompt('设置员工数量上限 (0=无限制):');
+  if (quota === null) return;
+
+  var numQuota = parseInt(quota);
+  if (isNaN(numQuota) || numQuota < 0) {
+    showToast('⚠️ 请输入有效的数字');
+    return;
+  }
+
+  var quotas = JSON.parse(localStorage.getItem('sb_quotas') || '{}');
+  quotas[userId] = numQuota;
+  localStorage.setItem('sb_quotas', JSON.stringify(quotas));
+
+  showToast('✅ 配额已设置');
+}
+
+// 检查配额
+function checkQuota() {
+  if (isAdmin()) return true; // 管理员无限制
+
+  var quotas = JSON.parse(localStorage.getItem('sb_quotas') || '{}');
+  var myQuota = quotas[currentUser?.id] || 0;
+
+  if (myQuota === 0) return true; // 0 = 无限制
+
+  var myEmployees = emps.filter(function(e) {
+    return e.createdBy === currentUser?.id;
+  });
+
+  if (myEmployees.length >= myQuota) {
+    showToast('⚠️ 已达到员工数量上限 (' + myQuota + ')');
+    return false;
+  }
+
+  return true;
+}
 </script>
+
+<!-- User Management Panel -->
+<div class="user-management-panel" id="userManagementPanel">
+  <div class="user-management-header">
+    <div class="user-management-title">👥 用户管理</div>
+    <button class="user-management-close" onclick="closeUserManagement()">✕</button>
+  </div>
+  <div class="user-management-content">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:600;">用户列表</div>
+      <button onclick="createUser()" style="padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">➕ 添加用户</button>
+    </div>
+    <div id="userList"></div>
+  </div>
+</div>
 
 <script src="avatars.js"></script>
 <script src="openclaw-client.js"></script>
-
-<script>
-// ===== SoloBrave Auth System =====
-(function() {
-  'use strict';
-
-  // Auth state
-  window.__auth = {
-    token: localStorage.getItem('sb_auth_token') || null,
-    user: null
-  };
-
-  // Get auth header for fetch calls
-  window.getAuthHeaders = function(extra) {
-    var headers = extra || {};
-    if (window.__auth.token) {
-      headers['Authorization'] = 'Bearer ' + window.__auth.token;
-    }
-    return headers;
-  };
-
-  // Authenticated fetch wrapper
-  window.authFetch = function(url, options) {
-    options = options || {};
-    options.headers = options.headers || {};
-    if (window.__auth.token) {
-      options.headers['Authorization'] = 'Bearer ' + window.__auth.token;
-    }
-    return fetch(url, options).then(function(res) {
-      if (res.status === 401) {
-        // Token expired, show login
-        showLoginOverlay();
-        throw new Error('未登录或 token 已过期');
-      }
-      return res;
-    });
-  };
-
-  // Show/hide login overlay
-  window.showLoginOverlay = function() {
-    var overlay = document.getElementById('loginOverlay');
-    if (overlay) {
-      overlay.classList.remove('hidden');
-      setTimeout(function() {
-        var input = document.getElementById('loginUsername');
-        if (input) input.focus();
-      }, 300);
-    }
-  };
-
-  window.hideLoginOverlay = function() {
-    var overlay = document.getElementById('loginOverlay');
-    if (overlay) overlay.classList.add('hidden');
-  };
-
-  // Check auth on load
-  window.checkAuth = async function() {
-    if (!window.__auth.token) {
-      showLoginOverlay();
-      return;
-    }
-    try {
-      var res = await fetch('/api/auth/me', {
-        headers: { 'Authorization': 'Bearer ' + window.__auth.token }
-      });
-      if (res.ok) {
-        var data = await res.json();
-        window.__auth.user = data;
-        updateUI(data);
-        hideLoginOverlay();
-        checkMigration();
-      } else {
-        localStorage.removeItem('sb_auth_token');
-        window.__auth.token = null;
-        showLoginOverlay();
-      }
-    } catch(e) {
-      showLoginOverlay();
-    }
-  };
-
-  // Update UI with user data
-  function updateUI(user) {
-    var nameEl = document.getElementById('userName');
-    var roleEl = document.getElementById('userRoleText');
-    var avatarEl = document.getElementById('userAvatar');
-    if (nameEl) nameEl.textContent = user.displayName || user.username;
-    if (roleEl) roleEl.textContent = user.role === 'admin' ? '👑 管理员' : '👤 员工';
-    if (avatarEl && user.avatar !== undefined) {
-      var avatars = ['🦞','👨‍💼','👩‍💼','🧑‍💻','🐙','⭐','🦈','🦊','🐱','🐶','🦄','🐲'];
-      avatarEl.textContent = avatars[user.avatar] || '🦞';
-    }
-  }
-
-  // Login handler
-  window.handleLogin = async function() {
-    var btn = document.getElementById('loginBtn');
-    var errEl = document.getElementById('loginError');
-    var username = document.getElementById('loginUsername').value.trim();
-    var password = document.getElementById('loginPassword').value;
-
-    if (!username || !password) {
-      errEl.textContent = '请输入用户名和密码';
-      return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = '登录中...';
-    errEl.textContent = '';
-
-    try {
-      var res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username, password: password })
-      });
-      var data = await res.json();
-
-      if (res.ok) {
-        window.__auth.token = data.token;
-        window.__auth.user = data.user;
-        localStorage.setItem('sb_auth_token', data.token);
-        updateUI(data.user);
-        hideLoginOverlay();
-        checkMigration();
-      } else {
-        errEl.textContent = data.error || '登录失败';
-      }
-    } catch(e) {
-      errEl.textContent = '网络错误，请检查服务器是否运行';
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '登 录';
-    }
-  };
-
-  // Logout handler
-  window.handleLogout = function() {
-    localStorage.removeItem('sb_auth_token');
-    window.__auth.token = null;
-    window.__auth.user = null;
-    closeUserMenu();
-    showLoginOverlay();
-  };
-
-  // Toggle user menu dropdown
-  window.toggleUserMenu = function(e) {
-    if (e) e.stopPropagation();
-    var dd = document.getElementById('userDropdown');
-    if (dd) dd.classList.toggle('show');
-  };
-
-  window.closeUserMenu = function() {
-    var dd = document.getElementById('userDropdown');
-    if (dd) dd.classList.remove('show');
-  };
-
-  // Close dropdown on outside click
-  document.addEventListener('click', function(e) {
-    var menu = document.getElementById('userMenu');
-    if (menu && !menu.contains(e.target)) {
-      closeUserMenu();
-    }
-  });
-
-  // Change password
-  window.handleChangePassword = function() {
-    closeUserMenu();
-    var oldPwd = prompt('请输入旧密码:');
-    if (!oldPwd) return;
-    var newPwd = prompt('请输入新密码（至少4个字符）:');
-    if (!newPwd) return;
-    if (newPwd.length < 4) { showToast('密码至少4个字符', 'warning'); return; }
-
-    authFetch('/api/auth/change-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ oldPassword: oldPwd, newPassword: newPwd })
-    }).then(function(r) { return r.json(); }).then(function(d) {
-      if (d.message) {
-        showToast('✅ 密码修改成功');
-      } else {
-        showToast('❌ ' + (d.error || '修改失败'), 'warning');
-      }
-    }).catch(function(e) {
-      showToast('❌ 请求失败', 'warning');
-    });
-  };
-
-  // Migration check
-  window.checkMigration = function() {
-    try {
-      var saved = localStorage.getItem('sb_employees');
-      if (!saved) return;
-      var localEmps = JSON.parse(saved);
-      if (!localEmps || localEmps.length === 0) return;
-
-      // Show migration dialog
-      var count = localEmps.length;
-      var overlay = document.createElement('div');
-      overlay.className = 'migration-dialog';
-      overlay.id = 'migrationDialog';
-      overlay.innerHTML = '<div class="migration-card">' +
-        '<div class="migration-icon">📦</div>' +
-        '<div class="migration-title">检测到本地数据</div>' +
-        '<div class="migration-desc">发现本地有 ' + count + ' 个员工数据，是否同步到服务器？<br>同步后数据将保存在服务器，可在任何设备访问。</div>' +
-        '<div class="migration-actions">' +
-        '<button class="migration-btn-secondary" onclick="skipMigration()">稍后再说</button>' +
-        '<button class="migration-btn-primary" onclick="doMigration()">开始同步</button>' +
-        '</div></div>';
-      document.body.appendChild(overlay);
-    } catch(e) {}
-  };
-
-  window.skipMigration = function() {
-    var d = document.getElementById('migrationDialog');
-    if (d) d.remove();
-  };
-
-  window.doMigration = async function() {
-    var d = document.getElementById('migrationDialog');
-    try {
-      var saved = localStorage.getItem('sb_employees');
-      if (!saved) { if (d) d.remove(); return; }
-      var localEmps = JSON.parse(saved);
-      var success = 0;
-      for (var i = 0; i < localEmps.length; i++) {
-        try {
-          var emp = localEmps[i];
-          var res = await authFetch('/api/agents', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(emp)
-          });
-          if (res.ok) success++;
-        } catch(e) {}
-      }
-      if (success > 0) {
-        // Also migrate chat histories
-        var chatKeys = Object.keys(localStorage).filter(function(k) { return k.startsWith('sb_chat_history_'); });
-        for (var j = 0; j < chatKeys.length; j++) {
-          try {
-            var key = chatKeys[j];
-            var agentId = key.replace('sb_chat_history_', '');
-            var history = JSON.parse(localStorage.getItem(key) || '[]');
-            if (history.length > 0) {
-              await authFetch('/api/chat/' + agentId, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: '__migration__', messages: history })
-              });
-            }
-          } catch(e) {}
-        }
-        // Clear local storage employee data after successful migration
-        localStorage.removeItem('sb_employees');
-        showToast('✅ 已同步 ' + success + ' 个员工到服务器');
-        // Reload agents from server
-        if (typeof loadAgentsFromServer === 'function') loadAgentsFromServer();
-      } else {
-        showToast('❌ 同步失败，请重试', 'warning');
-      }
-    } catch(e) {
-      showToast('❌ 同步失败: ' + e.message, 'warning');
-    }
-    if (d) d.remove();
-  };
-
-  // Enter key to login
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') {
-      var overlay = document.getElementById('loginOverlay');
-      if (overlay && !overlay.classList.contains('hidden')) {
-        handleLogin();
-      }
-    }
-  });
-
-  // Override sendViaAPI to include auth token
-  var _originalSendViaAPI = window.sendViaAPI;
-
-  // Load agents from server
-  window.loadAgentsFromServer = async function() {
-    try {
-      var res = await authFetch('/api/agents');
-      if (res.ok) {
-        var agents = await res.json();
-        if (agents && agents.length > 0) {
-          emps.length = 0;
-          agents.forEach(function(a) { emps.push(a); });
-          if (typeof renderEmployeeList === 'function') renderEmployeeList();
-        }
-      }
-    } catch(e) {}
-  };
-
-  // Init auth check on DOMContentLoaded
-  document.addEventListener('DOMContentLoaded', function() {
-    checkAuth();
-  });
-
-  // Override saveEmployees to also save to server
-  var _origSaveEmployees = window.saveEmployees;
-  window.saveEmployees = function() {
-    // Save to localStorage as backup
-    if (_origSaveEmployees) _origSaveEmployees();
-    // Also sync to server (debounced)
-    if (window.__saveEmployeesTimer) clearTimeout(window.__saveEmployeesTimer);
-    window.__saveEmployeesTimer = setTimeout(function() {
-      emps.forEach(function(emp) {
-        authFetch('/api/agents/' + emp.id, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(emp)
-        }).catch(function() {});
-      });
-    }, 2000);
-  };
-
-})();
-</script>
-
 </body>
 </html>
