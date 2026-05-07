@@ -5637,12 +5637,16 @@ function selectWizProvider(el,providerId){
   if(providerId==='mock' || providerId==='openclaw'){
     modelGroup.style.display='none';
     customGroup.style.display='none';
+    var apiKeyGroup=document.getElementById('wizApiKeyGroup');
+    if(apiKeyGroup) apiKeyGroup.style.display = providerId==='openclaw' ? 'none' : 'block';
   } else if(providerId==='custom'){
     modelGroup.style.display='none';
     customGroup.style.display='block';
   } else {
     modelGroup.style.display='block';
     customGroup.style.display='none';
+    var apiKeyGroup=document.getElementById('wizApiKeyGroup');
+    if(apiKeyGroup) apiKeyGroup.style.display='block';
     // 填充模型选项
     var provider=API_PROVIDERS[providerId];
     if(provider && provider.models){
