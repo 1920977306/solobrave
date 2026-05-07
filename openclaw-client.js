@@ -138,22 +138,7 @@ class OpenClawClient {
       return;
     }
 
-    // 2. 服务端响应: hello-ok
-    if (type === 'res' && method === 'connect') {
-      if (result?.status === 'ok') {
-        console.log('[OpenClaw] 认证成功');
-        this.authenticated = true;
-        this.emit('authenticated', result);
-        if (context.resolve) context.resolve(true);
-      } else {
-        console.warn('[OpenClaw] 认证失败，启用 mock 模式');
-        this._enableMockMode();
-        if (context.resolve) context.resolve(true);
-      }
-      return;
-    }
-
-    // 3. 普通响应: 匹配 pending 请求
+    // 2. 普通响应: 匹配 pending 请求（connect 响应也走这里）
     if (type === 'res' && id) {
       const pending = this._pending.get(id);
       if (pending) {
@@ -206,20 +191,33 @@ class OpenClawClient {
   }
 
   async _sendConnect(challenge, context = {}) {
+    // This handles challenge-based auth (if Gateway sends challenge first)
     if (!this._token) {
       console.warn('[OpenClaw] 无 token，使用空 token 连接');
     }
-
+    console.log('[OpenClaw] 回复 challenge 认证...');
     try {
-      const res = await this.send('connect', { 
-        token: this._token,
-        challenge 
+      const id = this._generateId();
+      const msg = JSON.stringify({
+        type: 'req',
+        id: id,
+        method: 'connect',
+        params: { token: this._token, challenge }
       });
-      
+      const authPromise = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this._pending.delete(id);
+          reject(new Error('challenge 认证超时'));
+        }, 15000);
+        this._pending.set(id, { resolve, reject, timeout });
+      });
+      this.ws.send(msg);
+      const res = await authPromise;
       if (res?.status === 'ok') {
-        console.log('[OpenClaw] 认证成功');
+        console.log('[OpenClaw] ✅ challenge 认证成功！');
         this.authenticated = true;
         this.emit('authenticated', res);
+        if (context.challengeTimeout) clearTimeout(context.challengeTimeout);
         if (context.resolve) context.resolve(true);
       } else {
         console.warn('[OpenClaw] 认证失败，启用 mock 模式');
