@@ -1870,6 +1870,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <button class="emp-detail-tab" data-etab="avatar" onclick="switchEmpDetailTab('avatar')">头像</button>
 <button class="emp-detail-tab" data-etab="model" onclick="switchEmpDetailTab('model')">模型</button>
 <button class="emp-detail-tab" data-etab="docs" onclick="switchEmpDetailTab('docs')">文档</button>
+<button class="emp-detail-tab" data-etab="connect" onclick="switchEmpDetailTab('connect')">连接</button>
 <button class="emp-detail-tab" data-etab="channel" onclick="switchEmpDetailTab('channel')">渠道</button>
 </div>
 
@@ -2014,6 +2015,62 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <button class="emp-action-btn" onclick="saveEmpDocs()">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
 保存文档
+</button>
+</div>
+
+<!-- Connect Tab (API Provider Config) -->
+<div class="emp-tab-pane" id="emp-tab-connect">
+<div class="emp-doc-section">
+<div class="emp-doc-title">🤖 API 连接配置</div>
+<div class="emp-doc-desc">选择 AI 供应商并配置 API Key</div>
+<div style="margin-top:12px;">
+<div style="font-weight:600;margin-bottom:8px;font-size:13px;">供应商</div>
+<div id="empConnectProviders" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+<button class="provider-opt" data-provider="mock" onclick="selectEmpProvider(this,'mock')">
+<div class="provider-opt-icon">🎭</div>
+<div class="provider-opt-name">Mock</div>
+<div class="provider-opt-desc">本地模拟</div>
+</button>
+<button class="provider-opt" data-provider="openai" onclick="selectEmpProvider(this,'openai')">
+<div class="provider-opt-icon">🤖</div>
+<div class="provider-opt-name">OpenAI</div>
+<div class="provider-opt-desc">GPT-4o</div>
+</button>
+<button class="provider-opt" data-provider="kimi" onclick="selectEmpProvider(this,'kimi')">
+<div class="provider-opt-icon">🌙</div>
+<div class="provider-opt-name">Kimi</div>
+<div class="provider-opt-desc">Moonshot</div>
+</button>
+<button class="provider-opt" data-provider="deepseek" onclick="selectEmpProvider(this,'deepseek')">
+<div class="provider-opt-icon">🔍</div>
+<div class="provider-opt-name">DeepSeek</div>
+<div class="provider-opt-desc">深度求索</div>
+</button>
+<button class="provider-opt" data-provider="zhipu" onclick="selectEmpProvider(this,'zhipu')">
+<div class="provider-opt-icon">🔥</div>
+<div class="provider-opt-name">智谱</div>
+<div class="provider-opt-desc">GLM-4</div>
+</button>
+</div>
+</div>
+<div style="margin-top:12px;">
+<div style="font-weight:600;margin-bottom:8px;font-size:13px;">API Key</div>
+<input type="password" class="form-input" id="empConnectApiKey" placeholder="输入 API Key..." style="width:100%;font-family:monospace;">
+</div>
+<div style="margin-top:12px;">
+<div style="font-weight:600;margin-bottom:8px;font-size:13px;">模型</div>
+<select class="form-select" id="empConnectModel" style="width:100%;">
+<option value="">-- 选择模型 --</option>
+</select>
+</div>
+<div style="margin-top:12px;">
+<div style="font-weight:600;margin-bottom:8px;font-size:13px;">自定义 Base URL（可选）</div>
+<input type="text" class="form-input" id="empConnectBaseUrl" placeholder="https://api.example.com/v1" style="width:100%;">
+</div>
+</div>
+<button class="emp-action-btn primary" onclick="saveEmpConnect()">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+保存连接配置
 </button>
 </div>
 
@@ -2391,39 +2448,26 @@ function sendMsg(){
   // 获取文档上下文
   const docContext = getDocContextForChat();
   
-  // 尝试调用真实AI，否则用模拟回复
-  callRealAI(text, docContext).then(reply => {
-    const t = document.getElementById('typingMsg');
-    if(t) t.remove();
-    if(reply){
-      displayAIReply(reply, docContext, timeStr);
-      saveChatHistory(text, reply, docContext);
-    } else {
-      // 模拟回复
-      const simReplies = [
+  // 优先走 API，没有 Key 就走 mock
+  if(emp.apiKey && emp.apiProvider && emp.apiProvider !== 'mock'){
+    sendViaAPI(emp, text, docContext, timeStr);
+  } else {
+    // Mock 回复
+    setTimeout(function(){
+      var t = document.getElementById('typingMsg');
+      if(t) t.remove();
+      var simReplies = [
         '收到，我来处理一下这个任务。',
         '好的，我理解了你的需求，马上开始执行。',
         '明白了，让我分析一下这个问题...',
         '没问题，我会尽快完成。',
         '了解了，我这边开始处理，预计很快就好。'
       ];
-      const simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
-      setTimeout(() => {
-        displayAIReply(simReply, docContext, timeStr);
-        saveChatHistory(text, simReply, docContext);
-      }, 800 + Math.random() * 1200);
-    }
-  }).catch(err => {
-    const t = document.getElementById('typingMsg');
-    if(t) t.remove();
-    // 模拟回复 fallback
-    const simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
-    const simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
-    setTimeout(() => {
+      var simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
       displayAIReply(simReply, docContext, timeStr);
       saveChatHistory(text, simReply, docContext);
-    }, 800);
-  });
+    }, 800 + Math.random() * 1200);
+  }
 }
 
 // Gear Menu Functions
@@ -2515,6 +2559,50 @@ const AI_CONFIG = {
   endpoint: '',
   apiKey: '',
   model: 'gpt-4o'
+};
+
+// ========== API 供应商配置 ==========
+const API_PROVIDERS = {
+  openai: {
+    name: 'OpenAI',
+    icon: '🤖',
+    baseUrl: 'https://api.openai.com/v1',
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
+    defaultModel: 'gpt-4o',
+    keyPlaceholder: 'sk-...'
+  },
+  kimi: {
+    name: 'Kimi',
+    icon: '🌙',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+    defaultModel: 'moonshot-v1-8k',
+    keyPlaceholder: 'sk-...'
+  },
+  deepseek: {
+    name: 'DeepSeek',
+    icon: '🔍',
+    baseUrl: 'https://api.deepseek.com/v1',
+    models: ['deepseek-chat', 'deepseek-coder'],
+    defaultModel: 'deepseek-chat',
+    keyPlaceholder: 'sk-...'
+  },
+  zhipu: {
+    name: '智谱',
+    icon: '🔥',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    models: ['glm-4', 'glm-4-flash', 'glm-3-turbo'],
+    defaultModel: 'glm-4',
+    keyPlaceholder: '...'
+  },
+  custom: {
+    name: '自定义',
+    icon: '⚙️',
+    baseUrl: '',
+    models: [],
+    defaultModel: '',
+    keyPlaceholder: '自定义 API Key'
+  }
 };
 
 // State
@@ -3974,6 +4062,7 @@ if(avatarGrid&&typeof AVATAR_PRESETS!=='undefined'){
   avatarGrid.innerHTML=avatarHtml;
 }
 document.getElementById('empDetailOverlay').classList.add('open');
+loadEmpConnect(emp);
 switchEmpDetailTab('basic');
 }
 
@@ -4175,6 +4264,68 @@ const emp=emps.find(e=>e.id===currentEmpId);
 if(emp)emp.modelConfig=document.getElementById('empModelConfig').value;
 saveEmployees();
 showToast('✅ 模型配置已保存');
+}
+
+// ========== 员工连接配置 ==========
+var empSelectedConnectProvider='mock';
+function selectEmpProvider(el,providerId){
+  document.querySelectorAll('#empConnectProviders .provider-opt').forEach(function(o){o.classList.remove('selected');});
+  el.classList.add('selected');
+  empSelectedConnectProvider=providerId;
+
+  // 填充模型下拉
+  var modelSelect=document.getElementById('empConnectModel');
+  var provider=API_PROVIDERS[providerId];
+  if(provider && provider.models){
+    var html='<option value="">-- 选择模型 --</option>';
+    for(var i=0;i<provider.models.length;i++){
+      html+='<option value="'+provider.models[i]+'">'+provider.models[i]+'</option>';
+    }
+    html+='<option value="'+provider.defaultModel+'">默认 ('+provider.defaultModel+')</option>';
+    modelSelect.innerHTML=html;
+  } else {
+    modelSelect.innerHTML='<option value="">-- 选择模型 --</option>';
+  }
+}
+function loadEmpConnect(emp){
+  // 加载员工连接配置到面板
+  var providerId=emp.apiProvider||'mock';
+  empSelectedConnectProvider=providerId;
+
+  // 选中供应商
+  document.querySelectorAll('#empConnectProviders .provider-opt').forEach(function(o){o.classList.remove('selected');});
+  var providerBtn=document.querySelector('#empConnectProviders .provider-opt[data-provider="'+providerId+'"]');
+  if(providerBtn)providerBtn.classList.add('selected');
+
+  // 填充模型下拉
+  var modelSelect=document.getElementById('empConnectModel');
+  var provider=API_PROVIDERS[providerId];
+  if(provider && provider.models){
+    var html='<option value="">-- 选择模型 --</option>';
+    for(var i=0;i<provider.models.length;i++){
+      html+='<option value="'+provider.models[i]+'">'+provider.models[i]+'</option>';
+    }
+    html+='<option value="'+provider.defaultModel+'">默认 ('+provider.defaultModel+')</option>';
+    modelSelect.innerHTML=html;
+  }
+
+  // 设置当前值
+  document.getElementById('empConnectApiKey').value=emp.apiKey||'';
+  document.getElementById('empConnectModel').value=emp.apiModel||'';
+  document.getElementById('empConnectBaseUrl').value=emp.customEndpoint||'';
+}
+function saveEmpConnect(){
+  if(!currentEmpId)return;
+  var emp=emps.find(function(e){return e.id===currentEmpId;});
+  if(!emp)return;
+
+  emp.apiProvider=empSelectedConnectProvider||'mock';
+  emp.apiKey=document.getElementById('empConnectApiKey').value.trim();
+  emp.apiModel=document.getElementById('empConnectModel').value;
+  emp.customEndpoint=document.getElementById('empConnectBaseUrl').value.trim();
+
+  saveEmployees();
+  showToast('✅ 连接配置已保存');
 }
 function saveEmpDocs(){
 if(!currentEmpId)return;
@@ -4659,6 +4810,99 @@ async function callRealAI(userMessage, context){
   }
 }
 
+// ========== API 直连发送 ==========
+function sendViaAPI(emp, userMessage, docContext, timeStr){
+  var provider = API_PROVIDERS[emp.apiProvider];
+  if(!provider){
+    // 供应商不存在，回退到 mock
+    var t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    displayAIReply('⚠️ API 供应商配置错误，使用模拟回复', docContext, timeStr);
+    return;
+  }
+  
+  var apiKey = emp.apiKey;
+  var baseUrl = provider.baseUrl;
+  var model = emp.apiModel || provider.defaultModel;
+  
+  // 自定义供应商处理
+  if(emp.apiProvider === 'custom'){
+    baseUrl = emp.customEndpoint || '';
+    model = emp.apiModel || 'custom-model';
+  }
+  
+  // 构建请求
+  var systemPrompt = '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。';
+  if(emp.systemPrompt) systemPrompt += '\n\n' + emp.systemPrompt;
+  if(docContext) systemPrompt += '\n\n【相关文档】\n' + docContext;
+  
+  var messages = [
+    {role: 'system', content: systemPrompt},
+    {role: 'user', content: userMessage}
+  ];
+  
+  var endpoint = baseUrl + '/chat/completions';
+  
+  // 智谱 API 路径不同
+  if(emp.apiProvider === 'zhipu'){
+    endpoint = baseUrl + '/chat/completions';
+  }
+  
+  fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + apiKey
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: messages,
+      temperature: 0.8,
+      max_tokens: 2000
+    })
+  }).then(function(res){
+    var t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    
+    if(!res.ok){
+      if(res.status === 401){
+        displayAIReply('⚠️ API Key 无效，请检查 ' + provider.name + ' 的 API Key 是否正确', docContext, timeStr);
+      } else if(res.status === 429){
+        displayAIReply('⚠️ 请求过于频繁，请稍后再试', docContext, timeStr);
+      } else {
+        displayAIReply('⚠️ ' + provider.name + ' API 错误 (' + res.status + ')', docContext, timeStr);
+      }
+      return;
+    }
+    
+    return res.json();
+  }).then(function(data){
+    if(data && data.choices && data.choices[0] && data.choices[0].message){
+      var reply = data.choices[0].message.content;
+      displayAIReply(reply, docContext, timeStr);
+      saveChatHistory(userMessage, reply, docContext);
+    } else if(data){
+      displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr);
+    }
+  }).catch(function(error){
+    var t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    
+    if(error.message && (error.message.indexOf('Failed to fetch') >= 0 || error.message.indexOf('NetworkError') >= 0 || error.message.indexOf('CORS') >= 0)){
+      displayAIReply('⚠️ 网络/CORS 错误\n\n浏览器直接调用 API 会遇到 CORS 限制。\n当前使用模拟回复，后续可通过后端代理解决。', docContext, timeStr);
+      // CORS 错误时 fallback 到 mock
+      setTimeout(function(){
+        var simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
+        var simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
+        displayAIReply(simReply, docContext, timeStr);
+        saveChatHistory(userMessage, simReply, docContext);
+      }, 500);
+    } else {
+      displayAIReply('⚠️ API 调用失败: ' + error.message, docContext, timeStr);
+    }
+  });
+}
+
 // 获取当前对话的员工信息
 function getCurrentEmployeeInfo(){
   const empId = localStorage.getItem('sb_current_emp') || 'xlcx';
@@ -4704,6 +4948,7 @@ window.addEventListener('DOMContentLoaded',()=>{initGlobalSearch();initTheme();i
 // ===== 新增员工向导 =====
 var wizStep=1;
 var empSelectedModel='gpt4o';
+var empSelectedProvider='mock';
 function openWizard(){
   wizStep=1;
   renderAvatarPicker();
@@ -4782,6 +5027,36 @@ function selectWizModel(el,modelId){
   el.classList.add('selected');
   empSelectedModel=modelId;
 }
+function selectWizProvider(el,providerId){
+  document.querySelectorAll('#wizProviderSelect .model-option').forEach(o=>o.classList.remove('selected'));
+  el.classList.add('selected');
+  empSelectedProvider=providerId;
+  
+  // 显示/隐藏模型选择
+  var modelGroup=document.getElementById('wizModelGroup');
+  var modelSelect=document.getElementById('wizModelSelect');
+  var customGroup=document.getElementById('wizCustomEndpointGroup');
+  
+  if(providerId==='mock'){
+    modelGroup.style.display='none';
+    customGroup.style.display='none';
+  } else if(providerId==='custom'){
+    modelGroup.style.display='none';
+    customGroup.style.display='block';
+  } else {
+    modelGroup.style.display='block';
+    customGroup.style.display='none';
+    // 填充模型选项
+    var provider=API_PROVIDERS[providerId];
+    if(provider && provider.models){
+      var html='<option value="">使用默认模型 ('+provider.defaultModel+')</option>';
+      for(var i=0;i<provider.models.length;i++){
+        html+='<option value="'+provider.models[i]+'">'+provider.models[i]+'</option>';
+      }
+      modelSelect.innerHTML=html;
+    }
+  }
+}
 function selectWizStatus(el){
   document.querySelectorAll('.status-opt').forEach(o=>o.classList.remove('selected'));
   el.classList.add('selected');
@@ -4804,11 +5079,30 @@ function finishWizard(){
   var statusEl=document.querySelector('.status-opt.selected');
   var status=statusEl?statusEl.dataset.status:'online';
   var sysPrompt=document.getElementById('wizSystemPrompt').value.trim();
-  var model=aiModels.find(function(m){return m.id===empSelectedModel;})||aiModels[0];
+  var apiKey=document.getElementById('wizApiKey').value.trim();
+  var apiProvider=empSelectedProvider||'mock';
+  var apiModel=document.getElementById('wizModelSelect').value;
+  var customEndpoint=document.getElementById('wizCustomEndpoint').value.trim();
   var colors=['#FF6B35','#5AC8FA','#AF52DE','#FF2D55','#5856D6','#34C759'];
-  var newEmp={id:'emp_'+Date.now(),name:name,role:role,avatar:avatarIndex,bg:colors[emps.length%colors.length],status:status,msg:'新成员',archived:false,model:model.name,group:group,systemPrompt:sysPrompt};
+  var newEmp={
+    id:'emp_'+Date.now(),
+    name:name,
+    role:role,
+    avatar:avatarIndex,
+    bg:colors[emps.length%colors.length],
+    status:status,
+    msg:'新成员',
+    archived:false,
+    group:group,
+    systemPrompt:sysPrompt,
+    apiProvider:apiProvider,
+    apiKey:apiKey,
+    apiModel:apiModel,
+    customEndpoint:customEndpoint
+  };
   emps.push(newEmp);saveEmployees();renderTeamList();renderEmployeeList();
   closeWizard();document.getElementById('wizName').value='';
+  document.getElementById('wizApiKey').value='';
   showToast('✅ 员工 '+name+' 创建成功！');
   setTimeout(function(){openChat(newEmp.id);},300);
 }
@@ -5333,53 +5627,72 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 </div>
 <div id="wiz3" style="display:none">
 <div class="form-group">
-<label class="form-label">选择AI模型</label>
-<div class="model-select" id="wizModelSelect">
-<div class="model-option selected" data-model="gpt4o" onclick="selectWizModel(this,'gpt4o')">
-<div class="model-icon">🧠</div>
+<label class="form-label">选择 API 供应商</label>
+<div class="model-select" id="wizProviderSelect">
+<div class="model-option selected" data-provider="mock" onclick="selectWizProvider(this,'mock')">
+<div class="model-icon">🎭</div>
 <div class="model-info">
-<div class="model-name">GPT-4o</div>
-<div class="model-provider">OpenAI</div>
+<div class="model-name">模拟回复</div>
+<div class="model-provider">本地 Mock</div>
 </div>
 <div class="model-check">✓</div>
 </div>
-<div class="model-option" data-model="claude35" onclick="selectWizModel(this,'claude35')">
-<div class="model-icon">🌟</div>
+<div class="model-option" data-provider="openai" onclick="selectWizProvider(this,'openai')">
+<div class="model-icon">🤖</div>
 <div class="model-info">
-<div class="model-name">Claude 3.5</div>
-<div class="model-provider">Anthropic</div>
+<div class="model-name">OpenAI</div>
+<div class="model-provider">GPT-4o / GPT-4o-mini</div>
 </div>
 <div class="model-check">✓</div>
 </div>
-<div class="model-option" data-model="glm4" onclick="selectWizModel(this,'glm4')">
-<div class="model-icon">🔥</div>
-<div class="model-info">
-<div class="model-name">GLM-4</div>
-<div class="model-provider">智谱AI</div>
-</div>
-<div class="model-check">✓</div>
-</div>
-<div class="model-option" data-model="kimi" onclick="selectWizModel(this,'kimi')">
+<div class="model-option" data-provider="kimi" onclick="selectWizProvider(this,'kimi')">
 <div class="model-icon">🌙</div>
 <div class="model-info">
 <div class="model-name">Kimi</div>
-<div class="model-provider">Moonshot</div>
+<div class="model-provider">Moonshot AI</div>
 </div>
 <div class="model-check">✓</div>
 </div>
-<div class="model-option" data-model="deepseek" onclick="selectWizModel(this,'deepseek')">
+<div class="model-option" data-provider="deepseek" onclick="selectWizProvider(this,'deepseek')">
 <div class="model-icon">🔍</div>
 <div class="model-info">
 <div class="model-name">DeepSeek</div>
-<div class="model-provider">DeepSeek</div>
+<div class="model-provider">DeepSeek-V3 / Coder</div>
+</div>
+<div class="model-check">✓</div>
+</div>
+<div class="model-option" data-provider="zhipu" onclick="selectWizProvider(this,'zhipu')">
+<div class="model-icon">🔥</div>
+<div class="model-info">
+<div class="model-name">智谱</div>
+<div class="model-provider">GLM-4 / GLM-4-Flash</div>
+</div>
+<div class="model-check">✓</div>
+</div>
+<div class="model-option" data-provider="custom" onclick="selectWizProvider(this,'custom')">
+<div class="model-icon">⚙️</div>
+<div class="model-info">
+<div class="model-name">自定义</div>
+<div class="model-provider">OpenAI 兼容接口</div>
 </div>
 <div class="model-check">✓</div>
 </div>
 </div>
 </div>
-<div class="form-group">
-<label class="form-label">API Key（可选）</label>
-<input type="password" class="form-input" id="wizApiKey" placeholder="留空使用默认配置">
+<div class="form-group" id="wizModelGroup" style="display:none">
+<label class="form-label">选择模型</label>
+<select class="form-select" id="wizModelSelect">
+<option value="">使用默认模型</option>
+</select>
+</div>
+<div class="form-group" id="wizApiKeyGroup">
+<label class="form-label">API Key</label>
+<input type="password" class="form-input" id="wizApiKey" placeholder="输入 API Key">
+<div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">留空则使用模拟回复</div>
+</div>
+<div class="form-group" id="wizCustomEndpointGroup" style="display:none">
+<label class="form-label">自定义接口地址</label>
+<input type="text" class="form-input" id="wizCustomEndpoint" placeholder="https://api.example.com/v1">
 </div>
 <div class="form-group">
 <label class="form-label">系统提示词 / 欢迎语</label>
@@ -5477,6 +5790,69 @@ function showToast(msg, type) {
   gap: 10px;
 }
 .fab-menu-item:hover { background: var(--bg-secondary); }
+
+/* 连接配置面板 */
+#empConnectProviders .provider-opt {
+  flex: 1;
+  min-width: 80px;
+  max-width: 100px;
+  padding: 10px 6px;
+  border: 2px solid var(--separator);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+}
+#empConnectProviders .provider-opt:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+#empConnectProviders .provider-opt.selected {
+  border-color: var(--accent);
+  background: rgba(0,122,255,0.08);
+  box-shadow: 0 0 0 3px rgba(0,122,255,0.1);
+}
+#empConnectProviders .provider-opt-icon {
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+#empConnectProviders .provider-opt-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+#empConnectProviders .provider-opt-desc {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+#empConnectApiKey,
+#empConnectBaseUrl {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  width: 100%;
+  box-sizing: border-box;
+}
+#empConnectApiKey:focus,
+#empConnectBaseUrl:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+#empConnectModel {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  width: 100%;
+  box-sizing: border-box;
+}
 </style>
 
 <!-- FAB Menu Scripts -->
