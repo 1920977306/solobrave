@@ -3496,7 +3496,7 @@ if(e.key==='ArrowDown'){e.preventDefault();if(slashActive)navigateSlash(1);else 
 if(e.key==='ArrowUp'){e.preventDefault();if(slashActive)navigateSlash(-1);else if(mentionMode)selectMention(-1);}
 });
 document.getElementById('msgInput').addEventListener('input',handleInput);
-document.getElementById('mentionBtn').addEventListener('click',()=>{showMention();});
+document.getElementById('mentionBtn')?.addEventListener('click',()=>{showMention();});
 document.querySelectorAll('.mention-item').forEach(i=>i.addEventListener('click',()=>pickMention(i.dataset.id)));
 document.querySelectorAll('.drawer-tab').forEach(t=>t.addEventListener('click',()=>switchDrawerTab(t.dataset.tab)));
 document.addEventListener('click',e=>{
@@ -3618,7 +3618,7 @@ function openChat(id){
 document.querySelectorAll('.list-item').forEach(i=>i.classList.remove('active'));
 const emp=emps.find(e=>e.id===id);
 if(emp){
-var chatHeaderName=document.querySelector('.chat-header-name');
+localStorage.setItem('sb_current_emp',id);var chatHeaderName=document.querySelector('.chat-header-name');
 var chatHeaderSub=document.querySelector('.chat-header-sub');
 var chatHeaderAvatar=document.querySelector('.chat-header .avatar');
 if(chatHeaderName) chatHeaderName.textContent=emp.name;
@@ -3670,27 +3670,41 @@ function updateSupervisorStatusButton(){
 // Render Messages
 function renderMsgs(type){
 const area=document.getElementById('messagesArea');
-const msgs=type==='private'?[
-{sender:'xlcx',text:'你好！我是Lucy，前端工程师。有什么任务需要我处理吗？',time:'09:30'},
-{sender:'user',text:'你好！请帮我检查一下首页的响应式布局，今天需要上线。',time:'09:31',ok:true},
-{sender:'xlcx',text:'好的，我来检查一下响应式布局的问题。目前发现移动端导航菜单有溢出，我会修复它。',time:'09:32'},
-{sender:'user',text:'太好了，预计多久能完成？',time:'09:33',ok:true},
-{sender:'xlcx',text:'预计 30 分钟内完成修复，然后提交 PR 给你 review。<span class="mention">@所有人</span> 请注意查收。',time:'09:34'}
-]:[
+if(type==='private'){
+  const empId=localStorage.getItem('sb_current_emp');
+  const history=JSON.parse(localStorage.getItem('sb_chat_history_'+empId)||'[]');
+  if(history.length===0){
+    area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
+    return;
+  }
+  const emp=emps.find(e=>e.id===empId);
+  area.innerHTML='<div class="time-separator"><span>今天</span></div>'+
+  history.map(m=>{
+    const own=m.role==='user';
+    const timeStr=new Date(m.time).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+    return'<div class="msg '+(own?'own':'')+'">'+
+    (!own?'<div class="msg-avatar">'+renderAvatar(emp, 32)+'</div>':'')+
+    '<div class="msg-content">'+
+    (!own?'<div class="msg-sender"><span class="msg-sender-name">'+escapeHtml(emp?.name||'AI')+'</span><span class="msg-sender-role">'+escapeHtml(emp?.role||'')+'</span><span class="msg-sender-time">'+timeStr+'</span></div>':'<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">'+timeStr+'</span></div>')+
+    '<div class="msg-bubble">'+escapeHtml(m.content)+'</div>'+
+    '</div></div>';
+  }).join('')+'<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
+  area.scrollTop=area.scrollHeight;
+  return;
+}
+// project messages (demo)
+const projMsgs=[
 {sender:'zjg',text:'各位早，今天的目标是完成首页响应式适配。',time:'09:00'},
 {sender:'xlcx',text:'收到！我这边负责导航和布局适配。',time:'09:05'},
-{sender:'user',text:'<span class="mention">@Lucy</span> 预计什么时候可以提测？',time:'09:15',ok:true},
-{sender:'xlcx',text:'预计 10:30 可以完成，11:00 前提测。<span class="mention">@章鱼哥</span> 请安排测试资源。',time:'09:16'}
+{sender:'user',text:'<span class="mention">@Lucy</span> 预计什么时候可以提测？',time:'09:15'},
+{sender:'xlcx',text:'预计 10:30 可以完成，11:00 前提测。',time:'09:16'}
 ];
-
-// 空状态：如果没有消息
-if(msgs.length===0){
+if(projMsgs.length===0){
   area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
   return;
 }
-
 area.innerHTML='<div class="time-separator"><span>今天 09:30</span></div>'+
-msgs.map(m=>{
+projMsgs.map(m=>{
 const e=emps.find(x=>x.id===m.sender);
 const own=m.sender==='user';
 return'<div class="msg '+(own?'own':'')+'">'+
@@ -3885,7 +3899,7 @@ function showBulletinBar(projId){
 }
 
 function hideBulletin(){
-  document.getElementById('bulletinBar').style.display='none';
+  (document.getElementById('bulletinBar')||{}).style&&(document.getElementById('bulletinBar').style.display='none');
 }
 
 // ============ 督促机制 ============
@@ -5353,7 +5367,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
 function getCurrentEmployeeInfo(){
   const empId = localStorage.getItem('sb_current_emp') || 'xlcx';
   const emp = emps.find(e => e.id === empId);
-  return emp || {id:'xlcx',name:'Lucy',role:'前端工程师',avatar:'🦞',bg:'#FF6B35'};
+  return emp || emps[0] || {id:'unknown',name:'AI助手',role:'助手',avatar:'🤖',bg:'#8E8E93'};
 }
 
 // 获取当前项目 ID
