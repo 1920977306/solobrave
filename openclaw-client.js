@@ -209,7 +209,7 @@ class OpenClawClient {
         if (this._connectContext?.resolve) this._connectContext.resolve(true);
       }
     } catch (error) {
-      console.warn('[OpenClaw] 认证请求失败，启用 mock 模式:', error.message);
+      console.warn('[OpenClaw] 认证请求失败，启用 mock 模式:', error.message || JSON.stringify(error));
       this._enableMockMode();
       if (this._connectContext?.resolve) this._connectContext.resolve(true);
     }
@@ -250,7 +250,7 @@ class OpenClawClient {
         if (this._connectContext?.resolve) this._connectContext.resolve(true);
       }
     } catch (error) {
-      console.warn('[OpenClaw] 认证请求失败，启用 mock 模式:', error.message);
+      console.warn('[OpenClaw] 认证请求失败，启用 mock 模式:', error.message || JSON.stringify(error));
       this._enableMockMode();
       if (this._connectContext?.resolve) this._connectContext.resolve(true);
     }
