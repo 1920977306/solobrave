@@ -6665,8 +6665,6 @@ function performEditUser(user, users) {
 }
 
 // 配额管理
-function setUserQuota(userId) {
-
 // 数据迁移检查：本地 localStorage 数据同步到后端
 function checkLocalMigration() {
   var localEmps = JSON.parse(localStorage.getItem('emps') || '[]');
