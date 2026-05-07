@@ -55,11 +55,6 @@ class OpenClawClient {
 
         // 保存上下文供 onopen 回调使用
         this._connectContext = { challengeTimeout, resolve, reject };
-          console.warn('[OpenClaw] 10秒内未收到 challenge，启用 mock 模式');
-          this._enableMockMode();
-          this._cleanup();
-          resolve(true); // mock 模式也算连接成功
-        }, 10000);
 
         this.ws.onopen = () => {
           console.log('[OpenClaw] WebSocket 连接已建立');
