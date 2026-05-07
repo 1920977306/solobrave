@@ -2833,10 +2833,13 @@ function sendMsg(){
   const docContext = getDocContextForChat();
   
   // 三级降级：OpenClaw WS → API 直连 → Mock
-  if(typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated){
+  var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
+  if(ocOk){
     // 优先走 OpenClaw WS
+    console.log('[Chat] 使用 OpenClaw WS 发送');
     sendViaOpenClaw(emp, text, docContext, timeStr);
   } else if(emp.apiKey && emp.apiProvider && emp.apiProvider !== 'mock'){
+    console.log('[Chat] OpenClaw 未连接(connected:', typeof openclaw !== 'undefined' && openclaw.connected, 'authenticated:', typeof openclaw !== 'undefined' && openclaw.authenticated, ')，降级到 API');
     sendViaAPI(emp, text, docContext, timeStr);
   } else {
     // Mock 回复（无真实 AI 连接时）
@@ -2898,7 +2901,8 @@ const OPENCLAW_CONFIG = {
 
 function initOpenClaw(){
   if(typeof openclaw === 'undefined'){
-    console.warn('[OpenClaw] openclaw-client.js 未加载');
+    console.warn('[OpenClaw] openclaw-client.js 未加载，5秒后重试');
+    setTimeout(initOpenClaw, 5000);
     return;
   }
   var token = localStorage.getItem('openclaw_token') || OPENCLAW_CONFIG.defaultToken;
@@ -2906,14 +2910,20 @@ function initOpenClaw(){
     console.warn('[OpenClaw] 无 token，跳过连接');
     return;
   }
+  console.log('[OpenClaw] 设置 token 并开始连接...');
   openclaw.setToken(token);
-  openclaw.on('connect', function(){
-    console.log('[OpenClaw] 已连接 Gateway');
+  
+  // 监听事件（事件名必须匹配 openclaw-client.js 的 emit 名称）
+  openclaw.on('connected', function(){
+    console.log('[OpenClaw] WebSocket 已连接');
+  });
+  openclaw.on('authenticated', function(){
+    console.log('[OpenClaw] ✅ 已连接 Gateway 并认证成功！');
     localStorage.setItem('openclaw_token', token);
     var statusEl = document.getElementById('openclawStatus');
     if(statusEl) statusEl.textContent = '🟢 已连接';
   });
-  openclaw.on('disconnect', function(){
+  openclaw.on('disconnected', function(){
     console.log('[OpenClaw] 断开连接');
     var statusEl = document.getElementById('openclawStatus');
     if(statusEl) statusEl.textContent = '🔴 未连接';
@@ -2921,8 +2931,15 @@ function initOpenClaw(){
   openclaw.on('error', function(err){
     console.error('[OpenClaw] 连接错误:', err);
   });
-  openclaw.connect();
-  console.log('[OpenClaw] 正在连接 Gateway...');
+  openclaw.on('mockMode', function(){
+    console.warn('[OpenClaw] ⚠️ 连接失败，已降级到 Mock 模式');
+  });
+  
+  openclaw.connect().then(function(ok){
+    console.log('[OpenClaw] connect() 返回:', ok, 'connected:', openclaw.connected, 'authenticated:', openclaw.authenticated);
+  }).catch(function(err){
+    console.error('[OpenClaw] connect() 异常:', err);
+  });
 }
 
 // Gear Menu Functions
