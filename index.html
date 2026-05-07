@@ -1779,6 +1779,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 </div>
 
 </div>
+</div>
 <!-- Context Menu -->
 <div class="context-menu" id="contextMenu">
 <div class="context-item" onclick="ctxAction('detail')">👤 查看详情</div>
@@ -1950,6 +1951,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 </div>
 <div class="task-meta">
 <div class="task-assignee"><div class="avatar" style="width:18px;height:18px;font-size:10px;background:linear-gradient(135deg,#FF2D55,#FF6B8A);">⭐</div>海星</div>
+</div>
 </div>
 </div>
 </div>
@@ -2561,16 +2563,10 @@ function checkAuth() {
     return;
   }
 
-  // 如果是 mock token，直接用本地用户
+  // 如果是 mock token，清除并重新登录
   if (token.indexOf('mock_') === 0) {
-    if (savedUser) {
-      try {
-        currentUser = JSON.parse(savedUser);
-        authToken = token;
-        showMainApp();
-        return;
-      } catch (e) {}
-    }
+    localStorage.removeItem('sb_auth_token');
+    localStorage.removeItem('sb_current_user');
     showLogin();
     return;
   }
@@ -2590,14 +2586,7 @@ function checkAuth() {
     showMainApp();
   })
   .catch(function() {
-    // token 无效或后端未启动
-    if (savedUser && token.indexOf('mock_') === 0) {
-      try {
-        currentUser = JSON.parse(savedUser);
-        showMainApp();
-        return;
-      } catch (e) {}
-    }
+    // token 无效，清掉重来
     localStorage.removeItem('sb_auth_token');
     localStorage.removeItem('sb_current_user');
     showLogin();
