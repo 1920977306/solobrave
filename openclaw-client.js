@@ -58,6 +58,9 @@ class OpenClawClient {
           this.connected = true;
           this._reconnectAttempts = 0;
           this.emit('connected');
+          
+          // 立即发送认证（不再等 challenge）
+          this._sendConnectImmediate(context);
         };
 
         this.ws.onmessage = (event) => {
@@ -174,6 +177,32 @@ class OpenClawClient {
 
     // 5. 其他消息
     this.emit('message', msg);
+  }
+
+  async _sendConnectImmediate(context = {}) {
+    if (!this._token) {
+      console.warn('[OpenClaw] 无 token，使用空 token 连接');
+    }
+    console.log('[OpenClaw] 发送认证请求...');
+    try {
+      const res = await this.send('connect', { 
+        token: this._token
+      });
+      if (res?.status === 'ok') {
+        console.log('[OpenClaw] ✅ 认证成功！');
+        this.authenticated = true;
+        this.emit('authenticated', res);
+        if (context.resolve) context.resolve(true);
+      } else {
+        console.warn('[OpenClaw] 认证失败，启用 mock 模式');
+        this._enableMockMode();
+        if (context.resolve) context.resolve(true);
+      }
+    } catch (error) {
+      console.warn('[OpenClaw] 认证请求失败，启用 mock 模式:', error.message);
+      this._enableMockMode();
+      if (context.resolve) context.resolve(true);
+    }
   }
 
   async _sendConnect(challenge, context = {}) {
