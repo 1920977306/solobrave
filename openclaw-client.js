@@ -132,27 +132,30 @@ class OpenClawClient {
     const { type, method, id, params, result } = msg;
 
     // 1. 服务端推送: connect.challenge
-    if (type === 'event' && method === 'connect.challenge') {
-      console.log('[OpenClaw] 收到 challenge:', params?.challenge);
+    if (type === 'event' && (method === 'connect.challenge' || event === 'connect.challenge')) {
+      var nonce = params?.nonce || params?.challenge || payload?.nonce;
+      console.log('[OpenClaw] 收到 challenge, nonce:', nonce);
       if (context.challengeTimeout) {
         clearTimeout(context.challengeTimeout);
       }
-      this._sendConnect(params?.challenge, context);
+      this._sendConnect(nonce, context);
       return;
     }
 
     // 2. 普通响应: 匹配 pending 请求（connect 响应也走这里）
     if (type === 'res' && id) {
-      console.log('[OpenClaw] 收到响应 method=' + method + ' id=' + id + ' result=' + JSON.stringify(result) + ' error=' + JSON.stringify(msg.error));
+      console.log('[OpenClaw] 收到响应 method=' + method + ' id=' + id + ' ok=' + msg.ok + ' payload=' + JSON.stringify(msg.payload) + ' error=' + JSON.stringify(msg.error));
       const pending = this._pending.get(id);
       if (pending) {
         clearTimeout(pending.timeout);
         this._pending.delete(id);
-        if (msg.error) {
-          var errMsg = typeof msg.error === 'string' ? msg.error : JSON.stringify(msg.error);
+        if (msg.error || msg.ok === false) {
+          var errObj = msg.error || { code: 'UNKNOWN', message: 'request failed' };
+          var errMsg = typeof errObj === 'string' ? errObj : (errObj.message || JSON.stringify(errObj));
           pending.reject(new Error(errMsg));
         } else {
-          pending.resolve(result || msg);
+          // v3 format: payload contains the actual result
+          pending.resolve(msg.payload || result || msg);
         }
       }
       return;
@@ -170,21 +173,34 @@ class OpenClawClient {
   }
 
   async _sendConnectImmediate() {
-    if (!this._token) {
-      console.warn('[OpenClaw] 无 token，使用空 token 连接');
-    }
-    console.log('[OpenClaw] 发送认证请求 (token: ' + this._token.substring(0,8) + '...)');
+    console.log('[OpenClaw] 发送认证请求...');
     try {
-      // 直接通过 WebSocket 发送，绕过 this.send() 的 connected 检查
       const id = this._generateId();
+      // OpenClaw Gateway v3 协议格式
       const msg = JSON.stringify({
         type: 'req',
         id: id,
         method: 'connect',
-        params: { token: this._token }
+        params: {
+          minProtocol: 3,
+          maxProtocol: 3,
+          client: {
+            id: 'solobrave-web',
+            version: '1.0.0',
+            platform: 'web',
+            mode: 'operator'
+          },
+          role: 'operator',
+          scopes: ['operator.read', 'operator.write'],
+          caps: [],
+          commands: [],
+          permissions: {},
+          auth: { token: this._token },
+          locale: 'zh-CN',
+          userAgent: navigator.userAgent
+        }
       });
       
-      // 设置 pending 来接收响应
       const authPromise = new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           this._pending.delete(id);
@@ -199,14 +215,15 @@ class OpenClawClient {
       const res = await authPromise;
       console.log('[OpenClaw] 收到认证响应:', JSON.stringify(res));
       
-      if (res?.status === 'ok') {
+      // Gateway v3 响应格式: { type: "hello-ok", protocol: 3, ... }
+      if (res?.type === 'hello-ok' || res?.ok === true) {
         console.log('[OpenClaw] ✅ 认证成功！');
         this.authenticated = true;
         this.emit('authenticated', res);
         if (this._connectContext?.challengeTimeout) clearTimeout(this._connectContext.challengeTimeout);
         if (this._connectContext?.resolve) this._connectContext.resolve(true);
       } else {
-        console.warn('[OpenClaw] 认证失败，启用 mock 模式');
+        console.warn('[OpenClaw] 认证失败，启用 mock 模式, response:', JSON.stringify(res));
         this._enableMockMode();
         if (this._connectContext?.resolve) this._connectContext.resolve(true);
       }
