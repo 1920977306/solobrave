@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-SoloBrave CORS Proxy Server + OpenClaw Management API
-======================================================
-替代 python3 -m http.server 8080，提供：
-  1. 静态文件服务（从 solobrave-deploy/ 目录）
-  2. API 代理端点 POST /api/proxy（解决浏览器 CORS 限制）
-  3. OpenClaw 管理 API（创建/列表/删除/更新龙虾 Agent）
-
-启动方式：
-  cd ~/Desktop/solobrave-deploy   # 或 git 仓库根目录
-  python3 solobrave-server.py
+SoloBrave Server — Auth + CORS Proxy + OpenClaw Management API
+==============================================================
+功能：
+  1. 静态文件服务
+  2. 认证系统（JWT + 用户管理）
+  3. Agent 数据存储（JSON 文件）
+  4. 聊天记录存储
+  5. API 代理端点 POST /api/proxy
+  6. OpenClaw 管理 API
 
 只使用 Python 标准库，无需额外依赖。
+数据存储目录: ~/.solobrave-data/
 """
 
 import http.server
@@ -22,7 +22,14 @@ import ssl
 import sys
 import urllib.request
 import urllib.error
+import hashlib
+import hmac
+import base64
+import uuid
+import time
+import fcntl
 from datetime import datetime
+from urllib.parse import urlparse, unquote
 
 # ─── 配置 ───────────────────────────────────────────────
 PORT = 8080
@@ -30,29 +37,270 @@ BIND = '0.0.0.0'
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 PROXY_TIMEOUT = 60  # 秒
 ALLOWED_HTTP_METHODS = {'GET', 'HEAD', 'POST', 'OPTIONS', 'DELETE'}
-
-# AI API 常见域名白名单（可选安全增强，留空则不限制域名，仅限制 HTTPS）
-ALLOWED_DOMAINS = []  # 例: ['api.openai.com', 'api.moonshot.cn', 'api.deepseek.com', 'open.bigmodel.cn']
+ALLOWED_DOMAINS = []  # 域名白名单，留空不限制
 
 # OpenClaw CLI 路径
 OPENCLAW_CLI = '/opt/homebrew/bin/openclaw'
-OPENCLAW_TIMEOUT = 30  # CLI 命令超时（秒）
+OPENCLAW_TIMEOUT = 30
+
+# 数据存储目录
+DATA_DIR = os.path.join(os.path.expanduser('~'), '.solobrave-data')
+SECRET_FILE = os.path.join(DATA_DIR, '.secret')
+USERS_FILE = os.path.join(DATA_DIR, 'users.json')
+AGENTS_FILE = os.path.join(DATA_DIR, 'agents.json')
+CHATS_DIR = os.path.join(DATA_DIR, 'chats')
+SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
+
+# JWT 配置
+JWT_EXPIRE_SECONDS = 7 * 24 * 3600  # 7 天
+
+
+# ─── 数据存储层 ─────────────────────────────────────────
+
+def _ensure_data_dir():
+    """确保数据目录存在"""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(CHATS_DIR, exist_ok=True)
+
+
+def _read_json(filepath, default=None):
+    """读取 JSON 文件"""
+    if not os.path.isfile(filepath):
+        return default if default is not None else None
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return default if default is not None else None
+
+
+def _write_json(filepath, data):
+    """写入 JSON 文件（加文件锁）"""
+    _ensure_data_dir()
+    tmp_path = filepath + '.tmp'
+    try:
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        os.replace(tmp_path, filepath)
+    except OSError:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+
+# ─── JWT 工具（简化实现） ───────────────────────────────
+
+def _get_secret():
+    """获取或生成 JWT 签名密钥"""
+    if os.path.isfile(SECRET_FILE):
+        try:
+            with open(SECRET_FILE, 'r') as f:
+                secret = f.read().strip()
+                if secret:
+                    return secret.encode('utf-8')
+        except OSError:
+            pass
+    # 首次启动，生成随机密钥
+    _ensure_data_dir()
+    secret = uuid.uuid4().hex + uuid.uuid4().hex
+    with open(SECRET_FILE, 'w') as f:
+        f.write(secret)
+    # 限制文件权限
+    try:
+        os.chmod(SECRET_FILE, 0o600)
+    except OSError:
+        pass
+    return secret.encode('utf-8')
+
+
+JWT_SECRET = None  # 延迟初始化
+
+
+def _get_jwt_secret():
+    global JWT_SECRET
+    if JWT_SECRET is None:
+        JWT_SECRET = _get_secret()
+    return JWT_SECRET
+
+
+def _base64url_encode(data):
+    """Base64URL 编码（无填充）"""
+    if isinstance(data, str):
+        data = data.encode('utf-8')
+    return base64.urlsafe_b64encode(data).rstrip(b'=').decode('utf-8')
+
+
+def _base64url_decode(s):
+    """Base64URL 解码"""
+    if isinstance(s, str):
+        s = s.encode('utf-8')
+    # 补齐填充
+    padding = 4 - len(s) % 4
+    if padding != 4:
+        s += b'=' * padding
+    return base64.urlsafe_b64decode(s)
+
+
+def generate_token(user_id, role):
+    """生成 JWT token"""
+    header = {"alg": "HS256", "typ": "JWT"}
+    payload = {
+        "sub": user_id,
+        "role": role,
+        "exp": int(time.time()) + JWT_EXPIRE_SECONDS,
+        "iat": int(time.time())
+    }
+
+    header_b64 = _base64url_encode(json.dumps(header, separators=(',', ':')))
+    payload_b64 = _base64url_encode(json.dumps(payload, separators=(',', ':')))
+
+    signing_input = f"{header_b64}.{payload_b64}"
+    signature = hmac.new(
+        _get_jwt_secret(),
+        signing_input.encode('utf-8'),
+        hashlib.sha256
+    ).digest()
+    signature_b64 = _base64url_encode(signature)
+
+    return f"{header_b64}.{payload_b64}.{signature_b64}"
+
+
+def verify_token(token):
+    """验证 JWT token，返回 {userId, role} 或 None"""
+    if not token:
+        return None
+    parts = token.split('.')
+    if len(parts) != 3:
+        return None
+    try:
+        header_b64, payload_b64, signature_b64 = parts
+
+        # 验证签名
+        signing_input = f"{header_b64}.{payload_b64}"
+        expected_sig = hmac.new(
+            _get_jwt_secret(),
+            signing_input.encode('utf-8'),
+            hashlib.sha256
+        ).digest()
+        actual_sig = _base64url_decode(signature_b64)
+
+        if not hmac.compare_digest(expected_sig, actual_sig):
+            return None
+
+        # 解码 payload
+        payload = json.loads(_base64url_decode(payload_b64))
+
+        # 检查过期
+        if payload.get('exp', 0) < time.time():
+            return None
+
+        return {
+            'userId': payload.get('sub'),
+            'role': payload.get('role')
+        }
+    except Exception:
+        return None
+
+
+# ─── 密码哈希 ──────────────────────────────────────────
+
+def hash_password(password, salt=None):
+    """哈希密码，返回 (hash, salt)"""
+    if salt is None:
+        salt = uuid.uuid4().hex[:16]
+    h = hashlib.sha256((salt + password).encode('utf-8')).hexdigest()
+    return h, salt
+
+
+def verify_password(password, pwd_hash, salt):
+    """验证密码"""
+    h, _ = hash_password(password, salt)
+    return hmac.compare_digest(h, pwd_hash)
+
+
+# ─── 用户管理 ──────────────────────────────────────────
+
+def _load_users():
+    """加载用户列表"""
+    users = _read_json(USERS_FILE, [])
+    return users if isinstance(users, list) else []
+
+
+def _save_users(users):
+    """保存用户列表"""
+    _write_json(USERS_FILE, users)
+
+
+def _find_user(users, key, value):
+    """在用户列表中查找用户"""
+    for u in users:
+        if u.get(key) == value:
+            return u
+    return None
+
+
+def _init_default_admin():
+    """首次启动创建默认管理员"""
+    users = _load_users()
+    if len(users) == 0:
+        pwd_hash, salt = hash_password('admin123')
+        admin = {
+            'id': 'user_' + uuid.uuid4().hex[:8],
+            'username': 'admin',
+            'passwordHash': pwd_hash,
+            'passwordSalt': salt,
+            'role': 'admin',
+            'displayName': '管理员',
+            'avatar': 0,
+            'agentQuota': 999,
+            'apiQuota': 99999,
+            'createdAt': datetime.now().isoformat()
+        }
+        _save_users([admin])
+        print('  🔑 默认管理员账号: admin / admin123，请尽快修改密码')
+        return admin
+    return None
+
+
+# ─── Agent 管理 ─────────────────────────────────────────
+
+def _load_agents():
+    """加载 Agent 列表"""
+    agents = _read_json(AGENTS_FILE, [])
+    return agents if isinstance(agents, list) else []
+
+
+def _save_agents(agents):
+    """保存 Agent 列表"""
+    _write_json(AGENTS_FILE, agents)
+
+
+# ─── 聊天记录 ──────────────────────────────────────────
+
+def _load_chat(agent_id):
+    """加载某 Agent 的聊天记录"""
+    filepath = os.path.join(CHATS_DIR, f'{agent_id}.json')
+    return _read_json(filepath, [])
+
+
+def _save_chat(agent_id, messages):
+    """保存某 Agent 的聊天记录"""
+    filepath = os.path.join(CHATS_DIR, f'{agent_id}.json')
+    _write_json(filepath, messages)
 
 
 # ─── OpenClaw CLI 辅助函数 ──────────────────────────────
+
 def _run_openclaw(args, cwd=None, input_data=None):
-    """执行 openclaw CLI 命令，返回 (success, stdout, stderr, returncode)"""
+    """执行 openclaw CLI 命令"""
     cmd = [OPENCLAW_CLI] + args
     env = os.environ.copy()
     try:
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=OPENCLAW_TIMEOUT,
-            cwd=cwd,
-            env=env,
-            input=input_data
+            cmd, capture_output=True, text=True,
+            timeout=OPENCLAW_TIMEOUT, cwd=cwd, env=env, input=input_data
         )
         return True, result.stdout, result.stderr, result.returncode
     except FileNotFoundError:
@@ -67,39 +315,27 @@ def _run_openclaw(args, cwd=None, input_data=None):
 
 def _openclaw_status():
     """检查 OpenClaw Gateway 状态"""
-    # 先检查 CLI 是否存在
     if not os.path.isfile(OPENCLAW_CLI):
         return {
-            'available': False,
-            'gateway': 'offline',
+            'available': False, 'gateway': 'offline',
             'message': f'OpenClaw CLI not found at {OPENCLAW_CLI}',
             'cli': OPENCLAW_CLI
         }
-
-    # 尝试运行 health 检查
     success, stdout, stderr, rc = _run_openclaw(['health'])
     if success and rc == 0:
         try:
             health_data = json.loads(stdout.strip())
             return {
-                'available': True,
-                'gateway': 'online',
-                'health': health_data,
-                'cli': OPENCLAW_CLI
+                'available': True, 'gateway': 'online',
+                'health': health_data, 'cli': OPENCLAW_CLI
             }
         except json.JSONDecodeError:
-            # health 命令有输出但不是 JSON，也算在线
             return {
-                'available': True,
-                'gateway': 'online',
-                'health': {'raw': stdout.strip()},
-                'cli': OPENCLAW_CLI
+                'available': True, 'gateway': 'online',
+                'health': {'raw': stdout.strip()}, 'cli': OPENCLAW_CLI
             }
-
-    # health 失败，但 CLI 存在，可能是 Gateway 没启动
     return {
-        'available': True,
-        'gateway': 'offline',
+        'available': True, 'gateway': 'offline',
         'message': 'OpenClaw CLI available but Gateway appears offline',
         'cli': OPENCLAW_CLI,
         'error': stderr.strip() if stderr else ''
@@ -107,7 +343,7 @@ def _openclaw_status():
 
 
 def _default_models():
-    """默认模型列表（当 CLI 不可用时）"""
+    """默认模型列表"""
     return [
         {'id': 'anthropic/claude-sonnet-4-20250514', 'name': 'Claude Sonnet 4'},
         {'id': 'anthropic/claude-3-5-sonnet-20241022', 'name': 'Claude 3.5 Sonnet'},
@@ -118,22 +354,68 @@ def _default_models():
     ]
 
 
+# ─── 认证中间件 ────────────────────────────────────────
+
+class AuthResult:
+    """认证结果"""
+    def __init__(self, user_info=None, error=None, status=401):
+        self.user_info = user_info  # {userId, role}
+        self.error = error
+        self.status = status
+        self.user_record = None  # 完整用户记录
+
+    @property
+    def is_authenticated(self):
+        return self.user_info is not None
+
+    @property
+    def is_admin(self):
+        return self.user_info and self.user_info.get('role') == 'admin'
+
+    def load_user_record(self):
+        if self.user_info:
+            users = _load_users()
+            self.user_record = _find_user(users, 'id', self.user_info['userId'])
+        return self.user_record
+
+
+def _authenticate(headers):
+    """从请求头中提取并验证 token"""
+    auth_header = headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return AuthResult(error='未登录或 token 已过期', status=401)
+    token = auth_header[7:]
+    user_info = verify_token(token)
+    if user_info is None:
+        return AuthResult(error='未登录或 token 已过期', status=401)
+    return AuthResult(user_info=user_info)
+
+
+def _require_admin(auth):
+    """检查是否是管理员"""
+    if not auth.is_authenticated:
+        return auth.error, auth.status
+    if not auth.is_admin:
+        return '权限不足', 403
+    return None, None
+
+
+# ─── 请求处理器 ────────────────────────────────────────
+
 class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
-    """自定义请求处理器：静态文件 + CORS 代理 + OpenClaw API"""
+    """自定义请求处理器：静态文件 + 认证 + CORS 代理 + OpenClaw API"""
 
     def __init__(self, *args, **kwargs):
-        # SimpleHTTPRequestHandler 默认以 cwd 为根，这里指定静态目录
         super().__init__(*args, directory=STATIC_DIR, **kwargs)
 
-    # ─── CORS 头 ───────────────────────────────────────
+    # ─── CORS ───────────────────────────────────────────
     def _add_cors_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS, HEAD')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Target-URL')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS, HEAD, PUT')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Target-URL, X-AI-API-Key')
         self.send_header('Access-Control-Max-Age', '86400')
 
     def _send_cors_preflight(self):
-        """处理 OPTIONS 预检请求"""
         self.send_response(204)
         self._add_cors_headers()
         self.end_headers()
@@ -144,9 +426,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         msg = format % args
         print(f'  [{timestamp}] {msg}', flush=True)
 
-    # ─── JSON 响应工具 ─────────────────────────────────
+    # ─── JSON 响应 ─────────────────────────────────────
     def _send_json(self, code, data):
-        """发送 JSON 响应（带 CORS 头）"""
         self.send_response(code)
         self._add_cors_headers()
         self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -154,9 +435,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
 
     def _send_json_error(self, code, message):
-        self._send_json(code, {
-            'error': {'message': message, 'type': 'proxy_error', 'code': code}
-        })
+        self._send_json(code, {'error': {'message': message, 'type': 'proxy_error', 'code': code}})
+
+    def _send_auth_error(self, message, status=401):
+        self._send_json(status, {'error': message})
 
     # ─── 读取请求体 ────────────────────────────────────
     def _read_body(self):
@@ -174,20 +456,57 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_cors_preflight()
 
     def do_GET(self):
-        # API 路由
-        if self.path == '/api/proxy':
+        path = self.path.split('?')[0]  # 去掉 query string
+
+        # Auth routes (no auth required)
+        if path == '/api/auth/me':
+            self._handle_auth_me()
+            return
+
+        # Public OpenClaw routes - now require auth
+        if path == '/api/openclaw/status':
+            self._handle_auth_required_get(path)
+            return
+        if path == '/api/openclaw/agents':
+            self._handle_auth_required_get(path)
+            return
+        if path == '/api/openclaw/models':
+            self._handle_auth_required_get(path)
+            return
+
+        # Agents API
+        if path == '/api/agents':
+            self._handle_get_agents()
+            return
+        if path.startswith('/api/agents/'):
+            agent_id = path[len('/api/agents/'):]
+            if agent_id:
+                self._handle_get_agent(agent_id)
+                return
+
+        # Users API
+        if path == '/api/users':
+            self._handle_get_users()
+            return
+        if path.startswith('/api/users/'):
+            user_id = path[len('/api/users/'):]
+            if user_id:
+                self._handle_get_user(user_id)
+                return
+
+        # Chat API
+        if path.startswith('/api/chat/'):
+            agent_id = path[len('/api/chat/'):]
+            if agent_id:
+                self._handle_get_chat(agent_id)
+                return
+
+        # Proxy (GET not allowed)
+        if path == '/api/proxy':
             self._send_json_error(405, 'POST only')
             return
-        if self.path == '/api/openclaw/agents':
-            self._handle_openclaw_list_agents()
-            return
-        if self.path == '/api/openclaw/models':
-            self._handle_openclaw_list_models()
-            return
-        if self.path == '/api/openclaw/status':
-            self._handle_openclaw_status()
-            return
-        # 静态文件
+
+        # Static files
         super().do_GET()
 
     def do_HEAD(self):
@@ -197,38 +516,828 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         super().do_HEAD()
 
     def do_POST(self):
-        if self.path == '/api/proxy':
+        path = self.path.split('?')[0]
+
+        # Auth routes
+        if path == '/api/auth/login':
+            self._handle_auth_login()
+            return
+        if path == '/api/auth/register':
+            self._handle_auth_register()
+            return
+        if path == '/api/auth/change-password':
+            self._handle_change_password()
+            return
+
+        # Proxy (requires auth)
+        if path == '/api/proxy':
             self._handle_proxy()
-        elif self.path == '/api/openclaw/agents/create':
-            self._handle_openclaw_create_agent()
-        elif self.path == '/api/openclaw/agents/update':
-            self._handle_openclaw_update_agent()
-        else:
-            self._send_json_error(404, 'Not found. POST only accepted at /api/proxy, /api/openclaw/agents/create, /api/openclaw/agents/update')
+            return
+
+        # OpenClaw (requires auth)
+        if path == '/api/openclaw/agents/create':
+            self._handle_auth_required_post(path)
+            return
+        if path == '/api/openclaw/agents/update':
+            self._handle_auth_required_post(path)
+            return
+
+        # Agents API
+        if path == '/api/agents':
+            self._handle_create_agent()
+            return
+
+        # Chat API
+        if path.startswith('/api/chat/'):
+            agent_id = path[len('/api/chat/'):]
+            if agent_id:
+                self._handle_post_chat(agent_id)
+                return
+
+        self._send_json_error(404, 'Not found')
+
+    def do_PUT(self):
+        path = self.path.split('?')[0]
+
+        # Agents API
+        if path.startswith('/api/agents/'):
+            agent_id = path[len('/api/agents/'):]
+            if agent_id:
+                self._handle_update_agent(agent_id)
+                return
+
+        # Users API
+        if path.startswith('/api/users/'):
+            user_id = path[len('/api/users/'):]
+            if user_id:
+                self._handle_update_user(user_id)
+                return
+
+        self._send_json_error(404, 'Not found')
 
     def do_DELETE(self):
-        if self.path.startswith('/api/openclaw/agents/'):
-            # Extract agent name from path: /api/openclaw/agents/:name
-            agent_name = self.path[len('/api/openclaw/agents/'):]
-            if agent_name:
-                self._handle_openclaw_delete_agent(agent_name)
-            else:
-                self._send_json_error(400, 'Agent name required')
-        else:
-            self._send_json_error(404, 'Not found')
+        path = self.path.split('?')[0]
 
-    # ─── OpenClaw API 处理器 ────────────────────────────
+        # OpenClaw
+        if path.startswith('/api/openclaw/agents/'):
+            agent_name = path[len('/api/openclaw/agents/'):]
+            if agent_name:
+                self._handle_auth_required_delete(path)
+                return
+
+        # Agents API
+        if path.startswith('/api/agents/'):
+            agent_id = path[len('/api/agents/'):]
+            if agent_id:
+                self._handle_delete_agent(agent_id)
+                return
+
+        # Users API
+        if path.startswith('/api/users/'):
+            user_id = path[len('/api/users/'):]
+            if user_id:
+                self._handle_delete_user(user_id)
+                return
+
+        # Chat API
+        if path.startswith('/api/chat/'):
+            # /api/chat/:agentId/:msgId
+            parts = path[len('/api/chat/'):].split('/')
+            if len(parts) == 2:
+                self._handle_delete_chat_message(parts[0], parts[1])
+                return
+
+        self._send_json_error(404, 'Not found')
+
+    # ─── Auth-required passthrough for OpenClaw routes ──
+    def _handle_auth_required_get(self, path):
+        """需要认证的 GET 路由"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        # 原有 OpenClaw 处理逻辑
+        if path == '/api/openclaw/status':
+            self._handle_openclaw_status()
+        elif path == '/api/openclaw/agents':
+            self._handle_openclaw_list_agents()
+        elif path == '/api/openclaw/models':
+            self._handle_openclaw_list_models()
+
+    def _handle_auth_required_post(self, path):
+        """需要认证的 POST 路由"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if path == '/api/openclaw/agents/create':
+            self._handle_openclaw_create_agent()
+        elif path == '/api/openclaw/agents/update':
+            self._handle_openclaw_update_agent()
+
+    def _handle_auth_required_delete(self, path):
+        """需要认证的 DELETE 路由"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        agent_name = path[len('/api/openclaw/agents/'):]
+        self._handle_openclaw_delete_agent(agent_name)
+
+    # ═══════════════════════════════════════════════════
+    # 认证 API
+    # ═══════════════════════════════════════════════════
+
+    def _handle_auth_login(self):
+        """POST /api/auth/login"""
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        username = body.get('username', '').strip()
+        password = body.get('password', '')
+
+        if not username or not password:
+            self._send_json(400, {'error': '用户名和密码不能为空'})
+            return
+
+        users = _load_users()
+        user = _find_user(users, 'username', username)
+
+        if not user or not verify_password(password, user.get('passwordHash', ''), user.get('passwordSalt', '')):
+            self._send_json(401, {'error': '用户名或密码错误'})
+            return
+
+        # 生成 token
+        token = generate_token(user['id'], user.get('role', 'employee'))
+
+        self._send_json(200, {
+            'token': token,
+            'user': {
+                'id': user['id'],
+                'username': user['username'],
+                'role': user.get('role', 'employee'),
+                'displayName': user.get('displayName', user['username']),
+                'avatar': user.get('avatar', 0)
+            }
+        })
+
+    def _handle_auth_register(self):
+        """POST /api/auth/register（需要 admin token）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        username = body.get('username', '').strip()
+        password = body.get('password', '')
+        role = body.get('role', 'employee')
+        display_name = body.get('displayName', username)
+
+        if not username or not password:
+            self._send_json(400, {'error': '用户名和密码不能为空'})
+            return
+
+        if len(password) < 4:
+            self._send_json(400, {'error': '密码至少 4 个字符'})
+            return
+
+        if role not in ('admin', 'employee'):
+            role = 'employee'
+
+        users = _load_users()
+        if _find_user(users, 'username', username):
+            self._send_json(409, {'error': '用户名已存在'})
+            return
+
+        pwd_hash, salt = hash_password(password)
+        new_user = {
+            'id': 'user_' + uuid.uuid4().hex[:8],
+            'username': username,
+            'passwordHash': pwd_hash,
+            'passwordSalt': salt,
+            'role': role,
+            'displayName': display_name,
+            'avatar': 0,
+            'agentQuota': 10 if role == 'employee' else 999,
+            'apiQuota': 1000 if role == 'employee' else 99999,
+            'createdAt': datetime.now().isoformat()
+        }
+        users.append(new_user)
+        _save_users(users)
+
+        self._send_json(201, {
+            'user': {
+                'id': new_user['id'],
+                'username': new_user['username'],
+                'role': new_user['role'],
+                'displayName': new_user['displayName'],
+                'avatar': new_user['avatar'],
+                'agentQuota': new_user['agentQuota'],
+                'apiQuota': new_user['apiQuota']
+            }
+        })
+
+    def _handle_auth_me(self):
+        """GET /api/auth/me"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        auth.load_user_record()
+        user = auth.user_record
+        if not user:
+            self._send_auth_error('用户不存在', 401)
+            return
+
+        self._send_json(200, {
+            'id': user['id'],
+            'username': user['username'],
+            'role': user.get('role', 'employee'),
+            'displayName': user.get('displayName', user['username']),
+            'avatar': user.get('avatar', 0),
+            'agentQuota': user.get('agentQuota', 10),
+            'apiQuota': user.get('apiQuota', 1000)
+        })
+
+    def _handle_change_password(self):
+        """POST /api/auth/change-password"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        old_password = body.get('oldPassword', '')
+        new_password = body.get('newPassword', '')
+
+        if not old_password or not new_password:
+            self._send_json(400, {'error': '旧密码和新密码不能为空'})
+            return
+
+        if len(new_password) < 4:
+            self._send_json(400, {'error': '新密码至少 4 个字符'})
+            return
+
+        users = _load_users()
+        user = _find_user(users, 'id', auth.user_info['userId'])
+        if not user:
+            self._send_auth_error('用户不存在', 401)
+            return
+
+        if not verify_password(old_password, user.get('passwordHash', ''), user.get('passwordSalt', '')):
+            self._send_json(400, {'error': '旧密码不正确'})
+            return
+
+        pwd_hash, salt = hash_password(new_password)
+        user['passwordHash'] = pwd_hash
+        user['passwordSalt'] = salt
+        _save_users(users)
+
+        self._send_json(200, {'message': '密码修改成功'})
+
+    # ═══════════════════════════════════════════════════
+    # 用户管理 API
+    # ═══════════════════════════════════════════════════
+
+    def _handle_get_users(self):
+        """GET /api/users（需要 admin）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+
+        users = _load_users()
+        result = []
+        for u in users:
+            result.append({
+                'id': u['id'],
+                'username': u['username'],
+                'role': u.get('role', 'employee'),
+                'displayName': u.get('displayName', u['username']),
+                'avatar': u.get('avatar', 0),
+                'agentQuota': u.get('agentQuota', 10),
+                'apiQuota': u.get('apiQuota', 1000),
+                'createdAt': u.get('createdAt', '')
+            })
+        self._send_json(200, result)
+
+    def _handle_get_user(self, user_id):
+        """GET /api/users/:id（需要 admin）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+
+        users = _load_users()
+        user = _find_user(users, 'id', user_id)
+        if not user:
+            self._send_json(404, {'error': '用户不存在'})
+            return
+
+        self._send_json(200, {
+            'id': user['id'],
+            'username': user['username'],
+            'role': user.get('role', 'employee'),
+            'displayName': user.get('displayName', user['username']),
+            'avatar': user.get('avatar', 0),
+            'agentQuota': user.get('agentQuota', 10),
+            'apiQuota': user.get('apiQuota', 1000),
+            'createdAt': user.get('createdAt', '')
+        })
+
+    def _handle_update_user(self, user_id):
+        """PUT /api/users/:id（需要 admin）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        users = _load_users()
+        user = _find_user(users, 'id', user_id)
+        if not user:
+            self._send_json(404, {'error': '用户不存在'})
+            return
+
+        # 可更新字段
+        if 'role' in body and body['role'] in ('admin', 'employee'):
+            user['role'] = body['role']
+        if 'displayName' in body:
+            user['displayName'] = body['displayName']
+        if 'avatar' in body and isinstance(body['avatar'], int):
+            user['avatar'] = body['avatar']
+        if 'agentQuota' in body and isinstance(body['agentQuota'], int):
+            user['agentQuota'] = body['agentQuota']
+        if 'apiQuota' in body and isinstance(body['apiQuota'], int):
+            user['apiQuota'] = body['apiQuota']
+
+        _save_users(users)
+
+        self._send_json(200, {
+            'id': user['id'],
+            'username': user['username'],
+            'role': user.get('role', 'employee'),
+            'displayName': user.get('displayName', user['username']),
+            'avatar': user.get('avatar', 0),
+            'agentQuota': user.get('agentQuota', 10),
+            'apiQuota': user.get('apiQuota', 1000)
+        })
+
+    def _handle_delete_user(self, user_id):
+        """DELETE /api/users/:id（需要 admin）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+
+        # 不能删自己
+        if auth.user_info['userId'] == user_id:
+            self._send_json(400, {'error': '不能删除自己'})
+            return
+
+        users = _load_users()
+        user = _find_user(users, 'id', user_id)
+        if not user:
+            self._send_json(404, {'error': '用户不存在'})
+            return
+
+        users = [u for u in users if u['id'] != user_id]
+        _save_users(users)
+
+        self._send_json(200, {'message': f'用户 {user["username"]} 已删除'})
+
+    # ═══════════════════════════════════════════════════
+    # Agent API
+    # ═══════════════════════════════════════════════════
+
+    def _handle_get_agents(self):
+        """GET /api/agents"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        agents = _load_agents()
+        if auth.is_admin:
+            result = agents
+        else:
+            # employee: 自己创建的 + visibility='all' 的
+            result = [a for a in agents
+                      if a.get('createdBy') == auth.user_info['userId']
+                      or a.get('visibility') == 'all']
+
+        # 去掉不需要的字段
+        safe_result = []
+        for a in result:
+            safe_result.append({
+                'id': a.get('id', ''),
+                'name': a.get('name', ''),
+                'role': a.get('role', ''),
+                'bg': a.get('bg', '#FF6B35'),
+                'avatar': a.get('avatar', '🦞'),
+                'status': a.get('status', 'online'),
+                'msg': a.get('msg', ''),
+                'archived': a.get('archived', False),
+                'permission': a.get('permission', 'dev'),
+                'visibility': a.get('visibility', 'all'),
+                'createdBy': a.get('createdBy', ''),
+                'createdAt': a.get('createdAt', ''),
+                'connectionType': a.get('connectionType', ''),
+                'apiProvider': a.get('apiProvider', ''),
+                'apiModel': a.get('apiModel', ''),
+                'apiKey': a.get('apiKey', ''),
+                'openclawAgent': a.get('openclawAgent', ''),
+                'openclawModel': a.get('openclawModel', ''),
+                'systemPrompt': a.get('systemPrompt', ''),
+                'department': a.get('department', ''),
+                'customEndpoint': a.get('customEndpoint', ''),
+            })
+        self._send_json(200, safe_result)
+
+    def _handle_get_agent(self, agent_id):
+        """GET /api/agents/:id"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        agents = _load_agents()
+        agent = None
+        for a in agents:
+            if a.get('id') == agent_id:
+                agent = a
+                break
+
+        if not agent:
+            self._send_json(404, {'error': 'Agent 不存在'})
+            return
+
+        # 权限校验
+        if not auth.is_admin:
+            if agent.get('createdBy') != auth.user_info['userId'] and agent.get('visibility') != 'all':
+                self._send_auth_error('权限不足', 403)
+                return
+
+        self._send_json(200, agent)
+
+    def _handle_create_agent(self):
+        """POST /api/agents"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        # employee 配额检查
+        if not auth.is_admin:
+            auth.load_user_record()
+            user = auth.user_record
+            if user:
+                agents = _load_agents()
+                my_count = len([a for a in agents if a.get('createdBy') == auth.user_info['userId']])
+                if my_count >= user.get('agentQuota', 10):
+                    self._send_json(403, {'error': f'已达到 Agent 配额上限 ({user.get("agentQuota", 10)})'})
+                    return
+
+        new_agent = {
+            'id': body.get('id', 'emp_' + uuid.uuid4().hex[:6]),
+            'name': body.get('name', '未命名'),
+            'role': body.get('role', ''),
+            'bg': body.get('bg', '#FF6B35'),
+            'avatar': body.get('avatar', '🦞'),
+            'status': body.get('status', 'online'),
+            'msg': body.get('msg', ''),
+            'archived': body.get('archived', False),
+            'permission': body.get('permission', 'dev'),
+            'visibility': body.get('visibility', 'all'),
+            'createdBy': auth.user_info['userId'],
+            'createdAt': datetime.now().isoformat(),
+            'connectionType': body.get('connectionType', ''),
+            'apiProvider': body.get('apiProvider', ''),
+            'apiModel': body.get('apiModel', ''),
+            'apiKey': body.get('apiKey', ''),
+            'openclawAgent': body.get('openclawAgent', ''),
+            'openclawModel': body.get('openclawModel', ''),
+            'systemPrompt': body.get('systemPrompt', ''),
+            'department': body.get('department', ''),
+            'customEndpoint': body.get('customEndpoint', ''),
+        }
+
+        agents = _load_agents()
+        # 检查 ID 重复
+        for a in agents:
+            if a.get('id') == new_agent['id']:
+                new_agent['id'] = 'emp_' + uuid.uuid4().hex[:6]
+                break
+        agents.append(new_agent)
+        _save_agents(agents)
+
+        self._send_json(201, new_agent)
+
+    def _handle_update_agent(self, agent_id):
+        """PUT /api/agents/:id"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        agents = _load_agents()
+        agent = None
+        for a in agents:
+            if a.get('id') == agent_id:
+                agent = a
+                break
+
+        if not agent:
+            self._send_json(404, {'error': 'Agent 不存在'})
+            return
+
+        # 权限校验
+        if not auth.is_admin and agent.get('createdBy') != auth.user_info['userId']:
+            self._send_auth_error('权限不足', 403)
+            return
+
+        # 可更新字段
+        updatable = ['name', 'role', 'bg', 'avatar', 'status', 'msg', 'archived',
+                     'permission', 'visibility', 'connectionType', 'apiProvider',
+                     'apiModel', 'apiKey', 'openclawAgent', 'openclawModel',
+                     'systemPrompt', 'department', 'customEndpoint']
+        for key in updatable:
+            if key in body:
+                agent[key] = body[key]
+
+        _save_agents(agents)
+        self._send_json(200, agent)
+
+    def _handle_delete_agent(self, agent_id):
+        """DELETE /api/agents/:id"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        agents = _load_agents()
+        agent = None
+        for a in agents:
+            if a.get('id') == agent_id:
+                agent = a
+                break
+
+        if not agent:
+            self._send_json(404, {'error': 'Agent 不存在'})
+            return
+
+        # 权限校验
+        if not auth.is_admin and agent.get('createdBy') != auth.user_info['userId']:
+            self._send_auth_error('权限不足', 403)
+            return
+
+        agents = [a for a in agents if a.get('id') != agent_id]
+        _save_agents(agents)
+
+        # 删除聊天记录
+        chat_file = os.path.join(CHATS_DIR, f'{agent_id}.json')
+        if os.path.isfile(chat_file):
+            try:
+                os.remove(chat_file)
+            except OSError:
+                pass
+
+        self._send_json(200, {'message': f'Agent {agent.get("name", "")} 已删除'})
+
+    # ═══════════════════════════════════════════════════
+    # 聊天 API
+    # ═══════════════════════════════════════════════════
+
+    def _check_agent_access(self, auth, agent_id):
+        """检查用户是否有权限访问某 Agent 的聊天"""
+        agents = _load_agents()
+        agent = None
+        for a in agents:
+            if a.get('id') == agent_id:
+                agent = a
+                break
+        if not agent:
+            return None, 'Agent 不存在', 404
+        if not auth.is_admin and agent.get('createdBy') != auth.user_info['userId'] and agent.get('visibility') != 'all':
+            return None, '权限不足', 403
+        return agent, None, None
+
+    def _handle_get_chat(self, agent_id):
+        """GET /api/chat/:agentId"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        _, err, status = self._check_agent_access(auth, agent_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+
+        messages = _load_chat(agent_id)
+        self._send_json(200, messages)
+
+    def _handle_post_chat(self, agent_id):
+        """POST /api/chat/:agentId"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        agent, err, status = self._check_agent_access(auth, agent_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        user_message = {
+            'id': 'msg_' + uuid.uuid4().hex[:8],
+            'role': 'user',
+            'content': body.get('content', ''),
+            'timestamp': datetime.now().isoformat(),
+            'userId': auth.user_info['userId']
+        }
+
+        messages = _load_chat(agent_id)
+        messages.append(user_message)
+
+        # 如果 Agent 走 API，通过代理调用 AI API
+        connection_type = agent.get('connectionType', '')
+        if connection_type == 'api':
+            api_reply = self._call_ai_api(agent, body.get('content', ''))
+            if api_reply:
+                ai_message = {
+                    'id': 'msg_' + uuid.uuid4().hex[:8],
+                    'role': 'assistant',
+                    'content': api_reply,
+                    'timestamp': datetime.now().isoformat()
+                }
+                messages.append(ai_message)
+                _save_chat(agent_id, messages)
+                self._send_json(200, {'userMessage': user_message, 'aiMessage': ai_message})
+                return
+
+        # OpenClaw 或其他
+        _save_chat(agent_id, messages)
+
+        if connection_type == 'openclaw':
+            self._send_json(200, {
+                'userMessage': user_message,
+                'hint': '请通过 WebSocket 连接获取 AI 回复'
+            })
+        else:
+            self._send_json(200, {'userMessage': user_message})
+
+    def _call_ai_api(self, agent, user_message):
+        """通过代理调用 AI API"""
+        api_provider = agent.get('apiProvider', '')
+        api_key = agent.get('apiKey', '')
+        api_model = agent.get('apiModel', '')
+        custom_endpoint = agent.get('customEndpoint', '')
+
+        if not api_key:
+            return None
+
+        # 确定 base URL
+        base_url = ''
+        if api_provider == 'custom' and custom_endpoint:
+            base_url = custom_endpoint.rstrip('/')
+        elif api_provider == 'openai':
+            base_url = 'https://api.openai.com/v1'
+        elif api_provider == 'deepseek':
+            base_url = 'https://api.deepseek.com/v1'
+        elif api_provider == 'moonshot':
+            base_url = 'https://api.moonshot.cn/v1'
+        elif api_provider == 'zhipu':
+            base_url = 'https://open.bigmodel.cn/api/paas/v4'
+        elif api_provider == 'anthropic':
+            base_url = 'https://api.anthropic.com/v1'
+        else:
+            if custom_endpoint:
+                base_url = custom_endpoint.rstrip('/')
+            else:
+                return None
+
+        target_url = base_url + '/chat/completions'
+
+        system_prompt = f'你是 {agent.get("name", "AI")}，一个 {agent.get("role", "助手")}。请用第一人称回复，保持角色一致性。'
+        if agent.get('systemPrompt'):
+            system_prompt += '\n\n' + agent['systemPrompt']
+
+        req_body = json.dumps({
+            'model': api_model or 'gpt-4o-mini',
+            'messages': [
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': user_message}
+            ],
+            'temperature': 0.8,
+            'max_tokens': 2000,
+            'stream': False
+        }).encode('utf-8')
+
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {api_key}',
+            'Content-Length': str(len(req_body))
+        }
+
+        try:
+            req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
+            ctx = ssl.create_default_context()
+            resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+            resp_data = json.loads(resp.read().decode('utf-8'))
+            if resp_data.get('choices') and resp_data['choices'][0].get('message'):
+                return resp_data['choices'][0]['message'].get('content', '')
+        except Exception as e:
+            print(f'  ❌ AI API call failed: {e}', flush=True)
+
+        return None
+
+    def _handle_delete_chat_message(self, agent_id, msg_id):
+        """DELETE /api/chat/:agentId/:msgId"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        _, err, status = self._check_agent_access(auth, agent_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+
+        messages = _load_chat(agent_id)
+        original_len = len(messages)
+        messages = [m for m in messages if m.get('id') != msg_id]
+        if len(messages) == original_len:
+            self._send_json(404, {'error': '消息不存在'})
+            return
+
+        _save_chat(agent_id, messages)
+        self._send_json(200, {'message': '消息已删除'})
+
+    # ═══════════════════════════════════════════════════
+    # OpenClaw API（原有功能，已加认证）
+    # ═══════════════════════════════════════════════════
 
     def _handle_openclaw_status(self):
-        """GET /api/openclaw/status — 检查 OpenClaw 连接状态"""
+        """GET /api/openclaw/status"""
         status = _openclaw_status()
         self._send_json(200, status)
 
     def _handle_openclaw_list_agents(self):
-        """GET /api/openclaw/agents — 列出所有 Agent"""
+        """GET /api/openclaw/agents"""
         success, stdout, stderr, rc = _run_openclaw(['agents', 'list', '--json'])
         if not success:
-            # CLI 不可用
             self._send_json(200, {
                 'agents': [],
                 'warning': stderr or 'OpenClaw CLI not available'
@@ -238,28 +1347,46 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if rc != 0:
             self._send_json(200, {
                 'agents': [],
-                'warning': stderr.strip() or f'Command failed with code {rc}'
+                'warning': stderr.strip() or f'Command failed (rc={rc})'
             })
             return
 
         try:
             data = json.loads(stdout.strip())
-            # 统一格式：可能是 {"agents": [...]} 或直接是数组
             if isinstance(data, list):
                 self._send_json(200, {'agents': data})
             elif isinstance(data, dict) and 'agents' in data:
                 self._send_json(200, data)
             else:
-                self._send_json(200, {'agents': [], 'raw': data})
+                self._send_json(200, {'agents': [data] if isinstance(data, dict) else []})
         except json.JSONDecodeError:
-            # 非JSON输出，尝试解析
-            self._send_json(200, {
-                'agents': [],
-                'raw_output': stdout.strip()
-            })
+            # 非JSON输出，尝试解析文本
+            lines = stdout.strip().split('\n')
+            agents = []
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    agents.append({'name': line, 'source': 'cli-text'})
+            self._send_json(200, {'agents': agents, 'source': 'text-parse'})
+
+    def _handle_openclaw_list_models(self):
+        """GET /api/openclaw/models"""
+        success, stdout, stderr, rc = _run_openclaw(['models', 'list', '--json'])
+        if success and rc == 0:
+            try:
+                data = json.loads(stdout.strip())
+                if isinstance(data, list):
+                    self._send_json(200, {'models': data})
+                    return
+                elif isinstance(data, dict) and 'models' in data:
+                    self._send_json(200, data)
+                    return
+            except json.JSONDecodeError:
+                pass
+        self._send_json(200, {'models': _default_models(), 'source': 'default'})
 
     def _handle_openclaw_create_agent(self):
-        """POST /api/openclaw/agents/create — 创建 Agent"""
+        """POST /api/openclaw/agents/create"""
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Invalid JSON body')
@@ -273,45 +1400,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not name:
             self._send_json_error(400, 'Agent name is required')
             return
-        if not model:
-            self._send_json_error(400, 'Model is required')
-            return
 
-        # 默认 workspace 路径
-        if not workspace:
-            home = os.path.expanduser('~')
-            workspace = os.path.join(home, '.openclaw', 'agents', name)
+        # 构建 CLI 参数
+        args = ['agents', 'add', name, '--non-interactive']
+        if model:
+            args.extend(['--model', model])
+        if workspace:
+            args.extend(['--workspace', workspace])
 
-        # 1. 创建 workspace 目录
-        try:
-            os.makedirs(workspace, exist_ok=True)
-        except OSError as e:
-            self._send_json_error(500, f'Failed to create workspace directory: {str(e)}')
-            return
-
-        # 2. 写入 SOUL.md（如果提供了人设）
-        if soul:
-            soul_path = os.path.join(workspace, 'SOUL.md')
-            try:
-                with open(soul_path, 'w', encoding='utf-8') as f:
-                    f.write(soul)
-            except OSError as e:
-                self._send_json_error(500, f'Failed to write SOUL.md: {str(e)}')
-                return
-
-        # 3. 调用 openclaw agents add
-        success, stdout, stderr, rc = _run_openclaw([
-            'agents', 'add', name,
-            '--workspace', workspace,
-            '--model', model,
-            '--non-interactive'
-        ])
+        success, stdout, stderr, rc = _run_openclaw(args)
 
         if not success:
             self._send_json(500, {
                 'success': False,
-                'error': stderr or 'OpenClaw CLI not available',
-                'workspace': workspace
+                'error': stderr or 'OpenClaw CLI not available'
             })
             return
 
@@ -319,10 +1421,29 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(500, {
                 'success': False,
                 'error': stderr.strip() or f'Command failed with code {rc}',
-                'stdout': stdout.strip(),
-                'workspace': workspace
+                'output': stdout.strip()
             })
             return
+
+        # Write SOUL.md if provided
+        if soul:
+            home = os.path.expanduser('~')
+            possible_workspaces = [
+                os.path.join(home, '.openclaw', 'agents', name),
+                os.path.join(home, '.openclaw', name),
+            ]
+            if workspace:
+                possible_workspaces.insert(0, workspace)
+
+            for ws in possible_workspaces:
+                soul_path = os.path.join(ws, 'SOUL.md')
+                if os.path.isdir(ws):
+                    try:
+                        with open(soul_path, 'w', encoding='utf-8') as f:
+                            f.write(soul)
+                        break
+                    except OSError:
+                        pass
 
         self._send_json(200, {
             'success': True,
@@ -334,7 +1455,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         })
 
     def _handle_openclaw_update_agent(self):
-        """POST /api/openclaw/agents/update — 更新 Agent"""
+        """POST /api/openclaw/agents/update"""
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Invalid JSON body')
@@ -350,9 +1471,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         results = {'success': True, 'updates': []}
 
-        # 1. 更新 SOUL.md
         if soul:
-            # 找到 agent 的 workspace 目录
             home = os.path.expanduser('~')
             possible_workspaces = [
                 os.path.join(home, '.openclaw', 'agents', name),
@@ -374,13 +1493,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         results['updates'].append(f'Failed to write SOUL.md: {str(e)}')
 
             if not soul_written:
-                # 尝试通过 CLI 获取 workspace
                 success, stdout, stderr, rc = _run_openclaw(['agents', 'list', '--json'])
                 if success and rc == 0:
                     try:
                         agents_data = json.loads(stdout.strip())
-                        agents = agents_data if isinstance(agents_data, list) else agents_data.get('agents', [])
-                        for agent in agents:
+                        agents_list = agents_data if isinstance(agents_data, list) else agents_data.get('agents', [])
+                        for agent in agents_list:
                             agent_name = agent.get('name', agent.get('agentId', ''))
                             if agent_name == name:
                                 ws = agent.get('workspace', agent.get('path', ''))
@@ -401,19 +1519,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if not soul_written:
                     results['updates'].append('Could not find workspace directory for SOUL.md update')
 
-        # 2. 如果 model 变了，需要删除重建
         if model:
-            # 先删除旧的
             del_success, del_stdout, del_stderr, del_rc = _run_openclaw(['agents', 'delete', name])
             if del_success and del_rc == 0:
-                # 确定原来的 workspace
                 ws = results.get('workspace', os.path.join(os.path.expanduser('~'), '.openclaw', 'agents', name))
-                # 重新创建
                 add_success, add_stdout, add_stderr, add_rc = _run_openclaw([
-                    'agents', 'add', name,
-                    '--workspace', ws,
-                    '--model', model,
-                    '--non-interactive'
+                    'agents', 'add', name, '--workspace', ws, '--model', model, '--non-interactive'
                 ])
                 if add_success and add_rc == 0:
                     results['updates'].append(f'Agent recreated with model: {model}')
@@ -422,13 +1533,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     results['error'] = add_stderr.strip() or 'Failed to recreate agent with new model'
             else:
                 results['updates'].append(f'Delete step: {del_stderr.strip() or "ok"}')
-                # 即使删除失败，也尝试 add
                 ws = os.path.join(os.path.expanduser('~'), '.openclaw', 'agents', name)
                 add_success, add_stdout, add_stderr, add_rc = _run_openclaw([
-                    'agents', 'add', name,
-                    '--workspace', ws,
-                    '--model', model,
-                    '--non-interactive'
+                    'agents', 'add', name, '--workspace', ws, '--model', model, '--non-interactive'
                 ])
                 if add_success and add_rc == 0:
                     results['updates'].append(f'Agent created with model: {model}')
@@ -439,7 +1546,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, results)
 
     def _handle_openclaw_delete_agent(self, agent_name):
-        """DELETE /api/openclaw/agents/:name — 删除 Agent"""
+        """DELETE /api/openclaw/agents/:name"""
         success, stdout, stderr, rc = _run_openclaw(['agents', 'delete', agent_name])
 
         if not success:
@@ -463,82 +1570,64 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'output': stdout.strip()
         })
 
-    def _handle_openclaw_list_models(self):
-        """GET /api/openclaw/models — 获取可用模型列表"""
-        # 尝试从 CLI 获取
-        success, stdout, stderr, rc = _run_openclaw(['models', 'list', '--json'])
-        if success and rc == 0:
-            try:
-                data = json.loads(stdout.strip())
-                if isinstance(data, list):
-                    self._send_json(200, {'models': data})
-                    return
-                elif isinstance(data, dict) and 'models' in data:
-                    self._send_json(200, data)
-                    return
-            except json.JSONDecodeError:
-                pass
+    # ═══════════════════════════════════════════════════
+    # CORS 代理（需认证）
+    # ═══════════════════════════════════════════════════
 
-        # CLI 不可用或命令不存在，返回默认列表
-        self._send_json(200, {
-            'models': _default_models(),
-            'source': 'default'
-        })
-
-    # ─── 代理核心逻辑 ──────────────────────────────────
     def _handle_proxy(self):
-        """处理 /api/proxy 请求"""
-        # 1. 读取 X-Target-URL
+        """POST /api/proxy（需认证）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
         target_url = self.headers.get('X-Target-URL', '')
         if not target_url:
             self._send_json_error(400, 'Missing X-Target-URL header')
             return
 
-        # 2. 安全检查：只允许 HTTPS
         if not target_url.startswith('https://'):
             self._send_json_error(403, 'Only HTTPS targets are allowed')
             return
 
-        # 3. 可选域名白名单检查
         if ALLOWED_DOMAINS:
-            from urllib.parse import urlparse
             host = urlparse(target_url).hostname or ''
             if not any(host == d or host.endswith('.' + d) for d in ALLOWED_DOMAINS):
                 self._send_json_error(403, f'Domain {host} not in allowed list')
                 return
 
-        # 4. 读取请求体
         content_length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(content_length) if content_length > 0 else None
 
-        # 5. 构建转发请求头
         forward_headers = {}
-        auth = self.headers.get('Authorization')
-        if auth:
-            forward_headers['Authorization'] = auth
+        # 代理请求使用的是用户 AI 的 API Key，不是 SoloBrave 的 token
+        # 从请求体或 header 中获取 AI API 的 Authorization
+        auth_header = self.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer ') and not auth_header.startswith('Bearer ey'):  # 粗略区分 JWT 和 API Key
+            # 如果看起来像 API Key，转发它
+            pass
+        # 从请求头中取 AI API Key（前端可能放在 X-AI-API-Key 中）
+        ai_api_key = self.headers.get('X-AI-API-Key', '')
+        if ai_api_key:
+            forward_headers['Authorization'] = f'Bearer {ai_api_key}'
+        elif auth_header and not auth_header.startswith('Bearer ey'):
+            forward_headers['Authorization'] = auth_header
+
         content_type = self.headers.get('Content-Type', 'application/json')
         if content_type:
             forward_headers['Content-Type'] = content_type
         if body:
             forward_headers['Content-Length'] = str(len(body))
 
-        # 6. 发起请求
         print(f'  🔄 Proxy -> {target_url}', flush=True)
         try:
-            req = urllib.request.Request(
-                target_url,
-                data=body,
-                headers=forward_headers,
-                method='POST'
-            )
+            req = urllib.request.Request(target_url, data=body, headers=forward_headers, method='POST')
             ctx = ssl.create_default_context()
             resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
 
-            # 7. 读取响应
             resp_body = resp.read()
             resp_content_type = resp.headers.get('Content-Type', 'application/json')
 
-            # 8. 返回代理响应（带 CORS 头）
             self.send_response(resp.status)
             self._add_cors_headers()
             self.send_header('Content-Type', resp_content_type)
@@ -547,13 +1636,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             print(f'  ✅ Proxy OK ({resp.status}) <- {target_url}', flush=True)
 
         except urllib.error.HTTPError as e:
-            # AI API 返回了 HTTP 错误码（401/429/500 等）
             status = e.code
             try:
                 err_body = e.read()
             except Exception:
                 err_body = b'{}'
-            
+
             error_messages = {
                 401: 'API Key 无效或认证失败',
                 403: 'API 访问被拒绝',
@@ -569,7 +1657,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._add_cors_headers()
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            # 尝试透传原始错误体，否则包装一个
             try:
                 json.loads(err_body)
                 self.wfile.write(err_body)
@@ -594,13 +1681,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
 # ─── 启动 ───────────────────────────────────────────────
 def main():
+    # 确保数据目录
+    _ensure_data_dir()
+
+    # 初始化默认管理员
+    _init_default_admin()
+
     # 检查静态目录
     if not os.path.isdir(STATIC_DIR):
         print(f'⚠️  静态文件目录不存在: {STATIC_DIR}')
-        print(f'   请确保 solobrave-server.py 和 index.html 在同一目录')
         sys.exit(1)
 
-    # 检查关键文件
     index_file = os.path.join(STATIC_DIR, 'index.html')
     if not os.path.isfile(index_file):
         print(f'⚠️  找不到 index.html: {index_file}')
@@ -611,18 +1702,22 @@ def main():
         print(f'  🦞 OpenClaw CLI: ✓ ({OPENCLAW_CLI})')
     else:
         print(f'  🦞 OpenClaw CLI: ✗ (not found at {OPENCLAW_CLI})')
-        print(f'     OpenClaw management API will return limited data')
 
     server = http.server.HTTPServer((BIND, PORT), SoloBraveHandler)
 
     print('=' * 56)
-    print('  🚀 SoloBrave Server')
+    print('  🚀 SoloBrave Server (Auth Enabled)')
     print('=' * 56)
-    print(f'  📂 静态文件: {STATIC_DIR}')
+    print(f'  📂 静态文件:  {STATIC_DIR}')
+    print(f'  💾 数据目录:  {DATA_DIR}')
     print(f'  🌐 本机访问:  http://localhost:{PORT}')
     print(f'  🌐 局域网:    http://0.0.0.0:{PORT}')
+    print(f'  🔐 认证 API:  /api/auth/*')
+    print(f'  👤 用户管理:  /api/users/*')
+    print(f'  🤖 Agent API: /api/agents/*')
+    print(f'  💬 聊天 API:  /api/chat/*')
     print(f'  🔀 API 代理:  POST /api/proxy')
-    print(f'  🦞 OpenClaw:  GET/POST/DELETE /api/openclaw/*')
+    print(f'  🦞 OpenClaw:  /api/openclaw/*')
     print(f'  ⏱️  超时设置:  {PROXY_TIMEOUT}s')
     print('=' * 56)
     print('  Ctrl+C 停止服务\n')

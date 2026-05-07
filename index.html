@@ -1280,9 +1280,289 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   color: var(--text-secondary);
 }
 
+
+/* ===== Login Overlay ===== */
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  transition: opacity 0.4s ease;
+}
+.login-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.login-card {
+  width: 380px;
+  max-width: 90vw;
+  background: rgba(44, 44, 46, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 20px;
+  border: 0.5px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  padding: 40px 32px 32px;
+  text-align: center;
+  color: #fff;
+  animation: login-card-in 0.5s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+@keyframes login-card-in {
+  from { opacity: 0; transform: scale(0.92) translateY(20px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.login-logo {
+  font-size: 56px;
+  margin-bottom: 8px;
+  animation: login-logo-float 3s ease-in-out infinite;
+}
+@keyframes login-logo-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.login-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  letter-spacing: -0.02em;
+}
+.login-subtitle {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 28px;
+}
+.login-input-group {
+  position: relative;
+  margin-bottom: 14px;
+}
+.login-input-group input {
+  width: 100%;
+  padding: 12px 16px 12px 40px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  color: #fff;
+  font-size: 15px;
+  outline: none;
+  transition: all 0.2s;
+}
+.login-input-group input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+.login-input-group input:focus {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.15);
+}
+.login-input-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+  opacity: 0.5;
+}
+.login-btn {
+  width: 100%;
+  padding: 13px;
+  background: linear-gradient(135deg, #FF6B35, #E55A2B);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 6px;
+}
+.login-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
+}
+.login-btn:active {
+  transform: translateY(0);
+}
+.login-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+.login-error {
+  color: #FF6B6B;
+  font-size: 13px;
+  margin-top: 12px;
+  min-height: 20px;
+}
+.login-hint {
+  margin-top: 16px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* User menu in top bar */
+.user-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.user-menu:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+[data-theme="dark"] .user-menu:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.user-menu-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  background: var(--bg-primary);
+  border: 0.5px solid var(--separator);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  min-width: 180px;
+  padding: 6px;
+  z-index: 200;
+  display: none;
+  animation: dropdown-in 0.15s ease;
+}
+.user-menu-dropdown.show {
+  display: block;
+}
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.user-menu-item:hover {
+  background: var(--bg-secondary);
+}
+.user-menu-item.danger {
+  color: #FF3B30;
+}
+.user-menu-divider {
+  height: 0.5px;
+  background: var(--separator);
+  margin: 4px 8px;
+}
+.user-menu-role {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 2px 8px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+}
+
+/* Migration dialog */
+.migration-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(20px);
+}
+.migration-card {
+  width: 400px;
+  max-width: 90vw;
+  background: var(--bg-primary);
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  text-align: center;
+}
+.migration-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+.migration-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+.migration-desc {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+.migration-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.migration-actions button {
+  padding: 10px 24px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+}
+.migration-btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.migration-btn-secondary {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
 </style>
 </head>
 <body>
+<!-- Login Overlay -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="login-logo">🦞</div>
+    <div class="login-title">SoloBrave</div>
+    <div class="login-subtitle">AI Mission Control</div>
+    <div class="login-input-group">
+      <span class="login-input-icon">👤</span>
+      <input type="text" id="loginUsername" placeholder="用户名" autocomplete="username" autofocus>
+    </div>
+    <div class="login-input-group">
+      <span class="login-input-icon">🔑</span>
+      <input type="password" id="loginPassword" placeholder="密码" autocomplete="current-password">
+    </div>
+    <button class="login-btn" id="loginBtn" onclick="handleLogin()">登 录</button>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-hint">默认账号: admin / admin123</div>
+  </div>
+</div>
+
 <!-- Skip Link -->
 <a href="#main-chat" class="skip-link">跳到聊天区域</a>
 
@@ -1595,7 +1875,22 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <span class="banner-url">www.solobrave.com</span>
 </div>
 <div class="banner-right">
-<div class="banner-avatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);" title="Alex">🦞</div>
+<div class="user-menu" id="userMenu" onclick="toggleUserMenu()">
+  <div class="banner-avatar" id="userAvatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
+  <span class="user-menu-name" id="userName">—</span>
+  <div class="user-menu-dropdown" id="userDropdown">
+    <div class="user-menu-item" id="userRoleDisplay" style="pointer-events:none;">
+      <span>👤</span><span id="userRoleText">—</span>
+    </div>
+    <div class="user-menu-divider"></div>
+    <div class="user-menu-item" onclick="handleChangePassword()">
+      <span>🔑</span><span>修改密码</span>
+    </div>
+    <div class="user-menu-item danger" onclick="handleLogout()">
+      <span>🚪</span><span>退出登录</span>
+    </div>
+  </div>
+</div>
 </div>
 </div>
 
@@ -2868,6 +3163,28 @@ function applyTemplate(templateKey){
 }
 
 function loadEmployees(){
+  // Try server first if authenticated
+  if(window.__auth && window.__auth.token){
+    authFetch('/api/agents').then(function(r){
+      if(r.ok) return r.json();
+      throw new Error('server error');
+    }).then(function(agents){
+      if(agents && agents.length > 0){
+        emps.length = 0;
+        agents.forEach(function(a){ emps.push(a); });
+        if(typeof renderEmployeeList === 'function') renderEmployeeList();
+        return;
+      }
+      // Fallback to localStorage if server has no data
+      _loadEmployeesLocal();
+    }).catch(function(){
+      _loadEmployeesLocal();
+    });
+  } else {
+    _loadEmployeesLocal();
+  }
+}
+function _loadEmployeesLocal(){
   const saved=localStorage.getItem('sb_employees');
   if(saved){
     try{
@@ -4916,11 +5233,14 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
   var targetUrl = baseUrl + '/chat/completions';
   var proxyUrl = window.location.origin + '/api/proxy';
   
+  // SoloBrave auth: send token + AI key separately
+  var _authToken = window.__auth && window.__auth.token ? window.__auth.token : '';
   fetch(proxyUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + apiKey,
+      'Authorization': 'Bearer ' + _authToken,
+      'X-AI-API-Key': apiKey,
       'X-Target-URL': targetUrl
     },
     body: JSON.stringify({
@@ -5039,7 +5359,7 @@ var _ocModels = [];
 
 async function checkOpenClawStatus(){
   try{
-    var resp = await fetch('/api/openclaw/status');
+    var resp = await authFetch('/api/openclaw/status');
     var data = await resp.json();
     _ocGatewayStatus = data.gateway || 'unknown';
     return data;
@@ -5051,7 +5371,7 @@ async function checkOpenClawStatus(){
 
 async function loadOpenClawModels(){
   try{
-    var resp = await fetch('/api/openclaw/models');
+    var resp = await authFetch('/api/openclaw/models');
     var data = await resp.json();
     _ocModels = data.models || [];
     return _ocModels;
@@ -5230,9 +5550,9 @@ async function doConnectOpenClaw(){
   showToast('🦞 正在创建 OpenClaw Agent...');
 
   try{
-    var resp = await fetch('/api/openclaw/agents/create', {
+    var resp = await authFetch('/api/openclaw/agents/create', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: Object.assign({'Content-Type': 'application/json'}, getAuthHeaders()),
       body: JSON.stringify({name:name, model:model, soul:soul})
     });
     var data = await resp.json();
@@ -5263,9 +5583,9 @@ async function syncEmpToOpenClaw(){
   showToast('🦞 同步中...');
 
   try{
-    var resp = await fetch('/api/openclaw/agents/update', {
+    var resp = await authFetch('/api/openclaw/agents/update', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: Object.assign({'Content-Type': 'application/json'}, getAuthHeaders()),
       body: JSON.stringify({name:emp.openclawAgent, soul:soul, model:emp.openclawModel})
     });
     var data = await resp.json();
@@ -5511,7 +5831,7 @@ function finishWizard(){
     if(ocCreateAgent){
       newEmp.openclawAgent = name.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5_-]/g,'-');
       // 异步创建 OpenClaw Agent
-      fetch('/api/openclaw/agents/create',{
+      authFetch('/api/openclaw/agents/create',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({name:newEmp.openclawAgent, model:ocModel, soul:ocSoul})
@@ -6388,5 +6708,327 @@ function showSettings() {
 
 <script src="avatars.js"></script>
 <script src="openclaw-client.js"></script>
+
+<script>
+// ===== SoloBrave Auth System =====
+(function() {
+  'use strict';
+
+  // Auth state
+  window.__auth = {
+    token: localStorage.getItem('sb_auth_token') || null,
+    user: null
+  };
+
+  // Get auth header for fetch calls
+  window.getAuthHeaders = function(extra) {
+    var headers = extra || {};
+    if (window.__auth.token) {
+      headers['Authorization'] = 'Bearer ' + window.__auth.token;
+    }
+    return headers;
+  };
+
+  // Authenticated fetch wrapper
+  window.authFetch = function(url, options) {
+    options = options || {};
+    options.headers = options.headers || {};
+    if (window.__auth.token) {
+      options.headers['Authorization'] = 'Bearer ' + window.__auth.token;
+    }
+    return fetch(url, options).then(function(res) {
+      if (res.status === 401) {
+        // Token expired, show login
+        showLoginOverlay();
+        throw new Error('未登录或 token 已过期');
+      }
+      return res;
+    });
+  };
+
+  // Show/hide login overlay
+  window.showLoginOverlay = function() {
+    var overlay = document.getElementById('loginOverlay');
+    if (overlay) {
+      overlay.classList.remove('hidden');
+      setTimeout(function() {
+        var input = document.getElementById('loginUsername');
+        if (input) input.focus();
+      }, 300);
+    }
+  };
+
+  window.hideLoginOverlay = function() {
+    var overlay = document.getElementById('loginOverlay');
+    if (overlay) overlay.classList.add('hidden');
+  };
+
+  // Check auth on load
+  window.checkAuth = async function() {
+    if (!window.__auth.token) {
+      showLoginOverlay();
+      return;
+    }
+    try {
+      var res = await fetch('/api/auth/me', {
+        headers: { 'Authorization': 'Bearer ' + window.__auth.token }
+      });
+      if (res.ok) {
+        var data = await res.json();
+        window.__auth.user = data;
+        updateUI(data);
+        hideLoginOverlay();
+        checkMigration();
+      } else {
+        localStorage.removeItem('sb_auth_token');
+        window.__auth.token = null;
+        showLoginOverlay();
+      }
+    } catch(e) {
+      showLoginOverlay();
+    }
+  };
+
+  // Update UI with user data
+  function updateUI(user) {
+    var nameEl = document.getElementById('userName');
+    var roleEl = document.getElementById('userRoleText');
+    var avatarEl = document.getElementById('userAvatar');
+    if (nameEl) nameEl.textContent = user.displayName || user.username;
+    if (roleEl) roleEl.textContent = user.role === 'admin' ? '👑 管理员' : '👤 员工';
+    if (avatarEl && user.avatar !== undefined) {
+      var avatars = ['🦞','👨‍💼','👩‍💼','🧑‍💻','🐙','⭐','🦈','🦊','🐱','🐶','🦄','🐲'];
+      avatarEl.textContent = avatars[user.avatar] || '🦞';
+    }
+  }
+
+  // Login handler
+  window.handleLogin = async function() {
+    var btn = document.getElementById('loginBtn');
+    var errEl = document.getElementById('loginError');
+    var username = document.getElementById('loginUsername').value.trim();
+    var password = document.getElementById('loginPassword').value;
+
+    if (!username || !password) {
+      errEl.textContent = '请输入用户名和密码';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '登录中...';
+    errEl.textContent = '';
+
+    try {
+      var res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username, password: password })
+      });
+      var data = await res.json();
+
+      if (res.ok) {
+        window.__auth.token = data.token;
+        window.__auth.user = data.user;
+        localStorage.setItem('sb_auth_token', data.token);
+        updateUI(data.user);
+        hideLoginOverlay();
+        checkMigration();
+      } else {
+        errEl.textContent = data.error || '登录失败';
+      }
+    } catch(e) {
+      errEl.textContent = '网络错误，请检查服务器是否运行';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '登 录';
+    }
+  };
+
+  // Logout handler
+  window.handleLogout = function() {
+    localStorage.removeItem('sb_auth_token');
+    window.__auth.token = null;
+    window.__auth.user = null;
+    closeUserMenu();
+    showLoginOverlay();
+  };
+
+  // Toggle user menu dropdown
+  window.toggleUserMenu = function(e) {
+    if (e) e.stopPropagation();
+    var dd = document.getElementById('userDropdown');
+    if (dd) dd.classList.toggle('show');
+  };
+
+  window.closeUserMenu = function() {
+    var dd = document.getElementById('userDropdown');
+    if (dd) dd.classList.remove('show');
+  };
+
+  // Close dropdown on outside click
+  document.addEventListener('click', function(e) {
+    var menu = document.getElementById('userMenu');
+    if (menu && !menu.contains(e.target)) {
+      closeUserMenu();
+    }
+  });
+
+  // Change password
+  window.handleChangePassword = function() {
+    closeUserMenu();
+    var oldPwd = prompt('请输入旧密码:');
+    if (!oldPwd) return;
+    var newPwd = prompt('请输入新密码（至少4个字符）:');
+    if (!newPwd) return;
+    if (newPwd.length < 4) { showToast('密码至少4个字符', 'warning'); return; }
+
+    authFetch('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPassword: oldPwd, newPassword: newPwd })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.message) {
+        showToast('✅ 密码修改成功');
+      } else {
+        showToast('❌ ' + (d.error || '修改失败'), 'warning');
+      }
+    }).catch(function(e) {
+      showToast('❌ 请求失败', 'warning');
+    });
+  };
+
+  // Migration check
+  window.checkMigration = function() {
+    try {
+      var saved = localStorage.getItem('sb_employees');
+      if (!saved) return;
+      var localEmps = JSON.parse(saved);
+      if (!localEmps || localEmps.length === 0) return;
+
+      // Show migration dialog
+      var count = localEmps.length;
+      var overlay = document.createElement('div');
+      overlay.className = 'migration-dialog';
+      overlay.id = 'migrationDialog';
+      overlay.innerHTML = '<div class="migration-card">' +
+        '<div class="migration-icon">📦</div>' +
+        '<div class="migration-title">检测到本地数据</div>' +
+        '<div class="migration-desc">发现本地有 ' + count + ' 个员工数据，是否同步到服务器？<br>同步后数据将保存在服务器，可在任何设备访问。</div>' +
+        '<div class="migration-actions">' +
+        '<button class="migration-btn-secondary" onclick="skipMigration()">稍后再说</button>' +
+        '<button class="migration-btn-primary" onclick="doMigration()">开始同步</button>' +
+        '</div></div>';
+      document.body.appendChild(overlay);
+    } catch(e) {}
+  };
+
+  window.skipMigration = function() {
+    var d = document.getElementById('migrationDialog');
+    if (d) d.remove();
+  };
+
+  window.doMigration = async function() {
+    var d = document.getElementById('migrationDialog');
+    try {
+      var saved = localStorage.getItem('sb_employees');
+      if (!saved) { if (d) d.remove(); return; }
+      var localEmps = JSON.parse(saved);
+      var success = 0;
+      for (var i = 0; i < localEmps.length; i++) {
+        try {
+          var emp = localEmps[i];
+          var res = await authFetch('/api/agents', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(emp)
+          });
+          if (res.ok) success++;
+        } catch(e) {}
+      }
+      if (success > 0) {
+        // Also migrate chat histories
+        var chatKeys = Object.keys(localStorage).filter(function(k) { return k.startsWith('sb_chat_history_'); });
+        for (var j = 0; j < chatKeys.length; j++) {
+          try {
+            var key = chatKeys[j];
+            var agentId = key.replace('sb_chat_history_', '');
+            var history = JSON.parse(localStorage.getItem(key) || '[]');
+            if (history.length > 0) {
+              await authFetch('/api/chat/' + agentId, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: '__migration__', messages: history })
+              });
+            }
+          } catch(e) {}
+        }
+        // Clear local storage employee data after successful migration
+        localStorage.removeItem('sb_employees');
+        showToast('✅ 已同步 ' + success + ' 个员工到服务器');
+        // Reload agents from server
+        if (typeof loadAgentsFromServer === 'function') loadAgentsFromServer();
+      } else {
+        showToast('❌ 同步失败，请重试', 'warning');
+      }
+    } catch(e) {
+      showToast('❌ 同步失败: ' + e.message, 'warning');
+    }
+    if (d) d.remove();
+  };
+
+  // Enter key to login
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      var overlay = document.getElementById('loginOverlay');
+      if (overlay && !overlay.classList.contains('hidden')) {
+        handleLogin();
+      }
+    }
+  });
+
+  // Override sendViaAPI to include auth token
+  var _originalSendViaAPI = window.sendViaAPI;
+
+  // Load agents from server
+  window.loadAgentsFromServer = async function() {
+    try {
+      var res = await authFetch('/api/agents');
+      if (res.ok) {
+        var agents = await res.json();
+        if (agents && agents.length > 0) {
+          emps.length = 0;
+          agents.forEach(function(a) { emps.push(a); });
+          if (typeof renderEmployeeList === 'function') renderEmployeeList();
+        }
+      }
+    } catch(e) {}
+  };
+
+  // Init auth check on DOMContentLoaded
+  document.addEventListener('DOMContentLoaded', function() {
+    checkAuth();
+  });
+
+  // Override saveEmployees to also save to server
+  var _origSaveEmployees = window.saveEmployees;
+  window.saveEmployees = function() {
+    // Save to localStorage as backup
+    if (_origSaveEmployees) _origSaveEmployees();
+    // Also sync to server (debounced)
+    if (window.__saveEmployeesTimer) clearTimeout(window.__saveEmployeesTimer);
+    window.__saveEmployeesTimer = setTimeout(function() {
+      emps.forEach(function(emp) {
+        authFetch('/api/agents/' + emp.id, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(emp)
+        }).catch(function() {});
+      });
+    }, 2000);
+  };
+
+})();
+</script>
+
 </body>
 </html>
