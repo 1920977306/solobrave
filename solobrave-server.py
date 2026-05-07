@@ -1401,12 +1401,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Agent name is required')
             return
 
-        # 构建 CLI 参数
-        args = ['agents', 'add', name, '--non-interactive']
+        # 构建 CLI 参数 (--non-interactive requires --workspace)
+        home = os.path.expanduser('~')
+        if not workspace:
+            workspace = os.path.join(home, '.openclaw', 'agents', name)
+        # 确保 workspace 目录存在
+        os.makedirs(workspace, exist_ok=True)
+
+        args = ['agents', 'add', name, '--workspace', workspace, '--non-interactive']
         if model:
             args.extend(['--model', model])
-        if workspace:
-            args.extend(['--workspace', workspace])
 
         success, stdout, stderr, rc = _run_openclaw(args)
 
@@ -1427,23 +1431,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Write SOUL.md if provided
         if soul:
-            home = os.path.expanduser('~')
-            possible_workspaces = [
-                os.path.join(home, '.openclaw', 'agents', name),
-                os.path.join(home, '.openclaw', name),
-            ]
-            if workspace:
-                possible_workspaces.insert(0, workspace)
-
-            for ws in possible_workspaces:
-                soul_path = os.path.join(ws, 'SOUL.md')
-                if os.path.isdir(ws):
-                    try:
-                        with open(soul_path, 'w', encoding='utf-8') as f:
-                            f.write(soul)
-                        break
-                    except OSError:
-                        pass
+            soul_path = os.path.join(workspace, 'SOUL.md')
+            try:
+                with open(soul_path, 'w', encoding='utf-8') as f:
+                    f.write(soul)
+            except OSError as e:
+                logging.warning(f"Failed to write SOUL.md: {e}")
 
         self._send_json(200, {
             'success': True,
