@@ -234,19 +234,28 @@ class OpenClawClient {
     }
   }
 
-  async _sendConnect(challenge, context = {}) {
-    // This handles challenge-based auth (if Gateway sends challenge first)
-    if (!this._token) {
-      console.warn('[OpenClaw] 无 token，使用空 token 连接');
-    }
-    console.log('[OpenClaw] 回复 challenge 认证...');
+  async _sendConnect(nonce, context = {}) {
+    console.log('[OpenClaw] 收到 challenge，回复认证 (nonce: ' + nonce + ')...');
     try {
       const id = this._generateId();
       const msg = JSON.stringify({
         type: 'req',
         id: id,
         method: 'connect',
-        params: { token: this._token, challenge }
+        params: {
+          minProtocol: 3,
+          maxProtocol: 3,
+          client: { id: 'solobrave-web', version: '1.0.0', platform: 'web', mode: 'operator' },
+          role: 'operator',
+          scopes: ['operator.read', 'operator.write'],
+          caps: [],
+          commands: [],
+          permissions: {},
+          auth: { token: this._token },
+          locale: 'zh-CN',
+          userAgent: navigator.userAgent,
+          device: { id: 'solobrave-' + Math.random().toString(36).substring(2, 10), nonce: nonce }
+        }
       });
       const authPromise = new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -257,7 +266,7 @@ class OpenClawClient {
       });
       this.ws.send(msg);
       const res = await authPromise;
-      if (res?.status === 'ok') {
+      if (res?.type === 'hello-ok' || res?.ok === true) {
         console.log('[OpenClaw] ✅ challenge 认证成功！');
         this.authenticated = true;
         this.emit('authenticated', res);
