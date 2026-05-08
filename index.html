@@ -5279,23 +5279,33 @@ async function registerOpenClawAgent(emp){
     saveEmployees();
   }
   try {
-    // 构建身份和灵魂
-    var identity = emp.idDoc || ('# ' + emp.name + '\n' + emp.role);
-    var soul = emp.soulDoc || emp.systemPrompt || ('你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。');
+    var systemPrompt = emp.soulDoc || emp.systemPrompt || ('你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。');
     var params = {
-      id: emp.openclawName,
+      agentId: emp.openclawName,
       name: emp.name,
-      identity: identity,
-      soul: soul
+      systemPrompt: systemPrompt
     };
     if(emp.apiModel) params.model = emp.apiModel;
-    console.log('[OpenClaw] 注册 Agent:', emp.openclawName, params);
+    console.log('[OpenClaw] 注册 Agent:', JSON.stringify(params));
     var result = await openclaw.send('agents.update', params);
-    console.log('[OpenClaw] Agent 注册/更新成功:', emp.openclawName, result);
+    console.log('[OpenClaw] Agent 注册/更新成功:', emp.openclawName, JSON.stringify(result));
     showToast('✅ Agent 已注册到 Gateway: ' + emp.openclawName);
   } catch(e){
     console.warn('[OpenClaw] Agent 注册失败:', e.message);
-    showToast('⚠️ Agent 注册失败: ' + e.message);
+    // 如果 systemPrompt 也不支持，试不带它
+    if(e.message && e.message.includes('unexpected property')){
+      console.log('[OpenClaw] 尝试不带 systemPrompt 注册...');
+      try {
+        var params2 = { agentId: emp.openclawName, name: emp.name };
+        if(emp.apiModel) params2.model = emp.apiModel;
+        var result2 = await openclaw.send('agents.update', params2);
+        console.log('[OpenClaw] Agent 注册成功（无 systemPrompt）:', JSON.stringify(result2));
+        showToast('✅ Agent 已注册（人格需在 Gateway 端配置）');
+      } catch(e2){
+        console.warn('[OpenClaw] Agent 注册再次失败:', e2.message);
+        showToast('⚠️ Agent 注册失败: ' + e2.message);
+      }
+    }
   }
 }
 function updateGatewayStatus(){
