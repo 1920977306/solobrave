@@ -5286,32 +5286,46 @@ async function registerOpenClawAgent(emp){
   try {
     var createParams = {
       name: emp.openclawName,
-      identity: identityContent,
-      soul: soulContent
+      workspace: 'default'
     };
     if(emp.apiModel) createParams.model = emp.apiModel;
     console.log('[OpenClaw] 创建 Agent:', JSON.stringify(createParams));
     var result = await openclaw.send('agents.create', createParams);
     console.log('[OpenClaw] Agent 创建成功:', emp.openclawName, JSON.stringify(result));
-    showToast('✅ Agent 已创建并注册到 Gateway');
-    return;
   } catch(e){
     // create 失败（可能已存在），试 update
     console.log('[OpenClaw] create 失败，尝试 update:', e.message);
   }
 
+  // 用 agents.update 更新配置（create 成功后也 update 一次确保同步）
   try {
     var updateParams = {
-      agentId: emp.openclawName,
-      name: emp.name
+      agentId: emp.openclawName
     };
     if(emp.apiModel) updateParams.model = emp.apiModel;
     var result2 = await openclaw.send('agents.update', updateParams);
     console.log('[OpenClaw] Agent 更新成功:', emp.openclawName, JSON.stringify(result2));
-    showToast('✅ Agent 已更新到 Gateway');
   } catch(e2){
-    console.warn('[OpenClaw] Agent 注册失败:', e2.message);
-    showToast('⚠️ Agent 注册失败: ' + e2.message);
+    console.log('[OpenClaw] update 也失败:', e2.message);
+  }
+
+  // 最后：用 CLI 写入 SOUL.md 到 agent 的 workspace
+  // 因为 Gateway WS 不支持 identity/soul/systemPrompt
+  // 需要通过 solobrave-server.py 的 API 写入
+  try {
+    await apiFetch('/api/openclaw/write-soul', {
+      method: 'POST',
+      body: JSON.stringify({
+        agentName: emp.openclawName,
+        soulContent: soulContent,
+        identityContent: identityContent
+      })
+    });
+    console.log('[OpenClaw] SOUL.md 已写入 agent workspace');
+    showToast('✅ Agent 已注册，SOUL.md 已写入');
+  } catch(e3){
+    console.log('[OpenClaw] SOUL.md 写入失败:', e3.message);
+    showToast('✅ Agent 已注册，⚠️ SOUL.md 需手动配置');
   }
 }
 function updateGatewayStatus(){
