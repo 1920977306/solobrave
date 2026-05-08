@@ -3430,11 +3430,17 @@ function showReminder(){
   const reminder=generateReminderMsg();
   if(!reminder)return;
   
-  const area=document.getElementById('messagesArea');
   const {emp,text}=reminder;
   
-  area.insertAdjacentHTML('beforeend','<div class="msg reminder"><div class="msg-avatar">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + emp.name + '</span><span class="msg-sender-role">' + emp.role + '</span><span class="msg-sender-time">' + new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) + '</span></div><div class="msg-bubble reminder-bubble">' + text.replace(/\n/g,'<br>') + '</div></div></div>');
-  area.scrollTop=area.scrollHeight;
+  // 只在当前员工的聊天中显示，避免串台
+  if(currentEmpId && currentEmpId === emp.id){
+    const area=document.getElementById('messagesArea');
+    area.insertAdjacentHTML('beforeend','<div class="msg reminder"><div class="msg-avatar">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + emp.name + '</span><span class="msg-sender-role">' + emp.role + '</span><span class="msg-sender-time">' + new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) + '</span></div><div class="msg-bubble reminder-bubble">' + text.replace(/\n/g,'<br>') + '</div></div></div>');
+    area.scrollTop=area.scrollHeight;
+  }
+  
+  // 同时显示为顶部通知
+  showToast(emp.name + ': ' + text.split('\n')[0]);
 }
 
 // 自动催促（定时检测）
