@@ -3130,11 +3130,11 @@ let slashIdx = 0;
 
 // Data
 const emps = [
-{id:'xlcx',name:'Lucy',role:'前端工程师',bg:'#FF6B35',avatar:'🦞',status:'online',msg:'好的，正在修复中...',archived:false,permission:'admin'},
-{id:'dlxc',name:'大龙虾',role:'后端架构师',bg:'#5AC8FA',avatar:'👨‍💼',status:'busy',msg:'API文档已更新',archived:false,permission:'dev'},
-{id:'zjg',name:'章鱼哥',role:'产品经理',bg:'#AF52DE',avatar:'🐙',status:'online',msg:'PRD第3版已提交',archived:false,permission:'pm'},
-{id:'hx',name:'海星',role:'测试工程师',bg:'#FF2D55',avatar:'⭐',status:'online',msg:'测试用例通过95%',archived:false,permission:'qa'},
-{id:'sy',name:'鲨鱼',role:'运维工程师',bg:'#5856D6',avatar:'🦈',status:'online',msg:'服务器运行正常',archived:false,permission:'devops'}
+{id:'xlcx',name:'Lucy',role:'前端工程师',bg:'#FF6B35',avatar:'🦞',status:'online',msg:'好的，正在修复中...',archived:false,permission:'admin',category:'职能',subCategory:'技术团队'},
+{id:'dlxc',name:'大龙虾',role:'后端架构师',bg:'#5AC8FA',avatar:'👨‍💼',status:'busy',msg:'API文档已更新',archived:false,permission:'dev',category:'职能',subCategory:'技术团队'},
+{id:'zjg',name:'章鱼哥',role:'产品经理',bg:'#AF52DE',avatar:'🐙',status:'online',msg:'PRD第3版已提交',archived:false,permission:'pm',category:'职能',subCategory:'全局统筹'},
+{id:'hx',name:'海星',role:'测试工程师',bg:'#FF2D55',avatar:'⭐',status:'online',msg:'测试用例通过95%',archived:false,permission:'qa',category:'职能',subCategory:'技术团队'},
+{id:'sy',name:'鲨鱼',role:'运维工程师',bg:'#5856D6',avatar:'🦈',status:'online',msg:'服务器运行正常',archived:false,permission:'devops',category:'职能',subCategory:'技术团队'}
 ];
 
 // ========== AI 初始化 ==========
@@ -3573,69 +3573,82 @@ const projs = [
 const employees = emps;
 
 // Render employee list with archive/drag support
+// 侧栏展开状态（持久化到 localStorage）
+function getSidebarState(){
+  var saved = localStorage.getItem('sb_sidebar_state');
+  if(saved){
+    try { return JSON.parse(saved); } catch(e) {}
+  }
+  return { '职能': true, '项目组': true };
+}
+function saveSidebarState(state){
+  localStorage.setItem('sb_sidebar_state', JSON.stringify(state));
+}
+function toggleCategory(cat){
+  var state = getSidebarState();
+  state[cat] = !state[cat];
+  saveSidebarState(state);
+  renderEmployeeList();
+}
+
 function renderEmployeeList(){
-  const list=document.getElementById('employeeList');
-  if(!list)return;
-  const visible=emps.filter(e=>!e.archived);
-  if(visible.length===0){
-    list.innerHTML='<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方"新增员工"按钮添加第一位员工</div></div>';
+  var list = document.getElementById('employeeList');
+  if(!list) return;
+  var visible = emps.filter(function(e){ return !e.archived; });
+  if(visible.length === 0){
+    list.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方"新增员工"按钮添加第一位员工</div></div>';
     return;
   }
 
-  // 管理员视图：按创建者分组
-  if(isAdmin()){
-    renderGroupedEmployeeList(list, visible);
-  } else {
-    // 员工视图：只显示自己的员工
-    const myEmployees = visible.filter(e => e.createdBy === currentUser?.id || !e.createdBy);
-    list.innerHTML=myEmployees.map(e=>'<div class="list-item" data-id="'+escapeAttr(e.id)+'" draggable="true">'+renderEmployeeItem(e)+'<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(\''+escapeAttr(e.id)+'\');" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button></div></div>').join('');
+  var html = '';
+  var state = getSidebarState();
+
+  // ===== 一级分类：职能 =====
+  html += renderCategoryHeader('职能', state['职能']);
+  if(state['职能']){
+    // 按 subCategory 分组
+    var subGroups = {};
+    visible.forEach(function(e){
+      var sub = e.subCategory || '未分组';
+      if(!subGroups[sub]) subGroups[sub] = [];
+      subGroups[sub].push(e);
+    });
+    Object.keys(subGroups).forEach(function(sub){
+      html += renderSubCategoryHeader(sub, subGroups[sub].length);
+      html += subGroups[sub].map(function(e){
+        return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e) + '<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(e.id) + '\');" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button><button class="emp-action-btn emp-more-btn" onclick="event.stopPropagation();showEmpSettingsMenu(event, \'' + escapeAttr(e.id) + '\');" title="更多">⋮</button></div></div>';
+      }).join('');
+    });
   }
+
+  // ===== 一级分类：项目组（占位）=====
+  html += renderCategoryHeader('项目组', state['项目组']);
+  if(state['项目组']){
+    html += renderProjectGroupPlaceholder('快速研发组', 7);
+    html += renderProjectGroupPlaceholder('AI 实验室', 3);
+  }
+
+  list.innerHTML = html;
   bindListEvents();
 }
 
-// 管理员视图：按创建者分组显示员工
-function renderGroupedEmployeeList(list, visible){
-  // 按创建者分组
-  var groups = {};
-  var myId = currentUser?.id || 'local';
-
-  visible.forEach(function(e){
-    var creatorId = e.createdBy || myId;
-    var creatorName = e.createdByName || (creatorId === myId ? '我' : '其他用户');
-    if(!groups[creatorId]){
-      groups[creatorId] = {name: creatorName, employees: []};
-    }
-    groups[creatorId].employees.push(e);
-  });
-
-  var html = '';
-
-  // 先显示"我的员工"
-  if(groups[myId]){
-    html += renderEmployeeGroup('👤 我的员工', groups[myId].employees, false);
-    delete groups[myId];
-  }
-
-  // 再显示其他创建者的员工
-  Object.keys(groups).forEach(function(creatorId){
-    var group = groups[creatorId];
-    html += renderEmployeeGroup('👥 ' + group.name + ' 的员工', group.employees, true);
-  });
-
-  list.innerHTML = html;
+function renderCategoryHeader(name, expanded){
+  var arrow = expanded ? '▼' : '▶';
+  return '<div class="cat-header" onclick="toggleCategory(\'' + name + '\')" style="padding:8px 12px;font-size:13px;font-weight:600;color:var(--text-primary);cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none;margin-top:4px;">' + arrow + ' ' + name + '</div>';
 }
 
-function renderEmployeeGroup(title, employees, isOther){
-  var html = '<div style="margin-bottom:8px;">';
-  html += '<div style="padding:6px 12px;font-size:12px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;' + (isOther ? 'background:var(--bg-secondary);border-radius:6px;' : '') + '">';
-  html += title + ' <span style="font-weight:400;">(' + employees.length + ')</span>';
-  html += '</div>';
-  html += employees.map(function(e){
-    return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, isOther) + '<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(e.id) + '\');" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button><button class="emp-action-btn emp-more-btn" onclick="event.stopPropagation();showEmpSettingsMenu(event, \'' + escapeAttr(e.id) + '\');" title="更多">⋮</button></div></div>';
-  }).join('');
-  html += '</div>';
-  return html;
+function renderSubCategoryHeader(name, count){
+  return '<div class="subcat-header" style="padding:4px 12px 4px 24px;font-size:12px;font-weight:500;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">' + name + ' <span style="font-weight:400;color:var(--text-tertiary);">(' + count + ')</span></div>';
 }
+
+function renderProjectGroupPlaceholder(name, count){
+  return '<div class="list-item proj-placeholder" style="padding-left:24px;opacity:0.7;" onclick="showToast(\'项目组群聊功能开发中...\')">' +
+    '<div class="item-avatar" style="width:36px;height:36px;"><div class="avatar small" style="width:36px;height:36px;background:var(--bg-tertiary);">👥</div></div>' +
+    '<div class="item-info"><div class="item-name">' + escapeHtml(name) + '</div><div class="item-msg">' + count + ' 人 · 群聊入口</div></div>' +
+    '</div>';
+}
+
+
 
 // Init
 document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
@@ -3852,6 +3865,84 @@ document.addEventListener('click', function(e){
 
 // Close context menu on click outside
 document.addEventListener('click',hideContextMenu);
+
+// ============ Connection Status Bar ============
+function updateConnectionStatus(){
+  var openclawEl = document.getElementById('connStatusOpenClaw');
+  var apiEl = document.getElementById('connStatusAPI');
+  var latencyEl = document.getElementById('connLatency');
+  
+  if(!openclawEl || !apiEl) return;
+  
+  // Check OpenClaw connection
+  var isOpenClawConnected = false;
+  if(typeof openclaw !== 'undefined' && openclaw.readyState === 1){
+    isOpenClawConnected = true;
+  }
+  
+  // Check API configuration
+  var hasAPIKey = false;
+  var aiConfig = localStorage.getItem('sb_ai_config');
+  if(aiConfig){
+    try{
+      var config = JSON.parse(aiConfig);
+      hasAPIKey = config.apiKey && config.apiKey.length > 10;
+    }catch(e){}
+  }
+  
+  // Update OpenClaw status
+  if(isOpenClawConnected){
+    openclawEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#34C759;display:inline-block;margin-right:4px;"></span>OpenClaw 已连接';
+  } else {
+    openclawEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF3B30;display:inline-block;margin-right:4px;"></span>OpenClaw 未连接';
+  }
+  
+  // Update API status
+  if(hasAPIKey){
+    apiEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#34C759;display:inline-block;margin-right:4px;"></span>API 已配置';
+  } else {
+    apiEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF9500;display:inline-block;margin-right:4px;"></span>API 未配置';
+  }
+  
+  // Update latency (mock for now)
+  if(latencyEl){
+    var latency = Math.floor(Math.random() * 50) + 20;
+    latencyEl.textContent = '延迟: ' + latency + 'ms';
+  }
+}
+
+function showConnectionDetails(){
+  var details = [];
+  
+  // OpenClaw details
+  if(typeof openclaw !== 'undefined'){
+    details.push('OpenClaw 状态: ' + (openclaw.readyState === 1 ? '✅ 已连接' : '❌ 未连接'));
+    details.push('WebSocket URL: ' + (openclaw.url || '未配置'));
+  } else {
+    details.push('OpenClaw: 未初始化');
+  }
+  
+  // API details
+  var aiConfig = localStorage.getItem('sb_ai_config');
+  if(aiConfig){
+    try{
+      var config = JSON.parse(aiConfig);
+      details.push('AI 模式: ' + (config.mode || 'copaw'));
+      details.push('API Key: ' + (config.apiKey ? '✅ 已配置 (' + config.apiKey.substring(0, 8) + '...)' : '❌ 未配置'));
+    }catch(e){
+      details.push('API 配置: 解析错误');
+    }
+  } else {
+    details.push('API 配置: 未设置');
+  }
+  
+  alert('连接详情:\n\n' + details.join('\n'));
+}
+
+// Update connection status every 5 seconds
+setInterval(updateConnectionStatus, 5000);
+// Initial update
+document.addEventListener('DOMContentLoaded', updateConnectionStatus);
 
 // Open Chat
 function openChat(id){
@@ -6996,6 +7087,28 @@ function checkQuota() {
   <div class="menu-divider"></div>
   <div class="menu-item" onclick="empSettingsAction('archive')">📦 归档</div>
   <div class="menu-item danger" onclick="empSettingsAction('delete')">🗑️ 删除</div>
+</div>
+
+<!-- Bottom Connection Status Bar -->
+<div id="connectionStatusBar" style="position:fixed;bottom:0;left:0;right:0;height:28px;background:var(--bg-primary);border-top:1px solid var(--separator);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:12px;color:var(--text-secondary);z-index:100;"
+  <div style="display:flex;align-items:center;gap:12px;"
+    <span id="connStatusOpenClaw" style="display:flex;align-items:center;gap:4px;"
+      <span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#34C759;"
+      </span>OpenClaw 已连接
+    </span>
+    <span id="connStatusAPI" style="display:flex;align-items:center;gap:4px;"
+      <span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF9500;"
+      </span>API 未配置
+    </span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;"
+    <span id="connLatency"
+      延迟: --ms
+    </span>
+    <button onclick="showConnectionDetails()" style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:11px;"
+      详情
+    </button>
+  </div>
 </div>
 
 <script src="avatars.js?v=1778166504"></script>
