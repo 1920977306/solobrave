@@ -1106,7 +1106,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         updatable = ['name', 'role', 'bg', 'avatar', 'status', 'msg', 'archived',
                      'permission', 'visibility', 'connectionType', 'apiProvider',
                      'apiModel', 'apiKey', 'openclawAgent', 'openclawModel',
-                     'systemPrompt', 'department', 'customEndpoint']
+                     'openclawName', 'aiProvider',
+                     'systemPrompt', 'department', 'customEndpoint',
+                     'group', 'pinned', 'idDoc', 'soulDoc', 'toolsDoc', 'userDoc']
         for key in updatable:
             if key in body:
                 agent[key] = body[key]
