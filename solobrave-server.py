@@ -534,7 +534,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_proxy()
             return
 
-        # Write SOUL.md to OpenClaw agent workspace
+        # Write SOUL.md/IDENTITY.md to OpenClaw agent workspace
+        if path == '/api/openclaw/write-agent-docs':
+            self._handle_write_agent_docs()
+            return
         if path == '/api/openclaw/write-soul':
             self._handle_write_soul()
             return
@@ -1171,6 +1174,53 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ═══════════════════════════════════════════════════
     # 聊天 API
     # ═══════════════════════════════════════════════════
+
+    def _handle_write_agent_docs(self):
+        """POST /api/openclaw/write-agent-docs - Write SOUL.md and IDENTITY.md to agent workspace"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        agent_id = body.get('agentId', '')
+        soul_doc = body.get('soulDoc', '')
+        identity_doc = body.get('identityDoc', '')
+        workspace_path = body.get('workspacePath', '~/.openclaw/workspace-' + agent_id)
+
+        if not agent_id:
+            self._send_json(400, {'error': '缺少 agentId'})
+            return
+
+        import os
+        workspace_path = os.path.expanduser(workspace_path)
+
+        try:
+            os.makedirs(workspace_path, exist_ok=True)
+            written = []
+
+            if soul_doc:
+                with open(os.path.join(workspace_path, 'SOUL.md'), 'w', encoding='utf-8') as f:
+                    f.write(soul_doc)
+                written.append('SOUL.md')
+
+            if identity_doc:
+                with open(os.path.join(workspace_path, 'IDENTITY.md'), 'w', encoding='utf-8') as f:
+                    f.write(identity_doc)
+                written.append('IDENTITY.md')
+
+            self._send_json(200, {
+                'ok': True,
+                'agentId': agent_id,
+                'written': written,
+                'workspace': workspace_path
+            })
+        except Exception as e:
+            self._send_json(500, {'error': f'写入失败: {str(e)}'})
 
     def _handle_write_soul(self):
         """POST /api/openclaw/write-soul - Write SOUL.md/IDENTITY.md to agent workspace"""
