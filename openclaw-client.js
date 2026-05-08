@@ -69,8 +69,9 @@ class OpenClawClient {
           this._reconnectAttempts = 0;
           this.emit('connected');
           
-          // 立即发送认证（不等 challenge）
-          this._sendConnectImmediate(this._connectContext);
+          // v3 协议：等待 Gateway 发 challenge，不要主动发 connect
+          // Gateway 会在连接建立后推送 connect.challenge 事件
+          console.log('[OpenClaw] 等待 Gateway challenge...');
         };
 
         this.ws.onmessage = (event) => {
