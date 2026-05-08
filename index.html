@@ -1319,6 +1319,28 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   font: var(--font-micro);
   color: var(--text-tertiary);
   text-align: center;
+}
+
+/* Move Group Modal */
+.group-option {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1.5px solid transparent;
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.group-option:hover {
+  background: rgba(0, 122, 255, 0.08);
+  border-color: rgba(0, 122, 255, 0.3);
+}
+.group-option:active {
+  transform: scale(0.98);
+}
   font-style: italic;
 }
 
@@ -3885,7 +3907,9 @@ function ctxAction(action){
     case 'detail': openEmpDetail(contextTarget); break;
     case 'edit': showEditModal(contextTarget); break;
     case 'pin': emp.pinned=!emp.pinned; showToast(emp.pinned?'📌 已置顶':'📌 已取消置顶'); saveEmployees(); break;
-    case 'move': showToast('📁 移动分组功能开发中...'); break;
+    case 'move':
+      showMoveGroupModal(empSettingsTarget);
+      break;
     case 'archive': emp.archived=true; saveArchive(); showToast('📦 已归档'); break;
     case 'unarchive': emp.archived=false; saveArchive(); showToast('📥 已取消归档'); break;
     case 'delete': if(confirm('确定删除 '+emp.name+'？')){emps=emps.filter(e=>e.id!==contextTarget); saveEmployees(); if(typeof apiFetch==='function'){apiFetch('/api/agents/'+contextTarget,{method:'DELETE'}).catch(function(){});} showToast('🗑️ 已删除');} break;
@@ -3916,13 +3940,18 @@ function empSettingsAction(action){
   var emp = emps.find(function(e){ return e.id === empSettingsTarget; });
   if(!emp) return;
   switch(action){
-    case 'edit': openEmpDetail(empSettingsTarget); break;
+    case 'edit':
+      openEmpDetail(empSettingsTarget);
+      setTimeout(function(){ switchEmpDetailTab('basic'); }, 100);
+      break;
     case 'pin': 
       emp.pinned = !emp.pinned; 
       showToast(emp.pinned ? '📌 已置顶' : '📌 已取消置顶'); 
       saveEmployees(); 
       break;
-    case 'move': showToast('📁 移动分组功能开发中...'); break;
+    case 'move':
+      showMoveGroupModal(empSettingsTarget);
+      break;
     case 'archive': 
       emp.archived = true; 
       saveEmployees(); 
@@ -3965,6 +3994,51 @@ function restoreArchivedEmp(empId){
 
 // Close context menu on click outside
 document.addEventListener('click',hideContextMenu);
+
+// ============ Move Group Modal ============
+var moveGroupTarget = null;
+var GROUP_OPTIONS = ['全局统筹', '技术团队', '业务团队', '测试小组'];
+
+function showMoveGroupModal(empId){
+  moveGroupTarget = empId;
+  var emp = emps.find(function(e){ return e.id === empId; });
+  if(!emp) return;
+  
+  document.getElementById('moveGroupEmpName').textContent = emp.name;
+  
+  var list = document.getElementById('moveGroupList');
+  var html = '';
+  for(var i = 0; i < GROUP_OPTIONS.length; i++){
+    var group = GROUP_OPTIONS[i];
+    var isCurrent = emp.subCategory === group;
+    var currentBadge = isCurrent ? ' <span style="font-size:11px;color:var(--accent);margin-left:auto;">当前</span>' : '';
+    var selectedClass = isCurrent ? ' style="border-color:var(--accent);background:var(--accent-light);"' : '';
+    html += '<div onclick="doMoveGroup(\'' + group + '\')" class="group-option"' + selectedClass + '>' +
+      '<span>' + escapeHtml(group) + '</span>' + currentBadge +
+      '</div>';
+  }
+  list.innerHTML = html;
+  
+  document.getElementById('moveGroupModal').style.display = 'flex';
+}
+
+function closeMoveGroupModal(){
+  document.getElementById('moveGroupModal').style.display = 'none';
+  moveGroupTarget = null;
+}
+
+function doMoveGroup(newGroup){
+  if(!moveGroupTarget) return;
+  var emp = emps.find(function(e){ return e.id === moveGroupTarget; });
+  if(!emp) return;
+  
+  var oldGroup = emp.subCategory || '未分组';
+  emp.subCategory = newGroup;
+  saveEmployees();
+  renderEmployeeList();
+  closeMoveGroupModal();
+  showToast('📁 ' + emp.name + ' 已从「' + oldGroup + '」移到「' + newGroup + '」');
+}
 
 // ============ Connection Status Bar ============
 function updateConnectionStatus(){
@@ -4776,18 +4850,34 @@ g.style.display=visible.length?'block':'none';
 }
 
 function compressContext(){
-const area=document.getElementById('messagesArea');
-area.insertAdjacentHTML('beforeend',`<div class="msg system">
-<div class="msg-bubble" style="background:var(--bg-secondary);text-align:left;max-width:100%;">
-<div style="font-weight:600;margin-bottom:8px;">📚 上下文压缩</div>
-<div style="font-size:13px;">
-<p>正在压缩上下文，释放 Token 空间...</p>
-<p style="color:var(--green);margin-top:8px;">✅ 压缩完成！已释放约 40% 的上下文空间</p>
-</div>
-</div>
-</div>`);
-showToast('📚 上下文已压缩');
-area.scrollTop=area.scrollHeight;
+  var empId = currentEmpId || localStorage.getItem('sb_current_emp');
+  if(!empId){
+    showToast('⚠️ 请先选择一个员工');
+    return;
+  }
+  var emp = emps.find(function(e){ return e.id === empId; });
+  if(!emp){
+    showToast('⚠️ 员工不存在');
+    return;
+  }
+  
+  // 清空当前员工的对话历史
+  var historyKey = 'sb_chat_history_' + empId;
+  var oldHistory = localStorage.getItem(historyKey);
+  var oldCount = oldHistory ? JSON.parse(oldHistory).length : 0;
+  
+  // 保存压缩前的摘要（可选）
+  localStorage.setItem(historyKey + '_compressed', oldHistory || '[]');
+  localStorage.setItem(historyKey + '_compressed_at', new Date().toISOString());
+  
+  // 清空当前历史
+  localStorage.setItem(historyKey, '[]');
+  
+  // 清空消息区域
+  var area = document.getElementById('messagesArea');
+  area.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-secondary);"><div style="font-size:32px;margin-bottom:12px;">❄️</div><div>上下文已压缩</div><div style="font-size:12px;margin-top:8px;">已清空 ' + emp.name + ' 的对话历史</div></div>';
+  
+  showToast('❄️ 已清空 ' + emp.name + ' 的对话历史（' + oldCount + ' 条）');
 }
 
 // 斜杠命令实现
@@ -7351,6 +7441,24 @@ function checkQuota() {
     <button onclick="showConnectionDetails()" style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:11px;"
       详情
     </button>
+  </div>
+</div>
+
+<!-- Move Group Modal -->
+<div class="modal-overlay" id="moveGroupModal" style="display:none;z-index:2000;">
+  <div class="modal" style="max-width:320px;padding:0;overflow:hidden;">
+    <div class="modal-header" style="padding:16px 20px 12px;">
+      <div class="modal-title">📁 移动分组</div>
+      <button class="modal-close" onclick="closeMoveGroupModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:0 20px 16px;">
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
+        选择 <strong id="moveGroupEmpName"></strong> 的新分组：
+      </div>
+      <div id="moveGroupList" style="display:flex;flex-direction:column;gap:6px;">
+        <!-- 动态填充 -->
+      </div>
+    </div>
   </div>
 </div>
 
