@@ -3385,12 +3385,15 @@ async function loadEmployees(){
   var token = localStorage.getItem('sb_auth_token');
   if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
     try{
-      var data = await apiFetch('/api/agents');
-      if(data && data.length > 0){
-        emps.length = 0;
-        data.forEach(function(a){ emps.push(a); });
-        localStorage.setItem('sb_employees', JSON.stringify(emps));
-        return;
+      var resp = await apiFetch('/api/agents');
+      if(resp && resp.ok){
+        var data = await resp.json();
+        if(data && data.length > 0){
+          emps.length = 0;
+          data.forEach(function(a){ emps.push(a); });
+          localStorage.setItem('sb_employees', JSON.stringify(emps));
+          return;
+        }
       }
     }catch(e){ console.log('从后端加载员工失败，回退到本地:', e); }
   }
