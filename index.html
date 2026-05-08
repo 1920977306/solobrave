@@ -3226,8 +3226,10 @@ async function syncEmpToServer(emp){
       method: 'PUT',
       body: JSON.stringify(emp)
     });
-    if(res && res.status === 404){
+    console.log('[syncEmp] PUT', emp.id, 'status:', res ? res.status : 'null', 'res:', res);
+    if(!res || res.status === 404){
       // 不存在，POST 创建
+      console.log('[syncEmp] 降级到 POST 创建:', emp.id);
       await apiFetch('/api/agents', {
         method: 'POST',
         body: JSON.stringify(Object.assign({}, emp, {
