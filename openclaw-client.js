@@ -204,10 +204,6 @@ class OpenClawClient {
       userAgent: 'SoloBrave/1.0.0 ' + navigator.userAgent
     };
     
-      if (nonce) {
-      }
-    }
-    
     return params;
   }
 
