@@ -499,17 +499,12 @@ class OpenClawClient {
   }
 
   // 发送聊天消息
-  async sendChat(sessionKey, message, options = {}) {
-    const params = {
+  async sendChat(sessionKey, message) {
+    return this.send('chat.send', {
       sessionKey,
       message: message,
-      idempotancyKey: Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 8)
-    };
-    // 传入 systemPrompt 时注入到会话
-    if (options.systemPrompt) {
-      params.systemPrompt = options.systemPrompt;
-    }
-    return this.send('chat.send', params);
+      idempotencyKey: Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 8)
+    });
   }
 
 

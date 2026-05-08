@@ -2892,7 +2892,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
     };
     openclaw.on('agent', agentHandler);
     
-    var result = await openclaw.sendChat(sessionKey, userMessage, { systemPrompt: systemPrompt });
+    var result = await openclaw.sendChat(sessionKey, userMessage);
     console.log('[OpenClaw] chat.send 返回:', JSON.stringify(result));
     // chat.send 返回确认，实际回复通过 agent 事件推送
     // 只有当没有收到过流式 agent 事件时，才用 result.content 兜底显示
@@ -5265,17 +5265,19 @@ function saveEmpConnect(){
   saveEmployees();
 
   // 自动在 Gateway 注册/更新 Agent
-  if(emp.openclawName && emp.openclawName !== 'main'){
-    registerOpenClawAgent(emp);
-  } else {
-    showToast('✅ 连接配置已保存（使用默认 Agent）');
-  }
+  registerOpenClawAgent(emp);
 }
 
 async function registerOpenClawAgent(emp){
   if(!openclaw || !openclaw.connected){
-    showToast('✅ 配置已保存，⚠️ Gateway 未连接，Agent 将在下次连接时注册');
+    console.log('[registerAgent] Gateway 未连接，跳过注册');
     return;
+  }
+  // 确保有 agentId
+  if(!emp.openclawName || emp.openclawName === 'main'){
+    // 用 emp.id 或 emp.name 作为子 agent 标识
+    emp.openclawName = emp.name || emp.id;
+    saveEmployees();
   }
   try {
     var result = await openclaw.send('agents.update', {
@@ -5403,6 +5405,10 @@ emp.toolsDoc=document.getElementById('empToolsDoc').value;
 emp.userDoc=document.getElementById('empUserDoc').value;
 }
 saveEmployees();
+// SOUL.md 变更时重新注册 Agent 到 Gateway
+if(emp && typeof registerOpenClawAgent === 'function'){
+  registerOpenClawAgent(emp);
+}
 showToast('✅ 文档已保存');
 }
 function editEmpFromDetail(){
