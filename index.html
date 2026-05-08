@@ -5253,6 +5253,10 @@ emp.toolsDoc=document.getElementById('empToolsDoc').value;
 emp.userDoc=document.getElementById('empUserDoc').value;
 }
 saveEmployees();
+// SOUL.md 变更时重新注册 Agent 到 Gateway
+if(emp && (emp.openclawName || emp.connectionType === 'openclaw') && typeof registerOpenClawAgent === 'function'){
+  registerOpenClawAgent(emp);
+}
 showToast('✅ 文档已保存');
 }
 function editEmpFromDetail(){
