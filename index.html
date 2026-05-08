@@ -1878,7 +1878,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 </div>
 </div>
 <div class="input-wrap-v2">
-<textarea id="msgInput" rows="1" placeholder="输入消息，/查看快捷指令" oninput="if(this.value.startsWith('/')){document.getElementById('slashMenu').style.display='block';document.getElementById('slashSearch').value=this.value.slice(1);filterSlashCommands(this.value.slice(1));}else{document.getElementById('slashMenu').style.display='none';}"></textarea>
+<!-- Mention Dropdown -->
+<div class="mention-dropdown" id="mentionDropdown" style="display:none;position:absolute;bottom:100%;left:0;right:0;background:var(--bg-primary);border:1px solid var(--separator);border-radius:8px;box-shadow:0 -4px 12px rgba(0,0,0,0.1);max-height:200px;overflow-y:auto;z-index:100;margin-bottom:8px;">
+<div class="mention-header" style="padding:8px 12px;font-size:12px;color:var(--text-secondary);border-bottom:1px solid var(--separator);">选择要 @ 的员工</div>
+<div class="mention-list" id="mentionList" style="padding:4px 0;"></div>
+</div>
+<textarea id="msgInput" rows="1" placeholder="输入消息，/查看快捷指令" oninput="if(this.value.startsWith('/')){document.getElementById('slashMenu').style.display='block';document.getElementById('slashSearch').value=this.value.slice(1);filterSlashCommands(this.value.slice(1));}else{document.getElementById('slashMenu').style.display='none';} if(this.value.includes('@')){showMentionDropdown();}else{document.getElementById('mentionDropdown').style.display='none';}"></textarea>
 <button class="send-btn-v2" id="sendBtn">➤</button>
 </div>
 <div class="input-hint">按 Enter 发送，Shift+Enter 换行</div>
@@ -2844,12 +2849,14 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
     
     // 监听 agent 事件（OpenClaw v3 流式推送）
     var fullReply = '';
+    var hasStreamReply = false;
     var currentRunId = null;
     var agentHandler = function(data){
       if(!data) return;
       if(data.runId && !currentRunId) currentRunId = data.runId;
       if(currentRunId && data.runId && data.runId !== currentRunId) return;
       if(data.stream === 'assistant' && data.data){
+        hasStreamReply = true;
         // 优先用 data.text（完整文本）避免 delta 重复拼接
         if(data.data.text) fullReply = data.data.text;
         else if(data.data.delta) fullReply += data.data.delta;
@@ -2871,7 +2878,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
     var result = await openclaw.sendChat(sessionKey, userMessage);
     console.log('[OpenClaw] chat.send 返回:', JSON.stringify(result));
     // chat.send 返回确认，实际回复通过 agent 事件推送
-    if(result && result.content){
+    // 只有当没有收到过流式 agent 事件时，才用 result.content 兜底显示
+    if(result && result.content && !hasStreamReply){
       var t = document.getElementById('typingMsg');
       if(t) t.remove();
       var reply = '';
@@ -3201,7 +3209,18 @@ function loadArchive(){
 
 // Employee sync
 function saveEmployees(){
+  // 1. 始终保存到 localStorage 作为本地缓存
   localStorage.setItem('sb_employees',JSON.stringify(emps));
+  // 2. 如果已登录且后端可用，同步到服务器
+  var token = localStorage.getItem('sb_auth_token');
+  if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
+    emps.forEach(function(emp){
+      apiFetch('/api/agents/' + emp.id, {
+        method: 'PUT',
+        body: JSON.stringify(emp)
+      }).catch(function(e){ console.log('同步员工到后端失败:', e); });
+    });
+  }
 }
 
 // 状态文本转换
@@ -3331,13 +3350,27 @@ function applyTemplate(templateKey){
   event.currentTarget.style.background = 'var(--accent-light)';
 }
 
-function loadEmployees(){
-  const saved=localStorage.getItem('sb_employees');
+async function loadEmployees(){
+  // 1. 优先从后端加载
+  var token = localStorage.getItem('sb_auth_token');
+  if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
+    try{
+      var data = await apiFetch('/api/agents');
+      if(data && data.length > 0){
+        emps.length = 0;
+        data.forEach(function(a){ emps.push(a); });
+        localStorage.setItem('sb_employees', JSON.stringify(emps));
+        return;
+      }
+    }catch(e){ console.log('从后端加载员工失败，回退到本地:', e); }
+  }
+  // 2. 回退到 localStorage
+  var saved=localStorage.getItem('sb_employees');
   if(saved){
     try{
-      const data=JSON.parse(saved);
+      var data=JSON.parse(saved);
       emps.length=0;
-      data.forEach(e=>emps.push(e));
+      data.forEach(function(e){emps.push(e);});
     }catch(e){}
   }
 }
@@ -4278,8 +4311,55 @@ items[slashIdx]?.scrollIntoView({block:'nearest'});
 }
 
 // Mention
-function showMention(){document.getElementById('mentionDropdown')?.classList.add('active');mentionMode=true;document.getElementById('msgInput').value+='@';document.getElementById('msgInput').focus();}
-function selectMention(dir){const items=document.querySelectorAll('#mentionDropdown .mention-item');if(!items.length) return;items[mentionIdx]?.classList.remove('selected');mentionIdx=(mentionIdx+dir+items.length)%items.length;items[mentionIdx]?.classList.add('selected');}
+function showMention(){
+  var dd = document.getElementById('mentionDropdown');
+  if(dd) dd.style.display = 'block';
+  mentionMode=true;
+  var input = document.getElementById('msgInput');
+  if(input) input.value+='@';
+  if(input) input.focus();
+}
+function showMentionDropdown(){
+  var dd = document.getElementById('mentionDropdown');
+  var list = document.getElementById('mentionList');
+  if(!dd || !list) return;
+  dd.style.display = 'block';
+  list.innerHTML = '';
+  // "所有人" 选项
+  var allDiv = document.createElement('div');
+  allDiv.className = 'mention-item';
+  allDiv.style.cssText = 'padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;';
+  allDiv.innerHTML = '<span style="font-size:16px;">👥</span><span>所有人</span>';
+  allDiv.onclick = function(){
+    var input = document.getElementById('msgInput');
+    if(input) input.value += '@所有人 ';
+    dd.style.display = 'none';
+    mentionMode = false;
+  };
+  list.appendChild(allDiv);
+  // 员工列表
+  emps.forEach(function(emp){
+    if(emp.archived) return;
+    var item = document.createElement('div');
+    item.className = 'mention-item';
+    item.style.cssText = 'padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;';
+    item.innerHTML = '<span style="font-size:16px;">' + (emp.name ? emp.name[0] : '?') + '</span><span>' + emp.name + ' (' + emp.role + ')</span>';
+    item.onclick = function(){
+      var input = document.getElementById('msgInput');
+      if(input) input.value += '@' + emp.name + ' ';
+      dd.style.display = 'none';
+      mentionMode = false;
+    };
+    list.appendChild(item);
+  });
+}
+function selectMention(dir){
+  var items = document.querySelectorAll('#mentionDropdown .mention-item');
+  if(!items.length) return;
+  items[mentionIdx]?.classList.remove('selected');
+  mentionIdx=(mentionIdx+dir+items.length)%items.length;
+  items[mentionIdx]?.classList.add('selected');
+}
 function pickMention(id){
 const name=id==='all'?'所有人':emps.find(e=>e.id===id)?.name||'';
 const input=document.getElementById('msgInput');
