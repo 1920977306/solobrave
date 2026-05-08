@@ -48,6 +48,7 @@ DATA_DIR = os.path.join(os.path.expanduser('~'), '.solobrave-data')
 SECRET_FILE = os.path.join(DATA_DIR, '.secret')
 USERS_FILE = os.path.join(DATA_DIR, 'users.json')
 AGENTS_FILE = os.path.join(DATA_DIR, 'agents.json')
+GROUPS_FILE = os.path.join(DATA_DIR, 'groups.json')
 CHATS_DIR = os.path.join(DATA_DIR, 'chats')
 SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
 
@@ -277,6 +278,27 @@ def _save_agents(agents):
     _write_json(AGENTS_FILE, agents)
 
 
+# ─── 群组管理 ──────────────────────────────────────────
+
+def _load_groups():
+    """加载群组列表"""
+    groups = _read_json(GROUPS_FILE, [])
+    return groups if isinstance(groups, list) else []
+
+
+def _save_groups(groups):
+    """保存群组列表"""
+    _write_json(GROUPS_FILE, groups)
+
+
+def _find_group(groups, key, value):
+    """在群组列表中查找群组"""
+    for g in groups:
+        if g.get(key) == value:
+            return g
+    return None
+
+
 # ─── 聊天记录 ──────────────────────────────────────────
 
 def _load_chat(agent_id):
@@ -501,6 +523,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_chat(agent_id)
                 return
 
+        # Groups API
+        if path == '/api/groups':
+            self._handle_get_groups()
+            return
+        if path.startswith('/api/groups/'):
+            sub = path[len('/api/groups/'):]
+            # /api/groups/:id/history
+            if sub.endswith('/history'):
+                group_id = sub[:-len('/history')]
+                if group_id:
+                    self._handle_get_group_history(group_id)
+                    return
+            # /api/groups/:id
+            if '/' not in sub:
+                if sub:
+                    self._handle_get_group(sub)
+                    return
+
         # Proxy (GET not allowed)
         if path == '/api/proxy':
             self._send_json_error(405, 'POST only')
@@ -555,6 +595,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_create_agent()
             return
 
+        # Groups API
+        if path == '/api/groups':
+            self._handle_create_group()
+            return
+        if path.startswith('/api/groups/'):
+            sub = path[len('/api/groups/'):]
+            # /api/groups/:id/chat
+            if sub.endswith('/chat'):
+                group_id = sub[:-len('/chat')]
+                if group_id:
+                    self._handle_group_chat(group_id)
+                    return
+            # /api/groups/:id/members
+            if sub.endswith('/members'):
+                group_id = sub[:-len('/members')]
+                if group_id:
+                    self._handle_add_group_member(group_id)
+                    return
+
         # Chat API
         if path.startswith('/api/chat/'):
             agent_id = path[len('/api/chat/'):]
@@ -566,6 +625,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_PUT(self):
         path = self.path.split('?')[0]
+
+        # Groups API
+        if path.startswith('/api/groups/'):
+            group_id = path[len('/api/groups/'):]
+            if group_id:
+                self._handle_update_group(group_id)
+                return
 
         # Agents API
         if path.startswith('/api/agents/'):
@@ -591,6 +657,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             agent_name = path[len('/api/openclaw/agents/'):]
             if agent_name:
                 self._handle_auth_required_delete(path)
+                return
+
+        # Groups API
+        if path.startswith('/api/groups/'):
+            sub = path[len('/api/groups/'):]
+            # /api/groups/:id/members/:empId
+            parts = sub.split('/')
+            if len(parts) == 2 and parts[1].startswith('members'):
+                pass  # handled below
+            elif len(parts) == 3 and parts[1] == 'members':
+                # /api/groups/:groupId/members/:empId
+                self._handle_remove_group_member(parts[0], parts[2])
+                return
+            elif len(parts) == 1 and parts[0]:
+                # /api/groups/:id
+                self._handle_delete_group(parts[0])
                 return
 
         # Agents API
@@ -949,6 +1031,345 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _save_users(users)
 
         self._send_json(200, {'message': f'用户 {user["username"]} 已删除'})
+
+    # ═══════════════════════════════════════════════════
+    # 群组 API（项目组群聊）
+    # ═══════════════════════════════════════════════════
+
+    def _check_group_access(self, auth, group_id):
+        """检查用户是否有权限访问某群组"""
+        groups = _load_groups()
+        group = _find_group(groups, 'id', group_id)
+        if not group:
+            return None, '群组不存在', 404
+        # 群组创建者或管理员可访问；成员也可访问
+        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
+            member_ids = [m.get('id') for m in group.get('members', [])]
+            if auth.user_info['userId'] not in member_ids:
+                # 也检查 agent 是否属于该用户
+                return None, '权限不足', 403
+        return group, None, None
+
+    def _handle_get_groups(self):
+        """GET /api/groups — 获取所有群组"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        groups = _load_groups()
+        # 管理员看全部，普通用户看自己创建的 + 自己是成员的
+        if not auth.is_admin:
+            uid = auth.user_info['userId']
+            agents = _load_agents()
+            my_agent_ids = [a.get('id') for a in agents if a.get('createdBy') == uid or a.get('visibility') == 'all']
+            result = []
+            for g in groups:
+                if g.get('createdBy') == uid:
+                    result.append(g)
+                else:
+                    member_ids = [m.get('id') for m in g.get('members', [])]
+                    if any(mid in my_agent_ids for mid in member_ids):
+                        result.append(g)
+            self._send_json(200, result)
+            return
+
+        self._send_json(200, groups)
+
+    def _handle_get_group(self, group_id):
+        """GET /api/groups/:id"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        group, err, status = self._check_group_access(auth, group_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+
+        self._send_json(200, group)
+
+    def _handle_create_group(self):
+        """POST /api/groups — 创建群组"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        name = body.get('name', '').strip()
+        if not name:
+            self._send_json(400, {'error': '群组名称不能为空'})
+            return
+
+        members = body.get('members', [])
+        if not isinstance(members, list):
+            members = []
+        # members 应为 [{id, role}, ...]
+        valid_members = []
+        for m in members:
+            if isinstance(m, dict) and m.get('id'):
+                valid_members.append({'id': m['id'], 'role': m.get('role', '')})
+            elif isinstance(m, str):
+                valid_members.append({'id': m, 'role': ''})
+
+        lead_agent_id = body.get('leadAgentId', '')
+        # 验证 leadAgentId 是成员之一
+        if lead_agent_id and lead_agent_id not in [m['id'] for m in valid_members]:
+            self._send_json(400, {'error': 'leadAgentId 必须是成员之一'})
+            return
+
+        new_group = {
+            'id': 'grp_' + uuid.uuid4().hex[:10],
+            'name': name,
+            'avatar': body.get('avatar', '👥'),
+            'members': valid_members,
+            'leadAgentId': lead_agent_id,
+            'description': body.get('description', ''),
+            'createdBy': auth.user_info['userId'],
+            'createdAt': datetime.now().isoformat()
+        }
+
+        groups = _load_groups()
+        groups.append(new_group)
+        _save_groups(groups)
+
+        self._send_json(201, new_group)
+
+    def _handle_update_group(self, group_id):
+        """PUT /api/groups/:id"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        groups = _load_groups()
+        group = _find_group(groups, 'id', group_id)
+        if not group:
+            self._send_json(404, {'error': '群组不存在'})
+            return
+
+        # 权限校验：创建者或管理员
+        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
+            self._send_auth_error('权限不足', 403)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        # 可更新字段
+        updatable = ['name', 'avatar', 'description', 'leadAgentId']
+        for key in updatable:
+            if key in body:
+                group[key] = body[key]
+
+        # members 整体更新
+        if 'members' in body:
+            members = body['members']
+            if isinstance(members, list):
+                valid_members = []
+                for m in members:
+                    if isinstance(m, dict) and m.get('id'):
+                        valid_members.append({'id': m['id'], 'role': m.get('role', '')})
+                    elif isinstance(m, str):
+                        valid_members.append({'id': m, 'role': ''})
+                group['members'] = valid_members
+
+        # 验证 leadAgentId 仍属于成员
+        if group.get('leadAgentId'):
+            member_ids = [m['id'] for m in group.get('members', [])]
+            if group['leadAgentId'] not in member_ids:
+                group['leadAgentId'] = member_ids[0] if member_ids else ''
+
+        _save_groups(groups)
+        self._send_json(200, group)
+
+    def _handle_delete_group(self, group_id):
+        """DELETE /api/groups/:id"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        groups = _load_groups()
+        group = _find_group(groups, 'id', group_id)
+        if not group:
+            self._send_json(404, {'error': '群组不存在'})
+            return
+
+        # 权限校验：创建者或管理员
+        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
+            self._send_auth_error('权限不足', 403)
+            return
+
+        groups = [g for g in groups if g.get('id') != group_id]
+        _save_groups(groups)
+
+        # 删除群组聊天记录
+        chat_file = os.path.join(CHATS_DIR, f'group_{group_id}.json')
+        if os.path.isfile(chat_file):
+            try:
+                os.remove(chat_file)
+            except OSError:
+                pass
+
+        self._send_json(200, {'message': f'群组 {group.get("name", "")} 已删除'})
+
+    def _handle_add_group_member(self, group_id):
+        """POST /api/groups/:id/members — 添加成员"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        groups = _load_groups()
+        group = _find_group(groups, 'id', group_id)
+        if not group:
+            self._send_json(404, {'error': '群组不存在'})
+            return
+
+        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
+            self._send_auth_error('权限不足', 403)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        # body: {member: {id, role}} or {id, role}
+        member = body.get('member', body)
+        if isinstance(member, dict) and member.get('id'):
+            new_member = {'id': member['id'], 'role': member.get('role', '')}
+        elif isinstance(member, str):
+            new_member = {'id': member, 'role': ''}
+        else:
+            self._send_json(400, {'error': '缺少成员 id'})
+            return
+
+        # 检查是否已存在
+        existing_ids = [m['id'] for m in group.get('members', [])]
+        if new_member['id'] in existing_ids:
+            self._send_json(409, {'error': '该成员已在群组中'})
+            return
+
+        group.setdefault('members', []).append(new_member)
+        _save_groups(groups)
+
+        self._send_json(200, group)
+
+    def _handle_remove_group_member(self, group_id, emp_id):
+        """DELETE /api/groups/:id/members/:empId — 移除成员"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        groups = _load_groups()
+        group = _find_group(groups, 'id', group_id)
+        if not group:
+            self._send_json(404, {'error': '群组不存在'})
+            return
+
+        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
+            self._send_auth_error('权限不足', 403)
+            return
+
+        original_len = len(group.get('members', []))
+        group['members'] = [m for m in group.get('members', []) if m.get('id') != emp_id]
+
+        if len(group['members']) == original_len:
+            self._send_json(404, {'error': '该成员不在群组中'})
+            return
+
+        # 如果移除的是 leadAgent，需要重新指定
+        if group.get('leadAgentId') == emp_id:
+            group['leadAgentId'] = group['members'][0]['id'] if group['members'] else ''
+
+        _save_groups(groups)
+        self._send_json(200, group)
+
+    def _handle_group_chat(self, group_id):
+        """POST /api/groups/:id/chat — 发送消息到群组"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        group, err, status = self._check_group_access(auth, group_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        message = body.get('message', '').strip()
+        if not message:
+            self._send_json(400, {'error': '消息内容不能为空'})
+            return
+
+        mentions = body.get('mentions', [])
+        if not isinstance(mentions, list):
+            mentions = []
+
+        # 构建消息内容，如果有 @mentions 则拼接
+        content = message
+        if mentions:
+            mention_tags = ' '.join(f'@{mid}' for mid in mentions)
+            content = f'{mention_tags} {message}'
+
+        # 保存用户消息到群组聊天记录
+        user_message = {
+            'id': 'msg_' + uuid.uuid4().hex[:8],
+            'sender': auth.user_info['userId'],
+            'senderType': 'user',
+            'content': content,
+            'mentions': mentions,
+            'timestamp': datetime.now().isoformat(),
+            'type': 'text'
+        }
+
+        chat_key = f'group_{group_id}'
+        messages = _load_chat(chat_key)
+        messages.append(user_message)
+        _save_chat(chat_key, messages)
+
+        # 返回消息和群组 session 信息，前端通过 WS 发送到 leadAgent
+        lead_agent = group.get('leadAgentId', '')
+        session_key = f'group:{group_id}:main'
+
+        self._send_json(200, {
+            'message': user_message,
+            'leadAgentId': lead_agent,
+            'sessionKey': session_key,
+            'status': 'sent'
+        })
+
+    def _handle_get_group_history(self, group_id):
+        """GET /api/groups/:id/history — 获取群组聊天历史"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        group, err, status = self._check_group_access(auth, group_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+
+        chat_key = f'group_{group_id}'
+        messages = _load_chat(chat_key)
+        self._send_json(200, {'messages': messages})
 
     # ═══════════════════════════════════════════════════
     # Agent API
@@ -1820,6 +2241,7 @@ def main():
     print(f'  🔐 认证 API:  /api/auth/*')
     print(f'  👤 用户管理:  /api/users/*')
     print(f'  🤖 Agent API: /api/agents/*')
+    print(f'  👥 群组 API:  /api/groups/*')
     print(f'  💬 聊天 API:  /api/chat/*')
     print(f'  🔀 API 代理:  POST /api/proxy')
     print(f'  🦞 OpenClaw:  /api/openclaw/*')
