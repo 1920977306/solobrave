@@ -3215,23 +3215,29 @@ function saveEmployees(){
   var token = localStorage.getItem('sb_auth_token');
   if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
     emps.forEach(function(emp){
-      // 先尝试 PUT 更新，404 则 POST 创建
-      apiFetch('/api/agents/' + emp.id, {
-        method: 'PUT',
-        body: JSON.stringify(emp)
-      }).then(function(res){
-        if(res && res.status === 404){
-          // Agent 不存在，用 POST 创建
-          return apiFetch('/api/agents', {
-            method: 'POST',
-            body: JSON.stringify(Object.assign({}, emp, {
-              createdBy: currentUser?.id,
-              createdByName: currentUser?.displayName || currentUser?.name
-            }))
-          });
-        }
-      }).catch(function(e){ console.log('同步员工到后端失败:', e); });
+      syncEmpToServer(emp);
     });
+  }
+}
+async function syncEmpToServer(emp){
+  try {
+    // 先尝试 PUT 更新
+    var res = await apiFetch('/api/agents/' + emp.id, {
+      method: 'PUT',
+      body: JSON.stringify(emp)
+    });
+    if(res && res.status === 404){
+      // 不存在，POST 创建
+      await apiFetch('/api/agents', {
+        method: 'POST',
+        body: JSON.stringify(Object.assign({}, emp, {
+          createdBy: currentUser?.id,
+          createdByName: currentUser?.displayName || currentUser?.name
+        }))
+      });
+    }
+  } catch(e){
+    console.log('同步员工到后端失败:', e);
   }
 }
 

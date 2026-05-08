@@ -1058,6 +1058,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'apiKey': body.get('apiKey', ''),
             'openclawAgent': body.get('openclawAgent', ''),
             'openclawModel': body.get('openclawModel', ''),
+            'openclawName': body.get('openclawName', ''),
+            'aiProvider': body.get('aiProvider', ''),
             'systemPrompt': body.get('systemPrompt', ''),
             'department': body.get('department', ''),
             'customEndpoint': body.get('customEndpoint', ''),
