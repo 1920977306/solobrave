@@ -1246,6 +1246,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   transition: background 0.1s;
 }
 .group-chat-item:hover { background: var(--bg-secondary); }
+.group-chat-item.active { background: var(--bg-secondary); border-left: 3px solid var(--accent); }
 .group-chat-icon {
   width: 36px;
   height: 36px;
@@ -1672,7 +1673,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   </div>
   <div class="category-content">
 
-    <div class="group-chat-item">
+    <div class="group-chat-item" onclick="openGroupChat('proj_fastdev')" data-group="proj_fastdev">
       <div class="group-chat-icon">&#128194;</div>
       <div class="group-chat-info">
         <div class="group-chat-name">快速研发组</div>
@@ -1680,7 +1681,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
       <span class="group-chat-badge">7</span>
     </div>
 
-    <div class="group-chat-item">
+    <div class="group-chat-item" onclick="openGroupChat('proj_allhands')" data-group="proj_allhands">
       <div class="group-chat-icon">&#128194;</div>
       <div class="group-chat-info">
         <div class="group-chat-name">公司全员大群</div>
@@ -2833,26 +2834,35 @@ function copyCode(btn){
 
 // ========== 发送消息 ==========
 function sendMsg(){
-  const input = document.getElementById('msgInput');
-  const text = input.value.trim();
+  var input = document.getElementById('msgInput');
+  var text = input.value.trim();
   if(!text) return;
   
-  const area = document.getElementById('messagesArea');
-  const now = new Date();
-  const timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
-  const emp = getCurrentEmployeeInfo();
+  var area = document.getElementById('messagesArea');
+  var now = new Date();
+  var timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  
+  // 检查是否在群聊模式
+  var currentGroup = localStorage.getItem('sb_current_group');
+  if(currentGroup){
+    sendGroupMsg(currentGroup, text, timeStr);
+    input.value = '';
+    return;
+  }
+  
+  var emp = getCurrentEmployeeInfo();
   
   // 清除空状态提示
-  const emptyState = area.querySelector('.chat-empty-state');
+  var emptyState = area.querySelector('.chat-empty-state');
   if(emptyState) emptyState.remove();
   // 清除旧的 time-separator 如果存在
-  const oldSep = area.querySelector('.time-separator');
+  var oldSep = area.querySelector('.time-separator');
   if(!oldSep){
     area.insertAdjacentHTML('afterbegin','<div class="time-separator"><span>今天</span></div>');
   }
   
   // 添加用户消息
-  const userMsg = document.createElement('div');
+  var userMsg = document.createElement('div');
   userMsg.className = 'msg own';
   userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">'+timeStr+'</span></div><div class="msg-bubble">'+escapeHtml(text)+'</div></div>';
   area.appendChild(userMsg);
@@ -2861,7 +2871,7 @@ function sendMsg(){
   area.scrollTop = area.scrollHeight;
   
   // 显示打字指示器
-  const typing = document.createElement('div');
+  var typing = document.createElement('div');
   typing.className = 'msg typing-msg';
   typing.id = 'typingMsg';
   typing.innerHTML = '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name||'AI') + '</span><span class="msg-sender-role">' + escapeHtml(emp.role||'') + '</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div>';
@@ -2869,7 +2879,7 @@ function sendMsg(){
   area.scrollTop = area.scrollHeight;
   
   // 获取文档上下文
-  const docContext = getDocContextForChat();
+  var docContext = getDocContextForChat();
   
   // OpenClaw WS → API 直连降级
   var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
@@ -2889,6 +2899,113 @@ function sendMsg(){
       saveChatHistory(text, simReply, docContext);
     }, 500);
   }
+}
+
+// Send Group Message
+function sendGroupMsg(groupId, text, timeStr){
+  var area = document.getElementById('messagesArea');
+  if(!area) return;
+  
+  // 清除空状态提示
+  var emptyState = area.querySelector('.chat-empty-state');
+  if(emptyState) emptyState.remove();
+  
+  // 检查是否需要添加时间分隔线
+  var lastMsg = area.querySelector('.msg:last-of-type');
+  var needsSeparator = !lastMsg;
+  if(needsSeparator){
+    area.insertAdjacentHTML('beforeend', '<div class="time-separator"><span>今天 ' + timeStr + '</span></div>');
+  }
+  
+  // 添加用户消息到群聊
+  var userMsg = document.createElement('div');
+  userMsg.className = 'msg own';
+  userMsg.setAttribute('data-sender', 'user');
+  userMsg.setAttribute('data-group', groupId);
+  userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + escapeHtml(text) + '</div></div>';
+  area.appendChild(userMsg);
+  area.scrollTop = area.scrollHeight;
+  
+  // 保存到群聊历史
+  var groupMsgs = JSON.parse(localStorage.getItem('sb_group_msgs_' + groupId) || '[]');
+  groupMsgs.push({
+    sender: 'user',
+    text: escapeHtml(text),
+    time: timeStr,
+    date: '今天'
+  });
+  localStorage.setItem('sb_group_msgs_' + groupId, JSON.stringify(groupMsgs));
+  
+  // 模拟 AI 成员回复（轮流回复）
+  var groupMembers = getGroupMembers(groupId);
+  var responder = groupMembers[Math.floor(Math.random() * groupMembers.length)];
+  
+  // 显示打字指示器
+  var typing = document.createElement('div');
+  typing.className = 'msg typing-msg';
+  typing.id = 'typingMsg';
+  typing.innerHTML = '<div class="msg-avatar">' + renderAvatar(responder, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(responder.name) + '</span><span class="msg-sender-role">' + escapeHtml(responder.role) + '</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div>';
+  area.appendChild(typing);
+  area.scrollTop = area.scrollHeight;
+  
+  // 模拟回复延迟
+  setTimeout(function(){
+    var t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    
+    var replyText = generateGroupReply(text, responder, groupId);
+    
+    var replyMsg = document.createElement('div');
+    replyMsg.className = 'msg';
+    replyMsg.setAttribute('data-sender', responder.id);
+    replyMsg.setAttribute('data-group', groupId);
+    replyMsg.innerHTML = '<div class="msg-avatar">' + renderAvatar(responder, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(responder.name) + '</span><span class="msg-sender-role">' + escapeHtml(responder.role) + '</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + replyText + '</div></div>';
+    area.appendChild(replyMsg);
+    area.scrollTop = area.scrollHeight;
+    
+    // 保存 AI 回复
+    groupMsgs.push({
+      sender: responder.id,
+      text: replyText,
+      time: timeStr,
+      date: '今天'
+    });
+    localStorage.setItem('sb_group_msgs_' + groupId, JSON.stringify(groupMsgs));
+  }, 1500 + Math.random() * 1000);
+}
+
+// Get group members
+function getGroupMembers(groupId){
+  if(groupId === 'proj_fastdev'){
+    return emps.filter(function(e){ return !e.archived && ['zjg', 'xlcx', 'dlx', 'hx'].indexOf(e.id) >= 0; });
+  } else if(groupId === 'proj_allhands'){
+    return emps.filter(function(e){ return !e.archived; });
+  }
+  return [];
+}
+
+// Generate group reply
+function generateGroupReply(userText, responder, groupId){
+  var mentions = [];
+  var mentionMatch = userText.match(/@(\S+)/g);
+  if(mentionMatch){
+    mentions = mentionMatch.map(function(m){ return m.slice(1); });
+  }
+  
+  var isMentioned = mentions.indexOf(responder.name) >= 0 || mentions.indexOf('所有人') >= 0;
+  
+  if(isMentioned){
+    return '<span class="mention">@' + escapeHtml(mentions[0]) + '</span> 收到！我来处理这个问题。';
+  }
+  
+  var replies = [
+    '收到，我来跟进一下。',
+    '好的，我看看这个问题。',
+    '明白，正在处理中。',
+    '收到，稍后给你反馈。',
+    '好的，我来协助处理。'
+  ];
+  return replies[Math.floor(Math.random() * replies.length)];
 }
 
 // 通过 OpenClaw WS 发送消息
@@ -4118,6 +4235,43 @@ setInterval(updateConnectionStatus, 5000);
 // Initial update
 document.addEventListener('DOMContentLoaded', updateConnectionStatus);
 
+// Open Group Chat
+function openGroupChat(groupId){
+  // 移除所有 active 状态
+  document.querySelectorAll('.list-item').forEach(function(i){ i.classList.remove('active'); });
+  document.querySelectorAll('.group-chat-item').forEach(function(i){ i.classList.remove('active'); });
+  
+  // 标记当前群组为 active
+  var groupItem = document.querySelector('.group-chat-item[data-group="' + groupId + '"]');
+  if(groupItem) groupItem.classList.add('active');
+  
+  // 获取群组信息
+  var groupName = '群聊';
+  var memberCount = 0;
+  if(groupId === 'proj_fastdev'){ groupName = '快速研发组'; memberCount = 7; }
+  else if(groupId === 'proj_allhands'){ groupName = '公司全员大群'; memberCount = 11; }
+  
+  // 更新聊天头部
+  var chatHeaderName = document.querySelector('.chat-header-name');
+  var chatHeaderRole = document.querySelector('.chat-header-role');
+  var chatHeaderAvatar = document.querySelector('.chat-header-v2 .avatar') || document.querySelector('.chat-header .avatar');
+  
+  if(chatHeaderName) chatHeaderName.innerHTML = '<span style="display:flex;align-items:center;gap:6px;"><span>👥</span><span>' + escapeHtml(groupName) + '</span></span>';
+  if(chatHeaderRole) chatHeaderRole.textContent = memberCount + ' 名成员 · 群聊';
+  if(chatHeaderAvatar){ chatHeaderAvatar.innerHTML = '<span style="font-size:20px;">👥</span>'; chatHeaderAvatar.style.background = 'linear-gradient(135deg, #FF6B35, #FF9500)'; }
+  
+  // 存储当前群组
+  localStorage.setItem('sb_current_group', groupId);
+  localStorage.removeItem('sb_current_emp');
+  
+  // 渲染群聊消息
+  renderGroupMsgs(groupId);
+  
+  // 隐藏项目看板
+  var appMain = document.querySelector('.app-main');
+  if(appMain) appMain.classList.remove('show-board');
+}
+
 // Open Chat
 function openChat(id){
 document.querySelectorAll('.list-item').forEach(i=>i.classList.remove('active'));
@@ -4220,6 +4374,71 @@ return'<div class="msg '+(own?'own':'')+'">'+
 '</div></div>';
 }).join('')+'<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
 area.scrollTop=area.scrollHeight;
+}
+
+// Render Group Chat Messages
+function renderGroupMsgs(groupId){
+  var area = document.getElementById('messagesArea');
+  if(!area) return;
+  
+  // 群聊消息数据（模拟）
+  var groupMsgs = JSON.parse(localStorage.getItem('sb_group_msgs_' + groupId) || '[]');
+  
+  // 如果没有历史消息，显示默认欢迎消息
+  if(groupMsgs.length === 0){
+    groupMsgs = [
+      {sender:'zjg', text:'各位早，今天的目标是完成首页响应式适配。', time:'09:00', date:'今天'},
+      {sender:'xlcx', text:'收到！我这边负责导航和布局适配。', time:'09:05', date:'今天'},
+      {sender:'user', text:'<span class="mention">@Lucy</span> 预计什么时候可以提测？', time:'09:15', date:'今天'},
+      {sender:'xlcx', text:'预计 10:30 可以完成，11:00 前提测。', time:'09:16', date:'今天'}
+    ];
+  }
+  
+  if(groupMsgs.length === 0){
+    area.innerHTML = '<div class="chat-empty-state"><div class="empty-avatar">👥</div><div class="empty-title">群聊</div><div class="empty-desc">在下方输入框发送消息，与团队成员开始协作<br>输入 @ 可以提及成员</div></div>';
+    return;
+  }
+  
+  // 按日期分组
+  var currentDate = '';
+  var html = '';
+  
+  groupMsgs.forEach(function(m){
+    if(m.date && m.date !== currentDate){
+      currentDate = m.date;
+      html += '<div class="time-separator"><span>' + escapeHtml(currentDate) + ' ' + escapeHtml(m.time || '') + '</span></div>';
+    }
+    
+    var e = emps.find(function(x){ return x.id === m.sender; });
+    var own = m.sender === 'user';
+    var avatarHtml = '';
+    var senderHtml = '';
+    
+    if(!own){
+      if(e){
+        avatarHtml = '<div class="msg-avatar">' + renderAvatar(e, 32) + '</div>';
+        senderHtml = '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(e.name || '') + '</span><span class="msg-sender-role">' + escapeHtml(e.role || '') + '</span><span class="msg-sender-time">' + escapeHtml(m.time || '') + '</span></div>';
+      } else {
+        avatarHtml = '<div class="msg-avatar" style="background:linear-gradient(135deg,#999,#bbb);display:flex;align-items:center;justify-content:center;font-size:14px;">?</div>';
+        senderHtml = '<div class="msg-sender"><span class="msg-sender-name">未知成员</span><span class="msg-sender-time">' + escapeHtml(m.time || '') + '</span></div>';
+      }
+    } else {
+      senderHtml = '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + escapeHtml(m.time || '') + '</span></div>';
+    }
+    
+    html += '<div class="msg ' + (own ? 'own' : '') + '" data-sender="' + escapeHtml(m.sender || '') + '" data-group="' + escapeHtml(groupId || '') + '">' +
+      avatarHtml +
+      '<div class="msg-content">' +
+      senderHtml +
+      '<div class="msg-bubble">' + (m.text || '') + '</div>' +
+      '</div></div>';
+  });
+  
+  // 添加输入指示器
+  html += '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
+  
+  area.innerHTML = html;
+  area.scrollTop = area.scrollHeight;
 }
 
 // ============ 群公告功能（文档链接版）============
