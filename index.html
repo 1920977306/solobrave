@@ -5205,17 +5205,19 @@ function saveEmpConnect(){
   saveEmployees();
 
   // 自动在 Gateway 注册/更新 Agent
-  if(emp.openclawName && emp.openclawName !== 'main'){
-    registerOpenClawAgent(emp);
-  } else {
-    showToast('✅ 连接配置已保存（使用默认 Agent）');
-  }
+  registerOpenClawAgent(emp);
 }
 
 async function registerOpenClawAgent(emp){
   if(!openclaw || !openclaw.connected){
-    showToast('✅ 配置已保存，⚠️ Gateway 未连接，Agent 将在下次连接时注册');
+    console.log('[registerAgent] Gateway 未连接，跳过注册');
     return;
+  }
+  // 确保有 agentId
+  if(!emp.openclawName || emp.openclawName === 'main'){
+    // 用 emp.id 或 emp.name 作为子 agent 标识
+    emp.openclawName = emp.name || emp.id;
+    saveEmployees();
   }
   try {
     var result = await openclaw.send('agents.update', {
@@ -5344,7 +5346,7 @@ emp.userDoc=document.getElementById('empUserDoc').value;
 }
 saveEmployees();
 // SOUL.md 变更时重新注册 Agent 到 Gateway
-if(emp && (emp.openclawName || emp.connectionType === 'openclaw') && typeof registerOpenClawAgent === 'function'){
+if(emp && typeof registerOpenClawAgent === 'function'){
   registerOpenClawAgent(emp);
 }
 showToast('✅ 文档已保存');
