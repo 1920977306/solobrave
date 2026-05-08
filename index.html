@@ -5288,26 +5288,59 @@ async function registerOpenClawAgent(emp){
     console.log('[registerAgent] Gateway 未连接，跳过注册');
     return;
   }
-  // 确保有 agentId
+  // 确保有 agentId（main 是保留名不能用，用英文/拼音）
   if(!emp.openclawName || emp.openclawName === 'main'){
-    // 用 emp.id 或 emp.name 作为子 agent 标识
-    emp.openclawName = emp.name || emp.id;
+    // Gateway agentId 用英文，中文名可能有问题
+    emp.openclawName = 'agent-' + emp.id;
     saveEmployees();
   }
+  var soulContent = emp.soulDoc || emp.systemPrompt || ('你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。');
+  var identityContent = emp.idDoc || (emp.name + ' - ' + emp.role);
+
+  // 先尝试 create，再 update
   try {
-    var result = await openclaw.send('agents.update', {
-      agentId: emp.openclawName,
-      name: emp.name,
-      role: emp.role,
-      systemPrompt: emp.soulDoc || emp.systemPrompt || ('你是 ' + emp.name + '，一个 ' + emp.role + '。'),
-      model: emp.apiModel || undefined,
-      provider: emp.aiProvider || undefined
-    });
-    console.log('[OpenClaw] Agent 注册/更新成功:', emp.openclawName, result);
-    showToast('✅ 连接配置已保存，Agent 已注册到 Gateway');
+    var createParams = {
+      name: emp.openclawName,
+      workspace: 'default'
+    };
+    if(emp.apiModel) createParams.model = emp.apiModel;
+    console.log('[OpenClaw] 创建 Agent:', JSON.stringify(createParams));
+    var result = await openclaw.send('agents.create', createParams);
+    console.log('[OpenClaw] Agent 创建成功:', emp.openclawName, JSON.stringify(result));
   } catch(e){
-    console.warn('[OpenClaw] Agent 注册失败:', e.message);
-    showToast('✅ 配置已保存，⚠️ Agent 注册失败: ' + e.message);
+    // create 失败（可能已存在），试 update
+    console.log('[OpenClaw] create 失败，尝试 update:', e.message);
+  }
+
+  // 用 agents.update 更新配置（create 成功后也 update 一次确保同步）
+  try {
+    var updateParams = {
+      agentId: emp.openclawName
+    };
+    if(emp.apiModel) updateParams.model = emp.apiModel;
+    var result2 = await openclaw.send('agents.update', updateParams);
+    console.log('[OpenClaw] Agent 更新成功:', emp.openclawName, JSON.stringify(result2));
+  } catch(e2){
+    console.log('[OpenClaw] update 也失败:', e2.message);
+  }
+
+  // 最后：用 CLI 写入 SOUL.md 到 agent 的 workspace
+  // 因为 Gateway WS 不支持 identity/soul/systemPrompt
+  // 需要通过 solobrave-server.py 的 API 写入
+  try {
+    await apiFetch('/api/openclaw/write-soul', {
+      method: 'POST',
+      body: JSON.stringify({
+        agentName: emp.openclawName,
+        soulContent: soulContent,
+        identityContent: identityContent
+      })
+    });
+    console.log('[OpenClaw] SOUL.md 已写入 agent workspace');
+    showToast('✅ Agent 已注册，SOUL.md 已写入');
+  } catch(e3){
+    console.log('[OpenClaw] SOUL.md 写入失败:', e3.message);
+    showToast('✅ Agent 已注册，⚠️ SOUL.md 需手动配置');
   }
 }
 function updateGatewayStatus(){
