@@ -2968,6 +2968,16 @@ function initOpenClaw(){
     if(statusEl) statusEl.textContent = '🟢 已连接';
     var empStatusEl = document.getElementById('empConnectGatewayStatus');
     if(empStatusEl){empStatusEl.textContent='🟢 已连接';empStatusEl.style.color='#34C759';}
+    
+    // 连接成功后自动获取模型列表
+    setTimeout(function(){
+      fetchOpenClawModels().then(function(models){
+        if(models && models.length > 0){
+          console.log('[OpenClaw] 模型列表已自动加载，共 ' + models.length + ' 个');
+          showToast('✅ 已加载 ' + models.length + ' 个可用模型', 'success');
+        }
+      });
+    }, 500);
   });
   openclaw.on('disconnected', function(){
     console.log('[OpenClaw] 断开连接');
@@ -5113,20 +5123,22 @@ showToast('✅ 模型配置已保存');
 var empSelectedConnectAIProvider='kimi';
 function selectAIProvider(providerId){
   empSelectedConnectAIProvider=providerId;
-  // 填充模型下拉
+  // 填充模型下拉 - 优先使用 OpenClaw 动态获取的模型列表
   var modelSelect=document.getElementById('empConnectModel');
+  
+  renderModelSelect(modelSelect, providerId, '');
+  
+  // 添加默认模型选项
   var provider=API_PROVIDERS[providerId];
-  if(provider && provider.models && provider.models.length>0){
-    var html='<option value="">-- 选择模型 --</option>';
-    for(var i=0;i<provider.models.length;i++){
-      html+='<option value="'+provider.models[i]+'">'+provider.models[i]+'</option>';
-    }
-    html+='<option value="'+provider.defaultModel+'">默认 ('+provider.defaultModel+')</option>';
-    modelSelect.innerHTML=html;
-    modelSelect.parentElement.style.display='block';
-  } else {
-    modelSelect.innerHTML='<option value="">-- 输入自定义模型名 --</option>';
+  if(provider && provider.defaultModel){
+    var defaultOpt = document.createElement('option');
+    defaultOpt.value = provider.defaultModel;
+    defaultOpt.textContent = '默认 (' + provider.defaultModel + ')';
+    modelSelect.appendChild(defaultOpt);
   }
+  
+  if(modelSelect.parentElement) modelSelect.parentElement.style.display='block';
+  
   // 自定义时显示 Base URL
   var baseUrlGroup=document.getElementById('empConnectBaseUrlGroup');
   if(baseUrlGroup) baseUrlGroup.style.display=providerId==='custom'?'block':'none';
@@ -5145,16 +5157,17 @@ function loadEmpConnect(emp){
   var aiProviderSelect=document.getElementById('empConnectAIProvider');
   if(aiProviderSelect) aiProviderSelect.value=aiProvider;
 
-  // 填充模型下拉
+  // 填充模型下拉 - 优先使用 OpenClaw 动态获取的模型列表
   var modelSelect=document.getElementById('empConnectModel');
+  renderModelSelect(modelSelect, aiProvider, emp.apiModel||'');
+  
+  // 添加默认模型选项
   var provider=API_PROVIDERS[aiProvider];
-  if(provider && provider.models && provider.models.length>0){
-    var html='<option value="">-- 选择模型 --</option>';
-    for(var i=0;i<provider.models.length;i++){
-      html+='<option value="'+provider.models[i]+'">'+provider.models[i]+'</option>';
-    }
-    html+='<option value="'+provider.defaultModel+'">默认 ('+provider.defaultModel+')</option>';
-    modelSelect.innerHTML=html;
+  if(provider && provider.defaultModel){
+    var defaultOpt = document.createElement('option');
+    defaultOpt.value = provider.defaultModel;
+    defaultOpt.textContent = '默认 (' + provider.defaultModel + ')';
+    modelSelect.appendChild(defaultOpt);
   }
 
   // 设置当前值
@@ -5225,16 +5238,93 @@ function updateGatewayStatus(){
     statusEl.style.color='#FF3B30';
   }
 }
+// 全局缓存 OpenClaw 返回的模型列表
+var openclawModels = null;
+var openclawModelsFetchedAt = 0;
+
 async function fetchOpenClawModels(){
-  if(!openclaw||!openclaw.connected)return;
+  if(!openclaw||!openclaw.connected){
+    console.log('[OpenClaw] 未连接，跳过获取模型列表');
+    return null;
+  }
   try{
     var result=await openclaw.send('models.list',{});
     console.log('[OpenClaw] models.list 返回:', JSON.stringify(result));
-    return result;
+    
+    // 解析模型列表 - 支持多种返回格式
+    var models = [];
+    if(result && Array.isArray(result.models)){
+      // 标准格式: { models: [{id,name,provider},...] }
+      models = result.models;
+    } else if(result && Array.isArray(result.data)){
+      // 备选格式: { data: [...] }
+      models = result.data;
+    } else if(Array.isArray(result)){
+      // 直接数组格式
+      models = result;
+    }
+    
+    if(models.length > 0){
+      openclawModels = models;
+      openclawModelsFetchedAt = Date.now();
+      console.log('[OpenClaw] 模型列表已缓存，共 ' + models.length + ' 个模型');
+      
+      // 触发模型列表更新事件
+      window.dispatchEvent(new CustomEvent('openclawModelsUpdated', { detail: models }));
+    }
+    
+    return models;
   }catch(e){
     console.warn('[OpenClaw] 获取模型列表失败:', e);
     return null;
   }
+}
+
+// 获取可用的模型列表（动态 > 静态配置）
+function getAvailableModels(providerId){
+  // 如果有 OpenClaw 动态获取的模型列表，优先使用
+  if(openclawModels && openclawModels.length > 0){
+    // 如果指定了 providerId，过滤对应供应商的模型
+    if(providerId){
+      var filtered = openclawModels.filter(function(m){
+        var modelProvider = (m.provider || '').toLowerCase();
+        return modelProvider === providerId || modelProvider.indexOf(providerId) >= 0;
+      });
+      if(filtered.length > 0) return filtered;
+    }
+    return openclawModels;
+  }
+  
+  // 回退到静态配置
+  var provider = API_PROVIDERS[providerId];
+  if(provider && provider.models){
+    return provider.models.map(function(m){ return { id: m, name: m }; });
+  }
+  
+  return [];
+}
+
+// 渲染模型选择下拉框
+function renderModelSelect(selectEl, providerId, selectedValue){
+  if(!selectEl) return;
+  
+  var models = getAvailableModels(providerId);
+  var html = '<option value="">使用默认模型</option>';
+  
+  if(models.length === 0){
+    // 没有获取到模型，显示提示
+    html += '<option value="" disabled>暂无可用模型（请检查 OpenClaw 连接）</option>';
+  } else {
+    for(var i = 0; i < models.length; i++){
+      var m = models[i];
+      var modelId = m.id || m;
+      var modelName = m.name || m.id || m;
+      var isSelected = (selectedValue && selectedValue === modelId) ? ' selected' : '';
+      html += '<option value="' + modelId + '"' + isSelected + '>' + modelName + '</option>';
+    }
+  }
+  
+  selectEl.innerHTML = html;
 }
 function saveEmpDocs(){
 if(!currentEmpId)return;
@@ -5896,7 +5986,12 @@ function updateWizardUI(){
   document.getElementById('wiz3').style.display=wizStep===3?'block':'none';
   document.getElementById('wizPrev').style.display=wizStep>1?'inline-block':'none';
   document.getElementById('wizNext').textContent=wizStep===3?'✨ 创建员工':'下一步 →';
-  if(wizStep===3)updateWizConfirm();
+  if(wizStep===3){
+    updateWizConfirm();
+    // 初始化模型下拉框 - 使用当前选中的供应商
+    var aiProviderId=document.getElementById('wizAIProvider').value||'kimi';
+    selectWizAIProvider(aiProviderId);
+  }
 }
 function updateWizConfirm(){
   var name=document.getElementById('wizName').value.trim()||'未命名';
@@ -5953,23 +6048,24 @@ function selectWizAIProvider(providerId){
   empSelectedAIProvider=providerId;
   empSelectedProvider='openclaw';
   
-  // 填充模型下拉
+  // 填充模型下拉 - 优先使用 OpenClaw 动态获取的模型列表
   var modelGroup=document.getElementById('wizModelGroup');
   var modelSelect=document.getElementById('wizModelSelect');
   var customGroup=document.getElementById('wizCustomEndpointGroup');
   var provider=API_PROVIDERS[providerId];
   
-  if(provider && provider.models && provider.models.length>0){
-    var html='<option value="">使用默认模型 ('+provider.defaultModel+')</option>';
-    for(var i=0;i<provider.models.length;i++){
-      html+='<option value="'+provider.models[i]+'">'+provider.models[i]+'</option>';
+  // 使用新的 renderModelSelect 函数，支持动态模型列表
+  renderModelSelect(modelSelect, providerId, '');
+  
+  // 如果有静态配置的默认模型，更新第一个 option 显示
+  if(provider && provider.defaultModel){
+    var firstOpt = modelSelect.querySelector('option:first-child');
+    if(firstOpt){
+      firstOpt.textContent = '使用默认模型 (' + provider.defaultModel + ')';
     }
-    modelSelect.innerHTML=html;
-    modelGroup.style.display='block';
-  } else {
-    modelSelect.innerHTML='<option value="">输入自定义模型名</option>';
-    modelGroup.style.display='block';
   }
+  
+  modelGroup.style.display='block';
   
   // 自定义时显示 Base URL
   customGroup.style.display=providerId==='custom'?'block':'none';
@@ -7122,6 +7218,6 @@ function checkQuota() {
 </div>
 
 <script src="avatars.js?v=1778166504"></script>
-<script src="openclaw-client-v3.js"></script>
+<script src="openclaw-client.js"></script>
 </body>
 </html>
