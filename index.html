@@ -195,15 +195,32 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* AI消息 - 左侧 */
 .msg { display: flex; gap: 10px; margin-bottom: 16px; max-width: 80%; align-items: flex-start; }
 .msg.own { flex-direction: row-reverse; margin-left: auto; margin-bottom: 16px; }
-.msg-avatar { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; margin-top: 2px; }
+.msg-avatar { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; margin-top: 2px; overflow: hidden; }
+.msg-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .msg-content { display: flex; flex-direction: column; gap: 4px; }
 .msg-sender { font: var(--font-sm); color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
 .msg-sender-name { font-weight: 600; }
 .msg-sender-role { font-size: 11px; color: var(--text-tertiary); font-weight: normal; }
 .msg-sender-time { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
 .msg-bubble { padding: 10px 14px; border-radius: 16px; background: #F5F5F7; font-size: 14px; line-height: 1.5; word-break: break-word; }
-.msg.own .msg-bubble { background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%); color: white; border-bottom-right-radius: 6px; box-shadow: 0 2px 8px rgba(255, 107, 53, 0.25); }
-.msg:not(.own) .msg-bubble { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); border: 0.5px solid rgba(0, 0, 0, 0.04); border-bottom-left-radius: 6px; background: #F5F5F7; }
+
+/* Apple 风格 - 用户消息（右侧，浅蓝色） */
+.msg.own .msg-bubble {
+  background: rgba(0, 122, 255, 0.1);
+  color: var(--text-primary);
+  border-radius: 16px 16px 4px 16px;
+  border: none;
+  box-shadow: none;
+}
+
+/* Apple 风格 - AI 消息（左侧，白色/浅灰） */
+.msg:not(.own) .msg-bubble {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--separator);
+  border-radius: 16px 16px 16px 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
 .msg { animation: msg-in 0.3s ease-out; }
 @keyframes msg-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 .msg.reminder .msg-bubble { background: #FFF3E0; border: 1px solid #FFB74D; }
@@ -218,12 +235,103 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 .mention { color: var(--accent); font-weight: 500; background: var(--accent-light); padding: 0 4px; border-radius: 3px; }
 
+/* ========== 代码块样式 ========== */
+.code-block {
+  position: relative;
+  background: #1e1e1e;
+  border-radius: 8px;
+  margin: 8px 0;
+  overflow: hidden;
+}
+.code-block .code-lang {
+  font-size: 11px;
+  color: #8e8e93;
+  padding: 6px 12px;
+  background: #2c2c2e;
+  border-bottom: 1px solid #3a3a3c;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+.code-block pre {
+  margin: 0;
+  padding: 12px;
+  overflow-x: auto;
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #d4d4d4;
+}
+.code-block code {
+  font-family: inherit;
+  color: inherit;
+}
+.code-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 4px 8px;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 4px;
+  color: #8e8e93;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.code-copy-btn:hover {
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+}
+.inline-code {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  color: var(--accent);
+}
+
 .typing-indicator { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
 .typing-dots { display: flex; gap: 3px; padding: 8px 12px; background: var(--bg-secondary); border-radius: 16px; }
 .typing-dot { width: 6px; height: 6px; background: var(--text-tertiary); border-radius: 50%; animation: typing 1.4s infinite; }
 .typing-dot:nth-child(2) { animation-delay: 0.2s; }
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 @keyframes typing { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
+
+/* Apple 风格 - 思考中消息 */
+.msg.typing-msg { max-width: 200px; }
+.msg.typing-msg .msg-bubble {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--separator);
+  border-radius: 16px 16px 16px 4px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.msg.typing-msg .typing-dots-inline {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.msg.typing-msg .typing-dot-inline {
+  width: 6px;
+  height: 6px;
+  background: var(--text-tertiary);
+  border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out;
+}
+.msg.typing-msg .typing-dot-inline:nth-child(2) { animation-delay: 0.2s; }
+.msg.typing-msg .typing-dot-inline:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-6px); }
+}
+
+/* Chat Empty State */
+.chat-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 40px; text-align: center; color: var(--text-secondary); }
+.chat-empty-state .empty-avatar { width: 80px; height: 80px; border-radius: 50%; background: var(--bg-secondary); display: flex; align-items: center; justify-content: center; font-size: 40px; margin-bottom: 16px; }
+.chat-empty-state .empty-title { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+.chat-empty-state .empty-desc { font-size: 14px; line-height: 1.5; }
 
 /* Chat Input */
 .chat-input-area { padding: 10px 14px; border-top: 0.5px solid var(--separator); background: var(--bg-primary); }
@@ -430,7 +538,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 /* Avatar Grid */
 .avatar-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 16px; }
-.avatar-option { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; background: var(--bg-secondary); }
+.avatar-option { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; background: var(--bg-secondary); overflow: hidden; }
 .avatar-option:hover { transform: scale(1.1); border-color: var(--accent); }
 .avatar-option.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-light); }
 .color-picker { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
@@ -1022,6 +1130,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .confirm-value{font-weight:500}
 .confirm-hint{text-align:center;font-size:13px;color:#86868B;padding:8px 0}
 
+/* Status Picker */
+.status-picker{display:flex;gap:10px}
+.status-opt{flex:1;display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius-md);cursor:pointer;border:1.5px solid transparent;transition:all 0.15s}
+.status-opt:hover{border-color:var(--accent)}
+.status-opt.selected{border-color:var(--accent);background:var(--accent-light)}
+.status-dot{width:8px;height:8px;border-radius:50%}
+.status-opt span{font-size:13px}
+
+/* Role Template Grid */
+.role-template-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.role-template-card{background:var(--bg-secondary);border:1.5px solid var(--separator);border-radius:var(--radius-md);padding:12px 8px;text-align:center;cursor:pointer;transition:all 0.2s}
+.role-template-card:hover{border-color:var(--accent);background:var(--accent-light);transform:translateY(-2px)}
+.role-template-card.selected{border-color:var(--accent);background:var(--accent-light);box-shadow:0 2px 8px rgba(255,107,53,0.15);transform:scale(1.05)}
+.role-template-emoji{font-size:28px;margin-bottom:4px}
+.role-template-name{font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:2px}
+.role-template-desc{font-size:10px;color:var(--text-tertiary);line-height:1.3}
+
+/* Avatar Image Styles */
+.wiz-avatar-opt img{width:48px;height:48px;border-radius:50%;object-fit:cover;display:block}
+.wiz-avatar-opt{padding:3px;border-radius:50%;transition:all .2s;cursor:pointer}
+.wiz-avatar-opt:hover{transform:scale(1.15);box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:10}
+.wiz-avatar-opt.selected{box-shadow:0 0 0 3px var(--accent)}
+
 /* Category Section - Level 1 */
 .category-section { margin-bottom: 2px; }
 .category-header {
@@ -1254,6 +1385,32 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 </style>
 </head>
 <body>
+<!-- Login Overlay -->
+<div id="loginOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:linear-gradient(135deg,rgba(0,0,0,0.4),rgba(0,0,0,0.2));backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:center;">
+  <div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border-radius:24px;padding:40px;width:360px;max-width:90%;box-shadow:0 25px 50px rgba(0,0,0,0.15);border:1px solid rgba(255,255,255,0.3);">
+    <div style="text-align:center;margin-bottom:32px;">
+      <div style="font-size:48px;margin-bottom:12px;">🦞</div>
+      <div style="font-size:20px;font-weight:600;color:var(--text-primary);">SoloBrave</div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">AI 员工管理系统</div>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">用户名</label>
+      <input type="text" id="loginUsername" placeholder="输入用户名..." style="width:100%;padding:12px 14px;border:1px solid var(--separator);border-radius:12px;font-size:14px;background:var(--bg-secondary);transition:all 0.2s;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--separator)'">
+    </div>
+    <div style="margin-bottom:24px;">
+      <label style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">密码</label>
+      <input type="password" id="loginPassword" placeholder="输入密码..." style="width:100%;padding:12px 14px;border:1px solid var(--separator);border-radius:12px;font-size:14px;background:var(--bg-secondary);transition:all 0.2s;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--separator)'">
+    </div>
+    <button id="loginBtn" onclick="doLogin()" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent-hover));color:white;font-size:15px;font-weight:600;cursor:pointer;transition:all 0.2s;box-shadow:0 4px 16px rgba(255,107,53,0.3);" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='translateY(0)'">
+      登录
+    </button>
+    <div id="loginError" style="margin-top:12px;padding:10px 12px;background:#FFF3E0;border-radius:8px;color:#E65100;font-size:13px;display:none;"></div>
+    <div style="margin-top:16px;text-align:center;font-size:12px;color:var(--text-tertiary);">
+      本地模式 · 数据存储在浏览器中
+    </div>
+  </div>
+</div>
+
 <!-- Skip Link -->
 <a href="#main-chat" class="skip-link">跳到聊天区域</a>
 
@@ -1310,7 +1467,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 </div>
 
 <!-- 新增员工按钮 -->
-<div style="padding:0 12px 8px;">
+<div style="padding:0 12px 8px;" data-admin-only>
 <button onclick="openWizard()" style="width:100%;padding:10px 12px;background:#AF52DE;color:white;border:none;border-radius:var(--radius-md);font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all 0.15s;"
  onmouseover="this.style.background='#8E44AD'" onmouseout="this.style.background='#AF52DE'">
 <span>➕</span> 新增员工
@@ -1566,7 +1723,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <span class="banner-url">www.solobrave.com</span>
 </div>
 <div class="banner-right">
-<div class="banner-avatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);" title="Alex">🦞</div>
+<div id="userInfo"></div>
+<div class="banner-avatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);" title="SoloBrave">🦞</div>
 </div>
 </div>
 
@@ -1602,7 +1760,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 <div class="msg own">
 <div class="msg-content">
-<div class="msg-sender"><span class="msg-sender-time">09:31</span><span class="msg-sender-name">你</span></div>
+<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">09:31</span></div>
 <div class="msg-bubble">你好！请帮我检查一下首页的响应式布局，今天需要上线。</div>
 </div>
 </div>
@@ -1617,29 +1775,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 <div class="msg own">
 <div class="msg-content">
-<div class="msg-sender"><span class="msg-sender-time">09:33</span><span class="msg-sender-name">你</span></div>
-<div class="msg-bubble">太好了，预计多久能完成？</div>
-</div>
-</div>
+<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">09:33</span></div>
 
-<div class="msg" data-sender="xlcx">
-<div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div></div>
-<div class="msg-content">
-<div class="msg-sender"><span class="msg-sender-name">Lucy</span><span class="msg-sender-role">前端工程师</span><span class="msg-sender-time">09:34</span></div>
-<div class="msg-bubble">预计 30 分钟内完成修复，然后提交 PR 给你 review。<span class="mention">@所有人</span> 请注意查收。</div>
-</div>
-</div>
-
-<div class="typing-indicator" id="typingIndicator" style="display:none;">
-<div class="avatar small" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
-<div class="typing-dots">
-<div class="typing-dot"></div>
-<div class="typing-dot"></div>
-<div class="typing-dot"></div>
 </div>
 </div>
 </div>
-
 <!-- Context Menu -->
 <div class="context-menu" id="contextMenu">
 <div class="context-item" onclick="ctxAction('detail')">👤 查看详情</div>
@@ -1737,12 +1877,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 </div>
 </div>
 </div>
+<!-- Mention Dropdown -->
+<div class="mention-dropdown" id="mentionDropdown" style="display:none;position:absolute;bottom:100%;left:0;right:0;background:#fff;border:1px solid #e5e5e5;border-radius:8px;box-shadow:0 -4px 12px rgba(0,0,0,0.1);max-height:200px;overflow-y:auto;z-index:100;margin-bottom:8px;">
+<div class="mention-header" style="padding:8px 12px;font-size:12px;color:#999;border-bottom:1px solid #f0f0f0;">选择要 @ 的员工</div>
+<div class="mention-list" id="mentionList" style="padding:4px 0;"></div>
+</div>
 <div class="input-wrap-v2">
-<textarea id="msgInput" rows="1" placeholder="输入消息，/查看快捷指令" oninput="if(this.value.startsWith('/')){document.getElementById('slashMenu').style.display='block';document.getElementById('slashSearch').value=this.value.slice(1);filterSlashCommands(this.value.slice(1));}else{document.getElementById('slashMenu').style.display='none';}"></textarea>
+<textarea id="msgInput" rows="1" placeholder="输入消息，/查看快捷指令" oninput="if(this.value.startsWith('/')){document.getElementById('slashMenu').style.display='block';document.getElementById('slashSearch').value=this.value.slice(1);filterSlashCommands(this.value.slice(1));}else{document.getElementById('slashMenu').style.display='none';} if(this.value.includes('@')){showMentionDropdown();}else{document.getElementById('mentionDropdown').style.display='none';}"></textarea>
 <button class="send-btn-v2" id="sendBtn">➤</button>
 </div>
 <div class="input-hint">按 Enter 发送，Shift+Enter 换行</div>
-</div>
 </div>
 
 <!-- Task Board (Full) -->
@@ -1816,6 +1960,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 </div>
 </div>
 </div>
+</div>
 </main>
 </div>
 
@@ -1841,6 +1986,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <button class="emp-detail-tab" data-etab="avatar" onclick="switchEmpDetailTab('avatar')">头像</button>
 <button class="emp-detail-tab" data-etab="model" onclick="switchEmpDetailTab('model')">模型</button>
 <button class="emp-detail-tab" data-etab="docs" onclick="switchEmpDetailTab('docs')">文档</button>
+<button class="emp-detail-tab" data-etab="connect" onclick="switchEmpDetailTab('connect')">连接</button>
 <button class="emp-detail-tab" data-etab="channel" onclick="switchEmpDetailTab('channel')">渠道</button>
 </div>
 
@@ -1889,32 +2035,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <div class="emp-tab-pane" id="emp-tab-avatar">
 <div class="emp-doc-section">
 <div class="emp-doc-title">选择头像</div>
-<div class="avatar-grid" id="avatarGrid">
-<div class="avatar-option selected" data-avatar="🦞" data-color="#FF6B35" onclick="selectAvatar(this)">🦞</div>
-<div class="avatar-option" data-avatar="👨‍💼" data-color="#007AFF" onclick="selectAvatar(this)">👨‍💼</div>
-<div class="avatar-option" data-avatar="👩‍💻" data-color="#AF52DE" onclick="selectAvatar(this)">👩‍💻</div>
-<div class="avatar-option" data-avatar="🧙" data-color="#FF9500" onclick="selectAvatar(this)">🧙</div>
-<div class="avatar-option" data-avatar="🦊" data-color="#FF2D55" onclick="selectAvatar(this)">🦊</div>
-<div class="avatar-option" data-avatar="🐱" data-color="#5856D6" onclick="selectAvatar(this)">🐱</div>
-<div class="avatar-option" data-avatar="🐶" data-color="#34C759" onclick="selectAvatar(this)">🐶</div>
-<div class="avatar-option" data-avatar="🐰" data-color="#FF6B8A" onclick="selectAvatar(this)">🐰</div>
-<div class="avatar-option" data-avatar="🐼" data-color="#1C1C1E" onclick="selectAvatar(this)">🐼</div>
-<div class="avatar-option" data-avatar="🦁" data-color="#FFCC00" onclick="selectAvatar(this)">🦁</div>
-<div class="avatar-option" data-avatar="🐯" data-color="#FF6B00" onclick="selectAvatar(this)">🐯</div>
-<div class="avatar-option" data-avatar="🦄" data-color="#00C7BE" onclick="selectAvatar(this)">🦄</div>
-<div class="avatar-option" data-avatar="🤖" data-color="#8E8E93" onclick="selectAvatar(this)">🤖</div>
-<div class="avatar-option" data-avatar="👻" data-color="#FFFFFF" onclick="selectAvatar(this)">👻</div>
-<div class="avatar-option" data-avatar="🎅" data-color="#D63031" onclick="selectAvatar(this)">🎅</div>
-<div class="avatar-option" data-avatar="🧛" data-color="#6C5CE7" onclick="selectAvatar(this)">🧛</div>
-<div class="avatar-option" data-avatar="🦸" data-color="#0984E3" onclick="selectAvatar(this)">🦸</div>
-<div class="avatar-option" data-avatar="🧝" data-color="#00B894" onclick="selectAvatar(this)">🧝</div>
-<div class="avatar-option" data-avatar="🧟" data-color="#636E72" onclick="selectAvatar(this)">🧟</div>
-<div class="avatar-option" data-avatar="🎃" data-color="#E17055" onclick="selectAvatar(this)">🎃</div>
-<div class="avatar-option" data-avatar="🤡" data-color="#FDCB6E" onclick="selectAvatar(this)">🤡</div>
-<div class="avatar-option" data-avatar="🦎" data-color="#00B894" onclick="selectAvatar(this)">🦎</div>
-<div class="avatar-option" data-avatar="🦋" data-color="#D63031" onclick="selectAvatar(this)">🦋</div>
-<div class="avatar-option" data-avatar="🌟" data-color="#FDCB6E" onclick="selectAvatar(this)">🌟</div>
-</div>
+<div class="avatar-grid" id="avatarGrid"></div>
 </div>
 <div class="emp-doc-section">
 <div class="emp-doc-title">自定义颜色</div>
@@ -2010,6 +2131,45 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <button class="emp-action-btn" onclick="saveEmpDocs()">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
 保存文档
+</button>
+</div>
+
+<!-- Connect Tab (OpenClaw Config) -->
+<div class="emp-tab-pane" id="emp-tab-connect">
+<div class="emp-doc-section">
+<div class="emp-doc-title">🦞 OpenClaw 连接配置</div>
+<div class="emp-doc-desc">通过 OpenClaw 网关连接 AI 服务</div>
+<div style="margin-top:12px;">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:var(--bg-secondary);">
+<div style="font-size:13px;color:var(--text-secondary);">Gateway 状态</div>
+<div id="empConnectGatewayStatus" style="font-size:13px;font-weight:600;">🔴 未连接</div>
+</div>
+<div style="font-weight:600;margin-bottom:8px;font-size:13px;">Agent 名称</div>
+<input type="text" class="form-input" id="empConnectOpenclawName" placeholder="留空默认 main" style="width:100%;margin-bottom:12px;">
+<div style="font-size:11px;color:var(--text-tertiary);margin-top:-8px;margin-bottom:12px;">用于构建 sessionKey: agent:{名称}:main</div>
+<div style="font-weight:600;margin-bottom:8px;font-size:13px;">AI 供应商</div>
+<select class="form-select" id="empConnectAIProvider" style="width:100%;margin-bottom:12px;" onchange="selectAIProvider(this.value)">
+<option value="kimi">🌙 Kimi (Moonshot)</option>
+<option value="openai">🤖 OpenAI</option>
+<option value="deepseek">🔍 DeepSeek</option>
+<option value="zhipu">🔥 智谱 (GLM)</option>
+<option value="custom">⚙️ 自定义</option>
+</select>
+<div style="font-weight:600;margin-bottom:8px;font-size:13px;">API Key</div>
+<input type="password" class="form-input" id="empConnectApiKey" placeholder="输入 AI 供应商的 API Key..." style="width:100%;font-family:monospace;margin-bottom:12px;">
+<div style="font-weight:600;margin-bottom:8px;font-size:13px;">模型</div>
+<select class="form-select" id="empConnectModel" style="width:100%;margin-bottom:12px;">
+<option value="">-- 选择模型 --</option>
+</select>
+<div id="empConnectBaseUrlGroup" style="display:none;">
+<div style="font-weight:600;margin-bottom:8px;font-size:13px;">自定义 Base URL</div>
+<input type="text" class="form-input" id="empConnectBaseUrl" placeholder="https://api.example.com/v1" style="width:100%;margin-bottom:12px;">
+</div>
+</div>
+</div>
+<button class="emp-action-btn primary" onclick="saveEmpConnect()">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+保存连接配置
 </button>
 </div>
 
@@ -2349,8 +2509,276 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <script>
 
 // ========== 工具函数 ==========
+// ========== Phase 2: 权限控制 ==========
+var projects = [];
+var currentUser = null;
+var authToken = localStorage.getItem('sb_auth_token') || null;
+
+// 统一 API 请求（带认证 token）
+async function apiFetch(url, options = {}) {
+  const token = localStorage.getItem('sb_auth_token');
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+  if (token && token !== 'null' && token !== 'local_mode') {
+    headers['Authorization'] = 'Bearer ' + token;
+  }
+  try {
+    const resp = await fetch(url, { ...options, headers });
+    if (resp.status === 401) {
+      // token 过期，跳转登录
+      doLogout();
+      return null;
+    }
+    return resp;
+  } catch (e) {
+    console.error('API 请求失败:', e);
+    return null;
+  }
+}
+
+// 检查认证状态
+async function checkAuth() {
+  var savedUser = localStorage.getItem('sb_current_user');
+  var savedToken = localStorage.getItem('sb_auth_token');
+
+  if (savedUser && savedToken && savedToken !== 'local_mode') {
+    try {
+      // 验证 token 是否仍然有效
+      const resp = await apiFetch('/api/auth/me');
+      if (resp && resp.ok) {
+        const data = await resp.json();
+        currentUser = data.user || JSON.parse(savedUser);
+        authToken = savedToken;
+        showMainApp();
+        return;
+      }
+    } catch (e) {
+      console.log('Token 验证失败', e);
+    }
+  } else if (savedUser && savedToken === 'local_mode') {
+    // 本地模式直接恢复
+    try {
+      currentUser = JSON.parse(savedUser);
+      authToken = savedToken;
+      showMainApp();
+      return;
+    } catch (e) {}
+  }
+
+  // 没有有效登录，显示登录页
+  showLogin();
+}
+
+function showLogin() {
+  document.getElementById('loginOverlay').style.display = 'flex';
+  document.querySelector('.app-container').style.display = 'none';
+  document.querySelector('.top-banner').style.display = 'none';
+}
+
+function hideLogin() {
+  document.getElementById('loginOverlay').style.display = 'none';
+  document.querySelector('.app-container').style.display = 'flex';
+  document.querySelector('.top-banner').style.display = 'flex';
+}
+
+function showMainApp() {
+  hideLogin();
+  applyPermissions();
+  updateUserInfo();
+  // 自动连接 OpenClaw
+  setTimeout(initOpenClaw, 1000);
+}
+
+// 登录
+async function doLogin() {
+  var username = document.getElementById('loginUsername').value.trim();
+  var password = document.getElementById('loginPassword').value;
+  var errorDiv = document.getElementById('loginError');
+
+  if (!username || !password) {
+    errorDiv.textContent = '请输入用户名和密码';
+    errorDiv.style.display = 'block';
+    return;
+  }
+
+  try {
+    const resp = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+
+    const data = await resp.json();
+
+    if (data.success && data.token) {
+      currentUser = {
+        id: data.user.id,
+        username: data.user.username,
+        name: data.user.name || data.user.username,
+        displayName: data.user.name || data.user.username,
+        role: data.user.role || 'employee',
+        avatar: data.user.avatar || 0,
+        createdAt: data.user.createdAt
+      };
+      authToken = data.token;
+      localStorage.setItem('sb_current_user', JSON.stringify(currentUser));
+      localStorage.setItem('sb_auth_token', data.token);
+
+      errorDiv.style.display = 'none';
+      showMainApp();
+      showToast('✅ 登录成功，欢迎 ' + (currentUser.displayName || currentUser.name || currentUser.username));
+
+      // 检查是否需要迁移本地数据
+      checkLocalMigration();
+    } else {
+      errorDiv.textContent = data.error || '登录失败，请检查用户名和密码';
+      errorDiv.style.display = 'block';
+    }
+  } catch (e) {
+    // 后端未启动，降级到本地模式
+    console.warn('后端不可用，降级到本地模式', e);
+    var isAdminUser = (username === 'admin');
+    currentUser = {
+      id: 'local_' + Date.now(),
+      username: username,
+      name: isAdminUser ? '管理员' : username,
+      displayName: isAdminUser ? '管理员' : username,
+      role: isAdminUser ? 'admin' : 'employee',
+      avatar: isAdminUser ? 0 : 1,
+      createdAt: new Date().toISOString()
+    };
+    authToken = 'local_mode';
+    localStorage.setItem('sb_current_user', JSON.stringify(currentUser));
+    localStorage.setItem('sb_auth_token', 'local_mode');
+
+    errorDiv.style.display = 'none';
+    showMainApp();
+    showToast('⚠️ 后端未连接，使用本地模式');
+  }
+}
+
+// 退出
+function doLogout() {
+  currentUser = null;
+  authToken = null;
+  localStorage.removeItem('sb_current_user');
+  localStorage.removeItem('sb_auth_token');
+  showLogin();
+  showToast('👋 已退出登录');
+}
+
+// 权限判断
+function isAdmin() {
+  return currentUser && currentUser.role === 'admin';
+}
+
+function isEmployee() {
+  return currentUser && currentUser.role === 'employee';
+}
+
+function isLocalMode() {
+  return !authToken || authToken === 'local_mode';
+}
+
+// 应用权限控制
+function applyPermissions() {
+  // 处理 data-admin-only 属性
+  document.querySelectorAll('[data-admin-only]').forEach(function(el) {
+    el.style.display = isAdmin() ? '' : 'none';
+  });
+
+  // 处理 data-employee-only 属性
+  document.querySelectorAll('[data-employee-only]').forEach(function(el) {
+    el.style.display = isEmployee() ? '' : 'none';
+  });
+
+  // 员工视图：隐藏管理功能
+  if (isEmployee()) {
+    // 隐藏新增员工按钮
+    var addBtn = document.querySelector('button[onclick="openWizard()"]');
+    if (addBtn) addBtn.style.display = 'none';
+
+    // 隐藏系统设置入口
+    var settingsBtn = document.querySelector('button[onclick="showSettings()"]');
+    if (settingsBtn) settingsBtn.style.display = 'none';
+  }
+}
+
+// 更新顶部栏用户信息
+function updateUserInfo() {
+  var userInfo = document.getElementById('userInfo');
+  if (userInfo && currentUser) {
+    userInfo.innerHTML = '<div style="display:flex;align-items:center;gap:8px;">' +
+      '<div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-hover));display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:600;">' +
+      ((currentUser.displayName || currentUser.name) ? (currentUser.displayName || currentUser.name).charAt(0).toUpperCase() : '?') +
+      '</div>' +
+      '<span style="font-size:13px;font-weight:500;">' + escapeHtml(currentUser.displayName || currentUser.name) + '</span>' +
+      '<button onclick="doLogout()" style="padding:4px 8px;border-radius:6px;background:var(--bg-secondary);color:var(--text-secondary);font-size:11px;cursor:pointer;border:none;" onmouseover="this.style.background=\'var(--bg-tertiary)\'" onmouseout="this.style.background=\'var(--bg-secondary)\'">退出</button>' +
+      '</div>';
+  }
+}
+
 function escapeHtml(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function escapeAttr(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// 格式化消息内容（支持代码块、换行等）
+function formatMessageContent(text){
+  if(!text) return '';
+  
+  // 处理代码块 ```code```
+  var parts = text.split(/(```[\s\S]*?```)/g);
+  var result = '';
+  
+  for(var i = 0; i < parts.length; i++){
+    var part = parts[i];
+    if(part.indexOf('```') === 0){
+      // 代码块
+      var codeContent = part.slice(3, -3).trim();
+      var firstLine = codeContent.split('\n')[0];
+      var lang = '';
+      var code = codeContent;
+      
+      if(firstLine && firstLine.indexOf(' ') === -1 && firstLine.length < 20){
+        lang = firstLine;
+        code = codeContent.slice(firstLine.length).trim();
+      }
+      
+      var langLabel = lang ? '<div class="code-lang">' + escapeHtml(lang) + '</div>' : '';
+      result += '<div class="code-block">' + langLabel + '<pre><code>' + escapeHtml(code) + '</code></pre><button class="code-copy-btn" onclick="copyCode(this)">📋 复制</button></div>';
+    } else {
+      // 普通文本 - 处理换行和行内代码
+      var formatted = part
+        .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+        .replace(/\n/g, '<br>');
+      result += formatted;
+    }
+  }
+  
+  return result;
+}
+
+// 复制代码
+function copyCode(btn){
+  var code = btn.parentElement.querySelector('code');
+  if(code){
+    var text = code.textContent;
+    if(navigator.clipboard){
+      navigator.clipboard.writeText(text).then(function(){
+        btn.textContent = '✅ 已复制';
+        setTimeout(function(){ btn.textContent = '📋 复制'; }, 2000);
+      });
+    } else {
+      // fallback
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      btn.textContent = '✅ 已复制';
+      setTimeout(function(){ btn.textContent = '📋 复制'; }, 2000);
+    }
+  }
+}
 
 // ========== 发送消息 ==========
 function sendMsg(){
@@ -2363,14 +2791,19 @@ function sendMsg(){
   const timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
   const emp = getCurrentEmployeeInfo();
   
+  // 清除空状态提示
+  const emptyState = area.querySelector('.chat-empty-state');
+  if(emptyState) emptyState.remove();
+  // 清除旧的 time-separator 如果存在
+  const oldSep = area.querySelector('.time-separator');
+  if(!oldSep){
+    area.insertAdjacentHTML('afterbegin','<div class="time-separator"><span>今天</span></div>');
+  }
+  
   // 添加用户消息
   const userMsg = document.createElement('div');
   userMsg.className = 'msg own';
-  userMsg.innerHTML = `
-    <div class="msg-content">
-      <div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">${timeStr}</span></div>
-      <div class="msg-bubble">${escapeHtml(text)}</div>
-    </div>`;
+  userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">'+timeStr+'</span></div><div class="msg-bubble">'+escapeHtml(text)+'</div></div>';
   area.appendChild(userMsg);
   
   input.value = '';
@@ -2378,52 +2811,163 @@ function sendMsg(){
   
   // 显示打字指示器
   const typing = document.createElement('div');
-  typing.className = 'msg';
+  typing.className = 'msg typing-msg';
   typing.id = 'typingMsg';
-  typing.innerHTML = `
-    <div class="msg-avatar avatar small" style="background:${emp.bg || '#FF6B35'};">${emp.avatar || '🦞'}</div>
-    <div class="msg-content">
-      <div class="msg-sender"><span class="msg-sender-name">${escapeHtml(emp.name||'AI')}</span></div>
-      <div class="msg-bubble"><span class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></span> 思考中...</div>
-    </div>`;
+  typing.innerHTML = '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name||'AI') + '</span><span class="msg-sender-role">' + escapeHtml(emp.role||'') + '</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div>';
   area.appendChild(typing);
   area.scrollTop = area.scrollHeight;
   
   // 获取文档上下文
   const docContext = getDocContextForChat();
   
-  // 尝试调用真实AI，否则用模拟回复
-  callRealAI(text, docContext).then(reply => {
-    const t = document.getElementById('typingMsg');
-    if(t) t.remove();
-    if(reply){
-      displayAIReply(reply, docContext, timeStr);
-      saveChatHistory(text, reply, docContext);
-    } else {
-      // 模拟回复
-      const simReplies = [
-        '收到，我来处理一下这个任务。',
-        '好的，我理解了你的需求，马上开始执行。',
-        '明白了，让我分析一下这个问题...',
-        '没问题，我会尽快完成。',
-        '了解了，我这边开始处理，预计很快就好。'
-      ];
-      const simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
-      setTimeout(() => {
-        displayAIReply(simReply, docContext, timeStr);
-        saveChatHistory(text, simReply, docContext);
-      }, 800 + Math.random() * 1200);
-    }
-  }).catch(err => {
-    const t = document.getElementById('typingMsg');
-    if(t) t.remove();
-    // 模拟回复 fallback
-    const simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
-    const simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
-    setTimeout(() => {
+  // OpenClaw WS → API 直连降级
+  var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
+  if(ocOk){
+    console.log('[Chat] 使用 OpenClaw WS 发送');
+    sendViaOpenClaw(emp, text, docContext, timeStr);
+  } else if(emp.apiKey && emp.aiProvider){
+    // Gateway 未连接，降级到 API 直连
+    console.log('[Chat] OpenClaw 未连接，降级到 API 直连');
+    sendViaAPI(emp, text, docContext, timeStr);
+  } else {
+    setTimeout(function(){
+      var t = document.getElementById('typingMsg');
+      if(t) t.remove();
+      var simReply = '⚠️ OpenClaw 网关未连接，请检查 Gateway 是否运行，或配置 AI 供应商的 API Key。';
       displayAIReply(simReply, docContext, timeStr);
       saveChatHistory(text, simReply, docContext);
-    }, 800);
+    }, 500);
+  }
+}
+
+// 通过 OpenClaw WS 发送消息
+async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
+  try {
+    var sessionKey = 'agent:' + (emp.openclawName || 'main') + ':main';
+    var systemPrompt = '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。';
+    if(emp.systemPrompt) systemPrompt += '\n\n' + emp.systemPrompt;
+    
+    // 监听 agent 事件（OpenClaw v3 流式推送）
+    var fullReply = '';
+    var currentRunId = null;
+    var hasStreamReply = false;
+    var agentHandler = function(data){
+      if(!data) return;
+      if(data.runId && !currentRunId) currentRunId = data.runId;
+      if(currentRunId && data.runId && data.runId !== currentRunId) return;
+      if(data.stream === 'assistant' && data.data && data.data.delta){
+        hasStreamReply = true;
+        fullReply += data.data.delta;
+        var t = document.getElementById('typingMsg');
+        if(t) t.textContent = fullReply + '...';
+      }
+      if(data.stream === 'lifecycle' && data.data && (data.data.phase === 'end' || data.data.phase === 'error')){
+        var t = document.getElementById('typingMsg');
+        if(t) t.remove();
+        if(!fullReply) fullReply = '（AI 未返回内容）';
+        if(data.data.phase === 'error') fullReply = '⚠️ AI 回复出错: ' + (data.error || '未知错误');
+        displayAIReply(fullReply, docContext, timeStr);
+        saveChatHistory(userMessage, fullReply, docContext);
+        openclaw.off('agent', agentHandler);
+      }
+    };
+    openclaw.on('agent', agentHandler);
+    
+    var result = await openclaw.sendChat(sessionKey, userMessage);
+    console.log('[OpenClaw] chat.send 返回:', JSON.stringify(result));
+    // chat.send 返回确认，实际回复通过 agent 事件推送
+    // 只有当没有收到过流式 agent 事件时，才用 result.content 兜底显示
+    if(result && result.content && !hasStreamReply){
+      var t = document.getElementById('typingMsg');
+      if(t) t.remove();
+      var reply = '';
+      if(Array.isArray(result.content)){
+        reply = result.content.map(function(c){ return c.text || ''; }).join('');
+      } else if(typeof result.content === 'string'){
+        reply = result.content;
+      }
+      if(reply){
+        displayAIReply(reply, docContext, timeStr);
+        saveChatHistory(userMessage, reply, docContext);
+        openclaw.off('agent', agentHandler);
+      }
+    }
+  } catch(e){
+    console.error('[OpenClaw] 发送失败:', e);
+    var t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    // Agent 不存在时自动降级到 main
+    var agentName = emp.openclawName || 'main';
+    if(agentName !== 'main' && e.message && e.message.includes('no longer exists')){
+      console.warn('[OpenClaw] Agent "' + agentName + '" 不存在，降级到 main');
+      emp._fallbackToMain = true;
+      var fallbackKey = 'agent:main:main';
+      // 重试一次用 main agent
+      try {
+        var retryResult = await openclaw.sendChat(fallbackKey, userMessage);
+        console.log('[OpenClaw] main agent 重试返回:', JSON.stringify(retryResult));
+        // 重试成功后通过事件监听接收回复，不再 await
+        // 但需要注意 agentHandler 已注册，它会处理回复
+      } catch(retryErr){
+        displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr);
+        saveChatHistory(userMessage, '⚠️ Agent 不存在', docContext);
+      }
+    } else {
+      displayAIReply('⚠️ OpenClaw 连接异常: ' + e.message, docContext, timeStr);
+    }
+  }
+}
+
+// 初始化 OpenClaw 连接
+const OPENCLAW_CONFIG = {
+  gatewayUrl: 'ws://192.168.1.25:18789',
+  defaultToken: '8606e4d80b1accfaa4e22729466c40003cd217ce2bda93f3'
+};
+
+function initOpenClaw(){
+  if(typeof openclaw === 'undefined'){
+    console.warn('[OpenClaw] openclaw-client.js 未加载，5秒后重试');
+    setTimeout(initOpenClaw, 5000);
+    return;
+  }
+  var token = localStorage.getItem('openclaw_token') || OPENCLAW_CONFIG.defaultToken;
+  if(!token){
+    console.warn('[OpenClaw] 无 token，跳过连接');
+    return;
+  }
+  console.log('[OpenClaw] 设置 token 并开始连接...');
+  openclaw.setToken(token);
+  
+  // 监听事件（事件名必须匹配 openclaw-client.js 的 emit 名称）
+  openclaw.on('connected', function(){
+    console.log('[OpenClaw] WebSocket 已连接');
+  });
+  openclaw.on('authenticated', function(){
+    console.log('[OpenClaw] ✅ 已连接 Gateway 并认证成功！');
+    localStorage.setItem('openclaw_token', token);
+    var statusEl = document.getElementById('openclawStatus');
+    if(statusEl) statusEl.textContent = '🟢 已连接';
+    var empStatusEl = document.getElementById('empConnectGatewayStatus');
+    if(empStatusEl){empStatusEl.textContent='🟢 已连接';empStatusEl.style.color='#34C759';}
+  });
+  openclaw.on('disconnected', function(){
+    console.log('[OpenClaw] 断开连接');
+    var statusEl = document.getElementById('openclawStatus');
+    if(statusEl) statusEl.textContent = '🔴 未连接';
+    var empStatusEl = document.getElementById('empConnectGatewayStatus');
+    if(empStatusEl){empStatusEl.textContent='🔴 未连接';empStatusEl.style.color='#FF3B30';}
+  });
+  openclaw.on('error', function(err){
+    console.error('[OpenClaw] 连接错误:', err);
+  });
+  openclaw.on('mockMode', function(){
+    console.warn('[OpenClaw] ⚠️ 连接失败，已降级到 Mock 模式');
+  });
+  
+  openclaw.connect().then(function(ok){
+    console.log('[OpenClaw] connect() 返回:', ok, 'connected:', openclaw.connected, 'authenticated:', openclaw.authenticated);
+  }).catch(function(err){
+    console.error('[OpenClaw] connect() 异常:', err);
   });
 }
 
@@ -2518,6 +3062,51 @@ const AI_CONFIG = {
   model: 'gpt-4o'
 };
 
+// ========== API 供应商配置 ==========
+const API_PROVIDERS = {
+  openai: {
+    name: 'OpenAI',
+    icon: '🤖',
+    baseUrl: 'https://api.openai.com/v1',
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
+    defaultModel: 'gpt-4o',
+    keyPlaceholder: 'sk-...'
+  },
+  kimi: {
+    name: 'Kimi',
+    icon: '🌙',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+    defaultModel: 'moonshot-v1-8k',
+    keyPlaceholder: 'sk-...'
+  },
+  deepseek: {
+    name: 'DeepSeek',
+    icon: '🔍',
+    baseUrl: 'https://api.deepseek.com/v1',
+    models: ['deepseek-chat', 'deepseek-coder'],
+    defaultModel: 'deepseek-chat',
+    keyPlaceholder: 'sk-...'
+  },
+  zhipu: {
+    name: '智谱',
+    icon: '🔥',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    models: ['glm-4', 'glm-4-flash', 'glm-3-turbo'],
+    defaultModel: 'glm-4',
+    keyPlaceholder: '...'
+  },
+
+  custom: {
+    name: '自定义',
+    icon: '⚙️',
+    baseUrl: '',
+    models: [],
+    defaultModel: '',
+    keyPlaceholder: '自定义 API Key'
+  }
+};
+
 // State
 let currentTab = 'employees';
 let drawerOpen = false;
@@ -2538,6 +3127,7 @@ const emps = [
 
 // ========== AI 初始化 ==========
 document.addEventListener('DOMContentLoaded', () => {
+  checkAuth();
   loadAIConfig();
 });
 
@@ -2617,7 +3207,20 @@ function loadArchive(){
 
 // Employee sync
 function saveEmployees(){
+  // 1. 始终保存到 localStorage 作为本地缓存
   localStorage.setItem('sb_employees',JSON.stringify(emps));
+  // 2. 如果已登录且后端可用，同步到服务器
+  var token = localStorage.getItem('sb_auth_token');
+  if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
+    // 批量同步：先删除所有，再重新创建（简单策略）
+    // 实际应该用 PUT /api/agents/:id 更新，但先保持简单
+    emps.forEach(function(emp){
+      apiFetch('/api/agents/' + emp.id, {
+        method: 'PUT',
+        body: JSON.stringify(emp)
+      }).catch(function(e){ console.log('同步员工到后端失败:', e); });
+    });
+  }
 }
 
 // 状态文本转换
@@ -2747,7 +3350,25 @@ function applyTemplate(templateKey){
   event.currentTarget.style.background = 'var(--accent-light)';
 }
 
-function loadEmployees(){
+async function loadEmployees(){
+  // 1. 优先从后端加载
+  var token = localStorage.getItem('sb_auth_token');
+  if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
+    try{
+      var resp = await apiFetch('/api/agents');
+      if(resp && resp.ok){
+        var data = await resp.json();
+        if(data && data.agents && data.agents.length > 0){
+          emps.length = 0;
+          data.agents.forEach(function(a){ emps.push(a); });
+          // 同时更新 localStorage 缓存
+          localStorage.setItem('sb_employees', JSON.stringify(emps));
+          return;
+        }
+      }
+    }catch(e){ console.log('从后端加载员工失败，回退到本地:', e); }
+  }
+  // 2. 回退到 localStorage
   const saved=localStorage.getItem('sb_employees');
   if(saved){
     try{
@@ -2849,12 +3470,7 @@ function showReminder(){
   const area=document.getElementById('messagesArea');
   const {emp,text}=reminder;
   
-  area.insertAdjacentHTML('beforeend',`<div class="msg reminder">
-<div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,${emp.bg},${emp.bg}dd);">${emp.avatar}</div></div>
-<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">${emp.name}</span><span class="msg-sender-role">${emp.role}</span><span class="msg-sender-time">${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}</span></div>
-<div class="msg-bubble reminder-bubble">${text.replace(/\n/g,'<br>')}</div>
-</div>
-</div>`);
+  area.insertAdjacentHTML('beforeend','<div class="msg reminder"><div class="msg-avatar">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + emp.name + '</span><span class="msg-sender-role">' + emp.role + '</span><span class="msg-sender-time">' + new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) + '</span></div><div class="msg-bubble reminder-bubble">' + text.replace(/\n/g,'<br>') + '</div></div></div>');
   area.scrollTop=area.scrollHeight;
 }
 
@@ -2929,16 +3545,64 @@ function renderEmployeeList(){
   const list=document.getElementById('employeeList');
   if(!list)return;
   const visible=emps.filter(e=>!e.archived);
-  list.innerHTML=visible.map(e=>`<div class="list-item" data-id="${escapeAttr(e.id)}" draggable="true">
-<div class="item-avatar"><div class="avatar small" style="background:${escapeAttr(e.bg||'')}">${escapeHtml(e.avatar||'')}</div><div class="status-dot ${escapeAttr(e.status||'offline')}" style="position:absolute;bottom:0;right:0;width:10px;height:10px;border:2px solid var(--bg-primary);"></div></div>
-<div class="item-info"><div class="item-name">${escapeHtml(e.name||'')}</div><div class="item-msg">${getStatusIcon(e.status)} ${escapeHtml(e.msg||'')}</div></div>
-<div class="item-actions">
-<button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail('${escapeAttr(e.id)}');" title="员工详情">
-<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-</button>
-</div>
-</div>`).join('');
+  if(visible.length===0){
+    list.innerHTML='<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方"新增员工"按钮添加第一位员工</div></div>';
+    return;
+  }
+
+  // 管理员视图：按创建者分组
+  if(isAdmin()){
+    renderGroupedEmployeeList(list, visible);
+  } else {
+    // 员工视图：只显示自己的员工
+    const myEmployees = visible.filter(e => e.createdBy === currentUser?.id || !e.createdBy);
+    list.innerHTML=myEmployees.map(e=>'<div class="list-item" data-id="'+escapeAttr(e.id)+'" draggable="true">'+renderEmployeeItem(e)+'<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(\''+escapeAttr(e.id)+'\');" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button></div></div>').join('');
+  }
   bindListEvents();
+}
+
+// 管理员视图：按创建者分组显示员工
+function renderGroupedEmployeeList(list, visible){
+  // 按创建者分组
+  var groups = {};
+  var myId = currentUser?.id || 'local';
+
+  visible.forEach(function(e){
+    var creatorId = e.createdBy || myId;
+    var creatorName = e.createdByName || (creatorId === myId ? '我' : '其他用户');
+    if(!groups[creatorId]){
+      groups[creatorId] = {name: creatorName, employees: []};
+    }
+    groups[creatorId].employees.push(e);
+  });
+
+  var html = '';
+
+  // 先显示"我的员工"
+  if(groups[myId]){
+    html += renderEmployeeGroup('👤 我的员工', groups[myId].employees, false);
+    delete groups[myId];
+  }
+
+  // 再显示其他创建者的员工
+  Object.keys(groups).forEach(function(creatorId){
+    var group = groups[creatorId];
+    html += renderEmployeeGroup('👥 ' + group.name + ' 的员工', group.employees, true);
+  });
+
+  list.innerHTML = html;
+}
+
+function renderEmployeeGroup(title, employees, isOther){
+  var html = '<div style="margin-bottom:8px;">';
+  html += '<div style="padding:6px 12px;font-size:12px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;' + (isOther ? 'background:var(--bg-secondary);border-radius:6px;' : '') + '">';
+  html += title + ' <span style="font-weight:400;">(' + employees.length + ')</span>';
+  html += '</div>';
+  html += employees.map(function(e){
+    return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, isOther) + '<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(e.id) + '\');" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button></div></div>';
+  }).join('');
+  html += '</div>';
+  return html;
 }
 
 // Init
@@ -2988,11 +3652,11 @@ if(e.key==='ArrowDown'){e.preventDefault();if(slashActive)navigateSlash(1);else 
 if(e.key==='ArrowUp'){e.preventDefault();if(slashActive)navigateSlash(-1);else if(mentionMode)selectMention(-1);}
 });
 document.getElementById('msgInput').addEventListener('input',handleInput);
-document.getElementById('mentionBtn').addEventListener('click',()=>{showMention();});
+document.getElementById('mentionBtn')?.addEventListener('click',()=>{showMention();});
 document.querySelectorAll('.mention-item').forEach(i=>i.addEventListener('click',()=>pickMention(i.dataset.id)));
 document.querySelectorAll('.drawer-tab').forEach(t=>t.addEventListener('click',()=>switchDrawerTab(t.dataset.tab)));
 document.addEventListener('click',e=>{
-if(!e.target.closest('.mention-dropdown'))document.getElementById('mentionDropdown').classList.remove('active');
+if(!e.target.closest('.mention-dropdown'))document.getElementById('mentionDropdown')?.classList.remove('active');
 if(!e.target.closest('.slash-menu'))document.getElementById('slashMenu').classList.remove('active');
 });
 document.querySelectorAll('.member-option').forEach(o=>o.addEventListener('click',()=>o.classList.toggle('selected')));
@@ -3022,9 +3686,28 @@ function renderArchivedList(){
   bindListEvents();
 }
 
-function renderEmployeeItem(e){
-  return `<div class="item-avatar"><div class="avatar small" style="background:${escapeAttr(e.bg||'')}">${escapeHtml(e.avatar||'')}</div><div class="status-dot ${escapeAttr(e.status||'offline')}" style="position:absolute;bottom:0;right:0;width:10px;height:10px;border:2px solid var(--bg-primary);"></div></div>
-<div class="item-info"><div class="item-name">${escapeHtml(e.name||'')}</div><div class="item-msg">${getStatusIcon(e.status)} ${escapeHtml(e.msg||'')}</div></div>`;
+function renderAvatar(emp, size){
+  size = size || 36;
+  if(typeof emp.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[emp.avatar]){
+    return '<img src="' + escapeAttr(AVATAR_PRESETS[emp.avatar]) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
+  } else if(emp.avatar && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0)){
+    return '<img src="' + escapeAttr(emp.avatar) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
+  } else {
+    return escapeHtml(emp.avatar || '🦞');
+  }
+}
+
+function renderEmployeeItem(e, showCreator){
+  var size = 44;
+  var avatarHtml = renderAvatar(e, size);
+  var creatorTag = '';
+  
+  // 管理员视图：显示创建者标签
+  if(showCreator && isAdmin() && e.createdBy && e.createdBy !== currentUser?.id) {
+    creatorTag = '<span style="display:inline-block;margin-left:4px;padding:1px 4px;background:var(--bg-tertiary);border-radius:3px;font-size:10px;color:var(--text-tertiary);vertical-align:middle;">' + escapeHtml(e.createdByName || '其他用户') + '</span>';
+  }
+  
+  return '<div class="item-avatar" style="position:relative;width:' + size + 'px;height:' + size + 'px;"><div class="avatar small" style="background:' + escapeAttr(e.bg||'') + ';width:' + size + 'px;height:' + size + 'px;">' + avatarHtml + '</div><div class="status-dot ' + escapeAttr(e.status||'offline') + '" style="position:absolute;bottom:2px;right:2px;width:12px;height:12px;border:2px solid var(--bg-primary);border-radius:50%;"></div></div><div class="item-info"><div class="item-name">' + escapeHtml(e.name||'') + creatorTag + '</div><div class="item-msg">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg||'') + '</div></div>';
 }
 
 function bindListEvents(){
@@ -3091,26 +3774,34 @@ function openChat(id){
 document.querySelectorAll('.list-item').forEach(i=>i.classList.remove('active'));
 const emp=emps.find(e=>e.id===id);
 if(emp){
-document.querySelector('.chat-header-name').textContent=emp.name;
-document.querySelector('.chat-header-sub').textContent='在线 · '+emp.role;
-document.querySelector('.chat-header .avatar').textContent='🦞';
-document.querySelector('.chat-header .avatar').style.background='linear-gradient(135deg,'+emp.bg+','+emp.bg+'dd)';
-document.querySelector('.list-item[data-id="'+id+'"]').classList.add('active');
-document.getElementById('chatProgress').style.display='none';
-document.querySelector('.app-main').classList.remove('show-board');
+localStorage.setItem('sb_current_emp',id);var chatHeaderName=document.querySelector('.chat-header-name');
+var chatHeaderSub=document.querySelector('.chat-header-sub');
+var chatHeaderAvatar=document.querySelector('.chat-header .avatar');
+if(chatHeaderName) chatHeaderName.textContent=emp.name;
+if(chatHeaderSub) chatHeaderSub.textContent='在线 · '+emp.role;
+if(chatHeaderAvatar){chatHeaderAvatar.textContent='🦞';chatHeaderAvatar.style.background='linear-gradient(135deg,'+emp.bg+','+emp.bg+'dd)';}
+var item=document.querySelector('.list-item[data-id="'+id+'"]');
+if(item)item.classList.add('active');
+var chatProgress=document.getElementById('chatProgress');
+if(chatProgress) chatProgress.style.display='none';
+var appMain=document.querySelector('.app-main');
+if(appMain) appMain.classList.remove('show-board');
 renderMsgs('private');
 hideBulletin();
 }
 const proj=projs.find(p=>p.id===id);
 if(proj){
-document.querySelector('.chat-header-name').innerHTML='# '+escapeHtml(proj.name||'')+' <span class="owner-badge">👑 群主</span>';
-document.querySelector('.chat-header-sub').textContent='3名成员';
-document.querySelector('.list-item[data-proj="'+id+'"]').classList.add('active');
-document.getElementById('chatProgress').style.display='flex';
-document.getElementById('progressFill').style.width=proj.progress+'%';
-document.getElementById('progressText').textContent=proj.progress+'%';
+var chatHeaderName2=document.querySelector('.chat-header-name');
+var chatHeaderSub2=document.querySelector('.chat-header-sub');
+if(chatHeaderName2) chatHeaderName2.innerHTML='# '+escapeHtml(proj.name||'')+' <span class="owner-badge">👑 群主</span>';
+if(chatHeaderSub2) chatHeaderSub2.textContent='3名成员';
+var projItem=document.querySelector('.list-item[data-proj="'+id+'"]');
+if(projItem) projItem.classList.add('active');
+var chatProgress2=document.getElementById('chatProgress');
+if(chatProgress2){chatProgress2.style.display='flex';document.getElementById('progressFill').style.width=proj.progress+'%';document.getElementById('progressText').textContent=proj.progress+'%';}
 renderMsgs('project');
-document.querySelector('.app-main').classList.add('show-board');
+var appMain2=document.querySelector('.app-main');
+if(appMain2) appMain2.classList.add('show-board');
 showBulletinBar(id);
 startSupervisorTimer(); // 启动督促定时器
 updateSupervisorStatusButton();
@@ -3135,29 +3826,49 @@ function updateSupervisorStatusButton(){
 // Render Messages
 function renderMsgs(type){
 const area=document.getElementById('messagesArea');
-const msgs=type==='private'?[
-{sender:'xlcx',text:'你好！我是Lucy，前端工程师。有什么任务需要我处理吗？',time:'09:30'},
-{sender:'user',text:'你好！请帮我检查一下首页的响应式布局，今天需要上线。',time:'09:31',ok:true},
-{sender:'xlcx',text:'好的，我来检查一下响应式布局的问题。目前发现移动端导航菜单有溢出，我会修复它。',time:'09:32'},
-{sender:'user',text:'太好了，预计多久能完成？',time:'09:33',ok:true},
-{sender:'xlcx',text:'预计 30 分钟内完成修复，然后提交 PR 给你 review。<span class="mention">@所有人</span> 请注意查收。',time:'09:34'}
-]:[
+if(type==='private'){
+  const empId=localStorage.getItem('sb_current_emp');
+  const history=JSON.parse(localStorage.getItem('sb_chat_history_'+empId)||'[]');
+  if(history.length===0){
+    area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
+    return;
+  }
+  const emp=emps.find(e=>e.id===empId);
+  area.innerHTML='<div class="time-separator"><span>今天</span></div>'+
+  history.map(m=>{
+    const own=m.role==='user';
+    const timeStr=new Date(m.time).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+    return'<div class="msg '+(own?'own':'')+'">'+
+    (!own?'<div class="msg-avatar">'+renderAvatar(emp, 32)+'</div>':'')+
+    '<div class="msg-content">'+
+    (!own?'<div class="msg-sender"><span class="msg-sender-name">'+escapeHtml(emp?.name||'AI')+'</span><span class="msg-sender-role">'+escapeHtml(emp?.role||'')+'</span><span class="msg-sender-time">'+timeStr+'</span></div>':'<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">'+timeStr+'</span></div>')+
+    '<div class="msg-bubble">'+escapeHtml(m.content)+'</div>'+
+    '</div></div>';
+  }).join('')+'<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
+  area.scrollTop=area.scrollHeight;
+  return;
+}
+// project messages (demo)
+const projMsgs=[
 {sender:'zjg',text:'各位早，今天的目标是完成首页响应式适配。',time:'09:00'},
 {sender:'xlcx',text:'收到！我这边负责导航和布局适配。',time:'09:05'},
-{sender:'user',text:'<span class="mention">@Lucy</span> 预计什么时候可以提测？',time:'09:15',ok:true},
-{sender:'xlcx',text:'预计 10:30 可以完成，11:00 前提测。<span class="mention">@章鱼哥</span> 请安排测试资源。',time:'09:16'}
+{sender:'user',text:'<span class="mention">@Lucy</span> 预计什么时候可以提测？',time:'09:15'},
+{sender:'xlcx',text:'预计 10:30 可以完成，11:00 前提测。',time:'09:16'}
 ];
+if(projMsgs.length===0){
+  area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
+  return;
+}
 area.innerHTML='<div class="time-separator"><span>今天 09:30</span></div>'+
-msgs.map(m=>{
+projMsgs.map(m=>{
 const e=emps.find(x=>x.id===m.sender);
 const own=m.sender==='user';
-return`<div class="msg ${own?'own':''}">
-${!own?`<div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,${escapeAttr(e?.bg||'#888')},${escapeAttr(e?.bg||'#888')}dd);">${escapeHtml(e?.name?.charAt(0)||'?')}</div></div>`:''}
-<div class="msg-content">
-${!own?`<div class="msg-sender"><span class="msg-sender-name">${escapeHtml(e?.name||'')}</span><span class="msg-sender-role">${escapeHtml(e?.role||'')}</span><span class="msg-sender-time">${escapeHtml(m.time||'')}</span></div>`:`<div class="msg-sender"><span class="msg-sender-time">${escapeHtml(m.time||'')}</span><span class="msg-sender-name">你</span></div>`}
-<div class="msg-bubble">${escapeHtml(m.text||'')}</div>
-</div>
-</div>`;
+return'<div class="msg '+(own?'own':'')+'">'+
+(!own?'<div class="msg-avatar">'+renderAvatar(e, 32)+'</div>':'')+
+'<div class="msg-content">'+
+(!own?'<div class="msg-sender"><span class="msg-sender-name">'+escapeHtml(e?.name||'')+'</span><span class="msg-sender-role">'+escapeHtml(e?.role||'')+'</span><span class="msg-sender-time">'+escapeHtml(m.time||'')+'</span></div>':'<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">'+escapeHtml(m.time||'')+'</span></div>')+
+'<div class="msg-bubble">'+m.text+'</div>'+
+'</div></div>';
 }).join('')+'<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
 area.scrollTop=area.scrollHeight;
 }
@@ -3344,7 +4055,7 @@ function showBulletinBar(projId){
 }
 
 function hideBulletin(){
-  document.getElementById('bulletinBar').style.display='none';
+  (document.getElementById('bulletinBar')||{}).style&&(document.getElementById('bulletinBar').style.display='none');
 }
 
 // ============ 督促机制 ============
@@ -3573,8 +4284,8 @@ function openSupervisorConfigFromHeader(){
 function handleInput(){
 const val=document.getElementById('msgInput').value;
 if(val.startsWith('/')){document.getElementById('slashMenu').classList.add('active');document.getElementById('slashSearch').value=val.slice(1);filterSlashCommands(val.slice(1));mentionMode=false;}
-else if(val.includes('@')){document.getElementById('mentionDropdown').classList.add('active');mentionMode=true;}
-else{document.getElementById('slashMenu').classList.remove('active');document.getElementById('mentionDropdown').classList.remove('active');mentionMode=false;}
+else if(val.includes('@')){document.getElementById('mentionDropdown')?.classList.add('active');mentionMode=true;}
+else{document.getElementById('slashMenu').classList.remove('active');document.getElementById('mentionDropdown')?.classList.remove('active');mentionMode=false;}
 }
 
 function filterSlashCommands(q){
@@ -3598,15 +4309,59 @@ items[slashIdx]?.scrollIntoView({block:'nearest'});
 }
 
 // Mention
-function showMention(){document.getElementById('mentionDropdown').classList.add('active');mentionMode=true;document.getElementById('msgInput').value+='@';document.getElementById('msgInput').focus();}
-function selectMention(dir){const items=document.querySelectorAll('#mentionDropdown .mention-item');items[mentionIdx].classList.remove('selected');mentionIdx=(mentionIdx+dir+items.length)%items.length;items[mentionIdx].classList.add('selected');}
+function showMention(){
+  var dd = document.getElementById('mentionDropdown');
+  if(dd) dd.classList.add('active');
+  mentionMode=true;
+  var input = document.getElementById('msgInput');
+  if(input) input.value+='@';
+  if(input) input.focus();
+}
+function showMentionDropdown(){
+  var dd = document.getElementById('mentionDropdown');
+  var list = document.getElementById('mentionList');
+  if(!dd || !list) return;
+  dd.style.display = 'block';
+  list.innerHTML = '';
+  // 添加 "所有人" 选项
+  var allDiv = document.createElement('div');
+  allDiv.className = 'mention-item';
+  allDiv.style.cssText = 'padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;';
+  allDiv.innerHTML = '<span>📢</span><span>所有人</span>';
+  allDiv.onclick = function(){ pickMention('all'); };
+  list.appendChild(allDiv);
+  // 添加每个员工
+  emps.forEach(function(emp, idx){
+    var item = document.createElement('div');
+    item.className = 'mention-item';
+    item.style.cssText = 'padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;';
+    item.innerHTML = '<span>' + (emp.avatar || '👤') + '</span><span>' + emp.name + '</span>';
+    item.onclick = function(){ pickMention(emp.id); };
+    list.appendChild(item);
+  });
+}
+function selectMention(dir){
+  var items = document.querySelectorAll('#mentionDropdown .mention-item');
+  if(!items.length) return;
+  items[mentionIdx]?.classList.remove('selected');
+  mentionIdx = (mentionIdx + dir + items.length) % items.length;
+  items[mentionIdx]?.classList.add('selected');
+}
 function pickMention(id){
-const name=id==='all'?'所有人':emps.find(e=>e.id===id)?.name||'';
-const input=document.getElementById('msgInput');
-input.value=input.value.replace(/@[^@]*$/,'')+'@'+name+' ';
-document.getElementById('mentionDropdown').classList.remove('active');
-mentionMode=false;
-input.focus();
+  var name = id === 'all' ? '所有人' : '';
+  if(id !== 'all'){
+    var found = null;
+    for(var i = 0; i < emps.length; i++){
+      if(emps[i].id === id){ found = emps[i]; break; }
+    }
+    name = found ? found.name : '';
+  }
+  var input = document.getElementById('msgInput');
+  if(input) input.value = input.value.replace(/@[^@]*$/,'') + '@' + name + ' ';
+  var dd = document.getElementById('mentionDropdown');
+  if(dd) dd.style.display = 'none';
+  mentionMode = false;
+  if(input) input.focus();
 }
 
 // Slash Commands
@@ -3929,14 +4684,14 @@ document.getElementById('drawerOverlay').classList.add('open');
 drawerOpen=true;
 }
 // Employee Detail Panel
-let currentEmpId=null;
+var currentEmpId=null;
 function openEmpDetail(empId){
 const emp=emps.find(e=>e.id===empId);
 if(!emp)return;
 currentEmpId=empId;
 selectedAvatar=emp.avatar||'🦞';
 selectedColor=emp.color||'#FF6B35';
-document.getElementById('empDetailAvatar').textContent=emp.avatar||'🦞';
+document.getElementById('empDetailAvatar').innerHTML=renderAvatar(emp, 80);
 document.getElementById('empDetailAvatar').style.background=`linear-gradient(135deg,${emp.color||'#FF6B35'},${emp.color||'#FF6B35'}dd)`;
 document.getElementById('empDetailName').textContent=emp.name;
 document.getElementById('empDetailRole').textContent=emp.role||'员工';
@@ -3954,9 +4709,18 @@ document.getElementById('empIdDoc').value=emp.idDoc||'';
 document.getElementById('empSoulDoc').value=emp.soulDoc||'';
 document.getElementById('empToolsDoc').value=emp.toolsDoc||'';
 document.getElementById('empUserDoc').value=emp.userDoc||'';
-// Update avatar selection
-document.querySelectorAll('.avatar-option').forEach(a=>a.classList.toggle('selected',a.dataset.avatar===(emp.avatar||'🦞')));
+// Render avatar grid with AVATAR_PRESETS
+var avatarGrid=document.getElementById('avatarGrid');
+if(avatarGrid&&typeof AVATAR_PRESETS!=='undefined'){
+  var avatarHtml='';
+  for(var i=0;i<AVATAR_PRESETS.length;i++){
+    var isSelected=i===(emp.avatar||0)?' selected':'';
+    avatarHtml+='<div class="avatar-option'+isSelected+'" data-avatar="'+i+'" onclick="selectAvatar(this)"><img src="'+AVATAR_PRESETS[i]+'" style="width:40px;height:40px;border-radius:50%;object-fit:cover;"></div>';
+  }
+  avatarGrid.innerHTML=avatarHtml;
+}
 document.getElementById('empDetailOverlay').classList.add('open');
+loadEmpConnect(emp);
 switchEmpDetailTab('basic');
 }
 
@@ -4128,12 +4892,11 @@ if(tab==='memory'&&currentEmpId){
 renderMemory('core');
 }
 }
-let selectedAvatar='',selectedColor='';
+var selectedAvatar='',selectedColor='';
 function selectAvatar(el){
 document.querySelectorAll('.avatar-option').forEach(a=>a.classList.remove('selected'));
 el.classList.add('selected');
-selectedAvatar=el.dataset.avatar;
-selectedColor=el.dataset.color;
+selectedAvatar=parseInt(el.dataset.avatar);
 }
 function selectColor(color){
 document.querySelectorAll('.color-option').forEach(c=>c.style.boxShadow='none');
@@ -4144,10 +4907,10 @@ function saveEmpAvatar(){
 if(!currentEmpId)return;
 const emp=emps.find(e=>e.id===currentEmpId);
 if(emp){
-if(selectedAvatar)emp.avatar=selectedAvatar;
+if(typeof selectedAvatar==='number')emp.avatar=selectedAvatar;
 if(selectedColor){emp.color=selectedColor;emp.bg=selectedColor;}
 saveEmployees();
-document.getElementById('empDetailAvatar').textContent=emp.avatar;
+document.getElementById('empDetailAvatar').innerHTML=renderAvatar(emp, 80);
 document.getElementById('empDetailAvatar').style.background=`linear-gradient(135deg,${emp.color},${emp.color}dd)`;
 renderEmployeeList();
 showToast('✅ 头像已保存');
@@ -4159,6 +4922,134 @@ const emp=emps.find(e=>e.id===currentEmpId);
 if(emp)emp.modelConfig=document.getElementById('empModelConfig').value;
 saveEmployees();
 showToast('✅ 模型配置已保存');
+}
+
+// ========== 员工连接配置 ==========
+var empSelectedConnectAIProvider='kimi';
+function selectAIProvider(providerId){
+  empSelectedConnectAIProvider=providerId;
+  // 填充模型下拉
+  var modelSelect=document.getElementById('empConnectModel');
+  var provider=API_PROVIDERS[providerId];
+  if(provider && provider.models && provider.models.length>0){
+    var html='<option value="">-- 选择模型 --</option>';
+    for(var i=0;i<provider.models.length;i++){
+      html+='<option value="'+provider.models[i]+'">'+provider.models[i]+'</option>';
+    }
+    html+='<option value="'+provider.defaultModel+'">默认 ('+provider.defaultModel+')</option>';
+    modelSelect.innerHTML=html;
+    modelSelect.parentElement.style.display='block';
+  } else {
+    modelSelect.innerHTML='<option value="">-- 输入自定义模型名 --</option>';
+  }
+  // 自定义时显示 Base URL
+  var baseUrlGroup=document.getElementById('empConnectBaseUrlGroup');
+  if(baseUrlGroup) baseUrlGroup.style.display=providerId==='custom'?'block':'none';
+  // 更新 API Key placeholder
+  var apiKeyInput=document.getElementById('empConnectApiKey');
+  if(apiKeyInput){
+    if(provider) apiKeyInput.placeholder=provider.keyPlaceholder||'输入 API Key...';
+  }
+}
+function loadEmpConnect(emp){
+  // 加载员工连接配置到面板 - OpenClaw 为默认
+  var aiProvider=emp.aiProvider||'kimi';
+  empSelectedConnectAIProvider=aiProvider;
+
+  // 设置 AI 供应商下拉
+  var aiProviderSelect=document.getElementById('empConnectAIProvider');
+  if(aiProviderSelect) aiProviderSelect.value=aiProvider;
+
+  // 填充模型下拉
+  var modelSelect=document.getElementById('empConnectModel');
+  var provider=API_PROVIDERS[aiProvider];
+  if(provider && provider.models && provider.models.length>0){
+    var html='<option value="">-- 选择模型 --</option>';
+    for(var i=0;i<provider.models.length;i++){
+      html+='<option value="'+provider.models[i]+'">'+provider.models[i]+'</option>';
+    }
+    html+='<option value="'+provider.defaultModel+'">默认 ('+provider.defaultModel+')</option>';
+    modelSelect.innerHTML=html;
+  }
+
+  // 设置当前值
+  document.getElementById('empConnectOpenclawName').value=emp.openclawName||'';
+  document.getElementById('empConnectApiKey').value=emp.apiKey||'';
+  document.getElementById('empConnectModel').value=emp.apiModel||'';
+  document.getElementById('empConnectBaseUrl').value=emp.customEndpoint||'';
+
+  // 自定义时显示 Base URL
+  var baseUrlGroup=document.getElementById('empConnectBaseUrlGroup');
+  if(baseUrlGroup) baseUrlGroup.style.display=aiProvider==='custom'?'block':'none';
+
+  // 更新 Gateway 状态
+  updateGatewayStatus();
+}
+function saveEmpConnect(){
+  if(!currentEmpId)return;
+  var emp=emps.find(function(e){return e.id===currentEmpId;});
+  if(!emp)return;
+
+  emp.apiProvider='openclaw';
+  emp.openclawName=document.getElementById('empConnectOpenclawName').value.trim()||'main';
+  emp.aiProvider=document.getElementById('empConnectAIProvider').value;
+  emp.apiKey=document.getElementById('empConnectApiKey').value.trim();
+  emp.apiModel=document.getElementById('empConnectModel').value;
+  emp.customEndpoint=document.getElementById('empConnectBaseUrl').value.trim();
+
+  saveEmployees();
+
+  // 自动在 Gateway 注册/更新 Agent
+  if(emp.openclawName && emp.openclawName !== 'main'){
+    registerOpenClawAgent(emp);
+  } else {
+    showToast('✅ 连接配置已保存（使用默认 Agent）');
+  }
+}
+
+async function registerOpenClawAgent(emp){
+  if(!openclaw || !openclaw.connected){
+    showToast('✅ 配置已保存，⚠️ Gateway 未连接，Agent 将在下次连接时注册');
+    return;
+  }
+  try {
+    var result = await openclaw.send('agents.update', {
+      agentId: emp.openclawName,
+      name: emp.name,
+      role: emp.role,
+      systemPrompt: emp.systemPrompt || ('你是 ' + emp.name + '，一个 ' + emp.role + '。'),
+      model: emp.apiModel || undefined,
+      provider: emp.aiProvider || undefined
+    });
+    console.log('[OpenClaw] Agent 注册/更新成功:', emp.openclawName, result);
+    showToast('✅ 连接配置已保存，Agent 已注册到 Gateway');
+  } catch(e){
+    console.warn('[OpenClaw] Agent 注册失败:', e.message);
+    showToast('✅ 配置已保存，⚠️ Agent 注册失败: ' + e.message);
+  }
+}
+function updateGatewayStatus(){
+  var statusEl=document.getElementById('empConnectGatewayStatus');
+  if(!statusEl)return;
+  var ocOk=typeof openclaw!=='undefined'&&openclaw.connected&&openclaw.authenticated;
+  if(ocOk){
+    statusEl.textContent='🟢 已连接';
+    statusEl.style.color='#34C759';
+  } else {
+    statusEl.textContent='🔴 未连接';
+    statusEl.style.color='#FF3B30';
+  }
+}
+async function fetchOpenClawModels(){
+  if(!openclaw||!openclaw.connected)return;
+  try{
+    var result=await openclaw.send('models.list',{});
+    console.log('[OpenClaw] models.list 返回:', JSON.stringify(result));
+    return result;
+  }catch(e){
+    console.warn('[OpenClaw] 获取模型列表失败:', e);
+    return null;
+  }
 }
 function saveEmpDocs(){
 if(!currentEmpId)return;
@@ -4210,7 +5101,8 @@ function renderTeamList(){
   const list=document.getElementById('teamList');
   if(!list)return;
   list.innerHTML=emps.map(e=>`<div class="team-member">
-<div class="team-avatar" style="background:${escapeAttr(e.bg||'')}">${escapeHtml(e.avatar||'')}</div>
+<div class="team-avatar" style="background:${escapeAttr(e.bg||'')};display:flex;align-items:center;justify-content:center;"
+>${renderAvatar(e, 40)}</div>
 <div class="team-info">
 <div class="team-name">${escapeHtml(e.name||'')}</div>
 <div class="team-role">${escapeHtml(e.role||'')}</div>
@@ -4332,13 +5224,13 @@ Notification.requestPermission();
 // 更新统计卡片
 function updateStats(){
 const employeeCount=emps.length;
-const projectCount=projects.length;
+const projectCount=(typeof projects!=='undefined'?projects.length:0);
 const taskCount=(tasksData['待办']||[]).length+(tasksData['进行中']||[]).length;
 const messageCount=emps.filter(e=>e.unread>0).length;
-document.getElementById('statEmployeeCount').textContent=employeeCount;
-document.getElementById('statProjectCount').textContent=projectCount;
-document.getElementById('statTaskCount').textContent=taskCount;
-document.getElementById('statMessageCount').textContent=messageCount;
+var sec=document.getElementById('statEmployeeCount');if(sec)sec.textContent=employeeCount;
+var spc=document.getElementById('statProjectCount');if(spc)spc.textContent=projectCount;
+var stc=document.getElementById('statTaskCount');if(stc)stc.textContent=taskCount;
+var smc=document.getElementById('statMessageCount');if(smc)smc.textContent=messageCount;
 }
 
 // 快捷操作函数
@@ -4410,9 +5302,9 @@ const results=document.getElementById('searchResults');
 if(!results)return;
 const lowerQ=q.toLowerCase();
 const items=[];
-emps.forEach(emp=>{if(emp.name.toLowerCase().includes(lowerQ)||emp.role?.toLowerCase().includes(lowerQ))items.push({type:'员工',name:emp.name,desc:emp.role||'员工',icon:emp.avatar,action:()=>openEmpDetail(emp.id)});});
+emps.forEach(emp=>{if(emp.name.toLowerCase().includes(lowerQ)||emp.role?.toLowerCase().includes(lowerQ))items.push({type:'员工',name:emp.name,desc:emp.role||'员工',icon:renderAvatar(emp, 24),action:()=>openEmpDetail(emp.id)});});
 Object.keys(tasksData).forEach(status=>{tasksData[status].forEach(t=>{if(t.title.toLowerCase().includes(lowerQ))items.push({type:'任务',name:t.title,desc:t.assignee||status,icon:'📋',action:()=>{toggleTaskBoard();}});});});
-if(projects.length)projects.forEach(p=>{if(p.name.toLowerCase().includes(lowerQ))items.push({type:'项目',name:p.name,desc:p.members?.length+'个成员',icon:'📁',action:()=>openProject(p.id)});});
+if(typeof projects!=='undefined'&&projects.length)projects.forEach(p=>{if(p.name.toLowerCase().includes(lowerQ))items.push({type:'项目',name:p.name,desc:p.members?.length+'个成员',icon:'📁',action:()=>openProject(p.id)});});
 results.innerHTML=items.length?items.map((i,idx)=>`<div class="search-result-item" onclick="this.dataset.action&&(${i.action})();closeGlobalSearch();" data-action="${escapeAttr(i.action||'')}">
 <div class="search-result-icon">${escapeHtml(i.icon||'')}</div>
 <div class="search-result-info"><div class="search-result-name">${escapeHtml(i.name||'')}</div><div class="search-result-desc">${escapeHtml(i.type||'')} · ${escapeHtml(i.desc||'')}</div></div>
@@ -4442,7 +5334,7 @@ content.innerHTML=`<div class="lounge-empty">
 }else{
 content.innerHTML=`<div class="lounge-stat">🏖️ 休闲区 · <span>${offline.length}</span> 人休息中 / ${total} 人在线</div>
 ${offline.map(e=>`<div class="lounge-item" onclick="openEmpDetail('${escapeAttr(e.id||'')}')">
-<div class="avatar" style="background:${escapeAttr(e.bg||e.color||'#999')};opacity:0.6;">${escapeHtml(e.avatar||'')}</div>
+<div class="avatar" style="background:${escapeAttr(e.bg||e.color||'#999')};opacity:0.6;display:flex;align-items:center;justify-content:center;">${renderAvatar(e, 32)}</div>
 <div class="lounge-item-info">
 <div class="lounge-item-name">${escapeHtml(e.name||'')}</div>
 <div class="lounge-item-status">最后活跃: ${escapeHtml(e.lastActive||'刚刚')}</div>
@@ -4642,11 +5534,106 @@ async function callRealAI(userMessage, context){
   }
 }
 
+// ========== API 直连发送 ==========
+function sendViaAPI(emp, userMessage, docContext, timeStr){
+  var providerId = emp.aiProvider || 'kimi';
+  var provider = API_PROVIDERS[providerId];
+  if(!provider){
+    var t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    displayAIReply('⚠️ AI 供应商配置错误', docContext, timeStr);
+    return;
+  }
+  
+  var apiKey = emp.apiKey;
+  var baseUrl = provider.baseUrl;
+  var model = emp.apiModel || provider.defaultModel;
+  
+  // 自定义供应商处理
+  if(providerId === 'custom'){
+    baseUrl = emp.customEndpoint || '';
+    model = emp.apiModel || 'custom-model';
+  }
+  
+  // 构建请求
+  var systemPrompt = '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。';
+  if(emp.systemPrompt) systemPrompt += '\n\n' + emp.systemPrompt;
+  if(docContext) systemPrompt += '\n\n【相关文档】\n' + docContext;
+  
+  var messages = [
+    {role: 'system', content: systemPrompt},
+    {role: 'user', content: userMessage}
+  ];
+  
+  var endpoint = baseUrl + '/chat/completions';
+  
+  // 智谱 API 路径不同
+  if(providerId === 'zhipu'){
+    endpoint = baseUrl + '/chat/completions';
+  }
+  
+  fetch('/api/proxy', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': authToken && authToken !== 'local_mode' ? 'Bearer ' + authToken : '',
+      'X-AI-API-Key': apiKey
+    },
+    body: JSON.stringify({
+      endpoint: endpoint,
+      model: model,
+      messages: messages,
+      temperature: 0.8,
+      max_tokens: 2000
+    })
+  }).then(function(res){
+    var t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    
+    if(!res.ok){
+      if(res.status === 401){
+        displayAIReply('⚠️ API Key 无效，请检查 ' + (provider?provider.name:'AI供应商') + ' 的 API Key 是否正确', docContext, timeStr);
+      } else if(res.status === 429){
+        displayAIReply('⚠️ 请求过于频繁，请稍后再试', docContext, timeStr);
+      } else {
+        displayAIReply('⚠️ ' + provider.name + ' API 错误 (' + res.status + ')', docContext, timeStr);
+      }
+      return;
+    }
+    
+    return res.json();
+  }).then(function(data){
+    if(data && data.choices && data.choices[0] && data.choices[0].message){
+      var reply = data.choices[0].message.content;
+      displayAIReply(reply, docContext, timeStr);
+      saveChatHistory(userMessage, reply, docContext);
+    } else if(data){
+      displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr);
+    }
+  }).catch(function(error){
+    var t = document.getElementById('typingMsg');
+    if(t) t.remove();
+    
+    if(error.message && (error.message.indexOf('Failed to fetch') >= 0 || error.message.indexOf('NetworkError') >= 0 || error.message.indexOf('CORS') >= 0)){
+      displayAIReply('⚠️ 网络/CORS 错误\n\n浏览器直接调用 API 会遇到 CORS 限制。\n当前使用模拟回复，后续可通过后端代理解决。', docContext, timeStr);
+      // CORS 错误时 fallback 到 mock
+      setTimeout(function(){
+        var simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
+        var simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
+        displayAIReply(simReply, docContext, timeStr);
+        saveChatHistory(userMessage, simReply, docContext);
+      }, 500);
+    } else {
+      displayAIReply('⚠️ API 调用失败: ' + error.message, docContext, timeStr);
+    }
+  });
+}
+
 // 获取当前对话的员工信息
 function getCurrentEmployeeInfo(){
   const empId = localStorage.getItem('sb_current_emp') || 'xlcx';
   const emp = emps.find(e => e.id === empId);
-  return emp || {id:'xlcx',name:'Lucy',role:'前端工程师',avatar:'🦞',bg:'#FF6B35'};
+  return emp || emps[0] || {id:'unknown',name:'AI助手',role:'助手',avatar:'🤖',bg:'#8E8E93'};
 }
 
 // 获取当前项目 ID
@@ -4670,18 +5657,21 @@ function displayAIReply(replyText, docContext, timeStr){
   const area = document.getElementById('messagesArea');
   const hasDocs = docContext && docContext.length > 0;
   const emp = getCurrentEmployeeInfo();
-  const avatarBg = emp.bg ? `background:${emp.bg};` : 'background:linear-gradient(135deg,#FF6B35,#E55A2B);';
+  const avatarBg = emp.bg ? 'background:' + emp.bg + ';' : 'background:linear-gradient(135deg,#FF6B35,#E55A2B);';
   
-  let bubble = escapeHtml(replyText);
+  var bubble = formatMessageContent(replyText);
   if(hasDocs && replyText.indexOf('📚') === -1){
-    bubble += `<div class="ai-doc-hint">📚 已读取 ${countDocsInContext(docContext)} 个相关文档</div>`;
+    bubble += '<div class="ai-doc-hint">📚 已读取 ' + countDocsInContext(docContext) + ' 个相关文档</div>';
   }
   
-  area.insertAdjacentHTML('beforeend', `<div class="msg">
-<div class="msg-avatar"><div class="avatar small" style="${avatarBg}">${emp.avatar}</div></div>
-<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">${escapeHtml(emp.name)}</span><span class="msg-sender-role">${escapeHtml(emp.role)}</span><span class="msg-sender-time">${timeStr}</span></div>
-<div class="msg-bubble">${bubble}</div>
-</div></div>`);
+  var html = '<div class="msg">\n';
+  html += '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>\n';
+  html += '<div class="msg-content">\n';
+  html += '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name) + '</span><span class="msg-sender-role">' + escapeHtml(emp.role) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>\n';
+  html += '<div class="msg-bubble">' + bubble + '</div>\n';
+  html += '</div></div>';
+  
+  area.insertAdjacentHTML('beforeend', html);
   area.scrollTop = area.scrollHeight;
 }
 
@@ -4691,12 +5681,29 @@ window.addEventListener('DOMContentLoaded',()=>{initGlobalSearch();initTheme();i
 // ===== 新增员工向导 =====
 var wizStep=1;
 var empSelectedModel='gpt4o';
-function openWizard(){wizStep=1;updateWizardUI();document.getElementById('wizardOverlay').classList.add('show');}
+var empSelectedProvider='openclaw';
+var empSelectedAIProvider='kimi';
+function openWizard(){
+  wizStep=1;
+  renderAvatarPicker();
+  updateWizardUI();
+  document.getElementById('wizardOverlay').classList.add('show');
+}
+function renderAvatarPicker(){
+  var picker=document.getElementById('wizAvatarPicker');
+  if(!picker||typeof AVATAR_PRESETS==='undefined')return;
+  var html='';
+  for(var i=0;i<AVATAR_PRESETS.length;i++){
+    var selected=i===0?' selected':'';
+    html+='<div class="wiz-avatar-opt'+selected+'" data-avatar="'+AVATAR_PRESETS[i]+'" onclick="selectWizAvatar(this)"><img src="'+AVATAR_PRESETS[i]+'" style="width:48px;height:48px;border-radius:50%;object-fit:cover;"></div>';
+  }
+  picker.innerHTML=html;
+}
 function closeWizard(){document.getElementById('wizardOverlay').classList.remove('show');}
 function nextWiz(){if(wizStep<3){wizStep++;updateWizardUI();}else{finishWizard();}}
 function prevWiz(){if(wizStep>1){wizStep--;updateWizardUI();}}
 function updateWizardUI(){
-  document.querySelectorAll('.wiz-step').forEach((s,i)=>{s.classList.remove('active','done');if(i+1<wizStep)s.classList.add('done');if(i+1===wizStep)s.classList.add('active');});
+  document.querySelectorAll('.wiz-step').forEach(function(s,i){s.classList.remove('active','done');if(i+1<wizStep)s.classList.add('done');if(i+1===wizStep)s.classList.add('active');});
   document.getElementById('wiz1').style.display=wizStep===1?'block':'none';
   document.getElementById('wiz2').style.display=wizStep===2?'block':'none';
   document.getElementById('wiz3').style.display=wizStep===3?'block':'none';
@@ -4705,36 +5712,135 @@ function updateWizardUI(){
   if(wizStep===3)updateWizConfirm();
 }
 function updateWizConfirm(){
-  const name=document.getElementById('wizName').value.trim()||'未命名';
-  const role=document.getElementById('wizRole').value;
-  const avatar=document.querySelector('.wiz-avatar-opt.selected')?.dataset.avatar||'🦞';
-  const modelEl=document.querySelector('#wizModelSelect .model-option.selected');
-  const modelName=modelEl?modelEl.querySelector('.model-name')?.textContent:'GPT-4o';
+  var name=document.getElementById('wizName').value.trim()||'未命名';
+  var role=document.getElementById('wizRole').value;
+  var avatarEl=document.querySelector('.wiz-avatar-opt.selected');
+  var avatar=avatarEl?avatarEl.dataset.avatar:'';
+  var group=document.getElementById('wizGroup').value;
+  var statusEl=document.querySelector('.status-opt.selected');
+  var status=statusEl?statusEl.dataset.status:'online';
+  var aiProviderId=document.getElementById('wizAIProvider').value||'kimi';
+  var aiProvider=API_PROVIDERS[aiProviderId];
+  var modelName=aiProvider?aiProvider.name:'自定义';
+  var sysPrompt=document.getElementById('wizSystemPrompt').value.trim();
   document.getElementById('wizCName').textContent=name;
   document.getElementById('wizCRole').textContent=role;
-  document.getElementById('wizCAvatar').textContent=avatar;
-  document.getElementById('wizCModel').textContent=modelName;
+  var avatarPreview=document.getElementById('wizCAvatar');
+  if(avatar&&(avatar.indexOf('data:image')===0||avatar.indexOf('.png')>0||avatar.indexOf('.jpg')>0||avatar.indexOf('.jpeg')>0)){
+    avatarPreview.innerHTML='<img src="'+avatar+'" style="width:24px;height:24px;border-radius:50%;object-fit:cover;">';
+  }else{
+    avatarPreview.textContent='🦞';
+  }
+  document.getElementById('wizCGroup').textContent=group;
+  document.getElementById('wizCStatus').textContent=status==='online'?'在线':status==='busy'?'忙碌':'离线';
+  document.getElementById('wizCModel').textContent='🦞 OpenClaw → '+modelName;
+  document.getElementById('wizCPrompt').textContent=sysPrompt||'(默认)';
 }
 function selectWizAvatar(el){
-  document.querySelectorAll('.wiz-avatar-opt').forEach(o=>o.classList.remove('selected'));
+  document.querySelectorAll('.wiz-avatar-opt').forEach(function(o){o.classList.remove('selected');});
   el.classList.add('selected');
+}
+function selectRoleTemplate(el){
+  document.querySelectorAll('.role-template-card').forEach(function(o){o.classList.remove('selected');});
+  el.classList.add('selected');
+  var role=el.dataset.role;
+  var desc=el.dataset.desc;
+  document.getElementById('wizRole').value=role;
+  document.getElementById('wizName').value='';
+  document.getElementById('wizName').placeholder='给'+role+'起个名字...';
+  var avatarIndex=parseInt(el.dataset.avatarIndex)||0;
+  if(typeof AVATAR_PRESETS!=='undefined'&&AVATAR_PRESETS.length>avatarIndex){
+    var avatarOpts=document.querySelectorAll('.wiz-avatar-opt');
+    avatarOpts.forEach(function(o){o.classList.remove('selected');});
+    if(avatarOpts[avatarIndex]){
+      avatarOpts[avatarIndex].classList.add('selected');
+    }
+  }
 }
 function selectWizModel(el,modelId){
   document.querySelectorAll('#wizModelSelect .model-option').forEach(o=>o.classList.remove('selected'));
   el.classList.add('selected');
   empSelectedModel=modelId;
 }
+function selectWizAIProvider(providerId){
+  empSelectedAIProvider=providerId;
+  empSelectedProvider='openclaw';
+  
+  // 填充模型下拉
+  var modelGroup=document.getElementById('wizModelGroup');
+  var modelSelect=document.getElementById('wizModelSelect');
+  var customGroup=document.getElementById('wizCustomEndpointGroup');
+  var provider=API_PROVIDERS[providerId];
+  
+  if(provider && provider.models && provider.models.length>0){
+    var html='<option value="">使用默认模型 ('+provider.defaultModel+')</option>';
+    for(var i=0;i<provider.models.length;i++){
+      html+='<option value="'+provider.models[i]+'">'+provider.models[i]+'</option>';
+    }
+    modelSelect.innerHTML=html;
+    modelGroup.style.display='block';
+  } else {
+    modelSelect.innerHTML='<option value="">输入自定义模型名</option>';
+    modelGroup.style.display='block';
+  }
+  
+  // 自定义时显示 Base URL
+  customGroup.style.display=providerId==='custom'?'block':'none';
+}
+function selectWizStatus(el){
+  document.querySelectorAll('.status-opt').forEach(o=>o.classList.remove('selected'));
+  el.classList.add('selected');
+}
 function finishWizard(){
-  const name=document.getElementById('wizName').value.trim();
+  var name=document.getElementById('wizName').value.trim();
   if(!name){showToast('请输入员工名称');return;}
-  const role=document.getElementById('wizRole').value;
-  const avatar=document.querySelector('.wiz-avatar-opt.selected')?.dataset.avatar||'🦞';
-  const model=aiModels.find(m=>m.id===empSelectedModel)||aiModels[0];
-  const colors=['#FF6B35','#5AC8FA','#AF52DE','#FF2D55','#5856D6','#34C759'];
-  const newEmp={id:'emp_'+Date.now(),name,role,avatar,bg:colors[emps.length%colors.length],status:'online',msg:'新成员',archived:false,model:model.name};
+  var role=document.getElementById('wizRole').value;
+  var avatarEl=document.querySelector('.wiz-avatar-opt.selected');
+  var avatarIndex=0;
+  if(avatarEl){
+    var avatarData=avatarEl.dataset.avatar;
+    if(typeof AVATAR_PRESETS!=='undefined'){
+      for(var i=0;i<AVATAR_PRESETS.length;i++){
+        if(AVATAR_PRESETS[i]===avatarData){avatarIndex=i;break;}
+      }
+    }
+  }
+  var group=document.getElementById('wizGroup').value;
+  var statusEl=document.querySelector('.status-opt.selected');
+  var status=statusEl?statusEl.dataset.status:'online';
+  var sysPrompt=document.getElementById('wizSystemPrompt').value.trim();
+  var apiKey=document.getElementById('wizApiKey').value.trim();
+  var aiProvider=empSelectedAIProvider||'kimi';
+  var openclawName=document.getElementById('wizOpenclawName').value.trim()||'main';
+  var apiModel=document.getElementById('wizModelSelect').value;
+  var customEndpoint=document.getElementById('wizCustomEndpoint').value.trim();
+  var colors=['#FF6B35','#5AC8FA','#AF52DE','#FF2D55','#5856D6','#34C759'];
+  var newEmp={
+    id:'emp_'+Date.now(),
+    name:name,
+    role:role,
+    avatar:avatarIndex,
+    bg:colors[emps.length%colors.length],
+    status:status,
+    msg:'新成员',
+    archived:false,
+    group:group,
+    systemPrompt:sysPrompt,
+    apiProvider:'openclaw',
+    openclawName:openclawName,
+    aiProvider:aiProvider,
+    apiKey:apiKey,
+    apiModel:apiModel,
+    customEndpoint:customEndpoint,
+    createdBy:currentUser?.id||'local',
+    createdByName:currentUser?.name||'本地用户',
+    createdAt:new Date().toISOString()
+  };
   emps.push(newEmp);saveEmployees();renderTeamList();renderEmployeeList();
   closeWizard();document.getElementById('wizName').value='';
+  document.getElementById('wizApiKey').value='';
   showToast('✅ 员工 '+name+' 创建成功！');
+  setTimeout(function(){openChat(newEmp.id);},300);
 }
 </script>
 
@@ -5153,14 +6259,161 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 <button class="modal-close" onclick="closeWizard()">✕</button>
 </div>
 <div class="wizard-steps">
-<div class="wiz-step active"><div class="wiz-step-num">1</div><div class="wiz-step-label">基本信息</div></div>
-<div class="wiz-step"><div class="wiz-step-num">2</div><div class="wiz-step-label">选择模型</div></div>
-<div class="wiz-step"><div class="wiz-step-num">3</div><div class="wiz-step-label">确认创建</div></div>
+<div class="wiz-step active"><div class="wiz-step-num">1</div><div class="wiz-step-label">选择角色</div></div>
+<div class="wiz-step"><div class="wiz-step-num">2</div><div class="wiz-step-label">填写信息</div></div>
+<div class="wiz-step"><div class="wiz-step-num">3</div><div class="wiz-step-label">配置模型</div></div>
 </div>
 <div class="wizard-body">
-<div id="wiz1"><div class="form-group"><label class="form-label">员工名称</label><input type="text" class="form-input" id="wizName" placeholder="如：小龙虾、章鱼哥..."></div><div class="form-group"><label class="form-label">职位</label><select class="form-select" id="wizRole"><option>前端工程师</option><option>后端工程师</option><option>产品经理</option><option>UI设计师</option><option>测试工程师</option><option>运维工程师</option><option>数据分析师</option><option>全栈工程师</option></select></div><div class="form-group"><label class="form-label">选择头像</label><div class="avatar-picker"><div class="wiz-avatar-opt selected" data-avatar="🦞" onclick="selectWizAvatar(this)">🦞</div><div class="wiz-avatar-opt" data-avatar="🦀" onclick="selectWizAvatar(this)">🦀</div><div class="wiz-avatar-opt" data-avatar="🐙" onclick="selectWizAvatar(this)">🐙</div><div class="wiz-avatar-opt" data-avatar="🦑" onclick="selectWizAvatar(this)">🦑</div><div class="wiz-avatar-opt" data-avatar="🦐" onclick="selectWizAvatar(this)">🦐</div><div class="wiz-avatar-opt" data-avatar="🐡" onclick="selectWizAvatar(this)">🐡</div><div class="wiz-avatar-opt" data-avatar="🐠" onclick="selectWizAvatar(this)">🐠</div><div class="wiz-avatar-opt" data-avatar="🐟" onclick="selectWizAvatar(this)">🐟</div></div></div></div>
-<div id="wiz2" style="display:none"><div class="form-group"><label class="form-label">选择AI模型</label><div class="model-select" id="wizModelSelect"><div class="model-option selected" data-model="gpt4o" onclick="selectWizModel(this,'gpt4o')"><div class="model-icon">🧠</div><div class="model-info"><div class="model-name">GPT-4o</div><div class="model-provider">OpenAI</div></div><div class="model-check">✓</div></div><div class="model-option" data-model="claude35" onclick="selectWizModel(this,'claude35')"><div class="model-icon">🌟</div><div class="model-info"><div class="model-name">Claude 3.5</div><div class="model-provider">Anthropic</div></div><div class="model-check">✓</div></div><div class="model-option" data-model="glm4" onclick="selectWizModel(this,'glm4')"><div class="model-icon">🔥</div><div class="model-info"><div class="model-name">GLM-4</div><div class="model-provider">智谱AI</div></div><div class="model-check">✓</div></div></div></div></div>
-<div id="wiz3" style="display:none"><div class="wiz-confirm"><div class="wiz-confirm-title">确认创建</div><div class="wiz-confirm-item"><span>名称：</span><strong id="wizCName">-</strong></div><div class="wiz-confirm-item"><span>职位：</span><strong id="wizCRole">-</strong></div><div class="wiz-confirm-item"><span>头像：</span><strong id="wizCAvatar">-</strong></div><div class="wiz-confirm-item"><span>模型：</span><strong id="wizCModel">-</strong></div></div></div>
+<div id="wiz1">
+<div class="form-group">
+<label class="form-label">选择角色模板</label>
+<div class="role-template-grid" id="roleTemplateGrid">
+<div class="role-template-card" data-role="CEO助理" data-avatar-index="0" data-desc="协助CEO处理日常事务、安排日程、撰写邮件" onclick="selectRoleTemplate(this)">
+<div class="role-template-emoji">👔</div>
+<div class="role-template-name">CEO助理</div>
+<div class="role-template-desc">高管助手</div>
+</div>
+<div class="role-template-card" data-role="前端工程师" data-avatar-index="1" data-desc="负责Web界面开发、用户体验优化" onclick="selectRoleTemplate(this)">
+<div class="role-template-emoji">💻</div>
+<div class="role-template-name">前端工程师</div>
+<div class="role-template-desc">界面开发</div>
+</div>
+<div class="role-template-card" data-role="后端工程师" data-avatar-index="2" data-desc="负责服务器端开发、数据库设计、API接口" onclick="selectRoleTemplate(this)">
+<div class="role-template-emoji">⚙️</div>
+<div class="role-template-name">后端工程师</div>
+<div class="role-template-desc">服务端开发</div>
+</div>
+<div class="role-template-card" data-role="设计师" data-avatar-index="3" data-desc="负责UI/UX设计、视觉创意、品牌设计" onclick="selectRoleTemplate(this)">
+<div class="role-template-emoji">🎨</div>
+<div class="role-template-name">设计师</div>
+<div class="role-template-desc">视觉创意</div>
+</div>
+<div class="role-template-card" data-role="产品经理" data-avatar-index="4" data-desc="负责产品规划、需求分析、项目管理" onclick="selectRoleTemplate(this)">
+<div class="role-template-emoji">📊</div>
+<div class="role-template-name">产品经理</div>
+<div class="role-template-desc">产品规划</div>
+</div>
+<div class="role-template-card" data-role="运营" data-avatar-index="5" data-desc="负责用户运营、活动策划、内容运营" onclick="selectRoleTemplate(this)">
+<div class="role-template-emoji">📢</div>
+<div class="role-template-name">运营</div>
+<div class="role-template-desc">用户增长</div>
+</div>
+<div class="role-template-card" data-role="客服" data-avatar-index="6" data-desc="负责客户咨询、问题解答、售后服务" onclick="selectRoleTemplate(this)">
+<div class="role-template-emoji">🎧</div>
+<div class="role-template-name">客服</div>
+<div class="role-template-desc">客户服务</div>
+</div>
+<div class="role-template-card" data-role="数据分析师" data-avatar-index="7" data-desc="负责数据分析、报表制作、商业洞察" onclick="selectRoleTemplate(this)">
+<div class="role-template-emoji">📈</div>
+<div class="role-template-name">数据分析师</div>
+<div class="role-template-desc">数据洞察</div>
+</div>
+</div>
+</div>
+<div class="template-divider"><span>或自定义</span></div>
+<div class="form-group">
+<label class="form-label">员工名称</label>
+<input type="text" class="form-input" id="wizName" placeholder="如：小龙虾、章鱼哥...">
+</div>
+<div class="form-group">
+<label class="form-label">职位</label>
+<select class="form-select" id="wizRole">
+<option>CEO助理</option>
+<option>前端工程师</option>
+<option>后端工程师</option>
+<option>设计师</option>
+<option>产品经理</option>
+<option>运营</option>
+<option>客服</option>
+<option>数据分析师</option>
+</select>
+</div>
+</div>
+<div id="wiz2" style="display:none">
+<div class="form-group">
+<label class="form-label">选择头像</label>
+<div class="avatar-picker" id="wizAvatarPicker"></div>
+</div>
+<div class="form-group">
+<label class="form-label">初始状态</label>
+<div class="status-picker" id="wizStatusPicker">
+<div class="status-opt selected" data-status="online" onclick="selectWizStatus(this)">
+<div class="status-dot" style="background:#34C759"></div>
+<span>在线</span>
+</div>
+<div class="status-opt" data-status="offline" onclick="selectWizStatus(this)">
+<div class="status-dot" style="background:#86868B"></div>
+<span>离线</span>
+</div>
+<div class="status-opt" data-status="busy" onclick="selectWizStatus(this)">
+<div class="status-dot" style="background:#FF9500"></div>
+<span>忙碌</span>
+</div>
+</div>
+</div>
+<div class="form-group">
+<label class="form-label">分组</label>
+<select class="form-select" id="wizGroup">
+<option>全局统筹</option>
+<option>技术团队</option>
+<option>业务团队</option>
+<option>测试小组</option>
+</select>
+</div>
+</div>
+<div id="wiz3" style="display:none">
+<div class="form-group">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+<span style="font-size:20px;">🦞</span>
+<label class="form-label" style="margin-bottom:0;">OpenClaw 连接配置</label>
+</div>
+<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:12px;">通过 OpenClaw 网关连接 AI 服务，所有员工默认使用 OpenClaw</div>
+</div>
+<div class="form-group">
+<label class="form-label">Agent 名称</label>
+<input type="text" class="form-input" id="wizOpenclawName" placeholder="留空默认 main">
+<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">sessionKey: agent:{名称}:main</div>
+</div>
+<div class="form-group">
+<label class="form-label">AI 供应商</label>
+<select class="form-select" id="wizAIProvider" onchange="selectWizAIProvider(this.value)">
+<option value="kimi">🌙 Kimi (Moonshot)</option>
+<option value="openai">🤖 OpenAI</option>
+<option value="deepseek">🔍 DeepSeek</option>
+<option value="zhipu">🔥 智谱 (GLM)</option>
+<option value="custom">⚙️ 自定义</option>
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">API Key</label>
+<input type="password" class="form-input" id="wizApiKey" placeholder="输入 AI 供应商的 API Key">
+<div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">AI 供应商的 API Key</div>
+</div>
+<div class="form-group" id="wizModelGroup">
+<label class="form-label">模型</label>
+<select class="form-select" id="wizModelSelect">
+<option value="">使用默认模型</option>
+</select>
+</div>
+<div class="form-group" id="wizCustomEndpointGroup" style="display:none">
+<label class="form-label">自定义 Base URL</label>
+<input type="text" class="form-input" id="wizCustomEndpoint" placeholder="https://api.example.com/v1">
+</div>
+<div class="form-group">
+<label class="form-label">系统提示词 / 欢迎语</label>
+<textarea class="form-input" id="wizSystemPrompt" rows="3" placeholder="你是{role}，擅长...（留空使用默认提示词）"></textarea>
+</div>
+<div class="wiz-confirm" style="margin-top:16px">
+<div class="wiz-confirm-title">📋 创建预览</div>
+<div class="wiz-confirm-item"><span>名称：</span><strong id="wizCName">-</strong></div>
+<div class="wiz-confirm-item"><span>职位：</span><strong id="wizCRole">-</strong></div>
+<div class="wiz-confirm-item"><span>头像：</span><strong id="wizCAvatar">-</strong></div>
+<div class="wiz-confirm-item"><span>分组：</span><strong id="wizCGroup">-</strong></div>
+<div class="wiz-confirm-item"><span>状态：</span><strong id="wizCStatus">-</strong></div>
+<div class="wiz-confirm-item"><span>模型：</span><strong id="wizCModel">-</strong></div>
+<div class="wiz-confirm-item"><span>提示词：</span><strong id="wizCPrompt">-</strong></div>
+</div>
+</div>
 </div>
 <div class="wizard-footer">
 <button class="btn btn-secondary" id="wizPrev" onclick="prevWiz()" style="display:none">← 上一步</button>
@@ -5209,7 +6462,8 @@ function showToast(msg, type) {
   <div class="fab-menu-item" onclick="showAISwitcher()">🔄 切换AI</div>
   <div class="fab-menu-item" onclick="startNewChat()">➕ 新建对话</div>
   <div class="fab-menu-item" onclick="showGlobalSearch()">🔍 全局搜索</div>
-  <div class="fab-menu-item" onclick="showSettings()">⚙️ 设置</div>
+  <div class="fab-menu-item" onclick="showUserManagement()" data-admin-only>👥 用户管理</div>
+  <div class="fab-menu-item" onclick="showSettings()" data-admin-only>⚙️ 设置</div>
 </div>
 
 <!-- FAB Button -->
@@ -5242,6 +6496,78 @@ function showToast(msg, type) {
   gap: 10px;
 }
 .fab-menu-item:hover { background: var(--bg-secondary); }
+
+/* ========== User Management Panel ========== */
+.user-management-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 400px; max-width: 100%; background: var(--bg-primary); box-shadow: var(--shadow-modal); transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); display: flex; flex-direction: column; z-index: 260; }
+.user-management-panel.open { transform: translateX(0); }
+.user-management-header { display: flex; align-items: center; justify-content: space-between; padding: 20px; border-bottom: 0.5px solid var(--separator); }
+.user-management-title { font-size: 18px; font-weight: 600; }
+.user-management-close { width: 32px; height: 32px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-secondary); }
+.user-management-close:hover { background: var(--bg-secondary); }
+.user-management-content { flex: 1; overflow-y: auto; padding: 20px; }
+
+/* 连接配置面板 */
+#empConnectProviders .provider-opt {
+  flex: 1;
+  min-width: 80px;
+  max-width: 100px;
+  padding: 10px 6px;
+  border: 2px solid var(--separator);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+}
+#empConnectProviders .provider-opt:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+#empConnectProviders .provider-opt.selected {
+  border-color: var(--accent);
+  background: rgba(0,122,255,0.08);
+  box-shadow: 0 0 0 3px rgba(0,122,255,0.1);
+}
+#empConnectProviders .provider-opt-icon {
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+#empConnectProviders .provider-opt-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+#empConnectProviders .provider-opt-desc {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+#empConnectApiKey,
+#empConnectBaseUrl {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  width: 100%;
+  box-sizing: border-box;
+}
+#empConnectApiKey:focus,
+#empConnectBaseUrl:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+#empConnectModel {
+  background: var(--bg-secondary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  width: 100%;
+  box-sizing: border-box;
+}
 </style>
 
 <!-- FAB Menu Scripts -->
@@ -5285,8 +6611,297 @@ function showSettings() {
     alert('设置面板');
   }
 }
+
+// ========== 用户管理面板 ==========
+function showUserManagement() {
+  if (!isAdmin()) {
+    showToast('⚠️ 只有管理员可以管理用户');
+    return;
+  }
+  document.getElementById('userManagementPanel').classList.add('open');
+  loadUserList();
+}
+
+function closeUserManagement() {
+  document.getElementById('userManagementPanel').classList.remove('open');
+}
+
+// 加载用户列表
+function loadUserList() {
+  var list = document.getElementById('userList');
+  if (!list) return;
+
+  apiFetch('/api/users').then(function(res) {
+    if (!res) {
+      // 后端没启动，用 localStorage 降级
+      var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
+      // 添加当前用户
+      if (currentUser) {
+        var exists = users.find(function(u) { return u.id === currentUser.id; });
+        if (!exists) {
+          users.push(currentUser);
+          localStorage.setItem('sb_users', JSON.stringify(users));
+        }
+      }
+      renderUserList(list, users);
+      return;
+    }
+    return res.json();
+  }).then(function(users) {
+    if (users) renderUserList(list, users);
+  });
+}
+
+function renderUserList(list, users) {
+  if (users.length === 0) {
+    list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">👥</div><div>暂无用户</div></div>';
+    return;
+  }
+  list.innerHTML = users.map(function(u) {
+    var displayName = u.displayName || u.name || u.username;
+    return '<div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--bg-secondary);border-radius:8px;margin-bottom:8px;">' +
+      '<div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-hover));display:flex;align-items:center;justify-content:center;color:white;font-size:14px;font-weight:600;">' + (displayName ? displayName.charAt(0).toUpperCase() : '?') + '</div>' +
+      '<div style="flex:1;">' +
+      '<div style="font-size:14px;font-weight:600;">' + escapeHtml(displayName) + '</div>' +
+      '<div style="font-size:12px;color:var(--text-tertiary);">@' + escapeHtml(u.username) + ' · ' + (u.role === 'admin' ? '👑 管理员' : '🦞 员工') + '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;">' +
+      '<button onclick="editUser(\'' + escapeAttr(u.id) + '\')" style="padding:4px 8px;border-radius:4px;background:var(--bg-tertiary);border:none;cursor:pointer;font-size:12px;">编辑</button>' +
+      (u.id !== currentUser?.id ? '<button onclick="deleteUser(\'' + escapeAttr(u.id) + '\')" style="padding:4px 8px;border-radius:4px;background:#FF3B30;color:white;border:none;cursor:pointer;font-size:12px;">删除</button>' : '') +
+      '</div>' +
+      '</div>';
+  }).join('');
+}
+
+// 创建用户
+function createUser() {
+  if (!isAdmin()) {
+    showToast('⚠️ 只有管理员可以创建用户');
+    return;
+  }
+
+  var username = prompt('输入用户名:');
+  if (!username) return;
+  var password = prompt('输入密码:');
+  if (!password) return;
+  var displayName = prompt('输入显示名称:', username);
+  var role = confirm('是否设为管理员?\n(确定=管理员, 取消=员工)');
+
+  var newUser = { username: username, password: password, role: role ? 'admin' : 'employee', displayName: displayName || username };
+
+  apiFetch('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(newUser)
+  }).then(function(res) {
+    if (res && res.ok) {
+      showToast('✅ 用户 ' + username + ' 创建成功');
+      loadUserList();
+    } else {
+      return res ? res.json() : null;
+    }
+  }).then(function(data) {
+    if (data && data.error) showToast('⚠️ ' + data.error);
+  }).catch(function() {
+    // 后端未启动，存 localStorage
+    var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
+    newUser.id = 'user_' + Date.now();
+    newUser.name = newUser.displayName;
+    users.push(newUser);
+    localStorage.setItem('sb_users', JSON.stringify(users));
+    showToast('✅ 用户已创建（本地模式）');
+    loadUserList();
+  });
+}
+
+// 删除用户
+function deleteUser(userId) {
+  if (!isAdmin()) {
+    showToast('⚠️ 只有管理员可以删除用户');
+    return;
+  }
+
+  if (!confirm('确定要删除这个用户吗?')) return;
+
+  apiFetch('/api/users/' + userId, { method: 'DELETE' }).then(function(res) {
+    if (res && res.ok) {
+      showToast('✅ 用户已删除');
+      loadUserList();
+    } else {
+      return res ? res.json() : null;
+    }
+  }).then(function(data) {
+    if (data && data.error) showToast('⚠️ ' + data.error);
+  }).catch(function() {
+    // 本地降级
+    var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
+    users = users.filter(function(u) { return u.id !== userId; });
+    localStorage.setItem('sb_users', JSON.stringify(users));
+    showToast('✅ 用户已删除（本地模式）');
+    loadUserList();
+  });
+}
+
+// 编辑用户
+function editUser(userId) {
+  if (!isAdmin()) {
+    showToast('⚠️ 只有管理员可以编辑用户');
+    return;
+  }
+
+  // 先尝试从后端获取用户，或从本地缓存
+  apiFetch('/api/users/' + userId).then(function(res) {
+    if (!res) {
+      // 后端未启动，用 localStorage
+      var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
+      var user = users.find(function(u) { return u.id === userId; });
+      if (user) performEditUser(user, users);
+      return null;
+    }
+    return res.json();
+  }).then(function(user) {
+    if (user) performEditUserAPI(user);
+  }).catch(function() {
+    var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
+    var user = users.find(function(u) { return u.id === userId; });
+    if (user) performEditUser(user, users);
+  });
+}
+
+function performEditUserAPI(user) {
+  var newName = prompt('修改显示名称:', user.displayName || user.name || user.username);
+  if (newName === null) return;
+  var newRole = confirm('是否设为管理员?\n(确定=管理员, 取消=员工)');
+
+  apiFetch('/api/users/' + user.id, {
+    method: 'PUT',
+    body: JSON.stringify({ displayName: newName, role: newRole ? 'admin' : 'employee' })
+  }).then(function(res) {
+    if (res && res.ok) {
+      showToast('✅ 用户信息已更新');
+      loadUserList();
+    } else {
+      return res ? res.json() : null;
+    }
+  }).then(function(data) {
+    if (data && data.error) showToast('⚠️ ' + data.error);
+  }).catch(function() {
+    showToast('⚠️ 更新失败');
+  });
+}
+
+function performEditUser(user, users) {
+  var newName = prompt('修改用户名:', user.name || user.username);
+  if (newName === null) return;
+
+  var newRole = confirm('是否设为管理员?\n(确定=管理员, 取消=员工)');
+
+  user.name = newName;
+  user.displayName = newName;
+  user.role = newRole ? 'admin' : 'employee';
+
+  localStorage.setItem('sb_users', JSON.stringify(users));
+  showToast('✅ 用户信息已更新（本地模式）');
+  loadUserList();
+}
+
+// 配额管理
+// 数据迁移检查：本地 localStorage 数据同步到后端
+function checkLocalMigration() {
+  var localEmps = JSON.parse(localStorage.getItem('emps') || '[]');
+  if (localEmps.length === 0) return;
+
+  if (!confirm('检测到本地有 ' + localEmps.length + ' 个员工数据，是否同步到服务器？\n\n同步后数据将保存在服务器，可在任何设备访问。')) {
+    return;
+  }
+
+  var success = 0, fail = 0;
+  var promises = localEmps.map(function(emp) {
+    return apiFetch('/api/agents', {
+      method: 'POST',
+      body: JSON.stringify(Object.assign({}, emp, {
+        createdBy: currentUser?.id,
+        createdByName: currentUser?.displayName || currentUser?.name
+      }))
+    }).then(function(res) {
+      if (res && res.ok) success++;
+      else fail++;
+    }).catch(function() { fail++; });
+  });
+
+  Promise.all(promises).then(function() {
+    showToast('迁移完成：成功 ' + success + ' 个' + (fail > 0 ? '，失败 ' + fail + ' 个' : ''));
+    if (fail === 0) {
+      localStorage.removeItem('emps');
+      // 清理聊天记录
+      localEmps.forEach(function(emp) {
+        localStorage.removeItem('sb_chat_history_' + emp.id);
+      });
+    }
+    // 重新加载
+    if (typeof renderEmployeeList === 'function') renderEmployeeList();
+  });
+}
+
+function setUserQuota(userId) {
+  if (!isAdmin()) {
+    showToast('⚠️ 只有管理员可以设置配额');
+    return;
+  }
+
+  var quota = prompt('设置员工数量上限 (0=无限制):');
+  if (quota === null) return;
+
+  var numQuota = parseInt(quota);
+  if (isNaN(numQuota) || numQuota < 0) {
+    showToast('⚠️ 请输入有效的数字');
+    return;
+  }
+
+  var quotas = JSON.parse(localStorage.getItem('sb_quotas') || '{}');
+  quotas[userId] = numQuota;
+  localStorage.setItem('sb_quotas', JSON.stringify(quotas));
+
+  showToast('✅ 配额已设置');
+}
+
+// 检查配额
+function checkQuota() {
+  if (isAdmin()) return true; // 管理员无限制
+
+  var quotas = JSON.parse(localStorage.getItem('sb_quotas') || '{}');
+  var myQuota = quotas[currentUser?.id] || 0;
+
+  if (myQuota === 0) return true; // 0 = 无限制
+
+  var myEmployees = emps.filter(function(e) {
+    return e.createdBy === currentUser?.id;
+  });
+
+  if (myEmployees.length >= myQuota) {
+    showToast('⚠️ 已达到员工数量上限 (' + myQuota + ')');
+    return false;
+  }
+
+  return true;
+}
 </script>
 
-<script src="openclaw-client.js"></script>
+<!-- User Management Panel -->
+<div class="user-management-panel" id="userManagementPanel">
+  <div class="user-management-header">
+    <div class="user-management-title">👥 用户管理</div>
+    <button class="user-management-close" onclick="closeUserManagement()">✕</button>
+  </div>
+  <div class="user-management-content">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:600;">用户列表</div>
+      <button onclick="createUser()" style="padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">➕ 添加用户</button>
+    </div>
+    <div id="userList"></div>
+  </div>
+</div>
+
+<script src="avatars.js?v=1778166504"></script>
+<script src="openclaw-client-v3.js"></script>
 </body>
 </html>

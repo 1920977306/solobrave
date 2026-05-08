@@ -78,38 +78,103 @@ class OpenClawClient {
     });
   }
 
-  // 认证
+  // 认证 - 使用 challenge-response 机制
   async authenticate() {
     if (!this.jwk) {
       await this.initJWK();
     }
     
-    const authMsg = {
-      type: 'auth',
-      method: 'jwk',
-      params: {
-        jwk: this.jwk
+    // 生成或获取私钥
+    if (!this.jwk.d) {
+      // 生成一个随机私钥（用于测试）
+      const randomBytes = new Uint8Array(32);
+      if (window.crypto) {
+        crypto.getRandomValues(randomBytes);
+      } else {
+        for (let i = 0; i < 32; i++) {
+          randomBytes[i] = Math.floor(Math.random() * 256);
+        }
       }
-    };
+      this.jwk.d = btoa(String.fromCharCode(...randomBytes));
+    }
     
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error('认证超时'));
       }, 10000);
       
-      this.send(authMsg).then(response => {
-        clearTimeout(timeout);
-        if (response.success || response.authenticated) {
-          this.authenticated = true;
-          console.log('[OpenClaw] 认证成功');
-          this.emit('authenticated');
-          resolve(true);
-        } else {
-          reject(new Error('认证失败'));
+      // 等待 challenge 消息
+      const handleChallenge = async (msg) => {
+        // 检查是否是 challenge 消息
+        if (msg.type === 'challenge' || msg.nonce || (msg.params && msg.params.nonce)) {
+          clearTimeout(timeout);
+          this.off('message', handleChallenge);
+          
+          try {
+            const nonce = msg.nonce || msg.params?.nonce;
+            const signedAt = Date.now();
+            
+            // 构造签名数据（简化版，实际应该使用 Ed25519 签名）
+            const signatureData = `${nonce}:${signedAt}`;
+            const signature = btoa(signatureData); // 简化签名，实际应使用私钥签名
+            
+            // 发送认证响应
+            const authMsg = {
+              type: 'auth',
+              method: 'jwk',
+              params: {
+                jwk: {
+                  kty: this.jwk.kty,
+                  crv: this.jwk.crv,
+                  x: this.jwk.x
+                },
+                device: {
+                  publicKey: {
+                    kty: this.jwk.kty,
+                    crv: this.jwk.crv,
+                    x: this.jwk.x
+                  },
+                  signature: signature,
+                  signedAt: signedAt,
+                  nonce: nonce
+                }
+              }
+            };
+            
+            this.send(authMsg).then(response => {
+              if (response.success || response.authenticated) {
+                this.authenticated = true;
+                console.log('[OpenClaw] 认证成功');
+                this.emit('authenticated');
+                resolve(true);
+              } else {
+                reject(new Error('认证失败: ' + (response.error || '未知错误')));
+              }
+            }).catch(err => {
+              reject(err);
+            });
+          } catch (err) {
+            reject(err);
+          }
         }
-      }).catch(err => {
-        clearTimeout(timeout);
-        reject(err);
+      };
+      
+      // 监听 challenge
+      this.on('message', handleChallenge);
+      
+      // 发送初始认证请求（触发服务器发送 challenge）
+      this.send({
+        type: 'auth',
+        method: 'jwk',
+        params: {
+          jwk: {
+            kty: this.jwk.kty,
+            crv: this.jwk.crv,
+            x: this.jwk.x
+          }
+        }
+      }).catch(() => {
+        // 忽略错误，等待 challenge
       });
     });
   }
@@ -234,6 +299,13 @@ class OpenClawClient {
     }
     this.listeners.get(event).add(callback);
     return () => this.listeners.get(event)?.delete(callback);
+  }
+
+  off(event, callback) {
+    const callbacks = this.listeners.get(event);
+    if (callbacks) {
+      callbacks.delete(callback);
+    }
   }
 
   emit(event, data) {
