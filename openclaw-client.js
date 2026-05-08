@@ -204,13 +204,7 @@ class OpenClawClient {
       userAgent: 'SoloBrave/1.0.0 ' + navigator.userAgent
     };
     
-    // 添加 device 信息（用稳定 ID）
-    if (nonce || this._deviceId) {
-      params.device = {
-        id: this._deviceId
-      };
       if (nonce) {
-        params.device.nonce = nonce;
       }
     }
     
