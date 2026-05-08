@@ -2849,8 +2849,10 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
       if(!data) return;
       if(data.runId && !currentRunId) currentRunId = data.runId;
       if(currentRunId && data.runId && data.runId !== currentRunId) return;
-      if(data.stream === 'assistant' && data.data && data.data.delta){
-        fullReply += data.data.delta;
+      if(data.stream === 'assistant' && data.data){
+        // 优先用 data.text（完整文本）避免 delta 重复拼接
+        if(data.data.text) fullReply = data.data.text;
+        else if(data.data.delta) fullReply += data.data.delta;
         var t = document.getElementById('typingMsg');
         if(t) t.textContent = fullReply + '...';
       }
