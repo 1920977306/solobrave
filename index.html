@@ -1429,6 +1429,152 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   color: var(--text-secondary);
 }
 
+
+/* ========== 群组聊天样式 ========== */
+.group-avatar {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: rgba(255,255,255,0.25);
+  backdrop-filter: blur(10px);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; flex-shrink: 0;
+}
+.group-item-info { min-width: 0; flex: 1; }
+.group-item-name { font-size: 14px; font-weight: 500; color: var(--text-primary); }
+.group-item-sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.group-add-btn {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent-light); color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 600; cursor: pointer;
+  transition: all 0.15s; flex-shrink: 0;
+}
+.group-add-btn:hover { background: var(--accent); color: white; }
+
+/* 群聊头部 */
+.group-chat-header { display: flex; align-items: center; gap: 10px; width: 100%; }
+.group-header-avatars { display: flex; align-items: center; margin-left: 4px; }
+.group-header-avatars .mini-avatar {
+  width: 24px; height: 24px; border-radius: 50%;
+  border: 2px solid var(--bg-primary);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; margin-left: -6px; background: var(--bg-tertiary);
+}
+.group-header-avatars .mini-avatar:first-child { margin-left: 0; }
+.group-header-avatars .mini-more {
+  background: var(--bg-tertiary); color: var(--text-secondary);
+  font-size: 10px; font-weight: 600;
+}
+
+/* 群聊消息中的 @提及高亮 */
+.mention-tag {
+  display: inline-block; padding: 1px 6px; border-radius: 4px;
+  background: rgba(0,122,255,0.1); color: #007AFF; font-weight: 500;
+  font-size: 13px;
+}
+
+/* 创建群组向导 */
+.group-wizard-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+  z-index: 3000; display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.group-wizard-overlay.show { opacity: 1; pointer-events: all; }
+.group-wizard {
+  background: var(--bg-primary); border-radius: 16px; width: 420px; max-width: 90vw;
+  max-height: 80vh; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  transform: scale(0.95); transition: transform 0.25s;
+}
+.group-wizard-overlay.show .group-wizard { transform: scale(1); }
+.gw-header {
+  padding: 20px 24px 16px; border-bottom: 0.5px solid var(--separator);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.gw-title { font-size: 17px; font-weight: 600; color: var(--text-primary); }
+.gw-close {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-secondary); cursor: pointer; font-size: 16px;
+}
+.gw-close:hover { background: var(--bg-secondary); }
+.gw-steps { display: flex; align-items: center; gap: 8px; padding: 16px 24px 0; }
+.gw-step {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--bg-tertiary); color: var(--text-secondary);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600; transition: all 0.2s;
+}
+.gw-step.active { background: var(--accent); color: white; }
+.gw-step.done { background: #34C759; color: white; }
+.gw-step-line { flex: 1; height: 2px; background: var(--bg-tertiary); border-radius: 1px; }
+.gw-step-line.done { background: #34C759; }
+.gw-body { padding: 20px 24px; max-height: 50vh; overflow-y: auto; }
+.gw-footer {
+  padding: 16px 24px; border-top: 0.5px solid var(--separator);
+  display: flex; justify-content: flex-end; gap: 10px;
+}
+.gw-btn {
+  padding: 8px 20px; border-radius: 8px; font-size: 14px; font-weight: 500;
+  cursor: pointer; transition: all 0.15s;
+}
+.gw-btn-secondary { background: var(--bg-secondary); color: var(--text-primary); }
+.gw-btn-secondary:hover { background: var(--bg-tertiary); }
+.gw-btn-primary { background: var(--accent); color: white; }
+.gw-btn-primary:hover { background: var(--accent-hover); }
+
+/* 群组 emoji 选择器 */
+.emoji-grid {
+  display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px;
+  margin-top: 10px;
+}
+.emoji-opt {
+  width: 38px; height: 38px; border-radius: 8px; display: flex;
+  align-items: center; justify-content: center; font-size: 20px;
+  cursor: pointer; transition: all 0.15s; border: 2px solid transparent;
+}
+.emoji-opt:hover { background: var(--bg-secondary); }
+.emoji-opt.selected { border-color: var(--accent); background: var(--accent-light); }
+
+/* 群组成员选择器 */
+.member-check-grid {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
+}
+.member-check-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 8px; background: var(--bg-secondary);
+  cursor: pointer; transition: all 0.15s; border: 1.5px solid transparent;
+  font-size: 13px;
+}
+.member-check-item:hover { background: var(--bg-tertiary); }
+.member-check-item.selected { border-color: var(--accent); background: var(--accent-light); }
+.member-check-item .check-mark { display: none; color: var(--accent); font-size: 14px; font-weight: bold; }
+.member-check-item.selected .check-mark { display: inline; }
+
+/* 群组组长选择 */
+.lead-radio { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.lead-radio-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: 8px; cursor: pointer;
+  transition: all 0.15s; border: 1.5px solid transparent;
+}
+.lead-radio-item:hover { background: var(--bg-secondary); }
+.lead-radio-item.selected { border-color: var(--accent); background: var(--accent-light); }
+.lead-radio-dot {
+  width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--text-tertiary);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.lead-radio-item.selected .lead-radio-dot { border-color: var(--accent); }
+.lead-radio-item.selected .lead-radio-dot::after {
+  content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--accent);
+}
+
+/* 确认页 */
+.gw-confirm-box {
+  background: var(--bg-secondary); border-radius: 10px; padding: 16px; margin-top: 12px;
+}
+.gw-confirm-row { margin-bottom: 8px; font-size: 14px; }
+.gw-confirm-row:last-child { margin-bottom: 0; }
+.gw-confirm-label { color: var(--text-secondary); margin-right: 4px; }
+
 </style>
 </head>
 <body>
@@ -2633,7 +2779,9 @@ function showMainApp() {
   updateUserInfo();
   // 加载员工列表（从后端优先，降级到 localStorage）
   loadEmployees().then(function(){
-    renderEmployeeList();
+    loadGroups().then(function(){
+      renderEmployeeList();
+    });
   });
   // 自动连接 OpenClaw
   setTimeout(initOpenClaw, 1000);
@@ -2836,6 +2984,22 @@ function sendMsg(){
   const input = document.getElementById('msgInput');
   const text = input.value.trim();
   if(!text) return;
+  
+  // 群聊模式：转发到 sendGroupMessage
+  if(currentGroupId){
+    var mentions = [];
+    var mentionRegex = /@([^@\s]+)/g;
+    var m;
+    while((m = mentionRegex.exec(text)) !== null){
+      var mentionedEmp = emps.find(function(e){ return e.name === m[1]; });
+      if(mentionedEmp) mentions.push(mentionedEmp.id);
+    }
+    input.value = '';
+    document.getElementById('mentionDropdown').style.display = 'none';
+    document.getElementById('slashMenu').style.display = 'none';
+    sendGroupMessage(currentGroupId, text, mentions);
+    return;
+  }
   
   const area = document.getElementById('messagesArea');
   const now = new Date();
@@ -3624,6 +3788,17 @@ const projs = [
 {id:'proj3',name:'AI 集成',progress:80}
 ];
 
+// ========== 群组数据 ==========
+const groups = [];
+
+// 群组相关状态
+let currentGroupId = null;
+let gwStep = 1;
+let gwEmoji = '🚀';
+let gwMembers = [];
+let gwLead = '';
+
+
 // Alias for compatibility
 const employees = emps;
 
@@ -3676,11 +3851,12 @@ function renderEmployeeList(){
     });
   }
 
-  // ===== 一级分类：项目组（占位）=====
+  // ===== 一级分类：项目组 =====
   html += renderCategoryHeader('项目组', state['项目组']);
   if(state['项目组']){
-    html += renderProjectGroupPlaceholder('快速研发组', 7);
-    html += renderProjectGroupPlaceholder('AI 实验室', 3);
+    html += renderGroupItems();
+    // 添加 "+" 按钮
+    html += '<div style="padding:4px 24px;display:flex;justify-content:center;"><div class="group-add-btn" onclick="openGroupWizard()" title="创建项目组">+</div></div>';
   }
 
   list.innerHTML = html;
@@ -3747,10 +3923,71 @@ function renderSubCategoryHeader(name, count){
 }
 
 function renderProjectGroupPlaceholder(name, count){
+  // 兼容旧调用，但新渲染通过 renderGroupItems 实现
   return '<div class="list-item proj-placeholder" style="padding-left:24px;opacity:0.7;" onclick="showToast(\'项目组群聊功能开发中...\')">' +
     '<div class="item-avatar" style="width:36px;height:36px;"><div class="avatar small" style="width:36px;height:36px;background:var(--bg-tertiary);">👥</div></div>' +
     '<div class="item-info"><div class="item-name">' + escapeHtml(name) + '</div><div class="item-msg">' + count + ' 人 · 群聊入口</div></div>' +
     '</div>';
+}
+
+// ========== 群组数据管理 ==========
+async function loadGroups(){
+  var token = localStorage.getItem('sb_auth_token');
+  if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
+    try{
+      var resp = await apiFetch('/api/groups');
+      if(resp && resp.ok){
+        var data = await resp.json();
+        if(data && Array.isArray(data)){
+          groups.length = 0;
+          data.forEach(function(g){ groups.push(g); });
+          localStorage.setItem('sb_groups', JSON.stringify(groups));
+          return;
+        }
+      }
+    }catch(e){ console.log('[Groups] 后端加载失败，回退本地:', e); }
+  }
+  // Fallback to localStorage
+  var saved = localStorage.getItem('sb_groups');
+  if(saved){
+    try{
+      var data = JSON.parse(saved);
+      groups.length = 0;
+      data.forEach(function(g){ groups.push(g); });
+    }catch(e){}
+  }
+}
+
+async function saveGroups(){
+  localStorage.setItem('sb_groups', JSON.stringify(groups));
+  var token = localStorage.getItem('sb_auth_token');
+  if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
+    try{
+      // Try batch save
+      await apiFetch('/api/groups', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(groups)
+      });
+    }catch(e){ console.log('[Groups] 保存到后端失败:', e); }
+  }
+}
+
+// 渲染侧栏群组列表
+function renderGroupItems(){
+  if(groups.length === 0){
+    return '<div style="padding:8px 24px;font-size:12px;color:var(--text-tertiary);">暂无项目组，点击 + 创建</div>';
+  }
+  return groups.map(function(g){
+    var memberCount = (g.members && g.members.length) || 0;
+    var lastMsg = g.lastMsg || '';
+    var emoji = g.emoji || '👥';
+    var isActive = currentGroupId === g.id;
+    return '<div class="list-item" data-group="' + escapeAttr(g.id) + '" style="padding-left:24px;' + (isActive ? 'background:var(--accent-light);' : '') + '" onclick="openGroupChat(\'' + escapeAttr(g.id) + '\')">' +
+      '<div class="group-avatar" style="background:linear-gradient(135deg,' + escapeAttr(g.bg || '#5856D6') + ',' + (g.bg || '#5856D6') + 'dd);">' + escapeHtml(emoji) + '</div>' +
+      '<div class="group-item-info"><div class="group-item-name">' + escapeHtml(g.name) + '</div><div class="group-item-sub">' + memberCount + ' 人' + (lastMsg ? ' · ' + escapeHtml(lastMsg) : '') + '</div></div>' +
+      '</div>';
+  }).join('');
 }
 
 
@@ -4120,6 +4357,7 @@ document.addEventListener('DOMContentLoaded', updateConnectionStatus);
 
 // Open Chat
 function openChat(id){
+currentGroupId = null;  // 退出群聊模式
 document.querySelectorAll('.list-item').forEach(i=>i.classList.remove('active'));
 const emp=emps.find(e=>e.id===id);
 if(emp){
@@ -4155,6 +4393,449 @@ showBulletinBar(id);
 startSupervisorTimer(); // 启动督促定时器
 updateSupervisorStatusButton();
 }
+}
+
+
+// ========== 群聊功能 ==========
+function openGroupChat(groupId){
+  var group = groups.find(function(g){ return g.id === groupId; });
+  if(!group){
+    showToast('⚠️ 群组不存在');
+    return;
+  }
+  currentGroupId = groupId;
+  
+  // 更新侧栏高亮
+  document.querySelectorAll('.list-item').forEach(function(i){ i.classList.remove('active'); });
+  var groupItem = document.querySelector('.list-item[data-group="' + groupId + '"]');
+  if(groupItem) groupItem.classList.add('active');
+  
+  // 更新聊天头部 — 群组模式
+  var chatHeaderName = document.querySelector('.chat-header-name');
+  var chatHeaderSub = document.querySelector('.chat-header-role') || document.querySelector('.chat-header-sub');
+  var chatHeaderLeft = document.querySelector('.chat-header-left');
+  
+  // 构建群组头部
+  var memberAvatarsHtml = '';
+  var members = group.members || [];
+  var showCount = Math.min(members.length, 4);
+  for(var i = 0; i < showCount; i++){
+    var m = emps.find(function(e){ return e.id === members[i]; });
+    if(m){
+      memberAvatarsHtml += '<div class="mini-avatar" style="background:' + escapeAttr(m.bg || '#8E8E93') + ';">' + renderAvatar(m, 20) + '</div>';
+    }
+  }
+  if(members.length > 4){
+    memberAvatarsHtml += '<div class="mini-avatar mini-more">+' + (members.length - 4) + '</div>';
+  }
+  
+  if(chatHeaderLeft){
+    var emoji = group.emoji || '👥';
+    chatHeaderLeft.innerHTML = 
+      '<div class="group-avatar" style="background:linear-gradient(135deg,' + escapeAttr(group.bg || '#5856D6') + ',' + (group.bg || '#5856D6') + 'dd);width:36px;height:36px;border-radius:10px;font-size:18px;">' + escapeHtml(emoji) + '</div>' +
+      '<div class="chat-header-info">' +
+        '<div class="chat-header-name" style="display:flex;align-items:center;gap:6px;">' +
+          '<span>' + escapeHtml(group.name) + '</span>' +
+          '<div class="group-header-avatars">' + memberAvatarsHtml + '</div>' +
+        '</div>' +
+        '<div class="chat-header-role">' + members.length + ' 名成员 · 群聊</div>' +
+      '</div>';
+  }
+  
+  // 隐藏进度条
+  var chatProgress = document.getElementById('chatProgress');
+  if(chatProgress) chatProgress.style.display = 'none';
+  
+  // 隐藏任务板
+  var appMain = document.querySelector('.app-main');
+  if(appMain) appMain.classList.remove('show-board');
+  
+  // 渲染群聊消息
+  renderGroupMessages(groupId);
+  
+  // 隐藏公告栏
+  hideBulletin();
+}
+
+// 渲染群聊消息
+function renderGroupMessages(groupId){
+  var area = document.getElementById('messagesArea');
+  var group = groups.find(function(g){ return g.id === groupId; });
+  if(!group) return;
+  
+  var historyKey = 'sb_group_history_' + groupId;
+  var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+  
+  if(history.length === 0){
+    area.innerHTML = '<div class="chat-empty-state"><div class="empty-avatar">👥</div><div class="empty-title">开始群聊</div><div class="empty-desc">在下方输入框发送消息，与项目组成员协作<br>输入 @ 提及特定成员</div></div>';
+    return;
+  }
+  
+  var html = '<div class="time-separator"><span>今天</span></div>';
+  history.forEach(function(m){
+    var timeStr = new Date(m.time).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+    var isOwn = m.role === 'user';
+    var senderEmp = null;
+    
+    if(!isOwn && m.senderId){
+      senderEmp = emps.find(function(e){ return e.id === m.senderId; });
+    }
+    
+    // 处理 @提及高亮
+    var bubbleContent = formatGroupMessage(m.content);
+    
+    if(isOwn){
+      html += '<div class="msg own"><div class="msg-content">' +
+        '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>' +
+        '<div class="msg-bubble">' + bubbleContent + '</div>' +
+        '</div></div>';
+    } else {
+      var avatarHtml = senderEmp ? renderAvatar(senderEmp, 32) : '🤖';
+      var senderName = senderEmp ? senderEmp.name : (m.senderName || 'AI');
+      var senderRole = senderEmp ? senderEmp.role : '';
+      var senderBg = senderEmp ? 'background:' + senderEmp.bg + ';' : 'background:var(--bg-tertiary);';
+      
+      html += '<div class="msg"><div class="msg-avatar"><div class="avatar small" style="' + senderBg + '">' + avatarHtml + '</div></div>' +
+        '<div class="msg-content">' +
+        '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(senderName) + '</span><span class="msg-sender-role">' + escapeHtml(senderRole) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' +
+        '<div class="msg-bubble">' + bubbleContent + '</div>' +
+        '</div></div>';
+    }
+  });
+  
+  html += '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
+  
+  area.innerHTML = html;
+  area.scrollTop = area.scrollHeight;
+}
+
+// 格式化群聊消息（处理 @提及高亮）
+function formatGroupMessage(text){
+  if(!text) return '';
+  var result = escapeHtml(text);
+  // 高亮 @提及
+  result = result.replace(/@([^@\s]+)/g, '<span class="mention-tag">@$1</span>');
+  // 处理换行
+  result = result.replace(/\n/g, '<br>');
+  return result;
+}
+
+// 发送群聊消息
+async function sendGroupMessage(groupId, message, mentions){
+  var group = groups.find(function(g){ return g.id === groupId; });
+  if(!group) return;
+  
+  // 保存到本地历史
+  var historyKey = 'sb_group_history_' + groupId;
+  var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+  history.push({role:'user', content:message, mentions:mentions, time:Date.now()});
+  localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+  
+  // 在消息区显示
+  var area = document.getElementById('messagesArea');
+  var emptyState = area.querySelector('.chat-empty-state');
+  if(emptyState) emptyState.remove();
+  
+  var timeStr = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+  var bubbleContent = formatGroupMessage(message);
+  
+  area.insertAdjacentHTML('beforeend',
+    '<div class="msg own"><div class="msg-content">' +
+    '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>' +
+    '<div class="msg-bubble">' + bubbleContent + '</div>' +
+    '</div></div>'
+  );
+  area.scrollTop = area.scrollHeight;
+  
+  // 通过 OpenClaw WS 发送给 leadAgent
+  var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
+  
+  if(ocOk && group.leadAgentId){
+    // 构建完整消息（包含群组上下文和 @提及）
+    var memberNames = (group.members || []).map(function(mid){
+      var e = emps.find(function(x){ return x.id === mid; });
+      return e ? e.name : mid;
+    }).join(', ');
+    
+    var fullMessage = '[群聊: ' + group.name + ' | 成员: ' + memberNames + '] ';
+    if(mentions && mentions.length > 0){
+      fullMessage += mentions.map(function(m){ return '@' + m; }).join(' ') + ' ';
+    }
+    fullMessage += message;
+    
+    var leadEmp = emps.find(function(e){ return e.id === group.leadAgentId; });
+    var agentId = leadEmp ? (leadEmp.openclawName || leadEmp.id) : group.leadAgentId;
+    var sessionKey = 'agent:' + agentId + ':main';
+    
+    // 显示打字指示器
+    var typingHtml = '<div class="msg" id="groupTypingMsg"><div class="msg-avatar"><div class="avatar small" style="background:' + (leadEmp ? leadEmp.bg : '#8E8E93') + ';">' + (leadEmp ? renderAvatar(leadEmp, 32) : '🤖') + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + (leadEmp ? escapeHtml(leadEmp.name) : 'AI') + '</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div></div>';
+    area.insertAdjacentHTML('beforeend', typingHtml);
+    area.scrollTop = area.scrollHeight;
+    
+    try {
+      var fullReply = '';
+      var hasStreamReply = false;
+      var currentRunId = null;
+      var agentHandler = function(data){
+        if(!data) return;
+        if(data.runId && !currentRunId) currentRunId = data.runId;
+        if(currentRunId && data.runId && data.runId !== currentRunId) return;
+        if(data.stream === 'assistant' && data.data){
+          hasStreamReply = true;
+          if(data.data.text) fullReply = data.data.text;
+          else if(data.data.delta) fullReply += data.data.delta;
+          var t = document.getElementById('groupTypingMsg');
+          if(t) t.querySelector('.msg-bubble').textContent = fullReply + '...';
+        }
+        if(data.stream === 'lifecycle' && data.data && (data.data.phase === 'end' || data.data.phase === 'error')){
+          var t = document.getElementById('groupTypingMsg');
+          if(t) t.remove();
+          if(!fullReply) fullReply = '（AI 未返回内容）';
+          if(data.data.phase === 'error') fullReply = '⚠️ AI 回复出错: ' + (data.error || '未知错误');
+          // 显示 AI 回复到群聊
+          displayGroupAIReply(groupId, group.leadAgentId, fullReply);
+          openclaw.off('agent', agentHandler);
+        }
+      };
+      openclaw.on('agent', agentHandler);
+      
+      var result = await openclaw.sendChat(sessionKey, fullMessage);
+      
+      if(result && result.content && !hasStreamReply){
+        var t = document.getElementById('groupTypingMsg');
+        if(t) t.remove();
+        var reply = '';
+        if(Array.isArray(result.content)){
+          reply = result.content.map(function(c){ return c.text || ''; }).join('');
+        } else if(typeof result.content === 'string'){
+          reply = result.content;
+        }
+        if(reply){
+          displayGroupAIReply(groupId, group.leadAgentId, reply);
+          openclaw.off('agent', agentHandler);
+        }
+      }
+    } catch(e){
+      console.error('[GroupChat] 发送失败:', e);
+      var t = document.getElementById('groupTypingMsg');
+      if(t) t.remove();
+      displayGroupAIReply(groupId, group.leadAgentId, '⚠️ 群聊消息发送失败: ' + e.message);
+    }
+  } else {
+    // 模拟回复
+    setTimeout(function(){
+      var simReply = '收到！我会协调团队成员处理。';
+      displayGroupAIReply(groupId, group.leadAgentId || '', simReply);
+    }, 800);
+  }
+}
+
+// 在群聊中显示 AI 回复
+function displayGroupAIReply(groupId, senderId, replyText){
+  var area = document.getElementById('messagesArea');
+  var senderEmp = emps.find(function(e){ return e.id === senderId; });
+  var avatarHtml = senderEmp ? renderAvatar(senderEmp, 32) : '🤖';
+  var senderName = senderEmp ? senderEmp.name : 'AI';
+  var senderRole = senderEmp ? senderEmp.role : '';
+  var senderBg = senderEmp ? 'background:' + senderEmp.bg + ';' : 'background:var(--bg-tertiary);';
+  var timeStr = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+  var bubbleContent = formatGroupMessage(replyText);
+  
+  var html = '<div class="msg"><div class="msg-avatar"><div class="avatar small" style="' + senderBg + '">' + avatarHtml + '</div></div>' +
+    '<div class="msg-content">' +
+    '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(senderName) + '</span><span class="msg-sender-role">' + escapeHtml(senderRole) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' +
+    '<div class="msg-bubble">' + bubbleContent + '</div>' +
+    '</div></div>';
+  
+  area.insertAdjacentHTML('beforeend', html);
+  area.scrollTop = area.scrollHeight;
+  
+  // 保存到群组历史
+  var historyKey = 'sb_group_history_' + groupId;
+  var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+  history.push({role:'assistant', content:replyText, senderId:senderId, senderName:senderName, time:Date.now()});
+  localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+  
+  // 更新群组最后消息
+  var group = groups.find(function(g){ return g.id === groupId; });
+  if(group){
+    group.lastMsg = replyText.substring(0, 20);
+    saveGroups();
+    renderEmployeeList();
+  }
+}
+
+// ========== 创建群组向导 ==========
+var GROUP_EMOJIS = ['🚀','🎨','💡','🔧','📊','🎯','⚡','🔥','🌈','🎮','🤖','📱','🌐','🏗️','📦','🔔'];
+
+function openGroupWizard(){
+  gwStep = 1;
+  gwEmoji = '🚀';
+  gwMembers = [];
+  gwLead = '';
+  // 渲染 emoji 选择器
+  var emojiGrid = document.getElementById('gwEmojiGrid');
+  if(emojiGrid){
+    emojiGrid.innerHTML = GROUP_EMOJIS.map(function(e){
+      var sel = e === gwEmoji ? ' selected' : '';
+      return '<div class="emoji-opt' + sel + '" onclick="selectGwEmoji(\'' + e + '\', this)">' + e + '</div>';
+    }).join('');
+  }
+  // 清空输入
+  var nameInput = document.getElementById('gwName');
+  if(nameInput) nameInput.value = '';
+  renderGroupWizardUI();
+  document.getElementById('groupWizardOverlay').classList.add('show');
+}
+
+function closeGroupWizard(){
+  document.getElementById('groupWizardOverlay').classList.remove('show');
+}
+
+function gwNext(){
+  if(gwStep === 1){
+    var name = document.getElementById('gwName').value.trim();
+    if(!name){ showToast('请输入群组名称', 'warning'); return; }
+  }
+  if(gwStep === 2){
+    if(gwMembers.length === 0){ showToast('请至少选择一个成员', 'warning'); return; }
+    if(!gwLead){ gwLead = gwMembers[0]; } // 默认第一个成员为组长
+    renderGroupWizardStep3();
+  }
+  if(gwStep < 3){
+    gwStep++;
+    renderGroupWizardUI();
+  } else {
+    createGroup();
+  }
+}
+
+function gwPrev(){
+  if(gwStep > 1){ gwStep--; renderGroupWizardUI(); }
+}
+
+function renderGroupWizardUI(){
+  var stepsHtml = '';
+  for(var i = 1; i <= 3; i++){
+    var cls = i < gwStep ? ' done' : i === gwStep ? ' active' : '';
+    stepsHtml += '<div class="gw-step' + cls + '">' + i + '</div>';
+    if(i < 3) stepsHtml += '<div class="gw-step-line' + (i < gwStep ? ' done' : '') + '"></div>';
+  }
+  document.getElementById('gwSteps').innerHTML = stepsHtml;
+  
+  // Step content
+  document.getElementById('gwStep1').style.display = gwStep === 1 ? 'block' : 'none';
+  document.getElementById('gwStep2').style.display = gwStep === 2 ? 'block' : 'none';
+  document.getElementById('gwStep3').style.display = gwStep === 3 ? 'block' : 'none';
+  
+  // Buttons
+  document.getElementById('gwPrevBtn').style.display = gwStep > 1 ? 'inline-block' : 'none';
+  document.getElementById('gwNextBtn').textContent = gwStep === 3 ? '✨ 创建群组' : '下一步 →';
+  
+  if(gwStep === 2) renderGroupWizardStep2();
+  if(gwStep === 3) renderGroupWizardStep3();
+}
+
+function selectGwEmoji(emoji, el){
+  gwEmoji = emoji;
+  document.querySelectorAll('.emoji-opt').forEach(function(o){ o.classList.remove('selected'); });
+  el.classList.add('selected');
+}
+
+function toggleGwMember(empId){
+  var idx = gwMembers.indexOf(empId);
+  if(idx >= 0){
+    gwMembers.splice(idx, 1);
+    if(gwLead === empId){
+      gwLead = gwMembers.length > 0 ? gwMembers[0] : '';
+    }
+  } else {
+    gwMembers.push(empId);
+    if(!gwLead) gwLead = empId;
+  }
+  renderGroupWizardStep2();
+}
+
+function selectGwLead(empId){
+  gwLead = empId;
+  document.querySelectorAll('.lead-radio-item').forEach(function(i){ i.classList.remove('selected'); });
+  var item = document.querySelector('.lead-radio-item[data-lead="' + empId + '"]');
+  if(item) item.classList.add('selected');
+}
+
+function renderGroupWizardStep2(){
+  var container = document.getElementById('gwMembersGrid');
+  if(!container) return;
+  container.innerHTML = emps.filter(function(e){ return !e.archived; }).map(function(e){
+    var selected = gwMembers.indexOf(e.id) >= 0;
+    return '<div class="member-check-item' + (selected ? ' selected' : '') + '" onclick="toggleGwMember(\'' + escapeAttr(e.id) + '\')">' +
+      '<span class="check-mark">✓</span>' +
+      '<div class="avatar small" style="background:' + escapeAttr(e.bg || '') + ';width:24px;height:24px;font-size:12px;">' + renderAvatar(e, 24) + '</div>' +
+      '<span>' + escapeHtml(e.name) + '</span>' +
+      '</div>';
+  }).join('');
+}
+
+function renderGroupWizardStep3(){
+  var container = document.getElementById('gwLeadList');
+  if(!container) return;
+  
+  // Lead selection
+  container.innerHTML = gwMembers.map(function(mid){
+    var e = emps.find(function(x){ return x.id === mid; });
+    if(!e) return '';
+    var isSelected = gwLead === mid;
+    return '<div class="lead-radio-item' + (isSelected ? ' selected' : '') + '" data-lead="' + escapeAttr(mid) + '" onclick="selectGwLead(\'' + escapeAttr(mid) + '\')">' +
+      '<div class="lead-radio-dot"></div>' +
+      '<div class="avatar small" style="background:' + escapeAttr(e.bg || '') + ';width:28px;height:28px;font-size:13px;">' + renderAvatar(e, 28) + '</div>' +
+      '<span style="font-size:14px;">' + escapeHtml(e.name) + '</span>' +
+      '<span style="font-size:12px;color:var(--text-secondary);">' + escapeHtml(e.role) + '</span>' +
+      '</div>';
+  }).join('');
+  
+  // Confirm info
+  var nameEl = document.getElementById('gwConfirmName');
+  var membersEl = document.getElementById('gwConfirmMembers');
+  var leadEl = document.getElementById('gwConfirmLead');
+  var name = document.getElementById('gwName') ? document.getElementById('gwName').value.trim() : '';
+  if(nameEl) nameEl.textContent = gwEmoji + ' ' + name;
+  if(membersEl){
+    var memberNames = gwMembers.map(function(mid){
+      var e = emps.find(function(x){ return x.id === mid; });
+      return e ? e.name : mid;
+    }).join('、');
+    membersEl.textContent = memberNames;
+  }
+  if(leadEl){
+    var leadEmp = emps.find(function(x){ return x.id === gwLead; });
+    leadEl.textContent = leadEmp ? leadEmp.name : gwLead;
+  }
+}
+
+async function createGroup(){
+  var name = document.getElementById('gwName').value.trim();
+  if(!name){ showToast('请输入群组名称', 'warning'); return; }
+  if(gwMembers.length === 0){ showToast('请至少选择一个成员', 'warning'); return; }
+  
+  var newGroup = {
+    id: 'grp_' + Date.now(),
+    name: name,
+    emoji: gwEmoji,
+    bg: '#5856D6',
+    members: gwMembers.slice(),
+    leadAgentId: gwLead,
+    lastMsg: '',
+    createdAt: Date.now()
+  };
+  
+  groups.push(newGroup);
+  await saveGroups();
+  renderEmployeeList();
+  closeGroupWizard();
+  showToast('✅ 群组「' + name + '」创建成功！', 'success');
+  
+  // 自动打开群聊
+  setTimeout(function(){ openGroupChat(newGroup.id); }, 300);
 }
 
 // 更新督促状态按钮显示
@@ -4672,6 +5353,18 @@ function showMentionDropdown(){
   if(!dd || !list) return;
   dd.style.display = 'block';
   list.innerHTML = '';
+  
+  // 群聊模式下，优先显示群组成员
+  var mentionList = emps;
+  if(currentGroupId){
+    var group = groups.find(function(g){ return g.id === currentGroupId; });
+    if(group && group.members){
+      mentionList = group.members.map(function(mid){
+        return emps.find(function(e){ return e.id === mid; });
+      }).filter(function(e){ return e && !e.archived; });
+    }
+  }
+  
   // "所有人" 选项
   var allDiv = document.createElement('div');
   allDiv.className = 'mention-item';
@@ -4685,8 +5378,8 @@ function showMentionDropdown(){
   };
   list.appendChild(allDiv);
   // 员工列表
-  emps.forEach(function(emp){
-    if(emp.archived) return;
+  mentionList.forEach(function(emp){
+    if(!emp || emp.archived) return;
     var item = document.createElement('div');
     item.className = 'mention-item';
     item.style.cssText = 'padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;';
@@ -4723,7 +5416,7 @@ document.getElementById('slashMenu').classList.remove('active');
 document.getElementById('slashSearch').value='';
 switch(cmd){
 case '/看板': toggleTaskBoard(); break;
-case '/新建组': showCreateModal(); break;
+case '/新建组': openGroupWizard(); break;
 case '/重置': resetContext(); break;
 case '/总结': generateSummary(); break;
 case '/归档': archiveCurrent(); break;
@@ -5669,10 +6362,11 @@ const modKey=isMac?e.metaKey:e.ctrlKey;
 // Cmd/Ctrl + K = Focus search
 if(modKey && e.key==='k'){e.preventDefault();document.getElementById('searchInput')?.focus();}
 // Cmd/Ctrl + N = New
-if(modKey && e.key==='n'){e.preventDefault();showCreateModal();}
+if(modKey && e.key==='n'){e.preventDefault();openGroupWizard();}
 // Esc = Close modals/drawer
 if(e.key==='Escape'){
-if(document.querySelector('.modal-overlay.show')){document.querySelectorAll('.modal-overlay.show').forEach(m=>m.classList.remove('show'));}
+if(document.querySelector('.group-wizard-overlay.show')){closeGroupWizard();}
+else if(document.querySelector('.modal-overlay.show')){document.querySelectorAll('.modal-overlay.show').forEach(m=>m.classList.remove('show'));}
 else if(document.querySelector('.drawer-overlay.open')){closeDrawer();}
 else if(document.querySelector('.app-sidebar.open')){toggleSidebar();}
 }
@@ -5746,8 +6440,7 @@ document.getElementById('addEmployeeBtn')?.click();
 showToast('👤 添加新员工...');
 }
 function startGroupChat(){
-switchTab('employees');
-showToast('👥 发起群聊...');
+openGroupWizard();
 }
 function showDashboard(){
 switchTab('employees');
@@ -7460,6 +8153,56 @@ function checkQuota() {
       </div>
     </div>
   </div>
+</div>
+
+
+<!-- 创建群组向导 -->
+<div class="group-wizard-overlay" id="groupWizardOverlay">
+<div class="group-wizard">
+  <div class="gw-header">
+    <div class="gw-title">创建项目组</div>
+    <div class="gw-close" onclick="closeGroupWizard()">✕</div>
+  </div>
+  <div class="gw-steps" id="gwSteps">
+    <div class="gw-step active">1</div>
+    <div class="gw-step-line"></div>
+    <div class="gw-step">2</div>
+    <div class="gw-step-line"></div>
+    <div class="gw-step">3</div>
+  </div>
+  <div class="gw-body">
+    <!-- Step 1: 名称 + Emoji -->
+    <div id="gwStep1">
+      <div style="margin-bottom:16px;">
+        <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">群组名称</label>
+        <input type="text" id="gwName" class="form-input" placeholder="例如：快速研发组" style="width:100%;">
+      </div>
+      <div>
+        <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">选择图标</label>
+        <div class="emoji-grid" id="gwEmojiGrid"></div>
+      </div>
+    </div>
+    <!-- Step 2: 选择成员 -->
+    <div id="gwStep2" style="display:none;">
+      <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">选择成员</label>
+      <div class="member-check-grid" id="gwMembersGrid"></div>
+    </div>
+    <!-- Step 3: 选择组长 + 确认 -->
+    <div id="gwStep3" style="display:none;">
+      <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">选择组长（Lead Agent）</label>
+      <div class="lead-radio" id="gwLeadList"></div>
+      <div class="gw-confirm-box">
+        <div class="gw-confirm-row"><span class="gw-confirm-label">群组：</span><span id="gwConfirmName">-</span></div>
+        <div class="gw-confirm-row"><span class="gw-confirm-label">成员：</span><span id="gwConfirmMembers">-</span></div>
+        <div class="gw-confirm-row"><span class="gw-confirm-label">组长：</span><span id="gwConfirmLead">-</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="gw-footer">
+    <button class="gw-btn gw-btn-secondary" id="gwPrevBtn" onclick="gwPrev()" style="display:none;">← 上一步</button>
+    <button class="gw-btn gw-btn-primary" id="gwNextBtn" onclick="gwNext()">下一步 →</button>
+  </div>
+</div>
 </div>
 
 <script src="avatars.js?v=1778166504"></script>
