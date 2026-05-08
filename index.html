@@ -3854,11 +3854,14 @@ function empSettingsAction(action){
       break;
     case 'delete': 
       if(confirm('确定删除 ' + emp.name + '？')){
-        emps = emps.filter(function(e){ return e.id !== empSettingsTarget; });
+        var deleteId = empSettingsTarget;
+        for(var i = emps.length - 1; i >= 0; i--){
+          if(emps[i].id === deleteId) emps.splice(i, 1);
+        }
         saveEmployees();
         // 同步删除后端
         if(typeof apiFetch === 'function'){
-          apiFetch('/api/agents/' + empSettingsTarget, { method: 'DELETE' }).catch(function(){});
+          apiFetch('/api/agents/' + deleteId, { method: 'DELETE' }).catch(function(){});
         }
         showToast('🗑️ 已删除');
       }
