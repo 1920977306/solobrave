@@ -113,6 +113,16 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .item-actions { display: flex; gap: 4px; margin-left: auto; opacity: 0; transition: opacity 0.2s; }
 .item-actions .emp-action-btn { width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center; background: transparent; border: none; border-radius: 6px; cursor: pointer; color: var(--text-secondary); }
 .item-actions .emp-action-btn:hover { background: var(--bg-tertiary); color: var(--accent); }
+.item-actions .emp-more-btn { font-size: 16px; font-weight: 700; }
+
+/* Employee Settings Dropdown */
+.emp-settings-menu { position: absolute; background: var(--bg-primary); border: 1px solid var(--separator); border-radius: var(--radius-md); box-shadow: var(--shadow-modal); min-width: 160px; z-index: 1000; padding: 6px 0; display: none; }
+.emp-settings-menu.active { display: block; }
+.emp-settings-menu .menu-item { display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-size: 13px; color: var(--text-primary); cursor: pointer; transition: background 0.15s; }
+.emp-settings-menu .menu-item:hover { background: var(--bg-secondary); }
+.emp-settings-menu .menu-item.danger { color: #FF3B30; }
+.emp-settings-menu .menu-item.danger:hover { background: rgba(255, 59, 48, 0.08); }
+.emp-settings-menu .menu-divider { height: 1px; background: var(--separator); margin: 4px 0; }
 
 .avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; color: white; flex-shrink: 0; }
 .avatar.small { width: 28px; height: 28px; font-size: 12px; }
@@ -3621,7 +3631,7 @@ function renderEmployeeGroup(title, employees, isOther){
   html += title + ' <span style="font-weight:400;">(' + employees.length + ')</span>';
   html += '</div>';
   html += employees.map(function(e){
-    return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, isOther) + '<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(e.id) + '\');" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button></div></div>';
+    return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, isOther) + '<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(e.id) + '\');" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button><button class="emp-action-btn emp-more-btn" onclick="event.stopPropagation();showEmpSettingsMenu(event, \'' + escapeAttr(e.id) + '\');" title="更多">⋮</button></div></div>';
   }).join('');
   html += '</div>';
   return html;
@@ -3787,6 +3797,58 @@ function ctxAction(action){
   renderEmployeeList();
   hideContextMenu();
 }
+
+// Employee Settings Dropdown (⋮ button)
+var empSettingsTarget = null;
+function showEmpSettingsMenu(event, empId){
+  empSettingsTarget = empId;
+  var menu = document.getElementById('empSettingsMenu');
+  var btn = event.target;
+  var rect = btn.getBoundingClientRect();
+  menu.style.left = rect.left + 'px';
+  menu.style.top = (rect.bottom + 4) + 'px';
+  menu.classList.add('active');
+  event.stopPropagation();
+}
+function hideEmpSettingsMenu(){
+  var menu = document.getElementById('empSettingsMenu');
+  if(menu) menu.classList.remove('active');
+  empSettingsTarget = null;
+}
+function empSettingsAction(action){
+  if(!empSettingsTarget) return;
+  var emp = emps.find(function(e){ return e.id === empSettingsTarget; });
+  if(!emp) return;
+  switch(action){
+    case 'edit': openEmpDetail(empSettingsTarget); break;
+    case 'pin': 
+      emp.pinned = !emp.pinned; 
+      showToast(emp.pinned ? '📌 已置顶' : '📌 已取消置顶'); 
+      saveEmployees(); 
+      break;
+    case 'move': showToast('📁 移动分组功能开发中...'); break;
+    case 'archive': 
+      emp.archived = true; 
+      saveEmployees(); 
+      showToast('📦 已归档'); 
+      break;
+    case 'delete': 
+      if(confirm('确定删除 ' + emp.name + '？')){
+        emps = emps.filter(function(e){ return e.id !== empSettingsTarget; });
+        saveEmployees();
+        showToast('🗑️ 已删除');
+      }
+      break;
+  }
+  renderEmployeeList();
+  hideEmpSettingsMenu();
+}
+// Close settings menu on click outside
+document.addEventListener('click', function(e){
+  if(!e.target.closest('.emp-settings-menu') && !e.target.closest('.emp-more-btn')){
+    hideEmpSettingsMenu();
+  }
+});
 
 // Close context menu on click outside
 document.addEventListener('click',hideContextMenu);
@@ -6924,6 +6986,16 @@ function checkQuota() {
     </div>
     <div id="userList"></div>
   </div>
+</div>
+
+<!-- Employee Settings Dropdown Menu -->
+<div id="empSettingsMenu" class="emp-settings-menu">
+  <div class="menu-item" onclick="empSettingsAction('edit')">✏️ 编辑</div>
+  <div class="menu-item" onclick="empSettingsAction('pin')">📌 置顶</div>
+  <div class="menu-item" onclick="empSettingsAction('move')">📁 移动分组</div>
+  <div class="menu-divider"></div>
+  <div class="menu-item" onclick="empSettingsAction('archive')">📦 归档</div>
+  <div class="menu-item danger" onclick="empSettingsAction('delete')">🗑️ 删除</div>
 </div>
 
 <script src="avatars.js?v=1778166504"></script>
