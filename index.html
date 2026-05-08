@@ -2892,7 +2892,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
     };
     openclaw.on('agent', agentHandler);
     
-    var result = await openclaw.sendChat(sessionKey, userMessage, { systemPrompt: systemPrompt });
+    var result = await openclaw.sendChat(sessionKey, userMessage);
     console.log('[OpenClaw] chat.send 返回:', JSON.stringify(result));
     // chat.send 返回确认，实际回复通过 agent 事件推送
     // 只有当没有收到过流式 agent 事件时，才用 result.content 兜底显示
