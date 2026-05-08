@@ -4050,11 +4050,11 @@ document.querySelectorAll('.list-item').forEach(i=>i.classList.remove('active'))
 const emp=emps.find(e=>e.id===id);
 if(emp){
 localStorage.setItem('sb_current_emp',id);var chatHeaderName=document.querySelector('.chat-header-name');
-var chatHeaderSub=document.querySelector('.chat-header-sub');
-var chatHeaderAvatar=document.querySelector('.chat-header .avatar');
+var chatHeaderSub=document.querySelector('.chat-header-role')||document.querySelector('.chat-header-sub');
+var chatHeaderAvatar=document.querySelector('.chat-header-v2 .avatar')||document.querySelector('.chat-header .avatar');
 if(chatHeaderName) chatHeaderName.textContent=emp.name;
 if(chatHeaderSub) chatHeaderSub.textContent='在线 · '+emp.role;
-if(chatHeaderAvatar){chatHeaderAvatar.textContent='🦞';chatHeaderAvatar.style.background='linear-gradient(135deg,'+emp.bg+','+emp.bg+'dd)';}
+if(chatHeaderAvatar){chatHeaderAvatar.innerHTML=renderAvatar(emp,36);var _isImg=(typeof emp.avatar==='number'&&(typeof AVATAR_PRESETS!=='undefined'&&AVATAR_PRESETS[emp.avatar]))||(emp.avatar&&(emp.avatar.indexOf('data:image')===0||emp.avatar.indexOf('.png')>0||emp.avatar.indexOf('.jpg')>0||emp.avatar.indexOf('.jpeg')>0));chatHeaderAvatar.style.background=_isImg?'transparent':'linear-gradient(135deg,'+emp.bg+','+emp.bg+'dd)';}
 var item=document.querySelector('.list-item[data-id="'+id+'"]');
 if(item)item.classList.add('active');
 var chatProgress=document.getElementById('chatProgress');
@@ -5191,6 +5191,9 @@ saveEmployees();
 document.getElementById('empDetailAvatar').innerHTML=renderAvatar(emp, 80);
 document.getElementById('empDetailAvatar').style.background=`linear-gradient(135deg,${emp.color},${emp.color}dd)`;
 renderEmployeeList();
+// Also update chat header avatar if this emp is currently in chat
+var _chatAvatar=document.querySelector('.chat-header-v2 .avatar')||document.querySelector('.chat-header .avatar');
+if(_chatAvatar&&currentEmpId===localStorage.getItem('sb_current_emp')){_chatAvatar.innerHTML=renderAvatar(emp,36);var _isImg=(typeof emp.avatar==='number'&&(typeof AVATAR_PRESETS!=='undefined'&&AVATAR_PRESETS[emp.avatar]))||(emp.avatar&&(emp.avatar.indexOf('data:image')===0||emp.avatar.indexOf('.png')>0||emp.avatar.indexOf('.jpg')>0||emp.avatar.indexOf('.jpeg')>0));_chatAvatar.style.background=_isImg?'transparent':'linear-gradient(135deg,'+emp.bg+','+emp.bg+'dd)';}
 showToast('✅ 头像已保存');
 }
 }
