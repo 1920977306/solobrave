@@ -3812,7 +3812,7 @@ function ctxAction(action){
     case 'move': showToast('📁 移动分组功能开发中...'); break;
     case 'archive': emp.archived=true; saveArchive(); showToast('📦 已归档'); break;
     case 'unarchive': emp.archived=false; saveArchive(); showToast('📥 已取消归档'); break;
-    case 'delete': if(confirm('确定删除 '+emp.name+'？')){emps=emps.filter(e=>e.id!==contextTarget); saveEmployees(); showToast('🗑️ 已删除');} break;
+    case 'delete': if(confirm('确定删除 '+emp.name+'？')){emps=emps.filter(e=>e.id!==contextTarget); saveEmployees(); if(typeof apiFetch==='function'){apiFetch('/api/agents/'+contextTarget,{method:'DELETE'}).catch(function(){});} showToast('🗑️ 已删除');} break;
   }
   renderEmployeeList();
   hideContextMenu();
@@ -3856,6 +3856,10 @@ function empSettingsAction(action){
       if(confirm('确定删除 ' + emp.name + '？')){
         emps = emps.filter(function(e){ return e.id !== empSettingsTarget; });
         saveEmployees();
+        // 同步删除后端
+        if(typeof apiFetch === 'function'){
+          apiFetch('/api/agents/' + empSettingsTarget, { method: 'DELETE' }).catch(function(){});
+        }
         showToast('🗑️ 已删除');
       }
       break;
