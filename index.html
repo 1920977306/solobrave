@@ -2129,59 +2129,37 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 </button>
 </div>
 
-<!-- Connect Tab (API Provider Config) -->
+<!-- Connect Tab (OpenClaw Config) -->
 <div class="emp-tab-pane" id="emp-tab-connect">
 <div class="emp-doc-section">
-<div class="emp-doc-title">🤖 API 连接配置</div>
-<div class="emp-doc-desc">选择 AI 供应商并配置 API Key</div>
+<div class="emp-doc-title">🦞 OpenClaw 连接配置</div>
+<div class="emp-doc-desc">通过 OpenClaw 网关连接 AI 服务</div>
 <div style="margin-top:12px;">
-<div style="font-weight:600;margin-bottom:8px;font-size:13px;">供应商</div>
-<div id="empConnectProviders" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
-<button class="provider-opt" data-provider="mock" onclick="selectEmpProvider(this,'mock')">
-<div class="provider-opt-icon">🎭</div>
-<div class="provider-opt-name">Mock</div>
-<div class="provider-opt-desc">本地模拟</div>
-</button>
-<button class="provider-opt" data-provider="openai" onclick="selectEmpProvider(this,'openai')">
-<div class="provider-opt-icon">🤖</div>
-<div class="provider-opt-name">OpenAI</div>
-<div class="provider-opt-desc">GPT-4o</div>
-</button>
-<button class="provider-opt" data-provider="kimi" onclick="selectEmpProvider(this,'kimi')">
-<div class="provider-opt-icon">🌙</div>
-<div class="provider-opt-name">Kimi</div>
-<div class="provider-opt-desc">Moonshot</div>
-</button>
-<button class="provider-opt" data-provider="deepseek" onclick="selectEmpProvider(this,'deepseek')">
-<div class="provider-opt-icon">🔍</div>
-<div class="provider-opt-name">DeepSeek</div>
-<div class="provider-opt-desc">深度求索</div>
-</button>
-<button class="provider-opt" data-provider="zhipu" onclick="selectEmpProvider(this,'zhipu')">
-<div class="provider-opt-icon">🔥</div>
-<div class="provider-opt-name">智谱</div>
-<div class="provider-opt-desc">GLM-4</div>
-</button>
-<button class="provider-opt" data-provider="openclaw" onclick="selectEmpProvider(this,'openclaw')">
-<div class="provider-opt-icon">🦞</div>
-<div class="provider-opt-name">OpenClaw</div>
-<div class="provider-opt-desc">龙虾网关</div>
-</button>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:var(--bg-secondary);">
+<div style="font-size:13px;color:var(--text-secondary);">Gateway 状态</div>
+<div id="empConnectGatewayStatus" style="font-size:13px;font-weight:600;">🔴 未连接</div>
 </div>
-</div>
-<div style="margin-top:12px;">
+<div style="font-weight:600;margin-bottom:8px;font-size:13px;">Agent 名称</div>
+<input type="text" class="form-input" id="empConnectOpenclawName" placeholder="留空默认 main" style="width:100%;margin-bottom:12px;">
+<div style="font-size:11px;color:var(--text-tertiary);margin-top:-8px;margin-bottom:12px;">用于构建 sessionKey: agent:{名称}:main</div>
+<div style="font-weight:600;margin-bottom:8px;font-size:13px;">AI 供应商</div>
+<select class="form-select" id="empConnectAIProvider" style="width:100%;margin-bottom:12px;" onchange="selectAIProvider(this.value)">
+<option value="kimi">🌙 Kimi (Moonshot)</option>
+<option value="openai">🤖 OpenAI</option>
+<option value="deepseek">🔍 DeepSeek</option>
+<option value="zhipu">🔥 智谱 (GLM)</option>
+<option value="custom">⚙️ 自定义</option>
+</select>
 <div style="font-weight:600;margin-bottom:8px;font-size:13px;">API Key</div>
-<input type="password" class="form-input" id="empConnectApiKey" placeholder="输入 API Key..." style="width:100%;font-family:monospace;">
-</div>
-<div style="margin-top:12px;">
+<input type="password" class="form-input" id="empConnectApiKey" placeholder="输入 AI 供应商的 API Key..." style="width:100%;font-family:monospace;margin-bottom:12px;">
 <div style="font-weight:600;margin-bottom:8px;font-size:13px;">模型</div>
-<select class="form-select" id="empConnectModel" style="width:100%;">
+<select class="form-select" id="empConnectModel" style="width:100%;margin-bottom:12px;">
 <option value="">-- 选择模型 --</option>
 </select>
+<div id="empConnectBaseUrlGroup" style="display:none;">
+<div style="font-weight:600;margin-bottom:8px;font-size:13px;">自定义 Base URL</div>
+<input type="text" class="form-input" id="empConnectBaseUrl" placeholder="https://api.example.com/v1" style="width:100%;margin-bottom:12px;">
 </div>
-<div style="margin-top:12px;">
-<div style="font-weight:600;margin-bottom:8px;font-size:13px;">自定义 Base URL（可选）</div>
-<input type="text" class="form-input" id="empConnectBaseUrl" placeholder="https://api.example.com/v1" style="width:100%;">
 </div>
 </div>
 <button class="emp-action-btn primary" onclick="saveEmpConnect()">
@@ -2837,30 +2815,20 @@ function sendMsg(){
   // 获取文档上下文
   const docContext = getDocContextForChat();
   
-  // 三级降级：OpenClaw WS → API 直连 → Mock
+  // OpenClaw WS → API 直连降级
   var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
-  var empWantsOpenClaw = emp.apiProvider === 'openclaw';
   if(ocOk){
-    // 优先走 OpenClaw WS
     console.log('[Chat] 使用 OpenClaw WS 发送');
     sendViaOpenClaw(emp, text, docContext, timeStr);
-  } else if(empWantsOpenClaw){
-    // 想用 OpenClaw 但连不上
-    setTimeout(function(){
-      var t = document.getElementById('typingMsg');
-      if(t) t.remove();
-      displayAIReply('⚠️ OpenClaw 网关未连接，请检查 Gateway 是否运行。', docContext, timeStr);
-      saveChatHistory(text, '⚠️ OpenClaw 网关未连接', docContext);
-    }, 500);
-  } else if(emp.apiKey && emp.apiProvider && emp.apiProvider !== 'mock'){
-    console.log('[Chat] OpenClaw 未连接，降级到 API');
+  } else if(emp.apiKey && emp.aiProvider){
+    // Gateway 未连接，降级到 API 直连
+    console.log('[Chat] OpenClaw 未连接，降级到 API 直连');
     sendViaAPI(emp, text, docContext, timeStr);
   } else {
-    // Mock 回复（无真实 AI 连接时）
     setTimeout(function(){
       var t = document.getElementById('typingMsg');
       if(t) t.remove();
-      var simReply = '⚠️ 未连接 AI 服务。请先连接 OpenClaw 网关或配置 API Key。';
+      var simReply = '⚠️ OpenClaw 网关未连接，请检查 Gateway 是否运行，或配置 AI 供应商的 API Key。';
       displayAIReply(simReply, docContext, timeStr);
       saveChatHistory(text, simReply, docContext);
     }, 500);
@@ -2953,11 +2921,15 @@ function initOpenClaw(){
     localStorage.setItem('openclaw_token', token);
     var statusEl = document.getElementById('openclawStatus');
     if(statusEl) statusEl.textContent = '🟢 已连接';
+    var empStatusEl = document.getElementById('empConnectGatewayStatus');
+    if(empStatusEl){empStatusEl.textContent='🟢 已连接';empStatusEl.style.color='#34C759';}
   });
   openclaw.on('disconnected', function(){
     console.log('[OpenClaw] 断开连接');
     var statusEl = document.getElementById('openclawStatus');
     if(statusEl) statusEl.textContent = '🔴 未连接';
+    var empStatusEl = document.getElementById('empConnectGatewayStatus');
+    if(empStatusEl){empStatusEl.textContent='🔴 未连接';empStatusEl.style.color='#FF3B30';}
   });
   openclaw.on('error', function(err){
     console.error('[OpenClaw] 连接错误:', err);
@@ -3098,14 +3070,7 @@ const API_PROVIDERS = {
     defaultModel: 'glm-4',
     keyPlaceholder: '...'
   },
-  openclaw: {
-    name: 'OpenClaw',
-    icon: '🦞',
-    baseUrl: '',
-    models: [],
-    defaultModel: 'kimi-code',
-    keyPlaceholder: '自动连接 Gateway，无需 API Key'
-  },
+
   custom: {
     name: '自定义',
     icon: '⚙️',
@@ -4859,53 +4824,45 @@ showToast('✅ 模型配置已保存');
 }
 
 // ========== 员工连接配置 ==========
-var empSelectedConnectProvider='mock';
-function selectEmpProvider(el,providerId){
-  document.querySelectorAll('#empConnectProviders .provider-opt').forEach(function(o){o.classList.remove('selected');});
-  el.classList.add('selected');
-  empSelectedConnectProvider=providerId;
-
-  // OpenClaw 不需要 API Key
-  var apiKeyInput = document.getElementById('empConnectApiKey');
-  var apiKeySection = apiKeyInput ? apiKeyInput.parentElement : null;
-  if(providerId === 'openclaw'){
-    if(apiKeyInput) apiKeyInput.value = '';
-    if(apiKeyInput) apiKeyInput.placeholder = '无需 API Key，通过 Gateway 连接';
-    if(apiKeySection) apiKeySection.style.opacity = '0.4';
-  } else {
-    var provider = API_PROVIDERS[providerId];
-    if(apiKeyInput) apiKeyInput.placeholder = provider ? (provider.keyPlaceholder || '输入 API Key...') : '输入 API Key...';
-    if(apiKeySection) apiKeySection.style.opacity = '1';
-  }
-
+var empSelectedConnectAIProvider='kimi';
+function selectAIProvider(providerId){
+  empSelectedConnectAIProvider=providerId;
   // 填充模型下拉
   var modelSelect=document.getElementById('empConnectModel');
   var provider=API_PROVIDERS[providerId];
-  if(provider && provider.models){
+  if(provider && provider.models && provider.models.length>0){
     var html='<option value="">-- 选择模型 --</option>';
     for(var i=0;i<provider.models.length;i++){
       html+='<option value="'+provider.models[i]+'">'+provider.models[i]+'</option>';
     }
     html+='<option value="'+provider.defaultModel+'">默认 ('+provider.defaultModel+')</option>';
     modelSelect.innerHTML=html;
+    modelSelect.parentElement.style.display='block';
   } else {
-    modelSelect.innerHTML='<option value="">-- 选择模型 --</option>';
+    modelSelect.innerHTML='<option value="">-- 输入自定义模型名 --</option>';
+  }
+  // 自定义时显示 Base URL
+  var baseUrlGroup=document.getElementById('empConnectBaseUrlGroup');
+  if(baseUrlGroup) baseUrlGroup.style.display=providerId==='custom'?'block':'none';
+  // 更新 API Key placeholder
+  var apiKeyInput=document.getElementById('empConnectApiKey');
+  if(apiKeyInput){
+    if(provider) apiKeyInput.placeholder=provider.keyPlaceholder||'输入 API Key...';
   }
 }
 function loadEmpConnect(emp){
-  // 加载员工连接配置到面板
-  var providerId=emp.apiProvider||'mock';
-  empSelectedConnectProvider=providerId;
+  // 加载员工连接配置到面板 - OpenClaw 为默认
+  var aiProvider=emp.aiProvider||'kimi';
+  empSelectedConnectAIProvider=aiProvider;
 
-  // 选中供应商
-  document.querySelectorAll('#empConnectProviders .provider-opt').forEach(function(o){o.classList.remove('selected');});
-  var providerBtn=document.querySelector('#empConnectProviders .provider-opt[data-provider="'+providerId+'"]');
-  if(providerBtn)providerBtn.classList.add('selected');
+  // 设置 AI 供应商下拉
+  var aiProviderSelect=document.getElementById('empConnectAIProvider');
+  if(aiProviderSelect) aiProviderSelect.value=aiProvider;
 
   // 填充模型下拉
   var modelSelect=document.getElementById('empConnectModel');
-  var provider=API_PROVIDERS[providerId];
-  if(provider && provider.models){
+  var provider=API_PROVIDERS[aiProvider];
+  if(provider && provider.models && provider.models.length>0){
     var html='<option value="">-- 选择模型 --</option>';
     for(var i=0;i<provider.models.length;i++){
       html+='<option value="'+provider.models[i]+'">'+provider.models[i]+'</option>';
@@ -4915,22 +4872,55 @@ function loadEmpConnect(emp){
   }
 
   // 设置当前值
+  document.getElementById('empConnectOpenclawName').value=emp.openclawName||'';
   document.getElementById('empConnectApiKey').value=emp.apiKey||'';
   document.getElementById('empConnectModel').value=emp.apiModel||'';
   document.getElementById('empConnectBaseUrl').value=emp.customEndpoint||'';
+
+  // 自定义时显示 Base URL
+  var baseUrlGroup=document.getElementById('empConnectBaseUrlGroup');
+  if(baseUrlGroup) baseUrlGroup.style.display=aiProvider==='custom'?'block':'none';
+
+  // 更新 Gateway 状态
+  updateGatewayStatus();
 }
 function saveEmpConnect(){
   if(!currentEmpId)return;
   var emp=emps.find(function(e){return e.id===currentEmpId;});
   if(!emp)return;
 
-  emp.apiProvider=empSelectedConnectProvider||'mock';
+  emp.apiProvider='openclaw';
+  emp.openclawName=document.getElementById('empConnectOpenclawName').value.trim()||'main';
+  emp.aiProvider=document.getElementById('empConnectAIProvider').value;
   emp.apiKey=document.getElementById('empConnectApiKey').value.trim();
   emp.apiModel=document.getElementById('empConnectModel').value;
   emp.customEndpoint=document.getElementById('empConnectBaseUrl').value.trim();
 
   saveEmployees();
   showToast('✅ 连接配置已保存');
+}
+function updateGatewayStatus(){
+  var statusEl=document.getElementById('empConnectGatewayStatus');
+  if(!statusEl)return;
+  var ocOk=typeof openclaw!=='undefined'&&openclaw.connected&&openclaw.authenticated;
+  if(ocOk){
+    statusEl.textContent='🟢 已连接';
+    statusEl.style.color='#34C759';
+  } else {
+    statusEl.textContent='🔴 未连接';
+    statusEl.style.color='#FF3B30';
+  }
+}
+async function fetchOpenClawModels(){
+  if(!openclaw||!openclaw.connected)return;
+  try{
+    var result=await openclaw.send('models.list',{});
+    console.log('[OpenClaw] models.list 返回:', JSON.stringify(result));
+    return result;
+  }catch(e){
+    console.warn('[OpenClaw] 获取模型列表失败:', e);
+    return null;
+  }
 }
 function saveEmpDocs(){
 if(!currentEmpId)return;
@@ -5417,12 +5407,12 @@ async function callRealAI(userMessage, context){
 
 // ========== API 直连发送 ==========
 function sendViaAPI(emp, userMessage, docContext, timeStr){
-  var provider = API_PROVIDERS[emp.apiProvider];
+  var providerId = emp.aiProvider || 'kimi';
+  var provider = API_PROVIDERS[providerId];
   if(!provider){
-    // 供应商不存在，回退到 mock
     var t = document.getElementById('typingMsg');
     if(t) t.remove();
-    displayAIReply('⚠️ API 供应商配置错误，使用模拟回复', docContext, timeStr);
+    displayAIReply('⚠️ AI 供应商配置错误', docContext, timeStr);
     return;
   }
   
@@ -5431,7 +5421,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
   var model = emp.apiModel || provider.defaultModel;
   
   // 自定义供应商处理
-  if(emp.apiProvider === 'custom'){
+  if(providerId === 'custom'){
     baseUrl = emp.customEndpoint || '';
     model = emp.apiModel || 'custom-model';
   }
@@ -5449,7 +5439,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
   var endpoint = baseUrl + '/chat/completions';
   
   // 智谱 API 路径不同
-  if(emp.apiProvider === 'zhipu'){
+  if(providerId === 'zhipu'){
     endpoint = baseUrl + '/chat/completions';
   }
   
@@ -5473,7 +5463,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
     
     if(!res.ok){
       if(res.status === 401){
-        displayAIReply('⚠️ API Key 无效，请检查 ' + provider.name + ' 的 API Key 是否正确', docContext, timeStr);
+        displayAIReply('⚠️ API Key 无效，请检查 ' + (provider?provider.name:'AI供应商') + ' 的 API Key 是否正确', docContext, timeStr);
       } else if(res.status === 429){
         displayAIReply('⚠️ 请求过于频繁，请稍后再试', docContext, timeStr);
       } else {
@@ -5562,7 +5552,8 @@ window.addEventListener('DOMContentLoaded',()=>{initGlobalSearch();initTheme();i
 // ===== 新增员工向导 =====
 var wizStep=1;
 var empSelectedModel='gpt4o';
-var empSelectedProvider='mock';
+var empSelectedProvider='openclaw';
+var empSelectedAIProvider='kimi';
 function openWizard(){
   wizStep=1;
   renderAvatarPicker();
@@ -5599,8 +5590,9 @@ function updateWizConfirm(){
   var group=document.getElementById('wizGroup').value;
   var statusEl=document.querySelector('.status-opt.selected');
   var status=statusEl?statusEl.dataset.status:'online';
-  var modelEl=document.querySelector('#wizModelSelect .model-option.selected');
-  var modelName=modelEl?modelEl.querySelector('.model-name').textContent:'GPT-4o';
+  var aiProviderId=document.getElementById('wizAIProvider').value||'kimi';
+  var aiProvider=API_PROVIDERS[aiProviderId];
+  var modelName=aiProvider?aiProvider.name:'自定义';
   var sysPrompt=document.getElementById('wizSystemPrompt').value.trim();
   document.getElementById('wizCName').textContent=name;
   document.getElementById('wizCRole').textContent=role;
@@ -5612,7 +5604,7 @@ function updateWizConfirm(){
   }
   document.getElementById('wizCGroup').textContent=group;
   document.getElementById('wizCStatus').textContent=status==='online'?'在线':status==='busy'?'忙碌':'离线';
-  document.getElementById('wizCModel').textContent=modelName;
+  document.getElementById('wizCModel').textContent='🦞 OpenClaw → '+modelName;
   document.getElementById('wizCPrompt').textContent=sysPrompt||'(默认)';
 }
 function selectWizAvatar(el){
@@ -5641,39 +5633,30 @@ function selectWizModel(el,modelId){
   el.classList.add('selected');
   empSelectedModel=modelId;
 }
-function selectWizProvider(el,providerId){
-  document.querySelectorAll('#wizProviderSelect .model-option').forEach(o=>o.classList.remove('selected'));
-  el.classList.add('selected');
-  empSelectedProvider=providerId;
+function selectWizAIProvider(providerId){
+  empSelectedAIProvider=providerId;
+  empSelectedProvider='openclaw';
   
-  // 显示/隐藏模型选择
+  // 填充模型下拉
   var modelGroup=document.getElementById('wizModelGroup');
   var modelSelect=document.getElementById('wizModelSelect');
   var customGroup=document.getElementById('wizCustomEndpointGroup');
+  var provider=API_PROVIDERS[providerId];
   
-  if(providerId==='mock' || providerId==='openclaw'){
-    modelGroup.style.display='none';
-    customGroup.style.display='none';
-    var apiKeyGroup=document.getElementById('wizApiKeyGroup');
-    if(apiKeyGroup) apiKeyGroup.style.display = providerId==='openclaw' ? 'none' : 'block';
-  } else if(providerId==='custom'){
-    modelGroup.style.display='none';
-    customGroup.style.display='block';
-  } else {
-    modelGroup.style.display='block';
-    customGroup.style.display='none';
-    var apiKeyGroup=document.getElementById('wizApiKeyGroup');
-    if(apiKeyGroup) apiKeyGroup.style.display='block';
-    // 填充模型选项
-    var provider=API_PROVIDERS[providerId];
-    if(provider && provider.models){
-      var html='<option value="">使用默认模型 ('+provider.defaultModel+')</option>';
-      for(var i=0;i<provider.models.length;i++){
-        html+='<option value="'+provider.models[i]+'">'+provider.models[i]+'</option>';
-      }
-      modelSelect.innerHTML=html;
+  if(provider && provider.models && provider.models.length>0){
+    var html='<option value="">使用默认模型 ('+provider.defaultModel+')</option>';
+    for(var i=0;i<provider.models.length;i++){
+      html+='<option value="'+provider.models[i]+'">'+provider.models[i]+'</option>';
     }
+    modelSelect.innerHTML=html;
+    modelGroup.style.display='block';
+  } else {
+    modelSelect.innerHTML='<option value="">输入自定义模型名</option>';
+    modelGroup.style.display='block';
   }
+  
+  // 自定义时显示 Base URL
+  customGroup.style.display=providerId==='custom'?'block':'none';
 }
 function selectWizStatus(el){
   document.querySelectorAll('.status-opt').forEach(o=>o.classList.remove('selected'));
@@ -5698,7 +5681,8 @@ function finishWizard(){
   var status=statusEl?statusEl.dataset.status:'online';
   var sysPrompt=document.getElementById('wizSystemPrompt').value.trim();
   var apiKey=document.getElementById('wizApiKey').value.trim();
-  var apiProvider=empSelectedProvider||'mock';
+  var aiProvider=empSelectedAIProvider||'kimi';
+  var openclawName=document.getElementById('wizOpenclawName').value.trim()||'main';
   var apiModel=document.getElementById('wizModelSelect').value;
   var customEndpoint=document.getElementById('wizCustomEndpoint').value.trim();
   var colors=['#FF6B35','#5AC8FA','#AF52DE','#FF2D55','#5856D6','#34C759'];
@@ -5713,7 +5697,9 @@ function finishWizard(){
     archived:false,
     group:group,
     systemPrompt:sysPrompt,
-    apiProvider:apiProvider,
+    apiProvider:'openclaw',
+    openclawName:openclawName,
+    aiProvider:aiProvider,
     apiKey:apiKey,
     apiModel:apiModel,
     customEndpoint:customEndpoint,
@@ -6248,79 +6234,40 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 </div>
 <div id="wiz3" style="display:none">
 <div class="form-group">
-<label class="form-label">选择 API 供应商</label>
-<div class="model-select" id="wizProviderSelect">
-<div class="model-option selected" data-provider="mock" onclick="selectWizProvider(this,'mock')">
-<div class="model-icon">🎭</div>
-<div class="model-info">
-<div class="model-name">模拟回复</div>
-<div class="model-provider">本地 Mock</div>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+<span style="font-size:20px;">🦞</span>
+<label class="form-label" style="margin-bottom:0;">OpenClaw 连接配置</label>
 </div>
-<div class="model-check">✓</div>
+<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:12px;">通过 OpenClaw 网关连接 AI 服务，所有员工默认使用 OpenClaw</div>
 </div>
-<div class="model-option" data-provider="openai" onclick="selectWizProvider(this,'openai')">
-<div class="model-icon">🤖</div>
-<div class="model-info">
-<div class="model-name">OpenAI</div>
-<div class="model-provider">GPT-4o / GPT-4o-mini</div>
+<div class="form-group">
+<label class="form-label">Agent 名称</label>
+<input type="text" class="form-input" id="wizOpenclawName" placeholder="留空默认 main">
+<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">sessionKey: agent:{名称}:main</div>
 </div>
-<div class="model-check">✓</div>
+<div class="form-group">
+<label class="form-label">AI 供应商</label>
+<select class="form-select" id="wizAIProvider" onchange="selectWizAIProvider(this.value)">
+<option value="kimi">🌙 Kimi (Moonshot)</option>
+<option value="openai">🤖 OpenAI</option>
+<option value="deepseek">🔍 DeepSeek</option>
+<option value="zhipu">🔥 智谱 (GLM)</option>
+<option value="custom">⚙️ 自定义</option>
+</select>
 </div>
-<div class="model-option" data-provider="kimi" onclick="selectWizProvider(this,'kimi')">
-<div class="model-icon">🌙</div>
-<div class="model-info">
-<div class="model-name">Kimi</div>
-<div class="model-provider">Moonshot AI</div>
+<div class="form-group">
+<label class="form-label">API Key</label>
+<input type="password" class="form-input" id="wizApiKey" placeholder="输入 AI 供应商的 API Key">
+<div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">AI 供应商的 API Key</div>
 </div>
-<div class="model-check">✓</div>
-</div>
-<div class="model-option" data-provider="deepseek" onclick="selectWizProvider(this,'deepseek')">
-<div class="model-icon">🔍</div>
-<div class="model-info">
-<div class="model-name">DeepSeek</div>
-<div class="model-provider">DeepSeek-V3 / Coder</div>
-</div>
-<div class="model-check">✓</div>
-</div>
-<div class="model-option" data-provider="zhipu" onclick="selectWizProvider(this,'zhipu')">
-<div class="model-icon">🔥</div>
-<div class="model-info">
-<div class="model-name">智谱</div>
-<div class="model-provider">GLM-4 / GLM-4-Flash</div>
-</div>
-<div class="model-check">✓</div>
-</div>
-<div class="model-option" data-provider="openclaw" onclick="selectWizProvider(this,'openclaw')">
-<div class="model-icon">🦞</div>
-<div class="model-info">
-<div class="model-name">OpenClaw</div>
-<div class="model-provider">龙虾网关（本地AI）</div>
-</div>
-<div class="model-check">✓</div>
-</div>
-<div class="model-option" data-provider="custom" onclick="selectWizProvider(this,'custom')">
-<div class="model-icon">⚙️</div>
-<div class="model-info">
-<div class="model-name">自定义</div>
-<div class="model-provider">OpenAI 兼容接口</div>
-</div>
-<div class="model-check">✓</div>
-</div>
-</div>
-</div>
-<div class="form-group" id="wizModelGroup" style="display:none">
-<label class="form-label">选择模型</label>
+<div class="form-group" id="wizModelGroup">
+<label class="form-label">模型</label>
 <select class="form-select" id="wizModelSelect">
 <option value="">使用默认模型</option>
 </select>
 </div>
-<div class="form-group" id="wizApiKeyGroup">
-<label class="form-label">API Key</label>
-<input type="password" class="form-input" id="wizApiKey" placeholder="输入 API Key">
-<div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">留空则使用模拟回复</div>
-</div>
 <div class="form-group" id="wizCustomEndpointGroup" style="display:none">
-<label class="form-label">自定义接口地址</label>
+<label class="form-label">自定义 Base URL</label>
 <input type="text" class="form-input" id="wizCustomEndpoint" placeholder="https://api.example.com/v1">
 </div>
 <div class="form-group">
