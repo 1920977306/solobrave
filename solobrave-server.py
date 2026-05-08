@@ -627,6 +627,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         path = self.path.split('?')[0]
 
         # Groups API
+        if path == '/api/groups':
+            self._handle_batch_save_groups()
+            return
         if path.startswith('/api/groups/'):
             group_id = path[len('/api/groups/'):]
             if group_id:
@@ -1190,6 +1193,31 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         _save_groups(groups)
         self._send_json(200, group)
+
+    def _handle_batch_save_groups(self):
+        """PUT /api/groups — 前端批量保存群组列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body or not isinstance(body, list):
+            self._send_json(400, {'error': '无效的请求体，期望数组'})
+            return
+
+        # 只允许管理员批量覆盖；普通用户只更新自己的群组
+        if auth.is_admin:
+            _save_groups(body)
+            self._send_json(200, body)
+        else:
+            uid = auth.user_info['userId']
+            existing = _load_groups()
+            other = [g for g in existing if g.get('createdBy') != uid]
+            my_new = [g for g in body if g.get('createdBy') == uid]
+            merged = other + my_new
+            _save_groups(merged)
+            self._send_json(200, my_new)
 
     def _handle_delete_group(self, group_id):
         """DELETE /api/groups/:id"""
