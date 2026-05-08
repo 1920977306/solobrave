@@ -4155,70 +4155,6 @@ function ctxAction(action){
   hideContextMenu();
 }
 
-// Employee Settings Dropdown (⋮ button)
-var empSettingsTarget = null;
-function showEmpSettingsMenu(event, empId){
-  empSettingsTarget = empId;
-  var menu = document.getElementById('empSettingsMenu');
-  var btn = event.target;
-  var rect = btn.getBoundingClientRect();
-  menu.style.left = rect.left + 'px';
-  menu.style.top = (rect.bottom + 4) + 'px';
-  menu.classList.add('active');
-  event.stopPropagation();
-}
-function hideEmpSettingsMenu(){
-  var menu = document.getElementById('empSettingsMenu');
-  if(menu) menu.classList.remove('active');
-  empSettingsTarget = null;
-}
-function empSettingsAction(action){
-  if(!empSettingsTarget) return;
-  var emp = emps.find(function(e){ return e.id === empSettingsTarget; });
-  if(!emp) return;
-  switch(action){
-    case 'edit':
-      openEmpDetail(empSettingsTarget);
-      setTimeout(function(){ switchEmpDetailTab('basic'); }, 100);
-      break;
-    case 'pin': 
-      emp.pinned = !emp.pinned; 
-      showToast(emp.pinned ? '📌 已置顶' : '📌 已取消置顶'); 
-      saveEmployees(); 
-      break;
-    case 'move':
-      showMoveGroupModal(empSettingsTarget);
-      break;
-    case 'archive': 
-      emp.archived = true; 
-      saveEmployees(); 
-      showToast('📦 已归档'); 
-      break;
-    case 'delete': 
-      if(confirm('确定删除 ' + emp.name + '？')){
-        var deleteId = empSettingsTarget;
-        for(var i = emps.length - 1; i >= 0; i--){
-          if(emps[i].id === deleteId) emps.splice(i, 1);
-        }
-        saveEmployees();
-        // 同步删除后端
-        if(typeof apiFetch === 'function'){
-          apiFetch('/api/agents/' + deleteId, { method: 'DELETE' }).catch(function(){});
-        }
-        showToast('🗑️ 已删除');
-      }
-      break;
-  }
-  renderEmployeeList();
-  hideEmpSettingsMenu();
-}
-// Close settings menu on click outside
-document.addEventListener('click', function(e){
-  if(!e.target.closest('.emp-settings-menu') && !e.target.closest('.emp-more-btn')){
-    hideEmpSettingsMenu();
-  }
-});
-
 // 恢复归档的员工
 function restoreArchivedEmp(empId){
   var emp = emps.find(function(e){ return e.id === empId; });
@@ -4227,6 +4163,261 @@ function restoreArchivedEmp(empId){
   saveEmployees();
   renderEmployeeList();
   showToast('📂 已恢复 ' + emp.name);
+}
+
+// ============ Universal Context Menu (右键菜单) ============
+var contextMenuTarget = null;
+var contextMenuType = null;
+
+function showUniversalContextMenu(x, y, type, targetId){
+  var menu = document.getElementById('universalContextMenu');
+  if(!menu) return;
+  contextMenuTarget = targetId;
+  contextMenuType = type;
+  
+  var html = '';
+  
+  if(type === 'employee'){
+    // 员工卡片右键 — 复用 ⋮ 菜单功能
+    var emp = emps.find(function(e){ return e.id === targetId; });
+    if(emp){
+      html += '<div class="menu-item" onclick="ctxEmpAction(\'edit\')">✏️ 编辑资料</div>';
+      html += '<div class="menu-item" onclick="ctxEmpAction(\'pin\')">' + (emp.pinned ? '🔽 取消置顶' : '📌 置顶') + '</div>';
+      html += '<div class="menu-item" onclick="ctxEmpAction(\'move\')">📁 移动分组</div>';
+      html += '<div class="menu-divider"></div>';
+      html += '<div class="menu-item" onclick="ctxEmpAction(\'archive\')">📦 归档</div>';
+      html += '<div class="menu-item danger" onclick="ctxEmpAction(\'delete\')">🗑️ 删除</div>';
+    }
+  } else if(type === 'message'){
+    // 聊天消息右键
+    html += '<div class="menu-item" onclick="ctxMsgAction(\'copy\')">📋 复制</div>';
+    html += '<div class="menu-item" onclick="ctxMsgAction(\'delete\')">🗑️ 删除</div>';
+    html += '<div class="menu-divider"></div>';
+    html += '<div class="menu-item" onclick="ctxMsgAction(\'regenerate\')">🔄 重新生成</div>';
+  } else if(type === 'group'){
+    // 群组项右键
+    html += '<div class="menu-item" onclick="ctxGroupAction(\'edit\')">✏️ 编辑群组</div>';
+    html += '<div class="menu-item" onclick="ctxGroupAction(\'addMember\')">➕ 添加成员</div>';
+    html += '<div class="menu-divider"></div>';
+    html += '<div class="menu-item danger" onclick="ctxGroupAction(\'dissolve\')">💥 解散群组</div>';
+  }
+  
+  menu.innerHTML = html;
+  
+  // 定位菜单（确保不超出视口）
+  var menuWidth = 180;
+  var menuHeight = menu.offsetHeight || 200;
+  var winWidth = window.innerWidth;
+  var winHeight = window.innerHeight;
+  
+  var left = x;
+  var top = y;
+  
+  if(left + menuWidth > winWidth) left = winWidth - menuWidth - 8;
+  if(top + menuHeight > winHeight) top = winHeight - menuHeight - 8;
+  if(left < 8) left = 8;
+  if(top < 8) top = 8;
+  
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+  menu.classList.add('active');
+}
+
+function hideUniversalContextMenu(){
+  var menu = document.getElementById('universalContextMenu');
+  if(menu) menu.classList.remove('active');
+  contextMenuTarget = null;
+  contextMenuType = null;
+}
+
+// 员工右键操作
+function ctxEmpAction(action){
+  if(!contextMenuTarget || contextMenuType !== 'employee') return;
+  var emp = emps.find(function(e){ return e.id === contextMenuTarget; });
+  if(!emp) return;
+  
+  switch(action){
+    case 'edit':
+      openEmpDetail(contextMenuTarget);
+      setTimeout(function(){ switchEmpDetailTab('basic'); }, 100);
+      break;
+    case 'pin':
+      emp.pinned = !emp.pinned;
+      showToast(emp.pinned ? '📌 已置顶' : '📌 已取消置顶');
+      saveEmployees();
+      break;
+    case 'move':
+      showMoveGroupModal(contextMenuTarget);
+      break;
+    case 'archive':
+      emp.archived = true;
+      saveEmployees();
+      showToast('📦 已归档');
+      break;
+    case 'delete':
+      if(confirm('确定删除 ' + emp.name + '？')){
+        for(var i = emps.length - 1; i >= 0; i--){
+          if(emps[i].id === contextMenuTarget) emps.splice(i, 1);
+        }
+        saveEmployees();
+        if(typeof apiFetch === 'function'){
+          apiFetch('/api/agents/' + contextMenuTarget, { method: 'DELETE' }).catch(function(){});
+        }
+        showToast('🗑️ 已删除');
+      }
+      break;
+  }
+  renderEmployeeList();
+  hideUniversalContextMenu();
+}
+
+// 消息右键操作
+function ctxMsgAction(action){
+  if(!contextMenuTarget || contextMenuType !== 'message') return;
+  
+  var msgEl = document.querySelector('.msg[data-msg-id="' + contextMenuTarget + '"]');
+  if(!msgEl && action !== 'regenerate'){
+    showToast('⚠️ 消息未找到');
+    hideUniversalContextMenu();
+    return;
+  }
+  
+  switch(action){
+    case 'copy':
+      var bubble = msgEl.querySelector('.msg-bubble');
+      if(bubble){
+        var text = bubble.textContent || '';
+        navigator.clipboard.writeText(text).then(function(){
+          showToast('📋 已复制到剪贴板');
+        }).catch(function(){
+          // 降级方案
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          showToast('📋 已复制到剪贴板');
+        });
+      }
+      break;
+    case 'delete':
+      if(confirm('确定删除这条消息？')){
+        msgEl.remove();
+        showToast('🗑️ 已删除');
+      }
+      break;
+    case 'regenerate':
+      // 重新生成：找到上一条用户消息，重新发送
+      var area = document.getElementById('messagesArea');
+      var allMsgs = area.querySelectorAll('.msg');
+      var lastUserMsg = null;
+      for(var j = allMsgs.length - 1; j >= 0; j--){
+        if(allMsgs[j].classList.contains('own')){
+          lastUserMsg = allMsgs[j];
+          break;
+        }
+      }
+      if(lastUserMsg){
+        var bubble = lastUserMsg.querySelector('.msg-bubble');
+        var text = bubble ? bubble.textContent : '';
+        if(text){
+          document.getElementById('msgInput').value = text;
+          sendMsg();
+          showToast('🔄 重新生成中...');
+        }
+      } else {
+        showToast('⚠️ 没有找到用户消息');
+      }
+      break;
+  }
+  hideUniversalContextMenu();
+}
+
+// 群组右键操作
+function ctxGroupAction(action){
+  if(!contextMenuTarget || contextMenuType !== 'group') return;
+  
+  var group = groups.find(function(g){ return g.id === contextMenuTarget; });
+  if(!group){
+    showToast('⚠️ 群组不存在');
+    hideUniversalContextMenu();
+    return;
+  }
+  
+  switch(action){
+    case 'edit':
+      showToast('✏️ 编辑群组：' + group.name);
+      // TODO: 打开群组编辑弹窗
+      break;
+    case 'addMember':
+      showToast('➕ 添加成员到：' + group.name);
+      // TODO: 打开添加成员弹窗
+      break;
+    case 'dissolve':
+      if(confirm('确定解散群组「' + group.name + '」？此操作不可恢复。')){
+        for(var k = groups.length - 1; k >= 0; k--){
+          if(groups[k].id === contextMenuTarget) groups.splice(k, 1);
+        }
+        saveGroups();
+        renderGroupList();
+        showToast('💥 已解散群组');
+      }
+      break;
+  }
+  hideUniversalContextMenu();
+}
+
+// 事件委托：全局右键菜单
+document.addEventListener('contextmenu', function(e){
+  // 检查点击目标类型
+  var empItem = e.target.closest('.list-item[data-id]');
+  var msgItem = e.target.closest('.msg');
+  var groupItem = e.target.closest('.list-item[data-group]') || e.target.closest('.group-chat-item');
+  
+  if(empItem){
+    e.preventDefault();
+    showUniversalContextMenu(e.clientX, e.clientY, 'employee', empItem.dataset.id);
+    return;
+  }
+  
+  if(msgItem){
+    e.preventDefault();
+    var msgId = msgItem.dataset.msgId || msgItem.dataset.sender + '_' + Date.now();
+    if(!msgItem.dataset.msgId) msgItem.dataset.msgId = msgId;
+    showUniversalContextMenu(e.clientX, e.clientY, 'message', msgId);
+    return;
+  }
+  
+  if(groupItem){
+    e.preventDefault();
+    var groupId = groupItem.dataset.group || groupItem.dataset.proj;
+    if(groupId) showUniversalContextMenu(e.clientX, e.clientY, 'group', groupId);
+    return;
+  }
+  
+  // 点击其他地方，隐藏菜单
+  hideUniversalContextMenu();
+});
+
+// 点击隐藏菜单
+document.addEventListener('click', function(e){
+  if(!e.target.closest('#universalContextMenu')){
+    hideUniversalContextMenu();
+  }
+});
+
+// 保留旧的 ⋮ 按钮功能（向后兼容）
+function showEmpSettingsMenu(event, empId){
+  empSettingsTarget = empId;
+  var menu = document.getElementById('universalContextMenu');
+  var btn = event.target.closest('.emp-more-btn') || event.target;
+  var rect = btn.getBoundingClientRect();
+  showUniversalContextMenu(rect.left, rect.bottom + 4, 'employee', empId);
+  event.stopPropagation();
+}
+function hideEmpSettingsMenu(){
+  hideUniversalContextMenu();
 }
 
 // Close context menu on click outside
@@ -8107,14 +8298,9 @@ function checkQuota() {
   </div>
 </div>
 
-<!-- Employee Settings Dropdown Menu -->
-<div id="empSettingsMenu" class="emp-settings-menu">
-  <div class="menu-item" onclick="empSettingsAction('edit')">✏️ 编辑</div>
-  <div class="menu-item" onclick="empSettingsAction('pin')">📌 置顶</div>
-  <div class="menu-item" onclick="empSettingsAction('move')">📁 移动分组</div>
-  <div class="menu-divider"></div>
-  <div class="menu-item" onclick="empSettingsAction('archive')">📦 归档</div>
-  <div class="menu-item danger" onclick="empSettingsAction('delete')">🗑️ 删除</div>
+<!-- Universal Context Menu (复用 emp-settings-menu 样式) -->
+<div id="universalContextMenu" class="emp-settings-menu" style="position:fixed;">
+  <!-- 动态填充 -->
 </div>
 
 <!-- Bottom Connection Status Bar -->
