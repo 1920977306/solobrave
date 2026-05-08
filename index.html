@@ -1654,14 +1654,22 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   </div>
 </div>
 
+<!-- Bottom Status -->
+<div class="sidebar-bottom-status">
+  <span class="status-dot"></span>
+  <span>已连接</span>
+</div>
+
+</div>
+
 <!-- Archive: 1v1对话归档 -->
 <div class="archive-section collapsed" id="archive-1v1">
   <div class="archive-header" onclick="toggleArchive(this)">
     <span class="archive-arrow">&#9662;</span>
     <span class="archive-title">1v1对话归档</span>
-    <span class="archive-count">5</span>
+    <span class="archive-count" id="archive-1v1-count">0</span>
   </div>
-  <div class="archive-content">
+  <div class="archive-content" id="archive-1v1-content">
     <div class="archive-empty">暂无归档对话</div>
   </div>
 </div>
@@ -1671,19 +1679,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   <div class="archive-header" onclick="toggleArchive(this)">
     <span class="archive-arrow">&#9662;</span>
     <span class="archive-title">项目组归档</span>
-    <span class="archive-count">7</span>
+    <span class="archive-count" id="archive-projects-count">0</span>
   </div>
-  <div class="archive-content">
+  <div class="archive-content" id="archive-projects-content">
     <div class="archive-empty">暂无归档项目</div>
   </div>
-</div>
-
-<!-- Bottom Status -->
-<div class="sidebar-bottom-status">
-  <span class="status-dot"></span>
-  <span>已连接</span>
-</div>
-
 </div>
 
 
@@ -3647,6 +3647,56 @@ function renderEmployeeList(){
 
   list.innerHTML = html;
   bindListEvents();
+  
+  // 渲染归档区域
+  renderArchiveSections();
+}
+
+// 渲染侧栏底部的归档区域
+function renderArchiveSections(){
+  var archived = emps.filter(function(e){ return e.archived; });
+  var archived1v1 = archived.filter(function(e){ return !e.isProject; });
+  var archivedProjects = archived.filter(function(e){ return e.isProject; });
+  
+  // 更新 1v1 对话归档
+  var archive1v1 = document.getElementById('archive-1v1');
+  if(archive1v1){
+    var count1v1 = archive1v1.querySelector('.archive-count');
+    var content1v1 = archive1v1.querySelector('.archive-content');
+    if(count1v1) count1v1.textContent = archived1v1.length;
+    if(content1v1){
+      if(archived1v1.length === 0){
+        content1v1.innerHTML = '<div class="archive-empty">暂无归档对话</div>';
+      } else {
+        content1v1.innerHTML = archived1v1.map(function(e){
+          return '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" onclick="restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:6px 12px;cursor:pointer;">' + 
+            '<div class="item-avatar" style="width:32px;height:32px;"><div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg || '') + ';">' + renderAvatar(e, 32) + '</div></div>' +
+            '<div class="item-info"><div class="item-name" style="font-size:13px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:11px;">' + escapeHtml(e.role || '') + ' · 点击恢复</div></div>' +
+            '</div>';
+        }).join('');
+      }
+    }
+  }
+  
+  // 更新项目组归档
+  var archiveProjects = document.getElementById('archive-projects');
+  if(archiveProjects){
+    var countProj = archiveProjects.querySelector('.archive-count');
+    var contentProj = archiveProjects.querySelector('.archive-content');
+    if(countProj) countProj.textContent = archivedProjects.length;
+    if(contentProj){
+      if(archivedProjects.length === 0){
+        contentProj.innerHTML = '<div class="archive-empty">暂无归档项目</div>';
+      } else {
+        contentProj.innerHTML = archivedProjects.map(function(e){
+          return '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" onclick="restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:6px 12px;cursor:pointer;">' + 
+            '<div class="item-avatar" style="width:32px;height:32px;"><div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg || '') + ';">' + renderAvatar(e, 32) + '</div></div>' +
+            '<div class="item-info"><div class="item-name" style="font-size:13px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:11px;">' + escapeHtml(e.role || '') + ' · 点击恢复</div></div>' +
+            '</div>';
+        }).join('');
+      }
+    }
+  }
 }
 
 function renderCategoryHeader(name, expanded){
@@ -3886,6 +3936,16 @@ document.addEventListener('click', function(e){
     hideEmpSettingsMenu();
   }
 });
+
+// 恢复归档的员工
+function restoreArchivedEmp(empId){
+  var emp = emps.find(function(e){ return e.id === empId; });
+  if(!emp) return;
+  emp.archived = false;
+  saveEmployees();
+  renderEmployeeList();
+  showToast('📂 已恢复 ' + emp.name);
+}
 
 // Close context menu on click outside
 document.addEventListener('click',hideContextMenu);
