@@ -5273,39 +5273,45 @@ async function registerOpenClawAgent(emp){
     console.log('[registerAgent] Gateway 未连接，跳过注册');
     return;
   }
-  // 确保有 agentId（main 是保留名不能用）
+  // 确保有 agentId（main 是保留名不能用，用英文/拼音）
   if(!emp.openclawName || emp.openclawName === 'main'){
-    emp.openclawName = emp.name || emp.id;
+    // Gateway agentId 用英文，中文名可能有问题
+    emp.openclawName = 'agent-' + emp.id;
     saveEmployees();
   }
+  var soulContent = emp.soulDoc || emp.systemPrompt || ('你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。');
+  var identityContent = emp.idDoc || (emp.name + ' - ' + emp.role);
+
+  // 先尝试 create，再 update
   try {
-    var systemPrompt = emp.soulDoc || emp.systemPrompt || ('你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。');
-    var params = {
-      agentId: emp.openclawName,
-      name: emp.name,
-      systemPrompt: systemPrompt
+    var createParams = {
+      name: emp.openclawName,
+      identity: identityContent,
+      soul: soulContent
     };
-    if(emp.apiModel) params.model = emp.apiModel;
-    console.log('[OpenClaw] 注册 Agent:', JSON.stringify(params));
-    var result = await openclaw.send('agents.update', params);
-    console.log('[OpenClaw] Agent 注册/更新成功:', emp.openclawName, JSON.stringify(result));
-    showToast('✅ Agent 已注册到 Gateway: ' + emp.openclawName);
+    if(emp.apiModel) createParams.model = emp.apiModel;
+    console.log('[OpenClaw] 创建 Agent:', JSON.stringify(createParams));
+    var result = await openclaw.send('agents.create', createParams);
+    console.log('[OpenClaw] Agent 创建成功:', emp.openclawName, JSON.stringify(result));
+    showToast('✅ Agent 已创建并注册到 Gateway');
+    return;
   } catch(e){
-    console.warn('[OpenClaw] Agent 注册失败:', e.message);
-    // 如果 systemPrompt 也不支持，试不带它
-    if(e.message && e.message.includes('unexpected property')){
-      console.log('[OpenClaw] 尝试不带 systemPrompt 注册...');
-      try {
-        var params2 = { agentId: emp.openclawName, name: emp.name };
-        if(emp.apiModel) params2.model = emp.apiModel;
-        var result2 = await openclaw.send('agents.update', params2);
-        console.log('[OpenClaw] Agent 注册成功（无 systemPrompt）:', JSON.stringify(result2));
-        showToast('✅ Agent 已注册（人格需在 Gateway 端配置）');
-      } catch(e2){
-        console.warn('[OpenClaw] Agent 注册再次失败:', e2.message);
-        showToast('⚠️ Agent 注册失败: ' + e2.message);
-      }
-    }
+    // create 失败（可能已存在），试 update
+    console.log('[OpenClaw] create 失败，尝试 update:', e.message);
+  }
+
+  try {
+    var updateParams = {
+      agentId: emp.openclawName,
+      name: emp.name
+    };
+    if(emp.apiModel) updateParams.model = emp.apiModel;
+    var result2 = await openclaw.send('agents.update', updateParams);
+    console.log('[OpenClaw] Agent 更新成功:', emp.openclawName, JSON.stringify(result2));
+    showToast('✅ Agent 已更新到 Gateway');
+  } catch(e2){
+    console.warn('[OpenClaw] Agent 注册失败:', e2.message);
+    showToast('⚠️ Agent 注册失败: ' + e2.message);
   }
 }
 function updateGatewayStatus(){
