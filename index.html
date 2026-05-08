@@ -4825,6 +4825,8 @@ async function createGroup(){
     members: gwMembers.slice(),
     leadAgentId: gwLead,
     lastMsg: '',
+    createdBy: currentUser?.id || 'local',
+    createdByName: currentUser?.name || '本地用户',
     createdAt: Date.now()
   };
   
