@@ -501,9 +501,11 @@ class OpenClawClient {
   async sendChat(sessionKey, message) {
     return this.send('chat.send', {
       sessionKey,
-      content: [{ type: 'text', text: message }]
+      message: message,
+      idempotencyKey: Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 8)
     });
   }
+
 
   // 中断生成
   async abortChat(sessionKey) {
