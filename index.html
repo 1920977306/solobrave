@@ -118,7 +118,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .item-actions .emp-more-btn { font-size: 14px; font-weight: 700; }
 
 /* Employee Settings Dropdown - Apple Glassmorphism */
-.emp-settings-menu { position: absolute; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 0.5px solid rgba(120, 120, 128, 0.2); border-radius: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.04); min-width: 180px; z-index: 1000; padding: 8px 0; display: none; overflow: hidden; }
+.emp-settings-menu { position: fixed; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 0.5px solid rgba(120, 120, 128, 0.2); border-radius: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.04); min-width: 180px; z-index: 1000; padding: 8px 0; display: none; overflow: hidden; }
 .emp-settings-menu.active { display: block; animation: menuPopIn 0.15s cubic-bezier(0.4, 0, 0.2, 1); }
 @keyframes menuPopIn { from { opacity: 0; transform: scale(0.95) translateY(-4px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 .emp-settings-menu .menu-item { display: flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: 13px; color: var(--text-primary); cursor: pointer; transition: all 0.12s; margin: 0 6px; border-radius: 8px; }
@@ -126,6 +126,21 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-settings-menu .menu-item.danger { color: #FF3B30; }
 .emp-settings-menu .menu-item.danger:hover { background: rgba(255, 59, 48, 0.08); }
 .emp-settings-menu .menu-divider { height: 0.5px; background: rgba(120, 120, 128, 0.2); margin: 4px 10px; }
+
+/* Right-click Context Menus (Apple frosted glass style) */
+.ctx-menu { position: fixed; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 0.5px solid rgba(120, 120, 128, 0.2); border-radius: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.04); min-width: 180px; z-index: 2000; padding: 8px 0; display: none; overflow: hidden; }
+.ctx-menu.active { display: block; animation: menuPopIn 0.15s cubic-bezier(0.4, 0, 0.2, 1); }
+.ctx-menu .menu-item { display: flex; align-items: center; gap: 10px; padding: 9px 16px; font-size: 13px; color: var(--text-primary); cursor: pointer; transition: all 0.12s; margin: 0 6px; border-radius: 8px; }
+.ctx-menu .menu-item:hover { background: rgba(0, 122, 255, 0.08); }
+.ctx-menu .menu-item.danger { color: #FF3B30; }
+.ctx-menu .menu-item.danger:hover { background: rgba(255, 59, 48, 0.08); }
+.ctx-menu .menu-divider { height: 0.5px; background: rgba(120, 120, 128, 0.2); margin: 4px 10px; }
+@media (prefers-color-scheme: dark) {
+  .ctx-menu { background: rgba(44, 44, 46, 0.88); border-color: rgba(120, 120, 128, 0.36); }
+  .ctx-menu .menu-item:hover { background: rgba(0, 122, 255, 0.16); }
+  .ctx-menu .menu-item.danger:hover { background: rgba(255, 59, 48, 0.16); }
+}
+
 
 .avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; color: white; flex-shrink: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 0.5px rgba(0,0,0,0.05); transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s; }
 .avatar.small { width: 28px; height: 28px; font-size: 12px; }
@@ -3797,6 +3812,7 @@ let gwStep = 1;
 let gwEmoji = '🚀';
 let gwMembers = [];
 let gwLead = '';
+let gwEditGroupId = null; // Track if wizard is editing an existing group
 
 
 // Alias for compatibility
@@ -4014,7 +4030,7 @@ emps.forEach(e=>{
       const emp=emps.find(x=>x.id===draggedId);
       if(emp){emp.archived=!emp.archived;renderEmployeeList();}
     });
-    el.addEventListener('contextmenu',ev=>{ev.preventDefault();contextTarget=e.id;showContextMenu(ev.clientX,ev.clientY);});
+    // Right-click handled by event delegation on employeeList
   }
 });
 document.getElementById('sendBtn').addEventListener('click',sendMsg);
@@ -4102,7 +4118,7 @@ function bindListEvents(){
     // Click
     i.addEventListener('click',()=>{if(currentTab!=='archived')openChat(i.dataset.id);});
     // Context menu
-    i.addEventListener('contextmenu',e=>{e.preventDefault();contextTarget=i.dataset.id;showContextMenu(e.clientX,e.clientY);});
+    // Right-click handled by event delegation on employeeList
     // Drag
     i.draggable=true;
     i.addEventListener('dragstart',e=>{i.classList.add('dragging');e.dataTransfer.setData('text/plain',i.dataset.id||i.dataset.proj);});
@@ -4160,10 +4176,24 @@ var empSettingsTarget = null;
 function showEmpSettingsMenu(event, empId){
   empSettingsTarget = empId;
   var menu = document.getElementById('empSettingsMenu');
-  var btn = event.target;
-  var rect = btn.getBoundingClientRect();
-  menu.style.left = rect.left + 'px';
-  menu.style.top = (rect.bottom + 4) + 'px';
+  // Support both button click (position from button) and right-click (position from mouse)
+  if(event.type === 'contextmenu'){
+    // Right-click: position at mouse cursor with viewport boundary check
+    positionMenuAtCursor(menu, event.clientX, event.clientY);
+  } else {
+    // Button click: position below the ⋮ button
+    var btn = event.target;
+    var rect = btn.getBoundingClientRect();
+    var menuW = menu.offsetWidth || 180;
+    var menuH = menu.offsetHeight || 200;
+    var left = rect.left;
+    var top = rect.bottom + 4;
+    // Viewport boundary check
+    if(left + menuW > window.innerWidth - 8) left = window.innerWidth - menuW - 8;
+    if(top + menuH > window.innerHeight - 8) top = rect.top - menuH - 4;
+    menu.style.left = Math.max(8, left) + 'px';
+    menu.style.top = Math.max(8, top) + 'px';
+  }
   menu.classList.add('active');
   event.stopPropagation();
 }
@@ -4216,6 +4246,273 @@ function empSettingsAction(action){
 document.addEventListener('click', function(e){
   if(!e.target.closest('.emp-settings-menu') && !e.target.closest('.emp-more-btn')){
     hideEmpSettingsMenu();
+  }
+  // Also close right-click context menus
+  if(!e.target.closest('.ctx-menu')){
+    document.querySelectorAll('.ctx-menu.active').forEach(function(m){ m.classList.remove('active'); });
+    msgCtxTarget = null;
+    groupCtxTarget = null;
+  }
+});
+
+// ===== Right-click Context Menu System =====
+
+// Position a menu at cursor with viewport boundary check
+function positionMenuAtCursor(menu, cx, cy){
+  // Temporarily show to measure
+  menu.style.visibility = 'hidden';
+  menu.style.display = 'block';
+  var menuW = menu.offsetWidth;
+  var menuH = menu.offsetHeight;
+  menu.style.display = '';
+  menu.style.visibility = '';
+  
+  var left = cx + 2;
+  var top = cy + 2;
+  // Check right edge
+  if(left + menuW > window.innerWidth - 8) left = cx - menuW - 2;
+  // Check bottom edge
+  if(top + menuH > window.innerHeight - 8) top = cy - menuH - 2;
+  menu.style.left = Math.max(8, left) + 'px';
+  menu.style.top = Math.max(8, top) + 'px';
+}
+
+// Close all context menus
+function closeAllCtxMenus(){
+  document.querySelectorAll('.ctx-menu.active').forEach(function(m){ m.classList.remove('active'); });
+  var oldCtxMenu = document.getElementById('contextMenu');
+  if(oldCtxMenu) oldCtxMenu.classList.remove('active');
+  hideEmpSettingsMenu();
+  msgCtxTarget = null;
+  groupCtxTarget = null;
+}
+
+// ===== Employee Card Right-click (uses empSettingsMenu) =====
+document.addEventListener('DOMContentLoaded', function(){
+  // Use event delegation on employeeList for right-click
+  var empList = document.getElementById('employeeList');
+  if(empList){
+    empList.addEventListener('contextmenu', function(e){
+      var item = e.target.closest('.list-item[data-id]');
+      if(!item) return;
+      // Skip if it's a project item
+      if(item.dataset.proj) return;
+      e.preventDefault();
+      closeAllCtxMenus();
+      var empId = item.dataset.id;
+      showEmpSettingsMenu(e, empId);
+    });
+  }
+});
+
+// ===== Chat Message Right-click =====
+var msgCtxTarget = null; // { element, isAI }
+
+document.addEventListener('DOMContentLoaded', function(){
+  var msgArea = document.getElementById('messagesArea');
+  if(msgArea){
+    msgArea.addEventListener('contextmenu', function(e){
+      var msgEl = e.target.closest('.msg');
+      if(!msgEl) return;
+      // Don't show menu on typing indicator
+      if(msgEl.classList.contains('typing-msg')) return;
+      e.preventDefault();
+      closeAllCtxMenus();
+      
+      var isAI = !msgEl.classList.contains('own');
+      msgCtxTarget = { element: msgEl, isAI: isAI };
+      
+      var menu = document.getElementById('msgCtxMenu');
+      // Show/hide regenerate option (only for AI messages)
+      var regenItem = document.getElementById('msgCtxRegenerate');
+      if(regenItem) regenItem.style.display = isAI ? 'flex' : 'none';
+      
+      positionMenuAtCursor(menu, e.clientX, e.clientY);
+      menu.classList.add('active');
+    });
+  }
+});
+
+// Message context menu actions
+function msgCtxAction(action){
+  if(!msgCtxTarget || !msgCtxTarget.element) { closeAllCtxMenus(); return; }
+  var el = msgCtxTarget.element;
+  var bubble = el.querySelector('.msg-bubble');
+  
+  switch(action){
+    case 'copy':
+      if(bubble){
+        var text = bubble.textContent || bubble.innerText || '';
+        // Remove "..." from truncated typing messages
+        text = text.replace(/\s*\.\.\.\s*$/, '');
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(text).then(function(){
+            showToast('📋 已复制到剪贴板');
+          }).catch(function(){
+            fallbackCopyText(text);
+          });
+        } else {
+          fallbackCopyText(text);
+        }
+      }
+      break;
+    case 'delete':
+      el.style.transition = 'opacity 0.2s, transform 0.2s';
+      el.style.opacity = '0';
+      el.style.transform = 'translateX(' + (msgCtxTarget.isAI ? '-20px' : '20px') + ')';
+      setTimeout(function(){ el.remove(); }, 200);
+      showToast('🗑️ 消息已删除');
+      break;
+    case 'regenerate':
+      if(msgCtxTarget.isAI){
+        // Get the AI message text and remove it, then resend
+        var emp = getCurrentEmployeeInfo();
+        // Find the previous user message for re-sending
+        var prevMsgs = el.parentElement.querySelectorAll('.msg');
+        var userIdx = -1;
+        for(var i = 0; i < prevMsgs.length; i++){
+          if(prevMsgs[i] === el){ userIdx = i; break; }
+        }
+        var userText = '';
+        // Look for the last .own message before this AI message
+        for(var j = userIdx - 1; j >= 0; j--){
+          if(prevMsgs[j].classList.contains('own')){
+            var ub = prevMsgs[j].querySelector('.msg-bubble');
+            if(ub) userText = ub.textContent || ub.innerText || '';
+            break;
+          }
+        }
+        // Remove the AI message with animation
+        el.style.transition = 'opacity 0.2s, transform 0.2s';
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(-20px)';
+        setTimeout(function(){
+          el.remove();
+          if(userText && typeof sendMsg === 'function'){
+            // Set input and trigger send
+            var input = document.getElementById('msgInput');
+            if(input){ input.value = userText; sendMsg(); }
+          } else {
+            showToast('⚠️ 无法重新生成：未找到对应的消息');
+          }
+        }, 200);
+      }
+      break;
+  }
+  closeAllCtxMenus();
+}
+
+// Fallback copy for older browsers
+function fallbackCopyText(text){
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); showToast('📋 已复制到剪贴板'); }
+  catch(e){ showToast('❌ 复制失败'); }
+  document.body.removeChild(ta);
+}
+
+// ===== Group Item Right-click =====
+var groupCtxTarget = null;
+
+document.addEventListener('DOMContentLoaded', function(){
+  var empList = document.getElementById('employeeList');
+  if(empList){
+    empList.addEventListener('contextmenu', function(e){
+      var item = e.target.closest('.list-item[data-group]');
+      if(!item) return;
+      e.preventDefault();
+      closeAllCtxMenus();
+      
+      var groupId = item.dataset.group;
+      groupCtxTarget = groupId;
+      
+      var menu = document.getElementById('groupCtxMenu');
+      positionMenuAtCursor(menu, e.clientX, e.clientY);
+      menu.classList.add('active');
+    });
+  }
+});
+
+// Group context menu actions
+function groupCtxAction(action){
+  if(!groupCtxTarget) { closeAllCtxMenus(); return; }
+  var groupId = groupCtxTarget;
+  var group = groups.find(function(g){ return g.id === groupId; });
+  
+  switch(action){
+    case 'edit':
+      // Open group wizard in edit mode - repurpose the wizard
+      if(group){
+        openGroupWizard();
+        // Pre-fill the wizard with existing group data
+        setTimeout(function(){
+          var nameInput = document.getElementById('gwName');
+          if(nameInput) nameInput.value = group.name || '';
+          gwEmoji = group.emoji || '🚀';
+          // Update emoji selection
+          var emojiGrid = document.getElementById('gwEmojiGrid');
+          if(emojiGrid){
+            emojiGrid.querySelectorAll('.emoji-opt').forEach(function(opt){
+              opt.classList.toggle('selected', opt.textContent === gwEmoji);
+            });
+          }
+          // Set members
+          gwMembers = (group.members || []).slice();
+          gwLead = group.leadAgentId || '';
+          gwEditGroupId = groupId; // Mark as editing
+          if(gwStep < 2){ gwStep = 2; renderGroupWizardUI(); }
+        }, 100);
+        showToast('✏️ 编辑群组: ' + (group.name || ''));
+      }
+      break;
+    case 'addMember':
+      if(group){
+        openGroupWizard();
+        setTimeout(function(){
+          var nameInput = document.getElementById('gwName');
+          if(nameInput) nameInput.value = group.name || '';
+          gwEmoji = group.emoji || '🚀';
+          gwMembers = (group.members || []).slice();
+          gwLead = group.leadAgentId || '';
+          gwEditGroupId = groupId;
+          gwStep = 2; // Jump to member selection step
+          renderGroupWizardUI();
+        }, 100);
+      }
+      break;
+    case 'dissolve':
+      if(group && confirm('确定解散群组「' + group.name + '」？此操作不可撤销。')){
+        for(var i = groups.length - 1; i >= 0; i--){
+          if(groups[i].id === groupId) groups.splice(i, 1);
+        }
+        saveGroups();
+        // If currently viewing this group, reset chat
+        if(currentGroupId === groupId){
+          currentGroupId = null;
+          var area = document.getElementById('messagesArea');
+          if(area) area.innerHTML = '';
+        }
+        renderEmployeeList();
+        showToast('🗑️ 群组已解散');
+      }
+      break;
+  }
+  closeAllCtxMenus();
+}
+
+// Close context menus on scroll (prevent menu from floating away)
+document.addEventListener('scroll', function(e){
+  document.querySelectorAll('.ctx-menu.active').forEach(function(m){ m.classList.remove('active'); });
+}, true);
+
+// Close context menus on Escape
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape'){
+    closeAllCtxMenus();
   }
 });
 
@@ -4673,6 +4970,7 @@ function openGroupWizard(){
   gwEmoji = '🚀';
   gwMembers = [];
   gwLead = '';
+  gwEditGroupId = null;
   // 渲染 emoji 选择器
   var emojiGrid = document.getElementById('gwEmojiGrid');
   if(emojiGrid){
@@ -4817,27 +5115,45 @@ async function createGroup(){
   if(!name){ showToast('请输入群组名称', 'warning'); return; }
   if(gwMembers.length === 0){ showToast('请至少选择一个成员', 'warning'); return; }
   
-  var newGroup = {
-    id: 'grp_' + Date.now(),
-    name: name,
-    emoji: gwEmoji,
-    bg: '#5856D6',
-    members: gwMembers.slice(),
-    leadAgentId: gwLead,
-    lastMsg: '',
-    createdBy: currentUser?.id || 'local',
-    createdByName: currentUser?.name || '本地用户',
-    createdAt: Date.now()
-  };
-  
-  groups.push(newGroup);
-  await saveGroups();
-  renderEmployeeList();
-  closeGroupWizard();
-  showToast('✅ 群组「' + name + '」创建成功！', 'success');
-  
-  // 自动打开群聊
-  setTimeout(function(){ openGroupChat(newGroup.id); }, 300);
+  if(gwEditGroupId){
+    // Editing existing group
+    var existingGroup = groups.find(function(g){ return g.id === gwEditGroupId; });
+    if(existingGroup){
+      existingGroup.name = name;
+      existingGroup.emoji = gwEmoji;
+      existingGroup.members = gwMembers.slice();
+      existingGroup.leadAgentId = gwLead;
+      await saveGroups();
+      renderEmployeeList();
+      closeGroupWizard();
+      gwEditGroupId = null;
+      showToast('✅ 群组「' + name + '」已更新！', 'success');
+      setTimeout(function(){ openGroupChat(existingGroup.id); }, 300);
+    }
+  } else {
+    // Creating new group
+    var newGroup = {
+      id: 'grp_' + Date.now(),
+      name: name,
+      emoji: gwEmoji,
+      bg: '#5856D6',
+      members: gwMembers.slice(),
+      leadAgentId: gwLead,
+      lastMsg: '',
+      createdBy: currentUser?.id || 'local',
+      createdByName: currentUser?.name || '本地用户',
+      createdAt: Date.now()
+    };
+    
+    groups.push(newGroup);
+    await saveGroups();
+    renderEmployeeList();
+    closeGroupWizard();
+    showToast('✅ 群组「' + name + '」创建成功！', 'success');
+    
+    // 自动打开群聊
+    setTimeout(function(){ openGroupChat(newGroup.id); }, 300);
+  }
 }
 
 // 更新督促状态按钮显示
@@ -8105,6 +8421,23 @@ function checkQuota() {
     </div>
     <div id="userList"></div>
   </div>
+</div>
+
+
+<!-- Message Context Menu (right-click on chat bubbles) -->
+<div id="msgCtxMenu" class="ctx-menu">
+  <div class="menu-item" onclick="msgCtxAction('copy')">📋 复制文本</div>
+  <div class="menu-divider"></div>
+  <div class="menu-item" onclick="msgCtxAction('delete')">🗑️ 删除消息</div>
+  <div class="menu-item" id="msgCtxRegenerate" onclick="msgCtxAction('regenerate')" style="display:none;">🔄 重新生成</div>
+</div>
+
+<!-- Group Context Menu (right-click on group items) -->
+<div id="groupCtxMenu" class="ctx-menu">
+  <div class="menu-item" onclick="groupCtxAction('edit')">✏️ 编辑群组</div>
+  <div class="menu-item" onclick="groupCtxAction('addMember')">➕ 添加成员</div>
+  <div class="menu-divider"></div>
+  <div class="menu-item danger" onclick="groupCtxAction('dissolve')">🗑️ 解散群组</div>
 </div>
 
 <!-- Employee Settings Dropdown Menu -->
