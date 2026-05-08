@@ -534,6 +534,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_proxy()
             return
 
+        # Write SOUL.md to OpenClaw agent workspace
+        if path == '/api/openclaw/write-soul':
+            self._handle_write_soul()
+            return
+
         # OpenClaw (requires auth)
         if path == '/api/openclaw/agents/create':
             self._handle_auth_required_post(path)
@@ -1166,6 +1171,50 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ═══════════════════════════════════════════════════
     # 聊天 API
     # ═══════════════════════════════════════════════════
+
+    def _handle_write_soul(self):
+        """POST /api/openclaw/write-soul - Write SOUL.md/IDENTITY.md to agent workspace"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        agent_name = body.get('agentName', '')
+        soul_content = body.get('soulContent', '')
+        identity_content = body.get('identityContent', '')
+
+        if not agent_name:
+            self._send_json(400, {'error': '缺少 agentName'})
+            return
+
+        import os
+        workspace_base = os.path.expanduser('~/.openclaw/agents')
+        agent_dir = os.path.join(workspace_base, agent_name)
+
+        try:
+            os.makedirs(agent_dir, exist_ok=True)
+
+            if soul_content:
+                with open(os.path.join(agent_dir, 'SOUL.md'), 'w', encoding='utf-8') as f:
+                    f.write(soul_content)
+
+            if identity_content:
+                with open(os.path.join(agent_dir, 'IDENTITY.md'), 'w', encoding='utf-8') as f:
+                    f.write(identity_content)
+
+            self._send_json(200, {
+                'success': True,
+                'agentName': agent_name,
+                'dir': agent_dir
+            })
+        except Exception as e:
+            self._send_json(500, {'error': f'写入失败: {str(e)}'})
+
 
     def _check_agent_access(self, auth, agent_id):
         """检查用户是否有权限访问某 Agent 的聊天"""
