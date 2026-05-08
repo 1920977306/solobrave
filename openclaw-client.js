@@ -137,6 +137,10 @@ class OpenClawClient {
     }
 
     const { type, method, event, id, payload, params } = msg;
+    // DEBUG: 打印所有收到的消息（排除 challenge 已有日志）
+    if (!(type === 'event' && (event === 'connect.challenge' || method === 'connect.challenge'))) {
+      console.log('[OpenClaw] 收到WS消息:', JSON.stringify(msg).substring(0, 500));
+    }
 
     // 1. 服务端推送: connect.challenge (v3 格式用 event 字段)
     if (type === 'event' && (event === 'connect.challenge' || method === 'connect.challenge')) {
