@@ -2870,7 +2870,7 @@ function sendMsg(){
 // 通过 OpenClaw WS 发送消息
 async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
   try {
-    var sessionKey = 'agent:' + (emp.openclawName || emp.id) + ':main';
+    var sessionKey = 'agent:' + (emp.openclawName || 'main') + ':main';
     var systemPrompt = '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。';
     if(emp.systemPrompt) systemPrompt += '\n\n' + emp.systemPrompt;
     
