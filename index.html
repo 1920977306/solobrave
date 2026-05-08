@@ -2874,31 +2874,48 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
     var systemPrompt = '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。';
     if(emp.systemPrompt) systemPrompt += '\n\n' + emp.systemPrompt;
     
-    // 监听回复事件
-    var replyHandler = function(data){
+    // 监听 agent 事件（OpenClaw v3 流式推送）
+    var fullReply = '';
+    var currentRunId = null;
+    var agentHandler = function(data){
+      if(!data) return;
+      if(data.runId && !currentRunId) currentRunId = data.runId;
+      if(currentRunId && data.runId && data.runId !== currentRunId) return;
+      if(data.stream === 'assistant' && data.delta){
+        fullReply += data.delta;
+        var t = document.getElementById('typingMsg');
+        if(t) t.textContent = fullReply + '...';
+      }
+      if(data.stream === 'lifecycle' && (data.phase === 'end' || data.phase === 'error')){
+        var t = document.getElementById('typingMsg');
+        if(t) t.remove();
+        if(!fullReply) fullReply = '（AI 未返回内容）';
+        if(data.phase === 'error') fullReply = '⚠️ AI 回复出错: ' + (data.error || '未知错误');
+        displayAIReply(fullReply, docContext, timeStr);
+        saveChatHistory(userMessage, fullReply, docContext);
+        openclaw.off('agent', agentHandler);
+      }
+    };
+    openclaw.on('agent', agentHandler);
+    
+    var result = await openclaw.sendChat(sessionKey, userMessage);
+    console.log('[OpenClaw] chat.send 返回:', JSON.stringify(result));
+    // chat.send 返回确认，实际回复通过 agent 事件推送
+    if(result && result.content){
       var t = document.getElementById('typingMsg');
       if(t) t.remove();
       var reply = '';
-      if(data && data.content){
-        if(Array.isArray(data.content)){
-          reply = data.content.map(function(c){ return c.text || ''; }).join('');
-        } else if(typeof data.content === 'string'){
-          reply = data.content;
-        }
+      if(Array.isArray(result.content)){
+        reply = result.content.map(function(c){ return c.text || ''; }).join('');
+      } else if(typeof result.content === 'string'){
+        reply = result.content;
       }
-      if(!reply) reply = '（AI 未返回内容）';
-      displayAIReply(reply, docContext, timeStr);
-      saveChatHistory(userMessage, reply, docContext);
-      openclaw.off('chat.message', replyHandler);
-    };
-    openclaw.on('chat.message', replyHandler);
-    
-    var result = await openclaw.sendChat(sessionKey, userMessage);
-    // 如果 sendChat 直接返回了结果（非流式）
-    if(result && result.content){
-      replyHandler(result);
+      if(reply){
+        displayAIReply(reply, docContext, timeStr);
+        saveChatHistory(userMessage, reply, docContext);
+        openclaw.off('agent', agentHandler);
+      }
     }
-    // 否则等待 chat.message 事件（流式）
   } catch(e){
     console.error('[OpenClaw] 发送失败:', e);
     var t = document.getElementById('typingMsg');
