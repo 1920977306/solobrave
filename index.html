@@ -2825,12 +2825,12 @@ async function doLogin() {
 
     const data = await resp.json();
 
-    if (data.success && data.token) {
+    if (data.token) {
       currentUser = {
         id: data.user.id,
         username: data.user.username,
-        name: data.user.name || data.user.username,
-        displayName: data.user.name || data.user.username,
+        name: data.user.displayName || data.user.username,
+        displayName: data.user.displayName || data.user.username,
         role: data.user.role || 'employee',
         avatar: data.user.avatar || 0,
         createdAt: data.user.createdAt
@@ -3462,7 +3462,8 @@ function checkUrlParams() {
         const url = new URL(window.location);
         url.searchParams.delete('emp');
         window.history.replaceState({}, '', url);
-        showToast(`🦞 已打开与 ${emps.find(e => e.id === empId)?.name || empId} 的聊天`);
+        var foundEmp = emps.find(function(e){ return e.id === empId; });
+        showToast('🦞 已打开与 ' + (foundEmp && foundEmp.name || empId) + ' 的聊天');
       }
     }, 500);
   }
