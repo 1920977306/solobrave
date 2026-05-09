@@ -523,11 +523,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 </style></head><body>
 <nav class="nav-bar">
   <div class="nav-inner">
-    <div class="brand-logo">SB</div>
+    <a href="./index.html" class="brand-logo" style="text-decoration:none;color:white;font-weight:800;display:flex;align-items:center;justify-content:center;">SB</a>
     <span class="brand-text">SoloBrave</span>
     <span class="brand-subtitle">Office</span>
     <div class="nav-spacer"></div>
     <div class="nav-actions">
+      <a href="./index.html" class="nav-action-btn" style="text-decoration:none;">🏠 返回主页</a>
       <button class="nav-action-btn" onclick="restartGateway()">🔄 重启网关</button>
       <button class="nav-action-btn" onclick="switchTab('config')">⚙️ 核心配置</button>
       <button class="nav-action-btn" onclick="showToast('模型配置')">🤖 模型配置</button>
@@ -715,6 +716,79 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 </div>
 
 <script>
+// ===== 数据打通：认证与 API =====
+const API_BASE = '';  // 与主页共用后端
+
+// 获取认证头
+function getAuthHeaders() {
+  const token = localStorage.getItem('sb_auth_token');
+  return token ? { 'Authorization': 'Bearer ' + token } : {};
+}
+
+// 带认证的 Fetch，自动处理 401
+async function authFetch(url, options = {}) {
+  options.headers = { ...options.headers || {}, ...getAuthHeaders() };
+  const r = await fetch(url, options);
+  if (r.status === 401) {
+    localStorage.removeItem('sb_auth_token');
+    localStorage.removeItem('sb_current_user');
+    // 跳转回主页登录
+    showToast('请先登录，正在跳转...', 'error');
+    setTimeout(() => { location.href = './index.html'; }, 1500);
+    throw new Error('Unauthorized');
+  }
+  return r;
+}
+
+// 检查登录状态
+function checkOfficeAuth() {
+  const token = localStorage.getItem('sb_auth_token');
+  if (!token || token === 'null') {
+    showToast('请先在主页登录', 'error');
+    setTimeout(() => { location.href = './index.html'; }, 1500);
+    return false;
+  }
+  return true;
+}
+
+// 页面加载时检查登录
+document.addEventListener('DOMContentLoaded', () => {
+  checkOfficeAuth();
+});
+
+// ===== 数据打通：保存员工到 localStorage =====
+function saveEmployeesToStorage() {
+  // 转换 employees 数组为主页需要的格式并保存
+  const mainFormatEmps = employees.map(emp => ({
+    id: emp.id,
+    name: emp.name,
+    role: emp.role || '',
+    bg: emp.bg || emp.gradient?.[0] || '#FF6B35',
+    avatar: emp.avatar || emp.initial || emp.name?.[0] || '👤',
+    status: emp.status || 'offline',
+    msg: emp.msg || emp.statusDesc || '',
+    archived: false,
+    permission: emp.permission || 'dev',
+    category: emp.category || '职能',
+    subCategory: emp.subCategory || '技术团队',
+    apiProvider: emp.apiProvider || 'openclaw',
+    openclawName: emp.openclawName || emp.name,
+    aiProvider: emp.aiProvider || '',
+    apiKey: emp.apiKey || '',
+    apiModel: emp.apiModel || '',
+    customEndpoint: emp.customEndpoint || ''
+  }));
+  localStorage.setItem('sb_employees', JSON.stringify(mainFormatEmps));
+  
+  // 通过 BroadcastChannel 通知主页
+  if (lobsterChannel) {
+    lobsterChannel.postMessage({
+      type: 'employees_updated',
+      employees: mainFormatEmps
+    });
+  }
+}
+
 // ===== OpenClaw WS Client =====
 class OpenClawClient {
   constructor() {
@@ -931,53 +1005,159 @@ function initMockData() {
   activities = [...activitiesFallback];
 }
 
-// Load real agents from OpenClaw
+// ===== 数据打通：加载员工数据 =====
+async function loadEmployeesFromStorage() {
+  // 1. 优先从 localStorage sb_employees 读取（与主页共享数据）
+  const savedEmps = localStorage.getItem('sb_employees');
+  if (savedEmps) {
+    try {
+      const parsed = JSON.parse(savedEmps);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // 转换为 office 内部格式
+        employees = parsed.map((emp, idx) => {
+          const gradients = [
+            ['#FF6B9D','#C44FE2'], ['#5856D6','#007AFF'], ['#5AC8FA','#34C759'],
+            ['#FF9500','#FF2D55'], ['#30B0C7','#5856D6'], ['#AF52DE','#FF375F'],
+            ['#00C7BE','#30D158'], ['#FF6B35','#FFD60A']
+          ];
+          const statusMap = { online: 'online', busy: 'busy', offline: 'offline', idle: 'idle', thinking: 'busy', working: 'busy' };
+          return {
+            id: emp.id || `emp_${idx}`,
+            name: emp.name || `员工${idx + 1}`,
+            role: emp.role || 'AI Agent',
+            initial: (emp.name || 'A')[0].toUpperCase(),
+            gradient: gradients[idx % gradients.length],
+            bg: emp.bg || gradients[idx % gradients.length][0],
+            avatar: emp.avatar || emp.name?.[0] || '👤',
+            status: statusMap[emp.status] || 'online',
+            msg: emp.msg || '',
+            permission: emp.permission || 'dev',
+            category: emp.category || '职能',
+            subCategory: emp.subCategory || '技术团队',
+            apiProvider: emp.apiProvider || 'openclaw',
+            openclawName: emp.openclawName || emp.name,
+            aiProvider: emp.aiProvider || '',
+            apiKey: emp.apiKey || '',
+            apiModel: emp.apiModel || '',
+            customEndpoint: emp.customEndpoint || ''
+          };
+        });
+        
+        // 同步更新 activities
+        activities = employees.slice(0, 6).map((emp, idx) => ({
+          id: idx + 1,
+          name: emp.name,
+          initial: emp.initial,
+          gradient: emp.gradient,
+          status: emp.status === 'online' ? 'done' : emp.status === 'busy' ? 'thinking' : 'idle',
+          text: emp.status === 'online' ? '✅ 运行中' : emp.status === 'busy' ? '⚡ 工作中' : '💤 空闲',
+          time: '刚刚'
+        }));
+        
+        console.log('[Office] 从 localStorage 加载了', employees.length, '个员工');
+        return true;
+      }
+    } catch (e) {
+      console.error('[Office] 解析 localStorage 员工数据失败:', e);
+    }
+  }
+  return false;
+}
+
+// Load real agents from OpenClaw (带 localStorage 降级)
 async function loadRealAgents() {
-  if (!openclaw || !openclaw.connected) {
-    initMockData();
+  // 先尝试从 localStorage 读取
+  if (await loadEmployeesFromStorage()) {
+    showToast(`✅ 已加载 ${employees.length} 个员工（来自本地数据）`, 'success');
     return;
   }
-
-  try {
-    showToast('正在加载 Agent 列表...', 'loading');
-    const agents = await openclaw.agents_list();
-    
-    if (Array.isArray(agents)) {
-      employees = agents.map((agent, idx) => {
-        const gradients = [
-          ['#FF6B9D','#C44FE2'], ['#5856D6','#007AFF'], ['#5AC8FA','#34C759'],
-          ['#FF9500','#FF2D55'], ['#30B0C7','#5856D6'], ['#AF52DE','#FF375F'],
-          ['#00C7BE','#30D158'], ['#FF6B35','#FFD60A']
-        ];
-        const statusMap = { online: 'online', offline: 'offline', thinking: 'busy', working: 'busy' };
-        
-        return {
-          id: agent.id || `agent_${idx}`,
-          name: agent.name || agent.identity?.name || `Agent ${idx + 1}`,
-          role: agent.role || agent.identity?.role || 'AI Agent',
-          initial: (agent.name || agent.identity?.name || 'A')[0].toUpperCase(),
-          gradient: gradients[idx % gradients.length],
-          status: statusMap[agent.status] || 'online',
-          model: agent.config?.model || 'unknown'
-        };
-      });
-      
-      activities = employees.slice(0, 6).map((emp, idx) => ({
-        id: idx + 1,
-        name: emp.name,
-        initial: emp.initial,
-        gradient: emp.gradient,
-        status: emp.status === 'online' ? 'done' : emp.status === 'busy' ? 'thinking' : 'idle',
-        text: emp.status === 'online' ? '✅ 运行中' : emp.status === 'busy' ? '⚡ 工作中' : '💤 空闲',
-        time: '刚刚'
-      }));
-      
-      showToast(`✅ 已加载 ${employees.length} 个 Agent`, 'success');
+  
+  // 如果 localStorage 没有数据，尝试从后端/API 加载
+  const token = localStorage.getItem('sb_auth_token');
+  if (token && token !== 'local_mode') {
+    try {
+      const resp = await authFetch('/api/agents');
+      if (resp && resp.ok) {
+        const data = await resp.json();
+        if (Array.isArray(data) && data.length > 0) {
+          employees = data.map((emp, idx) => {
+            const gradients = [
+              ['#FF6B9D','#C44FE2'], ['#5856D6','#007AFF'], ['#5AC8FA','#34C759'],
+              ['#FF9500','#FF2D55'], ['#30B0C7','#5856D6'], ['#AF52DE','#FF375F'],
+              ['#00C7BE','#30D158'], ['#FF6B35','#FFD60A']
+            ];
+            return {
+              id: emp.id || `emp_${idx}`,
+              name: emp.name || `员工${idx + 1}`,
+              role: emp.role || 'AI Agent',
+              initial: (emp.name || 'A')[0].toUpperCase(),
+              gradient: gradients[idx % gradients.length],
+              bg: emp.bg || gradients[idx % gradients.length][0],
+              avatar: emp.avatar || emp.name?.[0] || '👤',
+              status: emp.status || 'online',
+              ...emp
+            };
+          });
+          saveEmployeesToStorage();
+          showToast(`✅ 已加载 ${employees.length} 个员工（来自服务器）`, 'success');
+          return;
+        }
+      }
+    } catch (e) {
+      console.log('[Office] 从后端加载失败，使用 fallback:', e.message);
     }
-  } catch (err) {
-    console.error('[OpenClaw] Failed to load agents:', err);
-    initMockData();
   }
+  
+  // 最终降级到 OpenClaw
+  if (openclaw && openclaw.connected) {
+    try {
+      showToast('正在加载 Agent 列表...', 'loading');
+      const agents = await openclaw.agents_list();
+      
+      if (Array.isArray(agents)) {
+        employees = agents.map((agent, idx) => {
+          const gradients = [
+            ['#FF6B9D','#C44FE2'], ['#5856D6','#007AFF'], ['#5AC8FA','#34C759'],
+            ['#FF9500','#FF2D55'], ['#30B0C7','#5856D6'], ['#AF52DE','#FF375F'],
+            ['#00C7BE','#30D158'], ['#FF6B35','#FFD60A']
+          ];
+          const statusMap = { online: 'online', offline: 'offline', thinking: 'busy', working: 'busy' };
+          
+          return {
+            id: agent.id || `agent_${idx}`,
+            name: agent.name || agent.identity?.name || `Agent ${idx + 1}`,
+            role: agent.role || agent.identity?.role || 'AI Agent',
+            initial: (agent.name || agent.identity?.name || 'A')[0].toUpperCase(),
+            gradient: gradients[idx % gradients.length],
+            bg: gradients[idx % gradients.length][0],
+            status: statusMap[agent.status] || 'online',
+            model: agent.config?.model || 'unknown',
+            openclawName: agent.name
+          };
+        });
+        
+        activities = employees.slice(0, 6).map((emp, idx) => ({
+          id: idx + 1,
+          name: emp.name,
+          initial: emp.initial,
+          gradient: emp.gradient,
+          status: emp.status === 'online' ? 'done' : emp.status === 'busy' ? 'thinking' : 'idle',
+          text: emp.status === 'online' ? '✅ 运行中' : emp.status === 'busy' ? '⚡ 工作中' : '💤 空闲',
+          time: '刚刚'
+        }));
+        
+        saveEmployeesToStorage();
+        showToast(`✅ 已加载 ${employees.length} 个 Agent`, 'success');
+        return;
+      }
+    } catch (err) {
+      console.error('[OpenClaw] Failed to load agents:', err);
+    }
+  }
+  
+  // 最终降级到 mock 数据
+  initMockData();
+  showToast('⚠️ 使用演示数据', 'error');
 }
 
 // Get agent identity details
@@ -1239,7 +1419,7 @@ function createModel() {
   }
 }
 
-// ===== BroadcastChannel 状态同步 =====
+// ===== BroadcastChannel 状态同步 (扩展版) =====
 let lobsterChannel = null;
 
 function initBroadcastChannel() {
@@ -1247,28 +1427,88 @@ function initBroadcastChannel() {
     lobsterChannel = new BroadcastChannel('lobster-office');
     
     lobsterChannel.onmessage = (event) => {
-      const { type, agent_id, status } = event.data;
+      const data = event.data;
+      const { type, agent_id, status, employees: empData } = data;
       
-      if (type === 'lobster_status' && agent_id && status) {
-        // Update employee status
-        const emp = employees.find(e => e.id === agent_id);
-        if (emp) {
-          const oldStatus = emp.status;
-          emp.status = mapStatus(status);
-          
-          // Move employee to appropriate zone
-          if (emp.status !== oldStatus) {
-            if (status === 'thinking') {
-              addTimelineEvent(emp.name, '开始思考...');
-            } else if (status === 'idle') {
-              addTimelineEvent(emp.name, '进入空闲状态');
+      switch (type) {
+        case 'lobster_status':
+          // 更新员工状态
+          if (agent_id && status) {
+            const emp = employees.find(e => e.id === agent_id);
+            if (emp) {
+              const oldStatus = emp.status;
+              emp.status = mapStatus(status);
+              
+              if (emp.status !== oldStatus) {
+                if (status === 'thinking') {
+                  addTimelineEvent(emp.name, '开始思考...');
+                } else if (status === 'idle') {
+                  addTimelineEvent(emp.name, '进入空闲状态');
+                } else if (status === 'online') {
+                  addTimelineEvent(emp.name, '上线');
+                }
+              }
+              
+              renderChatZone();
+              renderWorkZone();
+              renderLoungeZone();
+              updateStats();
             }
           }
+          break;
           
-          renderChatZone();
-          renderWorkZone();
-          renderLoungeZone();
-        }
+        case 'employees_updated':
+          // 主页更新了员工数据，重新加载
+          if (empData && Array.isArray(empData)) {
+            loadEmployeesFromStorage().then(() => {
+              renderChatZone();
+              renderWorkZone();
+              renderLoungeZone();
+              renderEmployees();
+              updateStats();
+            });
+          }
+          break;
+          
+        case 'chat_message':
+          // 主页收到新消息
+          if (agent_id) {
+            const emp = employees.find(e => e.id === agent_id);
+            if (emp) {
+              addTimelineEvent(emp.name, '收到新消息');
+            }
+          }
+          break;
+          
+        case 'employee_created':
+          // 新员工创建
+          if (empData) {
+            loadEmployeesFromStorage().then(() => {
+              renderChatZone();
+              renderWorkZone();
+              renderLoungeZone();
+              renderEmployees();
+              updateStats();
+              addTimelineEvent(empData.name || '新员工', '加入团队');
+            });
+          }
+          break;
+          
+        case 'employee_deleted':
+          // 员工被删除
+          if (agent_id) {
+            loadEmployeesFromStorage().then(() => {
+              renderChatZone();
+              renderWorkZone();
+              renderLoungeZone();
+              renderEmployees();
+              updateStats();
+            });
+          }
+          break;
+          
+        default:
+          console.log('[BroadcastChannel] Unknown message type:', type);
       }
     };
     
@@ -1382,12 +1622,17 @@ function renderActivities(){
   `).join('');
 }
 
-// ===== 渲染员工网格 =====
+// 跳转到主页打开对应员工聊天
+function goToMainChat(empId) {
+  window.open(`./index.html?emp=${empId}`, '_blank');
+}
+
+// 渲染员工网格 - 点击跳转到主页
 function renderEmployees(){
   const grid = document.getElementById('employeeGrid');
   if(!grid)return;
   grid.innerHTML = employees.map(emp => `
-    <div class="emp-card" onclick="openDetailPanel('${emp.id}')">
+    <div class="emp-card" onclick="goToMainChat('${emp.id}')" style="cursor:pointer" title="点击打开与 ${emp.name} 的聊天">
       <div class="emp-avatar" style="background:linear-gradient(135deg,${emp.gradient[0]} 0%,${emp.gradient[1]} 100%)">${emp.initial}</div>
       <div class="emp-name">${emp.name}</div>
       <div class="emp-role">${emp.role}</div>
@@ -1395,6 +1640,91 @@ function renderEmployees(){
         ${emp.status==='online'?'● 在线':emp.status==='busy'?'● 忙碌':emp.status==='offline'?'● 离线':'● 空闲'}
       </div>
     </div>`).join('');
+}
+
+// 渲染 Chat Zone - 点击跳转到主页
+function renderChatZone(){
+  var chatZone = document.getElementById('chatZone');
+  if(!chatZone) return;
+  var online = employees.filter(function(e){ return e.status==='thinking' || e.status==='online'; });
+  if(online.length === 0) {
+    chatZone.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-4)">暂无对话中的成员</div>';
+    return;
+  }
+  var html = '';
+  for(var i=0;i<online.length;i++){
+    var e = online[i];
+    var p = e.progress || 60;
+    var fraction = Math.ceil(p / 33); if(fraction < 1) fraction = 1; if(fraction > 3) fraction = 3;
+    var msgs = Math.floor(Math.random() * 50) + 20;
+    var likes = Math.floor(Math.random() * 20) + 5;
+    html += '<div class="emp-mini" onclick="goToMainChat(\''+e.id+'\')" style="cursor:pointer" title="点击打开与 '+e.name+' 的聊天">';
+    var avatarColors = {'lucy':'#FFD60A','eric':'#FFD60A','gates':'#FFD60A','cute':'#FFD60A','alex':'#FFD60A','nova':'#FFD60A','mike':'#FFD60A','lisa':'#FFD60A'};
+    var bg = avatarColors[e.id] || e.gradient[0] || '#FFD60A';
+    html += '<div class="emp-mini-avatar" style="background:'+bg+'"><svg width="28" height="28" viewBox="0 0 28 28" fill="none"><circle cx="14" cy="10" r="5" fill="#1D1D1F"/><ellipse cx="14" cy="22" rx="8" ry="5" fill="#1D1D1F"/></svg></div>';
+    html += '<div class="emp-mini-body">';
+    html += '<div class="emp-mini-top">';
+    html += '<div class="emp-mini-name">'+e.name+'<span class="emp-mini-status online"></span></div>';
+    html += '<span class="emp-status-tag thinking">思考中</span>';
+    html += '</div>';
+    html += '<div class="emp-mini-role">'+e.role+'</div>';
+    html += '<div class="emp-status-desc">正在思考...</div>';
+    html += '<div class="work-progress">';
+    html += '<div class="work-progress-row">';
+    html += '<div class="work-progress-bar"><div class="work-progress-fill" style="width:'+p+'%"></div></div>';
+    html += '<span class="work-progress-fraction">'+fraction+'/3</span>';
+    html += '</div>';
+    html += '</div>';
+    
+    html += '<div class="emp-interaction">';
+    html += '<span class="emp-interaction-item"><span class="emp-interaction-num">'+msgs+'</span>条</span>';
+    html += '<span class="emp-interaction-item"><span class="emp-interaction-num">'+likes+'</span></span>';
+    html += '</div>';
+    html += '</div></div></div>';
+  }
+  chatZone.innerHTML = html;
+}
+
+// 渲染 Work Zone - 点击跳转到主页
+function renderWorkZone(){
+  var workZone = document.getElementById('workZone');
+  if(!workZone) return;
+  var working = employees.filter(function(e){ return e.status==='working' || e.status==='busy' || e.status==='using_tool'; });
+  if(working.length === 0) {
+    workZone.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-4)">暂无工作中的成员</div>';
+    return;
+  }
+  var html = '';
+  for(var i=0;i<working.length;i++){
+    var e = working[i];
+    var p = e.progress || 60;
+    var fraction = Math.ceil(p / 33); if(fraction < 1) fraction = 1; if(fraction > 3) fraction = 3;
+    var msgs = Math.floor(Math.random() * 50) + 20;
+    var likes = Math.floor(Math.random() * 20) + 5;
+    html += '<div class="emp-mini" onclick="goToMainChat(\''+e.id+'\')" style="cursor:pointer" title="点击打开与 '+e.name+' 的聊天">';
+    var avatarColors = {'lucy':'#FFD60A','eric':'#FFD60A','gates':'#FFD60A','cute':'#FFD60A','alex':'#FFD60A','nova':'#FFD60A','mike':'#FFD60A','lisa':'#FFD60A'};
+    var bg = avatarColors[e.id] || e.gradient[0] || '#FFD60A';
+    html += '<div class="emp-mini-avatar" style="background:'+bg+'"><svg width="28" height="28" viewBox="0 0 28 28" fill="none"><circle cx="14" cy="10" r="5" fill="#1D1D1F"/><ellipse cx="14" cy="22" rx="8" ry="5" fill="#1D1D1F"/></svg></div>';
+    html += '<div class="emp-mini-body">';
+    html += '<div class="emp-mini-top">';
+    html += '<div class="emp-mini-name">'+e.name+'<span class="emp-mini-status working"></span></div>';
+    html += '<span class="emp-status-tag working">工作中</span>';
+    html += '</div>';
+    html += '<div class="emp-mini-role">'+e.role+'</div>';
+    html += '<div class="emp-status-desc">正在思考...</div>';
+    html += '<div class="work-progress">';
+    html += '<div class="work-progress-row">';
+    html += '<div class="work-progress-bar"><div class="work-progress-fill" style="width:'+p+'%"></div></div>';
+    html += '<span class="work-progress-fraction">'+fraction+'/3</span>';
+    html += '</div>';
+    html += '</div>';
+    html += '<div class="emp-interaction">';
+    html += '<span class="emp-interaction-item"><span class="emp-interaction-num">'+msgs+'</span>条</span>';
+    html += '<span class="emp-interaction-item"><span class="emp-interaction-num">'+likes+'</span></span>';
+    html += '</div>';
+    html += '</div></div></div>';
+  }
+  workZone.innerHTML = html;
 }
 
 // ===== 技能系统 =====
@@ -1728,90 +2058,7 @@ function detailViewProjects(){
   }
 }
 
-// ===== V2 渲染函数 =====
-function renderChatZone(){
-  var chatZone = document.getElementById('chatZone');
-  if(!chatZone) return;
-  var online = employees.filter(function(e){ return e.status==='thinking' || e.status==='online'; });
-  if(online.length === 0) {
-    chatZone.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-4)">暂无对话中的成员</div>';
-    return;
-  }
-  var html = '';
-  for(var i=0;i<online.length;i++){
-    var e = online[i];
-    var p = e.progress || 60;
-    var fraction = Math.ceil(p / 33); if(fraction < 1) fraction = 1; if(fraction > 3) fraction = 3;
-    var msgs = Math.floor(Math.random() * 50) + 20;
-    var likes = Math.floor(Math.random() * 20) + 5;
-    html += '<div class="emp-mini" onclick="openDetailPanel(\''+e.id+'\')">';
-    var avatarColors = {'lucy':'#FFD60A','eric':'#FFD60A','gates':'#FFD60A','cute':'#FFD60A','alex':'#FFD60A','nova':'#FFD60A','mike':'#FFD60A','lisa':'#FFD60A'};
-    var bg = avatarColors[e.id] || e.gradient[0] || '#FFD60A';
-    html += '<div class="emp-mini-avatar" style="background:'+bg+'"><svg width="28" height="28" viewBox="0 0 28 28" fill="none"><circle cx="14" cy="10" r="5" fill="#1D1D1F"/><ellipse cx="14" cy="22" rx="8" ry="5" fill="#1D1D1F"/></svg></div>';
-    html += '<div class="emp-mini-body">';
-    html += '<div class="emp-mini-top">';
-    html += '<div class="emp-mini-name">'+e.name+'<span class="emp-mini-status online"></span></div>';
-    html += '<span class="emp-status-tag thinking">思考中</span>';
-    html += '</div>';
-    html += '<div class="emp-mini-role">'+e.role+'</div>';
-    html += '<div class="emp-status-desc">正在思考...</div>';
-    html += '<div class="work-progress">';
-    html += '<div class="work-progress-row">';
-    html += '<div class="work-progress-bar"><div class="work-progress-fill" style="width:'+p+'%"></div></div>';
-    html += '<span class="work-progress-fraction">'+fraction+'/3</span>';
-    html += '</div>';
-    html += '</div>';
-    
-    html += '<div class="emp-interaction">';
-    html += '<span class="emp-interaction-item"><span class="emp-interaction-num">'+msgs+'</span>条</span>';
-    html += '<span class="emp-interaction-item"><span class="emp-interaction-num">'+likes+'</span></span>';
-    html += '</div>';
-    html += '</div></div></div>';
-  }
-  chatZone.innerHTML = html;
-}
-
-function renderWorkZone(){
-  var workZone = document.getElementById('workZone');
-  if(!workZone) return;
-  var working = employees.filter(function(e){ return e.status==='working' || e.status==='busy' || e.status==='using_tool'; });
-  if(working.length === 0) {
-    workZone.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-4)">暂无工作中的成员</div>';
-    return;
-  }
-  var html = '';
-  for(var i=0;i<working.length;i++){
-    var e = working[i];
-    var p = e.progress || 60;
-    var fraction = Math.ceil(p / 33); if(fraction < 1) fraction = 1; if(fraction > 3) fraction = 3;
-    var msgs = Math.floor(Math.random() * 50) + 20;
-    var likes = Math.floor(Math.random() * 20) + 5;
-    html += '<div class="emp-mini" onclick="openDetailPanel(\''+e.id+'\')">';
-    var avatarColors = {'lucy':'#FFD60A','eric':'#FFD60A','gates':'#FFD60A','cute':'#FFD60A','alex':'#FFD60A','nova':'#FFD60A','mike':'#FFD60A','lisa':'#FFD60A'};
-    var bg = avatarColors[e.id] || e.gradient[0] || '#FFD60A';
-    html += '<div class="emp-mini-avatar" style="background:'+bg+'"><svg width="28" height="28" viewBox="0 0 28 28" fill="none"><circle cx="14" cy="10" r="5" fill="#1D1D1F"/><ellipse cx="14" cy="22" rx="8" ry="5" fill="#1D1D1F"/></svg></div>';
-    html += '<div class="emp-mini-body">';
-    html += '<div class="emp-mini-top">';
-    html += '<div class="emp-mini-name">'+e.name+'<span class="emp-mini-status working"></span></div>';
-    html += '<span class="emp-status-tag working">工作中</span>';
-    html += '</div>';
-    html += '<div class="emp-mini-role">'+e.role+'</div>';
-    html += '<div class="emp-status-desc">正在思考...</div>';
-    html += '<div class="work-progress">';
-    html += '<div class="work-progress-row">';
-    html += '<div class="work-progress-bar"><div class="work-progress-fill" style="width:'+p+'%"></div></div>';
-    html += '<span class="work-progress-fraction">'+fraction+'/3</span>';
-    html += '</div>';
-    html += '</div>';
-    html += '<div class="emp-interaction">';
-    html += '<span class="emp-interaction-item"><span class="emp-interaction-num">'+msgs+'</span>条</span>';
-    html += '<span class="emp-interaction-item"><span class="emp-interaction-num">'+likes+'</span></span>';
-    html += '</div>';
-    html += '</div></div></div>';
-  }
-  workZone.innerHTML = html;
-}
-
+// ===== Lounge Zone 渲染 =====
 function renderLoungeZone(){
   const loungeZone = document.getElementById('loungeZone');
   if(!loungeZone) return;
@@ -2144,6 +2391,31 @@ async function confirmCreateAgent() {
       };
       employees.push(newAgent);
       showToast('🌟 Agent 创建成功（离线模式）', 'success');
+    }
+    
+    // 同步到 localStorage 和通知主页
+    saveEmployeesToStorage();
+    
+    // 尝试同步到后端
+    try {
+      const newEmp = employees[employees.length - 1];
+      await authFetch('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: newEmp.id,
+          name: newEmp.name,
+          role: newEmp.role,
+          bg: newEmp.bg || newEmp.gradient?.[0] || '#FF6B35',
+          avatar: newEmp.avatar || newEmp.name?.[0] || '👤',
+          status: 'idle',
+          permission: 'dev',
+          category: '职能',
+          subCategory: '技术团队'
+        })
+      });
+    } catch (e) {
+      console.log('[Office] 同步到后端失败:', e.message);
     }
     
     closeWizard();
