@@ -3393,7 +3393,7 @@ function saveAIConfig(){
 function updateAIStatusIcon(){
   const tag = document.getElementById('aiModeTag');
   if(tag){
-    const mode = AI_CONFIG?.mode || 'copaw';
+    const mode = (AI_CONFIG \&\& AI_CONFIG.mode) || 'copaw';
     const icons = { copaw: '🤖', openai: '🔮', custom: '⚙️' };
     tag.textContent = (icons[mode] || '🤖') + ' ' + (mode === 'copaw' ? 'CoPaw' : mode === 'openai' ? 'OpenAI' : '自定义');
   }
@@ -3421,7 +3421,7 @@ function hasPermission(empId, perm) {
 // ========== Operation Log ==========
 const operationLogs = [];
 function addOperationLog(type, target, detail, empId) {
-  const log = { id: 'log_' + Date.now(), type, target, detail, empId, empName: emps.find(e => e.id === empId)?.name || 'System', timestamp: new Date().toLocaleString() };
+  const log = { id: 'log_' + Date.now(), type, target, detail, empId, empName: emps.(find(e => e.id === empId) && (find(e => e.id === empId).name || 'System', timestamp: new Date().toLocaleString() };
   operationLogs.unshift(log);
   if (operationLogs.length > 100) operationLogs.pop();
   localStorage.setItem('sb_operation_logs', JSON.stringify(operationLogs.slice(0, 100)));
@@ -3474,8 +3474,8 @@ async function syncEmpToServer(emp){
       await apiFetch('/api/agents', {
         method: 'POST',
         body: JSON.stringify(Object.assign({}, emp, {
-          createdBy: currentUser?.id,
-          createdByName: currentUser?.displayName || currentUser?.name
+          createdBy: (currentUser \&\& currentUser.id),
+          createdByName: (currentUser \&\& currentUser.displayName) || (currentUser \&\& currentUser.name)
         }))
       });
     }
@@ -3767,7 +3767,7 @@ function renderTaskBoard(){
 <span class="task-name">${escapeHtml(t.name||'')}</span>
 </div>
 <div class="task-meta">
-<div class="task-assignee"><div class="avatar" style="width:18px;height:18px;font-size:10px;background:${escapeAttr(emps.find(e=>e.id===t.assignee)?.bg||'#888')}">${escapeHtml(emps.find(e=>e.id===t.assignee)?.avatar||'?')}</div>${escapeHtml(emps.find(e=>e.id===t.assignee)?.name||'未知')}</div>
+<div class="task-assignee"><div class="avatar" style="width:18px;height:18px;font-size:10px;background:${(escapeAttr(emps.find(e=>e.id===t.assignee) && (escapeAttr(emps.find(e=>e.id===t.assignee).bg||'#888')}">${(escapeHtml(emps.find(e=>e.id===t.assignee) && (escapeHtml(emps.find(e=>e.id===t.assignee).avatar||'?')}</div>${(escapeHtml(emps.find(e=>e.id===t.assignee) && (escapeHtml(emps.find(e=>e.id===t.assignee).name||'未知')}</div>
 <span class="task-priority ${escapeAttr(t.priority||'normal')}">${t.priority==='high'?'高优':'中优'}</span>
 </div>
 </div>`).join('');
@@ -4055,11 +4055,11 @@ if(e.key==='ArrowDown'){e.preventDefault();if(slashActive)navigateSlash(1);else 
 if(e.key==='ArrowUp'){e.preventDefault();if(slashActive)navigateSlash(-1);else if(mentionMode)selectMention(-1);}
 });
 document.getElementById('msgInput').addEventListener('input',handleInput);
-document.getElementById('mentionBtn')?.addEventListener('click',()=>{showMention();});
+document.(getElementById('mentionBtn') && (getElementById('mentionBtn').addEventListener=>{showMention();});
 document.querySelectorAll('.mention-item').forEach(i=>i.addEventListener('click',()=>pickMention(i.dataset.id)));
 document.querySelectorAll('.drawer-tab').forEach(t=>t.addEventListener('click',()=>switchDrawerTab(t.dataset.tab)));
 document.addEventListener('click',e=>{
-if(!e.target.closest('.mention-dropdown'))document.getElementById('mentionDropdown')?.classList.remove('active');
+if(!e.target.closest('.mention-dropdown'))document.(getElementById('mentionDropdown') && (getElementById('mentionDropdown').classList.remove('active');
 if(!e.target.closest('.slash-menu'))document.getElementById('slashMenu').classList.remove('active');
 });
 document.querySelectorAll('.member-option').forEach(o=>o.addEventListener('click',()=>o.classList.toggle('selected')));
@@ -4106,7 +4106,7 @@ function renderEmployeeItem(e, showCreator){
   var creatorTag = '';
   
   // 管理员视图：显示创建者标签
-  if(showCreator && isAdmin() && e.createdBy && e.createdBy !== currentUser?.id) {
+  if(showCreator && isAdmin() && e.createdBy && e.createdBy !== (currentUser \&\& currentUser.id)) {
     creatorTag = '<span style="display:inline-block;margin-left:4px;padding:1px 4px;background:var(--bg-tertiary);border-radius:3px;font-size:10px;color:var(--text-tertiary);vertical-align:middle;">' + escapeHtml(e.createdByName || '其他用户') + '</span>';
   }
   
@@ -5140,8 +5140,8 @@ async function createGroup(){
       members: gwMembers.slice(),
       leadAgentId: gwLead,
       lastMsg: '',
-      createdBy: currentUser?.id || 'local',
-      createdByName: currentUser?.name || '本地用户',
+      createdBy: (currentUser && currentUser.id) || 'local',
+      createdByName: (currentUser && currentUser.name) || '本地用户',
       createdAt: Date.now()
     };
     
@@ -5189,7 +5189,7 @@ if(type==='private'){
     return'<div class="msg '+(own?'own':'')+'">'+
     (!own?'<div class="msg-avatar">'+renderAvatar(emp, 32)+'</div>':'')+
     '<div class="msg-content">'+
-    (!own?'<div class="msg-sender"><span class="msg-sender-name">'+escapeHtml(emp?.name||'AI')+'</span><span class="msg-sender-role">'+escapeHtml(emp?.role||'')+'</span><span class="msg-sender-time">'+timeStr+'</span></div>':'<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">'+timeStr+'</span></div>')+
+    (!own?'<div class="msg-sender"><span class="msg-sender-name">'+escapeHtml((emp \&\& emp.name)||'AI')+'</span><span class="msg-sender-role">'+escapeHtml((emp \&\& emp.role)||'')+'</span><span class="msg-sender-time">'+timeStr+'</span></div>':'<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">'+timeStr+'</span></div>')+
     '<div class="msg-bubble">'+escapeHtml(m.content)+'</div>'+
     '</div></div>';
   }).join('')+'<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
@@ -5214,7 +5214,7 @@ const own=m.sender==='user';
 return'<div class="msg '+(own?'own':'')+'">'+
 (!own?'<div class="msg-avatar">'+renderAvatar(e, 32)+'</div>':'')+
 '<div class="msg-content">'+
-(!own?'<div class="msg-sender"><span class="msg-sender-name">'+escapeHtml(e?.name||'')+'</span><span class="msg-sender-role">'+escapeHtml(e?.role||'')+'</span><span class="msg-sender-time">'+escapeHtml(m.time||'')+'</span></div>':'<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">'+escapeHtml(m.time||'')+'</span></div>')+
+(!own?'<div class="msg-sender"><span class="msg-sender-name">'+escapeHtml((e \&\& e.name)||'')+'</span><span class="msg-sender-role">'+escapeHtml((e \&\& e.role)||'')+'</span><span class="msg-sender-time">'+escapeHtml(m.time||'')+'</span></div>':'<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">'+escapeHtml(m.time||'')+'</span></div>')+
 '<div class="msg-bubble">'+m.text+'</div>'+
 '</div></div>';
 }).join('')+'<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
@@ -5344,7 +5344,7 @@ function getAIContextMessage(projId){
   let context='\n\n📌 当前项目文档：\n';
   
   bulletin.docs.forEach(doc=>{
-    const docId=doc.path?.replace('/docs/','');
+    const docId=doc.(path \&\& path.replace)('/docs/','');
     const fullDoc=docsData[docId];
     if(fullDoc){
       const content=fullDoc.content||'';
@@ -5360,7 +5360,7 @@ function getAIContextMessage(projId){
 // 获取员工关联文档
 function getEmployeeDocContext(empId){
   const docsData=JSON.parse(localStorage.getItem('sb_docs')||'{}');
-  const docs=Object.values(docsData).filter(d=>d.linkedEmployees?.includes(empId));
+  const docs=Object.values(docsData).filter(d=>d.(linkedEmployees \&\& linkedEmployees.includes)(empId));
   if(docs.length===0)return'';
   
   let context='\n\n📌 相关文档：\n';
@@ -5536,7 +5536,7 @@ function performSupervisorCheck(){
         if(taskTime){
           const taskAge = (now - parseInt(taskTime)) / 60000;
           if(taskAge > 30){
-            issues.push(`🔧 任务 "${task.querySelector('.task-name')?.textContent || '未知'}" 已进行 ${Math.round(taskAge)} 分钟`);
+            issues.(push(`🔧 任务 "${task.querySelector('.task-name') && (push(`🔧 任务 "${task.querySelector('.task-name').textContent || '未知'}" 已进行 ${Math.round(taskAge)} 分钟`);
           }
         }
       });
@@ -5632,15 +5632,15 @@ function openSupervisorConfigFromHeader(){
 function handleInput(){
 const val=document.getElementById('msgInput').value;
 if(val.startsWith('/')){document.getElementById('slashMenu').classList.add('active');document.getElementById('slashSearch').value=val.slice(1);filterSlashCommands(val.slice(1));mentionMode=false;}
-else if(val.includes('@')){document.getElementById('mentionDropdown')?.classList.add('active');mentionMode=true;}
-else{document.getElementById('slashMenu').classList.remove('active');document.getElementById('mentionDropdown')?.classList.remove('active');mentionMode=false;}
+else if(val.includes('@')){document.(getElementById('mentionDropdown') && (getElementById('mentionDropdown').classList.add('active');mentionMode=true;}
+else{document.getElementById('slashMenu').classList.remove('active');document.(getElementById('mentionDropdown') && (getElementById('mentionDropdown').classList.remove('active');mentionMode=false;}
 }
 
 function filterSlashCommands(q){
 const items=document.querySelectorAll('#slashSections .slash-item');
 slashIdx=0;
 items.forEach((item,i)=>{
-const cmd=item.dataset.cmd?.toLowerCase()||'';
+const cmd=item.dataset.(cmd \&\& cmd.toLowerCase)()||'';
 const match=!q||cmd.includes(q.toLowerCase());
 item.style.display=match?'':'none';
 if(match&&i===0)item.classList.add('selected');
@@ -5650,10 +5650,10 @@ if(match&&i===0)item.classList.add('selected');
 function navigateSlash(dir){
 const items=[...document.querySelectorAll('#slashSections .slash-item:not([style*="none"])')];
 if(!items.length)return;
-items[slashIdx]?.classList.remove('selected');
+items[slashIdx] && items[slashIdx].classList.remove('selected');
 slashIdx=(slashIdx+dir+items.length)%items.length;
-items[slashIdx]?.classList.add('selected');
-items[slashIdx]?.scrollIntoView({block:'nearest'});
+items[slashIdx] && items[slashIdx].classList.add('selected');
+items[slashIdx] && items[slashIdx].scrollIntoView({block:'nearest'});
 }
 
 // Mention
@@ -5714,15 +5714,15 @@ function showMentionDropdown(){
 function selectMention(dir){
   var items = document.querySelectorAll('#mentionDropdown .mention-item');
   if(!items.length) return;
-  items[mentionIdx]?.classList.remove('selected');
+  items[mentionIdx] && items[mentionIdx].classList.remove('selected');
   mentionIdx=(mentionIdx+dir+items.length)%items.length;
-  items[mentionIdx]?.classList.add('selected');
+  items[mentionIdx] && items[mentionIdx].classList.add('selected');
 }
 function pickMention(id){
-const name=id==='all'?'所有人':emps.find(e=>e.id===id)?.name||'';
+const name=id==='all'?'所有人':emps.(find(e=>e.id===id) && (find(e=>e.id===id).name||'';
 const input=document.getElementById('msgInput');
 input.value=input.value.replace(/@[^@]*$/,'')+'@'+name+' ';
-document.getElementById('mentionDropdown')?.classList.remove('active');
+document.(getElementById('mentionDropdown') && (getElementById('mentionDropdown').classList.remove('active');
 mentionMode=false;
 input.focus();
 }
@@ -6118,7 +6118,7 @@ function renderSkills(){
 const list=document.getElementById('skillsList');
 const empty=document.getElementById('skillsEmpty');
 const emp=emps.find(e=>e.id===currentEmpId);
-const skills=emp?.skills||[];
+const skills=(emp \&\& emp.skills)||[];
 list.innerHTML=skills.length?skills.map((s,i)=>`<div class="skill-item">
 <div class="skill-emoji">${escapeHtml(s.emoji||'')}</div>
 <div class="skill-info"><div class="skill-name">${escapeHtml(s.name||'')}</div>
@@ -6133,7 +6133,7 @@ list.style.display=skills.length?'flex':'none';
 function renderSkillPresets(){
 const grid=document.getElementById('skillsPresets');
 const emp=emps.find(e=>e.id===currentEmpId);
-const used=emp?.skills?.map(s=>s.name)||[];
+const used=(emp \&\& emp.skills \&\& emp.skills.map)?emp.skills.map(function(s){return s.name;}):[];
 grid.innerHTML=skillPresets.filter(p=>!used.includes(p.name)).map(p=>`<div class="skill-preset" onclick="addSkillPreset('${escapeAttr(p.emoji||'')}','${escapeAttr(p.name||'')}',${p.level||1})">${escapeHtml(p.emoji||'')} ${escapeHtml(p.name||'')}</div>`).join('');
 }
 function addSkill(){
@@ -6678,7 +6678,7 @@ document.addEventListener('keydown',(e)=>{
 const isMac=navigator.platform.toUpperCase().indexOf('MAC')>=0;
 const modKey=isMac?e.metaKey:e.ctrlKey;
 // Cmd/Ctrl + K = Focus search
-if(modKey && e.key==='k'){e.preventDefault();document.getElementById('searchInput')?.focus();}
+if(modKey && e.key==='k'){e.preventDefault();document.(getElementById('searchInput') && (getElementById('searchInput').focus;}
 // Cmd/Ctrl + N = New
 if(modKey && e.key==='n'){e.preventDefault();openGroupWizard();}
 // Esc = Close modals/drawer
@@ -6754,7 +6754,7 @@ showToast('➕ 创建新项目...');
 }
 function addNewEmployee(){
 switchTab('employees');
-document.getElementById('addEmployeeBtn')?.click();
+document.(getElementById('addEmployeeBtn') && (getElementById('addEmployeeBtn').click;
 showToast('👤 添加新员工...');
 }
 function startGroupChat(){
@@ -6805,7 +6805,7 @@ badge.textContent=parseInt(badge.textContent)+1;
 }
 
 function closeGlobalSearch(){
-document.getElementById('globalSearchModal')?.classList.remove('show');
+document.(getElementById('globalSearchModal') && (getElementById('globalSearchModal').classList.remove('show');
 document.getElementById('globalSearchInput')&&(document.getElementById('globalSearchInput').value='');
 document.getElementById('searchResults')&&(document.getElementById('searchResults').innerHTML='');
 }
@@ -6815,9 +6815,9 @@ const results=document.getElementById('searchResults');
 if(!results)return;
 const lowerQ=q.toLowerCase();
 const items=[];
-emps.forEach(emp=>{if(emp.name.toLowerCase().includes(lowerQ)||emp.role?.toLowerCase().includes(lowerQ))items.push({type:'员工',name:emp.name,desc:emp.role||'员工',icon:renderAvatar(emp, 24),action:()=>openEmpDetail(emp.id)});});
+emps.forEach(emp=>{if(emp.name.toLowerCase().includes(lowerQ)||emp.(role \&\& role.toLowerCase)().includes(lowerQ))items.push({type:'员工',name:emp.name,desc:emp.role||'员工',icon:renderAvatar(emp, 24),action:()=>openEmpDetail(emp.id)});});
 Object.keys(tasksData).forEach(status=>{tasksData[status].forEach(t=>{if(t.title.toLowerCase().includes(lowerQ))items.push({type:'任务',name:t.title,desc:t.assignee||status,icon:'📋',action:()=>{toggleTaskBoard();}});});});
-if(typeof projects!=='undefined'&&projects.length)projects.forEach(p=>{if(p.name.toLowerCase().includes(lowerQ))items.push({type:'项目',name:p.name,desc:p.members?.length+'个成员',icon:'📁',action:()=>openProject(p.id)});});
+if(typeof projects!=='undefined'&&projects.length)projects.forEach(p=>{if(p.name.toLowerCase().includes(lowerQ))items.push({type:'项目',name:p.name,desc:p.(members \&\& members.length)+'个成员',icon:'📁',action:()=>openProject(p.id)});});
 results.innerHTML=items.length?items.map((i,idx)=>`<div class="search-result-item" onclick="this.dataset.action&&(${i.action})();closeGlobalSearch();" data-action="${escapeAttr(i.action||'')}">
 <div class="search-result-icon">${escapeHtml(i.icon||'')}</div>
 <div class="search-result-info"><div class="search-result-name">${escapeHtml(i.name||'')}</div><div class="search-result-desc">${escapeHtml(i.type||'')} · ${escapeHtml(i.desc||'')}</div></div>
@@ -7033,11 +7033,11 @@ async function callRealAI(userMessage, context){
       } else if(res.status === 429){
         return '⚠️ 请求过于频繁，请稍后再试\n或升级你的 OpenAI 套餐';
       }
-      return `⚠️ API 错误 (${res.status}): ${err.error?.message || '未知错误'}`;
+      return `⚠️ API 错误 (${res.status}): ${err.(error \&\& error.message) || '未知错误'}`;
     }
     
     const data = await res.json();
-    return data.choices?.[0]?.message?.content || '⚠️ 返回格式未知';
+    return (data.choices \&\& data.choices[0] \&\& data.choices[0].message \&\& data.choices[0].message.content) || '⚠️ 返回格式未知';
     
   } catch(error) {
     if(error.message.includes('Failed to fetch') || error.message.includes('NetworkError')){
@@ -7353,8 +7353,8 @@ function finishWizard(){
     apiKey:apiKey,
     apiModel:apiModel,
     customEndpoint:customEndpoint,
-    createdBy:currentUser?.id||'local',
-    createdByName:currentUser?.name||'本地用户',
+    createdBy:(currentUser \&\& currentUser.id)||'local',
+    createdByName:(currentUser \&\& currentUser.name)||'本地用户',
     createdAt:new Date().toISOString()
   };
   emps.push(newEmp);saveEmployees();renderTeamList();renderEmployeeList();
@@ -8189,7 +8189,7 @@ function renderUserList(list, users) {
       '</div>' +
       '<div style="display:flex;gap:8px;">' +
       '<button onclick="editUser(\'' + escapeAttr(u.id) + '\')" style="padding:4px 8px;border-radius:4px;background:var(--bg-tertiary);border:none;cursor:pointer;font-size:12px;">编辑</button>' +
-      (u.id !== currentUser?.id ? '<button onclick="deleteUser(\'' + escapeAttr(u.id) + '\')" style="padding:4px 8px;border-radius:4px;background:#FF3B30;color:white;border:none;cursor:pointer;font-size:12px;">删除</button>' : '') +
+      (u.id !== (currentUser \&\& currentUser.id) ? '<button onclick="deleteUser(\'' + escapeAttr(u.id) + '\')" style="padding:4px 8px;border-radius:4px;background:#FF3B30;color:white;border:none;cursor:pointer;font-size:12px;">删除</button>' : '') +
       '</div>' +
       '</div>';
   }).join('');
@@ -8341,8 +8341,8 @@ function checkLocalMigration() {
     return apiFetch('/api/agents', {
       method: 'POST',
       body: JSON.stringify(Object.assign({}, emp, {
-        createdBy: currentUser?.id,
-        createdByName: currentUser?.displayName || currentUser?.name
+        createdBy: (currentUser \&\& currentUser.id),
+        createdByName: (currentUser \&\& currentUser.displayName) || (currentUser \&\& currentUser.name)
       }))
     }).then(function(res) {
       if (res && res.ok) success++;
@@ -8391,12 +8391,12 @@ function checkQuota() {
   if (isAdmin()) return true; // 管理员无限制
 
   var quotas = JSON.parse(localStorage.getItem('sb_quotas') || '{}');
-  var myQuota = quotas[currentUser?.id] || 0;
+  var myQuota = quotas[(currentUser \&\& currentUser.id)] || 0;
 
   if (myQuota === 0) return true; // 0 = 无限制
 
   var myEmployees = emps.filter(function(e) {
-    return e.createdBy === currentUser?.id;
+    return e.createdBy === (currentUser \&\& currentUser.id);
   });
 
   if (myEmployees.length >= myQuota) {
