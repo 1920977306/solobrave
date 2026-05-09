@@ -2792,6 +2792,8 @@ function showMainApp() {
   hideLogin();
   applyPermissions();
   updateUserInfo();
+  // 初始化龙虾办公室同步频道
+  initLobsterChannel();
   // 加载员工列表（从后端优先，降级到 localStorage）
   loadEmployees().then(function(){
     loadGroups().then(function(){
@@ -3375,7 +3377,96 @@ const emps = [
 document.addEventListener('DOMContentLoaded', () => {
   checkAuth();
   loadAIConfig();
+  // 检查 URL 参数 ?emp=xxx 自动打开聊天
+  checkUrlParams();
 });
+
+// ========== BroadcastChannel 双向同步 (龙虾办公室) ==========
+let lobsterChannel = null;
+
+function initLobsterChannel() {
+  try {
+    lobsterChannel = new BroadcastChannel('lobster-office');
+    
+    lobsterChannel.onmessage = (event) => {
+      const data = event.data;
+      const { type, agent_id, status, employees: empData } = data;
+      
+      switch (type) {
+        case 'lobster_status':
+          // 办公室员工状态变化，更新本地数据
+          if (agent_id && status) {
+            const emp = emps.find(e => e.id === agent_id);
+            if (emp) {
+              const statusMap = { thinking: 'busy', using_tool: 'busy', writing: 'busy', idle: 'idle', offline: 'offline', online: 'online' };
+              emp.status = statusMap[status] || emp.status;
+              localStorage.setItem('sb_employees', JSON.stringify(emps));
+              renderEmployeeList();
+            }
+          }
+          break;
+          
+        case 'employees_updated':
+          // 办公室更新了员工数据，重新加载
+          if (empData && Array.isArray(empData)) {
+            emps.length = 0;
+            empData.forEach(e => emps.push(e));
+            localStorage.setItem('sb_employees', JSON.stringify(emps));
+            renderEmployeeList();
+            showToast('🦞 龙虾办公室已更新员工数据', 'success');
+          }
+          break;
+          
+        default:
+          console.log('[Main] Received from office:', type);
+      }
+    };
+    
+    console.log('[Main] BroadcastChannel lobster-office initialized');
+  } catch (err) {
+    console.log('[Main] BroadcastChannel not supported:', err);
+  }
+}
+
+// 通知龙虾办公室员工数据更新
+function notifyOfficeEmployeesUpdated() {
+  if (lobsterChannel) {
+    lobsterChannel.postMessage({
+      type: 'employees_updated',
+      employees: emps
+    });
+  }
+}
+
+// 通知龙虾办公室员工状态变化
+function notifyOfficeStatusChange(empId, status) {
+  if (lobsterChannel) {
+    lobsterChannel.postMessage({
+      type: 'lobster_status',
+      agent_id: empId,
+      status: status
+    });
+  }
+}
+
+// 检查 URL 参数 ?emp=xxx
+function checkUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  const empId = params.get('emp');
+  if (empId) {
+    // 延迟执行，确保 DOM 已加载
+    setTimeout(() => {
+      if (typeof openChat === 'function') {
+        openChat(empId);
+        // 清除 URL 参数（使用 replaceState 避免产生历史记录）
+        const url = new URL(window.location);
+        url.searchParams.delete('emp');
+        window.history.replaceState({}, '', url);
+        showToast(`🦞 已打开与 ${emps.find(e => e.id === empId)?.name || empId} 的聊天`);
+      }
+    }, 500);
+  }
+}
 
 function loadAIConfig(){
   const saved = localStorage.getItem('sb_ai_config');
@@ -3462,6 +3553,8 @@ function saveEmployees(){
       syncEmpToServer(emp);
     });
   }
+  // 3. 通知龙虾办公室数据已更新
+  notifyOfficeEmployeesUpdated();
 }
 async function syncEmpToServer(emp){
   try {
