@@ -561,6 +561,331 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .lounge-preview-task{font-size:12px;color:var(--text-secondary);margin-bottom:8px}
 .lounge-preview-task strong{color:var(--text-primary)}
 .lounge-preview-dialogue{font-size:12px;color:var(--blue)}
+
+/* ===== Chat Zone 消息流样式 ===== */
+.chat-messages-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-message-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.chat-message-item:hover {
+  background: #f8f9fa;
+  border-color: var(--chat-zone);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.chat-message-item.highlight {
+  animation: message-highlight 2s ease-out;
+  border-color: var(--chat-zone);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.2);
+}
+
+@keyframes message-highlight {
+  0% { background: rgba(0, 122, 255, 0.1); }
+  100% { background: white; }
+}
+
+.chat-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.unread-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--chat-zone);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.chat-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chat-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chat-time {
+  font-size: 11px;
+  color: var(--gray-4);
+}
+
+.chat-preview {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-preview.thinking-text {
+  color: var(--chat-zone);
+}
+
+.thinking-dots {
+  display: inline-flex;
+}
+
+.thinking-dots span {
+  animation: thinking-bounce 1.4s infinite ease-in-out;
+}
+
+.thinking-dots span:nth-child(1) { animation-delay: 0s; }
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes thinking-bounce {
+  0%, 80%, 100% { opacity: 0.3; }
+  40% { opacity: 1; }
+}
+
+.chat-status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.online { background: #34C759; }
+.status-dot.busy { background: #FF9500; }
+.status-dot.thinking { background: var(--chat-zone); }
+.status-dot.offline { background: var(--gray-3); }
+
+.status-text {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* ===== Work Zone 统计卡片样式 ===== */
+.stats-cards-container {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.stat-card {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  transition: all 0.2s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.stat-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.stat-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* ===== Work Zone 任务看板样式 ===== */
+.task-kanban {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.kanban-column {
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 12px;
+  padding: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.kanban-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  margin-bottom: 8px;
+  border-bottom: 2px solid;
+}
+
+.kanban-header.pending {
+  border-color: var(--status-p1);
+}
+
+.kanban-header.in-progress {
+  border-color: var(--chat-zone);
+}
+
+.kanban-header.completed {
+  border-color: var(--status-done);
+}
+
+.kanban-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.kanban-count {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.kanban-count.pending-count {
+  background: rgba(255, 204, 0, 0.15);
+  color: #996B00;
+}
+
+.kanban-count.progress-count {
+  background: rgba(0, 122, 255, 0.15);
+  color: var(--chat-zone);
+}
+
+.kanban-count.completed-count {
+  background: rgba(52, 199, 89, 0.15);
+  color: #248A3D;
+}
+
+.kanban-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.kanban-empty {
+  text-align: center;
+  padding: 20px 10px;
+  font-size: 12px;
+  color: var(--gray-4);
+}
+
+.task-card {
+  background: white;
+  border-radius: 8px;
+  padding: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid var(--border-color);
+}
+
+.task-card:hover {
+  background: #f8f9fa;
+  border-color: var(--work-zone);
+  transform: translateY(-1px);
+}
+
+.task-card-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  line-height: 1.3;
+}
+
+.task-card-assignee,
+.task-card-due {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* ===== 响应式调整 ===== */
+@media (max-width: 1200px) {
+  .stats-cards-container {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .task-kanban {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .stats-cards-container {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .task-kanban {
+    grid-template-columns: 1fr;
+  }
+  .chat-message-item {
+    padding: 12px;
+  }
+}
+
 </style><script src="./openclaw-client.js"></script>
 </head><body>
 <nav class="nav-bar">
@@ -1405,7 +1730,7 @@ function initBroadcastChannel() {
           break;
           
         case 'chat_message':
-          // 主页收到新消息
+          // 主页收到新消息 - 刷新对话区显示
           if (agent_id) {
             var emp = null;
             for(var i=0;i<employees.length;i++){
@@ -1419,6 +1744,9 @@ function initBroadcastChannel() {
                 addTimelineEvent(emp.name, '回复了消息');
               }
             }
+            // 刷新对话区并高亮新消息
+            renderChatZone();
+            scrollChatZoneToTop(agent_id);
           }
           break;
           
@@ -1582,98 +1910,415 @@ function renderEmployees(){
     </div>`).join('');
 }
 
-// 渲染 Chat Zone - 点击跳转到主页
-function renderChatZone(){
-  var chatZone = document.getElementById('chatZone');
-  if(!chatZone) return;
-  // 对话区：显示有聊天记录的员工（从localStorage检查）
-  var chatters = employees.filter(function(e){
-    var hist = localStorage.getItem('sb_chat_history_' + e.id);
-    return hist && JSON.parse(hist).length > 0;
-  });
-  // 如果没有聊天记录，显示所有在线/忙碌员工
-  if(chatters.length === 0) {
-    chatters = employees.filter(function(e){ return e.status==='online' || e.status==='busy' || e.status==='thinking'; });
+// ===== 辅助函数：获取相对时间 =====
+// 相对时间函数：返回 "刚刚"/"3分钟前"/"1小时前" 等
+function getRelativeTime(timestamp) {
+  if (!timestamp) return '';
+  var now = Date.now();
+  var diff = now - timestamp;
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+  return Math.floor(diff / 86400000) + '天前';
+}
+
+// 辅助函数：截断消息文本
+function truncateMessage(text, maxLen) {
+  if (!text) return '';
+  if (text.length <= maxLen) return text;
+  return text.substring(0, maxLen) + '...';
+}
+
+// 辅助函数：获取员工聊天记录的最后一条消息
+function getLastMessage(empId) {
+  var key = 'sb_chat_history_' + empId;
+  var hist = localStorage.getItem(key);
+  if (hist) {
+    try {
+      var msgs = JSON.parse(hist);
+      if (msgs && msgs.length > 0) {
+        return msgs[msgs.length - 1];
+      }
+    } catch (e) {}
   }
-  if(chatters.length === 0) {
+  return null;
+}
+
+// 辅助函数：计算未读消息数
+function getUnreadCount(empId) {
+  var key = 'sb_chat_history_' + empId;
+  var hist = localStorage.getItem(key);
+  if (hist) {
+    try {
+      var msgs = JSON.parse(hist);
+      return msgs.length;
+    } catch (e) {}
+  }
+  return 0;
+}
+
+// 渲染 Chat Zone - 消息流格式
+function renderChatZone() {
+  var chatZone = document.getElementById('chatZone');
+  if (!chatZone) return;
+  
+  // 对话区：显示有聊天记录的员工，或正在思考的AI
+  var chatters = employees.filter(function(e) {
+    // 优先显示有聊天记录的员工
+    var hist = localStorage.getItem('sb_chat_history_' + e.id);
+    if (hist && JSON.parse(hist).length > 0) return true;
+    // 或者正在思考的AI
+    return e.status === 'thinking';
+  });
+  
+  // 如果没有，显示所有在线/忙碌员工
+  if (chatters.length === 0) {
+    chatters = employees.filter(function(e) {
+      return e.status === 'online' || e.status === 'busy';
+    });
+  }
+  
+  if (chatters.length === 0) {
     chatZone.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-4)">暂无对话中的成员</div>';
     return;
   }
-  var html = '';
-  for(var i=0;i<chatters.length;i++){
+  
+  // 按最后消息时间排序（最新的在前）
+  chatters.sort(function(a, b) {
+    var msgA = getLastMessage(a.id);
+    var msgB = getLastMessage(b.id);
+    var timeA = msgA ? (msgA.timestamp || 0) : 0;
+    var timeB = msgB ? (msgB.timestamp || 0) : 0;
+    return timeB - timeA;
+  });
+  
+  var html = '<div class="chat-messages-flow">';
+  
+  for (var i = 0; i < chatters.length; i++) {
     var e = chatters[i];
-    var p = e.progress || 60;
-    var fraction = Math.ceil(p / 33); if(fraction < 1) fraction = 1; if(fraction > 3) fraction = 3;
-    var msgs = Math.floor(Math.random() * 50) + 20;
-    var likes = Math.floor(Math.random() * 20) + 5;
-    html += '<div class="emp-mini" onclick="openDetailPanel(\''+e.id+'\')" style="cursor:pointer" title="点击查看 '+e.name+' 的详情">';
-    var avatarColors = {'lucy':'#FFD60A','eric':'#FFD60A','gates':'#FFD60A','cute':'#FFD60A','alex':'#FFD60A','nova':'#FFD60A','mike':'#FFD60A','lisa':'#FFD60A'};
-    var bg = avatarColors[e.id] || e.gradient[0] || '#FFD60A';
-    html += '<div class="emp-mini-avatar" style="background:'+bg+'"><svg width="28" height="28" viewBox="0 0 28 28" fill="none"><circle cx="14" cy="10" r="5" fill="#1D1D1F"/><ellipse cx="14" cy="22" rx="8" ry="5" fill="#1D1D1F"/></svg></div>';
-    html += '<div class="emp-mini-body">';
-    html += '<div class="emp-mini-top">';
-    html += '<div class="emp-mini-name">'+e.name+'<span class="emp-mini-status online"></span></div>';
-    html += '<span class="emp-status-tag thinking">思考中</span>';
-    html += '</div>';
-    html += '<div class="emp-mini-role">'+e.role+'</div>';
-    html += '<div class="emp-status-desc">正在思考...</div>';
-    html += '<div class="work-progress">';
-    html += '<div class="work-progress-row">';
-    html += '<div class="work-progress-bar"><div class="work-progress-fill" style="width:'+p+'%"></div></div>';
-    html += '<span class="work-progress-fraction">'+fraction+'/3</span>';
-    html += '</div>';
-    html += '</div>';
+    var lastMsg = getLastMessage(e.id);
+    var unreadCount = getUnreadCount(e.id);
+    var lastMsgText = '';
+    var lastMsgTime = '';
+    var isThinking = e.status === 'thinking';
     
-    html += '<div class="emp-interaction">';
-    html += '<span class="emp-interaction-item"><span class="emp-interaction-num">'+msgs+'</span>条</span>';
-    html += '<span class="emp-interaction-item"><span class="emp-interaction-num">'+likes+'</span></span>';
+    if (isThinking) {
+      lastMsgText = '正在思考...';
+      lastMsgTime = '刚刚';
+    } else if (lastMsg) {
+      // 获取消息内容
+      lastMsgText = lastMsg.content || lastMsg.text || '';
+      lastMsgText = truncateMessage(lastMsgText, 30);
+      lastMsgTime = getRelativeTime(lastMsg.timestamp);
+    } else {
+      lastMsgText = '暂无消息';
+      lastMsgTime = '';
+    }
+    
+    // 状态标签
+    var statusClass = '';
+    var statusText = '';
+    if (e.status === 'thinking') {
+      statusClass = 'thinking';
+      statusText = '思考中';
+    } else if (e.status === 'online') {
+      statusClass = 'online';
+      statusText = '在线';
+    } else if (e.status === 'busy') {
+      statusClass = 'busy';
+      statusText = '忙碌';
+    } else {
+      statusClass = 'offline';
+      statusText = '离线';
+    }
+    
+    // 头像颜色
+    var avatarColors = {
+      'lucy': '#FFD60A', 'eric': '#FFD60A', 'gates': '#FFD60A',
+      'cute': '#FFD60A', 'alex': '#FFD60A', 'nova': '#FFD60A',
+      'mike': '#FFD60A', 'lisa': '#FFD60A'
+    };
+    var bg = avatarColors[e.id] || (e.gradient && e.gradient[0]) || '#FFD60A';
+    
+    // 未读气泡
+    var unreadBadge = '';
+    if (unreadCount > 0 && !isThinking) {
+      var displayCount = unreadCount > 99 ? '99+' : unreadCount;
+      unreadBadge = '<span class="unread-badge">' + displayCount + '</span>';
+    }
+    
+    // 思考中呼吸动画
+    var thinkingAnim = isThinking ? ' <span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>' : '';
+    
+    html += '<div class="chat-message-item" onclick="openDetailPanel(\'' + e.id + '\')" style="cursor:pointer" title="点击查看 ' + e.name + ' 的详情">';
+    html += '<div class="chat-avatar" style="background:' + bg + '">';
+    html += '<svg width="28" height="28" viewBox="0 0 28 28" fill="none">';
+    html += '<circle cx="14" cy="10" r="5" fill="#1D1D1F"/>';
+    html += '<ellipse cx="14" cy="22" rx="8" ry="5" fill="#1D1D1F"/>';
+    html += '</svg>';
+    html += unreadBadge;
     html += '</div>';
-    html += '</div></div></div>';
+    html += '<div class="chat-content">';
+    html += '<div class="chat-header">';
+    html += '<span class="chat-name">' + e.name + '</span>';
+    html += '<span class="chat-time">' + lastMsgTime + '</span>';
+    html += '</div>';
+    html += '<div class="chat-preview' + (isThinking ? ' thinking-text' : '') + '">';
+    html += truncateMessage(lastMsgText, 35) + thinkingAnim;
+    html += '</div>';
+    html += '<div class="chat-status-row">';
+    html += '<span class="status-dot ' + statusClass + '"></span>';
+    html += '<span class="status-text">' + statusText + '</span>';
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
   }
+  
+  html += '</div>';
   chatZone.innerHTML = html;
 }
 
-// 渲染 Work Zone - 点击跳转到主页
-function renderWorkZone(){
-  var workZone = document.getElementById('workZone');
-  if(!workZone) return;
-  var working = employees.filter(function(e){ return e.status==='working' || e.status==='busy' || e.status==='using_tool'; });
-  if(working.length === 0) {
-    workZone.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-4)">暂无工作中的成员</div>';
-    return;
+// 新消息到达时滚动到顶部并高亮
+function scrollChatZoneToTop(empId) {
+  var chatZone = document.getElementById('chatZone');
+  if (!chatZone) return;
+  var item = chatZone.querySelector('[onclick*="' + empId + '"]');
+  if (item) {
+    item.classList.add('highlight');
+    chatZone.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(function() {
+      item.classList.remove('highlight');
+    }, 2000);
   }
-  var html = '';
-  for(var i=0;i<working.length;i++){
-    var e = working[i];
-    var p = e.progress || 60;
-    var fraction = Math.ceil(p / 33); if(fraction < 1) fraction = 1; if(fraction > 3) fraction = 3;
-    var msgs = Math.floor(Math.random() * 50) + 20;
-    var likes = Math.floor(Math.random() * 20) + 5;
-    html += '<div class="emp-mini" onclick="openDetailPanel(\''+e.id+'\')" style="cursor:pointer" title="点击查看 '+e.name+' 的详情">';
-    var avatarColors = {'lucy':'#FFD60A','eric':'#FFD60A','gates':'#FFD60A','cute':'#FFD60A','alex':'#FFD60A','nova':'#FFD60A','mike':'#FFD60A','lisa':'#FFD60A'};
-    var bg = avatarColors[e.id] || e.gradient[0] || '#FFD60A';
-    html += '<div class="emp-mini-avatar" style="background:'+bg+'"><svg width="28" height="28" viewBox="0 0 28 28" fill="none"><circle cx="14" cy="10" r="5" fill="#1D1D1F"/><ellipse cx="14" cy="22" rx="8" ry="5" fill="#1D1D1F"/></svg></div>';
-    html += '<div class="emp-mini-body">';
-    html += '<div class="emp-mini-top">';
-    html += '<div class="emp-mini-name">'+e.name+'<span class="emp-mini-status working"></span></div>';
-    html += '<span class="emp-status-tag working">工作中</span>';
-    html += '</div>';
-    html += '<div class="emp-mini-role">'+e.role+'</div>';
-    html += '<div class="emp-status-desc">正在思考...</div>';
-    html += '<div class="work-progress">';
-    html += '<div class="work-progress-row">';
-    html += '<div class="work-progress-bar"><div class="work-progress-fill" style="width:'+p+'%"></div></div>';
-    html += '<span class="work-progress-fraction">'+fraction+'/3</span>';
-    html += '</div>';
-    html += '</div>';
-    html += '<div class="emp-interaction">';
-    html += '<span class="emp-interaction-item"><span class="emp-interaction-num">'+msgs+'</span>条</span>';
-    html += '<span class="emp-interaction-item"><span class="emp-interaction-num">'+likes+'</span></span>';
-    html += '</div>';
-    html += '</div></div></div>';
-  }
-  workZone.innerHTML = html;
 }
+
+// 辅助函数：从 localStorage 获取任务数据
+function getTaskData() {
+  var key = 'sb_calendar_events';
+  var data = localStorage.getItem(key);
+  if (data) {
+    try {
+      return JSON.parse(data);
+    } catch (e) {}
+  }
+  return [];
+}
+
+// 辅助函数：统计在线AI数量
+function getOnlineAICount() {
+  var count = 0;
+  for (var i = 0; i < employees.length; i++) {
+    if (employees[i].status === 'online' || employees[i].status === 'busy' || employees[i].status === 'thinking') {
+      count++;
+    }
+  }
+  return count;
+}
+
+// 辅助函数：统计消息总数
+function getTotalMessageCount() {
+  var total = 0;
+  for (var i = 0; i < employees.length; i++) {
+    var hist = localStorage.getItem('sb_chat_history_' + employees[i].id);
+    if (hist) {
+      try {
+        var msgs = JSON.parse(hist);
+        total += msgs.length;
+      } catch (e) {}
+    }
+  }
+  return total;
+}
+
+// 辅助函数：获取今日对话数
+function getTodayChatCount() {
+  var today = new Date();
+  today.setHours(0, 0, 0, 0);
+  var todayStart = today.getTime();
+  var count = 0;
+  for (var i = 0; i < employees.length; i++) {
+    var hist = localStorage.getItem('sb_chat_history_' + employees[i].id);
+    if (hist) {
+      try {
+        var msgs = JSON.parse(hist);
+        for (var j = 0; j < msgs.length; j++) {
+          if (msgs[j].timestamp && msgs[j].timestamp >= todayStart) {
+            count++;
+          }
+        }
+      } catch (e) {}
+    }
+  }
+  return count;
+}
+
+// 渲染统计卡片
+function renderStatsCards() {
+  var taskData = getTaskData();
+  var totalTasks = taskData.length || 0;
+  var onlineAI = getOnlineAICount();
+  var totalMsgs = getTotalMessageCount();
+  var todayChats = getTodayChatCount();
+  
+  return '<div class="stats-cards-container">' +
+    '<div class="stat-card">' +
+      '<div class="stat-icon">📋</div>' +
+      '<div class="stat-info">' +
+        '<div class="stat-value">' + totalTasks + '</div>' +
+        '<div class="stat-label">总任务数</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="stat-card">' +
+      '<div class="stat-icon">🟢</div>' +
+      '<div class="stat-info">' +
+        '<div class="stat-value">' + onlineAI + '</div>' +
+        '<div class="stat-label">在线 AI</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="stat-card">' +
+      '<div class="stat-icon">💬</div>' +
+      '<div class="stat-info">' +
+        '<div class="stat-value">' + totalMsgs + '</div>' +
+        '<div class="stat-label">消息数</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="stat-card">' +
+      '<div class="stat-icon">📊</div>' +
+      '<div class="stat-info">' +
+        '<div class="stat-value">' + todayChats + '</div>' +
+        '<div class="stat-label">今日对话</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+// 渲染任务看板
+function renderTaskKanban() {
+  var taskData = getTaskData();
+  var html = '<div class="task-kanban">';
+  
+  // 待处理列
+  html += '<div class="kanban-column">';
+  html += '<div class="kanban-header pending">';
+  html += '<span class="kanban-title">待处理</span>';
+  html += '<span class="kanban-count pending-count">0</span>';
+  html += '</div>';
+  html += '<div class="kanban-tasks" id="kanban-pending">';
+  html += '</div>';
+  html += '</div>';
+  
+  // 进行中列
+  html += '<div class="kanban-column">';
+  html += '<div class="kanban-header in-progress">';
+  html += '<span class="kanban-title">进行中</span>';
+  html += '<span class="kanban-count progress-count">0</span>';
+  html += '</div>';
+  html += '<div class="kanban-tasks" id="kanban-progress">';
+  html += '</div>';
+  html += '</div>';
+  
+  // 已完成列
+  html += '<div class="kanban-column">';
+  html += '<div class="kanban-header completed">';
+  html += '<span class="kanban-title">已完成</span>';
+  html += '<span class="kanban-count completed-count">0</span>';
+  html += '</div>';
+  html += '<div class="kanban-tasks" id="kanban-completed">';
+  html += '</div>';
+  html += '</div>';
+  
+  html += '</div>';
+  return html;
+}
+
+// 更新任务看板内容
+function updateTaskKanban() {
+  var taskData = getTaskData();
+  var pendingHtml = '';
+  var progressHtml = '';
+  var completedHtml = '';
+  var pendingCount = 0;
+  var progressCount = 0;
+  var completedCount = 0;
+  
+  for (var i = 0; i < taskData.length; i++) {
+    var task = taskData[i];
+    var taskName = task.title || task.name || '未命名任务';
+    var taskAssignee = task.assignee || task.employee_name || '';
+    var taskDue = task.due || task.deadline || '';
+    var taskStatus = task.status || 'pending';
+    var taskPriority = task.priority || 'normal';
+    
+    // 格式化截止时间
+    var dueText = '';
+    if (taskDue) {
+      if (typeof taskDue === 'number') {
+        var d = new Date(taskDue);
+        dueText = (d.getMonth() + 1) + '/' + d.getDate();
+      } else {
+        dueText = taskDue;
+      }
+    }
+    
+    var taskCard = '<div class="task-card" onclick="openDetailPanel(\'' + (task.employee_id || '') + '\')">';
+    taskCard += '<div class="task-card-name">' + taskName + '</div>';
+    if (taskAssignee) {
+      taskCard += '<div class="task-card-assignee">👤 ' + taskAssignee + '</div>';
+    }
+    if (dueText) {
+      taskCard += '<div class="task-card-due">📅 ' + dueText + '</div>';
+    }
+    taskCard += '</div>';
+    
+    if (taskStatus === 'done' || taskStatus === 'completed') {
+      completedHtml += taskCard;
+      completedCount++;
+    } else if (taskStatus === 'in_progress' || taskStatus === 'progress') {
+      progressHtml += taskCard;
+      progressCount++;
+    } else {
+      pendingHtml += taskCard;
+      pendingCount++;
+    }
+  }
+  
+  // 添加空状态提示
+  if (pendingHtml === '') pendingHtml = '<div class="kanban-empty">暂无待处理任务</div>';
+  if (progressHtml === '') progressHtml = '<div class="kanban-empty">暂无进行中任务</div>';
+  if (completedHtml === '') completedHtml = '<div class="kanban-empty">暂无已完成任务</div>';
+  
+  var pendingEl = document.getElementById('kanban-pending');
+  var progressEl = document.getElementById('kanban-progress');
+  var completedEl = document.getElementById('kanban-completed');
+  var pendingCountEl = document.querySelector('.pending-count');
+  var progressCountEl = document.querySelector('.progress-count');
+  var completedCountEl = document.querySelector('.completed-count');
+  
+  if (pendingEl) pendingEl.innerHTML = pendingHtml;
+  if (progressEl) progressEl.innerHTML = progressHtml;
+  if (completedEl) completedEl.innerHTML = completedHtml;
+  if (pendingCountEl) pendingCountEl.textContent = pendingCount;
+  if (progressCountEl) progressCountEl.textContent = progressCount;
+  if (completedCountEl) completedCountEl.textContent = completedCount;
+}
+
+// 渲染 Work Zone - 任务看板 + 统计卡片
+function renderWorkZone() {
+  var workZone = document.getElementById('workZone');
+  if (!workZone) return;
+  
+  var html = renderStatsCards();
+  html += renderTaskKanban();
+  workZone.innerHTML = html;
+  
+  // 初始化后更新任务看板数据
+  setTimeout(function() {
+    updateTaskKanban();
+  }, 100);
+}
+
+
+
 
 // ===== 技能系统 =====
 function renderSkills(){
