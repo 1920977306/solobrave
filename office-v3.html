@@ -541,7 +541,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
         <h3 style="font-size:14px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px">
           <span style="width:8px;height:8px;background:var(--green);border-radius:50%;display:inline-block"></span> 动态
         </h3>
-        <div class="timeline-list">
+        <div class="timeline-list" id="timelineList">
           <div class="timeline-item">
             <div class="timeline-avatar" style="background:#FFD60A">G</div>
             <div class="timeline-content">
@@ -578,7 +578,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
             </div>
           </div>
         </div>
-      </div><div class="task-section"><h3>定时任务</h3><div id="taskList"><div class="task-item"><span class="task-dot p1"></span>审核新成员申请</div><div class="task-item"><span class="task-dot p2"></span>更新技能库配置</div><div class="task-item"><span class="task-dot p3"></span>备份记忆数据</div></div></div></aside></div><div class="status-bar"><div class="status-left"><span class="status-item"><span class="status-dot"></span>系统正常</span><span id="statusTime">--:--</span></div><div class="status-right"><span id="statusMembers">5 成员在线</span><span id="statusTasks">3 待处理</span></div></div>
+      </div><div class="task-section"><h3>定时任务</h3><div id="taskList"></div></div></aside></div><div class="status-bar"><div class="status-left"><span class="status-item"><span class="status-dot"></span>系统正常</span><span id="statusTime">--:--</span></div><div class="status-right"><span id="statusMembers">5 成员在线</span><span id="statusTasks">3 待处理</span></div></div>
 
 <!-- ====== 导航栏 ====== -->
 
@@ -1365,9 +1365,17 @@ function initBroadcastChannel() {
         case 'chat_message':
           // 主页收到新消息
           if (agent_id) {
-            const emp = employees.find(e => e.id === agent_id);
-            if (emp) {
-              addTimelineEvent(emp.name, '收到新消息');
+            var emp = null;
+            for(var i=0;i<employees.length;i++){
+              if(employees[i].id === agent_id){ emp=employees[i]; break; }
+            }
+            if(emp){
+              var direction = data.direction || 'incoming';
+              if(direction === 'outgoing'){
+                addTimelineEvent(emp.name, '用户发送消息');
+              } else {
+                addTimelineEvent(emp.name, '回复了消息');
+              }
             }
           }
           break;
@@ -1405,6 +1413,12 @@ function initBroadcastChannel() {
     };
     
     console.log('[BroadcastChannel] lobster-office initialized');
+  // 初始化动态面板 - 显示员工上线状态
+  for(var i=0;i<employees.length;i++){
+    if(employees[i].status === 'online' || employees[i].status === 'busy'){
+      addTimelineEvent(employees[i].name, '🟢 已上线');
+    }
+  }
   } catch (err) {
     console.log('[BroadcastChannel] Not supported or failed:', err);
   }
@@ -1500,21 +1514,10 @@ function updateStats(){
 
 // ===== 渲染活动列表 =====
 function renderActivities(){
-  const container = document.getElementById('liveActivities');
+  var container = document.getElementById('liveActivities');
   if(!container) return;
-  
-  container.innerHTML = activities.map(a=>`
-    <div class="activity-item">
-      <div class="activity-avatar" style="background:${a.gradient[0]}">${a.initial}</div>
-      <div class="activity-content">
-        <div class="activity-name">${a.name}</div>
-        <div class="activity-status">
-          <span class="status-badge ${a.status}">${a.text}</span>
-        </div>
-      </div>
-      <div class="activity-time">${a.time}</div>
-    </div>
-  `).join('');
+  // 动态面板现在用 timeline-list 渲染，不再用 activities 数组
+  // timeline-list 由 addTimelineEvent 动态添加条目
 }
 
 // 跳转到主页打开对应员工聊天
@@ -2048,6 +2051,33 @@ function addTimelineEvent(name, action){
 }
 
 // ===== 初始化 =====
+
+function renderTaskList(){
+  var container = document.getElementById('taskList');
+  if(!container) return;
+  
+  // 从 localStorage 读取日历事件
+  var events = [];
+  try{
+    events = JSON.parse(localStorage.getItem('sb_calendar_events') || '[]');
+  }catch(e){}
+  
+  if(events.length === 0){
+    container.innerHTML = '<div style="padding:10px;text-align:center;color:var(--gray-4);font-size:12px">暂无定时任务</div>';
+    return;
+  }
+  
+  var html = '';
+  for(var i=0; i<Math.min(events.length, 5); i++){
+    var ev = events[i];
+    var priority = (i % 3 === 0) ? 'p1' : (i % 3 === 1) ? 'p2' : 'p3';
+    var name = ev.summary || ev.title || '未命名任务';
+    if(name.length > 15) name = name.substring(0, 15) + '...';
+    html += '<div class="task-item"><span class="task-dot ' + priority + '"></span>' + name + '</div>';
+  }
+  container.innerHTML = html;
+}
+
 document.addEventListener('DOMContentLoaded', async ()=>{
   // Initialize OpenClaw connection
   await initOpenClaw();
@@ -2058,6 +2088,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   // Render UI
   updateStats();
   renderActivities();
+  renderTaskList();
   renderEmployees();
   renderSkills();
   renderDocs();
