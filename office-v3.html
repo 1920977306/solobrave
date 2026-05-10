@@ -1572,8 +1572,10 @@ function switchTab(tab){
 }
 
 // ===== 统计数字动画 =====
-function animateNumber(el,target,duration=800){
-  const start = parseInt(el.textContent)||0;
+function animateNumber(el,target,duration){
+  if(!el) return;
+  duration = duration || 800;
+  var start = parseInt(el.textContent)||0;
   const startTime = performance.now();
   function update(ct){
     const progress = Math.min((ct-startTime)/duration,1);
@@ -1597,10 +1599,11 @@ function updateStats(){
   animateNumber(document.getElementById('statPending'),pending);
 
   // 更新百分比
-  document.getElementById('statOnlinePct').textContent = Math.round(online/employees.length*100)+'%';
-  document.getElementById('statWorkingPct').textContent = Math.round(working/employees.length*100)+'%';
-  document.getElementById('statIdlePct').textContent = Math.round(idle/employees.length*100)+'%';
-  document.getElementById('statPendingPct').textContent = Math.round(pending/activities.length*100)+'%';
+  var elPct;
+  elPct = document.getElementById('statOnlinePct'); if(elPct) elPct.textContent = Math.round(online/employees.length*100)+'%';
+  elPct = document.getElementById('statWorkingPct'); if(elPct) elPct.textContent = Math.round(working/employees.length*100)+'%';
+  elPct = document.getElementById('statIdlePct'); if(elPct) elPct.textContent = Math.round(idle/employees.length*100)+'%';
+  elPct = document.getElementById('statPendingPct'); if(elPct) elPct.textContent = Math.round(pending/activities.length*100)+'%';
 }
 
 // ===== 渲染活动列表 =====
