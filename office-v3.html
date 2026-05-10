@@ -1894,26 +1894,43 @@ async function openDetailPanel(empId){
   docsHtml += '<div class="docs-nav-item" data-doc="TOOLS.md" onclick="switchDocTab(this)">TOOLS.md</div>';
   docsHtml += '</div>';
   docsHtml += '<div class="docs-content">';
-  docsHtml += '<h4>IDENTITY.md - Who Am I?</h4>';
-  docsHtml += '<p>你是'+emp.name+'，SoloBrave团队的'+emp.role+'...</p>';
+  docsHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h4 style="margin:0">IDENTITY.md</h4><button onclick="saveCurrentDoc()" style="padding:4px 12px;border-radius:6px;border:none;background:var(--blue);color:white;font-size:12px;cursor:pointer">💾 保存</button></div>';
+  docsHtml += '<textarea id="docEditor" style="width:100%;height:calc(100% - 40px);border:1px solid var(--border-color);border-radius:8px;padding:12px;font-size:12px;font-family:monospace;resize:none;background:var(--gray-1);color:var(--gray-6);line-height:1.6;white-space:pre-wrap" placeholder="编辑文档内容...">加载中...</textarea>';
   docsHtml += '</div>';
   docsHtml += '</div>';
   
   document.getElementById('detailDocs').innerHTML = docsHtml;
   document.getElementById('detailOverlay').classList.add('active');
   document.getElementById('detailPanel').classList.add('active');
+  
+  // 异步加载第一个文档内容
+  var firstDoc = await loadDocContent('IDENTITY.md');
+  var editor = document.getElementById('docEditor');
+  if(editor) editor.value = firstDoc;
 }
 
 async function switchDocTab(el){
   var docName = el.getAttribute('data-doc');
   document.querySelectorAll('.docs-nav-item').forEach(function(item){item.classList.remove('active');});
   el.classList.add('active');
-  var content = document.querySelector('.docs-content');
-  if(content){
-    content.innerHTML = '<h4>'+docName+'</h4><p>加载中...</p>';
-    const docContent = await loadDocContent(docName);
-    content.innerHTML = '<h4>'+docName+'</h4><pre style="white-space:pre-wrap;font-size:12px">'+docContent.replace(/</g,'&lt;')+'</pre>';
+  var contentEl = document.querySelector('.docs-content');
+  if(contentEl){
+    contentEl.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h4 style="margin:0">'+docName+'</h4><button onclick="saveCurrentDoc()" style="padding:4px 12px;border-radius:6px;border:none;background:var(--blue);color:white;font-size:12px;cursor:pointer">💾 保存</button></div><textarea id="docEditor" style="width:100%;height:calc(100% - 40px);border:1px solid var(--border-color);border-radius:8px;padding:12px;font-size:12px;font-family:monospace;resize:none;background:var(--gray-1);color:var(--gray-6);line-height:1.6;white-space:pre-wrap" placeholder="编辑文档内容...">加载中...</textarea>';
+    var docContent = await loadDocContent(docName);
+    var editor = document.getElementById('docEditor');
+    if(editor) editor.value = docContent;
   }
+}
+
+var currentDocName = 'IDENTITY.md';
+
+async function saveCurrentDoc(){
+  var editor = document.getElementById('docEditor');
+  if(!editor) return;
+  // Find current active doc tab
+  var activeTab = document.querySelector('.docs-nav-item.active');
+  var docName = activeTab ? activeTab.getAttribute('data-doc') : 'IDENTITY.md';
+  await saveDocContent(docName, editor.value);
 }
 
 function openChannelConfig(){
