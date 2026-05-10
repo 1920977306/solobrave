@@ -1001,10 +1001,10 @@ async function loadRealAgents() {
   }
   
   // 最终降级到 OpenClaw
-  if (openclaw && openclaw.connected) {
+  if (openclaw && openclaw._connected) {
     try {
       showToast('正在加载 Agent 列表...', 'loading');
-      const agents = await openclaw.agents_list();
+      const agents = await openclaw.listAgents();
       
       if (Array.isArray(agents)) {
         employees = agents.map((agent, idx) => {
@@ -1054,7 +1054,7 @@ async function loadRealAgents() {
 
 // Get agent identity details
 async function getAgentIdentity(agentId) {
-  if (!openclaw || !openclaw.connected) {
+  if (!openclaw || !openclaw._connected) {
     // Return mock data
     return {
       model: 'glm-5 (BigModel)',
@@ -1068,7 +1068,7 @@ async function getAgentIdentity(agentId) {
 
   try {
     const identity = await openclaw.agent_identity_get(agentId);
-    const sessions = await openclaw.sessions_list(agentId);
+    const sessions = await openclaw.listSessions();
     
     return {
       model: identity.config?.model || identity.model || 'unknown',
@@ -1093,7 +1093,7 @@ async function loadModels() {
   select.innerHTML = '<option>加载中...</option>';
   select.disabled = true;
 
-  if (!openclaw || !openclaw.connected) {
+  if (!openclaw || !openclaw._connected) {
     // Use fallback models
     select.innerHTML = `
       <option value="glm-5">glm-5 (BigModel)</option>
@@ -1105,7 +1105,7 @@ async function loadModels() {
   }
 
   try {
-    const models = await openclaw.models_list();
+    const models = await openclaw.listModels();
     if (Array.isArray(models) && models.length > 0) {
       select.innerHTML = models.map(m => 
         `<option value="${m.id || m.name}">${m.name || m.id}</option>`
@@ -1135,7 +1135,7 @@ async function loadChannels() {
   const container = document.getElementById('channelTabs');
   if (!container) return;
 
-  if (!openclaw || !openclaw.connected) {
+  if (!openclaw || !openclaw._connected) {
     // Use fallback channels
     container.innerHTML = `
       <div class="channel-tab active" data-channel="dingtalk" onclick="switchChannelTab(this)">钉钉 <span class="channel-check">✓</span></div>
@@ -1147,7 +1147,7 @@ async function loadChannels() {
   }
 
   try {
-    const status = await openclaw.channels_status();
+    const status = await openclaw.send('channels.status', {});
     if (status && typeof status === 'object') {
       const channels = ['dingtalk', 'feishu', 'agentlink', 'telegram'];
       const channelNames = { dingtalk: '钉钉', feishu: '飞书', agentlink: 'AgentLink', telegram: 'Telegram' };
@@ -1173,7 +1173,7 @@ async function loadChannels() {
 
 // Toggle channel
 async function toggleChannel(channelId, enable) {
-  if (!openclaw || !openclaw.connected) {
+  if (!openclaw || !openclaw._connected) {
     showToast('🔴 离线模式：无法切换渠道', 'error');
     return;
   }
@@ -1182,9 +1182,9 @@ async function toggleChannel(channelId, enable) {
 
   try {
     if (enable) {
-      await openclaw.channels_start(channelId);
+      await openclaw.send('channels.start', {channel_id: channelId});
     } else {
-      await openclaw.channels_stop(channelId);
+      await openclaw.send('channels.stop', {channel_id: channelId});
     }
     showToast(`✅ ${channelId} ${enable ? '已启动' : '已停止'}`, 'success');
     await loadChannels();
@@ -1196,12 +1196,12 @@ async function toggleChannel(channelId, enable) {
 
 // Load document content
 async function loadDocContent(docName) {
-  if (!openclaw || !openclaw.connected) {
+  if (!openclaw || !openclaw._connected) {
     return `这是 ${docName} 的内容预览...\n\n离线模式下无法加载真实内容。`;
   }
 
   try {
-    const content = await openclaw.config_get(`doc.${docName}`);
+    const content = await openclaw.send('config.get', {key: 'doc.' + docName});
     return content || `这是 ${docName} 的内容预览...`;
   } catch (err) {
     console.error('[OpenClaw] Failed to load doc:', err);
@@ -1211,7 +1211,7 @@ async function loadDocContent(docName) {
 
 // Set document content
 async function saveDocContent(docName, content) {
-  if (!openclaw || !openclaw.connected) {
+  if (!openclaw || !openclaw._connected) {
     showToast('🔴 离线模式：无法保存', 'error');
     return false;
   }
@@ -1219,7 +1219,7 @@ async function saveDocContent(docName, content) {
   showToast('正在保存...', 'loading');
 
   try {
-    await openclaw.config_set(`doc.${docName}`, content);
+    await openclaw.send('config.set', {key: 'doc.' + docName, value: content});
     showToast('✅ 文档已保存', 'success');
     return true;
   } catch (err) {
@@ -1241,7 +1241,7 @@ async function saveModelConfig() {
     return;
   }
 
-  if (!openclaw || !openclaw.connected) {
+  if (!openclaw || !openclaw._connected) {
     showToast('🔴 离线模式：配置仅本地保存', 'error');
     localStorage.setItem('mock_model_config', JSON.stringify({ model: modelId, config: jsonConfig }));
     return;
@@ -1250,9 +1250,9 @@ async function saveModelConfig() {
   showToast('正在保存模型配置...', 'loading');
 
   try {
-    await openclaw.config_set('model', modelId);
+    await openclaw.send('config.set', {key: 'model', value: modelId});
     if (jsonConfig) {
-      await openclaw.config_set('model.config', jsonConfig);
+      await openclaw.send('config.set', {key: 'model.config', value: jsonConfig});
     }
     showToast('✅ 模型配置已保存', 'success');
     closeModelConfig();
@@ -1267,7 +1267,7 @@ async function testChat() {
   const textarea = document.getElementById('modelJson');
   const testMessage = textarea?.value || 'Hello, this is a test message.';
 
-  if (!openclaw || !openclaw.connected) {
+  if (!openclaw || !openclaw._connected) {
     showToast('🔴 离线模式：无法发送测试消息', 'error');
     return;
   }
@@ -1281,7 +1281,7 @@ async function testChat() {
   showToast('正在发送测试消息...', 'loading');
 
   try {
-    await openclaw.chat_send('test_session', testMessage);
+    await openclaw.sendChat('test_session', testMessage);
     showToast('✅ 测试消息已发送', 'success');
   } catch (err) {
     console.error('[OpenClaw] Failed to send test:', err);
@@ -2251,7 +2251,7 @@ async function confirmCreateAgent() {
   
   try {
     if (window.openclawConnected && typeof openclaw !== 'undefined' && openclaw.agents) {
-      const result = await openclaw.agents.create({
+      const result = await openclaw.send('agents.create', {
         name: wizardState.name,
         role: wizardState.role,
         model: wizardState.model,
