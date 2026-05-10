@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SoloBrave Office - Mission Control</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🦞%3C/text%3E%3C/svg%3E">
 <style>
 /* ========================================
    V7 - Apple 抽屉式面板设计
@@ -2419,33 +2420,33 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 <!-- Channel Tab -->
 <div class="emp-tab-pane" id="emp-tab-channel">
-<div class="emp-channel-list">
-<div class="emp-channel-item">
+<div class="emp-channel-list" id="empChannelList">
+<div class="emp-channel-item" onclick="openChannelConfig('dingtalk')">
 <div class="emp-channel-icon" style="background:#1677FF;">💬</div>
 <div class="emp-channel-info">
 <div class="emp-channel-name">钉钉</div>
-<div class="emp-channel-status inactive">未配置</div>
+<div class="emp-channel-status" id="dingtalkStatus">未配置</div>
 </div>
 </div>
-<div class="emp-channel-item">
+<div class="emp-channel-item" onclick="openChannelConfig('feishu')">
 <div class="emp-channel-icon" style="background:#0066FF;">✈️</div>
 <div class="emp-channel-info">
 <div class="emp-channel-name">飞书</div>
-<div class="emp-channel-status inactive">未配置</div>
+<div class="emp-channel-status" id="feishuStatus">未配置</div>
 </div>
 </div>
-<div class="emp-channel-item">
+<div class="emp-channel-item" onclick="openChannelConfig('agentlink')">
 <div class="emp-channel-icon" style="background:#00C853;">🔗</div>
 <div class="emp-channel-info">
 <div class="emp-channel-name">AgentLink</div>
-<div class="emp-channel-status inactive">未配置</div>
+<div class="emp-channel-status" id="agentlinkStatus">未配置</div>
 </div>
 </div>
-<div class="emp-channel-item">
+<div class="emp-channel-item" onclick="openChannelConfig('telegram')">
 <div class="emp-channel-icon" style="background:#0088FE;">✈️</div>
 <div class="emp-channel-info">
 <div class="emp-channel-name">Telegram</div>
-<div class="emp-channel-status inactive">未配置</div>
+<div class="emp-channel-status" id="telegramStatus">未配置</div>
 </div>
 </div>
 </div>
@@ -6697,6 +6698,10 @@ renderSkillPresets();
 if(tab==='memory'&&currentEmpId){
 renderMemory('core');
 }
+// Update channel status when switching to channel tab
+if(tab==='channel'&&currentEmpId){
+updateChannelStatusUI();
+}
 }
 var selectedAvatar='',selectedColor='';
 function selectAvatar(el){
@@ -6731,6 +6736,92 @@ const emp=emps.find(e=>e.id===currentEmpId);
 if(emp)emp.modelConfig=document.getElementById('empModelConfig').value;
 saveEmployees();
 showToast('✅ 模型配置已保存');
+}
+
+// ========== 渠道配置 ==========
+var currentChannelType = '';
+var channelConfigMap = {
+  'dingtalk': {name: '钉钉', icon: '💬', color: '#1677FF'},
+  'feishu': {name: '飞书', icon: '✈️', color: '#0066FF'},
+  'agentlink': {name: 'AgentLink', icon: '🔗', color: '#00C853'},
+  'telegram': {name: 'Telegram', icon: '✈️', color: '#0088FE'}
+};
+
+function openChannelConfig(channelType){
+  if(!currentEmpId) return;
+  currentChannelType = channelType;
+  var config = channelConfigMap[channelType];
+  if(!config) return;
+
+  document.getElementById('channelConfigTitle').textContent = config.icon + ' ' + config.name + ' 配置';
+
+  var emp = emps.find(function(e){ return e.id === currentEmpId; });
+  var channels = (emp && emp.channels) || {};
+  var channelData = channels[channelType] || {};
+
+  document.getElementById('channelWebhook').value = channelData.webhook || '';
+  document.getElementById('channelToken').value = channelData.token || '';
+
+  var radios = document.querySelectorAll('input[name="channelActive"]');
+  radios.forEach(function(r){
+    r.checked = (r.value === '1') === (channelData.active !== false);
+  });
+
+  document.getElementById('channelConfigModal').style.display = 'flex';
+}
+
+function closeChannelConfigModal(){
+  document.getElementById('channelConfigModal').style.display = 'none';
+  currentChannelType = '';
+}
+
+function saveChannelConfig(){
+  if(!currentEmpId || !currentChannelType) return;
+
+  var webhook = document.getElementById('channelWebhook').value.trim();
+  var token = document.getElementById('channelToken').value.trim();
+  var activeRadio = document.querySelector('input[name="channelActive"]:checked');
+  var active = activeRadio ? activeRadio.value === '1' : true;
+
+  var emp = emps.find(function(e){ return e.id === currentEmpId; });
+  if(!emp) return;
+
+  if(!emp.channels) emp.channels = {};
+  emp.channels[currentChannelType] = {
+    webhook: webhook,
+    token: token,
+    active: active,
+    updatedAt: new Date().toISOString()
+  };
+
+  saveEmployees();
+  updateChannelStatusUI();
+  closeChannelConfigModal();
+  showToast('✅ 渠道配置已保存');
+}
+
+function updateChannelStatusUI(){
+  if(!currentEmpId) return;
+  var emp = emps.find(function(e){ return e.id === currentEmpId; });
+  if(!emp) return;
+
+  var channels = emp.channels || {};
+  Object.keys(channelConfigMap).forEach(function(type){
+    var statusEl = document.getElementById(type + 'Status');
+    if(!statusEl) return;
+
+    var config = channels[type];
+    if(config && config.webhook && config.active !== false){
+      statusEl.textContent = '已配置';
+      statusEl.className = 'emp-channel-status active';
+    } else if(config && config.webhook){
+      statusEl.textContent = '已禁用';
+      statusEl.className = 'emp-channel-status';
+    } else {
+      statusEl.textContent = '未配置';
+      statusEl.className = 'emp-channel-status inactive';
+    }
+  });
 }
 
 // ========== 员工连接配置 ==========
@@ -8917,6 +9008,41 @@ function checkQuota() {
   </div>
 </div>
 
+
+<!-- Channel Config Modal -->
+<div class="modal-overlay" id="channelConfigModal" style="display:none;z-index:2000;" onclick="if(event.target===this)closeChannelConfigModal()">
+  <div class="modal" style="max-width:400px;padding:0;overflow:hidden;">
+    <div class="modal-header" style="padding:16px 20px 12px;">
+      <div class="modal-title" id="channelConfigTitle">🔧 渠道配置</div>
+      <button class="modal-close" onclick="closeChannelConfigModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:16px 20px;">
+      <div class="form-group">
+        <label class="form-label">Webhook URL</label>
+        <input type="text" class="form-input" id="channelWebhook" placeholder="https://...">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Token / Secret</label>
+        <input type="password" class="form-input" id="channelToken" placeholder="输入密钥...">
+      </div>
+      <div class="form-group">
+        <label class="form-label">状态</label>
+        <div style="display:flex;gap:12px;align-items:center;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="channelActive" value="1" checked> 启用
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="channelActive" value="0"> 禁用
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="padding:12px 20px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:0.5px solid var(--separator);">
+      <button class="emp-action-btn" onclick="closeChannelConfigModal()">取消</button>
+      <button class="emp-action-btn primary" onclick="saveChannelConfig()">保存</button>
+    </div>
+  </div>
+</div>
 
 <!-- 创建群组向导 -->
 <div class="group-wizard-overlay" id="groupWizardOverlay">
