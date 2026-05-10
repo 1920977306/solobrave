@@ -557,6 +557,42 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-action-btn.primary:hover { background: var(--accent-hover); }
 .emp-detail-actions { display: flex; gap: 12px; padding: 16px 20px; border-top: 0.5px solid var(--separator); }
 .emp-detail-actions .emp-action-btn { flex: 1; }
+
+/* Group Detail Panel */
+.group-detail-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.2); backdrop-filter: blur(4px); opacity: 0; visibility: hidden; transition: all 0.3s; z-index: 250; }
+.group-detail-overlay.open { opacity: 1; visibility: visible; }
+.group-detail-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 380px; max-width: 100%; background: var(--bg-primary); box-shadow: var(--shadow-modal); transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); display: flex; flex-direction: column; }
+.group-detail-overlay.open .group-detail-panel { transform: translateX(0); }
+.group-detail-header { display: flex; align-items: center; gap: 12px; padding: 20px; border-bottom: 0.5px solid var(--separator); }
+.group-detail-avatar { width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 28px; flex-shrink: 0; }
+.group-detail-info { flex: 1; min-width: 0; }
+.group-detail-name { font-size: 18px; font-weight: 600; margin-bottom: 2px; }
+.group-detail-role { font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
+.group-detail-status { font-size: 12px; display: flex; align-items: center; gap: 4px; color: var(--text-secondary); }
+.group-detail-close { width: 32px; height: 32px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-secondary); }
+.group-detail-close:hover { background: var(--bg-secondary); }
+.group-detail-tabs { display: flex; padding: 0 20px; border-bottom: 0.5px solid var(--separator); }
+.group-detail-tab { flex: 1; padding: 12px 8px; border: none; background: transparent; cursor: pointer; font-size: 13px; color: var(--text-secondary); border-bottom: 2px solid transparent; transition: all 0.2s; }
+.group-detail-tab:hover { color: var(--text-primary); }
+.group-detail-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.group-detail-content { flex: 1; overflow-y: auto; padding: 16px 20px; }
+.group-tab-pane { display: none; }
+.group-tab-pane.active { display: block; }
+.group-member-list { display: flex; flex-direction: column; gap: 8px; }
+.group-member-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--bg-secondary); border-radius: var(--radius-md); transition: all 0.2s; }
+.group-member-item:hover { background: var(--bg-tertiary); }
+.group-member-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; overflow: hidden; }
+.group-member-info { flex: 1; min-width: 0; }
+.group-member-name { font-size: 14px; font-weight: 500; }
+.group-member-role { font-size: 12px; color: var(--text-secondary); }
+.group-member-remove { width: 28px; height: 28px; border-radius: 6px; background: transparent; border: none; cursor: pointer; color: var(--text-tertiary); display: flex; align-items: center; justify-content: center; transition: all 0.2s; opacity: 0; }
+.group-member-item:hover .group-member-remove { opacity: 1; }
+.group-member-remove:hover { background: rgba(255, 59, 48, 0.1); color: #FF3B30; }
+.group-detail-actions { display: flex; gap: 12px; padding: 16px 20px; border-top: 0.5px solid var(--separator); }
+.group-detail-actions .emp-action-btn { flex: 1; }
+.group-add-member-btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: var(--accent-light); color: var(--accent); border: 1.5px dashed var(--accent); border-radius: var(--radius-md); font-size: 13px; cursor: pointer; transition: all 0.2s; margin-bottom: 12px; }
+.group-add-member-btn:hover { background: var(--accent); color: white; }
+
 .emp-channel-list { display: flex; flex-direction: column; gap: 8px; }
 .emp-channel-item { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--bg-secondary); border-radius: var(--radius-md); }
 .emp-channel-icon { width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
@@ -2429,6 +2465,113 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 </div>
 </div>
 
+<!-- Group Detail Panel -->
+<div class="group-detail-overlay" id="groupDetailOverlay" onclick="closeGroupDetail()">
+<div class="group-detail-panel" onclick="event.stopPropagation()">
+<div class="group-detail-header">
+<div class="group-detail-avatar" id="groupDetailAvatar" style="background:linear-gradient(135deg,#5856D6,#AF52DE);">👥</div>
+<div class="group-detail-info">
+<div class="group-detail-name" id="groupDetailName">快速研发组</div>
+<div class="group-detail-role" id="groupDetailRole">项目组</div>
+<div class="group-detail-status" id="groupDetailStatus"><span class="status-dot online"></span> 7 位成员</div>
+</div>
+<button class="group-detail-close" onclick="closeGroupDetail()">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+</button>
+</div>
+
+<div class="group-detail-tabs">
+<button class="group-detail-tab active" data-gtab="members" onclick="switchGroupDetailTab('members')">成员</button>
+<button class="group-detail-tab" data-gtab="settings" onclick="switchGroupDetailTab('settings')">设置</button>
+<button class="group-detail-tab" data-gtab="info" onclick="switchGroupDetailTab('info')">信息</button>
+</div>
+
+<div class="group-detail-content" id="groupDetailContent">
+<!-- Members Tab -->
+<div class="group-tab-pane active" id="group-tab-members">
+<button class="group-add-member-btn" onclick="showAddMemberModal()">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+添加成员
+</button>
+<div class="group-member-list" id="groupMemberList">
+<!-- Members rendered here -->
+</div>
+</div>
+
+<!-- Settings Tab -->
+<div class="group-tab-pane" id="group-tab-settings" style="display:none;">
+<div class="form-group">
+<label class="form-label">群组名称</label>
+<input type="text" class="form-input" id="groupEditName" placeholder="输入群组名称">
+</div>
+<div class="form-group">
+<label class="form-label">群组图标</label>
+<div style="display:flex;gap:8px;flex-wrap:wrap;" id="groupEmojiPicker">
+<div class="avatar-option" style="width:40px;height:40px;font-size:20px;" onclick="selectGroupEmoji(this)">👥</div>
+<div class="avatar-option" style="width:40px;height:40px;font-size:20px;" onclick="selectGroupEmoji(this)">📂</div>
+<div class="avatar-option" style="width:40px;height:40px;font-size:20px;" onclick="selectGroupEmoji(this)">🚀</div>
+<div class="avatar-option" style="width:40px;height:40px;font-size:20px;" onclick="selectGroupEmoji(this)">💡</div>
+<div class="avatar-option" style="width:40px;height:40px;font-size:20px;" onclick="selectGroupEmoji(this)">🔥</div>
+<div class="avatar-option" style="width:40px;height:40px;font-size:20px;" onclick="selectGroupEmoji(this)">⭐</div>
+<div class="avatar-option" style="width:40px;height:40px;font-size:20px;" onclick="selectGroupEmoji(this)">🎯</div>
+<div class="avatar-option" style="width:40px;height:40px;font-size:20px;" onclick="selectGroupEmoji(this)">⚡</div>
+</div>
+</div>
+<div class="form-group">
+<label class="form-label">群组颜色</label>
+<div class="color-picker" id="groupColorPicker">
+<div class="color-option" style="background:#5856D6;" onclick="selectGroupColor(this,'#5856D6')"></div>
+<div class="color-option" style="background:#FF6B35;" onclick="selectGroupColor(this,'#FF6B35')"></div>
+<div class="color-option" style="background:#34C759;" onclick="selectGroupColor(this,'#34C759')"></div>
+<div class="color-option" style="background:#007AFF;" onclick="selectGroupColor(this,'#007AFF')"></div>
+<div class="color-option" style="background:#FF9500;" onclick="selectGroupColor(this,'#FF9500')"></div>
+<div class="color-option" style="background:#AF52DE;" onclick="selectGroupColor(this,'#AF52DE')"></div>
+<div class="color-option" style="background:#FF3B30;" onclick="selectGroupColor(this,'#FF3B30')"></div>
+<div class="color-option" style="background:#5AC8FA;" onclick="selectGroupColor(this,'#5AC8FA')"></div>
+</div>
+</div>
+</div>
+
+<!-- Info Tab -->
+<div class="group-tab-pane" id="group-tab-info" style="display:none;">
+<div class="emp-info-list">
+<div class="emp-info-item">
+<span class="emp-info-label">ID</span>
+<span class="emp-info-value" id="groupDetailId">grp_001</span>
+</div>
+<div class="emp-info-item">
+<span class="emp-info-label">创建时间</span>
+<span class="emp-info-value" id="groupDetailCreated">2024-01-01</span>
+</div>
+<div class="emp-info-item">
+<span class="emp-info-label">成员数</span>
+<span class="emp-info-value" id="groupDetailMemberCount">7</span>
+</div>
+<div class="emp-info-item">
+<span class="emp-info-label">消息数</span>
+<span class="emp-info-value" id="groupDetailMsgCount">128</span>
+</div>
+<div class="emp-info-item">
+<span class="emp-info-label">创建者</span>
+<span class="emp-info-value" id="groupDetailCreator">admin</span>
+</div>
+</div>
+</div>
+</div>
+
+<div class="group-detail-actions">
+<button class="emp-action-btn primary" onclick="saveGroupDetail()">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+保存
+</button>
+<button class="emp-action-btn" onclick="dissolveGroupFromDetail()">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+解散
+</button>
+</div>
+</div>
+</div>
+
 <!-- Drawer Overlay -->
 <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()">
 <div class="drawer-panel" onclick="event.stopPropagation()">
@@ -4093,7 +4236,7 @@ function renderGroupItems(){
     var lastMsg = g.lastMsg || '';
     var emoji = g.emoji || '👥';
     var isActive = currentGroupId === g.id;
-    return '<div class="list-item" data-group="' + escapeAttr(g.id) + '" style="padding-left:24px;' + (isActive ? 'background:var(--accent-light);' : '') + '" onclick="openGroupChat(\'' + escapeAttr(g.id) + '\')">' +
+    return '<div class="list-item" data-group="' + escapeAttr(g.id) + '" style="padding-left:24px;' + (isActive ? 'background:var(--accent-light);' : '') + '" onclick="openGroupChat(\'' + escapeAttr(g.id) + '\')" oncontextmenu="event.preventDefault();event.stopPropagation();openGroupDetail(\'' + escapeAttr(g.id) + '\');">' +
       '<div class="group-avatar" style="background:linear-gradient(135deg,' + escapeAttr(g.bg || '#5856D6') + ',' + (g.bg || '#5856D6') + 'dd);">' + escapeHtml(emoji) + '</div>' +
       '<div class="group-item-info"><div class="group-item-name">' + escapeHtml(g.name) + '</div><div class="group-item-sub">' + memberCount + ' 人' + (lastMsg ? ' · ' + escapeHtml(lastMsg) : '') + '</div></div>' +
       '</div>';
@@ -6344,6 +6487,196 @@ function closeEmpDetail(){
 document.getElementById('empDetailOverlay').classList.remove('open');
 currentEmpId=null;
 }
+
+// ========== Group Detail Panel ==========
+var currentGroupDetailId = null;
+var selectedGroupEmoji = '';
+var selectedGroupColor = '';
+
+function openGroupDetail(groupId){
+  var group = groups.find(function(g){ return g.id === groupId; });
+  if(!group) return;
+  currentGroupDetailId = groupId;
+
+  document.getElementById('groupDetailName').textContent = group.name || '未命名群组';
+  document.getElementById('groupDetailRole').textContent = '项目组';
+  var memberCount = (group.members && group.members.length) || 0;
+  document.getElementById('groupDetailStatus').innerHTML = '<span class="status-dot online"></span> ' + memberCount + ' 位成员';
+  document.getElementById('groupDetailAvatar').textContent = group.emoji || '👥';
+  document.getElementById('groupDetailAvatar').style.background = 'linear-gradient(135deg,' + (group.bg || '#5856D6') + ',' + (group.bg || '#5856D6') + 'dd)';
+  document.getElementById('groupDetailId').textContent = group.id;
+  document.getElementById('groupDetailCreated').textContent = group.createdAt || '未知';
+  document.getElementById('groupDetailMemberCount').textContent = memberCount;
+  document.getElementById('groupDetailMsgCount').textContent = (group.messages && group.messages.length) || 0;
+  document.getElementById('groupDetailCreator').textContent = group.createdBy || 'admin';
+
+  // Settings tab
+  document.getElementById('groupEditName').value = group.name || '';
+  selectedGroupEmoji = group.emoji || '👥';
+  selectedGroupColor = group.bg || '#5856D6';
+
+  // Update emoji selection
+  document.querySelectorAll('#groupEmojiPicker .avatar-option').forEach(function(el){
+    el.classList.toggle('selected', el.textContent === selectedGroupEmoji);
+  });
+  // Update color selection
+  document.querySelectorAll('#groupColorPicker .color-option').forEach(function(el){
+    var onclickStr = el.getAttribute('onclick') || '';
+    el.classList.toggle('selected', onclickStr.indexOf(selectedGroupColor) > -1);
+  });
+
+  // Render members
+  renderGroupDetailMembers(group);
+
+  // Reset to members tab
+  switchGroupDetailTab('members');
+
+  document.getElementById('groupDetailOverlay').classList.add('open');
+}
+
+function closeGroupDetail(){
+  document.getElementById('groupDetailOverlay').classList.remove('open');
+  currentGroupDetailId = null;
+}
+
+function switchGroupDetailTab(tab){
+  document.querySelectorAll('.group-detail-tab').forEach(function(t){
+    t.classList.toggle('active', t.dataset.gtab === tab);
+  });
+  document.querySelectorAll('.group-tab-pane').forEach(function(p){
+    p.style.display = (p.id === 'group-tab-' + tab) ? 'block' : 'none';
+  });
+}
+
+function renderGroupDetailMembers(group){
+  var list = document.getElementById('groupMemberList');
+  if(!list) return;
+  if(!group.members || group.members.length === 0){
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-secondary);font-size:13px;">暂无成员</div>';
+    return;
+  }
+  list.innerHTML = group.members.map(function(mid){
+    var emp = emps.find(function(e){ return e.id === mid; });
+    if(!emp) return '';
+    var avatarHtml = renderAvatar(emp, 36);
+    return '<div class="group-member-item" data-mid="' + escapeAttr(mid) + '">' +
+      '<div class="group-member-avatar" style="background:' + escapeAttr(emp.bg || '#888') + ';">' + avatarHtml + '</div>' +
+      '<div class="group-member-info">' +
+      '<div class="group-member-name">' + escapeHtml(emp.name || '') + '</div>' +
+      '<div class="group-member-role">' + escapeHtml(emp.role || '员工') + '</div>' +
+      '</div>' +
+      '<button class="group-member-remove" onclick="removeGroupMember(\'' + escapeAttr(mid) + '\')" title="移除成员">✕</button>' +
+      '</div>';
+  }).join('');
+}
+
+function selectGroupEmoji(el){
+  document.querySelectorAll('#groupEmojiPicker .avatar-option').forEach(function(a){ a.classList.remove('selected'); });
+  el.classList.add('selected');
+  selectedGroupEmoji = el.textContent;
+  document.getElementById('groupDetailAvatar').textContent = selectedGroupEmoji;
+}
+
+function selectGroupColor(el, color){
+  document.querySelectorAll('#groupColorPicker .color-option').forEach(function(c){ c.style.boxShadow = 'none'; });
+  el.style.boxShadow = '0 0 0 2px white, 0 2px 8px rgba(0,0,0,0.3)';
+  selectedGroupColor = color;
+  document.getElementById('groupDetailAvatar').style.background = 'linear-gradient(135deg,' + color + ',' + color + 'dd)';
+}
+
+function removeGroupMember(empId){
+  if(!currentGroupDetailId) return;
+  var group = groups.find(function(g){ return g.id === currentGroupDetailId; });
+  if(!group || !group.members) return;
+
+  var idx = group.members.indexOf(empId);
+  if(idx > -1){
+    group.members.splice(idx, 1);
+    saveGroups();
+    renderGroupDetailMembers(group);
+    renderGroupItems();
+    showToast('已移除成员');
+  }
+}
+
+function showAddMemberModal(){
+  if(!currentGroupDetailId) return;
+  var group = groups.find(function(g){ return g.id === currentGroupDetailId; });
+  if(!group) return;
+
+  // Find employees not in group
+  var availableEmps = emps.filter(function(e){
+    return !e.archived && (!group.members || group.members.indexOf(e.id) === -1);
+  });
+
+  if(availableEmps.length === 0){
+    showToast('没有可添加的成员');
+    return;
+  }
+
+  var html = '<div style="display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto;">' +
+    availableEmps.map(function(emp){
+      var avatarHtml = renderAvatar(emp, 32);
+      return '<div class="group-member-item" style="cursor:pointer;" onclick="addGroupMember(\'' + escapeAttr(emp.id) + '\')">' +
+        '<div class="group-member-avatar" style="background:' + escapeAttr(emp.bg || '#888') + ';">' + avatarHtml + '</div>' +
+        '<div class="group-member-info">' +
+        '<div class="group-member-name">' + escapeHtml(emp.name || '') + '</div>' +
+        '<div class="group-member-role">' + escapeHtml(emp.role || '员工') + '</div>' +
+        '</div>' +
+        '<span style="color:var(--accent);font-size:20px;">+</span>' +
+        '</div>';
+    }).join('') +
+    '</div>';
+
+  showModal('添加成员', html);
+}
+
+function addGroupMember(empId){
+  if(!currentGroupDetailId) return;
+  var group = groups.find(function(g){ return g.id === currentGroupDetailId; });
+  if(!group) return;
+
+  if(!group.members) group.members = [];
+  if(group.members.indexOf(empId) === -1){
+    group.members.push(empId);
+    saveGroups();
+    renderGroupDetailMembers(group);
+    renderGroupItems();
+    closeModal();
+    showToast('已添加成员');
+  }
+}
+
+function saveGroupDetail(){
+  if(!currentGroupDetailId) return;
+  var group = groups.find(function(g){ return g.id === currentGroupDetailId; });
+  if(!group) return;
+
+  var newName = document.getElementById('groupEditName').value.trim();
+  if(newName) group.name = newName;
+  if(selectedGroupEmoji) group.emoji = selectedGroupEmoji;
+  if(selectedGroupColor) group.bg = selectedGroupColor;
+
+  saveGroups();
+  renderGroupItems();
+  document.getElementById('groupDetailName').textContent = group.name;
+  showToast('群组已保存');
+}
+
+function dissolveGroupFromDetail(){
+  if(!currentGroupDetailId) return;
+  if(!confirm('确定要解散这个群组吗？此操作不可撤销。')) return;
+
+  var idx = groups.findIndex(function(g){ return g.id === currentGroupDetailId; });
+  if(idx > -1){
+    groups.splice(idx, 1);
+    saveGroups();
+    closeGroupDetail();
+    renderGroupItems();
+    showToast('群组已解散');
+  }
+}
+
 function switchEmpDetailTab(tab){
 document.querySelectorAll('.emp-detail-tab').forEach(t=>t.classList.toggle('active',t.dataset.etab===tab));
 document.querySelectorAll('.emp-tab-pane').forEach(p=>p.classList.toggle('active',p.id==='emp-tab-'+tab));
