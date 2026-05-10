@@ -1646,14 +1646,22 @@ function renderEmployees(){
 function renderChatZone(){
   var chatZone = document.getElementById('chatZone');
   if(!chatZone) return;
-  var online = employees.filter(function(e){ return e.status==='thinking' || e.status==='online' || e.status==='busy'; });
-  if(online.length === 0) {
+  // 对话区：显示有聊天记录的员工（从localStorage检查）
+  var chatters = employees.filter(function(e){
+    var hist = localStorage.getItem('sb_chat_history_' + e.id);
+    return hist && JSON.parse(hist).length > 0;
+  });
+  // 如果没有聊天记录，显示所有在线/忙碌员工
+  if(chatters.length === 0) {
+    chatters = employees.filter(function(e){ return e.status==='online' || e.status==='busy' || e.status==='thinking'; });
+  }
+  if(chatters.length === 0) {
     chatZone.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-4)">暂无对话中的成员</div>';
     return;
   }
   var html = '';
-  for(var i=0;i<online.length;i++){
-    var e = online[i];
+  for(var i=0;i<chatters.length;i++){
+    var e = chatters[i];
     var p = e.progress || 60;
     var fraction = Math.ceil(p / 33); if(fraction < 1) fraction = 1; if(fraction > 3) fraction = 3;
     var msgs = Math.floor(Math.random() * 50) + 20;
@@ -2062,14 +2070,15 @@ function detailViewProjects(){
 function renderLoungeZone(){
   const loungeZone = document.getElementById('loungeZone');
   if(!loungeZone) return;
-  const offline = employees.filter(e=>e.status==='idle' || e.status==='offline');
-  if(offline.length === 0) {
-    loungeZone.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-4)">暂无空闲成员</div>';
+  if(employees.length === 0) {
+    loungeZone.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-4)">暂无员工</div>';
     return;
   }
-  loungeZone.innerHTML = '<div class="lounge-grid">' + offline.map(e=>`
-    <div class="lounge-avatar" style="background:${e.gradient[0]}" title="${e.name}">${e.name[0]}</div>
-  `).join('') + '</div>';
+  loungeZone.innerHTML = '<div class="lounge-grid">' + employees.map(function(e){
+    var bg = (e.gradient && e.gradient[0]) || e.bg || '#FFD60A';
+    var statusDot = e.status==='online'?'🟢':e.status==='busy'?'🟠':e.status==='thinking'?'🟡':'⚪';
+    return '<div class="lounge-avatar" style="background:'+bg+';position:relative;cursor:pointer" title="'+e.name+' ('+e.role+')" onclick="goToMainChat(\''+e.id+'\')">'+e.name[0]+'<span style="position:absolute;bottom:-2px;right:-2px;font-size:10px">'+statusDot+'</span></div>';
+  }).join('') + '</div>';
 }
 
 function updateStatusTime(){
