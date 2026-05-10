@@ -3146,6 +3146,9 @@ function sendMsg(){
   const text = input.value.trim();
   if(!text) return;
   
+  // 通知龙虾办公室用户发送了消息
+  notifyOfficeChatMessage(currentChat, 'outgoing');
+  
   // 群聊模式：转发到 sendGroupMessage
   if(currentGroupId){
     var mentions = [];
@@ -3589,6 +3592,17 @@ function notifyOfficeStatusChange(empId, status) {
       type: 'lobster_status',
       agent_id: empId,
       status: status
+    });
+  }
+}
+
+// 通知龙虾办公室有新聊天消息
+function notifyOfficeChatMessage(empId, direction) {
+  if (lobsterChannel) {
+    lobsterChannel.postMessage({
+      type: 'chat_message',
+      agent_id: empId,
+      direction: direction
     });
   }
 }
