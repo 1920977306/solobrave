@@ -1627,7 +1627,7 @@ function renderActivities(){
 
 // 跳转到主页打开对应员工聊天
 function goToMainChat(empId) {
-  window.open(`./index.html?emp=${empId}`, '_blank');
+  window.open('./index.html?emp=' + empId, '_blank');
 }
 
 // 渲染员工网格 - 点击跳转到主页
@@ -1635,7 +1635,7 @@ function renderEmployees(){
   const grid = document.getElementById('employeeGrid');
   if(!grid)return;
   grid.innerHTML = employees.map(emp => `
-    <div class="emp-card" onclick="goToMainChat('${emp.id}')" style="cursor:pointer" title="点击打开与 ${emp.name} 的聊天">
+    <div class="emp-card" onclick="openDetailPanel('${emp.id}')" style="cursor:pointer" title="点击查看 ${emp.name} 的详情">
       <div class="emp-avatar" style="background:linear-gradient(135deg,${emp.gradient[0]} 0%,${emp.gradient[1]} 100%)">${emp.initial}</div>
       <div class="emp-name">${emp.name}</div>
       <div class="emp-role">${emp.role}</div>
@@ -1669,7 +1669,7 @@ function renderChatZone(){
     var fraction = Math.ceil(p / 33); if(fraction < 1) fraction = 1; if(fraction > 3) fraction = 3;
     var msgs = Math.floor(Math.random() * 50) + 20;
     var likes = Math.floor(Math.random() * 20) + 5;
-    html += '<div class="emp-mini" onclick="goToMainChat(\''+e.id+'\')" style="cursor:pointer" title="点击打开与 '+e.name+' 的聊天">';
+    html += '<div class="emp-mini" onclick="openDetailPanel(\''+e.id+'\')" style="cursor:pointer" title="点击查看 '+e.name+' 的详情">';
     var avatarColors = {'lucy':'#FFD60A','eric':'#FFD60A','gates':'#FFD60A','cute':'#FFD60A','alex':'#FFD60A','nova':'#FFD60A','mike':'#FFD60A','lisa':'#FFD60A'};
     var bg = avatarColors[e.id] || e.gradient[0] || '#FFD60A';
     html += '<div class="emp-mini-avatar" style="background:'+bg+'"><svg width="28" height="28" viewBox="0 0 28 28" fill="none"><circle cx="14" cy="10" r="5" fill="#1D1D1F"/><ellipse cx="14" cy="22" rx="8" ry="5" fill="#1D1D1F"/></svg></div>';
@@ -1712,7 +1712,7 @@ function renderWorkZone(){
     var fraction = Math.ceil(p / 33); if(fraction < 1) fraction = 1; if(fraction > 3) fraction = 3;
     var msgs = Math.floor(Math.random() * 50) + 20;
     var likes = Math.floor(Math.random() * 20) + 5;
-    html += '<div class="emp-mini" onclick="goToMainChat(\''+e.id+'\')" style="cursor:pointer" title="点击打开与 '+e.name+' 的聊天">';
+    html += '<div class="emp-mini" onclick="openDetailPanel(\''+e.id+'\')" style="cursor:pointer" title="点击查看 '+e.name+' 的详情">';
     var avatarColors = {'lucy':'#FFD60A','eric':'#FFD60A','gates':'#FFD60A','cute':'#FFD60A','alex':'#FFD60A','nova':'#FFD60A','mike':'#FFD60A','lisa':'#FFD60A'};
     var bg = avatarColors[e.id] || e.gradient[0] || '#FFD60A';
     html += '<div class="emp-mini-avatar" style="background:'+bg+'"><svg width="28" height="28" viewBox="0 0 28 28" fill="none"><circle cx="14" cy="10" r="5" fill="#1D1D1F"/><ellipse cx="14" cy="22" rx="8" ry="5" fill="#1D1D1F"/></svg></div>';
@@ -2058,7 +2058,7 @@ function closeDetailPanel(){
 function detailStartChat(){
   if(currentDetailEmp){
     closeDetailPanel();
-    startChat(currentDetailEmp.id);
+    goToMainChat(currentDetailEmp.id);
   }
 }
 
@@ -2080,7 +2080,7 @@ function renderLoungeZone(){
   loungeZone.innerHTML = '<div class="lounge-grid">' + employees.map(function(e){
     var bg = (e.gradient && e.gradient[0]) || e.bg || '#FFD60A';
     var statusDot = e.status==='online'?'🟢':e.status==='busy'?'🟠':e.status==='thinking'?'🟡':'⚪';
-    return '<div class="lounge-avatar" style="background:'+bg+';position:relative;cursor:pointer" title="'+e.name+' ('+e.role+')" onclick="goToMainChat(\''+e.id+'\')">'+e.name[0]+'<span style="position:absolute;bottom:-2px;right:-2px;font-size:10px">'+statusDot+'</span></div>';
+    return '<div class="lounge-avatar" style="background:'+bg+';position:relative;cursor:pointer" title="'+e.name+' ('+e.role+')" onclick="openDetailPanel(\''+e.id+'\')">'+e.name[0]+'<span style="position:absolute;bottom:-2px;right:-2px;font-size:10px">'+statusDot+'</span></div>';
   }).join('') + '</div>';
 }
 
