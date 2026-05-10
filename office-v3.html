@@ -796,44 +796,77 @@ function saveEmployeesToStorage() {
 // openclaw defined by openclaw-client.js
 var isOnline = false;
 
-// Initialize OpenClaw connection
-async function initOpenClaw() {
-  openclaw = new OpenClawClient();
-  
-  openclaw.onStatusChange = (connected) => {
-    isOnline = connected;
-    const statusDot = document.getElementById('wsStatusDot');
-    const statusText = document.getElementById('wsStatusText');
-    const configStatus = document.getElementById('aiConfigStatus');
-    
-    if (connected) {
-      statusDot.style.background = 'var(--green)';
-      statusText.textContent = '🟢在线';
-      statusText.style.color = 'var(--green)';
-      if (configStatus) {
-        configStatus.innerHTML = '<span style="width:8px;height:8px;background:var(--green);border-radius:50%"></span>已连接';
-      }
-      showToast('✅ OpenClaw 已连接', 'success');
-    } else {
-      statusDot.style.background = 'var(--gray-4)';
-      statusText.textContent = '🔴离线';
-      statusText.style.color = 'var(--gray-4)';
-      if (configStatus) {
-        configStatus.innerHTML = '<span style="width:8px;height:8px;background:var(--gray-4);border-radius:50%"></span>离线模式';
-        configStatus.style.color = 'var(--gray-4)';
-      }
-    }
-  };
+// Initialize OpenClaw connection (using openclaw-client.js same as main page)
+var OPENCLAW_CONFIG = {
+  gatewayUrl: 'ws://192.168.1.25:18789',
+  defaultToken: '8606e4d80b1accfaa4e22729466c40003cd217ce2bda93f3'
+};
 
+async function initOpenClaw() {
   // 先加载员工数据（从 localStorage 优先），不管 OpenClaw 是否连接
   await loadRealAgents();
-  
+
+  if(typeof openclaw === 'undefined'){
+    console.warn('[Office] openclaw-client.js 未加载，使用离线模式');
+    updateOpenClawStatus(false);
+    return;
+  }
+
+  var ocToken = localStorage.getItem('openclaw_token') || OPENCLAW_CONFIG.defaultToken;
+  if(!ocToken){
+    console.warn('[Office] 无 OpenClaw token，使用离线模式');
+    updateOpenClawStatus(false);
+    return;
+  }
+
+  openclaw.setToken(ocToken);
+
+  openclaw.on('authenticated', function(){
+    console.log('[Office] OpenClaw 已认证');
+    updateOpenClawStatus(true);
+  });
+
+  openclaw.on('disconnected', function(){
+    console.log('[Office] OpenClaw 断开');
+    updateOpenClawStatus(false);
+  });
+
+  openclaw.on('error', function(err){
+    console.error('[Office] OpenClaw 错误:', err);
+    updateOpenClawStatus(false);
+  });
+
   try {
     await openclaw.connect();
   } catch (err) {
-    console.log('[OpenClaw] Connection failed, office works in offline mode:', err.message);
+    console.log('[Office] OpenClaw 连接失败，使用离线模式:', err.message);
+    updateOpenClawStatus(false);
   }
 }
+
+function updateOpenClawStatus(connected){
+  isOnline = connected;
+  var statusDot = document.getElementById('wsStatusDot');
+  var statusText = document.getElementById('wsStatusText');
+  var configStatus = document.getElementById('aiConfigStatus');
+
+  if (connected) {
+    if(statusDot) statusDot.style.background = 'var(--green)';
+    if(statusText){ statusText.textContent = '🟢在线'; statusText.style.color = 'var(--green)'; }
+    if (configStatus) {
+      configStatus.innerHTML = '<span style="width:8px;height:8px;background:var(--green);border-radius:50%"></span>在线模式';
+      configStatus.style.color = 'var(--green)';
+    }
+  } else {
+    if(statusDot) statusDot.style.background = 'var(--gray-4)';
+    if(statusText){ statusText.textContent = '❌离线'; statusText.style.color = 'var(--gray-4)'; }
+    if (configStatus) {
+      configStatus.innerHTML = '<span style="width:8px;height:8px;background:var(--gray-4);border-radius:50%"></span>离线模式';
+      configStatus.style.color = 'var(--gray-4)';
+    }
+  }
+}
+
 
 // ===== 数据定义 (支持 Mock 和 Real) =====
 let employees = [];
