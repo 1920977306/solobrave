@@ -966,13 +966,13 @@ async function initOpenClaw() {
     }
   };
 
+  // 先加载员工数据（从 localStorage 优先），不管 OpenClaw 是否连接
+  await loadRealAgents();
+  
   try {
     await openclaw.connect();
-    await loadRealAgents();
   } catch (err) {
-    console.log('[OpenClaw] Connection failed, using mock data:', err.message);
-    // Use mock data as fallback
-    initMockData();
+    console.log('[OpenClaw] Connection failed, office works in offline mode:', err.message);
   }
 }
 
@@ -1020,15 +1020,15 @@ async function loadEmployeesFromStorage() {
             ['#FF9500','#FF2D55'], ['#30B0C7','#5856D6'], ['#AF52DE','#FF375F'],
             ['#00C7BE','#30D158'], ['#FF6B35','#FFD60A']
           ];
-          const statusMap = { online: 'online', busy: 'busy', offline: 'offline', idle: 'idle', thinking: 'busy', working: 'busy' };
+          const statusMap = { online: 'online', busy: 'busy', offline: 'offline', idle: 'idle', thinking: 'thinking', working: 'working' };
           return {
-            id: emp.id || `emp_${idx}`,
-            name: emp.name || `员工${idx + 1}`,
+            id: emp.id || 'emp_' + idx,
+            name: emp.name || ('员工' + (idx + 1)),
             role: emp.role || 'AI Agent',
             initial: (emp.name || 'A')[0].toUpperCase(),
             gradient: gradients[idx % gradients.length],
             bg: emp.bg || gradients[idx % gradients.length][0],
-            avatar: emp.avatar || emp.name?.[0] || '👤',
+            avatar: (emp.avatar || (emp.name && emp.name[0]) || '👤'),
             status: statusMap[emp.status] || 'online',
             msg: emp.msg || '',
             permission: emp.permission || 'dev',
@@ -1121,7 +1121,7 @@ async function loadRealAgents() {
             ['#FF9500','#FF2D55'], ['#30B0C7','#5856D6'], ['#AF52DE','#FF375F'],
             ['#00C7BE','#30D158'], ['#FF6B35','#FFD60A']
           ];
-          const statusMap = { online: 'online', offline: 'offline', thinking: 'busy', working: 'busy' };
+          const statusMap = { online: 'online', offline: 'offline', thinking: 'thinking', working: 'working', busy: 'busy', idle: 'idle' };
           
           return {
             id: agent.id || `agent_${idx}`,
@@ -1646,7 +1646,7 @@ function renderEmployees(){
 function renderChatZone(){
   var chatZone = document.getElementById('chatZone');
   if(!chatZone) return;
-  var online = employees.filter(function(e){ return e.status==='thinking' || e.status==='online'; });
+  var online = employees.filter(function(e){ return e.status==='thinking' || e.status==='online' || e.status==='busy'; });
   if(online.length === 0) {
     chatZone.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-4)">暂无对话中的成员</div>';
     return;
