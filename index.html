@@ -5604,7 +5604,6 @@ if(type==='private'){
     area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
     return;
   }
-  const emp=emps.find(e=>e.id===empId);
   area.innerHTML='<div class="time-separator"><span>今天</span></div>'+
   history.map(m=>{
     const own=m.role==='user';
