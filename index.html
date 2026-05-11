@@ -3924,6 +3924,17 @@ async function loadEmployees(){
   if(saved){
     try{
       var data=JSON.parse(saved);
+      // 迁移旧字母头像为数字索引
+      var needSave = false;
+      for(var k=0;k<data.length;k++){
+        if(data[k].avatar && typeof data[k].avatar === 'string' && data[k].avatar.length <= 2 && data[k].avatar.indexOf('data:') !== 0 && data[k].avatar.indexOf('.') < 0){
+          data[k].avatar = k % 24;
+          needSave = true;
+        }
+      }
+      if(needSave){
+        localStorage.setItem('sb_employees', JSON.stringify(data));
+      }
       emps.length=0;
       data.forEach(function(e){emps.push(e);});
     }catch(e){}
