@@ -4404,7 +4404,7 @@ function renderEmployeeItem(e, showCreator){
   // 紧急 Badge
   var badgeTag = '';
   if(e.badge && e.badge.trim()) {
-    badgeTag = '<span class="emp-urgent-badge" onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(e.id) + '');" title="' + escapeAttr(e.badge) + '">⚠️ ' + escapeHtml(e.badge) + '</span>';
+    badgeTag = '<span class="emp-urgent-badge" onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(e.id) + '\');" title="' + escapeAttr(e.badge) + '">⚠️ ' + escapeHtml(e.badge) + '</span>';
   }
   
   return '<div class="item-avatar" style="position:relative;width:' + size + 'px;height:' + size + 'px;flex-shrink:0;"><div class="avatar small" style="background:' + escapeAttr(e.bg||'') + ';width:' + size + 'px;height:' + size + 'px;">' + avatarHtml + '</div><div class="status-dot ' + escapeAttr(e.status||'offline') + '" style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border:2.5px solid var(--bg-primary);border-radius:50%;box-shadow:0 0 0 0.5px rgba(0,0,0,0.06);transition:transform 0.2s;"></div></div><div class="item-info" style="min-width:0;"><div class="item-name" style="font-weight:500;font-size:14px;letter-spacing:-0.01em;">' + escapeHtml(e.name||'') + creatorTag + badgeTag + '</div><div class="item-msg" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg||'') + '</div></div>';
@@ -6791,7 +6791,6 @@ renderMemory('core');
 if(tab==='channel'&&currentEmpId){
 updateChannelStatusUI();
 }
-}
 // Update badge preview when switching to basic tab
 if(tab==='basic'&&currentEmpId){
 var badgeInput=document.getElementById('empBadgeInput');
@@ -9157,10 +9156,7 @@ function saveUserEdit() {
   });
 }
 
-  localStorage.setItem('sb_users', JSON.stringify(users));
-  showToast('✅ 用户信息已更新（本地模式）');
-  loadUserList();
-}
+
 
 // 配额管理
 // 数据迁移检查：本地 localStorage 数据同步到后端
