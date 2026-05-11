@@ -2148,7 +2148,7 @@ function saveEmployeesToStorage() {
     name: emp.name,
     role: emp.role || '',
       bg: emp.bg || (emp.gradient && emp.gradient[0]) || '#FF6B35',
-      avatar: emp.avatar || emp.initial || (emp.name && emp.name[0]) || '👤',
+      avatar: (typeof emp.avatar === 'number') ? emp.avatar : ((emp.avatar && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0)) ? emp.avatar : 0),
     status: emp.status || 'offline',
     msg: emp.msg || emp.statusDesc || '',
     archived: false,
@@ -2282,6 +2282,22 @@ function initMockData() {
 
 // ===== 数据打通：加载员工数据 =====
 async function loadEmployeesFromStorage() {
+  // 0. 迁移旧数据：清除字母头像，下次加载时自动分配数字索引
+  try {
+    var oldEmps = JSON.parse(localStorage.getItem('sb_employees') || '[]');
+    var needMigrate = false;
+    for(var k=0;k<oldEmps.length;k++){
+      if(oldEmps[k].avatar && typeof oldEmps[k].avatar === 'string' && oldEmps[k].avatar.length <= 2 && oldEmps[k].avatar.indexOf('data:') !== 0 && oldEmps[k].avatar.indexOf('.') < 0){
+        oldEmps[k].avatar = k % 24;
+        needMigrate = true;
+      }
+    }
+    if(needMigrate){
+      localStorage.setItem('sb_employees', JSON.stringify(oldEmps));
+      console.log('[Office] 迁移了', oldEmps.length, '个员工的头像数据为数字索引');
+    }
+  } catch(e){ console.log('[Office] 头像迁移跳过:', e); }
+
   // 1. 优先从 localStorage sb_employees 读取（与主页共享数据）
   const savedEmps = localStorage.getItem('sb_employees');
   if (savedEmps) {
@@ -2303,7 +2319,7 @@ async function loadEmployeesFromStorage() {
             initial: (emp.name || 'A')[0].toUpperCase(),
             gradient: gradients[idx % gradients.length],
             bg: emp.bg || gradients[idx % gradients.length][0],
-            avatar: (emp.avatar || (emp.name && emp.name[0]) || '👤'),
+            avatar: (typeof emp.avatar === 'number') ? emp.avatar : ((emp.avatar && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0)) ? emp.avatar : (idx % 24)),
             status: statusMap[emp.status] || 'online',
             msg: emp.msg || '',
             permission: emp.permission || 'dev',
@@ -2368,7 +2384,7 @@ async function loadRealAgents() {
               initial: (emp.name || 'A')[0].toUpperCase(),
               gradient: gradients[idx % gradients.length],
               bg: emp.bg || gradients[idx % gradients.length][0],
-      avatar: emp.avatar || (emp.name && emp.name[0]) || '👤',
+      avatar: (typeof emp.avatar === 'number') ? emp.avatar : ((emp.avatar && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0)) ? emp.avatar : (idx % 24)),
               status: emp.status || 'online',
               ...emp
             };
