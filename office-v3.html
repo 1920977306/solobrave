@@ -1288,6 +1288,255 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .status-dot.busy { background: var(--blue); box-shadow: 0 0 4px rgba(0, 122, 255, 0.4); }
 .status-dot.thinking { background: var(--yellow); box-shadow: 0 0 4px rgba(255, 204, 0, 0.4); }
 .status-dot.offline { background: var(--gray-3); }
+
+
+/* ===== Apple风格大卡片布局 ===== */
+.apple-card-zone {
+  padding: 0;
+}
+
+.apple-zone-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+}
+
+.apple-zone-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+
+.apple-zone-count {
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.04);
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-weight: 500;
+}
+
+.apple-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px 16px;
+}
+
+.apple-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 0 16px 16px;
+}
+
+.apple-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+/* Apple风格大卡片 */
+.apple-profile-card {
+  display: flex;
+  align-items: stretch;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 0 1px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.apple-profile-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.08);
+  transform: translateY(-3px);
+  border-color: transparent;
+}
+
+.apple-profile-card:active {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* 卡片左侧头像区 */
+.apple-card-left {
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0));
+}
+
+.apple-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+  color: #1a1a1a;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 3px solid rgba(255, 255, 255, 0.9);
+}
+
+.apple-avatar-sm {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  font-size: 20px;
+}
+
+/* 卡片右侧内容区 */
+.apple-card-right {
+  flex: 1;
+  padding: 16px 16px 16px 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.apple-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.apple-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+
+.apple-name-sm {
+  font-size: 15px;
+}
+
+.apple-role-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--blue);
+  background: rgba(0, 122, 255, 0.1);
+  padding: 3px 8px;
+  border-radius: 6px;
+  text-transform: capitalize;
+}
+
+.apple-role-sm {
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+.apple-card-middle {
+  margin-top: 6px;
+}
+
+.apple-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.apple-status.apple-thinking {
+  color: #CC9900;
+}
+
+.apple-status.apple-online {
+  color: #34C759;
+}
+
+.apple-status.apple-busy {
+  color: #FF9500;
+}
+
+.apple-status.apple-offline {
+  color: #8e8e93;
+}
+
+.apple-status.apple-working {
+  color: var(--blue);
+}
+
+.apple-card-bottom {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.apple-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.apple-progress-sm {
+  height: 4px;
+  border-radius: 2px;
+}
+
+.apple-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.apple-progress-fill.apple-thinking {
+  background: linear-gradient(90deg, #FFD60A, #FF9500);
+}
+
+.apple-progress-fill.apple-online {
+  background: linear-gradient(90deg, #34C759, #30D158);
+}
+
+.apple-progress-fill.apple-busy {
+  background: linear-gradient(90deg, #FF9500, #FF3B30);
+}
+
+.apple-progress-fill.apple-offline {
+  background: linear-gradient(90deg, #8e8e93, #636366);
+}
+
+.apple-progress-fill.apple-working {
+  background: linear-gradient(90deg, var(--blue), #5AC8FA);
+}
+
+.apple-stat {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* 紧凑卡片样式 */
+.apple-card-compact {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.apple-card-compact .apple-card-left {
+  padding: 20px 16px 8px;
+  justify-content: center;
+}
+
+.apple-card-compact .apple-card-right {
+  padding: 0 16px 16px;
+}
+
 </style><script src="./openclaw-client.js"></script>
 </head><body>
 <nav class="nav-bar">
@@ -2408,11 +2657,12 @@ function renderChatZone() {
     return timeB - timeA;
   });
   
-  var html = '<div class="chat-member-list">';
-  html += '<div class="chat-list-header">';
-  html += '<span class="chat-list-title">💬 对话区</span>';
-  html += '<span class="chat-list-count">' + onlineCount + '人在线</span>';
+  var html = '<div class="apple-card-zone">';
+  html += '<div class="apple-zone-header">';
+  html += '<span class="apple-zone-title">💬 对话区</span>';
+  html += '<span class="apple-zone-count">' + onlineCount + '人在线</span>';
   html += '</div>';
+  html += '<div class="apple-card-list">';
   
   for (var i = 0; i < chatters.length; i++) {
     var e = chatters[i];
@@ -2429,48 +2679,56 @@ function renderChatZone() {
     var initial = e.name ? e.name.charAt(0).toUpperCase() : '?';
     
     // 状态文本和样式
+    var statusEmoji = '';
     var statusText = '';
     var statusClass = '';
     if (e.status === 'thinking') {
+      statusEmoji = '💡';
       statusText = '思考中';
-      statusClass = 'thinking';
+      statusClass = 'apple-thinking';
     } else if (e.status === 'online') {
+      statusEmoji = '🟢';
       statusText = '在线';
-      statusClass = 'online';
+      statusClass = 'apple-online';
     } else if (e.status === 'busy') {
+      statusEmoji = '🟠';
       statusText = '忙碌';
-      statusClass = 'busy';
+      statusClass = 'apple-busy';
     } else {
+      statusEmoji = '⚫';
       statusText = '离线';
-      statusClass = 'offline';
+      statusClass = 'apple-offline';
     }
     
-    html += '<div class="chat-member-item" onclick="openDetailPanel(\'' + e.id + '\')">';
-    html += '<div class="member-avatar" style="background:' + bg + '">' + initial + '</div>';
-    html += '<div class="member-info">';
-    html += '<div class="member-name-row">';
-    html += '<span class="member-name">' + e.name + '</span>';
-    html += '<span class="status-dot ' + statusClass + '"></span>';
+    // 模拟进度和统计
+    var progress = Math.floor(Math.random() * 40) + 60;
+    var chatCount = unreadCount > 0 ? unreadCount : Math.floor(Math.random() * 50);
+    
+    html += '<div class="apple-profile-card" onclick="openDetailPanel(\'' + e.id + '\')">';
+    html += '<div class="apple-card-left">';
+    html += '<div class="apple-avatar" style="background:' + bg + '">' + initial + '</div>';
     html += '</div>';
-    html += '<div class="member-role">' + (e.role || '成员') + '</div>';
-    html += '<div class="member-status-row">';
-    html += '<span class="status-dot ' + statusClass + '"></span>';
-    html += '<span class="status-text ' + statusClass + '">' + statusText + '</span>';
+    html += '<div class="apple-card-right">';
+    html += '<div class="apple-card-top">';
+    html += '<span class="apple-name">' + e.name + '</span>';
+    html += '<span class="apple-role-badge">' + (e.role || '成员') + '</span>';
     html += '</div>';
+    html += '<div class="apple-card-middle">';
+    html += '<span class="apple-status ' + statusClass + '">' + statusEmoji + ' ' + statusText + '</span>';
     html += '</div>';
-    html += '<div class="member-actions">';
-    html += '<button class="member-action-btn" onclick="event.stopPropagation();startChat(\'' + e.id + '\')">💬 聊天</button>';
-    html += '<button class="member-action-btn" onclick="event.stopPropagation();viewProfile(\'' + e.id + '\')">👤 详情</button>';
+    html += '<div class="apple-card-bottom">';
+    html += '<div class="apple-progress-bar">';
+    html += '<div class="apple-progress-fill ' + statusClass + '" style="width:' + progress + '%"></div>';
+    html += '</div>';
+    html += '<span class="apple-stat">' + chatCount + '条消息</span>';
+    html += '</div>';
     html += '</div>';
     html += '</div>';
   }
   
-  html += '</div>';
+  html += '</div></div>';
   chatZone.innerHTML = html;
 }
-
-
-// 新消息到达时滚动到顶部并高亮
 function scrollChatZoneToTop(empId) {
   var chatZone = document.getElementById('chatZone');
   if (!chatZone) return;
@@ -2508,22 +2766,24 @@ function renderWorkZone() {
     return e.status === 'busy' || e.status === 'thinking' || e.status === 'working';
   });
   
-  var html = '<div class="work-member-list">';
-  html += '<div class="work-list-header">';
-  html += '<span class="work-list-title">🧑‍💻 办公区</span>';
-  html += '<span class="work-list-count">' + workingEmployees.length + '人工作中</span>';
+  var html = '<div class="apple-card-zone">';
+  html += '<div class="apple-zone-header">';
+  html += '<span class="apple-zone-title">🧑‍💻 办公区</span>';
+  html += '<span class="apple-zone-count">' + workingEmployees.length + '人工作中</span>';
   html += '</div>';
+  html += '<div class="apple-card-grid">';
   
   if (workingEmployees.length === 0) {
-    html += '<div class="work-empty">暂无工作中的成员</div>';
+    html += '<div class="apple-empty">暂无工作中的成员</div>';
   } else {
     for (var i = 0; i < workingEmployees.length; i++) {
       var e = workingEmployees[i];
       var isThinking = e.status === 'thinking';
       
       // 状态样式
-      var statusClass = isThinking ? 'thinking' : 'working';
-      var statusText = isThinking ? '💡 思考中' : '⌨️ 工作中';
+      var statusEmoji = isThinking ? '💡' : '👷';
+      var statusText = isThinking ? '思考中' : '工作中';
+      var statusClass = isThinking ? 'apple-thinking' : 'apple-working';
       
       // 头像背景色
       var avatarColors = {
@@ -2536,30 +2796,36 @@ function renderWorkZone() {
       
       // 模拟进度
       var progress = Math.floor(Math.random() * 60) + 20;
+      var taskCount = Math.floor(Math.random() * 8) + 1;
       
-      html += '<div class="work-member-item" onclick="openDetailPanel(\'' + e.id + '\')">';
-      html += '<div class="work-member-avatar" style="background:' + bg + '">' + initial + '</div>';
-      html += '<div class="work-member-name">' + e.name + '</div>';
-      html += '<div class="work-member-role">' + (e.role || '成员') + '</div>';
-      html += '<div class="work-member-status ' + statusClass + '">' + statusText + '</div>';
-      html += '<div class="work-progress">';
-      html += '<div class="work-progress-bar">';
-      html += '<div class="work-progress-fill" style="width:' + progress + '%"></div>';
+      html += '<div class="apple-profile-card apple-card-compact" onclick="openDetailPanel(\'' + e.id + '\')">';
+      html += '<div class="apple-card-left">';
+      html += '<div class="apple-avatar apple-avatar-sm" style="background:' + bg + '">' + initial + '</div>';
       html += '</div>';
+      html += '<div class="apple-card-right">';
+      html += '<div class="apple-card-top">';
+      html += '<span class="apple-name apple-name-sm">' + e.name + '</span>';
+      html += '<span class="apple-role-badge apple-role-sm">' + (e.role || '成员') + '</span>';
       html += '</div>';
-      html += '<div class="work-member-actions">';
-      html += '<button class="work-member-action-btn" onclick="event.stopPropagation();checkProgress(\'' + e.id + '\')">📊 进度</button>';
-      html += '<button class="work-member-action-btn" onclick="event.stopPropagation();sendTask(\'' + e.id + '\')">📋 任务</button>';
+      html += '<div class="apple-card-middle">';
+      html += '<span class="apple-status ' + statusClass + '">' + statusEmoji + ' ' + statusText + '</span>';
+      html += '</div>';
+      html += '<div class="apple-card-bottom">';
+      html += '<div class="apple-progress-bar apple-progress-sm">';
+      html += '<div class="apple-progress-fill ' + statusClass + '" style="width:' + progress + '%"></div>';
+      html += '</div>';
+      html += '<span class="apple-stat">' + taskCount + '个任务</span>';
+      html += '</div>';
       html += '</div>';
       html += '</div>';
     }
   }
   
-  html += '</div>';
+  html += '</div></div>';
   workZone.innerHTML = html;
 }
 
-// 查看成员资料
+
 function viewProfile(empId) {
   var emp = employees.find(function(e) { return e.id === empId; });
   if (emp) {
