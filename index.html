@@ -3026,6 +3026,15 @@ function showMainApp() {
   loadEmployees().then(function(){
     loadGroups().then(function(){
       renderEmployeeList();
+      // 校验当前聊天对象是否还存在
+      var curEmp = localStorage.getItem('sb_current_emp');
+      if(curEmp && !emps.find(function(e){return e.id===curEmp;})){
+        localStorage.removeItem('sb_current_emp');
+        var area = document.getElementById('messagesArea');
+        if(area) area.innerHTML = '';
+        var chatHeaderName = document.querySelector('.chat-header-name');
+        if(chatHeaderName) chatHeaderName.textContent = '';
+      }
     });
   });
   // 自动连接 OpenClaw
@@ -4556,7 +4565,7 @@ function ctxAction(action){
     // case 'move' - moved to submenu
     case 'archive': emp.archived=true; saveArchive(); showToast('📦 已归档'); break;
     case 'unarchive': emp.archived=false; saveArchive(); showToast('📥 已取消归档'); break;
-    case 'delete': if(confirm('确定删除 '+emp.name+'？')){emps=emps.filter(e=>e.id!==contextTarget); saveEmployees(); if(typeof apiFetch==='function'){apiFetch('/api/agents/'+contextTarget,{method:'DELETE'}).catch(function(){});} showToast('🗑️ 已删除');} break;
+    case 'delete': if(confirm('确定删除 '+emp.name+'？')){var _delId=contextTarget;emps=emps.filter(e=>e.id!==_delId); localStorage.removeItem('sb_chat_history_'+_delId); if(localStorage.getItem('sb_current_emp')===_delId){localStorage.removeItem('sb_current_emp');} saveEmployees(); if(typeof apiFetch==='function'){apiFetch('/api/agents/'+_delId,{method:'DELETE'}).catch(function(){});} renderMsgs('private'); showToast('🗑️ 已删除');} break;
   }
   renderEmployeeList();
   hideContextMenu();
@@ -4635,6 +4644,8 @@ function empSettingsAction(action){
     case 'delete': 
       if(confirm('确定删除 ' + emp.name + '？')){
         var deleteId = empSettingsTarget;
+        localStorage.removeItem('sb_chat_history_'+deleteId);
+        if(localStorage.getItem('sb_current_emp')===deleteId){localStorage.removeItem('sb_current_emp');}
         for(var i = emps.length - 1; i >= 0; i--){
           if(emps[i].id === deleteId) emps.splice(i, 1);
         }
@@ -4643,6 +4654,7 @@ function empSettingsAction(action){
         if(typeof apiFetch === 'function'){
           apiFetch('/api/agents/' + deleteId, { method: 'DELETE' }).catch(function(){});
         }
+        renderMsgs('private');
         showToast('🗑️ 已删除');
       }
       break;
@@ -5584,6 +5596,9 @@ function renderMsgs(type){
 const area=document.getElementById('messagesArea');
 if(type==='private'){
   const empId=localStorage.getItem('sb_current_emp');
+  if(!empId){area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">🦞</div><div class="empty-title">选择对话</div><div class="empty-desc">从左侧选择一位员工开始对话<br>输入 / 查看快捷指令</div></div>';return;}
+  const emp=emps.find(e=>e.id===empId);
+  if(!emp){localStorage.removeItem('sb_current_emp');area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">🦞</div><div class="empty-title">选择对话</div><div class="empty-desc">从左侧选择一位员工开始对话<br>输入 / 查看快捷指令</div></div>';return;}
   const history=JSON.parse(localStorage.getItem('sb_chat_history_'+empId)||'[]');
   if(history.length===0){
     area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
