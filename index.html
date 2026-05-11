@@ -1707,6 +1707,48 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .gw-confirm-label { color: var(--text-secondary); margin-right: 4px; }
 
 </style>
+<script>
+// Early login handler - works even if main script fails to load
+window.doLogin = function() {
+  var btn = document.getElementById('loginBtn');
+  if(btn) btn.disabled = true;
+  
+  var username = document.getElementById('loginUsername');
+  var password = document.getElementById('loginPassword');
+  var errorDiv = document.getElementById('loginError');
+  
+  if(!username || !password) return;
+  if(!username.value.trim() || !password.value) {
+    if(errorDiv) { errorDiv.textContent = '请输入用户名和密码'; errorDiv.style.display = 'block'; }
+    if(btn) btn.disabled = false;
+    return;
+  }
+  
+  // Try the full login function from main script
+  if(typeof _fullLogin === 'function') {
+    _fullLogin().finally(function(){ if(btn) btn.disabled = false; });
+  } else {
+    // Main script not loaded yet, try manual fetch
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username: username.value.trim(), password: password.value})
+    }).then(function(r){ return r.json(); }).then(function(data){
+      if(data.token){
+        localStorage.setItem('sb_current_user', JSON.stringify(data.user || {username: username.value.trim()}));
+        localStorage.setItem('sb_auth_token', data.token);
+        location.reload();
+      } else {
+        if(errorDiv){ errorDiv.textContent = data.error || '登录失败'; errorDiv.style.display = 'block'; }
+        if(btn) btn.disabled = false;
+      }
+    }).catch(function(e){
+      if(errorDiv){ errorDiv.textContent = '连接服务器失败'; errorDiv.style.display = 'block'; }
+      if(btn) btn.disabled = false;
+    });
+  }
+};
+</script>
 </head>
 <body>
 <!-- Login Overlay -->
@@ -3042,7 +3084,7 @@ function showMainApp() {
 }
 
 // 登录
-async function doLogin() {
+async function _fullLogin() {
   var username = document.getElementById('loginUsername').value.trim();
   var password = document.getElementById('loginPassword').value;
   var errorDiv = document.getElementById('loginError');
