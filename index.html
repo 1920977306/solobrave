@@ -185,6 +185,26 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .lounge-item:hover .lounge-wake-btn { opacity: 1; }
 .lounge-wake-btn:hover { background: var(--accent); transform: scale(1.1); }
 
+/* Lounge Avatar + Status Dot */
+.lounge-avatar-wrap { position: relative; display: inline-block; }
+.lounge-status-dot { position: absolute; bottom: -2px; right: -2px; font-size: 10px; line-height: 1; }
+.lounge-item .avatar { width: 44px; height: 44px; font-size: 18px; opacity: 1; }
+
+/* Role Tag */
+.lounge-role-tag { font-size: 10px; padding: 1px 6px; background: var(--bg-tertiary); border-radius: 8px; color: var(--text-tertiary); margin-left: 4px; vertical-align: middle; font-weight: normal; }
+
+/* Hover Preview Card */
+.lounge-preview-card { position: absolute; right: 100%; top: 50%; transform: translateY(-50%); margin-right: 12px; width: 220px; background: rgba(255,255,255,0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-radius: 12px; padding: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); border: 0.5px solid var(--separator); z-index: 500; opacity: 0; visibility: hidden; transition: all 0.2s ease; pointer-events: none; }
+.lounge-item:hover .lounge-preview-card { opacity: 1; visibility: visible; }
+.lounge-preview-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.lounge-preview-header .avatar { width: 36px; height: 36px; }
+.lounge-preview-name { font-size: 14px; font-weight: 600; }
+.lounge-preview-role { font-size: 11px; color: var(--text-tertiary); }
+.lounge-preview-divider { height: 0.5px; background: var(--separator); margin: 8px 0; }
+.lounge-preview-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.lounge-preview-row:last-child { margin-bottom: 0; }
+.lounge-preview-label { color: var(--text-tertiary); }
+
 /* Chat Area */
 .chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-primary); }
 
@@ -6717,6 +6737,76 @@ if(tab==='channel'&&currentEmpId){
 updateChannelStatusUI();
 }
 }
+
+// ========== Channel Config ==========
+var currentChannelType = '';
+
+function updateChannelStatusUI(){
+  var emp = emps.find(function(e){ return e.id === currentEmpId; });
+  if(!emp) return;
+  var channels = [
+    {id:'dingtalk',name:'钉钉',icon:'💬',bg:'#1677FF',field:'dingtalkWebhook'},
+    {id:'feishu',name:'飞书',icon:'✈️',bg:'#0066FF',field:'feishuWebhook'},
+    {id:'agentlink',name:'AgentLink',icon:'🔗',bg:'#00C853',field:'agentlinkWebhook'},
+    {id:'telegram',name:'Telegram',icon:'✈️',bg:'#0088FE',field:'telegramWebhook'}
+  ];
+  var list = document.querySelector('#emp-tab-channel .emp-channel-list');
+  if(!list) return;
+  list.innerHTML = channels.map(function(ch){
+    var configured = emp[ch.field] && emp[ch.field].webhook;
+    var active = configured && emp[ch.field].active;
+    return '<div class="emp-channel-item" onclick="openChannelConfig(\'' + ch.id + '\')" style="cursor:pointer;">' +
+      '<div class="emp-channel-icon" style="background:' + ch.bg + ';">' + ch.icon + '</div>' +
+      '<div class="emp-channel-info">' +
+      '<div class="emp-channel-name">' + ch.name + '</div>' +
+      '<div class="emp-channel-status ' + (active ? 'active' : 'inactive') + '">' + (active ? '已启用' : (configured ? '已配置' : '未配置')) + '</div>' +
+      '</div>' +
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-tertiary);"><polyline points="9 18 15 12 9 6"/></svg>' +
+      '</div>';
+  }).join('');
+}
+
+function openChannelConfig(channelType){
+  currentChannelType = channelType;
+  var names = {dingtalk:'钉钉',feishu:'飞书',agentlink:'AgentLink',telegram:'Telegram'};
+  document.getElementById('channelConfigTitle').textContent = '🔧 ' + (names[channelType] || '渠道') + '配置';
+  var emp = emps.find(function(e){ return e.id === currentEmpId; });
+  var config = (emp && emp[channelType + 'Webhook']) || {};
+  document.getElementById('channelWebhook').value = config.webhook || '';
+  document.getElementById('channelToken').value = config.token || '';
+  var radios = document.getElementsByName('channelActive');
+  for(var i=0;i<radios.length;i++){
+    radios[i].checked = (radios[i].value === '1') === (config.active !== false);
+  }
+  document.getElementById('channelConfigModal').style.display = 'flex';
+}
+
+function closeChannelConfigModal(){
+  document.getElementById('channelConfigModal').style.display = 'none';
+  currentChannelType = '';
+}
+
+function saveChannelConfig(){
+  if(!currentEmpId || !currentChannelType) return;
+  var emp = emps.find(function(e){ return e.id === currentEmpId; });
+  if(!emp) return;
+  var webhook = document.getElementById('channelWebhook').value.trim();
+  var token = document.getElementById('channelToken').value.trim();
+  var radios = document.getElementsByName('channelActive');
+  var active = true;
+  for(var i=0;i<radios.length;i++){
+    if(radios[i].checked){
+      active = radios[i].value === '1';
+      break;
+    }
+  }
+  emp[currentChannelType + 'Webhook'] = {webhook:webhook,token:token,active:active,updatedAt:Date.now()};
+  saveEmployees();
+  updateChannelStatusUI();
+  closeChannelConfigModal();
+  showToast('✅ 渠道配置已保存');
+}
+
 var selectedAvatar='',selectedColor='';
 function selectAvatar(el){
 document.querySelectorAll('.avatar-option').forEach(a=>a.classList.remove('selected'));
@@ -7367,25 +7457,63 @@ renderLounge();
 }
 }
 function renderLounge(){
-const content=document.getElementById('loungeContent');
-const offline=emps.filter(e=>e.status==='offline');
-const total=emps.length;
-const online=emps.filter(e=>e.status==='online'||e.status==='busy').length;
-if(offline.length===0){
-content.innerHTML=`<div class="lounge-empty">
-<div class="lounge-empty-icon">☀️</div>
-<div class="lounge-empty-text">所有员工都在线！</div>
-</div>`;
-}else{
-content.innerHTML=`<div class="lounge-stat">🏖️ 休闲区 · <span>${offline.length}</span> 人休息中 / ${total} 人在线</div>
-${offline.map(e=>`<div class="lounge-item" onclick="openEmpDetail('${escapeAttr(e.id||'')}')">
-<div class="avatar" style="background:${escapeAttr(e.bg||e.color||'#999')};opacity:0.6;display:flex;align-items:center;justify-content:center;">${renderAvatar(e, 32)}</div>
-<div class="lounge-item-info">
-<div class="lounge-item-name">${escapeHtml(e.name||'')}</div>
-<div class="lounge-item-status">最后活跃: ${escapeHtml(e.lastActive||'刚刚')}</div>
-</div>
-<button class="lounge-wake-btn" onclick="event.stopPropagation();wakeUpEmployee('${escapeAttr(e.id||'')}')" title="唤醒员工">☀️</button>
-</div>`).join('')}`;
+var content=document.getElementById('loungeContent');
+var total=emps.length;
+var onlineCount=emps.filter(function(e){return e.status==='online'||e.status==='busy';}).length;
+var workingCount=emps.filter(function(e){return e.status==='thinking'||e.status==='coding'||e.status==='reading';}).length;
+
+function getStatusDot(status){
+  if(status==='online'||status==='busy') return '🟢';
+  if(status==='thinking'||status==='coding'||status==='reading') return '🟡';
+  if(status==='waiting') return '💤';
+  return '⚫';
+}
+
+if(total===0){
+  content.innerHTML='<div class="lounge-empty"><div class="lounge-empty-icon">☀️</div><div class="lounge-empty-text">暂无员工</div></div>';
+} else {
+  content.innerHTML='<div class="lounge-stat">🏖️ 休闲区 · <span>'+onlineCount+'</span> 在线 / <span>'+workingCount+'</span> 工作中 / '+total+' 总计</div>'+
+    emps.map(function(e){
+      var statusDot = getStatusDot(e.status);
+      var roleTag = e.role ? '<span class="lounge-role-tag">'+escapeHtml(e.role)+'</span>' : '';
+      // Get today's chat count for this emp
+      var chatKey = 'sb_chat_history_' + (e.id || '');
+      var chatHistory = [];
+      try {
+        var chatData = localStorage.getItem(chatKey);
+        if(chatData) chatHistory = JSON.parse(chatData);
+      } catch(err) { chatHistory = []; }
+      var todayChatCount = chatHistory.filter(function(m){
+        var msgDate = m.time ? new Date(m.time).toDateString() : '';
+        return msgDate === new Date().toDateString();
+      }).length;
+
+      return '<div class="lounge-item" data-emp-id="'+escapeAttr(e.id||'')+'" onclick="openEmpDetail(\''+escapeAttr(e.id||'')+'\')">'+
+        '<div class="lounge-avatar-wrap">'+
+        '<div class="avatar" style="background:'+escapeAttr(e.bg||e.color||'#999')+';display:flex;align-items:center;justify-content:center;">'+renderAvatar(e, 36)+'</div>'+
+        '<div class="lounge-status-dot">'+statusDot+'</div>'+
+        '</div>'+
+        '<div class="lounge-item-info">'+
+        '<div class="lounge-item-name">'+escapeHtml(e.name||'')+' '+roleTag+'</div>'+
+        '<div class="lounge-item-status">'+escapeHtml(e.msg||e.lastActive||'离线')+'</div>'+
+        '</div>'+
+        (e.status==='offline' ? '<button class="lounge-wake-btn" onclick="event.stopPropagation();wakeUpEmployee(\''+escapeAttr(e.id||'')+'\')" title="唤醒员工">☀️</button>' : '')+
+        // Hover preview card
+        '<div class="lounge-preview-card">'+
+        '<div class="lounge-preview-header">'+
+        '<div class="avatar" style="background:'+escapeAttr(e.bg||e.color||'#999')+';display:flex;align-items:center;justify-content:center;">'+renderAvatar(e, 32)+'</div>'+
+        '<div>'+
+        '<div class="lounge-preview-name">'+statusDot+' '+escapeHtml(e.name||'')+'</div>'+
+        '<div class="lounge-preview-role">'+escapeHtml(e.role||'员工')+'</div>'+
+        '</div>'+
+        '</div>'+
+        '<div class="lounge-preview-divider"></div>'+
+        '<div class="lounge-preview-row">📋 <span class="lounge-preview-label">当前：</span>'+escapeHtml(e.msg||'暂无任务')+'</div>'+
+        '<div class="lounge-preview-row">💬 <span class="lounge-preview-label">今日对话：</span>'+todayChatCount+'条</div>'+
+        '<div class="lounge-preview-row">⏱️ <span class="lounge-preview-label">状态：</span>'+escapeHtml(e.status||'离线')+'</div>'+
+        '</div>'+
+        '</div>';
+    }).join('');
 }
 }
 function wakeUpEmployee(empId){
