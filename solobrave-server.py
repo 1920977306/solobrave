@@ -1414,10 +1414,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if auth.is_admin:
             result = agents
         else:
-            # employee: 自己创建的 + visibility='all' 的
+            # employee: 只能看到自己创建的
             result = [a for a in agents
-                      if a.get('createdBy') == auth.user_info['userId']
-                      or a.get('visibility') == 'all']
+                      if a.get('createdBy') == auth.user_info['userId']]
 
         # 去掉不需要的字段
         safe_result = []
@@ -1432,7 +1431,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'msg': a.get('msg', ''),
                 'archived': a.get('archived', False),
                 'permission': a.get('permission', 'dev'),
-                'visibility': a.get('visibility', 'all'),
+                'visibility': a.get('visibility', 'creator'),
                 'createdBy': a.get('createdBy', ''),
                 'createdByName': a.get('createdByName', ''),
                 'createdAt': a.get('createdAt', ''),
@@ -1515,7 +1514,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'msg': body.get('msg', ''),
             'archived': body.get('archived', False),
             'permission': body.get('permission', 'dev'),
-            'visibility': body.get('visibility', 'all'),
+            'visibility': body.get('visibility', 'creator'),
             'createdBy': auth.user_info['userId'],
             'createdAt': datetime.now().isoformat(),
             'connectionType': body.get('connectionType', ''),
