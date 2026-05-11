@@ -1549,40 +1549,62 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .chat-card {
   display: flex;
   align-items: center;
-  gap: 14px;
-  background: white;
-  border-radius: 12px;
-  padding: 16px;
+  gap: 16px;
+  background: linear-gradient(135deg, #ffffff 0%, #fafbfc 100%);
+  border-radius: 16px;
+  padding: 18px 20px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  border: 1px solid rgba(0,0,0,0.06);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(0,0,0,0.04);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04), 0 0 1px rgba(0,0,0,0.06);
+  position: relative;
+  overflow: hidden;
+}
+
+.chat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--chat-zone);
+  border-radius: 4px 0 0 4px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
 .chat-card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.06);
   transform: translateY(-2px);
-  border-color: transparent;
+  border-color: rgba(0,122,255,0.15);
+  background: linear-gradient(135deg, #ffffff 0%, #f5f7fa 100%);
+}
+
+.chat-card:hover::before {
+  opacity: 1;
 }
 
 /* 头像区 */
 .chat-card-avatar {
-  width: 56px;
-  height: 56px;
+  width: 60px;
+  height: 60px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  background: linear-gradient(135deg, #FFD60A 0%, #FF9500 100%);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
 }
 
 .chat-card-avatar img {
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   object-fit: cover;
+  border: 2px solid rgba(255,255,255,0.8);
 }
 
 .work-card-avatar img {
@@ -1590,17 +1612,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   height: 48px;
   border-radius: 50%;
   object-fit: cover;
+  border: 2px solid rgba(255,255,255,0.8);
 }
 
 /* 头像下方状态点 */
 .chat-card-status-dot {
   position: absolute;
-  bottom: 2px;
-  right: 2px;
-  width: 12px;
-  height: 12px;
+  bottom: 1px;
+  right: 1px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  border: 2px solid white;
+  border: 3px solid white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 
 /* 卡片信息区 */
@@ -1612,47 +1636,80 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .chat-card-name-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
 .chat-card-name {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: #1D1D1F;
+  letter-spacing: -0.3px;
 }
 
 .chat-card-role {
   font-size: 11px;
-  font-weight: 500;
-  color: var(--text-secondary);
+  font-weight: 600;
+  color: #007AFF;
+  background: rgba(0,122,255,0.08);
+  padding: 2px 8px;
+  border-radius: 6px;
 }
 
 .work-card-role {
   font-size: 11px;
-  font-weight: 500;
-  color: var(--text-secondary);
+  font-weight: 600;
+  color: #007AFF;
+  background: rgba(0,122,255,0.08);
+  padding: 2px 8px;
+  border-radius: 6px;
 }
 
 .chat-card-status-row {
   display: flex;
   align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+/* 状态胶囊标签 */
+.chat-card-status-badge {
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
-  margin-top: 4px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.chat-card-status-badge.thinking {
+  background: rgba(255,214,10,0.15);
+  color: #8B7000;
+}
+
+.chat-card-status-badge.working {
+  background: rgba(52,199,89,0.12);
+  color: #1B7A33;
+}
+
+.chat-card-status-badge.online {
+  background: rgba(52,199,89,0.08);
+  color: #34C759;
 }
 
 /* 进度条 */
 .chat-card-progress {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .chat-card-progress-bar {
   flex: 1;
-  height: 5px;
-  background: rgba(0,0,0,0.08);
+  height: 6px;
+  background: rgba(0,0,0,0.06);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -1660,39 +1717,64 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .chat-card-progress-fill {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.4s ease;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  background: linear-gradient(90deg, #FFD60A, #FF9500);
+}
+
+.chat-card-progress-fill.online-fill {
+  background: linear-gradient(90deg, #34C759, #30D158);
 }
 
 .chat-card-duration {
   font-size: 11px;
-  color: var(--text-secondary);
+  color: #8E8E93;
   flex-shrink: 0;
+  font-weight: 500;
 }
 
 /* ================================================
-   办公区卡片
+   办公区卡片 - 同样的高级设计
    ================================================ */
 
-/* 办公区2列网格容器 */
 #workZone {}
 
 .work-card {
   display: flex;
   align-items: center;
   gap: 14px;
-  background: white;
-  border-radius: 12px;
-  padding: 14px;
+  background: linear-gradient(135deg, #ffffff 0%, #fafbfc 100%);
+  border-radius: 14px;
+  padding: 16px 18px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  border: 1px solid rgba(0,0,0,0.06);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(0,0,0,0.04);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04), 0 0 1px rgba(0,0,0,0.06);
+  position: relative;
+  overflow: hidden;
+}
+
+.work-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--work-zone);
+  border-radius: 4px 0 0 4px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
 .work-card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.06);
   transform: translateY(-2px);
-  border-color: transparent;
+  border-color: rgba(255,149,0,0.15);
+  background: linear-gradient(135deg, #ffffff 0%, #f5f7fa 100%);
+}
+
+.work-card:hover::before {
+  opacity: 1;
 }
 
 /* 办公区头像 */
@@ -1705,17 +1787,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   justify-content: center;
   position: relative;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  background: linear-gradient(135deg, #34C759 0%, #007AFF 100%);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
 }
 
 .work-card-status-dot {
   position: absolute;
-  bottom: 2px;
-  right: 2px;
-  width: 12px;
-  height: 12px;
+  bottom: 1px;
+  right: 1px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  border: 2px solid white;
+  border: 3px solid white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 
 .work-card-info {
@@ -1731,34 +1815,47 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 }
 
 .work-card-name {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
-  color: var(--text-primary);
-}
-
-.work-card-role {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--blue);
-  padding: 2px 6px;
-  border-radius: 4px;
+  color: #1D1D1F;
+  letter-spacing: -0.2px;
 }
 
 .work-card-status {
-  margin-top: 3px;
+  margin-top: 4px;
+}
+
+.work-card-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.work-card-status-badge.thinking {
+  background: rgba(255,214,10,0.15);
+  color: #8B7000;
+}
+
+.work-card-status-badge.working {
+  background: rgba(52,199,89,0.12);
+  color: #1B7A33;
 }
 
 .work-card-progress {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .work-card-progress-bar {
   flex: 1;
-  height: 5px;
-  background: rgba(0,0,0,0.08);
+  height: 6px;
+  background: rgba(0,0,0,0.06);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -1766,13 +1863,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .work-card-progress-fill {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.4s ease;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  background: linear-gradient(90deg, #FFD60A, #FF9500);
+}
+
+.work-card-progress-fill.online-fill {
+  background: linear-gradient(90deg, #34C759, #30D158);
 }
 
 .work-card-duration {
   font-size: 11px;
-  color: var(--text-secondary);
+  color: #8E8E93;
   flex-shrink: 0;
+  font-weight: 500;
 }
 
 </style><script src="./openclaw-client.js"></script>
@@ -2889,33 +2992,36 @@ function renderChatZone() {
   var html = '';
   for (var i = 0; i < chatters.length; i++) {
     var e = chatters[i];
-    var avatarHtml = renderAvatar(e, 52);
+    var avatarHtml = renderAvatar(e, 56);
     
     var isThinking = e.status === 'thinking';
     var isWorking = e.status === 'busy' || e.status === 'working';
     var isOnline = e.status === 'online';
     
     var statusDotColor = '#8E8E93';
-    var statusText = '离线';
-    var statusEmoji = '';
+    var badgeClass = 'online';
+    var statusText = '在线';
+    var progressFillClass = '';
     if (isThinking) {
       statusDotColor = '#FFD60A';
-      statusText = '思考中';
-      statusEmoji = '💡';
+      badgeClass = 'thinking';
+      statusText = '💡 思考中';
+      progressFillClass = '';
     } else if (isWorking) {
       statusDotColor = '#34C759';
-      statusText = '工作中';
-      statusEmoji = '💼';
+      badgeClass = 'working';
+      statusText = '💼 工作中';
+      progressFillClass = 'online-fill';
     } else if (isOnline) {
       statusDotColor = '#34C759';
-      statusText = '在线';
-      statusEmoji = '🟢';
+      badgeClass = 'online';
+      statusText = '🟢 在线';
+      progressFillClass = 'online-fill';
     }
     
     var minutes = Math.floor(Math.random() * 120) + 5;
     var durationText = minutes + '分钟';
     var progress = Math.floor(Math.random() * 40) + 30;
-    var progressColor = isThinking ? '#FFD60A' : '#34C759';
     
     html += '<div class="chat-card" onclick="openDetailPanel(\'' + e.id + '\')">';
     html += '<div class="chat-card-avatar">';
@@ -2928,14 +3034,11 @@ function renderChatZone() {
     html += '<span class="chat-card-role">' + (e.role || '成员') + '</span>';
     html += '</div>';
     html += '<div class="chat-card-status-row">';
-    html += '<span style="font-size:12px;font-weight:500">' + statusEmoji + ' ' + statusText + '</span>';
-    if (isThinking) {
-      html += '<span style="background:#FFF3CD;color:#856404;font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;margin-left:4px">思考中</span>';
-    }
+    html += '<span class="chat-card-status-badge ' + badgeClass + '">' + statusText + '</span>';
     html += '</div>';
     html += '<div class="chat-card-progress">';
     html += '<div class="chat-card-progress-bar">';
-    html += '<div class="chat-card-progress-fill" style="width:' + progress + '%;background:' + progressColor + '"></div>';
+    html += '<div class="chat-card-progress-fill ' + progressFillClass + '" style="width:' + progress + '%"></div>';
     html += '</div>';
     html += '<span class="chat-card-duration">' + durationText + '</span>';
     html += '</div>';
@@ -2994,10 +3097,10 @@ function renderWorkZone() {
     var avatarHtml = renderAvatar(e, 48);
     
     var isThinking = e.status === 'thinking';
-    var statusEmoji = isThinking ? '💡' : '👷';
-    var statusText = isThinking ? '思考中' : '工作中';
-    var progressColor = isThinking ? '#FFD60A' : '#34C759';
+    var badgeClass = isThinking ? 'thinking' : 'working';
+    var statusText = isThinking ? '💡 思考中' : '💼 工作中';
     var dotColor = isThinking ? '#FFD60A' : '#34C759';
+    var progressFillClass = isThinking ? '' : 'online-fill';
     
     var progress = Math.floor(Math.random() * 50) + 30;
     var minutes = Math.floor(Math.random() * 120) + 5;
@@ -3014,11 +3117,11 @@ function renderWorkZone() {
     html += '<span class="work-card-role">' + (e.role || '成员') + '</span>';
     html += '</div>';
     html += '<div class="work-card-status">';
-    html += '<span style="font-size:12px;font-weight:500">' + statusEmoji + ' ' + statusText + '</span>';
+    html += '<span class="work-card-status-badge ' + badgeClass + '">' + statusText + '</span>';
     html += '</div>';
     html += '<div class="work-card-progress">';
     html += '<div class="work-card-progress-bar">';
-    html += '<div class="work-card-progress-fill" style="width:' + progress + '%;background:' + progressColor + '"></div>';
+    html += '<div class="work-card-progress-fill ' + progressFillClass + '" style="width:' + progress + '%"></div>';
     html += '</div>';
     html += '<span class="work-card-duration">' + durationText + '</span>';
     html += '</div>';
