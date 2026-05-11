@@ -3068,15 +3068,27 @@ function showMainApp() {
   loadEmployees().then(function(){
     loadGroups().then(function(){
       renderEmployeeList();
-      // 校验当前聊天对象是否还存在
+      // 清理：校验当前聊天对象是否还存在
       var curEmp = localStorage.getItem('sb_current_emp');
       if(curEmp && !emps.find(function(e){return e.id===curEmp;})){
         localStorage.removeItem('sb_current_emp');
-        var area = document.getElementById('messagesArea');
-        if(area) area.innerHTML = '';
-        var chatHeaderName = document.querySelector('.chat-header-name');
-        if(chatHeaderName) chatHeaderName.textContent = '';
+        localStorage.removeItem('sb_chat_history_'+curEmp);
       }
+      // 清理：删除不存在员工的聊天记录
+      var empIds = {};
+      emps.forEach(function(e){empIds[e.id]=true;});
+      var toRemove = [];
+      for(var k=0;k<localStorage.length;k++){
+        var key = localStorage.key(k);
+        if(key && key.indexOf('sb_chat_history_')===0){
+          var eid = key.substring('sb_chat_history_'.length);
+          if(!empIds[eid]){toRemove.push(key);}
+        }
+      }
+      toRemove.forEach(function(k){localStorage.removeItem(k);});
+      // 清空消息区
+      var area = document.getElementById('messagesArea');
+      if(area) area.innerHTML = '';
     });
   });
   // 自动连接 OpenClaw
