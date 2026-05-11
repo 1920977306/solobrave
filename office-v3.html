@@ -3005,13 +3005,27 @@ function getUnreadCount(empId) {
 function escapeAttr(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function renderAvatar(emp, size){
   size = size || 48;
+  // 1. Number index -> use AVATAR_PRESETS
   if(typeof emp.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[emp.avatar]){
     return '<img src="' + escapeAttr(AVATAR_PRESETS[emp.avatar]) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
-  } else if(emp.avatar && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0)){
-    return '<img src="' + escapeAttr(emp.avatar) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
-  } else {
-    return '<span style="font-size:' + Math.floor(size * 0.5) + 'px;font-weight:700;color:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;width:' + size + 'px;height:' + size + 'px;border-radius:50%;">' + (emp.name ? emp.name.charAt(0).toUpperCase() : '?') + '</span>';
   }
+  // 2. Image path or data URL
+  if(emp.avatar && typeof emp.avatar === 'string' && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0 || emp.avatar.indexOf('avatars/') === 0)){
+    return '<img src="' + escapeAttr(emp.avatar) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
+  }
+  // 3. Letter/emoji string or any unknown -> use name hash to pick a preset avatar
+  if(typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS.length > 0){
+    var hash = 0;
+    var name = emp.name || emp.id || '';
+    for(var c = 0; c < name.length; c++){
+      hash = ((hash << 5) - hash) + name.charCodeAt(c);
+      hash = hash & hash;
+    }
+    var idx = Math.abs(hash) % AVATAR_PRESETS.length;
+    return '<img src="' + escapeAttr(AVATAR_PRESETS[idx]) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
+  }
+  // 4. Ultimate fallback: letter
+  return '<span style="font-size:' + Math.floor(size * 0.5) + 'px;font-weight:700;color:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;width:' + size + 'px;height:' + size + 'px;border-radius:50%;">' + (emp.name ? emp.name.charAt(0).toUpperCase() : '?') + '</span>';
 }
 
 function renderChatZone() {
