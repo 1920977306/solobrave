@@ -106,13 +106,55 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .dept-title { padding: 10px 14px 4px; font-size: 12px; color: var(--text-tertiary); font-weight: 500; }
 .emp-role { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
 .emp-preview { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-.list-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin: 2px 8px; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); position: relative; border-radius: 10px; background: transparent; }
-.list-item:hover { background: rgba(120, 120, 128, 0.08); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.list-item { 
+  display: flex; 
+  align-items: center; 
+  gap: 10px; 
+  padding: 10px 12px; 
+  margin: 3px 8px; 
+  cursor: pointer; 
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); 
+  position: relative; 
+  border-radius: 12px; 
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 0.5px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+}
+
+.list-item:hover { 
+  background: rgba(255, 255, 255, 0.8); 
+  transform: translateY(-2px); 
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04);
+  border-color: rgba(0, 122, 255, 0.15);
+}
+
 .list-item:hover .item-actions { opacity: 1; }
-.list-item.active { background: rgba(0, 122, 255, 0.1); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
-.list-item.active::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 20px; background: var(--accent); border-radius: 0 2px 2px 0; }
-.list-item.archived { opacity: 0.7; }
-.list-item.archived:hover { opacity: 0.9; }
+
+.list-item.active { 
+  background: rgba(0, 122, 255, 0.12); 
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-color: rgba(0, 122, 255, 0.25);
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.15);
+}
+
+.list-item.active::before { 
+  content: ''; 
+  position: absolute; 
+  left: 0; 
+  top: 50%; 
+  transform: translateY(-50%); 
+  width: 4px; 
+  height: 24px; 
+  background: linear-gradient(180deg, var(--accent), #5856D6);
+  border-radius: 0 3px 3px 0;
+  box-shadow: 0 0 8px rgba(0, 122, 255, 0.4);
+}
+
+.list-item.archived { opacity: 0.6; }
+.list-item.archived:hover { opacity: 0.85; }
 .item-actions { display: flex; gap: 2px; margin-left: auto; opacity: 0; transition: opacity 0.2s; }
 .item-actions .emp-action-btn { width: 26px; height: 26px; padding: 0; display: flex; align-items: center; justify-content: center; background: rgba(120, 120, 128, 0.08); border: none; border-radius: 6px; cursor: pointer; color: var(--text-secondary); transition: all 0.15s; }
 .item-actions .emp-action-btn:hover { background: rgba(0, 122, 255, 0.12); color: var(--accent); transform: scale(1.1); }
@@ -152,7 +194,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 .avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; color: white; flex-shrink: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 0.5px rgba(0,0,0,0.05); transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s; }
 .avatar.small { width: 28px; height: 28px; font-size: 12px; }
-.list-item:hover .avatar { transform: scale(1.05); box-shadow: 0 2px 6px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.06); }
+.list-item:hover .avatar { 
+  transform: scale(1.08); 
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15), 0 0 0 2px rgba(0,122,255,0.15);
+}
 
 .emp-info { flex: 1; min-width: 0; }
 .emp-name { font: var(--font-sm); }
@@ -3911,18 +3956,33 @@ async function loadEmployees(){
       if(resp && resp.ok){
         var data = await resp.json();
         if(data && data.length > 0){
-          // 迁移旧头像(emoji/字母)为数字索引
+          // 迁移旧头像(emoji/字母)为数字索引，并记录需要同步的
+          var needsSync = [];
           for(var mi=0;mi<data.length;mi++){
             var av=data[mi].avatar;
             if(av !== undefined && av !== null && typeof av !== 'number' && !(typeof av === 'string' && (av.indexOf('data:') === 0 || av.indexOf('.png') > 0 || av.indexOf('.jpg') > 0 || av.indexOf('.jpeg') > 0 || av.indexOf('.svg') > 0 || av.indexOf('.webp') > 0 || av.indexOf('http') === 0))){
               var hh=0,nn=data[mi].name||data[mi].id||'';
               for(var cc=0;cc<nn.length;cc++){hh=((hh<<5)-hh)+nn.charCodeAt(cc);hh=hh&hh;}
               data[mi].avatar = Math.abs(hh) % 24;
+              needsSync.push({id: data[mi].id, avatar: data[mi].avatar});
             }
           }
           emps.length = 0;
           data.forEach(function(a){ emps.push(a); });
           localStorage.setItem('sb_employees', JSON.stringify(emps));
+          
+          // 异步同步迁移后的头像到后端（避免下次刷新又被覆盖）
+          if(needsSync.length > 0 && typeof apiFetch === 'function'){
+            setTimeout(function(){
+              needsSync.forEach(function(item){
+                apiFetch('/api/agents/' + item.id, {
+                  method: 'PUT',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({avatar: item.avatar})
+                }).catch(function(e){});
+              });
+            }, 500);
+          }
           return;
         }
       }
