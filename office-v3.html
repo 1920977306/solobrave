@@ -1578,6 +1578,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 
+.chat-card-avatar img {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.work-card-avatar img {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 /* 头像下方状态点 */
 .chat-card-status-dot {
   position: absolute;
@@ -1610,9 +1624,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 
 .chat-card-role {
   font-size: 11px;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.work-card-role {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 .chat-card-status-row {
@@ -1757,6 +1776,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 }
 
 </style><script src="./openclaw-client.js"></script>
+<script src="./avatars.js"></script>
 </head><body>
 <nav class="nav-bar">
   <div class="nav-inner">
@@ -2838,11 +2858,22 @@ function getUnreadCount(empId) {
 }
 
 // 渲染 Chat Zone - 消息流格式
+function escapeAttr(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function renderAvatar(emp, size){
+  size = size || 48;
+  if(typeof emp.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[emp.avatar]){
+    return '<img src="' + escapeAttr(AVATAR_PRESETS[emp.avatar]) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
+  } else if(emp.avatar && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0)){
+    return '<img src="' + escapeAttr(emp.avatar) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
+  } else {
+    return '<span style="font-size:' + Math.floor(size * 0.5) + 'px;font-weight:700;color:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;width:' + size + 'px;height:' + size + 'px;border-radius:50%;">' + (emp.name ? emp.name.charAt(0).toUpperCase() : '?') + '</span>';
+  }
+}
+
 function renderChatZone() {
   var chatZone = document.getElementById('chatZone');
   if (!chatZone) return;
   
-  // 获取有对话的AI员工或在线员工
   var chatters = employees.filter(function(e) {
     var hist = localStorage.getItem('sb_chat_history_' + e.id);
     var hasHistory = hist && JSON.parse(hist).length > 0;
@@ -2850,31 +2881,15 @@ function renderChatZone() {
     return e.status === 'thinking' || e.status === 'online' || e.status === 'busy';
   });
   
-  // 计算在线人数
-  var onlineCount = employees.filter(function(e) {
-    return e.status === 'online' || e.status === 'busy' || e.status === 'thinking';
-  }).length;
-  
   if (chatters.length === 0) {
     chatZone.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-secondary)">暂无对话中的成员</div>';
     return;
   }
   
-  // 头像颜色映射
-  var avatarColors = {
-    'lucy': '#FFD60A', 'lucy-zhang': '#FFD60A', 'lucy-chen': '#FFD60A',
-    'eric': '#34C759', 'gates': '#007AFF',
-    'cynthia': '#AF52DE', 'grace': '#FF2D55',
-    'alex': '#5856D6', 'nova': '#00C7BE',
-    'mike': '#FF9500', 'lisa': '#FF6B9D',
-    'trumind': '#FFD60A', 'emily': '#5AC8FA'
-  };
-  
   var html = '';
   for (var i = 0; i < chatters.length; i++) {
     var e = chatters[i];
-    var bg = avatarColors[e.id] || (e.avatarColor) || '#FFD60A';
-    var initial = e.name ? e.name.charAt(0).toUpperCase() : '?';
+    var avatarHtml = renderAvatar(e, 52);
     
     var isThinking = e.status === 'thinking';
     var isWorking = e.status === 'busy' || e.status === 'working';
@@ -2882,40 +2897,44 @@ function renderChatZone() {
     
     var statusDotColor = '#8E8E93';
     var statusText = '离线';
-    var statusBadge = '';
+    var statusEmoji = '';
     if (isThinking) {
       statusDotColor = '#FFD60A';
       statusText = '思考中';
-      statusBadge = '<span style="background:#FFF3CD;color:#856404;font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;margin-left:4px">思考中</span>';
+      statusEmoji = '💡';
     } else if (isWorking) {
       statusDotColor = '#34C759';
       statusText = '工作中';
+      statusEmoji = '💼';
     } else if (isOnline) {
       statusDotColor = '#34C759';
       statusText = '在线';
+      statusEmoji = '🟢';
     }
     
     var minutes = Math.floor(Math.random() * 120) + 5;
     var durationText = minutes + '分钟';
     var progress = Math.floor(Math.random() * 40) + 30;
+    var progressColor = isThinking ? '#FFD60A' : '#34C759';
     
     html += '<div class="chat-card" onclick="openDetailPanel(\'' + e.id + '\')">';
-    html += '<div class="chat-card-avatar" style="background:' + bg + '">';
-    html += '<span style="font-size:28px;font-weight:700;color:rgba(0,0,0,0.6)">' + initial + '</span>';
+    html += '<div class="chat-card-avatar">';
+    html += avatarHtml;
     html += '<div class="chat-card-status-dot" style="background:' + statusDotColor + '"></div>';
     html += '</div>';
     html += '<div class="chat-card-info">';
     html += '<div class="chat-card-name-row">';
-    html += '<span class="chat-card-name">' + e.name + '</span>';
-    html += '<span class="chat-card-role" style="color:var(--blue);font-size:11px;font-weight:600">' + (e.role || '成员') + '</span>';
+    html += '<span class="chat-card-name">' + (e.name || '?') + '</span>';
+    html += '<span class="chat-card-role">' + (e.role || '成员') + '</span>';
     html += '</div>';
     html += '<div class="chat-card-status-row">';
-    html += '<span style="font-size:12px;font-weight:500">' + statusText + '</span>';
-    html += statusBadge;
+    html += '<span style="font-size:12px;font-weight:500">' + statusEmoji + ' ' + statusText + '</span>';
+    if (isThinking) {
+      html += '<span style="background:#FFF3CD;color:#856404;font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;margin-left:4px">思考中</span>';
+    }
     html += '</div>';
     html += '<div class="chat-card-progress">';
     html += '<div class="chat-card-progress-bar">';
-    var progressColor = isThinking ? '#FFD60A' : '#34C759';
     html += '<div class="chat-card-progress-fill" style="width:' + progress + '%;background:' + progressColor + '"></div>';
     html += '</div>';
     html += '<span class="chat-card-duration">' + durationText + '</span>';
@@ -2926,6 +2945,7 @@ function renderChatZone() {
   
   chatZone.innerHTML = html;
 }
+
 
 function scrollChatZoneToTop(empId) {
   var chatZone = document.getElementById('chatZone');
@@ -2963,15 +2983,6 @@ function renderWorkZone() {
     return e.status === 'busy' || e.status === 'thinking' || e.status === 'working';
   });
   
-  var avatarColors = {
-    'lucy': '#FFD60A', 'lucy-zhang': '#FFD60A', 'lucy-chen': '#FFD60A',
-    'eric': '#34C759', 'gates': '#007AFF',
-    'cynthia': '#AF52DE', 'grace': '#FF2D55',
-    'alex': '#5856D6', 'nova': '#00C7BE',
-    'mike': '#FF9500', 'lisa': '#FF6B9D',
-    'trumind': '#FFD60A', 'emily': '#5AC8FA'
-  };
-  
   if (workingEmployees.length === 0) {
     workZone.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--text-secondary)">暂无工作中的成员</div>';
     return;
@@ -2980,30 +2991,30 @@ function renderWorkZone() {
   var html = '';
   for (var i = 0; i < workingEmployees.length; i++) {
     var e = workingEmployees[i];
-    var bg = avatarColors[e.id] || (e.avatarColor) || '#FFD60A';
-    var initial = e.name ? e.name.charAt(0).toUpperCase() : '?';
+    var avatarHtml = renderAvatar(e, 48);
     
     var isThinking = e.status === 'thinking';
-    var statusEmoji = isThinking ? '思考中' : '工作中';
+    var statusEmoji = isThinking ? '💡' : '👷';
+    var statusText = isThinking ? '思考中' : '工作中';
     var progressColor = isThinking ? '#FFD60A' : '#34C759';
+    var dotColor = isThinking ? '#FFD60A' : '#34C759';
     
     var progress = Math.floor(Math.random() * 50) + 30;
     var minutes = Math.floor(Math.random() * 120) + 5;
     var durationText = minutes + '分钟';
     
     html += '<div class="work-card" onclick="openDetailPanel(\'' + e.id + '\')">';
-    html += '<div class="work-card-avatar" style="background:' + bg + '">';
-    html += '<span style="font-size:28px;font-weight:700;color:rgba(0,0,0,0.6)">' + initial + '</span>';
-    var dotColor = isThinking ? '#FFD60A' : '#34C759';
+    html += '<div class="work-card-avatar">';
+    html += avatarHtml;
     html += '<div class="work-card-status-dot" style="background:' + dotColor + '"></div>';
     html += '</div>';
     html += '<div class="work-card-info">';
     html += '<div class="work-card-name-row">';
-    html += '<span class="work-card-name">' + e.name + '</span>';
+    html += '<span class="work-card-name">' + (e.name || '?') + '</span>';
     html += '<span class="work-card-role">' + (e.role || '成员') + '</span>';
     html += '</div>';
     html += '<div class="work-card-status">';
-    html += '<span style="font-size:12px;font-weight:500">' + statusEmoji + '</span>';
+    html += '<span style="font-size:12px;font-weight:500">' + statusEmoji + ' ' + statusText + '</span>';
     html += '</div>';
     html += '<div class="work-card-progress">';
     html += '<div class="work-card-progress-bar">';
@@ -3017,6 +3028,7 @@ function renderWorkZone() {
   
   workZone.innerHTML = html;
 }
+
 
 function viewProfile(empId) {
   var emp = employees.find(function(e) { return e.id === empId; });
