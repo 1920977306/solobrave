@@ -2318,7 +2318,7 @@ async function loadEmployeesFromStorage() {
             initial: (emp.name || 'A')[0].toUpperCase(),
             gradient: gradients[idx % gradients.length],
             bg: emp.bg || gradients[idx % gradients.length][0],
-            avatar: (typeof emp.avatar === 'number') ? emp.avatar : ((emp.avatar && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0)) ? emp.avatar : (idx % 24)),
+            avatar: (typeof emp.avatar === 'number') ? emp.avatar : ((emp.avatar && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0 || emp.avatar.indexOf('.svg') > 0 || emp.avatar.indexOf('.webp') > 0 || emp.avatar.indexOf('http') === 0)) ? emp.avatar : (function(nm){var hh=0;for(var cc=0;cc<nm.length;cc++){hh=((hh<<5)-hh)+nm.charCodeAt(cc);hh=hh&hh;}return Math.abs(hh)%24;})(emp.name||emp.id||'')),
             status: statusMap[emp.status] || 'online',
             msg: emp.msg || '',
             permission: emp.permission || 'dev',
