@@ -3924,11 +3924,13 @@ async function loadEmployees(){
   if(saved){
     try{
       var data=JSON.parse(saved);
-      // 迁移旧字母头像为数字索引
+      // 迁移旧字母头像为数字索引(用名字hash保证一致性)
       var needSave = false;
       for(var k=0;k<data.length;k++){
         if(data[k].avatar && typeof data[k].avatar === 'string' && data[k].avatar.length <= 2 && data[k].avatar.indexOf('data:') !== 0 && data[k].avatar.indexOf('.') < 0){
-          data[k].avatar = k % 24;
+          var h=0,nm=data[k].name||data[k].id||'';
+          for(var c=0;c<nm.length;c++){h=((h<<5)-h)+nm.charCodeAt(c);h=h&h;}
+          data[k].avatar = Math.abs(h) % 24;
           needSave = true;
         }
       }

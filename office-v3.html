@@ -2279,19 +2279,21 @@ function initMockData() {
 
 // ===== 数据打通：加载员工数据 =====
 async function loadEmployeesFromStorage() {
-  // 0. 迁移旧数据：清除字母头像，下次加载时自动分配数字索引
+  // 0. 迁移旧数据：清除字母头像，用名字hash分配数字索引
   try {
     var oldEmps = JSON.parse(localStorage.getItem('sb_employees') || '[]');
     var needMigrate = false;
     for(var k=0;k<oldEmps.length;k++){
       if(oldEmps[k].avatar && typeof oldEmps[k].avatar === 'string' && oldEmps[k].avatar.length <= 2 && oldEmps[k].avatar.indexOf('data:') !== 0 && oldEmps[k].avatar.indexOf('.') < 0){
-        oldEmps[k].avatar = k % 24;
+        var h=0,n=oldEmps[k].name||oldEmps[k].id||'';
+        for(var c=0;c<n.length;c++){h=((h<<5)-h)+n.charCodeAt(c);h=h&h;}
+        oldEmps[k].avatar = Math.abs(h) % 24;
         needMigrate = true;
       }
     }
     if(needMigrate){
       localStorage.setItem('sb_employees', JSON.stringify(oldEmps));
-      console.log('[Office] 迁移了', oldEmps.length, '个员工的头像数据为数字索引');
+      console.log('[Office] 迁移了', oldEmps.length, '个员工的头像数据');
     }
   } catch(e){ console.log('[Office] 头像迁移跳过:', e); }
 
