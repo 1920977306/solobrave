@@ -458,8 +458,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 @keyframes spin{to{transform:rotate(360deg)}
 
 /* ====== 创建向导 Modal ====== */
-.create-wizard-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);z-index:1000;display:none;align-items:center;justify-content:center}
-.create-wizard-overlay.active{display:flex}
+.create-wizard-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);z-index:1000;display:none !important;align-items:center;justify-content:center}
+.create-wizard-overlay.active{display:flex !important}
 .create-wizard-modal{background:var(--bg-secondary);border-radius:var(--radius-xl);width:540px;max-width:95vw;max-height:90vh;overflow:hidden;box-shadow:var(--shadow-lg);animation:wizardSlideIn 0.3s ease}
 @keyframes wizardSlideIn{from{opacity:0;transform:scale(0.95) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
 .wizard-header{padding:24px 28px 20px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between}
@@ -2264,15 +2264,15 @@ const activitiesFallback = [
   { id:6, name:'Mike', initial:'M', gradient:['#00C7BE','#30D158'], status:'p1', text:'⚠️ 服务器负载告警', time:'15分钟前' },
 ];
 
-const employeesFallback = [
-  { id:'lucy', name:'Lucy', role:'产品经理', initial:'L', gradient:['#FF6B9D','#C44FE2'], status:'online' },
-  { id:'gates', name:'Gates', role:'架构师', initial:'G', gradient:['#5856D6','#007AFF'], status:'busy' },
-  { id:'eric', name:'Eric', role:'前端开发', initial:'E', gradient:['#5AC8FA','#34C759'], status:'online' },
-  { id:'cute', name:'Cute', role:'UI设计', initial:'C', gradient:['#FF9500','#FF2D55'], status:'idle' },
-  { id:'alex', name:'Alex', role:'后端开发', initial:'A', gradient:['#30B0C7','#5856D6'], status:'offline' },
-  { id:'nova', name:'Nova', role:'测试工程师', initial:'N', gradient:['#AF52DE','#FF375F'], status:'online' },
-  { id:'mike', name:'Mike', role:'DevOps', initial:'M', gradient:['#00C7BE','#30D158'], status:'busy' },
-  { id:'lisa', name:'Lisa', role:'运营', initial:'I', gradient:['#FF6B35','#FFD60A'], status:'idle' },
+var employeesFallback = [
+  { id:'lucy', name:'Lucy', role:'产品经理', initial:'L', gradient:['#FF6B9D','#C44FE2'], status:'online', avatar:0 },
+  { id:'gates', name:'Gates', role:'架构师', initial:'G', gradient:['#5856D6','#007AFF'], status:'busy', avatar:1 },
+  { id:'eric', name:'Eric', role:'前端开发', initial:'E', gradient:['#5AC8FA','#34C759'], status:'online', avatar:2 },
+  { id:'cute', name:'Cute', role:'UI设计', initial:'C', gradient:['#FF9500','#FF2D55'], status:'idle', avatar:3 },
+  { id:'alex', name:'Alex', role:'后端开发', initial:'A', gradient:['#30B0C7','#5856D6'], status:'offline', avatar:4 },
+  { id:'nova', name:'Nova', role:'测试工程师', initial:'N', gradient:['#AF52DE','#FF375F'], status:'online', avatar:5 },
+  { id:'mike', name:'Mike', role:'DevOps', initial:'M', gradient:['#00C7BE','#30D158'], status:'busy', avatar:6 },
+  { id:'lisa', name:'Lisa', role:'运营', initial:'I', gradient:['#FF6B35','#FFD60A'], status:'idle', avatar:7 },
 ];
 
 function initMockData() {
@@ -2406,6 +2406,7 @@ async function loadRealAgents() {
             gradient: gradients[idx % gradients.length],
             bg: gradients[idx % gradients.length][0],
             status: statusMap[agent.status] || 'online',
+            avatar: idx % 24,
       model: (agent.config && agent.config.model) || 'unknown',
             openclawName: agent.name
           };
@@ -2925,15 +2926,16 @@ function goToMainChat(empId) {
 function renderEmployees(){
   const grid = document.getElementById('employeeGrid');
   if(!grid)return;
-  grid.innerHTML = employees.map(emp => `
-    <div class="emp-card" onclick="openDetailPanel('${emp.id}')" style="cursor:pointer" title="点击查看 ${emp.name} 的详情">
-      <div class="emp-avatar" style="background:linear-gradient(135deg,${emp.gradient[0]} 0%,${emp.gradient[1]} 100%)">${emp.initial}</div>
-      <div class="emp-name">${emp.name}</div>
-      <div class="emp-role">${emp.role}</div>
-      <div class="emp-status ${emp.status}">
-        ${emp.status==='online'?'● 在线':emp.status==='busy'?'● 忙碌':emp.status==='offline'?'● 离线':'● 空闲'}
-      </div>
-    </div>`).join('');
+  grid.innerHTML = employees.map(function(emp, idx){
+    var avatarHtml = renderAvatar(emp, 64);
+    var statusText = emp.status==='online'?'● 在线':emp.status==='busy'?'● 忙碌':emp.status==='offline'?'● 离线':'● 空闲';
+    return '<div class="emp-card" onclick="openDetailPanel(\''+emp.id+'\')" style="cursor:pointer" title="点击查看 '+emp.name+' 的详情">' +
+      '<div class="emp-avatar" style="background:linear-gradient(135deg,'+(emp.gradient && emp.gradient[0] || '#FFD60A')+' 0%,'+(emp.gradient && emp.gradient[1] || '#FFB800')+' 100%);overflow:hidden;">'+avatarHtml+'</div>' +
+      '<div class="emp-name">'+emp.name+'</div>' +
+      '<div class="emp-role">'+emp.role+'</div>' +
+      '<div class="emp-status '+emp.status+'">'+statusText+'</div>' +
+    '</div>';
+  }).join('');
 }
 
 // ===== 辅助函数：获取相对时间 =====
@@ -3675,9 +3677,9 @@ function renderLoungeZone(){
     return;
   }
   loungeZone.innerHTML = '<div class="lounge-grid">' + employees.map(function(e){
-    var bg = (e.gradient && e.gradient[0]) || e.bg || '#FFD60A';
+    var avatarHtml = renderAvatar(e, 44);
     var statusDot = e.status==='online'?'🟢':e.status==='busy'?'🟠':e.status==='thinking'?'🟡':'⚪';
-    return '<div class="lounge-avatar" style="background:'+bg+';position:relative;cursor:pointer" title="'+e.name+' ('+e.role+')" onclick="openDetailPanel(\''+e.id+'\')">'+e.name[0]+'<span style="position:absolute;bottom:-2px;right:-2px;font-size:10px">'+statusDot+'</span></div>';
+    return '<div class="lounge-avatar" style="background:linear-gradient(135deg,#FFED4A,#FFD60A);position:relative;cursor:pointer;overflow:hidden" title="'+e.name+' ('+e.role+')" onclick="openDetailPanel(\''+e.id+'\')">'+avatarHtml+'<span style="position:absolute;bottom:-2px;right:-2px;font-size:10px">'+statusDot+'</span></div>';
   }).join('') + '</div>';
 }
 
@@ -3843,18 +3845,12 @@ const soulTemplates = {
   }
 };
 
-const avatarPresets = [
-  { bg: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', letter: 'A' },
-  { bg: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', letter: 'B' },
-  { bg: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', letter: 'C' },
-  { bg: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)', letter: 'D' },
-  { bg: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', letter: 'E' },
-  { bg: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)', letter: 'F' },
-  { bg: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)', letter: 'G' },
-  { bg: 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)', letter: 'H' },
-  { bg: 'linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)', letter: 'I' },
-  { bg: 'linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)', letter: 'J' }
-];
+var avatarPresets = [];
+if(typeof AVATAR_PRESETS !== 'undefined'){
+  for(var i=0;i<AVATAR_PRESETS.length;i++){
+    avatarPresets.push({index:i, src:AVATAR_PRESETS[i]});
+  }
+}
 
 let wizardState = {
   step: 1,
@@ -3904,22 +3900,26 @@ function renderWizardStep() {
   }
 }
 
-function selectAvatar(bg, letter) {
-  wizardState.avatar = letter;
-  wizardState.avatarBg = bg;
-  document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('selected'));
+function selectAvatar(avatarIndex) {
+  wizardState.avatar = avatarIndex;
+  wizardState.avatarBg = '';
+  document.querySelectorAll('.avatar-option').forEach(function(el){ el.classList.remove('selected'); });
   event.currentTarget.classList.add('selected');
   updateWizardPreview();
 }
 
 function updateAvatarFromInput() {
-  const input = document.getElementById('customAvatarInput');
-  const letter = input.value.trim().charAt(0).toUpperCase() || '?';
-  const colors = ['#FF6B35', '#007AFF', '#34C759', '#FF9500', '#AF52DE', '#FF2D55'];
-  const bg = colors[Math.floor(Math.random() * colors.length)];
-  wizardState.avatar = letter;
-  wizardState.avatarBg = bg;
-  document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('selected'));
+  var input = document.getElementById('customAvatarInput');
+  var text = input.value.trim();
+  if(!text) return;
+  var num = parseInt(text);
+  if(!isNaN(num) && num >= 1 && num <= 24 && typeof AVATAR_PRESETS !== 'undefined'){
+    wizardState.avatar = num - 1;
+  } else {
+    wizardState.avatar = text.charAt(0);
+  }
+  wizardState.avatarBg = '';
+  document.querySelectorAll('.avatar-option').forEach(function(el){ el.classList.remove('selected'); });
   updateWizardPreview();
 }
 
@@ -3956,21 +3956,25 @@ function selectSoulTemplate(key) {
 }
 
 function updateWizardPreview() {
-  const preview = document.getElementById('wizardPreview');
+  var preview = document.getElementById('wizardPreview');
   if (!preview) return;
-  
-  const tmpl = soulTemplates[wizardState.soulTemplate];
-  preview.innerHTML = `
-    <div class="wizard-preview-title">✨ 预览</div>
-    <div class="wizard-preview-content">
-      <div class="wizard-preview-avatar" style="background:${wizardState.avatarBg || '#FF6B35'}">${wizardState.avatar || '?'}</div>
-      <div class="wizard-preview-info">
-        <div class="wizard-preview-name">${wizardState.name || '名字'}</div>
-        <div class="wizard-preview-role">${wizardState.role || '职位'}</div>
-        <div class="wizard-preview-soul">${tmpl.emoji} ${tmpl.name} · ${tmpl.desc}</div>
-      </div>
-    </div>
-  `;
+  var tmpl = soulTemplates[wizardState.soulTemplate];
+  var avatarHtml = '?';
+  if(typeof wizardState.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[wizardState.avatar]){
+    avatarHtml = '<img src="' + AVATAR_PRESETS[wizardState.avatar] + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">';
+  } else if(wizardState.avatar && typeof wizardState.avatar === 'string' && (wizardState.avatar.indexOf('data:image') === 0 || wizardState.avatar.indexOf('.png') > 0)){
+    avatarHtml = '<img src="' + wizardState.avatar + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">';
+  } else {
+    avatarHtml = (wizardState.avatar || '?');
+  }
+  preview.innerHTML = '<div class="wizard-preview-title">✨ 预览</div>' +
+    '<div class="wizard-preview-content">' +
+    '<div class="wizard-preview-avatar" style="background:linear-gradient(135deg, #FFED4A, #FFD60A);overflow:hidden;">' + avatarHtml + '</div>' +
+    '<div class="wizard-preview-info">' +
+    '<div class="wizard-preview-name">' + (wizardState.name || '名字') + '</div>' +
+    '<div class="wizard-preview-role">' + (wizardState.role || '职位') + '</div>' +
+    '<div class="wizard-preview-soul">' + tmpl.emoji + ' ' + tmpl.name + ' · ' + tmpl.desc + '</div>' +
+    '</div></div>';
 }
 
 async function confirmCreateAgent() {
@@ -4072,9 +4076,13 @@ async function confirmCreateAgent() {
 (function initAvatarGrid() {
   var grid = document.getElementById('avatarGrid');
   if (!grid) return;
-  grid.innerHTML = avatarPresets.map(function(a) {
-    return '<div class="avatar-option" onclick="selectAvatar(\'' + a.bg + '\', \'' + a.letter + '\')"><div class="avatar-option-inner" style="background:' + a.bg + '">' + a.letter + '</div></div>';
-  }).join('');
+  if(avatarPresets.length > 0){
+    grid.innerHTML = avatarPresets.map(function(a) {
+      return '<div class="avatar-option" onclick="selectAvatar(' + a.index + ')"><img src="' + a.src + '" style="width:48px;height:48px;border-radius:50%;object-fit:cover;"></div>';
+    }).join('');
+  } else {
+    grid.innerHTML = '<div style="color:#8E8E93;font-size:13px;padding:20px;text-align:center;">头像资源加载中...</div>';
+  }
 })();
 </script>
 <!-- 员工详情面板 V2 -->
@@ -4183,7 +4191,7 @@ async function confirmCreateAgent() {
 </div>
 
 <!-- 创建龙虾向导 Modal -->
-<div class="create-wizard-overlay" id="wizardOverlay">
+<div class="create-wizard-overlay" id="wizardOverlay" style="display:none !important">
   <div class="create-wizard-modal">
     <div class="wizard-header">
       <h2 class="wizard-title">✨ 创建新龙虾</h2>
@@ -4213,7 +4221,7 @@ async function confirmCreateAgent() {
       <div class="wizard-step-content" style="display:block">
         <div class="avatar-grid" id="avatarGrid"></div>
         <div class="avatar-custom">
-          <input type="text" class="avatar-custom-input" id="customAvatarInput" placeholder="输入字母作为自定义头像..." maxlength="1" oninput="updateAvatarFromInput()">
+          <input type="text" class="avatar-custom-input" id="customAvatarInput" placeholder="输入头像编号(1-24)或选上方头像..." maxlength="1" oninput="updateAvatarFromInput()">
         </div>
       </div>
       
