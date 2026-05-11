@@ -127,6 +127,13 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-settings-menu .menu-item.danger { color: #FF3B30; }
 .emp-settings-menu .menu-item.danger:hover { background: rgba(255, 59, 48, 0.08); }
 .emp-settings-menu .menu-divider { height: 0.5px; background: rgba(120, 120, 128, 0.2); margin: 4px 10px; }
+/* Submenu for move to group */
+.emp-settings-menu .menu-item.has-submenu { position: relative; }
+.emp-settings-menu .menu-item.has-submenu::after { content: '▸'; margin-left: auto; font-size: 11px; opacity: 0.5; }
+.emp-settings-menu .submenu { position: absolute; left: 100%; top: 0; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 0.5px solid rgba(120, 120, 128, 0.2); border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); min-width: 140px; z-index: 1001; padding: 6px 0; display: none; }
+.emp-settings-menu .menu-item.has-submenu:hover .submenu { display: block; }
+.emp-settings-menu .submenu .submenu-item { display: flex; align-items: center; gap: 8px; padding: 8px 14px; font-size: 13px; color: var(--text-primary); cursor: pointer; transition: all 0.12s; white-space: nowrap; }
+.emp-settings-menu .submenu .submenu-item:hover { background: rgba(0, 122, 255, 0.08); }
 
 /* Right-click Context Menus (Apple frosted glass style) */
 .ctx-menu { position: fixed; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 0.5px solid rgba(120, 120, 128, 0.2); border-radius: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.04); min-width: 180px; z-index: 2000; padding: 8px 0; display: none; overflow: hidden; }
@@ -214,6 +221,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .chat-header-name { font: var(--font-lg); display: flex; align-items: center; gap: 8px; }
 .chat-header-sub { font: var(--font-micro); color: var(--text-tertiary); }
 .owner-badge { font-size: 11px; background: var(--bg-secondary); color: var(--text-secondary); padding: 2px 6px; border-radius: var(--radius-xs); }
+/* Employee urgent badge */
+.emp-urgent-badge { display: inline-flex; align-items: center; margin-left: 6px; padding: 2px 6px; background: #FF3B30; color: white; font-size: 10px; font-weight: 600; border-radius: 4px; vertical-align: middle; cursor: pointer; animation: badgePulse 2s infinite; }
+@keyframes badgePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+.emp-urgent-badge:hover { background: #E53935; }
 .ai-mode-tag { font-size: 11px; background: var(--accent-light); color: var(--accent); padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle; font-weight: normal; }
 .header-actions { display: flex; gap: 2px; }
 .header-btn { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); transition: all 0.15s; }
@@ -529,10 +540,13 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* ========================================
    DRAWER OVERLAY - 遮罩层
    ======================================== */
-.emp-detail-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.2); backdrop-filter: blur(4px); opacity: 0; visibility: hidden; transition: all 0.3s; z-index: 250; }
+.emp-detail-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(8px); opacity: 0; visibility: hidden; transition: all 0.3s; z-index: 250; }
 .emp-detail-overlay.open { opacity: 1; visibility: visible; }
-.emp-detail-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 380px; max-width: 100%; background: var(--bg-primary); box-shadow: var(--shadow-modal); transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); display: flex; flex-direction: column; }
-.emp-detail-overlay.open .emp-detail-panel { transform: translateX(0); }
+.emp-detail-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 560px; max-height: 85vh; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); z-index: 251; display: flex; flex-direction: column; overflow: hidden; opacity: 0; visibility: hidden; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
+.emp-detail-overlay.open .emp-detail-panel { opacity: 1; visibility: visible; transform: translate(-50%, -50%) scale(1); }
+@media (max-width: 600px) {
+  .emp-detail-panel { width: 95%; max-height: 90vh; }
+}
 .emp-detail-header { display: flex; align-items: center; gap: 12px; padding: 20px; border-bottom: 0.5px solid var(--separator); }
 .emp-detail-avatar { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
 .emp-detail-info { flex: 1; min-width: 0; }
@@ -2293,6 +2307,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <span class="emp-info-label">上下文</span>
 <span class="emp-info-value" id="empDetailCtx">4K / 8K</span>
 </div>
+</div>
+<div class="emp-doc-section" style="margin-top:16px;">
+  <div class="emp-doc-title">⚠️ 紧急标记</div>
+  <input type="text" id="empBadgeInput" placeholder="如: 称呼Truman! 立刻" style="width:100%;padding:10px 12px;border:1px solid var(--separator);border-radius:8px;font-size:13px;box-sizing:border-box;" oninput="updateBadgePreview(this.value)">
+  <div id="empBadgePreview" style="margin-top:8px;font-size:12px;color:var(--text-secondary);"></div>
 </div>
 </div>
 
@@ -4382,7 +4401,13 @@ function renderEmployeeItem(e, showCreator){
     creatorTag = '<span style="display:inline-block;margin-left:4px;padding:1px 4px;background:var(--bg-tertiary);border-radius:3px;font-size:10px;color:var(--text-tertiary);vertical-align:middle;">' + escapeHtml(e.createdByName || '其他用户') + '</span>';
   }
   
-  return '<div class="item-avatar" style="position:relative;width:' + size + 'px;height:' + size + 'px;flex-shrink:0;"><div class="avatar small" style="background:' + escapeAttr(e.bg||'') + ';width:' + size + 'px;height:' + size + 'px;">' + avatarHtml + '</div><div class="status-dot ' + escapeAttr(e.status||'offline') + '" style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border:2.5px solid var(--bg-primary);border-radius:50%;box-shadow:0 0 0 0.5px rgba(0,0,0,0.06);transition:transform 0.2s;"></div></div><div class="item-info" style="min-width:0;"><div class="item-name" style="font-weight:500;font-size:14px;letter-spacing:-0.01em;">' + escapeHtml(e.name||'') + creatorTag + '</div><div class="item-msg" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg||'') + '</div></div>';
+  // 紧急 Badge
+  var badgeTag = '';
+  if(e.badge && e.badge.trim()) {
+    badgeTag = '<span class="emp-urgent-badge" onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(e.id) + '');" title="' + escapeAttr(e.badge) + '">⚠️ ' + escapeHtml(e.badge) + '</span>';
+  }
+  
+  return '<div class="item-avatar" style="position:relative;width:' + size + 'px;height:' + size + 'px;flex-shrink:0;"><div class="avatar small" style="background:' + escapeAttr(e.bg||'') + ';width:' + size + 'px;height:' + size + 'px;">' + avatarHtml + '</div><div class="status-dot ' + escapeAttr(e.status||'offline') + '" style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border:2.5px solid var(--bg-primary);border-radius:50%;box-shadow:0 0 0 0.5px rgba(0,0,0,0.06);transition:transform 0.2s;"></div></div><div class="item-info" style="min-width:0;"><div class="item-name" style="font-weight:500;font-size:14px;letter-spacing:-0.01em;">' + escapeHtml(e.name||'') + creatorTag + badgeTag + '</div><div class="item-msg" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg||'') + '</div></div>';
 }
 
 function bindListEvents(){
@@ -4432,9 +4457,7 @@ function ctxAction(action){
     case 'detail': openEmpDetail(contextTarget); break;
     case 'edit': showEditModal(contextTarget); break;
     case 'pin': emp.pinned=!emp.pinned; showToast(emp.pinned?'📌 已置顶':'📌 已取消置顶'); saveEmployees(); break;
-    case 'move':
-      showMoveGroupModal(empSettingsTarget);
-      break;
+    // case 'move' - moved to submenu
     case 'archive': emp.archived=true; saveArchive(); showToast('📦 已归档'); break;
     case 'unarchive': emp.archived=false; saveArchive(); showToast('📥 已取消归档'); break;
     case 'delete': if(confirm('确定删除 '+emp.name+'？')){emps=emps.filter(e=>e.id!==contextTarget); saveEmployees(); if(typeof apiFetch==='function'){apiFetch('/api/agents/'+contextTarget,{method:'DELETE'}).catch(function(){});} showToast('🗑️ 已删除');} break;
@@ -4474,6 +4497,17 @@ function hideEmpSettingsMenu(){
   if(menu) menu.classList.remove('active');
   empSettingsTarget = null;
 }
+// Move employee to group (from submenu)
+function empSettingsActionMove(groupName){
+  if(!empSettingsTarget) return;
+  var emp = emps.find(function(e){ return e.id === empSettingsTarget; });
+  if(!emp) return;
+  emp.subCategory = groupName;
+  saveEmployees();
+  renderEmployeeList();
+  showToast('已移动到 ' + groupName);
+  hideEmpSettingsMenu();
+}
 function empSettingsAction(action){
   if(!empSettingsTarget) return;
   var emp = emps.find(function(e){ return e.id === empSettingsTarget; });
@@ -4495,6 +4529,12 @@ function empSettingsAction(action){
       emp.archived = true; 
       saveEmployees(); 
       showToast('📦 已归档'); 
+      break;
+    case 'clearBadge':
+      emp.badge = '';
+      saveEmployees();
+      renderEmployeeList();
+      showToast('🔕 已清除紧急标记');
       break;
     case 'delete': 
       if(confirm('确定删除 ' + emp.name + '？')){
@@ -6355,6 +6395,8 @@ document.getElementById('empDetailMsgs').textContent=emp.msgs||Math.floor(Math.r
 document.getElementById('empDetailTokens').textContent=(emp.tokens||Math.floor(Math.random()*5000)).toLocaleString();
 document.getElementById('empDetailTasks').textContent=emp.tasks||0;
 document.getElementById('empDetailCtx').textContent=emp.ctx||'4K / 8K';
+document.getElementById('empBadgeInput').value=emp.badge||'';
+document.getElementById('empBadgePreview').textContent=emp.badge?'当前: ⚠️ '+emp.badge:'';
 document.getElementById('empModelConfig').value=emp.modelConfig||JSON.stringify({model:emp.model||'gpt-4o',temperature:0.7,max_tokens:2000},null,2);
 document.getElementById('empIdDoc').value=emp.idDoc||'';
 document.getElementById('empSoulDoc').value=emp.soulDoc||'';
@@ -6522,6 +6564,19 @@ function closeEmpDetail(){
 document.getElementById('empDetailOverlay').classList.remove('open');
 currentEmpId=null;
 }
+// ESC key to close modals
+document.addEventListener('keydown', function(e) {
+if(e.key === 'Escape') {
+  var overlay = document.getElementById('empDetailOverlay');
+  if(overlay && overlay.classList.contains('open')) {
+    closeEmpDetail();
+  }
+  var userModal = document.getElementById('userEditModal');
+  if(userModal && userModal.classList.contains('active')) {
+    closeUserEditModal();
+  }
+}
+});
 
 // ========== Group Detail Panel ==========
 var currentGroupDetailId = null;
@@ -6737,6 +6792,17 @@ if(tab==='channel'&&currentEmpId){
 updateChannelStatusUI();
 }
 }
+// Update badge preview when switching to basic tab
+if(tab==='basic'&&currentEmpId){
+var badgeInput=document.getElementById('empBadgeInput');
+var badgePreview=document.getElementById('empBadgePreview');
+if(badgeInput&&badgePreview){
+var emp=emps.find(function(e){return e.id===currentEmpId;});
+badgeInput.value=(emp&&emp.badge)||'';
+badgePreview.textContent=(emp&&emp.badge)?'当前: ⚠️ '+emp.badge:'';
+}
+}
+}
 
 // ========== Channel Config ==========
 var currentChannelType = '';
@@ -6807,6 +6873,13 @@ function saveChannelConfig(){
   showToast('✅ 渠道配置已保存');
 }
 
+// Update badge preview
+function updateBadgePreview(value){
+var preview=document.getElementById('empBadgePreview');
+if(preview){
+preview.textContent=value?'预览: ⚠️ '+value:'';
+}
+}
 var selectedAvatar='',selectedColor='';
 function selectAvatar(el){
 document.querySelectorAll('.avatar-option').forEach(a=>a.classList.remove('selected'));
@@ -7190,6 +7263,7 @@ emp.idDoc=document.getElementById('empIdDoc').value;
 emp.soulDoc=document.getElementById('empSoulDoc').value;
 emp.toolsDoc=document.getElementById('empToolsDoc').value;
 emp.userDoc=document.getElementById('empUserDoc').value;
+emp.badge=document.getElementById('empBadgeInput').value;
 }
 saveEmployees();
 // SOUL.md 变更时重新注册 Agent 到 Gateway
@@ -8648,10 +8722,75 @@ function showToast(msg, type) {
   <div class="fab-menu-item" onclick="showSettings()" data-admin-only>⚙️ 设置</div>
 </div>
 
+<!-- User Edit Modal -->
+<div id="userEditOverlay" onclick="closeUserEditModal()"></div>
+<div id="userEditModal">
+  <div class="modal-header">
+    <span class="modal-title">✏️ 编辑用户</span>
+    <button class="modal-close" onclick="closeUserEditModal()">×</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="editUserId">
+    <div class="form-group">
+      <label class="form-label">用户名</label>
+      <input type="text" id="editUserName" class="form-input" readonly>
+    </div>
+    <div class="form-group">
+      <label class="form-label">显示名称</label>
+      <input type="text" id="editDisplayName" class="form-input" placeholder="输入显示名称">
+    </div>
+    <div class="form-group">
+      <label class="form-label">新密码 <span style="opacity:0.6">(留空则不改)</span></label>
+      <input type="password" id="editPassword" class="form-input" placeholder="输入新密码">
+    </div>
+    <div class="form-group">
+      <label class="form-label">角色</label>
+      <select id="editRole" class="form-select">
+        <option value="employee">🦞 员工</option>
+        <option value="admin">👑 管理员</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Agent配额</label>
+      <input type="number" id="editAgentQuota" class="form-input" value="10" min="0">
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeUserEditModal()">取消</button>
+    <button class="btn btn-primary" onclick="saveUserEdit()">保存</button>
+  </div>
+</div>
+
 <!-- FAB Button -->
 <button class="fab-button" onclick="toggleFabMenu(event)" aria-label="快捷菜单">
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 </button>
+
+<!-- User Edit Modal Styles -->
+<style>
+#userEditOverlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.45); backdrop-filter: blur(8px); z-index: 299; display: none; }
+#userEditOverlay.active { display: block; }
+#userEditModal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 400px; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); z-index: 300; display: none; overflow: hidden; }
+#userEditModal.active { display: block; animation: modalPopIn 0.2s ease-out; }
+@keyframes modalPopIn { from { opacity: 0; transform: translate(-50%, -50%) scale(0.95); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+#userEditModal .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 0.5px solid var(--separator); }
+#userEditModal .modal-title { font-size: 16px; font-weight: 600; }
+#userEditModal .modal-close { width: 28px; height: 28px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--text-secondary); font-size: 18px; }
+#userEditModal .modal-close:hover { background: var(--bg-secondary); }
+#userEditModal .modal-body { padding: 20px; max-height: 60vh; overflow-y: auto; }
+#userEditModal .form-group { margin-bottom: 16px; }
+#userEditModal .form-label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
+#userEditModal .form-input { width: 100%; padding: 10px 12px; border: 1px solid var(--separator); border-radius: 8px; font-size: 14px; box-sizing: border-box; background: var(--bg-secondary); }
+#userEditModal .form-input:focus { outline: none; border-color: var(--accent); }
+#userEditModal .form-input[readonly] { opacity: 0.6; cursor: not-allowed; }
+#userEditModal .form-select { width: 100%; padding: 10px 12px; border: 1px solid var(--separator); border-radius: 8px; font-size: 14px; box-sizing: border-box; background: var(--bg-secondary); cursor: pointer; }
+#userEditModal .modal-footer { display: flex; gap: 12px; padding: 16px 20px; border-top: 0.5px solid var(--separator); }
+#userEditModal .btn { flex: 1; padding: 10px 16px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; transition: all 0.15s; }
+#userEditModal .btn-primary { background: var(--accent); color: white; }
+#userEditModal .btn-primary:hover { background: var(--accent-hover); }
+#userEditModal .btn-secondary { background: var(--bg-secondary); color: var(--text-primary); }
+#userEditModal .btn-secondary:hover { background: var(--bg-tertiary); }
+</style>
 
 <!-- FAB Menu Styles -->
 <style>
@@ -8923,7 +9062,7 @@ function deleteUser(userId) {
   });
 }
 
-// 编辑用户
+// 编辑用户 - 打开弹窗
 function editUser(userId) {
   if (!isAdmin()) {
     showToast('⚠️ 只有管理员可以编辑用户');
@@ -8936,50 +9075,87 @@ function editUser(userId) {
       // 后端未启动，用 localStorage
       var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
       var user = users.find(function(u) { return u.id === userId; });
-      if (user) performEditUser(user, users);
+      if (user) showUserEditModal(user);
       return null;
     }
     return res.json();
   }).then(function(user) {
-    if (user) performEditUserAPI(user);
+    if (user) showUserEditModal(user);
   }).catch(function() {
     var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
     var user = users.find(function(u) { return u.id === userId; });
-    if (user) performEditUser(user, users);
+    if (user) showUserEditModal(user);
   });
 }
 
-function performEditUserAPI(user) {
-  var newName = prompt('修改显示名称:', user.displayName || user.name || user.username);
-  if (newName === null) return;
-  var newRole = confirm('是否设为管理员?\n(确定=管理员, 取消=员工)');
+// 显示用户编辑弹窗
+var editingUserId = null;
+function showUserEditModal(user) {
+  editingUserId = user.id;
+  document.getElementById('editUserId').value = user.id;
+  document.getElementById('editUserName').value = user.username || user.name || '';
+  document.getElementById('editDisplayName').value = user.displayName || user.name || '';
+  document.getElementById('editPassword').value = '';
+  document.getElementById('editRole').value = user.role === 'admin' ? 'admin' : 'employee';
+  document.getElementById('editAgentQuota').value = user.agentQuota || 10;
+  document.getElementById('userEditOverlay').classList.add('active');
+  document.getElementById('userEditModal').classList.add('active');
+}
 
-  apiFetch('/api/users/' + user.id, {
+function closeUserEditModal() {
+  document.getElementById('userEditOverlay').classList.remove('active');
+  document.getElementById('userEditModal').classList.remove('active');
+  editingUserId = null;
+}
+
+function saveUserEdit() {
+  if (!editingUserId) return;
+  var userId = editingUserId;
+  var displayName = document.getElementById('editDisplayName').value.trim();
+  var password = document.getElementById('editPassword').value;
+  var role = document.getElementById('editRole').value;
+  var agentQuota = parseInt(document.getElementById('editAgentQuota').value) || 10;
+
+  if (!displayName) {
+    showToast('⚠️ 请输入显示名称');
+    return;
+  }
+
+  var payload = { displayName: displayName, role: role, agentQuota: agentQuota };
+  if (password) {
+    payload.password = password;
+  }
+
+  apiFetch('/api/users/' + userId, {
     method: 'PUT',
-    body: JSON.stringify({ displayName: newName, role: newRole ? 'admin' : 'employee' })
+    body: JSON.stringify(payload)
   }).then(function(res) {
     if (res && res.ok) {
       showToast('✅ 用户信息已更新');
       loadUserList();
+      closeUserEditModal();
     } else {
       return res ? res.json() : null;
     }
   }).then(function(data) {
     if (data && data.error) showToast('⚠️ ' + data.error);
   }).catch(function() {
-    showToast('⚠️ 更新失败');
+    // 离线模式：更新 localStorage
+    var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
+    var user = users.find(function(u) { return u.id === userId; });
+    if (user) {
+      user.displayName = displayName;
+      user.role = role;
+      user.agentQuota = agentQuota;
+      localStorage.setItem('sb_users', JSON.stringify(users));
+      showToast('✅ 用户信息已更新(本地)');
+      loadUserList();
+    } else {
+      showToast('⚠️ 更新失败');
+    }
+    closeUserEditModal();
   });
 }
-
-function performEditUser(user, users) {
-  var newName = prompt('修改用户名:', user.name || user.username);
-  if (newName === null) return;
-
-  var newRole = confirm('是否设为管理员?\n(确定=管理员, 取消=员工)');
-
-  user.name = newName;
-  user.displayName = newName;
-  user.role = newRole ? 'admin' : 'employee';
 
   localStorage.setItem('sb_users', JSON.stringify(users));
   showToast('✅ 用户信息已更新（本地模式）');
@@ -9102,11 +9278,21 @@ function checkQuota() {
 
 <!-- Employee Settings Dropdown Menu -->
 <div id="empSettingsMenu" class="emp-settings-menu">
-  <div class="menu-item" onclick="empSettingsAction('edit')">✏️ 编辑</div>
-  <div class="menu-item" onclick="empSettingsAction('pin')">📌 置顶</div>
-  <div class="menu-item" onclick="empSettingsAction('move')">📁 移动分组</div>
+  <div class="menu-item" onclick="empSettingsAction('edit')">✏️ 编辑资料</div>
   <div class="menu-divider"></div>
+  <div class="menu-item has-submenu">📁 移动到分组
+    <div class="submenu">
+      <div class="submenu-item" onclick="empSettingsActionMove('全局统筹')">🔴 全局统筹</div>
+      <div class="submenu-item" onclick="empSettingsActionMove('技术团队')">&lt;&gt; 技术团队</div>
+      <div class="submenu-item" onclick="empSettingsActionMove('业务团队')">💼 业务团队</div>
+      <div class="submenu-item" onclick="empSettingsActionMove('测试小组')">🧪 测试小组</div>
+    </div>
+  </div>
+  <div class="menu-divider"></div>
+  <div class="menu-item" onclick="empSettingsAction('pin')">📌 置顶</div>
   <div class="menu-item" onclick="empSettingsAction('archive')">📦 归档</div>
+  <div class="menu-item" onclick="empSettingsAction('clearBadge')">🔕 清除紧急标记</div>
+  <div class="menu-divider"></div>
   <div class="menu-item danger" onclick="empSettingsAction('delete')">🗑️ 删除</div>
 </div>
 
