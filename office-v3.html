@@ -1549,37 +1549,35 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .chat-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: rgba(255,255,255,0.85);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-radius: 14px;
-  padding: 12px 14px;
+  gap: 12px;
+  background: rgba(255,255,255,0.92);
+  border-radius: 16px;
+  padding: 14px 16px;
   cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.25,0.46,0.45,0.94);
-  border: 1px solid rgba(0,0,0,0.04);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 0 0 0.5px rgba(0,0,0,0.02);
+  transition: all 0.3s cubic-bezier(0.25,0.46,0.45,0.94);
+  border: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   position: relative;
   overflow: hidden;
 }
 
-.chat-card::before {
+.chat-card::after {
   content: '';
   position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+  inset: 0;
+  border-radius: 16px;
+  border: 1px solid rgba(0,0,0,0.06);
+  pointer-events: none;
 }
 
 .chat-card:hover {
-  box-shadow: 0 6px 20px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.03);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.1);
   transform: translateY(-2px);
-  border-color: rgba(0,0,0,0.06);
 }
 
 .chat-card:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  transform: translateY(0) scale(0.98);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
 /* 圆形头像 */
@@ -1794,14 +1792,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 }
 
 .work-card:hover {
-  box-shadow: 0 6px 20px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.03);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.1);
   transform: translateY(-2px);
-  border-color: rgba(0,0,0,0.06);
 }
 
 .work-card:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  transform: translateY(0) scale(0.98);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
 .work-card-avatar {
@@ -3031,6 +3028,9 @@ function renderAvatar(emp, size){
 function renderChatZone() {
   var chatZone = document.getElementById('chatZone');
   if (!chatZone) return;
+function renderChatZone() {
+  var chatZone = document.getElementById('chatZone');
+  if (!chatZone) return;
   
   var chatters = employees.filter(function(e) {
     var hist = localStorage.getItem('sb_chat_history_' + e.id);
@@ -3053,55 +3053,54 @@ function renderChatZone() {
     var isWorking = e.status === 'busy' || e.status === 'working';
     var isOnline = e.status === 'online';
     
-    var statusDotColor = '#8E8E93';
-    var badgeClass = 'online';
+    var statusDotColor = '#34C759';
+    var statusDotBorder = '#34C759';
     var statusText = '在线';
-    var progressFillClass = 'online-fill';
+    var statusTextColor = '#34C759';
+    var progressColor = '#34C759';
     if (isThinking) {
       statusDotColor = '#AF52DE';
-      badgeClass = 'thinking';
+      statusDotBorder = '#AF52DE';
       statusText = '思考中';
-      progressFillClass = '';
+      statusTextColor = '#AF52DE';
+      progressColor = '#AF52DE';
     } else if (isWorking) {
-      statusDotColor = '#34C759';
-      badgeClass = 'working';
+      statusDotColor = '#FF9500';
+      statusDotBorder = '#FF9500';
       statusText = '工作中';
-      progressFillClass = 'online-fill';
-    } else if (isOnline) {
-      statusDotColor = '#34C759';
-      badgeClass = 'online';
-      statusText = '在线';
-      progressFillClass = 'online-fill';
+      statusTextColor = '#FF9500';
+      progressColor = '#FF9500';
     }
     
     var minutes = Math.floor(Math.random() * 120) + 5;
     var durationText = minutes + '分钟';
     var progress = Math.floor(Math.random() * 40) + 30;
+    var now = new Date();
+    var period = now.getHours() < 12 ? '上午' : (now.getHours() < 18 ? '下午' : '晚上');
     
     html += '<div class="chat-card" onclick="openDetailPanel(\'' + e.id + '\')">';
-    html += '<div class="chat-card-avatar">';
-    html += avatarHtml;
-    html += '<div class="chat-card-status-dot" style="background:' + statusDotColor + '"></div>';
+    html += '<div style="position:relative;width:46px;height:46px;flex-shrink:0;">';
+    html += '<div style="width:46px;height:46px;border-radius:50%;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);background:linear-gradient(135deg,#FFED4A,#FFD60A);">' + avatarHtml + '</div>';
+    html += '<div style="position:absolute;bottom:0;right:0;width:13px;height:13px;border-radius:50%;background:' + statusDotColor + ';border:2.5px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div>';
     html += '</div>';
-    html += '<div class="chat-card-info">';
-    // Gates + 绿点
-    html += '<div class="chat-card-name-row">';
-    html += '<span class="chat-card-name">' + (e.name || '?') + '</span>';
-    html += '<span class="chat-card-online-dot"></span>';
+    html += '<div style="flex:1;min-width:0;">';
+    html += '<div style="display:flex;align-items:center;gap:6px;">';
+    html += '<span style="font-size:14px;font-weight:600;color:#1D1D1F;letter-spacing:-0.01em;">' + (e.name || '?') + '</span>';
+    if(isOnline || isWorking) {
+      html += '<span style="width:6px;height:6px;border-radius:50%;background:#34C759;box-shadow:0 0 4px rgba(52,199,89,0.5);"></span>';
+    }
     html += '</div>';
-    // 研发负责人
-    html += '<div class="chat-card-role">' + (e.role || '成员') + '</div>';
-    // 紫点 + 思考中
-    html += '<div class="chat-card-status-row">';
-    html += '<span class="chat-card-status-badge ' + badgeClass + '"><span class="status-icon"></span>' + statusText + '</span>';
+    html += '<div style="font-size:11px;color:#8E8E93;margin-top:2px;">' + (e.role || '成员') + '</div>';
+    html += '<div style="display:flex;align-items:center;gap:4px;margin-top:4px;">';
+    html += '<span style="width:7px;height:7px;border-radius:50%;background:' + statusDotBorder + ';box-shadow:0 0 4px ' + statusDotBorder + '40;"></span>';
+    html += '<span style="font-size:12px;color:' + statusTextColor + ';font-weight:500;">' + statusText + '</span>';
     html += '</div>';
-    // 上午 | 进度条 | 时长
-    html += '<div class="chat-card-progress">';
-    html += '<span class="chat-card-progress-label">上午</span>';
-    html += '<div class="chat-card-progress-bar">';
-    html += '<div class="chat-card-progress-fill ' + progressFillClass + '" style="width:' + progress + '%"></div>';
+    html += '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;">';
+    html += '<span style="font-size:10px;color:#C7C7CC;flex-shrink:0;">' + period + '</span>';
+    html += '<div style="flex:1;height:3px;background:rgba(120,120,128,0.12);border-radius:1.5px;overflow:hidden;">';
+    html += '<div style="height:100%;width:' + progress + '%;background:' + progressColor + ';border-radius:1.5px;"></div>';
     html += '</div>';
-    html += '<span class="chat-card-duration"><span class="chat-card-duration-icon"></span>' + durationText + '</span>';
+    html += '<span style="font-size:10px;color:#8E8E93;flex-shrink:0;font-weight:500;">' + durationText + '</span>';
     html += '</div>';
     html += '</div>';
     html += '</div>';
@@ -3110,10 +3109,6 @@ function renderChatZone() {
   chatZone.innerHTML = html;
 }
 
-
-function scrollChatZoneToTop(empId) {
-  var chatZone = document.getElementById('chatZone');
-  if (!chatZone) return;
   var item = chatZone.querySelector('[onclick*="' + empId + '"]');
   if (item) {
     item.classList.add('highlight');
@@ -3158,35 +3153,38 @@ function renderWorkZone() {
     var avatarHtml = renderAvatar(e, 42);
     
     var isThinking = e.status === 'thinking';
-    var badgeClass = isThinking ? 'thinking' : 'working';
+    var statusDotColor = isThinking ? '#AF52DE' : '#FF9500';
     var statusText = isThinking ? '思考中' : '工作中';
-    var dotColor = isThinking ? '#AF52DE' : '#34C759';
-    var progressFillClass = isThinking ? '' : 'online-fill';
+    var statusTextColor = isThinking ? '#AF52DE' : '#FF9500';
+    var progressColor = isThinking ? '#AF52DE' : '#FF9500';
     
     var progress = Math.floor(Math.random() * 50) + 30;
     var minutes = Math.floor(Math.random() * 120) + 5;
     var durationText = minutes + '分钟';
+    var now = new Date();
+    var period = now.getHours() < 12 ? '上午' : (now.getHours() < 18 ? '下午' : '晚上');
     
-    html += '<div class="work-card" onclick="openDetailPanel(\'' + e.id + '\')">';
-    html += '<div class="work-card-avatar">';
-    html += avatarHtml;
-    html += '<div class="work-card-status-dot" style="background:' + dotColor + '"></div>';
+    html += '<div class="chat-card" onclick="openDetailPanel(\'' + e.id + '\')">';
+    html += '<div style="position:relative;width:42px;height:42px;flex-shrink:0;">';
+    html += '<div style="width:42px;height:42px;border-radius:50%;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);background:linear-gradient(135deg,#FFED4A,#FFD60A);">' + avatarHtml + '</div>';
+    html += '<div style="position:absolute;bottom:0;right:0;width:12px;height:12px;border-radius:50%;background:' + statusDotColor + ';border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div>';
     html += '</div>';
-    html += '<div class="work-card-info">';
-    html += '<div class="work-card-name-row">';
-    html += '<span class="work-card-name">' + (e.name || '?') + '</span>';
-    html += '<span class="chat-card-online-dot"></span>';
+    html += '<div style="flex:1;min-width:0;">';
+    html += '<div style="display:flex;align-items:center;gap:6px;">';
+    html += '<span style="font-size:14px;font-weight:600;color:#1D1D1F;">' + (e.name || '?') + '</span>';
+    html += '<span style="width:6px;height:6px;border-radius:50%;background:#FF9500;box-shadow:0 0 4px rgba(255,149,0,0.5);"></span>';
     html += '</div>';
-    html += '<div class="work-card-role">' + (e.role || '成员') + '</div>';
-    html += '<div class="work-card-status">';
-    html += '<span class="work-card-status-badge ' + badgeClass + '"><span class="status-icon"></span>' + statusText + '</span>';
+    html += '<div style="font-size:11px;color:#8E8E93;margin-top:2px;">' + (e.role || '成员') + '</div>';
+    html += '<div style="display:flex;align-items:center;gap:4px;margin-top:4px;">';
+    html += '<span style="width:7px;height:7px;border-radius:50%;background:' + statusDotColor + ';box-shadow:0 0 4px ' + statusDotColor + '40;"></span>';
+    html += '<span style="font-size:12px;color:' + statusTextColor + ';font-weight:500;">' + statusText + '</span>';
     html += '</div>';
-    html += '<div class="work-card-progress">';
-    html += '<span class="chat-card-progress-label">上午</span>';
-    html += '<div class="work-card-progress-bar">';
-    html += '<div class="work-card-progress-fill ' + progressFillClass + '" style="width:' + progress + '%"></div>';
+    html += '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;">';
+    html += '<span style="font-size:10px;color:#C7C7CC;flex-shrink:0;">' + period + '</span>';
+    html += '<div style="flex:1;height:3px;background:rgba(120,120,128,0.12);border-radius:1.5px;overflow:hidden;">';
+    html += '<div style="height:100%;width:' + progress + '%;background:' + progressColor + ';border-radius:1.5px;"></div>';
     html += '</div>';
-    html += '<span class="chat-card-duration"><span class="chat-card-duration-icon"></span>' + durationText + '</span>';
+    html += '<span style="font-size:10px;color:#8E8E93;flex-shrink:0;font-weight:500;">' + durationText + '</span>';
     html += '</div>';
     html += '</div>';
     html += '</div>';
