@@ -1215,6 +1215,278 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   }
 }
 }
+
+/* ===== 对话区卡片 - 微信聊天列表风格 ===== */
+.conv-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+}
+.conv-card:hover {
+  background: rgba(0,0,0,0.03);
+}
+.conv-card + .conv-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 64px;
+  right: 16px;
+  height: 0.5px;
+  background: var(--separator, rgba(0,0,0,0.06));
+}
+.conv-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+  position: relative;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.conv-avatar .online-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 12px;
+  height: 12px;
+  background: #34C759;
+  border-radius: 50%;
+  border: 2.5px solid #fff;
+}
+.conv-body {
+  flex: 1;
+  min-width: 0;
+}
+.conv-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.conv-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary, #1D1D1F);
+}
+.conv-time {
+  font-size: 11px;
+  color: var(--text-tertiary, #AEAEB2);
+  flex-shrink: 0;
+}
+.conv-bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.conv-preview {
+  font-size: 13px;
+  color: var(--text-secondary, #86868B);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+.conv-unread {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  background: #FF3B30;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ===== 办公区卡片 - 员工状态卡片 ===== */
+.work-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin: 0 8px 6px;
+  background: #fff;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+.work-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.work-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+  position: relative;
+}
+.work-avatar .work-pulse {
+  position: absolute;
+  inset: -3px;
+  border-radius: 15px;
+  border: 2.5px solid transparent;
+  animation: work-ring 2s infinite;
+}
+.work-card[data-status="working"] .work-pulse {
+  border-color: rgba(52, 199, 89, 0.5);
+}
+.work-card[data-status="idle"] .work-pulse {
+  border-color: rgba(255, 149, 0, 0.3);
+  animation: none;
+}
+@keyframes work-ring {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.04); }
+}
+.work-body {
+  flex: 1;
+  min-width: 0;
+}
+.work-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1D1D1F;
+  margin-bottom: 2px;
+}
+.work-role {
+  font-size: 12px;
+  color: #86868B;
+  margin-bottom: 3px;
+}
+.work-task {
+  font-size: 11px;
+  color: #AEAEB2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+.work-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.work-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.work-badge.working {
+  background: rgba(52, 199, 89, 0.1);
+  color: #34C759;
+}
+.work-badge.working::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: #34C759;
+  border-radius: 50%;
+  animation: dot-pulse 1.5s infinite;
+}
+.work-badge.idle {
+  background: rgba(255, 149, 0, 0.1);
+  color: #FF9500;
+}
+.work-badge.idle::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: #FF9500;
+  border-radius: 50%;
+}
+.work-badge.waiting {
+  background: rgba(0, 122, 255, 0.08);
+  color: #007AFF;
+}
+.work-badge.waiting::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: #007AFF;
+  border-radius: 50%;
+  animation: dot-pulse 2s infinite;
+}
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.work-duration {
+  font-size: 11px;
+  color: #AEAEB2;
+}
+
+/* ===== 休闲区 - 动态列表 ===== */
+.lounge-list {
+  padding: 0 8px;
+}
+.lounge-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.lounge-entry:hover {
+  background: rgba(0,0,0,0.03);
+}
+.lounge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.lounge-dot.online {
+  background: #34C759;
+  box-shadow: 0 0 6px rgba(52, 199, 89, 0.4);
+}
+.lounge-dot.action {
+  background: #007AFF;
+}
+.lounge-text {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary, #1D1D1F);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lounge-text .emp-name {
+  font-weight: 600;
+}
+.lounge-text .action-desc {
+  color: var(--text-secondary, #86868B);
+  margin-left: 4px;
+}
+.lounge-timestamp {
+  font-size: 11px;
+  color: var(--text-tertiary, #AEAEB2);
+  flex-shrink: 0;
+}
+
 </style><script src="./openclaw-client.js"></script>
 <script src="./avatars.js"></script>
 </head><body>
@@ -2530,40 +2802,37 @@ function renderChatZone() {
     // 用renderAvatar渲染卡通头像
     var avatarHtml = renderAvatar(e, 44);
     
-    // 卡片 - 新版zone-chat-item设计（添加unread类）
-    var unreadClass = unreadCount > 0 ? ' unread' : '';
-    html += '<div class="zone-chat-item' + unreadClass + '" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')">';
+    // 新 conv-card 设计
+    html += '<div class="conv-card" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')">';
     
-    // 头像区域 - 添加状态光晕类
-    html += '<div class="zone-chat-avatar ' + statusClass + '">';
+    // 头像
+    html += '<div class="conv-avatar" style="background:linear-gradient(135deg,#007AFF,#5AC8FA);">';
     html += avatarHtml;
-    html += '<div class="status-dot ' + statusClass + '"></div>';
+    if (isOnline || isWorking) {
+      html += '<div class="online-dot"></div>';
+    }
     html += '</div>';
     
-    // 内容区
-    html += '<div class="zone-chat-info">';
-    html += '<div class="zone-chat-top">';
-    html += '<span class="zone-chat-name">' + escapeHtml(e.name || '?') + '</span>';
-    html += '<span class="zone-chat-time">' + escapeHtml(timeText) + '</span>';
+    // 中间信息
+    html += '<div class="conv-body">';
+    html += '<div class="conv-top-row">';
+    html += '<span class="conv-name">' + escapeHtml(e.name || '?') + '</span>';
+    html += '<span class="conv-time">' + escapeHtml(timeText) + '</span>';
     html += '</div>';
-    
-    // 消息预览或思考中
+    html += '<div class="conv-bottom-row">';
     if (isThinking) {
-      html += '<div class="zone-chat-preview" style="color:#007AFF">';
-      html += '<span class="zone-thinking-dots"><span></span><span></span><span></span></span> 正在思考...</div>';
+      html += '<span class="conv-preview" style="color:#007AFF">正在思考...</span>';
     } else if (latestMsg) {
       var preview = latestMsg.length > 40 ? latestMsg.substring(0, 40) + '...' : latestMsg;
-      html += '<div class="zone-chat-preview">"' + escapeHtml(preview) + '"</div>';
+      html += '<span class="conv-preview">' + escapeHtml(preview) + '</span>';
     } else {
-      html += '<div class="zone-chat-preview" style="color:#AEAEB2">开始新对话</div>';
+      html += '<span class="conv-preview" style="color:#AEAEB2">开始新对话</span>';
     }
-    
-    html += '</div>';
-    
-    // 未读角标 - 右侧红色数字
     if (unreadCount > 0) {
-      html += '<div class="zone-chat-unread">' + unreadCount + '</div>';
+      html += '<span class="conv-unread">' + unreadCount + '</span>';
     }
+    html += '</div>';
+    html += '</div>';
     
     html += '</div>';
   }
@@ -2653,40 +2922,37 @@ function renderWorkZone() {
     // 确定状态
     var isThinking = e.status === 'thinking';
     var isWorking = e.status === 'busy' || e.status === 'working';
-    var statusClass = 'busy';
-    var statusText = '工作中';
-    
-    if (isThinking) {
-      statusClass = 'thinking';
-      statusText = '思考中';
-    }
+    var statusData = isThinking ? 'idle' : 'working';
+    var badgeClass = isThinking ? 'waiting' : 'working';
+    var statusText = isThinking ? '思考中' : '工作中';
     
     // 生成随机时长（用于演示）
     var minutes = Math.floor(Math.random() * 120) + 5;
     var durationText = minutes + ' 分钟';
     
-    // 构建卡片 HTML - 新版zone-emp-card设计
-    html += '<div class="zone-emp-card ' + statusClass + '" onclick="openDetailPanel(\'' + e.id + '\')">';
-    
-    // 头像区域
-    html += '<div class="zone-emp-avatar">';
-    html += avatarHtml;
-    html += '<div class="status-ring"></div>';
-    html += '</div>';
-    
-    // 员工信息
-    html += '<div class="zone-emp-info">';
-    html += '<div class="zone-emp-name">' + escapeHtml(e.name || '?') + '</div>';
-    html += '<div class="zone-emp-role">' + escapeHtml(e.role || '成员') + '</div>';
     // 从localStorage读取最后一条AI消息作为当前任务描述
     var taskDesc = getLastAIMessage(e.id);
-    html += '<div class="zone-emp-task">' + escapeHtml(taskDesc) + '</div>';
+    
+    // 新 work-card 设计
+    html += '<div class="work-card" data-status="' + statusData + '" onclick="openDetailPanel(\'' + e.id + '\')">';
+    
+    // 头像
+    html += '<div class="work-avatar" style="background:linear-gradient(135deg,#5AC8FA,#007AFF);">';
+    html += avatarHtml;
+    html += '<div class="work-pulse"></div>';
     html += '</div>';
     
-    // 右侧状态区
-    html += '<div class="zone-emp-meta">';
-    html += '<div class="zone-emp-status ' + statusClass + '">' + statusText + '</div>';
-    html += '<div class="zone-emp-duration">' + durationText + '</div>';
+    // 中间信息
+    html += '<div class="work-body">';
+    html += '<div class="work-name">' + escapeHtml(e.name || '?') + '</div>';
+    html += '<div class="work-role">' + escapeHtml(e.role || '成员') + '</div>';
+    html += '<div class="work-task">' + escapeHtml(taskDesc) + '</div>';
+    html += '</div>';
+    
+    // 右侧状态
+    html += '<div class="work-meta">';
+    html += '<div class="work-badge ' + badgeClass + '">' + statusText + '</div>';
+    html += '<div class="work-duration">' + durationText + '</div>';
     html += '</div>';
     
     html += '</div>';
@@ -3206,11 +3472,34 @@ function renderLoungeZone(){
     loungeZone.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-4)">暂无员工</div>';
     return;
   }
-  loungeZone.innerHTML = '<div class="lounge-grid">' + employees.map(function(e){
-    var avatarHtml = renderAvatar(e, 44);
-    var statusDot = e.status==='online'?'🟢':e.status==='busy'?'🟠':e.status==='thinking'?'🟡':'⚪';
-    return '<div class="lounge-avatar" style="background:linear-gradient(135deg,#FFED4A,#FFD60A);position:relative;cursor:pointer;overflow:hidden" title="'+e.name+' ('+e.role+')" onclick="openDetailPanel(\''+e.id+'\')">'+avatarHtml+'<span style="position:absolute;bottom:-2px;right:-2px;font-size:10px">'+statusDot+'</span></div>';
-  }).join('') + '</div>';
+  // 新 lounge-list 设计
+  var html = '<div class="lounge-list">';
+  
+  // 在线员工
+  for (var i = 0; i < employees.length; i++) {
+    var e = employees[i];
+    var isOnline = e.status === 'online' || e.status === 'busy' || e.status === 'thinking';
+    if (isOnline) {
+      html += '<div class="lounge-entry" onclick="openDetailPanel(\'' + e.id + '\')">';
+      html += '<div class="lounge-dot online"></div>';
+      html += '<span class="lounge-text"><span class="emp-name">' + escapeHtml(e.name) + '</span><span class="action-desc">已上线</span></span>';
+      html += '<span class="lounge-timestamp">刚刚</span>';
+      html += '</div>';
+    }
+  }
+  
+  // 最近活动（从activities取）
+  for (var j = 0; j < Math.min(activities.length, 5); j++) {
+    var act = activities[j];
+    html += '<div class="lounge-entry">';
+    html += '<div class="lounge-dot action"></div>';
+    html += '<span class="lounge-text"><span class="emp-name">' + escapeHtml(act.name || '系统') + '</span><span class="action-desc">' + escapeHtml(act.action || '执行操作') + '</span></span>';
+    html += '<span class="lounge-timestamp">' + escapeHtml(act.time || '') + '</span>';
+    html += '</div>';
+  }
+  
+  html += '</div>';
+  loungeZone.innerHTML = html;
 }
 
 function updateStatusTime(){
