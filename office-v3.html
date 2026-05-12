@@ -2015,13 +2015,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 
 /* 对话区容器 */
 .zone-section { margin-bottom: 16px; }
+.zone-section + .zone-section {
+  border-top: 1px solid var(--separator, rgba(0,0,0,0.08));
+  margin-top: 4px;
+  padding-top: 12px;
+}
+
+/* 办公区背景微灰 */
+.zone-section.work {
+  background: rgba(0,0,0,0.02);
+}
 .zone-section-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px 6px; }
 .zone-section-title { font-size: 12px; font-weight: 600; color: var(--text-secondary, #86868B); letter-spacing: 0.05em; text-transform: uppercase; }
 .zone-badge { min-width: 18px; height: 18px; padding: 0 5px; background: var(--accent, #FF6B35); color: white; border-radius: 9px; font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
 
 /* 对话项 - 新样式 */
 .zone-chat-list { display: flex; flex-direction: column; gap: 0; padding: 0 4px; }
-.zone-chat-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; transition: background 0.15s; position: relative; }
+.zone-chat-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; transition: all 0.2s ease; position: relative; background: rgba(255,255,255,0.5); border-radius: 8px; margin-bottom: 4px; }
+.zone-chat-item:hover { background: rgba(255,255,255,0.85); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.zone-chat-item.unread { background: rgba(0,122,255,0.04); }
 .zone-chat-item:hover { background: var(--bg-secondary, #F2F2F7); }
 .zone-chat-item::after { content: ''; position: absolute; bottom: 0; left: 52px; right: 14px; height: 0.5px; background: var(--separator, rgba(0,0,0,0.06)); }
 .zone-chat-item:last-child::after { display: none; }
@@ -2038,8 +2050,43 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .zone-chat-time { font-size: 11px; color: var(--text-tertiary, #AEAEB2); flex-shrink: 0; }
 .zone-chat-preview { font-size: 13px; color: var(--text-secondary, #86868B); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
 
+/* 未读角标 - 右侧数字 */
+.zone-chat-unread {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: #FF3B30;
+  color: white;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(255,59,48,0.3);
+}
+
+/* 未读状态 - 名字和预览颜色 */
+.zone-chat-item.unread .zone-chat-name {
+  color: #1D1D1F;
+  font-weight: 700;
+}
+.zone-chat-item.unread .zone-chat-preview {
+  color: #1D1D1F;
+}
+/* 已读状态 */
+.zone-chat-item .zone-chat-name {
+  color: #3C3C43;
+  font-weight: 600;
+}
+.zone-chat-item .zone-chat-preview {
+  color: #8E8E93;
+}
+
 /* 办公区员工卡片 - 新样式 */
-.zone-emp-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin: 0 8px 6px; background: var(--bg-primary, #fff); border-radius: 10px; cursor: pointer; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.zone-emp-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin: 0 8px 6px; background: var(--bg-primary, #fff); border-radius: 10px; cursor: pointer; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 1px 3px rgba(0,0,0,0.04); border: 1px solid var(--border-color, rgba(0,0,0,0.06)); }
+.zone-emp-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); transform: translateY(-1px); border-color: transparent; }
 .zone-emp-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
 .zone-emp-avatar { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; position: relative; overflow: visible; }
 .zone-emp-avatar img { width: 40px; height: 40px; border-radius: 12px; object-fit: cover; }
@@ -2064,6 +2111,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .zone-emp-status.offline::before { content: ''; width: 6px; height: 6px; background: var(--gray-3, #AEAEB2); border-radius: 50%; }
 .zone-emp-duration { font-size: 11px; color: var(--text-tertiary, #AEAEB2); }
 
+/* 员工当前任务描述 */
+.zone-emp-task {
+  font-size: 11px;
+  color: var(--text-tertiary, #AEAEB2);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+.zone-emp-card.unread .zone-emp-task {
+  color: #007AFF;
+}
+
 /* 思考中动画 */
 .zone-thinking-dots { display: inline-flex; align-items: center; gap: 2px; }
 .zone-thinking-dots span { width: 4px; height: 4px; background: #007AFF; border-radius: 50%; animation: zone-bounce 1.4s infinite ease-in-out; }
@@ -2081,7 +2142,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
     --bg-secondary: #1C1C1E;
     --text-primary: #F5F5F7;
     --text-secondary: #98989D;
+    --text-tertiary: #636366;
     --border-color: rgba(255,255,255,0.06);
+    --separator: rgba(255,255,255,0.08);
     --gray-1: #2C2C2E;
     --gray-3: #3A3A3C;
     --gray-4: #636366;
@@ -2098,6 +2161,31 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   .activity-item:hover { background: rgba(255,255,255,0.05) !important; }
   .task-section, .live-section { background: transparent !important; }
   body { background: #000 !important; }
+  
+  /* 对话区暗色模式 */
+  .zone-chat-item { background: rgba(44,44,46,0.5) !important; }
+  .zone-chat-item:hover { background: rgba(44,44,46,0.75) !important; }
+  .zone-chat-item.unread { background: rgba(0,122,255,0.1) !important; }
+  .zone-chat-item .zone-chat-name { color: #F5F5F7 !important; }
+  .zone-chat-item.unread .zone-chat-name { color: #fff !important; }
+  .zone-chat-item .zone-chat-preview { color: #98989D !important; }
+  .zone-chat-item.unread .zone-chat-preview { color: #F5F5F7 !important; }
+  .zone-chat-time { color: #636366 !important; }
+  
+  /* 办公区暗色模式 */
+  .zone-section.work { background: rgba(0,0,0,0.2) !important; }
+  .zone-emp-card { background: rgba(44,44,46,0.6) !important; border-color: rgba(255,255,255,0.06) !important; }
+  .zone-emp-card:hover { background: rgba(44,44,46,0.8) !important; }
+  .zone-emp-name { color: #F5F5F7 !important; }
+  .zone-emp-role { color: #98989D !important; }
+  .zone-emp-task { color: #636366 !important; }
+  .zone-emp-duration { color: #636366 !important; }
+  
+  /* 区域分隔线暗色模式 */
+  .zone-section + .zone-section { border-color: rgba(255,255,255,0.08) !important; }
+  
+  /* 未读角标暗色模式 */
+  .zone-chat-unread { background: #FF453A !important; }
 }
 </style><script src="./openclaw-client.js"></script>
 <script src="./avatars.js"></script>
@@ -3278,6 +3366,43 @@ function getUnreadMessages(empId) {
   return 0;
 }
 
+// ===== 辅助函数：获取最后一条AI消息作为当前任务描述 =====
+function getLastAIMessage(empId) {
+  var key = 'sb_chat_history_' + empId;
+  var hist = localStorage.getItem(key);
+  if (hist) {
+    try {
+      var msgs = JSON.parse(hist);
+      if (msgs && msgs.length > 0) {
+        // 从后往前找AI回复
+        for (var i = msgs.length - 1; i >= 0; i--) {
+          var msg = msgs[i];
+          // 判断是否是AI消息（role为assistant或ai）
+          if (msg.role === 'assistant' || msg.role === 'ai' || msg.isAI === true) {
+            var text = msg.content || msg.text || msg.message || '';
+            if (text.length > 0) {
+              // 截断30字
+              if (text.length > 30) {
+                text = text.substring(0, 30) + '...';
+              }
+              return text;
+            }
+          }
+        }
+      }
+    } catch (e) {}
+  }
+  // 根据状态返回默认文本
+  var emp = employees.find(function(e) { return e.id === empId; });
+  if (emp) {
+    if (emp.status === 'offline') return '待命中';
+    if (emp.status === 'thinking') return '处理中...';
+    if (emp.status === 'busy' || emp.status === 'working') return '等待任务';
+    if (emp.status === 'online') return '空闲中';
+  }
+  return '空闲';
+}
+
 // ===== 渲染 Chat Zone - 实时消息流格式 =====
 function escapeAttr(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escapeHtml(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -3377,8 +3502,9 @@ function renderChatZone() {
     // 用renderAvatar渲染卡通头像
     var avatarHtml = renderAvatar(e, 36);
     
-    // 卡片 - 新版zone-chat-item设计
-    html += '<div class="zone-chat-item" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')">';
+    // 卡片 - 新版zone-chat-item设计（添加unread类）
+    var unreadClass = unreadCount > 0 ? ' unread' : '';
+    html += '<div class="zone-chat-item' + unreadClass + '" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')">';
     
     // 头像区域
     html += '<div class="zone-chat-avatar" style="background:' + (e.bg || (e.gradient && e.gradient[0]) || '#5AC8FA') + '">';
@@ -3406,9 +3532,9 @@ function renderChatZone() {
     
     html += '</div>';
     
-    // 未读气泡
+    // 未读角标 - 右侧红色数字
     if (unreadCount > 0) {
-      html += '<div class="zone-badge">' + unreadCount + '</div>';
+      html += '<div class="zone-chat-unread">' + unreadCount + '</div>';
     }
     
     html += '</div>';
@@ -3524,6 +3650,9 @@ function renderWorkZone() {
     html += '<div class="zone-emp-info">';
     html += '<div class="zone-emp-name">' + escapeHtml(e.name || '?') + '</div>';
     html += '<div class="zone-emp-role">' + escapeHtml(e.role || '成员') + '</div>';
+    // 从localStorage读取最后一条AI消息作为当前任务描述
+    var taskDesc = getLastAIMessage(e.id);
+    html += '<div class="zone-emp-task">' + escapeHtml(taskDesc) + '</div>';
     html += '</div>';
     
     // 右侧状态区
