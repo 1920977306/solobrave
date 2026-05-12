@@ -3297,11 +3297,8 @@ function renderChatZone() {
     
     var unreadCount = getUnreadMessages(e.id);
     
-    // 头像 - 直接生成，不用renderAvatar避免CSS冲突
-    var avatarLetter = (e.name || '?').charAt(0).toUpperCase();
-    var avatarBg = e.bg || '#8E8E93';
-    var emoji = e.emoji || '';
-    var avatarInner = emoji ? emoji : avatarLetter;
+    // 用renderAvatar渲染卡通头像（跟办公区一样）
+    var avatarHtml = renderAvatar(e, 42);
     
     // 状态点颜色
     var dotColor = '#8E8E93';
@@ -3309,56 +3306,43 @@ function renderChatZone() {
     else if (isThinking) dotColor = '#AF52DE';
     else if (isWorking) dotColor = '#FF9500';
     
-    // 左侧色条
-    var barColor = '#8E8E93';
-    if (isOnline) barColor = '#34C759';
-    else if (isThinking) barColor = '#AF52DE';
-    else if (isWorking) barColor = '#FF9500';
+    // 卡片（跟办公区同样用chat-card）
+    html += '<div class="chat-card ' + statusClass + '" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')">';
     
-    // 消息预览
-    var previewHtml = '';
-    if (isThinking) {
-      previewHtml = '<div style="font-size:12px;color:#AF52DE;display:flex;align-items:center;gap:3px;margin-top:3px;"><span style="width:4px;height:4px;border-radius:50%;background:#AF52DE;animation:status-pulse 1.5s infinite;"></span><span style="width:4px;height:4px;border-radius:50%;background:#AF52DE;animation:status-pulse 1.5s infinite 0.3s;"></span><span style="width:4px;height:4px;border-radius:50%;background:#AF52DE;animation:status-pulse 1.5s infinite 0.6s;"></span> 思考中</div>';
-    } else if (latestMsg) {
-      var preview = latestMsg.length > 35 ? latestMsg.substring(0, 35) + '...' : latestMsg;
-      previewHtml = '<div style="font-size:12px;color:var(--text-secondary,#8E8E93);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;">' + escapeHtml(preview) + '</div>';
-    }
-    
-    // 未读
-    var unreadHtml = '';
-    if (unreadCount > 0) {
-      unreadHtml = '<div style="position:absolute;top:10px;right:10px;background:var(--chat-zone,#007AFF);color:white;font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 5px;">' + unreadCount + '</div>';
-    }
-    
-    html += '<div class="chat-card ' + statusClass + '" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')" style="position:relative;display:flex;align-items:center;gap:12px;padding:12px 16px 12px 20px;background:rgba(255,255,255,0.75);backdrop-filter:blur(20px) saturate(180%);border-radius:14px;cursor:pointer;transition:all 0.25s cubic-bezier(0.4,0,0.2,1);border:none;box-shadow:0 2px 8px rgba(0,0,0,0.04);overflow:hidden;">';
-    
-    // 左侧色条
-    html += '<div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:' + barColor + ';border-radius:0 2px 2px 0;"></div>';
-    
-    // 头像
-    html += '<div style="width:42px;height:42px;border-radius:50%;background:' + avatarBg + ';display:flex;align-items:center;justify-content:center;color:white;font-size:18px;font-weight:700;flex-shrink:0;position:relative;">' + avatarInner;
-    html += '<div style="position:absolute;bottom:-1px;right:-1px;width:12px;height:12px;border-radius:50%;background:' + dotColor + ';border:2px solid white;"></div>';
+    // 头像（跟办公区一样）
+    html += '<div style="position:relative;width:42px;height:42px;flex-shrink:0;">';
+    html += '<div style="width:42px;height:42px;border-radius:50%;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);background:linear-gradient(135deg,#FFED4A,#FFD60A);">' + avatarHtml + '</div>';
+    html += '<div style="position:absolute;bottom:0;right:0;width:12px;height:12px;border-radius:50%;background:' + dotColor + ';border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div>';
     html += '</div>';
     
     // 内容区
-    html += '<div style="flex:1;min-width:0;display:flex;flex-direction:column;">';
-    // 第一行：名字 + 时间
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
-    html += '<span style="font-size:14px;font-weight:600;color:var(--text-primary,#1D1D1F);letter-spacing:-0.01em;">' + escapeHtml(e.name || '?') + '</span>';
-    if (timeText) {
-      html += '<span style="font-size:11px;color:var(--gray-4,#8E8E93);flex-shrink:0;">' + escapeHtml(timeText) + '</span>';
-    }
-    html += '</div>';
+    html += '<div style="flex:1;min-width:0;">';
+    // 第一行：名字
+    html += '<div style="font-size:14px;font-weight:600;color:#1D1D1F;">' + escapeHtml(e.name || '?') + '</div>';
     // 第二行：角色
-    if (e.role) {
-      html += '<div style="font-size:11px;color:var(--text-secondary,#86868B);margin-top:1px;">' + escapeHtml(e.role) + '</div>';
+    html += '<div style="font-size:11px;color:#8E8E93;margin-top:1px;">' + escapeHtml(e.role || '成员') + '</div>';
+    
+    // 第三行：消息预览或思考中
+    if (isThinking) {
+      html += '<div style="display:flex;align-items:center;gap:4px;margin-top:4px;">';
+      html += '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;background:rgba(175,82,222,0.1);color:#AF52DE;"><span style="width:5px;height:5px;border-radius:50%;background:#AF52DE;animation:status-pulse 1.5s infinite;"></span> 思考中</span>';
+      html += '</div>';
+    } else if (latestMsg) {
+      var preview = latestMsg.length > 30 ? latestMsg.substring(0, 30) + '...' : latestMsg;
+      html += '<div style="font-size:12px;color:#8E8E93;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">"' + escapeHtml(preview) + '"</div>';
     }
-    // 第三行：消息预览
-    html += previewHtml;
+    
     html += '</div>';
     
-    // 未读气泡
-    html += unreadHtml;
+    // 右侧：时间 + 未读
+    html += '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">';
+    if (timeText) {
+      html += '<span style="font-size:11px;color:#8E8E93;">' + escapeHtml(timeText) + '</span>';
+    }
+    if (unreadCount > 0) {
+      html += '<div style="background:var(--chat-zone,#007AFF);color:white;font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 5px;">' + unreadCount + '</div>';
+    }
+    html += '</div>';
     
     html += '</div>';
   }
