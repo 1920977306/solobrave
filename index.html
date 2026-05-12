@@ -4030,6 +4030,12 @@ async function loadEmployees(){
               needsSync.push({id: data[mi].id, avatar: data[mi].avatar});
             }
           }
+          // 前端权限过滤：非管理员只能看自己创建的
+          var uid = currentUser && currentUser.id;
+          var isAdmin = currentUser && currentUser.role === 'admin';
+          if(!isAdmin && uid){
+            data = data.filter(function(a){ return a.createdBy === uid || a.visibility === 'all'; });
+          }
           emps.length = 0;
           data.forEach(function(a){ emps.push(a); });
           localStorage.setItem('sb_employees', JSON.stringify(emps));
@@ -4068,6 +4074,12 @@ async function loadEmployees(){
       }
       if(needSave){
         localStorage.setItem('sb_employees', JSON.stringify(data));
+      }
+      // 前端权限过滤：非管理员只能看自己创建的
+      var uid2 = currentUser && currentUser.id;
+      var isAdmin2 = currentUser && currentUser.role === 'admin';
+      if(!isAdmin2 && uid2){
+        data = data.filter(function(a){ return a.createdBy === uid2 || a.visibility === 'all'; });
       }
       emps.length=0;
       data.forEach(function(e){emps.push(e);});
