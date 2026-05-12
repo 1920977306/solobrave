@@ -4030,12 +4030,6 @@ async function loadEmployees(){
               needsSync.push({id: data[mi].id, avatar: data[mi].avatar});
             }
           }
-          // 前端权限过滤：非管理员只能看自己创建的
-          var uid = currentUser && currentUser.id;
-          var isAdmin = currentUser && currentUser.role === 'admin';
-          if(!isAdmin && uid){
-            data = data.filter(function(a){ return a.createdBy === uid; });
-          }
           emps.length = 0;
           data.forEach(function(a){ emps.push(a); });
           localStorage.setItem('sb_employees', JSON.stringify(emps));
@@ -4074,12 +4068,6 @@ async function loadEmployees(){
       }
       if(needSave){
         localStorage.setItem('sb_employees', JSON.stringify(data));
-      }
-      // 前端权限过滤：非管理员只能看自己创建的
-      var uid2 = currentUser && currentUser.id;
-      var isAdmin2 = currentUser && currentUser.role === 'admin';
-      if(!isAdmin2 && uid2){
-        data = data.filter(function(a){ return a.createdBy === uid2; });
       }
       emps.length=0;
       data.forEach(function(e){emps.push(e);});
@@ -4285,10 +4273,20 @@ function toggleCategory(cat){
   renderEmployeeList();
 }
 
+
+// 获取当前用户可见的员工列表（权限过滤）
+function getVisibleEmps(){
+  if(!emps || emps.length === 0) return [];
+  var uid = currentUser && currentUser.id;
+  var isAdmin = currentUser && currentUser.role === 'admin';
+  if(isAdmin || !uid) return emps;
+  return emps.filter(function(e){ return e.createdBy === uid; });
+}
+
 function renderEmployeeList(){
   var list = document.getElementById('employeeList');
   if(!list) return;
-  var visible = emps.filter(function(e){ return !e.archived; });
+  var visible = getVisibleEmps().filter(function(e){ return !e.archived; });
   if(visible.length === 0){
     list.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方"新增员工"按钮添加第一位员工</div></div>';
     return;
