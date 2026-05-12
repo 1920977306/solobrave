@@ -2010,6 +2010,226 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   flex-shrink: 0;
   font-weight: 500;
 }
+
+/* ===== 对话区消息流新样式 ===== */
+
+/* 消息列表容器 */
+.chat-messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 单条消息卡片 */
+.chat-msg-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.chat-msg-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--gray-3);
+  transition: all 0.2s ease;
+}
+
+.chat-msg-item.online::before { background: linear-gradient(180deg, #34C759, #30B050); }
+.chat-msg-item.thinking::before { background: linear-gradient(180deg, var(--chat-zone), #5856D6); }
+.chat-msg-item.busy::before { background: linear-gradient(180deg, #FF9500, #FF8000); }
+.chat-msg-item.offline::before { background: var(--gray-3); }
+
+.chat-msg-item:hover {
+  background: rgba(255, 255, 255, 0.95);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.chat-msg-item.highlight {
+  animation: msg-highlight-pulse 1.5s ease-out;
+}
+
+@keyframes msg-highlight-pulse {
+  0% { background: rgba(0, 122, 255, 0.15); transform: scale(1.02); }
+  100% { background: rgba(255, 255, 255, 0.95); transform: scale(1); }
+}
+
+/* 头像容器 */
+.chat-msg-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.chat-msg-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* 头像状态光晕 */
+.chat-msg-item.online .chat-msg-avatar { box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1); }
+.chat-msg-item.thinking .chat-msg-avatar { box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1); }
+.chat-msg-item.busy .chat-msg-avatar { box-shadow: 0 0 0 3px rgba(255, 149, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1); }
+
+/* 状态指示点 */
+.chat-msg-status-dot {
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.chat-msg-status-dot.online { background: #34C759; }
+.chat-msg-status-dot.thinking { background: var(--chat-zone); animation: status-pulse 1.5s infinite; }
+.chat-msg-status-dot.busy { background: #FF9500; }
+.chat-msg-status-dot.offline { background: #8E8E93; }
+
+@keyframes status-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(0, 122, 255, 0); }
+}
+
+/* 未读气泡 */
+.chat-msg-unread {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--chat-zone);
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* 消息内容区 */
+.chat-msg-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-msg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-msg-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.chat-msg-time {
+  font-size: 11px;
+  color: var(--gray-4);
+  flex-shrink: 0;
+}
+
+.chat-msg-preview {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-msg-preview.thinking {
+  color: var(--chat-zone);
+}
+
+/* 思考中动画 */
+.thinking-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--chat-zone);
+  font-size: 13px;
+}
+
+.thinking-indicator .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--chat-zone);
+  animation: thinking-bounce 1.4s infinite ease-in-out;
+}
+
+.thinking-indicator .dot:nth-child(1) { animation-delay: 0s; }
+.thinking-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
+.thinking-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes thinking-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* 对话区头部带未读计数 */
+.chat-zone-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 12px 4px;
+}
+
+.chat-zone-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-zone-unread {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--chat-zone);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  padding: 0 6px;
+}
+
 </style><script src="./openclaw-client.js"></script>
 <script src="./avatars.js"></script>
 </head><body>
@@ -2029,7 +2249,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
     </div>
   </div>
 </nav>
-<div class="office-layout"><aside class="left-panel"><div class="zone-section chat"><div class="zone-header"><span class="zone-dot" style="background:var(--chat-zone)"></span><span>对话区 Chat Room</span></div><div class="zone-content" id="chatZone"></div></div><div class="zone-section work"><div class="zone-header"><span class="zone-dot" style="background:var(--work-zone)"></span><span>办公区 Work Zone</span></div><div class="zone-content" id="workZone"></div></div><div class="zone-section lounge"><div class="zone-header"><span class="zone-dot" style="background:var(--lounge-zone)"></span><span>休闲区 Lounge</span></div><div class="zone-content" id="loungeZone"></div></div></aside><aside class="right-panel"><div class="live-section">
+<div class="office-layout"><aside class="left-panel"><div class="zone-section chat">
+  <div class="zone-header">
+    <span class="zone-dot" style="background:var(--chat-zone)"></span>
+    <span>对话区</span>
+  </div>
+  <div class="chat-zone-header">
+    <div class="chat-zone-title">💬 对话区</div>
+    <div id="chatZoneUnread" class="chat-zone-unread" style="display:none">0条新</div>
+  </div>
+  <div class="zone-content" id="chatZone"></div>
+</div><div class="zone-section work"><div class="zone-header"><span class="zone-dot" style="background:var(--work-zone)"></span><span>办公区 Work Zone</span></div><div class="zone-content" id="workZone"></div></div><div class="zone-section lounge"><div class="zone-header"><span class="zone-dot" style="background:var(--lounge-zone)"></span><span>休闲区 Lounge</span></div><div class="zone-content" id="loungeZone"></div></div></aside><aside class="right-panel"><div class="live-section">
         <h3 style="font-size:14px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px">
           <span style="width:8px;height:8px;background:var(--green);border-radius:50%;display:inline-block"></span> 动态
         </h3>
@@ -3112,8 +3342,83 @@ function getUnreadCount(empId) {
   return 0;
 }
 
-// 渲染 Chat Zone - 消息流格式
+// ===== 辅助函数：获取相对时间 =====
+function getRelativeTime(timestamp) {
+  if (!timestamp) return '刚刚';
+  var now = Date.now();
+  var ts = typeof timestamp === 'number' ? timestamp : new Date(timestamp).getTime();
+  var diff = now - ts;
+  if (diff < 0) diff = 0;
+  var seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return '刚刚';
+  var minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return minutes + '分钟前';
+  var hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + '小时前';
+  var days = Math.floor(hours / 24);
+  return days + '天前';
+}
+
+// ===== 辅助函数：获取最新消息预览 =====
+function getLatestMessage(empId) {
+  var key = 'sb_chat_history_' + empId;
+  var hist = localStorage.getItem(key);
+  if (hist) {
+    try {
+      var msgs = JSON.parse(hist);
+      if (msgs && msgs.length > 0) {
+        var lastMsg = msgs[msgs.length - 1];
+        // 返回消息内容
+        if (lastMsg.content) return lastMsg.content;
+        if (lastMsg.text) return lastMsg.text;
+        if (lastMsg.message) return lastMsg.message;
+        // 如果是对象，尝试获取其他字段
+        for (var prop in lastMsg) {
+          if (typeof lastMsg[prop] === 'string' && lastMsg[prop].length > 0 && lastMsg[prop].length < 500) {
+            return lastMsg[prop];
+          }
+        }
+      }
+    } catch (e) {}
+  }
+  return null;
+}
+
+// ===== 辅助函数：获取消息时间戳 =====
+function getMessageTimestamp(empId) {
+  var key = 'sb_chat_history_' + empId;
+  var hist = localStorage.getItem(key);
+  if (hist) {
+    try {
+      var msgs = JSON.parse(hist);
+      if (msgs && msgs.length > 0) {
+        var lastMsg = msgs[msgs.length - 1];
+        if (lastMsg.timestamp) return lastMsg.timestamp;
+        if (lastMsg.time) return lastMsg.time;
+        if (lastMsg.date) return lastMsg.date;
+      }
+    } catch (e) {}
+  }
+  return null;
+}
+
+// ===== 辅助函数：获取未读消息数 =====
+function getUnreadMessages(empId) {
+  var key = 'sb_chat_history_' + empId;
+  var hist = localStorage.getItem(key);
+  if (hist) {
+    try {
+      var msgs = JSON.parse(hist);
+      return msgs && msgs.length > 0 ? msgs.length : 0;
+    } catch (e) {}
+  }
+  return 0;
+}
+
+// ===== 渲染 Chat Zone - 实时消息流格式 =====
 function escapeAttr(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function escapeHtml(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
 function renderAvatar(emp, size){
   size = size || 48;
   // 1. Number index -> use AVATAR_PRESETS
@@ -3143,97 +3448,176 @@ function renderChatZone() {
   var chatZone = document.getElementById('chatZone');
   if (!chatZone) return;
   
+  // 获取有对话历史的员工，优先按最后消息时间排序
   var chatters = employees.filter(function(e) {
+    // 有聊天历史的员工
     var hist = localStorage.getItem('sb_chat_history_' + e.id);
-    var hasHistory = hist && JSON.parse(hist).length > 0;
-    if (hasHistory) return true;
-    return e.status === 'thinking' || e.status === 'online' || e.status === 'busy';
+    if (hist) {
+      try {
+        var msgs = JSON.parse(hist);
+        if (msgs && msgs.length > 0) return true;
+      } catch (err) {}
+    }
+    // 思考中的员工也显示
+    if (e.status === 'thinking') return true;
+    return false;
   });
   
+  // 按最后消息时间排序（最新的在最前）
+  chatters.sort(function(a, b) {
+    var tsA = getMessageTimestamp(a.id);
+    var tsB = getMessageTimestamp(b.id);
+    if (!tsA && !tsB) return 0;
+    if (!tsA) return 1;
+    if (!tsB) return -1;
+    return tsB - tsA;
+  });
+  
+  // 如果没有对话中的成员但有思考中的员工，也显示
   if (chatters.length === 0) {
-    chatZone.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:#8E8E93">暂无对话中的成员</div>';
+    var thinkingEmps = employees.filter(function(e) {
+      return e.status === 'thinking';
+    });
+    if (thinkingEmps.length > 0) {
+      chatters = thinkingEmps;
+    }
+  }
+  
+  if (chatters.length === 0) {
+    chatZone.innerHTML = '<div style="text-align:center;padding:40px;color:#8E8E93">暂无对话中的成员</div>';
     return;
   }
   
-  var html = '';
+  // 计算总未读数
+  var totalUnread = 0;
+  for (var i = 0; i < chatters.length; i++) {
+    var cnt = getUnreadMessages(chatters[i].id);
+    totalUnread += cnt;
+  }
+  
+  // 更新未读气泡
+  var unreadBadge = document.getElementById('chatZoneUnread');
+  if (unreadBadge) {
+    if (totalUnread > 0) {
+      unreadBadge.textContent = totalUnread + '条新';
+      unreadBadge.style.display = 'flex';
+    } else {
+      unreadBadge.style.display = 'none';
+    }
+  }
+  
+  var html = '<div class="chat-messages-list">';
+  
   for (var i = 0; i < chatters.length; i++) {
     var e = chatters[i];
     var avatarHtml = renderAvatar(e, 46);
-    
     var isThinking = e.status === 'thinking';
     var isWorking = e.status === 'busy' || e.status === 'working';
-    var isOnline = e.status === 'online';
+    var isOnline = e.status === 'online' && !isThinking && !isWorking;
     
-    var statusDotColor = '#34C759';
-    var statusDotBorder = '#34C759';
-    var statusText = '在线';
-    var statusTextColor = '#34C759';
-    var progressColor = '#34C759';
+    // 获取最新消息
+    var latestMsg = getLatestMessage(e.id);
+    var msgTime = getMessageTimestamp(e.id);
+    var unreadCount = getUnreadMessages(e.id);
+    
+    // 确定状态
+    var statusClass = 'offline';
+    var statusDotClass = 'offline';
     if (isThinking) {
-      statusDotColor = '#AF52DE';
-      statusDotBorder = '#AF52DE';
-      statusText = '思考中';
-      statusTextColor = '#AF52DE';
-      progressColor = '#AF52DE';
+      statusClass = 'thinking';
+      statusDotClass = 'thinking';
     } else if (isWorking) {
-      statusDotColor = '#FF9500';
-      statusDotBorder = '#FF9500';
-      statusText = '工作中';
-      statusTextColor = '#FF9500';
-      progressColor = '#FF9500';
+      statusClass = 'busy';
+      statusDotClass = 'busy';
+    } else if (isOnline) {
+      statusClass = 'online';
+      statusDotClass = 'online';
     }
     
-    var minutes = Math.floor(Math.random() * 120) + 5;
-    var durationText = minutes + '分钟';
-    var progress = Math.floor(Math.random() * 40) + 30;
-    var now = new Date();
-    var period = now.getHours() < 12 ? '上午' : (now.getHours() < 18 ? '下午' : '晚上');
+    // 相对时间
+    var timeText = getRelativeTime(msgTime);
+    if (!msgTime && isThinking) {
+      timeText = '正在思考';
+    }
     
-    var cardClass = 'chat-card ' + (e.status || 'offline');
-    html += '<div class="' + cardClass + '" onclick="openDetailPanel(\'' + e.id + '\')">';
-    var avatarGlow = isThinking ? '0 0 0 3px rgba(175,82,222,0.25), 0 2px 8px rgba(0,0,0,0.15)' : 
-                       (isWorking ? '0 0 0 3px rgba(255,149,0,0.25), 0 2px 8px rgba(0,0,0,0.15)' : 
-                       '0 0 0 3px rgba(52,199,89,0.25), 0 2px 8px rgba(0,0,0,0.15)');
-    html += '<div style="position:relative;width:50px;height:50px;flex-shrink:0;margin-right:4px;">';
-    html += '<div style="width:50px;height:50px;border-radius:50%;overflow:hidden;box-shadow:' + avatarGlow + ';background:linear-gradient(135deg,#FFED4A,#FFD60A);transition:all 0.25s ease;">' + avatarHtml + '</div>';
-    html += '<div style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border-radius:50%;background:' + statusDotColor + ';border:2.5px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>';
-    html += '</div>';
-    html += '<div style="flex:1;min-width:0;">';
-    html += '<div style="display:flex;align-items:center;gap:6px;">';
-    html += '<span style="font-size:14px;font-weight:600;color:#1D1D1F;letter-spacing:-0.01em;">' + (e.name || '?') + '</span>';
-    if(isOnline || isWorking) {
-      html += '<span style="width:6px;height:6px;border-radius:50%;background:#34C759;box-shadow:0 0 4px rgba(52,199,89,0.5);"></span>';
+    // 构建卡片 HTML
+    html += '<div class="chat-msg-item ' + statusClass + '" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')">';
+    
+    // 头像区域
+    html += '<div class="chat-msg-avatar-wrap">';
+    html += '<div class="chat-msg-avatar">' + avatarHtml + '</div>';
+    html += '<div class="chat-msg-status-dot ' + statusDotClass + '"></div>';
+    
+    // 未读气泡
+    if (unreadCount > 1) {
+      html += '<div class="chat-msg-unread">' + unreadCount + '</div>';
     }
     html += '</div>';
-    html += '<div style="font-size:11px;color:#8E8E93;margin-top:2px;">' + (e.role || '成员') + '</div>';
-    html += '<div style="display:flex;align-items:center;gap:4px;margin-top:4px;">';
-    html += '<span style="width:7px;height:7px;border-radius:50%;background:' + statusDotBorder + ';box-shadow:0 0 4px ' + statusDotBorder + '40;"></span>';
-    html += '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;background:' + statusTextColor + '18;color:' + statusTextColor + ';">' + statusText + '</span>';
+    
+    // 消息内容区域
+    html += '<div class="chat-msg-content">';
+    
+    // 头部：名字 + 时间
+    html += '<div class="chat-msg-header">';
+    html += '<span class="chat-msg-name">' + escapeHtml(e.name || '?') + '</span>';
+    html += '<span class="chat-msg-time">' + escapeHtml(timeText) + '</span>';
     html += '</div>';
-    html += '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;">';
-    html += '<span style="font-size:10px;color:#C7C7CC;flex-shrink:0;">' + period + '</span>';
-    html += '<div style="flex:1;height:5px;background:rgba(120,120,128,0.15);border-radius:2.5px;overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,0.05);">';
-    html += '<div style="height:100%;width:' + progress + '%;background:linear-gradient(90deg,' + progressColor + ',#FF9500);border-radius:2.5px;box-shadow:0 1px 2px rgba(0,0,0,0.15);transition:width 0.4s ease;"></div>';
-    html += '</div>';
-    html += '<span style="font-size:10px;color:#8E8E93;flex-shrink:0;font-weight:500;">' + durationText + '</span>';
-    html += '</div>';
-    html += '</div>';
-    html += '</div>';
+    
+    // 消息预览
+    if (isThinking) {
+      // 思考中状态显示动画
+      html += '<div class="chat-msg-preview thinking">';
+      html += '<span class="thinking-indicator">';
+      html += '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+      html += ' 正在思考...</span>';
+      html += '</div>';
+    } else if (latestMsg) {
+      // 显示消息预览
+      var previewText = latestMsg.length > 60 ? latestMsg.substring(0, 60) + '...' : latestMsg;
+      html += '<div class="chat-msg-preview">"' + escapeHtml(previewText) + '"</div>';
+    } else {
+      html += '<div class="chat-msg-preview" style="color:#C7C7CC">开始新对话</div>';
+    }
+    
+    html += '</div></div>';
   }
   
+  html += '</div>';
   chatZone.innerHTML = html;
 }
 
+// ===== 点击对话条目打开详情 =====
+function openChatDetail(empId) {
+  // 尝试在龙虾办公室内展开消息详情
+  if (typeof openDetailPanel === 'function') {
+    openDetailPanel(empId);
+    return;
+  }
+  // 备用：跳转到主页打开该对话
+  var mainUrl = './index.html';
+  if (typeof getEmployeeChatUrl === 'function') {
+    mainUrl = getEmployeeChatUrl(empId);
+  }
+  window.location.href = mainUrl + '?empId=' + encodeURIComponent(empId) + '&chat=1';
+}
+
+// ===== 滚动到对话条目并高亮 =====
 function scrollChatZoneToTop(empId) {
   var chatZone = document.getElementById('chatZone');
   if (!chatZone) return;
-  var item = chatZone.querySelector('[onclick*="' + empId + '"]');
-  if (item) {
-    item.classList.add('highlight');
-    chatZone.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    setTimeout(function() {
-      item.classList.remove('highlight');
-    }, 2000);
+  var items = chatZone.querySelectorAll('.chat-msg-item');
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    if (item && item.getAttribute('onclick') && item.getAttribute('onclick').indexOf(empId) > -1) {
+      item.classList.add('highlight');
+      item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      (function(el) {
+        setTimeout(function() {
+          if (el) el.classList.remove('highlight');
+        }, 2000);
+      })(item);
+      break;
+    }
   }
 }
 
