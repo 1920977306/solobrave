@@ -581,63 +581,224 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 
 
 
-/* ===== 对话区简洁列表样式 - 新版重构 ===== */
+/* ===== 对话区简洁列表样式 - Apple风格增强版 ===== */
 
-/* 对话区容器 */
-.zone-section { margin-bottom: 16px; }
+/* 区域容器 - 增加内阴影凹陷感 */
+.zone-section { 
+  margin-bottom: 16px; 
+  background: white;
+  border-radius: 16px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.02);
+}
+
+/* 装饰性分割线 - 渐变 */
+.zone-section.chat {
+  position: relative;
+}
+.zone-section.chat::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 16px;
+  right: 16px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0,122,255,0.15), rgba(255,149,0,0.15), transparent);
+}
+
 .zone-section + .zone-section {
-  border-top: 1px solid var(--separator, rgba(0,0,0,0.08));
-  margin-top: 4px;
-  padding-top: 12px;
+  border-top: none;
+  margin-top: 8px;
+  padding-top: 8px;
 }
 
-/* 办公区背景微灰 */
+/* 办公区背景微灰 + 毛玻璃 */
 .zone-section.work {
-  background: rgba(0,0,0,0.02);
+  background: linear-gradient(180deg, rgba(0,0,0,0.015) 0%, rgba(0,0,0,0.025) 100%);
+  backdrop-filter: blur(20px);
 }
-.zone-section-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px 6px; }
-.zone-section-title { font-size: 12px; font-weight: 600; color: var(--text-secondary, #86868B); letter-spacing: 0.05em; text-transform: uppercase; }
-.zone-badge { min-width: 18px; height: 18px; padding: 0 5px; background: var(--accent, #FF6B35); color: white; border-radius: 9px; font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
 
-/* 对话项 - 新样式 */
-.zone-chat-list { display: flex; flex-direction: column; gap: 0; padding: 0 4px; }
-.zone-chat-item { display: flex; align-items: center; gap: 14px; padding: 12px 16px; cursor: pointer; transition: all 0.2s ease; position: relative; background: white !important; border-radius: 12px; margin-bottom: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.04); }
-.zone-chat-item:hover { background: #F8F8FA !important; box-shadow: 0 3px 12px rgba(0,0,0,0.08); transform: translateY(-1px); }
-.zone-chat-item.unread { background: rgba(0,122,255,0.03) !important; border-left: 3px solid #007AFF; }
-.zone-chat-item::after { content: ''; position: absolute; bottom: 0; left: 52px; right: 14px; height: 0.5px; background: var(--separator, rgba(0,0,0,0.06)); }
+/* 区域标题 - 渐变色字体 */
+.zone-section-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px 8px; }
+.zone-section-title { 
+  font-size: 13px; 
+  font-weight: 700; 
+  letter-spacing: 0.03em; 
+  text-transform: uppercase; 
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.zone-badge { 
+  min-width: 20px; 
+  height: 20px; 
+  padding: 0 6px; 
+  background: linear-gradient(135deg, #FF6B35 0%, #FF9500 100%); 
+  color: white; 
+  border-radius: 10px; 
+  font-size: 11px; 
+  font-weight: 700; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  box-shadow: 0 2px 8px rgba(255,107,53,0.35);
+}
+
+/* 对话项 - Apple风格卡片 */
+.zone-chat-list { display: flex; flex-direction: column; gap: 0; padding: 4px 8px 8px; }
+
+/* 主卡片 - 渐变背景 + 深度阴影 */
+.zone-chat-item { 
+  display: flex; 
+  align-items: center; 
+  gap: 14px; 
+  padding: 14px 16px; 
+  cursor: pointer; 
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); 
+  position: relative; 
+  background: linear-gradient(135deg, #FFFFFF 0%, #FAFBFF 100%) !important; 
+  border-radius: 14px; 
+  margin-bottom: 8px; 
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02), inset 0 1px 0 rgba(255,255,255,0.8); 
+  border: 1px solid rgba(0,0,0,0.04); 
+}
+
+/* 卡片悬浮 - 3D浮起效果 */
+.zone-chat-item:hover { 
+  background: linear-gradient(135deg, #F8F9FF 0%, #F0F4FF 100%) !important; 
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 3px 8px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.9) !important; 
+  transform: translateY(-2px) scale(1.005); 
+  border-color: rgba(0,122,255,0.1) !important;
+}
+
+/* 未读条目 - 渐变左侧条 + 微蓝背景 */
+.zone-chat-item.unread { 
+  background: linear-gradient(135deg, rgba(0,122,255,0.04) 0%, rgba(90,200,250,0.04) 100%) !important;
+  border-left: none !important;
+}
+.zone-chat-item.unread::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  background: linear-gradient(180deg, #007AFF 0%, #5AC8FA 50%, #00D4FF 100%);
+  border-radius: 0 2px 2px 0;
+  box-shadow: 0 0 8px rgba(0,122,255,0.4);
+}
+
+.zone-chat-item::after { content: ''; position: absolute; bottom: 0; left: 54px; right: 14px; height: 0.5px; background: var(--separator, rgba(0,0,0,0.06)); }
 .zone-chat-item:last-child::after { display: none; }
-.zone-chat-avatar { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; position: relative; overflow: hidden; background: transparent !important; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-.zone-chat-avatar img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; }
-.zone-chat-avatar .status-dot { position: absolute; bottom: 1px; right: 1px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
-.zone-chat-avatar .status-dot.online { background: #34C759; }
-.zone-chat-avatar .status-dot.busy { background: #FF9500; }
-.zone-chat-avatar .status-dot.thinking { background: #AF52DE; animation: pulse-dot 1.5s infinite; }
-.zone-chat-avatar .status-dot.offline { background: #8E8E93; }
-.zone-chat-avatar .status-dot.online { background: #34C759; }
-.zone-chat-avatar .status-dot.busy { background: #FF9500; }
-.zone-chat-avatar .status-dot.thinking { background: #007AFF; }
+
+/* 头像区域 - 彩色光晕 */
+.zone-chat-avatar { 
+  width: 44px; 
+  height: 44px; 
+  border-radius: 50%; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  font-size: 18px; 
+  flex-shrink: 0; 
+  position: relative; 
+  overflow: visible; 
+  background: transparent !important;
+  transition: all 0.3s ease;
+}
+.zone-chat-avatar img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+
+/* 头像光晕效果 - 根据状态变色 */
+.zone-chat-avatar::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  opacity: 0;
+  transition: all 0.3s ease;
+  z-index: -1;
+}
+.zone-chat-avatar.online::before {
+  background: radial-gradient(circle, rgba(52,199,89,0.4) 0%, rgba(52,199,89,0.1) 60%, transparent 70%);
+  box-shadow: 0 0 16px rgba(52,199,89,0.5), 0 0 32px rgba(52,199,89,0.2);
+  opacity: 1;
+}
+.zone-chat-avatar.thinking::before {
+  background: radial-gradient(circle, rgba(0,122,255,0.4) 0%, rgba(0,122,255,0.1) 60%, transparent 70%);
+  box-shadow: 0 0 16px rgba(0,122,255,0.5), 0 0 32px rgba(0,122,255,0.2);
+  opacity: 1;
+  animation: thinking-glow 2s ease-in-out infinite;
+}
+.zone-chat-avatar.busy::before {
+  background: radial-gradient(circle, rgba(255,149,0,0.4) 0%, rgba(255,149,0,0.1) 60%, transparent 70%);
+  box-shadow: 0 0 16px rgba(255,149,0,0.5), 0 0 32px rgba(255,149,0,0.2);
+  opacity: 1;
+}
+.zone-chat-avatar.offline::before {
+  background: radial-gradient(circle, rgba(142,142,147,0.3) 0%, rgba(142,142,147,0.1) 60%, transparent 70%);
+  opacity: 0.5;
+}
+
+@keyframes thinking-glow {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.1); opacity: 1; }
+}
+
+.zone-chat-avatar .status-dot { 
+  position: absolute; 
+  bottom: 0px; 
+  right: 0px; 
+  width: 13px; 
+  height: 13px; 
+  border-radius: 50%; 
+  border: 2.5px solid white; 
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+.zone-chat-avatar .status-dot.online { background: #34C759; box-shadow: 0 0 6px rgba(52,199,89,0.6); }
+.zone-chat-avatar .status-dot.busy { background: #FF9500; box-shadow: 0 0 6px rgba(255,149,0,0.6); }
+.zone-chat-avatar .status-dot.thinking { background: #007AFF; box-shadow: 0 0 6px rgba(0,122,255,0.6); animation: pulse-dot 1.5s infinite; }
 .zone-chat-avatar .status-dot.offline { background: var(--gray-3, #AEAEB2); }
 .zone-chat-info { flex: 1; min-width: 0; }
-.zone-chat-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; }
-.zone-chat-name { font-size: 14px; font-weight: 600; color: var(--text-primary, #1D1D1F); }
-.zone-chat-time { font-size: 11px; color: var(--text-tertiary, #AEAEB2); flex-shrink: 0; }
-.zone-chat-preview { font-size: 13px; color: var(--text-secondary, #86868B); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+.zone-chat-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.zone-chat-name { font-size: 15px; font-weight: 600; color: var(--text-primary, #1D1D1F); letter-spacing: -0.01em; }
+.zone-chat-time { font-size: 11px; color: var(--text-tertiary, #AEAEB2); flex-shrink: 0; opacity: 0.7; }
 
-/* 未读角标 - 右侧数字 */
+/* 消息预览 - 引号气泡样式 */
+.zone-chat-preview { 
+  font-size: 13px; 
+  color: var(--text-secondary, #86868B); 
+  white-space: nowrap; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+  max-width: 180px; 
+  line-height: 1.4;
+  padding: 4px 8px;
+  background: rgba(0,0,0,0.02);
+  border-radius: 8px;
+  display: inline-block;
+}
+
+/* 未读时预览更强对比 */
+.zone-chat-item.unread .zone-chat-preview {
+  background: rgba(0,122,255,0.06);
+  color: var(--text-primary, #1D1D1F);
+}
+
+/* 未读角标 - Apple风格渐变 */
 .zone-chat-unread {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  background: #FF3B30;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  background: linear-gradient(135deg, #FF3B30 0%, #FF453A 100%);
   color: white;
-  border-radius: 9px;
-  font-size: 10px;
+  border-radius: 10px;
+  font-size: 11px;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 1px 3px rgba(255,59,48,0.3);
+  box-shadow: 0 2px 8px rgba(255,59,48,0.4), inset 0 1px 0 rgba(255,255,255,0.2);
 }
 
 /* 未读状态 - 名字和预览颜色 */
@@ -661,32 +822,217 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   line-height: 1.3;
 }
 
-/* 办公区员工卡片 - 新样式 */
-.zone-emp-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin: 0 8px 6px; background: white !important; border-radius: 10px; cursor: pointer; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 1px 3px rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.06); }
-.zone-emp-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); transform: translateY(-1px); border-color: transparent; }
-.zone-emp-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-.zone-emp-avatar { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; position: relative; overflow: visible; }
-.zone-emp-avatar img { width: 40px; height: 40px; border-radius: 12px; object-fit: cover; }
-.zone-emp-avatar .status-ring { position: absolute; inset: -2px; border-radius: 14px; border: 2px solid transparent; }
-.zone-emp-card.working .status-ring { border-color: #34C759; }
-.zone-emp-card.busy .status-ring { border-color: #FF9500; }
-.zone-emp-card.thinking .status-ring { border-color: #007AFF; }
+/* 办公区员工卡片 - Apple风格增强 */
+.zone-emp-card { 
+  display: flex; 
+  align-items: center; 
+  gap: 12px; 
+  padding: 14px 16px; 
+  margin: 0 8px 8px; 
+  background: linear-gradient(135deg, #FFFFFF 0%, #FAFBFF 100%) !important; 
+  border-radius: 14px; 
+  cursor: pointer; 
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); 
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02), inset 0 1px 0 rgba(255,255,255,0.8); 
+  border: 1px solid rgba(0,0,0,0.04); 
+  position: relative;
+  overflow: hidden;
+}
+
+/* 卡片渐变边框效果 */
+.zone-emp-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.8), rgba(255,255,255,0.2));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* 卡片悬浮 - 3D浮起 */
+.zone-emp-card:hover { 
+  transform: translateY(-2px) scale(1.01); 
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 3px 8px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.9); 
+  border-color: rgba(0,122,255,0.1);
+}
+
+.zone-emp-avatar { 
+  width: 44px; 
+  height: 44px; 
+  border-radius: 12px; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  font-size: 20px; 
+  flex-shrink: 0; 
+  position: relative; 
+  overflow: visible;
+  transition: all 0.3s ease;
+}
+.zone-emp-avatar img { width: 44px; height: 44px; border-radius: 12px; object-fit: cover; }
+
+/* 头像光晕 - 办公区 */
+.zone-emp-avatar::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 16px;
+  opacity: 0;
+  transition: all 0.3s ease;
+  z-index: -1;
+}
+.zone-emp-card.working .zone-emp-avatar::before,
+.zone-emp-card.online .zone-emp-avatar::before {
+  background: radial-gradient(circle, rgba(52,199,89,0.4) 0%, rgba(52,199,89,0.1) 60%, transparent 70%);
+  box-shadow: 0 0 16px rgba(52,199,89,0.5), 0 0 32px rgba(52,199,89,0.2);
+  opacity: 1;
+}
+.zone-emp-card.busy .zone-emp-avatar::before {
+  background: radial-gradient(circle, rgba(255,149,0,0.4) 0%, rgba(255,149,0,0.1) 60%, transparent 70%);
+  box-shadow: 0 0 16px rgba(255,149,0,0.5), 0 0 32px rgba(255,149,0,0.2);
+  opacity: 1;
+}
+.zone-emp-card.thinking .zone-emp-avatar::before {
+  background: radial-gradient(circle, rgba(0,122,255,0.4) 0%, rgba(0,122,255,0.1) 60%, transparent 70%);
+  box-shadow: 0 0 16px rgba(0,122,255,0.5), 0 0 32px rgba(0,122,255,0.2);
+  opacity: 1;
+  animation: thinking-glow 2s ease-in-out infinite;
+}
+.zone-emp-card.offline .zone-emp-avatar::before {
+  background: radial-gradient(circle, rgba(142,142,147,0.3) 0%, rgba(142,142,147,0.1) 60%, transparent 70%);
+  opacity: 0.4;
+}
+
+.zone-emp-avatar .status-ring { 
+  position: absolute; 
+  inset: -2px; 
+  border-radius: 14px; 
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+}
+.zone-emp-card.working .status-ring { border-color: #34C759; box-shadow: 0 0 8px rgba(52,199,89,0.4); }
+.zone-emp-card.busy .status-ring { border-color: #FF9500; box-shadow: 0 0 8px rgba(255,149,0,0.4); }
+.zone-emp-card.thinking .status-ring { border-color: #007AFF; box-shadow: 0 0 8px rgba(0,122,255,0.4); }
 .zone-emp-card.offline .status-ring { border-color: var(--gray-3, #AEAEB2); }
 .zone-emp-info { flex: 1; min-width: 0; }
 .zone-emp-name { font-size: 15px; font-weight: 600; color: #1D1D1F; margin-bottom: 2px; letter-spacing: -0.01em; }
 .zone-emp-role { font-size: 12px; color: var(--text-secondary, #86868B); }
-.zone-emp-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
-.zone-emp-status { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 10px; }
-.zone-emp-status.working { background: rgba(52, 199, 89, 0.1); color: #34C759; }
-.zone-emp-status.working::before { content: ''; width: 6px; height: 6px; background: #34C759; border-radius: 50%; animation: pulse-dot 1.5s infinite; }
+.zone-emp-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+
+/* 状态标签 - Apple胶囊样式增强 */
+.zone-emp-status { 
+  display: flex; 
+  align-items: center; 
+  gap: 5px; 
+  font-size: 11px; 
+  font-weight: 600; 
+  padding: 4px 10px; 
+  border-radius: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* 工作中 - 绿色胶囊 + 光晕 */
+.zone-emp-status.working { 
+  background: linear-gradient(135deg, rgba(52, 199, 89, 0.15) 0%, rgba(52, 199, 89, 0.08) 100%); 
+  color: #34C759; 
+  box-shadow: 0 0 12px rgba(52,199,89,0.2), inset 0 1px 0 rgba(52,199,89,0.1);
+}
+.zone-emp-status.working::before { 
+  content: ''; 
+  width: 6px; 
+  height: 6px; 
+  background: #34C759; 
+  border-radius: 50%; 
+  box-shadow: 0 0 6px rgba(52,199,89,0.6);
+  animation: pulse-glow 1.5s ease-in-out infinite; 
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 6px rgba(52,199,89,0.6); }
+  50% { opacity: 0.7; transform: scale(1.2); box-shadow: 0 0 10px rgba(52,199,89,0.8); }
+}
+
 @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-.zone-emp-status.busy { background: rgba(255, 149, 0, 0.1); color: #FF9500; }
-.zone-emp-status.busy::before { content: ''; width: 6px; height: 6px; background: #FF9500; border-radius: 50%; }
-.zone-emp-status.thinking { background: rgba(0, 122, 255, 0.1); color: #007AFF; }
-.zone-emp-status.thinking::before { content: ''; width: 6px; height: 6px; background: #007AFF; border-radius: 50%; animation: pulse-dot 1.5s infinite; }
-.zone-emp-status.offline { background: var(--bg-tertiary, #EFEFF4); color: var(--text-tertiary, #AEAEB2); }
-.zone-emp-status.offline::before { content: ''; width: 6px; height: 6px; background: var(--gray-3, #AEAEB2); border-radius: 50%; }
-.zone-emp-duration { font-size: 11px; color: var(--text-tertiary, #AEAEB2); }
+
+/* 忙碌 - 橙色胶囊 */
+.zone-emp-status.busy { 
+  background: linear-gradient(135deg, rgba(255, 149, 0, 0.15) 0%, rgba(255, 149, 0, 0.08) 100%); 
+  color: #FF9500; 
+  box-shadow: 0 0 12px rgba(255,149,0,0.15), inset 0 1px 0 rgba(255,149,0,0.1);
+}
+.zone-emp-status.busy::before { 
+  content: ''; 
+  width: 6px; 
+  height: 6px; 
+  background: #FF9500; 
+  border-radius: 50%; 
+  box-shadow: 0 0 6px rgba(255,149,0,0.6);
+  animation: pulse-glow-busy 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow-busy {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.1); }
+}
+
+/* 思考中 - 蓝色胶囊 + 脉冲 */
+.zone-emp-status.thinking { 
+  background: linear-gradient(135deg, rgba(0, 122, 255, 0.15) 0%, rgba(0, 122, 255, 0.08) 100%); 
+  color: #007AFF; 
+  box-shadow: 0 0 12px rgba(0,122,255,0.2), inset 0 1px 0 rgba(0,122,255,0.1);
+}
+.zone-emp-status.thinking::before { 
+  content: ''; 
+  width: 6px; 
+  height: 6px; 
+  background: #007AFF; 
+  border-radius: 50%; 
+  box-shadow: 0 0 6px rgba(0,122,255,0.6);
+  animation: pulse-glow 1.2s ease-in-out infinite; 
+}
+
+/* 离线状态 */
+.zone-emp-status.offline { 
+  background: rgba(0,0,0,0.04); 
+  color: var(--text-tertiary, #AEAEB2); 
+}
+.zone-emp-status.offline::before { 
+  content: ''; 
+  width: 6px; 
+  height: 6px; 
+  background: var(--gray-3, #AEAEB2); 
+  border-radius: 50%; 
+}
+
+/* 工作时长 - 带进度条效果 */
+.zone-emp-duration { 
+  font-size: 11px; 
+  color: var(--text-tertiary, #AEAEB2); 
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 进度呼吸灯效果 - 工作中 */
+.zone-emp-card.working .zone-emp-duration::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: linear-gradient(135deg, #34C759 0%, #30D158 100%);
+  border-radius: 50%;
+  animation: breathe 3s ease-in-out infinite;
+  box-shadow: 0 0 6px rgba(52,199,89,0.5);
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
 
 /* 员工当前任务描述 */
 .zone-emp-task {
@@ -737,30 +1083,136 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   .task-section, .live-section { background: transparent !important; }
   body { background: #000 !important; }
   
-  /* 对话区暗色模式 */
-  .zone-chat-item { background: #2C2C2E !important; }
-  .zone-chat-item:hover { background: rgba(44,44,46,0.75) !important; }
-  .zone-chat-item.unread { background: rgba(0,122,255,0.1) !important; }
+  /* 区域容器暗色模式 - 毛玻璃效果 */
+  .zone-section {
+    background: rgba(28,28,30,0.6) !important;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.1);
+  }
+  
+  /* 对话区暗色模式 - 渐变背景 */
+  .zone-chat-item { 
+    background: linear-gradient(135deg, rgba(44,44,46,0.9) 0%, rgba(28,28,30,0.9) 100%) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.03) !important;
+    border-color: rgba(255,255,255,0.04) !important;
+  }
+  .zone-chat-item:hover { 
+    background: linear-gradient(135deg, rgba(60,60,62,0.9) 0%, rgba(44,44,46,0.9) 100%) !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3), 0 3px 8px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+    border-color: rgba(0,122,255,0.2) !important;
+  }
+  .zone-chat-item.unread { 
+    background: linear-gradient(135deg, rgba(0,122,255,0.12) 0%, rgba(0,122,255,0.06) 100%) !important;
+  }
+  .zone-chat-item.unread::before {
+    background: linear-gradient(180deg, #0A84FF 0%, #5AC8FA 50%, #00D4FF 100%);
+    box-shadow: 0 0 12px rgba(10,132,255,0.5);
+  }
   .zone-chat-item .zone-chat-name { color: #F5F5F7 !important; }
   .zone-chat-item.unread .zone-chat-name { color: #fff !important; }
-  .zone-chat-item .zone-chat-preview { color: #98989D !important; }
-  .zone-chat-item.unread .zone-chat-preview { color: #F5F5F7 !important; }
+  .zone-chat-item .zone-chat-preview { 
+    color: #98989D !important; 
+    background: rgba(255,255,255,0.03) !important;
+  }
+  .zone-chat-item.unread .zone-chat-preview { 
+    color: #F5F5F7 !important; 
+    background: rgba(0,122,255,0.08) !important;
+  }
   .zone-chat-time { color: #636366 !important; }
   
+  /* 头像光晕暗色模式 */
+  .zone-chat-avatar::before {
+    filter: brightness(0.8);
+  }
+  
   /* 办公区暗色模式 */
-  .zone-section.work { background: rgba(0,0,0,0.2) !important; }
-  .zone-emp-card { background: #2C2C2E !important; border-color: rgba(255,255,255,0.06) !important; }
-  .zone-emp-card:hover { background: rgba(44,44,46,0.8) !important; }
+  .zone-section.work { 
+    background: linear-gradient(180deg, rgba(20,20,22,0.6) 0%, rgba(28,28,30,0.6) 100%) !important;
+    backdrop-filter: blur(20px);
+  }
+  .zone-emp-card { 
+    background: linear-gradient(135deg, rgba(44,44,46,0.9) 0%, rgba(28,28,30,0.9) 100%) !important; 
+    border-color: rgba(255,255,255,0.04) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.03) !important;
+  }
+  .zone-emp-card:hover { 
+    background: linear-gradient(135deg, rgba(60,60,62,0.9) 0%, rgba(44,44,46,0.9) 100%) !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3), 0 3px 8px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+    border-color: rgba(0,122,255,0.2) !important;
+  }
   .zone-emp-name { color: #F5F5F7 !important; }
   .zone-emp-role { color: #98989D !important; }
   .zone-emp-task { color: #636366 !important; }
   .zone-emp-duration { color: #636366 !important; }
   
+  /* 状态标签暗色模式 */
+  .zone-emp-status.working { 
+    background: linear-gradient(135deg, rgba(52, 199, 89, 0.2) 0%, rgba(52, 199, 89, 0.1) 100%) !important;
+    box-shadow: 0 0 12px rgba(52,199,89,0.3), inset 0 1px 0 rgba(52,199,89,0.15) !important;
+  }
+  .zone-emp-status.busy { 
+    background: linear-gradient(135deg, rgba(255, 149, 0, 0.2) 0%, rgba(255, 149, 0, 0.1) 100%) !important;
+    box-shadow: 0 0 12px rgba(255,149,0,0.2), inset 0 1px 0 rgba(255,149,0,0.15) !important;
+  }
+  .zone-emp-status.thinking { 
+    background: linear-gradient(135deg, rgba(0, 122, 255, 0.2) 0%, rgba(0, 122, 255, 0.1) 100%) !important;
+    box-shadow: 0 0 12px rgba(0,122,255,0.3), inset 0 1px 0 rgba(0,122,255,0.15) !important;
+  }
+  
+  /* 状态环暗色模式 */
+  .zone-emp-card.working .status-ring { border-color: #30D158; box-shadow: 0 0 10px rgba(48,209,88,0.5); }
+  .zone-emp-card.busy .status-ring { border-color: #FF9F0A; box-shadow: 0 0 10px rgba(255,159,10,0.5); }
+  .zone-emp-card.thinking .status-ring { border-color: #0A84FF; box-shadow: 0 0 10px rgba(10,132,255,0.5); }
+  
+  /* 头像光晕暗色模式 - 办公区 */
+  .zone-emp-card.working .zone-emp-avatar::before,
+  .zone-emp-card.online .zone-emp-avatar::before {
+    background: radial-gradient(circle, rgba(48,209,88,0.4) 0%, rgba(48,209,88,0.1) 60%, transparent 70%);
+    box-shadow: 0 0 16px rgba(48,209,88,0.5), 0 0 32px rgba(48,209,88,0.2);
+    opacity: 1;
+  }
+  .zone-emp-card.busy .zone-emp-avatar::before {
+    background: radial-gradient(circle, rgba(255,159,10,0.4) 0%, rgba(255,159,10,0.1) 60%, transparent 70%);
+    box-shadow: 0 0 16px rgba(255,159,10,0.5), 0 0 32px rgba(255,159,10,0.2);
+    opacity: 1;
+  }
+  .zone-emp-card.thinking .zone-emp-avatar::before {
+    background: radial-gradient(circle, rgba(10,132,255,0.4) 0%, rgba(10,132,255,0.1) 60%, transparent 70%);
+    box-shadow: 0 0 16px rgba(10,132,255,0.5), 0 0 32px rgba(10,132,255,0.2);
+    opacity: 1;
+  }
+  
+  /* 呼吸灯暗色模式 */
+  .zone-emp-card.working .zone-emp-duration::before {
+    background: linear-gradient(135deg, #30D158 0%, #34C759 100%);
+    box-shadow: 0 0 8px rgba(48,209,88,0.6);
+  }
+  
   /* 区域分隔线暗色模式 */
   .zone-section + .zone-section { border-color: rgba(255,255,255,0.08) !important; }
   
+  /* 渐变分割线暗色模式 */
+  .zone-section.chat::after {
+    background: linear-gradient(90deg, transparent, rgba(10,132,255,0.2), rgba(255,159,10,0.2), transparent);
+  }
+  
+  /* 区域标题暗色模式 */
+  .zone-section-title {
+    background: linear-gradient(135deg, #F5F5F7 0%, #98989D 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
   /* 未读角标暗色模式 */
-  .zone-chat-unread { background: #FF453A !important; }
+  .zone-chat-unread { 
+    background: linear-gradient(135deg, #FF453A 0%, #FF3B30 100%) !important;
+    box-shadow: 0 2px 8px rgba(255,69,58,0.5), inset 0 1px 0 rgba(255,255,255,0.15) !important;
+  }
+  
+  /* 消息预览暗色模式 */
+  .zone-chat-preview {
+    background: rgba(255,255,255,0.03) !important;
+  }
 }
 </style><script src="./openclaw-client.js"></script>
 <script src="./avatars.js"></script>
@@ -2081,8 +2533,8 @@ function renderChatZone() {
     var unreadClass = unreadCount > 0 ? ' unread' : '';
     html += '<div class="zone-chat-item' + unreadClass + '" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')">';
     
-    // 头像区域
-    html += '<div class="zone-chat-avatar">';
+    // 头像区域 - 添加状态光晕类
+    html += '<div class="zone-chat-avatar ' + statusClass + '">';
     html += avatarHtml;
     html += '<div class="status-dot ' + statusClass + '"></div>';
     html += '</div>';
