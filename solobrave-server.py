@@ -478,6 +478,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_cors_preflight()
 
     def do_GET(self):
+        try:
+            self._do_GET()
+        except Exception as e:
+            print(f'  [ERROR] GET {self.path}: {e}', flush=True)
+            try:
+                self._send_json(500, {'error': str(e)})
+            except:
+                pass
+
+    def _do_GET(self):
         path = self.path.split('?')[0]  # 去掉 query string
 
         # Auth routes (no auth required)
@@ -556,6 +566,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         super().do_HEAD()
 
     def do_POST(self):
+        try:
+            self._do_POST()
+        except Exception as e:
+            print(f'  [ERROR] POST {self.path}: {e}', flush=True)
+            try:
+                self._send_json(500, {'error': str(e)})
+            except:
+                pass
+
+    def _do_POST(self):
         path = self.path.split('?')[0]
 
         # Auth routes
@@ -624,6 +644,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json_error(404, 'Not found')
 
     def do_PUT(self):
+        try:
+            self._do_PUT()
+        except Exception as e:
+            print(f'  [ERROR] PUT {self.path}: {e}', flush=True)
+            try:
+                self._send_json(500, {'error': str(e)})
+            except:
+                pass
+
+    def _do_PUT(self):
         path = self.path.split('?')[0]
 
         # Groups API
@@ -653,6 +683,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json_error(404, 'Not found')
 
     def do_DELETE(self):
+        try:
+            self._do_DELETE()
+        except Exception as e:
+            print(f'  [ERROR] DELETE {self.path}: {e}', flush=True)
+            try:
+                self._send_json(500, {'error': str(e)})
+            except:
+                pass
+
+    def _do_DELETE(self):
         path = self.path.split('?')[0]
 
         # OpenClaw
@@ -1055,29 +1095,27 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_groups(self):
         """GET /api/groups — 获取所有群组"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
+        try:
+            auth = _authenticate(self.headers)
+            if not auth.is_authenticated:
+                self._send_auth_error(auth.error, auth.status)
+                return
 
-        groups = _load_groups()
-        # 管理员看全部，普通用户看自己创建的 + 自己是成员的
-        if not auth.is_admin:
-            uid = auth.user_info['userId']
-            agents = _load_agents()
-            my_agent_ids = [a.get('id') for a in agents if a.get('createdBy') == uid or a.get('visibility') == 'all']
-            result = []
-            for g in groups:
-                if g.get('createdBy') == uid:
-                    result.append(g)
-                else:
-                    member_ids = [m.get('id') for m in g.get('members', [])]
-                    if any(mid in my_agent_ids for mid in member_ids):
-                        result.append(g)
-            self._send_json(200, result)
-            return
+            groups = _load_groups()
+            # 管理员看全部，普通用户只看自己创建的
+            if not auth.is_admin:
+                uid = auth.user_info['userId']
+                result = [g for g in groups if g.get('createdBy') == uid]
+                self._send_json(200, result)
+                return
 
-        self._send_json(200, groups)
+            self._send_json(200, groups)
+        except Exception as e:
+            print(f'  [ERROR] _handle_get_groups: {e}', flush=True)
+            try:
+                self._send_json(200, [])
+            except:
+                pass
 
     def _handle_get_group(self, group_id):
         """GET /api/groups/:id"""
@@ -2256,7 +2294,11 @@ def main():
     else:
         print(f'  🦞 OpenClaw CLI: ✗ (not found at {OPENCLAW_CLI})')
 
-    server = http.server.ThreadingHTTPServer((BIND, PORT), SoloBraveHandler)
+    # Allow port reuse to avoid "Address already in use"
+    class ReuseHTTPServer(http.server.ThreadingHTTPServer):
+        allow_reuse_address = True
+        daemon_threads = True
+    server = ReuseHTTPServer((BIND, PORT), SoloBraveHandler)
 
     print('=' * 56)
     print('  🚀 SoloBrave Server (Auth Enabled)')
