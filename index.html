@@ -3438,6 +3438,7 @@ function sendMsg(){
   
   // OpenClaw WS → API 直连降级
   var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
+  console.log('[Chat] 发送消息:', {empId: emp.id, empName: emp.name, openclawName: emp.openclawName, apiProvider: emp.apiProvider, aiProvider: emp.aiProvider, ocOk: ocOk});
   if(ocOk){
     console.log('[Chat] 使用 OpenClaw WS 发送');
     sendViaOpenClaw(emp, text, docContext, timeStr);
@@ -3446,13 +3447,20 @@ function sendMsg(){
     console.log('[Chat] OpenClaw 未连接，降级到 API 直连');
     sendViaAPI(emp, text, docContext, timeStr);
   } else {
-    setTimeout(function(){
-      var t = document.getElementById('typingMsg');
-      if(t) t.remove();
-      var simReply = '⚠️ OpenClaw 网关未连接，请检查 Gateway 是否运行，或配置 AI 供应商的 API Key。';
-      displayAIReply(simReply, docContext, timeStr);
-      saveChatHistory(text, simReply, docContext);
-    }, 500);
+    // 即使没有配置AI，也用 OpenClaw main agent 兜底
+    console.log('[Chat] 无API配置，尝试OpenClaw main兜底');
+    if(typeof openclaw !== 'undefined' && openclaw.connected){
+      emp.openclawName = emp.openclawName || 'main';
+      sendViaOpenClaw(emp, text, docContext, timeStr);
+    } else {
+      setTimeout(function(){
+        var t = document.getElementById('typingMsg');
+        if(t) t.remove();
+        var simReply = '⚠️ OpenClaw 网关未连接，请检查 Gateway 是否运行，或配置 AI 供应商的 API Key。';
+        displayAIReply(simReply, docContext, timeStr);
+        saveChatHistory(text, simReply, docContext);
+      }, 500);
+    }
   }
 }
 
