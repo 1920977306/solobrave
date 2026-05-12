@@ -1025,17 +1025,95 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
     --bg-primary: #1C1C1E;
     --bg-secondary: #2C2C2E;
     --bg-tertiary: #3A3A3C;
-    --bg-sidebar: rgba(28, 28, 30, 0.9);
-    --text-primary: #FFFFFF;
-    --text-secondary: #8E8E93;
+    --bg-sidebar: rgba(28, 28, 30, 0.92);
+    --text-primary: #F5F5F7;
+    --text-secondary: #98989D;
     --text-tertiary: #636366;
-    --separator: rgba(255, 255, 255, 0.1);
+    --separator: rgba(255, 255, 255, 0.08);
+    --accent-light: rgba(255, 107, 53, 0.15);
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.2);
+    --shadow-modal: 0 10px 40px rgba(0, 0, 0, 0.4);
+    --shadow-fab: 0 4px 16px rgba(255, 107, 53, 0.25);
   }
-  .msg:not(.own) .msg-bubble { background: var(--bg-secondary); border-color: rgba(255, 255, 255, 0.08); }
-  .input-wrap { background: var(--bg-tertiary); }
-  .task-card, .drawer-panel, .modal { background: var(--bg-secondary); }
-  .app-sidebar { background: rgba(28, 28, 30, 0.88); }
-  .status-card, .section { background: var(--bg-secondary); border-color: rgba(255, 255, 255, 0.1); }
+  html, body { background: #000000; }
+  .app-sidebar { background: rgba(28, 28, 30, 0.92); border-right-color: rgba(255, 255, 255, 0.06); }
+  .top-banner { background: rgba(28, 28, 30, 0.95); border-bottom-color: rgba(255, 255, 255, 0.06); }
+  .app-main { background: #000000; }
+  .chat-area { background: #000000; }
+  .messages-area { background: #000000; }
+  .msg:not(.own) .msg-bubble { background: #2C2C2E; color: #F5F5F7; border-color: rgba(255, 255, 255, 0.06); }
+  .msg.own .msg-bubble { background: var(--accent); color: #FFFFFF; }
+  .input-wrap { background: #1C1C1E; border-color: rgba(255, 255, 255, 0.06); }
+  .input-area-v2 { background: #1C1C1E; }
+  .input-toolbar-top { background: #1C1C1E; border-color: rgba(255, 255, 255, 0.06); }
+  .tab-switcher { background: #1C1C1E; }
+  .tab-btn.active { background: #2C2C2E; color: var(--accent); }
+  .search-input { background: #1C1C1E; color: #F5F5F7; }
+  .search-input input { color: #F5F5F7; background: transparent; }
+  .search-input input::placeholder { color: #636366; }
+  .list-item { background: transparent; }
+  .list-item:hover { background: rgba(255, 255, 255, 0.05); }
+  .list-item.active { background: rgba(255, 107, 53, 0.12); }
+  .list-item.active::before { background: var(--accent); }
+  .task-card, .drawer-panel, .modal { background: #2C2C2E; color: #F5F5F7; }
+  .modal { border-color: rgba(255, 255, 255, 0.08); }
+  .status-card, .section { background: #2C2C2E; border-color: rgba(255, 255, 255, 0.06); }
+  .chat-header-v2 { background: rgba(28, 28, 30, 0.95); border-bottom-color: rgba(255, 255, 255, 0.06); }
+  .chat-empty-state { color: #98989D; }
+  .chat-empty-state .empty-avatar { background: #2C2C2E; }
+  .chat-empty-state .empty-title { color: #F5F5F7; }
+  .msg-sender-name { color: #F5F5F7; }
+  .msg-sender-role { color: #636366; }
+  .msg-sender-time { color: #636366; }
+  .time-separator span { background: #000000; color: #636366; }
+  .time-separator::before { background: rgba(255, 255, 255, 0.06); }
+  .typing-dot { background: #98989D; }
+  .emp-action-btn { color: #98989D; }
+  .emp-action-btn:hover { background: rgba(255, 255, 255, 0.08); }
+  .category-header { background: transparent; }
+  .category-header:hover { background: rgba(255, 255, 255, 0.03); }
+  .sub-category-header { background: transparent; }
+  .group-item { background: transparent; }
+  .group-item:hover { background: rgba(255, 255, 255, 0.05); }
+  .archive-section { background: transparent; }
+  .archive-header { background: rgba(255, 255, 255, 0.03); }
+  .status-dot.online { background: #34C759; }
+  .status-dot.busy { background: #FF9500; }
+  .status-dot.offline { background: #636366; }
+  .status-dot.thinking { background: #AF52DE; }
+  .emp-urgent-badge { background: rgba(255, 59, 48, 0.15); color: #FF453A; }
+  .nav-action-btn { background: #2C2C2E; border-color: rgba(255, 255, 255, 0.08); color: #F5F5F7; }
+  .nav-action-btn:hover { background: #3A3A3C; }
+  .drawer-panel { box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3); }
+  /* Login overlay */
+  .login-overlay { background: #000000; }
+  .login-card { background: #1C1C1E; border-color: rgba(255, 255, 255, 0.06); }
+  .login-card input { background: #2C2C2E; color: #F5F5F7; border-color: rgba(255, 255, 255, 0.08); }
+  .login-card input::placeholder { color: #636366; }
+  .login-card h2 { color: #F5F5F7; }
+  .login-card p { color: #98989D; }
+  .login-error { color: #FF453A; background: rgba(255, 59, 48, 0.1); }
+  /* Wizard */
+  .wizard-overlay { background: rgba(0, 0, 0, 0.7); }
+  .wizard-card { background: #1C1C1E; }
+  .wizard-card h2, .wizard-card h3 { color: #F5F5F7; }
+  .wizard-card label { color: #98989D; }
+  .wizard-card input, .wizard-card textarea, .wizard-card select { background: #2C2C2E; color: #F5F5F7; border-color: rgba(255, 255, 255, 0.08); }
+  /* Context menu */
+  .context-menu { background: #2C2C2E; border-color: rgba(255, 255, 255, 0.08); }
+  .context-menu-item { color: #F5F5F7; }
+  .context-menu-item:hover { background: rgba(255, 255, 255, 0.08); }
+  /* Toast */
+  .toast { background: #3A3A3C; color: #F5F5F7; }
+  /* Settings modal */
+  .settings-modal { background: #1C1C1E; }
+  .settings-section h3 { color: #F5F5F7; }
+  .settings-item { color: #F5F5F7; border-bottom-color: rgba(255, 255, 255, 0.06); }
+  /* Quick actions */
+  .quick-action { background: #2C2C2E; color: #F5F5F7; border-color: rgba(255, 255, 255, 0.06); }
+  .quick-action:hover { background: #3A3A3C; }
+  /* Broadcast status */
+  .broadcast-bar { background: rgba(255, 107, 53, 0.12); color: var(--accent); }
 }
 
 /* ========================================
