@@ -1559,7 +1559,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
             </div>
           </div>
         </div>
-      </div><div class="task-section"><h3>定时任务</h3><div id="taskList"></div></div></aside></div><div class="status-bar"><div class="status-left"><span class="status-item" onclick="document.getElementById('chatZone').scrollIntoView({behavior:'smooth'})"><span class="status-dot" style="background:#34C759"></span><span id="statusOnline">0 在线</span></span><span class="status-item" onclick="document.getElementById('workZone').scrollIntoView({behavior:'smooth'})"><span class="status-dot" style="background:#FF9500"></span><span id="statusWorking">0 工作中</span></span><span class="status-item"><span class="status-dot" style="background:#8E8E93"></span><span id="statusIdle">0 空闲</span></span></div><div class="status-right"><span class="status-item"><span id="statusPending">0 待处理</span></span><span id="statusTime">--:--</span></div></div>
+      </div><div class="task-section"><h3>定时任务</h3><div id="taskList"></div></div></aside></div><div class="status-bar"><div class="status-left"><span class="status-item" onclick="document.getElementById('chatZone').scrollIntoView({behavior:'smooth'})"><span class="status-dot" style="background:#34C759"></span><span id="statusOnline" style="color:#34C759;font-weight:600">0 在线</span></span><span class="status-item" onclick="document.getElementById('workZone').scrollIntoView({behavior:'smooth'})"><span class="status-dot" style="background:#007AFF"></span><span id="statusWorking" style="color:#007AFF;font-weight:600">0 工作中</span></span><span class="status-item"><span class="status-dot" style="background:#8E8E93"></span><span id="statusIdle" style="color:#8E8E93;font-weight:600">0 空闲</span></span></div><div class="status-right"><span class="status-item"><span id="statusPending" style="color:#FF9500;font-weight:600">0 待处理</span></span><span id="statusTime" style="color:var(--text-secondary);font-variant-numeric:tabular-nums">--:--</span></div></div>
 
 <!-- ====== 导航栏 ====== -->
 
@@ -2514,7 +2514,7 @@ function updateStats(){
   elPct = document.getElementById('statIdlePct'); if(elPct) elPct.textContent = Math.round(idle/employees.length*100)+'%';
   elPct = document.getElementById('statPendingPct'); if(elPct) elPct.textContent = Math.round(pending/activities.length*100)+'%';
 
-  // 更新底部状态栏
+  // 更新底部状态栏 - 带颜色
   var elOnline = document.getElementById('statusOnline');
   var elWorking = document.getElementById('statusWorking');
   var elIdle = document.getElementById('statusIdle');
@@ -2523,6 +2523,12 @@ function updateStats(){
   if(elWorking) elWorking.textContent = working + ' 工作中';
   if(elIdle) elIdle.textContent = idle + ' 空闲';
   if(elPending) elPending.textContent = pending + ' 待处理';
+  
+  // 更新状态栏颜色
+  if(elOnline) elOnline.style.color = online > 0 ? '#34C759' : '#8E8E93';
+  if(elWorking) elWorking.style.color = working > 0 ? '#007AFF' : '#8E8E93';
+  if(elIdle) elIdle.style.color = idle > 0 ? '#8E8E93' : '#8E8E93';
+  if(elPending) elPending.style.color = pending > 0 ? '#FF9500' : '#8E8E93';
 }
 
 // ===== 渲染活动列表 =====
@@ -2706,6 +2712,15 @@ function getLastAIMessage(empId) {
 // ===== 渲染 Chat Zone - 实时消息流格式 =====
 function escapeAttr(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function escapeHtml(s){if(!s)return '';return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// 格式化时长：99分钟 -> 1小时39分钟
+function formatDuration(minutes){
+  if(minutes < 60) return minutes + ' 分钟';
+  var hours = Math.floor(minutes / 60);
+  var mins = minutes % 60;
+  if(mins === 0) return hours + ' 小时';
+  return hours + '小时' + mins + '分钟';
+}
 
 function renderAvatar(emp, size){
   size = size || 48;
@@ -2928,7 +2943,7 @@ function renderWorkZone() {
     
     // 生成随机时长（用于演示）
     var minutes = Math.floor(Math.random() * 120) + 5;
-    var durationText = minutes + ' 分钟';
+    var durationText = formatDuration(minutes);
     
     // 从localStorage读取最后一条AI消息作为当前任务描述
     var taskDesc = getLastAIMessage(e.id);
@@ -3472,29 +3487,69 @@ function renderLoungeZone(){
     loungeZone.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-4)">暂无员工</div>';
     return;
   }
-  // 新 lounge-list 设计
+  // 新 lounge-list 设计 - 合并重复消息
   var html = '<div class="lounge-list">';
   
-  // 在线员工
+  // 合并activities：按人名分组，合并操作
+  var mergedActs = {};
+  for (var j = 0; j < activities.length; j++) {
+    var act = activities[j];
+    var name = act.name || '系统';
+    if (!mergedActs[name]) {
+      mergedActs[name] = { actions: [], time: act.time, count: 0 };
+    }
+    mergedActs[name].actions.push(act.action || '执行操作');
+    mergedActs[name].count++;
+    // 保留最新的时间
+    if (act.time && (!mergedActs[name].time || act.time > mergedActs[name].time)) {
+      mergedActs[name].time = act.time;
+    }
+  }
+  
+  // 在线员工（只显示未在activities中出现的）
+  var onlineNames = {};
   for (var i = 0; i < employees.length; i++) {
     var e = employees[i];
     var isOnline = e.status === 'online' || e.status === 'busy' || e.status === 'thinking';
-    if (isOnline) {
+    if (isOnline && !mergedActs[e.name]) {
       html += '<div class="lounge-entry" onclick="openDetailPanel(\'' + e.id + '\')">';
       html += '<div class="lounge-dot online"></div>';
       html += '<span class="lounge-text"><span class="emp-name">' + escapeHtml(e.name) + '</span><span class="action-desc">已上线</span></span>';
       html += '<span class="lounge-timestamp">刚刚</span>';
       html += '</div>';
+      onlineNames[e.name] = true;
     }
   }
   
-  // 最近活动（从activities取）
-  for (var j = 0; j < Math.min(activities.length, 5); j++) {
-    var act = activities[j];
+  // 合并后的活动（最多显示5条）
+  var mergedList = [];
+  for (var name in mergedActs) {
+    if (mergedActs.hasOwnProperty(name)) {
+      var item = mergedActs[name];
+      var actionText = item.actions[0];
+      if (item.count > 1) {
+        actionText = actionText + ' 等' + item.count + '个操作';
+      }
+      mergedList.push({
+        name: name,
+        action: actionText,
+        time: item.time,
+        count: item.count
+      });
+    }
+  }
+  
+  // 按时间排序，取前5
+  mergedList.sort(function(a, b) {
+    return (b.time || '').localeCompare(a.time || '');
+  });
+  
+  for (var k = 0; k < Math.min(mergedList.length, 5); k++) {
+    var item = mergedList[k];
     html += '<div class="lounge-entry">';
     html += '<div class="lounge-dot action"></div>';
-    html += '<span class="lounge-text"><span class="emp-name">' + escapeHtml(act.name || '系统') + '</span><span class="action-desc">' + escapeHtml(act.action || '执行操作') + '</span></span>';
-    html += '<span class="lounge-timestamp">' + escapeHtml(act.time || '') + '</span>';
+    html += '<span class="lounge-text"><span class="emp-name">' + escapeHtml(item.name) + '</span><span class="action-desc">' + escapeHtml(item.action) + '</span></span>';
+    html += '<span class="lounge-timestamp">' + escapeHtml(item.time || '') + '</span>';
     html += '</div>';
   }
   
