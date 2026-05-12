@@ -607,7 +607,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .zone-chat-item:hover { background: #F2F2F7 !important; }
 .zone-chat-item::after { content: ''; position: absolute; bottom: 0; left: 52px; right: 14px; height: 0.5px; background: var(--separator, rgba(0,0,0,0.06)); }
 .zone-chat-item:last-child::after { display: none; }
-.zone-chat-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; position: relative; }
+.zone-chat-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; position: relative; overflow: hidden; background: transparent !important; }
 .zone-chat-avatar img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; }
 .zone-chat-avatar .status-dot { position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--bg-primary, #fff); }
 .zone-chat-avatar .status-dot.online { background: #34C759; }
@@ -1979,11 +1979,11 @@ function renderAvatar(emp, size){
   size = size || 48;
   // 1. Number index -> use AVATAR_PRESETS
   if(typeof emp.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[emp.avatar]){
-    return '<img src="' + escapeAttr(AVATAR_PRESETS[emp.avatar]) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
+    return '<img src="' + escapeAttr(AVATAR_PRESETS[emp.avatar]) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;display:block;">';
   }
   // 2. Image path or data URL
   if(emp.avatar && typeof emp.avatar === 'string' && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0 || emp.avatar.indexOf('avatars/') === 0)){
-    return '<img src="' + escapeAttr(emp.avatar) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
+    return '<img src="' + escapeAttr(emp.avatar) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;display:block;">';
   }
   // 3. Letter/emoji string or any unknown -> use name hash to pick a preset avatar
   if(typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS.length > 0){
@@ -1994,7 +1994,7 @@ function renderAvatar(emp, size){
       hash = hash & hash;
     }
     var idx = Math.abs(hash) % AVATAR_PRESETS.length;
-    return '<img src="' + escapeAttr(AVATAR_PRESETS[idx]) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
+    return '<img src="' + escapeAttr(AVATAR_PRESETS[idx]) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;display:block;">';
   }
   // 4. Ultimate fallback: letter
   return '<span style="font-size:' + Math.floor(size * 0.5) + 'px;font-weight:700;color:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;width:' + size + 'px;height:' + size + 'px;border-radius:50%;">' + (emp.name ? emp.name.charAt(0).toUpperCase() : '?') + '</span>';
@@ -2075,7 +2075,7 @@ function renderChatZone() {
     html += '<div class="zone-chat-item' + unreadClass + '" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')">';
     
     // 头像区域
-    html += '<div class="zone-chat-avatar" style="background:' + (e.bg || (e.gradient && e.gradient[0]) || '#5AC8FA') + '">';
+    html += '<div class="zone-chat-avatar">';
     html += avatarHtml;
     html += '<div class="status-dot ' + statusClass + '"></div>';
     html += '</div>';
@@ -2209,7 +2209,7 @@ function renderWorkZone() {
     html += '<div class="zone-emp-card ' + statusClass + '" onclick="openDetailPanel(\'' + e.id + '\')">';
     
     // 头像区域
-    html += '<div class="zone-emp-avatar" style="background:' + (e.bg || (e.gradient && e.gradient[0]) || '#FF6B35') + '">';
+    html += '<div class="zone-emp-avatar">';
     html += avatarHtml;
     html += '<div class="status-ring"></div>';
     html += '</div>';
