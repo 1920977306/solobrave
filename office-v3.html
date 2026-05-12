@@ -116,11 +116,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 /* ====== 动态 Live 区 ====== */
 .live-section{padding:0 24px 24px}
 .timeline-list{display:flex;flex-direction:column;gap:2px}
-.timeline-item{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-color)}
+.timeline-item{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:0.5px solid rgba(0,0,0,0.04);transition:background 0.15s;cursor:pointer;border-radius:6px;padding-left:8px;padding-right:8px}
+.timeline-item:hover{background:rgba(0,0,0,0.03)}
 .timeline-item:last-child{border-bottom:none}
-.timeline-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--gray-5);flex-shrink:0}
-.timeline-content{flex:1}
-.timeline-text{font-size:12px;color:var(--text-primary);line-height:1.4}
+.timeline-avatar{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;box-shadow:0 1px 4px rgba(0,0,0,0.08)}
+.timeline-content{flex:1;min-width:0}
+.timeline-text{font-size:13px;color:var(--text-primary);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .timeline-time{font-size:11px;color:var(--gray-4);margin-top:2px}
 .live-feed{background:var(--bg-secondary);border-radius:var(--radius-lg);border:1px solid var(--border-color);overflow:hidden}
 .live-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border-color)}
@@ -606,9 +607,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 }
 
 .zone-section + .zone-section {
-  border-top: none !important;
-  margin-top: 8px !important;
-  padding-top: 8px !important;
+  border-top: 8px solid #F2F2F7 !important;
+  margin-top: 2px !important;
+  padding-top: 12px !important;
 }
 
 /* 办公区背景微灰 + 毛玻璃 */
@@ -1524,35 +1525,35 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
         </h3>
         <div class="timeline-list" id="timelineList">
           <div class="timeline-item">
-            <div class="timeline-avatar" style="background:#FFD60A">G</div>
+            <div class="timeline-avatar" style="background:linear-gradient(135deg,#FFD60A,#FFB800)">🤖</div>
             <div class="timeline-content">
               <div class="timeline-text"><b>Grace</b> 执行 <span style="color:var(--blue)">is_open</span></div>
               <div class="timeline-time">15:37</div>
             </div>
           </div>
           <div class="timeline-item">
-            <div class="timeline-avatar" style="background:#5AC8FA">E</div>
+            <div class="timeline-avatar" style="background:linear-gradient(135deg,#5AC8FA,#007AFF)">👩‍💻</div>
             <div class="timeline-content">
               <div class="timeline-text"><b>Emily</b> memory_search</div>
               <div class="timeline-time">15:37</div>
             </div>
           </div>
           <div class="timeline-item">
-            <div class="timeline-avatar" style="background:#FFD60A">G</div>
+            <div class="timeline-avatar" style="background:linear-gradient(135deg,#FFD60A,#FFB800)">🤖</div>
             <div class="timeline-content">
               <div class="timeline-text"><b>Grace</b> 读取 2026-03-01.md</div>
               <div class="timeline-time">15:37</div>
             </div>
           </div>
           <div class="timeline-item">
-            <div class="timeline-avatar" style="background:#FFD60A">G</div>
+            <div class="timeline-avatar" style="background:linear-gradient(135deg,#FFD60A,#FFB800)">🤖</div>
             <div class="timeline-content">
               <div class="timeline-text"><b>Grace</b> session_status</div>
               <div class="timeline-time">15:37</div>
             </div>
           </div>
           <div class="timeline-item">
-            <div class="timeline-avatar" style="background:#FF6B9D">C</div>
+            <div class="timeline-avatar" style="background:linear-gradient(135deg,#FF6B9D,#FF2D55)">🎨</div>
             <div class="timeline-content">
               <div class="timeline-text"><b>Cynthia</b> 执行 <span style="color:var(--blue)">is_open</span></div>
               <div class="timeline-time">15:37</div>
@@ -3604,7 +3605,14 @@ function addTimelineEvent(name, action){
   var time = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
   var item = document.createElement('div');
   item.className = 'timeline-item';
-  item.innerHTML = '<div class="timeline-avatar" style="background:#FFD60A">'+name[0]+'</div><div class="timeline-content"><div class="timeline-text"><b>'+name+'</b> '+action+'</div><div class="timeline-time">'+time+'</div></div>';
+  // 根据名字选择emoji头像
+  var emojiMap = {
+    'Grace': '🤖', 'Emily': '👩‍💻', 'Cynthia': '🎨', 'Lucy': '💻',
+    '大龙虾': '🦞', '鲨鱼': '🦈', '海星': '⭐', '章鱼哥': '🐙',
+    '测试': '🧪', '小可': '🤖'
+  };
+  var emoji = emojiMap[name] || '👤';
+  item.innerHTML = '<div class="timeline-avatar" style="background:linear-gradient(135deg,#FFD60A,#FFB800)">'+emoji+'</div><div class="timeline-content"><div class="timeline-text"><b>'+name+'</b> '+action+'</div><div class="timeline-time">'+time+'</div></div>';
   list.insertBefore(item, list.firstChild);
   while(list.children.length > 10){
     list.removeChild(list.lastChild);
