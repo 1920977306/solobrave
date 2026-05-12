@@ -4034,7 +4034,7 @@ async function loadEmployees(){
           var uid = currentUser && currentUser.id;
           var isAdmin = currentUser && currentUser.role === 'admin';
           if(!isAdmin && uid){
-            data = data.filter(function(a){ return a.createdBy === uid || a.visibility === 'all'; });
+            data = data.filter(function(a){ return a.createdBy === uid; });
           }
           emps.length = 0;
           data.forEach(function(a){ emps.push(a); });
@@ -4079,7 +4079,7 @@ async function loadEmployees(){
       var uid2 = currentUser && currentUser.id;
       var isAdmin2 = currentUser && currentUser.role === 'admin';
       if(!isAdmin2 && uid2){
-        data = data.filter(function(a){ return a.createdBy === uid2 || a.visibility === 'all'; });
+        data = data.filter(function(a){ return a.createdBy === uid2; });
       }
       emps.length=0;
       data.forEach(function(e){emps.push(e);});
