@@ -2011,194 +2011,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   font-weight: 500;
 }
 
-/* ===== 对话区消息流新样式 ===== */
-
-/* 消息列表容器 */
-.chat-messages-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* 单条消息卡片 */
-.chat-msg-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--card-bg, rgba(255, 255, 255, 0.85));
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-radius: 14px;
-  border: 1px solid var(--separator, rgba(0, 0, 0, 0.06));
-  cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-.chat-msg-item::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--gray-3);
-  transition: all 0.2s ease;
-}
-
-.chat-msg-item.online::before { background: linear-gradient(180deg, #34C759, #30B050); }
-.chat-msg-item.thinking::before { background: linear-gradient(180deg, var(--chat-zone), #5856D6); }
-.chat-msg-item.busy::before { background: linear-gradient(180deg, #FF9500, #FF8000); }
-.chat-msg-item.offline::before { background: var(--gray-3); }
-
-.chat-msg-item:hover {
-  background: var(--card-bg-hover, rgba(255, 255, 255, 0.95));
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-}
-
-.chat-msg-item.highlight {
-  animation: msg-highlight-pulse 1.5s ease-out;
-}
-
-@keyframes msg-highlight-pulse {
-  0% { background: rgba(0, 122, 255, 0.15); transform: scale(1.02); }
-  100% { background: var(--card-bg, rgba(255, 255, 255, 0.85)); transform: scale(1); }
-}
-
-/* 头像容器 */
-.chat-msg-avatar-wrap {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.chat-msg-avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-}
-
-/* 头像状态光晕 */
-.chat-msg-item.online .chat-msg-avatar { box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1); }
-.chat-msg-item.thinking .chat-msg-avatar { box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1); }
-.chat-msg-item.busy .chat-msg-avatar { box-shadow: 0 0 0 3px rgba(255, 149, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1); }
-
-/* 状态指示点 */
-.chat-msg-status-dot {
-  position: absolute;
-  bottom: 1px;
-  right: 1px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 2px solid white;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-.chat-msg-status-dot.online { background: #34C759; }
-.chat-msg-status-dot.thinking { background: var(--chat-zone); animation: status-pulse 1.5s infinite; }
-.chat-msg-status-dot.busy { background: #FF9500; }
-.chat-msg-status-dot.offline { background: #8E8E93; }
-
-@keyframes status-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.4); }
-  50% { box-shadow: 0 0 0 4px rgba(0, 122, 255, 0); }
-}
-
-/* 未读气泡 */
-.chat-msg-unread {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  background: var(--chat-zone);
-  color: white;
-  font-size: 10px;
-  font-weight: 700;
-  min-width: 18px;
-  height: 18px;
-  border-radius: 9px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-/* 消息内容区 */
-.chat-msg-content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.chat-msg-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.chat-msg-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-}
-
-.chat-msg-time {
-  font-size: 11px;
-  color: var(--gray-4);
-  flex-shrink: 0;
-}
-
-.chat-msg-preview {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-msg-preview.thinking {
-  color: var(--chat-zone);
-}
-
-/* 思考中动画 */
-.thinking-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--chat-zone);
-  font-size: 13px;
-}
-
-.thinking-indicator .dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--chat-zone);
-  animation: thinking-bounce 1.4s infinite ease-in-out;
-}
-
-.thinking-indicator .dot:nth-child(1) { animation-delay: 0s; }
-.thinking-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
-.thinking-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes thinking-bounce {
-  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-  40% { transform: scale(1); opacity: 1; }
-}
-
 /* 对话区头部带未读计数 */
 .chat-zone-header {
   display: flex;
@@ -2250,12 +2062,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   </div>
 </nav>
 <div class="office-layout"><aside class="left-panel"><div class="zone-section chat">
-  <div class="zone-header" style="display:flex;align-items:center;justify-content:space-between;">
-    <div style="display:flex;align-items:center;gap:6px;">
-      <span class="zone-dot" style="background:var(--chat-zone)"></span>
-      <span>对话区</span>
-    </div>
-    <div id="chatZoneUnread" class="chat-zone-unread" style="display:none">0条新</div>
+  <div class="zone-header">
+    <span class="zone-dot" style="background:var(--chat-zone)"></span>
+    <span>对话区</span>
+    <span id="chatZoneUnread" class="chat-zone-unread" style="display:none;margin-left:auto;font-size:11px;font-weight:700;color:white;background:var(--chat-zone);padding:2px 8px;border-radius:10px;">0条新</span>
   </div>
   <div class="zone-content" id="chatZone"></div>
 </div><div class="zone-section work"><div class="zone-header"><span class="zone-dot" style="background:var(--work-zone)"></span><span>办公区 Work Zone</span></div><div class="zone-content" id="workZone"></div></div><div class="zone-section lounge"><div class="zone-header"><span class="zone-dot" style="background:var(--lounge-zone)"></span><span>休闲区 Lounge</span></div><div class="zone-content" id="loungeZone"></div></div></aside><aside class="right-panel"><div class="live-section">
@@ -3447,22 +3257,16 @@ function renderChatZone() {
   var chatZone = document.getElementById('chatZone');
   if (!chatZone) return;
   
-  // 获取有对话历史的员工，优先按最后消息时间排序
+  // 获取有对话历史的员工，按最后消息时间排序
   var chatters = employees.filter(function(e) {
-    // 有聊天历史的员工
     var hist = localStorage.getItem('sb_chat_history_' + e.id);
     if (hist) {
-      try {
-        var msgs = JSON.parse(hist);
-        if (msgs && msgs.length > 0) return true;
-      } catch (err) {}
+      try { var msgs = JSON.parse(hist); if (msgs && msgs.length > 0) return true; } catch(err) {}
     }
-    // 思考中的员工也显示
     if (e.status === 'thinking') return true;
     return false;
   });
   
-  // 按最后消息时间排序（最新的在最前）
   chatters.sort(function(a, b) {
     var tsA = getMessageTimestamp(a.id);
     var tsB = getMessageTimestamp(b.id);
@@ -3472,116 +3276,82 @@ function renderChatZone() {
     return tsB - tsA;
   });
   
-  // 如果没有对话中的成员但有思考中的员工，也显示
   if (chatters.length === 0) {
-    var thinkingEmps = employees.filter(function(e) {
-      return e.status === 'thinking';
-    });
-    if (thinkingEmps.length > 0) {
-      chatters = thinkingEmps;
-    }
-  }
-  
-  if (chatters.length === 0) {
-    chatZone.innerHTML = '<div style="text-align:center;padding:40px;color:#8E8E93">暂无对话中的成员</div>';
+    chatZone.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-secondary);font-size:13px;">暂无对话中的成员</div>';
     return;
   }
   
-  // 计算总未读数
+  // 更新未读气泡
   var totalUnread = 0;
   for (var i = 0; i < chatters.length; i++) {
-    var cnt = getUnreadMessages(chatters[i].id);
-    totalUnread += cnt;
+    totalUnread += getUnreadMessages(chatters[i].id);
   }
-  
-  // 更新未读气泡
   var unreadBadge = document.getElementById('chatZoneUnread');
   if (unreadBadge) {
     if (totalUnread > 0) {
       unreadBadge.textContent = totalUnread + '条新';
-      unreadBadge.style.display = 'flex';
+      unreadBadge.style.display = 'inline-block';
     } else {
       unreadBadge.style.display = 'none';
     }
   }
   
-  var html = '<div class="chat-messages-list">';
-  
+  var html = '';
   for (var i = 0; i < chatters.length; i++) {
     var e = chatters[i];
-    var avatarHtml = renderAvatar(e, 38);
     var isThinking = e.status === 'thinking';
     var isWorking = e.status === 'busy' || e.status === 'working';
     var isOnline = e.status === 'online' && !isThinking && !isWorking;
+    var statusClass = isThinking ? 'thinking' : (isWorking ? 'busy' : (isOnline ? 'online' : 'offline'));
     
-    // 获取最新消息
     var latestMsg = getLatestMessage(e.id);
     var msgTime = getMessageTimestamp(e.id);
-    var unreadCount = getUnreadMessages(e.id);
-    
-    // 确定状态
-    var statusClass = 'offline';
-    var statusDotClass = 'offline';
-    if (isThinking) {
-      statusClass = 'thinking';
-      statusDotClass = 'thinking';
-    } else if (isWorking) {
-      statusClass = 'busy';
-      statusDotClass = 'busy';
-    } else if (isOnline) {
-      statusClass = 'online';
-      statusDotClass = 'online';
-    }
-    
-    // 相对时间
     var timeText = getRelativeTime(msgTime);
-    if (!msgTime && isThinking) {
-      timeText = '正在思考';
+    if (!msgTime && isThinking) timeText = '正在思考...';
+    
+    var avatarLetter = (e.name || '?').charAt(0).toUpperCase();
+    var bgStyle = e.bg ? 'background:' + e.bg + ';' : '';
+    
+    // 处理头像
+    var avatarHtml = '';
+    if (typeof renderAvatar === 'function') {
+      avatarHtml = renderAvatar(e, 50);
+    } else {
+      avatarHtml = '<div style="width:50px;height:50px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:20px;font-weight:700;' + bgStyle + '">' + avatarLetter + '</div>';
     }
-    
-    // 构建卡片 HTML
-    html += '<div class="chat-msg-item ' + statusClass + '" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')">';
-    
-    // 头像区域
-    html += '<div class="chat-msg-avatar-wrap">';
-    html += '<div class="chat-msg-avatar">' + avatarHtml + '</div>';
-    html += '<div class="chat-msg-status-dot ' + statusDotClass + '"></div>';
-    
-    // 未读气泡
-    if (unreadCount > 1) {
-      html += '<div class="chat-msg-unread">' + unreadCount + '</div>';
-    }
-    html += '</div>';
-    
-    // 消息内容区域
-    html += '<div class="chat-msg-content">';
-    
-    // 头部：名字 + 时间
-    html += '<div class="chat-msg-header">';
-    html += '<span class="chat-msg-name">' + escapeHtml(e.name || '?') + '</span>';
-    html += '<span class="chat-msg-time">' + escapeHtml(timeText) + '</span>';
-    html += '</div>';
     
     // 消息预览
+    var previewHtml = '';
     if (isThinking) {
-      // 思考中状态显示动画
-      html += '<div class="chat-msg-preview thinking">';
-      html += '<span class="thinking-indicator">';
-      html += '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
-      html += ' 正在思考...</span>';
-      html += '</div>';
+      previewHtml = '<div style="font-size:12px;color:var(--chat-zone,#007AFF);display:flex;align-items:center;gap:4px;"><span style="display:flex;gap:2px;"><span style="width:5px;height:5px;border-radius:50%;background:var(--chat-zone,#007AFF);animation:thinking-bounce 1.4s infinite ease-in-out;"></span><span style="width:5px;height:5px;border-radius:50%;background:var(--chat-zone,#007AFF);animation:thinking-bounce 1.4s infinite ease-in-out 0.2s;"></span><span style="width:5px;height:5px;border-radius:50%;background:var(--chat-zone,#007AFF);animation:thinking-bounce 1.4s infinite ease-in-out 0.4s;"></span></span> 正在思考...</div>';
     } else if (latestMsg) {
-      // 显示消息预览
-      var previewText = latestMsg.length > 60 ? latestMsg.substring(0, 60) + '...' : latestMsg;
-      html += '<div class="chat-msg-preview">"' + escapeHtml(previewText) + '"</div>';
-    } else {
-      html += '<div class="chat-msg-preview" style="color:#C7C7CC">开始新对话</div>';
+      var preview = latestMsg.length > 40 ? latestMsg.substring(0, 40) + '...' : latestMsg;
+      previewHtml = '<div style="font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(preview) + '</div>';
     }
     
-    html += '</div></div>';
+    // 时间
+    var timeHtml = timeText ? '<div style="font-size:11px;color:var(--gray-4,#8E8E93);">' + escapeHtml(timeText) + '</div>' : '';
+    
+    // 未读
+    var unreadCount = getUnreadMessages(e.id);
+    var unreadHtml = unreadCount > 0 ? '<div style="position:absolute;top:8px;right:8px;background:var(--chat-zone,#007AFF);color:white;font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px;">' + unreadCount + '</div>' : '';
+    
+    html += '<div class="chat-card ' + statusClass + '" onclick="openChatDetail('' + escapeAttr(e.id) + '')" style="position:relative;">';
+    html += '<div class="chat-card-avatar">' + avatarHtml + '</div>';
+    html += '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+    html += '<span style="font-size:14px;font-weight:600;color:var(--text-primary);">' + escapeHtml(e.name || '?') + '</span>';
+    html += timeHtml;
+    html += '</div>';
+    if (e.role) {
+      html += '<div style="font-size:11px;color:var(--text-secondary);">' + escapeHtml(e.role) + '</div>';
+    }
+    html += previewHtml;
+    html += '</div>';
+    html += unreadHtml;
+    html += '</div>';
   }
   
-  html += '</div>';
   chatZone.innerHTML = html;
 }
 
