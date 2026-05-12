@@ -8230,7 +8230,7 @@ function updateWizardUI(){
 }
 function updateWizConfirm(){
   var name=document.getElementById('wizName').value.trim()||'未命名';
-  var role=document.getElementById('wizRole').value;
+  var roleSel=document.getElementById('wizRole').value;var role=roleSel==='__custom__'?(document.getElementById('wizCustomRole').value.trim()||'自定义'):roleSel;
   var avatarEl=document.querySelector('.wiz-avatar-opt.selected');
   var avatar=avatarEl?avatarEl.dataset.avatar:'';
   var group=document.getElementById('wizGroup').value;
@@ -8835,7 +8835,7 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 </div>
 <div class="form-group">
 <label class="form-label">职位</label>
-<select class="form-select" id="wizRole">
+<select class="form-select" id="wizRole" onchange="if(this.value==='__custom__'){document.getElementById('wizCustomRoleWrap').style.display='block';document.getElementById('wizCustomRole').focus();}else{document.getElementById('wizCustomRoleWrap').style.display='none';}">
 <option>CEO助理</option>
 <option>前端工程师</option>
 <option>后端工程师</option>
@@ -8844,7 +8844,11 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 <option>运营</option>
 <option>客服</option>
 <option>数据分析师</option>
+<option value="__custom__">✏️ 自定义职位...</option>
 </select>
+<div id="wizCustomRoleWrap" style="display:none;margin-top:8px;">
+<input type="text" class="form-input" id="wizCustomRole" placeholder="输入自定义职位，如：全栈开发、架构师...">
+</div>
 </div>
 </div>
 <div id="wiz2" style="display:none">
