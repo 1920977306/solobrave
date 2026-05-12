@@ -3384,7 +3384,7 @@ function sendMsg(){
   if(!text) return;
   
   // 通知龙虾办公室用户发送了消息
-  notifyOfficeChatMessage(currentChat, 'outgoing');
+  notifyOfficeChatMessage(localStorage.getItem('sb_current_emp'), 'outgoing');
   
   // 群聊模式：转发到 sendGroupMessage
   if(currentGroupId){
