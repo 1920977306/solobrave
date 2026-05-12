@@ -2102,8 +2102,8 @@ window.doLogin = function() {
 <div class="chat-header-left">
 <div class="avatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
 <div class="chat-header-info">
-<div class="chat-header-name">Emily</div>
-<div class="chat-header-role">CEO助理</div>
+<div class="chat-header-name"></div>
+<div class="chat-header-role"></div>
 </div>
 </div>
 </div>
@@ -3070,10 +3070,23 @@ function showMainApp() {
       renderEmployeeList();
       // 清理：校验当前聊天对象是否还存在
       var curEmp = localStorage.getItem('sb_current_emp');
-      if(curEmp && !emps.find(function(e){return e.id===curEmp;})){
-        localStorage.removeItem('sb_current_emp');
-        localStorage.removeItem('sb_chat_history_'+curEmp);
+      if(curEmp){
+        var curEmpObj = emps.find(function(e){return e.id===curEmp;});
+        // 不在可见列表中就清掉
+        var visibleEmps = getVisibleEmps();
+        if(!curEmpObj || visibleEmps.indexOf(curEmpObj) < 0){
+          localStorage.removeItem('sb_current_emp');
+          localStorage.removeItem('sb_chat_history_'+curEmp);
+        }
       }
+      // 重置聊天区到空状态
+      var chatHeaderName = document.querySelector('.chat-header-name');
+      var chatHeaderRole = document.querySelector('.chat-header-role');
+      var chatHeaderAvatar = document.querySelector('.chat-header-v2 .avatar');
+      if(chatHeaderName) chatHeaderName.textContent = '';
+      if(chatHeaderRole) chatHeaderRole.textContent = '';
+      if(chatHeaderAvatar){chatHeaderAvatar.innerHTML = '🦞';}
+      renderMsgs('private');
       // 清理：删除不存在员工的聊天记录
       var empIds = {};
       emps.forEach(function(e){empIds[e.id]=true;});
@@ -3198,13 +3211,12 @@ function applyPermissions() {
     el.style.display = isEmployee() ? '' : 'none';
   });
 
-  // 员工视图：隐藏管理功能
+  // 员工视图：隐藏部分管理功能
   if (isEmployee()) {
-    // 隐藏新增员工按钮
-    var addBtn = document.querySelector('button[onclick="openWizard()"]');
-    if (addBtn) addBtn.style.display = 'none';
+    // 员工也可以新增员工（创建自己的AI助手）
+    // 不隐藏新增员工按钮
 
-    // 隐藏系统设置入口
+    // 隐藏系统设置入口（仅管理员可配置）
     var settingsBtn = document.querySelector('button[onclick="showSettings()"]');
     if (settingsBtn) settingsBtn.style.display = 'none';
   }
