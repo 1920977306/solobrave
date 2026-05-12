@@ -2011,10 +2011,71 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   font-weight: 500;
 }
 
+/* ===== 对话区简洁列表样式 - 新版重构 ===== */
 
+/* 对话区容器 */
+.zone-section { margin-bottom: 16px; }
+.zone-section-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px 6px; }
+.zone-section-title { font-size: 12px; font-weight: 600; color: var(--text-secondary, #86868B); letter-spacing: 0.05em; text-transform: uppercase; }
+.zone-badge { min-width: 18px; height: 18px; padding: 0 5px; background: var(--accent, #FF6B35); color: white; border-radius: 9px; font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
 
+/* 对话项 - 新样式 */
+.zone-chat-list { display: flex; flex-direction: column; gap: 0; padding: 0 4px; }
+.zone-chat-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; transition: background 0.15s; position: relative; }
+.zone-chat-item:hover { background: var(--bg-secondary, #F2F2F7); }
+.zone-chat-item::after { content: ''; position: absolute; bottom: 0; left: 52px; right: 14px; height: 0.5px; background: var(--separator, rgba(0,0,0,0.06)); }
+.zone-chat-item:last-child::after { display: none; }
+.zone-chat-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; position: relative; }
+.zone-chat-avatar img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; }
+.zone-chat-avatar .status-dot { position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--bg-primary, #fff); }
+.zone-chat-avatar .status-dot.online { background: #34C759; }
+.zone-chat-avatar .status-dot.busy { background: #FF9500; }
+.zone-chat-avatar .status-dot.thinking { background: #007AFF; }
+.zone-chat-avatar .status-dot.offline { background: var(--gray-3, #AEAEB2); }
+.zone-chat-info { flex: 1; min-width: 0; }
+.zone-chat-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; }
+.zone-chat-name { font-size: 14px; font-weight: 600; color: var(--text-primary, #1D1D1F); }
+.zone-chat-time { font-size: 11px; color: var(--text-tertiary, #AEAEB2); flex-shrink: 0; }
+.zone-chat-preview { font-size: 13px; color: var(--text-secondary, #86868B); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
 
-/* ===== 暗色模式 ===== */
+/* 办公区员工卡片 - 新样式 */
+.zone-emp-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin: 0 8px 6px; background: var(--bg-primary, #fff); border-radius: 10px; cursor: pointer; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.zone-emp-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.zone-emp-avatar { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; position: relative; overflow: visible; }
+.zone-emp-avatar img { width: 40px; height: 40px; border-radius: 12px; object-fit: cover; }
+.zone-emp-avatar .status-ring { position: absolute; inset: -2px; border-radius: 14px; border: 2px solid transparent; }
+.zone-emp-card.working .status-ring { border-color: #34C759; }
+.zone-emp-card.busy .status-ring { border-color: #FF9500; }
+.zone-emp-card.thinking .status-ring { border-color: #007AFF; }
+.zone-emp-card.offline .status-ring { border-color: var(--gray-3, #AEAEB2); }
+.zone-emp-info { flex: 1; min-width: 0; }
+.zone-emp-name { font-size: 14px; font-weight: 600; color: var(--text-primary, #1D1D1F); margin-bottom: 2px; }
+.zone-emp-role { font-size: 12px; color: var(--text-secondary, #86868B); }
+.zone-emp-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.zone-emp-status { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 10px; }
+.zone-emp-status.working { background: rgba(52, 199, 89, 0.1); color: #34C759; }
+.zone-emp-status.working::before { content: ''; width: 6px; height: 6px; background: #34C759; border-radius: 50%; animation: pulse-dot 1.5s infinite; }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.zone-emp-status.busy { background: rgba(255, 149, 0, 0.1); color: #FF9500; }
+.zone-emp-status.busy::before { content: ''; width: 6px; height: 6px; background: #FF9500; border-radius: 50%; }
+.zone-emp-status.thinking { background: rgba(0, 122, 255, 0.1); color: #007AFF; }
+.zone-emp-status.thinking::before { content: ''; width: 6px; height: 6px; background: #007AFF; border-radius: 50%; animation: pulse-dot 1.5s infinite; }
+.zone-emp-status.offline { background: var(--bg-tertiary, #EFEFF4); color: var(--text-tertiary, #AEAEB2); }
+.zone-emp-status.offline::before { content: ''; width: 6px; height: 6px; background: var(--gray-3, #AEAEB2); border-radius: 50%; }
+.zone-emp-duration { font-size: 11px; color: var(--text-tertiary, #AEAEB2); }
+
+/* 思考中动画 */
+.zone-thinking-dots { display: inline-flex; align-items: center; gap: 2px; }
+.zone-thinking-dots span { width: 4px; height: 4px; background: #007AFF; border-radius: 50%; animation: zone-bounce 1.4s infinite ease-in-out; }
+.zone-thinking-dots span:nth-child(1) { animation-delay: 0s; }
+.zone-thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.zone-thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes zone-bounce { 0%, 80%, 100% { opacity: 0.3; transform: scale(0.6); } 40% { opacity: 1; transform: scale(1); } }
+
+/* 办公区列表容器 */
+.zone-emp-list { display: flex; flex-direction: column; gap: 0; padding: 4px 4px; }
+
+/* 暗色模式 ===== */
 @media (prefers-color-scheme: dark), [data-theme="dark"] {
   :root, [data-theme="dark"] {
     --bg-secondary: #1C1C1E;
@@ -2058,13 +2119,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   </div>
 </nav>
 <div class="office-layout"><aside class="left-panel"><div class="zone-section chat">
-  <div class="zone-header">
-    <span class="zone-dot" style="background:var(--chat-zone)"></span>
-    <span>对话区</span>
-    <span id="chatZoneUnread" class="chat-zone-unread" style="display:none;margin-left:auto;font-size:11px;font-weight:700;color:white;background:var(--chat-zone);padding:2px 8px;border-radius:10px;">0条新</span>
+  <div class="zone-section-header">
+    <div class="zone-section-title">💬 对话区</div>
+    <div id="chatZoneUnread" class="zone-badge" style="display:none">0</div>
   </div>
-  <div class="zone-content" id="chatZone"></div>
-</div><div class="zone-section work"><div class="zone-header"><span class="zone-dot" style="background:var(--work-zone)"></span><span>办公区 Work Zone</span></div><div class="zone-content" id="workZone"></div></div><div class="zone-section lounge"><div class="zone-header"><span class="zone-dot" style="background:var(--lounge-zone)"></span><span>休闲区 Lounge</span></div><div class="zone-content" id="loungeZone"></div></div></aside><aside class="right-panel"><div class="live-section">
+  <div class="zone-chat-list" id="chatZone"></div>
+</div><div class="zone-section work">
+  <div class="zone-section-header">
+    <div class="zone-section-title">👔 办公区</div>
+    <span id="workZoneCount" style="font-size:11px;color:var(--text-secondary)"></span>
+  </div>
+  <div class="zone-emp-list" id="workZone"></div>
+</div><div class="zone-section lounge"><div class="zone-header"><span class="zone-dot" style="background:var(--lounge-zone)"></span><span>休闲区 Lounge</span></div><div class="zone-content" id="loungeZone"></div></div></aside><aside class="right-panel"><div class="live-section">
         <h3 style="font-size:14px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px">
           <span style="width:8px;height:8px;background:var(--green);border-radius:50%;display:inline-block"></span> 动态
         </h3>
@@ -3241,18 +3307,29 @@ function renderAvatar(emp, size){
   return '<span style="font-size:' + Math.floor(size * 0.5) + 'px;font-weight:700;color:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;width:' + size + 'px;height:' + size + 'px;border-radius:50%;">' + (emp.name ? emp.name.charAt(0).toUpperCase() : '?') + '</span>';
 }
 
+// ===== 渲染对话区 - 新版设计 =====
 function renderChatZone() {
   var chatZone = document.getElementById('chatZone');
   if (!chatZone) return;
   
-  var chatters = employees.filter(function(e) {
+  // 获取有对话历史的员工，优先按最后消息时间排序
+  var chatters = [];
+  for (var i = 0; i < employees.length; i++) {
+    var e = employees[i];
     var hist = localStorage.getItem('sb_chat_history_' + e.id);
     if (hist) {
-      try { var msgs = JSON.parse(hist); if (msgs && msgs.length > 0) return true; } catch(err) {}
+      try {
+        var msgs = JSON.parse(hist);
+        if (msgs && msgs.length > 0) {
+          chatters.push(e);
+          continue;
+        }
+      } catch (err) {}
     }
-    if (e.status === 'thinking') return true;
-    return false;
-  });
+    if (e.status === 'thinking') {
+      chatters.push(e);
+    }
+  }
   
   chatters.sort(function(a, b) {
     var tsA = getMessageTimestamp(a.id);
@@ -3264,27 +3341,27 @@ function renderChatZone() {
   });
   
   if (chatters.length === 0) {
-    chatZone.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-secondary);font-size:13px;">暂无对话中的成员</div>';
+    chatZone.innerHTML = '<div style="text-align:center;padding:32px 16px;color:var(--text-secondary, #86868B);font-size:13px;">暂无对话中的成员</div>';
     return;
   }
   
   var totalUnread = 0;
-  for (var i = 0; i < chatters.length; i++) {
-    totalUnread += getUnreadMessages(chatters[i].id);
+  for (var j = 0; j < chatters.length; j++) {
+    totalUnread += getUnreadMessages(chatters[j].id);
   }
   var unreadBadge = document.getElementById('chatZoneUnread');
   if (unreadBadge) {
     if (totalUnread > 0) {
       unreadBadge.textContent = totalUnread + '条新';
-      unreadBadge.style.display = 'inline-block';
+      unreadBadge.style.display = 'flex';
     } else {
       unreadBadge.style.display = 'none';
     }
   }
   
   var html = '';
-  for (var i = 0; i < chatters.length; i++) {
-    var e = chatters[i];
+  for (var idx = 0; idx < chatters.length; idx++) {
+    var e = chatters[idx];
     var isThinking = e.status === 'thinking';
     var isWorking = e.status === 'busy' || e.status === 'working';
     var isOnline = e.status === 'online' && !isThinking && !isWorking;
@@ -3293,56 +3370,46 @@ function renderChatZone() {
     var latestMsg = getLatestMessage(e.id);
     var msgTime = getMessageTimestamp(e.id);
     var timeText = getRelativeTime(msgTime);
-    if (!msgTime && isThinking) timeText = '正在思考...';
+    if (!msgTime && isThinking) timeText = '刚刚';
     
     var unreadCount = getUnreadMessages(e.id);
     
-    // 用renderAvatar渲染卡通头像（跟办公区一样）
-    var avatarHtml = renderAvatar(e, 42);
+    // 用renderAvatar渲染卡通头像
+    var avatarHtml = renderAvatar(e, 36);
     
-    // 状态点颜色
-    var dotColor = '#8E8E93';
-    if (isOnline) dotColor = '#34C759';
-    else if (isThinking) dotColor = '#AF52DE';
-    else if (isWorking) dotColor = '#FF9500';
+    // 卡片 - 新版zone-chat-item设计
+    html += '<div class="zone-chat-item" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')">';
     
-    // 卡片（跟办公区同样用chat-card）
-    html += '<div class="chat-card ' + statusClass + '" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')">';
-    
-    // 头像（跟办公区一样）
-    html += '<div style="position:relative;width:42px;height:42px;flex-shrink:0;">';
-    html += '<div style="width:42px;height:42px;border-radius:50%;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);background:linear-gradient(135deg,#FFED4A,#FFD60A);">' + avatarHtml + '</div>';
-    html += '<div style="position:absolute;bottom:0;right:0;width:12px;height:12px;border-radius:50%;background:' + dotColor + ';border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div>';
+    // 头像区域
+    html += '<div class="zone-chat-avatar" style="background:' + (e.bg || (e.gradient && e.gradient[0]) || '#5AC8FA') + '">';
+    html += avatarHtml;
+    html += '<div class="status-dot ' + statusClass + '"></div>';
     html += '</div>';
     
     // 内容区
-    html += '<div style="flex:1;min-width:0;">';
-    // 第一行：名字
-    html += '<div style="font-size:14px;font-weight:600;color:#1D1D1F;">' + escapeHtml(e.name || '?') + '</div>';
-    // 第二行：角色
-    html += '<div style="font-size:11px;color:#8E8E93;margin-top:1px;">' + escapeHtml(e.role || '成员') + '</div>';
+    html += '<div class="zone-chat-info">';
+    html += '<div class="zone-chat-top">';
+    html += '<span class="zone-chat-name">' + escapeHtml(e.name || '?') + '</span>';
+    html += '<span class="zone-chat-time">' + escapeHtml(timeText) + '</span>';
+    html += '</div>';
     
-    // 第三行：消息预览或思考中
+    // 消息预览或思考中
     if (isThinking) {
-      html += '<div style="display:flex;align-items:center;gap:4px;margin-top:4px;">';
-      html += '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;background:rgba(175,82,222,0.1);color:#AF52DE;"><span style="width:5px;height:5px;border-radius:50%;background:#AF52DE;animation:status-pulse 1.5s infinite;"></span> 思考中</span>';
-      html += '</div>';
+      html += '<div class="zone-chat-preview" style="color:#007AFF">';
+      html += '<span class="zone-thinking-dots"><span></span><span></span><span></span></span> 正在思考...</div>';
     } else if (latestMsg) {
-      var preview = latestMsg.length > 30 ? latestMsg.substring(0, 30) + '...' : latestMsg;
-      html += '<div style="font-size:12px;color:#8E8E93;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">"' + escapeHtml(preview) + '"</div>';
+      var preview = latestMsg.length > 40 ? latestMsg.substring(0, 40) + '...' : latestMsg;
+      html += '<div class="zone-chat-preview">"' + escapeHtml(preview) + '"</div>';
+    } else {
+      html += '<div class="zone-chat-preview" style="color:#AEAEB2">开始新对话</div>';
     }
     
     html += '</div>';
     
-    // 右侧：时间 + 未读
-    html += '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">';
-    if (timeText) {
-      html += '<span style="font-size:11px;color:#8E8E93;">' + escapeHtml(timeText) + '</span>';
-    }
+    // 未读气泡
     if (unreadCount > 0) {
-      html += '<div style="background:var(--chat-zone,#007AFF);color:white;font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 5px;">' + unreadCount + '</div>';
+      html += '<div class="zone-badge">' + unreadCount + '</div>';
     }
-    html += '</div>';
     
     html += '</div>';
   }
@@ -3399,61 +3466,72 @@ function scrollChatZoneToTop(empId) {
 
 
 
-// 渲染办公区 - 工作中员工的卡片网格布局
+// 渲染办公区 - 新版设计
 function renderWorkZone() {
   var workZone = document.getElementById('workZone');
+  var countEl = document.getElementById('workZoneCount');
   if (!workZone) return;
   
-  var workingEmployees = employees.filter(function(e) {
-    return e.status === 'busy' || e.status === 'thinking' || e.status === 'working';
-  });
+  // 筛选工作中/思考中的员工
+  var workingEmployees = [];
+  for (var i = 0; i < employees.length; i++) {
+    var e = employees[i];
+    if (e.status === 'busy' || e.status === 'thinking' || e.status === 'working') {
+      workingEmployees.push(e);
+    }
+  }
+  
+  // 更新计数
+  if (countEl) {
+    countEl.textContent = workingEmployees.length + '人在工作';
+  }
   
   if (workingEmployees.length === 0) {
-    workZone.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:#8E8E93">暂无工作中的成员</div>';
+    workZone.innerHTML = '<div style="text-align:center;padding:32px 16px;color:var(--text-secondary, #86868B);font-size:13px;">暂无工作中的成员</div>';
     return;
   }
   
   var html = '';
-  for (var i = 0; i < workingEmployees.length; i++) {
-    var e = workingEmployees[i];
-    var avatarHtml = renderAvatar(e, 42);
+  for (var idx = 0; idx < workingEmployees.length; idx++) {
+    var e = workingEmployees[idx];
+    var avatarHtml = renderAvatar(e, 40);
     
+    // 确定状态
     var isThinking = e.status === 'thinking';
-    var statusDotColor = isThinking ? '#AF52DE' : '#FF9500';
-    var statusText = isThinking ? '思考中' : '工作中';
-    var statusTextColor = isThinking ? '#AF52DE' : '#FF9500';
-    var progressColor = isThinking ? '#AF52DE' : '#FF9500';
+    var isWorking = e.status === 'busy' || e.status === 'working';
+    var statusClass = 'busy';
+    var statusText = '工作中';
     
-    var progress = Math.floor(Math.random() * 50) + 30;
+    if (isThinking) {
+      statusClass = 'thinking';
+      statusText = '思考中';
+    }
+    
+    // 生成随机时长（用于演示）
     var minutes = Math.floor(Math.random() * 120) + 5;
-    var durationText = minutes + '分钟';
-    var now = new Date();
-    var period = now.getHours() < 12 ? '上午' : (now.getHours() < 18 ? '下午' : '晚上');
+    var durationText = minutes + ' 分钟';
     
-    var cardClass = 'chat-card ' + (e.status || 'offline');
-    html += '<div class="' + cardClass + '" onclick="openDetailPanel(\'' + e.id + '\')">';
-    html += '<div style="position:relative;width:42px;height:42px;flex-shrink:0;">';
-    html += '<div style="width:42px;height:42px;border-radius:50%;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);background:linear-gradient(135deg,#FFED4A,#FFD60A);">' + avatarHtml + '</div>';
-    html += '<div style="position:absolute;bottom:0;right:0;width:12px;height:12px;border-radius:50%;background:' + statusDotColor + ';border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div>';
+    // 构建卡片 HTML - 新版zone-emp-card设计
+    html += '<div class="zone-emp-card ' + statusClass + '" onclick="openDetailPanel(\'' + e.id + '\')">';
+    
+    // 头像区域
+    html += '<div class="zone-emp-avatar" style="background:' + (e.bg || (e.gradient && e.gradient[0]) || '#FF6B35') + '">';
+    html += avatarHtml;
+    html += '<div class="status-ring"></div>';
     html += '</div>';
-    html += '<div style="flex:1;min-width:0;">';
-    html += '<div style="display:flex;align-items:center;gap:6px;">';
-    html += '<span style="font-size:14px;font-weight:600;color:#1D1D1F;">' + (e.name || '?') + '</span>';
-    html += '<span style="width:6px;height:6px;border-radius:50%;background:#FF9500;box-shadow:0 0 4px rgba(255,149,0,0.5);"></span>';
+    
+    // 员工信息
+    html += '<div class="zone-emp-info">';
+    html += '<div class="zone-emp-name">' + escapeHtml(e.name || '?') + '</div>';
+    html += '<div class="zone-emp-role">' + escapeHtml(e.role || '成员') + '</div>';
     html += '</div>';
-    html += '<div style="font-size:11px;color:#8E8E93;margin-top:2px;">' + (e.role || '成员') + '</div>';
-    html += '<div style="display:flex;align-items:center;gap:4px;margin-top:4px;">';
-    html += '<span style="width:7px;height:7px;border-radius:50%;background:' + statusDotColor + ';box-shadow:0 0 4px ' + statusDotColor + '40;"></span>';
-    html += '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;background:' + statusTextColor + '18;color:' + statusTextColor + ';">' + statusText + '</span>';
+    
+    // 右侧状态区
+    html += '<div class="zone-emp-meta">';
+    html += '<div class="zone-emp-status ' + statusClass + '">' + statusText + '</div>';
+    html += '<div class="zone-emp-duration">' + durationText + '</div>';
     html += '</div>';
-    html += '<div style="display:flex;align-items:center;gap:6px;margin-top:6px;">';
-    html += '<span style="font-size:10px;color:#C7C7CC;flex-shrink:0;">' + period + '</span>';
-    html += '<div style="flex:1;height:5px;background:rgba(120,120,128,0.15);border-radius:2.5px;overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,0.05);">';
-    html += '<div style="height:100%;width:' + progress + '%;background:linear-gradient(90deg,' + progressColor + ',#FF9500);border-radius:2.5px;box-shadow:0 1px 2px rgba(0,0,0,0.15);transition:width 0.4s ease;"></div>';
-    html += '</div>';
-    html += '<span style="font-size:10px;color:#8E8E93;flex-shrink:0;font-weight:500;">' + durationText + '</span>';
-    html += '</div>';
-    html += '</div>';
+    
     html += '</div>';
   }
   
