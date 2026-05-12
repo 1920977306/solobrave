@@ -1911,7 +1911,7 @@ window.doLogin = function() {
 </div>
 
 <!-- 新增员工按钮 -->
-<div style="padding:0 12px 8px;" data-admin-only>
+<div style="padding:0 12px 8px;">
 <button onclick="openWizard()" style="width:100%;padding:10px 12px;background:#AF52DE;color:white;border:none;border-radius:var(--radius-md);font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all 0.15s;"
  onmouseover="this.style.background='#8E44AD'" onmouseout="this.style.background='#AF52DE'">
 <span>➕</span> 新增员工
@@ -4378,7 +4378,7 @@ function renderEmployeeList(){
   if(!list) return;
   var visible = getVisibleEmps().filter(function(e){ return !e.archived; });
   if(visible.length === 0){
-    list.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方"新增员工"按钮添加第一位员工</div></div>';
+    list.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方「新增员工」按钮，创建属于你的AI员工</div></div>';
     return;
   }
 
@@ -5750,9 +5750,9 @@ function renderMsgs(type){
 const area=document.getElementById('messagesArea');
 if(type==='private'){
   const empId=localStorage.getItem('sb_current_emp');
-  if(!empId){area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">🦞</div><div class="empty-title">选择对话</div><div class="empty-desc">从左侧选择一位员工开始对话<br>输入 / 查看快捷指令</div></div>';return;}
+  if(!empId){area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">🦞</div><div class="empty-title">开始对话</div><div class="empty-desc">点击左侧「新增员工」按钮<br>创建属于你的AI员工</div></div>';return;}
   const emp=emps.find(e=>e.id===empId);
-  if(!emp){localStorage.removeItem('sb_current_emp');area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">🦞</div><div class="empty-title">选择对话</div><div class="empty-desc">从左侧选择一位员工开始对话<br>输入 / 查看快捷指令</div></div>';return;}
+  if(!emp){localStorage.removeItem('sb_current_emp');area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">🦞</div><div class="empty-title">开始对话</div><div class="empty-desc">点击左侧「新增员工」按钮<br>创建属于你的AI员工</div></div>';return;}
   const history=JSON.parse(localStorage.getItem('sb_chat_history_'+empId)||'[]');
   if(history.length===0){
     area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
