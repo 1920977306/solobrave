@@ -4398,7 +4398,7 @@ function renderEmployeeList(){
     Object.keys(subGroups).forEach(function(sub){
       html += renderSubCategoryHeader(sub, subGroups[sub].length);
       html += subGroups[sub].map(function(e){
-        return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e) + '<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(e.id) + '\');" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button><button class="emp-action-btn emp-more-btn" onclick="event.stopPropagation();showEmpSettingsMenu(event, \'' + escapeAttr(e.id) + '\');" title="更多">⋮</button></div></div>';
+        return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, true) + '<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(e.id) + '\');" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button><button class="emp-action-btn emp-more-btn" onclick="event.stopPropagation();showEmpSettingsMenu(event, \'' + escapeAttr(e.id) + '\');" title="更多">⋮</button></div></div>';
       }).join('');
     });
   }
@@ -4621,7 +4621,7 @@ function renderArchivedList(){
     list.innerHTML='<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">📦</div><div>暂无归档</div></div>';
     return;
   }
-  list.innerHTML=archived.map(e=>`<div class="list-item archived" data-id="${escapeAttr(e.id||'')}" draggable="true">${renderEmployeeItem(e)}</div>`).join('');
+  list.innerHTML=archived.map(e=>`<div class="list-item archived" data-id="${escapeAttr(e.id||'')}" draggable="true">${renderEmployeeItem(e, true)}</div>`).join('');
   bindListEvents();
 }
 
