@@ -3336,7 +3336,7 @@ function renderChatZone() {
     var unreadCount = getUnreadMessages(e.id);
     var unreadHtml = unreadCount > 0 ? '<div style="position:absolute;top:8px;right:8px;background:var(--chat-zone,#007AFF);color:white;font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px;">' + unreadCount + '</div>' : '';
     
-    html += '<div class="chat-card ' + statusClass + '" onclick="openChatDetail('' + escapeAttr(e.id) + '')" style="position:relative;">';
+    html += '<div class="chat-card ' + statusClass + '" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')" style="position:relative;">';
     html += '<div class="chat-card-avatar">' + avatarHtml + '</div>';
     html += '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;">';
     html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
