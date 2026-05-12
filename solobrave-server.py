@@ -2256,7 +2256,7 @@ def main():
     else:
         print(f'  🦞 OpenClaw CLI: ✗ (not found at {OPENCLAW_CLI})')
 
-    server = http.server.HTTPServer((BIND, PORT), SoloBraveHandler)
+    server = http.server.ThreadingHTTPServer((BIND, PORT), SoloBraveHandler)
 
     print('=' * 56)
     print('  🚀 SoloBrave Server (Auth Enabled)')
