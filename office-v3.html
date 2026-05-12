@@ -2024,13 +2024,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .chat-msg-item {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.85);
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--card-bg, rgba(255, 255, 255, 0.85));
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border-radius: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--separator, rgba(0, 0, 0, 0.06));
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
@@ -2054,7 +2054,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .chat-msg-item.offline::before { background: var(--gray-3); }
 
 .chat-msg-item:hover {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--card-bg-hover, rgba(255, 255, 255, 0.95));
   transform: translateY(-2px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
 }
@@ -2065,7 +2065,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 
 @keyframes msg-highlight-pulse {
   0% { background: rgba(0, 122, 255, 0.15); transform: scale(1.02); }
-  100% { background: rgba(255, 255, 255, 0.95); transform: scale(1); }
+  100% { background: var(--card-bg, rgba(255, 255, 255, 0.85)); transform: scale(1); }
 }
 
 /* 头像容器 */
@@ -2075,8 +2075,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 }
 
 .chat-msg-avatar {
-  width: 46px;
-  height: 46px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -2250,12 +2250,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   </div>
 </nav>
 <div class="office-layout"><aside class="left-panel"><div class="zone-section chat">
-  <div class="zone-header">
-    <span class="zone-dot" style="background:var(--chat-zone)"></span>
-    <span>对话区</span>
-  </div>
-  <div class="chat-zone-header">
-    <div class="chat-zone-title">💬 对话区</div>
+  <div class="zone-header" style="display:flex;align-items:center;justify-content:space-between;">
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span class="zone-dot" style="background:var(--chat-zone)"></span>
+      <span>对话区</span>
+    </div>
     <div id="chatZoneUnread" class="chat-zone-unread" style="display:none">0条新</div>
   </div>
   <div class="zone-content" id="chatZone"></div>
@@ -3510,7 +3509,7 @@ function renderChatZone() {
   
   for (var i = 0; i < chatters.length; i++) {
     var e = chatters[i];
-    var avatarHtml = renderAvatar(e, 46);
+    var avatarHtml = renderAvatar(e, 38);
     var isThinking = e.status === 'thinking';
     var isWorking = e.status === 'busy' || e.status === 'working';
     var isOnline = e.status === 'online' && !isThinking && !isWorking;
