@@ -575,9 +575,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
    目标截图风格卡片 - 对话区/办公区通用
    ================================================ */
 
-/* 对话区2列网格容器（已通过CSS覆盖） */
-#chatZone {}
-
 /* 卡片通用样式 - 对话区 */
 
 
@@ -1355,11 +1352,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 
 /* ===== 两列网格 ===== */
 .card-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  padding: 0 8px;
-  align-items: stretch;
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 8px !important;
+  padding: 0 8px !important;
+  align-items: stretch !important;
 }
 .card-grid:has(> :only-child) {
   grid-template-columns: 1fr;
@@ -1756,7 +1753,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
           <div class="timeline-item">
             <div class="timeline-avatar" style="background:linear-gradient(135deg,#FFD60A,#FFB800)">🤖</div>
             <div class="timeline-content">
-              <div class="timeline-text"><b>Grace</b> 执行 <span style="color:var(--blue)">is_open</span></div>
+              <div class="timeline-text"><b>Grace</b> 执行 <span style="color:var(--blue)">is_open</span> 等 3 个操作</div>
               <div class="timeline-time">15:37</div>
             </div>
           </div>
@@ -1764,20 +1761,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
             <div class="timeline-avatar" style="background:linear-gradient(135deg,#5AC8FA,#007AFF)">👩‍💻</div>
             <div class="timeline-content">
               <div class="timeline-text"><b>Emily</b> memory_search</div>
-              <div class="timeline-time">15:37</div>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-avatar" style="background:linear-gradient(135deg,#FFD60A,#FFB800)">🤖</div>
-            <div class="timeline-content">
-              <div class="timeline-text"><b>Grace</b> 读取 2026-03-01.md</div>
-              <div class="timeline-time">15:37</div>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-avatar" style="background:linear-gradient(135deg,#FFD60A,#FFB800)">🤖</div>
-            <div class="timeline-content">
-              <div class="timeline-text"><b>Grace</b> session_status</div>
               <div class="timeline-time">15:37</div>
             </div>
           </div>
@@ -2833,46 +2816,29 @@ function getUnreadCount(empId) {
 function getRelativeTime(timestamp) {
   if (!timestamp) return '刚刚';
   var now = Date.now();
-  var ts = null;
-
-  if (typeof timestamp === 'number') {
-    ts = timestamp;
-  } else if (typeof timestamp === 'string') {
-    // 尝试解析标准日期格式
-    var d = new Date(timestamp);
-    ts = d.getTime();
-
-    // 如果解析失败，尝试处理时间字符串如 "14:30"
-    if (isNaN(ts)) {
-      var parts = timestamp.split(':');
-      if (parts.length >= 2) {
-        var h = parseInt(parts[0], 10);
-        var m = parseInt(parts[1], 10);
-        if (!isNaN(h) && !isNaN(m)) {
-          var today = new Date();
-          today.setHours(h, m, 0, 0);
-          ts = today.getTime();
-        }
+  var ts = new Date(timestamp).getTime();
+  if (isNaN(ts)) {
+    // 尝试解析时间字符串如 "14:30"
+    var parts = String(timestamp).split(':');
+    if (parts.length >= 2) {
+      var h = parseInt(parts[0], 10);
+      var m = parseInt(parts[1], 10);
+      if (!isNaN(h) && !isNaN(m)) {
+        var today = new Date();
+        today.setHours(h, m, 0, 0);
+        ts = today.getTime();
       }
     }
   }
-
   if (!ts || isNaN(ts)) return '刚刚';
-
   var diff = now - ts;
   if (diff < 0) diff = 0;
-
-  var seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return '刚刚';
-
-  var minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return minutes + ' 分钟前';
-
-  var hours = Math.floor(minutes / 60);
+  var mins = Math.floor(diff / 60000);
+  if (mins < 1) return '刚刚';
+  if (mins < 60) return mins + ' 分钟前';
+  var hours = Math.floor(mins / 60);
   if (hours < 24) return hours + ' 小时前';
-
   var days = Math.floor(hours / 24);
-  if (days < 1) days = 1;
   return days + ' 天前';
 }
 
@@ -3219,8 +3185,13 @@ function renderWorkZone() {
     
     // 中间信息
     html += '<div class="work-body">';
+    // 清理角色名称
+    var roleName = e.role || '成员';
+    roleName = roleName.replace('后庭', '后端');
+    roleName = roleName.replace('科福', '后端');
+    
     html += '<div class="work-name">' + escapeHtml(e.name || '?') + '</div>';
-    html += '<div class="work-role">' + escapeHtml(e.role || '成员') + '</div>';
+    html += '<div class="work-role">' + escapeHtml(roleName) + '</div>';
     html += '<div class="work-task">' + escapeHtml(taskDesc) + '</div>';
     html += '</div>';
     
