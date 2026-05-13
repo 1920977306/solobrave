@@ -1355,6 +1355,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 }
 .conv-card, .work-card {
   min-height: 72px;
+  height: 100%;
 }
 
 /* ===== 对话卡片升级（两列紧凑版） ===== */
@@ -2770,13 +2771,14 @@ function getRelativeTime(timestamp) {
   if (seconds < 60) return '刚刚';
 
   var minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return minutes + '分钟前';
+  if (minutes < 60) return minutes + ' 分钟前';
 
   var hours = Math.floor(minutes / 60);
-  if (hours < 24) return hours + '小时前';
+  if (hours < 24) return hours + ' 小时前';
 
   var days = Math.floor(hours / 24);
-  return days + '天前';
+  if (days < 1) days = 1;
+  return days + ' 天前';
 }
 
 // ===== 辅助函数：获取最新消息预览 =====
