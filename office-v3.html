@@ -1488,6 +1488,335 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   flex-shrink: 0;
 }
 
+
+/* ===== 统计胶囊 ===== */
+.zone-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: all 0.3s;
+}
+.zone-stat.new-msg {
+  background: rgba(255, 107, 53, 0.1);
+  color: #FF6B35;
+}
+.zone-stat.new-msg .stat-dot {
+  width: 6px;
+  height: 6px;
+  background: #FF6B35;
+  border-radius: 50%;
+  animation: pulse-new 2s infinite;
+}
+@keyframes pulse-new {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+.zone-stat.working-count {
+  background: rgba(0, 122, 255, 0.08);
+  color: #007AFF;
+}
+.zone-stat.working-count .stat-dot {
+  width: 6px;
+  height: 6px;
+  background: #007AFF;
+  border-radius: 50%;
+  animation: pulse-work 1.5s infinite;
+}
+@keyframes pulse-work {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.zone-stat.zero {
+  background: var(--bg-secondary, #F2F2F7);
+  color: var(--text-tertiary, #AEAEB2);
+}
+.zone-stat.zero .stat-dot {
+  display: none;
+}
+
+/* ===== 区域标题行 ===== */
+.zone-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px 8px;
+}
+.zone-title-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.zone-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1D1D1F;
+  letter-spacing: -0.01em;
+}
+.zone-title-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #AEAEB2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ===== 对话卡片升级 ===== */
+.conv-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.conv-card:hover {
+  background: rgba(0,0,0,0.02);
+}
+.conv-card:active {
+  background: rgba(0,0,0,0.05);
+}
+.conv-card + .conv-card {
+  border-top: 0.5px solid rgba(0,0,0,0.04);
+  margin-left: 74px;
+  padding-left: 0;
+}
+.conv-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+  position: relative;
+}
+.conv-avatar .badge-dot {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 14px;
+  height: 14px;
+  background: #34C759;
+  border-radius: 50%;
+  border: 2.5px solid #fff;
+}
+.conv-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.conv-name-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.conv-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1D1D1F;
+  letter-spacing: -0.01em;
+}
+.conv-time {
+  font-size: 11px;
+  color: #AEAEB2;
+  font-variant-numeric: tabular-nums;
+}
+.conv-preview-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.conv-preview {
+  font-size: 14px;
+  color: #86868B;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  line-height: 1.3;
+}
+.conv-unread {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  background: #FF3B30;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 1px 4px rgba(255, 59, 48, 0.3);
+}
+
+/* ===== 办公卡片升级 ===== */
+.work-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  margin: 0 8px 4px;
+  background: #fff;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.25, 0.1, 0.25, 1);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 0 0 0.5px rgba(0,0,0,0.03);
+}
+.work-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.05);
+}
+.work-card:active {
+  transform: translateY(0);
+}
+.work-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+  position: relative;
+}
+.work-avatar::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 17px;
+  border: 2.5px solid transparent;
+  transition: border-color 0.3s;
+}
+.work-card[data-status="working"] .work-avatar::after {
+  border-color: rgba(52, 199, 89, 0.4);
+  animation: ring-breathe 2s infinite;
+}
+.work-card[data-status="idle"] .work-avatar::after {
+  border-color: rgba(255, 149, 0, 0.3);
+}
+@keyframes ring-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.work-body {
+  flex: 1;
+  min-width: 0;
+}
+.work-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1D1D1F;
+  letter-spacing: -0.01em;
+  margin-bottom: 2px;
+}
+.work-role {
+  font-size: 12px;
+  color: #86868B;
+  margin-bottom: 6px;
+}
+.work-task-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  background: #F2F2F7;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #636366;
+  letter-spacing: 0.01em;
+}
+.work-task-tag::before {
+  content: '⏱';
+  font-size: 10px;
+}
+.work-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.work-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.work-badge.working {
+  background: rgba(52, 199, 89, 0.1);
+  color: #34C759;
+}
+.work-badge.working::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: #34C759;
+  border-radius: 50%;
+  animation: dot-blink 1.4s infinite;
+}
+@keyframes dot-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+.work-duration {
+  font-size: 11px;
+  color: #AEAEB2;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 底部状态栏升级 ===== */
+.bottom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 0.5px solid rgba(0,0,0,0.06);
+  background: rgba(250,250,250,0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.bottom-stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.bottom-stat .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.bottom-stat.online { color: #34C759; }
+.bottom-stat.online .dot { background: #34C759; }
+.bottom-stat.working { color: #007AFF; }
+.bottom-stat.working .dot { background: #007AFF; }
+.bottom-stat.idle { color: #FF9500; }
+.bottom-stat.idle .dot { background: #FF9500; }
+.bottom-stat.pending { color: #FF3B30; }
+.bottom-stat.pending .dot { background: #FF3B30; }
+.bottom-time {
+  font-size: 11px;
+  color: #AEAEB2;
+  font-variant-numeric: tabular-nums;
+}
+
 </style><script src="./openclaw-client.js"></script>
 <script src="./avatars.js"></script>
 </head><body>
@@ -1508,15 +1837,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   </div>
 </nav>
 <div class="office-layout"><aside class="left-panel"><div class="zone-section chat">
-  <div class="zone-section-header">
-    <div class="zone-section-title">💬 对话区</div>
-    <div id="chatZoneUnread" class="zone-badge" style="display:none">0</div>
+  <div class="zone-header-row">
+    <div class="zone-title-wrap">
+      <span class="zone-title">💬 对话区</span>
+      <span class="zone-title-label">Conversations</span>
+    </div>
+    <div class="zone-stat new-msg" id="convNewBadge" style="display:none;">
+      <span class="stat-dot"></span>
+      <span class="stat-num" id="convNewNum">0</span> 条新消息
+    </div>
   </div>
   <div class="zone-chat-list" id="chatZone"></div>
 </div><div class="zone-section work">
-  <div class="zone-section-header">
-    <div class="zone-section-title">👔 办公区</div>
-    <span id="workZoneCount" style="font-size:11px;color:var(--text-secondary)"></span>
+  <div class="zone-header-row">
+    <div class="zone-title-wrap">
+      <span class="zone-title">👔 办公区</span>
+      <span class="zone-title-label">Work Zone</span>
+    </div>
+    <div class="zone-stat working-count" id="workBadge" style="display:none;">
+      <span class="stat-dot"></span>
+      <span class="stat-num" id="workNum">0</span> 人在工作
+    </div>
   </div>
   <div class="zone-emp-list" id="workZone"></div>
 </div><div class="zone-section lounge"><div class="zone-header"><span class="zone-dot" style="background:var(--lounge-zone)"></span><span>休闲区 Lounge</span></div><div class="zone-content" id="loungeZone"></div></div></aside><aside class="right-panel"><div class="live-section">
@@ -1560,7 +1901,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
             </div>
           </div>
         </div>
-      </div><div class="task-section"><h3>定时任务</h3><div id="taskList"></div></div></aside></div><div class="status-bar"><div class="status-left"><span class="status-item" onclick="document.getElementById('chatZone').scrollIntoView({behavior:'smooth'})"><span class="status-dot" style="background:#34C759"></span><span id="statusOnline" style="color:#34C759;font-weight:600">0 在线</span></span><span class="status-item" onclick="document.getElementById('workZone').scrollIntoView({behavior:'smooth'})"><span class="status-dot" style="background:#007AFF"></span><span id="statusWorking" style="color:#007AFF;font-weight:600">0 工作中</span></span><span class="status-item"><span class="status-dot" style="background:#8E8E93"></span><span id="statusIdle" style="color:#8E8E93;font-weight:600">0 空闲</span></span></div><div class="status-right"><span class="status-item"><span id="statusPending" style="color:#FF9500;font-weight:600">0 待处理</span></span><span id="statusTime" style="color:var(--text-secondary);font-variant-numeric:tabular-nums">--:--</span></div></div>
+      </div><div class="task-section"><h3>定时任务</h3><div id="taskList"></div></div></aside></div><div class="bottom-bar"><div style="display:flex;gap:12px;"><span class="bottom-stat online"><span class="dot"></span><span id="statusOnline">0 在线</span></span><span class="bottom-stat working"><span class="dot"></span><span id="statusWorking">0 工作中</span></span><span class="bottom-stat idle"><span class="dot"></span><span id="statusIdle">0 空闲</span></span><span class="bottom-stat pending"><span class="dot"></span><span id="statusPending">0 待处理</span></span></div><span class="bottom-time" id="statusTime">--:--</span></div>
 
 <!-- ====== 导航栏 ====== -->
 
