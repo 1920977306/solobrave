@@ -1348,9 +1348,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   padding: 0 8px;
+  align-items: stretch;
 }
 .card-grid:has(> :only-child) {
   grid-template-columns: 1fr;
+}
+.conv-card, .work-card {
+  min-height: 72px;
 }
 
 /* ===== 对话卡片升级（两列紧凑版） ===== */
@@ -2733,31 +2737,44 @@ function getUnreadCount(empId) {
 function getRelativeTime(timestamp) {
   if (!timestamp) return '刚刚';
   var now = Date.now();
-  var ts;
+  var ts = null;
+
   if (typeof timestamp === 'number') {
     ts = timestamp;
   } else if (typeof timestamp === 'string') {
-    ts = new Date(timestamp).getTime();
+    // 尝试解析标准日期格式
+    var d = new Date(timestamp);
+    ts = d.getTime();
+
+    // 如果解析失败，尝试处理时间字符串如 "14:30"
     if (isNaN(ts)) {
       var parts = timestamp.split(':');
-      if (parts.length === 2) {
+      if (parts.length >= 2) {
         var h = parseInt(parts[0], 10);
         var m = parseInt(parts[1], 10);
-        var now2 = new Date();
-        now2.setHours(h, m, 0, 0);
-        ts = now2.getTime();
+        if (!isNaN(h) && !isNaN(m)) {
+          var today = new Date();
+          today.setHours(h, m, 0, 0);
+          ts = today.getTime();
+        }
       }
     }
   }
+
   if (!ts || isNaN(ts)) return '刚刚';
+
   var diff = now - ts;
   if (diff < 0) diff = 0;
+
   var seconds = Math.floor(diff / 1000);
   if (seconds < 60) return '刚刚';
+
   var minutes = Math.floor(seconds / 60);
   if (minutes < 60) return minutes + '分钟前';
+
   var hours = Math.floor(minutes / 60);
   if (hours < 24) return hours + '小时前';
+
   var days = Math.floor(hours / 24);
   return days + '天前';
 }
