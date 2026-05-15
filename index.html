@@ -3385,6 +3385,8 @@ function sendMsg(){
   
   // 通知龙虾办公室用户发送了消息
   notifyOfficeChatMessage(localStorage.getItem('sb_current_emp'), 'outgoing');
+  // 新增：标记员工为思考中（正在等待AI回复）
+  notifyOfficeStatusChange(localStorage.getItem('sb_current_emp'), 'thinking');
   
   // 群聊模式：转发到 sendGroupMessage
   if(currentGroupId){
@@ -3491,14 +3493,30 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
         var t = document.getElementById('typingMsg');
         if(t) t.textContent = fullReply + '...';
       }
-      if(data.stream === 'lifecycle' && data.data && (data.data.phase === 'end' || data.data.phase === 'error')){
-        var t = document.getElementById('typingMsg');
-        if(t) t.remove();
-        if(!fullReply) fullReply = '（AI 未返回内容）';
-        if(data.data.phase === 'error') fullReply = '⚠️ AI 回复出错: ' + (data.error || '未知错误');
-        displayAIReply(fullReply, docContext, timeStr);
-        saveChatHistory(userMessage, fullReply, docContext);
-        openclaw.off('agent', agentHandler);
+      if(data.stream === 'lifecycle' && data.data){
+        var currentEmpId = localStorage.getItem('sb_current_emp');
+        // AI开始思考 → 通知龙虾办公室
+        if(data.data.phase === 'start' || data.data.phase === 'thinking'){
+          notifyOfficeStatusChange(currentEmpId, 'thinking');
+        }
+        // AI回复完成 → 通知龙虾办公室
+        if(data.data.phase === 'end'){
+          notifyOfficeStatusChange(currentEmpId, 'online');
+          notifyOfficeChatMessage(currentEmpId, 'incoming');
+        }
+        // AI出错 → 恢复在线
+        if(data.data.phase === 'error'){
+          notifyOfficeStatusChange(currentEmpId, 'online');
+        }
+        if(data.data.phase === 'end' || data.data.phase === 'error'){
+          var t = document.getElementById('typingMsg');
+          if(t) t.remove();
+          if(!fullReply) fullReply = '（AI 未返回内容）';
+          if(data.data.phase === 'error') fullReply = '⚠️ AI 回复出错: ' + (data.error || '未知错误');
+          displayAIReply(fullReply, docContext, timeStr);
+          saveChatHistory(userMessage, fullReply, docContext);
+          openclaw.off('agent', agentHandler);
+        }
       }
     };
     openclaw.on('agent', agentHandler);

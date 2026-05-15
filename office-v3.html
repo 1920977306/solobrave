@@ -2654,8 +2654,8 @@ function initBroadcastChannel() {
 }
 
 function mapStatus(status) {
-  const map = {
-    'thinking': 'busy',
+  var map = {
+    'thinking': 'thinking',
     'using_tool': 'busy',
     'writing': 'busy',
     'idle': 'idle',
@@ -3719,13 +3719,24 @@ function renderLoungeZone(){
     return;
   }
 
-  // 横向滚动头像列表
+  // 横向滚动头像列表 — 只显示不在对话区也不在办公区的员工
   var html = '';
   var onlineCount = 0;
 
   for (var i = 0; i < employees.length; i++) {
     var e = employees[i];
-    var isOnline = e.status === 'online' || e.status === 'busy' || e.status === 'thinking';
+    // 办公区员工（思考中/忙碌/工作中）不显示在休闲区
+    if (e.status === 'thinking' || e.status === 'busy' || e.status === 'working') continue;
+    // 有对话历史的员工不显示在休闲区
+    var hist = localStorage.getItem('sb_chat_history_' + e.id);
+    if (hist) {
+      try {
+        var msgs = JSON.parse(hist);
+        if (msgs && msgs.length > 0) continue;
+      } catch(err) {}
+    }
+
+    var isOnline = e.status === 'online';
     if (isOnline) onlineCount++;
 
     // 使用renderAvatar渲染头像（圆角矩形）
