@@ -1764,21 +1764,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
         </h3>
         <div class="timeline-list" id="timelineList">
           <div class="timeline-item">
-            <div class="timeline-avatar"><img src="avatars/avatar_01.png" style="width:100%;height:100%;object-fit:cover;display:block;"></div>
+            <div class="timeline-avatar"><img src="avatars/avatar-1.png" style="width:100%;height:100%;object-fit:cover;display:block;"></div>
             <div class="timeline-content">
               <div class="timeline-text"><b>Grace</b> 执行 <span style="color:var(--blue)">is_open</span> 等 3 个操作</div>
               <div class="timeline-time">15:37</div>
             </div>
           </div>
           <div class="timeline-item">
-            <div class="timeline-avatar"><img src="avatars/avatar_02.png" style="width:100%;height:100%;object-fit:cover;display:block;"></div>
+            <div class="timeline-avatar"><img src="avatars/avatar-2.png" style="width:100%;height:100%;object-fit:cover;display:block;"></div>
             <div class="timeline-content">
               <div class="timeline-text"><b>Emily</b> memory_search</div>
               <div class="timeline-time">15:37</div>
             </div>
           </div>
           <div class="timeline-item">
-            <div class="timeline-avatar"><img src="avatars/avatar_03.png" style="width:100%;height:100%;object-fit:cover;display:block;"></div>
+            <div class="timeline-avatar"><img src="avatars/avatar-3.png" style="width:100%;height:100%;object-fit:cover;display:block;"></div>
             <div class="timeline-content">
               <div class="timeline-text"><b>Cynthia</b> 执行 <span style="color:var(--blue)">is_open</span></div>
               <div class="timeline-time">15:37</div>
@@ -2786,10 +2786,6 @@ function renderEmployees(){
   }).join('');
 }
 
-// ===== 辅助函数：获取相对时间 =====
-// 相对时间函数：返回 "刚刚"/"3分钟前"/"1小时前" 等
-
-
 // 辅助函数：截断消息文本
 function truncateMessage(text, maxLen) {
   if (!text) return '';
@@ -2826,33 +2822,18 @@ function getUnreadCount(empId) {
 }
 
 // ===== 辅助函数：获取相对时间 =====
-function getRelativeTime(timestamp) {
+function formatTimeAgo(timestamp) {
   if (!timestamp) return '刚刚';
-  var now = Date.now();
-  var ts = new Date(timestamp).getTime();
-  if (isNaN(ts)) {
-    // 尝试解析时间字符串如 "14:30"
-    var parts = String(timestamp).split(':');
-    if (parts.length >= 2) {
-      var h = parseInt(parts[0], 10);
-      var m = parseInt(parts[1], 10);
-      if (!isNaN(h) && !isNaN(m)) {
-        var today = new Date();
-        today.setHours(h, m, 0, 0);
-        ts = today.getTime();
-      }
-    }
-  }
-  if (!ts || isNaN(ts)) return '刚刚';
-  var diff = now - ts;
-  if (diff < 0) diff = 0;
-  var mins = Math.floor(diff / 60000);
-  if (mins < 1) return '刚刚';
-  if (mins < 60) return mins + ' 分钟前';
-  var hours = Math.floor(mins / 60);
-  if (hours < 24) return hours + ' 小时前';
-  var days = Math.floor(hours / 24);
-  return days + ' 天前';
+  var now = new Date();
+  var then = new Date(timestamp);
+  var diffMs = now.getTime() - then.getTime();
+  var diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return '刚刚';
+  if (diffMin < 60) return diffMin + '分钟前';
+  var diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return diffHour + '小时前';
+  var diffDay = Math.floor(diffHour / 24);
+  return diffDay + '天前';
 }
 
 // ===== 辅助函数：获取最新消息预览 =====
@@ -3054,7 +3035,7 @@ function renderChatZone() {
     
     var latestMsg = getLatestMessage(e.id);
     var msgTime = getMessageTimestamp(e.id);
-    var timeText = getRelativeTime(msgTime);
+    var timeText = formatTimeAgo(msgTime);
     if (!msgTime && isThinking) timeText = '刚刚';
     
     var unreadCount = getUnreadMessages(e.id);
@@ -3823,11 +3804,20 @@ function addTimelineEvent(name, action){
   var time = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
   var item = document.createElement('div');
   item.className = 'timeline-item';
-  // 查找员工获取头像
+  // 查找员工获取头像，找不到就用名字hash分配一个预设头像
   var emp = employees.find(function(e) { return e.name === name; });
   var avatarHtml;
   if (emp) {
     avatarHtml = renderAvatar(emp, 28, '8px', 'timeline-avatar');
+  } else if (typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS.length > 0) {
+    var hash = 0;
+    var n = name || '';
+    for (var c = 0; c < n.length; c++) {
+      hash = ((hash << 5) - hash) + n.charCodeAt(c);
+      hash = hash & hash;
+    }
+    var idx = Math.abs(hash) % AVATAR_PRESETS.length;
+    avatarHtml = '<div class="timeline-avatar" style="width:28px;height:28px;border-radius:8px;overflow:hidden;"><img src="' + escapeAttr(AVATAR_PRESETS[idx]) + '" style="width:28px;height:28px;border-radius:8px;object-fit:cover;display:block;"></div>';
   } else {
     avatarHtml = '<span style="font-size:14px;font-weight:700;color:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:#F2F2F7;">' + (name ? name.charAt(0).toUpperCase() : '?') + '</span>';
   }
