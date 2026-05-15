@@ -1764,21 +1764,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
         </h3>
         <div class="timeline-list" id="timelineList">
           <div class="timeline-item">
-            <div class="timeline-avatar" style="background:linear-gradient(135deg,#FFD60A,#FFB800)">🤖</div>
+            <div class="timeline-avatar"><img src="avatars/avatar_01.png" style="width:100%;height:100%;object-fit:cover;display:block;"></div>
             <div class="timeline-content">
               <div class="timeline-text"><b>Grace</b> 执行 <span style="color:var(--blue)">is_open</span> 等 3 个操作</div>
               <div class="timeline-time">15:37</div>
             </div>
           </div>
           <div class="timeline-item">
-            <div class="timeline-avatar" style="background:linear-gradient(135deg,#5AC8FA,#007AFF)">👩‍💻</div>
+            <div class="timeline-avatar"><img src="avatars/avatar_02.png" style="width:100%;height:100%;object-fit:cover;display:block;"></div>
             <div class="timeline-content">
               <div class="timeline-text"><b>Emily</b> memory_search</div>
               <div class="timeline-time">15:37</div>
             </div>
           </div>
           <div class="timeline-item">
-            <div class="timeline-avatar" style="background:linear-gradient(135deg,#FF6B9D,#FF2D55)">🎨</div>
+            <div class="timeline-avatar"><img src="avatars/avatar_03.png" style="width:100%;height:100%;object-fit:cover;display:block;"></div>
             <div class="timeline-content">
               <div class="timeline-text"><b>Cynthia</b> 执行 <span style="color:var(--blue)">is_open</span></div>
               <div class="timeline-time">15:37</div>
@@ -2961,15 +2961,17 @@ function formatDuration(minutes){
   return hours + '小时' + mins + '分钟';
 }
 
-function renderAvatar(emp, size){
+function renderAvatar(emp, size, radius){
   size = size || 48;
+  radius = radius || '50%';
+  var style = 'width:' + size + 'px;height:' + size + 'px;border-radius:' + radius + ';object-fit:cover;display:block;';
   // 1. Number index -> use AVATAR_PRESETS
   if(typeof emp.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[emp.avatar]){
-    return '<img src="' + escapeAttr(AVATAR_PRESETS[emp.avatar]) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;display:block;">';
+    return '<img src="' + escapeAttr(AVATAR_PRESETS[emp.avatar]) + '" style="' + style + '">';
   }
   // 2. Image path or data URL
   if(emp.avatar && typeof emp.avatar === 'string' && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0 || emp.avatar.indexOf('avatars/') === 0)){
-    return '<img src="' + escapeAttr(emp.avatar) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;display:block;">';
+    return '<img src="' + escapeAttr(emp.avatar) + '" style="' + style + '">';
   }
   // 3. Letter/emoji string or any unknown -> use name hash to pick a preset avatar
   if(typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS.length > 0){
@@ -2980,10 +2982,10 @@ function renderAvatar(emp, size){
       hash = hash & hash;
     }
     var idx = Math.abs(hash) % AVATAR_PRESETS.length;
-    return '<img src="' + escapeAttr(AVATAR_PRESETS[idx]) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;display:block;">';
+    return '<img src="' + escapeAttr(AVATAR_PRESETS[idx]) + '" style="' + style + '">';
   }
   // 4. Ultimate fallback: letter
-  return '<span style="font-size:' + Math.floor(size * 0.5) + 'px;font-weight:700;color:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;width:' + size + 'px;height:' + size + 'px;border-radius:50%;">' + (emp.name ? emp.name.charAt(0).toUpperCase() : '?') + '</span>';
+  return '<span style="font-size:' + Math.floor(size * 0.5) + 'px;font-weight:700;color:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;width:' + size + 'px;height:' + size + 'px;border-radius:' + radius + ';">' + (emp.name ? emp.name.charAt(0).toUpperCase() : '?') + '</span>';
 }
 
 // ===== 渲染对话区 - 新版设计 =====
@@ -3053,14 +3055,14 @@ function renderChatZone() {
     
     var unreadCount = getUnreadMessages(e.id);
     
-    // 用renderAvatar渲染卡通头像
-    var avatarHtml = renderAvatar(e, 44);
+    // 用renderAvatar渲染头像（圆角矩形）
+    var avatarHtml = renderAvatar(e, 44, '12px');
     
     // 新 conv-card 设计
     html += '<div class="conv-card" onclick="openChatDetail(\'' + escapeAttr(e.id) + '\')">';
     
     // 头像
-    html += '<div class="conv-avatar" style="background:linear-gradient(135deg,#007AFF,#5AC8FA);">';
+    html += '<div class="conv-avatar">';
     html += avatarHtml;
     if (isOnline || isWorking) {
       html += '<div class="online-dot"></div>';
@@ -3171,7 +3173,7 @@ function renderWorkZone() {
   var html = '';
   for (var idx = 0; idx < workingEmployees.length; idx++) {
     var e = workingEmployees[idx];
-    var avatarHtml = renderAvatar(e, 44);
+    var avatarHtml = renderAvatar(e, 44, '12px');
     
     // 确定状态
     var isThinking = e.status === 'thinking';
@@ -3191,7 +3193,7 @@ function renderWorkZone() {
     html += '<div class="work-card" data-status="' + statusData + '" onclick="openDetailPanel(\'' + e.id + '\')">';
     
     // 头像
-    html += '<div class="work-avatar" style="background:linear-gradient(135deg,#5AC8FA,#007AFF);">';
+    html += '<div class="work-avatar">';
     html += avatarHtml;
     html += '<div class="work-pulse"></div>';
     html += '</div>';
@@ -3741,15 +3743,14 @@ function renderLoungeZone(){
     var isOnline = e.status === 'online' || e.status === 'busy' || e.status === 'thinking';
     if (isOnline) onlineCount++;
 
-    // 头像渐变背景
-    var gradient = e.gradient ? 'linear-gradient(135deg,' + e.gradient[0] + ',' + e.gradient[1] + ')' : 'linear-gradient(135deg,#8E8E93,#636366)';
-    var avatarChar = e.initial || e.name.charAt(0);
+    // 使用renderAvatar渲染头像（圆角矩形）
+    var avatarHtml = renderAvatar(e, 48, '14px');
     var dotClass = isOnline ? '' : 'offline';
     var chipClass = isOnline ? 'lounge-chip active' : 'lounge-chip';
 
     html += '<div class="' + chipClass + '" onclick="openDetailPanel(\'' + e.id + '\')">';
-    html += '<div class="lounge-avatar" style="background:' + gradient + ';">';
-    html += avatarChar;
+    html += '<div class="lounge-avatar">';
+    html += avatarHtml;
     html += '<div class="lounge-dot ' + dotClass + '"></div>';
     html += '</div>';
     html += '<span class="lounge-name">' + escapeHtml(e.name) + '</span>';
@@ -3818,14 +3819,15 @@ function addTimelineEvent(name, action){
   var time = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
   var item = document.createElement('div');
   item.className = 'timeline-item';
-  // 根据名字选择emoji头像
-  var emojiMap = {
-    'Grace': '🤖', 'Emily': '👩‍💻', 'Cynthia': '🎨', 'Lucy': '💻',
-    '大龙虾': '🦞', '鲨鱼': '🦈', '海星': '⭐', '章鱼哥': '🐙',
-    '测试': '🧪', '小可': '🤖'
-  };
-  var emoji = emojiMap[name] || '👤';
-  item.innerHTML = '<div class="timeline-avatar" style="background:linear-gradient(135deg,#FFD60A,#FFB800)">'+emoji+'</div><div class="timeline-content"><div class="timeline-text"><b>'+name+'</b> '+action+'</div><div class="timeline-time">'+time+'</div></div>';
+  // 查找员工获取头像
+  var emp = employees.find(function(e) { return e.name === name; });
+  var avatarHtml;
+  if (emp) {
+    avatarHtml = renderAvatar(emp, 28, '8px');
+  } else {
+    avatarHtml = '<span style="font-size:14px;font-weight:700;color:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:#F2F2F7;">' + (name ? name.charAt(0).toUpperCase() : '?') + '</span>';
+  }
+  item.innerHTML = '<div class="timeline-avatar" style="background:transparent;">'+avatarHtml+'</div><div class="timeline-content"><div class="timeline-text"><b>'+name+'</b> '+action+'</div><div class="timeline-time">'+time+'</div></div>';
   list.insertBefore(item, list.firstChild);
   while(list.children.length > 10){
     list.removeChild(list.lastChild);
