@@ -527,7 +527,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .wizard-preview-soul{font-size:12px;color:var(--blue);margin-top:6px;display:flex;align-items:center;gap:4px}
 
 /* ====== Lounge Drawer 休闲区抽屉 ====== */
-.lounge-drawer{position:fixed;right:-360px;top:0;width:360px;height:100vh;background:var(--bg-secondary);border-left:1px solid var(--border-color);z-index:300;transition:right 0.3s ease;display:flex;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,0.1)}
+.lounge-drawer{position:fixed;right:-360px;top:0;width:360px;height:100vh;background:var(--bg-secondary);border-left:1px solid var(--border-color);z-index:300;transition:right 0.3s ease;display:none !important;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,0.1)}
 .lounge-drawer.open{right:0}
 .lounge-drawer-header{padding:16px 20px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;background:var(--bg-secondary)}
 .lounge-drawer-title{font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;color:var(--text-primary)}
@@ -4403,8 +4403,8 @@ async function confirmCreateAgent() {
 </div>
 
 
-<!-- Lounge Drawer 休闲区抽屉 -->
-<div class="lounge-drawer" id="loungeDrawer">
+<!-- Lounge Drawer 休闲区抽屉 — 已废弃，直接隐藏 -->
+<div class="lounge-drawer" id="loungeDrawer" style="display:none !important;">
   <div class="lounge-drawer-header">
     <div class="lounge-drawer-title">🏖️ 休闲区 Lounge</div>
     <button class="lounge-drawer-close" onclick="toggleLounge()">
