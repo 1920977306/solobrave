@@ -5497,6 +5497,11 @@ async function sendGroupMessage(groupId, message, mentions){
           if(data.data.phase === 'error') fullReply = '⚠️ AI 回复出错: ' + (data.error || '未知错误');
           // 显示 AI 回复到群聊
           displayGroupAIReply(groupId, group.leadAgentId, fullReply);
+          // 触发 @mention 链式调用
+          mentionChainDepth = 0;
+          mentionTriggered = {};
+          mentionTriggered[group.leadAgentId] = true;
+          parseAndTriggerMentions(fullReply, groupId, group.leadAgentId);
           openclaw.off('agent', agentHandler);
         }
       };
@@ -5515,6 +5520,11 @@ async function sendGroupMessage(groupId, message, mentions){
         }
         if(reply){
           displayGroupAIReply(groupId, group.leadAgentId, reply);
+          // 触发 @mention 链式调用
+          mentionChainDepth = 0;
+          mentionTriggered = {};
+          mentionTriggered[group.leadAgentId] = true;
+          parseAndTriggerMentions(reply, groupId, group.leadAgentId);
           openclaw.off('agent', agentHandler);
         }
       }
@@ -5531,6 +5541,113 @@ async function sendGroupMessage(groupId, message, mentions){
       displayGroupAIReply(groupId, group.leadAgentId || '', simReply);
     }, 800);
   }
+}
+
+// ===== AI互相@系统 =====
+var mentionChainDepth = 0;
+var MENTION_MAX_DEPTH = 3;
+var mentionTriggered = {};
+
+function parseAndTriggerMentions(replyText, groupId, senderId){
+  if(mentionChainDepth >= MENTION_MAX_DEPTH) return;
+  
+  // 匹配 @名字（中英文都支持）
+  var mentionRegex = /@([^\s@,，。！？;；:：、\n]{1,20})/g;
+  var matches = [];
+  var m;
+  while((m = mentionRegex.exec(replyText)) !== null){
+    var mentionedName = m[1];
+    var mentionedEmp = emps.find(function(e){ return e.name === mentionedName; });
+    if(mentionedEmp && mentionedEmp.id !== senderId && !mentionTriggered[mentionedEmp.id]){
+      matches.push(mentionedEmp);
+      mentionTriggered[mentionedEmp.id] = true;
+    }
+  }
+  
+  if(matches.length === 0) return;
+  
+  matches.forEach(function(emp, idx){
+    var delay = (idx + 1) * (2000 + Math.floor(Math.random() * 3000));
+    setTimeout(function(){
+      triggerMentionedAgent(emp, groupId, senderId);
+    }, delay);
+  });
+}
+
+async function triggerMentionedAgent(emp, groupId, fromId){
+  mentionChainDepth++;
+  
+  // 构造提示：你在群聊中被 @了
+  var prompt = '你在项目组中被 @了，请根据上下文给出你的专业意见。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
+  
+  var agentId = emp.openclawName || emp.id;
+  var sessionKey = 'agent:' + agentId + ':main';
+  
+  // 显示"正在输入"
+  var area = document.getElementById('messagesArea');
+  var typingHtml = '<div class="msg" id="mentionTyping_' + emp.id + '"><div class="msg-avatar"><div class="avatar small" style="background:' + (emp.bg || '#8E8E93') + ';">' + renderAvatar(emp, 32) + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name) + '</span><span style="font-size:10px;color:var(--text-tertiary);margin-left:6px;">🔄 自动响应</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div></div>';
+  area.insertAdjacentHTML('beforeend', typingHtml);
+  area.scrollTop = area.scrollHeight;
+  
+  try {
+    var fullReply = '';
+    var hasStreamReply = false;
+    var agentHandler = function(data){
+      if(!data) return;
+      if(data.stream === 'assistant' && data.data){
+        hasStreamReply = true;
+        if(data.data.text) fullReply = data.data.text;
+        else if(data.data.delta) fullReply += data.data.delta;
+        var t = document.getElementById('mentionTyping_' + emp.id);
+        if(t) t.querySelector('.msg-bubble').textContent = fullReply + '...';
+      }
+      if(data.stream === 'lifecycle' && data.data && (data.data.phase === 'end' || data.data.phase === 'error')){
+        var t = document.getElementById('mentionTyping_' + emp.id);
+        if(t) t.remove();
+        if(!fullReply) fullReply = '（收到，稍后回复）';
+        if(data.data.phase === 'error') fullReply = '⚠️ 响应出错';
+        // 显示AI回复
+        displayGroupAIReply(groupId, emp.id, fullReply);
+        // 保存到群聊历史
+        var historyKey = 'sb_group_history_' + groupId;
+        var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+        history.push({role:'assistant', content:fullReply, senderId:emp.id, mentionTriggered:true, time:Date.now()});
+        localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+        // 继续解析 @mention（链式触发）
+        parseAndTriggerMentions(fullReply, groupId, emp.id);
+        openclaw.off('agent', agentHandler);
+      }
+    };
+    openclaw.on('agent', agentHandler);
+    
+    var result = await openclaw.sendChat(sessionKey, prompt);
+    
+    if(result && result.content && !hasStreamReply){
+      var t = document.getElementById('mentionTyping_' + emp.id);
+      if(t) t.remove();
+      var reply = '';
+      if(Array.isArray(result.content)){
+        reply = result.content.map(function(c){ return c.text || ''; }).join('');
+      } else if(typeof result.content === 'string'){
+        reply = result.content;
+      }
+      if(reply){
+        displayGroupAIReply(groupId, emp.id, reply);
+        var historyKey = 'sb_group_history_' + groupId;
+        var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+        history.push({role:'assistant', content:reply, senderId:emp.id, mentionTriggered:true, time:Date.now()});
+        localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+        parseAndTriggerMentions(reply, groupId, emp.id);
+        openclaw.off('agent', agentHandler);
+      }
+    }
+  } catch(e){
+    console.error('[MentionTrigger] 触发失败:', e);
+    var t = document.getElementById('mentionTyping_' + emp.id);
+    if(t) t.remove();
+  }
+  
+  mentionChainDepth--;
 }
 
 // 在群聊中显示 AI 回复
@@ -9065,7 +9182,6 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 <div class="wiz-confirm-item"><span>状态：</span><strong id="wizCStatus">-</strong></div>
 <div class="wiz-confirm-item"><span>模型：</span><strong id="wizCModel">-</strong></div>
 <div class="wiz-confirm-item"><span>SOUL.md：</span><strong id="wizCPrompt">-</strong></div>
-</div>
 </div>
 </div>
 <div id="wiz4" style="display:none">
