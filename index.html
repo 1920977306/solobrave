@@ -5460,6 +5460,12 @@ async function sendGroupMessage(groupId, message, mentions){
     }
     fullMessage += message;
     
+    // 拼入群公告/文档上下文
+    var docContext = getDocContextForChat();
+    if(docContext){
+      fullMessage = docContext + '\n' + fullMessage;
+    }
+    
     var leadEmp = emps.find(function(e){ return e.id === group.leadAgentId; });
     var agentId = leadEmp ? (leadEmp.openclawName || leadEmp.id) : group.leadAgentId;
     var sessionKey = 'agent:' + agentId + ':main';
