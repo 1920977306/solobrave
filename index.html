@@ -8229,6 +8229,8 @@ var empSelectedProvider='openclaw';
 var empSelectedAIProvider='kimi';
 function openWizard(){
   wizStep=1;
+  soulAnswers={};
+  currentSoulQ=0;
   renderAvatarPicker();
   updateWizardUI();
   document.getElementById('wizardOverlay').classList.add('show');
@@ -8244,20 +8246,33 @@ function renderAvatarPicker(){
   picker.innerHTML=html;
 }
 function closeWizard(){document.getElementById('wizardOverlay').classList.remove('show');}
-function nextWiz(){if(wizStep<3){wizStep++;updateWizardUI();}else{finishWizard();}}
+function nextWiz(){if(wizStep<4){wizStep++;updateWizardUI();}else{finishWizard();}}
 function prevWiz(){if(wizStep>1){wizStep--;updateWizardUI();}}
 function updateWizardUI(){
   document.querySelectorAll('.wiz-step').forEach(function(s,i){s.classList.remove('active','done');if(i+1<wizStep)s.classList.add('done');if(i+1===wizStep)s.classList.add('active');});
   document.getElementById('wiz1').style.display=wizStep===1?'block':'none';
   document.getElementById('wiz2').style.display=wizStep===2?'block':'none';
   document.getElementById('wiz3').style.display=wizStep===3?'block':'none';
+  document.getElementById('wiz4').style.display=wizStep===4?'block':'none';
   document.getElementById('wizPrev').style.display=wizStep>1?'inline-block':'none';
-  document.getElementById('wizNext').textContent=wizStep===3?'✨ 创建员工':'下一步 →';
+  document.getElementById('wizNext').textContent=wizStep===4?'✨ 创建员工':'下一步 →';
   if(wizStep===3){
     updateWizConfirm();
     // 初始化模型下拉框 - 使用当前选中的供应商
     var aiProviderId=document.getElementById('wizAIProvider').value||'kimi';
     selectWizAIProvider(aiProviderId);
+  }
+  if(wizStep===4){
+    // 如果还没生成过灵魂配置，显示开始界面
+    var hasSoul=document.getElementById('wizSystemPrompt').value.trim();
+    if(!hasSoul){
+      resetSoulConfig();
+    } else {
+      document.getElementById('soulStartArea').style.display='none';
+      document.getElementById('soulQuestionArea').style.display='none';
+      document.getElementById('soulCompleteArea').style.display='block';
+      document.getElementById('soulPreview').textContent=document.getElementById('wizSystemPrompt').value;
+    }
   }
 }
 function updateWizConfirm(){
@@ -8338,9 +8353,90 @@ function selectWizAIProvider(providerId){
   customGroup.style.display=providerId==='custom'?'block':'none';
 }
 function selectWizStatus(el){
-  document.querySelectorAll('.status-opt').forEach(o=>o.classList.remove('selected'));
+  document.querySelectorAll('.status-opt').forEach(function(o){o.classList.remove('selected');});
   el.classList.add('selected');
 }
+
+// ===== 灵魂配置系统 =====
+var soulQuestions=[
+  {key:'skills',question:'这个员工最擅长什么？',placeholder:'例如：产品设计、用户研究、数据分析'},
+  {key:'personality',question:'他/她的性格特点？',placeholder:'例如：严谨认真、富有创意、善于沟通'},
+  {key:'values',question:'工作中最在意什么？',placeholder:'例如：用户体验、代码质量、数据驱动'},
+  {key:'tone',question:'说话风格是怎样的？',placeholder:'例如：简洁专业、幽默风趣、温和鼓励'},
+  {key:'quirks',question:'有什么特别的习惯？',placeholder:'例如：喜欢用emoji、总说"让我想想"'}
+];
+var soulAnswers={};
+var currentSoulQ=0;
+
+function startSoulConfig(){
+  soulAnswers={};
+  currentSoulQ=0;
+  document.getElementById('soulStartArea').style.display='none';
+  document.getElementById('soulQuestionArea').style.display='block';
+  document.getElementById('soulCompleteArea').style.display='none';
+  showSoulQuestion();
+}
+
+function showSoulQuestion(){
+  if(currentSoulQ>=soulQuestions.length){
+    finishSoulConfig();
+    return;
+  }
+  var q=soulQuestions[currentSoulQ];
+  document.getElementById('soulProgress').textContent='问题 '+(currentSoulQ+1)+'/'+soulQuestions.length;
+  document.getElementById('soulQuestion').textContent=q.question;
+  document.getElementById('soulAnswer').value=soulAnswers[q.key]||'';
+  document.getElementById('soulAnswer').placeholder=q.placeholder;
+  document.getElementById('soulAnswer').focus();
+}
+
+function answerSoulQuestion(){
+  var q=soulQuestions[currentSoulQ];
+  var answer=document.getElementById('soulAnswer').value.trim();
+  if(answer){
+    soulAnswers[q.key]=answer;
+  }
+  currentSoulQ++;
+  showSoulQuestion();
+}
+
+function skipSoulQuestion(){
+  currentSoulQ++;
+  showSoulQuestion();
+}
+
+function finishSoulConfig(){
+  var name=document.getElementById('wizName').value.trim()||'员工';
+  var role=document.getElementById('wizRole').value;
+  if(role==='__custom__') role=document.getElementById('wizCustomRole').value.trim()||'自定义';
+  
+  var md='# '+name+' 的灵魂配置\n\n';
+  md+='## 你是谁\n你是'+name+'，一个'+role+'。请用第一人称回复，保持角色一致性。\n\n';
+  if(soulAnswers.skills) md+='## 专长\n'+soulAnswers.skills+'\n\n';
+  if(soulAnswers.personality) md+='## 性格\n'+soulAnswers.personality+'\n\n';
+  if(soulAnswers.values) md+='## 价值观\n'+soulAnswers.values+'\n\n';
+  if(soulAnswers.tone) md+='## 说话风格\n'+soulAnswers.tone+'\n\n';
+  if(soulAnswers.quirks) md+='## 特殊习惯\n'+soulAnswers.quirks+'\n';
+  
+  if(Object.keys(soulAnswers).length===0){
+    md+='## 性格\n专业、认真\n\n';
+    md+='## 说话风格\n简洁直接，像同事沟通工作\n';
+  }
+  
+  document.getElementById('soulQuestionArea').style.display='none';
+  document.getElementById('soulCompleteArea').style.display='block';
+  document.getElementById('soulPreview').textContent=md;
+  document.getElementById('wizSystemPrompt').value=md;
+}
+
+function resetSoulConfig(){
+  soulAnswers={};
+  currentSoulQ=0;
+  document.getElementById('soulStartArea').style.display='block';
+  document.getElementById('soulQuestionArea').style.display='none';
+  document.getElementById('soulCompleteArea').style.display='none';
+}
+
 function finishWizard(){
   var name=document.getElementById('wizName').value.trim();
   if(!name){showToast('请输入员工名称');return;}
@@ -8376,6 +8472,7 @@ function finishWizard(){
     archived:false,
     group:group,
     systemPrompt:sysPrompt,
+    soulDoc:sysPrompt||'',
     apiProvider:'openclaw',
     openclawName:openclawName,
     aiProvider:aiProvider,
@@ -8812,6 +8909,7 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 <div class="wiz-step active"><div class="wiz-step-num">1</div><div class="wiz-step-label">选择角色</div></div>
 <div class="wiz-step"><div class="wiz-step-num">2</div><div class="wiz-step-label">填写信息</div></div>
 <div class="wiz-step"><div class="wiz-step-num">3</div><div class="wiz-step-label">配置模型</div></div>
+<div class="wiz-step"><div class="wiz-step-num">4</div><div class="wiz-step-label">灵魂配置</div></div>
 </div>
 <div class="wizard-body">
 <div id="wiz1">
@@ -8970,6 +9068,46 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 </div>
 </div>
 </div>
+<div id="wiz4" style="display:none">
+<div style="text-align:center;margin-bottom:16px;">
+<div style="font-size:28px;margin-bottom:8px;">🧠</div>
+<div style="font-size:15px;font-weight:600;">灵魂配置</div>
+<div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;">5个问题快速定义AI人格，都可以跳过</div>
+</div>
+
+<div id="soulQuestionArea" style="display:none;">
+<div style="font-size:13px;color:var(--text-tertiary);margin-bottom:4px;" id="soulProgress">问题 1/5</div>
+<div style="font-size:15px;font-weight:600;margin-bottom:12px;" id="soulQuestion"></div>
+<input type="text" class="form-input" id="soulAnswer" placeholder="" style="margin-bottom:8px;">
+<div style="display:flex;gap:8px;justify-content:flex-end;">
+<button class="btn btn-secondary" onclick="skipSoulQuestion()" style="font-size:13px;padding:6px 14px;">跳过</button>
+<button class="btn btn-primary" onclick="answerSoulQuestion()" style="font-size:13px;padding:6px 14px;">下一题 →</button>
+</div>
+</div>
+
+<div id="soulCompleteArea" style="display:none;">
+<div style="padding:16px;background:var(--bg-secondary);border-radius:12px;margin-bottom:16px;">
+<div style="font-size:13px;color:var(--text-tertiary);margin-bottom:8px;">✅ 灵魂配置已生成</div>
+<pre id="soulPreview" style="font-size:11px;line-height:1.5;white-space:pre-wrap;max-height:200px;overflow-y:auto;font-family:monospace;"></pre>
+</div>
+<div style="text-align:center;">
+<button class="btn btn-secondary" onclick="resetSoulConfig()" style="font-size:13px;">🔄 重新配置</button>
+</div>
+</div>
+
+<div id="soulStartArea">
+<div style="padding:20px;text-align:center;">
+<div style="font-size:13px;color:var(--text-tertiary);margin-bottom:16px;">
+通过5个问题，快速为你的AI员工定义人格和说话风格。<br>
+配置完成后会自动生成 SOUL.md 文档。
+</div>
+<button class="btn btn-primary" onclick="startSoulConfig()" style="padding:10px 24px;">🧠 开始灵魂配置</button>
+<div style="margin-top:12px;font-size:11px;color:var(--text-tertiary);">
+或者在Step 3手动填写 SOUL.md
+</div>
+</div>
+</div>
+</div>
 <div class="wizard-footer">
 <button class="btn btn-secondary" id="wizPrev" onclick="prevWiz()" style="display:none">← 上一步</button>
 <button class="btn btn-primary" id="wizNext" onclick="nextWiz()">下一步 →</button>
@@ -8996,6 +9134,13 @@ function showToast(msg, type) {
     setTimeout(function() { toast.remove(); }, 300);
   }, 2500);
 }
+
+// 灵魂配置 Enter 键支持
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Enter' && document.getElementById('soulQuestionArea') && document.getElementById('soulQuestionArea').style.display !== 'none' && document.activeElement && document.activeElement.id === 'soulAnswer'){
+    answerSoulQuestion();
+  }
+});
 </script>
 
 
