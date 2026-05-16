@@ -1898,7 +1898,7 @@ window.doLogin = function() {
 <div class="search-wrap">
 <div class="search-input">
 <span>🔍</span>
-<input type="text" placeholder="搜索..." id="searchInput">
+<input type="text" placeholder="搜索员工..." id="searchInput" oninput="filterEmployeeList(this.value)">
 </div>
 </div>
 
@@ -4442,6 +4442,19 @@ function renderEmployeeList(){
   
   // 渲染归档区域
   renderArchiveSections();
+}
+
+function filterEmployeeList(query){
+  var q = query.trim().toLowerCase();
+  var items = document.querySelectorAll('.list-item[data-id]');
+  items.forEach(function(item){
+    var emp = emps.find(function(e){ return e.id === item.dataset.id; });
+    if(emp){
+      var matchName = emp.name.toLowerCase().indexOf(q) >= 0;
+      var matchRole = (emp.role || '').toLowerCase().indexOf(q) >= 0;
+      item.style.display = (!q || matchName || matchRole) ? '' : 'none';
+    }
+  });
 }
 
 // 渲染侧栏底部的归档区域

@@ -1713,10 +1713,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
     <span class="brand-subtitle">Office</span>
     <div class="nav-spacer"></div>
     <div class="nav-actions">
+      <button class="nav-action-btn" onclick="document.getElementById('searchModal').classList.add('show');document.getElementById('searchInput').focus();">🔍 搜索</button>
       <button class="nav-action-btn lounge-btn" onclick="toggleLounge()" id="loungeNavBtn">🏖️ 休闲区</button>
       <a href="./index.html" class="nav-action-btn" style="text-decoration:none;">🏠 返回主页</a>
       <button class="nav-action-btn" onclick="restartGateway()">🔄 重启网关</button>
-      <button class="nav-action-btn" onclick="switchTab('config')">⚙️ 核心配置</button>
       <button class="nav-action-btn" onclick="showToast('模型配置')">🤖 模型配置</button>
       <span class="nav-status" id="navStatus"><span class="status-dot" id="wsStatusDot"></span>AI状态:<span id="wsStatusText">连接中...</span></span>
     </div>
