@@ -1530,6 +1530,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   text-align: center;
 }
 
+.archive-actions button {
+  transition: all 0.15s;
+}
+.archive-actions button:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--text-tertiary);
+}
+
 /* Move Group Modal */
 .group-option {
   display: flex;
@@ -4474,9 +4482,14 @@ function renderArchiveSections(){
         content1v1.innerHTML = '<div class="archive-empty">暂无归档对话</div>';
       } else {
         content1v1.innerHTML = archived1v1.map(function(e){
-          return '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" onclick="restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:6px 12px;cursor:pointer;">' + 
+          return '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" style="padding:6px 12px;cursor:pointer;">' + 
             '<div class="item-avatar" style="width:32px;height:32px;"><div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg || '') + ';">' + renderAvatar(e, 32) + '</div></div>' +
-            '<div class="item-info"><div class="item-name" style="font-size:13px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:11px;">' + escapeHtml(e.role || '') + ' · 点击恢复</div></div>' +
+            '<div class="item-info"><div class="item-name" style="font-size:13px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:11px;">' + escapeHtml(e.role || '') + '</div></div>' +
+            '<div class="archive-actions" style="display:flex;gap:4px;align-items:center;flex-shrink:0;">' +
+            '<button onclick="event.stopPropagation();downloadArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="下载对话记录">📥</button>' +
+            '<button onclick="event.stopPropagation();continueArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="继续对话">💬</button>' +
+            '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="恢复员工">📂</button>' +
+            '</div>' +
             '</div>';
         }).join('');
       }
@@ -4494,9 +4507,14 @@ function renderArchiveSections(){
         contentProj.innerHTML = '<div class="archive-empty">暂无归档项目</div>';
       } else {
         contentProj.innerHTML = archivedProjects.map(function(e){
-          return '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" onclick="restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:6px 12px;cursor:pointer;">' + 
+          return '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" style="padding:6px 12px;cursor:pointer;">' + 
             '<div class="item-avatar" style="width:32px;height:32px;"><div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg || '') + ';">' + renderAvatar(e, 32) + '</div></div>' +
-            '<div class="item-info"><div class="item-name" style="font-size:13px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:11px;">' + escapeHtml(e.role || '') + ' · 点击恢复</div></div>' +
+            '<div class="item-info"><div class="item-name" style="font-size:13px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:11px;">' + escapeHtml(e.role || '') + '</div></div>' +
+            '<div class="archive-actions" style="display:flex;gap:4px;align-items:center;flex-shrink:0;">' +
+            '<button onclick="event.stopPropagation();downloadArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="下载群聊记录">📥</button>' +
+            '<button onclick="event.stopPropagation();continueArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="继续群聊">💬</button>' +
+            '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="恢复群组">📂</button>' +
+            '</div>' +
             '</div>';
         }).join('');
       }
@@ -5137,6 +5155,61 @@ function restoreArchivedEmp(empId){
   saveEmployees();
   renderEmployeeList();
   showToast('📂 已恢复 ' + emp.name);
+}
+
+// 下载归档对话记录为JSON
+function downloadArchive(empId){
+  var emp = emps.find(function(e){ return e.id === empId; });
+  if(!emp){ showToast('员工不存在'); return; }
+  
+  var chatData = localStorage.getItem('sb_chat_history_' + empId) || localStorage.getItem('sb_group_history_' + empId);
+  var history = [];
+  if(chatData){
+    try { history = JSON.parse(chatData); } catch(e){ history = []; }
+  }
+  
+  var exportData = {
+    employee: {
+      id: emp.id,
+      name: emp.name,
+      role: emp.role,
+      avatar: emp.avatar,
+      bg: emp.bg,
+      soulDoc: emp.soulDoc || emp.systemPrompt || ''
+    },
+    chatHistory: history,
+    exportTime: new Date().toISOString(),
+    version: '1.0'
+  };
+  
+  var json = JSON.stringify(exportData, null, 2);
+  var blob = new Blob([json], {type: 'application/json'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = (emp.name || 'archive') + '_对话记录_' + new Date().toLocaleDateString('zh-CN').replace(/\//g, '-') + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('📥 已下载 ' + emp.name + ' 的对话记录');
+}
+
+// 继续归档对话（恢复员工 + 打开聊天）
+function continueArchive(empId){
+  var emp = emps.find(function(e){ return e.id === empId; });
+  if(!emp){ showToast('员工不存在'); return; }
+  
+  // 先恢复员工
+  emp.archived = false;
+  saveEmployees();
+  renderEmployeeList();
+  
+  // 打开聊天（聊天记录还在 localStorage 里，会自动加载）
+  setTimeout(function(){
+    openChat(empId);
+    showToast('💬 已恢复 ' + emp.name + '，继续对话');
+  }, 200);
 }
 
 // Close context menu on click outside
