@@ -5678,8 +5678,12 @@ async function triggerMentionedAgent(emp, groupId, fromId){
   try {
     var fullReply = '';
     var hasStreamReply = false;
+    var currentRunId = null;
     var agentHandler = function(data){
       if(!data) return;
+      // runId 过滤，防止多个AI响应串扰
+      if(data.runId && !currentRunId) currentRunId = data.runId;
+      if(currentRunId && data.runId && data.runId !== currentRunId) return;
       if(data.stream === 'assistant' && data.data){
         hasStreamReply = true;
         if(data.data.text) fullReply = data.data.text;
