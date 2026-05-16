@@ -265,7 +265,7 @@ def _init_default_admin():
             'createdAt': datetime.now().isoformat()
         }
         _save_users([admin])
-        print('  [KEY] 默认管理员账号: admin / admin123，请尽快修改密码')
+        print('  🔑 默认管理员账号: admin / admin123，请尽快修改密码')
         return admin
     return None
 
@@ -2499,9 +2499,9 @@ def main():
 
     # 检查 OpenClaw CLI
     if os.path.isfile(OPENCLAW_CLI):
-        print(f'  [CLI] OpenClaw CLI: OK ({OPENCLAW_CLI})')
+        print(f'  🦞 OpenClaw CLI: ✓ ({OPENCLAW_CLI})')
     else:
-        print(f'  [CLI] OpenClaw CLI: NOT FOUND ({OPENCLAW_CLI})')
+        print(f'  🦞 OpenClaw CLI: ✗ ({OPENCLAW_CLI})')
 
     # Allow port reuse to avoid "Address already in use"
     class ReuseHTTPServer(http.server.ThreadingHTTPServer):
@@ -2510,28 +2510,28 @@ def main():
     server = ReuseHTTPServer((BIND, PORT), SoloBraveHandler)
 
     print('=' * 56)
-    print('  [SOLO] SoloBrave Server (Auth Enabled)')
+    print('  🚀 SoloBrave Server (Auth Enabled)')
     print('=' * 56)
-    print(f'  [DIR] 静态文件:  {STATIC_DIR}')
-    print(f'  [DIR] 数据目录:  {DATA_DIR}')
-    print(f'  [URL] 本机访问:  http://localhost:{PORT}')
-    print(f'  [URL] 局域网:    http://0.0.0.0:{PORT}')
-    print(f'  [API] 认证:      /api/auth/*')
-    print(f'  [API] 用户管理:  /api/users/*')
-    print(f'  [API] Agent:     /api/agents/*')
-    print(f'  [API] 群组:      /api/groups/*')
-    print(f'  [API] 聊天:      /api/chat/*')
-    print(f'  [API] 代理:      POST /api/proxy')
-    print(f'  [API] OpenClaw:  /api/openclaw/*')
-    print(f'  [API] 技能:      /api/openclaw/skills/*')
-    print(f'  [CFG] 超时设置:  {PROXY_TIMEOUT}s')
+    print(f'  📂 静态文件:  {STATIC_DIR}')
+    print(f'  💾 数据目录:  {DATA_DIR}')
+    print(f'  🌐 本机访问:  http://localhost:{PORT}')
+    print(f'  🌐 局域网:    http://0.0.0.0:{PORT}')
+    print(f'  🔐 认证:      /api/auth/*')
+    print(f'  👤 用户管理:  /api/users/*')
+    print(f'  🤖 Agent:     /api/agents/*')
+    print(f'  👥 群组:      /api/groups/*')
+    print(f'  💬 聊天:      /api/chat/*')
+    print(f'  🔀 代理:      POST /api/proxy')
+    print(f'  🦞 OpenClaw:  /api/openclaw/*')
+    print(f'  🛠️ 技能:      /api/openclaw/skills/*')
+    print(f'  ⏱️  超时设置:  {PROXY_TIMEOUT}s')
     print('=' * 56)
     print('  Ctrl+C 停止服务\n')
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print('\n\n  [STOP] 服务已停止')
+        print('\n\n  🛑 服务已停止')
         server.server_close()
 
 

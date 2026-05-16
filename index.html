@@ -7082,7 +7082,7 @@ function loadOpenClawSkills(){
         empty.style.display = 'none';
         list.innerHTML = skills.map(function(s){
           return '<div class="skill-item" style="padding:10px 12px;">' +
-            '<div class="skill-emoji">' + escapeHtml(s.emoji || '[WRENCH]') + '</div>' +
+            '<div class="skill-emoji">' + escapeHtml(s.emoji || '🔧') + '</div>' +
             '<div class="skill-info">' +
               '<div class="skill-name">' + escapeHtml(s.name || s.slug) + '</div>' +
               '<div style="font-size:11px;color:var(--text-tertiary);">' + escapeHtml(s.description || '') + (s.version ? ' v' + s.version : '') + '</div>' +
@@ -7144,7 +7144,7 @@ function installOpenClawSkill(slug){
   .then(function(r){ return r.json(); })
   .then(function(data){
     if(data.success){
-      showToast('[OK] ' + slug + ' 安装成功');
+      showToast('✅ ' + slug + ' 安装成功');
       loadOpenClawSkills();
     } else {
       showToast('❌ 安装失败: ' + (data.error || '未知错误'));
@@ -7166,7 +7166,7 @@ function removeOpenClawSkill(slug){
   .then(function(r){ return r.json(); })
   .then(function(data){
     if(data.success){
-      showToast('[OK] ' + slug + ' 已卸载');
+      showToast('✅ ' + slug + ' 已卸载');
       loadOpenClawSkills();
     } else {
       showToast('❌ 卸载失败: ' + (data.error || '未知错误'));
@@ -9595,7 +9595,7 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 
 <!-- Step3 技能快速安装 -->
 <div style="margin-top:20px;padding-top:16px;border-top:0.5px solid var(--separator);">
-  <div style="font-size:14px;font-weight:600;margin-bottom:4px;">[WRENCH] 常用技能</div>
+  <div style="font-size:14px;font-weight:600;margin-bottom:4px;">🔧 常用技能</div>
   <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">创建后可随时在员工详情中管理</div>
   <div id="wizSkillGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"></div>
 </div>
