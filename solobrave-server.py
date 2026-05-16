@@ -27,7 +27,10 @@ import hmac
 import base64
 import uuid
 import time
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 from datetime import datetime
 from urllib.parse import urlparse, unquote
 
@@ -76,14 +79,16 @@ def _read_json(filepath, default=None):
 
 
 def _write_json(filepath, data):
-    """写入 JSON 文件（加文件锁）"""
+    """写入 JSON 文件（加文件锁，Windows下跳过）"""
     _ensure_data_dir()
     tmp_path = filepath + '.tmp'
     try:
         with open(tmp_path, 'w', encoding='utf-8') as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            if fcntl:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
             json.dump(data, f, ensure_ascii=False, indent=2)
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            if fcntl:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         os.replace(tmp_path, filepath)
     except OSError:
         if os.path.exists(tmp_path):
@@ -260,7 +265,7 @@ def _init_default_admin():
             'createdAt': datetime.now().isoformat()
         }
         _save_users([admin])
-        print('  🔑 默认管理员账号: admin / admin123，请尽快修改密码')
+        print('  [KEY] 默认管理员账号: admin / admin123，请尽快修改密码')
         return admin
     return None
 
@@ -505,6 +510,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/openclaw/models':
             self._handle_auth_required_get(path)
             return
+        if path == '/api/openclaw/skills/list':
+            self._handle_auth_required_get(path)
+            return
+        if path.startswith('/api/openclaw/skills/search'):
+            self._handle_auth_required_get(path)
+            return
 
         # Agents API
         if path == '/api/agents':
@@ -607,6 +618,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_auth_required_post(path)
             return
         if path == '/api/openclaw/agents/update':
+            self._handle_auth_required_post(path)
+            return
+        if path == '/api/openclaw/skills/install':
+            self._handle_auth_required_post(path)
+            return
+        if path == '/api/openclaw/skills/remove':
             self._handle_auth_required_post(path)
             return
 
@@ -756,6 +773,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_openclaw_list_agents()
         elif path == '/api/openclaw/models':
             self._handle_openclaw_list_models()
+        elif path == '/api/openclaw/skills/list':
+            self._handle_skills_list()
+        elif path.startswith('/api/openclaw/skills/search'):
+            self._handle_skills_search()
 
     def _handle_auth_required_post(self, path):
         """需要认证的 POST 路由"""
@@ -767,6 +788,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_openclaw_create_agent()
         elif path == '/api/openclaw/agents/update':
             self._handle_openclaw_update_agent()
+        elif path == '/api/openclaw/skills/install':
+            self._handle_skills_install()
+        elif path == '/api/openclaw/skills/remove':
+            self._handle_skills_remove()
 
     def _handle_auth_required_delete(self, path):
         """需要认证的 DELETE 路由"""
@@ -1662,7 +1687,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ═══════════════════════════════════════════════════
 
     def _handle_write_agent_docs(self):
-        """POST /api/openclaw/write-agent-docs - Write SOUL.md and IDENTITY.md to agent workspace"""
+        """POST /api/openclaw/write-agent-docs - Write SOUL.md/IDENTITY.md/AGENTS.md to agent workspace"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -1676,6 +1701,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         agent_id = body.get('agentId', '')
         soul_doc = body.get('soulDoc', '')
         identity_doc = body.get('identityDoc', '')
+        agents_doc = body.get('agentsDoc', '')
         workspace_path = body.get('workspacePath', '~/.openclaw/workspace-' + agent_id)
 
         if not agent_id:
@@ -1698,6 +1724,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 with open(os.path.join(workspace_path, 'IDENTITY.md'), 'w', encoding='utf-8') as f:
                     f.write(identity_doc)
                 written.append('IDENTITY.md')
+
+            if agents_doc:
+                with open(os.path.join(workspace_path, 'AGENTS.md'), 'w', encoding='utf-8') as f:
+                    f.write(agents_doc)
+                written.append('AGENTS.md')
 
             self._send_json(200, {
                 'ok': True,
@@ -2162,6 +2193,184 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         })
 
     # ═══════════════════════════════════════════════════
+    # 技能管理 API (OpenClaw Skills)
+    # ═══════════════════════════════════════════════════
+
+    def _handle_skills_list(self):
+        """GET /api/openclaw/skills/list - 列出已安装技能"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        success, stdout, stderr, rc = _run_openclaw(['skill', 'list', '--json'])
+
+        if not success:
+            self._send_json(200, {
+                'skills': [],
+                'warning': stderr or 'OpenClaw CLI not available'
+            })
+            return
+
+        if rc != 0:
+            self._send_json(200, {
+                'skills': [],
+                'warning': stderr.strip() or 'Command failed'
+            })
+            return
+
+        try:
+            data = json.loads(stdout.strip())
+            if isinstance(data, list):
+                self._send_json(200, {'skills': data})
+            elif isinstance(data, dict) and 'skills' in data:
+                self._send_json(200, data)
+            else:
+                self._send_json(200, {'skills': []})
+        except json.JSONDecodeError:
+            lines = stdout.strip().split('\n')
+            skills = []
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        skills.append({'name': parts[0], 'version': parts[1]})
+                    else:
+                        skills.append({'name': line, 'version': ''})
+            self._send_json(200, {'skills': skills, 'source': 'text-parse'})
+
+    def _handle_skills_search(self):
+        """GET /api/openclaw/skills/search?q=keyword - 搜索社区技能"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        query = ''
+        if '?' in self.path:
+            from urllib.parse import parse_qs, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+            query = qs.get('q', [''])[0]
+
+        if not query:
+            self._send_json(400, {'error': 'Missing query parameter "q"'})
+            return
+
+        success, stdout, stderr, rc = _run_openclaw(['skill', 'search', query, '--json'])
+
+        if not success:
+            self._send_json(200, {
+                'results': [],
+                'query': query,
+                'warning': stderr or 'OpenClaw CLI not available'
+            })
+            return
+
+        if rc != 0:
+            self._send_json(200, {
+                'results': [],
+                'query': query,
+                'warning': stderr.strip() or 'Command failed'
+            })
+            return
+
+        try:
+            data = json.loads(stdout.strip())
+            if isinstance(data, list):
+                self._send_json(200, {'results': data, 'query': query})
+            elif isinstance(data, dict) and 'results' in data:
+                self._send_json(200, data)
+            else:
+                self._send_json(200, {'results': [data] if isinstance(data, dict) else [], 'query': query})
+        except json.JSONDecodeError:
+            self._send_json(200, {'results': [], 'query': query, 'raw': stdout.strip()})
+
+    def _handle_skills_install(self):
+        """POST /api/openclaw/skills/install - 安装技能"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': 'Invalid JSON body'})
+            return
+
+        skill_name = body.get('skillName', '').strip()
+        if not skill_name:
+            self._send_json(400, {'error': 'skillName is required'})
+            return
+
+        success, stdout, stderr, rc = _run_openclaw(['skill', 'install', skill_name])
+
+        if not success:
+            self._send_json(500, {
+                'success': False,
+                'skillName': skill_name,
+                'error': stderr or 'OpenClaw CLI not available'
+            })
+            return
+
+        if rc != 0:
+            self._send_json(500, {
+                'success': False,
+                'skillName': skill_name,
+                'error': stderr.strip() or 'Installation failed',
+                'output': stdout.strip()
+            })
+            return
+
+        self._send_json(200, {
+            'success': True,
+            'skillName': skill_name,
+            'output': stdout.strip()
+        })
+
+    def _handle_skills_remove(self):
+        """POST /api/openclaw/skills/remove - 卸载技能"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': 'Invalid JSON body'})
+            return
+
+        skill_name = body.get('skillName', '').strip()
+        if not skill_name:
+            self._send_json(400, {'error': 'skillName is required'})
+            return
+
+        success, stdout, stderr, rc = _run_openclaw(['skill', 'remove', skill_name])
+
+        if not success:
+            self._send_json(500, {
+                'success': False,
+                'skillName': skill_name,
+                'error': stderr or 'OpenClaw CLI not available'
+            })
+            return
+
+        if rc != 0:
+            self._send_json(500, {
+                'success': False,
+                'skillName': skill_name,
+                'error': stderr.strip() or 'Removal failed',
+                'output': stdout.strip()
+            })
+            return
+
+        self._send_json(200, {
+            'success': True,
+            'skillName': skill_name,
+            'output': stdout.strip()
+        })
+
+    # ═══════════════════════════════════════════════════
     # CORS 代理（需认证）
     # ═══════════════════════════════════════════════════
 
@@ -2290,9 +2499,9 @@ def main():
 
     # 检查 OpenClaw CLI
     if os.path.isfile(OPENCLAW_CLI):
-        print(f'  🦞 OpenClaw CLI: ✓ ({OPENCLAW_CLI})')
+        print(f'  [CLI] OpenClaw CLI: OK ({OPENCLAW_CLI})')
     else:
-        print(f'  🦞 OpenClaw CLI: ✗ (not found at {OPENCLAW_CLI})')
+        print(f'  [CLI] OpenClaw CLI: NOT FOUND ({OPENCLAW_CLI})')
 
     # Allow port reuse to avoid "Address already in use"
     class ReuseHTTPServer(http.server.ThreadingHTTPServer):
@@ -2301,27 +2510,28 @@ def main():
     server = ReuseHTTPServer((BIND, PORT), SoloBraveHandler)
 
     print('=' * 56)
-    print('  🚀 SoloBrave Server (Auth Enabled)')
+    print('  [SOLO] SoloBrave Server (Auth Enabled)')
     print('=' * 56)
-    print(f'  📂 静态文件:  {STATIC_DIR}')
-    print(f'  💾 数据目录:  {DATA_DIR}')
-    print(f'  🌐 本机访问:  http://localhost:{PORT}')
-    print(f'  🌐 局域网:    http://0.0.0.0:{PORT}')
-    print(f'  🔐 认证 API:  /api/auth/*')
-    print(f'  👤 用户管理:  /api/users/*')
-    print(f'  🤖 Agent API: /api/agents/*')
-    print(f'  👥 群组 API:  /api/groups/*')
-    print(f'  💬 聊天 API:  /api/chat/*')
-    print(f'  🔀 API 代理:  POST /api/proxy')
-    print(f'  🦞 OpenClaw:  /api/openclaw/*')
-    print(f'  ⏱️  超时设置:  {PROXY_TIMEOUT}s')
+    print(f'  [DIR] 静态文件:  {STATIC_DIR}')
+    print(f'  [DIR] 数据目录:  {DATA_DIR}')
+    print(f'  [URL] 本机访问:  http://localhost:{PORT}')
+    print(f'  [URL] 局域网:    http://0.0.0.0:{PORT}')
+    print(f'  [API] 认证:      /api/auth/*')
+    print(f'  [API] 用户管理:  /api/users/*')
+    print(f'  [API] Agent:     /api/agents/*')
+    print(f'  [API] 群组:      /api/groups/*')
+    print(f'  [API] 聊天:      /api/chat/*')
+    print(f'  [API] 代理:      POST /api/proxy')
+    print(f'  [API] OpenClaw:  /api/openclaw/*')
+    print(f'  [API] 技能:      /api/openclaw/skills/*')
+    print(f'  [CFG] 超时设置:  {PROXY_TIMEOUT}s')
     print('=' * 56)
     print('  Ctrl+C 停止服务\n')
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print('\n\n  🛑 服务已停止')
+        print('\n\n  [STOP] 服务已停止')
         server.server_close()
 
 

@@ -7626,8 +7626,9 @@ async function registerOpenClawAgent(emp){
     }
   }
 
-  // 2. 写 SOUL.md 和 IDENTITY.md 到 agent workspace（通过后端 API）
-  if(soulContent || identityContent){
+  // 2. 写 SOUL.md / IDENTITY.md / AGENTS.md 到 agent workspace（通过后端 API）
+  var agentsContent = emp.agentsDoc || '';
+  if(soulContent || identityContent || agentsContent){
     try {
       var wsResp = await apiFetch('/api/openclaw/write-agent-docs', {
         method: 'POST',
@@ -7636,20 +7637,22 @@ async function registerOpenClawAgent(emp){
           agentId: emp._agentId || agentName,
           soulDoc: soulContent,
           identityDoc: identityContent,
+          agentsDoc: agentsContent,
           workspacePath: workspacePath
         })
       });
       if(wsResp && wsResp.ok){
         var data = await wsResp.json();
         console.log('[OpenClaw] 文档已写入:', JSON.stringify(data));
-        showToast('✅ Agent 已注册，SOUL.md 已写入');
+        var writtenFiles = data && data.written ? data.written.join(', ') : '';
+        showToast('✅ Agent 已注册，文档已写入: ' + (writtenFiles || 'SOUL.md'));
       } else {
         console.log('[OpenClaw] 文档写入失败:', wsResp ? wsResp.status : 'no response');
-        showToast('✅ Agent 已注册，⚠️ SOUL.md 写入失败');
+        showToast('✅ Agent 已注册，⚠️ 文档写入失败');
       }
     } catch(e3){
       console.log('[OpenClaw] 文档写入异常:', e3.message);
-      showToast('✅ Agent 已注册，⚠️ SOUL.md 需手动配置');
+      showToast('✅ Agent 已注册，⚠️ 文档需手动配置');
     }
   }
 
@@ -8504,8 +8507,15 @@ function updateWizConfirm(){
   }
   document.getElementById('wizCGroup').textContent=group;
   document.getElementById('wizCStatus').textContent=status==='online'?'在线':status==='busy'?'忙碌':'离线';
-  document.getElementById('wizCModel').textContent='🦞 OpenClaw → '+modelName;
-  document.getElementById('wizCPrompt').textContent=sysPrompt||'(默认)';
+  document.getElementById('wizCModel').textContent='[CLAW] OpenClaw → '+modelName;
+  
+  // 显示文档配置状态
+  var docs=window.wizardDocs||{};
+  var docStatus='';
+  if(docs.identity) docStatus+='IDENTITY.md ';
+  if(docs.soul) docStatus+='SOUL.md ';
+  if(docs.agents) docStatus+='AGENTS.md ';
+  document.getElementById('wizCPrompt').textContent=docStatus||sysPrompt||'(默认)';
 }
 function selectWizAvatar(el){
   document.querySelectorAll('.wiz-avatar-opt').forEach(function(o){o.classList.remove('selected');});
@@ -8617,23 +8627,106 @@ function finishSoulConfig(){
   var role=document.getElementById('wizRole').value;
   if(role==='__custom__') role=document.getElementById('wizCustomRole').value.trim()||'自定义';
   
-  var md='# '+name+' 的灵魂配置\n\n';
-  md+='## 你是谁\n你是'+name+'，一个'+role+'。请用第一人称回复，保持角色一致性。\n\n';
-  if(soulAnswers.skills) md+='## 专长\n'+soulAnswers.skills+'\n\n';
-  if(soulAnswers.personality) md+='## 性格\n'+soulAnswers.personality+'\n\n';
-  if(soulAnswers.values) md+='## 价值观\n'+soulAnswers.values+'\n\n';
-  if(soulAnswers.tone) md+='## 说话风格\n'+soulAnswers.tone+'\n\n';
-  if(soulAnswers.quirks) md+='## 特殊习惯\n'+soulAnswers.quirks+'\n';
+  // 生成 IDENTITY.md
+  var identity='# 身份\n\n';
+  identity+='- 名字：'+name+'\n';
+  identity+='- 角色：'+role+'\n';
+  identity+='- 称呼用户：老板\n';
+  identity+='- 语言：中文为主，技术术语保留英文\n';
+  identity+='- 表情符号：适度使用\n';
+  identity+='- 签名风格：回复末尾不加落款\n';
+  
+  // 生成 SOUL.md（OpenClaw标准格式）
+  var md='# 人设\n\n';
+  md+='## 性格\n';
+  if(soulAnswers.personality){
+    md+=soulAnswers.personality+'\n';
+  }else{
+    md+='专业但不刻板，偶尔幽默\n';
+  }
+  md+='- 遇到不确定的问题，诚实说"我不确定"\n';
+  md+='- 主动提供建议，但不越权执行\n\n';
+  
+  if(soulAnswers.skills){
+    md+='## 专长\n'+soulAnswers.skills+'\n\n';
+  }
+  
+  if(soulAnswers.values){
+    md+='## 价值观\n'+soulAnswers.values+'\n\n';
+  }
+  
+  md+='## 语气\n';
+  if(soulAnswers.tone){
+    md+=soulAnswers.tone+'\n';
+  }else{
+    md+='- 日常对话：轻松简洁\n';
+    md+='- 技术讨论：严谨准确\n';
+    md+='- 出错时：坦诚道歉，给出修复方案\n';
+  }
+  md+='\n';
+  
+  md+='## 边界\n';
+  md+='- 不讨论政治、宗教等敏感话题\n';
+  md+='- 不执行未经确认的破坏性操作\n';
+  md+='- 涉及金钱交易时，必须二次确认\n';
+  
+  if(soulAnswers.quirks){
+    md+='\n## 特殊习惯\n'+soulAnswers.quirks+'\n';
+  }
   
   if(Object.keys(soulAnswers).length===0){
-    md+='## 性格\n专业、认真\n\n';
-    md+='## 说话风格\n简洁直接，像同事沟通工作\n';
+    md+='\n## 默认人格\n';
+    md+='你是一个专业、认真的'+role+'。\n';
+    md+='简洁直接，像同事一样沟通工作。\n';
   }
+  
+  // 生成 AGENTS.md（工作手册）
+  var agents='# 操作手册\n\n';
+  agents+='## 会话启动\n';
+  agents+='每次会话开始前，依次执行：\n';
+  agents+='1. 读取 SOUL.md —— 了解自己是谁\n';
+  agents+='2. 读取 MEMORY.md —— 获取长期记忆\n';
+  agents+='3. 读取今天和昨天的日志\n\n';
+  
+  agents+='## 通用规则\n';
+  agents+='- 收到任务后，先确认理解再执行\n';
+  agents+='- 每完成一个步骤，主动汇报进度\n';
+  agents+='- 遇到错误先尝试自行解决\n';
+  agents+='- 回复要简洁，不需要开场白\n\n';
+  
+  agents+='## 记忆规则\n';
+  agents+='- 用户说"记住这个"时，立即写入 memory/YYYY-MM-DD.md\n';
+  agents+='- 重要的长期信息写入 MEMORY.md\n';
+  agents+='- 每次会话结束前，主动总结关键决策\n';
+  agents+='- 一定要写进文件——"心里记着"熬不过会话重启\n\n';
+  
+  agents+='## 红线\n';
+  agents+='- 绝不外泄用户隐私数据\n';
+  agents+='- 执行破坏性命令前必须确认\n';
+  agents+='- 拿不准的事，先问再做\n\n';
+  
+  agents+='## 群聊礼仪\n';
+  agents+='该回复时：\n';
+  agents+='- 被直接 @ 或被提问\n';
+  agents+='- 能提供有价值的信息\n\n';
+  agents+='该沉默时：\n';
+  agents+='- 只是人类之间的闲聊\n';
+  agents+='- 已经有人回答了问题\n';
+  
+  // 组合显示（SOUL.md为主）
+  var display='===== IDENTITY.md =====\n'+identity+'\n\n===== SOUL.md =====\n'+md+'\n\n===== AGENTS.md =====\n'+agents;
   
   document.getElementById('soulQuestionArea').style.display='none';
   document.getElementById('soulCompleteArea').style.display='block';
-  document.getElementById('soulPreview').textContent=md;
+  document.getElementById('soulPreview').textContent=display;
   document.getElementById('wizSystemPrompt').value=md;
+  
+  // 存储完整的文档集合
+  window.wizardDocs={
+    identity:identity,
+    soul:md,
+    agents:agents
+  };
 }
 
 function resetSoulConfig(){
@@ -8668,6 +8761,12 @@ function finishWizard(){
   var apiModel=document.getElementById('wizModelSelect').value;
   var customEndpoint=document.getElementById('wizCustomEndpoint').value.trim();
   var colors=['#FF6B35','#5AC8FA','#AF52DE','#FF2D55','#5856D6','#34C759'];
+  
+  // 获取完整的文档集合（如果灵魂配置已生成）
+  var docs=window.wizardDocs||{};
+  var identityDoc=docs.identity||'';
+  var agentsDoc=docs.agents||'';
+  
   var newEmp={
     id:'emp_'+Date.now(),
     name:name,
@@ -8680,6 +8779,8 @@ function finishWizard(){
     group:group,
     systemPrompt:sysPrompt,
     soulDoc:sysPrompt||'',
+    identityDoc:identityDoc,
+    agentsDoc:agentsDoc,
     apiProvider:'openclaw',
     openclawName:openclawName,
     aiProvider:aiProvider,
