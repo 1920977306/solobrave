@@ -7087,7 +7087,7 @@ function loadOpenClawSkills(){
               '<div class="skill-name">' + escapeHtml(s.name || s.slug) + '</div>' +
               '<div style="font-size:11px;color:var(--text-tertiary);">' + escapeHtml(s.description || '') + (s.version ? ' v' + s.version : '') + '</div>' +
             '</div>' +
-            '<button class="skill-delete" onclick="removeOpenClawSkill('' + escapeAttr(s.slug) + '')" title="卸载">' +
+            '<button class="skill-delete" onclick="removeOpenClawSkill(\'' + escapeAttr(s.slug) + '\')" title="卸载">' +
               '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
             '</button>' +
           '</div>';
@@ -7123,7 +7123,7 @@ function searchOpenClawSkills(){
               '<div class="skill-name">' + escapeHtml(s.name || s.slug) + '</div>' +
               '<div style="font-size:11px;color:var(--text-tertiary);">' + escapeHtml(s.description || '') + '</div>' +
             '</div>' +
-            '<button onclick="installOpenClawSkill('' + escapeAttr(s.slug) + '')" style="padding:6px 12px;background:var(--accent);color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;">安装</button>' +
+            '<button onclick="installOpenClawSkill(\'' + escapeAttr(s.slug) + '\')" style="padding:6px 12px;background:var(--accent);color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;">安装</button>' +
           '</div>';
         }).join('');
       }
@@ -8610,7 +8610,7 @@ function renderWizSkillGrid(){
   grid.innerHTML = wizHotSkills.map(function(s){
     var selected = wizSelectedSkills.indexOf(s.slug) >= 0;
     return '<div class="wiz-skill-card' + (selected ? ' selected' : '') + '" ' +
-      'onclick="toggleWizSkill('' + escapeAttr(s.slug) + '')" ' +
+      'onclick="toggleWizSkill(\'' + escapeAttr(s.slug) + '\')" ' +
       'style="display:flex;align-items:center;gap:8px;padding:10px 12px;' +
       'border:1px solid ' + (selected ? 'var(--accent)' : 'var(--separator)') + ';' +
       'border-radius:8px;cursor:pointer;transition:all 0.2s;' +
