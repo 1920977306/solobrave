@@ -659,6 +659,26 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # Agents API
+        if path == '/api/debug/auth':
+            auth = _authenticate(self.headers)
+            if not auth.is_authenticated:
+                self._send_auth_error(auth.error, auth.status)
+                return
+            accessible = _get_accessible_agent_ids(auth)
+            agents = _load_agents()
+            visible = agents if accessible is None else [a for a in agents if a.get('id') in accessible or a.get('createdBy') == auth.user_info.get('userId')]
+            self._send_json(200, {
+                'user': auth.user_info,
+                'team_ids': auth.team_ids,
+                'managed_team_ids': auth.managed_team_ids,
+                'is_leader': auth.is_leader,
+                'is_admin': auth.is_admin,
+                'accessible_ids': accessible,
+                'visible_agent_count': len(visible),
+                'total_agent_count': len(agents),
+                'git_version': 'dec8040'
+            })
+            return
         if path == '/api/agents':
             self._handle_get_agents()
             return
@@ -807,6 +827,26 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # Agents API
+        if path == '/api/debug/auth':
+            auth = _authenticate(self.headers)
+            if not auth.is_authenticated:
+                self._send_auth_error(auth.error, auth.status)
+                return
+            accessible = _get_accessible_agent_ids(auth)
+            agents = _load_agents()
+            visible = agents if accessible is None else [a for a in agents if a.get('id') in accessible or a.get('createdBy') == auth.user_info.get('userId')]
+            self._send_json(200, {
+                'user': auth.user_info,
+                'team_ids': auth.team_ids,
+                'managed_team_ids': auth.managed_team_ids,
+                'is_leader': auth.is_leader,
+                'is_admin': auth.is_admin,
+                'accessible_ids': accessible,
+                'visible_agent_count': len(visible),
+                'total_agent_count': len(agents),
+                'git_version': 'dec8040'
+            })
+            return
         if path == '/api/agents':
             self._handle_create_agent()
             return
