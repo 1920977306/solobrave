@@ -590,6 +590,26 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     self._handle_get_group(sub)
                     return
 
+        # Teams API (V2)
+        if path == '/api/teams':
+            self._handle_get_teams()
+            return
+        if path.startswith('/api/teams/'):
+            team_id = path[len('/api/teams/'):]
+            if team_id:
+                # /api/teams/:id/members/:userId (DELETE)
+                if team_id.endswith('/members') and self.command == 'DELETE':
+                    pass  # handled in do_DELETE
+                elif '/members/' in team_id:
+                    parts = team_id.split('/members/')
+                    if len(parts) == 2:
+                        self._handle_get_team_member(parts[0], parts[1])
+                        return
+                # /api/teams/:id
+                elif '/' not in team_id:
+                    self._handle_get_team(team_id)
+                    return
+
         # Proxy (GET not allowed)
         if path == '/api/proxy':
             self._send_json_error(405, 'POST only')
@@ -679,6 +699,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     self._handle_add_group_member(group_id)
                     return
 
+        # Teams API (V2)
+        if path == '/api/teams':
+            self._handle_create_team()
+            return
+        if path.startswith('/api/teams/'):
+            sub = path[len('/api/teams/'):]
+            # /api/teams/:id/members
+            if sub.endswith('/members'):
+                team_id = sub[:-len('/members')]
+                if team_id:
+                    self._handle_add_team_member(team_id)
+                    return
+
         # Chat API
         if path.startswith('/api/chat/'):
             agent_id = path[len('/api/chat/'):]
@@ -725,6 +758,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_update_user(user_id)
                 return
 
+        # Teams API (V2)
+        if path.startswith('/api/teams/'):
+            team_id = path[len('/api/teams/'):]
+            if team_id:
+                self._handle_update_team(team_id)
+                return
+
         self._send_json_error(404, 'Not found')
 
     def do_DELETE(self):
@@ -761,6 +801,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             elif len(parts) == 1 and parts[0]:
                 # /api/groups/:id
                 self._handle_delete_group(parts[0])
+                return
+
+        # Teams API (V2)
+        if path.startswith('/api/teams/'):
+            sub = path[len('/api/teams/'):]
+            parts = sub.split('/')
+            if len(parts) == 3 and parts[1] == 'members':
+                # /api/teams/:teamId/members/:userId
+                self._handle_remove_team_member(parts[0], parts[2])
+                return
+            elif len(parts) == 1 and parts[0]:
+                # /api/teams/:id
+                self._handle_delete_team(parts[0])
                 return
 
         # Agents API
@@ -1436,6 +1489,340 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         _save_groups(groups)
         self._send_json(200, group)
+
+
+# ─── Teams API (V2) ───────────────────────────────────
+
+    def _handle_get_teams(self):
+        """GET /api/teams — 列出小组（按权限过滤）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        teams = _load_teams()
+        users = _load_users()
+        agents = _load_agents()
+
+        result = []
+        for t in teams:
+            # 权限过滤
+            if auth.is_admin:
+                visible = True
+            elif auth.is_leader:
+                # leader 可见自己管理的小组 + 子组
+                visible = t.get('leaderId') == auth.user_info.get('userId') or t.get('id') in auth.managed_team_ids
+            else:
+                # employee 可见自己所属的小组
+                visible = auth.user_info.get('userId') in t.get('members', [])
+
+            if visible:
+                # 构建响应
+                leader_name = ''
+                leader = _find_user(users, 'id', t.get('leaderId'))
+                if leader:
+                    leader_name = leader.get('displayName', leader.get('username', ''))
+
+                # 计算子组
+                children = [s.get('id') for s in teams if s.get('parentId') == t.get('id')]
+
+                team_info = {
+                    'id': t.get('id'),
+                    'name': t.get('name', ''),
+                    'description': t.get('description', ''),
+                    'parentId': t.get('parentId'),
+                    'leaderId': t.get('leaderId'),
+                    'leaderName': leader_name,
+                    'memberCount': len(t.get('members', [])),
+                    'agentCount': len(t.get('agentIds', [])),
+                    'children': children,
+                    'createdAt': t.get('createdAt', '')
+                }
+                result.append(team_info)
+
+        self._send_json(200, result)
+
+    def _handle_get_team(self, team_id):
+        """GET /api/teams/:id — 获取小组详情"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        teams = _load_teams()
+        team = _find_team(teams, 'id', team_id)
+        if not team:
+            self._send_json(404, {'error': '小组不存在'})
+            return
+
+        # 权限检查
+        if not auth.is_admin:
+            if auth.is_leader:
+                if team.get('leaderId') != auth.user_info.get('userId') and team_id not in auth.managed_team_ids:
+                    self._send_json(403, {'error': '权限不足'})
+                    return
+            else:
+                if auth.user_info.get('userId') not in team.get('members', []):
+                    self._send_json(403, {'error': '权限不足'})
+                    return
+
+        users = _load_users()
+        # 获取成员详情
+        members = []
+        for uid in team.get('members', []):
+            u = _find_user(users, 'id', uid)
+            if u:
+                members.append({
+                    'id': u.get('id'),
+                    'username': u.get('username', ''),
+                    'displayName': u.get('displayName', u.get('username', '')),
+                    'role': u.get('role', 'employee'),
+                    'avatar': u.get('avatar', 0)
+                })
+
+        # 获取子组
+        children = [_find_team(teams, 'id', s.get('id')) for s in teams if s.get('parentId') == team_id]
+        children_info = [{'id': c.get('id'), 'name': c.get('name', '')} for c in children if c]
+
+        self._send_json(200, {
+            'id': team.get('id'),
+            'name': team.get('name', ''),
+            'description': team.get('description', ''),
+            'parentId': team.get('parentId'),
+            'leaderId': team.get('leaderId'),
+            'members': members,
+            'agentIds': team.get('agentIds', []),
+            'children': children_info,
+            'createdAt': team.get('createdAt', ''),
+            'createdBy': team.get('createdBy', '')
+        })
+
+    def _handle_get_team_member(self, team_id, user_id):
+        """GET /api/teams/:id/members/:userId"""
+        # 权限检查同 GET /api/teams/:id
+        self._handle_get_team(team_id)
+
+    def _handle_create_team(self):
+        """POST /api/teams — 创建小组（仅admin）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        name = body.get('name', '').strip()
+        if not name:
+            self._send_json(400, {'error': '小组名称不能为空'})
+            return
+
+        teams = _load_teams()
+        users = _load_users()
+
+        team_id = 'team_' + uuid.uuid4().hex[:8]
+        leader_id = body.get('leaderId')
+        member_ids = body.get('memberIds', [])
+        parent_id = body.get('parentId')
+        agent_ids = body.get('agentIds', [])
+
+        # 验证父组存在
+        if parent_id:
+            parent = _find_team(teams, 'id', parent_id)
+            if not parent:
+                self._send_json(400, {'error': '父小组不存在'})
+                return
+
+        # 更新 leader 的 subordinateIds 和 teamIds
+        if leader_id:
+            u = _find_user(users, 'id', leader_id)
+            if u:
+                u['teamIds'] = u.get('teamIds', []) + [team_id]
+                if team_id not in u['teamIds']:
+                    u['teamIds'].append(team_id)
+                if leader_id not in u.get('subordinateIds', []):
+                    u['subordinateIds'] = u.get('subordinateIds', []) + member_ids
+
+        # 更新成员的 teamIds
+        for uid in member_ids:
+            u = _find_user(users, 'id', uid)
+            if u:
+                if team_id not in u.get('teamIds', []):
+                    u['teamIds'] = u.get('teamIds', []) + [team_id]
+
+        # 创建小组
+        team = {
+            'id': team_id,
+            'name': name,
+            'description': body.get('description', ''),
+            'parentId': parent_id,
+            'leaderId': leader_id,
+            'members': [leader_id] + member_ids if leader_id else member_ids,
+            'agentIds': agent_ids,
+            'createdAt': datetime.now().isoformat(),
+            'createdBy': auth.user_info.get('userId')
+        }
+        teams.append(team)
+        _save_teams(teams)
+        _save_users(users)
+
+        self._send_json(201, team)
+
+    def _handle_update_team(self, team_id):
+        """PUT /api/teams/:id — 更新小组"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        teams = _load_teams()
+        team = _find_team(teams, 'id', team_id)
+        if not team:
+            self._send_json(404, {'error': '小组不存在'})
+            return
+
+        # 权限检查：admin 可改全部，leader 只能改自己管理的组
+        if not auth.is_admin:
+            if not auth.is_leader or team.get('leaderId') != auth.user_info.get('userId'):
+                self._send_json(403, {'error': '权限不足'})
+                return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        users = _load_users()
+
+        # 更新字段
+        if body.get('name'):
+            team['name'] = body.get('name').strip()
+        if body.get('description') is not None:
+            team['description'] = body.get('description')
+        if body.get('leaderId') is not None:
+            team['leaderId'] = body.get('leaderId')
+
+        _save_teams(teams)
+        self._send_json(200, team)
+
+    def _handle_delete_team(self, team_id):
+        """DELETE /api/teams/:id — 删除小组（仅admin）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+
+        teams = _load_teams()
+        team = _find_team(teams, 'id', team_id)
+        if not team:
+            self._send_json(404, {'error': '小组不存在'})
+            return
+
+        # 检查是否有子组
+        has_children = any(t.get('parentId') == team_id for t in teams)
+        if has_children:
+            self._send_json(403, {'error': '无法删除有子组的小组，请先删除子组'})
+            return
+
+        # 解除成员关联
+        users = _load_users()
+        for uid in team.get('members', []):
+            u = _find_user(users, 'id', uid)
+            if u:
+                u['teamIds'] = [tid for tid in u.get('teamIds', []) if tid != team_id]
+                if uid == team.get('leaderId'):
+                    u['subordinateIds'] = [sid for sid in u.get('subordinateIds', []) if sid not in team.get('members', [])]
+
+        # 删除小组
+        teams = [t for t in teams if t.get('id') != team_id]
+        _save_teams(teams)
+        _save_users(users)
+
+        self._send_json(200, {'message': '小组已删除'})
+
+    def _handle_add_team_member(self, team_id):
+        """POST /api/teams/:id/members — 添加成员"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        teams = _load_teams()
+        team = _find_team(teams, 'id', team_id)
+        if not team:
+            self._send_json(404, {'error': '小组不存在'})
+            return
+
+        # 权限检查
+        if not auth.is_admin:
+            if not auth.is_leader or team.get('leaderId') != auth.user_info.get('userId'):
+                self._send_json(403, {'error': '权限不足'})
+                return
+
+        body = self._read_body()
+        if not body or not body.get('userIds'):
+            self._send_json(400, {'error': '需要提供 userIds'})
+            return
+
+        users = _load_users()
+        user_ids = body.get('userIds', [])
+
+        for uid in user_ids:
+            if uid not in team.get('members', []):
+                team['members'].append(uid)
+            u = _find_user(users, 'id', uid)
+            if u and team_id not in u.get('teamIds', []):
+                u['teamIds'] = u.get('teamIds', []) + [team_id]
+
+        _save_teams(teams)
+        _save_users(users)
+
+        self._send_json(200, team)
+
+    def _handle_remove_team_member(self, team_id, user_id):
+        """DELETE /api/teams/:id/members/:userId — 移除成员"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        teams = _load_teams()
+        team = _find_team(teams, 'id', team_id)
+        if not team:
+            self._send_json(404, {'error': '小组不存在'})
+            return
+
+        # 权限检查
+        if not auth.is_admin:
+            if not auth.is_leader or team.get('leaderId') != auth.user_info.get('userId'):
+                self._send_json(403, {'error': '权限不足'})
+                return
+
+        # 移除成员
+        if user_id in team.get('members', []):
+            team['members'].remove(user_id)
+
+        # 更新用户的 teamIds
+        users = _load_users()
+        u = _find_user(users, 'id', user_id)
+        if u:
+            u['teamIds'] = [tid for tid in u.get('teamIds', []) if tid != team_id]
+
+        _save_teams(teams)
+        _save_users(users)
+
+        self._send_json(200, team)
+
 
     def _handle_group_chat(self, group_id):
         """POST /api/groups/:id/chat — 发送消息到群组"""
