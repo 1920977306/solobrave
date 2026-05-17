@@ -3917,20 +3917,18 @@ function initLobsterChannel() {
             if (emp) {
               const statusMap = { thinking: 'busy', using_tool: 'busy', writing: 'busy', idle: 'idle', offline: 'offline', online: 'online' };
               emp.status = statusMap[status] || emp.status;
-              localStorage.setItem('sb_employees', JSON.stringify(emps));
               renderEmployeeList();
             }
           }
           break;
           
         case 'employees_updated':
-          // 办公室更新了员工数据，重新加载
+          // 办公室更新了员工数据，重新从后端加载（保持权限过滤）
           if (empData && Array.isArray(empData)) {
-            emps.length = 0;
-            empData.forEach(e => emps.push(e));
-            localStorage.setItem('sb_employees', JSON.stringify(emps));
-            renderEmployeeList();
-            showToast('🦞 龙虾办公室已更新员工数据', 'success');
+            // 不直接用广播数据，从后端重新加载以保持权限过滤
+            if (typeof loadEmployees === 'function') {
+              loadEmployees().then(function() { renderEmployeeList(); });
+            }
           }
           break;
           
@@ -4281,9 +4279,9 @@ async function loadEmployees(){
   } else {
     console.log('[loadEmployees] 跳过后端加载, token=', token);
   }
-  // 2. 回退到 localStorage
-  var saved=localStorage.getItem('sb_employees');
-  if(saved){
+  // 不再从localStorage回退，避免跨用户数据泄露
+  var saved=null;
+  if(false && saved){
     try{
       var data=JSON.parse(saved);
       // 迁移旧字母头像为数字索引(用名字hash保证一致性)
