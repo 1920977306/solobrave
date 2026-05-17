@@ -442,6 +442,9 @@ class AuthResult:
                 if self.is_leader:
                     teams = _load_teams()
                     self.managed_team_ids = [t.get('id') for t in teams if t.get('leaderId') == self.user_info.get('userId')]
+                    # 兼容：leaderId未设置时，把team_ids当作managed_team_ids
+                    if not self.managed_team_ids and self.team_ids:
+                        self.managed_team_ids = list(self.team_ids)
         return self.user_record
 
 
