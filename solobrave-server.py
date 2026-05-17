@@ -493,6 +493,7 @@ def _get_accessible_agent_ids(auth):
         return None  # 全部
     agents = _load_agents()
     teams = _load_teams()
+    users = _load_users()
     accessible = set()
     # 自己所属组的agents
     for tid in auth.team_ids:
@@ -505,6 +506,29 @@ def _get_accessible_agent_ids(auth):
     if auth.is_leader:
         for tid in auth.managed_team_ids:
             accessible.update(_get_team_and_children_agent_ids(tid, teams))
+        # leader还能看到管理组内所有成员创建的agent
+        managed_member_ids = set()
+        for tid in auth.managed_team_ids:
+            for t in teams:
+                if t.get('id') == tid:
+                    for mid in t.get('members', []):
+                        managed_member_ids.add(mid)
+                    break
+        for a in agents:
+            if a.get('createdBy') in managed_member_ids:
+                accessible.add(a.get('id'))
+    # employee也能看到同组其他成员创建的agent
+    else:
+        team_member_ids = set()
+        for tid in auth.team_ids:
+            for t in teams:
+                if t.get('id') == tid:
+                    for mid in t.get('members', []):
+                        team_member_ids.add(mid)
+                    break
+        for a in agents:
+            if a.get('createdBy') in team_member_ids:
+                accessible.add(a.get('id'))
     return list(accessible)
 
 

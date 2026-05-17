@@ -4535,7 +4535,7 @@ function renderEmployeeList(){
   if(!list) return;
   var visible = getVisibleEmps().filter(function(e){ return !e.archived; });
   if(visible.length === 0){
-    list.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方「新增员工」按钮，创建属于你的AI员工</div></div>';
+    list.innerHTML = '<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方「新增员工」按钮，创建属于你的AI员工</div><div style="font-size:11px;margin-top:6px;color:var(--text-tertiary)">双击员工可查看详情 · 右键更多操作</div></div>';
     return;
   }
 
@@ -4851,8 +4851,10 @@ function renderEmployeeItem(e, showCreator){
 
 function bindListEvents(){
   document.querySelectorAll('.list-item[data-id]').forEach(i=>{
-    // Click
+    // Click -> open chat
     i.addEventListener('click',()=>{if(currentTab!=='archived')openChat(i.dataset.id);});
+    // Double-click -> open detail
+    i.addEventListener('dblclick',()=>{if(i.dataset.id)openEmpDetail(i.dataset.id);});
     // Context menu
     // Right-click handled by event delegation on employeeList
     // Drag
