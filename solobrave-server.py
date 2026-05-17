@@ -263,7 +263,13 @@ def _init_default_admin():
             'avatar': 0,
             'agentQuota': 999,
             'apiQuota': 99999,
-            'createdAt': datetime.now().isoformat()
+            'createdAt': datetime.now().isoformat(),
+            # V2 新增字段
+            'teamIds': [],
+            'subordinateIds': [],
+            'roleTemplateId': None,
+            'status': 'active',
+            'lastLoginAt': None
         }
         _save_users([admin])
         print('  🔑 默认管理员账号: admin / admin123，请尽快修改密码')
@@ -849,6 +855,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(401, {'error': '用户名或密码错误'})
             return
 
+        # 更新 lastLoginAt
+        user['lastLoginAt'] = datetime.now().isoformat()
+        _save_users(users)
+
         # 生成 token
         token = generate_token(user['id'], user.get('role', 'employee'))
 
@@ -892,7 +902,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'error': '密码至少 4 个字符'})
             return
 
-        if role not in ('admin', 'employee'):
+        if role not in ('admin', 'leader', 'employee'):
             role = 'employee'
 
         users = _load_users()
@@ -911,7 +921,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'avatar': 0,
             'agentQuota': 10 if role == 'employee' else 999,
             'apiQuota': 1000 if role == 'employee' else 99999,
-            'createdAt': datetime.now().isoformat()
+            'createdAt': datetime.now().isoformat(),
+            # V2 新增字段
+            'teamIds': body.get('teamIds', []),
+            'subordinateIds': [],
+            'roleTemplateId': body.get('roleTemplateId', None),
+            'status': 'active',
+            'lastLoginAt': None
         }
         users.append(new_user)
         _save_users(users)
@@ -1017,7 +1033,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'avatar': u.get('avatar', 0),
                 'agentQuota': u.get('agentQuota', 10),
                 'apiQuota': u.get('apiQuota', 1000),
-                'createdAt': u.get('createdAt', '')
+                'createdAt': u.get('createdAt', ''),
+                # V2 新增字段
+                'teamIds': u.get('teamIds', []),
+                'subordinateIds': u.get('subordinateIds', []),
+                'roleTemplateId': u.get('roleTemplateId'),
+                'status': u.get('status', 'active'),
+                'lastLoginAt': u.get('lastLoginAt')
             })
         self._send_json(200, result)
 
@@ -1046,7 +1068,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'avatar': user.get('avatar', 0),
             'agentQuota': user.get('agentQuota', 10),
             'apiQuota': user.get('apiQuota', 1000),
-            'createdAt': user.get('createdAt', '')
+            'createdAt': user.get('createdAt', ''),
+            # V2 新增字段
+            'teamIds': user.get('teamIds', []),
+            'subordinateIds': user.get('subordinateIds', []),
+            'roleTemplateId': user.get('roleTemplateId'),
+            'status': user.get('status', 'active'),
+            'lastLoginAt': user.get('lastLoginAt')
         })
 
     def _handle_update_user(self, user_id):
