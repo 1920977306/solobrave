@@ -577,7 +577,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* ========================================
    FAB BUTTON - 悬浮按钮
    ======================================== */
-.fab-button { position: fixed; bottom: 24px; right: 24px; width: 52px; height: 52px; border-radius: 26px; background: var(--accent); box-shadow: var(--shadow-fab); display: flex; align-items: center; justify-content: center; z-index: 50; cursor: pointer; transition: all 0.2s; color: white; font-size: 22px; }
+.fab-button { position: fixed; bottom: 24px; right: 24px; width: 52px; height: 52px; border-radius: 26px; background: var(--accent); box-shadow: var(--shadow-fab); display: flex; align-items: center; justify-content: center; z-index: 350; cursor: pointer; transition: all 0.2s; color: white; font-size: 22px; }
 .fab-button:hover { transform: scale(1.08); box-shadow: 0 6px 24px rgba(255, 107, 53, 0.4); }
 .fab-button:active { transform: scale(0.95); }
 .fab-button .badge { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; background: #FF3B30; color: white; border-radius: 9px; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
@@ -10020,12 +10020,13 @@ function showUserManagement() {
     showToast('⚠️ 只有管理员可以管理用户');
     return;
   }
-  document.getElementById('userManagementPanel').classList.add('open');
+  closeTeamManagement();
+  document.getElementById('userManagementPanel').classList.add('open'); document.querySelector('.fab-button').style.display='none';
   loadUserList();
 }
 
 function closeUserManagement() {
-  document.getElementById('userManagementPanel').classList.remove('open');
+  document.getElementById('userManagementPanel').classList.remove('open'); document.querySelector('.fab-button').style.display='flex';
 }
 
 // 加载用户列表
@@ -10200,13 +10201,14 @@ var allTeams = [];
 
 // 显示团队管理面板
 function showTeamManagement() {
-  document.getElementById('teamManagementPanel').classList.add('open');
+  closeUserManagement();
+  document.getElementById('teamManagementPanel').classList.add('open'); document.querySelector('.fab-button').style.display='none';
   loadTeamList();
 }
 
 // 关闭团队管理面板
 function closeTeamManagement() {
-  document.getElementById('teamManagementPanel').classList.remove('open');
+  document.getElementById('teamManagementPanel').classList.remove('open'); document.querySelector('.fab-button').style.display='flex';
 }
 
 // 加载小组列表
