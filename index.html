@@ -4555,7 +4555,7 @@ function renderEmployeeList(){
     Object.keys(subGroups).forEach(function(sub){
       html += renderSubCategoryHeader(sub, subGroups[sub].length);
       html += subGroups[sub].map(function(e){
-        return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, true) + '<div class="item-actions"><button class="emp-action-btn" data-action="detail" data-emp-id="' + escapeAttr(e.id) + '" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button><button class="emp-action-btn emp-more-btn" data-action="more" data-emp-id="' + escapeAttr(e.id) + '" title="更多">⋮</button></div></div>';
+        return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, true) + '<div class="item-actions"><button class="emp-action-btn" onclick="event.stopPropagation();openEmpDetail(this.closest(\'.list-item\').dataset.id)" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button><button class="emp-action-btn emp-more-btn" onclick="event.stopPropagation();showEmpSettingsMenu(event, this.closest(\'.list-item\').dataset.id)" title="更多">⋮</button></div></div>';
       }).join('');
     });
   }
@@ -4858,17 +4858,7 @@ function bindListEvents(){
     i.addEventListener('dblclick',()=>{if(i.dataset.id)openEmpDetail(i.dataset.id);});
     // Context menu
     // Right-click handled by event delegation on employeeList
-    // Action buttons: detail & more (via data attributes)
-    i.querySelectorAll('[data-action]').forEach(function(btn){
-      btn.addEventListener('click', function(ev){
-        ev.stopPropagation();
-        ev.preventDefault();
-        var action = this.getAttribute('data-action');
-        var empId = this.getAttribute('data-emp-id');
-        if(action === 'detail' && empId) openEmpDetail(empId);
-        if(action === 'more' && empId) showEmpSettingsMenu(ev, empId);
-      });
-    });
+    // Action buttons: handled by inline onclick
     // Drag
     i.draggable=true;
     i.addEventListener('dragstart',e=>{i.classList.add('dragging');e.dataTransfer.setData('text/plain',i.dataset.id||i.dataset.proj);});
