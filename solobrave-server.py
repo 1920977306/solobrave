@@ -572,6 +572,12 @@ def _require_admin(auth):
 
 class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     """自定义请求处理器：静态文件 + 认证 + CORS 代理 + OpenClaw API"""
+    def end_headers(self):
+        # 开发模式禁用缓存
+        if self.path.endswith('.html') or self.path == '/' or self.path.endswith('.js'):
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+        super().end_headers()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=STATIC_DIR, **kwargs)
