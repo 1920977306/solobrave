@@ -407,6 +407,203 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .detail-info-item .info-value{font-size:14px;font-weight:600;color:var(--text-primary)}
 .detail-info-item .info-sub{font-size:11px;color:var(--gray-4)}
 .detail-action-btns{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 24px 20px}
+
+/* ====== Dreaming 模式开关样式 ====== */
+.dreaming-control {
+  margin: 0 24px 20px;
+  padding: 16px;
+  background: linear-gradient(135deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.04) 100%);
+  border-radius: 14px;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+
+.dreaming-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.dreaming-toggle-wrapper {
+  flex-shrink: 0;
+}
+
+/* Apple 风格 Toggle Switch */
+.dreaming-switch {
+  position: relative;
+  display: inline-block;
+  width: 52px;
+  height: 32px;
+}
+
+.dreaming-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.dreaming-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--gray-3, #D2D2D7);
+  border-radius: 16px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.dreaming-slider::before {
+  position: absolute;
+  content: '';
+  height: 28px;
+  width: 28px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  border-radius: 50%;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.dreaming-switch input:checked + .dreaming-slider {
+  background: linear-gradient(135deg, #5856D6 0%, #AF52DE 100%);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.15), 0 0 12px rgba(88,86,214,0.4);
+}
+
+.dreaming-switch input:checked + .dreaming-slider::before {
+  transform: translateX(20px);
+  box-shadow: 0 2px 8px rgba(88,86,214,0.3), 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.dreaming-switch input:focus + .dreaming-slider {
+  box-shadow: 0 0 0 3px rgba(88,86,214,0.2);
+}
+
+.dreaming-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.dreaming-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.dreaming-state {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.dreaming-phase {
+  font-size: 12px;
+  padding: 2px 8px;
+  background: linear-gradient(135deg, rgba(88,86,214,0.1) 0%, rgba(175,82,222,0.1) 100%);
+  color: #5856D6;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.dreaming-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Dreaming 阶段选择器 */
+.dreaming-phases {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(0,0,0,0.06);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.phase-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.phase-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.phase-tag {
+  font-size: 12px;
+  padding: 4px 10px;
+  background: var(--gray-1, #F5F5F7);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.phase-tag:hover {
+  background: var(--gray-2, #E8E8ED);
+}
+
+.phase-tag.active {
+  background: linear-gradient(135deg, rgba(88,86,214,0.15) 0%, rgba(175,82,222,0.15) 100%);
+  color: #5856D6;
+  border-color: rgba(88,86,214,0.2);
+  font-weight: 500;
+}
+
+/* Dreaming 激活状态样式 */
+.dreaming-control.active {
+  background: linear-gradient(135deg, rgba(88,86,214,0.08) 0%, rgba(175,82,222,0.08) 100%);
+  border-color: rgba(88,86,214,0.15);
+  box-shadow: 0 0 20px rgba(88,86,214,0.1);
+}
+
+/* 暗色模式 Dreaming */
+@media (prefers-color-scheme: dark), [data-theme="dark"] {
+  .dreaming-control {
+    background: linear-gradient(135deg, rgba(88,86,214,0.1) 0%, rgba(175,82,222,0.1) 100%);
+    border-color: rgba(88,86,214,0.2);
+  }
+  .dreaming-state {
+    color: #F5F5F7;
+  }
+  .dreaming-phase {
+    background: linear-gradient(135deg, rgba(88,86,214,0.3) 0%, rgba(175,82,222,0.3) 100%);
+    color: #BF5AF2;
+  }
+  .dreaming-desc {
+    color: #98989D;
+  }
+  .phase-label {
+    color: #98989D;
+  }
+  .phase-tag {
+    background: rgba(255,255,255,0.08);
+    color: #98989D;
+  }
+  .phase-tag:hover {
+    background: rgba(255,255,255,0.12);
+  }
+  .phase-tag.active {
+    background: linear-gradient(135deg, rgba(88,86,214,0.3) 0%, rgba(175,82,222,0.3) 100%);
+    color: #BF5AF2;
+    border-color: rgba(88,86,214,0.3);
+  }
+  .dreaming-control.active {
+    background: linear-gradient(135deg, rgba(88,86,214,0.15) 0%, rgba(175,82,222,0.15) 100%);
+    border-color: rgba(88,86,214,0.3);
+    box-shadow: 0 0 20px rgba(88,86,214,0.2);
+  }
+  .dreaming-phases {
+    border-color: rgba(255,255,255,0.08);
+  }
+}
+
 .action-btn-real{display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px;background:var(--gray-1);border-radius:12px;border:1px solid var(--border-color);cursor:pointer;transition:all .2s;font-family:inherit;width:100%}
 .action-btn-real:hover{background:white;box-shadow:var(--shadow-sm);border-color:var(--blue)}
 .action-btn-real .btn-icon{font-size:24px}
@@ -3418,6 +3615,9 @@ async function openDetailPanel(empId){
   document.getElementById('detailOverlay').classList.add('active');
   document.getElementById('detailPanel').classList.add('active');
   
+  // 初始化 Dreaming 状态
+  initDreamingStatus();
+  
   // 异步加载第一个文档内容
   var firstDoc = await loadDocContent('IDENTITY.md');
   var editor = document.getElementById('docEditor');
@@ -3477,6 +3677,184 @@ function closeDetailPanel(){
   document.body.style.overflow = '';
   currentDetailEmp = null;
   currentAgentId = null;
+}
+
+// ===== Dreaming 模式功能 =====
+
+// 当前 Dreaming 状态
+var currentDreamingState = false;
+var currentDreamingPhase = 'idle';
+
+// 初始化 Dreaming 状态
+async function initDreamingStatus() {
+  var toggle = document.getElementById('dreamingToggle');
+  var stateEl = document.getElementById('dreamingState');
+  var phaseEl = document.getElementById('dreamingPhase');
+  var controlEl = document.getElementById('dreamingControl');
+  
+  if (!toggle || !currentAgentId) return;
+  
+  try {
+    // 尝试从后端获取状态
+    if (typeof openclaw !== 'undefined' && openclaw.connected) {
+      var status = await openclaw.getDreamingStatus(currentAgentId);
+      currentDreamingState = status.enabled || false;
+      currentDreamingPhase = status.phase || 'idle';
+    } else {
+      // Mock 模式：读取 localStorage
+      var stored = localStorage.getItem('dreaming_' + currentAgentId);
+      if (stored) {
+        var data = JSON.parse(stored);
+        currentDreamingState = data.enabled || false;
+        currentDreamingPhase = data.phase || 'idle';
+      }
+    }
+    
+    // 更新 UI
+    toggle.checked = currentDreamingState;
+    updateDreamingUI();
+    
+  } catch (err) {
+    console.log('[Dreaming] 获取状态失败，使用默认:', err.message);
+    currentDreamingState = false;
+    currentDreamingPhase = 'idle';
+    updateDreamingUI();
+  }
+}
+
+// 更新 Dreaming UI 状态
+function updateDreamingUI() {
+  var stateEl = document.getElementById('dreamingState');
+  var phaseEl = document.getElementById('dreamingPhase');
+  var controlEl = document.getElementById('dreamingControl');
+  var phaseTags = document.querySelectorAll('.phase-tag');
+  
+  if (currentDreamingState) {
+    stateEl.textContent = '已激活';
+    controlEl.classList.add('active');
+    
+    // 根据阶段显示不同的标签
+    var phaseTexts = {
+      'idle': '🌙 待机',
+      'dreaming': '💭 做梦中',
+      'awake': '☀️ 已唤醒'
+    };
+    phaseEl.textContent = phaseTexts[currentDreamingPhase] || '💭 做梦中';
+    phaseEl.style.display = 'inline-block';
+  } else {
+    stateEl.textContent = '未激活';
+    controlEl.classList.remove('active');
+    phaseEl.style.display = 'none';
+  }
+  
+  // 更新阶段标签激活状态
+  phaseTags.forEach(function(tag) {
+    if (tag.getAttribute('data-phase') === currentDreamingPhase && currentDreamingState) {
+      tag.classList.add('active');
+    } else {
+      tag.classList.remove('active');
+    }
+  });
+}
+
+// 切换 Dreaming 模式
+async function toggleDreamingMode(enabled) {
+  if (!currentAgentId) {
+    showToast('请先选择一个 Agent');
+    var toggle = document.getElementById('dreamingToggle');
+    if (toggle) toggle.checked = false;
+    return;
+  }
+  
+  currentDreamingState = enabled;
+  var stateEl = document.getElementById('dreamingState');
+  
+  if (enabled) {
+    stateEl.textContent = '正在启动...';
+    
+    try {
+      if (typeof openclaw !== 'undefined' && openclaw.connected) {
+        // 调用后端 API
+        var result = await openclaw.toggleDreaming(currentAgentId, true);
+        currentDreamingPhase = result.phase || 'dreaming';
+        showToast('🎭 Dreaming 模式已启动 - ' + currentDreamingPhase);
+      } else {
+        // Mock 模式
+        currentDreamingPhase = 'dreaming';
+        localStorage.setItem('dreaming_' + currentAgentId, JSON.stringify({
+          enabled: true,
+          phase: 'dreaming',
+          updatedAt: new Date().toISOString()
+        }));
+        showToast('🎭 Dreaming 模式已启动（Mock）');
+      }
+    } catch (err) {
+      console.error('[Dreaming] 启动失败:', err);
+      currentDreamingState = false;
+      var toggle = document.getElementById('dreamingToggle');
+      if (toggle) toggle.checked = false;
+      showToast('Dreaming 启动失败: ' + err.message);
+    }
+  } else {
+    stateEl.textContent = '正在关闭...';
+    
+    try {
+      if (typeof openclaw !== 'undefined' && openclaw.connected) {
+        var result = await openclaw.toggleDreaming(currentAgentId, false);
+        currentDreamingPhase = 'idle';
+        showToast('🌙 Dreaming 模式已关闭');
+      } else {
+        // Mock 模式
+        localStorage.setItem('dreaming_' + currentAgentId, JSON.stringify({
+          enabled: false,
+          phase: 'idle',
+          updatedAt: new Date().toISOString()
+        }));
+        showToast('🌙 Dreaming 模式已关闭（Mock）');
+      }
+    } catch (err) {
+      console.error('[Dreaming] 关闭失败:', err);
+      showToast('Dreaming 关闭失败: ' + err.message);
+    }
+  }
+  
+  updateDreamingUI();
+}
+
+// 选择 Dreaming 阶段
+function selectDreamingPhase(phase) {
+  if (!currentDreamingState) {
+    showToast('请先开启 Dreaming 模式');
+    return;
+  }
+  
+  currentDreamingPhase = phase;
+  
+  try {
+    if (typeof openclaw !== 'undefined' && openclaw.connected) {
+      // 调用后端 API 切换阶段
+      openclaw.send('dreaming.setPhase', {
+        agentId: currentAgentId,
+        phase: phase
+      }).then(function(result) {
+        showToast('阶段已切换: ' + phase);
+      }).catch(function(err) {
+        console.error('[Dreaming] 切换阶段失败:', err);
+      });
+    } else {
+      // Mock 模式
+      localStorage.setItem('dreaming_' + currentAgentId, JSON.stringify({
+        enabled: true,
+        phase: phase,
+        updatedAt: new Date().toISOString()
+      }));
+      showToast('阶段已切换（Mock）: ' + phase);
+    }
+  } catch (err) {
+    console.error('[Dreaming] 切换阶段失败:', err);
+  }
+  
+  updateDreamingUI();
 }
 
 function detailStartChat(){
@@ -4100,6 +4478,35 @@ async function confirmCreateAgent() {
   </div>
   <div class="detail-section-title">基础信息</div>
   <div class="detail-info-grid" id="detailInfoGrid"></div>
+  
+  <!-- Dreaming 开关区域 -->
+  <div class="detail-section-title" style="margin-top:20px">🎭 Dreaming 模式</div>
+  <div class="dreaming-control" id="dreamingControl">
+    <div class="dreaming-status">
+      <div class="dreaming-toggle-wrapper">
+        <label class="dreaming-switch">
+          <input type="checkbox" id="dreamingToggle" onchange="toggleDreamingMode(this.checked)">
+          <span class="dreaming-slider"></span>
+        </label>
+      </div>
+      <div class="dreaming-info">
+        <div class="dreaming-title">
+          <span class="dreaming-state" id="dreamingState">未激活</span>
+          <span class="dreaming-phase" id="dreamingPhase"></span>
+        </div>
+        <div class="dreaming-desc">开启后 Agent 将进入创意做梦模式</div>
+      </div>
+    </div>
+    <div class="dreaming-phases" id="dreamingPhases">
+      <div class="phase-label">当前阶段：</div>
+      <div class="phase-tags" id="phaseTags">
+        <span class="phase-tag" data-phase="idle" onclick="selectDreamingPhase('idle')">🌙 待机</span>
+        <span class="phase-tag active" data-phase="dreaming" onclick="selectDreamingPhase('dreaming')">💭 做梦</span>
+        <span class="phase-tag" data-phase="awake" onclick="selectDreamingPhase('awake')">☀️ 唤醒</span>
+      </div>
+    </div>
+  </div>
+  
   <div class="detail-action-btns">
     <button type="button" class="action-btn-real" onclick="openChannelConfig()">
       <span class="btn-icon">🔗</span>

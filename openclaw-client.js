@@ -522,6 +522,26 @@ class OpenClawClient {
   async health() {
     return this.send('health', {});
   }
+
+  // ========== Dreaming 功能 ==========
+
+  // 获取 Dreaming 状态
+  async getDreamingStatus(agentId) {
+    return this.send('dreaming.status', { agentId: agentId || 'main' });
+  }
+
+  // 切换 Dreaming 状态
+  async toggleDreaming(agentId, enabled) {
+    return this.send('dreaming.toggle', { 
+      agentId: agentId || 'main',
+      enabled: enabled 
+    });
+  }
+
+  // 获取支持的 Dreaming 阶段列表
+  async listDreamingPhases() {
+    return this.send('dreaming.phases', {});
+  }
 }
 
 // ========== Mock 数据 ==========
