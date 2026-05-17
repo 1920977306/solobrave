@@ -4494,19 +4494,9 @@ function toggleCategory(cat){
 
 // 获取当前用户可见的员工列表（权限过滤）
 function getVisibleEmps(){
+  // 后端 /api/agents 已按权限过滤，前端直接展示
   if(!emps || emps.length === 0) return [];
-  var uid = currentUser && currentUser.id;
-  var role = currentUser && currentUser.role;
-  if(role === 'admin' || !uid) return emps;
-  if(role === 'leader'){
-    // leader可见: 自己创建的 + 自己管理的组内成员 + 自己管理的组内agent
-    var visibleIds = _getLeaderVisibleAgentIds();
-    return emps.filter(function(e){
-      return visibleIds.indexOf(e.id) >= 0 || e.createdBy === uid;
-    });
-  }
-  // employee可见: 自己创建的
-  return emps.filter(function(e){ return e.createdBy === uid; });
+  return emps;
 }
 
 // Leader可见的Agent ID列表（来自可视小组的members + agentIds）
