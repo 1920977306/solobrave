@@ -418,6 +418,9 @@ class AuthResult:
         self.error = error
         self.status = status
         self.user_record = None  # 完整用户记录
+        self.is_leader = False   # 是否是 leader
+        self.team_ids = []       # 所属小组 ID 列表
+        self.managed_team_ids = []  # 管理的小组 ID 列表
 
     @property
     def is_authenticated(self):
@@ -431,6 +434,14 @@ class AuthResult:
         if self.user_info:
             users = _load_users()
             self.user_record = _find_user(users, 'id', self.user_info['userId'])
+            # 填充 team_ids 和 managed_team_ids
+            if self.user_record:
+                self.team_ids = self.user_record.get('teamIds', [])
+                self.is_leader = self.user_record.get('role') == 'leader'
+                # leader 查找自己管理的小组
+                if self.is_leader:
+                    teams = _load_teams()
+                    self.managed_team_ids = [t.get('id') for t in teams if t.get('leaderId') == self.user_info.get('userId')]
         return self.user_record
 
 
@@ -443,7 +454,73 @@ def _authenticate(headers):
     user_info = verify_token(token)
     if user_info is None:
         return AuthResult(error='未登录或 token 已过期', status=401)
-    return AuthResult(user_info=user_info)
+    # 创建 AuthResult 并加载用户记录以获取 team 信息
+    result = AuthResult(user_info=user_info)
+    result.load_user_record()
+    return result
+
+
+def _can_access_team(auth, team_id):
+    """判断用户是否有权访问某个小组"""
+    if auth.is_admin:
+        return True
+    if team_id in auth.managed_team_ids:
+        return True
+    # 检查是否是管理组的子组
+    if _is_sub_team(team_id, auth.managed_team_ids):
+        return True
+    return False
+
+
+def _is_sub_team(team_id, parent_team_ids):
+    """判断 team_id 是否是某个 parent 的子组"""
+    teams = _load_teams()
+    team = None
+    for t in teams:
+        if t.get('id') == team_id:
+            team = t
+            break
+    if team and team.get('parentId') in parent_team_ids:
+        return True
+    if team and team.get('parentId'):
+        return _is_sub_team(team.get('parentId'), parent_team_ids)
+    return False
+
+
+def _get_accessible_agent_ids(auth):
+    """获取用户有权访问的Agent ID列表"""
+    if auth.is_admin:
+        return None  # 全部
+    agents = _load_agents()
+    teams = _load_teams()
+    accessible = set()
+    # 自己所属组的agents
+    for tid in auth.team_ids:
+        for t in teams:
+            if t.get('id') == tid:
+                for aid in t.get('agentIds', []):
+                    accessible.add(aid)
+                break
+    # leader可访问管理组+子组的agents
+    if auth.is_leader:
+        for tid in auth.managed_team_ids:
+            accessible.update(_get_team_and_children_agent_ids(tid, teams))
+    return list(accessible)
+
+
+def _get_team_and_children_agent_ids(team_id, teams):
+    """获取小组及所有子组的 agent IDs"""
+    result = set()
+    for t in teams:
+        if t.get('id') == team_id:
+            for aid in t.get('agentIds', []):
+                result.add(aid)
+            # 递归子组
+            for child in teams:
+                if child.get('parentId') == team_id:
+                    result.update(_get_team_and_children_agent_ids(child.get('id'), teams))
+            break
+    return result
 
 
 def _require_admin(auth):
@@ -2051,10 +2128,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         agents = _load_agents()
         if auth.is_admin:
             result = agents
-        else:
-            # employee: 只能看到自己创建的
+        elif auth.is_leader:
+            # leader: 看自己管理组+子组的agents + 自己创建的
+            accessible_ids = _get_accessible_agent_ids(auth)
             result = [a for a in agents
-                      if a.get('createdBy') == auth.user_info['userId']]
+                      if a.get('id') in accessible_ids or a.get('createdBy') == auth.user_info['userId']]
+        else:
+            # employee: 看自己所属组的agents + 自己创建的
+            accessible_ids = _get_accessible_agent_ids(auth)
+            result = [a for a in agents
+                      if a.get('id') in accessible_ids or a.get('createdBy') == auth.user_info['userId']]
 
         # 去掉不需要的字段
         safe_result = []
