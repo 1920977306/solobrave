@@ -9763,364 +9763,6 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 <div id="toastContainer" class="toast-container"></div>
 
 
-<!-- User Management Panel -->
-<div class="user-management-panel" id="userManagementPanel">
-  <div class="user-management-header">
-    <div class="user-management-title">👥 用户管理</div>
-    <button class="user-management-close" onclick="closeUserManagement()">✕</button>
-  </div>
-  <div class="user-management-content">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <div style="font-size:14px;font-weight:600;">用户列表</div>
-      <button onclick="showCreateUserModal()" style="padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">➕ 添加用户</button>
-    </div>
-    <div id="userList"></div>
-  </div>
-  <!-- User Edit Modal -->
-<div id="userEditOverlay" onclick="closeUserEditModal()"></div>
-<div id="userEditModal">
-  <div class="modal-header">
-    <span class="modal-title">✏️ 编辑用户</span>
-    <button class="modal-close" onclick="closeUserEditModal()">×</button>
-  </div>
-  <div class="modal-body">
-    <input type="hidden" id="editUserId">
-    <div class="form-group">
-      <label class="form-label">用户名</label>
-      <input type="text" id="editUserName" class="form-input" readonly>
-    </div>
-    <div class="form-group">
-      <label class="form-label">显示名称</label>
-      <input type="text" id="editDisplayName" class="form-input" placeholder="输入显示名称">
-    </div>
-    <div class="form-group">
-      <label class="form-label">新密码 <span style="opacity:0.6">(留空则不改)</span></label>
-      <input type="password" id="editPassword" class="form-input" placeholder="输入新密码">
-    </div>
-    <div class="form-group">
-      <label class="form-label">角色</label>
-      <select id="editRole" class="form-select">
-        <option value="employee">🦞 员工</option>
-        <option value="leader">⭐ 组长</option>
-        <option value="admin">👑 管理员</option>
-      </select>
-      <div class="form-group">
-        <label class="form-label">所属小组</label>
-        <select id="editUserTeam" class="form-select">
-          <option value="">-- 不分配小组 --</option>
-        </select>
-      </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Agent配额</label>
-      <input type="number" id="editAgentQuota" class="form-input" value="10" min="0">
-    </div>
-  </div>
-  <div class="modal-footer">
-    <button class="btn btn-secondary" onclick="closeUserEditModal()">取消</button>
-    <button class="btn btn-primary" onclick="saveUserEdit()">保存</button>
-  </div>
-</div>
-  <!-- Create User Modal -->
-<div id="createUserOverlay" onclick="closeCreateUserModal()"></div>
-<div id="createUserModal">
-  <div class="modal-header">
-    <span class="modal-title">➕ 创建用户</span>
-    <button class="modal-close" onclick="closeCreateUserModal()">×</button>
-  </div>
-  <div class="modal-body">
-    <div class="form-group">
-      <label class="form-label">用户名</label>
-      <input type="text" id="newUsername" class="form-input" placeholder="输入用户名">
-    </div>
-    <div class="form-group">
-      <label class="form-label">密码</label>
-      <input type="password" id="newPassword" class="form-input" placeholder="输入密码">
-    </div>
-    <div class="form-group">
-      <label class="form-label">显示名称</label>
-      <input type="text" id="newDisplayName" class="form-input" placeholder="输入显示名称">
-    </div>
-    <div class="form-group">
-      <label class="form-label">角色</label>
-      <select id="newRole" class="form-select">
-        <option value="employee">🦞 员工</option>
-        <option value="leader">⭐ 组长</option>
-        <option value="admin">👑 管理员</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label class="form-label">所属小组（可选）</label>
-      <select id="newUserTeams" class="form-select">
-        <option value="">-- 不分配小组 --</option>
-      </select>
-    </div>
-  </div>
-  <div class="modal-footer">
-    <button class="btn btn-secondary" onclick="closeCreateUserModal()">取消</button>
-    <button class="btn btn-primary" onclick="createUser()">创建</button>
-  </div>
-</div>
-</div>
-
-<!-- Team Management Panel -->
-<div class="team-management-panel" id="teamManagementPanel">
-  <div class="team-management-header">
-    <div class="team-management-title">🏢 团队管理</div>
-    <button class="team-management-close" onclick="closeTeamManagement()">✕</button>
-  </div>
-  <div class="team-management-content">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <div style="font-size:14px;font-weight:600;">小组列表</div>
-      <button onclick="showCreateTeamModal()" style="padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">➕ 新建小组</button>
-    </div>
-    <div id="teamList"></div>
-  </div>
-  <!-- Create Team Modal -->
-<div id="createTeamOverlay" onclick="closeCreateTeamModal()"></div>
-<div id="createTeamModal">
-  <div class="modal-header">
-    <span class="modal-title">🏢 创建小组</span>
-    <button class="modal-close" onclick="closeCreateTeamModal()">×</button>
-  </div>
-  <div class="modal-body">
-    <div class="form-group">
-      <label class="form-label">小组名称</label>
-      <input type="text" id="newTeamName" class="form-input" placeholder="输入小组名称">
-    </div>
-    <div class="form-group">
-      <label class="form-label">小组描述</label>
-      <textarea id="newTeamDesc" class="form-input" placeholder="输入小组描述（可选）" rows="2"></textarea>
-    </div>
-    <div class="form-group">
-      <label class="form-label">父小组（可选）</label>
-      <select id="newTeamParent" class="form-select">
-        <option value="">-- 无父小组 --</option>
-      </select>
-    </div>
-  </div>
-  <div class="modal-footer">
-    <button class="btn btn-secondary" onclick="closeCreateTeamModal()">取消</button>
-    <button class="btn btn-primary" onclick="createTeam()">创建</button>
-  </div>
-</div>
-</div>
-
-<!-- Edit Team Modal -->
-<div id="editTeamOverlay" onclick="closeEditTeamModal()"></div>
-<div id="editTeamModal">
-  <div class="modal-header">
-    <span class="modal-title">✏️ 编辑小组</span>
-    <button class="modal-close" onclick="closeEditTeamModal()">×</button>
-  </div>
-  <div class="modal-body">
-    <input type="hidden" id="editTeamId">
-    <div class="form-group">
-      <label class="form-label">小组名称</label>
-      <input type="text" id="editTeamName" class="form-input" placeholder="输入小组名称">
-    </div>
-    <div class="form-group">
-      <label class="form-label">小组描述</label>
-      <textarea id="editTeamDesc" class="form-input" placeholder="输入小组描述" rows="2"></textarea>
-    </div>
-    <div class="form-group">
-      <label class="form-label">组长</label>
-      <select id="editTeamLeader" class="form-select">
-        <option value="">-- 选择组长 --</option>
-      </select>
-    </div>
-  </div>
-  <div class="modal-footer">
-    <button class="btn btn-secondary" onclick="closeEditTeamModal()">取消</button>
-    <button class="btn btn-danger" onclick="deleteTeam()">删除</button>
-    <button class="btn btn-primary" onclick="saveTeamEdit()">保存</button>
-  </div>
-</div>
-
-<!-- Team Members Modal -->
-<div id="teamMembersOverlay" onclick="closeTeamMembersModal()"></div>
-<div id="teamMembersModal">
-  <div class="modal-header">
-    <span class="modal-title" id="teamMembersTitle">👥 小组成员</span>
-    <button class="modal-close" onclick="closeTeamMembersModal()">×</button>
-  </div>
-  <div class="modal-body">
-    <input type="hidden" id="teamMembersTeamId">
-    <div id="teamMembersList"></div>
-    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--separator);">
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">添加成员</div>
-      <select id="addTeamMemberSelect" class="form-select" style="margin-bottom:8px;">
-        <option value="">-- 选择员工 --</option>
-      </select>
-      <button onclick="addTeamMember()" style="width:100%;padding:8px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;">➕ 添加选中成员</button>
-    </div>
-  </div>
-</div>
-
-<!-- Message Context Menu (right-click on chat bubbles) -->
-<div id="msgCtxMenu" class="ctx-menu">
-  <div class="menu-item" onclick="msgCtxAction('copy')">📋 复制文本</div>
-  <div class="menu-divider"></div>
-  <div class="menu-item" onclick="msgCtxAction('delete')">🗑️ 删除消息</div>
-  <div class="menu-item" id="msgCtxRegenerate" onclick="msgCtxAction('regenerate')" style="display:none;">🔄 重新生成</div>
-</div>
-
-<!-- Group Context Menu (right-click on group items) -->
-<div id="groupCtxMenu" class="ctx-menu">
-  <div class="menu-item" onclick="groupCtxAction('edit')">✏️ 编辑群组</div>
-  <div class="menu-item" onclick="groupCtxAction('addMember')">➕ 添加成员</div>
-  <div class="menu-divider"></div>
-  <div class="menu-item danger" onclick="groupCtxAction('dissolve')">🗑️ 解散群组</div>
-</div>
-
-<!-- Employee Settings Dropdown Menu -->
-<div id="empSettingsMenu" class="emp-settings-menu">
-  <div class="menu-item" onclick="empSettingsAction('edit')">✏️ 编辑资料</div>
-  <div class="menu-divider"></div>
-  <div class="menu-item has-submenu">📁 移动到分组
-    <div class="submenu">
-      <div class="submenu-item" onclick="empSettingsActionMove('全局统筹')">🔴 全局统筹</div>
-      <div class="submenu-item" onclick="empSettingsActionMove('技术团队')">&lt;&gt; 技术团队</div>
-      <div class="submenu-item" onclick="empSettingsActionMove('业务团队')">💼 业务团队</div>
-      <div class="submenu-item" onclick="empSettingsActionMove('测试小组')">🧪 测试小组</div>
-    </div>
-  </div>
-  <div class="menu-divider"></div>
-  <div class="menu-item" onclick="empSettingsAction('pin')">📌 置顶</div>
-  <div class="menu-item" onclick="empSettingsAction('archive')">📦 归档</div>
-  <div class="menu-item" onclick="empSettingsAction('clearBadge')">🔕 清除紧急标记</div>
-  <div class="menu-divider"></div>
-  <div class="menu-item danger" onclick="empSettingsAction('delete')">🗑️ 删除</div>
-</div>
-
-<!-- Bottom Connection Status Bar -->
-<div id="connectionStatusBar" style="position:fixed;bottom:0;left:0;right:0;height:28px;background:var(--bg-primary);border-top:1px solid var(--separator);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:12px;color:var(--text-secondary);z-index:100;"
-  <div style="display:flex;align-items:center;gap:12px;"
-    <span id="connStatusOpenClaw" style="display:flex;align-items:center;gap:4px;"
-      <span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#34C759;"
-      </span>OpenClaw 已连接
-    </span>
-    <span id="connStatusAPI" style="display:flex;align-items:center;gap:4px;"
-      <span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF9500;"
-      </span>API 未配置
-    </span>
-  </div>
-  <div style="display:flex;align-items:center;gap:8px;"
-    <span id="connLatency"
-      延迟: --ms
-    </span>
-    <button onclick="showConnectionDetails()" style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:11px;"
-      详情
-    </button>
-  </div>
-</div>
-
-<!-- Move Group Modal -->
-<div class="modal-overlay" id="moveGroupModal" style="display:none;z-index:2000;">
-  <div class="modal" style="max-width:320px;padding:0;overflow:hidden;">
-    <div class="modal-header" style="padding:16px 20px 12px;">
-      <div class="modal-title">📁 移动分组</div>
-      <button class="modal-close" onclick="closeMoveGroupModal()">✕</button>
-    </div>
-    <div class="modal-body" style="padding:0 20px 16px;">
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
-        选择 <strong id="moveGroupEmpName"></strong> 的新分组：
-      </div>
-      <div id="moveGroupList" style="display:flex;flex-direction:column;gap:6px;">
-        <!-- 动态填充 -->
-      </div>
-    </div>
-  </div>
-</div>
-
-
-<!-- Channel Config Modal -->
-<div class="modal-overlay" id="channelConfigModal" style="display:none;z-index:2000;" onclick="if(event.target===this)closeChannelConfigModal()">
-  <div class="modal" style="max-width:400px;padding:0;overflow:hidden;">
-    <div class="modal-header" style="padding:16px 20px 12px;">
-      <div class="modal-title" id="channelConfigTitle">🔧 渠道配置</div>
-      <button class="modal-close" onclick="closeChannelConfigModal()">✕</button>
-    </div>
-    <div class="modal-body" style="padding:16px 20px;">
-      <div class="form-group">
-        <label class="form-label">Webhook URL</label>
-        <input type="text" class="form-input" id="channelWebhook" placeholder="https://...">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Token / Secret</label>
-        <input type="password" class="form-input" id="channelToken" placeholder="输入密钥...">
-      </div>
-      <div class="form-group">
-        <label class="form-label">状态</label>
-        <div style="display:flex;gap:12px;align-items:center;">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-            <input type="radio" name="channelActive" value="1" checked> 启用
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-            <input type="radio" name="channelActive" value="0"> 禁用
-          </label>
-        </div>
-      </div>
-    </div>
-    <div class="modal-footer" style="padding:12px 20px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:0.5px solid var(--separator);">
-      <button class="emp-action-btn" onclick="closeChannelConfigModal()">取消</button>
-      <button class="emp-action-btn primary" onclick="saveChannelConfig()">保存</button>
-    </div>
-  </div>
-</div>
-
-<!-- 创建群组向导 -->
-<div class="group-wizard-overlay" id="groupWizardOverlay">
-<div class="group-wizard">
-  <div class="gw-header">
-    <div class="gw-title">创建项目组</div>
-    <div class="gw-close" onclick="closeGroupWizard()">✕</div>
-  </div>
-  <div class="gw-steps" id="gwSteps">
-    <div class="gw-step active">1</div>
-    <div class="gw-step-line"></div>
-    <div class="gw-step">2</div>
-    <div class="gw-step-line"></div>
-    <div class="gw-step">3</div>
-  </div>
-  <div class="gw-body">
-    <!-- Step 1: 名称 + Emoji -->
-    <div id="gwStep1">
-      <div style="margin-bottom:16px;">
-        <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">群组名称</label>
-        <input type="text" id="gwName" class="form-input" placeholder="例如：快速研发组" style="width:100%;">
-      </div>
-      <div>
-        <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">选择图标</label>
-        <div class="emoji-grid" id="gwEmojiGrid"></div>
-      </div>
-    </div>
-    <!-- Step 2: 选择成员 -->
-    <div id="gwStep2" style="display:none;">
-      <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">选择成员</label>
-      <div class="member-check-grid" id="gwMembersGrid"></div>
-    </div>
-    <!-- Step 3: 选择组长 + 确认 -->
-    <div id="gwStep3" style="display:none;">
-      <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">选择组长（Lead Agent）</label>
-      <div class="lead-radio" id="gwLeadList"></div>
-      <div class="gw-confirm-box">
-        <div class="gw-confirm-row"><span class="gw-confirm-label">群组：</span><span id="gwConfirmName">-</span></div>
-        <div class="gw-confirm-row"><span class="gw-confirm-label">成员：</span><span id="gwConfirmMembers">-</span></div>
-        <div class="gw-confirm-row"><span class="gw-confirm-label">组长：</span><span id="gwConfirmLead">-</span></div>
-      </div>
-    </div>
-  </div>
-  <div class="gw-footer">
-    <button class="gw-btn gw-btn-secondary" id="gwPrevBtn" onclick="gwPrev()" style="display:none;">← 上一步</button>
-    <button class="gw-btn gw-btn-primary" id="gwNextBtn" onclick="gwNext()">下一步 →</button>
-  </div>
-</div>
-</div>
-
-<script src="avatars.js?v=1778166504"></script>
-<script src="openclaw-client-v3.js"></script>
-
 <!-- FAB Menu -->
 <div class="fab-menu" id="fabMenu">
   <div class="fab-menu-item" onclick="showAISwitcher()">🔄 切换AI</div>
@@ -10473,7 +10115,12 @@ function showUserManagement() {
     return;
   }
   closeTeamManagement();
-  document.getElementById('userManagementPanel').classList.add('open'); document.querySelector('.fab-button').style.display='none';
+  var panel = document.getElementById('userManagementPanel');
+  // 确保面板在body下，不受display:none父容器影响
+  if (panel.parentElement !== document.body) {
+    document.body.appendChild(panel);
+  }
+  panel.classList.add('open'); document.querySelector('.fab-button').style.display='none';
   loadUserList();
 }
 
@@ -10654,7 +10301,7 @@ var allTeams = [];
 // 显示团队管理面板
 function showTeamManagement() {
   closeUserManagement();
-  document.getElementById('teamManagementPanel').classList.add('open'); document.querySelector('.fab-button').style.display='none';
+  var panel = document.getElementById('teamManagementPanel'); if (panel.parentElement !== document.body) { document.body.appendChild(panel); } panel.classList.add('open'); document.querySelector('.fab-button').style.display='none';
   loadTeamList();
 }
 
@@ -11204,5 +10851,365 @@ function checkQuota() {
   return true;
 }
 </script>
+
+<!-- User Management Panel -->
+<div class="user-management-panel" id="userManagementPanel">
+  <div class="user-management-header">
+    <div class="user-management-title">👥 用户管理</div>
+    <button class="user-management-close" onclick="closeUserManagement()">✕</button>
+  </div>
+  <div class="user-management-content">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:600;">用户列表</div>
+      <button onclick="showCreateUserModal()" style="padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">➕ 添加用户</button>
+    </div>
+    <div id="userList"></div>
+  </div>
+  <!-- User Edit Modal -->
+<div id="userEditOverlay" onclick="closeUserEditModal()"></div>
+<div id="userEditModal">
+  <div class="modal-header">
+    <span class="modal-title">✏️ 编辑用户</span>
+    <button class="modal-close" onclick="closeUserEditModal()">×</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="editUserId">
+    <div class="form-group">
+      <label class="form-label">用户名</label>
+      <input type="text" id="editUserName" class="form-input" readonly>
+    </div>
+    <div class="form-group">
+      <label class="form-label">显示名称</label>
+      <input type="text" id="editDisplayName" class="form-input" placeholder="输入显示名称">
+    </div>
+    <div class="form-group">
+      <label class="form-label">新密码 <span style="opacity:0.6">(留空则不改)</span></label>
+      <input type="password" id="editPassword" class="form-input" placeholder="输入新密码">
+    </div>
+    <div class="form-group">
+      <label class="form-label">角色</label>
+      <select id="editRole" class="form-select">
+        <option value="employee">🦞 员工</option>
+        <option value="leader">⭐ 组长</option>
+        <option value="admin">👑 管理员</option>
+      </select>
+      <div class="form-group">
+        <label class="form-label">所属小组</label>
+        <select id="editUserTeam" class="form-select">
+          <option value="">-- 不分配小组 --</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Agent配额</label>
+      <input type="number" id="editAgentQuota" class="form-input" value="10" min="0">
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeUserEditModal()">取消</button>
+    <button class="btn btn-primary" onclick="saveUserEdit()">保存</button>
+  </div>
+</div>
+  <!-- Create User Modal -->
+<div id="createUserOverlay" onclick="closeCreateUserModal()"></div>
+<div id="createUserModal">
+  <div class="modal-header">
+    <span class="modal-title">➕ 创建用户</span>
+    <button class="modal-close" onclick="closeCreateUserModal()">×</button>
+  </div>
+  <div class="modal-body">
+    <div class="form-group">
+      <label class="form-label">用户名</label>
+      <input type="text" id="newUsername" class="form-input" placeholder="输入用户名">
+    </div>
+    <div class="form-group">
+      <label class="form-label">密码</label>
+      <input type="password" id="newPassword" class="form-input" placeholder="输入密码">
+    </div>
+    <div class="form-group">
+      <label class="form-label">显示名称</label>
+      <input type="text" id="newDisplayName" class="form-input" placeholder="输入显示名称">
+    </div>
+    <div class="form-group">
+      <label class="form-label">角色</label>
+      <select id="newRole" class="form-select">
+        <option value="employee">🦞 员工</option>
+        <option value="leader">⭐ 组长</option>
+        <option value="admin">👑 管理员</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">所属小组（可选）</label>
+      <select id="newUserTeams" class="form-select">
+        <option value="">-- 不分配小组 --</option>
+      </select>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeCreateUserModal()">取消</button>
+    <button class="btn btn-primary" onclick="createUser()">创建</button>
+  </div>
+</div>
+</div>
+
+<!-- Team Management Panel -->
+<div class="team-management-panel" id="teamManagementPanel">
+  <div class="team-management-header">
+    <div class="team-management-title">🏢 团队管理</div>
+    <button class="team-management-close" onclick="closeTeamManagement()">✕</button>
+  </div>
+  <div class="team-management-content">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:600;">小组列表</div>
+      <button onclick="showCreateTeamModal()" style="padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">➕ 新建小组</button>
+    </div>
+    <div id="teamList"></div>
+  </div>
+  <!-- Create Team Modal -->
+<div id="createTeamOverlay" onclick="closeCreateTeamModal()"></div>
+<div id="createTeamModal">
+  <div class="modal-header">
+    <span class="modal-title">🏢 创建小组</span>
+    <button class="modal-close" onclick="closeCreateTeamModal()">×</button>
+  </div>
+  <div class="modal-body">
+    <div class="form-group">
+      <label class="form-label">小组名称</label>
+      <input type="text" id="newTeamName" class="form-input" placeholder="输入小组名称">
+    </div>
+    <div class="form-group">
+      <label class="form-label">小组描述</label>
+      <textarea id="newTeamDesc" class="form-input" placeholder="输入小组描述（可选）" rows="2"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">父小组（可选）</label>
+      <select id="newTeamParent" class="form-select">
+        <option value="">-- 无父小组 --</option>
+      </select>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeCreateTeamModal()">取消</button>
+    <button class="btn btn-primary" onclick="createTeam()">创建</button>
+  </div>
+</div>
+</div>
+
+<!-- Edit Team Modal -->
+<div id="editTeamOverlay" onclick="closeEditTeamModal()"></div>
+<div id="editTeamModal">
+  <div class="modal-header">
+    <span class="modal-title">✏️ 编辑小组</span>
+    <button class="modal-close" onclick="closeEditTeamModal()">×</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="editTeamId">
+    <div class="form-group">
+      <label class="form-label">小组名称</label>
+      <input type="text" id="editTeamName" class="form-input" placeholder="输入小组名称">
+    </div>
+    <div class="form-group">
+      <label class="form-label">小组描述</label>
+      <textarea id="editTeamDesc" class="form-input" placeholder="输入小组描述" rows="2"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">组长</label>
+      <select id="editTeamLeader" class="form-select">
+        <option value="">-- 选择组长 --</option>
+      </select>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeEditTeamModal()">取消</button>
+    <button class="btn btn-danger" onclick="deleteTeam()">删除</button>
+    <button class="btn btn-primary" onclick="saveTeamEdit()">保存</button>
+  </div>
+</div>
+
+<!-- Team Members Modal -->
+<div id="teamMembersOverlay" onclick="closeTeamMembersModal()"></div>
+<div id="teamMembersModal">
+  <div class="modal-header">
+    <span class="modal-title" id="teamMembersTitle">👥 小组成员</span>
+    <button class="modal-close" onclick="closeTeamMembersModal()">×</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="teamMembersTeamId">
+    <div id="teamMembersList"></div>
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--separator);">
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">添加成员</div>
+      <select id="addTeamMemberSelect" class="form-select" style="margin-bottom:8px;">
+        <option value="">-- 选择员工 --</option>
+      </select>
+      <button onclick="addTeamMember()" style="width:100%;padding:8px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;">➕ 添加选中成员</button>
+    </div>
+  </div>
+</div>
+
+<!-- Message Context Menu (right-click on chat bubbles) -->
+<div id="msgCtxMenu" class="ctx-menu">
+  <div class="menu-item" onclick="msgCtxAction('copy')">📋 复制文本</div>
+  <div class="menu-divider"></div>
+  <div class="menu-item" onclick="msgCtxAction('delete')">🗑️ 删除消息</div>
+  <div class="menu-item" id="msgCtxRegenerate" onclick="msgCtxAction('regenerate')" style="display:none;">🔄 重新生成</div>
+</div>
+
+<!-- Group Context Menu (right-click on group items) -->
+<div id="groupCtxMenu" class="ctx-menu">
+  <div class="menu-item" onclick="groupCtxAction('edit')">✏️ 编辑群组</div>
+  <div class="menu-item" onclick="groupCtxAction('addMember')">➕ 添加成员</div>
+  <div class="menu-divider"></div>
+  <div class="menu-item danger" onclick="groupCtxAction('dissolve')">🗑️ 解散群组</div>
+</div>
+
+<!-- Employee Settings Dropdown Menu -->
+<div id="empSettingsMenu" class="emp-settings-menu">
+  <div class="menu-item" onclick="empSettingsAction('edit')">✏️ 编辑资料</div>
+  <div class="menu-divider"></div>
+  <div class="menu-item has-submenu">📁 移动到分组
+    <div class="submenu">
+      <div class="submenu-item" onclick="empSettingsActionMove('全局统筹')">🔴 全局统筹</div>
+      <div class="submenu-item" onclick="empSettingsActionMove('技术团队')">&lt;&gt; 技术团队</div>
+      <div class="submenu-item" onclick="empSettingsActionMove('业务团队')">💼 业务团队</div>
+      <div class="submenu-item" onclick="empSettingsActionMove('测试小组')">🧪 测试小组</div>
+    </div>
+  </div>
+  <div class="menu-divider"></div>
+  <div class="menu-item" onclick="empSettingsAction('pin')">📌 置顶</div>
+  <div class="menu-item" onclick="empSettingsAction('archive')">📦 归档</div>
+  <div class="menu-item" onclick="empSettingsAction('clearBadge')">🔕 清除紧急标记</div>
+  <div class="menu-divider"></div>
+  <div class="menu-item danger" onclick="empSettingsAction('delete')">🗑️ 删除</div>
+</div>
+
+<!-- Bottom Connection Status Bar -->
+<div id="connectionStatusBar" style="position:fixed;bottom:0;left:0;right:0;height:28px;background:var(--bg-primary);border-top:1px solid var(--separator);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:12px;color:var(--text-secondary);z-index:100;"
+  <div style="display:flex;align-items:center;gap:12px;"
+    <span id="connStatusOpenClaw" style="display:flex;align-items:center;gap:4px;"
+      <span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#34C759;"
+      </span>OpenClaw 已连接
+    </span>
+    <span id="connStatusAPI" style="display:flex;align-items:center;gap:4px;"
+      <span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF9500;"
+      </span>API 未配置
+    </span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;"
+    <span id="connLatency"
+      延迟: --ms
+    </span>
+    <button onclick="showConnectionDetails()" style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:11px;"
+      详情
+    </button>
+  </div>
+</div>
+
+<!-- Move Group Modal -->
+<div class="modal-overlay" id="moveGroupModal" style="display:none;z-index:2000;">
+  <div class="modal" style="max-width:320px;padding:0;overflow:hidden;">
+    <div class="modal-header" style="padding:16px 20px 12px;">
+      <div class="modal-title">📁 移动分组</div>
+      <button class="modal-close" onclick="closeMoveGroupModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:0 20px 16px;">
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
+        选择 <strong id="moveGroupEmpName"></strong> 的新分组：
+      </div>
+      <div id="moveGroupList" style="display:flex;flex-direction:column;gap:6px;">
+        <!-- 动态填充 -->
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Channel Config Modal -->
+<div class="modal-overlay" id="channelConfigModal" style="display:none;z-index:2000;" onclick="if(event.target===this)closeChannelConfigModal()">
+  <div class="modal" style="max-width:400px;padding:0;overflow:hidden;">
+    <div class="modal-header" style="padding:16px 20px 12px;">
+      <div class="modal-title" id="channelConfigTitle">🔧 渠道配置</div>
+      <button class="modal-close" onclick="closeChannelConfigModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:16px 20px;">
+      <div class="form-group">
+        <label class="form-label">Webhook URL</label>
+        <input type="text" class="form-input" id="channelWebhook" placeholder="https://...">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Token / Secret</label>
+        <input type="password" class="form-input" id="channelToken" placeholder="输入密钥...">
+      </div>
+      <div class="form-group">
+        <label class="form-label">状态</label>
+        <div style="display:flex;gap:12px;align-items:center;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="channelActive" value="1" checked> 启用
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="channelActive" value="0"> 禁用
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="padding:12px 20px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:0.5px solid var(--separator);">
+      <button class="emp-action-btn" onclick="closeChannelConfigModal()">取消</button>
+      <button class="emp-action-btn primary" onclick="saveChannelConfig()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 创建群组向导 -->
+<div class="group-wizard-overlay" id="groupWizardOverlay">
+<div class="group-wizard">
+  <div class="gw-header">
+    <div class="gw-title">创建项目组</div>
+    <div class="gw-close" onclick="closeGroupWizard()">✕</div>
+  </div>
+  <div class="gw-steps" id="gwSteps">
+    <div class="gw-step active">1</div>
+    <div class="gw-step-line"></div>
+    <div class="gw-step">2</div>
+    <div class="gw-step-line"></div>
+    <div class="gw-step">3</div>
+  </div>
+  <div class="gw-body">
+    <!-- Step 1: 名称 + Emoji -->
+    <div id="gwStep1">
+      <div style="margin-bottom:16px;">
+        <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">群组名称</label>
+        <input type="text" id="gwName" class="form-input" placeholder="例如：快速研发组" style="width:100%;">
+      </div>
+      <div>
+        <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">选择图标</label>
+        <div class="emoji-grid" id="gwEmojiGrid"></div>
+      </div>
+    </div>
+    <!-- Step 2: 选择成员 -->
+    <div id="gwStep2" style="display:none;">
+      <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">选择成员</label>
+      <div class="member-check-grid" id="gwMembersGrid"></div>
+    </div>
+    <!-- Step 3: 选择组长 + 确认 -->
+    <div id="gwStep3" style="display:none;">
+      <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">选择组长（Lead Agent）</label>
+      <div class="lead-radio" id="gwLeadList"></div>
+      <div class="gw-confirm-box">
+        <div class="gw-confirm-row"><span class="gw-confirm-label">群组：</span><span id="gwConfirmName">-</span></div>
+        <div class="gw-confirm-row"><span class="gw-confirm-label">成员：</span><span id="gwConfirmMembers">-</span></div>
+        <div class="gw-confirm-row"><span class="gw-confirm-label">组长：</span><span id="gwConfirmLead">-</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="gw-footer">
+    <button class="gw-btn gw-btn-secondary" id="gwPrevBtn" onclick="gwPrev()" style="display:none;">← 上一步</button>
+    <button class="gw-btn gw-btn-primary" id="gwNextBtn" onclick="gwNext()">下一步 →</button>
+  </div>
+</div>
+</div>
+
+<script src="avatars.js?v=1778166504"></script>
+<script src="openclaw-client-v3.js"></script>
+
+
 </body>
 </html>
