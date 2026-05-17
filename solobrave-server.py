@@ -54,6 +54,7 @@ AGENTS_FILE = os.path.join(DATA_DIR, 'agents.json')
 GROUPS_FILE = os.path.join(DATA_DIR, 'groups.json')
 CHATS_DIR = os.path.join(DATA_DIR, 'chats')
 SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
+TEAMS_FILE = os.path.join(DATA_DIR, 'teams.json')
 
 # JWT 配置
 JWT_EXPIRE_SECONDS = 7 * 24 * 3600  # 7 天
@@ -301,6 +302,27 @@ def _find_group(groups, key, value):
     for g in groups:
         if g.get(key) == value:
             return g
+    return None
+
+
+# ─── 小组管理 ─────────────────────────────────────────
+
+def _load_teams():
+    """加载小组列表"""
+    teams = _read_json(TEAMS_FILE, [])
+    return teams if isinstance(teams, list) else []
+
+
+def _save_teams(teams):
+    """保存小组列表"""
+    _write_json(TEAMS_FILE, teams)
+
+
+def _find_team(teams, key, value):
+    """在小组列表中查找小组"""
+    for t in teams:
+        if t.get(key) == value:
+            return t
     return None
 
 
@@ -2486,6 +2508,11 @@ def main():
 
     # 初始化默认管理员
     _init_default_admin()
+
+    # 确保 teams.json 存在
+    if not os.path.isfile(TEAMS_FILE):
+        _save_teams([])
+        print('  [TEAM] 初始化 teams.json')
 
     # 检查静态目录
     if not os.path.isdir(STATIC_DIR):
