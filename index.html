@@ -3194,6 +3194,7 @@ function hideLogin() {
 }
 
 function showMainApp() {
+  console.log('[showMainApp] currentUser=', JSON.stringify(currentUser), 'token=', localStorage.getItem('sb_auth_token') ? localStorage.getItem('sb_auth_token').substring(0,20) : 'null');
   hideLogin();
   applyPermissions();
   updateUserInfo();
@@ -4233,6 +4234,7 @@ function applyTemplate(templateKey){
 }
 
 async function loadEmployees(){
+  console.log('[loadEmployees] ========== START ==========');
   // 1. 优先从后端加载
   var token = localStorage.getItem('sb_auth_token');
   console.log('[loadEmployees] token=', token ? token.substring(0,20) + '...' : 'null');
