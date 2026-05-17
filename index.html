@@ -10775,7 +10775,10 @@ function saveUserEdit() {
     return;
   }
 
-  var payload = { displayName: displayName, role: role, agentQuota: agentQuota };
+  var teamSelect = document.getElementById('editUserTeam');
+  var teamId = teamSelect ? teamSelect.value : '';
+  var teamIds = teamId ? [teamId] : [];
+  var payload = { displayName: displayName, role: role, agentQuota: agentQuota, teamIds: teamIds };
   if (password) {
     payload.password = password;
   }
