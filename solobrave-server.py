@@ -495,40 +495,49 @@ def _get_accessible_agent_ids(auth):
     teams = _load_teams()
     users = _load_users()
     accessible = set()
-    # 自己所属组的agents
+    
+    # 自己所属组的agentIds
     for tid in auth.team_ids:
         for t in teams:
             if t.get('id') == tid:
                 for aid in t.get('agentIds', []):
                     accessible.add(aid)
                 break
-    # leader可访问管理组+子组的agents
+    
+    # 找到同组/管理组的所有用户ID（直接查users.teamIds，不依赖team.members）
     if auth.is_leader:
-        for tid in auth.managed_team_ids:
+        # leader: 自己管理的组 + leaderId指向自己的组
+        managed_tids = set(auth.managed_team_ids)
+        for t in teams:
+            if t.get('leaderId') == auth.user_info.get('userId'):
+                managed_tids.add(t.get('id'))
+        # 找这些组内的所有用户
+        same_team_user_ids = set()
+        for u in users:
+            for tid in u.get('teamIds', []):
+                if tid in managed_tids:
+                    same_team_user_ids.add(u.get('id'))
+                    break
+        # 加上管理组的agentIds
+        for tid in managed_tids:
             accessible.update(_get_team_and_children_agent_ids(tid, teams))
-        # leader还能看到管理组内所有成员创建的agent
-        managed_member_ids = set()
-        for tid in auth.managed_team_ids:
-            for t in teams:
-                if t.get('id') == tid:
-                    for mid in t.get('members', []):
-                        managed_member_ids.add(mid)
-                    break
+        # 加上同组成员创建的agent
         for a in agents:
-            if a.get('createdBy') in managed_member_ids:
+            if a.get('createdBy') in same_team_user_ids:
                 accessible.add(a.get('id'))
-    # employee也能看到同组其他成员创建的agent
     else:
-        team_member_ids = set()
-        for tid in auth.team_ids:
-            for t in teams:
-                if t.get('id') == tid:
-                    for mid in t.get('members', []):
-                        team_member_ids.add(mid)
+        # employee: 自己同组的用户
+        my_team_ids = set(auth.team_ids)
+        same_team_user_ids = set()
+        for u in users:
+            for tid in u.get('teamIds', []):
+                if tid in my_team_ids:
+                    same_team_user_ids.add(u.get('id'))
                     break
         for a in agents:
-            if a.get('createdBy') in team_member_ids:
+            if a.get('createdBy') in same_team_user_ids:
                 accessible.add(a.get('id'))
+    
     return list(accessible)
 
 
@@ -1293,6 +1302,30 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             user['status'] = body['status']
 
         _save_users(users)
+
+        # 同步更新 teams 的 members 和 leaderId
+        teams = _load_teams()
+        uid = user['id']
+        new_team_ids = set(user.get('teamIds', []))
+        new_role = user.get('role', 'employee')
+        for t in teams:
+            t_members = set(t.get('members', []))
+            # 如果用户在这个组，确保members里有
+            if t['id'] in new_team_ids:
+                t_members.add(uid)
+                t['members'] = list(t_members)
+                # 如果是leader，设置leaderId
+                if new_role == 'leader' and not t.get('leaderId'):
+                    t['leaderId'] = uid
+            else:
+                # 如果用户不在这个组，从members移除
+                if uid in t_members:
+                    t_members.discard(uid)
+                    t['members'] = list(t_members)
+                # 如果是leader离开了，清除leaderId
+                if t.get('leaderId') == uid:
+                    t['leaderId'] = None
+        _save_teams(teams)
 
         self._send_json(200, {
             'id': user['id'],
