@@ -4235,9 +4235,11 @@ function applyTemplate(templateKey){
 async function loadEmployees(){
   // 1. 优先从后端加载
   var token = localStorage.getItem('sb_auth_token');
+  console.log('[loadEmployees] token=', token ? token.substring(0,20) + '...' : 'null');
   if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
     try{
       var resp = await apiFetch('/api/agents');
+      console.log('[loadEmployees] resp=', resp ? 'ok=' + resp.ok + ' status=' + resp.status : 'null');
       if(resp && resp.ok){
         var data = await resp.json();
         if(data && data.length > 0){
@@ -4272,6 +4274,8 @@ async function loadEmployees(){
         }
       }
     }catch(e){ console.log('从后端加载员工失败，回退到本地:', e); }
+  } else {
+    console.log('[loadEmployees] 跳过后端加载, token=', token);
   }
   // 2. 回退到 localStorage
   var saved=localStorage.getItem('sb_employees');
