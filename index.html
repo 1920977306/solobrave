@@ -9994,6 +9994,14 @@ function toggleFabMenu(e) {
   };
 }
 
+// 确保FAB按钮和菜单在body下（避免被display:none父容器隐藏）
+(function() {
+  var fab = document.querySelector('.fab-button');
+  var menu = document.getElementById('fabMenu');
+  if (fab && fab.parentElement !== document.body) document.body.appendChild(fab);
+  if (menu && menu.parentElement !== document.body) document.body.appendChild(menu);
+})();
+
 // FAB拖拽
 (function() {
   var fab = document.querySelector('.fab-button');
