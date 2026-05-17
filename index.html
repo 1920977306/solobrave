@@ -9810,93 +9810,6 @@ document.addEventListener('keydown', function(e){
   <div class="fab-menu-item" onclick="showSettings()" data-admin-only>⚙️ 设置</div>
 </div>
 
-<!-- User Edit Modal -->
-<div id="userEditOverlay" onclick="closeUserEditModal()"></div>
-<div id="userEditModal">
-  <div class="modal-header">
-    <span class="modal-title">✏️ 编辑用户</span>
-    <button class="modal-close" onclick="closeUserEditModal()">×</button>
-  </div>
-  <div class="modal-body">
-    <input type="hidden" id="editUserId">
-    <div class="form-group">
-      <label class="form-label">用户名</label>
-      <input type="text" id="editUserName" class="form-input" readonly>
-    </div>
-    <div class="form-group">
-      <label class="form-label">显示名称</label>
-      <input type="text" id="editDisplayName" class="form-input" placeholder="输入显示名称">
-    </div>
-    <div class="form-group">
-      <label class="form-label">新密码 <span style="opacity:0.6">(留空则不改)</span></label>
-      <input type="password" id="editPassword" class="form-input" placeholder="输入新密码">
-    </div>
-    <div class="form-group">
-      <label class="form-label">角色</label>
-      <select id="editRole" class="form-select">
-        <option value="employee">🦞 员工</option>
-        <option value="leader">⭐ 组长</option>
-        <option value="admin">👑 管理员</option>
-      </select>
-      <div class="form-group">
-        <label class="form-label">所属小组</label>
-        <select id="editUserTeam" class="form-select">
-          <option value="">-- 不分配小组 --</option>
-        </select>
-      </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Agent配额</label>
-      <input type="number" id="editAgentQuota" class="form-input" value="10" min="0">
-    </div>
-  </div>
-  <div class="modal-footer">
-    <button class="btn btn-secondary" onclick="closeUserEditModal()">取消</button>
-    <button class="btn btn-primary" onclick="saveUserEdit()">保存</button>
-  </div>
-</div>
-
-<!-- Create User Modal -->
-<div id="createUserOverlay" onclick="closeCreateUserModal()"></div>
-<div id="createUserModal">
-  <div class="modal-header">
-    <span class="modal-title">➕ 创建用户</span>
-    <button class="modal-close" onclick="closeCreateUserModal()">×</button>
-  </div>
-  <div class="modal-body">
-    <div class="form-group">
-      <label class="form-label">用户名</label>
-      <input type="text" id="newUsername" class="form-input" placeholder="输入用户名">
-    </div>
-    <div class="form-group">
-      <label class="form-label">密码</label>
-      <input type="password" id="newPassword" class="form-input" placeholder="输入密码">
-    </div>
-    <div class="form-group">
-      <label class="form-label">显示名称</label>
-      <input type="text" id="newDisplayName" class="form-input" placeholder="输入显示名称">
-    </div>
-    <div class="form-group">
-      <label class="form-label">角色</label>
-      <select id="newRole" class="form-select">
-        <option value="employee">🦞 员工</option>
-        <option value="leader">⭐ 组长</option>
-        <option value="admin">👑 管理员</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label class="form-label">所属小组（可选）</label>
-      <select id="newUserTeams" class="form-select">
-        <option value="">-- 不分配小组 --</option>
-      </select>
-    </div>
-  </div>
-  <div class="modal-footer">
-    <button class="btn btn-secondary" onclick="closeCreateUserModal()">取消</button>
-    <button class="btn btn-primary" onclick="createUser()">创建</button>
-  </div>
-</div>
-
 <!-- FAB Button -->
 <button class="fab-button" onclick="toggleFabMenu(event)" aria-label="快捷菜单">
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -10025,6 +9938,23 @@ document.addEventListener('keydown', function(e){
   width: 100%;
   box-sizing: border-box;
 }
+
+/* ===== 管理面板内嵌弹窗定位 ===== */
+.user-management-panel { position: relative !important; }
+.team-management-panel { position: relative !important; }
+
+/* User Edit Modal - 内嵌定位 */
+#userEditOverlay { position: absolute !important; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.45); backdrop-filter: blur(8px); z-index: 299; display: none; }
+#userEditModal { position: absolute !important; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 400px; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); z-index: 300; display: none; overflow: hidden; }
+
+/* Create User Modal - 内嵌定位 */
+#createUserOverlay { position: absolute !important; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.45); backdrop-filter: blur(8px); z-index: 299; display: none; }
+#createUserModal { position: absolute !important; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 400px; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); z-index: 300; display: none; overflow: hidden; }
+
+/* Create Team Modal - 内嵌定位 */
+#createTeamOverlay { position: absolute !important; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.45); backdrop-filter: blur(8px); z-index: 299; display: none; }
+#createTeamModal { position: absolute !important; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 400px; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); z-index: 300; display: none; overflow: hidden; }
+
 </style>
 
 <!-- FAB Menu Scripts -->
@@ -10819,6 +10749,91 @@ function checkQuota() {
     </div>
     <div id="userList"></div>
   </div>
+  <!-- User Edit Modal -->
+<div id="userEditOverlay" onclick="closeUserEditModal()"></div>
+<div id="userEditModal">
+  <div class="modal-header">
+    <span class="modal-title">✏️ 编辑用户</span>
+    <button class="modal-close" onclick="closeUserEditModal()">×</button>
+  </div>
+  <div class="modal-body">
+    <input type="hidden" id="editUserId">
+    <div class="form-group">
+      <label class="form-label">用户名</label>
+      <input type="text" id="editUserName" class="form-input" readonly>
+    </div>
+    <div class="form-group">
+      <label class="form-label">显示名称</label>
+      <input type="text" id="editDisplayName" class="form-input" placeholder="输入显示名称">
+    </div>
+    <div class="form-group">
+      <label class="form-label">新密码 <span style="opacity:0.6">(留空则不改)</span></label>
+      <input type="password" id="editPassword" class="form-input" placeholder="输入新密码">
+    </div>
+    <div class="form-group">
+      <label class="form-label">角色</label>
+      <select id="editRole" class="form-select">
+        <option value="employee">🦞 员工</option>
+        <option value="leader">⭐ 组长</option>
+        <option value="admin">👑 管理员</option>
+      </select>
+      <div class="form-group">
+        <label class="form-label">所属小组</label>
+        <select id="editUserTeam" class="form-select">
+          <option value="">-- 不分配小组 --</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Agent配额</label>
+      <input type="number" id="editAgentQuota" class="form-input" value="10" min="0">
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeUserEditModal()">取消</button>
+    <button class="btn btn-primary" onclick="saveUserEdit()">保存</button>
+  </div>
+</div>
+  <!-- Create User Modal -->
+<div id="createUserOverlay" onclick="closeCreateUserModal()"></div>
+<div id="createUserModal">
+  <div class="modal-header">
+    <span class="modal-title">➕ 创建用户</span>
+    <button class="modal-close" onclick="closeCreateUserModal()">×</button>
+  </div>
+  <div class="modal-body">
+    <div class="form-group">
+      <label class="form-label">用户名</label>
+      <input type="text" id="newUsername" class="form-input" placeholder="输入用户名">
+    </div>
+    <div class="form-group">
+      <label class="form-label">密码</label>
+      <input type="password" id="newPassword" class="form-input" placeholder="输入密码">
+    </div>
+    <div class="form-group">
+      <label class="form-label">显示名称</label>
+      <input type="text" id="newDisplayName" class="form-input" placeholder="输入显示名称">
+    </div>
+    <div class="form-group">
+      <label class="form-label">角色</label>
+      <select id="newRole" class="form-select">
+        <option value="employee">🦞 员工</option>
+        <option value="leader">⭐ 组长</option>
+        <option value="admin">👑 管理员</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">所属小组（可选）</label>
+      <select id="newUserTeams" class="form-select">
+        <option value="">-- 不分配小组 --</option>
+      </select>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeCreateUserModal()">取消</button>
+    <button class="btn btn-primary" onclick="createUser()">创建</button>
+  </div>
+</div>
 </div>
 
 <!-- Team Management Panel -->
@@ -10834,9 +10849,7 @@ function checkQuota() {
     </div>
     <div id="teamList"></div>
   </div>
-</div>
-
-<!-- Create Team Modal -->
+  <!-- Create Team Modal -->
 <div id="createTeamOverlay" onclick="closeCreateTeamModal()"></div>
 <div id="createTeamModal">
   <div class="modal-header">
@@ -10863,6 +10876,7 @@ function checkQuota() {
     <button class="btn btn-secondary" onclick="closeCreateTeamModal()">取消</button>
     <button class="btn btn-primary" onclick="createTeam()">创建</button>
   </div>
+</div>
 </div>
 
 <!-- Edit Team Modal -->
