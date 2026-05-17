@@ -3139,6 +3139,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
 # ─── 启动 ───────────────────────────────────────────────
 def main():
+    global PORT, BIND
+    import argparse
+    _default_port = PORT
+    _default_bind = BIND
+    parser = argparse.ArgumentParser(description='SoloBrave Server')
+    parser.add_argument('port', nargs='?', type=int, default=_default_port, help='Listen port (default: 8080)')
+    parser.add_argument('--bind', default=_default_bind, help='Bind address (default: 0.0.0.0)')
+    args = parser.parse_args()
+    PORT = args.port
+    BIND = args.bind
+
     # 确保数据目录
     _ensure_data_dir()
 
