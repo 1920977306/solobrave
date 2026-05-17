@@ -4242,7 +4242,8 @@ async function loadEmployees(){
       console.log('[loadEmployees] resp=', resp ? 'ok=' + resp.ok + ' status=' + resp.status : 'null');
       if(resp && resp.ok){
         var data = await resp.json();
-        if(data && data.length > 0){
+        // 后端有权限过滤，直接用后端数据（包括空数组）
+        if(data !== null && data !== undefined){
           // 迁移旧头像(emoji/字母)为数字索引，并记录需要同步的
           var needsSync = [];
           for(var mi=0;mi<data.length;mi++){
@@ -4256,7 +4257,7 @@ async function loadEmployees(){
           }
           emps.length = 0;
           data.forEach(function(a){ emps.push(a); });
-          localStorage.setItem('sb_employees', JSON.stringify(emps));
+          // 不再存localStorage，避免不同用户数据混淆
           
           // 异步同步迁移后的头像到后端（避免下次刷新又被覆盖）
           if(needsSync.length > 0 && typeof apiFetch === 'function'){
