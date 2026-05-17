@@ -4911,8 +4911,10 @@ function ctxAction(action){
 // Employee Settings Dropdown (⋮ button)
 var empSettingsTarget = null;
 function showEmpSettingsMenu(event, empId){
+  try {
   empSettingsTarget = empId;
   var menu = document.getElementById('empSettingsMenu');
+  if(!menu){ console.error('[showEmpSettingsMenu] menu element NOT FOUND'); return; }
   // Support both button click (position from button) and right-click (position from mouse)
   if(event.type === 'contextmenu'){
     // Right-click: position at mouse cursor with viewport boundary check
@@ -4933,6 +4935,7 @@ function showEmpSettingsMenu(event, empId){
   }
   menu.classList.add('active');
   event.stopPropagation();
+  } catch(err) { console.error('[showEmpSettingsMenu] ERROR:', err); }
 }
 function hideEmpSettingsMenu(){
   var menu = document.getElementById('empSettingsMenu');
