@@ -1948,7 +1948,7 @@ window.doLogin = function() {
           <div class="avatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">&#129438;</div>
           <div class="emp-info">
             <div class="emp-top"><span class="emp-name">Emily</span><span class="emp-role">CEO助理</span></div>
-            <div class="emp-preview">我在读儿，帮她提提心</div>
+            <div class="emp-preview">我在读文档，帮她提提醒</div>
           </div>
         
           <div class="item-actions">
@@ -1970,7 +1970,7 @@ window.doLogin = function() {
           <div class="avatar" style="background:linear-gradient(135deg,#AF52DE,#8E44AD);">&#128025;</div>
           <div class="emp-info">
             <div class="emp-top"><span class="emp-name">Cynthia</span><span class="emp-role">COO</span></div>
-            <div class="emp-preview">比下工作</div>
+            <div class="emp-preview">比较工作进度</div>
           </div>
         
           <div class="item-actions">
@@ -6547,7 +6547,7 @@ function showMentionDropdown(){
     var item = document.createElement('div');
     item.className = 'mention-item';
     item.style.cssText = 'padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;';
-    item.innerHTML = '<span style="font-size:16px;">' + (emp.name ? emp.name[0] : '?') + '</span><span>' + emp.name + ' (' + emp.role + ')</span>';
+    item.innerHTML = '<span style="font-size:16px;">' + (emp.name ? escapeHtml(emp.name[0]) : '?') + '</span><span>' + escapeHtml(emp.name) + ' (' + escapeHtml(emp.role) + ')</span>';
     item.onclick = function(){
       var input = document.getElementById('msgInput');
       if(input) input.value = input.value.replace(/@[^@\s]*$/, '') + '@' + emp.name + ' ';
