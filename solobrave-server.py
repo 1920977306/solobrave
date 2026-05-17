@@ -610,6 +610,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     self._handle_get_team(team_id)
                     return
 
+        # Users subordinates API (V2)
+        if path.startswith('/api/users/') and '/subordinates' in path:
+            parts = path.split('/subordinates')
+            if len(parts) == 2:
+                user_id = parts[0][len('/api/users/'):]
+                if user_id:
+                    self._handle_get_user_subordinates(user_id)
+                    return
+
+        # Users role API (V2)
+        if path.startswith('/api/users/') and '/role' in path:
+            parts = path.split('/role')
+            if len(parts) == 2:
+                user_id = parts[0][len('/api/users/'):]
+                if user_id and self.command == 'PUT':
+                    self._handle_update_user_role(user_id)
+                    return
+
         # Proxy (GET not allowed)
         if path == '/api/proxy':
             self._send_json_error(405, 'POST only')
@@ -1153,7 +1171,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 可更新字段
-        if 'role' in body and body['role'] in ('admin', 'employee'):
+        if 'role' in body and body['role'] in ('admin', 'leader', 'employee'):
             user['role'] = body['role']
         if 'displayName' in body:
             user['displayName'] = body['displayName']
@@ -1163,6 +1181,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             user['agentQuota'] = body['agentQuota']
         if 'apiQuota' in body and isinstance(body['apiQuota'], int):
             user['apiQuota'] = body['apiQuota']
+        # V2 新增字段
+        if 'teamIds' in body and isinstance(body['teamIds'], list):
+            user['teamIds'] = body['teamIds']
+        if 'subordinateIds' in body and isinstance(body['subordinateIds'], list):
+            user['subordinateIds'] = body['subordinateIds']
+        if 'roleTemplateId' in body:
+            user['roleTemplateId'] = body['roleTemplateId']
+        if 'status' in body and body['status'] in ('active', 'disabled'):
+            user['status'] = body['status']
 
         _save_users(users)
 
@@ -1202,6 +1229,117 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _save_users(users)
 
         self._send_json(200, {'message': f'用户 {user["username"]} 已删除'})
+
+    def _handle_get_user_subordinates(self, user_id):
+        """GET /api/users/:id/subordinates — 获取下属列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        users = _load_users()
+        user = _find_user(users, 'id', user_id)
+        if not user:
+            self._send_json(404, {'error': '用户不存在'})
+            return
+
+        # 权限检查：本人/admin 可以看，leader 可以看自己下属
+        if not auth.is_admin:
+            if auth.user_info.get('userId') != user_id:
+                # 检查是否是上级
+                is_leader = any(s.get('leaderId') == auth.user_info.get('userId') for s in users if s.get('id') == user_id)
+                if not is_leader:
+                    self._send_json(403, {'error': '权限不足'})
+                    return
+
+        # 构建下属树
+        def get_subordinates(uid, depth=0):
+            if depth > 5:  # 防止循环
+                return []
+            result = []
+            for u in users:
+                if u.get('leaderId') == uid:
+                    result.append({
+                        'id': u.get('id'),
+                        'displayName': u.get('displayName', u.get('username', '')),
+                        'role': u.get('role', 'employee'),
+                        'teamIds': u.get('teamIds', []),
+                        'subordinates': get_subordinates(u.get('id'), depth + 1)
+                    })
+            return result
+
+        subordinates = get_subordinates(user_id)
+
+        self._send_json(200, {
+            'userId': user_id,
+            'subordinates': subordinates
+        })
+
+    def _handle_update_user_role(self, user_id):
+        """PUT /api/users/:id/role — 修改用户角色（仅admin）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        new_role = body.get('role')
+        if new_role not in ('admin', 'leader', 'employee'):
+            self._send_json(400, {'error': '无效的角色'})
+            return
+
+        users = _load_users()
+        user = _find_user(users, 'id', user_id)
+        if not user:
+            self._send_json(404, {'error': '用户不存在'})
+            return
+
+        old_role = user.get('role', 'employee')
+        user['role'] = new_role
+
+        # role 从 employee → leader：需要指定管理的 teamId
+        if old_role == 'employee' and new_role == 'leader':
+            team_id = body.get('teamId')
+            if team_id:
+                user['teamIds'] = user.get('teamIds', []) + [team_id]
+                # 更新小组的 leaderId
+                teams = _load_teams()
+                team = _find_team(teams, 'id', team_id)
+                if team:
+                    team['leaderId'] = user_id
+                    if user_id not in team.get('members', []):
+                        team['members'].append(user_id)
+                    _save_teams(teams)
+
+        # role 从 leader → employee：清除 subordinateIds 和管理的 teamId 的 leaderId
+        if old_role == 'leader' and new_role == 'employee':
+            # 清除 subordinateIds
+            user['subordinateIds'] = []
+            # 清除所有作为 leader 的小组
+            teams = _load_teams()
+            for t in teams:
+                if t.get('leaderId') == user_id:
+                    t['leaderId'] = None
+            _save_teams(teams)
+
+        _save_users(users)
+
+        self._send_json(200, {
+            'id': user.get('id'),
+            'username': user.get('username', ''),
+            'role': user.get('role', 'employee'),
+            'displayName': user.get('displayName', user.get('username', '')),
+            'teamIds': user.get('teamIds', []),
+            'subordinateIds': user.get('subordinateIds', [])
+        })
 
     # ═══════════════════════════════════════════════════
     # 群组 API（项目组群聊）
