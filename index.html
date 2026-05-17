@@ -9800,20 +9800,7 @@ document.addEventListener('keydown', function(e){
   <div class="gear-menu-item" onclick="gearPinEmployee()">📌 置顶</div>
 </div>
 
-<!-- FAB Menu -->
-<div class="fab-menu" id="fabMenu">
-  <div class="fab-menu-item" onclick="showAISwitcher()">🔄 切换AI</div>
-  <div class="fab-menu-item" onclick="startNewChat()">➕ 新建对话</div>
-  <div class="fab-menu-item" onclick="showGlobalSearch()">🔍 全局搜索</div>
-  <div class="fab-menu-item" onclick="showUserManagement()" data-admin-only>👥 用户管理</div>
-  <div class="fab-menu-item" onclick="showTeamManagement()" data-leader-only>🏢 团队管理</div>
-  <div class="fab-menu-item" onclick="showSettings()" data-admin-only>⚙️ 设置</div>
-</div>
 
-<!-- FAB Button -->
-<button class="fab-button" onclick="toggleFabMenu(event)" aria-label="快捷菜单">
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-</button>
 
 <!-- User Edit Modal Styles -->
 <style>
@@ -9851,7 +9838,7 @@ document.addEventListener('keydown', function(e){
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-modal);
   min-width: 160px;
-  z-index: 100;
+  z-index: 351;
   display: none;
   overflow: hidden;
 }
@@ -11110,5 +11097,20 @@ function checkQuota() {
 
 <script src="avatars.js?v=1778166504"></script>
 <script src="openclaw-client-v3.js"></script>
+
+<!-- FAB Menu -->
+<div class="fab-menu" id="fabMenu">
+  <div class="fab-menu-item" onclick="showAISwitcher()">🔄 切换AI</div>
+  <div class="fab-menu-item" onclick="startNewChat()">➕ 新建对话</div>
+  <div class="fab-menu-item" onclick="showGlobalSearch()">🔍 全局搜索</div>
+  <div class="fab-menu-item" onclick="showUserManagement()" data-admin-only>👥 用户管理</div>
+  <div class="fab-menu-item" onclick="showTeamManagement()" data-leader-only>🏢 团队管理</div>
+  <div class="fab-menu-item" onclick="showSettings()" data-admin-only>⚙️ 设置</div>
+</div>
+
+<!-- FAB Button -->
+<button class="fab-button" onclick="toggleFabMenu(event)" aria-label="快捷菜单">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+</button>
 </body>
 </html>
