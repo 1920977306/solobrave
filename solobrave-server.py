@@ -2150,18 +2150,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         agents = _load_agents()
+        # DEBUG: 打印权限信息
+        print(f"[DEBUG /api/agents] user={auth.user_info.get('username')} role={auth.user_info.get('role')} team_ids={auth.team_ids} managed_team_ids={auth.managed_team_ids}")
+        
         if auth.is_admin:
             result = agents
         elif auth.is_leader:
             # leader: 看自己管理组+子组的agents + 自己创建的
             accessible_ids = _get_accessible_agent_ids(auth)
+            print(f"[DEBUG /api/agents] leader accessible_ids={accessible_ids}")
             result = [a for a in agents
                       if a.get('id') in accessible_ids or a.get('createdBy') == auth.user_info['userId']]
         else:
             # employee: 看自己所属组的agents + 自己创建的
             accessible_ids = _get_accessible_agent_ids(auth)
+            print(f"[DEBUG /api/agents] employee accessible_ids={accessible_ids}")
             result = [a for a in agents
                       if a.get('id') in accessible_ids or a.get('createdBy') == auth.user_info['userId']]
+        
+        print(f"[DEBUG /api/agents] total_agents={len(agents)} visible_agents={len(result)}")
 
         # 去掉不需要的字段
         safe_result = []
