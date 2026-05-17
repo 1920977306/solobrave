@@ -3244,8 +3244,15 @@ async function loadVisibleTeams(){
   try{
     var resp = await apiFetch('/api/teams');
     if(resp && resp.ok){
-      var teams = await resp.json();
-      window._visibleTeams = teams || [];
+      var allTeams = await resp.json();
+      // leader只看自己管理的组
+      var uid = currentUser && currentUser.id;
+      var managedIds = currentUser && currentUser.managedTeamIds || [];
+      window._visibleTeams = (allTeams || []).filter(function(t){
+        return t.leaderId === uid || managedIds.indexOf(t.id) >= 0;
+      });
+      // 如果没有任何管理的组，也能看到所有组（兼容未分配的情况）
+      if(window._visibleTeams.length === 0) window._visibleTeams = allTeams || [];
     } else {
       window._visibleTeams = [];
     }
@@ -4492,17 +4499,28 @@ function getVisibleEmps(){
   var role = currentUser && currentUser.role;
   if(role === 'admin' || !uid) return emps;
   if(role === 'leader'){
+    // leader可见: 自己创建的 + 自己管理的组内成员 + 自己管理的组内agent
     var visibleIds = _getLeaderVisibleAgentIds();
-    return emps.filter(function(e){ return visibleIds.indexOf(e.id) >= 0 || e.createdBy === uid; });
+    return emps.filter(function(e){
+      return visibleIds.indexOf(e.id) >= 0 || e.createdBy === uid;
+    });
   }
+  // employee可见: 自己创建的
   return emps.filter(function(e){ return e.createdBy === uid; });
 }
 
-// Leader可见的Agent ID列表（来自可视小组）
+// Leader可见的Agent ID列表（来自可视小组的members + agentIds）
 function _getLeaderVisibleAgentIds(){
   var teams = window._visibleTeams || [];
   var ids = [];
   teams.forEach(function(t){
+    // 小组成员（user创建的emps）
+    if(t.members){
+      t.members.forEach(function(mid){
+        if(ids.indexOf(mid) < 0) ids.push(mid);
+      });
+    }
+    // OpenClaw agents
     if(t.agentIds){
       t.agentIds.forEach(function(aid){
         if(ids.indexOf(aid) < 0) ids.push(aid);
@@ -7028,7 +7046,10 @@ if(avatarGrid&&typeof AVATAR_PRESETS!=='undefined'){
   }
   avatarGrid.innerHTML=avatarHtml;
 }
-document.getElementById('empDetailOverlay').classList.add('open');
+// 确保overlay在body下
+var overlay = document.getElementById('empDetailOverlay');
+if (overlay && overlay.parentElement !== document.body) document.body.appendChild(overlay);
+overlay.classList.add('open');
 loadEmpConnect(emp);
 switchEmpDetailTab('basic');
 }
@@ -8050,6 +8071,20 @@ closeEmpDetail();
 const emp=emps.find(e=>e.id===currentEmpId);
 if(emp)showEditModal(emp.id);
 }
+function deleteEmployee(empId){
+  emps = emps.filter(function(e){ return e.id !== empId; });
+  localStorage.removeItem('sb_chat_history_' + empId);
+  if(localStorage.getItem('sb_current_emp') === empId){
+    localStorage.removeItem('sb_current_emp');
+  }
+  saveEmployees();
+  if(typeof apiFetch === 'function'){
+    apiFetch('/api/agents/' + empId, {method:'DELETE'}).catch(function(){});
+  }
+  renderMsgs('private');
+  showToast('🗑️ 已删除');
+}
+
 function deleteEmpFromDetail(){
 if(!currentEmpId)return;
 if(confirm('确定要删除这个员工吗？')){
