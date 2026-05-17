@@ -7794,6 +7794,9 @@ function loadEmpConnect(emp){
 
   // 更新 Gateway 状态
   updateGatewayStatus();
+  
+  // 更新 Dreaming 开关状态
+  updateDreamingToggle();
 }
 function saveEmpConnect(){
   if(!currentEmpId)return;
@@ -7811,6 +7814,41 @@ function saveEmpConnect(){
 
   // 自动在 Gateway 注册/更新 Agent
   registerOpenClawAgent(emp);
+}
+
+// Dreaming开关切换
+function toggleDreaming(enabled) {
+  if(!currentEmpId) return;
+  var emp = emps.find(function(e){ return e.id === currentEmpId; });
+  if(!emp) return;
+  
+  // 调用后端API
+  apiFetch('/api/openclaw/dreaming', {
+    method: 'POST',
+    body: JSON.stringify({ agentId: currentEmpId, enabled: enabled })
+  }).then(function(res) {
+    if(res && res.ok) {
+      emp.dreamingEnabled = enabled;
+      saveEmployees();
+      showToast('✅ Dreaming ' + (enabled ? '已启用' : '已禁用'));
+    }
+  }).catch(function() {
+    // 本地降级
+    emp.dreamingEnabled = enabled;
+    saveEmployees();
+    showToast((enabled ? '✅' : '💤') + ' Dreaming ' + (enabled ? '已启用' : '已禁用') + '（本地模式）');
+  });
+}
+
+// 更新Dreaming开关状态
+function updateDreamingToggle() {
+  if(!currentEmpId) return;
+  var emp = emps.find(function(e){ return e.id === currentEmpId; });
+  if(!emp) return;
+  var toggle = document.getElementById('empDreamingToggle');
+  if(toggle) {
+    toggle.checked = emp.dreamingEnabled === true;
+  }
 }
 
 async function registerOpenClawAgent(emp){
