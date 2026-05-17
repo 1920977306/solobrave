@@ -665,26 +665,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # Agents API
-        if path == '/api/debug/auth':
-            auth = _authenticate(self.headers)
-            if not auth.is_authenticated:
-                self._send_auth_error(auth.error, auth.status)
-                return
-            accessible = _get_accessible_agent_ids(auth)
-            agents = _load_agents()
-            visible = agents if accessible is None else [a for a in agents if a.get('id') in accessible or a.get('createdBy') == auth.user_info.get('userId')]
-            self._send_json(200, {
-                'user': auth.user_info,
-                'team_ids': auth.team_ids,
-                'managed_team_ids': auth.managed_team_ids,
-                'is_leader': auth.is_leader,
-                'is_admin': auth.is_admin,
-                'accessible_ids': accessible,
-                'visible_agent_count': len(visible),
-                'total_agent_count': len(agents),
-                'git_version': 'dec8040'
-            })
-            return
         if path == '/api/agents':
             self._handle_get_agents()
             return
@@ -833,26 +813,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # Agents API
-        if path == '/api/debug/auth':
-            auth = _authenticate(self.headers)
-            if not auth.is_authenticated:
-                self._send_auth_error(auth.error, auth.status)
-                return
-            accessible = _get_accessible_agent_ids(auth)
-            agents = _load_agents()
-            visible = agents if accessible is None else [a for a in agents if a.get('id') in accessible or a.get('createdBy') == auth.user_info.get('userId')]
-            self._send_json(200, {
-                'user': auth.user_info,
-                'team_ids': auth.team_ids,
-                'managed_team_ids': auth.managed_team_ids,
-                'is_leader': auth.is_leader,
-                'is_admin': auth.is_admin,
-                'accessible_ids': accessible,
-                'visible_agent_count': len(visible),
-                'total_agent_count': len(agents),
-                'git_version': 'dec8040'
-            })
-            return
         if path == '/api/agents':
             self._handle_create_agent()
             return
@@ -2232,25 +2192,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         agents = _load_agents()
-        # DEBUG: 打印权限信息
-        print(f"[DEBUG /api/agents] user={auth.user_info.get('username')} role={auth.user_info.get('role')} team_ids={auth.team_ids} managed_team_ids={auth.managed_team_ids}")
-        
+
         if auth.is_admin:
             result = agents
         elif auth.is_leader:
             # leader: 看自己管理组+子组的agents + 自己创建的
             accessible_ids = _get_accessible_agent_ids(auth)
-            print(f"[DEBUG /api/agents] leader accessible_ids={accessible_ids}")
+
             result = [a for a in agents
                       if a.get('id') in accessible_ids or a.get('createdBy') == auth.user_info['userId']]
         else:
             # employee: 看自己所属组的agents + 自己创建的
             accessible_ids = _get_accessible_agent_ids(auth)
-            print(f"[DEBUG /api/agents] employee accessible_ids={accessible_ids}")
+
             result = [a for a in agents
                       if a.get('id') in accessible_ids or a.get('createdBy') == auth.user_info['userId']]
         
-        print(f"[DEBUG /api/agents] total_agents={len(agents)} visible_agents={len(result)}")
+
 
         # 去掉不需要的字段
         safe_result = []
@@ -2399,9 +2357,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 权限校验
-        if not auth.is_admin and agent.get('createdBy') != auth.user_info['userId']:
-            self._send_auth_error('权限不足', 403)
-            return
+        if not auth.is_admin:
+            if agent.get('createdBy') != auth.user_info['userId']:
+                # leader可以删管理组内成员创建的agent
+                if not (auth.is_leader and agent.get('createdBy') in _get_team_member_ids(auth)):
+                    self._send_auth_error('权限不足', 403)
+                    return
 
         # 可更新字段
         updatable = ['name', 'role', 'bg', 'avatar', 'status', 'msg', 'archived',
@@ -2436,9 +2397,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 权限校验
-        if not auth.is_admin and agent.get('createdBy') != auth.user_info['userId']:
-            self._send_auth_error('权限不足', 403)
-            return
+        if not auth.is_admin:
+            if agent.get('createdBy') != auth.user_info['userId']:
+                # leader可以删管理组内成员创建的agent
+                if not (auth.is_leader and agent.get('createdBy') in _get_team_member_ids(auth)):
+                    self._send_auth_error('权限不足', 403)
+                    return
 
         agents = [a for a in agents if a.get('id') != agent_id]
         _save_agents(agents)

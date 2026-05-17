@@ -3194,7 +3194,7 @@ function hideLogin() {
 }
 
 function showMainApp() {
-  console.log('[showMainApp] currentUser=', JSON.stringify(currentUser), 'token=', localStorage.getItem('sb_auth_token') ? localStorage.getItem('sb_auth_token').substring(0,20) : 'null');
+  
   hideLogin();
   applyPermissions();
   updateUserInfo();
@@ -4232,17 +4232,17 @@ function applyTemplate(templateKey){
 }
 
 async function loadEmployees(){
-  console.log('[loadEmployees] ========== START ==========');
+  
   // 1. 优先从后端加载
   var token = localStorage.getItem('sb_auth_token');
-  console.log('[loadEmployees] token=', token ? token.substring(0,20) + '...' : 'null');
+  
   if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
     try{
       var resp = await apiFetch('/api/agents');
-      console.log('[loadEmployees] resp=', resp ? 'ok=' + resp.ok + ' status=' + resp.status : 'null');
+      
       if(resp && resp.ok){
         var data = await resp.json();
-        console.log('[loadEmployees] backend returned', data ? data.length : 0, 'agents:', data ? data.map(function(a){return a.id+':'+a.name+'(by:'+a.createdBy+')'}) : []);
+        
         // 后端有权限过滤，直接用后端数据（包括空数组）
         if(data !== null && data !== undefined){
           // 迁移旧头像(emoji/字母)为数字索引，并记录需要同步的
@@ -4835,9 +4835,10 @@ function renderEmployeeItem(e, showCreator){
   var avatarHtml = renderAvatar(e, size);
   var creatorTag = '';
   
-  // 管理员视图：显示创建者标签
-  if(showCreator && isAdmin() && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
-    creatorTag = '<span style="display:inline-block;margin-left:4px;padding:1px 4px;background:var(--bg-tertiary);border-radius:3px;font-size:10px;color:var(--text-tertiary);vertical-align:middle;">' + escapeHtml(e.createdByName || '其他用户') + '</span>';
+  // admin/leader视图：显示创建者标签
+  if(showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
+    var creatorName = e.createdByName || '未知';
+    creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:rgba(255,107,53,0.1);border-radius:4px;font-size:11px;color:#FF6B35;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
   }
   
   // 紧急 Badge
