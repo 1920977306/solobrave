@@ -3299,7 +3299,7 @@ async function _fullLogin() {
         managedTeamIds: data.user.managedTeamIds || []
       };
       // Leader角色加载可见小组
-      if(isLeader()){
+      if(isLeader() && typeof loadVisibleTeams === 'function'){
         loadVisibleTeams();
       }
       authToken = data.token;
@@ -3320,12 +3320,16 @@ async function _fullLogin() {
     // 后端未启动，降级到本地模式
     console.warn('后端不可用，降级到本地模式', e);
     var isAdminUser = (username === 'admin');
+    // 尝试从已有用户列表判断角色
+    var detectedRole = 'employee';
+    try { var _users = JSON.parse(localStorage.getItem('sb_users') || '[]'); var _u = _users.find(function(u){return u.username===username;}); if(_u) detectedRole = _u.role; } catch(ex){}
+    if(isAdminUser) detectedRole = 'admin';
     currentUser = {
       id: 'local_' + Date.now(),
       username: username,
       name: isAdminUser ? '管理员' : username,
       displayName: isAdminUser ? '管理员' : username,
-      role: isAdminUser ? 'admin' : 'employee',
+      role: detectedRole,
       avatar: isAdminUser ? 0 : 1,
       createdAt: new Date().toISOString()
     };
