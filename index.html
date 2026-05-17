@@ -577,7 +577,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* ========================================
    FAB BUTTON - 悬浮按钮
    ======================================== */
-.fab-button { position: fixed; bottom: 24px; right: 24px; width: 52px; height: 52px; border-radius: 26px; background: var(--accent); box-shadow: var(--shadow-fab); display: flex; align-items: center; justify-content: center; z-index: 350; cursor: pointer; transition: all 0.2s; color: white; font-size: 22px; }
+.fab-button { position: fixed; bottom: 90px; right: 24px; width: 52px; height: 52px; border-radius: 26px; background: var(--accent); box-shadow: var(--shadow-fab); display: flex; align-items: center; justify-content: center; z-index: 350; cursor: grab; transition: box-shadow 0.2s, opacity 0.2s; color: white; font-size: 22px; user-select: none; -webkit-user-select: none; touch-action: none; }
+.fab-button.dragging { cursor: grabbing; box-shadow: 0 8px 32px rgba(255, 107, 53, 0.5); opacity: 0.85; }
 .fab-button:hover { transform: scale(1.08); box-shadow: 0 6px 24px rgba(255, 107, 53, 0.4); }
 .fab-button:active { transform: scale(0.95); }
 .fab-button .badge { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; background: #FF3B30; color: white; border-radius: 9px; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
@@ -9832,7 +9833,7 @@ document.addEventListener('keydown', function(e){
 <style>
 .fab-menu {
   position: fixed;
-  bottom: 90px;
+  bottom: 156px;
   right: 24px;
   background: var(--bg-primary);
   border-radius: var(--radius-lg);
@@ -9962,14 +9963,103 @@ document.addEventListener('keydown', function(e){
 <!-- FAB Menu Scripts -->
 <script>
 function toggleFabMenu(e) {
-  e.stopPropagation();
-  const menu = document.getElementById('fabMenu');
+  if (e) e.stopPropagation();
+  var menu = document.getElementById('fabMenu');
+  var btn = document.querySelector('.fab-button');
+  // 更新菜单位置跟随按钮
+  var btnRect = btn.getBoundingClientRect();
+  menu.style.bottom = (window.innerHeight - btnRect.top + 8) + 'px';
+  menu.style.right = (window.innerWidth - btnRect.right) + 'px';
   menu.classList.toggle('show');
   document.onclick = function() {
     menu.classList.remove('show');
     document.onclick = null;
   };
 }
+
+// FAB拖拽
+(function() {
+  var fab = document.querySelector('.fab-button');
+  if (!fab) return;
+  var isDragging = false, wasDragged = false;
+  var startX, startY, startLeft, startBottom;
+  var THRESHOLD = 6;
+
+  function getXY(e) {
+    var t = e.touches ? e.touches[0] : e;
+    return { x: t.clientX, y: t.clientY };
+  }
+
+  function onDown(e) {
+    if (e.button && e.button !== 0) return;
+    var p = getXY(e);
+    isDragging = true; wasDragged = false;
+    startX = p.x; startY = p.y;
+    var r = fab.getBoundingClientRect();
+    startLeft = r.left;
+    startBottom = window.innerHeight - r.bottom;
+    fab.classList.add('dragging');
+    e.preventDefault();
+  }
+
+  function onMove(e) {
+    if (!isDragging) return;
+    var p = getXY(e);
+    var dx = p.x - startX, dy = p.y - startY;
+    if (!wasDragged && (Math.abs(dx) > THRESHOLD || Math.abs(dy) > THRESHOLD)) wasDragged = true;
+    if (wasDragged) {
+      var nl = Math.max(0, Math.min(window.innerWidth - 52, startLeft + dx));
+      var nb = Math.max(0, Math.min(window.innerHeight - 52, startBottom - dy));
+      fab.style.left = nl + 'px';
+      fab.style.bottom = nb + 'px';
+      fab.style.right = 'auto';
+      e.preventDefault();
+    }
+  }
+
+  function onUp(e) {
+    if (!isDragging) return;
+    isDragging = false;
+    fab.classList.remove('dragging');
+    if (wasDragged) {
+      // 吸附到最近的边
+      var r = fab.getBoundingClientRect();
+      var cx = r.left + 26;
+      if (cx > window.innerWidth / 2) {
+        fab.style.left = 'auto'; fab.style.right = '24px';
+      } else {
+        fab.style.right = 'auto'; fab.style.left = '24px';
+      }
+      fab.style.bottom = (window.innerHeight - r.bottom) + 'px';
+      // 保存位置
+      try { localStorage.setItem('fab_pos', fab.style.right + '|' + fab.style.left + '|' + fab.style.bottom); } catch(x) {}
+    }
+  }
+
+  fab.addEventListener('mousedown', onDown);
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+  fab.addEventListener('touchstart', onDown, {passive: false});
+  document.addEventListener('touchmove', onMove, {passive: false});
+  document.addEventListener('touchend', onUp);
+
+  // 恢复位置
+  try {
+    var sp = localStorage.getItem('fab_pos');
+    if (sp) {
+      var parts = sp.split('|');
+      if (parts[0] !== 'auto') { fab.style.right = parts[0]; fab.style.left = 'auto'; }
+      if (parts[1] !== 'auto') { fab.style.left = parts[1]; fab.style.right = 'auto'; }
+      if (parts[2]) fab.style.bottom = parts[2];
+    }
+  } catch(x) {}
+
+  // 点击：非拖拽时才打开菜单
+  fab.addEventListener('click', function(e) {
+    if (wasDragged) { e.stopPropagation(); e.preventDefault(); wasDragged = false; }
+    else { toggleFabMenu(e); }
+  });
+})();
 
 function showAISwitcher() {
   document.getElementById('fabMenu').classList.remove('show');
@@ -11109,7 +11199,7 @@ function checkQuota() {
 </div>
 
 <!-- FAB Button -->
-<button class="fab-button" onclick="toggleFabMenu(event)" aria-label="快捷菜单">
+<button class="fab-button" aria-label="快捷菜单">
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 </button>
 </body>
