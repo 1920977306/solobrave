@@ -3193,30 +3193,6 @@ function hideLogin() {
   document.querySelector('.top-banner').style.display = 'flex';
 }
 
-// 全局事件委托：员工操作按钮
-document.addEventListener('click', function(ev) {
-  var detailBtn = ev.target.closest('.btn-detail');
-  if (detailBtn) {
-    ev.stopPropagation();
-    ev.preventDefault();
-    var item = detailBtn.closest('.list-item');
-    if (item && item.dataset.id) {
-      openEmpDetail(item.dataset.id);
-    }
-    return;
-  }
-  var moreBtn = ev.target.closest('.emp-more-btn');
-  if (moreBtn) {
-    ev.stopPropagation();
-    ev.preventDefault();
-    var item = moreBtn.closest('.list-item');
-    if (item && item.dataset.id) {
-      showEmpSettingsMenu(ev, item.dataset.id);
-    }
-    return;
-  }
-}, true); // useCapture=true，在冒泡前捕获
-
 function showMainApp() {
   
   hideLogin();
@@ -4579,7 +4555,7 @@ function renderEmployeeList(){
     Object.keys(subGroups).forEach(function(sub){
       html += renderSubCategoryHeader(sub, subGroups[sub].length);
       html += subGroups[sub].map(function(e){
-        return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, true) + '<div class="item-actions"><button class="emp-action-btn btn-detail" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button><button class="emp-action-btn emp-more-btn" title="更多">⋮</button></div></div>';
+        return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, true) + '<div class="item-actions"><button class="emp-action-btn btn-detail" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();var _item=this.closest(\'.list-item\');if(_item)openEmpDetail(_item.dataset.id)" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button><button class="emp-action-btn emp-more-btn" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();var _item=this.closest(\'.list-item\');if(_item)showEmpSettingsMenu(event,_item.dataset.id)" title="更多">⋮</button></div></div>';
       }).join('');
     });
   }
@@ -4861,7 +4837,7 @@ function renderEmployeeItem(e, showCreator){
   
   // admin/leader视图：显示创建者标签
   if(showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
-    var creatorName = e.createdByName || '未知';
+    var creatorName = e.createdByName || e._createdByName || '未知';
     creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:rgba(255,107,53,0.1);border-radius:4px;font-size:11px;color:#FF6B35;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
   }
   
