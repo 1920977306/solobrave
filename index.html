@@ -4407,6 +4407,7 @@ function checkReminders(){
 // 生成催促消息
 function generateReminderMsg(){
   const {overdue,urgent}=checkReminders();
+  if(!emps || emps.length===0) return null;
   const emp=emps[Math.floor(Math.random()*emps.length)];
   const msgs=[];
   
@@ -4438,7 +4439,7 @@ function showReminder(){
   }
   
   // 同时显示为顶部通知
-  showToast(emp.name + ': ' + text.split('\n')[0]);
+  if(emp && emp.name) showToast(emp.name + ': ' + text.split('\n')[0]);
 }
 
 // 自动催促（定时检测）
@@ -10440,8 +10441,11 @@ function loadTeamList() {
 function renderTeamList(teams) {
   var list = document.getElementById('teamList');
   if (!list) return;
-  
-  if (teams.length === 0) {
+  if (!teams) {
+    // Load from groups API or use empty
+    teams = [];
+  }
+  if (!teams.length) {
     list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">🏢</div><div>暂无小组</div></div>';
     return;
   }
