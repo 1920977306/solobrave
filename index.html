@@ -4346,15 +4346,24 @@ async function loadEmployees(){
     }catch(e){}
   }
 }
-// Listen for storage changes from other pages
-window.addEventListener('storage',(e)=>{
-  if(e.key==='sb_employees'){
-    loadEmployees();
-    renderEmployeeList();
-  }
-  if(e.key==='sb_archived'){
-    loadArchive();
-    renderEmployeeList();
+// Listen for storage changes from other tabs (not same tab)
+// Only reload if the change came from another tab
+window.addEventListener('storage', function(e){
+  if(e.key==='sb_employees' && e.newValue){
+    // Another tab updated employees - parse and merge carefully
+    try {
+      var otherEmps = JSON.parse(e.newValue);
+      if(otherEmps && Array.isArray(otherEmps)){
+        // Only update if the other tab has employees we don't have
+        var localIds = emps.map(function(x){return x.id;}).sort().join(',');
+        var otherIds = otherEmps.map(function(x){return x.id;}).sort().join(',');
+        if(localIds !== otherIds){
+          emps.length = 0;
+          otherEmps.forEach(function(a){ emps.push(a); });
+          renderEmployeeList();
+        }
+      }
+    } catch(err){}
   }
 });
 loadArchive();
@@ -5001,6 +5010,19 @@ var empSettingsTarget = null;
 function showEmpSettingsMenu(event, empId){
   try {
   empSettingsTarget = empId;
+  // Show unarchive option for archived employees, hide archive
+  var targetEmp = emps.find(function(e){ return e.id === empId; });
+  var unarchiveEl = document.getElementById('empMenuUnarchive');
+  var archiveEl = document.querySelector('#empSettingsMenu .menu-item[onclick*="archive"]');
+  if(unarchiveEl && archiveEl){
+    if(targetEmp && targetEmp.archived){
+      unarchiveEl.style.display = '';
+      archiveEl.style.display = 'none';
+    } else {
+      unarchiveEl.style.display = 'none';
+      archiveEl.style.display = '';
+    }
+  }
   var menu = document.getElementById('empSettingsMenu');
   if(!menu){ console.error('[showEmpSettingsMenu] menu element NOT FOUND'); return; }
   // Support both button click (position from button) and right-click (position from mouse)
@@ -5062,6 +5084,12 @@ function empSettingsAction(action){
       emp.archived = true; 
       saveEmployees(); 
       showToast('📦 已归档'); 
+      break;
+    case 'unarchive':
+      emp.archived = false;
+      saveEmployees();
+      renderEmployeeList();
+      showToast('📂 已恢复');
       break;
     case 'clearBadge':
       emp.badge = '';
