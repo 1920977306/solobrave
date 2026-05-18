@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- 虾身 -->
+  <ellipse cx="16" cy="18" rx="6" ry="8" fill="#FF6B35"/>
+  <!-- 头部 -->
+  <circle cx="16" cy="10" r="4" fill="#FF6B35"/>
+  <!-- 左钳 -->
+  <path d="M10 14 Q6 10 4 14 Q6 18 10 16" fill="#FF6B35"/>
+  <!-- 右钳 -->
+  <path d="M22 14 Q26 10 28 14 Q26 18 22 16" fill="#FF6B35"/>
+  <!-- 左触须 -->
+  <path d="M14 7 Q10 3 8 5" stroke="#FF6B35" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <!-- 右触须 -->
+  <path d="M18 7 Q22 3 24 5" stroke="#FF6B35" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <!-- 虾尾 -->
+  <path d="M12 25 Q16 30 20 25 L18 26 Q16 28 14 26 Z" fill="#FF6B35"/>
+</svg>
