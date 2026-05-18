@@ -766,6 +766,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._do_POST()
         except Exception as e:
             print(f'  [ERROR] POST {self.path}: {e}', flush=True)
+            import traceback; traceback.print_exc()
             try:
                 self._send_json(500, {'error': str(e)})
             except:
@@ -863,6 +864,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._do_PUT()
         except Exception as e:
             print(f'  [ERROR] PUT {self.path}: {e}', flush=True)
+            import traceback; traceback.print_exc()
             try:
                 self._send_json(500, {'error': str(e)})
             except:
@@ -2275,6 +2277,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_create_agent(self):
         """POST /api/agents"""
+        try:
+            self._handle_create_agent_inner()
+        except Exception as e:
+            print(f'  [POST agent] ERROR: {e}', flush=True)
+            import traceback; traceback.print_exc()
+            self._send_json(500, {'error': str(e)})
+
+    def _handle_create_agent_inner(self):
+        """POST /api/agents (implementation)"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
