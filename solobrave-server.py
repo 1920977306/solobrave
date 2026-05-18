@@ -3244,9 +3244,22 @@ def main():
     parser = argparse.ArgumentParser(description='SoloBrave Server')
     parser.add_argument('port', nargs='?', type=int, default=_default_port, help='Listen port (default: 8080)')
     parser.add_argument('--bind', default=_default_bind, help='Bind address (default: 0.0.0.0)')
+    parser.add_argument('--data', default=None, help='Data directory (default: ~/.solobrave-data)')
     args = parser.parse_args()
     PORT = args.port
     BIND = args.bind
+
+    # Override data directory if specified
+    if args.data:
+        global DATA_DIR, SECRET_FILE, USERS_FILE, AGENTS_FILE, GROUPS_FILE, CHATS_DIR, SETTINGS_FILE, TEAMS_FILE
+        DATA_DIR = os.path.abspath(args.data)
+        SECRET_FILE = os.path.join(DATA_DIR, '.secret')
+        USERS_FILE = os.path.join(DATA_DIR, 'users.json')
+        AGENTS_FILE = os.path.join(DATA_DIR, 'agents.json')
+        GROUPS_FILE = os.path.join(DATA_DIR, 'groups.json')
+        CHATS_DIR = os.path.join(DATA_DIR, 'chats')
+        SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
+        TEAMS_FILE = os.path.join(DATA_DIR, 'teams.json')
 
     # 确保数据目录
     _ensure_data_dir()
