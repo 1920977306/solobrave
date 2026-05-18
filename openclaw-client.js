@@ -187,8 +187,8 @@ class OpenClawClient {
   // 构建标准的 v3 connect 参数
   _buildConnectParams(nonce) {
     const params = {
-      minProtocol: 3,
-      maxProtocol: 3,
+      minProtocol: 4,
+      maxProtocol: 4,
       client: {
         id: 'openclaw-control-ui',
         version: '1.0.0',
