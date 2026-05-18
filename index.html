@@ -4644,8 +4644,23 @@ function renderEmployeeList(){
     html += '<div style="padding:4px 24px;display:flex;justify-content:center;"><div class="group-add-btn" onclick="openGroupWizard()" title="创建项目组">+</div></div>';
   }
 
+  // 保存归档区HTML（innerHTML会清除它）
+  var archiveHtml = '';
+  var archive1v1 = document.getElementById('archive-1v1');
+  var archiveProjects = document.getElementById('archive-projects');
+  if(archive1v1) archiveHtml += archive1v1.outerHTML;
+  if(archiveProjects) archiveHtml += archiveProjects.outerHTML;
+  
   list.innerHTML = html;
   bindListEvents();
+  
+  // 重新插入归档区
+  if(!document.getElementById('archive-1v1') && archive1v1){
+    list.insertAdjacentHTML('beforeend', archive1v1.outerHTML);
+  }
+  if(!document.getElementById('archive-projects') && archiveProjects){
+    list.insertAdjacentHTML('beforeend', archiveProjects.outerHTML);
+  }
   
   // 渲染归档区域
   renderArchiveSections();
