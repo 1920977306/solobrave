@@ -80,9 +80,10 @@ def _read_json(filepath, default=None):
 
 
 def _write_json(filepath, data):
-    """写入 JSON 文件（加文件锁，Windows下跳过）"""
+    """写入 JSON 文件（加文件锁，唯一临时文件避免并发踩踏）"""
     _ensure_data_dir()
-    tmp_path = filepath + '.tmp'
+    # 用唯一临时文件名，避免并发写入时互相覆盖tmp
+    tmp_path = filepath + '.tmp.' + uuid.uuid4().hex[:8]
     try:
         with open(tmp_path, 'w', encoding='utf-8') as f:
             if fcntl:
