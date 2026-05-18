@@ -4555,7 +4555,7 @@ function renderEmployeeList(){
     Object.keys(subGroups).forEach(function(sub){
       html += renderSubCategoryHeader(sub, subGroups[sub].length);
       html += subGroups[sub].map(function(e){
-        return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, true) + '<div class="item-actions"><button class="emp-action-btn btn-detail" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();var _item=this.closest(\'.list-item\');if(_item)openEmpDetail(_item.dataset.id)" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button><button class="emp-action-btn emp-more-btn" onmousedown="event.stopPropagation()" onclick="event.stopPropagation();var _item=this.closest(\'.list-item\');if(_item)showEmpSettingsMenu(event,_item.dataset.id)" title="更多">⋮</button></div></div>';
+        return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, true) + '<div class="item-actions"><button class="emp-action-btn btn-detail" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button><button class="emp-action-btn emp-more-btn" title="更多">⋮</button></div></div>';
       }).join('');
     });
   }
@@ -4851,14 +4851,36 @@ function renderEmployeeItem(e, showCreator){
 }
 
 function bindListEvents(){
-  document.querySelectorAll('.list-item[data-id]').forEach(i=>{
+  document.querySelectorAll('.list-item[data-id]').forEach(function(i){
+    var empId = i.dataset.id;
     // Click -> open chat
-    i.addEventListener('click',()=>{if(currentTab!=='archived')openChat(i.dataset.id);});
+    i.addEventListener('click',function(ev){
+      // 如果点击的是操作按钮，不打开聊天
+      if(ev.target.closest('.item-actions')) return;
+      if(currentTab!=='archived') openChat(empId);
+    });
     // Double-click -> open detail
-    i.addEventListener('dblclick',()=>{if(i.dataset.id)openEmpDetail(i.dataset.id);});
-    // Context menu
-    // Right-click handled by event delegation on employeeList
-    // Action buttons: handled by global event delegation
+    i.addEventListener('dblclick',function(){if(empId)openEmpDetail(empId);});
+    // Detail button
+    var detailBtn = i.querySelector('.btn-detail');
+    if(detailBtn){
+      detailBtn.addEventListener('mousedown',function(ev){ev.stopPropagation();});
+      detailBtn.addEventListener('click',function(ev){
+        ev.stopPropagation();
+        ev.preventDefault();
+        openEmpDetail(empId);
+      });
+    }
+    // More button
+    var moreBtn = i.querySelector('.emp-more-btn');
+    if(moreBtn){
+      moreBtn.addEventListener('mousedown',function(ev){ev.stopPropagation();});
+      moreBtn.addEventListener('click',function(ev){
+        ev.stopPropagation();
+        ev.preventDefault();
+        showEmpSettingsMenu(ev, empId);
+      });
+    }
     // Drag
     i.draggable=true;
     i.addEventListener('dragstart',e=>{i.classList.add('dragging');e.dataTransfer.setData('text/plain',i.dataset.id||i.dataset.proj);});
@@ -11261,7 +11283,7 @@ function checkQuota() {
 </div>
 
 <script src="avatars.js?v=1778166504"></script>
-<script src="openclaw-client-v3.js"></script>
+<script src="openclaw-client.js"></script>
 
 
 </body>
