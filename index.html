@@ -4115,6 +4115,7 @@ function loadArchive(){
 
 // Employee sync
 function saveEmployees(){
+  console.log('[DEBUG saveEmployees] called, emps count:', emps.length, 'archived:', emps.filter(function(e){return e.archived;}).length);
   // 1. 始终保存到 localStorage 作为本地缓存
   localStorage.setItem('sb_employees',JSON.stringify(emps));
   // 2. 如果已登录且后端可用，同步到服务器
@@ -4300,6 +4301,7 @@ async function loadEmployees(){
               needsSync.push({id: data[mi].id, avatar: data[mi].avatar});
             }
           }
+          console.log('[DEBUG loadEmployees] replacing emps with backend data, count:', data.length, 'archived:', data.filter(function(a){return a.archived;}).length);
           emps.length = 0;
           data.forEach(function(a){ emps.push(a); });
           // 不再存localStorage，避免不同用户数据混淆
@@ -4585,6 +4587,7 @@ function _getLeaderVisibleAgentIds(){
 }
 
 function renderEmployeeList(){
+  console.log('[DEBUG renderEmployeeList] called, emps count:', emps.length, 'archived:', emps.filter(function(e){return e.archived;}).length);
   var list = document.getElementById('employeeList');
   if(!list) return;
   var visible = getVisibleEmps().filter(function(e){ return !e.archived; });
@@ -5082,6 +5085,7 @@ function empSettingsAction(action){
       break;
     case 'archive': 
       emp.archived = true; 
+      console.log('[DEBUG archive] setting', emp.name, 'archived=true, emps count:', emps.length);
       saveEmployees(); 
       showToast('📦 已归档'); 
       break;
