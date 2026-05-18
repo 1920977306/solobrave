@@ -589,6 +589,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-detail-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(8px); opacity: 0; visibility: hidden; transition: all 0.3s; z-index: 250; }
 .emp-detail-overlay.open { opacity: 1; visibility: visible; }
 .emp-detail-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 560px; max-height: 85vh; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); z-index: 251; display: flex; flex-direction: column; overflow: hidden; opacity: 0; visibility: hidden; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
+.emp-detail-content { flex: 1; overflow-y: auto; }
+.emp-detail-actions { flex-shrink: 0; }
 .emp-detail-overlay.open .emp-detail-panel { opacity: 1; visibility: visible; transform: translate(-50%, -50%) scale(1); }
 @media (max-width: 600px) {
   .emp-detail-panel { width: 95%; max-height: 90vh; }
@@ -2714,7 +2716,7 @@ window.doLogin = function() {
 </div>
 </div>
 
-<div class="emp-detail-actions">
+</div></div><div class="emp-detail-actions">
 <button class="emp-action-btn primary" onclick="editEmpFromDetail()">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
 编辑
@@ -4555,7 +4557,7 @@ function renderEmployeeList(){
     Object.keys(subGroups).forEach(function(sub){
       html += renderSubCategoryHeader(sub, subGroups[sub].length);
       html += subGroups[sub].map(function(e){
-        return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, true) + '<div class="item-actions" style="pointer-events:auto"><a href="javascript:void(0)" onclick="event.stopPropagation();_empDetail(\''+escapeAttr(e.id)+'\')" class="emp-action-btn btn-detail" title="员工详情"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></a><a href="javascript:void(0)" onclick="event.stopPropagation();_empMore(event,\''+escapeAttr(e.id)+'\')" class="emp-action-btn emp-more-btn" title="更多">⋮</a></div></div>';
+        return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, true) + '</div>';
       }).join('');
     });
   }
@@ -4934,9 +4936,6 @@ function ctxAction(action){
 // Employee Settings Dropdown (⋮ button)
 var empSettingsTarget = null;
 // 全局按钮处理函数
-function _empDetail(id){ openEmpDetail(id); }
-function _empMore(ev, id){ showEmpSettingsMenu(ev || window.event, id); }
-
 function showEmpSettingsMenu(event, empId){
   try {
   empSettingsTarget = empId;
