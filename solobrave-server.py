@@ -2335,48 +2335,57 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_update_agent(self, agent_id):
         """PUT /api/agents/:id"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
+        try:
+            auth = _authenticate(self.headers)
+            if not auth.is_authenticated:
+                self._send_auth_error(auth.error, auth.status)
+                return
 
-        body = self._read_body()
-        if not body:
-            self._send_json(400, {'error': '无效的请求体'})
-            return
+            body = self._read_body()
+            if not body:
+                self._send_json(400, {'error': '无效的请求体'})
+                return
 
-        agents = _load_agents()
-        agent = None
-        for a in agents:
-            if a.get('id') == agent_id:
-                agent = a
-                break
+            print(f'  [PUT agent] id={agent_id} body_keys={list(body.keys())[:10]}', flush=True)
 
-        if not agent:
-            self._send_json(404, {'error': 'Agent 不存在'})
-            return
+            agents = _load_agents()
+            agent = None
+            for a in agents:
+                if a.get('id') == agent_id:
+                    agent = a
+                    break
 
-        # 权限校验
-        if not auth.is_admin:
-            if agent.get('createdBy') != auth.user_info['userId']:
-                # leader可以删管理组内成员创建的agent
-                if not (auth.is_leader and agent.get('createdBy') in _get_team_member_ids(auth)):
-                    self._send_auth_error('权限不足', 403)
-                    return
+            if not agent:
+                self._send_json(404, {'error': 'Agent 不存在'})
+                return
 
-        # 可更新字段
-        updatable = ['name', 'role', 'bg', 'avatar', 'status', 'msg', 'archived',
-                     'permission', 'visibility', 'connectionType', 'apiProvider',
-                     'apiModel', 'apiKey', 'openclawAgent', 'openclawModel',
-                     'openclawName', 'aiProvider',
-                     'systemPrompt', 'department', 'customEndpoint',
-                     'group', 'pinned', 'idDoc', 'soulDoc', 'toolsDoc', 'userDoc']
-        for key in updatable:
-            if key in body:
-                agent[key] = body[key]
+            # 权限校验
+            if not auth.is_admin:
+                if agent.get('createdBy') != auth.user_info['userId']:
+                    if not (auth.is_leader and agent.get('createdBy') in _get_team_member_ids(auth)):
+                        self._send_auth_error('权限不足', 403)
+                        return
 
-        _save_agents(agents)
-        self._send_json(200, agent)
+            # 可更新字段
+            updatable = ['name', 'role', 'bg', 'avatar', 'status', 'msg', 'archived',
+                         'permission', 'visibility', 'connectionType', 'apiProvider',
+                         'apiModel', 'apiKey', 'openclawAgent', 'openclawModel',
+                         'openclawName', 'aiProvider',
+                         'systemPrompt', 'department', 'customEndpoint',
+                         'group', 'pinned', 'idDoc', 'soulDoc', 'toolsDoc', 'userDoc',
+                         'badge', 'createdBy', 'createdByName']
+            for key in updatable:
+                if key in body:
+                    agent[key] = body[key]
+
+            _save_agents(agents)
+            print(f'  [PUT agent] saved ok, sending response', flush=True)
+            self._send_json(200, agent)
+        except Exception as e:
+            print(f'  [PUT agent] ERROR: {e}', flush=True)
+            import traceback
+            traceback.print_exc()
+            self._send_json(500, {'error': str(e)})
 
     def _handle_delete_agent(self, agent_id):
         """DELETE /api/agents/:id"""
