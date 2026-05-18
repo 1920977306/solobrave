@@ -4868,7 +4868,7 @@ function bindListEvents(){
       detailBtn.addEventListener('click',function(ev){
         ev.stopPropagation();
         ev.preventDefault();
-        openEmpDetail(empId);
+        alert('[DEBUG] detailBtn clicked! empId=' + empId);
       });
     }
     // More button
@@ -4878,7 +4878,7 @@ function bindListEvents(){
       moreBtn.addEventListener('click',function(ev){
         ev.stopPropagation();
         ev.preventDefault();
-        showEmpSettingsMenu(ev, empId);
+        alert('[DEBUG] moreBtn clicked! empId=' + empId);
       });
     }
     // Drag
@@ -4934,6 +4934,7 @@ function ctxAction(action){
 // Employee Settings Dropdown (⋮ button)
 var empSettingsTarget = null;
 function showEmpSettingsMenu(event, empId){
+  alert('[DEBUG] showEmpSettingsMenu called! empId=' + empId);
   try {
   empSettingsTarget = empId;
   var menu = document.getElementById('empSettingsMenu');
