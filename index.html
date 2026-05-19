@@ -3633,14 +3633,18 @@ function copyCode(btn){
 
 // ========== 发送消息 ==========
 function sendMsg(){
-  const input = document.getElementById('msgInput');
-  const text = input.value.trim();
+  var input = document.getElementById('msgInput');
+  var text = input.value.trim();
   if(!text) return;
   
   // 通知龙虾办公室用户发送了消息
   notifyOfficeChatMessage(localStorage.getItem('sb_current_emp'), 'outgoing');
-  // 新增：标记员工为思考中（正在等待AI回复）
+  // 标记员工为思考中（正在等待AI回复）
   notifyOfficeStatusChange(localStorage.getItem('sb_current_emp'), 'thinking');
+  // 同时更新本地emps数组中的状态并刷新列表
+  var _curEmpId = localStorage.getItem('sb_current_emp');
+  var _curEmp = emps.find(function(e){ return e.id === _curEmpId; });
+  if(_curEmp){ _curEmp.status = 'thinking'; renderEmployeeList(); }
   
   // 群聊模式：转发到 sendGroupMessage
   if(currentGroupId){
@@ -3658,10 +3662,10 @@ function sendMsg(){
     return;
   }
   
-  const area = document.getElementById('messagesArea');
-  const now = new Date();
-  const timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
-  const emp = getCurrentEmployeeInfo();
+  var area = document.getElementById('messagesArea');
+  var now = new Date();
+  var timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  var emp = getCurrentEmployeeInfo();
   
   // 清除空状态提示
   const emptyState = area.querySelector('.chat-empty-state');
@@ -3746,21 +3750,34 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
         else if(data.data.delta) fullReply += data.data.delta;
         var t = document.getElementById('typingMsg');
         if(t) t.textContent = fullReply + '...';
+        // 检测是否包含工具调用，更新状态为coding
+        if(data.data.tool_calls || data.data.tool_call || (data.data.delta && data.data.delta.indexOf('tool_call') > -1)){
+          var _eid = localStorage.getItem('sb_current_emp');
+          var _emp = emps.find(function(e){ return e.id === _eid; });
+          if(_emp){ _emp.status = 'coding'; renderEmployeeList(); }
+          notifyOfficeStatusChange(_eid, 'coding');
+        }
       }
       if(data.stream === 'lifecycle' && data.data){
         var currentEmpId = localStorage.getItem('sb_current_emp');
         // AI开始思考 → 通知龙虾办公室
         if(data.data.phase === 'start' || data.data.phase === 'thinking'){
           notifyOfficeStatusChange(currentEmpId, 'thinking');
+          var _emp2 = emps.find(function(e){ return e.id === currentEmpId; });
+          if(_emp2){ _emp2.status = 'thinking'; renderEmployeeList(); }
         }
         // AI回复完成 → 通知龙虾办公室
         if(data.data.phase === 'end'){
           notifyOfficeStatusChange(currentEmpId, 'online');
           notifyOfficeChatMessage(currentEmpId, 'incoming');
+          var _emp3 = emps.find(function(e){ return e.id === currentEmpId; });
+          if(_emp3){ _emp3.status = 'online'; renderEmployeeList(); }
         }
         // AI出错 → 恢复在线
         if(data.data.phase === 'error'){
           notifyOfficeStatusChange(currentEmpId, 'online');
+          var _emp4 = emps.find(function(e){ return e.id === currentEmpId; });
+          if(_emp4){ _emp4.status = 'online'; renderEmployeeList(); }
         }
         if(data.data.phase === 'end' || data.data.phase === 'error'){
           var t = document.getElementById('typingMsg');
@@ -4279,12 +4296,13 @@ async function syncEmpToServer(emp){
 
 // 状态文本转换
 function getStatusText(status){
-  const statusMap={
+  var statusMap={
     'online':'🟢 在线',
     'busy':'🟠 忙碌',
-    'thinking':'🔵 正在思考',
-    'reading':'🟣 正在读文档',
-    'coding':'🟢 正在写代码',
+    'thinking':'💭 正在思考',
+    'reading':'📖 正在读文档',
+    'coding':'🔧 正在调工具',
+    'writing':'📝 正在写代码',
     'waiting':'🟡 等待中',
     'idle':'⚪ 空闲',
     'offline':'⚫ 离线'
@@ -4294,12 +4312,13 @@ function getStatusText(status){
 
 // 状态图标（用于列表显示）
 function getStatusIcon(status){
-  const iconMap={
+  var iconMap={
     'online':'🟢',
     'busy':'🟠',
-    'thinking':'🔵',
-    'reading':'🟣',
-    'coding':'🟢',
+    'thinking':'💭',
+    'reading':'📖',
+    'coding':'🔧',
+    'writing':'📝',
     'waiting':'🟡',
     'idle':'⚪',
     'offline':'⚫'
