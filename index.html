@@ -1940,25 +1940,10 @@ window.doLogin = function() {
     </div>
   </div>
   <div class="menu-divider"></div>
-  <div class="menu-item has-badge-submenu">⚠️ 标记紧急
-    <div class="badge-submenu">
-      <div class="submenu-item" onclick="empSettingsAction('badge-urgent')">
-        <span class="badge-icon" style="background:#ff453a;">🔴</span>
-        紧急
-      </div>
-      <div class="submenu-item" onclick="empSettingsAction('badge-important')">
-        <span class="badge-icon" style="background:#ff9f0a;">🟠</span>
-        重要
-      </div>
-      <div class="submenu-item" onclick="empSettingsAction('badge-normal')">
-        <span class="badge-icon" style="background:#0a84ff;">🔵</span>
-        普通
-      </div>
-      <div class="submenu-item" onclick="empSettingsAction('badge-clear')" style="color:#86868b;">
-        ✕ 取消标记
-      </div>
-    </div>
-  </div>
+  <div class="menu-item" onclick="empSettingsAction('badge-urgent')">🔴 标记紧急</div>
+  <div class="menu-item" onclick="empSettingsAction('badge-important')">🟠 标记重要</div>
+  <div class="menu-item" onclick="empSettingsAction('badge-normal')">🔵 标记普通</div>
+  <div class="menu-item" onclick="empSettingsAction('badge-clear')" style="color:var(--text-tertiary);">✕ 取消标记</div>
   <div class="menu-item" onclick="empSettingsAction('pin')">📌 置顶</div>
   <div class="menu-item" onclick="empSettingsAction('archive')">📦 归档</div>
   <div class="menu-divider"></div>
@@ -4214,10 +4199,14 @@ function saveArchive(){
   localStorage.setItem('sb_archived',JSON.stringify(emps.filter(e=>e.archived).map(e=>e.id)));
 }
 function loadArchive(){
-  const ids=JSON.parse(localStorage.getItem('sb_archived')||'[]');
-  ids.forEach(id=>{
-    const emp=emps.find(e=>e.id===id);
-    if(emp)emp.archived=true;
+  // Only use localStorage archive as fallback if backend didn't set archived
+  // Backend now returns archived field, so we don't override
+  var ids = JSON.parse(localStorage.getItem('sb_archived') || '[]');
+  ids.forEach(function(id){
+    var emp = emps.find(function(e){ return e.id === id; });
+    if(emp && emp.archived === undefined){
+      emp.archived = true;
+    }
   });
 }
 
@@ -5179,7 +5168,7 @@ function ctxAction(action){
     case 'pin': emp.pinned=!emp.pinned; showToast(emp.pinned?'📌 已置顶':'📌 已取消置顶'); saveEmployees(); break;
     // case 'move' - moved to submenu
     case 'archive': emp.archived=true; saveArchive(); showToast('📦 已归档'); break;
-    case 'unarchive': emp.archived=false; saveArchive(); showToast('📥 已取消归档'); break;
+    case 'unarchive': emp.archived=false; saveEmployees(); saveArchive(); showToast('📥 已取消归档'); break;
     case 'delete': if(confirm('确定删除 '+emp.name+'？')){var _delId=contextTarget;emps=emps.filter(e=>e.id!==_delId); localStorage.removeItem('sb_chat_history_'+_delId); if(localStorage.getItem('sb_current_emp')===_delId){localStorage.removeItem('sb_current_emp');} saveEmployees(); if(typeof apiFetch==='function'){apiFetch('/api/agents/'+_delId,{method:'DELETE'}).catch(function(){});} renderMsgs('private'); showToast('🗑️ 已删除');} break;
   }
   renderEmployeeList();
@@ -5268,22 +5257,11 @@ function empSettingsAction(action){
       saveEmployees(); 
       showToast('📦 已归档'); 
       break;
-    case 'badgeUrgent':
-      setEmpBadge(empSettingsTarget, 'urgent', 1);
-      showToast('🔴 已标记为紧急');
-      break;
-    case 'badgeImportant':
-      setEmpBadge(empSettingsTarget, 'important', 1);
-      showToast('🟠 已标记为重要');
-      break;
-    case 'badgeNormal':
-      setEmpBadge(empSettingsTarget, 'normal', 1);
-      showToast('🔵 已标记为普通');
-      break;
-    case 'badgeClear':
-      setEmpBadge(empSettingsTarget, null, null);
-      showToast('⚪ 已清除标记');
-      break;
+    case 'badge-urgent': emp.badge={level:'urgent',number:1}; saveEmployees(); renderEmployeeList(); showToast('🔴 已标记为紧急'); break;
+    case 'badge-important': emp.badge={level:'important',number:null}; saveEmployees(); renderEmployeeList(); showToast('🟠 已标记为重要'); break;
+    case 'badge-normal': emp.badge={level:'normal',number:null}; saveEmployees(); renderEmployeeList(); showToast('🔵 已标记为普通'); break;
+    case 'badge-clear': emp.badge=null; saveEmployees(); renderEmployeeList(); showToast('✕ 已清除紧急标记'); break;
+
     case 'delete': 
       if(confirm('确定删除 ' + emp.name + '？')){
         var deleteId = empSettingsTarget;
@@ -5585,6 +5563,7 @@ function restoreArchivedEmp(empId){
   if(!emp) return;
   emp.archived = false;
   saveEmployees();
+  saveArchive();
   renderEmployeeList();
   showToast('📂 已恢复 ' + emp.name);
 }
@@ -11485,10 +11464,7 @@ function checkQuota() {
   <div class="menu-item" onclick="empSettingsAction('archive')">📦 归档</div>
   <div class="menu-item has-submenu">🚨 标记紧急
     <div class="submenu">
-      <div class="submenu-item" onclick="empSettingsAction('badgeUrgent')">🔴 紧急 (红色)</div>
-      <div class="submenu-item" onclick="empSettingsAction('badgeImportant')">🟠 重要 (橙色)</div>
-      <div class="submenu-item" onclick="empSettingsAction('badgeNormal')">🔵 普通 (蓝色)</div>
-      <div class="submenu-item" onclick="empSettingsAction('badgeClear')">⚪ 清除标记</div>
+
     </div>
   </div>
   <div class="menu-divider"></div>
@@ -11624,32 +11600,12 @@ function checkQuota() {
 <div class="notification-container" id="notificationContainer"></div>
 
 <script src="avatars.js?v=1778166504"></script>
-<script src="openclaw-client.js"></script>
-
-
-</body>
-
-// ========================================
+<script src="openclaw-client.js">// ========================================
 // Badge 紧急标记功能
 // ========================================
 
 // 设置员工紧急标记
-function setEmpBadge(empId, level, number) {
-  var emp = emps.find(function(e) { return e.id === empId; });
-  if (!emp) return;
-  
-  if (level === null || level === undefined) {
-    emp.badge = null;
-  } else {
-    emp.badge = {
-      level: level,
-      number: number || null
-    };
-  }
-  
-  saveEmployees();
-  renderEmployeeList();
-}
+
 
 // 渲染员工头像的 Badge
 function renderAvatarBadge(emp, avatarClass) {
@@ -11880,3 +11836,8 @@ function triggerUrgeNotification(empId, taskName, deadline) {
 
 
 </html>
+</script>
+
+
+</body>
+
