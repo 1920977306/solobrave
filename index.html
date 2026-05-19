@@ -7769,7 +7769,7 @@ function renderGroupSettingsMembers(group){
       '<div class="group-member-info" style="min-width:0;">' +
       '<div class="group-member-name" style="font-size:13px;">' + escapeHtml(emp.name || '') + '</div>' +
       '</div>' +
-      '<button class="group-member-remove" onclick="removeGroupMember('' + escapeAttr(mid) + '')" title="移除成员" style="width:24px;height:24px;font-size:12px;">✕</button>' +
+      '<button class="group-member-remove" onclick="removeGroupMember(\'' + escapeAttr(mid) + '\')" title="移除成员" style="width:24px;height:24px;font-size:12px;">✕</button>' +
       '</div>';
   }).join('');
 }
