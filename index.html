@@ -4656,7 +4656,7 @@ const groups = [];
 
 // 群组相关状态
 let currentGroupId = null;
-let gwStep = 1;
+var gwStep = 1;
 let gwEmoji = '🚀';
 let gwMembers = [];
 let gwLead = '';
@@ -6398,6 +6398,33 @@ async function createGroup(){
     closeGroupWizard();
     showToast('✅ 群组「' + name + '」创建成功！', 'success');
     
+    // 同步到后端
+    var token = localStorage.getItem('sb_auth_token');
+    if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
+      apiFetch('/api/groups', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: newGroup.id,
+          name: newGroup.name,
+          emoji: newGroup.emoji,
+          bg: newGroup.bg,
+          members: newGroup.members,
+          leadAgentId: newGroup.leadAgentId,
+          createdBy: newGroup.createdBy,
+          createdAt: newGroup.createdAt
+        })
+      }).then(function(res){
+        if(res && res.ok){
+          showToast('✅ 群组已同步到服务器');
+        } else {
+          showToast('✅ 群组已创建(本地)');
+        }
+      }).catch(function(err){
+        console.warn('[Group] create sync failed:', err);
+        showToast('✅ 群组已创建(本地)');
+      });
+    }
+    
     // 自动打开群聊
     setTimeout(function(){ openGroupChat(newGroup.id); }, 300);
   }
@@ -6405,10 +6432,10 @@ async function createGroup(){
 
 // 更新督促状态按钮显示
 function updateSupervisorStatusButton(){
-  const projId = getCurrentProjectId();
-  const btn = document.querySelector('.header-btn[onclick="openSupervisorPanel()"]');
+  var projId = getCurrentProjectId();
+  var btn = document.querySelector('.header-btn[onclick="openSupervisorPanel()"]');
   if(!btn) return;
-  const config = supervisorConfig[projId];
+  var config = supervisorConfig[projId];
   if(config && config.enabled !== 'off'){
     btn.style.background = 'var(--accent)';
     btn.style.color = 'white';
@@ -6666,7 +6693,7 @@ function getCurrentProjectId(){
 }
 
 function openSupervisorPanel(){
-  const projId = getCurrentProjectId();
+  var projId = getCurrentProjectId();
   if(!projId){
     showToast('⚠️ 请先选择一个项目组');
     return;
@@ -6687,7 +6714,7 @@ function closeSupervisor(){
 }
 
 function saveSupervisor(){
-  const projId = getCurrentProjectId();
+  var projId = getCurrentProjectId();
   if(!projId){
     showToast('⚠️ 未选择项目组');
     return;
@@ -6731,9 +6758,9 @@ function startSupervisorTimer(){
     clearInterval(supervisorTimer);
     supervisorTimer = null;
   }
-  const projId = getCurrentProjectId();
+  var projId = getCurrentProjectId();
   if(!projId) return;
-  const config = supervisorConfig[projId];
+  var config = supervisorConfig[projId];
   if(!config || config.enabled === 'off') return;
   const interval = parseInt(config.enabled) * 60 * 1000;
   supervisorTimer = setInterval(() => {
@@ -6742,9 +6769,9 @@ function startSupervisorTimer(){
 }
 
 function performSupervisorCheck(){
-  const projId = getCurrentProjectId();
+  var projId = getCurrentProjectId();
   if(!projId) return;
-  const config = supervisorConfig[projId];
+  var config = supervisorConfig[projId];
   if(!config || config.enabled === 'off') return;
   supervisorLastCheck = Date.now();
   updateSupervisorStatus(config);
@@ -6867,7 +6894,7 @@ function dismissSupervisorBanner(){
 
 function openSupervisorConfigFromHeader(){
   // 从项目组设置入口打开督促配置
-  const projId = getCurrentProjectId();
+  var projId = getCurrentProjectId();
   if(!projId){
     showToast('⚠️ 请先选择一个项目组');
     return;
@@ -9110,7 +9137,7 @@ function getCurrentProjectId(){
 
 // 保存聊天历史
 function saveChatHistory(userMsg, aiMsg, docContext){
-  const projId = getCurrentProjectId();
+  var projId = getCurrentProjectId();
   const history = JSON.parse(localStorage.getItem('sb_chat_history_'+projId) || '[]');
   const now = Date.now();
   history.push({role:'user', content:userMsg, time:now});
