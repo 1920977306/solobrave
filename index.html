@@ -2144,29 +2144,6 @@ window.doLogin = function() {
 
 </div>
 
-<!-- Archive: 1v1对话归档 -->
-<div class="archive-section collapsed" id="archive-1v1">
-  <div class="archive-header" onclick="toggleArchive(this)">
-    <span class="archive-arrow">&#9662;</span>
-    <span class="archive-title">1v1对话归档</span>
-    <span class="archive-count" id="archive-1v1-count">0</span>
-  </div>
-  <div class="archive-content" id="archive-1v1-content">
-    <div class="archive-empty">暂无归档对话</div>
-  </div>
-</div>
-
-<!-- Archive: 项目组归档 -->
-<div class="archive-section collapsed" id="archive-projects">
-  <div class="archive-header" onclick="toggleArchive(this)">
-    <span class="archive-arrow">&#9662;</span>
-    <span class="archive-title">项目组归档</span>
-    <span class="archive-count" id="archive-projects-count">0</span>
-  </div>
-  <div class="archive-content" id="archive-projects-content">
-    <div class="archive-empty">暂无归档项目</div>
-  </div>
-</div>
 
 
 <!-- Project List -->
@@ -4115,7 +4092,7 @@ function loadArchive(){
 
 // Employee sync
 function saveEmployees(){
-  console.log('[DEBUG saveEmployees] called, emps count:', emps.length, 'archived:', emps.filter(function(e){return e.archived;}).length);
+  
   // 1. 始终保存到 localStorage 作为本地缓存
   localStorage.setItem('sb_employees',JSON.stringify(emps));
   // 2. 如果已登录且后端可用，同步到服务器
@@ -4301,7 +4278,7 @@ async function loadEmployees(){
               needsSync.push({id: data[mi].id, avatar: data[mi].avatar});
             }
           }
-          console.log('[DEBUG loadEmployees] replacing emps with backend data, count:', data.length, 'archived:', data.filter(function(a){return a.archived;}).length);
+          
           emps.length = 0;
           data.forEach(function(a){ emps.push(a); });
           // 不再存localStorage，避免不同用户数据混淆
@@ -4587,7 +4564,7 @@ function _getLeaderVisibleAgentIds(){
 }
 
 function renderEmployeeList(){
-  console.log('[DEBUG renderEmployeeList] called, emps count:', emps.length, 'archived:', emps.filter(function(e){return e.archived;}).length);
+  
   var list = document.getElementById('employeeList');
   if(!list) return;
   var visible = getVisibleEmps().filter(function(e){ return !e.archived; });
@@ -4670,10 +4647,32 @@ function renderEmployeeList(){
   }
   html += '</div></div>';
   
+  // 项目组归档
+  html += '<div class="archive-section" id="archive-projects">';
+  html += '<div class="archive-header" onclick="toggleArchive(this)">';
+  html += '<span class="archive-arrow">&#9662;</span>';
+  html += '<span class="archive-title">项目组归档</span>';
+  html += '<span class="archive-count">' + archivedProjects.length + '</span>';
+  html += '</div>';
+  html += '<div class="archive-content" id="archive-projects-content">';
+  if(archivedProjects.length === 0){
+    html += '<div class="archive-empty">暂无归档项目</div>';
+  } else {
+    archivedProjects.forEach(function(e){
+      html += '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" style="padding:6px 12px;cursor:pointer;">';
+      html += '<div style="display:flex;align-items:center;gap:8px;">';
+      html += '<div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg||'') + ';border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;">' + renderAvatar(e, 32) + '</div>';
+      html += '<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:500;">' + escapeHtml(e.name||'') + '</div><div style="font-size:11px;color:var(--text-secondary);">' + escapeHtml(e.role||'') + '</div></div>';
+      html += '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="恢复">📂</button>';
+      html += '</div></div>';
+    });
+  }
+  html += '</div></div>';
+  
   list.innerHTML = html;
   bindListEvents();
   
-  // 渲染归档区域（更新项目组归档等）
+  // 渲染归档区域（额外更新）
   renderArchiveSections();
 }
 
@@ -5111,7 +5110,7 @@ function empSettingsAction(action){
       break;
     case 'archive': 
       emp.archived = true; 
-      console.log('[DEBUG archive] setting', emp.name, 'archived=true, emps count:', emps.length);
+      
       saveEmployees(); 
       showToast('📦 已归档'); 
       break;
