@@ -5230,6 +5230,10 @@ function empSettingsAction(action){
       saveEmployees(); 
       showToast('📦 已归档'); 
       break;
+    case 'badge-urgent': emp.badge={level:'urgent',number:1}; saveEmployees(); renderEmployeeList(); showToast('🔴 已标记为紧急'); break;
+    case 'badge-important': emp.badge={level:'important',number:null}; saveEmployees(); renderEmployeeList(); showToast('🟠 已标记为重要'); break;
+    case 'badge-normal': emp.badge={level:'normal',number:null}; saveEmployees(); renderEmployeeList(); showToast('🔵 已标记为普通'); break;
+    case 'badge-clear': emp.badge=null; saveEmployees(); renderEmployeeList(); showToast('✕ 已清除紧急标记'); break;
 
     case 'delete': 
       if(confirm('确定删除 ' + emp.name + '？')){
