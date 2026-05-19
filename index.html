@@ -2598,6 +2598,14 @@ window.doLogin = function() {
 <span class="emp-info-value" id="empDetailGroup">职能组</span>
 </div>
 <div class="emp-info-item">
+<span class="emp-info-label">子分组</span>
+<span class="emp-info-value" id="empDetailSubCategory">技术团队</span>
+</div>
+<div class="emp-info-item">
+<span class="emp-info-label">状态</span>
+<span class="emp-info-value" id="empDetailStatusText">在线</span>
+</div>
+<div class="emp-info-item">
 <span class="emp-info-label">创建时间</span>
 <span class="emp-info-value" id="empDetailCreated">2024-01-01</span>
 </div>
@@ -2804,6 +2812,21 @@ window.doLogin = function() {
 
 <!-- Channel Tab -->
 <div class="emp-tab-pane" id="emp-tab-channel">
+<div class="emp-doc-section" style="margin-bottom:16px;">
+<div class="emp-doc-title">🦞 OpenClaw 连接状态</div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--bg-secondary);">
+<div style="font-size:13px;color:var(--text-secondary);">Gateway 状态</div>
+<div id="empOpenClawStatus" style="font-size:13px;font-weight:600;">🔴 未连接</div>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:10px 12px;border-radius:8px;background:var(--bg-secondary);">
+<div style="font-size:13px;color:var(--text-secondary);">ReadyState</div>
+<div id="empOpenClawReadyState" style="font-size:13px;font-weight:600;font-family:monospace;">CLOSED</div>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:10px 12px;border-radius:8px;background:var(--bg-secondary);">
+<div style="font-size:13px;color:var(--text-secondary);">Agent ID</div>
+<div id="empOpenClawAgentId" style="font-size:13px;font-weight:600;font-family:monospace;">--</div>
+</div>
+</div>
 <div class="emp-channel-list" id="empChannelList">
 <div class="emp-channel-item" onclick="openChannelConfig('dingtalk')">
 <div class="emp-channel-icon" style="background:#1677FF;">💬</div>
@@ -7309,8 +7332,10 @@ document.getElementById('empDetailRole').textContent=emp.role||'员工';
 document.getElementById('empDetailStatus').innerHTML=`<span class="status-dot ${escapeAttr(emp.status||'offline')}"></span> ${getStatusText(emp.status)}`;
 document.getElementById('empDetailId').textContent=emp.id;
 document.getElementById('empDetailModel').textContent=emp.model||'gpt-4o';
-document.getElementById('empDetailGroup').textContent=emp.group||'职能组';
-document.getElementById('empDetailCreated').textContent=emp.created||new Date().toLocaleDateString('zh-CN');
+document.getElementById('empDetailGroup').textContent=emp.group||emp.subCategory||'职能组';
+document.getElementById('empDetailSubCategory').textContent=emp.subCategory||emp.group||'技术团队';
+document.getElementById('empDetailStatusText').textContent=getStatusText(emp.status)||'在线';
+document.getElementById('empDetailCreated').textContent=emp.createdAt||emp.created||new Date().toLocaleDateString('zh-CN');
 document.getElementById('empDetailMsgs').textContent=emp.msgs||Math.floor(Math.random()*100);
 document.getElementById('empDetailTokens').textContent=(emp.tokens||Math.floor(Math.random()*5000)).toLocaleString();
 document.getElementById('empDetailTasks').textContent=emp.tasks||0;
@@ -7829,6 +7854,7 @@ renderMemory('core');
 // Update channel status when switching to channel tab
 if(tab==='channel'&&currentEmpId){
 updateChannelStatusUI();
+updateOpenClawStatusUI();
 }
 // Update badge preview when switching to basic tab
 if(tab==='basic'&&currentEmpId){
@@ -7868,6 +7894,42 @@ function updateChannelStatusUI(){
       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-tertiary);"><polyline points="9 18 15 12 9 6"/></svg>' +
       '</div>';
   }).join('');
+}
+
+function updateOpenClawStatusUI(){
+  var statusEl = document.getElementById('empOpenClawStatus');
+  var readyStateEl = document.getElementById('empOpenClawReadyState');
+  var agentIdEl = document.getElementById('empOpenClawAgentId');
+  if(!statusEl || !readyStateEl) return;
+  
+  var readyState = 'UNKNOWN';
+  var statusText = '⚪ 未知';
+  var statusColor = '#999';
+  
+  if(typeof openclaw !== 'undefined' && openclaw){
+    readyState = openclaw.readyState || 'UNKNOWN';
+    if(openclaw.readyState === 'OPEN' || openclaw._connected){
+      statusText = '🟢 已连接';
+      statusColor = '#34C759';
+    } else if(openclaw.readyState === 'CONNECTING'){
+      statusText = '🟡 连接中';
+      statusColor = '#FF9500';
+    } else {
+      statusText = '🔴 未连接';
+      statusColor = '#FF3B30';
+    }
+  } else {
+    statusText = '🔴 未初始化';
+    statusColor = '#FF3B30';
+  }
+  
+  statusEl.textContent = statusText;
+  statusEl.style.color = statusColor;
+  readyStateEl.textContent = readyState;
+  
+  if(agentIdEl && currentEmpId){
+    agentIdEl.textContent = currentEmpId;
+  }
 }
 
 function openChannelConfig(channelType){
@@ -8336,20 +8398,29 @@ function renderModelSelect(selectEl, providerId, selectedValue){
 }
 function saveEmpDocs(){
 if(!currentEmpId)return;
-const emp=emps.find(e=>e.id===currentEmpId);
+var emp=emps.find(function(e){return e.id===currentEmpId;});
 if(emp){
 emp.idDoc=document.getElementById('empIdDoc').value;
 emp.soulDoc=document.getElementById('empSoulDoc').value;
 emp.toolsDoc=document.getElementById('empToolsDoc').value;
 emp.userDoc=document.getElementById('empUserDoc').value;
-emp.badge=document.getElementById('empBadgeInput').value;
 }
 saveEmployees();
+// 同步到后端服务器
+if(emp && typeof syncEmpToServer === 'function'){
+  syncEmpToServer(emp).then(function(){
+    showToast('✅ 文档已保存并同步到服务器');
+  }).catch(function(err){
+    console.warn('[Detail] syncEmpToServer failed:', err);
+    showToast('✅ 文档已保存(本地)');
+  });
+} else {
+  showToast('✅ 文档已保存');
+}
 // SOUL.md 变更时重新注册 Agent 到 Gateway
 if(emp && typeof registerOpenClawAgent === 'function'){
   registerOpenClawAgent(emp);
 }
-showToast('✅ 文档已保存');
 }
 function editEmpFromDetail(){
 if(!currentEmpId)return;
