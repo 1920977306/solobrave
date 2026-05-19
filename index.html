@@ -1911,6 +1911,61 @@ window.doLogin = function() {
 </script>
 </head>
 <body>
+<!-- Message Context Menu (right-click on chat bubbles) -->
+<div id="msgCtxMenu" class="ctx-menu">
+  <div class="menu-item" onclick="msgCtxAction('copy')">📋 复制文本</div>
+  <div class="menu-divider"></div>
+  <div class="menu-item" onclick="msgCtxAction('delete')">🗑️ 删除消息</div>
+  <div class="menu-item" id="msgCtxRegenerate" onclick="msgCtxAction('regenerate')" style="display:none;">🔄 重新生成</div>
+</div>
+
+<!-- Group Context Menu (right-click on group items) -->
+<div id="groupCtxMenu" class="ctx-menu">
+  <div class="menu-item" onclick="groupCtxAction('edit')">✏️ 编辑群组</div>
+  <div class="menu-item" onclick="groupCtxAction('addMember')">➕ 添加成员</div>
+  <div class="menu-divider"></div>
+  <div class="menu-item danger" onclick="groupCtxAction('dissolve')">🗑️ 解散群组</div>
+</div>
+
+<!-- Employee Settings Dropdown Menu -->
+<div id="empSettingsMenu" class="emp-settings-menu">
+  <div class="menu-item" onclick="empSettingsAction('edit')">✏️ 编辑资料</div>
+  <div class="menu-divider"></div>
+  <div class="menu-item has-submenu">📁 移动到分组
+    <div class="submenu">
+      <div class="submenu-item" onclick="empSettingsActionMove('全局统筹')">🔴 全局统筹</div>
+      <div class="submenu-item" onclick="empSettingsActionMove('技术团队')">&lt;&gt; 技术团队</div>
+      <div class="submenu-item" onclick="empSettingsActionMove('业务团队')">💼 业务团队</div>
+      <div class="submenu-item" onclick="empSettingsActionMove('测试小组')">🧪 测试小组</div>
+    </div>
+  </div>
+  <div class="menu-divider"></div>
+  <div class="menu-item has-badge-submenu">⚠️ 标记紧急
+    <div class="badge-submenu">
+      <div class="submenu-item" onclick="empSettingsAction('badge-urgent')">
+        <span class="badge-icon" style="background:#ff453a;">🔴</span>
+        紧急
+      </div>
+      <div class="submenu-item" onclick="empSettingsAction('badge-important')">
+        <span class="badge-icon" style="background:#ff9f0a;">🟠</span>
+        重要
+      </div>
+      <div class="submenu-item" onclick="empSettingsAction('badge-normal')">
+        <span class="badge-icon" style="background:#0a84ff;">🔵</span>
+        普通
+      </div>
+      <div class="submenu-item" onclick="empSettingsAction('badge-clear')" style="color:#86868b;">
+        ✕ 取消标记
+      </div>
+    </div>
+  </div>
+  <div class="menu-item" onclick="empSettingsAction('pin')">📌 置顶</div>
+  <div class="menu-item" onclick="empSettingsAction('archive')">📦 归档</div>
+  <div class="menu-divider"></div>
+  <div class="menu-item danger" onclick="empSettingsAction('delete')">🗑️ 删除</div>
+</div>
+
+
 <!-- Login Overlay -->
 <div id="loginOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:linear-gradient(135deg,rgba(0,0,0,0.4),rgba(0,0,0,0.2));backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);align-items:center;justify-content:center;">
   <div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border-radius:24px;padding:40px;width:360px;max-width:90%;box-shadow:0 25px 50px rgba(0,0,0,0.15);border:1px solid rgba(255,255,255,0.3);">
@@ -2178,29 +2233,6 @@ window.doLogin = function() {
 
 </div>
 
-<!-- Archive: 1v1对话归档 -->
-<div class="archive-section collapsed" id="archive-1v1">
-  <div class="archive-header" onclick="toggleArchive(this)">
-    <span class="archive-arrow">&#9662;</span>
-    <span class="archive-title">1v1对话归档</span>
-    <span class="archive-count" id="archive-1v1-count">0</span>
-  </div>
-  <div class="archive-content" id="archive-1v1-content">
-    <div class="archive-empty">暂无归档对话</div>
-  </div>
-</div>
-
-<!-- Archive: 项目组归档 -->
-<div class="archive-section collapsed" id="archive-projects">
-  <div class="archive-header" onclick="toggleArchive(this)">
-    <span class="archive-arrow">&#9662;</span>
-    <span class="archive-title">项目组归档</span>
-    <span class="archive-count" id="archive-projects-count">0</span>
-  </div>
-  <div class="archive-content" id="archive-projects-content">
-    <div class="archive-empty">暂无归档项目</div>
-  </div>
-</div>
 
 
 <!-- Project List -->
@@ -2310,8 +2342,27 @@ window.doLogin = function() {
 <div class="context-menu" id="contextMenu">
 <div class="context-item" onclick="ctxAction('detail')">👤 查看详情</div>
 <div class="context-item" onclick="ctxAction('edit')">✏️ 编辑资料</div>
-<div class="context-item" onclick="ctxAction('pin')">📌 置顶</div>
 <div class="context-divider"></div>
+<div class="context-item has-badge-submenu">⚠️ 标记紧急
+  <div class="badge-submenu">
+    <div class="submenu-item" onclick="ctxAction('badge-urgent')">
+      <span class="badge-icon" style="background:#ff453a;">🔴</span>
+      紧急
+    </div>
+    <div class="submenu-item" onclick="ctxAction('badge-important')">
+      <span class="badge-icon" style="background:#ff9f0a;">🟠</span>
+      重要
+    </div>
+    <div class="submenu-item" onclick="ctxAction('badge-normal')">
+      <span class="badge-icon" style="background:#0a84ff;">🔵</span>
+      普通
+    </div>
+    <div class="submenu-item" onclick="ctxAction('badge-clear')" style="color:#86868b;">
+      ✕ 取消标记
+    </div>
+  </div>
+</div>
+<div class="context-item" onclick="ctxAction('pin')">📌 置顶</div>
 <div class="context-item" onclick="ctxAction('move')">📁 移动分组</div>
 <div class="context-item" onclick="ctxAction('archive')">📦 归档</div>
 <div class="context-item" onclick="ctxAction('unarchive')">📥 取消归档</div>
@@ -3994,11 +4045,18 @@ function initLobsterChannel() {
           break;
           
         case 'employees_updated':
-          // 办公室更新了员工数据，重新从后端加载（保持权限过滤）
+          // 办公室更新了员工数据
+          // 注意：自己的 saveEmployees 也会触发此消息，不能无条件重载后端数据
+          // 否则刚修改的本地状态会被后端旧数据覆盖
           if (empData && Array.isArray(empData)) {
-            // 不直接用广播数据，从后端重新加载以保持权限过滤
-            if (typeof loadEmployees === 'function') {
-              loadEmployees().then(function() { renderEmployeeList(); });
+            // 检查是否和本地数据不同（来自其他tab的更新）
+            var localIds = emps.map(function(e){ return e.id; }).sort().join(',');
+            var remoteIds = empData.map(function(e){ return e.id; }).sort().join(',');
+            if(localIds !== remoteIds){
+              // 只有id列表不同才从后端重新加载（说明是其他tab的增删操作）
+              if (typeof loadEmployees === 'function') {
+                loadEmployees().then(function() { renderEmployeeList(); });
+              }
             }
           }
           break;
@@ -4142,6 +4200,7 @@ function loadArchive(){
 
 // Employee sync
 function saveEmployees(){
+  
   // 1. 始终保存到 localStorage 作为本地缓存
   localStorage.setItem('sb_employees',JSON.stringify(emps));
   // 2. 如果已登录且后端可用，同步到服务器
@@ -4341,6 +4400,7 @@ async function loadEmployees(){
               needsSync.push({id: data[mi].id, avatar: data[mi].avatar});
             }
           }
+          
           emps.length = 0;
           data.forEach(function(a){ emps.push(a); });
           // 不再存localStorage，避免不同用户数据混淆
@@ -4387,15 +4447,24 @@ async function loadEmployees(){
     }catch(e){}
   }
 }
-// Listen for storage changes from other pages
-window.addEventListener('storage',(e)=>{
-  if(e.key==='sb_employees'){
-    loadEmployees();
-    renderEmployeeList();
-  }
-  if(e.key==='sb_archived'){
-    loadArchive();
-    renderEmployeeList();
+// Listen for storage changes from other tabs (not same tab)
+// Only reload if the change came from another tab
+window.addEventListener('storage', function(e){
+  if(e.key==='sb_employees' && e.newValue){
+    // Another tab updated employees - parse and merge carefully
+    try {
+      var otherEmps = JSON.parse(e.newValue);
+      if(otherEmps && Array.isArray(otherEmps)){
+        // Only update if the other tab has employees we don't have
+        var localIds = emps.map(function(x){return x.id;}).sort().join(',');
+        var otherIds = otherEmps.map(function(x){return x.id;}).sort().join(',');
+        if(localIds !== otherIds){
+          emps.length = 0;
+          otherEmps.forEach(function(a){ emps.push(a); });
+          renderEmployeeList();
+        }
+      }
+    } catch(err){}
   }
 });
 loadArchive();
@@ -4455,6 +4524,7 @@ function checkReminders(){
 // 生成催促消息
 function generateReminderMsg(){
   const {overdue,urgent}=checkReminders();
+  if(!emps || emps.length===0) return null;
   const emp=emps[Math.floor(Math.random()*emps.length)];
   const msgs=[];
   
@@ -4486,7 +4556,7 @@ function showReminder(){
   }
   
   // 同时显示为顶部通知
-  showToast(emp.name + ': ' + text.split('\n')[0]);
+  if(emp && emp.name) showToast(emp.name + ': ' + text.split('\n')[0]);
 }
 
 // 自动催促（定时检测）
@@ -4616,6 +4686,7 @@ function _getLeaderVisibleAgentIds(){
 }
 
 function renderEmployeeList(){
+  
   var list = document.getElementById('employeeList');
   if(!list) return;
   var visible = getVisibleEmps().filter(function(e){ return !e.archived; });
@@ -4624,15 +4695,34 @@ function renderEmployeeList(){
     return;
   }
 
+  // 置顶的排在前面
+  visible.sort(function(a, b){
+    if(a.pinned && !b.pinned) return -1;
+    if(!a.pinned && b.pinned) return 1;
+    return 0;
+  });
+
+  // 分为置顶和普通两组
+  var pinnedEmps = visible.filter(function(e){ return e.pinned; });
+  var normalEmps = visible.filter(function(e){ return !e.pinned; });
+
   var html = '';
   var state = getSidebarState();
+
+  // ===== 置顶区域 =====
+  if(pinnedEmps.length > 0){
+    html += renderSubCategoryHeader('📌 置顶', pinnedEmps.length);
+    html += pinnedEmps.map(function(e){
+      return '<div class="list-item pinned-item" data-id="' + escapeAttr(e.id) + '" draggable="true" oncontextmenu="event.preventDefault();showEmpSettingsMenu(event,this.dataset.id)" style="background:rgba(0,122,255,0.04);border-left:3px solid var(--accent);">' + renderEmployeeItem(e, true) + '</div>';
+    }).join('');
+  }
 
   // ===== 一级分类：职能 =====
   html += renderCategoryHeader('职能', state['职能']);
   if(state['职能']){
-    // 按 subCategory 分组
+    // 按 subCategory 分组（不含已置顶的）
     var subGroups = {};
-    visible.forEach(function(e){
+    normalEmps.forEach(function(e){
       var sub = e.subCategory || '未分组';
       if(!subGroups[sub]) subGroups[sub] = [];
       subGroups[sub].push(e);
@@ -4640,7 +4730,7 @@ function renderEmployeeList(){
     Object.keys(subGroups).forEach(function(sub){
       html += renderSubCategoryHeader(sub, subGroups[sub].length);
       html += subGroups[sub].map(function(e){
-        return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true">' + renderEmployeeItem(e, true) + '</div>';
+        return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true" oncontextmenu="event.preventDefault();showEmpSettingsMenu(event,this.dataset.id)">' + renderEmployeeItem(e, true) + '</div>';
       }).join('');
     });
   }
@@ -4653,10 +4743,58 @@ function renderEmployeeList(){
     html += '<div style="padding:4px 24px;display:flex;justify-content:center;"><div class="group-add-btn" onclick="openGroupWizard()" title="创建项目组">+</div></div>';
   }
 
+  // 追加归档区HTML到列表末尾（innerHTML会覆盖所有子元素）
+  var archived = emps.filter(function(e){ return e.archived; });
+  var archived1v1 = archived.filter(function(e){ return !e.isProject; });
+  var archivedProjects = archived.filter(function(e){ return e.isProject; });
+  
+  html += '<div class="archive-section" id="archive-1v1">';
+  html += '<div class="archive-header" onclick="toggleArchive(this)">';
+  html += '<span class="archive-arrow">&#9662;</span>';
+  html += '<span class="archive-title">1v1对话归档</span>';
+  html += '<span class="archive-count">' + archived1v1.length + '</span>';
+  html += '</div>';
+  html += '<div class="archive-content" id="archive-1v1-content">';
+  if(archived1v1.length === 0){
+    html += '<div class="archive-empty">暂无归档对话</div>';
+  } else {
+    archived1v1.forEach(function(e){
+      html += '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" style="padding:6px 12px;cursor:pointer;">';
+      html += '<div style="display:flex;align-items:center;gap:8px;">';
+      html += '<div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg||'') + ';border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;">' + renderAvatar(e, 32) + '</div>';
+      html += '<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:500;">' + escapeHtml(e.name||'') + '</div><div style="font-size:11px;color:var(--text-secondary);">' + escapeHtml(e.role||'') + '</div></div>';
+      html += '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="恢复">📂</button>';
+      html += '</div></div>';
+    });
+  }
+  html += '</div></div>';
+  
+  // 项目组归档
+  html += '<div class="archive-section" id="archive-projects">';
+  html += '<div class="archive-header" onclick="toggleArchive(this)">';
+  html += '<span class="archive-arrow">&#9662;</span>';
+  html += '<span class="archive-title">项目组归档</span>';
+  html += '<span class="archive-count">' + archivedProjects.length + '</span>';
+  html += '</div>';
+  html += '<div class="archive-content" id="archive-projects-content">';
+  if(archivedProjects.length === 0){
+    html += '<div class="archive-empty">暂无归档项目</div>';
+  } else {
+    archivedProjects.forEach(function(e){
+      html += '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" style="padding:6px 12px;cursor:pointer;">';
+      html += '<div style="display:flex;align-items:center;gap:8px;">';
+      html += '<div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg||'') + ';border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;">' + renderAvatar(e, 32) + '</div>';
+      html += '<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:500;">' + escapeHtml(e.name||'') + '</div><div style="font-size:11px;color:var(--text-secondary);">' + escapeHtml(e.role||'') + '</div></div>';
+      html += '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="恢复">📂</button>';
+      html += '</div></div>';
+    });
+  }
+  html += '</div></div>';
+  
   list.innerHTML = html;
   bindListEvents();
   
-  // 渲染归档区域
+  // 渲染归档区域（额外更新）
   renderArchiveSections();
 }
 
@@ -5011,6 +5149,10 @@ function ctxAction(action){
   switch(action){
     case 'detail': openEmpDetail(contextTarget); break;
     case 'edit': showEditModal(contextTarget); break;
+    case 'badge-urgent': emp.badge={level:'urgent',number:1}; saveEmployees(); renderEmployeeList(); showToast('🔴 已标记为紧急'); break;
+    case 'badge-important': emp.badge={level:'important',number:null}; saveEmployees(); renderEmployeeList(); showToast('🟠 已标记为重要'); break;
+    case 'badge-normal': emp.badge={level:'normal',number:null}; saveEmployees(); renderEmployeeList(); showToast('🔵 已标记为普通'); break;
+    case 'badge-clear': emp.badge=null; saveEmployees(); renderEmployeeList(); showToast('✕ 已清除紧急标记'); break;
     case 'pin': emp.pinned=!emp.pinned; showToast(emp.pinned?'📌 已置顶':'📌 已取消置顶'); saveEmployees(); break;
     // case 'move' - moved to submenu
     case 'archive': emp.archived=true; saveArchive(); showToast('📦 已归档'); break;
@@ -5027,6 +5169,19 @@ var empSettingsTarget = null;
 function showEmpSettingsMenu(event, empId){
   try {
   empSettingsTarget = empId;
+  // Show unarchive option for archived employees, hide archive
+  var targetEmp = emps.find(function(e){ return e.id === empId; });
+  var unarchiveEl = document.getElementById('empMenuUnarchive');
+  var archiveEl = document.querySelector('#empSettingsMenu .menu-item[onclick*="archive"]');
+  if(unarchiveEl && archiveEl){
+    if(targetEmp && targetEmp.archived){
+      unarchiveEl.style.display = '';
+      archiveEl.style.display = 'none';
+    } else {
+      unarchiveEl.style.display = 'none';
+      archiveEl.style.display = '';
+    }
+  }
   var menu = document.getElementById('empSettingsMenu');
   if(!menu){ console.error('[showEmpSettingsMenu] menu element NOT FOUND'); return; }
   // Support both button click (position from button) and right-click (position from mouse)
@@ -5086,6 +5241,7 @@ function empSettingsAction(action){
       break;
     case 'archive': 
       emp.archived = true; 
+      
       saveEmployees(); 
       showToast('📦 已归档'); 
       break;
@@ -10503,8 +10659,11 @@ function loadTeamList() {
 function renderTeamList(teams) {
   var list = document.getElementById('teamList');
   if (!list) return;
-  
-  if (teams.length === 0) {
+  if (!teams) {
+    // Load from groups API or use empty
+    teams = [];
+  }
+  if (!teams.length) {
     list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">🏢</div><div>暂无小组</div></div>';
     return;
   }
@@ -11390,9 +11549,263 @@ function checkQuota() {
 </div>
 </div>
 
+<!-- 通知容器 -->
+<div class="notification-container" id="notificationContainer"></div>
+
 <script src="avatars.js?v=1778166504"></script>
 <script src="openclaw-client.js"></script>
 
 
 </body>
+
+// ========================================
+// Badge 紧急标记功能
+// ========================================
+
+// 设置员工紧急标记
+function setEmpBadge(empId, level, number) {
+  var emp = emps.find(function(e) { return e.id === empId; });
+  if (!emp) return;
+  
+  if (level === null || level === undefined) {
+    emp.badge = null;
+  } else {
+    emp.badge = {
+      level: level,
+      number: number || null
+    };
+  }
+  
+  saveEmployees();
+  renderEmployeeList();
+}
+
+// 渲染员工头像的 Badge
+function renderAvatarBadge(emp, avatarClass) {
+  if (!emp || !emp.badge) return '';
+  
+  var badgeClass = 'badge ';
+  var pulseClass = '';
+  var numberHtml = '';
+  
+  if (emp.badge.level === 'urgent') {
+    badgeClass += 'urgent has-number pop-in';
+    pulseClass = 'pulse-urgent';
+    if (emp.badge.number) {
+      numberHtml = '<span class="badge-number">' + emp.badge.number + '</span>';
+    }
+  } else if (emp.badge.level === 'important') {
+    badgeClass += 'important no-number pop-in';
+    pulseClass = 'pulse-important';
+  } else if (emp.badge.level === 'normal') {
+    badgeClass += 'normal no-number pop-in';
+  } else {
+    return '';
+  }
+  
+  return '<div class="' + badgeClass + '">' + numberHtml + '</div>';
+}
+
+// 更新 renderEmployeeItem 函数中的 badge 渲染
+var _originalRenderEmployeeItem = renderEmployeeItem;
+renderEmployeeItem = function(e, showCreator) {
+  var size = 44;
+  var avatarHtml = renderAvatar(e, size);
+  var creatorTag = '';
+  
+  // admin/leader视图：显示创建者标签
+  if (showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
+    var creatorName = e.createdByName || e._createdByName || '未知';
+    creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:rgba(255,107,53,0.1);border-radius:4px;font-size:11px;color:#FF6B35;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
+  }
+  
+  // 新版 Badge
+  var badgeHtml = renderAvatarBadge(e, 'avatar small');
+  
+  // 组装头像容器（含 Badge）
+  var avatarContainer = '<div class="item-avatar" style="position:relative;width:' + size + 'px;height:' + size + 'px;flex-shrink:0;"><div class="avatar small ' + (e.badge && e.badge.level === 'urgent' ? 'pulse-urgent' : (e.badge && e.badge.level === 'important' ? 'pulse-important' : '')) + '" style="background:' + escapeAttr(e.bg||'') + ';width:' + size + 'px;height:' + size + 'px;">' + avatarHtml + badgeHtml + '</div><div class="status-dot ' + escapeAttr(e.status||'offline') + '" style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border:2.5px solid var(--bg-primary);border-radius:50%;box-shadow:0 0 0 0.5px rgba(0,0,0,0.06);transition:transform 0.2s;"></div></div>';
+  
+  return avatarContainer + '<div class="item-info" style="min-width:0;"><div class="item-name" style="font-weight:500;font-size:14px;letter-spacing:-0.01em;">' + escapeHtml(e.name||'') + creatorTag + '</div><div class="item-msg" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg||'') + '</div></div>';
+};
+
+// ========================================
+// 督促通知功能
+// ========================================
+
+var notificationId = 0;
+var activeNotifications = {};
+var urgingSnoozeTimers = {};
+
+// 显示督促通知
+function showUrgingNotify(empName, taskName, deadline, empId) {
+  var id = ++notificationId;
+  var container = document.getElementById('notificationContainer');
+  if (!container) return;
+  
+  // 创建卡片
+  var card = document.createElement('div');
+  card.className = 'notification-card';
+  card.id = 'notification-' + id;
+  card.innerHTML = 
+    '<div class="notification-content">' +
+      '<div class="notification-header">' +
+        '<div class="notification-avatar" style="background:linear-gradient(135deg,#ff6b6b,#ff3b30);display:flex;align-items:center;justify-content:center;color:white;font-weight:600;">' + (empName ? empName.charAt(0) : '?') + '</div>' +
+        '<span class="notification-title"><span class="highlight">' + escapeHtml(empName || '未知') + '</span> 催你处理任务</span>' +
+      '</div>' +
+      '<div class="notification-body">' +
+        '<div class="notification-task">' + escapeHtml(taskName || '未知任务') + '</div>' +
+        '<div class="notification-time">截止时间：' + escapeHtml(deadline || '未设置') + '</div>' +
+      '</div>' +
+      '<div class="notification-actions">' +
+        '<button class="notification-btn primary" onclick="handleUrgingView(' + id + ', \'' + escapeAttr(empId || '') + '\')">查看详情</button>' +
+        '<button class="notification-btn secondary" onclick="handleUrgingSnooze(' + id + ', \'' + escapeAttr(empId || '') + '\', \'' + escapeAttr(taskName || '') + '\', \'' + escapeAttr(deadline || '') + '\')">稍后提醒</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="notification-progress">' +
+      '<div class="notification-progress-bar" id="progress-' + id + '"></div>' +
+    '</div>';
+  
+  container.appendChild(card);
+  
+  // 触发动画
+  requestAnimationFrame(function() {
+    card.classList.add('show');
+  });
+  
+  // 启动8秒倒计时进度条
+  var duration = 8000;
+  var progressBar = document.getElementById('progress-' + id);
+  if (progressBar) {
+    progressBar.style.transition = 'transform ' + duration + 'ms linear';
+    requestAnimationFrame(function() {
+      progressBar.style.transform = 'scaleX(0)';
+    });
+  }
+  
+  // 8秒后自动消失
+  var hideTimer = setTimeout(function() {
+    hideNotification(id);
+  }, duration);
+  
+  activeNotifications[id] = {
+    timer: hideTimer,
+    empId: empId
+  };
+}
+
+// 隐藏通知
+function hideNotification(id) {
+  var card = document.getElementById('notification-' + id);
+  if (!card) return;
+  
+  card.classList.remove('show');
+  card.classList.add('hide');
+  
+  setTimeout(function() {
+    if (card.parentNode) {
+      card.parentNode.removeChild(card);
+    }
+    delete activeNotifications[id];
+  }, 400);
+}
+
+// 查看详情 - 打开聊天
+function handleUrgingView(id, empId) {
+  if (empId && typeof openChat === 'function') {
+    openChat(empId);
+  }
+  hideNotification(id);
+}
+
+// 稍后提醒 - 5分钟后再次弹出
+function handleUrgingSnooze(id, empId, taskName, deadline) {
+  hideNotification(id);
+  
+  // 清除之前的 snooze 定时器（如果有）
+  if (urgingSnoozeTimers[empId]) {
+    clearTimeout(urgingSnoozeTimers[empId]);
+  }
+  
+  // 5分钟后再次显示
+  urgingSnoozeTimers[empId] = setTimeout(function() {
+    showUrgingNotify(empId, taskName, deadline, empId);
+    delete urgingSnoozeTimers[empId];
+  }, 5 * 60 * 1000);
+}
+
+// 渲染督促聊天气泡
+function renderUrgeBubble(taskName, deadline) {
+  return '<div class="urge-header"><span class="urge-icon">⚡</span> 催促处理</div>' +
+         '<div class="urge-body">' +
+           '<div class="urge-task">' + escapeHtml(taskName || '任务') + '</div>' +
+           '<div class="urge-time">截止：' + escapeHtml(deadline || '未设置') + '</div>' +
+         '</div>';
+}
+
+// 更新 renderMsgs 函数以支持督促气泡
+var _originalRenderMsgs = renderMsgs;
+renderMsgs = function(type) {
+  // 先调用原函数
+  _originalRenderMsgs(type);
+  
+  // 如果有活跃的催促消息，在消息区域顶部显示
+  var area = document.getElementById('messagesArea');
+  if (!area) return;
+  
+  // 检查是否有催促消息需要显示
+  var empId = localStorage.getItem('sb_current_emp');
+  var urgeData = localStorage.getItem('sb_urge_' + empId);
+  if (urgeData) {
+    try {
+      var urge = JSON.parse(urgeData);
+      if (urge && urge.show) {
+        // 在消息区域顶部插入催促气泡
+        var urgeBubble = document.createElement('div');
+        urgeBubble.className = 'msg urge';
+        urgeBubble.id = 'urge-bubble';
+        urgeBubble.innerHTML = '<div class="msg-bubble">' + renderUrgeBubble(urge.taskName, urge.deadline) + '</div>';
+        
+        var firstMsg = area.querySelector('.msg, .chat-empty-state');
+        if (firstMsg) {
+          area.insertBefore(urgeBubble, firstMsg);
+        } else {
+          area.appendChild(urgeBubble);
+        }
+        
+        // 3秒后淡出
+        setTimeout(function() {
+          var bubble = document.getElementById('urge-bubble');
+          if (bubble) {
+            bubble.style.opacity = '0';
+            bubble.style.transition = 'opacity 0.5s';
+            setTimeout(function() {
+              if (bubble.parentNode) bubble.parentNode.removeChild(bubble);
+            }, 500);
+          }
+        }, 3000);
+        
+        // 清除催促状态
+        urge.show = false;
+        localStorage.setItem('sb_urge_' + empId, JSON.stringify(urge));
+      }
+    } catch(e) {}
+  }
+};
+
+// 触发催促通知（供外部调用）
+function triggerUrgeNotification(empId, taskName, deadline) {
+  var emp = emps.find(function(e) { return e.id === empId; });
+  if (emp) {
+    showUrgingNotify(emp.name, taskName, deadline, empId);
+    
+    // 同时设置催促状态，在下次打开聊天时显示气泡
+    localStorage.setItem('sb_urge_' + empId, JSON.stringify({
+      taskName: taskName,
+      deadline: deadline,
+      show: true
+    }));
+  }
+}
+
+
 </html>

@@ -80,9 +80,10 @@ def _read_json(filepath, default=None):
 
 
 def _write_json(filepath, data):
-    """写入 JSON 文件（加文件锁，Windows下跳过）"""
+    """写入 JSON 文件（加文件锁，唯一临时文件避免并发踩踏）"""
     _ensure_data_dir()
-    tmp_path = filepath + '.tmp'
+    # 用唯一临时文件名，避免并发写入时互相覆盖tmp
+    tmp_path = filepath + '.tmp.' + uuid.uuid4().hex[:8]
     try:
         with open(tmp_path, 'w', encoding='utf-8') as f:
             if fcntl:
@@ -766,6 +767,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._do_POST()
         except Exception as e:
             print(f'  [ERROR] POST {self.path}: {e}', flush=True)
+            import traceback; traceback.print_exc()
             try:
                 self._send_json(500, {'error': str(e)})
             except:
@@ -863,6 +865,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._do_PUT()
         except Exception as e:
             print(f'  [ERROR] PUT {self.path}: {e}', flush=True)
+            import traceback; traceback.print_exc()
             try:
                 self._send_json(500, {'error': str(e)})
             except:
@@ -2275,6 +2278,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_create_agent(self):
         """POST /api/agents"""
+        try:
+            self._handle_create_agent_inner()
+        except Exception as e:
+            print(f'  [POST agent] ERROR: {e}', flush=True)
+            import traceback; traceback.print_exc()
+            self._send_json(500, {'error': str(e)})
+
+    def _handle_create_agent_inner(self):
+        """POST /api/agents (implementation)"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -2335,48 +2347,57 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_update_agent(self, agent_id):
         """PUT /api/agents/:id"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
+        try:
+            auth = _authenticate(self.headers)
+            if not auth.is_authenticated:
+                self._send_auth_error(auth.error, auth.status)
+                return
 
-        body = self._read_body()
-        if not body:
-            self._send_json(400, {'error': '无效的请求体'})
-            return
+            body = self._read_body()
+            if not body:
+                self._send_json(400, {'error': '无效的请求体'})
+                return
 
-        agents = _load_agents()
-        agent = None
-        for a in agents:
-            if a.get('id') == agent_id:
-                agent = a
-                break
+            print(f'  [PUT agent] id={agent_id} body_keys={list(body.keys())[:10]}', flush=True)
 
-        if not agent:
-            self._send_json(404, {'error': 'Agent 不存在'})
-            return
+            agents = _load_agents()
+            agent = None
+            for a in agents:
+                if a.get('id') == agent_id:
+                    agent = a
+                    break
 
-        # 权限校验
-        if not auth.is_admin:
-            if agent.get('createdBy') != auth.user_info['userId']:
-                # leader可以删管理组内成员创建的agent
-                if not (auth.is_leader and agent.get('createdBy') in _get_team_member_ids(auth)):
-                    self._send_auth_error('权限不足', 403)
-                    return
+            if not agent:
+                self._send_json(404, {'error': 'Agent 不存在'})
+                return
 
-        # 可更新字段
-        updatable = ['name', 'role', 'bg', 'avatar', 'status', 'msg', 'archived',
-                     'permission', 'visibility', 'connectionType', 'apiProvider',
-                     'apiModel', 'apiKey', 'openclawAgent', 'openclawModel',
-                     'openclawName', 'aiProvider',
-                     'systemPrompt', 'department', 'customEndpoint',
-                     'group', 'pinned', 'idDoc', 'soulDoc', 'toolsDoc', 'userDoc']
-        for key in updatable:
-            if key in body:
-                agent[key] = body[key]
+            # 权限校验
+            if not auth.is_admin:
+                if agent.get('createdBy') != auth.user_info['userId']:
+                    if not (auth.is_leader and agent.get('createdBy') in _get_team_member_ids(auth)):
+                        self._send_auth_error('权限不足', 403)
+                        return
 
-        _save_agents(agents)
-        self._send_json(200, agent)
+            # 可更新字段
+            updatable = ['name', 'role', 'bg', 'avatar', 'status', 'msg', 'archived',
+                         'permission', 'visibility', 'connectionType', 'apiProvider',
+                         'apiModel', 'apiKey', 'openclawAgent', 'openclawModel',
+                         'openclawName', 'aiProvider',
+                         'systemPrompt', 'department', 'customEndpoint',
+                         'group', 'pinned', 'idDoc', 'soulDoc', 'toolsDoc', 'userDoc',
+                         'badge', 'createdBy', 'createdByName']
+            for key in updatable:
+                if key in body:
+                    agent[key] = body[key]
+
+            _save_agents(agents)
+            print(f'  [PUT agent] saved ok, sending response', flush=True)
+            self._send_json(200, agent)
+        except Exception as e:
+            print(f'  [PUT agent] ERROR: {e}', flush=True)
+            import traceback
+            traceback.print_exc()
+            self._send_json(500, {'error': str(e)})
 
     def _handle_delete_agent(self, agent_id):
         """DELETE /api/agents/:id"""
@@ -3223,9 +3244,22 @@ def main():
     parser = argparse.ArgumentParser(description='SoloBrave Server')
     parser.add_argument('port', nargs='?', type=int, default=_default_port, help='Listen port (default: 8080)')
     parser.add_argument('--bind', default=_default_bind, help='Bind address (default: 0.0.0.0)')
+    parser.add_argument('--data', default=None, help='Data directory (default: ~/.solobrave-data)')
     args = parser.parse_args()
     PORT = args.port
     BIND = args.bind
+
+    # Override data directory if specified
+    if args.data:
+        global DATA_DIR, SECRET_FILE, USERS_FILE, AGENTS_FILE, GROUPS_FILE, CHATS_DIR, SETTINGS_FILE, TEAMS_FILE
+        DATA_DIR = os.path.abspath(args.data)
+        SECRET_FILE = os.path.join(DATA_DIR, '.secret')
+        USERS_FILE = os.path.join(DATA_DIR, 'users.json')
+        AGENTS_FILE = os.path.join(DATA_DIR, 'agents.json')
+        GROUPS_FILE = os.path.join(DATA_DIR, 'groups.json')
+        CHATS_DIR = os.path.join(DATA_DIR, 'chats')
+        SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
+        TEAMS_FILE = os.path.join(DATA_DIR, 'teams.json')
 
     # 确保数据目录
     _ensure_data_dir()
