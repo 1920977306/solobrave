@@ -2166,7 +2166,7 @@ function initMockData() {
 // ===== 数据打通：加载员工数据 =====
 function loadEmployeesFromStorage() {
   return new Promise(function(resolve) {
-    var token = localStorage.getItem('auth_token');
+    var token = localStorage.getItem('sb_auth_token');
     if (!token) {
       console.warn('[Office] No auth token, using mock data');
       initMockData();
