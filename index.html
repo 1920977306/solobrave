@@ -1921,6 +1921,7 @@ window.doLogin = function() {
 
 <!-- Group Context Menu (right-click on group items) -->
 <div id="groupCtxMenu" class="ctx-menu">
+  <div class="menu-item" onclick="groupCtxAction('settings')">⚙️ 群组设置</div>
   <div class="menu-item" onclick="groupCtxAction('edit')">✏️ 编辑群组</div>
   <div class="menu-item" onclick="groupCtxAction('addMember')">➕ 添加成员</div>
   <div class="menu-divider"></div>
@@ -2895,6 +2896,22 @@ window.doLogin = function() {
 <div class="form-group">
 <label class="form-label">群组名称</label>
 <input type="text" class="form-input" id="groupEditName" placeholder="输入群组名称">
+</div>
+<div class="form-group">
+<label class="form-label">群组描述</label>
+<textarea class="form-input" id="groupEditDesc" rows="3" placeholder="输入群组描述..."></textarea>
+</div>
+<div class="form-group">
+<label class="form-label">成员列表</label>
+<div class="group-member-list" id="groupSettingsMemberList" style="max-height:200px;overflow-y:auto;border:1px solid var(--separator);border-radius:8px;padding:8px;">
+<!-- Members rendered here -->
+</div>
+</div>
+<div class="form-group">
+<button class="emp-action-btn" onclick="showAddMemberModal()" style="width:100%;">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+添加成员
+</button>
 </div>
 <div class="form-group">
 <label class="form-label">群组图标</label>
@@ -5510,6 +5527,12 @@ function groupCtxAction(action){
         showToast('✏️ 编辑群组: ' + (group.name || ''));
       }
       break;
+    case 'settings':
+      if(group){
+        openGroupDetail(groupId);
+        setTimeout(function(){ switchGroupDetailTab('settings'); }, 100);
+      }
+      break;
     case 'addMember':
       if(group){
         openGroupWizard();
@@ -7644,8 +7667,12 @@ function openGroupDetail(groupId){
 
   // Settings tab
   document.getElementById('groupEditName').value = group.name || '';
+  document.getElementById('groupEditDesc').value = group.description || '';
   selectedGroupEmoji = group.emoji || '👥';
   selectedGroupColor = group.bg || '#5856D6';
+
+  // Render settings member list
+  renderGroupSettingsMembers(group);
 
   // Update emoji selection
   document.querySelectorAll('#groupEmojiPicker .avatar-option').forEach(function(el){
@@ -7678,6 +7705,27 @@ function switchGroupDetailTab(tab){
   document.querySelectorAll('.group-tab-pane').forEach(function(p){
     p.style.display = (p.id === 'group-tab-' + tab) ? 'block' : 'none';
   });
+}
+
+function renderGroupSettingsMembers(group){
+  var list = document.getElementById('groupSettingsMemberList');
+  if(!list) return;
+  if(!group.members || group.members.length === 0){
+    list.innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-secondary);font-size:13px;">暂无成员</div>';
+    return;
+  }
+  list.innerHTML = group.members.map(function(mid){
+    var emp = emps.find(function(e){ return e.id === mid; });
+    if(!emp) return '';
+    var avatarHtml = renderAvatar(emp, 28);
+    return '<div class="group-member-item" data-mid="' + escapeAttr(mid) + '" style="padding:6px 0;">' +
+      '<div class="group-member-avatar" style="background:' + escapeAttr(emp.bg || '#888') + ';width:28px;height:28px;">' + avatarHtml + '</div>' +
+      '<div class="group-member-info" style="min-width:0;">' +
+      '<div class="group-member-name" style="font-size:13px;">' + escapeHtml(emp.name || '') + '</div>' +
+      '</div>' +
+      '<button class="group-member-remove" onclick="removeGroupMember('' + escapeAttr(mid) + '')" title="移除成员" style="width:24px;height:24px;font-size:12px;">✕</button>' +
+      '</div>';
+  }).join('');
 }
 
 function renderGroupDetailMembers(group){
@@ -7785,14 +7833,41 @@ function saveGroupDetail(){
   if(!group) return;
 
   var newName = document.getElementById('groupEditName').value.trim();
+  var newDesc = document.getElementById('groupEditDesc').value.trim();
   if(newName) group.name = newName;
+  if(newDesc !== undefined) group.description = newDesc;
   if(selectedGroupEmoji) group.emoji = selectedGroupEmoji;
   if(selectedGroupColor) group.bg = selectedGroupColor;
 
   saveGroups();
   renderGroupItems();
   document.getElementById('groupDetailName').textContent = group.name;
-  showToast('群组已保存');
+
+  // 同步到后端
+  var token = localStorage.getItem('sb_auth_token');
+  if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
+    apiFetch('/api/groups/' + currentGroupDetailId, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: group.name,
+        description: group.description || '',
+        emoji: group.emoji,
+        bg: group.bg,
+        members: group.members || []
+      })
+    }).then(function(res){
+      if(res && res.ok){
+        showToast('✅ 群组已保存并同步到服务器');
+      } else {
+        showToast('✅ 群组已保存(本地)');
+      }
+    }).catch(function(err){
+      console.warn('[Group] sync to server failed:', err);
+      showToast('✅ 群组已保存(本地)');
+    });
+  } else {
+    showToast('✅ 群组已保存');
+  }
 }
 
 function dissolveGroupFromDetail(){
@@ -11441,6 +11516,7 @@ function checkQuota() {
 
 <!-- Group Context Menu (right-click on group items) -->
 <div id="groupCtxMenu" class="ctx-menu">
+  <div class="menu-item" onclick="groupCtxAction('settings')">⚙️ 群组设置</div>
   <div class="menu-item" onclick="groupCtxAction('edit')">✏️ 编辑群组</div>
   <div class="menu-item" onclick="groupCtxAction('addMember')">➕ 添加成员</div>
   <div class="menu-divider"></div>
