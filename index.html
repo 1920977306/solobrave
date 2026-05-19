@@ -1795,6 +1795,77 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .gw-confirm-row:last-child { margin-bottom: 0; }
 .gw-confirm-label { color: var(--text-secondary); margin-right: 4px; }
 
+/* ===== 员工头像Badge标记系统 ===== */
+.emp-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg-primary, #fff);
+  z-index: 10;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  animation: badgePop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.emp-badge.urgent {
+  background: linear-gradient(135deg, #ff3b30, #ff6b6b);
+  animation: badgePop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), pulseGlow 2s ease-in-out infinite;
+}
+.emp-badge.important {
+  background: linear-gradient(135deg, #ff9500, #ffcc00);
+  animation: badgePop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), pulseGlowOrange 2.5s ease-in-out infinite;
+}
+.emp-badge.normal {
+  background: linear-gradient(135deg, #007aff, #5ac8fa);
+}
+.emp-badge.dot {
+  min-width: 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 5px;
+  font-size: 0;
+  top: -2px;
+  right: -2px;
+}
+.emp-avatar-wrap { position: relative; display: inline-block; }
+.emp-avatar-wrap.size-32 .emp-badge {
+  min-width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  font-size: 9px;
+  top: -3px;
+  right: -3px;
+  border-width: 1.5px;
+}
+.emp-avatar-wrap.size-32 .emp-badge.dot {
+  min-width: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  top: -1px;
+  right: -1px;
+}
+@keyframes badgePop {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 2px 6px rgba(255,59,48,0.4); }
+  50% { box-shadow: 0 2px 12px rgba(255,59,48,0.8); }
+}
+@keyframes pulseGlowOrange {
+  0%, 100% { box-shadow: 0 2px 6px rgba(255,149,0,0.4); }
+  50% { box-shadow: 0 2px 12px rgba(255,149,0,0.8); }
+}
+
 </style>
 <script>
 // Early login handler - works even if main script fails to load
@@ -4083,6 +4154,20 @@ function saveEmployees(){
   // 3. 通知龙虾办公室数据已更新
   notifyOfficeEmployeesUpdated();
 }
+
+// ===== Badge标记系统 =====
+function setEmpBadge(empId, level, number){
+  var emp = emps.find(function(e){ return e.id === empId; });
+  if(!emp) return;
+  if(level === null || level === undefined){
+    emp.badge = null;
+  } else {
+    emp.badge = { level: level, number: (number > 0 && number <= 9) ? number : null };
+  }
+  saveEmployees();
+  renderEmployeeList();
+}
+
 async function syncEmpToServer(emp){
   try {
     // 先尝试 PUT 更新
@@ -4841,13 +4926,18 @@ function renderEmployeeItem(e, showCreator){
     creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:rgba(255,107,53,0.1);border-radius:4px;font-size:11px;color:#FF6B35;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
   }
   
-  // 紧急 Badge
-  var badgeTag = '';
-  if(e.badge && e.badge.trim()) {
-    badgeTag = '<span class="emp-urgent-badge" onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(e.id) + '\');" title="' + escapeAttr(e.badge) + '">⚠️ ' + escapeHtml(e.badge) + '</span>';
+  // Badge 标记
+  var badgeHtml = '';
+  if(e.badge && e.badge.level) {
+    var blevel = e.badge.level;
+    var bnum = e.badge.number;
+    var bclass = 'emp-badge ' + escapeAttr(blevel);
+    var btext = bnum ? escapeHtml('' + bnum) : '';
+    if(!bnum) bclass = bclass + ' dot';
+    badgeHtml = '<div class="' + bclass + '">' + btext + '</div>';
   }
   
-  return '<div class="item-avatar" style="position:relative;width:' + size + 'px;height:' + size + 'px;flex-shrink:0;"><div class="avatar small" style="background:' + escapeAttr(e.bg||'') + ';width:' + size + 'px;height:' + size + 'px;">' + avatarHtml + '</div><div class="status-dot ' + escapeAttr(e.status||'offline') + '" style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border:2.5px solid var(--bg-primary);border-radius:50%;box-shadow:0 0 0 0.5px rgba(0,0,0,0.06);transition:transform 0.2s;"></div></div><div class="item-info" style="min-width:0;"><div class="item-name" style="font-weight:500;font-size:14px;letter-spacing:-0.01em;">' + escapeHtml(e.name||'') + creatorTag + badgeTag + '</div><div class="item-msg" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg||'') + '</div></div>';
+  return '<div class="item-avatar emp-avatar-wrap" style="position:relative;width:' + size + 'px;height:' + size + 'px;flex-shrink:0;"><div class="avatar small" style="background:' + escapeAttr(e.bg||'') + ';width:' + size + 'px;height:' + size + 'px;">' + avatarHtml + '</div>' + badgeHtml + '<div class="status-dot ' + escapeAttr(e.status||'offline') + '" style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border:2.5px solid var(--bg-primary);border-radius:50%;box-shadow:0 0 0 0.5px rgba(0,0,0,0.06);transition:transform 0.2s;"></div></div><div class="item-info" style="min-width:0;"><div class="item-name" style="font-weight:500;font-size:14px;letter-spacing:-0.01em;">' + escapeHtml(e.name||'') + creatorTag + '</div><div class="item-msg" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg||'') + '</div></div>';
 }
 
 function bindListEvents(){
@@ -4999,11 +5089,21 @@ function empSettingsAction(action){
       saveEmployees(); 
       showToast('📦 已归档'); 
       break;
-    case 'clearBadge':
-      emp.badge = '';
-      saveEmployees();
-      renderEmployeeList();
-      showToast('🔕 已清除紧急标记');
+    case 'badgeUrgent':
+      setEmpBadge(empSettingsTarget, 'urgent', 1);
+      showToast('🔴 已标记为紧急');
+      break;
+    case 'badgeImportant':
+      setEmpBadge(empSettingsTarget, 'important', 1);
+      showToast('🟠 已标记为重要');
+      break;
+    case 'badgeNormal':
+      setEmpBadge(empSettingsTarget, 'normal', 1);
+      showToast('🔵 已标记为普通');
+      break;
+    case 'badgeClear':
+      setEmpBadge(empSettingsTarget, null, null);
+      showToast('⚪ 已清除标记');
       break;
     case 'delete': 
       if(confirm('确定删除 ' + emp.name + '？')){
@@ -11153,7 +11253,14 @@ function checkQuota() {
   <div class="menu-divider"></div>
   <div class="menu-item" onclick="empSettingsAction('pin')">📌 置顶</div>
   <div class="menu-item" onclick="empSettingsAction('archive')">📦 归档</div>
-  <div class="menu-item" onclick="empSettingsAction('clearBadge')">🔕 清除紧急标记</div>
+  <div class="menu-item has-submenu">🚨 标记紧急
+    <div class="submenu">
+      <div class="submenu-item" onclick="empSettingsAction('badgeUrgent')">🔴 紧急 (红色)</div>
+      <div class="submenu-item" onclick="empSettingsAction('badgeImportant')">🟠 重要 (橙色)</div>
+      <div class="submenu-item" onclick="empSettingsAction('badgeNormal')">🔵 普通 (蓝色)</div>
+      <div class="submenu-item" onclick="empSettingsAction('badgeClear')">⚪ 清除标记</div>
+    </div>
+  </div>
   <div class="menu-divider"></div>
   <div class="menu-item danger" onclick="empSettingsAction('delete')">🗑️ 删除</div>
 </div>
