@@ -3095,15 +3095,22 @@ function renderChatZone() {
     html += '</div>';
     html += '<div class="conv-bottom-row">';
     if (isThinking) {
-      html += '<div class="work-status-line" style="margin-top:4px;padding:4px 8px;"><span class="work-status-label">💭 思考中</span><span class="work-thinking-dots"><span></span><span></span><span></span></span></div>';
+      html += '<div class="work-status-line" style="margin-top:4px;padding:4px 8px;display:flex;align-items:center;justify-content:space-between;"><span style="display:flex;align-items:center;gap:4px;"><span class="work-status-label">💭 思考中</span><span class="work-thinking-dots"><span></span><span></span><span></span></span></span>';
+      if (unreadCount > 0) {
+        html += '<span class="conv-unread">' + unreadCount + '</span>';
+      }
+      html += '</div>';
     } else if (latestMsg) {
       var preview = latestMsg.length > 20 ? latestMsg.substring(0, 20) + '...' : latestMsg;
       html += '<span class="conv-preview">' + escapeHtml(preview) + '</span>';
+      if (unreadCount > 0) {
+        html += '<span class="conv-unread">' + unreadCount + '</span>';
+      }
     } else {
       html += '<span class="conv-preview" style="color:#AEAEB2">开始新对话</span>';
-    }
-    if (unreadCount > 0) {
-      html += '<span class="conv-unread">' + unreadCount + '</span>';
+      if (unreadCount > 0) {
+        html += '<span class="conv-unread">' + unreadCount + '</span>';
+      }
     }
     html += '</div>';
     html += '</div>';
