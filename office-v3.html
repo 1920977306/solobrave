@@ -1732,27 +1732,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   min-width: 0;
 }
 .work-name {
-  font: 600 14px/1.3 -apple-system, 'SF Pro Display', sans-serif;
+  font: 600 16px/1.3 -apple-system, 'SF Pro Display', sans-serif;
   color: #1D1D1F;
   letter-spacing: -0.01em;
-  margin-bottom: 1px;
+  margin-bottom: 2px;
 }
 .work-role {
   font: 400 12px/1.4 -apple-system, sans-serif;
   color: #86868B;
+  margin-bottom: 6px;
 }
-.work-task-tag {
-  display: inline-flex;
-  padding: 2px 6px;
-  background: #F2F2F7;
-  border-radius: 4px;
-  font-size: 10px;
+.work-task {
+  font: 500 12px/1.4 -apple-system, sans-serif;
   color: #636366;
-  margin-top: 4px;
-}
-.work-task-tag::before {
-  content: '\u23F1';
-  font-size: 9px;
+  padding: 2px 8px;
+  background: #F2F2F7;
+  border-radius: 6px;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .work-meta {
   display: flex;
@@ -1789,6 +1789,52 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   font: 400 10px/1.3 -apple-system, sans-serif;
   color: #AEAEB2;
   font-variant-numeric: tabular-nums;
+}
+
+/* ===== 工作状态指示器 ===== */
+.work-status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(0, 122, 255, 0.06);
+  border-radius: 8px;
+  border-left: 3px solid #007AFF;
+}
+.work-status-label {
+  font: 600 11px/1.3 -apple-system, sans-serif;
+  color: #007AFF;
+  flex-shrink: 0;
+}
+.work-status-text {
+  font: 400 11px/1.3 -apple-system, sans-serif;
+  color: #636366;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===== 思考动画（三个跳动圆点） ===== */
+.work-thinking-dots {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.work-thinking-dots span {
+  width: 4px;
+  height: 4px;
+  background: #007AFF;
+  border-radius: 50%;
+  animation: think-bounce 1.4s infinite ease-in-out both;
+}
+.work-thinking-dots span:nth-child(1) { animation-delay: 0s; }
+.work-thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.work-thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes think-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
 }
 
 /* ===== 休闲区横向滚动 ===== */
@@ -3196,6 +3242,16 @@ function renderWorkZone() {
     html += '<div class="work-name">' + escapeHtml(e.name || '?') + '</div>';
     html += '<div class="work-role">' + escapeHtml(roleName) + '</div>';
     html += '<div class="work-task">' + escapeHtml(taskDesc) + '</div>';
+    
+    // 工作状态指示器（思考中显示动画）
+    if(e.status === 'thinking' || e.status === 'reading' || e.status === 'coding' || e.status === 'writing'){
+      var thinkDots = '<span class="work-thinking-dots"><span></span><span></span><span></span></span>';
+      html += '<div class="work-status-line">';
+      html += '<span class="work-status-label">' + cfg.text + '</span>';
+      html += '<span class="work-status-text">处理中' + thinkDots + '</span>';
+      html += '</div>';
+    }
+    
     html += '</div>';
     
     // 右侧状态
