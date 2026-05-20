@@ -2210,6 +2210,62 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   }
 }
 
+
+/* ===== 底部状态栏 — 彩色统计 ===== */
+.status-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 12px/1 -apple-system, sans-serif;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.online {
+  background: #34C759;
+  box-shadow: 0 0 6px rgba(52, 199, 89, 0.4);
+}
+.status-dot.working {
+  background: #FF9500;
+  box-shadow: 0 0 6px rgba(255, 149, 0, 0.4);
+}
+.status-dot.idle {
+  background: #8E8E93;
+  box-shadow: 0 0 6px rgba(142, 142, 147, 0.3);
+}
+.status-dot.task {
+  background: #007AFF;
+  box-shadow: 0 0 6px rgba(0, 122, 255, 0.4);
+}
+.status-label {
+  color: #86868B;
+  font-size: 11px;
+}
+.status-num {
+  color: #1D1D1F;
+  font-weight: 700;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 深色模式 */
+@media (prefers-color-scheme: dark) {
+  .status-label {
+    color: #AEAEB2;
+  }
+  .status-num {
+    color: #F5F5F7;
+  }
+}
+
 </style><script src="./openclaw-client.js"></script>
 <script src="./avatars.js"></script>
 </head><body>
@@ -2292,7 +2348,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
             </div>
           </div>
         </div>
-      </div><div class="task-section"><h3>定时任务</h3><div id="taskList"></div></div></aside></div><div class="bottom-bar"><div style="display:flex;gap:12px;"><span class="bottom-stat online"><span class="dot"></span><span id="statusOnline">0 在线</span></span><span class="bottom-stat working"><span class="dot"></span><span id="statusWorking">0 工作中</span></span><span class="bottom-stat idle"><span class="dot"></span><span id="statusIdle">0 空闲</span></span><span class="bottom-stat pending"><span class="dot"></span><span id="statusPending">0 待处理</span></span></div><span class="bottom-time" id="statusTime">--:--</span></div>
+      </div><div class="task-section"><h3>定时任务</h3><div id="taskList"></div></div></aside></div><div class="bottom-bar"><div class="status-bar-inner"><span class="status-item"><span class="status-dot online"></span><span class="status-label">在线</span><span class="status-num" id="statusOnline">0</span></span><span class="status-item"><span class="status-dot working"></span><span class="status-label">工作中</span><span class="status-num" id="statusWorking">0</span></span><span class="status-item"><span class="status-dot idle"></span><span class="status-label">空闲</span><span class="status-num" id="statusIdle">0</span></span><span class="status-item"><span class="status-dot task"></span><span class="status-label">待处理</span><span class="status-num" id="statusPending">0</span></span></div><span class="bottom-time" id="statusTime">--:--</span></div>
 
 <!-- ====== 导航栏 ====== -->
 
@@ -3025,8 +3081,11 @@ function animateNumber(el,target,duration){
 
 // ===== 更新统计 =====
 function updateStats(){
+  // 统计各状态员工数
   var online = employees.filter(function(e){return e.status==='online'}).length;
-  var working = employees.filter(function(e){return e.status==='busy'}).length;
+  var working = employees.filter(function(e){
+    return e.status==='busy' || e.status==='working' || e.status==='coding' || e.status==='writing' || e.status==='reading' || e.status==='thinking';
+  }).length;
   var idle = employees.filter(function(e){return e.status==='idle'}).length;
   var pending = activities.filter(function(a){return a.status==='p1'}).length;
 
@@ -3042,21 +3101,15 @@ function updateStats(){
   elPct = document.getElementById('statIdlePct'); if(elPct) elPct.textContent = Math.round(idle/employees.length*100)+'%';
   elPct = document.getElementById('statPendingPct'); if(elPct) elPct.textContent = Math.round(pending/activities.length*100)+'%';
 
-  // 更新底部状态栏 - 带颜色
+  // 更新底部状态栏 - 彩色统计
   var elOnline = document.getElementById('statusOnline');
   var elWorking = document.getElementById('statusWorking');
   var elIdle = document.getElementById('statusIdle');
   var elPending = document.getElementById('statusPending');
-  if(elOnline) elOnline.textContent = online + ' 在线';
-  if(elWorking) elWorking.textContent = working + ' 工作中';
-  if(elIdle) elIdle.textContent = idle + ' 空闲';
-  if(elPending) elPending.textContent = pending + ' 待处理';
-  
-  // 更新状态栏颜色
-  if(elOnline) elOnline.style.color = online > 0 ? '#34C759' : '#8E8E93';
-  if(elWorking) elWorking.style.color = working > 0 ? '#007AFF' : '#8E8E93';
-  if(elIdle) elIdle.style.color = idle > 0 ? '#8E8E93' : '#8E8E93';
-  if(elPending) elPending.style.color = pending > 0 ? '#FF9500' : '#8E8E93';
+  if(elOnline) elOnline.textContent = online;
+  if(elWorking) elWorking.textContent = working;
+  if(elIdle) elIdle.textContent = idle;
+  if(elPending) elPending.textContent = pending;
 }
 
 // ===== 渲染活动列表 =====
