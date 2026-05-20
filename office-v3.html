@@ -3177,11 +3177,11 @@ function renderWorkZone() {
   var countEl = document.getElementById('workZoneCount');
   if (!workZone) return;
   
-  // 筛选工作中/思考中的员工
+  // 显示所有非归档员工
   var workingEmployees = [];
   for (var i = 0; i < employees.length; i++) {
     var e = employees[i];
-    if (e.status === 'busy' || e.status === 'thinking' || e.status === 'working') {
+    if (!e.archived) {
       workingEmployees.push(e);
     }
   }
@@ -3208,6 +3208,7 @@ function renderWorkZone() {
       'writing': { icon: '📝', text: '写内容', color: '#34C759', badge: 'working' },
       'reading': { icon: '📖', text: '读文档', color: '#AF52DE', badge: 'working' },
       'coding': { icon: '💻', text: '写代码', color: '#30D158', badge: 'working' },
+      'online': { icon: '🟢', text: '在线', color: '#34C759', badge: 'online' },
       'busy': { icon: '⚡', text: '工作中', color: '#FF9500', badge: 'working' },
       'working': { icon: '⚡', text: '工作中', color: '#FF9500', badge: 'working' }
     };
