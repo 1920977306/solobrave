@@ -2398,6 +2398,12 @@ async function initOpenClaw() {
   openclaw.on('authenticated', function(){
     console.log('[Office] OpenClaw 已认证');
     updateOpenClawStatus(true);
+    // 认证成功后重新加载员工数据（可能之前401）
+    loadEmployeesFromStorage().then(function(){
+      renderChatZone();
+      renderWorkZone();
+      renderLoungeZone();
+    });
   });
 
   openclaw.on('disconnected', function(){
