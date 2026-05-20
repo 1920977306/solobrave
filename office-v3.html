@@ -3019,20 +3019,12 @@ function renderChatZone() {
   var chatZone = document.getElementById('chatZone');
   if (!chatZone) return;
   
-  // 获取有对话历史的员工，优先按最后消息时间排序
+  // 对话区：只显示 status === 'thinking' 的员工（正在思考/对话中）
+  // 优先级最高，thinking 员工只在这里显示
   var chatters = [];
   for (var i = 0; i < employees.length; i++) {
     var e = employees[i];
-    var hist = localStorage.getItem('sb_chat_history_' + e.id);
-    if (hist) {
-      try {
-        var msgs = JSON.parse(hist);
-        if (msgs && msgs.length > 0) {
-          chatters.push(e);
-          continue;
-        }
-      } catch (err) {}
-    }
+    // 只有 thinking 状态的员工才显示在对话区
     if (e.status === 'thinking') {
       chatters.push(e);
     }
@@ -3177,11 +3169,12 @@ function renderWorkZone() {
   var countEl = document.getElementById('workZoneCount');
   if (!workZone) return;
   
-  // 筛选工作中/思考中的员工
+  // 办公区：显示正在干活的员工（不含thinking，thinking在对话区）
+  // busy/working/coding/writing/reading
   var workingEmployees = [];
   for (var i = 0; i < employees.length; i++) {
     var e = employees[i];
-    if (e.status === 'busy' || e.status === 'thinking' || e.status === 'working') {
+    if (e.status === 'busy' || e.status === 'working' || e.status === 'coding' || e.status === 'writing' || e.status === 'reading') {
       workingEmployees.push(e);
     }
   }
@@ -3201,9 +3194,8 @@ function renderWorkZone() {
     var e = workingEmployees[idx];
     var avatarHtml = renderAvatar(e, 44, '12px');
     
-    // 状态细分配置
+    // 状态细分配置（办公区不含thinking）
     var statusConfig = {
-      'thinking': { icon: '💭', text: '思考中', color: '#007AFF', badge: 'waiting' },
       'using_tool': { icon: '🔧', text: '调工具', color: '#FF9500', badge: 'working' },
       'writing': { icon: '📝', text: '写内容', color: '#34C759', badge: 'working' },
       'reading': { icon: '📖', text: '读文档', color: '#AF52DE', badge: 'working' },
@@ -3212,7 +3204,7 @@ function renderWorkZone() {
       'working': { icon: '⚡', text: '工作中', color: '#FF9500', badge: 'working' }
     };
     var cfg = statusConfig[e.status] || statusConfig['busy'];
-    var statusData = e.status === 'thinking' ? 'idle' : 'working';
+    var statusData = 'working';
     var badgeClass = cfg.badge;
     var statusText = cfg.icon + ' ' + cfg.text;
     
@@ -3243,8 +3235,8 @@ function renderWorkZone() {
     html += '<div class="work-role">' + escapeHtml(roleName) + '</div>';
     html += '<div class="work-task">' + escapeHtml(taskDesc) + '</div>';
     
-    // 工作状态指示器（思考中显示动画）
-    if(e.status === 'thinking' || e.status === 'reading' || e.status === 'coding' || e.status === 'writing'){
+    // 工作状态指示器（显示具体状态）
+    if(e.status === 'reading' || e.status === 'coding' || e.status === 'writing' || e.status === 'using_tool'){
       var thinkDots = '<span class="work-thinking-dots"><span></span><span></span><span></span></span>';
       html += '<div class="work-status-line">';
       html += '<span class="work-status-label">' + cfg.text + '</span>';
@@ -3965,16 +3957,10 @@ function renderLoungeZone(){
 
   for (var i = 0; i < employees.length; i++) {
     var e = employees[i];
-    // 办公区员工（思考中/忙碌/工作中）不显示在休闲区
-    if (e.status === 'thinking' || e.status === 'busy' || e.status === 'working') continue;
-    // 有对话历史的员工不显示在休闲区
-    var hist = localStorage.getItem('sb_chat_history_' + e.id);
-    if (hist) {
-      try {
-        var msgs = JSON.parse(hist);
-        if (msgs && msgs.length > 0) continue;
-      } catch(err) {}
-    }
+    // 休闲区：只显示不在对话区也不在办公区的员工
+    // 排除对话区（thinking）和办公区（busy/working/coding/writing/reading）
+    if (e.status === 'thinking') continue;
+    if (e.status === 'busy' || e.status === 'working' || e.status === 'coding' || e.status === 'writing' || e.status === 'reading') continue;
 
     var isOnline = e.status === 'online';
     if (isOnline) onlineCount++;
