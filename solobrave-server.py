@@ -2247,6 +2247,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'group': a.get('group', ''),
                 'pinned': a.get('pinned', False),
                 'customEndpoint': a.get('customEndpoint', ''),
+                'badge': a.get('badge'),
+                'category': a.get('category', ''),
+                'subCategory': a.get('subCategory', ''),
             })
         self._send_json(200, safe_result)
 
