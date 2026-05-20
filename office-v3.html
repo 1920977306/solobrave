@@ -3095,7 +3095,7 @@ function renderChatZone() {
     html += '</div>';
     html += '<div class="conv-bottom-row">';
     if (isThinking) {
-      html += '<span class="conv-preview" style="color:#007AFF">正在思考...</span>';
+      html += '<div class="work-status-line" style="margin-top:4px;padding:4px 8px;"><span class="work-status-label">💭 思考中</span><span class="work-thinking-dots"><span></span><span></span><span></span></span></div>';
     } else if (latestMsg) {
       var preview = latestMsg.length > 20 ? latestMsg.substring(0, 20) + '...' : latestMsg;
       html += '<span class="conv-preview">' + escapeHtml(preview) + '</span>';
@@ -3200,6 +3200,7 @@ function renderWorkZone() {
       'writing': { icon: '📝', text: '写内容', color: '#34C759', badge: 'working' },
       'reading': { icon: '📖', text: '读文档', color: '#AF52DE', badge: 'working' },
       'coding': { icon: '💻', text: '写代码', color: '#30D158', badge: 'working' },
+      'online': { icon: '🟢', text: '在线', color: '#34C759', badge: 'online' },
       'busy': { icon: '⚡', text: '工作中', color: '#FF9500', badge: 'working' },
       'working': { icon: '⚡', text: '工作中', color: '#FF9500', badge: 'working' }
     };
