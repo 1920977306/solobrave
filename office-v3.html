@@ -2006,26 +2006,50 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   font-size: 13px;
   color: #1D1D1F;
   line-height: 1.4;
-  margin-top: 4px;
+  margin-top: 10px;
   word-break: break-word;
 }
 
-#chatZone .emp-mini-unread {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  min-width: 20px;
-  height: 20px;
+/* 状态行紧凑模式 */
+#chatZone .chat-status-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: rgba(0,122,255,0.06);
+  border-radius: 6px;
+  border-left: none;
+  width: fit-content;
+}
+#chatZone .chat-status-compact .work-status-label {
+  font-size: 11px;
+}
+#chatZone .chat-status-compact .work-thinking-dots {
+  margin-left: 0;
+}
+
+/* 时长+未读 同一行 */
+#chatZone .chat-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+#chatZone .chat-unread-badge {
+  min-width: 18px;
+  height: 18px;
   background: #FF3B30;
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  border-radius: 10px;
+  border-radius: 9px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 6px;
+  padding: 0 5px;
 }
+
+
 
 /* 深色模式适配 */
 @media (prefers-color-scheme: dark) {
@@ -3189,27 +3213,27 @@ function renderChatZone() {
     html += '<span class="work-role">' + escapeHtml(roleName) + '</span>';
     html += '</div>';
     
-    // 状态指示器（思考中）
-    html += '<div class="work-status-line">';
+    // 状态行（紧凑模式：思考中 + 跳动圆点）
+    html += '<div class="work-status-line chat-status-compact">';
     html += '<span class="work-status-label">思考中</span>';
-    html += '<span class="work-status-text">处理中<span class="work-thinking-dots"><span></span><span></span><span></span></span></span>';
+    html += '<span class="work-thinking-dots"><span></span><span></span><span></span></span>';
     html += '</div>';
     
-    // 时长
-    html += '<div class="work-duration">' + escapeHtml(timeText) + '</div>';
+    // 时长 + 未读badge 同一行
+    html += '<div class="chat-meta-row">';
+    html += '<span class="work-duration">' + escapeHtml(timeText) + '</span>';
+    if (unreadCount > 0) {
+      html += '<span class="chat-unread-badge">' + unreadCount + '</span>';
+    }
+    html += '</div>';
     
-    // 最新消息气泡
+    // 最新消息气泡（加大间距）
     if (latestMsg) {
       var preview = latestMsg.length > 30 ? latestMsg.substring(0, 30) + '...' : latestMsg;
       html += '<div class="chat-msg-bubble">' + escapeHtml(preview) + '</div>';
     }
     
     html += '</div>'; // emp-mini-body
-    
-    // 未读角标
-    if (unreadCount > 0) {
-      html += '<div class="emp-mini-unread">' + unreadCount + '</div>';
-    }
     
     html += '</div>'; // emp-mini
   }
