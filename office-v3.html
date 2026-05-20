@@ -3103,7 +3103,7 @@ function renderChatZone() {
     html += '</div>';
     html += '<div class="conv-bottom-row">';
     if (isThinking) {
-      html += '<span class="conv-preview" style="color:#007AFF">正在思考...</span>';
+      html += '<div class="work-status-line" style="margin-top:4px;padding:4px 8px;"><span class="work-status-label">💭 思考中</span><span class="work-thinking-dots"><span></span><span></span><span></span></span></div>';
     } else if (latestMsg) {
       var preview = latestMsg.length > 20 ? latestMsg.substring(0, 20) + '...' : latestMsg;
       html += '<span class="conv-preview">' + escapeHtml(preview) + '</span>';
