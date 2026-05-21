@@ -2603,9 +2603,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         messages = _load_chat(agent_id)
         messages.append(msg)
 
-        # 如果 Agent 走 API，通过代理调用 AI API
+        # 如果前端标记 skipAI（AI已通过OpenClaw回复），跳过API代理
+        skip_ai = body.get('skipAI', False)
         connection_type = agent.get('connectionType', '')
-        if connection_type == 'api':
+        if not skip_ai and connection_type == 'api':
             api_reply = self._call_ai_api(agent, body.get('content', ''))
             if api_reply:
                 ai_message = {

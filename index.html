@@ -9185,25 +9185,25 @@ function saveChatToServer(projId, userMsg, aiMsg, docContext) {
   if (typeof apiFetch !== 'function') return;
   var baseUrl = '/api/chat/' + encodeURIComponent(projId);
   
-  // 发送用户消息
+  // 串行发送，避免后端并发问题
   apiFetch(baseUrl, {
     method: 'POST',
-    body: JSON.stringify({ role: 'user', content: userMsg })
-  }).catch(function(e) {});
-  
-  // 发送文档上下文（如果有）
-  if (docContext && docContext.length > 0) {
-    apiFetch(baseUrl, {
+    body: JSON.stringify({ role: 'user', content: userMsg, skipAI: true })
+  }).then(function() {
+    if (docContext && docContext.length > 0) {
+      return apiFetch(baseUrl, {
+        method: 'POST',
+        body: JSON.stringify({ role: 'system', content: '[文档]' + docContext, skipAI: true })
+      });
+    }
+  }).then(function() {
+    return apiFetch(baseUrl, {
       method: 'POST',
-      body: JSON.stringify({ role: 'system', content: '[文档]' + docContext })
-    }).catch(function(e) {});
-  }
-  
-  // 发送AI回复
-  apiFetch(baseUrl, {
-    method: 'POST',
-    body: JSON.stringify({ role: 'assistant', content: aiMsg })
-  }).catch(function(e) {});
+      body: JSON.stringify({ role: 'assistant', content: aiMsg, skipAI: true })
+    });
+  }).catch(function(e) {
+    console.log('[ChatSync] 保存到后端失败:', e);
+  });
 }
 
 function loadChatFromServer(projId, callback) {
