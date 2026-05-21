@@ -5205,7 +5205,8 @@ function ctxAction(action){
     // case 'move' - moved to submenu
     case 'archive': emp.archived=true; saveArchive(); showToast('📦 已归档'); break;
     case 'unarchive': emp.archived=false; saveEmployees(); saveArchive(); showToast('📥 已取消归档'); break;
-    case 'delete': if(confirm('确定删除 '+emp.name+'？')){var _delId=contextTarget;emps=emps.filter(e=>e.id!==_delId); localStorage.removeItem('sb_chat_history_'+_delId); if(localStorage.getItem('sb_current_emp')===_delId){localStorage.removeItem('sb_current_emp');} saveEmployees(); if(typeof apiFetch==='function'){apiFetch('/api/agents/'+_delId,{method:'DELETE'}).catch(function(){});} renderMsgs('private'); showToast('🗑️ 已删除');} break;
+    case 'delete': if(confirm('确定删除 '+emp.name+'？')){var _delId=contextTarget;emps=emps.filter(e=>e.id!==_delId); localStorage.removeItem('sb_chat_history_'+_delId);
+          clearChatOnServer(_delId); if(localStorage.getItem('sb_current_emp')===_delId){localStorage.removeItem('sb_current_emp');} saveEmployees(); if(typeof apiFetch==='function'){apiFetch('/api/agents/'+_delId,{method:'DELETE'}).catch(function(){});} renderMsgs('private'); showToast('🗑️ 已删除');} break;
   }
   renderEmployeeList();
   hideContextMenu();
@@ -6472,11 +6473,24 @@ if(type==='private'){
   if(!empId){area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">🦞</div><div class="empty-title">开始对话</div><div class="empty-desc">点击左侧「新增员工」按钮<br>创建属于你的AI员工</div></div>';return;}
   const emp=emps.find(e=>e.id===empId);
   if(!emp){localStorage.removeItem('sb_current_emp');area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">🦞</div><div class="empty-title">开始对话</div><div class="empty-desc">点击左侧「新增员工」按钮<br>创建属于你的AI员工</div></div>';return;}
-  const history=JSON.parse(localStorage.getItem('sb_chat_history_'+empId)||'[]');
-  if(history.length===0){
-    area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
-    return;
-  }
+  
+  // 优先从后端加载聊天记录
+  loadChatFromServer(empId, function(serverMsgs) {
+    var history = serverMsgs;
+    if (!history || history.length === 0) {
+      // 后端无数据，回退到 localStorage
+      history = JSON.parse(localStorage.getItem('sb_chat_history_'+empId)||'[]');
+    }
+    if(history.length===0){
+      area.innerHTML='<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
+      return;
+    }
+    renderPrivateMsgs(area, emp, history);
+  });
+  return;
+}
+
+function renderPrivateMsgs(area, emp, history) {
   area.innerHTML='<div class="time-separator"><span>今天</span></div>'+
   history.map(m=>{
     const own=m.role==='user';
@@ -6489,7 +6503,6 @@ if(type==='private'){
     '</div></div>';
   }).join('')+'<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
   area.scrollTop=area.scrollHeight;
-  return;
 }
 // project messages (demo)
 const projMsgs=[
@@ -9155,14 +9168,82 @@ function getCurrentProjectId(){
 }
 
 // 保存聊天历史
+// ===== 聊天记录后端同步 =====
+function saveChatToServer(projId, userMsg, aiMsg, docContext) {
+  if (typeof apiFetch !== 'function') return;
+  var baseUrl = '/api/chat/' + encodeURIComponent(projId);
+  
+  // 发送用户消息
+  apiFetch(baseUrl, {
+    method: 'POST',
+    body: JSON.stringify({ content: userMsg })
+  }).catch(function(e) {});
+  
+  // 发送文档上下文（如果有）
+  if (docContext && docContext.length > 0) {
+    apiFetch(baseUrl, {
+      method: 'POST',
+      body: JSON.stringify({ content: '[文档]' + docContext })
+    }).catch(function(e) {});
+  }
+  
+  // 发送AI回复
+  apiFetch(baseUrl, {
+    method: 'POST',
+    body: JSON.stringify({ content: aiMsg })
+  }).catch(function(e) {});
+}
+
+function loadChatFromServer(projId, callback) {
+  if (typeof apiFetch !== 'function') {
+    if (callback) callback([]);
+    return;
+  }
+  apiFetch('/api/chat/' + encodeURIComponent(projId))
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      var msgs = [];
+      if (data && Array.isArray(data)) {
+        msgs = data.map(function(m) {
+          return {
+            role: m.role || 'user',
+            content: m.content || '',
+            time: m.timestamp || Date.now()
+          };
+        });
+      }
+      if (callback) callback(msgs);
+    })
+    .catch(function(e) {
+      if (callback) callback([]);
+    });
+}
+
+function deleteChatMsgOnServer(projId, msgId) {
+  if (typeof apiFetch !== 'function') return;
+  apiFetch('/api/chat/' + encodeURIComponent(projId) + '/' + encodeURIComponent(msgId), {
+    method: 'DELETE'
+  }).catch(function(e) {});
+}
+
+function clearChatOnServer(projId) {
+  if (typeof apiFetch !== 'function') return;
+  apiFetch('/api/chat/' + encodeURIComponent(projId), {
+    method: 'DELETE'
+  }).catch(function(e) {});
+}
+
 function saveChatHistory(userMsg, aiMsg, docContext){
   var projId = getCurrentProjectId();
-  const history = JSON.parse(localStorage.getItem('sb_chat_history_'+projId) || '[]');
-  const now = Date.now();
+  var history = JSON.parse(localStorage.getItem('sb_chat_history_'+projId) || '[]');
+  var now = Date.now();
   history.push({role:'user', content:userMsg, time:now});
   if(docContext && docContext.length > 0) history.push({role:'system', content:'[文档]'+docContext, time:now});
   history.push({role:'assistant', content:aiMsg, time:now});
   localStorage.setItem('sb_chat_history_'+projId, JSON.stringify(history.slice(-50)));
+  
+  // 同步到后端
+  saveChatToServer(projId, userMsg, aiMsg, docContext);
 }
 
 // 显示 AI 回复
