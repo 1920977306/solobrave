@@ -3646,6 +3646,16 @@ function sendMsg(){
   var _curEmp = emps.find(function(e){ return e.id === _curEmpId; });
   if(_curEmp){ _curEmp.status = 'thinking'; renderEmployeeList(); }
   
+  // 超时保护：60秒后如果还在thinking，自动恢复online
+  var _thinkingTimeout = setTimeout(function(){
+    var _te = emps.find(function(e){ return e.id === _curEmpId; });
+    if(_te && _te.status === 'thinking'){
+      _te.status = 'online';
+      renderEmployeeList();
+      console.log('[Timeout] ' + _te.name + ' 思考超时，恢复在线');
+    }
+  }, 60000);
+  
   // 群聊模式：转发到 sendGroupMessage
   if(currentGroupId){
     var mentions = [];
@@ -3768,6 +3778,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
         }
         // AI回复完成 → 通知龙虾办公室
         if(data.data.phase === 'end'){
+          clearTimeout(_thinkingTimeout);
           notifyOfficeStatusChange(currentEmpId, 'online');
           notifyOfficeChatMessage(currentEmpId, 'incoming');
           var _emp3 = emps.find(function(e){ return e.id === currentEmpId; });
@@ -3775,6 +3786,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
         }
         // AI出错 → 恢复在线
         if(data.data.phase === 'error'){
+          clearTimeout(_thinkingTimeout);
           notifyOfficeStatusChange(currentEmpId, 'online');
           var _emp4 = emps.find(function(e){ return e.id === currentEmpId; });
           if(_emp4){ _emp4.status = 'online'; renderEmployeeList(); }
