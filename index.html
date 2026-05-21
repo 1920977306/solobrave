@@ -7525,32 +7525,75 @@ document.querySelectorAll('.memory-tab').forEach(t=>t.classList.toggle('active',
 renderMemory(tab);
 }
 function renderMemory(type){
-const content=document.getElementById('memoryContent');
-const empty=document.getElementById('memoryEmpty');
-const emp=emps.find(e=>e.id===currentEmpId);
-if(!emp)return;
-const memories=type==='core'?(emp.coreMemory||[]):(emp.dailyMemory||[]);
-if(memories.length===0){
-content.innerHTML='';
-empty.style.display='block';
-}else{
-empty.style.display='none';
-content.innerHTML=memories.map((m,i)=>`<div class="memory-item">
-<div class="memory-item-content">
-<div class="memory-item-text">${escapeHtml(m.content||'')}</div>
-<div class="memory-item-date">${escapeHtml(m.date||new Date().toLocaleDateString('zh-CN'))}</div>
-</div>
-<div class="memory-item-actions">
-<button class="memory-action-btn" onclick="editMemory(${type==='core'?0:1},${i})" title="编辑">
-<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-</button>
-<button class="memory-action-btn" onclick="deleteMemory(${type==='core'?0:1},${i})" title="删除">
-<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-</button>
-</div>
-</div>`).join('');
+  var contentEl = document.getElementById('memoryContent');
+  var emptyEl = document.getElementById('memoryEmpty');
+  if(!contentEl) return;
+  // 从后端API加载记忆
+  if(typeof apiFetch === 'function'){
+    apiFetch('/api/memory/' + encodeURIComponent(currentEmpId))
+      .then(function(r){ return r.json(); })
+      .then(function(memories){
+        if(!memories || memories.length === 0){
+          contentEl.innerHTML = '';
+          emptyEl.style.display = 'block';
+          return;
+        }
+        emptyEl.style.display = 'none';
+        var html = '';
+        memories.forEach(function(m, i){
+          var dateStr = m.time ? new Date(m.time).toLocaleDateString('zh-CN') : '';
+          var keyLabel = m.key && m.key !== 'auto' ? '[' + escapeHtml(m.key) + '] ' : '';
+          html += '<div class="memory-item">';
+          html += '<div class="memory-item-content">';
+          html += '<div class="memory-item-text">' + keyLabel + escapeHtml(m.value || '') + '</div>';
+          html += '<div class="memory-item-date">' + escapeHtml(dateStr) + '</div>';
+          html += '</div>';
+          html += '<div class="memory-item-actions">';
+          html += '<button class="memory-action-btn" onclick="deleteServerMemory(\'' + escapeAttr(m.id) + '\')" title="\u5220\u9664">';
+          html += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+          html += '</button>';
+          html += '</div></div>';
+        });
+        contentEl.innerHTML = html;
+      })
+      .catch(function(e){
+        contentEl.innerHTML = '<div style="padding:20px;color:#999;">\u52a0\u8f7d\u5931\u8d25</div>';
+      });
+  } else {
+    contentEl.innerHTML = '';
+    emptyEl.style.display = 'block';
+  }
 }
+
+function deleteServerMemory(memoryId){
+  if(!confirm('\u786e\u5b9a\u5220\u9664\u8fd9\u6761\u8bb0\u5fc6\uff1f')) return;
+  apiFetch('/api/memory/' + encodeURIComponent(currentEmpId) + '/' + encodeURIComponent(memoryId), {
+    method: 'DELETE'
+  }).then(function(){
+    showToast('\u2705 \u8bb0\u5fc6\u5df2\u5220\u9664');
+    renderMemory(currentMemoryTab || 'core');
+  }).catch(function(e){
+    showToast('\u5220\u9664\u5931\u8d25');
+  });
 }
+
+function addMemory(){
+  var memContent = prompt('\u8f93\u5165\u8bb0\u5fc6\u5185\u5bb9:');
+  if(!memContent) return;
+  apiFetch('/api/memory/' + encodeURIComponent(currentEmpId), {
+    method: 'POST',
+    body: JSON.stringify({key: 'manual', value: memContent, source: '\u624b\u52a8\u6dfb\u52a0'})
+  }).then(function(){
+    showToast('\u2705 \u8bb0\u5fc6\u5df2\u6dfb\u52a0');
+    renderMemory(currentMemoryTab || 'core');
+  }).catch(function(e){
+    showToast('\u6dfb\u52a0\u5931\u8d25');
+  });
+}
+
+function editMemory(type, index){}
+
+function deleteMemory(type, index){}
 // ========== OpenClaw技能管理 ==========
 var ocSkillsLoaded = false;
 
@@ -9273,14 +9316,45 @@ function saveChatHistory(userMsg, aiMsg, docContext){
 
 function extractAndSaveMemory(empId, userMsg, aiReply) {
   if (typeof apiFetch !== 'function') return;
-  apiFetch('/api/memory/' + encodeURIComponent(empId), {
-    method: 'POST',
-    body: JSON.stringify({
-      key: 'auto',
-      value: aiReply.substring(0, 200),
-      source: userMsg.substring(0, 100)
-    })
-  }).catch(function(e) {});
+  // 智能提取：分析对话内容，只提取关键信息
+  var items = [];
+  var combined = userMsg + ' ' + aiReply;
+  
+  // 名字相关
+  var nameMatch = userMsg.match(/我(?:叫|名字(?:是|叫)?)\s*([\w\u4e00-\u9fa5]{1,10})/);
+  if (nameMatch) items.push({key: 'name', value: '\u7528\u6237\u540d\u5b57: ' + nameMatch[1], source: userMsg.substring(0, 100)});
+  
+  // 偏好
+  var likeMatch = userMsg.match(/我(?:很|最)?(?:喜欢|爱|偏好|偏好)\s*([\w\u4e00-\u9fa5]{1,20})/);
+  if (likeMatch) items.push({key: 'preference', value: '\u7528\u6237\u559c\u6b22: ' + likeMatch[1], source: userMsg.substring(0, 100)});
+  var dislikeMatch = userMsg.match(/我(?:很|最)?(?:不喜欢|讨厌|不爱)\s*([\w\u4e00-\u9fa5]{1,20})/);
+  if (dislikeMatch) items.push({key: 'preference', value: '\u7528\u6237\u4e0d\u559c\u6b22: ' + dislikeMatch[1], source: userMsg.substring(0, 100)});
+  
+  // 身份
+  var identityMatch = userMsg.match(/我(?:是|在|做)\s*([\w\u4e00-\u9fa5]{1,20})(?:的|工作|上班)?/);
+  if (identityMatch && !nameMatch) items.push({key: 'identity', value: '\u7528\u6237\u8eab\u4efd: ' + identityMatch[1], source: userMsg.substring(0, 100)});
+  
+  // 决策
+  var decisionMatch = userMsg.match(/(?:决定了?|就用|选择|确定)\s*([\w\u4e00-\u9fa5]{1,30})/);
+  if (decisionMatch) items.push({key: 'decision', value: '\u51b3\u5b9a: ' + decisionMatch[1], source: userMsg.substring(0, 100)});
+  
+  // AI确认记住
+  var confirmMatch = aiReply.match(/(?:记住了|记下来|已记录|我记住了|已记住)/);
+  if (confirmMatch) {
+    var fact = aiReply.replace(/[\s\S]*?(?:记住了|记下来|已记录|我记住了|已记住)[：:]?\s*/, '').substring(0, 100);
+    if (fact && fact.length > 2) items.push({key: 'confirmed', value: fact, source: userMsg.substring(0, 100)});
+  }
+  
+  // 没有提取到关键信息就不存
+  if (items.length === 0) return;
+  
+  // 逐条保存到后端
+  items.forEach(function(item) {
+    apiFetch('/api/memory/' + encodeURIComponent(empId), {
+      method: 'POST',
+      body: JSON.stringify(item)
+    }).catch(function(e) {});
+  });
 }
 
 // 显示 AI 回复
