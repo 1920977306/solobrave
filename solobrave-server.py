@@ -2601,7 +2601,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             msg['userId'] = auth.user_info['userId']
 
         messages = _load_chat(agent_id)
-        messages.append(user_message)
+        messages.append(msg)
 
         # 如果 Agent 走 API，通过代理调用 AI API
         connection_type = agent.get('connectionType', '')
@@ -2624,11 +2624,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         if connection_type == 'openclaw':
             self._send_json(200, {
-                'userMessage': user_message,
+                'userMessage': msg,
                 'hint': '请通过 WebSocket 连接获取 AI 回复'
             })
         else:
-            self._send_json(200, {'userMessage': user_message})
+            self._send_json(200, {'userMessage': msg})
 
     def _call_ai_api(self, agent, user_message):
         """通过代理调用 AI API"""
