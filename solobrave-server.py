@@ -55,6 +55,7 @@ GROUPS_FILE = os.path.join(DATA_DIR, 'groups.json')
 CHATS_DIR = os.path.join(DATA_DIR, 'chats')
 SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
 TEAMS_FILE = os.path.join(DATA_DIR, 'teams.json')
+MEMORY_DIR = os.path.join(DATA_DIR, 'memory')
 
 # JWT 配置
 JWT_EXPIRE_SECONDS = 7 * 24 * 3600  # 7 天
@@ -66,6 +67,7 @@ def _ensure_data_dir():
     """确保数据目录存在"""
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(CHATS_DIR, exist_ok=True)
+    os.makedirs(MEMORY_DIR, exist_ok=True)
 
 
 def _read_json(filepath, default=None):
@@ -685,6 +687,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_user(user_id)
                 return
 
+        # Memory API
+        if path.startswith('/api/memory/'):
+            sub = path[len('/api/memory/'):]
+            parts = sub.split('/')
+            if len(parts) == 1:
+                self._handle_get_memory(parts[0])
+                return
+            elif len(parts) == 2:
+                self._handle_delete_memory(parts[0], parts[1])
+                return
+
         # Chat API
         if path.startswith('/api/chat/'):
             agent_id = path[len('/api/chat/'):]
@@ -850,6 +863,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if team_id:
                     self._handle_add_team_member(team_id)
                     return
+
+        # Memory API
+        if path.startswith('/api/memory/'):
+            emp_id = path[len('/api/memory/'):]
+            if emp_id and '/' not in emp_id:
+                self._handle_post_memory(emp_id)
+                return
 
         # Chat API
         if path.startswith('/api/chat/'):
@@ -2556,6 +2576,50 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return None, '权限不足', 403
         return agent, None, None
 
+
+
+    # ─── 记忆 API ─────────────────────────────────────────
+
+    def _handle_get_memory(self, emp_id):
+        """GET /api/memory/{empId} — 获取记忆列表"""
+        filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
+        memories = _read_json(filepath, [])
+        self._send_json(200, memories)
+
+    def _handle_post_memory(self, emp_id):
+        """POST /api/memory/{empId} — 添加记忆"""
+        body = self._read_body_json()
+        if not body or 'value' not in body:
+            self._send_json_error(400, 'Missing value')
+            return
+        
+        filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
+        memories = _read_json(filepath, [])
+        
+        memory = {
+            'id': str(uuid.uuid4())[:8],
+            'key': body.get('key', 'auto'),
+            'value': body.get('value', ''),
+            'source': body.get('source', ''),
+            'time': int(time.time() * 1000)
+        }
+        memories.append(memory)
+        
+        # 上限50条，超出删最旧的
+        if len(memories) > 50:
+            memories = memories[-50:]
+        
+        _write_json(filepath, memories)
+        self._send_json(200, memory)
+
+    def _handle_delete_memory(self, emp_id, memory_id):
+        """DELETE /api/memory/{empId}/{memoryId} — 删除单条记忆"""
+        filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
+        memories = _read_json(filepath, [])
+        memories = [m for m in memories if m.get('id') != memory_id]
+        _write_json(filepath, memories)
+        self._send_json(200, {'deleted': True})
+
     def _handle_get_chat(self, agent_id):
         """GET /api/chat/:agentId"""
         auth = _authenticate(self.headers)
@@ -3263,6 +3327,7 @@ def main():
         CHATS_DIR = os.path.join(DATA_DIR, 'chats')
         SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
         TEAMS_FILE = os.path.join(DATA_DIR, 'teams.json')
+MEMORY_DIR = os.path.join(DATA_DIR, 'memory')
 
     # 确保数据目录
     _ensure_data_dir()

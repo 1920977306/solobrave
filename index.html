@@ -3736,6 +3736,20 @@ function sendMsg(){
 
 // 通过 OpenClaw WS 发送消息
 async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
+  // 加载记忆
+  var memoryPrompt = '';
+  try {
+    var memRes = await apiFetch('/api/memory/' + encodeURIComponent(emp.id));
+    var memories = await memRes.json();
+    if (memories && memories.length > 0) {
+      var memText = memories.slice(-10).map(function(m) { return '- ' + (m.value || ''); }).join('
+');
+      memoryPrompt = '
+
+【关于用户的记忆】
+' + memText;
+    }
+  } catch(e) {}
   try {
     var agentId = emp.openclawName || emp.id;
     var sessionKey = 'agent:' + agentId + ':main';
@@ -9256,6 +9270,21 @@ function saveChatHistory(userMsg, aiMsg, docContext){
   
   // 同步到后端
   saveChatToServer(projId, userMsg, aiMsg, docContext);
+  
+  // 提取并保存记忆
+  extractAndSaveMemory(projId, userMsg, aiMsg);
+}
+
+function extractAndSaveMemory(empId, userMsg, aiReply) {
+  if (typeof apiFetch !== 'function') return;
+  apiFetch('/api/memory/' + encodeURIComponent(empId), {
+    method: 'POST',
+    body: JSON.stringify({
+      key: 'auto',
+      value: aiReply.substring(0, 200),
+      source: userMsg.substring(0, 100)
+    })
+  }).catch(function(e) {});
 }
 
 // 显示 AI 回复
