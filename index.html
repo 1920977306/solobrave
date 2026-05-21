@@ -1313,7 +1313,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 /* ===== 新增员工向导 ===== */
 .wizard-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:none;align-items:center;justify-content:center;z-index:300;backdrop-filter:blur(4px)}
 .wizard-overlay.active{display:flex}
-.wizard-modal{background:white;border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,0.12);width:90%;max-width:440px;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.wizard-modal{background:white;border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,0.12);width:90%;max-width:440px;max-height:85vh;overflow:hidden;display:flex;flex-direction:column}
 .wizard-header{padding:14px 16px;border-bottom:0.5px solid rgba(0,0,0,0.06);display:flex;align-items:center;justify-content:space-between}
 .wizard-title{font:600 17px/1.3 -apple-system,sans-serif}
 .wizard-close{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#86868B;cursor:pointer;border:none;background:none}
@@ -5292,6 +5292,9 @@ function empSettingsActionMove(groupName){
   renderEmployeeList();
   showToast('已移动到 ' + groupName);
   hideEmpSettingsMenu();
+  if(typeof apiFetch==='function'){
+    apiFetch('/api/agents/'+empSettingsTarget,{method:'PUT',body:JSON.stringify({subCategory:groupName})}).catch(function(){});
+  }
 }
 function empSettingsAction(action){
   if(!empSettingsTarget) return;
@@ -9316,98 +9319,6 @@ function saveChatHistory(userMsg, aiMsg, docContext){
 
 function extractAndSaveMemory(empId, userMsg, aiReply) {
   if (typeof apiFetch !== 'function') return;
-<<<<<<< HEAD
-  
-  // 智能提取关键信息
-  var memory = null;
-  var text = userMsg + ' ' + aiReply;
-  
-  // 规则1: 用户提到名字
-  var nameMatch = userMsg.match(/我叫(.{1,10})/);
-  if (nameMatch) {
-    memory = {key: 'name', value: '用户叫' + nameMatch[1].trim()};
-  }
-  
-  // 规则2: 用户提到偏好
-  if (!memory) {
-    var prefMatch = userMsg.match(/我(喜欢|不喜欢|讨厌|爱)(.+?)[。，,.!?]/);
-    if (prefMatch) {
-      var action = prefMatch[1] === '不喜欢' || prefMatch[1] === '讨厌' ? '不喜欢' : '喜欢';
-      memory = {key: 'preference', value: '用户' + action + prefMatch[2].trim()};
-    }
-  }
-  
-  // 规则3: 用户提到身份
-  if (!memory) {
-    var idMatch = userMsg.match(/我(是|在)(做|从事|做|在)(.+?)[。，,.!?]/);
-    if (idMatch) {
-      memory = {key: 'identity', value: '用户是' + idMatch[3].trim()};
-    }
-  }
-  
-  // 规则4: 重要决策
-  if (!memory) {
-    var decMatch = userMsg.match(/(决定|确定|就用|选)(.+?)[。，,.!?]/);
-    if (decMatch) {
-      memory = {key: 'decision', value: '决定' + decMatch[2].trim()};
-    }
-  }
-  
-  // 规则5: AI确认记住
-  if (!memory && /(记住了|好的我记下了|已记录|已保存)/.test(aiReply)) {
-    // 提取AI回复中的关键上下文
-    var contextMatch = aiReply.match(/(记住|记下|记录|保存)(.+?)[。，,.!?]/);
-    if (contextMatch) {
-      memory = {key: 'auto', value: contextMatch[2].trim().substring(0, 100)};
-    }
-  }
-  
-  // 没命中规则，不存
-  if (!memory) return;
-  
-  // 去重检查：先获取已有记忆
-  apiFetch('/api/memory/' + encodeURIComponent(empId))
-    .then(function(res) { return res.json(); })
-    .then(function(memories) {
-      // 查找相同key的记忆
-      var existing = null;
-      for (var i = 0; i < memories.length; i++) {
-        if (memories[i].key === memory.key) {
-          existing = memories[i];
-          break;
-        }
-      }
-      
-      // 如果已有相同key且value包含关系，更新
-      if (existing && (existing.value.indexOf(memory.value) > -1 || memory.value.indexOf(existing.value) > -1)) {
-        // 更新已有记忆
-        apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + existing.id, {
-          method: 'DELETE'
-        }).catch(function(e) {});
-      }
-      
-      // 保存新记忆
-      apiFetch('/api/memory/' + encodeURIComponent(empId), {
-        method: 'POST',
-        body: JSON.stringify({
-          key: memory.key,
-          value: memory.value.substring(0, 200),
-          source: userMsg.substring(0, 100)
-        })
-      }).catch(function(e) {});
-    })
-    .catch(function(e) {
-      // 获取失败，直接保存
-      apiFetch('/api/memory/' + encodeURIComponent(empId), {
-        method: 'POST',
-        body: JSON.stringify({
-          key: memory.key,
-          value: memory.value.substring(0, 200),
-          source: userMsg.substring(0, 100)
-        })
-      }).catch(function(e2) {});
-    });
-=======
   // 智能提取：分析对话内容，只提取关键信息
   var items = [];
   var combined = userMsg + ' ' + aiReply;
@@ -9447,7 +9358,6 @@ function extractAndSaveMemory(empId, userMsg, aiReply) {
       body: JSON.stringify(item)
     }).catch(function(e) {});
   });
->>>>>>> 1ab320d9e538101bd79f87b33e0390ef826621b8
 }
 
 // 显示 AI 回复
@@ -9555,6 +9465,12 @@ function updateWizardUI(){
   document.getElementById('wiz4').style.display=wizStep===4?'block':'none';
   document.getElementById('wizPrev').style.display=wizStep>1?'inline-block':'none';
   document.getElementById('wizNext').textContent=wizStep===4?'✨ 创建员工':'下一步 →';
+  // 把 footer 移到当前 step 底部，确保按钮在每步都可见
+  var footerEl=document.getElementById('wizPrev').parentNode;
+  var stepEl=document.getElementById('wiz'+wizStep);
+  if(footerEl && stepEl && !stepEl.contains(footerEl)){
+    stepEl.appendChild(footerEl);
+  }
   if(wizStep===3){
     // 灵魂配置步骤
     var hasSoul=document.getElementById('wizSystemPrompt').value.trim();
@@ -9573,11 +9489,6 @@ function updateWizardUI(){
     var aiProviderId=document.getElementById('wizAIProvider').value||'kimi';
     selectWizAIProvider(aiProviderId);
   }
-  // 同步全局 footer
-  var prev2=document.getElementById('wizPrev2');
-  var next2=document.getElementById('wizNext2');
-  if(prev2)prev2.style.display=wizStep>1?'inline-block':'none';
-  if(next2)next2.textContent=wizStep===4?'✨ 创建员工':'下一步 →';
 }
 function updateWizConfirm(){
   var name=document.getElementById('wizName').value.trim()||'未命名';
@@ -10058,16 +9969,14 @@ function finishWizard(){
 .toast.toast-warning { background: rgba(255, 149, 0, 0.92); }
 
 /* 向导样式 */
-.wizard-modal{max-width:560px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden}
-.wizard-body{flex:1 1 auto;overflow-y:auto;padding:24px;min-height:0}
-.wizard-footer{flex-shrink:0}
+.wizard-modal{max-width:520px}
 .wizard-steps{display:flex;justify-content:center;gap:32px;padding:20px 24px 0;border-bottom:0.5px solid var(--separator)}
-.wiz-step{display:flex;flex-direction:column;align-items:center;gap:6px;opacity:1;transition:.3s}
+.wiz-step{display:flex;flex-direction:column;align-items:center;gap:6px;opacity:.4;transition:.3s}
+.wiz-step.active,.wiz-step.done{opacity:1}
 .wiz-step.done .wiz-step-num{background:var(--success);color:#fff}
-.wiz-step-num{width:36px;height:36px;border-radius:50%;background:var(--separator);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;transition:.3s;color:var(--text-secondary)}
-.wiz-step.active .wiz-step-num{background:var(--accent);color:#fff;box-shadow:0 2px 8px rgba(255,107,53,0.3)}
-.wiz-step-label{font-size:12px;color:var(--text-secondary);margin-top:6px;font-weight:500}
-.wiz-step.active .wiz-step-label{color:var(--accent);font-weight:600}
+.wiz-step-num{width:32px;height:32px;border-radius:50%;background:var(--separator);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;transition:.3s}
+.wiz-step.active .wiz-step-num{background:var(--accent);color:#fff}
+.wiz-step-label{font-size:12px;color:var(--text-secondary)}
 .wizard-body{padding:24px;min-height:280px}
 .wiz-avatar-opt{width:48px;height:48px;border-radius:50%;border:2px solid var(--separator);display:flex;align-items:center;justify-content:center;font-size:24px;cursor:pointer;transition:.2s}
 .wiz-avatar-opt:hover{border-color:var(--accent)}
@@ -10076,7 +9985,7 @@ function finishWizard(){
 .wiz-confirm-title{font-size:16px;font-weight:600;margin-bottom:16px}
 .wiz-confirm-item{display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--separator)}
 .wiz-confirm-item:last-child{border-bottom:none}
-.wizard-footer{display:flex;justify-content:space-between;padding:20px 24px;border-top:0.5px solid var(--separator);background:var(--bg-secondary);border-radius:0 0 16px 16px}
+.wizard-footer{display:flex;justify-content:space-between;padding:16px 24px;border-top:0.5px solid var(--separator);background:var(--bg-secondary);border-radius:0 0 16px 16px}
 .form-group{margin-bottom:14px}
 .form-label{display:block;font-size:12px;color:var(--text-secondary);margin-bottom:6px}
 .form-input{width:100%;padding:10px 14px;border:0.5px solid var(--separator);border-radius:var(--radius-md);font-size:14px;background:var(--bg-secondary)}
@@ -10474,8 +10383,9 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 </div>
 </div>
 </div>
+</div>
 
-
+</div>
 <div id="wiz4" style="display:none">
 <div class="form-group">
 <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
@@ -10536,19 +10446,12 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
   <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">创建后可随时在员工详情中管理</div>
   <div id="wizSkillGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"></div>
 </div>
-</div>
-  </div>
-</div>
 <div class="wizard-footer">
 <button class="btn btn-secondary" id="wizPrev" onclick="prevWiz()" style="display:none">← 上一步</button>
 <button class="btn btn-primary" id="wizNext" onclick="nextWiz()">下一步 →</button>
 </div>
 </div>
 </div>
-
-
-
-
 
 <!-- Toast Container -->
 <div id="toastContainer" class="toast-container"></div>
