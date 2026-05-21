@@ -3742,12 +3742,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
     var memRes = await apiFetch('/api/memory/' + encodeURIComponent(emp.id));
     var memories = await memRes.json();
     if (memories && memories.length > 0) {
-      var memText = memories.slice(-10).map(function(m) { return '- ' + (m.value || ''); }).join('
-');
-      memoryPrompt = '
-
-【关于用户的记忆】
-' + memText;
+      var memText = memories.slice(-10).map(function(m) { return '- ' + (m.value || ''); }).join('\n');
+      memoryPrompt = '\n\n【关于用户的记忆】\n' + memText;
     }
   } catch(e) {}
   try {
