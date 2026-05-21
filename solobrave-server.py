@@ -3323,7 +3323,7 @@ def main():
 
     # Override data directory if specified
     if args.data:
-        global DATA_DIR, SECRET_FILE, USERS_FILE, AGENTS_FILE, GROUPS_FILE, CHATS_DIR, SETTINGS_FILE, TEAMS_FILE
+        global DATA_DIR, SECRET_FILE, USERS_FILE, AGENTS_FILE, GROUPS_FILE, CHATS_DIR, SETTINGS_FILE, TEAMS_FILE, MEMORY_DIR
         DATA_DIR = os.path.abspath(args.data)
         SECRET_FILE = os.path.join(DATA_DIR, '.secret')
         USERS_FILE = os.path.join(DATA_DIR, 'users.json')
