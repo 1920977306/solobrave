@@ -2588,7 +2588,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_memory(self, emp_id):
         """POST /api/memory/{empId} — 添加记忆"""
-        body = self._read_body_json()
+        body = self._read_body()
         if not body or 'value' not in body:
             self._send_json_error(400, 'Missing value')
             return
@@ -3323,7 +3323,7 @@ def main():
 
     # Override data directory if specified
     if args.data:
-        global DATA_DIR, SECRET_FILE, USERS_FILE, AGENTS_FILE, GROUPS_FILE, CHATS_DIR, SETTINGS_FILE, TEAMS_FILE
+        global DATA_DIR, SECRET_FILE, USERS_FILE, AGENTS_FILE, GROUPS_FILE, CHATS_DIR, SETTINGS_FILE, TEAMS_FILE, MEMORY_DIR
         DATA_DIR = os.path.abspath(args.data)
         SECRET_FILE = os.path.join(DATA_DIR, '.secret')
         USERS_FILE = os.path.join(DATA_DIR, 'users.json')
@@ -3332,7 +3332,7 @@ def main():
         CHATS_DIR = os.path.join(DATA_DIR, 'chats')
         SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
         TEAMS_FILE = os.path.join(DATA_DIR, 'teams.json')
-MEMORY_DIR = os.path.join(DATA_DIR, 'memory')
+        MEMORY_DIR = os.path.join(DATA_DIR, 'memory')
 
     # 确保数据目录
     _ensure_data_dir()
