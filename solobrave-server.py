@@ -2153,7 +2153,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         chat_key = f'group_{group_id}'
         messages = _load_chat(chat_key)
-        messages.append(user_message)
+        messages.append(msg)
         _save_chat(chat_key, messages)
 
         # 返回消息和群组 session 信息，前端通过 WS 发送到 leadAgent
@@ -2588,13 +2588,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'error': '无效的请求体'})
             return
 
-        user_message = {
+        role = body.get('role', 'user')
+        if role not in ('user', 'assistant', 'system'):
+            role = 'user'
+        msg = {
             'id': 'msg_' + uuid.uuid4().hex[:8],
-            'role': 'user',
+            'role': role,
             'content': body.get('content', ''),
             'timestamp': datetime.now().isoformat(),
-            'userId': auth.user_info['userId']
         }
+        if role == 'user':
+            msg['userId'] = auth.user_info['userId']
 
         messages = _load_chat(agent_id)
         messages.append(user_message)
@@ -2612,7 +2616,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 }
                 messages.append(ai_message)
                 _save_chat(agent_id, messages)
-                self._send_json(200, {'userMessage': user_message, 'aiMessage': ai_message})
+                self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message})
                 return
 
         # OpenClaw 或其他

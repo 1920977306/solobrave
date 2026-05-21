@@ -9188,21 +9188,21 @@ function saveChatToServer(projId, userMsg, aiMsg, docContext) {
   // 发送用户消息
   apiFetch(baseUrl, {
     method: 'POST',
-    body: JSON.stringify({ content: userMsg })
+    body: JSON.stringify({ role: 'user', content: userMsg })
   }).catch(function(e) {});
   
   // 发送文档上下文（如果有）
   if (docContext && docContext.length > 0) {
     apiFetch(baseUrl, {
       method: 'POST',
-      body: JSON.stringify({ content: '[文档]' + docContext })
+      body: JSON.stringify({ role: 'system', content: '[文档]' + docContext })
     }).catch(function(e) {});
   }
   
   // 发送AI回复
   apiFetch(baseUrl, {
     method: 'POST',
-    body: JSON.stringify({ content: aiMsg })
+    body: JSON.stringify({ role: 'assistant', content: aiMsg })
   }).catch(function(e) {});
 }
 
