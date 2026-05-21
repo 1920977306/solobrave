@@ -9573,6 +9573,11 @@ function updateWizardUI(){
     var aiProviderId=document.getElementById('wizAIProvider').value||'kimi';
     selectWizAIProvider(aiProviderId);
   }
+  // 同步全局 footer
+  var prev2=document.getElementById('wizPrev2');
+  var next2=document.getElementById('wizNext2');
+  if(prev2)prev2.style.display=wizStep>1?'inline-block':'none';
+  if(next2)next2.textContent=wizStep===4?'✨ 创建员工':'下一步 →';
 }
 function updateWizConfirm(){
   var name=document.getElementById('wizName').value.trim()||'未命名';
@@ -10537,6 +10542,11 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
 <button class="btn btn-secondary" id="wizPrev" onclick="prevWiz()" style="display:none">← 上一步</button>
 <button class="btn btn-primary" id="wizNext" onclick="nextWiz()">下一步 →</button>
 </div>
+</div>
+
+<div class="wizard-footer" id="globalWizFooter" style="position:sticky;bottom:0;z-index:10;background:var(--bg-secondary)">
+<button class="btn btn-secondary" id="wizPrev2" onclick="prevWiz()" style="display:none">← 上一步</button>
+<button class="btn btn-primary" id="wizNext2" onclick="nextWiz()">下一步 →</button>
 </div>
 
 <!-- Toast Container -->
