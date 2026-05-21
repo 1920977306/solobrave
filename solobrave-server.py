@@ -2588,7 +2588,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_memory(self, emp_id):
         """POST /api/memory/{empId} — 添加记忆"""
-        body = self._read_body_json()
+        body = self._read_body()
         if not body or 'value' not in body:
             self._send_json_error(400, 'Missing value')
             return
