@@ -2173,7 +2173,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         chat_key = f'group_{group_id}'
         messages = _load_chat(chat_key)
-        messages.append(user_message)
+        messages.append(msg)
         _save_chat(chat_key, messages)
 
         # 返回消息和群组 session 信息，前端通过 WS 发送到 leadAgent
@@ -2652,20 +2652,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'error': '无效的请求体'})
             return
 
-        user_message = {
+        role = body.get('role', 'user')
+        if role not in ('user', 'assistant', 'system'):
+            role = 'user'
+        msg = {
             'id': 'msg_' + uuid.uuid4().hex[:8],
-            'role': 'user',
+            'role': role,
             'content': body.get('content', ''),
             'timestamp': datetime.now().isoformat(),
-            'userId': auth.user_info['userId']
         }
+        if role == 'user':
+            msg['userId'] = auth.user_info['userId']
 
         messages = _load_chat(agent_id)
-        messages.append(user_message)
+        messages.append(msg)
 
-        # 如果 Agent 走 API，通过代理调用 AI API
+        # 如果前端标记 skipAI（AI已通过OpenClaw回复），跳过API代理
+        skip_ai = body.get('skipAI', False)
         connection_type = agent.get('connectionType', '')
-        if connection_type == 'api':
+        if not skip_ai and connection_type == 'api':
             api_reply = self._call_ai_api(agent, body.get('content', ''))
             if api_reply:
                 ai_message = {
@@ -2676,7 +2681,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 }
                 messages.append(ai_message)
                 _save_chat(agent_id, messages)
-                self._send_json(200, {'userMessage': user_message, 'aiMessage': ai_message})
+                self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message})
                 return
 
         # OpenClaw 或其他
@@ -2684,11 +2689,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         if connection_type == 'openclaw':
             self._send_json(200, {
-                'userMessage': user_message,
+                'userMessage': msg,
                 'hint': '请通过 WebSocket 连接获取 AI 回复'
             })
         else:
-            self._send_json(200, {'userMessage': user_message})
+            self._send_json(200, {'userMessage': msg})
 
     def _call_ai_api(self, agent, user_message):
         """通过代理调用 AI API"""

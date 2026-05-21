@@ -3647,7 +3647,7 @@ function sendMsg(){
   if(_curEmp){ _curEmp.status = 'thinking'; renderEmployeeList(); }
   
   // 超时保护：60秒后如果还在thinking，自动恢复online
-  var _thinkingTimeout = setTimeout(function(){
+  window._thinkingTimeout = setTimeout(function(){
     var _te = emps.find(function(e){ return e.id === _curEmpId; });
     if(_te && _te.status === 'thinking'){
       _te.status = 'online';
@@ -3792,7 +3792,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
         }
         // AI回复完成 → 通知龙虾办公室
         if(data.data.phase === 'end'){
-          clearTimeout(_thinkingTimeout);
+          clearTimeout(window._thinkingTimeout);
           notifyOfficeStatusChange(currentEmpId, 'online');
           notifyOfficeChatMessage(currentEmpId, 'incoming');
           var _emp3 = emps.find(function(e){ return e.id === currentEmpId; });
@@ -3800,7 +3800,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
         }
         // AI出错 → 恢复在线
         if(data.data.phase === 'error'){
-          clearTimeout(_thinkingTimeout);
+          clearTimeout(window._thinkingTimeout);
           notifyOfficeStatusChange(currentEmpId, 'online');
           var _emp4 = emps.find(function(e){ return e.id === currentEmpId; });
           if(_emp4){ _emp4.status = 'online'; renderEmployeeList(); }
@@ -9199,25 +9199,25 @@ function saveChatToServer(projId, userMsg, aiMsg, docContext) {
   if (typeof apiFetch !== 'function') return;
   var baseUrl = '/api/chat/' + encodeURIComponent(projId);
   
-  // 发送用户消息
+  // 串行发送，避免后端并发问题
   apiFetch(baseUrl, {
     method: 'POST',
-    body: JSON.stringify({ content: userMsg })
-  }).catch(function(e) {});
-  
-  // 发送文档上下文（如果有）
-  if (docContext && docContext.length > 0) {
-    apiFetch(baseUrl, {
+    body: JSON.stringify({ role: 'user', content: userMsg, skipAI: true })
+  }).then(function() {
+    if (docContext && docContext.length > 0) {
+      return apiFetch(baseUrl, {
+        method: 'POST',
+        body: JSON.stringify({ role: 'system', content: '[文档]' + docContext, skipAI: true })
+      });
+    }
+  }).then(function() {
+    return apiFetch(baseUrl, {
       method: 'POST',
-      body: JSON.stringify({ content: '[文档]' + docContext })
-    }).catch(function(e) {});
-  }
-  
-  // 发送AI回复
-  apiFetch(baseUrl, {
-    method: 'POST',
-    body: JSON.stringify({ content: aiMsg })
-  }).catch(function(e) {});
+      body: JSON.stringify({ role: 'assistant', content: aiMsg, skipAI: true })
+    });
+  }).catch(function(e) {
+    console.log('[ChatSync] 保存到后端失败:', e);
+  });
 }
 
 function loadChatFromServer(projId, callback) {
