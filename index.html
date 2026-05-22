@@ -95,10 +95,36 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .tab-btn { flex: 1; padding: 7px; border-radius: var(--radius-sm); font: var(--font-sm); color: var(--text-secondary); transition: all 0.15s; text-align: center; }
 .tab-btn.active { background: var(--bg-primary); color: var(--accent); box-shadow: var(--shadow-card); }
 
-.search-wrap { padding: 0 12px 10px; }
-.search-input { width: 100%; padding: 8px 12px; background: var(--bg-secondary); border-radius: var(--radius-md); display: flex; align-items: center; gap: 8px; }
-.search-input input { flex: 1; font-size: 14px; }
-.search-input input::placeholder { color: var(--text-tertiary); }
+.sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 12px 8px;
+  padding: 8px 12px;
+  background: #F2F2F7;
+  border-radius: 10px;
+  border: 1.5px solid transparent;
+  transition: all 0.2s;
+}
+.sidebar-search:focus-within {
+  border-color: #FF6B35;
+  background: #fff;
+}
+.sidebar-search-icon {
+  font-size: 14px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+.sidebar-search input {
+  flex: 1;
+  font-size: 14px;
+  background: transparent;
+  border: none;
+  outline: none;
+}
+.sidebar-search input::placeholder {
+  color: #AEAEB2;
+}
 
 .list-section { flex: 1; overflow-y: auto; }
 .section-title { font: 600 11px/1.3 -apple-system; color: var(--text-secondary); letter-spacing: 0.05em; text-transform: uppercase; padding: 8px 14px 3px; }
@@ -2051,11 +2077,9 @@ window.doLogin = function() {
 
 
 
-<div class="search-wrap">
-<div class="search-input">
-<span>🔍</span>
+<div class="sidebar-search">
+<span class="sidebar-search-icon">🔍</span>
 <input type="text" placeholder="搜索员工..." id="searchInput" oninput="filterEmployeeList(this.value)">
-</div>
 </div>
 
 <!-- 龙虾办公室入口 -->
