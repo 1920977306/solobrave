@@ -7907,6 +7907,7 @@ function removeGroupMember(empId){
 }
 
 function showAddMemberModal(){
+  console.log('showAddMemberModal clicked, currentGroupDetailId:', currentGroupDetailId);
   if(!currentGroupDetailId) return;
   var group = groups.find(function(g){ return g.id === currentGroupDetailId; });
   if(!group) return;
