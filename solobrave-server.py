@@ -997,6 +997,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(parts) == 2:
                 self._handle_delete_chat_message(parts[0], parts[1])
                 return
+            # /api/chat/:agentId (clear all)
+            if len(parts) == 1:
+                self._handle_clear_chat(parts[0])
+                return
 
         self._send_json_error(404, 'Not found')
 
@@ -2781,6 +2785,27 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         _save_chat(agent_id, messages)
         self._send_json(200, {'message': '消息已删除'})
+
+    def _handle_clear_chat(self, agent_id):
+        """DELETE /api/chat/:agentId - 清空聊天记录"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        _, err, status = self._check_agent_access(auth, agent_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+
+        chat_file = os.path.join(CHATS_DIR, f'{agent_id}.json')
+        if os.path.isfile(chat_file):
+            try:
+                os.remove(chat_file)
+            except OSError:
+                pass
+
+        self._send_json(200, {'message': '聊天记录已清空'})
 
     # ═══════════════════════════════════════════════════
     # OpenClaw API（原有功能，已加认证）
