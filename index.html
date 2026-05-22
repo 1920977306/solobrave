@@ -8898,7 +8898,7 @@ document.getElementById('cMembers').textContent=mems;
 }
 
 // Settings
-function toggleSettings(){document.getElementById('settingsPanel').classList.toggle("open");}
+function toggleSettings(){document.getElementById('settingsPanel').classList.toggle('open');}
 
 // Activity Feed Auto Update
 const activities=['完成了代码提交','更新了文档','通过了测试','部署成功','提交了 PR'];
@@ -8944,7 +8944,7 @@ if(e.key==='Enter' && document.activeElement.id==='msgInput'){e.preventDefault()
 });
 
 // Mobile sidebar toggle
-function toggleSidebar(){document.querySelector('.app-sidebar').classList.toggle("open");}
+function toggleSidebar(){document.querySelector('.app-sidebar').classList.toggle('open');}
 
 // CountTo Animation
 function countTo(el, end, duration=1500, prefix='', suffix=''){
@@ -9079,7 +9079,7 @@ results.innerHTML=items.length?items.map((i,idx)=>`<div class="search-result-ite
 function toggleLounge(){
 const drawer=document.getElementById('loungeDrawer');
 const btn=document.querySelector('.lounge-btn');
-drawer.classList.toggle("open");
+drawer.classList.toggle('open');
 btn.classList.toggle('active');
 if(drawer.classList.contains('open')){
 renderLounge();
@@ -12133,6 +12133,7 @@ function checkQuota() {
 </div>
 </div>
 
+</div>
 <!-- 通知容器 -->
 <div class="notification-container" id="notificationContainer"></div>
 
