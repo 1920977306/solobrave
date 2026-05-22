@@ -4140,19 +4140,10 @@ function initLobsterChannel() {
           break;
           
         case 'employees_updated':
-          // 办公室更新了员工数据
-          // 注意：自己的 saveEmployees 也会触发此消息，不能无条件重载后端数据
-          // 否则刚修改的本地状态会被后端旧数据覆盖
-          if (empData && Array.isArray(empData)) {
-            // 检查是否和本地数据不同（来自其他tab的更新）
-            var localIds = emps.map(function(e){ return e.id; }).sort().join(',');
-            var remoteIds = empData.map(function(e){ return e.id; }).sort().join(',');
-            if(localIds !== remoteIds){
-              // 只有id列表不同才从后端重新加载（说明是其他tab的增删操作）
-              if (typeof loadEmployees === 'function') {
-                loadEmployees().then(function() { renderEmployeeList(); });
-              }
-            }
+          // 办公室更新了员工数据，或者办公室保存了文档
+          // 总是从后端重新加载，确保数据同步
+          if (typeof loadEmployees === 'function') {
+            loadEmployees().then(function() { renderEmployeeList(); });
           }
           break;
           

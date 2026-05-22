@@ -2735,22 +2735,47 @@ async function loadDocContent(docName) {
 
 // Set document content
 async function saveDocContent(docName, content) {
-  if (!openclaw || !openclaw._connected) {
-    showToast('🔴 离线模式：无法保存', 'error');
-    return false;
-  }
-
   showToast('正在保存...', 'loading');
 
+  // 1. 保存到后端 API
   try {
-    await openclaw.send('config.set', {key: 'doc.' + docName, value: content});
-    showToast('✅ 文档已保存', 'success');
-    return true;
+    var resp = await authFetch('/api/agents/' + encodeURIComponent(currentAgentId), {
+      method: 'PUT',
+      body: JSON.stringify({
+        docs: {
+          [docName]: content
+        }
+      })
+    });
+    if (resp && resp.ok) {
+      showToast('✅ 文档已保存到服务器', 'success');
+    } else {
+      throw new Error('服务器返回错误');
+    }
   } catch (err) {
-    console.error('[OpenClaw] Failed to save doc:', err);
-    showToast(`❌ 保存失败: ${err.message}`, 'error');
+    console.error('[Office] 保存到后端失败:', err);
+    showToast('❌ 保存失败: ' + err.message, 'error');
     return false;
   }
+
+  // 2. 发送 BroadcastChannel 通知主页刷新
+  if (lobsterChannel) {
+    lobsterChannel.postMessage({
+      type: 'employees_updated',
+      employees: employees  // 发送完整员工数组，让主页重新加载
+    });
+  }
+
+  // 3. 同时保存到 OpenClaw（如果连接）
+  if (openclaw && openclaw._connected) {
+    try {
+      await openclaw.send('config.set', {key: 'doc.' + docName, value: content});
+    } catch (err) {
+      console.log('[OpenClaw] 同步失败:', err.message);
+    }
+  }
+
+  return true;
 }
 
 // Save model config
@@ -3838,7 +3863,31 @@ async function openDetailPanel(empId){
   var gridHtml = '<div style="padding:20px;text-align:center;color:var(--gray-4)">加载中...</div>';
   document.getElementById('detailInfoGrid').innerHTML = gridHtml;
   
-  // Load real data
+  // Load real data from backend API first
+  try {
+    var resp = await authFetch('/api/agents/' + encodeURIComponent(empId));
+    if (resp && resp.ok) {
+      var serverEmp = await resp.json();
+      // Merge server data with local
+      if (serverEmp) {
+        emp.name = serverEmp.name || emp.name;
+        emp.role = serverEmp.role || emp.role;
+        emp.bg = serverEmp.bg || emp.bg;
+        emp.avatar = serverEmp.avatar !== undefined ? serverEmp.avatar : emp.avatar;
+        emp.status = serverEmp.status || emp.status;
+        emp.model = serverEmp.model || emp.model;
+        emp.subCategory = serverEmp.subCategory || emp.subCategory;
+        // Update display
+        document.getElementById('detailAvatar').textContent = emp.name[0];
+        document.getElementById('detailName').textContent = emp.name;
+        document.getElementById('detailRole').textContent = emp.role;
+      }
+    }
+  } catch(e) {
+    console.log('[Office] 从后端加载员工详情失败:', e.message);
+  }
+  
+  // Load identity data
   const identity = await getAgentIdentity(empId);
   if (identity) {
     var statusMap = {online:'在线',busy:'工作中',offline:'离线',idle:'空闲',thinking:'思考中',working:'工作中'};
