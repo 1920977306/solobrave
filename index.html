@@ -7271,12 +7271,16 @@ function compressContext(){
 
 // 斜杠命令实现
 function resetContext(){
+var projId = getCurrentProjectId();
+// 清空 localStorage
+localStorage.removeItem('sb_chat_history_' + projId);
+// 清空后端记录
+if(typeof apiFetch === 'function'){
+  apiFetch('/api/chat/' + encodeURIComponent(projId), {method: 'DELETE'}).catch(function(e){});
+}
+// 清空界面
 const area=document.getElementById('messagesArea');
-area.innerHTML=`<div style="text-align:center;padding:40px;color:var(--text-secondary);">
-<div style="font-size:32px;margin-bottom:12px;">🔄</div>
-<div>上下文已重置</div>
-<div style="font-size:12px;margin-top:8px;">开始新的对话吧～</div>
-</div>`;
+area.innerHTML=`<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>`;
 showToast('🔄 上下文已重置');
 }
 
