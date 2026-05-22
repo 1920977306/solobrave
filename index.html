@@ -292,7 +292,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .progress-text { font: var(--font-micro); color: var(--text-secondary); white-space: nowrap; }
 
 /* Messages */
-.messages-area { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.messages-area { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; }
+.messages-area:has(.chat-empty-state) { align-items: center; justify-content: center; }
 
 .time-separator { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
 .time-separator::before, .time-separator::after { content: ''; flex: 1; height: 0.5px; background: var(--separator); }
