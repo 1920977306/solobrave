@@ -2272,12 +2272,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 <nav class="nav-bar">
   <div class="nav-inner">
     <a href="./index.html" class="brand-logo" style="text-decoration:none;color:white;font-weight:800;display:flex;align-items:center;justify-content:center;">SB</a>
-    <span class="brand-text">SoloBrave</span>
+    <span class="brand-text">全可AI</span>
     <span class="brand-subtitle">Office</span>
     <div class="nav-spacer"></div>
     <div class="nav-actions">
       <button class="nav-action-btn" onclick="document.getElementById('searchModal').classList.add('show');document.getElementById('searchInput').focus();">🔍 搜索</button>
-      <button class="nav-action-btn lounge-btn" onclick="toggleLounge()" id="loungeNavBtn">🏖️ 休闲区</button>
+      <button class="nav-action-btn lounge-btn" onclick="toggleLounge()" id="loungeNavBtn" style="display:none !important;">🏖️ 休闲区</button>
       <a href="./index.html" class="nav-action-btn" style="text-decoration:none;">🏠 返回主页</a>
       <button class="nav-action-btn" onclick="restartGateway()">🔄 重启网关</button>
       <button class="nav-action-btn" onclick="showToast('模型配置')">🤖 模型配置</button>
@@ -2362,7 +2362,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
     <div class="search-header">
       <span style="font-size:18px">🔍</span>
       <input type="text" class="search-input" id="searchInput" placeholder="搜索团队成员、技能、文档..." oninput="performSearch(this.value)" autofocus>
-      <kbd style="padding:2px 8px;background:var(--gray-1);border-radius:4px;font-size:11px">ESC</kbd>
+      <button class="search-cancel-btn" onclick="document.getElementById('searchModal').classList.remove('show')" style="padding:4px 12px;background:var(--gray-1);border:0.5px solid var(--border-color);border-radius:6px;font-size:12px;color:var(--text-secondary);cursor:pointer;transition:all 0.15s;">取消</button>
     </div>
     <div class="search-results" id="searchResults">
       <div style="padding:32px;text-align:center;color:var(--text-secondary)">
