@@ -5320,8 +5320,9 @@ function hideEmpSettingsMenu(){
 }
 // Move employee to group (from submenu)
 function empSettingsActionMove(groupName){
-  if(!empSettingsTarget) return;
-  var emp = emps.find(function(e){ return e.id === empSettingsTarget; });
+  var targetId = empSettingsTarget;
+  if(!targetId) return;
+  var emp = emps.find(function(e){ return e.id === targetId; });
   if(!emp) return;
   emp.subCategory = groupName;
   saveEmployees();
@@ -5329,7 +5330,7 @@ function empSettingsActionMove(groupName){
   showToast('已移动到 ' + groupName);
   hideEmpSettingsMenu();
   if(typeof apiFetch==='function'){
-    apiFetch('/api/agents/'+empSettingsTarget,{method:'PUT',body:JSON.stringify({subCategory:groupName})}).catch(function(){});
+    apiFetch('/api/agents/'+targetId,{method:'PUT',body:JSON.stringify({subCategory:groupName})}).catch(function(){});
   }
 }
 function empSettingsAction(action){
