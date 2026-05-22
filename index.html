@@ -7710,7 +7710,7 @@ function deleteMemory(type, index){}
 var ocSkillsLoaded = false;
 
 function loadOpenClawSkills(){
-  fetch('/api/openclaw/skills/list')
+  apiFetch('/api/openclaw/skills/list')
     .then(function(r){ return r.json(); })
     .then(function(data){
       var skills = data.skills || [];
