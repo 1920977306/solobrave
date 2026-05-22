@@ -8667,6 +8667,22 @@ ${e.model?'<div class="team-model">'+escapeHtml(e.model)+'</div>':''}
 
 // Modal
 function showCreateModal(){createStep=1;updateStepUI();document.getElementById('createModal').classList.add('active');}
+function showModal(title, html){
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'dynamicModal';
+  overlay.style.display = 'flex';
+  overlay.innerHTML = '<div class="modal-panel" style="width:400px;max-width:95vw;">' +
+    '<div style="padding:20px;">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
+    '<h3 style="margin:0;">' + escapeHtml(title) + '</h3>' +
+    '<button onclick="closeModal(\'dynamicModal\')" style="background:none;border:none;font-size:20px;cursor:pointer;">✕</button>' +
+    '</div>' +
+    '<div>' + html + '</div>' +
+    '</div></div>';
+  document.body.appendChild(overlay);
+  setTimeout(function(){ overlay.classList.add('show'); }, 10);
+}
 function closeModal(id){document.getElementById(id).classList.remove('active');}
 function nextStep(){
 if(createStep<3){if(createStep===1&&!document.getElementById('projName').value){showToast('请输入名称', 'warning');return;}createStep++;updateStepUI();if(createStep===3)updateConfirm();}
