@@ -676,6 +676,38 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .group-add-member-btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; background: var(--accent-light); color: var(--accent); border: 1.5px dashed var(--accent); border-radius: var(--radius-md); font-size: 13px; cursor: pointer; transition: all 0.2s; margin-bottom: 12px; }
 .group-add-member-btn:hover { background: var(--accent); color: white; }
 
+/* ===== 添加成员弹窗 ===== */
+.member-modal { background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); width: 90%; max-width: 400px; overflow: hidden; }
+.member-modal-header { padding: 16px 20px; border-bottom: 0.5px solid rgba(0,0,0,0.06); text-align: center; }
+.member-modal-title { font: 600 16px/1.3 -apple-system, sans-serif; color: #1D1D1F; }
+.member-modal-subtitle { font: 400 12px/1.3 -apple-system, sans-serif; color: #86868B; margin-top: 2px; }
+.member-search { display: flex; align-items: center; gap: 8px; margin: 12px 16px; padding: 8px 12px; background: #F2F2F7; border-radius: 10px; border: 1.5px solid transparent; transition: border-color 0.2s; }
+.member-search:focus-within { border-color: #FF6B35; background: #fff; }
+.member-search-icon { color: #AEAEB2; flex-shrink: 0; }
+.member-search input { flex: 1; border: none; background: transparent; font: 400 14px/1.3 -apple-system, sans-serif; color: #1D1D1F; outline: none; }
+.member-search input::placeholder { color: #AEAEB2; }
+.member-list { max-height: 300px; overflow-y: auto; padding: 0 8px; }
+.member-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; cursor: pointer; transition: background 0.15s; }
+.member-item:hover { background: #F2F2F7; }
+.member-item.selected { background: rgba(255, 107, 53, 0.08); }
+.member-avatar { width: 40px; height: 40px; border-radius: 12px; overflow: hidden; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.06); display: flex; align-items: center; justify-content: center; }
+.member-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.member-info { flex: 1; min-width: 0; }
+.member-name { font: 600 14px/1.3 -apple-system, sans-serif; color: #1D1D1F; }
+.member-role { font: 400 12px/1.3 -apple-system, sans-serif; color: #86868B; }
+.member-check { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #D1D1D6; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.2s; }
+.member-item.selected .member-check { background: #FF6B35; border-color: #FF6B35; }
+.member-check-icon { color: #fff; font-size: 12px; opacity: 0; transition: opacity 0.15s; }
+.member-item.selected .member-check-icon { opacity: 1; }
+.member-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 0.5px solid rgba(0,0,0,0.06); }
+.member-btn { padding: 8px 20px; border-radius: 10px; font: 500 14px/1.3 -apple-system, sans-serif; cursor: pointer; border: none; transition: all 0.15s; }
+.member-btn-cancel { background: #F2F2F7; color: #1D1D1F; }
+.member-btn-cancel:hover { background: #E5E5EA; }
+.member-btn-confirm { background: #FF6B35; color: #fff; }
+.member-btn-confirm:hover { background: #E55A2B; }
+.member-btn-confirm:disabled { background: #D1D1D6; cursor: not-allowed; }
+.member-empty { text-align: center; padding: 40px 20px; color: #AEAEB2; }
+
 .emp-channel-list { display: flex; flex-direction: column; gap: 8px; }
 .emp-channel-item { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--bg-secondary); border-radius: var(--radius-md); }
 .emp-channel-icon { width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
@@ -7923,21 +7955,93 @@ function showAddMemberModal(){
     return;
   }
 
-  var html = '<div style="display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto;">' +
+  var html = '<div class="member-modal">' +
+    '<div class="member-modal-header">' +
+    '<div class="member-modal-title">添加成员</div>' +
+    '<div class="member-modal-subtitle">选择要添加到群组的AI员工</div>' +
+    '</div>' +
+    '<div class="member-search">' +
+    '<span class="member-search-icon">&#128269;</span>' +
+    '<input type="text" id="memberSearchInput" placeholder="搜索员工..." oninput="filterMemberList(this.value)" />' +
+    '</div>' +
+    '<div class="member-list" id="memberList">' +
     availableEmps.map(function(emp){
-      var avatarHtml = renderAvatar(emp, 32);
-      return '<div class="group-member-item" style="cursor:pointer;" onclick="addGroupMember(\'' + escapeAttr(emp.id) + '\')">' +
-        '<div class="group-member-avatar" style="background:' + escapeAttr(emp.bg || '#888') + ';">' + avatarHtml + '</div>' +
-        '<div class="group-member-info">' +
-        '<div class="group-member-name">' + escapeHtml(emp.name || '') + '</div>' +
-        '<div class="group-member-role">' + escapeHtml(emp.role || '员工') + '</div>' +
+      var avatarHtml = renderAvatar(emp, 40);
+      return '<div class="member-item" data-id="' + escapeAttr(emp.id) + '" onclick="toggleMember(this)">' +
+        '<div class="member-avatar" style="background:' + escapeAttr(emp.bg || '#888') + ';">' + avatarHtml + '</div>' +
+        '<div class="member-info">' +
+        '<div class="member-name">' + escapeHtml(emp.name || '') + '</div>' +
+        '<div class="member-role">' + escapeHtml(emp.role || '员工') + '</div>' +
         '</div>' +
-        '<span style="color:var(--accent);font-size:20px;">+</span>' +
+        '<div class="member-check">' +
+        '<span class="member-check-icon">&#10003;</span>' +
+        '</div>' +
         '</div>';
     }).join('') +
+    '</div>' +
+    '<div class="member-footer">' +
+    '<button class="member-btn member-btn-cancel" onclick="closeModal()">取消</button>' +
+    '<button class="member-btn member-btn-confirm" id="memberConfirmBtn" onclick="confirmAddMembers()" disabled>确认添加</button>' +
+    '</div>' +
     '</div>';
 
-  showModal('添加成员', html);
+  showModal('', html);
+}
+
+function toggleMember(el){
+  el.classList.toggle('selected');
+  updateConfirmBtn();
+}
+
+function updateConfirmBtn(){
+  var selected = document.querySelectorAll('.member-item.selected');
+  var btn = document.getElementById('memberConfirmBtn');
+  if(btn){
+    btn.disabled = selected.length === 0;
+    btn.textContent = selected.length > 0 
+      ? '确认添加 (' + selected.length + ')' 
+      : '确认添加';
+  }
+}
+
+function filterMemberList(keyword){
+  var items = document.querySelectorAll('.member-item');
+  var lower = keyword.toLowerCase();
+  items.forEach(function(item){
+    var name = item.querySelector('.member-name').textContent.toLowerCase();
+    var role = item.querySelector('.member-role').textContent.toLowerCase();
+    if(name.indexOf(lower) >= 0 || role.indexOf(lower) >= 0){
+      item.style.display = 'flex';
+    } else {
+      item.style.display = 'none';
+    }
+  });
+}
+
+function confirmAddMembers(){
+  var selected = document.querySelectorAll('.member-item.selected');
+  if(selected.length === 0) return;
+  
+  var group = groups.find(function(g){ return g.id === currentGroupDetailId; });
+  if(!group) return;
+  if(!group.members) group.members = [];
+  
+  var count = 0;
+  selected.forEach(function(item){
+    var empId = item.getAttribute('data-id');
+    if(group.members.indexOf(empId) === -1){
+      group.members.push(empId);
+      count++;
+    }
+  });
+  
+  if(count > 0){
+    saveGroups();
+    renderGroupDetailMembers(group);
+    renderGroupItems();
+    showToast('已添加 ' + count + ' 个成员');
+  }
+  closeModal();
 }
 
 function addGroupMember(empId){
@@ -8674,18 +8778,31 @@ function showModal(title, html){
   overlay.className = 'modal-overlay';
   overlay.id = 'dynamicModal';
   overlay.style.display = 'flex';
-  overlay.innerHTML = '<div class="modal-panel" style="width:400px;max-width:95vw;">' +
-    '<div style="padding:20px;">' +
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
-    '<h3 style="margin:0;">' + escapeHtml(title) + '</h3>' +
-    '<button onclick="closeModal(\'dynamicModal\')" style="background:none;border:none;font-size:20px;cursor:pointer;">✕</button>' +
-    '</div>' +
-    '<div>' + html + '</div>' +
-    '</div></div>';
+  // If html starts with '<div class="member-modal"', use it directly (custom modal)
+  // Otherwise wrap in default modal-panel
+  var isCustomModal = html.indexOf('member-modal') > 0;
+  if(isCustomModal){
+    overlay.innerHTML = html;
+  } else {
+    overlay.innerHTML = '<div class="modal-panel" style="width:400px;max-width:95vw;">' +
+      '<div style="padding:20px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
+      '<h3 style="margin:0;">' + escapeHtml(title) + '</h3>' +
+      '<button onclick="closeModal(\'dynamicModal\')" style="background:none;border:none;font-size:20px;cursor:pointer;">✕</button>' +
+      '</div>' +
+      '<div>' + html + '</div>' +
+      '</div></div>';
+  }
   document.body.appendChild(overlay);
   setTimeout(function(){ overlay.classList.add('show'); }, 10);
 }
-function closeModal(id){document.getElementById(id).classList.remove('active');}
+function closeModal(id){
+  var el = document.getElementById(id || 'dynamicModal');
+  if(el){
+    el.classList.remove('show');
+    setTimeout(function(){ el.remove(); }, 300);
+  }
+}
 function nextStep(){
 if(createStep<3){if(createStep===1&&!document.getElementById('projName').value){showToast('请输入名称', 'warning');return;}createStep++;updateStepUI();if(createStep===3)updateConfirm();}
 else{closeModal('createModal');showToast('✅ 项目组创建成功！', 'success');}
