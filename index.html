@@ -2091,7 +2091,7 @@ window.doLogin = function() {
         <span class="sub-group-title">全局统筹</span>
       </div>
       <div class="sub-group-content">
-        <div class="list-item active" data-id="xlcx">
+        <div class="list-item" data-id="xlcx">
           <div class="avatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">&#129438;</div>
           <div class="emp-info">
             <div class="emp-top"><span class="emp-name">Emily</span><span class="emp-role">CEO助理</span></div>
@@ -3395,6 +3395,8 @@ function showMainApp() {
         }
       }
       // 重置聊天区到空状态
+      // 清除当前选中的员工，确保刷新后显示空状态
+      localStorage.removeItem('sb_current_emp');
       var chatHeaderName = document.querySelector('.chat-header-name');
       var chatHeaderRole = document.querySelector('.chat-header-role');
       var chatHeaderAvatar = document.querySelector('.chat-header-v2 .avatar');
@@ -9360,14 +9362,15 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
 
 // 获取当前对话的员工信息
 function getCurrentEmployeeInfo(){
-  const empId = localStorage.getItem('sb_current_emp') || 'xlcx';
+  const empId = localStorage.getItem('sb_current_emp');
+  if(!empId) return null;
   const emp = emps.find(e => e.id === empId);
-  return emp || emps[0] || {id:'unknown',name:'AI助手',role:'助手',avatar:'🤖',bg:'#8E8E93'};
+  return emp || null;
 }
 
 // 获取当前项目 ID
 function getCurrentProjectId(){
-  return localStorage.getItem('sb_current_proj') || localStorage.getItem('sb_current_emp') || 'default';
+  return localStorage.getItem('sb_current_proj') || localStorage.getItem('sb_current_emp') || '';
 }
 
 // 保存聊天历史
