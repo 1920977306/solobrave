@@ -505,6 +505,19 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   30% { transform: translateY(-6px); }
 }
 
+/* Thinking Dots Animation */
+.thinking-dots span {
+  animation: thinkingDot 1.4s infinite;
+  opacity: 0;
+}
+.thinking-dots span:nth-child(1) { animation-delay: 0s; }
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes thinkingDot {
+  0%, 60%, 100% { opacity: 0; }
+  30% { opacity: 1; }
+}
+
 /* Chat Empty State */
 .chat-empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 40px; text-align: center; color: var(--text-secondary); align-self: center; width: 100%; }
 .chat-empty-state .empty-avatar { width: 80px; height: 80px; border-radius: 50%; background: var(--bg-secondary); display: flex; align-items: center; justify-content: center; font-size: 40px; margin-bottom: 16px; }
@@ -3908,11 +3921,15 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
       if(currentRunId && data.runId && data.runId !== currentRunId) return;
       if(data.stream === 'assistant' && data.data){
         hasStreamReply = true;
-        // 优先用 data.text（完整文本）避免 delta 重复拼接
+        // 只累积内容，不显示中间过程
         if(data.data.text) fullReply = data.data.text;
         else if(data.data.delta) fullReply += data.data.delta;
+        // 始终显示"思考中..."
         var t = document.getElementById('typingMsg');
-        if(t) t.textContent = fullReply + '...';
+        if(t) {
+          var bubble = t.querySelector('.msg-bubble');
+          if(bubble) bubble.innerHTML = '<span class="thinking-dots">思考中<span>.</span><span>.</span><span>.</span></span>';
+        }
         // 检测是否包含工具调用，更新状态为coding
         if(data.data.tool_calls || data.data.tool_call || (data.data.delta && data.data.delta.indexOf('tool_call') > -1)){
           var _eid = localStorage.getItem('sb_current_emp');
