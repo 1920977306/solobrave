@@ -9706,12 +9706,31 @@ function saveChatHistory(userMsg, aiMsg, docContext){
   if(docContext && docContext.length > 0) history.push({role:'system', content:'[文档]'+docContext, time:now});
   history.push({role:'assistant', content:aiMsg, time:now});
   localStorage.setItem('sb_chat_history_'+projId, JSON.stringify(history.slice(-50)));
-  
+
   // 同步到后端
   saveChatToServer(projId, userMsg, aiMsg, docContext);
-  
+
   // 提取并保存记忆
   extractAndSaveMemory(projId, userMsg, aiMsg);
+
+  // 保存后检查是否需要压缩
+  var chatKey = 'sb_chat_history_' + projId;
+  var currentHistory = JSON.parse(localStorage.getItem(chatKey) || '[]');
+  if(currentHistory.length > 20){
+    // 触发后端压缩
+    apiFetch('/api/chat/summarize/' + encodeURIComponent(projId), {
+      method: 'POST'
+    }).then(function(r){return r.json()}).then(function(data){
+      console.log('[Chat] 摘要压缩完成:', data);
+      // 压缩成功后，本地只保留最近10条
+      if(data.compressed){
+        var kept = currentHistory.slice(-10);
+        localStorage.setItem(chatKey, JSON.stringify(kept));
+      }
+    }).catch(function(e){
+      console.warn('[Chat] 摘要压缩失败:', e);
+    });
+  }
 }
 
 function extractAndSaveMemory(empId, userMsg, aiReply) {
