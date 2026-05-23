@@ -8652,6 +8652,8 @@ async function registerOpenClawAgent(emp){
       emp._agentId = agentName;
     } catch(e2){
       console.log('[OpenClaw] update 也失败:', e2.message);
+      showToast('⚠️ OpenClaw Agent 注册失败：' + e2.message + '。AI将使用默认身份，可能无法正确识别角色。');
+      emp._agentId = 'main';
     }
   }
 
@@ -8681,12 +8683,18 @@ async function registerOpenClawAgent(emp){
       }
     } catch(e3){
       console.log('[OpenClaw] 文档写入异常:', e3.message);
-      showToast('✅ Agent 已注册，⚠️ 文档需手动配置');
+      showToast('✅ Agent 已注册，⚠️ 身份文档写入失败：' + e3.message);
     }
   }
 
   // 3. 更新 emp 的 openclawName 为 ASCII agentId（供 sendViaOpenClaw 使用）
-  emp.openclawName = emp._agentId || agentName;
+  // 只有 agent 注册成功才更新 openclawName
+  if(emp._agentId && emp._agentId !== 'main'){
+    emp.openclawName = emp._agentId;
+  } else {
+    emp.openclawName = 'main';
+    console.warn('[OpenClaw] Agent 注册失败，降级使用 main');
+  }
   saveEmployees();
 }
 function updateGatewayStatus(){
