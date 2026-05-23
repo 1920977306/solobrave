@@ -9538,17 +9538,29 @@ function extractAndSaveMemory(empId, userMsg, aiReply) {
   }).then(function(r){return r.json()}).then(function(data){
     var extracted = data.reply || '';
     if (extracted && extracted !== '无' && extracted.length > 2) {
-      // 保存提取结果
-      apiFetch('/api/memory/' + empId, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          key: 'auto_extract',
-          value: extracted.substring(0, 300),
-          source: userMsg.substring(0, 100)
-        })
+      // 保存前先加载已有记忆，检查是否重复
+      apiFetch('/api/memory/' + empId).then(function(r){return r.json()}).then(function(existing){
+        var isDuplicate = existing.some(function(m){
+          return m.value && extracted && m.value.length > 10 && extracted.length > 10 
+            && (m.value.indexOf(extracted.substring(0, 30)) > -1 || extracted.indexOf(m.value.substring(0, 30)) > -1);
+        });
+        if(!isDuplicate){
+          apiFetch('/api/memory/' + empId, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              key: 'auto_extract',
+              value: extracted.substring(0, 300),
+              source: userMsg.substring(0, 100)
+            })
+          }).catch(function(e) {
+            console.warn('[Memory] 保存提取结果失败:', e);
+          });
+        } else {
+          console.log('[Memory] 跳过重复记忆');
+        }
       }).catch(function(e) {
-        console.warn('[Memory] 保存提取结果失败:', e);
+        console.warn('[Memory] 加载已有记忆失败:', e);
       });
     }
   }).catch(function(e) {
