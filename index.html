@@ -3847,7 +3847,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
     // 优先使用 soulDoc（SOUL.md），其次 systemPrompt
     if(emp.soulDoc) systemPrompt = emp.soulDoc;
     else if(emp.systemPrompt) systemPrompt = emp.systemPrompt;
-    if(!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。';
+    if(!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
     
     // 监听 agent 事件（OpenClaw v3 流式推送）
     var fullReply = '';
@@ -7620,7 +7620,7 @@ let currentMemoryTab='core';
 function switchMemoryTab(tab){
 currentMemoryTab=tab;
 document.querySelectorAll('.memory-tab').forEach(t=>t.classList.toggle('active',t.dataset.mtab===tab));
-renderMemory(tab);
+var empId = localStorage.getItem("sb_current_emp"); if(empId) renderMemoryTab(empId);
 }
 function renderMemoryTab(empId){
   var contentEl = document.getElementById('memoryContent');
@@ -7652,7 +7652,15 @@ function renderMemoryTab(empId){
         
         var html = '';
         memories.forEach(function(m){
-          var timeStr = m.time ? formatTimeAgo(new Date(m.time)) : '';
+          function formatTimeAgo(date) {
+  var now = new Date();
+  var diff = now - date;
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+  return Math.floor(diff / 86400000) + '天前';
+}
+var timeStr = m.time ? formatTimeAgo(new Date(m.time)) : '';
           var sourceLabel = m.source ? '<span style="font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px;margin-right:6px;">' + escapeHtml(m.source) + '</span>' : '';
           html += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;">';
           html += '<div class="memory-item-content" style="flex:1;">';
@@ -8571,7 +8579,7 @@ async function registerOpenClawAgent(emp){
   var agentName = emp.id;
   var workspacePath = '~/.openclaw/workspace-' + agentName;
 
-  var soulContent = emp.soulDoc || emp.systemPrompt || ('你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。');
+  var soulContent = emp.soulDoc || emp.systemPrompt || ('你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。');
   var identityContent = emp.idDoc || (emp.name + ' - ' + emp.role);
 
   // 1. agents.create 只传 Gateway 支持的参数: {name, workspace, model?}
@@ -9277,7 +9285,7 @@ async function callRealAI(userMessage, context){
   
   try {
     const currentEmp = getCurrentEmployeeInfo();
-    let systemPrompt = `你是 ${currentEmp.name}，一个 ${currentEmp.role}。请用第一人称回复，保持角色一致性。`;
+    let systemPrompt = `你是 ${currentEmp.name}，一个 ${currentEmp.role}。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。`;
     if(context) systemPrompt += '\n\n【相关文档】\n' + context;
     
     const messages = [
@@ -9345,7 +9353,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr){
   var systemPrompt = '';
   if(emp.soulDoc) systemPrompt = emp.soulDoc;
   else if(emp.systemPrompt) systemPrompt = emp.systemPrompt;
-  if(!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。';
+  if(!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
   if(docContext) systemPrompt += '\n\n【相关文档】\n' + docContext;
   
   var messages = [
