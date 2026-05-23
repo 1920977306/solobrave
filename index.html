@@ -7637,31 +7637,41 @@ function renderMemoryTab(empId){
     apiFetch('/api/memory/' + encodeURIComponent(empId))
       .then(function(r){ return r.json(); })
       .then(function(memories){
+        // 过滤记忆：按 currentMemoryTab 分类
+        var filtered = memories.filter(function(m){
+          if(currentMemoryTab === 'core'){
+            // 核心记忆：手动添加的（key 不是 auto_extract/auto）
+            return m.key !== 'auto_extract' && m.key !== 'auto';
+          } else {
+            // 日常记录：自动提取的
+            return m.key === 'auto_extract' || m.key === 'auto';
+          }
+        });
+        
+        // 更新 Tab 计数
+        var coreCount = memories.filter(function(m){ return m.key !== 'auto_extract' && m.key !== 'auto'; }).length;
+        var dailyCount = memories.filter(function(m){ return m.key === 'auto_extract' || m.key === 'auto'; }).length;
+        var coreTab = document.querySelector('.memory-tab[data-mtab="core"]');
+        var dailyTab = document.querySelector('.memory-tab[data-mtab="daily"]');
+        if(coreTab) coreTab.textContent = '核心记忆 (' + coreCount + ')';
+        if(dailyTab) dailyTab.textContent = '日常记录 (' + dailyCount + ')';
+        
         // 更新记忆总数
         if(headerEl){
           var count = memories && memories.length ? memories.length : 0;
           headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + count + ')</span>';
         }
         
-        if(!memories || memories.length === 0){
-          contentEl.innerHTML = '';
-          if(emptyEl) emptyEl.style.display = 'block';
+        if(filtered.length === 0){
+          contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">' + (currentMemoryTab === 'core' ? '暂无核心记忆，手动添加的记忆会显示在这里' : '暂无日常记录，AI自动提取的记忆会显示在这里') + '</div>';
           return;
         }
-        if(emptyEl) emptyEl.style.display = 'none';
         
         var html = '';
-        memories.forEach(function(m){
-          function formatTimeAgo(date) {
-  var now = new Date();
-  var diff = now - date;
-  if (diff < 60000) return '刚刚';
-  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
-  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
-  return Math.floor(diff / 86400000) + '天前';
-}
-var timeStr = m.time ? formatTimeAgo(new Date(m.time)) : '';
+        filtered.forEach(function(m){
+          var timeStr = m.time ? formatTimeAgo(new Date(m.time)) : '';
           var sourceLabel = m.source ? '<span style="font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px;margin-right:6px;">' + escapeHtml(m.source) + '</span>' : '';
+          var isAutoExtract = m.key === 'auto_extract' || m.key === 'auto';
           html += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;">';
           html += '<div class="memory-item-content" style="flex:1;">';
           html += '<div style="margin-bottom:6px;">' + sourceLabel + '</div>';
@@ -7669,6 +7679,12 @@ var timeStr = m.time ? formatTimeAgo(new Date(m.time)) : '';
           html += '<div class="memory-item-date" style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">' + escapeHtml(timeStr) + '</div>';
           html += '</div>';
           html += '<div class="memory-item-actions" style="display:flex;gap:4px;opacity:0;transition:opacity 0.2s;">';
+          // 日常记录显示"升级为核心记忆"按钮
+          if(isAutoExtract){
+            html += '<button class="memory-action-btn" onclick="promoteToCore(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\')" title="升级为核心记忆" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--accent);display:flex;align-items:center;justify-content:center;">';
+            html += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+            html += '</button>';
+          }
           html += '<button class="memory-action-btn" onclick="deleteMemory(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\')" title="删除" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--text-tertiary);display:flex;align-items:center;justify-content:center;">';
           html += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
           html += '</button>';
@@ -7712,6 +7728,45 @@ function deleteMemory(empId, memoryId){
     console.warn('[Memory] 删除失败:', e);
   });
 }
+function promoteToCore(empId, memoryId) {
+  if(!confirm('确定将此记忆升级为核心记忆？')) return;
+  
+  // 先获取记忆内容
+  apiFetch('/api/memory/' + encodeURIComponent(empId))
+    .then(function(r){ return r.json(); })
+    .then(function(memories){
+      var memory = memories.find(function(m){ return m.id === memoryId; });
+      if(!memory) {
+        showToast('❌ 记忆不存在');
+        return;
+      }
+      
+      // 先删旧的
+      return apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + encodeURIComponent(memoryId), {
+        method: 'DELETE'
+      }).then(function(){
+        // 再以 core 身份重新创建
+        return apiFetch('/api/memory/' + encodeURIComponent(empId), {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            key: 'core',
+            value: memory.value,
+            source: memory.source
+          })
+        });
+      });
+    })
+    .then(function(){
+      showToast('✅ 已升级为核心记忆');
+      renderMemoryTab(empId);
+    })
+    .catch(function(e){
+      showToast('❌ 升级失败');
+      console.warn('[Memory] 升级失败:', e);
+    });
+}
+
 
 function addMemory(){
   // 在面板内显示输入框，不使用 prompt
