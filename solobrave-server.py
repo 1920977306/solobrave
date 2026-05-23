@@ -873,9 +873,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Chat API
         if path.startswith('/api/chat/'):
-            agent_id = path[len('/api/chat/'):]
-            if agent_id:
-                self._handle_post_chat(agent_id)
+            sub = path[len('/api/chat/'):]
+            # /api/chat/summarize/:agentId
+            if sub.startswith('summarize/'):
+                agent_id = sub[len('summarize/'):]
+                if agent_id:
+                    self._handle_summarize_chat(agent_id)
+                    return
+            # /api/chat/:agentId
+            if sub:
+                self._handle_post_chat(sub)
                 return
 
         self._send_json_error(404, 'Not found')
@@ -2806,6 +2813,55 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
         self._send_json(200, {'message': '聊天记录已清空'})
+
+    def _handle_summarize_chat(self, agent_id):
+        """POST /api/chat/summarize/:agentId - 将旧对话压缩成摘要"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        agent, err, status = self._check_agent_access(auth, agent_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+
+        messages = _load_chat(agent_id)
+        if len(messages) <= 10:  # 10条以内不需要压缩
+            return self._send_json(200, {'summary': '', 'kept': len(messages)})
+
+        # 取前 N-10 条做摘要（保留最近10条原文=5轮）
+        old_messages = messages[:-10]
+
+        # 拼接旧对话文本
+        chat_text = ''
+        for msg in old_messages:
+            role = msg.get('role', 'user')
+            content = msg.get('content', '')
+            chat_text += ('用户' if role == 'user' else 'AI') + ': ' + content[:200] + '\n'
+
+        # 调 AI 做摘要
+        summary = self._call_ai_for_summary(agent, chat_text)
+
+        # 保存摘要到单独文件
+        summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
+        _write_json(summary_file, {'summary': summary, 'createdAt': datetime.now().isoformat()})
+
+        self._send_json(200, {
+            'summary': summary,
+            'compressed': len(old_messages),
+            'kept': 10
+        })
+
+    def _call_ai_for_summary(self, agent, chat_text):
+        """调用AI压缩对话为摘要"""
+        prompt = '请将以下对话历史压缩成一段简洁的摘要（200字以内），保留关键信息、决策和重要事实：\n\n' + chat_text
+        try:
+            result = self._call_ai_api(agent, prompt)
+            return result[:500] if result else '（摘要生成失败）'
+        except Exception as e:
+            print(f'  [Summary] AI摘要失败: {e}', flush=True)
+            return '（摘要生成失败）'
 
     # ═══════════════════════════════════════════════════
     # OpenClaw API（原有功能，已加认证）

@@ -3881,6 +3881,23 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
     else if(emp.systemPrompt) systemPrompt = emp.systemPrompt;
     if(!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
     
+    // 加载对话摘要（如果有）
+    var summaryText = '';
+    try {
+      var summaryRes = await apiFetch('/api/chat/' + encodeURIComponent(emp.id) + '/summary');
+      var summaryData = await summaryRes.json();
+      if(summaryData && summaryData.summary) {
+        summaryText = '\n\n【历史对话摘要】\n' + summaryData.summary;
+      }
+    } catch(summaryErr) {
+      // 摘要不存在或加载失败，静默忽略
+    }
+    
+    // 注入摘要到 systemPrompt
+    if(summaryText) {
+      systemPrompt += summaryText;
+    }
+    
     // 监听 agent 事件（OpenClaw v3 流式推送）
     var fullReply = '';
     var hasStreamReply = false;
@@ -9584,6 +9601,25 @@ function saveChatToServer(projId, userMsg, aiMsg, docContext) {
       method: 'POST',
       body: JSON.stringify({ role: 'assistant', content: aiMsg, skipAI: true })
     });
+  }).then(function() {
+    // 检查是否需要触发摘要生成（每20条消息触发一次）
+    return apiFetch(baseUrl)
+      .then(function(res) { return res.json(); })
+      .then(function(msgs) {
+        if (msgs && msgs.length > 0 && msgs.length % 20 === 0) {
+          // 异步触发摘要生成，不阻塞
+          apiFetch(baseUrl + '/summarize', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              if (data.summary) {
+                console.log('[Summary] 对话摘要已生成，压缩了 ' + data.compressed + ' 条消息');
+              }
+            })
+            .catch(function(e) {
+              console.log('[Summary] 摘要生成失败:', e);
+            });
+        }
+      });
   }).catch(function(e) {
     console.log('[ChatSync] 保存到后端失败:', e);
   });
