@@ -2892,22 +2892,6 @@ window.doLogin = function() {
 </button>
 </div>
 
-<!-- Dreaming 开关 -->
-<div class="emp-doc-section" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--separator);">
-  <div class="emp-doc-title">💭 Dreaming 模式</div>
-  <div class="emp-doc-desc">让AI员工在空闲时自主思考</div>
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding:12px;border-radius:8px;background:var(--bg-secondary);">
-    <div>
-      <div style="font-size:14px;font-weight:500;">启用 Dreaming</div>
-      <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px;">AI会在空闲时自动思考和学习</div>
-    </div>
-    <label class="toggle-switch">
-      <input type="checkbox" id="empDreamingToggle" onchange="toggleDreaming(this.checked)">
-      <span class="toggle-slider"></span>
-    </label>
-  </div>
-</div>
-
 <!-- Channel Tab -->
 <div class="emp-tab-pane" id="emp-tab-channel">
 <div class="emp-doc-section" style="margin-bottom:16px;">
@@ -8557,9 +8541,6 @@ function loadEmpConnect(emp){
 
   // 更新 Gateway 状态
   updateGatewayStatus();
-  
-  // 更新 Dreaming 开关状态
-  updateDreamingToggle();
 }
 function saveEmpConnect(){
   if(!currentEmpId)return;
@@ -8577,41 +8558,6 @@ function saveEmpConnect(){
 
   // 自动在 Gateway 注册/更新 Agent
   registerOpenClawAgent(emp);
-}
-
-// Dreaming开关切换
-function toggleDreaming(enabled) {
-  if(!currentEmpId) return;
-  var emp = emps.find(function(e){ return e.id === currentEmpId; });
-  if(!emp) return;
-  
-  // 调用后端API
-  apiFetch('/api/openclaw/dreaming', {
-    method: 'POST',
-    body: JSON.stringify({ agentId: currentEmpId, enabled: enabled })
-  }).then(function(res) {
-    if(res && res.ok) {
-      emp.dreamingEnabled = enabled;
-      saveEmployees();
-      showToast('✅ Dreaming ' + (enabled ? '已启用' : '已禁用'));
-    }
-  }).catch(function() {
-    // 本地降级
-    emp.dreamingEnabled = enabled;
-    saveEmployees();
-    showToast((enabled ? '✅' : '💤') + ' Dreaming ' + (enabled ? '已启用' : '已禁用') + '（本地模式）');
-  });
-}
-
-// 更新Dreaming开关状态
-function updateDreamingToggle() {
-  if(!currentEmpId) return;
-  var emp = emps.find(function(e){ return e.id === currentEmpId; });
-  if(!emp) return;
-  var toggle = document.getElementById('empDreamingToggle');
-  if(toggle) {
-    toggle.checked = emp.dreamingEnabled === true;
-  }
 }
 
 async function registerOpenClawAgent(emp){
