@@ -4295,7 +4295,7 @@ function notifyOfficeStatusChange(empId, status) {
 function notifyOfficeChatMessage(empId, direction) {
   if (lobsterChannel) {
     lobsterChannel.postMessage({
-      type: 'chat_message',
+      type: 'lobster_chat',
       agent_id: empId,
       direction: direction
     });
