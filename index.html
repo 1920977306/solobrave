@@ -3858,6 +3858,16 @@ function extractKeywords(text) {
 
 // 通过 OpenClaw WS 发送消息
 async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
+  // 加载对话摘要
+  var summaryPrompt = '';
+  try {
+    var sumRes = await apiFetch('/api/chat/summary/' + encodeURIComponent(emp.id));
+    var sumData = await sumRes.json();
+    if(sumData && sumData.summary && sumData.summary.length > 5){
+      summaryPrompt = '\n\n【之前对话的摘要】\n' + sumData.summary;
+    }
+  } catch(e){}
+
   // 加载记忆（按相关性匹配注入）
   var memoryPrompt = '';
   try {
@@ -3974,7 +3984,12 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
     };
     openclaw.on('agent', agentHandler);
     
-    var result = await openclaw.sendChat(sessionKey, userMessage);
+    // 注入摘要和记忆到用户消息
+    var fullMessage = userMessage;
+    if(summaryPrompt) fullMessage = summaryPrompt + '\n\n' + fullMessage;
+    if(memoryPrompt) fullMessage = memoryPrompt + '\n\n' + fullMessage;
+    
+    var result = await openclaw.sendChat(sessionKey, fullMessage);
     console.log('[OpenClaw] chat.send 返回:', JSON.stringify(result));
     // chat.send 返回确认，实际回复通过 agent 事件推送
     // 只有当没有收到过流式 agent 事件时，才用 result.content 兜底显示
@@ -4005,7 +4020,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
       var fallbackKey = 'agent:main:main';
       // 重试一次用 main agent
       try {
-        var retryResult = await openclaw.sendChat(fallbackKey, userMessage);
+        var retryResult = await openclaw.sendChat(fallbackKey, fullMessage);
         console.log('[OpenClaw] main agent 重试返回:', JSON.stringify(retryResult));
         // 重试成功后通过事件监听接收回复，不再 await
         // 但需要注意 agentHandler 已注册，它会处理回复
