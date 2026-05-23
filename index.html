@@ -3861,7 +3861,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
   // 加载对话摘要
   var summaryPrompt = '';
   try {
-    var sumRes = await apiFetch('/api/chat/summary/' + encodeURIComponent(emp.id));
+    var sumRes = await apiFetch('/api/chat/summarize/' + encodeURIComponent(emp.id));
     var sumData = await sumRes.json();
     if(sumData && sumData.summary && sumData.summary.length > 5){
       summaryPrompt = '\n\n【之前对话的摘要】\n' + sumData.summary;
@@ -3907,7 +3907,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr){
     // 加载对话摘要（如果有）
     var summaryText = '';
     try {
-      var summaryRes = await apiFetch('/api/chat/' + encodeURIComponent(emp.id) + '/summary');
+      var summaryRes = await apiFetch('/api/chat/summarize/' + encodeURIComponent(emp.id));
       var summaryData = await summaryRes.json();
       if(summaryData && summaryData.summary) {
         summaryText = '\n\n【历史对话摘要】\n' + summaryData.summary;
