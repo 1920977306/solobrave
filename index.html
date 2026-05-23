@@ -7617,6 +7617,21 @@ showToast(`✅ ${name} 已删除`);
 
 // Memory System
 let currentMemoryTab='core';
+
+function formatTimeAgo(timestamp) {
+  if (!timestamp) return '刚刚';
+  var now = new Date();
+  var then = new Date(timestamp);
+  var diffMs = now.getTime() - then.getTime();
+  var diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return '刚刚';
+  if (diffMin < 60) return diffMin + '分钟前';
+  var diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return diffHour + '小时前';
+  var diffDay = Math.floor(diffHour / 24);
+  return diffDay + '天前';
+}
+
 function switchMemoryTab(tab){
 currentMemoryTab=tab;
 document.querySelectorAll('.memory-tab').forEach(t=>t.classList.toggle('active',t.dataset.mtab===tab));
