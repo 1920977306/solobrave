@@ -356,6 +356,13 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .chat-header-link { font-size: 13px; color: var(--accent); text-decoration: none; cursor: pointer; transition: opacity 0.15s; }
 .chat-header-link:hover { opacity: 0.8; }
 
+/* Group Announcement */
+.group-announcement { padding: 8px 16px; background: rgba(255, 107, 53, 0.06); border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; gap: 10px; }
+.announcement-content { flex: 1; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.announcement-content:empty::before { content: '暂无群公告'; color: var(--text-tertiary); }
+.announcement-edit-btn { font-size: 11px; color: var(--accent); background: var(--accent-light); border: none; border-radius: var(--radius-sm); padding: 3px 8px; cursor: pointer; transition: all 0.15s; }
+.announcement-edit-btn:hover { background: rgba(255, 107, 53, 0.15); }
+
 /* Progress */
 .chat-progress { display: flex; align-items: center; gap: 8px; padding: 6px 16px; background: var(--bg-secondary); border-bottom: 0.5px solid var(--separator); }
 .progress-bar { flex: 1; height: 4px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden; }
@@ -2409,6 +2416,12 @@ window.doLogin = function() {
 <div class="chat-header-role"></div>
 </div>
 </div>
+</div>
+
+<!-- 群公告区域 -->
+<div class="group-announcement" id="groupAnnouncement" style="display:none;">
+<div class="announcement-content" id="announcementContent"></div>
+<button class="announcement-edit-btn" onclick="editGroupAnnouncement()">编辑</button>
 </div>
 
 <div class="chat-progress" id="chatProgress" style="display:none;">
@@ -5918,6 +5931,9 @@ var item=document.querySelector('.list-item[data-id="'+id+'"]');
 if(item)item.classList.add('active');
 var chatProgress=document.getElementById('chatProgress');
 if(chatProgress) chatProgress.style.display='none';
+// 隐藏群公告
+var announcementEl = document.getElementById('groupAnnouncement');
+if(announcementEl) announcementEl.style.display = 'none';
 var appMain=document.querySelector('.app-main');
 if(appMain) appMain.classList.remove('show-board');
 renderMsgs('private');
@@ -5992,6 +6008,19 @@ function openGroupChat(groupId){
   // 隐藏进度条
   var chatProgress = document.getElementById('chatProgress');
   if(chatProgress) chatProgress.style.display = 'none';
+  
+  // 显示群公告
+  var announcementEl = document.getElementById('groupAnnouncement');
+  var announcementContent = document.getElementById('announcementContent');
+  if(announcementEl && announcementContent){
+    if(group.announcement && group.announcement.trim().length > 0){
+      announcementContent.textContent = group.announcement;
+      announcementEl.style.display = 'flex';
+    } else {
+      announcementContent.textContent = '';
+      announcementEl.style.display = 'flex';
+    }
+  }
   
   // 隐藏任务板
   var appMain = document.querySelector('.app-main');
@@ -6109,6 +6138,11 @@ async function sendGroupMessage(groupId, message, mentions){
       fullMessage += mentions.map(function(m){ return '@' + m; }).join(' ') + ' ';
     }
     fullMessage += message;
+    
+    // 拼入群公告上下文
+    if(group.announcement && group.announcement.trim().length > 0){
+      fullMessage = '【群公告】' + group.announcement + '\n\n' + fullMessage;
+    }
     
     // 拼入群公告/文档上下文
     var docContext = getDocContextForChat();
@@ -6254,12 +6288,19 @@ function triggerUserMentions(userMentions, groupId, senderId){
 async function triggerMentionedAgent(emp, groupId, fromId, source){
   mentionChainDepth++;
   
+  // 获取群公告上下文
+  var group = groups.find(function(g){ return g.id === groupId; });
+  var announcementContext = '';
+  if(group && group.announcement && group.announcement.trim().length > 0){
+    announcementContext = '【群公告】' + group.announcement + '\n\n';
+  }
+  
   // 构造提示：区分是用户主动 @ 还是 AI 互相 @
   var prompt;
   if(source === 'user'){
-    prompt = '用户 ' + (fromId === group.leadAgentId ? '组长' : '同事') + ' 在群聊中 @了你，请直接回复用户的问题或给出你的专业意见。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
+    prompt = announcementContext + '用户 ' + (fromId === group.leadAgentId ? '组长' : '同事') + ' 在群聊中 @了你，请直接回复用户的问题或给出你的专业意见。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
   } else {
-    prompt = '你在项目组中被 @了，请根据上下文给出你的专业意见。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
+    prompt = announcementContext + '你在项目组中被 @了，请根据上下文给出你的专业意见。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
   }
   
   var agentId = emp.openclawName || emp.id;
@@ -6532,6 +6573,7 @@ async function createGroup(){
       existingGroup.emoji = gwEmoji;
       existingGroup.members = gwMembers.slice();
       existingGroup.leadAgentId = gwLead;
+      // 保留原有的 announcement
       await saveGroups();
       renderEmployeeList();
       closeGroupWizard();
@@ -6554,6 +6596,12 @@ async function createGroup(){
       createdAt: Date.now()
     };
     
+    // 如果有群公告，保存到群组
+    var announcementEl = document.getElementById('gwAnnouncement');
+    if(announcementEl && announcementEl.value.trim().length > 0){
+      newGroup.announcement = announcementEl.value.trim();
+    }
+    
     groups.push(newGroup);
     await saveGroups();
     renderEmployeeList();
@@ -6572,6 +6620,7 @@ async function createGroup(){
           bg: newGroup.bg,
           members: newGroup.members,
           leadAgentId: newGroup.leadAgentId,
+          announcement: newGroup.announcement || '',
           createdBy: newGroup.createdBy,
           createdAt: newGroup.createdAt
         })
@@ -6590,6 +6639,50 @@ async function createGroup(){
     // 自动打开群聊
     setTimeout(function(){ openGroupChat(newGroup.id); }, 300);
   }
+}
+
+// 编辑群公告
+function editGroupAnnouncement(){
+  var group = groups.find(function(g){ return g.id === currentGroupId; });
+  if(!group){
+    showToast('⚠️ 请先选择一个群组');
+    return;
+  }
+  var newAnnouncement = prompt('编辑群公告（所有AI都能看到）：', group.announcement || '');
+  if(newAnnouncement === null) return; // 用户取消
+  
+  group.announcement = newAnnouncement.trim();
+  
+  // 保存到本地
+  saveGroups();
+  
+  // 同步到后端
+  var token = localStorage.getItem('sb_auth_token');
+  if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
+    apiFetch('/api/groups/' + group.id, {
+      method: 'PUT',
+      body: JSON.stringify({announcement: group.announcement})
+    }).then(function(res){
+      if(res && res.ok){
+        showToast('✅ 群公告已同步到服务器');
+      }
+    }).catch(function(err){
+      console.warn('[Announcement] sync failed:', err);
+    });
+  }
+  
+  // 更新UI
+  var announcementEl = document.getElementById('groupAnnouncement');
+  var announcementContent = document.getElementById('announcementContent');
+  if(announcementEl && announcementContent){
+    if(group.announcement && group.announcement.length > 0){
+      announcementContent.textContent = group.announcement;
+    } else {
+      announcementContent.textContent = '';
+    }
+  }
+  
+  showToast('✅ 群公告已更新');
 }
 
 // 更新督促状态按钮显示
@@ -12042,11 +12135,15 @@ function checkQuota() {
       <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">选择成员</label>
       <div class="member-check-grid" id="gwMembersGrid"></div>
     </div>
-    <!-- Step 3: 选择组长 + 确认 -->
+    <!-- Step 3: 选择组长 + 群公告 + 确认 -->
     <div id="gwStep3" style="display:none;">
       <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">选择组长（Lead Agent）</label>
       <div class="lead-radio" id="gwLeadList"></div>
-      <div class="gw-confirm-box">
+      <div style="margin-top:12px;">
+        <label style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">群公告（所有AI都能看到）</label>
+        <textarea id="gwAnnouncement" class="form-input" placeholder="例如：本组负责前端开发，技术栈 Vue3 + TypeScript..." style="width:100%;min-height:60px;resize:vertical;font-size:13px;"></textarea>
+      </div>
+      <div class="gw-confirm-box" style="margin-top:12px;">
         <div class="gw-confirm-row"><span class="gw-confirm-label">群组：</span><span id="gwConfirmName">-</span></div>
         <div class="gw-confirm-row"><span class="gw-confirm-label">成员：</span><span id="gwConfirmMembers">-</span></div>
         <div class="gw-confirm-row"><span class="gw-confirm-label">组长：</span><span id="gwConfirmLead">-</span></div>
