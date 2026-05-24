@@ -2897,7 +2897,7 @@ window.doLogin = function() {
 <div class="group-detail-info">
 <div class="group-detail-name" id="groupDetailName">快速研发组</div>
 <div class="group-detail-role" id="groupDetailRole">项目组</div>
-<div class="group-detail-status" id="groupDetailStatus"><span class="status-dot online"></span> 7 位成员</div>
+<div class="group-detail-status" id="groupDetailStatus"><span class="status-dot online"></span> <span id="groupHeaderMemberCount">7</span> 位成员</div>
 </div>
 <button class="group-detail-close" onclick="closeGroupDetail()">
 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -2985,11 +2985,11 @@ window.doLogin = function() {
 </div>
 <div class="emp-info-item">
 <span class="emp-info-label">成员数</span>
-<span class="emp-info-value" id="groupDetailMemberCount">7</span>
+<span class="emp-info-value" id="groupInfoMemberCount">7</span>
 </div>
 <div class="emp-info-item">
 <span class="emp-info-label">消息数</span>
-<span class="emp-info-value" id="groupDetailMsgCount">128</span>
+<span class="emp-info-value" id="groupInfoMsgCount">128</span>
 </div>
 <div class="emp-info-item">
 <span class="emp-info-label">创建者</span>
@@ -8106,6 +8106,18 @@ function openGroupDetail(groupId){
   document.getElementById('groupDetailRole').textContent = '项目组';
   var memberCount = (group.members && group.members.length) || 0;
   document.getElementById('groupDetailStatus').innerHTML = '<span class="status-dot online"></span> ' + memberCount + ' 位成员';
+  // 更新群组头部成员数
+  var headerEl = document.getElementById('groupHeaderMemberCount');
+  if(headerEl) headerEl.textContent = memberCount;
+  var infoEl = document.getElementById('groupInfoMemberCount');
+  if(infoEl) infoEl.textContent = memberCount;
+  // 更新消息数
+  var msgCountEl = document.getElementById('groupInfoMsgCount');
+  if(msgCountEl){
+    var histKey = 'sb_group_history_' + groupId;
+    var hist = JSON.parse(localStorage.getItem(histKey) || '[]');
+    msgCountEl.textContent = hist.length;
+  }
   document.getElementById('groupDetailAvatar').textContent = group.emoji || '👥';
   document.getElementById('groupDetailAvatar').style.background = 'linear-gradient(135deg,' + (group.bg || '#5856D6') + ',' + (group.bg || '#5856D6') + 'dd)';
   document.getElementById('groupDetailId').textContent = group.id;
