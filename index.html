@@ -2672,10 +2672,7 @@ window.doLogin = function() {
 <button class="emp-detail-tab" data-etab="skills" onclick="switchEmpDetailTab('skills')">技能</button>
 <button class="emp-detail-tab" data-etab="memory" onclick="switchEmpDetailTab('memory')">记忆</button>
 <button class="emp-detail-tab" data-etab="avatar" onclick="switchEmpDetailTab('avatar')">头像</button>
-<button class="emp-detail-tab" data-etab="model" onclick="switchEmpDetailTab('model')">模型</button>
-<button class="emp-detail-tab" data-etab="docs" onclick="switchEmpDetailTab('docs')">文档</button>
 <button class="emp-detail-tab" data-etab="connect" onclick="switchEmpDetailTab('connect')">连接</button>
-<button class="emp-detail-tab" data-etab="channel" onclick="switchEmpDetailTab('channel')">渠道</button>
 </div>
 
 <div class="emp-detail-content" id="empDetailContent">
@@ -2830,42 +2827,6 @@ window.doLogin = function() {
 </div>
 
 <!-- Model Tab -->
-<div class="emp-tab-pane" id="emp-tab-model">
-<div class="emp-doc-section">
-<div class="emp-doc-title">模型配置</div>
-<textarea class="emp-doc-editor" id="empModelConfig" rows="8" placeholder="输入模型配置 JSON..."></textarea>
-</div>
-<button class="emp-action-btn" onclick="saveEmpModel()">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-保存配置
-</button>
-</div>
-
-<!-- Docs Tab -->
-<div class="emp-tab-pane" id="emp-tab-docs">
-<div class="emp-doc-section">
-<div class="emp-doc-title">IDENTITY.md</div>
-<textarea class="emp-doc-editor" id="empIdDoc" rows="4" placeholder="定义 AI 身份..."></textarea>
-</div>
-<div class="emp-doc-section">
-<div class="emp-doc-title">SOUL.md</div>
-<textarea class="emp-doc-editor" id="empSoulDoc" rows="4" placeholder="定义 AI 性格..."></textarea>
-</div>
-<div class="emp-doc-section">
-<div class="emp-doc-title">TOOLS.md</div>
-<textarea class="emp-doc-editor" id="empToolsDoc" rows="4" placeholder="定义可用工具..."></textarea>
-</div>
-<div class="emp-doc-section">
-<div class="emp-doc-title">USER.md</div>
-<div class="emp-doc-desc">用户档案与偏好设置</div>
-<textarea class="emp-doc-editor" id="empUserDoc" rows="4" placeholder="记录用户偏好、习惯、常用指令..."></textarea>
-</div>
-<button class="emp-action-btn" onclick="saveEmpDocs()">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-保存文档
-</button>
-</div>
-
 <!-- Connect Tab (OpenClaw Config) -->
 <div class="emp-tab-pane" id="emp-tab-connect">
 <div class="emp-doc-section">
@@ -2905,54 +2866,6 @@ window.doLogin = function() {
 </button>
 </div>
 
-<!-- Channel Tab -->
-<div class="emp-tab-pane" id="emp-tab-channel">
-<div class="emp-doc-section" style="margin-bottom:16px;">
-<div class="emp-doc-title">🦞 OpenClaw 连接状态</div>
-<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--bg-secondary);">
-<div style="font-size:13px;color:var(--text-secondary);">Gateway 状态</div>
-<div id="empOpenClawStatus" style="font-size:13px;font-weight:600;">🔴 未连接</div>
-</div>
-<div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:10px 12px;border-radius:8px;background:var(--bg-secondary);">
-<div style="font-size:13px;color:var(--text-secondary);">ReadyState</div>
-<div id="empOpenClawReadyState" style="font-size:13px;font-weight:600;font-family:monospace;">CLOSED</div>
-</div>
-<div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:10px 12px;border-radius:8px;background:var(--bg-secondary);">
-<div style="font-size:13px;color:var(--text-secondary);">Agent ID</div>
-<div id="empOpenClawAgentId" style="font-size:13px;font-weight:600;font-family:monospace;">--</div>
-</div>
-</div>
-<div class="emp-channel-list" id="empChannelList">
-<div class="emp-channel-item" onclick="openChannelConfig('dingtalk')">
-<div class="emp-channel-icon" style="background:#1677FF;">💬</div>
-<div class="emp-channel-info">
-<div class="emp-channel-name">钉钉</div>
-<div class="emp-channel-status" id="dingtalkStatus">未配置</div>
-</div>
-</div>
-<div class="emp-channel-item" onclick="openChannelConfig('feishu')">
-<div class="emp-channel-icon" style="background:#0066FF;">✈️</div>
-<div class="emp-channel-info">
-<div class="emp-channel-name">飞书</div>
-<div class="emp-channel-status" id="feishuStatus">未配置</div>
-</div>
-</div>
-<div class="emp-channel-item" onclick="openChannelConfig('agentlink')">
-<div class="emp-channel-icon" style="background:#00C853;">🔗</div>
-<div class="emp-channel-info">
-<div class="emp-channel-name">AgentLink</div>
-<div class="emp-channel-status" id="agentlinkStatus">未配置</div>
-</div>
-</div>
-<div class="emp-channel-item" onclick="openChannelConfig('telegram')">
-<div class="emp-channel-icon" style="background:#0088FE;">✈️</div>
-<div class="emp-channel-info">
-<div class="emp-channel-name">Telegram</div>
-<div class="emp-channel-status" id="telegramStatus">未配置</div>
-</div>
-</div>
-</div>
-</div>
 </div>
 <div class="emp-detail-actions">
 <button class="emp-action-btn primary" onclick="closeEmpDetail()">
@@ -8390,11 +8303,6 @@ loadOpenClawSkills();
 if(tab==='memory'&&currentEmpId){
 renderMemoryTab(currentEmpId);
 }
-// Update channel status when switching to channel tab
-if(tab==='channel'&&currentEmpId){
-updateChannelStatusUI();
-updateOpenClawStatusUI();
-}
 // Update badge preview when switching to basic tab
 if(tab==='basic'&&currentEmpId){
 var badgeInput=document.getElementById('empBadgeInput');
@@ -8428,108 +8336,6 @@ apiFetch('/api/memory/' + encodeURIComponent(empId))
 
 // ========== Channel Config ==========
 var currentChannelType = '';
-
-function updateChannelStatusUI(){
-  var emp = emps.find(function(e){ return e.id === currentEmpId; });
-  if(!emp) return;
-  var channels = [
-    {id:'dingtalk',name:'钉钉',icon:'💬',bg:'#1677FF',field:'dingtalkWebhook'},
-    {id:'feishu',name:'飞书',icon:'✈️',bg:'#0066FF',field:'feishuWebhook'},
-    {id:'agentlink',name:'AgentLink',icon:'🔗',bg:'#00C853',field:'agentlinkWebhook'},
-    {id:'telegram',name:'Telegram',icon:'✈️',bg:'#0088FE',field:'telegramWebhook'}
-  ];
-  var list = document.querySelector('#emp-tab-channel .emp-channel-list');
-  if(!list) return;
-  list.innerHTML = channels.map(function(ch){
-    var configured = emp[ch.field] && emp[ch.field].webhook;
-    var active = configured && emp[ch.field].active;
-    return '<div class="emp-channel-item" onclick="openChannelConfig(\'' + ch.id + '\')" style="cursor:pointer;">' +
-      '<div class="emp-channel-icon" style="background:' + ch.bg + ';">' + ch.icon + '</div>' +
-      '<div class="emp-channel-info">' +
-      '<div class="emp-channel-name">' + ch.name + '</div>' +
-      '<div class="emp-channel-status ' + (active ? 'active' : 'inactive') + '">' + (active ? '已启用' : (configured ? '已配置' : '未配置')) + '</div>' +
-      '</div>' +
-      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-tertiary);"><polyline points="9 18 15 12 9 6"/></svg>' +
-      '</div>';
-  }).join('');
-}
-
-function updateOpenClawStatusUI(){
-  var statusEl = document.getElementById('empOpenClawStatus');
-  var readyStateEl = document.getElementById('empOpenClawReadyState');
-  var agentIdEl = document.getElementById('empOpenClawAgentId');
-  if(!statusEl || !readyStateEl) return;
-  
-  var readyState = 'UNKNOWN';
-  var statusText = '⚪ 未知';
-  var statusColor = '#999';
-  
-  if(typeof openclaw !== 'undefined' && openclaw){
-    readyState = openclaw.readyState || 'UNKNOWN';
-    if(openclaw.readyState === 'OPEN' || openclaw._connected){
-      statusText = '🟢 已连接';
-      statusColor = '#34C759';
-    } else if(openclaw.readyState === 'CONNECTING'){
-      statusText = '🟡 连接中';
-      statusColor = '#FF9500';
-    } else {
-      statusText = '🔴 未连接';
-      statusColor = '#FF3B30';
-    }
-  } else {
-    statusText = '🔴 未初始化';
-    statusColor = '#FF3B30';
-  }
-  
-  statusEl.textContent = statusText;
-  statusEl.style.color = statusColor;
-  readyStateEl.textContent = readyState;
-  
-  if(agentIdEl && currentEmpId){
-    agentIdEl.textContent = currentEmpId;
-  }
-}
-
-function openChannelConfig(channelType){
-  currentChannelType = channelType;
-  var names = {dingtalk:'钉钉',feishu:'飞书',agentlink:'AgentLink',telegram:'Telegram'};
-  document.getElementById('channelConfigTitle').textContent = '🔧 ' + (names[channelType] || '渠道') + '配置';
-  var emp = emps.find(function(e){ return e.id === currentEmpId; });
-  var config = (emp && emp[channelType + 'Webhook']) || {};
-  document.getElementById('channelWebhook').value = config.webhook || '';
-  document.getElementById('channelToken').value = config.token || '';
-  var radios = document.getElementsByName('channelActive');
-  for(var i=0;i<radios.length;i++){
-    radios[i].checked = (radios[i].value === '1') === (config.active !== false);
-  }
-  document.getElementById('channelConfigModal').style.display = 'flex';
-}
-
-function closeChannelConfigModal(){
-  document.getElementById('channelConfigModal').style.display = 'none';
-  currentChannelType = '';
-}
-
-function saveChannelConfig(){
-  if(!currentEmpId || !currentChannelType) return;
-  var emp = emps.find(function(e){ return e.id === currentEmpId; });
-  if(!emp) return;
-  var webhook = document.getElementById('channelWebhook').value.trim();
-  var token = document.getElementById('channelToken').value.trim();
-  var radios = document.getElementsByName('channelActive');
-  var active = true;
-  for(var i=0;i<radios.length;i++){
-    if(radios[i].checked){
-      active = radios[i].value === '1';
-      break;
-    }
-  }
-  emp[currentChannelType + 'Webhook'] = {webhook:webhook,token:token,active:active,updatedAt:Date.now()};
-  saveEmployees();
-  updateChannelStatusUI();
-  closeChannelConfigModal();
-  showToast('✅ 渠道配置已保存');
-}
 
 // Update badge preview
 function updateBadgePreview(value){
@@ -8565,100 +8371,6 @@ if(_chatAvatar&&currentEmpId===localStorage.getItem('sb_current_emp')){_chatAvat
 showToast('✅ 头像已保存');
 }
 }
-function saveEmpModel(){
-if(!currentEmpId)return;
-const emp=emps.find(e=>e.id===currentEmpId);
-if(emp)emp.modelConfig=document.getElementById('empModelConfig').value;
-saveEmployees();
-showToast('✅ 模型配置已保存');
-}
-
-// ========== 渠道配置 ==========
-var currentChannelType = '';
-var channelConfigMap = {
-  'dingtalk': {name: '钉钉', icon: '💬', color: '#1677FF'},
-  'feishu': {name: '飞书', icon: '✈️', color: '#0066FF'},
-  'agentlink': {name: 'AgentLink', icon: '🔗', color: '#00C853'},
-  'telegram': {name: 'Telegram', icon: '✈️', color: '#0088FE'}
-};
-
-function openChannelConfig(channelType){
-  if(!currentEmpId) return;
-  currentChannelType = channelType;
-  var config = channelConfigMap[channelType];
-  if(!config) return;
-
-  document.getElementById('channelConfigTitle').textContent = config.icon + ' ' + config.name + ' 配置';
-
-  var emp = emps.find(function(e){ return e.id === currentEmpId; });
-  var channels = (emp && emp.channels) || {};
-  var channelData = channels[channelType] || {};
-
-  document.getElementById('channelWebhook').value = channelData.webhook || '';
-  document.getElementById('channelToken').value = channelData.token || '';
-
-  var radios = document.querySelectorAll('input[name="channelActive"]');
-  radios.forEach(function(r){
-    r.checked = (r.value === '1') === (channelData.active !== false);
-  });
-
-  document.getElementById('channelConfigModal').style.display = 'flex';
-}
-
-function closeChannelConfigModal(){
-  document.getElementById('channelConfigModal').style.display = 'none';
-  currentChannelType = '';
-}
-
-function saveChannelConfig(){
-  if(!currentEmpId || !currentChannelType) return;
-
-  var webhook = document.getElementById('channelWebhook').value.trim();
-  var token = document.getElementById('channelToken').value.trim();
-  var activeRadio = document.querySelector('input[name="channelActive"]:checked');
-  var active = activeRadio ? activeRadio.value === '1' : true;
-
-  var emp = emps.find(function(e){ return e.id === currentEmpId; });
-  if(!emp) return;
-
-  if(!emp.channels) emp.channels = {};
-  emp.channels[currentChannelType] = {
-    webhook: webhook,
-    token: token,
-    active: active,
-    updatedAt: new Date().toISOString()
-  };
-
-  saveEmployees();
-  updateChannelStatusUI();
-  closeChannelConfigModal();
-  showToast('✅ 渠道配置已保存');
-}
-
-function updateChannelStatusUI(){
-  if(!currentEmpId) return;
-  var emp = emps.find(function(e){ return e.id === currentEmpId; });
-  if(!emp) return;
-
-  var channels = emp.channels || {};
-  Object.keys(channelConfigMap).forEach(function(type){
-    var statusEl = document.getElementById(type + 'Status');
-    if(!statusEl) return;
-
-    var config = channels[type];
-    if(config && config.webhook && config.active !== false){
-      statusEl.textContent = '已配置';
-      statusEl.className = 'emp-channel-status active';
-    } else if(config && config.webhook){
-      statusEl.textContent = '已禁用';
-      statusEl.className = 'emp-channel-status';
-    } else {
-      statusEl.textContent = '未配置';
-      statusEl.className = 'emp-channel-status inactive';
-    }
-  });
-}
-
 // ========== 员工连接配置 ==========
 var empSelectedConnectAIProvider='kimi';
 function selectAIProvider(providerId){
@@ -8923,32 +8635,6 @@ function renderModelSelect(selectEl, providerId, selectedValue){
   }
   
   selectEl.innerHTML = html;
-}
-function saveEmpDocs(){
-if(!currentEmpId)return;
-var emp=emps.find(function(e){return e.id===currentEmpId;});
-if(emp){
-emp.idDoc=document.getElementById('empIdDoc').value;
-emp.soulDoc=document.getElementById('empSoulDoc').value;
-emp.toolsDoc=document.getElementById('empToolsDoc').value;
-emp.userDoc=document.getElementById('empUserDoc').value;
-}
-saveEmployees();
-// 同步到后端服务器
-if(emp && typeof syncEmpToServer === 'function'){
-  syncEmpToServer(emp).then(function(){
-    showToast('✅ 文档已保存并同步到服务器');
-  }).catch(function(err){
-    console.warn('[Detail] syncEmpToServer failed:', err);
-    showToast('✅ 文档已保存(本地)');
-  });
-} else {
-  showToast('✅ 文档已保存');
-}
-// SOUL.md 变更时重新注册 Agent 到 Gateway
-if(emp && typeof registerOpenClawAgent === 'function'){
-  registerOpenClawAgent(emp);
-}
 }
 function editEmpFromDetail(){
 if(!currentEmpId)return;
