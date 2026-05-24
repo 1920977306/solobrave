@@ -6120,6 +6120,18 @@ async function sendGroupMessage(groupId, message, mentions){
     var agentId = leadEmp ? (leadEmp.openclawName || leadEmp.id) : group.leadAgentId;
     var sessionKey = 'agent:' + agentId + ':main';
     
+    // 解析用户消息中的 @mentions，保存供 leadAgent 回复后触发
+    var userMentions = [];
+    var userMentionRegex = /@([^\s@,，。！？;；:：、\n]{1,20})/g;
+    var um;
+    while((um = userMentionRegex.exec(fullMessage)) !== null){
+      var umName = um[1];
+      var umEmp = emps.find(function(e){ return e.name === umName; });
+      if(umEmp && umEmp.id !== group.leadAgentId){
+        userMentions.push(umEmp);
+      }
+    }
+    
     // 显示打字指示器
     var typingHtml = '<div class="msg" id="groupTypingMsg"><div class="msg-avatar"><div class="avatar small" style="background:' + (leadEmp ? leadEmp.bg : '#8E8E93') + ';">' + (leadEmp ? renderAvatar(leadEmp, 32) : '🤖') + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + (leadEmp ? escapeHtml(leadEmp.name) : 'AI') + '</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div></div>';
     area.insertAdjacentHTML('beforeend', typingHtml);
@@ -6152,6 +6164,8 @@ async function sendGroupMessage(groupId, message, mentions){
           mentionTriggered = {};
           mentionTriggered[group.leadAgentId] = true;
           parseAndTriggerMentions(fullReply, groupId, group.leadAgentId);
+          // 触发用户消息中 @ 的 AI
+          triggerUserMentions(userMentions, groupId, group.leadAgentId);
           openclaw.off('agent', agentHandler);
         }
       };
@@ -6175,6 +6189,8 @@ async function sendGroupMessage(groupId, message, mentions){
           mentionTriggered = {};
           mentionTriggered[group.leadAgentId] = true;
           parseAndTriggerMentions(reply, groupId, group.leadAgentId);
+          // 触发用户消息中 @ 的 AI
+          triggerUserMentions(userMentions, groupId, group.leadAgentId);
           openclaw.off('agent', agentHandler);
         }
       }
@@ -6219,16 +6235,32 @@ function parseAndTriggerMentions(replyText, groupId, senderId){
   matches.forEach(function(emp, idx){
     var delay = (idx + 1) * (2000 + Math.floor(Math.random() * 3000));
     setTimeout(function(){
-      triggerMentionedAgent(emp, groupId, senderId);
+      triggerMentionedAgent(emp, groupId, senderId, 'ai');
     }, delay);
   });
 }
 
-async function triggerMentionedAgent(emp, groupId, fromId){
+// 触发用户消息中 @ 的 AI 回复（leadAgent 回复完成后调用）
+function triggerUserMentions(userMentions, groupId, senderId){
+  if(!userMentions || userMentions.length === 0) return;
+  userMentions.forEach(function(emp, idx){
+    var delay = (idx + 1) * (1500 + Math.floor(Math.random() * 2000));
+    setTimeout(function(){
+      triggerMentionedAgent(emp, groupId, senderId, 'user');
+    }, delay);
+  });
+}
+
+async function triggerMentionedAgent(emp, groupId, fromId, source){
   mentionChainDepth++;
   
-  // 构造提示：你在群聊中被 @了
-  var prompt = '你在项目组中被 @了，请根据上下文给出你的专业意见。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
+  // 构造提示：区分是用户主动 @ 还是 AI 互相 @
+  var prompt;
+  if(source === 'user'){
+    prompt = '用户 ' + (fromId === group.leadAgentId ? '组长' : '同事') + ' 在群聊中 @了你，请直接回复用户的问题或给出你的专业意见。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
+  } else {
+    prompt = '你在项目组中被 @了，请根据上下文给出你的专业意见。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
+  }
   
   var agentId = emp.openclawName || emp.id;
   var sessionKey = 'agent:' + agentId + ':main';
