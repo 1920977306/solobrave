@@ -7517,11 +7517,11 @@ document.getElementById('empDetailTasks').textContent=emp.tasks||0;
 document.getElementById('empDetailCtx').textContent=emp.ctx||'4K / 8K';
 document.getElementById('empBadgeInput').value=emp.badge||'';
 document.getElementById('empBadgePreview').textContent=emp.badge?'当前: ⚠️ '+emp.badge:'';
-document.getElementById('empModelConfig').value=emp.modelConfig||JSON.stringify({model:emp.model||'gpt-4o',temperature:0.7,max_tokens:2000},null,2);
-document.getElementById('empIdDoc').value=emp.idDoc||'';
-document.getElementById('empSoulDoc').value=emp.soulDoc||'';
-document.getElementById('empToolsDoc').value=emp.toolsDoc||'';
-document.getElementById('empUserDoc').value=emp.userDoc||'';
+(document.getElementById('empModelConfig')||{}).value=emp.modelConfig||JSON.stringify({model:emp.model||'gpt-4o',temperature:0.7,max_tokens:2000},null,2);
+(document.getElementById('empIdDoc')||{}).value=emp.idDoc||'';
+(document.getElementById('empSoulDoc')||{}).value=emp.soulDoc||'';
+(document.getElementById('empToolsDoc')||{}).value=emp.toolsDoc||'';
+(document.getElementById('empUserDoc')||{}).value=emp.userDoc||'';
 // Render avatar grid with AVATAR_PRESETS
 var avatarGrid=document.getElementById('avatarGrid');
 if(avatarGrid&&typeof AVATAR_PRESETS!=='undefined'){
@@ -7544,7 +7544,7 @@ switchEmpDetailTab('basic');
 function showEditModal(empId){
 	if(!empId) return;
 	openEmpDetail(empId);
-	setTimeout(()=> switchEmpDetailTab('docs'), 100);
+	setTimeout(()=> switchEmpDetailTab('basic'), 100);
 }
 
 // Skills System
