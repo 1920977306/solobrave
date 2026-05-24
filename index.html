@@ -8559,7 +8559,7 @@ function loadEmpConnect(emp){
   // 更新 Gateway 状态
   updateGatewayStatus();
 }
-function saveEmpConnect(){
+async function saveEmpConnect(){
   if(!currentEmpId)return;
   var emp=emps.find(function(e){return e.id===currentEmpId;});
   if(!emp)return;
@@ -8574,13 +8574,22 @@ function saveEmpConnect(){
   saveEmployees();
 
   // 自动在 Gateway 注册/更新 Agent
-  registerOpenClawAgent(emp);
+  var regResult = await registerOpenClawAgent(emp);
+  if(regResult.success){
+    showToast('✅ 配置已保存，Agent 已注册');
+  } else if(regResult.error === 'Gateway 未连接'){
+    showToast('⚠️ 配置已保存，但 Gateway 未连接');
+  } else {
+    showToast('❌ 配置已保存，但 Agent 注册失败：' + regResult.error);
+  }
 }
 
+// 返回 {success: bool, error: string|null, docsWritten: bool}
 async function registerOpenClawAgent(emp){
+  // 0. 检查 Gateway 连接状态
   if(!openclaw || !openclaw.connected){
-    console.log('[registerAgent] Gateway 未连接，跳过注册');
-    return;
+    console.log('[registerAgent] Gateway 未连接');
+    return {success: false, error: 'Gateway 未连接', docsWritten: false};
   }
 
   // 用 emp.id（ASCII，如 "xlcx","zjg","emp_xxx"）作为 agent name/agentId
@@ -8592,6 +8601,7 @@ async function registerOpenClawAgent(emp){
   var identityContent = emp.idDoc || (emp.name + ' - ' + emp.role);
 
   // 1. agents.create 只传 Gateway 支持的参数: {name, workspace, model?}
+  var agentRegistered = false;
   try {
     var createParams = {
       name: agentName,
@@ -8602,6 +8612,7 @@ async function registerOpenClawAgent(emp){
     var result = await openclaw.send('agents.create', createParams);
     console.log('[OpenClaw] Agent 创建成功:', JSON.stringify(result));
     emp._agentId = (result && result.agentId) || agentName;
+    agentRegistered = true;
   } catch(e){
     // create 失败（可能已存在），试 update
     console.log('[OpenClaw] create 失败，尝试 update:', e.message);
@@ -8613,15 +8624,21 @@ async function registerOpenClawAgent(emp){
       var result2 = await openclaw.send('agents.update', updateParams);
       console.log('[OpenClaw] Agent 更新成功:', JSON.stringify(result2));
       emp._agentId = agentName;
+      agentRegistered = true;
     } catch(e2){
       console.log('[OpenClaw] update 也失败:', e2.message);
-      showToast('⚠️ OpenClaw Agent 注册失败：' + e2.message + '。AI将使用默认身份，可能无法正确识别角色。');
       emp._agentId = 'main';
     }
   }
 
+  if(!agentRegistered){
+    console.warn('[OpenClaw] Agent 注册失败，降级使用 main');
+    return {success: false, error: 'OpenClaw Agent 注册失败', docsWritten: false};
+  }
+
   // 2. 写 SOUL.md / IDENTITY.md / AGENTS.md 到 agent workspace（通过后端 API）
   var agentsContent = emp.agentsDoc || '';
+  var docsWritten = false;
   if(soulContent || identityContent || agentsContent){
     try {
       var wsResp = await apiFetch('/api/openclaw/write-agent-docs', {
@@ -8638,27 +8655,20 @@ async function registerOpenClawAgent(emp){
       if(wsResp && wsResp.ok){
         var data = await wsResp.json();
         console.log('[OpenClaw] 文档已写入:', JSON.stringify(data));
-        var writtenFiles = data && data.written ? data.written.join(', ') : '';
-        showToast('✅ Agent 已注册，文档已写入: ' + (writtenFiles || 'SOUL.md'));
+        docsWritten = true;
       } else {
         console.log('[OpenClaw] 文档写入失败:', wsResp ? wsResp.status : 'no response');
-        showToast('✅ Agent 已注册，⚠️ 文档写入失败');
       }
     } catch(e3){
       console.log('[OpenClaw] 文档写入异常:', e3.message);
-      showToast('✅ Agent 已注册，⚠️ 身份文档写入失败：' + e3.message);
     }
   }
 
   // 3. 更新 emp 的 openclawName 为 ASCII agentId（供 sendViaOpenClaw 使用）
-  // 只有 agent 注册成功才更新 openclawName
-  if(emp._agentId && emp._agentId !== 'main'){
-    emp.openclawName = emp._agentId;
-  } else {
-    emp.openclawName = 'main';
-    console.warn('[OpenClaw] Agent 注册失败，降级使用 main');
-  }
+  emp.openclawName = emp._agentId;
   saveEmployees();
+
+  return {success: true, error: null, docsWritten: docsWritten};
 }
 function updateGatewayStatus(){
   var statusEl=document.getElementById('empConnectGatewayStatus');
@@ -9974,7 +9984,7 @@ function resetSoulConfig(){
   document.getElementById('soulCompleteArea').style.display='none';
 }
 
-function finishWizard(){
+async function finishWizard(){
   var name=document.getElementById('wizName').value.trim();
   if(!name){showToast('请输入员工名称');return;}
   var role=document.getElementById('wizRole').value;
@@ -10029,13 +10039,48 @@ function finishWizard(){
     createdAt:new Date().toISOString()
   };
   emps.push(newEmp);saveEmployees();renderTeamList();renderEmployeeList();
-  closeWizard();document.getElementById('wizName').value='';
-  document.getElementById('wizApiKey').value='';
-  showToast('✅ 员工 '+name+' 创建成功！');
-  setTimeout(function(){openChat(newEmp.id);},300);
+
+  // 注册 OpenClaw Agent
+  var regResult = await registerOpenClawAgent(newEmp);
+
+  // 根据注册结果处理
+  if(regResult.success){
+    // 成功
+    showToast('✅ 员工 ' + name + ' 创建成功！');
+    closeWizard();
+    document.getElementById('wizName').value='';
+    document.getElementById('wizApiKey').value='';
+    setTimeout(function(){openChat(newEmp.id);},300);
+  } else if(regResult.error === 'Gateway 未连接'){
+    // Gateway 未连接，询问用户是否仍要保存
+    var keep = confirm('Gateway 未连接，AI Agent 暂时无法注册。是否仍要保存该员工？');
+    if(keep){
+      showToast('✅ 员工 ' + name + ' 已保存（AI Agent 未注册）');
+      closeWizard();
+      document.getElementById('wizName').value='';
+      document.getElementById('wizApiKey').value='';
+      setTimeout(function(){openChat(newEmp.id);},300);
+    } else {
+      // 用户选择不保留，删除员工
+      emps = emps.filter(function(e){return e.id !== newEmp.id;});
+      saveEmployees();
+      renderTeamList();
+      renderEmployeeList();
+      showToast('已取消创建员工');
+    }
+  } else {
+    // 注册失败，删除员工
+    emps = emps.filter(function(e){return e.id !== newEmp.id;});
+    saveEmployees();
+    // 同时从后端删除（如果之前已同步）
+    apiFetch('/api/agents/' + newEmp.id, {method: 'DELETE'}).catch(function(){});
+    renderTeamList();
+    renderEmployeeList();
+    showToast('❌ 员工创建失败：' + regResult.error);
+  }
   
-  // 安装选中技能
-  if(wizSelectedSkills.length > 0 && newEmp.openclawName){
+  // 安装选中技能（仅在注册成功时）
+  if(regResult.success && wizSelectedSkills.length > 0 && newEmp.openclawName){
     wizSelectedSkills.forEach(function(slug){
       fetch('/api/openclaw/skills/install', {
         method: 'POST',
