@@ -6288,20 +6288,19 @@ function triggerUserMentions(userMentions, groupId, senderId){
 async function triggerMentionedAgent(emp, groupId, fromId, source){
   mentionChainDepth++;
   
-  // 获取群公告上下文
+  // 获取群组信息
   var group = groups.find(function(g){ return g.id === groupId; });
+  var fromEmp = emps.find(function(e){ return e.id === fromId; });
+  var fromName = fromEmp ? fromEmp.name : '用户';
+  
+  // 获取群公告上下文
   var announcementContext = '';
   if(group && group.announcement && group.announcement.trim().length > 0){
     announcementContext = '【群公告】' + group.announcement + '\n\n';
   }
   
-  // 构造提示：区分是用户主动 @ 还是 AI 互相 @
-  var prompt;
-  if(source === 'user'){
-    prompt = announcementContext + '用户 ' + (fromId === group.leadAgentId ? '组长' : '同事') + ' 在群聊中 @了你，请直接回复用户的问题或给出你的专业意见。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
-  } else {
-    prompt = announcementContext + '你在项目组中被 @了，请根据上下文给出你的专业意见。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
-  }
+  // 构造提示：明确告诉AI它是谁，被谁@了
+  var prompt = announcementContext + '你是' + emp.name + '（' + emp.role + '）。' + fromName + '在群聊中 @了你。请以' + emp.name + '的身份直接回复，简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
   
   var agentId = emp.openclawName || emp.id;
   var sessionKey = 'agent:' + agentId + ':main';
