@@ -8102,10 +8102,13 @@ function openGroupDetail(groupId){
   if(!group) return;
   currentGroupDetailId = groupId;
 
-  document.getElementById('groupDetailName').textContent = group.name || '未命名群组';
-  document.getElementById('groupDetailRole').textContent = '项目组';
+  var gdName = document.getElementById('groupDetailName');
+  if(gdName) gdName.textContent = group.name || '未命名群组';
+  var gdRole = document.getElementById('groupDetailRole');
+  if(gdRole) gdRole.textContent = '项目组';
   var memberCount = (group.members && group.members.length) || 0;
-  document.getElementById('groupDetailStatus').innerHTML = '<span class="status-dot online"></span> ' + memberCount + ' 位成员';
+  var gdStatus = document.getElementById('groupDetailStatus');
+  if(gdStatus) gdStatus.innerHTML = '<span class="status-dot online"></span> ' + memberCount + ' 位成员';
   // 更新头部成员数
   var headerEl = document.getElementById('groupHeaderMemberCount');
   if(headerEl) headerEl.textContent = memberCount;
@@ -8119,15 +8122,23 @@ function openGroupDetail(groupId){
     var hist = JSON.parse(localStorage.getItem(histKey) || '[]');
     msgCountEl.textContent = hist.length;
   }
-  document.getElementById('groupDetailAvatar').textContent = group.emoji || '👥';
-  document.getElementById('groupDetailAvatar').style.background = 'linear-gradient(135deg,' + (group.bg || '#5856D6') + ',' + (group.bg || '#5856D6') + 'dd)';
-  document.getElementById('groupDetailId').textContent = group.id;
-  document.getElementById('groupDetailCreated').textContent = group.createdAt || '未知';
-  document.getElementById('groupDetailCreator').textContent = group.createdBy || 'admin';
+  var gdAvatar = document.getElementById('groupDetailAvatar');
+  if(gdAvatar){
+    gdAvatar.textContent = group.emoji || '👥';
+    gdAvatar.style.background = 'linear-gradient(135deg,' + (group.bg || '#5856D6') + ',' + (group.bg || '#5856D6') + 'dd)';
+  }
+  var gdId = document.getElementById('groupDetailId');
+  if(gdId) gdId.textContent = group.id;
+  var gdCreated = document.getElementById('groupDetailCreated');
+  if(gdCreated) gdCreated.textContent = group.createdAt || '未知';
+  var gdCreator = document.getElementById('groupDetailCreator');
+  if(gdCreator) gdCreator.textContent = group.createdBy || 'admin';
 
   // Settings tab
-  document.getElementById('groupEditName').value = group.name || '';
-  document.getElementById('groupEditDesc').value = group.description || '';
+  var gdEditName = document.getElementById('groupEditName');
+  if(gdEditName) gdEditName.value = group.name || '';
+  var gdEditDesc = document.getElementById('groupEditDesc');
+  if(gdEditDesc) gdEditDesc.value = group.description || '';
   selectedGroupEmoji = group.emoji || '👥';
   selectedGroupColor = group.bg || '#5856D6';
 
@@ -8150,7 +8161,8 @@ function openGroupDetail(groupId){
   // Reset to members tab
   switchGroupDetailTab('members');
 
-  document.getElementById('groupDetailOverlay').classList.add('open');
+  var gdOverlay = document.getElementById('groupDetailOverlay');
+  if(gdOverlay) gdOverlay.classList.add('open');
 }
 
 function closeGroupDetail(){
