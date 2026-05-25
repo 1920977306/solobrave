@@ -8106,11 +8106,12 @@ function openGroupDetail(groupId){
   document.getElementById('groupDetailRole').textContent = '项目组';
   var memberCount = (group.members && group.members.length) || 0;
   document.getElementById('groupDetailStatus').innerHTML = '<span class="status-dot online"></span> ' + memberCount + ' 位成员';
-  // 更新群组头部成员数
+  // 更新头部成员数
   var headerEl = document.getElementById('groupHeaderMemberCount');
   if(headerEl) headerEl.textContent = memberCount;
-  var infoEl = document.getElementById('groupInfoMemberCount');
-  if(infoEl) infoEl.textContent = memberCount;
+  // 更新信息区成员数
+  var infoMemberEl = document.getElementById('groupInfoMemberCount');
+  if(infoMemberEl) infoMemberEl.textContent = memberCount;
   // 更新消息数
   var msgCountEl = document.getElementById('groupInfoMsgCount');
   if(msgCountEl){
@@ -8122,8 +8123,6 @@ function openGroupDetail(groupId){
   document.getElementById('groupDetailAvatar').style.background = 'linear-gradient(135deg,' + (group.bg || '#5856D6') + ',' + (group.bg || '#5856D6') + 'dd)';
   document.getElementById('groupDetailId').textContent = group.id;
   document.getElementById('groupDetailCreated').textContent = group.createdAt || '未知';
-  document.getElementById('groupDetailMemberCount').textContent = memberCount;
-  document.getElementById('groupDetailMsgCount').textContent = (group.messages && group.messages.length) || 0;
   document.getElementById('groupDetailCreator').textContent = group.createdBy || 'admin';
 
   // Settings tab
