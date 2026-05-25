@@ -2503,7 +2503,7 @@ window.doLogin = function() {
 <!-- 输入框上方工具栏 -->
 <div class="input-toolbar-top">
 <div class="toolbar-actions">
-<button class="toolbar-action-btn blue" onclick="openCompressModal()" title="压缩上下文">
+<button class="toolbar-action-btn blue" onclick="if(confirm('确定要压缩上下文吗？这将清理早期消息。'))openCompressModal()" title="压缩上下文">
 <span class="icon-box">❄️</span> 压缩
 </button>
 <button class="toolbar-action-btn yellow" onclick="openScanModal()" title="扫描上下文">
@@ -4365,19 +4365,22 @@ function loadArchive(){
 }
 
 // Employee sync
+var _saveEmpTimer = null;
 function saveEmployees(){
-  
   // 1. 始终保存到 localStorage 作为本地缓存
   localStorage.setItem('sb_employees',JSON.stringify(emps));
-  // 2. 如果已登录且后端可用，同步到服务器
-  var token = localStorage.getItem('sb_auth_token');
-  if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
-    emps.forEach(function(emp){
-      syncEmpToServer(emp);
-    });
-  }
-  // 3. 通知龙虾办公室数据已更新
+  // 2. 通知龙虾办公室数据已更新
   notifyOfficeEmployeesUpdated();
+  // 3. 延迟同步到服务器（debounce 3秒，避免频繁调用创建重复 agent）
+  if(_saveEmpTimer) clearTimeout(_saveEmpTimer);
+  _saveEmpTimer = setTimeout(function(){
+    var token = localStorage.getItem('sb_auth_token');
+    if(token && token !== 'local_mode' && typeof apiFetch === 'function'){
+      emps.forEach(function(emp){
+        syncEmpToServer(emp);
+      });
+    }
+  }, 3000);
 }
 
 // ===== Badge标记系统 =====
@@ -4395,19 +4398,37 @@ function setEmpBadge(empId, level, number){
 
 async function syncEmpToServer(emp){
   try {
-    // 直接 POST 创建，后端 PUT /api/agents/:id 路由不存在
+    var res = await apiFetch('/api/agents/' + emp.id, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(emp)
+    });
+    if(!res || res.status === 404){
+      console.warn('[syncEmpToServer] Agent', emp.id, '不在服务器上，跳过同步');
+    }
+  } catch(e){
+    console.log('同步员工到后端失败:', e);
+  }
+}
+
+// 新建员工时首次同步到服务器
+async function syncNewEmpToServer(emp){
+  try {
     var res = await apiFetch('/api/agents', {
       method: 'POST',
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(Object.assign({}, emp, {
         createdBy: (currentUser && currentUser.id),
         createdByName: (currentUser && currentUser.displayName) || (currentUser && currentUser.name)
       }))
     });
-    if(!res || !res.ok){
-      console.log('同步员工到后端失败，状态:', res ? res.status : 'no response');
+    if(res && res.ok){
+      console.log('[syncNewEmpToServer] 员工已同步到服务器:', emp.id);
+    } else {
+      console.warn('[syncNewEmpToServer] 同步失败:', res ? res.status : 'no response');
     }
   } catch(e){
-    console.log('同步员工到后端失败:', e);
+    console.log('新建员工同步到后端失败:', e);
   }
 }
 
@@ -4568,7 +4589,15 @@ async function loadEmployees(){
           }
           
           emps.length = 0;
-          data.forEach(function(a){ emps.push(a); });
+          var seenIds = {};
+          data.forEach(function(a){
+            if(!seenIds[a.id]){
+              emps.push(a);
+              seenIds[a.id] = true;
+            } else {
+              console.warn('[loadEmployees] 跳过重复员工:', a.id, a.name);
+            }
+          });
           // 不再存localStorage，避免不同用户数据混淆
           
           // 异步同步迁移后的头像到后端（避免下次刷新又被覆盖）
@@ -6442,7 +6471,12 @@ function displayGroupAIReply(groupId, senderId, replyText){
   if(group){
     group.lastMsg = replyText.substring(0, 20);
     saveGroups();
-    renderEmployeeList();
+    // 只更新侧栏群组的最后消息预览，不重新渲染整个员工列表
+    var groupItem = document.querySelector('.list-item[data-group="' + groupId + '"]');
+    if(groupItem){
+      var previewEl = groupItem.querySelector('.group-item-sub');
+      if(previewEl) previewEl.textContent = group.lastMsg;
+    }
   }
 }
 
@@ -10302,7 +10336,7 @@ async function finishWizard(){
     createdByName:(currentUser && currentUser.name)||'本地用户',
     createdAt:new Date().toISOString()
   };
-  emps.push(newEmp);saveEmployees();renderTeamList();renderEmployeeList();
+  emps.push(newEmp);saveEmployees();renderTeamList();renderEmployeeList();syncNewEmpToServer(newEmp);
 
   // 注册 OpenClaw Agent
   var regResult = await registerOpenClawAgent(newEmp);
