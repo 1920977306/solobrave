@@ -4389,19 +4389,16 @@ function setEmpBadge(empId, level, number){
 
 async function syncEmpToServer(emp){
   try {
-    // 先尝试 PUT 更新
-    var res = await apiFetch('/api/agents/' + emp.id, {
-      method: 'PUT',
-      body: JSON.stringify(emp)
+    // 直接 POST 创建，后端 PUT /api/agents/:id 路由不存在
+    var res = await apiFetch('/api/agents', {
+      method: 'POST',
+      body: JSON.stringify(Object.assign({}, emp, {
+        createdBy: (currentUser && currentUser.id),
+        createdByName: (currentUser && currentUser.displayName) || (currentUser && currentUser.name)
+      }))
     });
-    if(!res || res.status === 404){
-      await apiFetch('/api/agents', {
-        method: 'POST',
-        body: JSON.stringify(Object.assign({}, emp, {
-          createdBy: (currentUser && currentUser.id),
-          createdByName: (currentUser && currentUser.displayName) || (currentUser && currentUser.name)
-        }))
-      });
+    if(!res || !res.ok){
+      console.log('同步员工到后端失败，状态:', res ? res.status : 'no response');
     }
   } catch(e){
     console.log('同步员工到后端失败:', e);
@@ -7570,14 +7567,14 @@ showToast('📦 已切换到归档');
 }
 
 function showToast(msg){
-const existing=document.querySelector('.toast-message');
+var existing=document.querySelector('.toast-message');
 if(existing)existing.remove();
-const toast=document.createElement('div');
+var toast=document.createElement('div');
 toast.className='toast-message';
 toast.textContent=msg;
 toast.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--text-primary);color:white;padding:10px 20px;border-radius:20px;font-size:13px;z-index:9999;animation:fadeIn 0.3s';
 document.body.appendChild(toast);
-setTimeout(()=>{toast.style.opacity='0';toast.style.transition='opacity 0.3s';setTimeout(()=>toast.remove(),300);},2000);
+setTimeout(function(){toast.style.opacity='0';toast.style.transition='opacity 0.3s';setTimeout(function(){toast.remove();},300);},2000);
 }
 
 // Theme Switcher (Soybean-inspired)
