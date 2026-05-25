@@ -5094,7 +5094,11 @@ function renderGroupItems(){
     return '<div style="padding:8px 24px;font-size:12px;color:var(--text-tertiary);">暂无项目组，点击 + 创建</div>';
   }
   return groups.map(function(g){
-    var memberCount = (g.members && g.members.length) || 0;
+    // 过滤幽灵成员，只统计实际存在的员工
+    var validMembers = (g.members || []).filter(function(mid){
+      return emps.some(function(e){ return e.id === mid; });
+    });
+    var memberCount = validMembers.length;
     var lastMsg = g.lastMsg || '';
     var emoji = g.emoji || '👥';
     var isActive = currentGroupId === g.id;
@@ -5994,6 +5998,11 @@ function openGroupChat(groupId){
   
   if(chatHeaderLeft){
     var emoji = group.emoji || '👥';
+    // 过滤幽灵成员，只统计实际存在的员工
+    var validMembers = (group.members || []).filter(function(mid){
+      return emps.some(function(e){ return e.id === mid; });
+    });
+    var validMemberCount = validMembers.length;
     chatHeaderLeft.innerHTML = 
       '<div class="group-avatar" style="background:linear-gradient(135deg,' + escapeAttr(group.bg || '#5856D6') + ',' + (group.bg || '#5856D6') + 'dd);width:36px;height:36px;border-radius:10px;font-size:18px;">' + escapeHtml(emoji) + '</div>' +
       '<div class="chat-header-info">' +
@@ -6001,7 +6010,7 @@ function openGroupChat(groupId){
           '<span>' + escapeHtml(group.name) + '</span>' +
           '<div class="group-header-avatars">' + memberAvatarsHtml + '</div>' +
         '</div>' +
-        '<div class="chat-header-role">' + members.length + ' 名成员 · 群聊</div>' +
+        '<div class="chat-header-role">' + validMemberCount + ' 名成员 · 群聊</div>' +
       '</div>';
   }
   
