@@ -666,6 +666,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path.startswith('/api/openclaw/skills/search'):
             self._handle_auth_required_get(path)
             return
+        if path.startswith('/api/openclaw/agent-docs/'):
+            self._handle_auth_required_get(path)
+            return
 
         # Agents API
         if path == '/api/agents':
@@ -1029,6 +1032,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_skills_list()
         elif path.startswith('/api/openclaw/skills/search'):
             self._handle_skills_search()
+        elif path.startswith('/api/openclaw/agent-docs/'):
+            agent_id = path[len('/api/openclaw/agent-docs/'):]
+            if agent_id:
+                self._handle_get_agent_docs(agent_id)
 
     def _handle_auth_required_post(self, path):
         """需要认证的 POST 路由"""
@@ -2491,6 +2498,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         agent_id = body.get('agentId', '')
         soul_doc = body.get('soulDoc', '')
         identity_doc = body.get('identityDoc', '')
+        user_doc = body.get('userDoc', '')
         agents_doc = body.get('agentsDoc', '')
         workspace_path = body.get('workspacePath', '~/.openclaw/workspace-' + agent_id)
 
@@ -2515,6 +2523,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     f.write(identity_doc)
                 written.append('IDENTITY.md')
 
+            if user_doc:
+                with open(os.path.join(workspace_path, 'USER.md'), 'w', encoding='utf-8') as f:
+                    f.write(user_doc)
+                written.append('USER.md')
+
             if agents_doc:
                 with open(os.path.join(workspace_path, 'AGENTS.md'), 'w', encoding='utf-8') as f:
                     f.write(agents_doc)
@@ -2528,6 +2541,65 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             })
         except Exception as e:
             self._send_json(500, {'error': f'写入失败: {str(e)}'})
+
+    def _handle_get_agent_docs(self, agent_id):
+        """GET /api/openclaw/agent-docs/:agentId?doc=SOUL.md"""
+        from urllib.parse import parse_qs, urlparse
+        parsed = urlparse(self.path)
+        query_params = parse_qs(parsed.query)
+        doc_name = query_params.get('doc', ['SOUL.md'])[0]
+
+        # 先从 agents.json 找 agent 数据
+        agents = _load_agents()
+        agent = None
+        for a in agents:
+            if a.get('id') == agent_id:
+                agent = a
+                break
+
+        if not agent:
+            self._send_json(404, {'error': 'Agent 不存在'})
+            return
+
+        openclaw_name = agent.get('openclawName', '')
+        if not openclaw_name:
+            # 没有 OpenClaw workspace，返回 agents.json 中的字段
+            content = ''
+            if doc_name == 'SOUL.md':
+                content = agent.get('soulDoc', agent.get('systemPrompt', ''))
+            elif doc_name == 'IDENTITY.md':
+                content = agent.get('idDoc', agent.get('name', '') + ' - ' + agent.get('role', ''))
+            elif doc_name == 'USER.md':
+                content = agent.get('userDoc', '')
+            elif doc_name == 'TOOLS.md':
+                content = agent.get('agentsDoc', '')
+            self._send_json(200, {'content': content, 'source': 'local'})
+            return
+
+        # 从 workspace 文件读取
+        import os
+        workspace_path = os.path.expanduser('~/.openclaw/workspace-' + openclaw_name)
+        doc_path = os.path.join(workspace_path, doc_name)
+
+        if os.path.exists(doc_path):
+            try:
+                with open(doc_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                self._send_json(200, {'content': content, 'source': 'workspace'})
+            except Exception as e:
+                self._send_json(500, {'error': str(e)})
+        else:
+            # 文件不存在，回退到 agents.json
+            content = ''
+            if doc_name == 'SOUL.md':
+                content = agent.get('soulDoc', agent.get('systemPrompt', ''))
+            elif doc_name == 'IDENTITY.md':
+                content = agent.get('idDoc', '')
+            elif doc_name == 'USER.md':
+                content = agent.get('userDoc', '')
+            elif doc_name == 'TOOLS.md':
+                content = agent.get('agentsDoc', '')
+            self._send_json(200, {'content': content, 'source': 'local_fallback'})
 
     def _handle_write_soul(self):
         """POST /api/openclaw/write-soul - Write SOUL.md/IDENTITY.md to agent workspace"""

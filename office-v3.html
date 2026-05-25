@@ -2722,62 +2722,90 @@ async function toggleChannel(channelId, enable) {
 
 // Load document content
 async function loadDocContent(docName) {
-  if (!openclaw || !openclaw._connected) {
-    return `这是 ${docName} 的内容预览...\n\n离线模式下无法加载真实内容。`;
+  if(!currentAgentId){
+    return '请先选择一个员工';
   }
-
   try {
-    const content = await openclaw.send('config.get', {key: 'doc.' + docName});
-    return content || `这是 ${docName} 的内容预览...`;
-  } catch (err) {
-    console.error('[OpenClaw] Failed to load doc:', err);
-    return `这是 ${docName} 的内容预览...\n\n加载失败: ${err.message}`;
+    var resp = await authFetch('/api/openclaw/agent-docs/' + encodeURIComponent(currentAgentId) + '?doc=' + encodeURIComponent(docName));
+    if(resp && resp.ok){
+      var data = await resp.json();
+      return data.content || '';
+    } else {
+      // 回退：从 employees 数组读
+      var emp = employees.find(function(e){ return e.id === currentAgentId; });
+      if(emp){
+        if(docName === 'SOUL.md') return emp.soulDoc || emp.systemPrompt || '';
+        if(docName === 'IDENTITY.md') return emp.idDoc || (emp.name + ' - ' + emp.role);
+        if(docName === 'USER.md') return emp.userDoc || '';
+        if(docName === 'TOOLS.md') return emp.toolsDoc || '';
+      }
+      return '';
+    }
+  } catch(err){
+    console.error('[Office] 加载文档失败:', err);
+    // 回退到本地数据
+    var emp = employees.find(function(e){ return e.id === currentAgentId; });
+    if(emp){
+      if(docName === 'SOUL.md') return emp.soulDoc || emp.systemPrompt || '';
+      if(docName === 'IDENTITY.md') return emp.idDoc || (emp.name + ' - ' + emp.role);
+      if(docName === 'USER.md') return emp.userDoc || '';
+      if(docName === 'TOOLS.md') return emp.toolsDoc || '';
+    }
+    return '';
   }
 }
 
 // Set document content
 async function saveDocContent(docName, content) {
-  showToast('正在保存...', 'loading');
-
-  // 1. 保存到后端 API
-  try {
-    var resp = await authFetch('/api/agents/' + encodeURIComponent(currentAgentId), {
-      method: 'PUT',
-      body: JSON.stringify({
-        docs: {
-          [docName]: content
-        }
-      })
-    });
-    if (resp && resp.ok) {
-      showToast('✅ 文档已保存到服务器', 'success');
-    } else {
-      throw new Error('服务器返回错误');
-    }
-  } catch (err) {
-    console.error('[Office] 保存到后端失败:', err);
-    showToast('❌ 保存失败: ' + err.message, 'error');
+  if(!currentAgentId){
+    showToast('请先选择一个员工');
     return false;
   }
+  showToast('正在保存...');
 
-  // 2. 发送 BroadcastChannel 通知主页刷新
-  if (lobsterChannel) {
-    lobsterChannel.postMessage({
-      type: 'employees_updated',
-      employees: employees  // 发送完整员工数组，让主页重新加载
+  try {
+    var emp = employees.find(function(e){ return e.id === currentAgentId; });
+    var workspacePath = emp && emp.openclawName ? '~/.openclaw/workspace-' + emp.openclawName : '';
+    
+    var body = {
+      agentId: currentAgentId,
+      workspacePath: workspacePath
+    };
+    if(docName === 'SOUL.md') body.soulDoc = content;
+    else if(docName === 'IDENTITY.md') body.identityDoc = content;
+    else if(docName === 'USER.md') body.userDoc = content;
+    else if(docName === 'TOOLS.md') body.agentsDoc = content;
+
+    var resp = await authFetch('/api/openclaw/write-agent-docs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
     });
-  }
-
-  // 3. 同时保存到 OpenClaw（如果连接）
-  if (openclaw && openclaw._connected) {
-    try {
-      await openclaw.send('config.set', {key: 'doc.' + docName, value: content});
-    } catch (err) {
-      console.log('[OpenClaw] 同步失败:', err.message);
+    
+    if(resp && resp.ok){
+      // 同时更新本地 emp 对象
+      if(emp){
+        if(docName === 'SOUL.md') emp.soulDoc = content;
+        else if(docName === 'IDENTITY.md') emp.idDoc = content;
+        else if(docName === 'USER.md') emp.userDoc = content;
+        else if(docName === 'TOOLS.md') emp.toolsDoc = content;
+      }
+      showToast('✅ 文档已保存');
+      // 通知主页刷新
+      if(typeof lobsterChannel !== 'undefined' && lobsterChannel){
+        lobsterChannel.postMessage({type: 'employees_updated'});
+      }
+      return true;
+    } else {
+      var errData = resp ? await resp.json() : {};
+      showToast('❌ 保存失败: ' + (errData.error || '服务器错误'));
+      return false;
     }
+  } catch(err){
+    console.error('[Office] 保存文档失败:', err);
+    showToast('❌ 保存失败: ' + err.message);
+    return false;
   }
-
-  return true;
 }
 
 // Save model config
