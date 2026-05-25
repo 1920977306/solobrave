@@ -5932,7 +5932,7 @@ localStorage.setItem('sb_current_emp',id);var chatHeaderName=document.querySelec
 var chatHeaderSub=document.querySelector('.chat-header-role')||document.querySelector('.chat-header-sub');
 var chatHeaderAvatar=document.querySelector('.chat-header-v2 .avatar')||document.querySelector('.chat-header .avatar');
 if(chatHeaderName) chatHeaderName.textContent=emp.name;
-if(chatHeaderSub) chatHeaderSub.textContent='在线 · '+emp.role;
+if(chatHeaderSub) chatHeaderSub.textContent='在线 · '+(emp.role==='__custom__'?(emp.customRole||emp.subCategory||'自定义'):emp.role);
 if(chatHeaderAvatar){chatHeaderAvatar.innerHTML=renderAvatar(emp,36);var _isImg=(typeof emp.avatar==='number'&&(typeof AVATAR_PRESETS!=='undefined'&&AVATAR_PRESETS[emp.avatar]))||(emp.avatar&&(emp.avatar.indexOf('data:image')===0||emp.avatar.indexOf('.png')>0||emp.avatar.indexOf('.jpg')>0||emp.avatar.indexOf('.jpeg')>0));chatHeaderAvatar.style.background=_isImg?'transparent':'linear-gradient(135deg,'+emp.bg+','+emp.bg+'dd)';}
 var item=document.querySelector('.list-item[data-id="'+id+'"]');
 if(item)item.classList.add('active');
@@ -7328,23 +7328,23 @@ else{document.getElementById('slashMenu').classList.remove('active');(function()
 }
 
 function filterSlashCommands(q){
-const items=document.querySelectorAll('#slashSections .slash-item');
+var items=document.querySelectorAll('#slashSections .slash-item');
 slashIdx=0;
-items.forEach((item,i)=>{
-const cmd=(item.dataset && item.dataset.cmd && item.dataset.cmd.toLowerCase)()||'';
-const match=!q||cmd.includes(q.toLowerCase());
+items.forEach(function(item,i){
+var cmd=(item.dataset && item.dataset.cmd && item.dataset.cmd.toLowerCase) ? item.dataset.cmd.toLowerCase() : '';
+var match=!q || (cmd && cmd.indexOf(q.toLowerCase()) > -1);
 item.style.display=match?'':'none';
-if(match&&i===0)item.classList.add('selected');
+if(match && i===0) item.classList.add('selected');
 });
 }
 
 function navigateSlash(dir){
-const items=[...document.querySelectorAll('#slashSections .slash-item:not([style*="none"])')];
-if(!items.length)return;
-items[slashIdx] && items[slashIdx].classList.remove('selected');
+var items=Array.prototype.slice.call(document.querySelectorAll('#slashSections .slash-item:not([style*="none"])'));
+if(!items.length) return;
+if(items[slashIdx]) items[slashIdx].classList.remove('selected');
 slashIdx=(slashIdx+dir+items.length)%items.length;
-items[slashIdx] && items[slashIdx].classList.add('selected');
-items[slashIdx] && items[slashIdx].scrollIntoView({block:'nearest'});
+if(items[slashIdx]) items[slashIdx].classList.add('selected');
+if(items[slashIdx]) items[slashIdx].scrollIntoView({block:'nearest'});
 }
 
 // Mention
@@ -7776,7 +7776,7 @@ selectedColor=emp.color||'#FF6B35';
 document.getElementById('empDetailAvatar').innerHTML=renderAvatar(emp, 80);
 document.getElementById('empDetailAvatar').style.background=`linear-gradient(135deg,${emp.color||'#FF6B35'},${emp.color||'#FF6B35'}dd)`;
 document.getElementById('empDetailName').textContent=emp.name;
-document.getElementById('empDetailRole').textContent=emp.role||'员工';
+document.getElementById('empDetailRole').textContent=(emp.role==='__custom__'?(emp.customRole||emp.subCategory||'自定义'):emp.role)||'员工';
 document.getElementById('empDetailStatus').innerHTML=`<span class="status-dot ${escapeAttr(emp.status||'offline')}"></span> ${getStatusText(emp.status)}`;
 document.getElementById('empDetailId').textContent=emp.id;
 document.getElementById('empDetailModel').textContent=emp.model||'gpt-4o';
