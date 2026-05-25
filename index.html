@@ -6144,12 +6144,13 @@ async function sendGroupMessage(groupId, message, mentions){
   
   if(ocOk && group.leadAgentId){
     // 构建完整消息（包含群组上下文和 @提及）
-    var memberNames = (group.members || []).map(function(mid){
+    var leadEmpInfo = leadEmp ? (leadEmp.name + '(' + leadEmp.role + ')') : '群主';
+    var memberList = (group.members || []).map(function(mid){
       var e = emps.find(function(x){ return x.id === mid; });
-      return e ? e.name : mid;
-    }).join(', ');
+      return e ? (e.name + '-' + e.role) : mid;
+    }).join('、');
     
-    var fullMessage = '[群聊: ' + group.name + ' | 成员: ' + memberNames + '] ';
+    var fullMessage = '【项目组: ' + group.name + ' | 你是: ' + leadEmpInfo + ' | 成员: ' + memberList + '】';
     if(mentions && mentions.length > 0){
       fullMessage += mentions.map(function(m){ return '@' + m; }).join(' ') + ' ';
     }
@@ -6320,8 +6321,21 @@ async function triggerMentionedAgent(emp, groupId, fromId, source){
     announcementContext = '【群公告】' + group.announcement + '\n\n';
   }
   
-  // 构造提示：明确告诉AI它是谁，被谁@了
-  var prompt = announcementContext + '你是' + emp.name + '（' + emp.role + '）。' + fromName + '在群聊中 @了你。请以' + emp.name + '的身份直接回复，简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
+  // 获取项目组上下文
+  var groupObj = groups.find(function(g){ return g.id === groupId; });
+  var groupName = groupObj ? groupObj.name : '项目组';
+  var memberList = groupObj ? (groupObj.members || []).map(function(mid){
+    var e = emps.find(function(x){ return x.id === mid; });
+    return e ? (e.name + '-' + e.role) : mid;
+  }).join('、') : '';
+  
+  // 构造提示：明确告诉AI它是谁，在哪个项目组，被谁@了
+  var prompt = announcementContext + '你是' + emp.name + '（' + emp.role + '），你在项目组「' + groupName + '」中。成员: ' + memberList + '。' + fromName + '在群聊中 @了你，请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
+  
+  // 如果群组有群公告，在 prompt 中也加上
+  if(groupObj && groupObj.announcement){
+    prompt += '\n【群公告】' + groupObj.announcement;
+  }
   
   var agentId = emp.openclawName || emp.id;
   var sessionKey = 'agent:' + agentId + ':main';
