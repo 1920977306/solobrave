@@ -2427,6 +2427,8 @@ document.addEventListener('DOMContentLoaded', () => {
 // Global OpenClaw instance
 // openclaw defined by openclaw-client.js
 var isOnline = false;
+var docCache = {};
+var currentDocName = 'IDENTITY.md';
 
 // Initialize OpenClaw connection (using openclaw-client.js same as main page)
 var OPENCLAW_CONFIG = {
@@ -3991,8 +3993,6 @@ async function openDetailPanel(empId){
   currentDocName = 'IDENTITY.md';
 }
 
-var docCache = {};
-
 async function switchDocTab(el){
   var docName = el.getAttribute('data-doc');
   console.log('[switchDocTab] 切换到:', docName, '当前:', currentDocName);
@@ -4037,8 +4037,6 @@ async function switchDocTab(el){
     }
   }
 }
-
-var currentDocName = 'IDENTITY.md';
 
 async function saveCurrentDoc(){
   var editor = document.getElementById('docEditor');
