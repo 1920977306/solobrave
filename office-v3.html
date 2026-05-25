@@ -2,7 +2,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0"><!-- v20260512b --><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Expires" content="0"><!-- v20260525c --><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23FF6B35'/%3E%3Ctext x='50' y='68' text-anchor='middle' font-size='55' font-weight='bold' fill='white' font-family='-apple-system,BlinkMacSystemFont,sans-serif'%3EQK%3C/text%3E%3C/svg%3E?v=2">
 <title>全可AI Office</title><style>
 /* ====== 全局重置 & 基础变量 ====== */
@@ -3988,22 +3988,17 @@ async function openDetailPanel(empId){
   if(editor) {
     editor.value = firstDoc;
     docCache['IDENTITY.md'] = firstDoc;
-    console.log('[openDetail] 初始加载 IDENTITY.md, 缓存:', firstDoc ? firstDoc.substring(0, 50) + '...' : '空');
   }
   currentDocName = 'IDENTITY.md';
 }
 
 async function switchDocTab(el){
   var docName = el.getAttribute('data-doc');
-  console.log('[switchDocTab] 切换到:', docName, '当前:', currentDocName);
 
   // 缓存当前编辑器内容
   var editor = document.getElementById('docEditor');
   if(editor && currentDocName){
     docCache[currentDocName] = editor.value;
-    console.log('[switchDocTab] 缓存', currentDocName, '=', editor.value.substring(0, 50) + '...');
-  } else {
-    console.log('[switchDocTab] 无法缓存: editor=', !!editor, 'currentDocName=', currentDocName);
   }
 
   // 更新 tab 高亮
@@ -4019,15 +4014,12 @@ async function switchDocTab(el){
     var ed = document.getElementById('docEditor');
 
     // 先显示缓存内容，避免闪烁
-    console.log('[switchDocTab] docCache[' + docName + ']=', docCache[docName] !== undefined ? ('有值:' + docCache[docName].substring(0, 50) + '...') : 'undefined');
     if(docCache[docName] !== undefined){
       ed.value = docCache[docName];
-      console.log('[switchDocTab] 从缓存恢复:', docName);
     } else {
       ed.value = '加载中...';
       // 后台异步刷新
       var docContent = await loadDocContent(docName);
-      console.log('[switchDocTab] loadDocContent返回:', docContent ? docContent.substring(0, 50) + '...' : '空');
       if(docContent){
         ed.value = docContent;
         docCache[docName] = docContent;
