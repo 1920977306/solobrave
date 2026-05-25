@@ -8491,6 +8491,19 @@ function confirmAddMembers(){
     saveGroups();
     renderGroupDetailMembers(group);
     renderGroupItems();
+    
+    // 更新成员数显示
+    var validMembers = (group.members || []).filter(function(mid){
+      return emps.some(function(e){ return e.id === mid; });
+    });
+    var memberCount = validMembers.length;
+    var headerEl = document.getElementById('groupHeaderMemberCount');
+    if(headerEl) headerEl.textContent = memberCount + ' 位成员';
+    var infoEl = document.getElementById('groupInfoMemberCount');
+    if(infoEl) infoEl.textContent = memberCount;
+    var statusEl = document.getElementById('groupDetailStatus');
+    if(statusEl) statusEl.innerHTML = ' ' + memberCount + ' 位成员';
+    
     showToast('已添加 ' + count + ' 个成员');
   }
   closeModal();
@@ -8553,6 +8566,9 @@ function saveGroupDetail(){
   } else {
     showToast('✅ 群组已保存');
   }
+  
+  // 自动关闭群组详情抽屉
+  closeGroupDetail();
 }
 
 function dissolveGroupFromDetail(){
