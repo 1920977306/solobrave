@@ -355,6 +355,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .chat-header-v2 .chat-header-role { font-size: 12px; color: var(--text-tertiary); }
 .chat-header-link { font-size: 13px; color: var(--accent); text-decoration: none; cursor: pointer; transition: opacity 0.15s; }
 .chat-header-link:hover { opacity: 0.8; }
+.chat-header-right { display: flex; align-items: center; gap: 4px; }
 
 /* Group Announcement */
 .group-announcement { padding: 8px 16px; background: rgba(255, 107, 53, 0.06); border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; gap: 10px; }
@@ -2416,12 +2417,17 @@ window.doLogin = function() {
 <div class="chat-header-role"></div>
 </div>
 </div>
+<div class="chat-header-right" id="chatHeaderRight" style="display:none;">
+<button class="announcement-edit-btn" onclick="archiveGroupChat()" title="归档当前群聊" style="background:rgba(88,86,214,0.15);color:#5856D6;">📦 归档</button>
+<button class="announcement-edit-btn" onclick="resetGroupChat()" title="重置当前群聊" style="background:rgba(255,59,48,0.15);color:#FF3B30;margin-left:6px;">🔄 重置</button>
+</div>
 </div>
 
 <!-- 群公告区域 -->
 <div class="group-announcement" id="groupAnnouncement" style="display:none;">
 <div class="announcement-content" id="announcementContent"></div>
 <button class="announcement-edit-btn" onclick="editGroupAnnouncement()">编辑</button>
+<button class="announcement-edit-btn" onclick="urgeGroupMembers()" style="background:rgba(255,59,48,0.15);color:#FF3B30;">🔔 督促</button>
 </div>
 
 <div class="chat-progress" id="chatProgress" style="display:none;">
@@ -6015,6 +6021,10 @@ function openGroupChat(groupId){
   var chatProgress = document.getElementById('chatProgress');
   if(chatProgress) chatProgress.style.display = 'none';
   
+  // 显示归档/重置按钮（仅群聊模式）
+  var chatHeaderRight = document.getElementById('chatHeaderRight');
+  if(chatHeaderRight) chatHeaderRight.style.display = 'flex';
+  
   // 显示群公告
   var announcementEl = document.getElementById('groupAnnouncement');
   var announcementContent = document.getElementById('announcementContent');
@@ -6160,7 +6170,7 @@ async function sendGroupMessage(groupId, message, mentions){
     var agentId = leadEmp ? (leadEmp.openclawName || leadEmp.id) : group.leadAgentId;
     var sessionKey = 'agent:' + agentId + ':main';
     
-    // 解析用户消息中的 @mentions，保存供 leadAgent 回复后触发
+    // 解析用户消息中的 @mentions
     var userMentions = [];
     var userMentionRegex = /@([^\s@,，。！？;；:：、\n]{1,20})/g;
     var um;
@@ -6172,73 +6182,78 @@ async function sendGroupMessage(groupId, message, mentions){
       }
     }
     
-    // 显示打字指示器
-    var typingHtml = '<div class="msg" id="groupTypingMsg"><div class="msg-avatar"><div class="avatar small" style="background:' + (leadEmp ? leadEmp.bg : '#8E8E93') + ';">' + (leadEmp ? renderAvatar(leadEmp, 32) : '🤖') + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + (leadEmp ? escapeHtml(leadEmp.name) : 'AI') + '</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div></div>';
-    area.insertAdjacentHTML('beforeend', typingHtml);
-    area.scrollTop = area.scrollHeight;
+    // 如果用户明确 @ 了某个 AI，群主不回复，直接让被 @ 的 AI 回复
+    var hasUserMention = userMentions.length > 0;
     
-    try {
-      var fullReply = '';
-      var hasStreamReply = false;
-      var currentRunId = null;
-      var agentHandler = function(data){
-        if(!data) return;
-        if(data.runId && !currentRunId) currentRunId = data.runId;
-        if(currentRunId && data.runId && data.runId !== currentRunId) return;
-        if(data.stream === 'assistant' && data.data){
-          hasStreamReply = true;
-          if(data.data.text) fullReply = data.data.text;
-          else if(data.data.delta) fullReply += data.data.delta;
-          var t = document.getElementById('groupTypingMsg');
-          if(t) t.querySelector('.msg-bubble').textContent = fullReply + '...';
-        }
-        if(data.stream === 'lifecycle' && data.data && (data.data.phase === 'end' || data.data.phase === 'error')){
+    if(hasUserMention){
+      // 直接触发被 @ 的 AI，群主不说话
+      triggerUserMentions(userMentions, groupId, 'user');
+    } else {
+      // 没有 @ 任何人，群主正常回复
+      // 显示打字指示器
+      var typingHtml = '<div class="msg" id="groupTypingMsg"><div class="msg-avatar"><div class="avatar small" style="background:' + (leadEmp ? leadEmp.bg : '#8E8E93') + ';">' + (leadEmp ? renderAvatar(leadEmp, 32) : '🤖') + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + (leadEmp ? escapeHtml(leadEmp.name) : 'AI') + '</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div></div>';
+      area.insertAdjacentHTML('beforeend', typingHtml);
+      area.scrollTop = area.scrollHeight;
+      
+      try {
+        var fullReply = '';
+        var hasStreamReply = false;
+        var currentRunId = null;
+        var agentHandler = function(data){
+          if(!data) return;
+          if(data.runId && !currentRunId) currentRunId = data.runId;
+          if(currentRunId && data.runId && data.runId !== currentRunId) return;
+          if(data.stream === 'assistant' && data.data){
+            hasStreamReply = true;
+            if(data.data.text) fullReply = data.data.text;
+            else if(data.data.delta) fullReply += data.data.delta;
+            var t = document.getElementById('groupTypingMsg');
+            if(t) t.querySelector('.msg-bubble').textContent = fullReply + '...';
+          }
+          if(data.stream === 'lifecycle' && data.data && (data.data.phase === 'end' || data.data.phase === 'error')){
+            var t = document.getElementById('groupTypingMsg');
+            if(t) t.remove();
+            if(!fullReply) fullReply = '（AI 未返回内容）';
+            if(data.data.phase === 'error') fullReply = '⚠️ AI 回复出错: ' + (data.error || '未知错误');
+            // 显示 AI 回复到群聊
+            displayGroupAIReply(groupId, group.leadAgentId, fullReply);
+            // 触发 @mention 链式调用
+            mentionChainDepth = 0;
+            mentionTriggered = {};
+            mentionTriggered[group.leadAgentId] = true;
+            parseAndTriggerMentions(fullReply, groupId, group.leadAgentId);
+            openclaw.off('agent', agentHandler);
+          }
+        };
+        openclaw.on('agent', agentHandler);
+        
+        var result = await openclaw.sendChat(sessionKey, fullMessage);
+        
+        if(result && result.content && !hasStreamReply){
           var t = document.getElementById('groupTypingMsg');
           if(t) t.remove();
-          if(!fullReply) fullReply = '（AI 未返回内容）';
-          if(data.data.phase === 'error') fullReply = '⚠️ AI 回复出错: ' + (data.error || '未知错误');
-          // 显示 AI 回复到群聊
-          displayGroupAIReply(groupId, group.leadAgentId, fullReply);
-          // 触发 @mention 链式调用
-          mentionChainDepth = 0;
-          mentionTriggered = {};
-          mentionTriggered[group.leadAgentId] = true;
-          parseAndTriggerMentions(fullReply, groupId, group.leadAgentId);
-          // 触发用户消息中 @ 的 AI
-          triggerUserMentions(userMentions, groupId, group.leadAgentId);
-          openclaw.off('agent', agentHandler);
+          var reply = '';
+          if(Array.isArray(result.content)){
+            reply = result.content.map(function(c){ return c.text || ''; }).join('');
+          } else if(typeof result.content === 'string'){
+            reply = result.content;
+          }
+          if(reply){
+            displayGroupAIReply(groupId, group.leadAgentId, reply);
+            // 触发 @mention 链式调用
+            mentionChainDepth = 0;
+            mentionTriggered = {};
+            mentionTriggered[group.leadAgentId] = true;
+            parseAndTriggerMentions(reply, groupId, group.leadAgentId);
+            openclaw.off('agent', agentHandler);
+          }
         }
-      };
-      openclaw.on('agent', agentHandler);
-      
-      var result = await openclaw.sendChat(sessionKey, fullMessage);
-      
-      if(result && result.content && !hasStreamReply){
+      } catch(e){
+        console.error('[GroupChat] 发送失败:', e);
         var t = document.getElementById('groupTypingMsg');
         if(t) t.remove();
-        var reply = '';
-        if(Array.isArray(result.content)){
-          reply = result.content.map(function(c){ return c.text || ''; }).join('');
-        } else if(typeof result.content === 'string'){
-          reply = result.content;
-        }
-        if(reply){
-          displayGroupAIReply(groupId, group.leadAgentId, reply);
-          // 触发 @mention 链式调用
-          mentionChainDepth = 0;
-          mentionTriggered = {};
-          mentionTriggered[group.leadAgentId] = true;
-          parseAndTriggerMentions(reply, groupId, group.leadAgentId);
-          // 触发用户消息中 @ 的 AI
-          triggerUserMentions(userMentions, groupId, group.leadAgentId);
-          openclaw.off('agent', agentHandler);
-        }
+        displayGroupAIReply(groupId, group.leadAgentId, '⚠️ 群聊消息发送失败: ' + e.message);
       }
-    } catch(e){
-      console.error('[GroupChat] 发送失败:', e);
-      var t = document.getElementById('groupTypingMsg');
-      if(t) t.remove();
-      displayGroupAIReply(groupId, group.leadAgentId, '⚠️ 群聊消息发送失败: ' + e.message);
     }
   } else {
     // 模拟回复
@@ -6688,6 +6703,120 @@ function editGroupAnnouncement(){
   }
   
   showToast('✅ 群公告已更新');
+}
+
+// 督促群成员 — 群主发送 @所有人 的督促消息
+function urgeGroupMembers(){
+  var group = groups.find(function(g){ return g.id === currentGroupId; });
+  if(!group){
+    showToast('⚠️ 请先进入一个群组');
+    return;
+  }
+  
+  var leadEmp = emps.find(function(e){ return e.id === group.leadAgentId; });
+  if(!leadEmp){
+    showToast('⚠️ 群组没有设置群主');
+    return;
+  }
+  
+  var urgeText = prompt('输入督促内容（将 @所有人）：', '各位，请尽快处理手头任务，有问题及时沟通！');
+  if(!urgeText || !urgeText.trim()) return;
+  
+  // 构建 @所有人 的消息
+  var fullMessage = '@所有人 ' + urgeText.trim();
+  
+  // 保存到历史
+  var historyKey = 'sb_group_history_' + group.id;
+  var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+  history.push({role:'assistant', content:fullMessage, senderId:group.leadAgentId, senderName:leadEmp.name, isUrge:true, time:Date.now()});
+  localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+  
+  // 显示到聊天区
+  displayGroupAIReply(group.id, group.leadAgentId, fullMessage);
+  
+  // 触发被 @ 的 AI 回复（除了群主自己）
+  var validMembers = group.members.filter(function(mid){
+    return emps.some(function(e){ return e.id === mid; }) && mid !== group.leadAgentId;
+  });
+  
+  validMembers.forEach(function(mid, idx){
+    var emp = emps.find(function(e){ return e.id === mid; });
+    if(!emp) return;
+    setTimeout(function(){
+      triggerMentionedAgent(emp, group.id, group.leadAgentId, 'ai');
+    }, (idx + 1) * 2000);
+  });
+  
+  showToast('🔔 督促消息已发送');
+}
+
+// 归档群聊 — 保存当前聊天记录到归档列表，保留本地记录
+function archiveGroupChat(){
+  var group = groups.find(function(g){ return g.id === currentGroupId; });
+  if(!group){
+    showToast('⚠️ 请先进入一个群组');
+    return;
+  }
+  
+  var historyKey = 'sb_group_history_' + group.id;
+  var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+  if(history.length === 0){
+    showToast('⚠️ 当前群聊没有消息可归档');
+    return;
+  }
+  
+  // 保存到归档列表
+  var archives = JSON.parse(localStorage.getItem('sb_group_archives') || '[]');
+  var archiveItem = {
+    id: 'arc_' + Date.now(),
+    groupId: group.id,
+    groupName: group.name,
+    groupEmoji: group.emoji || '👥',
+    messageCount: history.length,
+    archivedAt: Date.now(),
+    preview: history[history.length - 1] ? history[history.length - 1].content.substring(0, 50) : '',
+    messages: history.slice()
+  };
+  archives.unshift(archiveItem);
+  localStorage.setItem('sb_group_archives', JSON.stringify(archives.slice(0, 50)));
+  
+  showToast('📦 群聊「' + group.name + '」已归档（' + history.length + '条消息）');
+}
+
+// 重置群聊 — 清空当前群聊的聊天记录
+function resetGroupChat(){
+  var group = groups.find(function(g){ return g.id === currentGroupId; });
+  if(!group){
+    showToast('⚠️ 请先进入一个群组');
+    return;
+  }
+  
+  var historyKey = 'sb_group_history_' + group.id;
+  var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+  if(history.length === 0){
+    showToast('⚠️ 当前群聊已经是空的');
+    return;
+  }
+  
+  if(!confirm('确定要清空群聊「' + group.name + '」的所有 ' + history.length + ' 条消息吗？此操作不可恢复。')){
+    return;
+  }
+  
+  // 清空历史
+  localStorage.setItem(historyKey, '[]');
+  
+  // 清空消息区
+  var area = document.getElementById('messagesArea');
+  if(area){
+    area.innerHTML = '<div class="chat-empty-state"><div class="empty-avatar">👥</div><div class="empty-title">开始群聊</div><div class="empty-desc">在下方输入框发送消息，与项目组成员协作<br>输入 @ 提及特定成员</div></div>';
+  }
+  
+  // 更新群组最后消息
+  group.lastMsg = '';
+  saveGroups();
+  renderEmployeeList();
+  
+  showToast('🔄 群聊「' + group.name + '」已重置');
 }
 
 // 更新督促状态按钮显示
