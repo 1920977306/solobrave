@@ -3983,18 +3983,27 @@ async function openDetailPanel(empId){
   // 异步加载第一个文档内容
   var firstDoc = await loadDocContent('IDENTITY.md');
   var editor = document.getElementById('docEditor');
-  if(editor) editor.value = firstDoc;
+  if(editor) {
+    editor.value = firstDoc;
+    docCache['IDENTITY.md'] = firstDoc;
+    console.log('[openDetail] 初始加载 IDENTITY.md, 缓存:', firstDoc ? firstDoc.substring(0, 50) + '...' : '空');
+  }
+  currentDocName = 'IDENTITY.md';
 }
 
 var docCache = {};
 
 async function switchDocTab(el){
   var docName = el.getAttribute('data-doc');
+  console.log('[switchDocTab] 切换到:', docName, '当前:', currentDocName);
 
   // 缓存当前编辑器内容
   var editor = document.getElementById('docEditor');
   if(editor && currentDocName){
     docCache[currentDocName] = editor.value;
+    console.log('[switchDocTab] 缓存', currentDocName, '=', editor.value.substring(0, 50) + '...');
+  } else {
+    console.log('[switchDocTab] 无法缓存: editor=', !!editor, 'currentDocName=', currentDocName);
   }
 
   // 更新 tab 高亮
@@ -4010,12 +4019,15 @@ async function switchDocTab(el){
     var ed = document.getElementById('docEditor');
 
     // 先显示缓存内容，避免闪烁
+    console.log('[switchDocTab] docCache[' + docName + ']=', docCache[docName] !== undefined ? ('有值:' + docCache[docName].substring(0, 50) + '...') : 'undefined');
     if(docCache[docName] !== undefined){
       ed.value = docCache[docName];
+      console.log('[switchDocTab] 从缓存恢复:', docName);
     } else {
       ed.value = '加载中...';
       // 后台异步刷新
       var docContent = await loadDocContent(docName);
+      console.log('[switchDocTab] loadDocContent返回:', docContent ? docContent.substring(0, 50) + '...' : '空');
       if(docContent){
         ed.value = docContent;
         docCache[docName] = docContent;
