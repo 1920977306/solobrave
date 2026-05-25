@@ -9767,10 +9767,33 @@ function extractAndSaveMemory(empId, userMsg, aiReply) {
 
 // 显示 AI 回复
 function displayAIReply(replyText, docContext, timeStr){
-  const area = document.getElementById('messagesArea');
-  const hasDocs = docContext && docContext.length > 0;
-  const emp = getCurrentEmployeeInfo();
-  const avatarBg = emp.bg ? 'background:' + emp.bg + ';' : 'background:linear-gradient(135deg,#FF6B35,#E55A2B);';
+  var area = document.getElementById('messagesArea');
+  var hasDocs = docContext && docContext.length > 0;
+  var emp = getCurrentEmployeeInfo();
+  var avatarBg = emp.bg ? 'background:' + emp.bg + ';' : 'background:linear-gradient(135deg,#FF6B35,#E55A2B);';
+  
+  // 估算 token 使用量（中文字符约1.5 token/字，英文约0.3 token/字）
+  var inputTokens = 0;
+  var outputTokens = 0;
+  if(replyText){
+    var cnCount = (replyText.match(/[\u4e00-\u9fa5]/g) || []).length;
+    var enCount = replyText.length - cnCount;
+    outputTokens = Math.ceil(cnCount * 1.5 + enCount * 0.3);
+  }
+  
+  // 记录到员工 token 统计
+  var currentEmpId = localStorage.getItem('sb_current_emp');
+  if(currentEmpId){
+    var targetEmp = emps.find(function(e){ return e.id === currentEmpId; });
+    if(targetEmp){
+      if(!targetEmp.tokenStats) targetEmp.tokenStats = {input:0, output:0, total:0};
+      targetEmp.tokenStats.input += inputTokens;
+      targetEmp.tokenStats.output += outputTokens;
+      targetEmp.tokenStats.total += inputTokens + outputTokens;
+      targetEmp.tokens = targetEmp.tokenStats.total;
+      saveEmployees();
+    }
+  }
   
   var bubble = formatMessageContent(replyText);
   if(hasDocs && replyText.indexOf('📚') === -1){
@@ -10905,6 +10928,8 @@ function doReset(){closeResetModal();document.getElementById('messagesArea').inn
   <div class="fab-menu-item" onclick="showUserManagement()" data-admin-only>👥 用户管理</div>
   <div class="fab-menu-item" onclick="showTeamManagement()" data-admin-only>🏢 团队管理</div>
   <div class="fab-menu-item" onclick="showSettings()" data-admin-only>⚙️ 设置</div>
+  <div class="fab-menu-item" onclick="showTokenStats()" data-admin-only>📊 Token 统计</div>
+  <div class="fab-menu-item" onclick="showChannelConfig()" data-admin-only>🔌 渠道配置</div>
 </div>
 
 <!-- FAB Button -->
@@ -12602,6 +12627,182 @@ function triggerUrgeNotification(empId, taskName, deadline) {
       show: true
     }));
   }
+}
+
+// ========== Token 统计面板 ==========
+function showTokenStats(){
+  var panel = document.getElementById('tokenStatsPanel');
+  if(!panel){
+    panel = document.createElement('div');
+    panel.id = 'tokenStatsPanel';
+    panel.className = 'modal-overlay';
+    panel.innerHTML = 
+      '<div class="modal" style="width:90%;max-width:600px;max-height:80vh;overflow:auto;">' +
+        '<div class="modal-header">' +
+          '<h3>📊 Token 统计</h3>' +
+          '<button class="modal-close" onclick="closeTokenStats()">×</button>' +
+        '</div>' +
+        '<div id="tokenStatsContent" style="padding:16px;"></div>' +
+      '</div>';
+    document.body.appendChild(panel);
+  }
+  renderTokenStats();
+  panel.classList.add('open');
+}
+
+function closeTokenStats(){
+  var panel = document.getElementById('tokenStatsPanel');
+  if(panel) panel.classList.remove('open');
+}
+
+function renderTokenStats(){
+  var content = document.getElementById('tokenStatsContent');
+  if(!content) return;
+  
+  var totalInput = 0;
+  var totalOutput = 0;
+  var totalTokens = 0;
+  var rows = '';
+  
+  emps.forEach(function(emp){
+    var stats = emp.tokenStats || {input:0, output:0, total:0};
+    totalInput += stats.input;
+    totalOutput += stats.output;
+    totalTokens += stats.total;
+    
+    rows += '<tr style="border-bottom:1px solid var(--separator);">' +
+      '<td style="padding:8px;display:flex;align-items:center;gap:8px;">' +
+        '<div class="avatar small" style="background:' + (emp.bg || '#8E8E93') + ';">' + renderAvatar(emp, 24) + '</div>' +
+        '<span>' + escapeHtml(emp.name) + '</span>' +
+      '</td>' +
+      '<td style="padding:8px;text-align:right;font-size:12px;">' + stats.input.toLocaleString() + '</td>' +
+      '<td style="padding:8px;text-align:right;font-size:12px;">' + stats.output.toLocaleString() + '</td>' +
+      '<td style="padding:8px;text-align:right;font-size:12px;font-weight:600;">' + stats.total.toLocaleString() + '</td>' +
+    '</tr>';
+  });
+  
+  content.innerHTML = 
+    '<div style="margin-bottom:16px;">' +
+      '<div style="display:flex;gap:16px;margin-bottom:12px;">' +
+        '<div style="flex:1;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' +
+          '<div style="font-size:11px;color:var(--text-tertiary);">总输入</div>' +
+          '<div style="font-size:20px;font-weight:600;color:var(--accent);">' + totalInput.toLocaleString() + '</div>' +
+        '</div>' +
+        '<div style="flex:1;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' +
+          '<div style="font-size:11px;color:var(--text-tertiary);">总输出</div>' +
+          '<div style="font-size:20px;font-weight:600;color:var(--accent);">' + totalOutput.toLocaleString() + '</div>' +
+        '</div>' +
+        '<div style="flex:1;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' +
+          '<div style="font-size:11px;color:var(--text-tertiary);">总计</div>' +
+          '<div style="font-size:20px;font-weight:600;color:var(--accent);">' + totalTokens.toLocaleString() + '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+      '<thead>' +
+        '<tr style="border-bottom:2px solid var(--separator);">' +
+          '<th style="padding:8px;text-align:left;font-size:12px;color:var(--text-tertiary);">员工</th>' +
+          '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">输入</th>' +
+          '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">输出</th>' +
+          '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">总计</th>' +
+        '</tr>' +
+      '</thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>';
+}
+
+// ========== 渠道配置面板 ==========
+function showChannelConfig(){
+  var panel = document.getElementById('channelConfigPanel');
+  if(!panel){
+    panel = document.createElement('div');
+    panel.id = 'channelConfigPanel';
+    panel.className = 'modal-overlay';
+    panel.innerHTML = 
+      '<div class="modal" style="width:90%;max-width:500px;">' +
+        '<div class="modal-header">' +
+          '<h3>🔌 渠道配置</h3>' +
+          '<button class="modal-close" onclick="closeChannelConfig()">×</button>' +
+        '</div>' +
+        '<div style="padding:16px;">' +
+          '<div style="margin-bottom:16px;">' +
+            '<label style="display:block;font-size:12px;color:var(--text-tertiary);margin-bottom:4px;">AI 提供商</label>' +
+            '<select id="globalAIProvider" style="width:100%;padding:8px;border:1px solid var(--separator);border-radius:8px;background:var(--bg-tertiary);color:var(--text);">' +
+              '<option value="kimi">Kimi</option>' +
+              '<option value="openai">OpenAI</option>' +
+              '<option value="anthropic">Anthropic</option>' +
+              '<option value="deepseek">DeepSeek</option>' +
+              '<option value="qwen">通义千问</option>' +
+            '</select>' +
+          '</div>' +
+          '<div style="margin-bottom:16px;">' +
+            '<label style="display:block;font-size:12px;color:var(--text-tertiary);margin-bottom:4px;">默认模型</label>' +
+            '<select id="globalModel" style="width:100%;padding:8px;border:1px solid var(--separator);border-radius:8px;background:var(--bg-tertiary);color:var(--text);">' +
+              '<option value="gpt-4o">GPT-4o</option>' +
+              '<option value="claude-3.5-sonnet">Claude 3.5 Sonnet</option>' +
+              '<option value="deepseek-v3">DeepSeek V3</option>' +
+              '<option value="kimi-k2">Kimi K2</option>' +
+              '<option value="qwen-max">Qwen Max</option>' +
+            '</select>' +
+          '</div>' +
+          '<div style="margin-bottom:16px;">' +
+            '<label style="display:block;font-size:12px;color:var(--text-tertiary);margin-bottom:4px;">API Key</label>' +
+            '<input type="password" id="globalApiKey" placeholder="输入全局 API Key" style="width:100%;padding:8px;border:1px solid var(--separator);border-radius:8px;background:var(--bg-tertiary);color:var(--text);font-size:13px;">' +
+          '</div>' +
+          '<div style="margin-bottom:16px;">' +
+            '<label style="display:block;font-size:12px;color:var(--text-tertiary);margin-bottom:4px;">Gateway URL</label>' +
+            '<input type="text" id="globalGatewayUrl" placeholder="ws://localhost:8080" style="width:100%;padding:8px;border:1px solid var(--separator);border-radius:8px;background:var(--bg-tertiary);color:var(--text);font-size:13px;">' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<button class="btn btn-primary" onclick="saveChannelConfig()" style="flex:1;">保存配置</button>' +
+            '<button class="btn btn-secondary" onclick="closeChannelConfig()">取消</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(panel);
+  }
+  
+  // 加载已有配置
+  var config = JSON.parse(localStorage.getItem('sb_channel_config') || '{}');
+  var providerEl = document.getElementById('globalAIProvider');
+  var modelEl = document.getElementById('globalModel');
+  var keyEl = document.getElementById('globalApiKey');
+  var urlEl = document.getElementById('globalGatewayUrl');
+  if(providerEl) providerEl.value = config.provider || 'kimi';
+  if(modelEl) modelEl.value = config.model || 'gpt-4o';
+  if(keyEl) keyEl.value = config.apiKey || '';
+  if(urlEl) urlEl.value = config.gatewayUrl || '';
+  
+  panel.classList.add('open');
+}
+
+function closeChannelConfig(){
+  var panel = document.getElementById('channelConfigPanel');
+  if(panel) panel.classList.remove('open');
+}
+
+function saveChannelConfig(){
+  var provider = document.getElementById('globalAIProvider').value;
+  var model = document.getElementById('globalModel').value;
+  var apiKey = document.getElementById('globalApiKey').value.trim();
+  var gatewayUrl = document.getElementById('globalGatewayUrl').value.trim();
+  
+  var config = {
+    provider: provider,
+    model: model,
+    apiKey: apiKey,
+    gatewayUrl: gatewayUrl,
+    updatedAt: Date.now()
+  };
+  
+  localStorage.setItem('sb_channel_config', JSON.stringify(config));
+  showToast('✅ 渠道配置已保存');
+  closeChannelConfig();
+}
+
+// 获取全局渠道配置（员工创建时使用）
+function getChannelConfig(){
+  return JSON.parse(localStorage.getItem('sb_channel_config') || '{}');
 }
 
 
