@@ -8106,7 +8106,11 @@ function openGroupDetail(groupId){
   if(gdName) gdName.textContent = group.name || '未命名群组';
   var gdRole = document.getElementById('groupDetailRole');
   if(gdRole) gdRole.textContent = '项目组';
-  var memberCount = (group.members && group.members.length) || 0;
+  // 只统计实际存在的员工（过滤掉已被删除的幽灵成员）
+  var validMembers = (group.members || []).filter(function(mid){
+    return emps.some(function(e){ return e.id === mid; });
+  });
+  var memberCount = validMembers.length;
   var gdStatus = document.getElementById('groupDetailStatus');
   if(gdStatus) gdStatus.innerHTML = '<span class="status-dot online"></span> ' + memberCount + ' 位成员';
   // 更新头部成员数
@@ -8155,7 +8159,8 @@ function openGroupDetail(groupId){
     el.classList.toggle('selected', onclickStr.indexOf(selectedGroupColor) > -1);
   });
 
-  // Render members
+  // Render members（用过滤后的有效成员列表）
+  group.members = validMembers;  // 清理幽灵成员
   renderGroupDetailMembers(group);
 
   // Reset to members tab
