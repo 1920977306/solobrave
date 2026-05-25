@@ -4167,15 +4167,15 @@ const API_PROVIDERS = {
 
 // State
 let currentTab = 'employees';
-let drawerOpen = false;
-let createStep = 1;
-let showBoard = false;
-let mentionMode = false;
-let mentionIdx = 0;
-let slashIdx = 0;
+var drawerOpen = false;
+var createStep = 1;
+var showBoard = false;
+var mentionMode = false;
+var mentionIdx = 0;
+var slashIdx = 0;
 
 // Data
-const emps = [
+var emps = [
 {id:'xlcx',name:'Lucy',role:'前端工程师',bg:'#FF6B35',avatar:'🦞',status:'online',msg:'好的，正在修复中...',archived:false,permission:'admin',category:'职能',subCategory:'技术团队'},
 {id:'dlxc',name:'大龙虾',role:'后端架构师',bg:'#5AC8FA',avatar:'👨‍💼',status:'busy',msg:'API文档已更新',archived:false,permission:'dev',category:'职能',subCategory:'技术团队'},
 {id:'zjg',name:'章鱼哥',role:'产品经理',bg:'#AF52DE',avatar:'🐙',status:'online',msg:'PRD第3版已提交',archived:false,permission:'pm',category:'职能',subCategory:'全局统筹'},
@@ -4198,17 +4198,19 @@ function initLobsterChannel() {
   try {
     lobsterChannel = new BroadcastChannel('lobster-office');
     
-    lobsterChannel.onmessage = (event) => {
-      const data = event.data;
-      const { type, agent_id, status, employees: empData } = data;
+    lobsterChannel.onmessage = function(event) {
+      var data = event.data;
+      var type = data.type;
+      var agent_id = data.agent_id;
+      var status = data.status;
       
       switch (type) {
         case 'lobster_status':
           // 办公室员工状态变化，更新本地数据
           if (agent_id && status) {
-            const emp = emps.find(e => e.id === agent_id);
+            var emp = emps.find(function(e){ return e.id === agent_id; });
             if (emp) {
-              const statusMap = { thinking: 'busy', using_tool: 'busy', writing: 'busy', idle: 'idle', offline: 'offline', online: 'online' };
+              var statusMap = { thinking: 'busy', using_tool: 'busy', writing: 'busy', idle: 'idle', offline: 'offline', online: 'online' };
               emp.status = statusMap[status] || emp.status;
               renderEmployeeList();
             }
