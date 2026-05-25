@@ -8493,10 +8493,12 @@ function confirmAddMembers(){
   if(!group.members) group.members = [];
   
   var count = 0;
+  var newMemberIds = [];
   selected.forEach(function(item){
     var empId = item.getAttribute('data-id');
     if(group.members.indexOf(empId) === -1){
       group.members.push(empId);
+      newMemberIds.push(empId);
       count++;
     }
   });
@@ -8517,6 +8519,52 @@ function confirmAddMembers(){
     if(infoEl) infoEl.textContent = memberCount;
     var statusEl = document.getElementById('groupDetailStatus');
     if(statusEl) statusEl.innerHTML = ' ' + memberCount + ' 位成员';
+    
+    // 给新加入的 AI 发送入职通知
+    newMemberIds.forEach(function(empId){
+      var emp = emps.find(function(e){ return e.id === empId; });
+      if(!emp) return;
+      
+      var groupObj = groups.find(function(g){ return g.id === currentGroupDetailId; });
+      if(!groupObj) return;
+      
+      var memberList = (groupObj.members || []).map(function(mid){
+        var e = emps.find(function(x){ return x.id === mid; });
+        return e ? (e.name + '(' + e.role + ')') : mid;
+      }).join('、');
+      
+      var announcement = groupObj.announcement ? ('\n【群公告】' + groupObj.announcement) : '';
+      
+      // 通过 OpenClaw 给 AI 发消息
+      var agentId = emp.openclawName || emp.id;
+      var sessionKey = 'agent:' + agentId + ':main';
+      
+      var notifyMsg = '【入职通知】你已被加入项目组「' + groupObj.name + '」。\n你的角色：' + emp.name + '（' + emp.role + '）\n项目组成员：' + memberList + announcement + '\n\n请记住你在项目组中的身份，后续群聊中请以这个角色参与讨论。';
+      
+      if(typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated){
+        openclaw.sendChat(sessionKey, notifyMsg).then(function(result){
+          console.log('[Group] 入职通知已发送给', emp.name);
+        }).catch(function(e){
+          console.warn('[Group] 入职通知发送失败:', emp.name, e.message);
+        });
+      }
+    });
+    
+    // 在群聊区显示系统消息
+    var area = document.getElementById('messagesArea');
+    if(area){
+      var timeStr = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+      var newNames = newMemberIds.map(function(id){
+        var e = emps.find(function(x){ return x.id === id; });
+        return e ? e.name : id;
+      }).join('、');
+      area.insertAdjacentHTML('beforeend', 
+        '<div style="text-align:center;color:var(--text-tertiary);font-size:12px;padding:8px 0;">' + 
+        timeStr + ' 🎉 ' + newNames + ' 加入了项目组' + 
+        '</div>'
+      );
+      area.scrollTop = area.scrollHeight;
+    }
     
     showToast('已添加 ' + count + ' 个成员');
   }
