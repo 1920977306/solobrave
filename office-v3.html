@@ -3801,13 +3801,13 @@ function selectAIMode(el){
 // ===== 网关控制 =====
 function restartGateway(){
   showToast('🔄 正在重启网关...', 'loading');
-  setTimeout(()=>showToast('✅ 网关重启成功', 'success'),1500);
+  setTimeout(function(){ showToast('✅ 网关重启成功', 'success'); },1500);
 }
 
 // ===== 员工详情 =====
 function showEmpDetail(id){
-  var emp = employees.find(e=>e.id===id);
-  if(emp) showToast(`👤 ${emp.name} · ${emp.role}`);
+  var emp = employees.find(function(e){ return e.id===id; });
+  if(emp) showToast('👤 ' + emp.name + ' · ' + emp.role);
 }
 
 // ===== Toast =====
@@ -4763,7 +4763,7 @@ function updateStatusTime(){
 
 // ===== Live 更新模拟 =====
 function startLiveUpdates(){
-  setInterval(()=>{
+  setInterval(function(){
     if (employees.length === 0) return;
     var idx = Math.floor(Math.random()*activities.length);
     var statuses = ['thinking','done','idle','p1'];
@@ -4852,7 +4852,7 @@ function renderTaskList(){
   container.innerHTML = html;
 }
 
-document.addEventListener('DOMContentLoaded', async ()=>{
+document.addEventListener('DOMContentLoaded', async function(){
   // Initialize OpenClaw connection
   await initOpenClaw();
   
@@ -4962,15 +4962,15 @@ function closeWizard() {
 
 function renderWizardStep() {
   var stepIndicators = document.querySelectorAll('.wizard-step');
-  stepIndicators.forEach((el, i) => {
+  stepIndicators.forEach(function(el, i) {
     var num = i + 1;
     el.classList.remove('active', 'done');
     if (num === wizardState.step) el.classList.add('active');
     else if (num < wizardState.step) el.classList.add('done');
   });
-  
+
   var steps = document.querySelectorAll('.wizard-step-content');
-  steps.forEach((el, i) => {
+  steps.forEach(function(el, i) {
     el.style.display = i + 1 === wizardState.step ? 'block' : 'none';
   });
   
@@ -5037,7 +5037,7 @@ function prevStep() {
 
 function selectSoulTemplate(key) {
   wizardState.soulTemplate = key;
-  document.querySelectorAll('.soul-template-card').forEach(el => el.classList.remove('selected'));
+  document.querySelectorAll('.soul-template-card').forEach(function(el){ el.classList.remove('selected'); });
   event.currentTarget.classList.add('selected');
   updateWizardPreview();
 }
