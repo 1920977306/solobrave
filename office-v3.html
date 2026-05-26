@@ -3958,6 +3958,23 @@ async function openDetailPanel(empId){
     gridHtml += '<div class="info-value">'+(emp.role?'1':'0')+'个</div>';
     gridHtml += '</div>';
     
+    // 分组选择
+    gridHtml += '<div class="detail-info-item">';
+    gridHtml += '<div class="info-label">分组</div>';
+    gridHtml += '<select id="detailGroupSelect" onchange="moveEmployeeToGroup(this.value)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border-color);font-size:13px;background:var(--bg-secondary);color:var(--text-primary);cursor:pointer">';
+    gridHtml += '<option value="">未分组</option>';
+    // 从 employees 中提取所有分组
+    var groups = {};
+    for(var gi=0; gi<employees.length; gi++){
+      var g = employees[gi].group;
+      if(g && !groups[g]){
+        groups[g] = true;
+        gridHtml += '<option value="'+g+'"'+(emp.group===g?' selected':'')+'>'+g+'</option>';
+      }
+    }
+    gridHtml += '</select>';
+    gridHtml += '</div>';
+    
     document.getElementById('detailInfoGrid').innerHTML = gridHtml;
   }
   
@@ -4240,6 +4257,139 @@ function closeDetailPanel(){
   document.body.style.overflow = '';
   currentDetailEmp = null;
   currentAgentId = null;
+}
+
+// ===== 员工改名功能 =====
+var editingName = false;
+var originalName = '';
+
+function startEditName(){
+  if(editingName || !currentDetailEmp) return;
+  editingName = true;
+  originalName = currentDetailEmp.name || '';
+  
+  var nameEl = document.getElementById('detailName');
+  var btnEl = document.getElementById('editNameBtn');
+  if(!nameEl) return;
+  
+  // 替换为输入框
+  nameEl.innerHTML = '<input type="text" id="nameEditInput" value="' + originalName + '" style="font-size:inherit;font-weight:inherit;font-family:inherit;border:2px solid var(--blue);border-radius:8px;padding:4px 12px;background:var(--bg-secondary);color:var(--text-primary);outline:none;text-align:center;max-width:200px" onblur="finishEditName()" onkeydown="handleNameEditKey(event)">';
+  
+  var input = document.getElementById('nameEditInput');
+  if(input){
+    input.focus();
+    input.select();
+  }
+  if(btnEl) btnEl.style.display = 'none';
+}
+
+function handleNameEditKey(e){
+  if(e.key === 'Enter'){
+    finishEditName();
+  } else if(e.key === 'Escape'){
+    cancelEditName();
+  }
+}
+
+function finishEditName(){
+  if(!editingName) return;
+  editingName = false;
+  
+  var input = document.getElementById('nameEditInput');
+  var newName = input ? input.value.trim() : originalName;
+  
+  if(!newName){
+    newName = originalName;
+  }
+  
+  // 更新显示
+  var nameEl = document.getElementById('detailName');
+  var btnEl = document.getElementById('editNameBtn');
+  if(nameEl) nameEl.textContent = newName;
+  if(btnEl) btnEl.style.display = '';
+  
+  // 如果名字变了，保存
+  if(newName !== originalName && currentDetailEmp){
+    var empId = currentDetailEmp.id;
+    var emp = employees.find(function(e){ return e.id === empId; });
+    if(emp){
+      emp.name = newName;
+      // 更新头像文字
+      var avatarEl = document.getElementById('detailAvatar');
+      if(avatarEl) avatarEl.textContent = newName[0];
+      // 同步到服务器
+      saveEmployeeName(empId, newName);
+    }
+  }
+}
+
+function cancelEditName(){
+  if(!editingName) return;
+  editingName = false;
+  
+  var nameEl = document.getElementById('detailName');
+  var btnEl = document.getElementById('editNameBtn');
+  if(nameEl) nameEl.textContent = originalName;
+  if(btnEl) btnEl.style.display = '';
+}
+
+async function saveEmployeeName(empId, newName){
+  try{
+    // 更新服务器
+    var resp = await authFetch('/api/agents/' + encodeURIComponent(empId), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: newName})
+    });
+    
+    if(resp && resp.ok){
+      showToast('✅ 名字已保存');
+      // 刷新列表
+      renderEmployees();
+      renderChatZone();
+      renderWorkZone();
+      renderLoungeZone();
+    } else {
+      showToast('❌ 保存失败');
+    }
+  } catch(err){
+    console.error('[Office] 保存名字失败:', err);
+    showToast('❌ 保存失败: ' + err.message);
+  }
+}
+
+// ===== 移动员工到分组 =====
+async function moveEmployeeToGroup(groupName){
+  if(!currentDetailEmp) return;
+  
+  var empId = currentDetailEmp.id;
+  var emp = employees.find(function(e){ return e.id === empId; });
+  if(!emp) return;
+  
+  var oldGroup = emp.group || '';
+  if(oldGroup === groupName) return;
+  
+  emp.group = groupName;
+  
+  try{
+    var resp = await authFetch('/api/agents/' + encodeURIComponent(empId), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({group: groupName})
+    });
+    
+    if(resp && resp.ok){
+      showToast(groupName ? '✅ 已移动到分组: ' + groupName : '✅ 已移出分组');
+      renderEmployees();
+    } else {
+      showToast('❌ 移动失败');
+      emp.group = oldGroup;
+    }
+  } catch(err){
+    console.error('[Office] 移动分组失败:', err);
+    showToast('❌ 移动失败: ' + err.message);
+    emp.group = oldGroup;
+  }
 }
 
 // ===== Dreaming 模式功能 =====
@@ -5029,7 +5179,10 @@ async function confirmCreateAgent() {
   </div>
   <div class="detail-header-center">
     <div class="detail-avatar-lg" id="detailAvatar">L</div>
-    <h2 id="detailName">员工姓名</h2>
+    <div style="display:flex;align-items:center;gap:8px;justify-content:center">
+      <h2 id="detailName" style="margin:0">员工姓名</h2>
+      <button id="editNameBtn" onclick="startEditName()" style="background:none;border:none;cursor:pointer;font-size:16px;padding:4px;color:var(--gray-4);transition:color 0.2s" onmouseover="this.style.color='var(--blue)'" onmouseout="this.style.color='var(--gray-4)'">✏️</button>
+    </div>
     <span class="detail-role-tag" id="detailRole">角色</span>
   </div>
   <div class="detail-section-title">基础信息</div>
