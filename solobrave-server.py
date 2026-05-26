@@ -829,6 +829,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/openclaw/skills/remove':
             self._handle_auth_required_post(path)
             return
+        if path == '/api/openclaw/channels/feishu':
+            self._handle_auth_required_post(path)
+            return
+        if path == '/api/openclaw/pairing/approve':
+            self._handle_auth_required_post(path)
+            return
+        if path == '/api/openclaw/gateway/restart':
+            self._handle_auth_required_post(path)
+            return
 
         # Agents API
         if path == '/api/agents':
@@ -1036,6 +1045,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             agent_id = path[len('/api/openclaw/agent-docs/'):]
             if agent_id:
                 self._handle_get_agent_docs(agent_id)
+        elif path == '/api/openclaw/channels/feishu/status':
+            self._handle_feishu_status()
+        elif path == '/api/openclaw/gateway/restart':
+            self._handle_gateway_restart()
 
     def _handle_auth_required_post(self, path):
         """需要认证的 POST 路由"""
@@ -1051,6 +1064,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_skills_install()
         elif path == '/api/openclaw/skills/remove':
             self._handle_skills_remove()
+        elif path == '/api/openclaw/channels/feishu':
+            self._handle_feishu_config()
+        elif path == '/api/openclaw/pairing/approve':
+            self._handle_pairing_approve()
 
     def _handle_auth_required_delete(self, path):
         """需要认证的 DELETE 路由"""
@@ -3350,6 +3367,170 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'skillName': skill_name,
             'output': stdout.strip()
         })
+
+    # ═══════════════════════════════════════════════════
+    # 飞书渠道配置 API
+    # ═══════════════════════════════════════════════════
+
+    def _handle_feishu_status(self):
+        """GET /api/openclaw/channels/feishu/status"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        import os
+        config_path = os.path.expanduser('~/.openclaw/openclaw.json')
+        config = _read_json(config_path, {})
+        channels = config.get('channels', {})
+        feishu = channels.get('feishu', {})
+        accounts = feishu.get('accounts', {})
+        main_account = accounts.get('main', {})
+
+        app_secret = main_account.get('appSecret', '')
+        masked_secret = ''
+        if app_secret:
+            masked_secret = app_secret[:4] + '*' * (len(app_secret) - 4) if len(app_secret) > 4 else '****'
+
+        self._send_json(200, {
+            'appId': main_account.get('appId', ''),
+            'appSecret': masked_secret,
+            'botName': main_account.get('botName', '全可AI助手'),
+            'dmPolicy': feishu.get('dmPolicy', 'pairing'),
+            'enabled': feishu.get('enabled', False),
+            'connected': feishu.get('connected', False),
+            'paired': feishu.get('paired', False)
+        })
+
+    def _handle_feishu_config(self):
+        """POST /api/openclaw/channels/feishu"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        app_id = body.get('appId', '').strip()
+        app_secret = body.get('appSecret', '').strip()
+        bot_name = body.get('botName', '全可AI助手').strip()
+        dm_policy = body.get('dmPolicy', 'pairing')
+        enabled = body.get('enabled', True)
+
+        if not app_id or not app_secret:
+            self._send_json(400, {'error': 'App ID 和 App Secret 不能为空'})
+            return
+
+        import os
+        import shutil
+        config_path = os.path.expanduser('~/.openclaw/openclaw.json')
+
+        # 读取现有配置
+        config = _read_json(config_path, {})
+        if 'channels' not in config:
+            config['channels'] = {}
+
+        # 备份原文件
+        if os.path.exists(config_path):
+            shutil.copy2(config_path, config_path + '.bak')
+
+        # 更新飞书配置
+        config['channels']['feishu'] = {
+            'enabled': enabled,
+            'dmPolicy': dm_policy,
+            'accounts': {
+                'main': {
+                    'appId': app_id,
+                    'appSecret': app_secret,
+                    'botName': bot_name
+                }
+            }
+        }
+
+        # 保存配置
+        try:
+            _write_json(config_path, config)
+        except Exception as e:
+            self._send_json(500, {'error': f'保存配置失败: {str(e)}'})
+            return
+
+        # 自动重启 Gateway
+        success, stdout, stderr, rc = _run_openclaw(['gateway', 'restart'])
+        if success and rc == 0:
+            self._send_json(200, {
+                'success': True,
+                'message': '飞书配置已保存，Gateway 已重启',
+                'appId': app_id,
+                'botName': bot_name
+            })
+        else:
+            self._send_json(200, {
+                'success': True,
+                'message': '飞书配置已保存，但 Gateway 重启失败',
+                'warning': stderr or 'Gateway restart failed',
+                'appId': app_id,
+                'botName': bot_name
+            })
+
+    def _handle_pairing_approve(self):
+        """POST /api/openclaw/pairing/approve"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        channel = body.get('channel', 'feishu')
+        code = body.get('code', '').strip()
+
+        if not code:
+            self._send_json(400, {'error': '配对码不能为空'})
+            return
+
+        success, stdout, stderr, rc = _run_openclaw(['pairing', 'approve', channel, code])
+
+        if success and rc == 0:
+            self._send_json(200, {
+                'success': True,
+                'message': '配对码已批准',
+                'channel': channel,
+                'code': code
+            })
+        else:
+            self._send_json(500, {
+                'success': False,
+                'error': stderr.strip() or '配对批准失败',
+                'output': stdout.strip()
+            })
+
+    def _handle_gateway_restart(self):
+        """POST /api/openclaw/gateway/restart"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        success, stdout, stderr, rc = _run_openclaw(['gateway', 'restart'])
+
+        if success and rc == 0:
+            self._send_json(200, {
+                'success': True,
+                'message': 'Gateway 已重启',
+                'output': stdout.strip()
+            })
+        else:
+            self._send_json(500, {
+                'success': False,
+                'error': stderr.strip() or 'Gateway 重启失败',
+                'output': stdout.strip()
+            })
 
     # ═══════════════════════════════════════════════════
     # CORS 代理（需认证）
