@@ -4879,18 +4879,16 @@ document.addEventListener('DOMContentLoaded', async function(){
 function renderActivitiesFallback(){
   var container = document.getElementById('liveActivities');
   if(!container) return;
-  container.innerHTML = activitiesFallback.map(a=>`
-    <div class="activity-item">
-      <div class="activity-avatar" style="background:${a.gradient[0]}">${a.initial}</div>
-      <div class="activity-content">
-        <div class="activity-name">${a.name}</div>
-        <div class="activity-status">
-          <span class="status-badge ${a.status}">${a.text}</span>
-        </div>
-      </div>
-      <div class="activity-time">${a.time}</div>
-    </div>
-  `).join('');
+  container.innerHTML = activitiesFallback.map(function(a){
+    return '<div class="activity-item">' +
+      '<div class="activity-avatar" style="background:' + a.gradient[0] + '">' + a.initial + '</div>' +
+      '<div class="activity-content">' +
+      '<div class="activity-name">' + a.name + '</div>' +
+      '<div class="activity-status">' +
+      '<span class="status-badge ' + a.status + '">' + a.text + '</span>' +
+      '</div></div>' +
+      '<div class="activity-time">' + a.time + '</div></div>';
+  }).join('');
 }
 
 // ====== 创建龙虾向导 ======
