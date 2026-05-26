@@ -2383,18 +2383,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 
 <script>
 // ===== 数据打通：认证与 API =====
-const API_BASE = '';  // 与主页共用后端
+var API_BASE = '';  // 与主页共用后端
 
 // 获取认证头
 function getAuthHeaders() {
-  const token = localStorage.getItem('sb_auth_token');
+  var token = localStorage.getItem('sb_auth_token');
   return token ? { 'Authorization': 'Bearer ' + token } : {};
 }
 
 // 带认证的 Fetch，自动处理 401
 async function authFetch(url, options = {}) {
   options.headers = { ...options.headers || {}, ...getAuthHeaders() };
-  const r = await fetch(url, options);
+  var r = await fetch(url, options);
   if (r.status === 401) {
     localStorage.removeItem('sb_auth_token');
     localStorage.removeItem('sb_current_user');
@@ -2408,7 +2408,7 @@ async function authFetch(url, options = {}) {
 
 // 检查登录状态
 function checkOfficeAuth() {
-  const token = localStorage.getItem('sb_auth_token');
+  var token = localStorage.getItem('sb_auth_token');
   if (!token || token === 'null') {
     showToast('请先在主页登录', 'error');
     setTimeout(() => { location.href = './index.html'; }, 1500);
@@ -2509,10 +2509,10 @@ function updateOpenClawStatus(connected){
 
 
 // ===== 数据定义 (支持 Mock 和 Real) =====
-let employees = [];
-let activities = [];
+var employees = [];
+var activities = [];
 
-const activitiesFallback = [
+var activitiesFallback = [
   { id:1, name:'Lucy', initial:'L', gradient:['#FF6B9D','#C44FE2'], status:'thinking', text:'正在分析用户需求...', time:'刚刚' },
   { id:2, name:'Cute', initial:'C', gradient:['#FF9500','#FF2D55'], status:'thinking', text:'设计评审进行中...', time:'刚刚' },
   { id:3, name:'Eric', initial:'E', gradient:['#5AC8FA','#34C759'], status:'done', text:'✅ 前端组件库更新完成', time:'2分钟前' },
@@ -2595,8 +2595,8 @@ async function getAgentIdentity(agentId) {
   }
 
   try {
-    const identity = await openclaw.agent_identity_get(agentId);
-    const sessions = await openclaw.listSessions();
+    var identity = await openclaw.agent_identity_get(agentId);
+    var sessions = await openclaw.listSessions();
     
     return {
       model: (identity.config && identity.config.model) || identity.model || 'unknown',
@@ -2614,7 +2614,7 @@ async function getAgentIdentity(agentId) {
 
 // Load available models
 async function loadModels() {
-  const select = document.getElementById('modelSelect');
+  var select = document.getElementById('modelSelect');
   if (!select) return;
 
   // Show loading
@@ -2633,7 +2633,7 @@ async function loadModels() {
   }
 
   try {
-    const models = await openclaw.listModels();
+    var models = await openclaw.listModels();
     if (Array.isArray(models) && models.length > 0) {
       select.innerHTML = models.map(m => 
         `<option value="${m.id || m.name}">${m.name || m.id}</option>`
@@ -2660,7 +2660,7 @@ async function loadModels() {
 
 // Load channel status
 async function loadChannels() {
-  const container = document.getElementById('channelTabs');
+  var container = document.getElementById('channelTabs');
   if (!container) return;
 
   if (!openclaw || !openclaw._connected) {
@@ -2675,13 +2675,13 @@ async function loadChannels() {
   }
 
   try {
-    const status = await openclaw.send('channels.status', {});
+    var status = await openclaw.send('channels.status', {});
     if (status && typeof status === 'object') {
-      const channels = ['dingtalk', 'feishu', 'agentlink', 'telegram'];
-      const channelNames = { dingtalk: '钉钉', feishu: '飞书', agentlink: 'AgentLink', telegram: 'Telegram' };
+      var channels = ['dingtalk', 'feishu', 'agentlink', 'telegram'];
+      var channelNames = { dingtalk: '钉钉', feishu: '飞书', agentlink: 'AgentLink', telegram: 'Telegram' };
       
       container.innerHTML = channels.map(ch => {
-      const enabled = (status[ch] && status[ch].enabled) || false;
+      var enabled = (status[ch] && status[ch].enabled) || false;
         return `<div class="channel-tab${enabled ? ' active' : ''}" data-channel="${ch}" onclick="switchChannelTab(this)">
           ${channelNames[ch]} ${enabled ? '<span class="channel-check">✓</span>' : ''}
         </div>`;
@@ -2812,10 +2812,10 @@ async function saveDocContent(docName, content) {
 
 // Save model config
 async function saveModelConfig() {
-  const select = document.getElementById('modelSelect');
-  const textarea = document.getElementById('modelJson');
-      const modelId = (select && select.value);
-      const jsonConfig = (textarea && textarea.value);
+  var select = document.getElementById('modelSelect');
+  var textarea = document.getElementById('modelJson');
+      var modelId = (select && select.value);
+      var jsonConfig = (textarea && textarea.value);
 
   if (!modelId) {
     showToast('请选择模型', 'error');
@@ -2845,15 +2845,15 @@ async function saveModelConfig() {
 
 // Test chat
 async function testChat() {
-  const textarea = document.getElementById('modelJson');
-      const testMessage = (textarea && textarea.value) || 'Hello, this is a test message.';
+  var textarea = document.getElementById('modelJson');
+      var testMessage = (textarea && textarea.value) || 'Hello, this is a test message.';
 
   if (!openclaw || !openclaw._connected) {
     showToast('🔴 离线模式：无法发送测试消息', 'error');
     return;
   }
 
-  const btn = document.querySelector('.config-test-btn');
+  var btn = document.querySelector('.config-test-btn');
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> 发送中...';
@@ -2878,7 +2878,7 @@ async function testChat() {
 // Create new model
 function createModel() {
   showToast('🏗️ 打开模型创建表单...', 'loading');
-  const textarea = document.getElementById('modelJson');
+  var textarea = document.getElementById('modelJson');
   if (textarea) {
     textarea.value = `{
   "name": "my-model",
@@ -3100,7 +3100,7 @@ function broadcastStatus(agentId, status) {
   }
 }
 
-const skillPresets = [
+var skillPresets = [
   {name:'brainstorm', emoji:'💡', desc:'头脑风暴'},
   {name:'debug', emoji:'🔧', desc:'系统调试'},
   {name:'tdd', emoji:'🧪', desc:'测试驱动'},
@@ -3109,7 +3109,7 @@ const skillPresets = [
   {name:'refactor', emoji:'♻️', desc:'代码重构'},
 ];
 
-const docsData = [
+var docsData = [
   {id:1, name:'产品需求文档 PRD', icon:'📋', type:'project', tags:['产品','需求'], date:'今天更新'},
   {id:2, name:'技术架构设计', icon:'🏗️', type:'tech', tags:['架构','后端'], date:'昨天'},
   {id:3, name:'UI 设计规范 v2', icon:'🎨', type:'design', tags:['设计','规范'], date:'3天前'},
@@ -3132,10 +3132,10 @@ function animateNumber(el,target,duration){
   if(!el) return;
   duration = duration || 800;
   var start = parseInt(el.textContent)||0;
-  const startTime = performance.now();
+  var startTime = performance.now();
   function update(ct){
-    const progress = Math.min((ct-startTime)/duration,1);
-    const ease = 1-Math.pow(1-progress,3);
+    var progress = Math.min((ct-startTime)/duration,1);
+    var ease = 1-Math.pow(1-progress,3);
     el.textContent = Math.floor(start+(target-start)*ease);
     if(progress<1) requestAnimationFrame(update);
   }
@@ -3190,7 +3190,7 @@ function goToMainChat(empId) {
 
 // 渲染员工网格 - 点击跳转到主页
 function renderEmployees(){
-  const grid = document.getElementById('employeeGrid');
+  var grid = document.getElementById('employeeGrid');
   if(!grid)return;
   grid.innerHTML = employees.map(function(emp, idx){
     var avatarHtml = renderAvatar(emp, 64);
@@ -3683,11 +3683,11 @@ function sendTask(empId) {
 
 // ===== 技能系统 =====
 function renderSkills(){
-  const list = document.getElementById('skillsList');
-  const empty = document.getElementById('skillsEmpty');
-  const presets = document.getElementById('skillsPresets');
+  var list = document.getElementById('skillsList');
+  var empty = document.getElementById('skillsEmpty');
+  var presets = document.getElementById('skillsPresets');
   if(!list)return;
-  let skills = JSON.parse(localStorage.getItem('sb_skills')||'[]');
+  var skills = JSON.parse(localStorage.getItem('sb_skills')||'[]');
   if(skills.length===0){list.innerHTML='';empty.style.display='block';list.style.display='none';}
   else{empty.style.display='none';list.style.display='flex';
     list.innerHTML = skills.map(s => `<div class="skill-item">
@@ -3701,17 +3701,17 @@ function renderSkills(){
 }
 
 function addSkill(){
-  const name=prompt('输入技能名称:');
+  var name =prompt('输入技能名称:');
   if(!name)return;
-  const emoji=prompt('输入表情符号:')||'⚡';
-  let skills=JSON.parse(localStorage.getItem('sb_skills')||'[]');
+  var emoji =prompt('输入表情符号:')||'⚡';
+  var skills =JSON.parse(localStorage.getItem('sb_skills')||'[]');
   skills.push({id:Date.now(),name,emoji,level:3});
   localStorage.setItem('sb_skills',JSON.stringify(skills));
   renderSkills();showToast('✅ 技能已添加');
 }
 
 function addSkillPreset(name,emoji){
-  let skills=JSON.parse(localStorage.getItem('sb_skills')||'[]');
+  var skills =JSON.parse(localStorage.getItem('sb_skills')||'[]');
   if(skills.some(s=>s.name===name)){showToast('该技能已添加');return;}
   skills.push({id:Date.now(),name,emoji,level:3});
   localStorage.setItem('sb_skills',JSON.stringify(skills));
@@ -3720,14 +3720,14 @@ function addSkillPreset(name,emoji){
 
 function deleteSkill(id){
   if(!confirm('确定删除?'))return;
-  let skills=JSON.parse(localStorage.getItem('sb_skills')||'[]');
+  var skills =JSON.parse(localStorage.getItem('sb_skills')||'[]');
   skills=skills.filter(s=>s.id!=id);
   localStorage.setItem('sb_skills',JSON.stringify(skills));
   renderSkills();showToast('🗑️ 已删除');
 }
 
 // ===== 记忆系统 =====
-let currentMemoryTab='core';
+var currentMemoryTab ='core';
 function switchMemoryTab(tab){
   currentMemoryTab=tab;
   document.querySelectorAll('.memory-tab').forEach(t=>t.classList.remove('active'));
@@ -3736,11 +3736,11 @@ function switchMemoryTab(tab){
 }
 
 function renderMemory(){
-  const content=document.getElementById('memoryContent');
-  const empty=document.getElementById('memoryEmpty');
+  var content =document.getElementById('memoryContent');
+  var empty =document.getElementById('memoryEmpty');
   if(!content)return;
-  let memories=JSON.parse(localStorage.getItem('sb_memories')||'[]');
-  const filtered=memories.filter(m=>m.type===currentMemoryTab);
+  var memories =JSON.parse(localStorage.getItem('sb_memories')||'[]');
+  var filtered =memories.filter(m=>m.type===currentMemoryTab);
   if(filtered.length===0){content.innerHTML='';empty.style.display='block';}
   else{empty.style.display='none';
     content.innerHTML=filtered.map(m=>`<div class="memory-item">
@@ -3753,9 +3753,9 @@ function renderMemory(){
 }
 
 function addMemory(){
-  const text=prompt('输入记忆内容:');
+  var text =prompt('输入记忆内容:');
   if(!text)return;
-  let memories=JSON.parse(localStorage.getItem('sb_memories')||'[]');
+  var memories =JSON.parse(localStorage.getItem('sb_memories')||'[]');
   memories.unshift({id:Date.now(),type:currentMemoryTab,text,date:new Date().toLocaleString()});
   localStorage.setItem('sb_memories',JSON.stringify(memories));
   renderMemory();showToast('✅ 记忆已添加');
@@ -3763,7 +3763,7 @@ function addMemory(){
 
 function deleteMemory(id){
   if(!confirm('确定删除?'))return;
-  let memories=JSON.parse(localStorage.getItem('sb_memories')||'[]');
+  var memories =JSON.parse(localStorage.getItem('sb_memories')||'[]');
   memories=memories.filter(m=>m.id!=id);
   localStorage.setItem('sb_memories',JSON.stringify(memories));
   renderMemory();showToast('🗑️ 已删除');
@@ -3771,10 +3771,10 @@ function deleteMemory(id){
 
 // ===== 文档库 =====
 function renderDocs(filter=''){
-  const grid=document.getElementById('docsGrid');
-  const empty=document.getElementById('docsEmpty');
+  var grid =document.getElementById('docsGrid');
+  var empty =document.getElementById('docsEmpty');
   if(!grid)return;
-  let docs=docsData.filter(d=>!filter||d.name.toLowerCase().includes(filter.toLowerCase())||d.tags.some(t=>t.includes(filter)));
+  var docs =docsData.filter(d=>!filter||d.name.toLowerCase().includes(filter.toLowerCase())||d.tags.some(t=>t.includes(filter)));
   if(docs.length===0){grid.innerHTML='';empty.style.display='block';}
   else{empty.style.display='none';
     grid.innerHTML=docs.map(d=>`<div class="doc-card" onclick="showToast('打开: ${d.name}')">
@@ -3793,7 +3793,7 @@ function addDoc(){showToast('📝 新建文档功能开发中...');}
 function selectAIMode(el){
   document.querySelectorAll('.ai-mode-option').forEach(o=>o.classList.remove('active'));
   el.classList.add('active');
-  const mode = el.dataset.mode;
+  var mode = el.dataset.mode;
   document.getElementById('openaiConfigPanel').style.display = mode==='openai'?'block':'none';
   if(mode!=='openai') showToast('已切换到 '+el.querySelector('.mode-name').textContent);
 }
@@ -3806,7 +3806,7 @@ function restartGateway(){
 
 // ===== 员工详情 =====
 function showEmpDetail(id){
-  const emp = employees.find(e=>e.id===id);
+  var emp = employees.find(e=>e.id===id);
   if(emp) showToast(`👤 ${emp.name} · ${emp.role}`);
 }
 
@@ -3921,7 +3921,7 @@ async function openDetailPanel(empId){
   }
   
   // Load identity data
-  const identity = await getAgentIdentity(empId);
+  var identity = await getAgentIdentity(empId);
   if (identity) {
     var statusMap = {online:'在线',busy:'工作中',offline:'离线',idle:'空闲',thinking:'思考中',working:'工作中'};
     var statusColor = {online:'var(--green)',busy:'var(--orange)',offline:'var(--gray-4)',idle:'var(--gray-4)',thinking:'var(--blue)',working:'var(--orange)'};
@@ -4754,9 +4754,9 @@ function renderLoungeZone(){
 }
 
 function updateStatusTime(){
-  const el = document.getElementById('statusTime');
+  var el = document.getElementById('statusTime');
   if(el){
-    const now = new Date();
+    var now = new Date();
     el.textContent = now.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
   }
 }
@@ -4765,9 +4765,9 @@ function updateStatusTime(){
 function startLiveUpdates(){
   setInterval(()=>{
     if (employees.length === 0) return;
-    const idx = Math.floor(Math.random()*activities.length);
-    const statuses = ['thinking','done','idle','p1'];
-    const texts = ['正在处理任务...','✅ 任务完成','💤 等待中','⚠️ 发现问题'];
+    var idx = Math.floor(Math.random()*activities.length);
+    var statuses = ['thinking','done','idle','p1'];
+    var texts = ['正在处理任务...','✅ 任务完成','💤 等待中','⚠️ 发现问题'];
     if (activities[idx]) {
       activities[idx].status = statuses[Math.floor(Math.random()*statuses.length)];
       activities[idx].time = '刚刚';
@@ -4877,7 +4877,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 
 // Backup renderActivities for fallback
 function renderActivitiesFallback(){
-  const container = document.getElementById('liveActivities');
+  var container = document.getElementById('liveActivities');
   if(!container) return;
   container.innerHTML = activitiesFallback.map(a=>`
     <div class="activity-item">
@@ -4894,7 +4894,7 @@ function renderActivitiesFallback(){
 }
 
 // ====== 创建龙虾向导 ======
-const soulTemplates = {
+var soulTemplates = {
   assistant: {
     name: '助理型',
     emoji: '📋',
@@ -4939,7 +4939,7 @@ if(typeof AVATAR_PRESETS !== 'undefined'){
   }
 }
 
-let wizardState = {
+var wizardState = {
   step: 1,
   avatar: null,
   avatarBg: null,
@@ -4961,22 +4961,22 @@ function closeWizard() {
 }
 
 function renderWizardStep() {
-  const stepIndicators = document.querySelectorAll('.wizard-step');
+  var stepIndicators = document.querySelectorAll('.wizard-step');
   stepIndicators.forEach((el, i) => {
-    const num = i + 1;
+    var num = i + 1;
     el.classList.remove('active', 'done');
     if (num === wizardState.step) el.classList.add('active');
     else if (num < wizardState.step) el.classList.add('done');
   });
   
-  const steps = document.querySelectorAll('.wizard-step-content');
+  var steps = document.querySelectorAll('.wizard-step-content');
   steps.forEach((el, i) => {
     el.style.display = i + 1 === wizardState.step ? 'block' : 'none';
   });
   
-  const prevBtn = document.getElementById('wizardPrevBtn');
-  const nextBtn = document.getElementById('wizardNextBtn');
-  const createBtn = document.getElementById('wizardCreateBtn');
+  var prevBtn = document.getElementById('wizardPrevBtn');
+  var nextBtn = document.getElementById('wizardNextBtn');
+  var createBtn = document.getElementById('wizardCreateBtn');
   
   prevBtn.style.display = wizardState.step > 1 ? 'inline-flex' : 'none';
   nextBtn.style.display = wizardState.step < 3 ? 'inline-flex' : 'none';
@@ -5067,15 +5067,15 @@ function updateWizardPreview() {
 async function confirmCreateAgent() {
   wizardState.model = document.getElementById('wizardModelSelect').value;
   
-  const tmpl = soulTemplates[wizardState.soulTemplate];
-  const soul = tmpl.soul.replace(/{name}/g, wizardState.name).replace(/{role}/g, wizardState.role);
-  const identity = tmpl.identity.replace(/{name}/g, wizardState.name).replace(/{role}/g, wizardState.role);
+  var tmpl = soulTemplates[wizardState.soulTemplate];
+  var soul = tmpl.soul.replace(/{name}/g, wizardState.name).replace(/{role}/g, wizardState.role);
+  var identity = tmpl.identity.replace(/{name}/g, wizardState.name).replace(/{role}/g, wizardState.role);
   
   showToast('正在创建 Agent...', 'loading');
   
   try {
     if (window.openclawConnected && typeof openclaw !== 'undefined' && openclaw.agents) {
-      const result = await openclaw.send('agents.create', {
+      var result = await openclaw.send('agents.create', {
         name: wizardState.name,
         role: wizardState.role,
         model: wizardState.model,
@@ -5087,7 +5087,7 @@ async function confirmCreateAgent() {
       showToast('🎉 Agent 创建成功！', 'success');
       
       // Add to local array
-      const newAgent = {
+      var newAgent = {
         id: result.id || 'agent_' + Date.now(),
         name: wizardState.name,
         role: wizardState.role,
@@ -5103,7 +5103,7 @@ async function confirmCreateAgent() {
       employees.push(newAgent);
     } else {
       // Offline mode simulation
-      const newAgent = {
+      var newAgent = {
         id: 'emp_' + Date.now(),
         name: wizardState.name,
         role: wizardState.role,
@@ -5125,7 +5125,7 @@ async function confirmCreateAgent() {
     
     // 尝试同步到后端
     try {
-      const newEmp = employees[employees.length - 1];
+      var newEmp = employees[employees.length - 1];
       await authFetch('/api/agents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
