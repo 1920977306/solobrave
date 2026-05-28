@@ -7139,8 +7139,10 @@ let supervisorTimer = null;
 let supervisorLastCheck = null;
 
 function getCurrentProjectId(){
-  const activeProj = document.querySelector('.list-item[data-proj].active');
-  return activeProj ? activeProj.dataset.proj : null;
+  var activeProj = document.querySelector('.list-item[data-proj].active');
+  if(activeProj) return activeProj.dataset.proj;
+  // fallback: 从 localStorage 获取当前员工/项目ID
+  return localStorage.getItem('sb_current_proj') || localStorage.getItem('sb_current_emp') || '';
 }
 
 function openSupervisorPanel(){
@@ -9701,11 +9703,6 @@ function getCurrentEmployeeInfo(){
   if(!empId) return null;
   const emp = emps.find(e => e.id === empId);
   return emp || null;
-}
-
-// 获取当前项目 ID
-function getCurrentProjectId(){
-  return localStorage.getItem('sb_current_proj') || localStorage.getItem('sb_current_emp') || '';
 }
 
 // 保存聊天历史
