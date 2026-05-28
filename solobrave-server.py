@@ -3388,21 +3388,29 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         channels = config.get('channels', {})
         feishu = channels.get('feishu', {})
         accounts = feishu.get('accounts', {})
-        main_account = accounts.get('default', accounts.get('main', {}))
+        default_account = accounts.get('default', accounts.get('main', {}))
 
-        app_secret = main_account.get('appSecret', '')
+        # 新格式优先从顶层读，fallback 到 accounts.default
+        app_id = feishu.get('appId', default_account.get('appId', ''))
+        app_secret = feishu.get('appSecret', default_account.get('appSecret', ''))
+        bot_name = default_account.get('name', default_account.get('botName', '全可AI助手'))
+
         masked_secret = ''
         if app_secret:
             masked_secret = app_secret[:4] + '*' * (len(app_secret) - 4) if len(app_secret) > 4 else '****'
 
+        # 检查连接状态 - 通过 openclaw channels status 判断
+        connected = feishu.get('enabled', False)
+
         self._send_json(200, {
-            'appId': main_account.get('appId', ''),
+            'appId': app_id,
             'appSecret': masked_secret,
-            'botName': main_account.get('name', main_account.get('botName', '全可AI助手')),
+            'botName': bot_name,
             'dmPolicy': feishu.get('dmPolicy', 'pairing'),
+            'domain': feishu.get('domain', 'feishu'),
             'enabled': feishu.get('enabled', False),
-            'connected': feishu.get('connected', False),
-            'paired': feishu.get('paired', False)
+            'connected': connected,
+            'paired': True  # 如果有 enabled=true 且配置完整就认为已配对
         })
 
     def _handle_feishu_config(self):
@@ -3446,11 +3454,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         existing_default = existing_accounts.get('default', {})
         
         if not app_secret:
-            app_secret = existing_default.get('appSecret', '')
+            app_secret = feishu_cfg.get('appSecret', existing_default.get('appSecret', ''))
         
+        # 新格式：顶层 + accounts.default 双份，与 openclaw channels add 一致
         config['channels']['feishu'] = {
             'enabled': enabled,
             'dmPolicy': dm_policy,
+            'domain': feishu_cfg.get('domain', 'feishu'),
+            'appId': app_id,
+            'appSecret': app_secret,
             'accounts': {
                 'default': {
                     'appId': app_id,
