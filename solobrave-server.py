@@ -3448,7 +3448,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'main': {
                     'appId': app_id,
                     'appSecret': app_secret,
-                    'botName': bot_name
+                    'name': bot_name
                 }
             }
         }
