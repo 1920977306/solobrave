@@ -5361,7 +5361,7 @@ function ctxAction(action){
     case 'pin': emp.pinned=!emp.pinned; showToast(emp.pinned?'📌 已置顶':'📌 已取消置顶'); saveEmployees(); break;
     // case 'move' - moved to submenu
     case 'archive': emp.archived=true; saveArchive(); showToast('📦 已归档'); break;
-    case 'unarchive': emp.archived=false; saveEmployees(); saveArchive(); showToast('📥 已取消归档'); break;
+    case 'unarchive': emp.archived=false; saveEmployees(); saveArchive(); syncEmpToServer(emp); showToast('📥 已取消归档'); break;
     case 'delete': if(confirm('确定删除 '+emp.name+'？')){var _delId=contextTarget;emps=emps.filter(e=>e.id!==_delId); localStorage.removeItem('sb_chat_history_'+_delId);
           clearChatOnServer(_delId); if(localStorage.getItem('sb_current_emp')===_delId){localStorage.removeItem('sb_current_emp');} saveEmployees(); if(typeof apiFetch==='function'){apiFetch('/api/agents/'+_delId,{method:'DELETE'}).catch(function(){});} renderMsgs('private'); showToast('🗑️ 已删除');} break;
   }
@@ -5445,14 +5445,15 @@ function empSettingsAction(action){
       emp.pinned = !emp.pinned; 
       showToast(emp.pinned ? '📌 已置顶' : '📌 已取消置顶'); 
       saveEmployees(); 
+      syncEmpToServer(emp);
       break;
     case 'move':
       showMoveGroupModal(empSettingsTarget);
       break;
     case 'archive': 
       emp.archived = true; 
-      
       saveEmployees(); 
+      syncEmpToServer(emp);
       showToast('📦 已归档'); 
       break;
     case 'badge-urgent': emp.badge={level:'urgent',number:1}; saveEmployees(); renderEmployeeList(); showToast('🔴 已标记为紧急'); break;
