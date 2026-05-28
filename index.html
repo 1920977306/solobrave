@@ -5216,13 +5216,17 @@ if(tab==='archived'){
 // ===== Archive & Drag =====
 let contextTarget=null;
 function renderArchivedList(){
-  const list=document.getElementById('employeeList');
-  const archived=employees.filter(e=>e.archived);
+  var list=document.getElementById('employeeList');
+  var archived=emps.filter(function(e){ return e.archived; });
   if(archived.length===0){
     list.innerHTML='<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">📦</div><div>暂无归档</div></div>';
     return;
   }
-  list.innerHTML=archived.map(e=>`<div class="list-item archived" data-id="${escapeAttr(e.id||'')}" draggable="true">${renderEmployeeItem(e, true)}</div>`).join('');
+  var html='';
+  archived.forEach(function(e){
+    html += '<div class="list-item archived" data-id="' + escapeAttr(e.id || '') + '" draggable="true">' + renderEmployeeItem(e, true) + '</div>';
+  });
+  list.innerHTML=html;
   bindListEvents();
 }
 
@@ -5360,7 +5364,7 @@ function ctxAction(action){
     case 'badge-clear': emp.badge=null; saveEmployees(); renderEmployeeList(); showToast('✕ 已清除紧急标记'); break;
     case 'pin': emp.pinned=!emp.pinned; showToast(emp.pinned?'📌 已置顶':'📌 已取消置顶'); saveEmployees(); break;
     // case 'move' - moved to submenu
-    case 'archive': emp.archived=true; saveArchive(); showToast('📦 已归档'); break;
+    case 'archive': emp.archived=true; saveEmployees(); saveArchive(); syncEmpToServer(emp); showToast('📦 已归档'); break;
     case 'unarchive': emp.archived=false; saveEmployees(); saveArchive(); syncEmpToServer(emp); showToast('📥 已取消归档'); break;
     case 'delete': if(confirm('确定删除 '+emp.name+'？')){var _delId=contextTarget;emps=emps.filter(e=>e.id!==_delId); localStorage.removeItem('sb_chat_history_'+_delId);
           clearChatOnServer(_delId); if(localStorage.getItem('sb_current_emp')===_delId){localStorage.removeItem('sb_current_emp');} saveEmployees(); if(typeof apiFetch==='function'){apiFetch('/api/agents/'+_delId,{method:'DELETE'}).catch(function(){});} renderMsgs('private'); showToast('🗑️ 已删除');} break;
