@@ -3388,7 +3388,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         channels = config.get('channels', {})
         feishu = channels.get('feishu', {})
         accounts = feishu.get('accounts', {})
-        main_account = accounts.get('main', {})
+        main_account = accounts.get('default', accounts.get('main', {}))
 
         app_secret = main_account.get('appSecret', '')
         masked_secret = ''
@@ -3398,7 +3398,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {
             'appId': main_account.get('appId', ''),
             'appSecret': masked_secret,
-            'botName': main_account.get('botName', '全可AI助手'),
+            'botName': main_account.get('name', main_account.get('botName', '全可AI助手')),
             'dmPolicy': feishu.get('dmPolicy', 'pairing'),
             'enabled': feishu.get('enabled', False),
             'connected': feishu.get('connected', False),
@@ -3445,7 +3445,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'enabled': enabled,
             'dmPolicy': dm_policy,
             'accounts': {
-                'main': {
+                'default': {
                     'appId': app_id,
                     'appSecret': app_secret,
                     'name': bot_name
