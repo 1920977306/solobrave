@@ -3423,8 +3423,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         dm_policy = body.get('dmPolicy', 'pairing')
         enabled = body.get('enabled', True)
 
-        if not app_id or not app_secret:
-            self._send_json(400, {'error': 'App ID 和 App Secret 不能为空'})
+        if not app_id:
+            self._send_json(400, {'error': 'App ID 不能为空'})
             return
 
         import os
@@ -3440,7 +3440,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if os.path.exists(config_path):
             shutil.copy2(config_path, config_path + '.bak')
 
-        # 更新飞书配置
+        # 更新飞书配置 - appSecret 为空时保留原值
+        feishu_cfg = config.get('channels', {}).get('feishu', {})
+        existing_accounts = feishu_cfg.get('accounts', {})
+        existing_default = existing_accounts.get('default', {})
+        
+        if not app_secret:
+            app_secret = existing_default.get('appSecret', '')
+        
         config['channels']['feishu'] = {
             'enabled': enabled,
             'dmPolicy': dm_policy,

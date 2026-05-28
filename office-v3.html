@@ -4112,7 +4112,15 @@ async function loadFeishuConfig(){
       var enableEl = document.getElementById('enableFeishu');
       
       if(appIdEl) appIdEl.value = data.appId || '';
-      if(appSecretEl) appSecretEl.value = data.appSecret || '';
+      if(appSecretEl && data.appSecret){
+        // 遮盖值不覆盖输入框，保留空值让用户知道需要重新输入
+        if(data.appSecret.includes('*')){
+          appSecretEl.value = '';
+          appSecretEl.placeholder = '已保存（遮盖），如需修改请重新输入';
+        } else {
+          appSecretEl.value = data.appSecret;
+        }
+      }
       if(botNameEl) botNameEl.value = data.botName || '全可AI助手';
       if(dmPolicyEl) dmPolicyEl.value = data.dmPolicy || 'pairing';
       if(enableEl) enableEl.checked = data.enabled || false;
@@ -4156,24 +4164,27 @@ async function saveChannelConfig(){
     var dmPolicy = document.getElementById('feishuDmPolicy').value;
     var enabled = document.getElementById('enableFeishu').checked;
     
-    if(!appId || !appSecret){
-      showToast('请填写 App ID 和 App Secret');
+    if(!appId){
+      showToast('请填写 App ID');
       return;
     }
     
     showToast('正在保存飞书配置...');
     
+    // 构建 body，appSecret 为空时不发送（后端保留原值）
+    var body = {
+      appId: appId,
+      botName: botName,
+      dmPolicy: dmPolicy,
+      enabled: enabled
+    };
+    if(appSecret) body.appSecret = appSecret;
+    
     try{
       var resp = await authFetch('/api/openclaw/channels/feishu', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          appId: appId,
-          appSecret: appSecret,
-          botName: botName,
-          dmPolicy: dmPolicy,
-          enabled: enabled
-        })
+        body: JSON.stringify(body)
       });
       
       if(resp && resp.ok){
