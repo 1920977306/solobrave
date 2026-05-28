@@ -4179,6 +4179,7 @@ async function saveChannelConfig(){
       if(resp && resp.ok){
         showToast('✅ 飞书配置已保存');
         loadFeishuConfig();
+        closeChannelConfig();
       } else {
         var errData = await resp.json();
         showToast('❌ 保存失败: ' + (errData.error || '服务器错误'));

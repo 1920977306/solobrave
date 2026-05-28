@@ -669,6 +669,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path.startswith('/api/openclaw/agent-docs/'):
             self._handle_auth_required_get(path)
             return
+        if path == '/api/openclaw/channels/feishu/status':
+            self._handle_auth_required_get(path)
+            return
 
         # Agents API
         if path == '/api/agents':
