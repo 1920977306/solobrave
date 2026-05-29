@@ -5773,6 +5773,9 @@ function restoreArchivedEmp(empId){
   emp.archived = false;
   saveEmployees();
   saveArchive();
+  if(typeof syncEmpToServer === 'function'){
+    syncEmpToServer(emp).catch(function(e){});
+  }
   renderEmployeeList();
   showToast('📂 已恢复 ' + emp.name);
 }
@@ -5823,6 +5826,9 @@ function continueArchive(empId){
   // 先恢复员工
   emp.archived = false;
   saveEmployees();
+  if(typeof syncEmpToServer === 'function'){
+    syncEmpToServer(emp).catch(function(e){});
+  }
   renderEmployeeList();
   
   // 打开聊天（聊天记录还在 localStorage 里，会自动加载）
