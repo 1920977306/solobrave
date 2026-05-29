@@ -1012,6 +1012,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_delete_user(user_id)
                 return
 
+        # Memory API
+        if path.startswith('/api/memory/'):
+            sub = path[len('/api/memory/'):]
+            parts = sub.split('/')
+            if len(parts) == 2:
+                self._handle_delete_memory(parts[0], parts[1])
+                return
+
         # Chat API
         if path.startswith('/api/chat/'):
             # /api/chat/:agentId/:msgId
