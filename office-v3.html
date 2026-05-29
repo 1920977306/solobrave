@@ -2770,7 +2770,7 @@ async function saveDocContent(docName, content) {
     if(docName === 'SOUL.md') body.soulDoc = content;
     else if(docName === 'IDENTITY.md') body.identityDoc = content;
     else if(docName === 'USER.md') body.userDoc = content;
-    else if(docName === 'TOOLS.md') body.agentsDoc = content;
+    else if(docName === 'TOOLS.md') body.toolsDoc = content;
 
     var resp = await authFetch('/api/openclaw/write-agent-docs', {
       method: 'POST',
@@ -4145,7 +4145,7 @@ async function openDetailPanel(empId){
   var editor = document.getElementById('docEditor');
   if(editor) {
     editor.value = firstDoc;
-    docCache['IDENTITY.md'] = firstDoc;
+    docCache[currentAgentId + '_IDENTITY.md'] = firstDoc;
   }
   currentDocName = 'IDENTITY.md';
 }
@@ -4155,8 +4155,8 @@ async function switchDocTab(el){
 
   // 缓存当前编辑器内容
   var editor = document.getElementById('docEditor');
-  if(editor && currentDocName){
-    docCache[currentDocName] = editor.value;
+  if(editor && currentDocName && currentAgentId){
+    docCache[currentAgentId + '_' + currentDocName] = editor.value;
   }
 
   // 更新 tab 高亮
@@ -4172,15 +4172,16 @@ async function switchDocTab(el){
     var ed = document.getElementById('docEditor');
 
     // 先显示缓存内容，避免闪烁
-    if(docCache[docName] !== undefined){
-      ed.value = docCache[docName];
+    var cacheKey = currentAgentId + '_' + docName;
+    if(docCache[cacheKey] !== undefined){
+      ed.value = docCache[cacheKey];
     } else {
       ed.value = '加载中...';
       // 后台异步刷新
       var docContent = await loadDocContent(docName);
       if(docContent){
         ed.value = docContent;
-        docCache[docName] = docContent;
+        docCache[cacheKey] = docContent;
       } else {
         ed.value = '';
       }
