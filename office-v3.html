@@ -5322,29 +5322,40 @@ async function confirmCreateAgent() {
   }
 })();
 
-// ===== 延时覆盖空壳函数 =====
-setTimeout(function(){
-  if(typeof deleteMemory === 'function' && deleteMemory.toString().length < 50){
-    deleteMemory = function(empId, memoryId){
-      if(!confirm('确定删除这条记忆？')) return;
-      apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + encodeURIComponent(memoryId), {
-        method: 'DELETE'
-      }).then(function(){
-        showToast('✅ 记忆已删除');
-        renderMemoryTab(empId);
-        updateMemoryTabTitle(empId);
-      }).catch(function(e){
-        showToast('❌ 删除失败');
-        console.warn('[Memory] 删除失败:', e);
-      });
-    };
-  }
-  if(typeof editMemory === 'function' && editMemory.toString().length < 50){
-    editMemory = function(empId, memoryId){
-      showToast('编辑功能开发中');
-    };
-  }
-}, 1000);
+// ===== 锁定 deleteMemory/editMemory，防止被空壳函数覆盖 =====
+// 使用 Object.defineProperty 锁定，任何后续赋值都会静默失败
+(function(){
+  var realDeleteMemory = function(empId, memoryId){
+    if(!confirm('确定删除这条记忆？')) return;
+    apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + encodeURIComponent(memoryId), {
+      method: 'DELETE'
+    }).then(function(){
+      showToast('✅ 记忆已删除');
+      renderMemoryTab(empId);
+      updateMemoryTabTitle(empId);
+    }).catch(function(e){
+      showToast('❌ 删除失败');
+      console.warn('[Memory] 删除失败:', e);
+    });
+  };
+
+  var realEditMemory = function(empId, memoryId){
+    // 编辑功能待实现，先给提示
+    showToast('编辑功能开发中');
+  };
+
+  Object.defineProperty(window, 'deleteMemory', {
+    value: realDeleteMemory,
+    writable: false,
+    configurable: false
+  });
+
+  Object.defineProperty(window, 'editMemory', {
+    value: realEditMemory,
+    writable: false,
+    configurable: false
+  });
+})();
 </script>
 <!-- 员工详情面板 V2 -->
 <div class="detail-overlay" id="detailOverlay" onclick="closeDetailPanel()"></div>
