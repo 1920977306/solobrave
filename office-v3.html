@@ -2725,7 +2725,19 @@ async function loadDocContent(docName) {
     var resp = await authFetch('/api/openclaw/agent-docs/' + encodeURIComponent(currentAgentId) + '?doc=' + encodeURIComponent(docName));
     if(resp && resp.ok){
       var data = await resp.json();
-      return data.content || '';
+      var content = data.content || '';
+      var emp = employees.find(function(e){ return e.id === currentAgentId; });
+
+      // 如果后端返回的是默认模板，优先用本地保存的个性化内容
+      if(emp){
+        if(docName === 'TOOLS.md' && emp.toolsDoc && content.indexOf('Skills define _how_ tools work') > -1){
+          return emp.toolsDoc;
+        }
+        if(docName === 'USER.md' && emp.userDoc && content.indexOf('USER.md 学员适配档案') === -1 && content.indexOf('This file teaches the model') > -1){
+          return emp.userDoc;
+        }
+      }
+      return content;
     } else {
       // 回退：从 employees 数组读
       var emp = employees.find(function(e){ return e.id === currentAgentId; });
