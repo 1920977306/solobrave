@@ -2623,11 +2623,9 @@ async function loadModels() {
 
   if (!openclaw || !openclaw._connected) {
     // Use fallback models
-    select.innerHTML = `
-      <option value="glm-5">glm-5 (BigModel)</option>
-      <option value="gpt-4">gpt-4 (OpenAI)</option>
-      <option value="claude-3">claude-3 (Anthropic)</option>
-    `;
+    select.innerHTML = '<option value="glm-5">glm-5 (BigModel)</option>' +
+      '<option value="gpt-4">gpt-4 (OpenAI)</option>' +
+      '<option value="claude-3">claude-3 (Anthropic)</option>';
     select.disabled = false;
     return;
   }
@@ -2635,25 +2633,23 @@ async function loadModels() {
   try {
     var models = await openclaw.listModels();
     if (Array.isArray(models) && models.length > 0) {
-      select.innerHTML = models.map(m => 
-        `<option value="${m.id || m.name}">${m.name || m.id}</option>`
-      ).join('');
+      var html = '';
+      models.forEach(function(m){
+        html += '<option value="' + (m.id || m.name) + '">' + (m.name || m.id) + '</option>';
+      });
+      select.innerHTML = html;
     } else {
       // Fallback
-      select.innerHTML = `
-        <option value="glm-5">glm-5 (BigModel)</option>
-        <option value="gpt-4">gpt-4 (OpenAI)</option>
-        <option value="claude-3">claude-3 (Anthropic)</option>
-      `;
+      select.innerHTML = '<option value="glm-5">glm-5 (BigModel)</option>' +
+        '<option value="gpt-4">gpt-4 (OpenAI)</option>' +
+        '<option value="claude-3">claude-3 (Anthropic)</option>';
     }
     select.disabled = false;
   } catch (err) {
     console.error('[OpenClaw] Failed to load models:', err);
-    select.innerHTML = `
-      <option value="glm-5">glm-5 (BigModel)</option>
-      <option value="gpt-4">gpt-4 (OpenAI)</option>
-      <option value="claude-3">claude-3 (Anthropic)</option>
-    `;
+    select.innerHTML = '<option value="glm-5">glm-5 (BigModel)</option>' +
+      '<option value="gpt-4">gpt-4 (OpenAI)</option>' +
+      '<option value="claude-3">claude-3 (Anthropic)</option>';
     select.disabled = false;
   }
 }
@@ -2665,12 +2661,10 @@ async function loadChannels() {
 
   if (!openclaw || !openclaw._connected) {
     // Use fallback channels
-    container.innerHTML = `
-      <div class="channel-tab active" data-channel="dingtalk" onclick="switchChannelTab(this)">钉钉 <span class="channel-check">✓</span></div>
-      <div class="channel-tab" data-channel="feishu" onclick="switchChannelTab(this)">飞书</div>
-      <div class="channel-tab" data-channel="agentlink" onclick="switchChannelTab(this)">AgentLink <span class="channel-check">✓</span></div>
-      <div class="channel-tab" data-channel="telegram" onclick="switchChannelTab(this)">Telegram <span class="channel-check">✓</span></div>
-    `;
+    container.innerHTML = '<div class="channel-tab active" data-channel="dingtalk" onclick="switchChannelTab(this)">钉钉 <span class="channel-check">✓</span></div>' +
+      '<div class="channel-tab" data-channel="feishu" onclick="switchChannelTab(this)">飞书</div>' +
+      '<div class="channel-tab" data-channel="agentlink" onclick="switchChannelTab(this)">AgentLink <span class="channel-check">✓</span></div>' +
+      '<div class="channel-tab" data-channel="telegram" onclick="switchChannelTab(this)">Telegram <span class="channel-check">✓</span></div>';
     return;
   }
 
@@ -2680,22 +2674,22 @@ async function loadChannels() {
       var channels = ['dingtalk', 'feishu', 'agentlink', 'telegram'];
       var channelNames = { dingtalk: '钉钉', feishu: '飞书', agentlink: 'AgentLink', telegram: 'Telegram' };
       
-      container.innerHTML = channels.map(ch => {
-      var enabled = (status[ch] && status[ch].enabled) || false;
-        return `<div class="channel-tab${enabled ? ' active' : ''}" data-channel="${ch}" onclick="switchChannelTab(this)">
-          ${channelNames[ch]} ${enabled ? '<span class="channel-check">✓</span>' : ''}
-        </div>`;
-      }).join('');
+      var html = '';
+      channels.forEach(function(ch){
+        var enabled = (status[ch] && status[ch].enabled) || false;
+        html += '<div class="channel-tab' + (enabled ? ' active' : '') + '" data-channel="' + ch + '" onclick="switchChannelTab(this)">' +
+          channelNames[ch] + (enabled ? ' <span class="channel-check">✓</span>' : '') +
+          '</div>';
+      });
+      container.innerHTML = html;
     }
   } catch (err) {
     console.error('[OpenClaw] Failed to load channels:', err);
     // Fallback
-    container.innerHTML = `
-      <div class="channel-tab active" data-channel="dingtalk" onclick="switchChannelTab(this)">钉钉 <span class="channel-check">✓</span></div>
-      <div class="channel-tab" data-channel="feishu" onclick="switchChannelTab(this)">飞书</div>
-      <div class="channel-tab" data-channel="agentlink" onclick="switchChannelTab(this)">AgentLink</div>
-      <div class="channel-tab" data-channel="telegram" onclick="switchChannelTab(this)">Telegram</div>
-    `;
+    container.innerHTML = '<div class="channel-tab active" data-channel="dingtalk" onclick="switchChannelTab(this)">钉钉 <span class="channel-check">✓</span></div>' +
+      '<div class="channel-tab" data-channel="feishu" onclick="switchChannelTab(this)">飞书</div>' +
+      '<div class="channel-tab" data-channel="agentlink" onclick="switchChannelTab(this)">AgentLink</div>' +
+      '<div class="channel-tab" data-channel="telegram" onclick="switchChannelTab(this)">Telegram</div>';
   }
 }
 
@@ -2706,7 +2700,7 @@ async function toggleChannel(channelId, enable) {
     return;
   }
 
-  showToast(`${enable ? '启动' : '停止'} ${channelId}...`, 'loading');
+  showToast((enable ? '启动' : '停止') + ' ' + channelId + '...', 'loading');
 
   try {
     if (enable) {
@@ -2714,11 +2708,11 @@ async function toggleChannel(channelId, enable) {
     } else {
       await openclaw.send('channels.stop', {channel_id: channelId});
     }
-    showToast(`✅ ${channelId} ${enable ? '已启动' : '已停止'}`, 'success');
+    showToast('✅ ' + channelId + ' ' + (enable ? '已启动' : '已停止'), 'success');
     await loadChannels();
   } catch (err) {
     console.error('[OpenClaw] Failed to toggle channel:', err);
-    showToast(`❌ 操作失败: ${err.message}`, 'error');
+    showToast('❌ 操作失败: ' + (err.message || ''), 'error');
   }
 }
 
@@ -2839,7 +2833,7 @@ async function saveModelConfig() {
     closeModelConfig();
   } catch (err) {
     console.error('[OpenClaw] Failed to save config:', err);
-    showToast(`❌ 保存失败: ${err.message}`, 'error');
+    showToast('❌ 保存失败: ' + (err.message || ''), 'error');
   }
 }
 
@@ -2866,7 +2860,7 @@ async function testChat() {
     showToast('✅ 测试消息已发送', 'success');
   } catch (err) {
     console.error('[OpenClaw] Failed to send test:', err);
-    showToast(`❌ 测试失败: ${err.message}`, 'error');
+    showToast('❌ 测试失败: ' + (err.message || ''), 'error');
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -2880,15 +2874,7 @@ function createModel() {
   showToast('🏗️ 打开模型创建表单...', 'loading');
   var textarea = document.getElementById('modelJson');
   if (textarea) {
-    textarea.value = `{
-  "name": "my-model",
-  "provider": "custom",
-  "apiUrl": "https://api.example.com/v1",
-  "apiKey": "your-api-key",
-  "model": "gpt-4",
-  "maxTokens": 2000,
-  "temperature": 0.7
-}`;
+    textarea.value = '{\n  "name": "my-model",\n  "provider": "custom",\n  "apiUrl": "https://api.example.com/v1",\n  "apiKey": "your-api-key",\n  "model": "gpt-4",\n  "maxTokens": 2000,\n  "temperature": 0.7\n}';
   }
 }
 
@@ -3690,14 +3676,28 @@ function renderSkills(){
   var skills = JSON.parse(localStorage.getItem('sb_skills')||'[]');
   if(skills.length===0){list.innerHTML='';empty.style.display='block';list.style.display='none';}
   else{empty.style.display='none';list.style.display='flex';
-    list.innerHTML = skills.map(s => `<div class="skill-item">
-      <div class="skill-emoji">${s.emoji}</div>
-      <div class="skill-info"><div class="skill-name">${s.name}</div><div>${'<span class="skill-star filled">★</span>'.repeat(s.level||3)}</div></div>
-      <button class="skill-delete" onclick="deleteSkill('${s.id}')">✕</button></div>`).join('');
+    var html = '';
+    skills.forEach(function(s){
+      html += '<div class="skill-item">';
+      html += '<div class="skill-emoji">' + s.emoji + '</div>';
+      html += '<div class="skill-info"><div class="skill-name">' + s.name + '</div><div>';
+      var stars = '';
+      for(var si = 0; si < (s.level || 3); si++){
+        stars += '<span class="skill-star filled">★</span>';
+      }
+      html += stars + '</div></div>';
+      html += '<button class="skill-delete" onclick="deleteSkill(\'' + s.id + '\')">✕</button></div>';
+    });
+    list.innerHTML = html;
   }
-  if(presets) presets.innerHTML = skillPresets.map(p =>
-    `<div class="skill-preset${skills.some(s=>s.name===p.name)?' used':''}" onclick="addSkillPreset('${p.name}','${p.emoji}')">${p.emoji} ${p.desc}</div>`
-  ).join('');
+  if(presets){
+    var phtml = '';
+    skillPresets.forEach(function(p){
+      var isUsed = skills.some(function(s){return s.name === p.name;});
+      phtml += '<div class="skill-preset' + (isUsed ? ' used' : '') + '" onclick="addSkillPreset(\'' + p.name + '\',\'' + p.emoji + '\')">' + p.emoji + ' ' + p.desc + '</div>';
+    });
+    presets.innerHTML = phtml;
+  }
 }
 
 function addSkill(){
