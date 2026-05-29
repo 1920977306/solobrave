@@ -5322,27 +5322,29 @@ async function confirmCreateAgent() {
   }
 })();
 
-// ===== 强制覆盖空函数（deleteMemory/editMemory 被空壳覆盖的修复）=====
-if(typeof deleteMemory === 'function' && deleteMemory.toString().length < 50){
-  deleteMemory = function(empId, memoryId){
-    if(!confirm('确定删除这条记忆？')) return;
-    apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + encodeURIComponent(memoryId), {
-      method: 'DELETE'
-    }).then(function(){
-      showToast('✅ 记忆已删除');
-      renderMemoryTab(empId);
-      updateMemoryTabTitle(empId);
-    }).catch(function(e){
-      showToast('❌ 删除失败');
-      console.warn('[Memory] 删除失败:', e);
-    });
-  };
-}
-if(typeof editMemory === 'function' && editMemory.toString().length < 50){
-  editMemory = function(empId, memoryId){
-    showToast('编辑功能开发中');
-  };
-}
+// ===== 延时覆盖空壳函数 =====
+setTimeout(function(){
+  if(typeof deleteMemory === 'function' && deleteMemory.toString().length < 50){
+    deleteMemory = function(empId, memoryId){
+      if(!confirm('确定删除这条记忆？')) return;
+      apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + encodeURIComponent(memoryId), {
+        method: 'DELETE'
+      }).then(function(){
+        showToast('✅ 记忆已删除');
+        renderMemoryTab(empId);
+        updateMemoryTabTitle(empId);
+      }).catch(function(e){
+        showToast('❌ 删除失败');
+        console.warn('[Memory] 删除失败:', e);
+      });
+    };
+  }
+  if(typeof editMemory === 'function' && editMemory.toString().length < 50){
+    editMemory = function(empId, memoryId){
+      showToast('编辑功能开发中');
+    };
+  }
+}, 1000);
 </script>
 <!-- 员工详情面板 V2 -->
 <div class="detail-overlay" id="detailOverlay" onclick="closeDetailPanel()"></div>
