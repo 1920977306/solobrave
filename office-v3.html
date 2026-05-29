@@ -2400,7 +2400,7 @@ async function authFetch(url, options = {}) {
     localStorage.removeItem('sb_current_user');
     // 跳转回主页登录
     showToast('请先登录，正在跳转...', 'error');
-    setTimeout(() => { location.href = './index.html'; }, 1500);
+    setTimeout(function(){ location.href = './index.html'; }, 1500);
     throw new Error('Unauthorized');
   }
   return r;
@@ -2411,7 +2411,7 @@ function checkOfficeAuth() {
   var token = localStorage.getItem('sb_auth_token');
   if (!token || token === 'null') {
     showToast('请先在主页登录', 'error');
-    setTimeout(() => { location.href = './index.html'; }, 1500);
+    setTimeout(function(){ location.href = './index.html'; }, 1500);
     return false;
   }
   return true;
@@ -3712,7 +3712,7 @@ function addSkill(){
 
 function addSkillPreset(name,emoji){
   var skills =JSON.parse(localStorage.getItem('sb_skills')||'[]');
-  if(skills.some(s=>s.name===name)){showToast('该技能已添加');return;}
+  if(skills.some(function(s){return s.name===name})){showToast('该技能已添加');return;}
   skills.push({id:Date.now(),name,emoji,level:3});
   localStorage.setItem('sb_skills',JSON.stringify(skills));
   renderSkills();showToast('✅ '+name+' 已添加');
@@ -3721,52 +3721,173 @@ function addSkillPreset(name,emoji){
 function deleteSkill(id){
   if(!confirm('确定删除?'))return;
   var skills =JSON.parse(localStorage.getItem('sb_skills')||'[]');
-  skills=skills.filter(s=>s.id!=id);
+  skills=skills.filter(function(s){return s.id!=id;});
   localStorage.setItem('sb_skills',JSON.stringify(skills));
   renderSkills();showToast('🗑️ 已删除');
 }
 
 // ===== 记忆系统 =====
-var currentMemoryTab ='core';
+var currentMemoryTab = 'core';
+
 function switchMemoryTab(tab){
-  currentMemoryTab=tab;
-  document.querySelectorAll('.memory-tab').forEach(t=>t.classList.remove('active'));
-  document.querySelector(`.memory-tab[data-mtab="${tab}"]`).classList.add('active');
+  currentMemoryTab = tab;
+  document.querySelectorAll('.memory-tab').forEach(function(t){t.classList.remove('active')});
+  var target = document.querySelector('.memory-tab[data-mtab="' + tab + '"]');
+  if(target) target.classList.add('active');
   renderMemory();
 }
 
 function renderMemory(){
-  var content =document.getElementById('memoryContent');
-  var empty =document.getElementById('memoryEmpty');
-  if(!content)return;
-  var memories =JSON.parse(localStorage.getItem('sb_memories')||'[]');
-  var filtered =memories.filter(m=>m.type===currentMemoryTab);
-  if(filtered.length===0){content.innerHTML='';empty.style.display='block';}
-  else{empty.style.display='none';
-    content.innerHTML=filtered.map(m=>`<div class="memory-item">
-      <div class="memory-item-content">
-        <div class="memory-item-text">${m.text.replace(/</g,'&lt;')}</div>
-        <div class="memory-item-date">${m.date}</div>
-      </div>
-      <button class="memory-action-btn" onclick="deleteMemory('${m.id}')">🗑️</button></div>`).join('');
+  var content = document.getElementById('memoryContent');
+  var empty = document.getElementById('memoryEmpty');
+  if(!content) return;
+  
+  var empId = localStorage.getItem('sb_current_emp');
+  if(!empId){
+    content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">请先选择一个员工</div>';
+    return;
   }
+  
+  content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
+  if(empty) empty.style.display = 'none';
+  
+  if(typeof apiFetch !== 'function') return;
+  apiFetch('/api/memory/' + encodeURIComponent(empId))
+    .then(function(r){return r.json()})
+    .then(function(memories){
+      // 按分类过滤
+      var filtered = memories.filter(function(m){
+        if(currentMemoryTab === 'core'){
+          return m.key !== 'auto_extract' && m.key !== 'auto';
+        } else {
+          return m.key === 'auto_extract' || m.key === 'auto';
+        }
+      });
+      
+      // 更新 Tab 计数
+      var coreCount = memories.filter(function(m){return m.key !== 'auto_extract' && m.key !== 'auto'}).length;
+      var dailyCount = memories.filter(function(m){return m.key === 'auto_extract' || m.key === 'auto'}).length;
+      var coreTab = document.querySelector('.memory-tab[data-mtab="core"]');
+      var dailyTab = document.querySelector('.memory-tab[data-mtab="daily"]');
+      if(coreTab) coreTab.textContent = '核心记忆 (' + coreCount + ')';
+      if(dailyTab) dailyTab.textContent = '日常记录 (' + dailyCount + ')';
+      
+      if(filtered.length === 0){
+        content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">' + (currentMemoryTab === 'core' ? '暂无核心记忆' : '暂无日常记录') + '</div>';
+        return;
+      }
+      
+      var html = '';
+      filtered.forEach(function(m){
+        var timeStr = m.time ? new Date(m.time).toLocaleString() : '';
+        var isAuto = m.key === 'auto_extract' || m.key === 'auto';
+        html += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;">';
+        html += '<div class="memory-item-content" style="flex:1;">';
+        html += '<div class="memory-item-text" style="font-size:14px;line-height:1.5;color:var(--text-primary);">' + (m.value||'').replace(/</g,'&lt;') + '</div>';
+        html += '<div class="memory-item-date" style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">' + timeStr + '</div>';
+        html += '</div>';
+        html += '<div style="display:flex;gap:4px;">';
+        if(isAuto){
+          html += '<button onclick="promoteToCore(\'' + empId + '\',\'' + m.id + '\')" title="升级为核心记忆" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--brand-primary);display:flex;align-items:center;justify-content:center;">⭐</button>';
+        }
+        html += '<button onclick="deleteMemory(\'' + empId + '\',\'' + m.id + '\')" title="删除" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--text-tertiary);display:flex;align-items:center;justify-content:center;">🗑️</button>';
+        html += '</div></div>';
+      });
+      content.innerHTML = html;
+    })
+    .catch(function(e){
+      content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--red);">加载失败</div>';
+      console.warn('[Memory] 加载失败:', e);
+    });
 }
 
 function addMemory(){
-  var text =prompt('输入记忆内容:');
-  if(!text)return;
-  var memories =JSON.parse(localStorage.getItem('sb_memories')||'[]');
-  memories.unshift({id:Date.now(),type:currentMemoryTab,text,date:new Date().toLocaleString()});
-  localStorage.setItem('sb_memories',JSON.stringify(memories));
-  renderMemory();showToast('✅ 记忆已添加');
+  var empId = localStorage.getItem('sb_current_emp');
+  if(!empId){showToast('请先选择员工');return;}
+  
+  // 在面板内显示输入框，不用 prompt
+  var container = document.getElementById('addMemoryContainer');
+  if(!container){
+    container = document.createElement('div');
+    container.id = 'addMemoryContainer';
+    container.style.cssText = 'padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:12px;';
+    container.innerHTML = '<input type="text" id="newMemoryInput" placeholder="输入记忆内容..." style="width:100%;padding:8px 12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--bg-primary);color:var(--text-primary);box-sizing:border-box;margin-bottom:8px;" onkeypress="if(event.key===\'Enter\')confirmAddMemory()">';
+    container.innerHTML += '<div style="display:flex;gap:8px;justify-content:flex-end;">';
+    container.innerHTML += '<button onclick="document.getElementById(\'addMemoryContainer\').remove()" style="padding:6px 14px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-secondary);color:var(--text-primary);font-size:13px;cursor:pointer;">取消</button>';
+    container.innerHTML += '<button onclick="confirmAddMemory()" style="padding:6px 14px;border-radius:8px;border:none;background:var(--brand-gradient);color:white;font-size:13px;cursor:pointer;">确认</button>';
+    container.innerHTML += '</div>';
+    var content = document.getElementById('memoryContent');
+    if(content) content.parentNode.insertBefore(container, content);
+    document.getElementById('newMemoryInput').focus();
+  }
 }
 
-function deleteMemory(id){
-  if(!confirm('确定删除?'))return;
-  var memories =JSON.parse(localStorage.getItem('sb_memories')||'[]');
-  memories=memories.filter(m=>m.id!=id);
-  localStorage.setItem('sb_memories',JSON.stringify(memories));
-  renderMemory();showToast('🗑️ 已删除');
+function confirmAddMemory(){
+  var input = document.getElementById('newMemoryInput');
+  if(!input) return;
+  var text = input.value.trim();
+  if(!text) return;
+  var empId = localStorage.getItem('sb_current_emp');
+  if(!empId) return;
+  
+  apiFetch('/api/memory/' + encodeURIComponent(empId), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({key: 'manual', value: text, source: '手动添加'})
+  }).then(function(r){return r.json()})
+    .then(function(){
+      showToast('✅ 记忆已添加');
+      var container = document.getElementById('addMemoryContainer');
+      if(container) container.remove();
+      renderMemory();
+    })
+    .catch(function(e){
+      showToast('❌ 添加失败');
+      console.warn('[Memory] 添加失败:', e);
+    });
+}
+
+function deleteMemory(empId, memoryId){
+  if(!confirm('确定删除这条记忆？')) return;
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + encodeURIComponent(memoryId), {
+    method: 'DELETE'
+  }).then(function(r){return r.json()})
+    .then(function(){
+      showToast('🗑️ 已删除');
+      renderMemory();
+    })
+    .catch(function(e){
+      showToast('❌ 删除失败');
+      console.warn('[Memory] 删除失败:', e);
+    });
+}
+
+function promoteToCore(empId, memoryId){
+  if(!confirm('确定升级为核心记忆？')) return;
+  // 先获取记忆内容，再以 manual key 重新保存
+  apiFetch('/api/memory/' + encodeURIComponent(empId))
+    .then(function(r){return r.json()})
+    .then(function(memories){
+      var mem = memories.find(function(m){return m.id === memoryId});
+      if(!mem){showToast('❌ 记忆不存在');return;}
+      // 保存为核心记忆
+      apiFetch('/api/memory/' + encodeURIComponent(empId), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({key: 'manual', value: mem.value, source: '从日常记录升级'})
+      }).then(function(r2){return r2.json()})
+        .then(function(){
+          // 删除原日常记录
+          return apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + encodeURIComponent(memoryId), {method: 'DELETE'});
+        }).then(function(){
+          showToast('⭐ 已升级为核心记忆');
+          renderMemory();
+        });
+    })
+    .catch(function(e){
+      showToast('❌ 升级失败');
+      console.warn('[Memory] 升级失败:', e);
+    });
 }
 
 // ===== 文档库 =====
@@ -3774,14 +3895,24 @@ function renderDocs(filter=''){
   var grid =document.getElementById('docsGrid');
   var empty =document.getElementById('docsEmpty');
   if(!grid)return;
-  var docs =docsData.filter(d=>!filter||d.name.toLowerCase().includes(filter.toLowerCase())||d.tags.some(t=>t.includes(filter)));
+  var docs = docsData.filter(function(d){
+    return !filter || d.name.toLowerCase().indexOf(filter.toLowerCase()) > -1 || d.tags.some(function(t){return t.indexOf(filter) > -1});
+  });
   if(docs.length===0){grid.innerHTML='';empty.style.display='block';}
   else{empty.style.display='none';
-    grid.innerHTML=docs.map(d=>`<div class="doc-card" onclick="showToast('打开: ${d.name}')">
-      <div class="doc-card-icon">${d.icon}</div>
-      <div class="doc-name">${d.name}</div>
-      <div class="doc-meta"><span>📁 ${d.type}</span><span>🕐 ${d.date}</span></div>
-      <div class="doc-tags">${d.tags.map(t=>`<span class="doc-tag">${t}</span>`).join('')}</div></div>`).join('');
+    var html = '';
+    docs.forEach(function(d){
+      var tagsHtml = '';
+      d.tags.forEach(function(t){
+        tagsHtml += '<span class="doc-tag">' + t + '</span>';
+      });
+      html += '<div class="doc-card" onclick="showToast(\'打开: ' + d.name + '\')">' +
+        '<div class="doc-card-icon">' + d.icon + '</div>' +
+        '<div class="doc-name">' + d.name + '</div>' +
+        '<div class="doc-meta"><span>📁 ' + d.type + '</span><span>🕐 ' + d.date + '</span></div>' +
+        '<div class="doc-tags">' + tagsHtml + '</div></div>';
+    });
+    grid.innerHTML = html;
   }
 }
 
@@ -3791,7 +3922,7 @@ function addDoc(){showToast('📝 新建文档功能开发中...');}
 
 // ===== AI 模式选择 =====
 function selectAIMode(el){
-  document.querySelectorAll('.ai-mode-option').forEach(o=>o.classList.remove('active'));
+  document.querySelectorAll('.ai-mode-option').forEach(function(o){o.classList.remove('active')});
   el.classList.add('active');
   var mode = el.dataset.mode;
   document.getElementById('openaiConfigPanel').style.display = mode==='openai'?'block':'none';
@@ -3861,11 +3992,11 @@ function performSearch(q){
       '<span style="font-size:20px">' + s.emoji + '</span><div><div style="font-size:14px;font-weight:600">' + s.name + '</div></div></div>';
   });
   if(docMatches.length) html += '<div style="padding:12px 20px;font-size:12px;color:var(--text-secondary);font-weight:600">文档</div>';
-  docMatches.forEach(d=>{
-    html += `<div class="search-result-item" onclick="switchTab('docs');closeSearch()">
-      <span style="font-size:20px">${d.icon}</span><div><div style="font-size:14px;font-weight:600">${d.name}</div><div style="font-size:12px;color:var(--text-secondary)">${d.date}</div></div></div>`;
+  docMatches.forEach(function(d){
+    html += '<div class="search-result-item" onclick="switchTab(\'docs\');closeSearch()">' +
+      '<span style="font-size:20px">' + d.icon + '</span><div><div style="font-size:14px;font-weight:600">' + d.name + '</div><div style="font-size:12px;color:var(--text-secondary)">' + d.date + '</div></div></div>';
   });
-  if(!html) html = '<div style="padding:32px;text-align:center;color:var(--text-secondary)"><div style="font-size:36px;margin-bottom:12px">😕</div><p>没有找到 "${q}" 相关结果</p></div>';
+  if(!html) html = '<div style="padding:32px;text-align:center;color:var(--text-secondary)"><div style="font-size:36px;margin-bottom:12px">😕</div><p>没有找到 "' + q + '" 相关结果</p></div>';
 
   results.innerHTML = html;
 }
