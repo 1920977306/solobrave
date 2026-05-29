@@ -3748,6 +3748,11 @@ function renderMemory(){
   
   var empId = localStorage.getItem('sb_current_emp');
   if(!empId){
+    // 备用方案：从当前选中的员工元素读 ID
+    var active = document.querySelector('.emp-card.active, .emp-item.active, [data-emp].active, [data-id].active');
+    if(active) empId = active.getAttribute('data-emp') || active.getAttribute('data-id');
+  }
+  if(!empId){
     content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">请先选择一个员工</div>';
     return;
   }
@@ -4022,6 +4027,7 @@ async function openDetailPanel(empId){
   if(!emp) return;
   currentDetailEmp = emp;
   currentAgentId = empId;
+  localStorage.setItem('sb_current_emp', empId);
   
   document.getElementById('detailAvatar').textContent = emp.name[0];
   document.getElementById('detailName').textContent = emp.name;
