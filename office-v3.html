@@ -2732,8 +2732,8 @@ async function loadDocContent(docName) {
       if(emp){
         if(docName === 'SOUL.md') return emp.soulDoc || emp.systemPrompt || '';
         if(docName === 'IDENTITY.md') return emp.idDoc || (emp.name + ' - ' + emp.role);
-        if(docName === 'USER.md') return emp.userDoc || '';
-        if(docName === 'TOOLS.md') return emp.toolsDoc || '';
+        if(docName === 'USER.md') return emp.userDoc || emp.user || '';
+        if(docName === 'TOOLS.md') return emp.toolsDoc || emp.tools || '';
       }
       return '';
     }
@@ -2744,8 +2744,8 @@ async function loadDocContent(docName) {
     if(emp){
       if(docName === 'SOUL.md') return emp.soulDoc || emp.systemPrompt || '';
       if(docName === 'IDENTITY.md') return emp.idDoc || (emp.name + ' - ' + emp.role);
-      if(docName === 'USER.md') return emp.userDoc || '';
-      if(docName === 'TOOLS.md') return emp.toolsDoc || '';
+      if(docName === 'USER.md') return emp.userDoc || emp.user || '';
+      if(docName === 'TOOLS.md') return emp.toolsDoc || emp.tools || '';
     }
     return '';
   }
@@ -5051,7 +5051,9 @@ var soulTemplates = {
     emoji: '📋',
     desc: '温柔、专业、高效',
     soul: '# SOUL.md\n\n你是{name}，一个专业高效的助理。\n\n## 核心特质\n- 温柔且专业\n- 高效执行任务\n- 主动思考问题\n\n## 沟通风格\n- 简洁明了\n- 先给结论再展开\n- 适当使用emoji增加温度',
-    identity: '# IDENTITY.md\n\n## 基本信息\n- 名称: {name}\n- 角色: {role}\n- 类型: 助理型\n\n## 能力\n- 日程管理\n- 信息整理\n- 文档撰写'
+    identity: '# IDENTITY.md\n\n## 基本信息\n- 名称: {name}\n- 角色: {role}\n- 类型: 助理型\n\n## 能力\n- 日程管理\n- 信息整理\n- 文档撰写',
+    user: '# USER.md\n\n## 用户画像\n- 目标用户: 需要高效助理支持的专业人士\n- 使用场景: 日常办公、会议安排、文档处理\n- 痛点: 时间碎片化、信息过载\n\n## 用户偏好\n- 沟通风格: 简洁专业\n- 响应速度: 快速\n- 工作时间: 9:00-18:00',
+    tools: '# TOOLS.md\n\n## 可用工具\n- 日历管理\n- 邮件发送\n- 文档编辑\n- 会议预约\n\n## 使用规则\n- 先确认再执行\n- 重要操作需二次确认\n- 记录所有操作日志'
   },
   sales: {
     name: '销售型',
@@ -5221,6 +5223,8 @@ async function confirmCreateAgent() {
   var tmpl = soulTemplates[wizardState.soulTemplate];
   var soul = tmpl.soul.replace(/{name}/g, wizardState.name).replace(/{role}/g, wizardState.role);
   var identity = tmpl.identity.replace(/{name}/g, wizardState.name).replace(/{role}/g, wizardState.role);
+  var user = tmpl.user.replace(/{name}/g, wizardState.name).replace(/{role}/g, wizardState.role);
+  var tools = tmpl.tools.replace(/{name}/g, wizardState.name).replace(/{role}/g, wizardState.role);
   
   showToast('正在创建 Agent...', 'loading');
   
@@ -5249,7 +5253,9 @@ async function confirmCreateAgent() {
         soulType: wizardState.soulTemplate,
         status: 'idle',
         skills: [],
-        channels: []
+        channels: [],
+        user: user,
+        tools: tools
       };
       employees.push(newAgent);
     } else {
@@ -5266,7 +5272,9 @@ async function confirmCreateAgent() {
         status: 'idle',
         skills: [],
         channels: [],
-        lastActive: new Date().toISOString()
+        lastActive: new Date().toISOString(),
+        user: user,
+        tools: tools
       };
       employees.push(newAgent);
       showToast('🌟 Agent 创建成功（离线模式）', 'success');
