@@ -3737,6 +3737,10 @@ function switchMemoryTab(tab){
   renderMemory();
 }
 
+function renderMemoryTab(){
+  return renderMemory.apply(this, arguments);
+}
+
 function renderMemory(){
   var content = document.getElementById('memoryContent');
   var empty = document.getElementById('memoryEmpty');
