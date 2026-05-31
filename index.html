@@ -3226,7 +3226,7 @@ window.doLogin = function () {
 
 <div style="margin-top:16px;">
 <div style="font-weight:600;margin-bottom:8px">当前团队</div>
-<div id="teamList"></div>
+<div id="currentTeamList"></div>
 </div>
 </div>
 </div>
@@ -10102,7 +10102,7 @@ function switchDrawerTab(tab) {
   document.querySelectorAll('.tab-pane').forEach(function (p) {
     return p.classList.toggle('active', p.id === 'tab-' + tab);
   });
-  if (tab === 'team') renderTeamList();
+  if (tab === 'team') renderCurrentTeamList();
 }
 
 // Model selection
@@ -10117,19 +10117,18 @@ function selectModel(el, modelId) {
 
 // Employee management
 
-function renderTeamList() {
-  const list = document.getElementById('teamList');
+function renderCurrentTeamList() {
+  const list = document.getElementById('currentTeamList');
   if (!list) return;
   list.innerHTML = emps.map(function (e) {
-    return `<div class="team-member">
-<div class="team-avatar" style="background:${escapeAttr(e.bg || '')};display:flex;align-items:center;justify-content:center;"
->${renderAvatar(e, 40)}</div>
-<div class="team-info">
-<div class="team-name">${escapeHtml(e.name || '')}</div>
-<div class="team-role">${escapeHtml(e.role || '')}</div>
-${e.model ? '<div class="team-model">' + escapeHtml(e.model) + '</div>' : ''}
-</div>
-</div>`;
+    var roleDisplay = e.role === '__custom__' ? (e.customRole || e.subCategory || '自定义') : (e.role || '');
+    return '<div class="team-member">' +
+      '<div class="team-avatar" style="background:' + escapeAttr(e.bg || '') + ';display:flex;align-items:center;justify-content:center;">' + renderAvatar(e, 40) + '</div>' +
+      '<div class="team-info">' +
+      '<div class="team-name">' + escapeHtml(e.name || '') + '</div>' +
+      '<div class="team-role">' + escapeHtml(roleDisplay) + '</div>' +
+      (e.model ? '<div class="team-model">' + escapeHtml(e.model) + '</div>' : '') +
+      '</div></div>';
   }).join('');
 }
 
@@ -11128,8 +11127,23 @@ function openWizard() {
   wizSelectedSkills = [];
   renderWizSkillGrid();
   renderAvatarPicker();
+  loadWizardTeams();
   updateWizardUI();
   document.getElementById('wizardOverlay').classList.add('show');
+}
+function loadWizardTeams() {
+  var select = document.getElementById('wizGroup');
+  if (!select) return;
+  apiFetch('/api/teams').then(function (res) {
+    if (res && res.ok) return res.json();
+    return [];
+  }).then(function (teams) {
+    select.innerHTML = '<option value="">-- 选择团队 --</option>' + (teams || []).map(function (t) {
+      return '<option value="' + t.id + '">' + escapeHtml(t.name) + '</option>';
+    }).join('');
+  }).catch(function () {
+    select.innerHTML = '<option value="">-- 选择团队 --</option>';
+  });
 }
 function renderAvatarPicker() {
   var picker = document.getElementById('wizAvatarPicker');
@@ -11460,6 +11474,7 @@ async function finishWizard() {
     return;
   }
   var role = document.getElementById('wizRole').value;
+  if (role === '__custom__') role = document.getElementById('wizCustomRole').value.trim() || '自定义';
   var avatarEl = document.querySelector('.wiz-avatar-opt.selected');
   var avatarIndex = 0;
   if (avatarEl) {
@@ -11492,6 +11507,7 @@ async function finishWizard() {
     id: 'emp_' + Date.now(),
     name: name,
     role: role,
+    customRole: document.getElementById('wizRole').value === '__custom__' ? role : '',
     avatar: avatarIndex,
     bg: colors[emps.length % colors.length],
     status: status,
@@ -11514,7 +11530,7 @@ async function finishWizard() {
   };
   emps.push(newEmp);
   saveEmployees();
-  renderTeamList();
+  renderCurrentTeamList();
   renderEmployeeList();
   syncNewEmpToServer(newEmp);
 
@@ -11548,7 +11564,7 @@ async function finishWizard() {
         return e.id !== newEmp.id;
       });
       saveEmployees();
-      renderTeamList();
+      renderCurrentTeamList();
       renderEmployeeList();
       showToast('已取消创建员工');
     }
@@ -11562,7 +11578,7 @@ async function finishWizard() {
     apiFetch('/api/agents/' + newEmp.id, {
       method: 'DELETE'
     }).catch(function () {});
-    renderTeamList();
+    renderCurrentTeamList();
     renderEmployeeList();
     showToast('❌ 员工创建失败：' + regResult.error);
   }
@@ -12129,10 +12145,7 @@ function doReset() {
 <div class="form-group">
 <label class="form-label">分组</label>
 <select class="form-select" id="wizGroup">
-<option>全局统筹</option>
-<option>技术团队</option>
-<option>业务团队</option>
-<option>测试小组</option>
+<option value="">-- 选择团队 --</option>
 </select>
 </div>
 </div>
