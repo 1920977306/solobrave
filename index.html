@@ -3401,24 +3401,36 @@ function showMainApp() {
   initLobsterChannel();
   // 加载员工列表（从后端优先，降级到 localStorage）
   loadEmployees().then(function () {
-    loadGroups().then(function () {
-      renderEmployeeList();
-      // 清理：校验当前聊天对象是否还存在
-      var curEmp = localStorage.getItem('sb_current_emp');
-      if (curEmp) {
-        var curEmpObj = emps.find(function (e) {
-          return e.id === curEmp;
-        });
-        // 不在可见列表中就清掉
-        var visibleEmps = getVisibleEmps();
-        if (!curEmpObj || visibleEmps.indexOf(curEmpObj) < 0) {
-          localStorage.removeItem('sb_current_emp');
-          localStorage.removeItem('sb_chat_history_' + curEmp);
-        }
+    return loadGroups();
+  }).then(function () {
+    renderEmployeeList();
+    // 清理：校验当前聊天对象是否还存在（不删除聊天记录，只清除无效的当前选中）
+    var curEmp = localStorage.getItem('sb_current_emp');
+    if (curEmp) {
+      var curEmpObj = emps.find(function (e) {
+        return e.id === curEmp;
+      });
+      // 不在可见列表中就清掉当前选中（保留聊天记录）
+      var visibleEmps = getVisibleEmps();
+      if (!curEmpObj || visibleEmps.indexOf(curEmpObj) < 0) {
+        localStorage.removeItem('sb_current_emp');
       }
-      // 重置聊天区到空状态
-      // 清除当前选中的员工，确保刷新后显示空状态
-      localStorage.removeItem('sb_current_emp');
+    }
+    // 重置聊天区到空状态（仅当前员工确实不存在时，且 emps 已加载完毕）
+    var needReset = false;
+    var currentEmpAfterCheck = localStorage.getItem('sb_current_emp');
+    if (!currentEmpAfterCheck) {
+      needReset = true;
+    } else {
+      var curEmpObj2 = emps.find(function (e) {
+        return e.id === currentEmpAfterCheck;
+      });
+      var visibleEmps2 = getVisibleEmps();
+      if (!curEmpObj2 || visibleEmps2.indexOf(curEmpObj2) < 0) {
+        needReset = true;
+      }
+    }
+    if (needReset) {
       var chatHeaderName = document.querySelector('.chat-header-name');
       var chatHeaderRole = document.querySelector('.chat-header-role');
       var chatHeaderAvatar = document.querySelector('.chat-header-v2 .avatar');
@@ -3428,30 +3440,29 @@ function showMainApp() {
         chatHeaderAvatar.innerHTML = '🦞';
       }
       renderMsgs('private');
-      // 清理：删除不存在员工的聊天记录
-      var empIds = {};
-      emps.forEach(function (e) {
-        empIds[e.id] = true;
-      });
-      var toRemove = [];
-      for (var k = 0; k < localStorage.length; k++) {
-        var key = localStorage.key(k);
-        if (key && key.indexOf('sb_chat_history_') === 0) {
-          var eid = key.substring('sb_chat_history_'.length);
-          if (!empIds[eid]) {
-            toRemove.push(key);
-          }
+    }
+    // 清理：删除不存在员工的聊天记录
+    var empIds = {};
+    emps.forEach(function (e) {
+      empIds[e.id] = true;
+    });
+    var toRemove = [];
+    for (var k = 0; k < localStorage.length; k++) {
+      var key = localStorage.key(k);
+      if (key && key.indexOf('sb_chat_history_') === 0) {
+        var eid = key.substring('sb_chat_history_'.length);
+        if (!empIds[eid]) {
+          toRemove.push(key);
         }
       }
-      toRemove.forEach(function (k) {
-        localStorage.removeItem(k);
-      });
-      // 清空消息区
-      var area = document.getElementById('messagesArea');
-      if (area) area.innerHTML = '';
+    }
+    toRemove.forEach(function (k) {
+      localStorage.removeItem(k);
     });
-  });
-  // Leader加载可见小组
+  }).catch(function (err) {
+    console.error('[showMainApp] 加载员工/小组失败:', err);
+    renderEmployeeList();
+  });  // Leader加载可见小组
   async function loadVisibleTeams() {
     try {
       var resp = await apiFetch('/api/teams');
@@ -3757,7 +3768,10 @@ function sendMsg() {
     area.insertAdjacentHTML('afterbegin', '<div class="time-separator"><span>今天</span></div>');
   }
 
-  // 添加用户消息
+  // 添加用户消息（先保存到 history，再渲染到 DOM，避免 renderMsgs 触发时丢失）
+  var _hist = JSON.parse(localStorage.getItem('sb_chat_history_' + emp.id) || '[]');
+  _hist.push({ role: 'user', content: text, time: Date.now() });
+  localStorage.setItem('sb_chat_history_' + emp.id, JSON.stringify(_hist.slice(-50)));
   const userMsg = document.createElement('div');
   userMsg.className = 'msg own';
   userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + escapeHtml(text) + '</div></div>';
@@ -5638,7 +5652,10 @@ document.getElementById('msgInput').addEventListener('keydown', function (e) {
       e.preventDefault();
       const sel = document.querySelector('#slashSections .slash-item.selected');
       if (sel) execCmd(sel.dataset.cmd);
-    } else sendMsg();
+    } else {
+      e.stopPropagation();
+      sendMsg();
+    }
   }
   if (e.key === 'ArrowDown') {
     e.preventDefault();
@@ -7699,6 +7716,21 @@ function renderMsgs(type) {
     return;
   }
   function renderPrivateMsgs(area, emp, history) {
+    // 保存当前 DOM 中不在 history 里的用户消息和打字指示器
+    var typingMsg = document.getElementById('typingMsg');
+    var extraOwnMsgs = [];
+    area.querySelectorAll('.msg.own').forEach(function (msg) {
+      var bubble = msg.querySelector('.msg-bubble');
+      if (bubble) {
+        var text = bubble.textContent;
+        var inHistory = history.some(function (m) {
+          return m.role === 'user' && m.content === text;
+        });
+        if (!inHistory) {
+          extraOwnMsgs.push(msg);
+        }
+      }
+    });
     area.innerHTML = '<div class="time-separator"><span>今天</span></div>' + history.map(function (m) {
       const own = m.role === 'user';
       const timeStr = new Date(m.time).toLocaleTimeString('zh-CN', {
@@ -7707,6 +7739,13 @@ function renderMsgs(type) {
       });
       return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(emp && emp.role || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + escapeHtml(m.content) + '</div>' + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
+    // 追加回不在 history 中的消息和打字指示器
+    extraOwnMsgs.forEach(function (msg) {
+      area.appendChild(msg);
+    });
+    if (typingMsg) {
+      area.appendChild(typingMsg);
+    }
     area.scrollTop = area.scrollHeight;
   }
   // project messages (demo)
@@ -8493,37 +8532,6 @@ function filterModels(q) {
     g.style.display = visible.length ? 'block' : 'none';
   });
 }
-function compressContext() {
-  var empId = currentEmpId || localStorage.getItem('sb_current_emp');
-  if (!empId) {
-    showToast('⚠️ 请先选择一个员工');
-    return;
-  }
-  var emp = emps.find(function (e) {
-    return e.id === empId;
-  });
-  if (!emp) {
-    showToast('⚠️ 员工不存在');
-    return;
-  }
-
-  // 清空当前员工的对话历史
-  var historyKey = 'sb_chat_history_' + empId;
-  var oldHistory = localStorage.getItem(historyKey);
-  var oldCount = oldHistory ? JSON.parse(oldHistory).length : 0;
-
-  // 保存压缩前的摘要（可选）
-  localStorage.setItem(historyKey + '_compressed', oldHistory || '[]');
-  localStorage.setItem(historyKey + '_compressed_at', new Date().toISOString());
-
-  // 清空当前历史
-  localStorage.setItem(historyKey, '[]');
-
-  // 清空消息区域
-  var area = document.getElementById('messagesArea');
-  area.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-secondary);"><div style="font-size:32px;margin-bottom:12px;">❄️</div><div>上下文已压缩</div><div style="font-size:12px;margin-top:8px;">已清空 ' + emp.name + ' 的对话历史</div></div>';
-  showToast('❄️ 已清空 ' + emp.name + ' 的对话历史（' + oldCount + ' 条）');
-}
 
 // 斜杠命令实现
 function resetContext() {
@@ -8550,48 +8558,62 @@ function resetContext() {
 
 // 上下文压缩 - 保留关键信息，省 token
 function compressContext() {
-  const area = document.getElementById('messagesArea');
-  const msgs = area.querySelectorAll('.msg:not(.own)');
-  if (msgs.length < 6) {
-    showToast('📝 对话太少，无需压缩');
+  const empId = localStorage.getItem('sb_current_emp');
+  if (!empId) {
+    showToast('\u26A0\uFE0F 请先选择一个员工');
     return;
   }
-  // 提取关键消息（保留最近6条+重要消息）
-  const importantMsgs = [];
-  msgs.forEach(function (m) {
-    const text = m.textContent || '';
-    if (text.includes('@') || text.includes('重要') || text.includes('记住') || text.includes('TODO')) {
-      importantMsgs.push(m.cloneNode(true));
-    }
+  const emp = emps.find(function (e) {
+    return e.id === empId;
   });
-  // 保留最后6条
-  const recentMsgs = Array.from(msgs).slice(-6);
-  const mergedMsgs = [...recentMsgs];
-  // 去重合并
-  importantMsgs.forEach(function (imp) {
-    if (!mergedMsgs.some(function (m) {
-      return m.textContent === imp.textContent;
-    })) {
-      mergedMsgs.unshift(imp);
-    }
-  });
-  // 插入摘要
-  const summaryDiv = document.createElement('div');
-  summaryDiv.className = 'msg';
-  summaryDiv.innerHTML = `<div style="background:var(--accent-light);border-radius:12px;padding:12px;margin:12px 0;border:1px solid var(--accent);">
-<div style="font-weight:600;margin-bottom:8px;">📦 上下文已压缩</div>
-<div style="font-size:12px;color:var(--text-secondary);">已清理 ${msgs.length - mergedMsgs.length} 条早期消息，保留 ${mergedMsgs.length} 条关键上下文</div>
-</div>`;
-  // 清空并重建
-  area.innerHTML = '';
-  area.appendChild(summaryDiv);
-  mergedMsgs.forEach(function (m) {
-    return area.appendChild(m);
-  });
-  area.scrollTop = area.scrollHeight;
-  showToast(`📦 上下文已压缩（保留 ${mergedMsgs.length} 条）`);
-}
+  if (!emp) {
+    showToast('\u26A0\uFE0F 员工不存在');
+    return;
+  }
 
+  // 从 localStorage 读取 history，保留最近 12 条（约 6 轮对话）
+  var historyKey = 'sb_chat_history_' + empId;
+  var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+  if (history.length < 12) {
+    showToast('\u{1F4DD} 对话太少，无需压缩');
+    return;
+  }
+
+  var oldCount = history.length;
+  var kept = history.slice(-12);
+  localStorage.setItem(historyKey, JSON.stringify(kept));
+
+  // 重新渲染保留的消息
+  const area = document.getElementById('messagesArea');
+  area.innerHTML = '<div class="time-separator"><span>今天</span></div>';
+
+  // 插入压缩摘要
+  var summaryHtml = '<div class="msg"><div class="msg-bubble" style="background:var(--accent-light);border:1px solid var(--accent);border-radius:12px;padding:12px;margin:12px 0;">' +
+    '<div style="font-weight:600;margin-bottom:8px;">\u{1F4E6} 上下文已压缩</div>' +
+    '<div style="font-size:12px;color:var(--text-secondary);">已清理 ' + (oldCount - kept.length) + ' 条早期消息，保留 ' + kept.length + ' 条关键上下文</div>' +
+    '</div></div>';
+  area.insertAdjacentHTML('beforeend', summaryHtml);
+
+  // 渲染保留的消息（用户消息 + AI 消息都从 history 重新生成）
+  kept.forEach(function (m) {
+    var own = m.role === 'user';
+    var timeStr = new Date(m.time).toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    var html = '<div class="msg ' + (own ? 'own' : '') + '">' +
+      (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') +
+      '<div class="msg-content">' +
+      (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(emp.role || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' :
+      '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') +
+      '<div class="msg-bubble">' + escapeHtml(m.content) + '</div>' +
+      '</div></div>';
+    area.insertAdjacentHTML('beforeend', html);
+  });
+
+  area.scrollTop = area.scrollHeight;
+  showToast('\u{1F4E6} 上下文已压缩（保留 ' + kept.length + ' 条）');
+}
 // 上下文管理面板
 function showContextMenu() {
   const menu = document.createElement('div');
@@ -10749,7 +10771,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
     return res.json();
   }).then(function (data) {
     if (data && data.choices && data.choices[0] && data.choices[0].message) {
-      var reply = data.choices[0].message.content;
+      var reply = data.choices[0].message.content || '';
       displayAIReply(reply, docContext, timeStr);
       saveChatHistory(emp.id, userMessage, reply, docContext);
     } else if (data) {
@@ -10883,11 +10905,14 @@ function clearChatOnServer(projId) {
 function saveChatHistory(empId, userMsg, aiMsg, docContext) {
   var history = JSON.parse(localStorage.getItem('sb_chat_history_' + empId) || '[]');
   var now = Date.now();
-  history.push({
-    role: 'user',
-    content: userMsg,
-    time: now
-  });
+  // 如果最后一条不是相同的用户消息，才追加（避免 sendMsg 已保存导致重复）
+  if (history.length === 0 || history[history.length - 1].role !== 'user' || history[history.length - 1].content !== userMsg) {
+    history.push({
+      role: 'user',
+      content: userMsg,
+      time: now
+    });
+  }
   if (docContext && docContext.length > 0) history.push({
     role: 'system',
     content: '[文档]' + docContext,
@@ -11019,7 +11044,7 @@ function displayAIReply(replyText, docContext, timeStr) {
     }
   }
   var bubble = formatMessageContent(replyText);
-  if (hasDocs && replyText.indexOf('📚') === -1) {
+  if (hasDocs && replyText && replyText.indexOf('📚') === -1) {
     bubble += '<div class="ai-doc-hint">📚 已读取 ' + countDocsInContext(docContext) + ' 个相关文档</div>';
   }
   var html = '<div class="msg">\n';
