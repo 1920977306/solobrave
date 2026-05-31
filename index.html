@@ -5362,7 +5362,7 @@ function ctxAction(action){
     case 'badge-important': emp.badge={level:'important',number:null}; saveEmployees(); renderEmployeeList(); showToast('🟠 已标记为重要'); break;
     case 'badge-normal': emp.badge={level:'normal',number:null}; saveEmployees(); renderEmployeeList(); showToast('🔵 已标记为普通'); break;
     case 'badge-clear': emp.badge=null; saveEmployees(); renderEmployeeList(); showToast('✕ 已清除紧急标记'); break;
-    case 'pin': emp.pinned=!emp.pinned; showToast(emp.pinned?'📌 已置顶':'📌 已取消置顶'); saveEmployees(); break;
+    case 'pin': emp.pinned=!emp.pinned; showToast(emp.pinned?'📌 已置顶':'📌 已取消置顶'); saveEmployees(); syncEmpToServer(emp); break;
     // case 'move' - moved to submenu
     case 'archive': emp.archived=true; saveEmployees(); saveArchive(); syncEmpToServer(emp); showToast('📦 已归档'); break;
     case 'unarchive': emp.archived=false; saveEmployees(); saveArchive(); syncEmpToServer(emp); showToast('📥 已取消归档'); break;
