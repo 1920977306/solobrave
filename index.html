@@ -2030,7 +2030,7 @@ window.doLogin = function () {
     });
   } else {
     // Main script not loaded yet, try manual fetch
-    fetch('/api/auth/login', {
+    apiFetch('/api/auth/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -3499,7 +3499,7 @@ async function _fullLogin() {
     return;
   }
   try {
-    const resp = await fetch('/api/auth/login', {
+    const resp = await apiFetch('/api/auth/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -9218,7 +9218,7 @@ function searchOpenClawSkills() {
   if (!resultsDiv || !listDiv) return;
   listDiv.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-tertiary);">搜索中...</div>';
   resultsDiv.style.display = 'block';
-  fetch('/api/openclaw/skills/search?q=' + encodeURIComponent(query)).then(function (r) {
+  apiFetch('/api/openclaw/skills/search?q=' + encodeURIComponent(query)).then(function (r) {
     return r.json();
   }).then(function (data) {
     var results = data.results || [];
@@ -9236,7 +9236,7 @@ function searchOpenClawSkills() {
 function installOpenClawSkill(slug) {
   if (!slug) return;
   showToast('正在安装 ' + slug + '...');
-  fetch('/api/openclaw/skills/install', {
+  apiFetch('/api/openclaw/skills/install', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -9260,7 +9260,7 @@ function installOpenClawSkill(slug) {
 function removeOpenClawSkill(slug) {
   if (!slug) return;
   if (!confirm('确定要卸载技能 ' + slug + ' 吗？')) return;
-  fetch('/api/openclaw/skills/remove', {
+  apiFetch('/api/openclaw/skills/remove', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -10741,7 +10741,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
   if (providerId === 'zhipu') {
     endpoint = baseUrl + '/chat/completions';
   }
-  fetch('/api/proxy', {
+  apiFetch('/api/proxy', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -11570,7 +11570,7 @@ async function finishWizard() {
   // 安装选中技能（仅在注册成功时）
   if (regResult.success && wizSelectedSkills.length > 0 && newEmp.openclawName) {
     wizSelectedSkills.forEach(function (slug) {
-      fetch('/api/openclaw/skills/install', {
+      apiFetch('/api/openclaw/skills/install', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
