@@ -3805,7 +3805,7 @@ function sendMsg() {
         if (t) t.remove();
         var simReply = '⚠️ OpenClaw 网关未连接，请检查 Gateway 是否运行，或配置 AI 供应商的 API Key。';
         displayAIReply(simReply, docContext, timeStr);
-        saveChatHistory(text, simReply, docContext);
+        saveChatHistory(_curEmpId, text, simReply, docContext);
       }, 500);
     }
   }
@@ -3988,7 +3988,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
           if (!fullReply) fullReply = '（AI 未返回内容）';
           if (data.data.phase === 'error') fullReply = '⚠️ AI 回复出错: ' + (data.error || '未知错误');
           displayAIReply(fullReply, docContext, timeStr);
-          saveChatHistory(userMessage, fullReply, docContext);
+          saveChatHistory(emp.id, userMessage, fullReply, docContext);
           openclaw.off('agent', agentHandler);
         }
       }
@@ -4016,7 +4016,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
       }
       if (reply) {
         displayAIReply(reply, docContext, timeStr);
-        saveChatHistory(userMessage, reply, docContext);
+        saveChatHistory(emp.id, userMessage, reply, docContext);
         openclaw.off('agent', agentHandler);
       }
     }
@@ -4038,12 +4038,44 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
         // 但需要注意 agentHandler 已注册，它会处理回复
       } catch (retryErr) {
         displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr);
-        saveChatHistory(userMessage, '⚠️ Agent 不存在', docContext);
+        saveChatHistory(emp.id, userMessage, '⚠️ Agent 不存在', docContext);
       }
     } else {
       displayAIReply('⚠️ OpenClaw 连接异常: ' + e.message, docContext, timeStr);
     }
   }
+}
+
+// 构建记忆注入文本（复用）
+async function buildMemoryPrompt(empId, userMessage) {
+  try {
+    var memRes = await apiFetch('/api/memory/' + encodeURIComponent(empId));
+    var memories = await memRes.json();
+    if (memories && memories.length > 0) {
+      var keywords = extractKeywords(userMessage);
+      var scored = memories.map(function (m) {
+        var score = 0;
+        var memLower = (m.value || '').toLowerCase();
+        for (var i = 0; i < keywords.length; i++) {
+          if (memLower.indexOf(keywords[i].toLowerCase()) > -1) score++;
+        }
+        return { memory: m, score: score };
+      });
+      scored.sort(function (a, b) { return b.score - a.score; });
+      var selected;
+      var relevant = scored.filter(function (s) { return s.score > 0; });
+      if (relevant.length > 0) {
+        selected = relevant.slice(0, 5);
+      } else {
+        selected = scored.slice(0, 2);
+      }
+      var memText = selected.map(function (s) {
+        return '- ' + s.memory.value;
+      }).join('\n');
+      return '\n\n【关于用户的记忆】\n' + memText;
+    }
+  } catch (e) {}
+  return '';
 }
 
 // 初始化 OpenClaw 连接
@@ -6864,9 +6896,20 @@ async function sendGroupMessage(groupId, message, mentions) {
     var hasUserMention = userMentions.length > 0;
     if (hasUserMention) {
       // 直接触发被 @ 的 AI，群主不说话
-      triggerUserMentions(userMentions, groupId, 'user');
+      triggerUserMentions(userMentions, groupId, 'user', message);
     } else {
       // 没有 @ 任何人，群主正常回复
+      // 加载记忆和摘要注入
+      try {
+        var sumRes = await apiFetch('/api/chat/summarize/' + encodeURIComponent(group.leadAgentId));
+        var sumData = await sumRes.json();
+        if (sumData && sumData.summary && sumData.summary.length > 5) {
+          fullMessage = '\n\n【之前对话的摘要】\n' + sumData.summary + '\n\n' + fullMessage;
+        }
+      } catch (e) {}
+      var memPrompt = await buildMemoryPrompt(group.leadAgentId, message);
+      if (memPrompt) fullMessage = memPrompt + '\n\n' + fullMessage;
+
       // 显示打字指示器
       var typingHtml = '<div class="msg" id="groupTypingMsg"><div class="msg-avatar"><div class="avatar small" style="background:' + (leadEmp ? leadEmp.bg : '#8E8E93') + ';">' + (leadEmp ? renderAvatar(leadEmp, 32) : '🤖') + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + (leadEmp ? escapeHtml(leadEmp.name) : 'AI') + '</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div></div>';
       area.insertAdjacentHTML('beforeend', typingHtml);
@@ -6908,6 +6951,8 @@ async function sendGroupMessage(groupId, message, mentions) {
               // AI 正常回复完成 → 额外发送聊天消息通知
               if (data.data.phase === 'end') {
                 notifyOfficeChatMessage(group.leadAgentId, 'incoming');
+                // 保存聊天记录并提取记忆
+                saveChatHistory(group.leadAgentId, message, fullReply, docContext);
               }
               // 触发 @mention 链式调用
               mentionChainDepth = 0;
@@ -6933,6 +6978,8 @@ async function sendGroupMessage(groupId, message, mentions) {
           }
           if (reply) {
             displayGroupAIReply(groupId, group.leadAgentId, reply);
+            // 保存聊天记录并提取记忆
+            saveChatHistory(group.leadAgentId, message, reply, docContext);
             // 触发 @mention 链式调用
             mentionChainDepth = 0;
             mentionTriggered = {};
@@ -6982,22 +7029,22 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
   matches.forEach(function (emp, idx) {
     var delay = (idx + 1) * (2000 + Math.floor(Math.random() * 3000));
     setTimeout(function () {
-      triggerMentionedAgent(emp, groupId, senderId, 'ai');
+      triggerMentionedAgent(emp, groupId, senderId, 'ai', replyText);
     }, delay);
   });
 }
 
 // 触发用户消息中 @ 的 AI 回复（leadAgent 回复完成后调用）
-function triggerUserMentions(userMentions, groupId, senderId) {
+function triggerUserMentions(userMentions, groupId, senderId, originalMessage) {
   if (!userMentions || userMentions.length === 0) return;
   userMentions.forEach(function (emp, idx) {
     var delay = (idx + 1) * (1500 + Math.floor(Math.random() * 2000));
     setTimeout(function () {
-      triggerMentionedAgent(emp, groupId, senderId, 'user');
+      triggerMentionedAgent(emp, groupId, senderId, 'user', originalMessage);
     }, delay);
   });
 }
-async function triggerMentionedAgent(emp, groupId, fromId, source) {
+async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) {
   mentionChainDepth++;
 
   // 获取群组信息
@@ -7034,6 +7081,11 @@ async function triggerMentionedAgent(emp, groupId, fromId, source) {
   if (groupObj && groupObj.announcement) {
     prompt += '\n【群公告】' + groupObj.announcement;
   }
+
+  // 加载记忆注入
+  var memPrompt = await buildMemoryPrompt(emp.id, userMessage || '');
+  if (memPrompt) prompt = memPrompt + '\n\n' + prompt;
+
   var agentId = emp.openclawName || emp.id;
   var sessionKey = 'agent:' + agentId + ':main';
 
@@ -7080,6 +7132,8 @@ async function triggerMentionedAgent(emp, groupId, fromId, source) {
           // AI 正常回复完成 → 额外发送聊天消息通知
           if (data.data.phase === 'end') {
             notifyOfficeChatMessage(emp.id, 'incoming');
+            // 保存聊天记录并提取记忆
+            saveChatHistory(emp.id, userMessage || fullReply, fullReply, '');
           }
           // 保存到群聊历史
           var historyKey = 'sb_group_history_' + groupId;
@@ -7113,6 +7167,8 @@ async function triggerMentionedAgent(emp, groupId, fromId, source) {
       }
       if (reply) {
         displayGroupAIReply(groupId, emp.id, reply);
+        // 保存聊天记录并提取记忆
+        saveChatHistory(emp.id, userMessage || reply, reply, '');
         var historyKey = 'sb_group_history_' + groupId;
         var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
         history.push({
@@ -10689,7 +10745,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
     if (data && data.choices && data.choices[0] && data.choices[0].message) {
       var reply = data.choices[0].message.content;
       displayAIReply(reply, docContext, timeStr);
-      saveChatHistory(userMessage, reply, docContext);
+      saveChatHistory(emp.id, userMessage, reply, docContext);
     } else if (data) {
       displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr);
     }
@@ -10703,7 +10759,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
         var simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
         var simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
         displayAIReply(simReply, docContext, timeStr);
-        saveChatHistory(userMessage, simReply, docContext);
+        saveChatHistory(emp.id, userMessage, simReply, docContext);
       }, 500);
     } else {
       displayAIReply('⚠️ API 调用失败: ' + error.message, docContext, timeStr);
@@ -10818,9 +10874,8 @@ function clearChatOnServer(projId) {
     method: 'DELETE'
   }).catch(function (e) {});
 }
-function saveChatHistory(userMsg, aiMsg, docContext) {
-  var projId = getCurrentProjectId();
-  var history = JSON.parse(localStorage.getItem('sb_chat_history_' + projId) || '[]');
+function saveChatHistory(empId, userMsg, aiMsg, docContext) {
+  var history = JSON.parse(localStorage.getItem('sb_chat_history_' + empId) || '[]');
   var now = Date.now();
   history.push({
     role: 'user',
@@ -10837,20 +10892,20 @@ function saveChatHistory(userMsg, aiMsg, docContext) {
     content: aiMsg,
     time: now
   });
-  localStorage.setItem('sb_chat_history_' + projId, JSON.stringify(history.slice(-50)));
+  localStorage.setItem('sb_chat_history_' + empId, JSON.stringify(history.slice(-50)));
 
   // 同步到后端
-  saveChatToServer(projId, userMsg, aiMsg, docContext);
+  saveChatToServer(empId, userMsg, aiMsg, docContext);
 
   // 提取并保存记忆
-  extractAndSaveMemory(projId, userMsg, aiMsg);
+  extractAndSaveMemory(empId, userMsg, aiMsg);
 
   // 保存后检查是否需要压缩
-  var chatKey = 'sb_chat_history_' + projId;
+  var chatKey = 'sb_chat_history_' + empId;
   var currentHistory = JSON.parse(localStorage.getItem(chatKey) || '[]');
   if (currentHistory.length > 20) {
     // 触发后端压缩
-    apiFetch('/api/chat/summarize/' + encodeURIComponent(projId), {
+    apiFetch('/api/chat/summarize/' + encodeURIComponent(empId), {
       method: 'POST'
     }).then(function (r) {
       return r.json();
