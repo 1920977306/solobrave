@@ -20,6 +20,7 @@ import os
 import subprocess
 import ssl
 import sys
+import threading
 import urllib.request
 import urllib.error
 import hashlib
@@ -33,6 +34,16 @@ except ImportError:
     fcntl = None
 from datetime import datetime
 from urllib.parse import urlparse, unquote
+
+# 按 agent_id 细分的聊天写入锁，防止读-修改-写竞争导致消息丢失
+_chat_write_locks = {}
+_chat_locks_mutex = threading.Lock()
+
+def _get_chat_lock(agent_id):
+    with _chat_locks_mutex:
+        if agent_id not in _chat_write_locks:
+            _chat_write_locks[agent_id] = threading.Lock()
+        return _chat_write_locks[agent_id]
 
 # ─── 配置 ───────────────────────────────────────────────
 PORT = 8080
@@ -284,14 +295,42 @@ def _init_default_admin():
 
 # 前端历史遗留的硬编码默认员工ID（已移除，但后端数据可能仍保留，需过滤）
 _DEFAULT_EMP_IDS = {'xlcx', 'dlxc', 'zjg', 'hx', 'sy'}
+# 历史遗留默认员工名字（不区分大小写）
+_DEFAULT_EMP_NAMES = {'lucy', 'emily', 'grace', 'cynthia', 'luna', 'gates', 'eric', 'olivia', 'summer'}
+
+def _is_default_agent(agent):
+    """判断是否为历史遗留默认员工（按ID或名字），有createdBy的用户手动创建员工不受影响"""
+    if not isinstance(agent, dict):
+        return False
+    # 有 createdBy 的员工是用户手动创建的，绝不视为默认员工
+    created_by = agent.get('createdBy')
+    if created_by and created_by != 'local' and created_by != '':
+        return False
+    if agent.get('id') in _DEFAULT_EMP_IDS:
+        return True
+    name = str(agent.get('name', '')).strip().lower()
+    if name in _DEFAULT_EMP_NAMES:
+        return True
+    return False
 
 def _load_agents():
     """加载 Agent 列表，过滤掉历史遗留的默认员工"""
     agents = _read_json(AGENTS_FILE, [])
     if not isinstance(agents, list):
         return []
-    return [a for a in agents if a.get('id') not in _DEFAULT_EMP_IDS]
+    return [a for a in agents if not _is_default_agent(a)]
 
+def _clean_agents_file():
+    """主动清理 agents.json 中的历史遗留默认员工数据"""
+    agents = _read_json(AGENTS_FILE, [])
+    if not isinstance(agents, list):
+        return 0
+    cleaned = [a for a in agents if not _is_default_agent(a)]
+    removed = len(agents) - len(cleaned)
+    if removed > 0:
+        _write_json(AGENTS_FILE, cleaned)
+        print(f'  [Clean] 已从 agents.json 清理 {removed} 个历史遗留默认员工', flush=True)
+    return removed
 
 def _save_agents(agents):
     """保存 Agent 列表"""
@@ -2244,9 +2283,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         }
 
         chat_key = f'group_{group_id}'
-        messages = _load_chat(chat_key)
-        messages.append(msg)
-        _save_chat(chat_key, messages)
+        with _get_chat_lock(chat_key):
+            messages = _load_chat(chat_key)
+            messages.append(user_message)
+            _save_chat(chat_key, messages)
 
         # 返回消息和群组 session 信息，前端通过 WS 发送到 leadAgent
         lead_agent = group.get('leadAgentId', '')
@@ -2803,29 +2843,36 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         }
         if role == 'user':
             msg['userId'] = auth.user_info['userId']
+        # 保留前端传入的 empId，便于前端渲染时做归属过滤
+        _emp_id = body.get('empId')
+        if _emp_id:
+            msg['empId'] = _emp_id
 
-        messages = _load_chat(agent_id)
-        messages.append(msg)
+        with _get_chat_lock(agent_id):
+            messages = _load_chat(agent_id)
+            messages.append(msg)
 
-        # 如果前端标记 skipAI（AI已通过OpenClaw回复），跳过API代理
-        skip_ai = body.get('skipAI', False)
-        connection_type = agent.get('connectionType', '')
-        if not skip_ai and connection_type == 'api':
-            api_reply = self._call_ai_api(agent, body.get('content', ''))
-            if api_reply:
-                ai_message = {
-                    'id': 'msg_' + uuid.uuid4().hex[:8],
-                    'role': 'assistant',
-                    'content': api_reply,
-                    'timestamp': datetime.now().isoformat()
-                }
-                messages.append(ai_message)
-                _save_chat(agent_id, messages)
-                self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message})
-                return
+            # 如果前端标记 skipAI（AI已通过OpenClaw回复），跳过API代理
+            skip_ai = body.get('skipAI', False)
+            connection_type = agent.get('connectionType', '')
+            if not skip_ai and connection_type == 'api':
+                api_reply = self._call_ai_api(agent, body.get('content', ''), auth.user_info)
+                if api_reply:
+                    ai_message = {
+                        'id': 'msg_' + uuid.uuid4().hex[:8],
+                        'role': 'assistant',
+                        'content': api_reply,
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    if _emp_id:
+                        ai_message['empId'] = _emp_id
+                    messages.append(ai_message)
+                    _save_chat(agent_id, messages)
+                    self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message})
+                    return
 
-        # OpenClaw 或其他
-        _save_chat(agent_id, messages)
+            # OpenClaw 或其他
+            _save_chat(agent_id, messages)
 
         if connection_type == 'openclaw':
             self._send_json(200, {
@@ -2835,7 +2882,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         else:
             self._send_json(200, {'userMessage': msg})
 
-    def _call_ai_api(self, agent, user_message):
+    def _call_ai_api(self, agent, user_message, user_info=None):
         """通过代理调用 AI API"""
         api_provider = agent.get('apiProvider', '')
         api_key = agent.get('apiKey', '')
@@ -2870,6 +2917,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         system_prompt = f'你是 {agent.get("name", "AI")}，一个 {agent.get("role", "助手")}。请用第一人称回复，保持角色一致性。'
         if agent.get('systemPrompt'):
             system_prompt += '\n\n' + agent['systemPrompt']
+        # 注入层级关系约束，防止 AI 把老板当学生/下属
+        if user_info:
+            user_name = user_info.get('name') or user_info.get('displayName') or '用户'
+            user_role = user_info.get('role', '用户')
+            role_display = '老板/负责人' if user_role == 'admin' else ('组长' if user_role == 'leader' else '员工')
+            system_prompt += f'\n\n【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- {user_name}（{role_display}）是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。\n- 严禁用"教你""指导你""你做过吗""你懂吗"等居高临下的语气。\n- 老板问你问题时，直接回答，不要反问或考验老板。'
 
         req_body = json.dumps({
             'model': api_model or 'gpt-4o-mini',
@@ -2912,14 +2965,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(status, {'error': err})
             return
 
-        messages = _load_chat(agent_id)
-        original_len = len(messages)
-        messages = [m for m in messages if m.get('id') != msg_id]
-        if len(messages) == original_len:
-            self._send_json(404, {'error': '消息不存在'})
-            return
+        with _get_chat_lock(agent_id):
+            messages = _load_chat(agent_id)
+            original_len = len(messages)
+            messages = [m for m in messages if m.get('id') != msg_id]
+            if len(messages) == original_len:
+                self._send_json(404, {'error': '消息不存在'})
+                return
 
-        _save_chat(agent_id, messages)
+            _save_chat(agent_id, messages)
         self._send_json(200, {'message': '消息已删除'})
 
     def _handle_clear_chat(self, agent_id):
@@ -3729,6 +3783,9 @@ def main():
 
     # 确保数据目录
     _ensure_data_dir()
+
+    # 启动时主动清理历史遗留默认员工数据
+    _clean_agents_file()
 
     # 初始化默认管理员
     _init_default_admin()

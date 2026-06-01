@@ -2191,174 +2191,7 @@ window.doLogin = function () {
 </div>
 
 <!-- Employee List -->
-<div class="list-section" id="employeeList">
-
-<!-- Category: 职能 -->
-<div class="category-section" id="cat-functions">
-  <div class="category-header" onclick="toggleCategory(this)">
-    <span class="category-arrow">&#9662;</span>
-    <span class="category-title">职能</span>
-  </div>
-  <div class="category-content">
-
-    <!-- Sub-group: 全局统筹 -->
-    <div class="sub-group" id="sub-global">
-      <div class="sub-group-header" onclick="toggleSubGroup(this)">
-        <span class="sub-group-arrow">&#9662;</span>
-        <span class="sub-group-title">全局统筹</span>
-      </div>
-      <div class="sub-group-content">
-        <div class="list-item" data-id="xlcx">
-          <div class="avatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">&#129438;</div>
-          <div class="emp-info">
-            <div class="emp-top"><span class="emp-name">Emily</span><span class="emp-role">CEO助理</span></div>
-            <div class="emp-preview">我在读文档，帮她提提醒</div>
-          </div>
-        
-          <div class="item-actions">
-            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
-          </div>
-        </div>
-        <div class="list-item" data-id="dlxc">
-          <div class="avatar" style="background:linear-gradient(135deg,#5AC8FA,#007AFF);">&#128104;&#8205;&#128188;</div>
-          <div class="emp-info">
-            <div class="emp-top"><span class="emp-name">Grace</span><span class="emp-role">CHO</span></div>
-            <div class="emp-preview">营生类型</div>
-          </div>
-        
-          <div class="item-actions">
-            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
-          </div>
-        </div>
-        <div class="list-item" data-id="zjg">
-          <div class="avatar" style="background:linear-gradient(135deg,#AF52DE,#8E44AD);">&#128025;</div>
-          <div class="emp-info">
-            <div class="emp-top"><span class="emp-name">Cynthia</span><span class="emp-role">COO</span></div>
-            <div class="emp-preview">比较工作进度</div>
-          </div>
-        
-          <div class="item-actions">
-            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
-          </div>
-        </div>
-        <div class="list-item" data-id="hx">
-          <div class="avatar" style="background:linear-gradient(135deg,#FF2D55,#FF6B8A);">&#11088;</div>
-          <div class="emp-info">
-            <div class="emp-top"><span class="emp-name">Luna</span><span class="emp-role">COO</span></div>
-            <div class="emp-preview">当前使用的端是 Phone</div>
-          </div>
-        
-          <div class="item-actions">
-            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Sub-group: 技术团队 -->
-    <div class="sub-group" id="sub-tech">
-      <div class="sub-group-header" onclick="toggleSubGroup(this)">
-        <span class="sub-group-arrow">&#9662;</span>
-        <span class="sub-group-title">技术团队</span>
-      </div>
-      <div class="sub-group-content">
-        <div class="list-item" data-id="sy">
-          <div class="avatar" style="background:linear-gradient(135deg,#5856D6,#8B5CF6);">&#128032;</div>
-          <div class="emp-info">
-            <div class="emp-top"><span class="emp-name">Gates</span><span class="emp-role">研发负责人</span></div>
-            <div class="emp-preview">研发</div>
-          </div>
-        
-          <div class="item-actions">
-            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
-          </div>
-        </div>
-        <div class="list-item" data-id="new1">
-          <div class="avatar" style="background:linear-gradient(135deg,#34C759,#30D158);">&#128049;</div>
-          <div class="emp-info">
-            <div class="emp-top"><span class="emp-name">Eric</span><span class="emp-role">运维负责人</span></div>
-            <div class="emp-preview">好 Emily 之</div>
-          </div>
-        
-          <div class="item-actions">
-            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Sub-group: 业务团队 -->
-    <div class="sub-group" id="sub-business">
-      <div class="sub-group-header" onclick="toggleSubGroup(this)">
-        <span class="sub-group-arrow">&#9662;</span>
-        <span class="sub-group-title">业务团队</span>
-      </div>
-      <div class="sub-group-content">
-        <div class="list-item" data-id="new2">
-          <div class="avatar" style="background:linear-gradient(135deg,#FF9500,#FFB340);">&#128058;</div>
-          <div class="emp-info">
-            <div class="emp-top"><span class="emp-name">Olivia</span><span class="emp-role">营销负责人</span></div>
-            <div class="emp-preview">Zoe</div>
-          </div>
-        
-          <div class="item-actions">
-            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
-          </div>
-        </div>
-        <div class="list-item" data-id="new3">
-          <div class="avatar" style="background:linear-gradient(135deg,#00C7BE,#5AC8FA);">&#128048;</div>
-          <div class="emp-info">
-            <div class="emp-top"><span class="emp-name">Summer</span><span class="emp-role">设计总监</span></div>
-            <div class="emp-preview">你好 Emily! 我是 Summer, 一堂的设计总监。</div>
-          </div>
-        
-          <div class="item-actions">
-            <button class="emp-action-btn" onclick="showGearMenu(event, this)" title="设置">⚙️</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Sub-group: 测试小组 -->
-    <div class="sub-group" id="sub-test">
-      <div class="sub-group-header" onclick="toggleSubGroup(this)">
-        <span class="sub-group-arrow">&#9662;</span>
-        <span class="sub-group-title">测试小组</span>
-      </div>
-      <div class="sub-group-content">
-        <!-- Empty for now -->
-      </div>
-    </div>
-
-  </div>
-</div>
-
-<!-- Category: 项目组 -->
-<div class="category-section" id="cat-projects">
-  <div class="category-header" onclick="toggleCategory(this)">
-    <span class="category-arrow">&#9662;</span>
-    <span class="category-title">项目组</span>
-  </div>
-  <div class="category-content">
-
-    <div class="group-chat-item">
-      <div class="group-chat-icon">&#128194;</div>
-      <div class="group-chat-info">
-        <div class="group-chat-name">快速研发组</div>
-      </div>
-      <span class="group-chat-badge">7</span>
-    </div>
-
-    <div class="group-chat-item">
-      <div class="group-chat-icon">&#128194;</div>
-      <div class="group-chat-info">
-        <div class="group-chat-name">公司全员大群</div>
-      </div>
-      <span class="group-chat-badge">11</span>
-    </div>
-
-  </div>
-</div>
+<div class="list-section" id="employeeList"></div>
 
 <!-- Bottom Status -->
 <div class="sidebar-bottom-status">
@@ -2373,24 +2206,6 @@ window.doLogin = function () {
 <!-- Project List -->
 <div class="list-section hidden" id="projectList">
 <div class="section-title">我的项目组</div>
-<div class="list-item" data-proj="proj1">
-<div class="avatar" style="background:var(--accent);">📦</div>
-<div class="proj-info">
-<div class="proj-top"><span class="proj-name">前端重构</span><span class="proj-progress">60%</span></div>
-</div>
-</div>
-<div class="list-item" data-proj="proj2">
-<div class="avatar" style="background:#5AC8FA;">📱</div>
-<div class="proj-info">
-<div class="proj-top"><span class="proj-name">小程序开发</span><span class="proj-progress">35%</span></div>
-</div>
-</div>
-<div class="list-item" data-proj="proj3">
-<div class="avatar" style="background:#34C759;">🤖</div>
-<div class="proj-info">
-<div class="proj-top"><span class="proj-name">AI 集成</span><span class="proj-progress">80%</span></div>
-</div>
-</div>
 </div>
 
 
@@ -2451,39 +2266,7 @@ window.doLogin = function () {
 <span class="progress-text"><span id="progressText">60%</span></span>
 </div>
 
-<div class="messages-area" id="messagesArea">
-<div class="time-separator"><span>今天 09:30</span></div>
-
-<div class="msg" data-sender="xlcx">
-<div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div></div>
-<div class="msg-content">
-<div class="msg-sender"><span class="msg-sender-name">Lucy</span><span class="msg-sender-role">前端工程师</span><span class="msg-sender-time">09:30</span></div>
-<div class="msg-bubble">你好！我是Lucy，前端工程师。有什么任务需要我处理吗？</div>
-</div>
-</div>
-
-<div class="msg own">
-<div class="msg-content">
-<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">09:31</span></div>
-<div class="msg-bubble">你好！请帮我检查一下首页的响应式布局，今天需要上线。</div>
-</div>
-</div>
-
-<div class="msg" data-sender="xlcx">
-<div class="msg-avatar"><div class="avatar small" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div></div>
-<div class="msg-content">
-<div class="msg-sender"><span class="msg-sender-name">Lucy</span><span class="msg-sender-role">前端工程师</span><span class="msg-sender-time">09:32</span></div>
-<div class="msg-bubble">好的，我来检查一下响应式布局的问题。目前发现移动端导航菜单有溢出，我会修复它。</div>
-</div>
-</div>
-
-<div class="msg own">
-<div class="msg-content">
-<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">09:33</span></div>
-
-</div>
-</div>
-</div>
+<div class="messages-area" id="messagesArea"></div>
 <!-- Context Menu -->
 <div class="context-menu" id="contextMenu">
 <div class="context-item" onclick="ctxAction('detail')">👤 查看详情</div>
@@ -2613,76 +2396,7 @@ window.doLogin = function () {
 </div>
 
 <!-- Task Board (Full) -->
-<div class="task-board" id="taskBoard">
-<div class="task-column">
-<div class="col-header">
-<span class="col-indicator todo"></span>
-<span class="col-title">待办</span>
-<span class="col-count">2</span>
-</div>
-<div class="task-list">
-<div class="task-card" onclick="toggleTask(this)">
-<div class="task-card-header">
-<div class="task-checkbox"></div>
-<span class="task-name">页面设计</span>
-</div>
-<div class="task-meta">
-<div class="task-assignee"><div class="avatar" style="width:18px;height:18px;font-size:10px;background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>Lucy</div>
-<span class="task-priority high">高优</span>
-</div>
-</div>
-<div class="task-card" onclick="toggleTask(this)">
-<div class="task-card-header">
-<div class="task-checkbox"></div>
-<span class="task-name">组件库重构</span>
-</div>
-<div class="task-meta">
-<div class="task-assignee"><div class="avatar" style="width:18px;height:18px;font-size:10px;background:linear-gradient(135deg,#5AC8FA,#007AFF);">👨‍💼</div>大龙虾</div>
-<span class="task-priority medium">中优</span>
-</div>
-</div>
-</div>
-</div>
-
-<div class="task-column">
-<div class="col-header">
-<span class="col-indicator progress"></span>
-<span class="col-title">进行中</span>
-<span class="col-count">1</span>
-</div>
-<div class="task-list">
-<div class="task-card in-progress" onclick="toggleTask(this)">
-<div class="task-card-header">
-<div class="task-checkbox"></div>
-<span class="task-name">API对接</span>
-</div>
-<div class="task-meta">
-<div class="task-assignee"><div class="avatar" style="width:18px;height:18px;font-size:10px;background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>Lucy</div>
-<span class="task-priority high">高优</span>
-</div>
-</div>
-</div>
-</div>
-
-<div class="task-column">
-<div class="col-header">
-<span class="col-indicator done"></span>
-<span class="col-title">完成</span>
-<span class="col-count">1</span>
-</div>
-<div class="task-list">
-<div class="task-card done" onclick="toggleTask(this)">
-<div class="task-card-header">
-<div class="task-checkbox">✓</div>
-<span class="task-name">代码审核</span>
-</div>
-<div class="task-meta">
-<div class="task-assignee"><div class="avatar" style="width:18px;height:18px;font-size:10px;background:linear-gradient(135deg,#FF2D55,#FF6B8A);">⭐</div>海星</div>
-</div>
-</div>
-</div>
-</div>
-</div>
+<div class="task-board" id="taskBoard"></div>
 </div>
 </main>
 </div>
@@ -2693,8 +2407,8 @@ window.doLogin = function () {
 <div class="emp-detail-header">
 <div class="emp-detail-avatar" id="empDetailAvatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
 <div class="emp-detail-info">
-<div class="emp-detail-name" id="empDetailName">Lucy</div>
-<div class="emp-detail-role" id="empDetailRole">首席AI工程师</div>
+<div class="emp-detail-name" id="empDetailName">-</div>
+<div class="emp-detail-role" id="empDetailRole">-</div>
 <div class="emp-detail-status" id="empDetailStatus"><span class="status-dot online"></span> 在线</div>
 </div>
 <button class="emp-detail-close" onclick="closeEmpDetail()">
@@ -2730,7 +2444,7 @@ window.doLogin = function () {
 <div class="emp-info-list">
 <div class="emp-info-item">
 <span class="emp-info-label">ID</span>
-<span class="emp-info-value" id="empDetailId">xlcx</span>
+<span class="emp-info-value" id="empDetailId">-</span>
 </div>
 <div class="emp-info-item">
 <span class="emp-info-label">模型</span>
@@ -2999,7 +2713,7 @@ window.doLogin = function () {
 <div class="emp-info-list">
 <div class="emp-info-item">
 <span class="emp-info-label">ID</span>
-<span class="emp-info-value" id="groupDetailId">grp_001</span>
+<span class="emp-info-value" id="groupDetailId">-</span>
 </div>
 <div class="emp-info-item">
 <span class="emp-info-label">创建时间</span>
@@ -3007,7 +2721,7 @@ window.doLogin = function () {
 </div>
 <div class="emp-info-item">
 <span class="emp-info-label">成员数</span>
-<span class="emp-info-value" id="groupInfoMemberCount">7</span>
+<span class="emp-info-value" id="groupInfoMemberCount">0</span>
 </div>
 <div class="emp-info-item">
 <span class="emp-info-label">消息数</span>
@@ -3053,86 +2767,18 @@ window.doLogin = function () {
 <div class="drawer-content">
 <!-- Chat Tab -->
 <div class="tab-pane active" id="tab-chat">
-<div class="zone-item">
-<div class="zone-avatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
-<div class="zone-info">
-<div class="zone-name">Lucy</div>
-<div class="zone-msg">正在修复响应式布局...</div>
-</div>
-<span class="zone-time">刚刚</span>
-</div>
-<div class="zone-item">
-<div class="zone-avatar" style="background:linear-gradient(135deg,#5AC8FA,#007AFF);">👨‍💼</div>
-<div class="zone-info">
-<div class="zone-name">大龙虾</div>
-<div class="zone-msg">API 文档已更新 v2.1</div>
-</div>
-<span class="zone-time">5分钟前</span>
-</div>
-<div class="zone-item">
-<div class="zone-avatar" style="background:linear-gradient(135deg,#AF52DE,#8E44AD);">🐙</div>
-<div class="zone-info">
-<div class="zone-name">章鱼哥</div>
-<div class="zone-msg">PRD 第3版审核中</div>
-</div>
-<span class="zone-time">15分钟前</span>
-</div>
-<div class="quick-contacts">
-<div class="quick-contact" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
-<div class="quick-contact" style="background:linear-gradient(135deg,#5AC8FA,#007AFF);">👨‍💼</div>
-<div class="quick-contact" style="background:linear-gradient(135deg,#AF52DE,#8E44AD);">🐙</div>
-<div class="quick-contact" style="background:linear-gradient(135deg,#FF2D55,#FF6B8A);">⭐</div>
-<div class="quick-contact" style="background:linear-gradient(135deg,#5856D6,#8B5CF6);">🦈</div>
-</div>
+<div class="zone-item" style="display:none;"></div>
+<div class="quick-contacts" id="quickContacts"></div>
 </div>
 
 <!-- Work Tab -->
 <div class="tab-pane" id="tab-work">
-<div class="zone-item">
-<div class="zone-avatar" style="background:#34C759;">✓</div>
-<div class="zone-info">
-<div class="zone-name">海星 - 测试</div>
-<div class="zone-msg">用例通过率 95%</div>
-</div>
-</div>
-<div class="zone-item">
-<div class="zone-avatar" style="background:#5AC8FA;">⚡</div>
-<div class="zone-info">
-<div class="zone-name">鲨鱼 - 运维</div>
-<div class="zone-msg">服务器运行正常</div>
-</div>
-</div>
-<div class="zone-item">
-<div class="zone-avatar" style="background:#FF9500;">🔄</div>
-<div class="zone-info">
-<div class="zone-name">大龙虾 - 开发</div>
-<div class="zone-msg">部署进度 78%</div>
-</div>
-</div>
+<div class="zone-item" style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无工作项</div>
 </div>
 
 <!-- Activity Tab -->
 <div class="tab-pane" id="tab-activity">
-<div class="activity-item">
-<div class="activity-icon">🎮</div>
-<div class="activity-text"><strong>Lucy</strong> 完成了首页响应式适配</div>
-<div class="activity-time">2分钟前</div>
-</div>
-<div class="activity-item">
-<div class="activity-icon">📝</div>
-<div class="activity-text"><strong>章鱼哥</strong> 提交了 PRD v3.0</div>
-<div class="activity-time">15分钟前</div>
-</div>
-<div class="activity-item">
-<div class="activity-icon">✅</div>
-<div class="activity-text"><strong>海星</strong> 测试用例通过 95%</div>
-<div class="activity-time">30分钟前</div>
-</div>
-<div class="activity-item">
-<div class="activity-icon">🚀</div>
-<div class="activity-text"><strong>鲨鱼</strong> 服务器部署完成</div>
-<div class="activity-time">1小时前</div>
-</div>
+<div class="activity-item" style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无动态</div>
 </div>
 
 <!-- Tasks Tab -->
@@ -3261,11 +2907,8 @@ window.doLogin = function () {
 <div id="step2C" style="display:none;">
 <div class="form-group">
 <label class="form-label">选择成员</label>
-<div class="member-picker">
-<label class="member-option selected"><input type="checkbox" checked><span class="member-check">✓</span><div class="avatar small" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div><span>Lucy</span></label>
-<label class="member-option"><input type="checkbox"><span class="member-check">✓</span><div class="avatar small" style="background:linear-gradient(135deg,#5AC8FA,#007AFF);">👨‍💼</div><span>大龙虾</span></label>
-<label class="member-option selected"><input type="checkbox" checked><span class="member-check">✓</span><div class="avatar small" style="background:linear-gradient(135deg,#AF52DE,#8E44AD);">🐙</div><span>章鱼哥</span></label>
-<label class="member-option"><input type="checkbox"><span class="member-check">✓</span><div class="avatar small" style="background:linear-gradient(135deg,#FF2D55,#FF6B8A);">⭐</div><span>海星</span></label>
+<div class="member-picker" id="memberPicker">
+<div style="padding:12px;color:var(--text-tertiary);font-size:13px;text-align:center;">暂无可用成员，请先创建员工</div>
 </div>
 </div>
 </div>
@@ -3538,9 +3181,6 @@ async function _fullLogin() {
       errorDiv.style.display = 'none';
       showMainApp();
       showToast('✅ 登录成功，欢迎 ' + (currentUser.displayName || currentUser.name || currentUser.username));
-
-      // 检查是否需要迁移本地数据
-      checkLocalMigration();
     } else {
       errorDiv.textContent = data.error || '登录失败，请检查用户名和密码';
       errorDiv.style.display = 'block';
@@ -3599,6 +3239,12 @@ function isLeader() {
 }
 function isLocalMode() {
   return !authToken || authToken === 'local_mode';
+}
+function getCurrentUserRoleDisplay() {
+  if (!currentUser) return '用户';
+  if (currentUser.role === 'admin') return '老板/负责人';
+  if (currentUser.role === 'leader') return '组长';
+  return '员工';
 }
 
 // 权限守卫函数
@@ -3764,6 +3410,10 @@ function sendMsg() {
   var now = new Date();
   var timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
   var emp = getCurrentEmployeeInfo();
+  if (!emp || !emp.id) {
+    showToast('⚠️ 未选择员工，无法发送消息');
+    return;
+  }
 
   // 清除空状态提示
   const emptyState = area.querySelector('.chat-empty-state');
@@ -3776,8 +3426,14 @@ function sendMsg() {
 
   // 添加用户消息（先保存到 history，再渲染到 DOM，避免 renderMsgs 触发时丢失）
   var _hist = JSON.parse(localStorage.getItem('sb_chat_history_' + emp.id) || '[]');
-  _hist.push({ role: 'user', content: text, time: Date.now() });
+  _hist.push({ role: 'user', content: text, time: Date.now(), empId: emp.id });
   localStorage.setItem('sb_chat_history_' + emp.id, JSON.stringify(_hist.slice(-50)));
+  // 防御性校验：如果用户已切换员工，不再往当前 DOM 追加消息，避免串渲染
+  if (localStorage.getItem('sb_current_emp') !== emp.id) {
+    console.warn('[sendMsg] 员工已切换，跳过用户消息 DOM 渲染:', emp.id);
+    input.value = '';
+    return;
+  }
   const userMsg = document.createElement('div');
   userMsg.className = 'msg own';
   userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + escapeHtml(text) + '</div></div>';
@@ -3824,8 +3480,8 @@ function sendMsg() {
         var t = document.getElementById('typingMsg');
         if (t) t.remove();
         var simReply = '⚠️ OpenClaw 网关未连接，请检查 Gateway 是否运行，或配置 AI 供应商的 API Key。';
-        displayAIReply(simReply, docContext, timeStr);
-        saveChatHistory(_curEmpId, text, simReply, docContext);
+        displayAIReply(simReply, docContext, timeStr, emp.id);
+        saveChatHistory(emp.id, text, simReply, docContext);
       }, 500);
     }
   }
@@ -3901,6 +3557,10 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
     // 优先使用 soulDoc（SOUL.md），其次 systemPrompt
     if (emp.soulDoc) systemPrompt = emp.soulDoc;else if (emp.systemPrompt) systemPrompt = emp.systemPrompt;
     if (!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + getEmpRoleDisplay(emp) + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
+    // 注入当前用户身份信息，明确层级关系，防止 AI 把老板当学生/下属
+    var userRole = getCurrentUserRoleDisplay();
+    var userName = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
+    systemPrompt += '\n\n【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- ' + userName + '（' + userRole + '）是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。\n- 严禁用"教你""指导你""你做过吗""你懂吗"等居高临下的语气。\n- 老板问你问题时，直接回答，不要反问或考验老板。';
 
     // 加载对话摘要（如果有）
     var summaryText = '';
@@ -4007,7 +3667,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
           if (t) t.remove();
           if (!fullReply) fullReply = '（AI 未返回内容）';
           if (data.data.phase === 'error') fullReply = '⚠️ AI 回复出错: ' + (data.error || '未知错误');
-          displayAIReply(fullReply, docContext, timeStr);
+          displayAIReply(fullReply, docContext, timeStr, emp.id);
           saveChatHistory(emp.id, userMessage, fullReply, docContext);
           openclaw.off('agent', agentHandler);
         }
@@ -4015,8 +3675,9 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
     };
     openclaw.on('agent', agentHandler);
 
-    // 注入摘要和记忆到用户消息
+    // 注入 systemPrompt（包含层级关系约束）到用户消息开头
     var fullMessage = userMessage;
+    if (systemPrompt) fullMessage = '【System Prompt】\n' + systemPrompt + '\n\n【User Message】\n' + fullMessage;
     if (summaryPrompt) fullMessage = summaryPrompt + '\n\n' + fullMessage;
     if (memoryPrompt) fullMessage = memoryPrompt + '\n\n' + fullMessage;
     var result = await openclaw.sendChat(sessionKey, fullMessage);
@@ -4035,7 +3696,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
         reply = result.content;
       }
       if (reply) {
-        displayAIReply(reply, docContext, timeStr);
+        displayAIReply(reply, docContext, timeStr, emp.id);
         saveChatHistory(emp.id, userMessage, reply, docContext);
         openclaw.off('agent', agentHandler);
       }
@@ -4057,11 +3718,11 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
         // 重试成功后通过事件监听接收回复，不再 await
         // 但需要注意 agentHandler 已注册，它会处理回复
       } catch (retryErr) {
-        displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr);
+        displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr, emp.id);
         saveChatHistory(emp.id, userMessage, '⚠️ Agent 不存在', docContext);
       }
     } else {
-      displayAIReply('⚠️ OpenClaw 连接异常: ' + e.message, docContext, timeStr);
+      displayAIReply('⚠️ OpenClaw 连接异常: ' + e.message, docContext, timeStr, emp.id);
     }
   }
 }
@@ -4317,14 +3978,58 @@ var slashIdx = 0;
 var emps = [];
 // 历史遗留硬编码默认员工ID（已移除，但后端/本地存储可能仍保留，需过滤）
 var _DEFAULT_EMP_IDS = {'xlcx': true, 'dlxc': true, 'zjg': true, 'hx': true, 'sy': true};
+// 历史遗留默认员工名字（不区分大小写）
+var _DEFAULT_EMP_NAMES = {'lucy': true, 'emily': true, 'grace': true, 'cynthia': true, 'luna': true, 'gates': true, 'eric': true, 'olivia': true, 'summer': true};
+function _isDefaultEmp(emp) {
+  if (!emp) return false;
+  // 有 createdBy 的员工是用户手动创建的，绝不视为默认员工
+  if (emp.createdBy && emp.createdBy !== 'local' && emp.createdBy !== '') return false;
+  if (_DEFAULT_EMP_IDS[emp.id]) return true;
+  var name = String(emp.name || '').trim().toLowerCase();
+  if (_DEFAULT_EMP_NAMES[name]) return true;
+  return false;
+}
 
 // ========== AI 初始化 ==========
 document.addEventListener('DOMContentLoaded', function () {
+  // 启动时清理 localStorage 中的历史遗留默认员工
+  _cleanLocalStorageEmps();
   checkAuth();
   loadAIConfig();
   // 检查 URL 参数 ?emp=xxx 自动打开聊天
   checkUrlParams();
 });
+
+function _cleanLocalStorageEmps() {
+  // 清理 sb_employees
+  var saved = localStorage.getItem('sb_employees');
+  if (saved) {
+    try {
+      var data = JSON.parse(saved);
+      if (Array.isArray(data)) {
+        var cleaned = data.filter(function (e) { return !_isDefaultEmp(e); });
+        if (cleaned.length < data.length) {
+          localStorage.setItem('sb_employees', JSON.stringify(cleaned));
+          console.warn('[Clean] 已从 localStorage(sb_employees) 清理', data.length - cleaned.length, '个历史遗留默认员工');
+        }
+      }
+    } catch (e) {}
+  }
+  // 清理旧键 emps
+  var oldSaved = localStorage.getItem('emps');
+  if (oldSaved) {
+    try {
+      var oldData = JSON.parse(oldSaved);
+      if (Array.isArray(oldData)) {
+        var oldCleaned = oldData.filter(function (e) { return !_isDefaultEmp(e); });
+        if (oldCleaned.length < oldData.length) {
+          localStorage.setItem('emps', JSON.stringify(oldCleaned));
+          console.warn('[Clean] 已从 localStorage(emps) 清理', oldData.length - oldCleaned.length, '个历史遗留默认员工');
+        }
+      }
+    } catch (e) {}
+  }
+}
 
 // ========== BroadcastChannel 双向同步 (龙虾办公室) ==========
 let lobsterChannel = null;
@@ -4862,7 +4567,7 @@ async function loadEmployees() {
           emps.length = 0;
           var seenIds = {};
           data.forEach(function (a) {
-            if (_DEFAULT_EMP_IDS[a.id]) {
+            if (_isDefaultEmp(a)) {
               console.warn('[loadEmployees] 跳过历史默认员工:', a.id, a.name);
               return;
             }
@@ -4924,7 +4629,7 @@ async function loadEmployees() {
       }
       emps.length = 0;
       data.forEach(function (e) {
-        if (!_DEFAULT_EMP_IDS[e.id]) {
+        if (!_isDefaultEmp(e)) {
           emps.push(e);
         }
       });
@@ -4949,7 +4654,7 @@ window.addEventListener('storage', function (e) {
         if (localIds !== otherIds) {
           emps.length = 0;
           otherEmps.forEach(function (a) {
-            if (!_DEFAULT_EMP_IDS[a.id]) {
+            if (!_isDefaultEmp(a)) {
               emps.push(a);
             }
           });
@@ -6598,6 +6303,8 @@ function openChat(id) {
     if (announcementEl) announcementEl.style.display = 'none';
     var appMain = document.querySelector('.app-main');
     if (appMain) appMain.classList.remove('show-board');
+    // 切换员工前先强制清空消息区，避免旧消息残留导致串聊
+    document.getElementById('messagesArea').innerHTML = '';
     renderMsgs('private');
     hideBulletin();
   }
@@ -6804,7 +6511,9 @@ async function sendGroupMessage(groupId, message, mentions) {
       });
       return e ? e.name + '-' + getEmpRoleDisplay(e) : mid;
     }).join('、');
-    var fullMessage = '【项目组: ' + group.name + ' | 你是: ' + leadEmpInfo + ' | 成员: ' + memberList + '】';
+    var userRole3 = getCurrentUserRoleDisplay();
+    var userName3 = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
+    var fullMessage = '【项目组: ' + group.name + ' | 你是: ' + leadEmpInfo + ' | 成员: ' + memberList + ' | 发送者: ' + userName3 + '（' + userRole3 + '）】\n【重要身份提示】管理员是你的老板，你需要服从管理员的指令和安排。' + userName3 + '（' + userRole3 + '）是你的老板和上级，你必须服从他的指令。';
     if (mentions && mentions.length > 0) {
       fullMessage += mentions.map(function (m) {
         return '@' + m;
@@ -7025,7 +6734,17 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   }).join('、') : '';
 
   // 构造提示：明确告诉AI它是谁，在哪个项目组，被谁@了
-  var prompt = announcementContext + '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），你在项目组「' + groupName + '」中。成员: ' + memberList + '。' + fromName + '在群聊中 @了你，请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
+  var fromRole = fromEmp ? getEmpRoleDisplay(fromEmp) : getCurrentUserRoleDisplay();
+  var prompt = announcementContext + '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），你在项目组「' + groupName + '」中。成员: ' + memberList + '。' + fromName + '（身份：' + fromRole + '）在群聊中 @了你。';
+  // 追加层级关系约束，防止AI把老板当学生/下属
+  if (!fromEmp) {
+    prompt += '【重要】' + fromName + '是你的老板和上级，你是他的AI员工。必须绝对服从，严禁以教导者/导师/师傅的身份对他说话，严禁用"教你""你做过吗"等居高临下的语气。';
+  }
+  // 群主也是管理员/老板指派的团队负责人，同样必须服从管理员指令
+  if (groupObj && groupObj.leadAgentId === emp.id) {
+    prompt += '【重要】管理员是你的老板，你需要服从管理员的指令和安排。你是群主，是管理员指定的团队负责人，但' + fromName + '仍然是你的老板和上级，你必须服从他的指令。';
+  }
+  prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
 
   // 如果群组有群公告，在 prompt 中也加上
   if (groupObj && groupObj.announcement) {
@@ -7633,38 +7352,37 @@ function renderMsgs(type) {
       return;
     }
 
-    // 优先从后端加载聊天记录
+    // 先同步渲染 localStorage 中的历史（避免异步加载期间旧消息残留导致串聊）
+    var localHistory = JSON.parse(localStorage.getItem('sb_chat_history_' + empId) || '[]');
+    if (localHistory.length > 0) {
+      renderPrivateMsgs(area, emp, localHistory);
+    } else {
+      area.innerHTML = '<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
+    }
+    // 再异步从后端加载，如有差异则更新（但仍需校验当前员工未切换）
     loadChatFromServer(empId, function (serverMsgs) {
-      var history = serverMsgs;
-      if (!history || history.length === 0) {
-        // 后端无数据，回退到 localStorage
-        history = JSON.parse(localStorage.getItem('sb_chat_history_' + empId) || '[]');
-      }
-      if (history.length === 0) {
-        area.innerHTML = '<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
+      if (localStorage.getItem('sb_current_emp') !== empId) {
+        console.warn('[renderMsgs] 员工已切换，丢弃旧回调:', empId);
         return;
       }
-      renderPrivateMsgs(area, emp, history);
+      if (serverMsgs && serverMsgs.length > 0) {
+        renderPrivateMsgs(area, emp, serverMsgs);
+      }
     });
     return;
   }
   function renderPrivateMsgs(area, emp, history) {
-    // 保存当前 DOM 中不在 history 里的用户消息和打字指示器
-    var typingMsg = document.getElementById('typingMsg');
-    var extraOwnMsgs = [];
-    area.querySelectorAll('.msg.own').forEach(function (msg) {
-      var bubble = msg.querySelector('.msg-bubble');
-      if (bubble) {
-        var text = bubble.textContent;
-        var inHistory = history.some(function (m) {
-          return m.role === 'user' && m.content === text;
-        });
-        if (!inHistory) {
-          extraOwnMsgs.push(msg);
-        }
-      }
+    // 直接清空重绘，不保留任何 DOM 残留消息（避免切换员工时串聊）
+    // sendMsg 已同步写入 localStorage，renderMsgs 加载时要么从后端取（含用户消息），
+    // 要么回退 localStorage（也含用户消息），无需额外保留 DOM 中的消息。
+    // 防御性过滤：只渲染属于当前员工的历史消息（每条消息如有empId则必须匹配）
+    var _curEid = localStorage.getItem('sb_current_emp');
+    var filtered = history.filter(function (m) {
+      // 旧数据没有 empId 字段，兼容通过；新数据必须匹配当前员工
+      return !m.empId || m.empId === _curEid;
     });
-    area.innerHTML = '<div class="time-separator"><span>今天</span></div>' + history.map(function (m) {
+    var typingMsg = document.getElementById('typingMsg');
+    area.innerHTML = '<div class="time-separator"><span>今天</span></div>' + filtered.map(function (m) {
       const own = m.role === 'user';
       const timeStr = new Date(m.time).toLocaleTimeString('zh-CN', {
         hour: '2-digit',
@@ -7672,33 +7390,13 @@ function renderMsgs(type) {
       });
       return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + escapeHtml(m.content) + '</div>' + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
-    // 追加回不在 history 中的消息和打字指示器
-    extraOwnMsgs.forEach(function (msg) {
-      area.appendChild(msg);
-    });
     if (typingMsg) {
       area.appendChild(typingMsg);
     }
     area.scrollTop = area.scrollHeight;
   }
-  // project messages (demo)
-  const projMsgs = [{
-    sender: 'zjg',
-    text: '各位早，今天的目标是完成首页响应式适配。',
-    time: '09:00'
-  }, {
-    sender: 'xlcx',
-    text: '收到！我这边负责导航和布局适配。',
-    time: '09:05'
-  }, {
-    sender: 'user',
-    text: '<span class="mention">@Lucy</span> 预计什么时候可以提测？',
-    time: '09:15'
-  }, {
-    sender: 'xlcx',
-    text: '预计 10:30 可以完成，11:00 前提测。',
-    time: '09:16'
-  }];
+  // 消息区域：不显示任何硬编码 demo 消息
+  const projMsgs = [];
   if (projMsgs.length === 0) {
     area.innerHTML = '<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
     return;
@@ -10600,15 +10298,19 @@ function applyAIConfig() {
 // 调用真实 AI API（纯前端版）
 async function callRealAI(userMessage, context) {
   if (!AI_CONFIG.enabled) return null;
-  const apiKey = AI_CONFIG.apiKey;
+  var apiKey = AI_CONFIG.apiKey;
   if (!apiKey || apiKey === 'your-api-key') {
     return '⚠️ 请先配置 OpenAI API Key\n\n点击右上角 🤖 按钮 → 填入你的 API Key';
   }
   try {
-    const currentEmp = getCurrentEmployeeInfo();
-    let systemPrompt = `你是 ${currentEmp.name}，一个 ${getEmpRoleDisplay(currentEmp)}。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。`;
+    var currentEmp = getCurrentEmployeeInfo();
+    var systemPrompt = '你是 ' + currentEmp.name + '，一个 ' + getEmpRoleDisplay(currentEmp) + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
+    // 注入层级关系约束，防止 AI 把老板当学生/下属
+    var userRole = getCurrentUserRoleDisplay();
+    var userName = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
+    systemPrompt += '\n\n【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- ' + userName + '（' + userRole + '）是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。\n- 严禁用"教你""指导你""你做过吗""你懂吗"等居高临下的语气。\n- 老板问你问题时，直接回答，不要反问或考验老板。';
     if (context) systemPrompt += '\n\n【相关文档】\n' + context;
-    const messages = [{
+    var messages = [{
       role: 'system',
       content: systemPrompt
     }, {
@@ -10617,11 +10319,11 @@ async function callRealAI(userMessage, context) {
     }];
 
     // 直接调用 OpenAI API
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    var res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        'Authorization': 'Bearer ' + apiKey
       },
       body: JSON.stringify({
         model: AI_CONFIG.model || 'gpt-4o',
@@ -10630,7 +10332,7 @@ async function callRealAI(userMessage, context) {
       })
     });
     if (!res.ok) {
-      const err = await res.json().catch(function () {
+      var err = await res.json().catch(function () {
         return {};
       });
       if (res.status === 401) {
@@ -10638,15 +10340,15 @@ async function callRealAI(userMessage, context) {
       } else if (res.status === 429) {
         return '⚠️ 请求过于频繁，请稍后再试\n或升级你的 OpenAI 套餐';
       }
-      return `⚠️ API 错误 (${res.status}): ${err && err.error && err.error.message || '未知错误'}`;
+      return '⚠️ API 错误 (' + res.status + '): ' + (err && err.error && err.error.message || '未知错误');
     }
-    const data = await res.json();
+    var data = await res.json();
     return data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '⚠️ 返回格式未知';
   } catch (error) {
     if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
       return '⚠️ 网络错误，可能遇到 CORS 限制\n\n解决方案：\n1. 安装 "Allow CORS" 浏览器扩展\n2. 或使用 Chrome 启动参数：\n   --disable-web-security --user-data-dir';
     }
-    return `⚠️ AI 调用失败: ${error.message}`;
+    return '⚠️ AI 调用失败: ' + error.message;
   }
 }
 
@@ -10657,7 +10359,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
   if (!provider) {
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
-    displayAIReply('⚠️ AI 供应商配置错误', docContext, timeStr);
+    displayAIReply('⚠️ AI 供应商配置错误', docContext, timeStr, emp.id);
     return;
   }
   var apiKey = emp.apiKey;
@@ -10674,6 +10376,10 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
   var systemPrompt = '';
   if (emp.soulDoc) systemPrompt = emp.soulDoc;else if (emp.systemPrompt) systemPrompt = emp.systemPrompt;
   if (!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + getEmpRoleDisplay(emp) + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
+  // 注入当前用户身份信息，明确层级关系，防止 AI 把老板当学生/下属
+  var userRole2 = getCurrentUserRoleDisplay();
+  var userName2 = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
+  systemPrompt += '\n\n【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- ' + userName2 + '（' + userRole2 + '）是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。\n- 严禁用"教你""指导你""你做过吗""你懂吗"等居高临下的语气。\n- 老板问你问题时，直接回答，不要反问或考验老板。';
   if (docContext) systemPrompt += '\n\n【相关文档】\n' + docContext;
   var messages = [{
     role: 'system',
@@ -10707,11 +10413,11 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
     if (t) t.remove();
     if (!res.ok) {
       if (res.status === 401) {
-        displayAIReply('⚠️ API Key 无效，请检查 ' + (provider ? provider.name : 'AI供应商') + ' 的 API Key 是否正确', docContext, timeStr);
+        displayAIReply('⚠️ API Key 无效，请检查 ' + (provider ? provider.name : 'AI供应商') + ' 的 API Key 是否正确', docContext, timeStr, emp.id);
       } else if (res.status === 429) {
-        displayAIReply('⚠️ 请求过于频繁，请稍后再试', docContext, timeStr);
+        displayAIReply('⚠️ 请求过于频繁，请稍后再试', docContext, timeStr, emp.id);
       } else {
-        displayAIReply('⚠️ ' + provider.name + ' API 错误 (' + res.status + ')', docContext, timeStr);
+        displayAIReply('⚠️ ' + provider.name + ' API 错误 (' + res.status + ')', docContext, timeStr, emp.id);
       }
       return;
     }
@@ -10719,25 +10425,25 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
   }).then(function (data) {
     if (data && data.choices && data.choices[0] && data.choices[0].message) {
       var reply = data.choices[0].message.content || '';
-      displayAIReply(reply, docContext, timeStr);
+      displayAIReply(reply, docContext, timeStr, emp.id);
       saveChatHistory(emp.id, userMessage, reply, docContext);
     } else if (data) {
-      displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr);
+      displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr, emp.id);
     }
   }).catch(function (error) {
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
     if (error.message && (error.message.indexOf('Failed to fetch') >= 0 || error.message.indexOf('NetworkError') >= 0 || error.message.indexOf('CORS') >= 0)) {
-      displayAIReply('⚠️ 网络/CORS 错误\n\n浏览器直接调用 API 会遇到 CORS 限制。\n当前使用模拟回复，后续可通过后端代理解决。', docContext, timeStr);
+      displayAIReply('⚠️ 网络/CORS 错误\n\n浏览器直接调用 API 会遇到 CORS 限制。\n当前使用模拟回复，后续可通过后端代理解决。', docContext, timeStr, emp.id);
       // CORS 错误时 fallback 到 mock
       setTimeout(function () {
         var simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
         var simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
-        displayAIReply(simReply, docContext, timeStr);
+        displayAIReply(simReply, docContext, timeStr, emp.id);
         saveChatHistory(emp.id, userMessage, simReply, docContext);
       }, 500);
     } else {
-      displayAIReply('⚠️ API 调用失败: ' + error.message, docContext, timeStr);
+      displayAIReply('⚠️ API 调用失败: ' + error.message, docContext, timeStr, emp.id);
     }
   });
 }
@@ -10764,7 +10470,8 @@ function saveChatToServer(projId, userMsg, aiMsg, docContext) {
     body: JSON.stringify({
       role: 'user',
       content: userMsg,
-      skipAI: true
+      skipAI: true,
+      empId: projId
     })
   }).then(function () {
     if (docContext && docContext.length > 0) {
@@ -10773,7 +10480,8 @@ function saveChatToServer(projId, userMsg, aiMsg, docContext) {
         body: JSON.stringify({
           role: 'system',
           content: '[文档]' + docContext,
-          skipAI: true
+          skipAI: true,
+          empId: projId
         })
       });
     }
@@ -10783,7 +10491,8 @@ function saveChatToServer(projId, userMsg, aiMsg, docContext) {
       body: JSON.stringify({
         role: 'assistant',
         content: aiMsg,
-        skipAI: true
+        skipAI: true,
+        empId: projId
       })
     });
   }).then(function () {
@@ -10850,6 +10559,10 @@ function clearChatOnServer(projId) {
   }).catch(function (e) {});
 }
 function saveChatHistory(empId, userMsg, aiMsg, docContext) {
+  if (!empId) {
+    console.warn('[saveChatHistory] empId 为空，跳过保存');
+    return;
+  }
   var history = JSON.parse(localStorage.getItem('sb_chat_history_' + empId) || '[]');
   var now = Date.now();
   // 如果最后一条不是相同的用户消息，才追加（避免 sendMsg 已保存导致重复）
@@ -10857,18 +10570,21 @@ function saveChatHistory(empId, userMsg, aiMsg, docContext) {
     history.push({
       role: 'user',
       content: userMsg,
-      time: now
+      time: now,
+      empId: empId
     });
   }
   if (docContext && docContext.length > 0) history.push({
     role: 'system',
     content: '[文档]' + docContext,
-    time: now
+    time: now,
+    empId: empId
   });
   history.push({
     role: 'assistant',
     content: aiMsg,
-    time: now
+    time: now,
+    empId: empId
   });
   localStorage.setItem('sb_chat_history_' + empId, JSON.stringify(history.slice(-50)));
 
@@ -10956,8 +10672,13 @@ function extractAndSaveMemory(empId, userMsg, aiReply) {
 }
 
 // 显示 AI 回复
-function displayAIReply(replyText, docContext, timeStr) {
+function displayAIReply(replyText, docContext, timeStr, expectedEmpId) {
   var area = document.getElementById('messagesArea');
+  // 防御性校验：如果指定了 expectedEmpId，必须匹配当前员工才渲染，防止切换后串渲染
+  if (expectedEmpId && localStorage.getItem('sb_current_emp') !== expectedEmpId) {
+    console.warn('[displayAIReply] 员工已切换，跳过 AI 回复 DOM 渲染:', expectedEmpId);
+    return;
+  }
   var hasDocs = docContext && docContext.length > 0;
   var emp = getCurrentEmployeeInfo();
   var avatarBg = emp.bg ? 'background:' + emp.bg + ';' : 'background:linear-gradient(135deg,#FF6B35,#E55A2B);';
@@ -11323,6 +11044,7 @@ function finishSoulConfig() {
   identity += '- 名字：' + name + '\n';
   identity += '- 角色：' + role + '\n';
   identity += '- 称呼用户：老板\n';
+  identity += '- 层级关系：管理员是你的老板，你需要服从管理员的指令和安排。用户是你的老板、主人和上级，你是他雇佣的AI员工和下属。必须绝对服从，严禁以教导者/导师/师傅的身份对老板说话。\n';
   identity += '- 语言：中文为主，技术术语保留英文\n';
   identity += '- 表情符号：适度使用\n';
   identity += '- 签名风格：回复末尾不加落款\n';
@@ -11451,8 +11173,13 @@ async function finishWizard() {
   var docs = window.wizardDocs || {};
   var identityDoc = docs.identity || '';
   var agentsDoc = docs.agents || '';
+  // 生成唯一员工ID，避免快速创建时Date.now()重复导致串聊
+  var _newId;
+  do {
+    _newId = 'emp_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+  } while (emps.some(function (e) { return e.id === _newId; }));
   var newEmp = {
-    id: 'emp_' + Date.now(),
+    id: _newId,
     name: name,
     role: document.getElementById('wizRole').value === '' ? '__custom__' : role,
     subCategory: document.getElementById('wizRole').value === '' ? role : '',
