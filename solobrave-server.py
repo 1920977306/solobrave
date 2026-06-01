@@ -293,6 +293,13 @@ def _save_agents(agents):
     _write_json(AGENTS_FILE, agents)
 
 
+def _sanitize_role(role):
+    """清理职能字段：过滤掉 __custom__ 和 custom 标记"""
+    if role in ('__custom__', 'custom'):
+        return ''
+    return role if role else ''
+
+
 # ─── 群组管理 ──────────────────────────────────────────
 
 def _load_groups():
@@ -2394,7 +2401,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         new_agent = {
             'id': body.get('id', 'emp_' + uuid.uuid4().hex[:6]),
             'name': body.get('name', '未命名'),
-            'role': body.get('role', ''),
+            'role': _sanitize_role(body.get('role', '')),
             'bg': body.get('bg', '#FF6B35'),
             'avatar': body.get('avatar', '🦞'),
             'status': body.get('status', 'online'),
@@ -2471,7 +2478,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                          'badge', 'createdBy', 'createdByName']
             for key in updatable:
                 if key in body:
-                    agent[key] = body[key]
+                    if key == 'role':
+                        agent[key] = _sanitize_role(body[key])
+                    else:
+                        agent[key] = body[key]
 
             _save_agents(agents)
             print(f'  [PUT agent] saved ok, sending response', flush=True)

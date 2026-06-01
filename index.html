@@ -3894,7 +3894,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
     var systemPrompt = '';
     // 优先使用 soulDoc（SOUL.md），其次 systemPrompt
     if (emp.soulDoc) systemPrompt = emp.soulDoc;else if (emp.systemPrompt) systemPrompt = emp.systemPrompt;
-    if (!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
+    if (!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + getEmpRoleDisplay(emp) + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
 
     // 加载对话摘要（如果有）
     var summaryText = '';
@@ -5130,7 +5130,7 @@ function showReminder() {
   // 只在当前员工的聊天中显示，避免串台
   if (currentEmpId && currentEmpId === emp.id) {
     const area = document.getElementById('messagesArea');
-    area.insertAdjacentHTML('beforeend', '<div class="msg reminder"><div class="msg-avatar">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + emp.name + '</span><span class="msg-sender-role">' + emp.role + '</span><span class="msg-sender-time">' + new Date().toLocaleTimeString('zh-CN', {
+    area.insertAdjacentHTML('beforeend', '<div class="msg reminder"><div class="msg-avatar">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + emp.name + '</span><span class="msg-sender-role">' + getEmpRoleDisplay(emp) + '</span><span class="msg-sender-time">' + new Date().toLocaleTimeString('zh-CN', {
       hour: '2-digit',
       minute: '2-digit'
     }) + '</span></div><div class="msg-bubble reminder-bubble">' + text.replace(/\n/g, '<br>') + '</div></div></div>');
@@ -5439,7 +5439,7 @@ function filterEmployeeList(query) {
     });
     if (emp) {
       var matchName = emp.name.toLowerCase().indexOf(q) >= 0;
-      var matchRole = (emp.role || '').toLowerCase().indexOf(q) >= 0;
+      var matchRole = getEmpRoleDisplay(emp).toLowerCase().indexOf(q) >= 0;
       item.style.display = !q || matchName || matchRole ? '' : 'none';
     }
   });
@@ -6875,12 +6875,12 @@ async function sendGroupMessage(groupId, message, mentions) {
   var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
   if (ocOk && group.leadAgentId) {
     // 构建完整消息（包含群组上下文和 @提及）
-    var leadEmpInfo = leadEmp ? leadEmp.name + '(' + leadEmp.role + ')' : '群主';
+    var leadEmpInfo = leadEmp ? leadEmp.name + '(' + getEmpRoleDisplay(leadEmp) + ')' : '群主';
     var memberList = (group.members || []).map(function (mid) {
       var e = emps.find(function (x) {
         return x.id === mid;
       });
-      return e ? e.name + '-' + e.role : mid;
+      return e ? e.name + '-' + getEmpRoleDisplay(e) : mid;
     }).join('、');
     var fullMessage = '【项目组: ' + group.name + ' | 你是: ' + leadEmpInfo + ' | 成员: ' + memberList + '】';
     if (mentions && mentions.length > 0) {
@@ -7099,11 +7099,11 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     var e = emps.find(function (x) {
       return x.id === mid;
     });
-    return e ? e.name + '-' + e.role : mid;
+    return e ? e.name + '-' + getEmpRoleDisplay(e) : mid;
   }).join('、') : '';
 
   // 构造提示：明确告诉AI它是谁，在哪个项目组，被谁@了
-  var prompt = announcementContext + '你是' + emp.name + '（' + emp.role + '），你在项目组「' + groupName + '」中。成员: ' + memberList + '。' + fromName + '在群聊中 @了你，请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
+  var prompt = announcementContext + '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），你在项目组「' + groupName + '」中。成员: ' + memberList + '。' + fromName + '在群聊中 @了你，请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
 
   // 如果群组有群公告，在 prompt 中也加上
   if (groupObj && groupObj.announcement) {
@@ -7748,7 +7748,7 @@ function renderMsgs(type) {
         hour: '2-digit',
         minute: '2-digit'
       });
-      return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(emp && emp.role || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + escapeHtml(m.content) + '</div>' + '</div></div>';
+      return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + escapeHtml(m.content) + '</div>' + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
     // 追加回不在 history 中的消息和打字指示器
     extraOwnMsgs.forEach(function (msg) {
@@ -7786,7 +7786,7 @@ function renderMsgs(type) {
       return x.id === m.sender;
     });
     const own = m.sender === 'user';
-    return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(e, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(e && e.name || '') + '</span><span class="msg-sender-role">' + escapeHtml(e && e.role || '') + '</span><span class="msg-sender-time">' + escapeHtml(m.time || '') + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + escapeHtml(m.time || '') + '</span></div>') + '<div class="msg-bubble">' + m.text + '</div>' + '</div></div>';
+    return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(e, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(e && e.name || '') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(e) || '') + '</span><span class="msg-sender-time">' + escapeHtml(m.time || '') + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + escapeHtml(m.time || '') + '</span></div>') + '<div class="msg-bubble">' + m.text + '</div>' + '</div></div>';
   }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
   area.scrollTop = area.scrollHeight;
 }
@@ -9561,14 +9561,14 @@ function confirmAddMembers() {
         var e = emps.find(function (x) {
           return x.id === mid;
         });
-        return e ? e.name + '(' + e.role + ')' : mid;
+        return e ? e.name + '(' + getEmpRoleDisplay(e) + ')' : mid;
       }).join('、');
       var announcement = groupObj.announcement ? '\n【群公告】' + groupObj.announcement : '';
 
       // 通过 OpenClaw 给 AI 发消息
       var agentId = emp.openclawName || emp.id;
       var sessionKey = 'agent:' + agentId + ':main';
-      var notifyMsg = '【入职通知】你已被加入项目组「' + groupObj.name + '」。\n你的角色：' + emp.name + '（' + emp.role + '）\n项目组成员：' + memberList + announcement + '\n\n请记住你在项目组中的身份，后续群聊中请以这个角色参与讨论。';
+      var notifyMsg = '【入职通知】你已被加入项目组「' + groupObj.name + '」。\n你的角色：' + emp.name + '（' + getEmpRoleDisplay(emp) + '）\n项目组成员：' + memberList + announcement + '\n\n请记住你在项目组中的身份，后续群聊中请以这个角色参与讨论。';
       if (typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated) {
         openclaw.sendChat(sessionKey, notifyMsg).then(function (result) {
           console.log('[Group] 入职通知已发送给', emp.name);
@@ -9889,8 +9889,9 @@ async function registerOpenClawAgent(emp) {
   // 避免中文名经 normalizeAgentId 回退为 "main" 导致 "main is reserved"
   var agentName = emp.id;
   var workspacePath = '~/.openclaw/workspace-' + agentName;
-  var soulContent = emp.soulDoc || emp.systemPrompt || '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
-  var identityContent = emp.idDoc || emp.name + ' - ' + emp.role;
+  var empRoleForPrompt = getEmpRoleDisplay(emp);
+  var soulContent = emp.soulDoc || emp.systemPrompt || '你是 ' + emp.name + '，一个 ' + empRoleForPrompt + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
+  var identityContent = emp.idDoc || emp.name + ' - ' + empRoleForPrompt;
 
   // 1. agents.create 只传 Gateway 支持的参数: {name, workspace, model?}
   var agentRegistered = false;
@@ -10131,7 +10132,14 @@ function selectModel(el, modelId) {
 // 统一获取员工职能显示名称
 function getEmpRoleDisplay(emp) {
   if (!emp) return '未设置';
-  return emp.role || '未设置';
+  var role = emp.role;
+  if (role === '__custom__' || role === 'custom') {
+    if (emp.subCategory && emp.subCategory !== '__custom__' && emp.subCategory !== 'custom') {
+      return emp.subCategory;
+    }
+    return '未设置';
+  }
+  return role || '未设置';
 }
 
 function renderCurrentTeamList() {
@@ -10432,10 +10440,11 @@ function performGlobalSearch(q) {
   const lowerQ = q.toLowerCase();
   const items = [];
   emps.forEach(function (emp) {
-    if (emp.name.toLowerCase().includes(lowerQ) || (emp && emp.role && emp.role.toLowerCase)().includes(lowerQ)) items.push({
+    var roleForSearch = getEmpRoleDisplay(emp);
+    if (emp.name.toLowerCase().includes(lowerQ) || roleForSearch.toLowerCase().includes(lowerQ)) items.push({
       type: '员工',
       name: emp.name,
-      desc: emp.role || '员工',
+      desc: getEmpRoleDisplay(emp),
       icon: renderAvatar(emp, 24),
       action: function () {
         return openEmpDetail(emp.id);
@@ -10504,7 +10513,7 @@ function renderLounge() {
   } else {
     content.innerHTML = '<div class="lounge-stat">🏖️ 休闲区 · <span>' + onlineCount + '</span> 在线 / <span>' + workingCount + '</span> 工作中 / ' + total + ' 总计</div>' + emps.map(function (e) {
       var statusDot = getStatusDot(e.status);
-      var roleTag = e.role ? '<span class="lounge-role-tag">' + escapeHtml(getEmpRoleDisplay(e)) + '</span>' : '';
+      var roleTag = getEmpRoleDisplay(e) !== '未设置' ? '<span class="lounge-role-tag">' + escapeHtml(getEmpRoleDisplay(e)) + '</span>' : '';
       // Get today's chat count for this emp
       var chatKey = 'sb_chat_history_' + (e.id || '');
       var chatHistory = [];
@@ -10675,7 +10684,7 @@ async function callRealAI(userMessage, context) {
   }
   try {
     const currentEmp = getCurrentEmployeeInfo();
-    let systemPrompt = `你是 ${currentEmp.name}，一个 ${currentEmp.role}。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。`;
+    let systemPrompt = `你是 ${currentEmp.name}，一个 ${getEmpRoleDisplay(currentEmp)}。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。`;
     if (context) systemPrompt += '\n\n【相关文档】\n' + context;
     const messages = [{
       role: 'system',
@@ -10742,7 +10751,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
   // 构建请求
   var systemPrompt = '';
   if (emp.soulDoc) systemPrompt = emp.soulDoc;else if (emp.systemPrompt) systemPrompt = emp.systemPrompt;
-  if (!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + emp.role + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
+  if (!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + getEmpRoleDisplay(emp) + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
   if (docContext) systemPrompt += '\n\n【相关文档】\n' + docContext;
   var messages = [{
     role: 'system',
