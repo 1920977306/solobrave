@@ -1882,9 +1882,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     'description': t.get('description', ''),
                     'parentId': t.get('parentId'),
                     'leaderId': t.get('leaderId'),
+                    'leader': t.get('leaderId'),
                     'leaderName': leader_name,
                     'memberCount': len(t.get('members', [])),
                     'agentCount': len(t.get('agentIds', [])),
+                    'members': t.get('members', []),
+                    'note': t.get('note', ''),
                     'children': children,
                     'createdAt': t.get('createdAt', '')
                 }
@@ -1940,8 +1943,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'description': team.get('description', ''),
             'parentId': team.get('parentId'),
             'leaderId': team.get('leaderId'),
+            'leader': team.get('leaderId'),
             'members': members,
+            'memberIds': team.get('members', []),
             'agentIds': team.get('agentIds', []),
+            'note': team.get('note', ''),
             'children': children_info,
             'createdAt': team.get('createdAt', ''),
             'createdBy': team.get('createdBy', '')
@@ -1977,7 +1983,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         users = _load_users()
 
         team_id = 'team_' + uuid.uuid4().hex[:8]
-        leader_id = body.get('leaderId')
+        leader_id = body.get('leader') or body.get('leaderId')
         member_ids = body.get('memberIds', [])
         parent_id = body.get('parentId')
         agent_ids = body.get('agentIds', [])
@@ -2013,8 +2019,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'description': body.get('description', ''),
             'parentId': parent_id,
             'leaderId': leader_id,
+            'leader': leader_id,
             'members': [leader_id] + member_ids if leader_id else member_ids,
             'agentIds': agent_ids,
+            'note': body.get('note', ''),
             'createdAt': datetime.now().isoformat(),
             'createdBy': auth.user_info.get('userId')
         }
@@ -2055,8 +2063,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             team['name'] = body.get('name').strip()
         if body.get('description') is not None:
             team['description'] = body.get('description')
-        if body.get('leaderId') is not None:
-            team['leaderId'] = body.get('leaderId')
+        if body.get('parentId') is not None:
+            team['parentId'] = body.get('parentId') or None
+        new_leader = body.get('leader') or body.get('leaderId')
+        if new_leader is not None:
+            team['leaderId'] = new_leader
+            team['leader'] = new_leader
+        if body.get('note') is not None:
+            team['note'] = body.get('note', '')
 
         _save_teams(teams)
         self._send_json(200, team)

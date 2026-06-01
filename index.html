@@ -3472,7 +3472,7 @@ function showMainApp() {
         var uid = currentUser && currentUser.id;
         var managedIds = currentUser && currentUser.managedTeamIds || [];
         window._visibleTeams = (allTeams || []).filter(function (t) {
-          return t.leaderId === uid || managedIds.indexOf(t.id) >= 0;
+          return (t.leader === uid || t.leaderId === uid) || managedIds.indexOf(t.id) >= 0;
         });
         // 如果没有任何管理的组，也能看到所有组（兼容未分配的情况）
         if (window._visibleTeams.length === 0) window._visibleTeams = allTeams || [];
@@ -3783,7 +3783,7 @@ function sendMsg() {
   const typing = document.createElement('div');
   typing.className = 'msg typing-msg';
   typing.id = 'typingMsg';
-  typing.innerHTML = '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(emp.role || '') + '</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div>';
+  typing.innerHTML = '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp)) + '</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div>';
   area.appendChild(typing);
   area.scrollTop = area.scrollHeight;
 
@@ -5405,7 +5405,7 @@ function renderEmployeeList() {
         html += '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" style="padding:6px 12px;cursor:pointer;">';
         html += '<div style="display:flex;align-items:center;gap:8px;">';
         html += '<div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg || '') + ';border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;">' + renderAvatar(e, 32) + '</div>';
-        html += '<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:500;">' + escapeHtml(e.name || '') + '</div><div style="font-size:11px;color:var(--text-secondary);">' + escapeHtml(e.role || '') + '</div></div>';
+        html += '<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:500;">' + escapeHtml(e.name || '') + '</div><div style="font-size:11px;color:var(--text-secondary);">' + escapeHtml(getEmpRoleDisplay(e)) + '</div></div>';
         html += '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="恢复">📂</button>';
         html += '</div>';
         html += '</div>';
@@ -5418,7 +5418,7 @@ function renderEmployeeList() {
         html += '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" style="padding:6px 12px;cursor:pointer;">';
         html += '<div style="display:flex;align-items:center;gap:8px;">';
         html += '<div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg || '') + ';border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;">' + renderAvatar(e, 32) + '</div>';
-        html += '<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:500;">' + escapeHtml(e.name || '') + '</div><div style="font-size:11px;color:var(--text-secondary);">' + escapeHtml(e.role || '') + '</div></div>';
+        html += '<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:500;">' + escapeHtml(e.name || '') + '</div><div style="font-size:11px;color:var(--text-secondary);">' + escapeHtml(getEmpRoleDisplay(e)) + '</div></div>';
         html += '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="恢复">📂</button>';
         html += '</div>';
         html += '</div>';
@@ -5468,7 +5468,7 @@ function renderArchiveSections() {
         content1v1.innerHTML = '<div class="archive-empty">暂无归档对话</div>';
       } else {
         content1v1.innerHTML = archived1v1.map(function (e) {
-          return '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" style="padding:6px 12px;cursor:pointer;">' + '<div class="item-avatar" style="width:32px;height:32px;"><div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg || '') + ';">' + renderAvatar(e, 32) + '</div></div>' + '<div class="item-info"><div class="item-name" style="font-size:13px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:11px;">' + escapeHtml(e.role || '') + '</div></div>' + '<div class="archive-actions" style="display:flex;gap:4px;align-items:center;flex-shrink:0;">' + '<button onclick="event.stopPropagation();downloadArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="下载对话记录">📥</button>' + '<button onclick="event.stopPropagation();continueArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="继续对话">💬</button>' + '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="恢复员工">📂</button>' + '</div>' + '</div>';
+          return '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" style="padding:6px 12px;cursor:pointer;">' + '<div class="item-avatar" style="width:32px;height:32px;"><div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg || '') + ';">' + renderAvatar(e, 32) + '</div></div>' + '<div class="item-info"><div class="item-name" style="font-size:13px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:11px;">' + escapeHtml(getEmpRoleDisplay(e)) + '</div></div>' + '<div class="archive-actions" style="display:flex;gap:4px;align-items:center;flex-shrink:0;">' + '<button onclick="event.stopPropagation();downloadArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="下载对话记录">📥</button>' + '<button onclick="event.stopPropagation();continueArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="继续对话">💬</button>' + '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="恢复员工">📂</button>' + '</div>' + '</div>';
         }).join('');
       }
     }
@@ -5485,7 +5485,7 @@ function renderArchiveSections() {
         contentProj.innerHTML = '<div class="archive-empty">暂无归档项目</div>';
       } else {
         contentProj.innerHTML = archivedProjects.map(function (e) {
-          return '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" style="padding:6px 12px;cursor:pointer;">' + '<div class="item-avatar" style="width:32px;height:32px;"><div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg || '') + ';">' + renderAvatar(e, 32) + '</div></div>' + '<div class="item-info"><div class="item-name" style="font-size:13px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:11px;">' + escapeHtml(e.role || '') + '</div></div>' + '<div class="archive-actions" style="display:flex;gap:4px;align-items:center;flex-shrink:0;">' + '<button onclick="event.stopPropagation();downloadArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="下载群聊记录">📥</button>' + '<button onclick="event.stopPropagation();continueArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="继续群聊">💬</button>' + '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="恢复群组">📂</button>' + '</div>' + '</div>';
+          return '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" style="padding:6px 12px;cursor:pointer;">' + '<div class="item-avatar" style="width:32px;height:32px;"><div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg || '') + ';">' + renderAvatar(e, 32) + '</div></div>' + '<div class="item-info"><div class="item-name" style="font-size:13px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:11px;">' + escapeHtml(getEmpRoleDisplay(e)) + '</div></div>' + '<div class="archive-actions" style="display:flex;gap:4px;align-items:center;flex-shrink:0;">' + '<button onclick="event.stopPropagation();downloadArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="下载群聊记录">📥</button>' + '<button onclick="event.stopPropagation();continueArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="继续群聊">💬</button>' + '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="恢复群组">📂</button>' + '</div>' + '</div>';
         }).join('');
       }
     }
@@ -5779,7 +5779,7 @@ function renderEmployeeItem(e, showCreator) {
   var avatarBg = hasImg ? 'transparent' : e.bg || '#F2F2F7';
   var avatarColor = hasImg ? 'transparent' : '#86868B';
   var statusClass = escapeAttr(e.status || 'offline');
-  var previewText = escapeHtml(e.role || '');
+  var previewText = escapeHtml(getEmpRoleDisplay(e));
   return '<div class="emp-avatar" style="background:' + avatarBg + ';color:' + avatarColor + '">' + avatarContent + '<div class="status-dot ' + statusClass + '" style="position:absolute;bottom:-1px;right:-1px;width:10px;height:10px;border-radius:50%;border:2px solid #fff;"></div></div><div class="emp-info"><div class="emp-name">' + escapeHtml(e.name || '') + creatorTag + '</div><div class="emp-preview">' + previewText + '</div></div>';
 }
 function bindListEvents() {
@@ -6522,7 +6522,17 @@ document.addEventListener('click', hideContextMenu);
 
 // ============ Move Group Modal ============
 var moveGroupTarget = null;
-var GROUP_OPTIONS = ['全局统筹', '技术团队', '业务团队', '测试小组'];
+function getTeamNameList() {
+  var names = [];
+  var seen = {};
+  allTeams.forEach(function (t) {
+    if (t.name && !seen[t.name]) {
+      seen[t.name] = true;
+      names.push(t.name);
+    }
+  });
+  return names.length > 0 ? names : ['未分组'];
+}
 function showMoveGroupModal(empId) {
   moveGroupTarget = empId;
   var emp = emps.find(function (e) {
@@ -6532,12 +6542,13 @@ function showMoveGroupModal(empId) {
   document.getElementById('moveGroupEmpName').textContent = emp.name;
   var list = document.getElementById('moveGroupList');
   var html = '';
-  for (var i = 0; i < GROUP_OPTIONS.length; i++) {
-    var group = GROUP_OPTIONS[i];
+  var options = getTeamNameList();
+  for (var i = 0; i < options.length; i++) {
+    var group = options[i];
     var isCurrent = emp.subCategory === group;
     var currentBadge = isCurrent ? ' <span style="font-size:11px;color:var(--accent);margin-left:auto;">当前</span>' : '';
     var selectedClass = isCurrent ? ' style="border-color:var(--accent);background:var(--accent-light);"' : '';
-    html += '<div onclick="doMoveGroup(\'' + group + '\')" class="group-option"' + selectedClass + '>' + '<span>' + escapeHtml(group) + '</span>' + currentBadge + '</div>';
+    html += '<div onclick="doMoveGroup(\'' + escapeAttr(group) + '\')" class="group-option"' + selectedClass + '>' + '<span>' + escapeHtml(group) + '</span>' + currentBadge + '</div>';
   }
   list.innerHTML = html;
   document.getElementById('moveGroupModal').style.display = 'flex';
@@ -6650,7 +6661,7 @@ function openChat(id) {
     var chatHeaderSub = document.querySelector('.chat-header-role') || document.querySelector('.chat-header-sub');
     var chatHeaderAvatar = document.querySelector('.chat-header-v2 .avatar') || document.querySelector('.chat-header .avatar');
     if (chatHeaderName) chatHeaderName.textContent = emp.name;
-    if (chatHeaderSub) chatHeaderSub.textContent = '在线 · ' + (emp.role === '__custom__' ? emp.customRole || emp.subCategory || '自定义' : emp.role);
+    if (chatHeaderSub) chatHeaderSub.textContent = '在线 · ' + getEmpRoleDisplay(emp);
     if (chatHeaderAvatar) {
       chatHeaderAvatar.innerHTML = renderAvatar(emp, 36);
       var _isImg = typeof emp.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[emp.avatar] || emp.avatar && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0);
@@ -6809,7 +6820,7 @@ function renderGroupMessages(groupId) {
     } else {
       var avatarHtml = senderEmp ? renderAvatar(senderEmp, 32) : '🤖';
       var senderName = senderEmp ? senderEmp.name : m.senderName || 'AI';
-      var senderRole = senderEmp ? senderEmp.role : '';
+      var senderRole = senderEmp ? getEmpRoleDisplay(senderEmp) : '';
       var senderBg = senderEmp ? 'background:' + senderEmp.bg + ';' : 'background:var(--bg-tertiary);';
       html += '<div class="msg"><div class="msg-avatar"><div class="avatar small" style="' + senderBg + '">' + avatarHtml + '</div></div>' + '<div class="msg-content">' + '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(senderName) + '</span><span class="msg-sender-role">' + escapeHtml(senderRole) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' + '<div class="msg-bubble">' + bubbleContent + '</div>' + '</div></div>';
     }
@@ -7216,7 +7227,7 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   });
   var avatarHtml = senderEmp ? renderAvatar(senderEmp, 32) : '🤖';
   var senderName = senderEmp ? senderEmp.name : 'AI';
-  var senderRole = senderEmp ? senderEmp.role : '';
+  var senderRole = senderEmp ? getEmpRoleDisplay(senderEmp) : '';
   var senderBg = senderEmp ? 'background:' + senderEmp.bg + ';' : 'background:var(--bg-tertiary);';
   var timeStr = new Date().toLocaleTimeString('zh-CN', {
     hour: '2-digit',
@@ -7380,7 +7391,7 @@ function renderGroupWizardStep3() {
     });
     if (!e) return '';
     var isSelected = gwLead === mid;
-    return '<div class="lead-radio-item' + (isSelected ? ' selected' : '') + '" data-lead="' + escapeAttr(mid) + '" onclick="selectGwLead(\'' + escapeAttr(mid) + '\')">' + '<div class="lead-radio-dot"></div>' + '<div class="avatar small" style="background:' + escapeAttr(e.bg || '') + ';width:28px;height:28px;font-size:13px;">' + renderAvatar(e, 28) + '</div>' + '<span style="font-size:14px;">' + escapeHtml(e.name) + '</span>' + '<span style="font-size:12px;color:var(--text-secondary);">' + escapeHtml(e.role) + '</span>' + '</div>';
+    return '<div class="lead-radio-item' + (isSelected ? ' selected' : '') + '" data-lead="' + escapeAttr(mid) + '" onclick="selectGwLead(\'' + escapeAttr(mid) + '\')">' + '<div class="lead-radio-dot"></div>' + '<div class="avatar small" style="background:' + escapeAttr(e.bg || '') + ';width:28px;height:28px;font-size:13px;">' + renderAvatar(e, 28) + '</div>' + '<span style="font-size:14px;">' + escapeHtml(e.name) + '</span>' + '<span style="font-size:12px;color:var(--text-secondary);">' + escapeHtml(getEmpRoleDisplay(e)) + '</span>' + '</div>';
   }).join('');
 
   // Confirm info
@@ -8282,7 +8293,7 @@ function showMentionDropdown() {
     var item = document.createElement('div');
     item.className = 'mention-item';
     item.style.cssText = 'padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;';
-    item.innerHTML = '<span style="font-size:16px;">' + (emp.name ? escapeHtml(emp.name[0]) : '?') + '</span><span>' + escapeHtml(emp.name) + ' (' + escapeHtml(emp.role) + ')</span>';
+    item.innerHTML = '<span style="font-size:16px;">' + (emp.name ? escapeHtml(emp.name[0]) : '?') + '</span><span>' + escapeHtml(emp.name) + ' (' + escapeHtml(getEmpRoleDisplay(emp)) + ')</span>';
     item.onclick = function () {
       var input = document.getElementById('msgInput');
       if (input) input.value = input.value.replace(/@[^@\s]*$/, '') + '@' + emp.name + ' ';
@@ -8604,7 +8615,7 @@ function compressContext() {
     var html = '<div class="msg ' + (own ? 'own' : '') + '">' +
       (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') +
       '<div class="msg-content">' +
-      (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(emp.role || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' :
+      (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp)) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' :
       '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') +
       '<div class="msg-bubble">' + escapeHtml(m.content) + '</div>' +
       '</div></div>';
@@ -8773,7 +8784,7 @@ function openEmpDetail(empId) {
   document.getElementById('empDetailAvatar').innerHTML = renderAvatar(emp, 80);
   document.getElementById('empDetailAvatar').style.background = `linear-gradient(135deg,${emp.color || '#FF6B35'},${emp.color || '#FF6B35'}dd)`;
   document.getElementById('empDetailName').textContent = emp.name;
-  document.getElementById('empDetailRole').textContent = (emp.role === '__custom__' ? emp.customRole || emp.subCategory || '自定义' : emp.role) || '员工';
+  document.getElementById('empDetailRole').textContent = getEmpRoleDisplay(emp);
   document.getElementById('empDetailStatus').innerHTML = `<span class="status-dot ${escapeAttr(emp.status || 'offline')}"></span> ${getStatusText(emp.status)}`;
   document.getElementById('empDetailId').textContent = emp.id;
   document.getElementById('empDetailModel').textContent = emp.model || 'gpt-4o';
@@ -9418,7 +9429,7 @@ function renderGroupDetailMembers(group) {
     });
     if (!emp) return '';
     var avatarHtml = renderAvatar(emp, 36);
-    return '<div class="group-member-item" data-mid="' + escapeAttr(mid) + '">' + '<div class="group-member-avatar" style="background:' + escapeAttr(emp.bg || '#888') + ';">' + avatarHtml + '</div>' + '<div class="group-member-info">' + '<div class="group-member-name">' + escapeHtml(emp.name || '') + '</div>' + '<div class="group-member-role">' + escapeHtml(emp.role || '员工') + '</div>' + '</div>' + '<button class="group-member-remove" onclick="removeGroupMember(\'' + escapeAttr(mid) + '\')" title="移除成员">✕</button>' + '</div>';
+    return '<div class="group-member-item" data-mid="' + escapeAttr(mid) + '">' + '<div class="group-member-avatar" style="background:' + escapeAttr(emp.bg || '#888') + ';">' + avatarHtml + '</div>' + '<div class="group-member-info">' + '<div class="group-member-name">' + escapeHtml(emp.name || '') + '</div>' + '<div class="group-member-role">' + escapeHtml(getEmpRoleDisplay(emp)) + '</div>' + '</div>' + '<button class="group-member-remove" onclick="removeGroupMember(\'' + escapeAttr(mid) + '\')" title="移除成员">✕</button>' + '</div>';
   }).join('');
 }
 function selectGroupEmoji(el) {
@@ -9470,7 +9481,7 @@ function showAddMemberModal() {
   }
   var html = '<div class="member-modal">' + '<div class="member-modal-header">' + '<div class="member-modal-title">添加成员</div>' + '<div class="member-modal-subtitle">选择要添加到群组的AI员工</div>' + '</div>' + '<div class="member-search">' + '<span class="member-search-icon">&#128269;</span>' + '<input type="text" id="memberSearchInput" placeholder="搜索员工..." oninput="filterMemberList(this.value)" />' + '</div>' + '<div class="member-list" id="memberList">' + availableEmps.map(function (emp) {
     var avatarHtml = renderAvatar(emp, 40);
-    return '<div class="member-item" data-id="' + escapeAttr(emp.id) + '" onclick="toggleMember(this)">' + '<div class="member-avatar" style="background:' + escapeAttr(emp.bg || '#888') + ';">' + avatarHtml + '</div>' + '<div class="member-info">' + '<div class="member-name">' + escapeHtml(emp.name || '') + '</div>' + '<div class="member-role">' + escapeHtml(emp.role || '员工') + '</div>' + '</div>' + '<div class="member-check">' + '<span class="member-check-icon">&#10003;</span>' + '</div>' + '</div>';
+    return '<div class="member-item" data-id="' + escapeAttr(emp.id) + '" onclick="toggleMember(this)">' + '<div class="member-avatar" style="background:' + escapeAttr(emp.bg || '#888') + ';">' + avatarHtml + '</div>' + '<div class="member-info">' + '<div class="member-name">' + escapeHtml(emp.name || '') + '</div>' + '<div class="member-role">' + escapeHtml(getEmpRoleDisplay(emp)) + '</div>' + '</div>' + '<div class="member-check">' + '<span class="member-check-icon">&#10003;</span>' + '</div>' + '</div>';
   }).join('') + '</div>' + '<div class="member-footer">' + '<button class="member-btn member-btn-cancel" onclick="closeModal()">取消</button>' + '<button class="member-btn member-btn-confirm" id="memberConfirmBtn" onclick="confirmAddMembers()" disabled>确认添加</button>' + '</div>' + '</div>';
   showModal('', html);
 }
@@ -10117,11 +10128,17 @@ function selectModel(el, modelId) {
 
 // Employee management
 
+// 统一获取员工职能显示名称
+function getEmpRoleDisplay(emp) {
+  if (!emp) return '未设置';
+  return emp.role || '未设置';
+}
+
 function renderCurrentTeamList() {
   const list = document.getElementById('currentTeamList');
   if (!list) return;
   list.innerHTML = emps.map(function (e) {
-    var roleDisplay = e.role === '__custom__' ? (e.customRole || e.subCategory || '自定义') : (e.role || '');
+    var roleDisplay = getEmpRoleDisplay(e);
     return '<div class="team-member">' +
       '<div class="team-avatar" style="background:' + escapeAttr(e.bg || '') + ';display:flex;align-items:center;justify-content:center;">' + renderAvatar(e, 40) + '</div>' +
       '<div class="team-info">' +
@@ -10487,7 +10504,7 @@ function renderLounge() {
   } else {
     content.innerHTML = '<div class="lounge-stat">🏖️ 休闲区 · <span>' + onlineCount + '</span> 在线 / <span>' + workingCount + '</span> 工作中 / ' + total + ' 总计</div>' + emps.map(function (e) {
       var statusDot = getStatusDot(e.status);
-      var roleTag = e.role ? '<span class="lounge-role-tag">' + escapeHtml(e.role) + '</span>' : '';
+      var roleTag = e.role ? '<span class="lounge-role-tag">' + escapeHtml(getEmpRoleDisplay(e)) + '</span>' : '';
       // Get today's chat count for this emp
       var chatKey = 'sb_chat_history_' + (e.id || '');
       var chatHistory = [];
@@ -10503,7 +10520,7 @@ function renderLounge() {
       }).length;
       return '<div class="lounge-item" data-emp-id="' + escapeAttr(e.id || '') + '" onclick="openEmpDetail(\'' + escapeAttr(e.id || '') + '\')">' + '<div class="lounge-avatar-wrap">' + '<div class="avatar" style="background:' + escapeAttr(e.bg || e.color || '#999') + ';display:flex;align-items:center;justify-content:center;">' + renderAvatar(e, 36) + '</div>' + '<div class="lounge-status-dot">' + statusDot + '</div>' + '</div>' + '<div class="lounge-item-info">' + '<div class="lounge-item-name">' + escapeHtml(e.name || '') + ' ' + roleTag + '</div>' + '<div class="lounge-item-status">' + escapeHtml(e.msg || e.lastActive || '离线') + '</div>' + '</div>' + (e.status === 'offline' ? '<button class="lounge-wake-btn" onclick="event.stopPropagation();wakeUpEmployee(\'' + escapeAttr(e.id || '') + '\')" title="唤醒员工">☀️</button>' : '') +
       // Hover preview card
-      '<div class="lounge-preview-card">' + '<div class="lounge-preview-header">' + '<div class="avatar" style="background:' + escapeAttr(e.bg || e.color || '#999') + ';display:flex;align-items:center;justify-content:center;">' + renderAvatar(e, 32) + '</div>' + '<div>' + '<div class="lounge-preview-name">' + statusDot + ' ' + escapeHtml(e.name || '') + '</div>' + '<div class="lounge-preview-role">' + escapeHtml(e.role || '员工') + '</div>' + '</div>' + '</div>' + '<div class="lounge-preview-divider"></div>' + '<div class="lounge-preview-row">📋 <span class="lounge-preview-label">当前：</span>' + escapeHtml(e.msg || '暂无任务') + '</div>' + '<div class="lounge-preview-row">💬 <span class="lounge-preview-label">今日对话：</span>' + todayChatCount + '条</div>' + '<div class="lounge-preview-row">⏱️ <span class="lounge-preview-label">状态：</span>' + escapeHtml(e.status || '离线') + '</div>' + '</div>' + '</div>';
+      '<div class="lounge-preview-card">' + '<div class="lounge-preview-header">' + '<div class="avatar" style="background:' + escapeAttr(e.bg || e.color || '#999') + ';display:flex;align-items:center;justify-content:center;">' + renderAvatar(e, 32) + '</div>' + '<div>' + '<div class="lounge-preview-name">' + statusDot + ' ' + escapeHtml(e.name || '') + '</div>' + '<div class="lounge-preview-role">' + escapeHtml(getEmpRoleDisplay(e)) + '</div>' + '</div>' + '</div>' + '<div class="lounge-preview-divider"></div>' + '<div class="lounge-preview-row">📋 <span class="lounge-preview-label">当前：</span>' + escapeHtml(e.msg || '暂无任务') + '</div>' + '<div class="lounge-preview-row">💬 <span class="lounge-preview-label">今日对话：</span>' + todayChatCount + '条</div>' + '<div class="lounge-preview-row">⏱️ <span class="lounge-preview-label">状态：</span>' + escapeHtml(e.status || '离线') + '</div>' + '</div>' + '</div>';
     }).join('');
   }
 }
@@ -11049,7 +11066,7 @@ function displayAIReply(replyText, docContext, timeStr) {
   var html = '<div class="msg">\n';
   html += '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>\n';
   html += '<div class="msg-content">\n';
-  html += '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name) + '</span><span class="msg-sender-role">' + escapeHtml(emp.role) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>\n';
+  html += '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name) + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp)) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>\n';
   html += '<div class="msg-bubble">' + bubble + '</div>\n';
   html += '</div></div>';
   area.insertAdjacentHTML('beforeend', html);
@@ -11212,7 +11229,7 @@ function updateWizardUI() {
 function updateWizConfirm() {
   var name = document.getElementById('wizName').value.trim() || '未命名';
   var roleSel = document.getElementById('wizRole').value;
-  var role = roleSel === '__custom__' ? document.getElementById('wizCustomRole').value.trim() || '自定义' : roleSel;
+  var role = roleSel === '' ? document.getElementById('wizOtherRole').value.trim() || '未设置' : roleSel;
   var avatarEl = document.querySelector('.wiz-avatar-opt.selected');
   var avatar = avatarEl ? avatarEl.dataset.avatar : '';
   var group = document.getElementById('wizGroup').value;
@@ -11368,7 +11385,7 @@ function skipSoulQuestion() {
 function finishSoulConfig() {
   var name = document.getElementById('wizName').value.trim() || '员工';
   var role = document.getElementById('wizRole').value;
-  if (role === '__custom__') role = document.getElementById('wizCustomRole').value.trim() || '自定义';
+  if (role === '') role = document.getElementById('wizOtherRole').value.trim() || '未设置';
 
   // 生成 IDENTITY.md
   var identity = '# 身份\n\n';
@@ -11474,7 +11491,7 @@ async function finishWizard() {
     return;
   }
   var role = document.getElementById('wizRole').value;
-  if (role === '__custom__') role = document.getElementById('wizCustomRole').value.trim() || '自定义';
+  if (role === '') role = document.getElementById('wizOtherRole').value.trim() || '未设置';
   var avatarEl = document.querySelector('.wiz-avatar-opt.selected');
   var avatarIndex = 0;
   if (avatarEl) {
@@ -11507,7 +11524,7 @@ async function finishWizard() {
     id: 'emp_' + Date.now(),
     name: name,
     role: role,
-    customRole: document.getElementById('wizRole').value === '__custom__' ? role : '',
+    subCategory: document.getElementById('wizRole').value === '' ? role : '',
     avatar: avatarIndex,
     bg: colors[emps.length % colors.length],
     status: status,
@@ -12104,7 +12121,7 @@ function doReset() {
 </div>
 <div class="form-group">
 <label class="form-label">职位</label>
-<select class="form-select" id="wizRole" onchange="if(this.value==='__custom__'){document.getElementById('wizCustomRoleWrap').style.display='block';document.getElementById('wizCustomRole').focus();}else{document.getElementById('wizCustomRoleWrap').style.display='none';}">
+<select class="form-select" id="wizRole" onchange="if(this.value===''){document.getElementById('wizOtherRoleWrap').style.display='block';document.getElementById('wizOtherRole').focus();}else{document.getElementById('wizOtherRoleWrap').style.display='none';}">
 <option>CEO助理</option>
 <option>前端工程师</option>
 <option>后端工程师</option>
@@ -12113,10 +12130,10 @@ function doReset() {
 <option>运营</option>
 <option>客服</option>
 <option>数据分析师</option>
-<option value="__custom__">✏️ 自定义职位...</option>
+<option value="">✏️ 其他职位...</option>
 </select>
-<div id="wizCustomRoleWrap" style="display:none;margin-top:8px;">
-<input type="text" class="form-input" id="wizCustomRole" placeholder="输入自定义职位，如：全栈开发、架构师...">
+<div id="wizOtherRoleWrap" style="display:none;margin-top:8px;">
+<input type="text" class="form-input" id="wizOtherRole" placeholder="输入职位名称，如：全栈开发、架构师...">
 </div>
 </div>
 </div>
@@ -12453,6 +12470,21 @@ document.addEventListener('keydown', function (e) {
 .team-management-close { width: 32px; height: 32px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-secondary); }
 .team-management-close:hover { background: var(--bg-secondary); }
 .team-management-content { flex: 1; overflow-y: auto; padding: 20px; }
+
+/* Team Tree Item */
+.team-tree-item { display: flex; align-items: center; gap: 10px; padding: 12px; background: var(--bg-secondary); border-radius: 10px; margin-bottom: 6px; transition: all 0.2s; border: 0.5px solid transparent; }
+.team-tree-item:hover { background: var(--bg-tertiary); border-color: var(--accent); }
+.team-tree-indent { display: inline-block; font-family: monospace; font-size: 13px; color: var(--text-tertiary); white-space: pre; }
+.team-tree-icon { font-size: 18px; flex-shrink: 0; }
+.team-tree-info { flex: 1; min-width: 0; }
+.team-tree-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.team-tree-meta { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+.team-tree-leader { color: var(--accent); }
+.team-tree-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.2s; }
+.team-tree-item:hover .team-tree-actions { opacity: 1; }
+.team-tree-btn { padding: 4px 8px; border-radius: 6px; border: none; cursor: pointer; font-size: 11px; transition: all 0.15s; background: var(--bg-tertiary); color: var(--text-secondary); }
+.team-tree-btn:hover { background: var(--accent); color: white; }
+.team-tree-btn.danger:hover { background: #FF3B30; }
 
 /* ===== 管理面板子弹窗 ===== */
 /* 面板保持 fixed 滑出，子弹窗用 fixed 但z-index高于面板 */
@@ -12832,40 +12864,90 @@ function loadTeamList() {
   }).then(function (teams) {
     allTeams = teams || [];
     renderTeamList(allTeams);
+    refreshTeamMenus();
   }).catch(function () {
     allTeams = [];
     renderTeamList([]);
+    refreshTeamMenus();
   });
+}
+
+// 统一刷新所有分组菜单（从 allTeams 读取，消除硬编码）
+function refreshTeamMenus() {
+  var options = getTeamNameList();
+  var submenuHtml = options.map(function (name) {
+    return '<div class="submenu-item" onclick="event.stopPropagation();empSettingsActionMove(\'' + escapeAttr(name) + '\')">' + escapeHtml(name) + '</div>';
+  }).join('');
+
+  // 更新 empSettingsMenu 的子菜单（所有匹配 .submenu 的容器）
+  var empMenus = document.querySelectorAll('#empSettingsMenu .submenu');
+  empMenus.forEach(function (sub) {
+    sub.innerHTML = submenuHtml;
+  });
+
+  // 更新 gearMenuTemplate
+  var gearMenu = document.getElementById('gearMenuTemplate');
+  if (gearMenu) {
+    var groupItems = gearMenu.querySelectorAll('.gear-menu-item[onclick*="gearMoveToGroup"]');
+    groupItems.forEach(function (el) {
+      el.remove();
+    });
+    var separators = gearMenu.querySelectorAll('.gear-menu-separator');
+    var targetSep = separators.length > 1 ? separators[separators.length - 1] : separators[0];
+    options.forEach(function (name) {
+      var item = document.createElement('div');
+      item.className = 'gear-menu-item';
+      item.setAttribute('onclick', 'gearMoveToGroup(\'' + escapeAttr(name) + '\')');
+      item.textContent = name;
+      if (targetSep && targetSep.parentNode) {
+        targetSep.parentNode.insertBefore(item, targetSep);
+      }
+    });
+  }
 }
 
 // 渲染小组列表（树形结构）
 function renderTeamList(teams) {
   var list = document.getElementById('teamList');
   if (!list) return;
-  if (!teams) {
-    // Load from groups API or use empty
-    teams = [];
-  }
+  if (!teams) teams = [];
   if (!teams.length) {
     list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">🏢</div><div>暂无小组</div></div>';
     return;
   }
 
-  // 构建树形结构
-  var rootTeams = teams.filter(function (t) {
-    return !t.parentId;
-  });
+  var treePrefix = ['', '├─ ', '│  ├─ ', '│  │  ├─ ', '│  │  │  ├─ '];
   function renderTeamItem(team, level) {
-    var paddingLeft = level * 20;
     var children = teams.filter(function (t) {
       return t.parentId === team.id;
     });
-    var memberCount = team.agentIds ? team.agentIds.length : 0;
+    var hasChildren = children.length > 0;
+    var prefix = treePrefix[level] || ('│  '.repeat(level) + '├─ ');
+    var memberCount = team.memberCount !== undefined ? team.memberCount : (team.agentIds ? team.agentIds.length : 0);
+    var leaderName = team.leaderName || '未设置';
     var childHtml = children.map(function (c) {
       return renderTeamItem(c, level + 1);
     }).join('');
-    return '<div style="padding:12px;background:var(--bg-secondary);border-radius:8px;margin-bottom:8px;margin-left:' + paddingLeft + 'px;">' + '<div style="display:flex;align-items:center;gap:12px;">' + '<div style="font-size:20px;">🏢</div>' + '<div style="flex:1;">' + '<div style="font-size:14px;font-weight:600;">' + escapeHtml(team.name) + '</div>' + '<div style="font-size:12px;color:var(--text-tertiary);">' + escapeHtml(team.description || '') + '</div>' + '<div style="font-size:11px;color:var(--accent);margin-top:4px;">👥 ' + memberCount + ' 名成员</div>' + '</div>' + '<div style="display:flex;gap:6px;">' + '<button onclick="showTeamMembersModal(\'' + escapeAttr(team.id) + '\')" style="padding:4px 8px;border-radius:4px;background:var(--bg-tertiary);border:none;cursor:pointer;font-size:12px;">成员</button>' + '<button onclick="showEditTeamModal(\'' + escapeAttr(team.id) + '\')" style="padding:4px 8px;border-radius:4px;background:var(--bg-tertiary);border:none;cursor:pointer;font-size:12px;">编辑</button>' + '</div>' + '</div>' + childHtml;
+    return '<div class="team-tree-item">' +
+      '<span class="team-tree-indent">' + prefix + '</span>' +
+      '<span class="team-tree-icon">' + (hasChildren ? '📂' : '📁') + '</span>' +
+      '<div class="team-tree-info">' +
+      '<div class="team-tree-name">' + escapeHtml(team.name) + '</div>' +
+      '<div class="team-tree-meta">' +
+      '<span class="team-tree-leader">👤 ' + escapeHtml(leaderName) + '</span>' +
+      ' · <span>👥 ' + memberCount + ' 名成员</span>' +
+      (team.description ? ' · ' + escapeHtml(team.description) : '') +
+      '</div></div>' +
+      '<div class="team-tree-actions">' +
+      '<button class="team-tree-btn" onclick="showAddSubTeamModal(\'' + escapeAttr(team.id) + '\')">➕ 子小组</button>' +
+      '<button class="team-tree-btn" onclick="showTeamMembersModal(\'' + escapeAttr(team.id) + '\')">成员</button>' +
+      '<button class="team-tree-btn" onclick="showEditTeamModal(\'' + escapeAttr(team.id) + '\')">编辑</button>' +
+      '<button class="team-tree-btn danger" onclick="deleteTeamById(\'' + escapeAttr(team.id) + '\')">删除</button>' +
+      '</div></div>' + childHtml;
   }
+  var rootTeams = teams.filter(function (t) {
+    return !t.parentId;
+  });
   list.innerHTML = rootTeams.map(function (t) {
     return renderTeamItem(t, 0);
   }).join('');
@@ -12875,12 +12957,31 @@ function renderTeamList(teams) {
 function showCreateTeamModal() {
   document.getElementById('newTeamName').value = '';
   document.getElementById('newTeamDesc').value = '';
+  document.getElementById('newTeamNote').value = '';
 
-  // 加载父小组选项
+  // 加载负责人选项（从员工列表）
+  var leaderSelect = document.getElementById('newTeamLeader');
+  var leaderHtml = '<option value="">-- 选择负责人 --</option>';
+  var seenLeaderIds = {};
+  emps.forEach(function (e) {
+    if (!seenLeaderIds[e.id]) {
+      seenLeaderIds[e.id] = true;
+      leaderHtml += '<option value="' + e.id + '">' + escapeHtml(e.name || '未命名') + '</option>';
+    }
+  });
+  leaderSelect.innerHTML = leaderHtml;
+
+  // 加载父小组选项（去重）
   var parentSelect = document.getElementById('newTeamParent');
-  parentSelect.innerHTML = '<option value="">-- 无父小组 --</option>' + allTeams.map(function (t) {
-    return '<option value="' + t.id + '">' + t.name + '</option>';
-  }).join('');
+  var parentHtml = '<option value="">-- 无父小组 --</option>';
+  var seenParentIds = {};
+  allTeams.forEach(function (t) {
+    if (!seenParentIds[t.id]) {
+      seenParentIds[t.id] = true;
+      parentHtml += '<option value="' + t.id + '">' + escapeHtml(t.name) + '</option>';
+    }
+  });
+  parentSelect.innerHTML = parentHtml;
   document.getElementById('createTeamOverlay').classList.add('active');
   document.getElementById('createTeamModal').classList.add('active');
 }
@@ -12895,7 +12996,9 @@ function closeCreateTeamModal() {
 function createTeam() {
   var name = document.getElementById('newTeamName').value.trim();
   var description = document.getElementById('newTeamDesc').value.trim();
+  var leaderId = document.getElementById('newTeamLeader').value;
   var parentId = document.getElementById('newTeamParent').value;
+  var note = document.getElementById('newTeamNote').value.trim();
   if (!name) {
     showToast('⚠️ 请输入小组名称');
     return;
@@ -12904,7 +13007,9 @@ function createTeam() {
     name: name
   };
   if (description) teamData.description = description;
+  if (leaderId) teamData.leader = leaderId;
   if (parentId) teamData.parentId = parentId;
+  if (note) teamData.note = note;
   apiFetch('/api/teams', {
     method: 'POST',
     body: JSON.stringify(teamData)
@@ -12933,20 +13038,41 @@ function showEditTeamModal(teamId) {
   document.getElementById('editTeamName').value = team.name || '';
   document.getElementById('editTeamDesc').value = team.description || '';
 
-  // 加载组长选项
-  apiFetch('/api/users').then(function (res) {
-    if (res && res.ok) return res.json();
-    return [];
-  }).then(function (users) {
-    var leaders = (users || []).filter(function (u) {
-      return u.role === 'leader' || u.role === 'admin';
-    });
-    var leaderSelect = document.getElementById('editTeamLeader');
-    leaderSelect.innerHTML = '<option value="">-- 选择组长 --</option>' + leaders.map(function (u) {
-      var selected = team.leaderId === u.id ? 'selected' : '';
-      return '<option value="' + u.id + '" ' + selected + '>' + (u.displayName || u.username) + '</option>';
-    }).join('');
+  // 加载负责人选项（从员工列表）
+  var leaderSelect = document.getElementById('editTeamLeader');
+  var leaderHtml = '<option value="">-- 选择负责人 --</option>';
+  var seenLeaderIds = {};
+  emps.forEach(function (e) {
+    if (!seenLeaderIds[e.id]) {
+      seenLeaderIds[e.id] = true;
+      var selected = (team.leader === e.id || team.leaderId === e.id) ? 'selected' : '';
+      leaderHtml += '<option value="' + e.id + '" ' + selected + '>' + escapeHtml(e.name || '未命名') + '</option>';
+    }
   });
+  leaderSelect.innerHTML = leaderHtml;
+
+  // 加载父小组选项（去重，排除当前小组及其子组）
+  var parentSelect = document.getElementById('editTeamParent');
+  var parentHtml = '<option value="">-- 无父小组 --</option>';
+  var seenParentIds = {};
+  var childIds = {};
+  function markChildren(pid) {
+    allTeams.forEach(function (t) {
+      if (t.parentId === pid) {
+        childIds[t.id] = true;
+        markChildren(t.id);
+      }
+    });
+  }
+  markChildren(team.id);
+  allTeams.forEach(function (t) {
+    if (t.id !== team.id && !childIds[t.id] && !seenParentIds[t.id]) {
+      seenParentIds[t.id] = true;
+      var selected = team.parentId === t.id ? 'selected' : '';
+      parentHtml += '<option value="' + t.id + '" ' + selected + '>' + escapeHtml(t.name) + '</option>';
+    }
+  });
+  parentSelect.innerHTML = parentHtml;
   document.getElementById('editTeamOverlay').classList.add('active');
   document.getElementById('editTeamModal').classList.add('active');
 }
@@ -12967,11 +13093,13 @@ function saveTeamEdit() {
     showToast('⚠️ 请输入小组名称');
     return;
   }
+  var parentId = document.getElementById('editTeamParent').value;
   var teamData = {
     name: name
   };
   if (description) teamData.description = description;
-  if (leaderId) teamData.leaderId = leaderId;
+  if (leaderId) teamData.leader = leaderId;
+  teamData.parentId = parentId || null;
   apiFetch('/api/teams/' + teamId, {
     method: 'PUT',
     body: JSON.stringify(teamData)
@@ -13021,6 +13149,75 @@ function deleteTeam() {
   }).catch(function () {
     showToast('⚠️ 后端不可用');
   });
+}
+
+// 通过ID删除小组（列表行按钮用）
+function deleteTeamById(teamId) {
+  var team = allTeams.find(function (t) {
+    return t.id === teamId;
+  });
+  if (!team) return;
+  var memberCount = team.memberCount !== undefined ? team.memberCount : (team.agentIds ? team.agentIds.length : 0);
+  if (memberCount > 0) {
+    showToast('⚠️ 请先移走小组中的 ' + memberCount + ' 名成员');
+    return;
+  }
+  var hasChildren = allTeams.some(function (t) {
+    return t.parentId === teamId;
+  });
+  if (hasChildren) {
+    showToast('⚠️ 请先删除子小组');
+    return;
+  }
+  if (!confirm('确定要删除小组 "' + team.name + '" 吗？')) return;
+  apiFetch('/api/teams/' + teamId, {
+    method: 'DELETE'
+  }).then(function (res) {
+    if (res && res.ok) {
+      showToast('✅ 小组已删除');
+      loadTeamList();
+    } else {
+      return res ? res.json() : null;
+    }
+  }).then(function (data) {
+    if (data && data.error) showToast('⚠️ ' + data.error);
+  }).catch(function () {
+    showToast('⚠️ 后端不可用');
+  });
+}
+
+// 显示新增子小组弹窗
+function showAddSubTeamModal(parentTeamId) {
+  document.getElementById('newTeamName').value = '';
+  document.getElementById('newTeamDesc').value = '';
+  document.getElementById('newTeamNote').value = '';
+
+  // 加载负责人选项
+  var leaderSelect = document.getElementById('newTeamLeader');
+  var leaderHtml = '<option value="">-- 选择负责人 --</option>';
+  var seenLeaderIds = {};
+  emps.forEach(function (e) {
+    if (!seenLeaderIds[e.id]) {
+      seenLeaderIds[e.id] = true;
+      leaderHtml += '<option value="' + e.id + '">' + escapeHtml(e.name || '未命名') + '</option>';
+    }
+  });
+  leaderSelect.innerHTML = leaderHtml;
+
+  // 加载父小组选项（去重，默认选中当前小组）
+  var parentSelect = document.getElementById('newTeamParent');
+  var parentHtml = '<option value="">-- 无父小组 --</option>';
+  var seenParentIds = {};
+  allTeams.forEach(function (t) {
+    if (!seenParentIds[t.id]) {
+      seenParentIds[t.id] = true;
+      var selected = t.id === parentTeamId ? 'selected' : '';
+      parentHtml += '<option value="' + t.id + '" ' + selected + '>' + escapeHtml(t.name) + '</option>';
+    }
+  });
+  parentSelect.innerHTML = parentHtml;
+  document.getElementById('createTeamOverlay').classList.add('active');
+  document.getElementById('createTeamModal').classList.add('active');
 }
 
 // 显示小组成员弹窗
@@ -13483,10 +13680,20 @@ function checkQuota() {
       <textarea id="newTeamDesc" class="form-input" placeholder="输入小组描述（可选）" rows="2"></textarea>
     </div>
     <div class="form-group">
+      <label class="form-label">负责人</label>
+      <select id="newTeamLeader" class="form-select">
+        <option value="">-- 选择负责人 --</option>
+      </select>
+    </div>
+    <div class="form-group">
       <label class="form-label">父小组（可选）</label>
       <select id="newTeamParent" class="form-select">
         <option value="">-- 无父小组 --</option>
       </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">备注</label>
+      <textarea id="newTeamNote" class="form-input" placeholder="输入备注（可选）" rows="2"></textarea>
     </div>
   </div>
   <div class="modal-footer">
@@ -13514,9 +13721,15 @@ function checkQuota() {
       <textarea id="editTeamDesc" class="form-input" placeholder="输入小组描述" rows="2"></textarea>
     </div>
     <div class="form-group">
-      <label class="form-label">组长</label>
+      <label class="form-label">负责人</label>
       <select id="editTeamLeader" class="form-select">
-        <option value="">-- 选择组长 --</option>
+        <option value="">-- 选择负责人 --</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">父小组</label>
+      <select id="editTeamParent" class="form-select">
+        <option value="">-- 无父小组 --</option>
       </select>
     </div>
   </div>
