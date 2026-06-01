@@ -3431,15 +3431,21 @@ function showMainApp() {
       }
     }
     if (needReset) {
-      var chatHeaderName = document.querySelector('.chat-header-name');
-      var chatHeaderRole = document.querySelector('.chat-header-role');
-      var chatHeaderAvatar = document.querySelector('.chat-header-v2 .avatar');
-      if (chatHeaderName) chatHeaderName.textContent = '';
-      if (chatHeaderRole) chatHeaderRole.textContent = '';
-      if (chatHeaderAvatar) {
-        chatHeaderAvatar.innerHTML = '🦞';
+      var visibleEmps3 = getVisibleEmps();
+      if (visibleEmps3.length > 0) {
+        // 自动选择第一个可见员工作为默认聊天对象
+        openChat(visibleEmps3[0].id);
+      } else {
+        var chatHeaderName = document.querySelector('.chat-header-name');
+        var chatHeaderRole = document.querySelector('.chat-header-role');
+        var chatHeaderAvatar = document.querySelector('.chat-header-v2 .avatar');
+        if (chatHeaderName) chatHeaderName.textContent = '';
+        if (chatHeaderRole) chatHeaderRole.textContent = '';
+        if (chatHeaderAvatar) {
+          chatHeaderAvatar.innerHTML = '🦞';
+        }
+        renderMsgs('private');
       }
-      renderMsgs('private');
     }
     // 清理：删除不存在员工的聊天记录
     var empIds = {};
@@ -5128,7 +5134,8 @@ function showReminder() {
   } = reminder;
 
   // 只在当前员工的聊天中显示，避免串台
-  if (currentEmpId && currentEmpId === emp.id) {
+  var currentChatEmpId = localStorage.getItem('sb_current_emp');
+  if (currentChatEmpId && currentChatEmpId === emp.id) {
     const area = document.getElementById('messagesArea');
     area.insertAdjacentHTML('beforeend', '<div class="msg reminder"><div class="msg-avatar">' + renderAvatar(emp, 32) + '</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + emp.name + '</span><span class="msg-sender-role">' + getEmpRoleDisplay(emp) + '</span><span class="msg-sender-time">' + new Date().toLocaleTimeString('zh-CN', {
       hour: '2-digit',
@@ -10133,7 +10140,7 @@ function selectModel(el, modelId) {
 function getEmpRoleDisplay(emp) {
   if (!emp) return '未设置';
   var role = emp.role;
-  if (role === '__custom__' || role === 'custom') {
+  if (role === '__custom__') {
     if (emp.subCategory && emp.subCategory !== '__custom__' && emp.subCategory !== 'custom') {
       return emp.subCategory;
     }
@@ -11532,7 +11539,7 @@ async function finishWizard() {
   var newEmp = {
     id: 'emp_' + Date.now(),
     name: name,
-    role: role,
+    role: document.getElementById('wizRole').value === '' ? '__custom__' : role,
     subCategory: document.getElementById('wizRole').value === '' ? role : '',
     avatar: avatarIndex,
     bg: colors[emps.length % colors.length],
