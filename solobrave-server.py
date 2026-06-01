@@ -282,10 +282,15 @@ def _init_default_admin():
 
 # ─── Agent 管理 ─────────────────────────────────────────
 
+# 前端历史遗留的硬编码默认员工ID（已移除，但后端数据可能仍保留，需过滤）
+_DEFAULT_EMP_IDS = {'xlcx', 'dlxc', 'zjg', 'hx', 'sy'}
+
 def _load_agents():
-    """加载 Agent 列表"""
+    """加载 Agent 列表，过滤掉历史遗留的默认员工"""
     agents = _read_json(AGENTS_FILE, [])
-    return agents if isinstance(agents, list) else []
+    if not isinstance(agents, list):
+        return []
+    return [a for a in agents if a.get('id') not in _DEFAULT_EMP_IDS]
 
 
 def _save_agents(agents):
