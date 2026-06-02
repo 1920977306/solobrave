@@ -4801,19 +4801,81 @@ function showReminder() {
   if (emp && emp.name) showToast(emp.name + ': ' + text.split('\n')[0]);
 }
 
+// 检查任务截止时间，对超期任务自动发送提醒给员工
+function checkTaskDeadlinesAndNotify() {
+  var today = new Date().toISOString().split('T')[0];
+  ['todo', 'progress'].forEach(function (col) {
+    tasksData[col].forEach(function (t) {
+      if (t.deadline && t.deadline < today && !t.done && t.assignee) {
+        var emp = emps.find(function (e) {
+          return e.id === t.assignee;
+        });
+        if (!emp) return;
+        sendTaskReminderToEmp(emp, t);
+      }
+    });
+  });
+}
+
+// 发送任务提醒到员工聊天
+async function sendTaskReminderToEmp(emp, task) {
+  if (!emp || !emp.id || !task) return;
+
+  // 避免重复提醒：检查今天是否已经提醒过
+  var remindKey = 'sb_task_remind_' + emp.id + '_' + (task.id || task.name);
+  var lastRemind = localStorage.getItem(remindKey);
+  var todayStr = new Date().toDateString();
+  if (lastRemind === todayStr) return;
+
+  var reminderMsg = '【系统自动提醒】@' + emp.name + ' 你负责的任务「' + task.name + '」已于 ' + task.deadline + ' 超时，请尽快处理！如有困难可以@其他同事协助。';
+
+  // 保存到后端聊天记录（skipAI 避免后端重复调用）
+  try {
+    await apiFetch('/api/chat/' + encodeURIComponent(emp.id), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        role: 'user',
+        content: reminderMsg,
+        skipAI: true,
+        empId: emp.id
+      })
+    });
+  } catch (e) {
+    console.warn('[TaskReminder] 保存聊天记录失败:', e);
+  }
+
+  // 通过 OpenClaw 发送（触发 AI 响应）
+  if (typeof openclaw !== 'undefined' && openclaw.connected) {
+    var agentId = emp.openclawName || emp.id;
+    var sessionKey = 'agent:' + agentId + ':main';
+    try {
+      await openclaw.sendChat(sessionKey, reminderMsg);
+      console.log('[TaskReminder] 已发送提醒给 ' + emp.name + ': ' + task.name);
+    } catch (e) {
+      console.warn('[TaskReminder] OpenClaw 发送失败:', e);
+    }
+  }
+
+  // 标记今天已提醒
+  localStorage.setItem(remindKey, todayStr);
+}
+
 // 自动催促（定时检测）
 let reminderInterval = null;
 function startReminderCheck() {
   if (reminderInterval) clearInterval(reminderInterval);
   // 每5分钟检测一次
   reminderInterval = setInterval(function () {
-    const reminder = generateReminderMsg();
-    if (reminder) {
-      showReminder();
-    }
+    var reminder = generateReminderMsg();
+    if (reminder) showReminder();
+    checkTaskDeadlinesAndNotify();
   }, 5 * 60 * 1000);
   // 立即检测一次
-  setTimeout(showReminder, 3000);
+  setTimeout(function () {
+    showReminder();
+    checkTaskDeadlinesAndNotify();
+  }, 3000);
 }
 function renderTaskBoard() {
   const columns = ['todo', 'progress', 'done'];
