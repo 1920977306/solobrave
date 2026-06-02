@@ -5207,17 +5207,7 @@ document.querySelectorAll('.tab-btn').forEach(function (b) {
     return switchTab(b.dataset.tab);
   });
 });
-// Bind employee list events with drag
-document.querySelectorAll('.list-item[data-id]').forEach(function (i) {
-  return i.addEventListener('click', function () {
-    return openChat(i.dataset.id);
-  });
-});
-document.querySelectorAll('.list-item[data-proj]').forEach(function (i) {
-  return i.addEventListener('click', function () {
-    return openChat(i.dataset.proj);
-  });
-});
+// 侧栏点击事件统一在 renderEmployeeList() 后的 bindListEvents() 中绑定，避免重复
 // Setup drag for employee items
 emps.forEach(function (e) {
   const el = document.querySelector(`.list-item[data-id="${e.id}"]`);
@@ -5410,15 +5400,19 @@ function renderEmployeeItem(e, showCreator) {
 function bindListEvents() {
   document.querySelectorAll('.list-item[data-id]').forEach(function (i) {
     var empId = i.dataset.id;
+    var _emp = emps.find(function (e) {
+      return e.id === empId;
+    });
+    var isProjectItem = _emp && _emp.isProject;
     // Click -> open chat
     i.addEventListener('click', function (ev) {
       // 如果点击的是操作按钮，不打开聊天
       if (ev.target.closest('.item-actions')) return;
       if (currentTab !== 'archived') openChat(empId);
     });
-    // Double-click -> open detail
+    // Double-click -> open detail（项目类型不打开员工详情）
     i.addEventListener('dblclick', function () {
-      if (empId) openEmpDetail(empId);
+      if (empId && !isProjectItem) openEmpDetail(empId);
     });
     // Detail button
     var detailBtn = i.querySelector('.btn-detail');
@@ -6280,7 +6274,8 @@ function openChat(id) {
   const emp = emps.find(function (e) {
     return e.id === id;
   });
-  if (emp) {
+  // 员工分支：排除 isProject=true 的项目类型（它们走项目分支）
+  if (emp && !emp.isProject) {
     localStorage.setItem('sb_current_emp', id);
     localStorage.removeItem('sb_current_proj'); // 清除项目状态，避免督促等功能误判
     var chatHeaderName = document.querySelector('.chat-header-name');
@@ -6307,25 +6302,30 @@ function openChat(id) {
     renderMsgs('private');
     hideBulletin();
   }
+  // 项目分支：支持 projs 数组和 emps 中 isProject=true 的项目类型
   const proj = projs.find(function (p) {
     return p.id === id;
   });
-  if (proj) {
+  const projEmp = !proj ? emps.find(function (e) {
+    return e.id === id && e.isProject;
+  }) : null;
+  if (proj || projEmp) {
+    var target = proj || projEmp;
     // 重置个人聊天状态并清空消息区，避免个人/项目串混
     localStorage.removeItem('sb_current_emp');
     localStorage.setItem('sb_current_proj', id); // 设置当前项目，确保督促等功能获取正确的项目ID
     document.getElementById('messagesArea').innerHTML = '';
     var chatHeaderName2 = document.querySelector('.chat-header-name');
     var chatHeaderSub2 = document.querySelector('.chat-header-sub');
-    if (chatHeaderName2) chatHeaderName2.innerHTML = '# ' + escapeHtml(proj.name || '') + ' <span class="owner-badge">👑 群主</span>';
-    if (chatHeaderSub2) chatHeaderSub2.textContent = '3名成员';
-    var projItem = document.querySelector('.list-item[data-proj="' + id + '"]');
+    if (chatHeaderName2) chatHeaderName2.innerHTML = '# ' + escapeHtml((target.name || '') + '') + ' <span class="owner-badge">👑 群主</span>';
+    if (chatHeaderSub2) chatHeaderSub2.textContent = '项目成员';
+    var projItem = document.querySelector('.list-item[data-id="' + id + '"]') || document.querySelector('.list-item[data-proj="' + id + '"]');
     if (projItem) projItem.classList.add('active');
     var chatProgress2 = document.getElementById('chatProgress');
     if (chatProgress2) {
       chatProgress2.style.display = 'flex';
-      document.getElementById('progressFill').style.width = proj.progress + '%';
-      document.getElementById('progressText').textContent = proj.progress + '%';
+      document.getElementById('progressFill').style.width = (target.progress || 0) + '%';
+      document.getElementById('progressText').textContent = (target.progress || 0) + '%';
     }
     renderMsgs('project');
     var appMain2 = document.querySelector('.app-main');
