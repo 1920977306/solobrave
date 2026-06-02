@@ -6667,6 +6667,11 @@ async function sendGroupMessage(groupId, message, mentions) {
             // AI 开始思考 → 发送 thinking 状态
             if (data.data.phase === 'start' || data.data.phase === 'thinking') {
               notifyOfficeStatusChange(group.leadAgentId, 'thinking');
+              var _gse = emps.find(function (e) { return e.id === group.leadAgentId; });
+              if (_gse) {
+                _gse.status = 'thinking';
+                renderEmployeeList();
+              }
             }
             if (data.data.phase === 'end' || data.data.phase === 'error') {
               window._thinkingTimeouts = window._thinkingTimeouts || {};
@@ -6680,6 +6685,11 @@ async function sendGroupMessage(groupId, message, mentions) {
               displayGroupAIReply(groupId, group.leadAgentId, fullReply);
               // 流式结束（end/error）→ 恢复 online 状态
               notifyOfficeStatusChange(group.leadAgentId, 'online');
+              var _gse2 = emps.find(function (e) { return e.id === group.leadAgentId; });
+              if (_gse2) {
+                _gse2.status = 'online';
+                renderEmployeeList();
+              }
               // AI 正常回复完成 → 额外发送聊天消息通知
               if (data.data.phase === 'end') {
                 notifyOfficeChatMessage(group.leadAgentId, 'incoming');
@@ -6883,6 +6893,11 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
         // AI 开始思考 → 发送 thinking 状态
         if (data.data.phase === 'start' || data.data.phase === 'thinking') {
           notifyOfficeStatusChange(emp.id, 'thinking');
+          var _mse = emps.find(function (e) { return e.id === emp.id; });
+          if (_mse) {
+            _mse.status = 'thinking';
+            renderEmployeeList();
+          }
         }
         if (data.data.phase === 'end' || data.data.phase === 'error') {
           window._thinkingTimeouts = window._thinkingTimeouts || {};
@@ -6896,6 +6911,11 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
           displayGroupAIReply(groupId, emp.id, fullReply);
           // 流式结束（end/error）→ 恢复 online 状态
           notifyOfficeStatusChange(emp.id, 'online');
+          var _mse2 = emps.find(function (e) { return e.id === emp.id; });
+          if (_mse2) {
+            _mse2.status = 'online';
+            renderEmployeeList();
+          }
           // AI 正常回复完成 → 额外发送聊天消息通知
           if (data.data.phase === 'end') {
             notifyOfficeChatMessage(emp.id, 'incoming');
