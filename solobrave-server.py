@@ -2832,7 +2832,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(messages) < original_len:
                 print(f'  [ChatFilter] {agent_id}: 过滤了 {original_len - len(messages)} 条群聊消息')
 
-        print(f'  [ChatGET] {agent_id} type={chat_type} 返回 {len(messages)} 条消息')
+        # 统计角色分布，便于排查 user 消息是否丢失
+        role_counts = {}
+        for m in messages:
+            r = m.get('role', 'unknown')
+            role_counts[r] = role_counts.get(r, 0) + 1
+        print(f'  [ChatGET] {agent_id} type={chat_type} 返回 {len(messages)} 条消息, 角色分布: {role_counts}')
         self._send_json(200, messages)
 
     def _handle_post_chat(self, agent_id):
