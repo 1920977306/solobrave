@@ -4129,7 +4129,31 @@ async function openDetailPanel(empId){
     }
     gridHtml += '</select>';
     gridHtml += '</div>';
-    
+
+    // 项目组信息
+    var projGroups = [];
+    try {
+      var groupsData = JSON.parse(localStorage.getItem('sb_groups') || '[]');
+      projGroups = groupsData.filter(function(g) {
+        return g.members && g.members.indexOf(empId) >= 0;
+      });
+    } catch(e) {
+      projGroups = [];
+    }
+    gridHtml += '<div class="detail-info-item">';
+    gridHtml += '<div class="info-label">项目组</div>';
+    if (projGroups.length > 0) {
+      gridHtml += '<div class="info-value">' + projGroups.length + '个</div>';
+      gridHtml += '<div class="info-sub" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">';
+      projGroups.forEach(function(g) {
+        gridHtml += '<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--gray-1);border-radius:6px;font-size:12px;color:var(--gray-5);">' + (g.emoji || '👥') + ' ' + g.name + '</span>';
+      });
+      gridHtml += '</div>';
+    } else {
+      gridHtml += '<div class="info-value" style="color:var(--gray-4)">未加入项目组</div>';
+    }
+    gridHtml += '</div>';
+
     document.getElementById('detailInfoGrid').innerHTML = gridHtml;
   }
   
