@@ -4827,7 +4827,7 @@ async function sendTaskReminderToEmp(emp, task) {
   var todayStr = new Date().toDateString();
   if (lastRemind === todayStr) return;
 
-  var reminderMsg = '【系统自动提醒】@' + emp.name + ' 你负责的任务「' + task.name + '」已于 ' + task.deadline + ' 超时，请尽快处理！如有困难可以@其他同事协助。';
+  var reminderMsg = '⏰ 任务「' + task.name + '」已超时，请尽快处理';
 
   // 保存到后端聊天记录（skipAI 避免后端重复调用）
   try {
