@@ -2054,11 +2054,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if leader_id:
             u = _find_user(users, 'id', leader_id)
             if u:
-                u['teamIds'] = u.get('teamIds', []) + [team_id]
-                if team_id not in u['teamIds']:
-                    u['teamIds'].append(team_id)
-                if leader_id not in u.get('subordinateIds', []):
-                    u['subordinateIds'] = u.get('subordinateIds', []) + member_ids
+                if team_id not in u.get('teamIds', []):
+                    u['teamIds'] = u.get('teamIds', []) + [team_id]
+                # 将成员添加到 leader 的 subordinateIds
+                current_subs = u.get('subordinateIds', [])
+                for mid in member_ids:
+                    if mid not in current_subs:
+                        current_subs.append(mid)
+                u['subordinateIds'] = current_subs
 
         # 更新成员的 teamIds
         for uid in member_ids:
@@ -2120,14 +2123,28 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             team['description'] = body.get('description')
         if body.get('parentId') is not None:
             team['parentId'] = body.get('parentId') or None
+        old_leader = team.get('leaderId')
         new_leader = body.get('leader') or body.get('leaderId')
         if new_leader is not None:
             team['leaderId'] = new_leader
             team['leader'] = new_leader
+            # leader 变更时更新相关用户的 teamIds
+            if new_leader != old_leader:
+                # 从新 leader 的 teamIds 中添加
+                if new_leader:
+                    new_leader_user = _find_user(users, 'id', new_leader)
+                    if new_leader_user and team_id not in new_leader_user.get('teamIds', []):
+                        new_leader_user['teamIds'] = new_leader_user.get('teamIds', []) + [team_id]
+                # 从旧 leader 的 teamIds 中移除（如果不是小组成员）
+                if old_leader:
+                    old_leader_user = _find_user(users, 'id', old_leader)
+                    if old_leader_user:
+                        old_leader_user['teamIds'] = [tid for tid in old_leader_user.get('teamIds', []) if tid != team_id]
         if body.get('note') is not None:
             team['note'] = body.get('note', '')
 
         _save_teams(teams)
+        _save_users(users)
         self._send_json(200, team)
 
     def _handle_delete_team(self, team_id):
@@ -2195,6 +2212,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         users = _load_users()
         user_ids = body.get('userIds', [])
+        leader_id = team.get('leaderId')
+        leader_user = _find_user(users, 'id', leader_id) if leader_id else None
 
         for uid in user_ids:
             if uid not in team.get('members', []):
@@ -2202,6 +2221,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             u = _find_user(users, 'id', uid)
             if u and team_id not in u.get('teamIds', []):
                 u['teamIds'] = u.get('teamIds', []) + [team_id]
+            # 更新 leader 的 subordinateIds
+            if leader_user and uid not in leader_user.get('subordinateIds', []):
+                leader_user['subordinateIds'] = leader_user.get('subordinateIds', []) + [uid]
 
         _save_teams(teams)
         _save_users(users)
@@ -2236,6 +2258,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         u = _find_user(users, 'id', user_id)
         if u:
             u['teamIds'] = [tid for tid in u.get('teamIds', []) if tid != team_id]
+
+        # 更新 leader 的 subordinateIds
+        leader_id = team.get('leaderId')
+        if leader_id:
+            leader_user = _find_user(users, 'id', leader_id)
+            if leader_user and user_id in leader_user.get('subordinateIds', []):
+                leader_user['subordinateIds'] = [sid for sid in leader_user.get('subordinateIds', []) if sid != user_id]
 
         _save_teams(teams)
         _save_users(users)

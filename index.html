@@ -12580,6 +12580,8 @@ function loadUserList() {
     return res.json();
   }).then(function (users) {
     if (users) renderUserList(list, users);
+  }).catch(function () {
+    if (list) list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">👥</div><div>加载用户列表失败</div></div>';
   });
 }
 function renderUserList(list, users) {
@@ -12993,6 +12995,10 @@ function deleteTeam() {
   var team = allTeams.find(function (t) {
     return t.id === teamId;
   });
+  if (!team) {
+    showToast('⚠️ 小组不存在');
+    return;
+  }
 
   // 检查是否有子组
   var hasChildren = allTeams.some(function (t) {
@@ -13105,6 +13111,9 @@ function showTeamMembersModal(teamId) {
     renderTeamMembers(teamData);
     // 加载可添加的成员
     loadAddableMembers(teamData);
+  }).catch(function () {
+    var list = document.getElementById('teamMembersList');
+    if (list) list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-secondary);">加载成员失败</div>';
   });
   document.getElementById('teamMembersOverlay').classList.add('active');
   document.getElementById('teamMembersModal').classList.add('active');
@@ -13162,6 +13171,8 @@ function addTeamMember() {
     }
   }).then(function (data) {
     if (data && data.error) showToast('⚠️ ' + data.error);
+  }).catch(function () {
+    showToast('⚠️ 添加成员失败，请检查网络');
   });
 }
 
@@ -13180,6 +13191,8 @@ function removeTeamMember(agentId) {
     }
   }).then(function (data) {
     if (data && data.error) showToast('⚠️ ' + data.error);
+  }).catch(function () {
+    showToast('⚠️ 移除成员失败，请检查网络');
   });
 }
 
@@ -13460,12 +13473,12 @@ function checkQuota() {
         <option value="leader">⭐ 组长</option>
         <option value="admin">👑 管理员</option>
       </select>
-      <div class="form-group">
-        <label class="form-label">所属小组</label>
-        <select id="editUserTeam" class="form-select">
-          <option value="">-- 不分配小组 --</option>
-        </select>
-      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">所属小组</label>
+      <select id="editUserTeam" class="form-select">
+        <option value="">-- 不分配小组 --</option>
+      </select>
     </div>
     <div class="form-group">
       <label class="form-label">Agent配额</label>
