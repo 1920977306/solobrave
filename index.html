@@ -7985,10 +7985,18 @@ function performSupervisorCheck() {
       });
       const prefix = urgentIssues.length > 0 ? '⚠️⚠️ 多次催促未响应：' : '⚠️ 群主提醒：';
       const issueText = issues.slice(0, 2).join('\n');
-      const prompt = document.getElementById('msgInput');
-      if (prompt) {
-        prompt.value = `${mentionText}${prefix}\n${issueText}`;
-        prompt.focus();
+      const urgeMsg = mentionText + prefix + '\n' + issueText;
+
+      // 如果当前在群聊中，直接发送督促消息
+      if (currentGroupId && typeof sendGroupMessage === 'function') {
+        sendGroupMessage(currentGroupId, urgeMsg, []);
+      } else {
+        // 不在群聊中，填入输入框让用户手动发送
+        var promptEl = document.getElementById('msgInput');
+        if (promptEl) {
+          promptEl.value = urgeMsg;
+          promptEl.focus();
+        }
       }
     }
     if (config.pushNotification) {
