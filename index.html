@@ -6748,6 +6748,13 @@ async function sendGroupMessage(groupId, message, mentions) {
             parseAndTriggerMentions(reply, groupId, group.leadAgentId);
             openclaw.off('agent', agentHandler);
           }
+          // 兜底恢复 online 状态（未收到 lifecycle end 时）
+          notifyOfficeStatusChange(group.leadAgentId, 'online');
+          var _gse3 = emps.find(function (e) { return e.id === group.leadAgentId; });
+          if (_gse3) {
+            _gse3.status = 'online';
+            renderEmployeeList();
+          }
         }
       } catch (e) {
         console.error('[GroupChat] 发送失败:', e);
