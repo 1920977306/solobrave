@@ -761,7 +761,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Chat API
         if path.startswith('/api/chat/'):
-            agent_id = path[len('/api/chat/'):]
+            sub = path[len('/api/chat/'):]
+            # /api/chat/summarize/:agentId
+            if sub.startswith('summarize/'):
+                agent_id = sub[len('summarize/'):]
+                if agent_id:
+                    self._handle_get_summarize(agent_id)
+                    return
+            # /api/chat/:agentId
+            agent_id = sub
             if agent_id:
                 self._handle_get_chat(agent_id)
                 return
@@ -2818,9 +2826,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         }
         memories.append(memory)
         
-        # 上限50条，超出删最旧的
-        if len(memories) > 50:
-            memories = memories[-50:]
+        # 上限200条，超出删最旧的（避免长期使用时记忆丢失）
+        if len(memories) > 200:
+            memories = memories[-200:]
         
         _write_json(filepath, memories)
         self._send_json(200, memory)
@@ -3066,6 +3074,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             print(f'  [ChatCLEAR] {agent_id} 文件不存在，无需清空')
 
         self._send_json(200, {'message': '聊天记录已清空'})
+
+    def _handle_get_summarize(self, agent_id):
+        """GET /api/chat/summarize/:agentId - 读取已保存的对话摘要"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        _, err, status = self._check_agent_access(auth, agent_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+
+        summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
+        data = _read_json(summary_file, {})
+        summary = data.get('summary', '')
+        self._send_json(200, {'summary': summary, 'createdAt': data.get('createdAt', '')})
 
     def _handle_summarize_chat(self, agent_id):
         """POST /api/chat/summarize/:agentId - 将旧对话压缩成摘要"""

@@ -3490,42 +3490,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
     }
   } catch (e) {}
 
-  // 加载记忆（按相关性匹配注入）
-  var memoryPrompt = '';
-  try {
-    var memRes = await apiFetch('/api/memory/' + encodeURIComponent(emp.id));
-    var memories = await memRes.json();
-    if (memories && memories.length > 0) {
-      var keywords = extractKeywords(userMessage);
-      var scored = memories.map(function (m) {
-        var score = 0;
-        var memLower = (m.value || '').toLowerCase();
-        for (var i = 0; i < keywords.length; i++) {
-          if (memLower.indexOf(keywords[i].toLowerCase()) > -1) score++;
-        }
-        return {
-          memory: m,
-          score: score
-        };
-      });
-      scored.sort(function (a, b) {
-        return b.score - a.score;
-      });
-      var selected;
-      var relevant = scored.filter(function (s) {
-        return s.score > 0;
-      });
-      if (relevant.length > 0) {
-        selected = relevant.slice(0, 5);
-      } else {
-        selected = scored.slice(0, 2);
-      }
-      var memText = selected.map(function (s) {
-        return '- ' + s.memory.value;
-      }).join('\n');
-      memoryPrompt = '\n\n【关于用户的记忆】\n' + memText;
-    }
-  } catch (e) {}
+  // 加载记忆注入（核心记忆始终注入 + 日常记录按相关性匹配）
+  var memoryPrompt = await buildMemoryPrompt(emp.id, userMessage);
   try {
     var agentId = emp.openclawName || emp.id;
     var sessionKey = 'agent:' + agentId + ':main';
@@ -3714,29 +3680,46 @@ async function buildMemoryPrompt(empId, userMessage) {
   try {
     var memRes = await apiFetch('/api/memory/' + encodeURIComponent(empId));
     var memories = await memRes.json();
-    if (memories && memories.length > 0) {
-      var keywords = extractKeywords(userMessage);
-      var scored = memories.map(function (m) {
-        var score = 0;
-        var memLower = (m.value || '').toLowerCase();
-        for (var i = 0; i < keywords.length; i++) {
-          if (memLower.indexOf(keywords[i].toLowerCase()) > -1) score++;
-        }
-        return { memory: m, score: score };
-      });
-      scored.sort(function (a, b) { return b.score - a.score; });
-      var selected;
-      var relevant = scored.filter(function (s) { return s.score > 0; });
-      if (relevant.length > 0) {
-        selected = relevant.slice(0, 5);
-      } else {
-        selected = scored.slice(0, 2);
+    if (!memories || memories.length === 0) return '';
+
+    // 分离核心记忆（手动添加/升级）和日常记录（自动提取）
+    var coreMemories = memories.filter(function (m) {
+      return m.key !== 'auto_extract' && m.key !== 'auto';
+    });
+    var dailyMemories = memories.filter(function (m) {
+      return m.key === 'auto_extract' || m.key === 'auto';
+    });
+
+    // 核心记忆始终注入（按时间倒序取最新的，最多5条）
+    coreMemories.sort(function (a, b) { return (b.time || 0) - (a.time || 0); });
+    var selectedCore = coreMemories.slice(0, 5);
+
+    // 日常记录按关键词相关性匹配注入（最多3条）
+    var keywords = extractKeywords(userMessage);
+    var scoredDaily = dailyMemories.map(function (m) {
+      var score = 0;
+      var memLower = (m.value || '').toLowerCase();
+      for (var i = 0; i < keywords.length; i++) {
+        if (memLower.indexOf(keywords[i].toLowerCase()) > -1) score++;
       }
-      var memText = selected.map(function (s) {
-        return '- ' + s.memory.value;
-      }).join('\n');
-      return '\n\n【关于用户的记忆】\n' + memText;
+      return { memory: m, score: score };
+    });
+    scoredDaily.sort(function (a, b) { return b.score - a.score; });
+    var relevantDaily = scoredDaily.filter(function (s) { return s.score > 0; });
+    var selectedDaily = relevantDaily.slice(0, 3);
+    // 如果没有匹配的日常记录， fallback 取最新的2条
+    if (selectedDaily.length === 0) {
+      dailyMemories.sort(function (a, b) { return (b.time || 0) - (a.time || 0); });
+      selectedDaily = dailyMemories.slice(0, 2).map(function (m) { return { memory: m, score: 0 }; });
     }
+
+    var selected = selectedCore.map(function (m) { return { memory: m, score: 0 }; }).concat(selectedDaily);
+    if (selected.length === 0) return '';
+
+    var memText = selected.map(function (s) {
+      return '- ' + s.memory.value;
+    }).join('\n');
+    return '\n\n【关于用户的记忆】\n' + memText;
   } catch (e) {}
   return '';
 }
