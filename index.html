@@ -2199,8 +2199,6 @@ window.doLogin = function () {
   <span>已连接</span>
 </div>
 
-</div>
-
 
 
 <!-- Project List -->
@@ -13460,24 +13458,18 @@ function checkQuota() {
 </div>
 
 <!-- Bottom Connection Status Bar -->
-<div id="connectionStatusBar" style="position:fixed;bottom:0;left:0;right:0;height:28px;background:var(--bg-primary);border-top:1px solid var(--separator);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:12px;color:var(--text-secondary);z-index:100;"
-  <div style="display:flex;align-items:center;gap:12px;"
-    <span id="connStatusOpenClaw" style="display:flex;align-items:center;gap:4px;"
-      <span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#34C759;"
-      </span>OpenClaw 已连接
+<div id="connectionStatusBar" style="position:fixed;bottom:0;left:0;right:0;height:28px;background:var(--bg-primary);border-top:1px solid var(--separator);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:12px;color:var(--text-secondary);z-index:100;">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span id="connStatusOpenClaw" style="display:flex;align-items:center;gap:4px;">
+      <span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#34C759;"></span>OpenClaw 已连接
     </span>
-    <span id="connStatusAPI" style="display:flex;align-items:center;gap:4px;"
-      <span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF9500;"
-      </span>API 未配置
+    <span id="connStatusAPI" style="display:flex;align-items:center;gap:4px;">
+      <span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF9500;"></span>API 未配置
     </span>
   </div>
-  <div style="display:flex;align-items:center;gap:8px;"
-    <span id="connLatency"
-      延迟: --ms
-    </span>
-    <button onclick="showConnectionDetails()" style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:11px;"
-      详情
-    </button>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span id="connLatency">延迟: --ms</span>
+    <button onclick="showConnectionDetails()" style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:11px;">详情</button>
   </div>
 </div>
 
