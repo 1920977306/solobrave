@@ -3718,6 +3718,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
     console.error('[OpenClaw] 发送失败:', e);
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
+    if (typeof agentHandler === 'function') openclaw.off('agent', agentHandler);
     restoreOnline();
     // Agent 不存在时自动降级到 main
     var agentName = emp.openclawName || 'main';
@@ -6683,6 +6684,7 @@ async function sendGroupMessage(groupId, message, mentions) {
         console.error('[GroupChat] 发送失败:', e);
         var t = document.getElementById('groupTypingMsg');
         if (t) t.remove();
+        if (typeof agentHandler === 'function') openclaw.off('agent', agentHandler);
         displayGroupAIReply(groupId, group.leadAgentId, '⚠️ 群聊消息发送失败: ' + e.message);
         // 恢复群主在线状态
         notifyOfficeStatusChange(group.leadAgentId, 'online');
@@ -6897,6 +6899,7 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     console.error('[MentionTrigger] 触发失败:', e);
     var t = document.getElementById('mentionTyping_' + emp.id);
     if (t) t.remove();
+    if (typeof agentHandler === 'function') openclaw.off('agent', agentHandler);
     notifyOfficeStatusChange(emp.id, 'online');
     var _me2 = emps.find(function (e) { return e.id === emp.id; });
     if (_me2) {
