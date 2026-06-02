@@ -9391,6 +9391,38 @@ function confirmAddMembers() {
       }
     });
 
+    // 通知项目组内其他已有成员，触发它们发送欢迎消息
+    var groupObj2 = groups.find(function (g) {
+      return g.id === currentGroupDetailId;
+    });
+    if (groupObj2) {
+      var newNamesForWelcome = newMemberIds.map(function (id) {
+        var e = emps.find(function (x) {
+          return x.id === id;
+        });
+        return e ? e.name + '（' + getEmpRoleDisplay(e) + '）' : id;
+      }).join('、');
+      var existingMemberIds = (groupObj2.members || []).filter(function (mid) {
+        return newMemberIds.indexOf(mid) === -1;
+      });
+      existingMemberIds.forEach(function (existingId) {
+        var existingEmp = emps.find(function (e) {
+          return e.id === existingId;
+        });
+        if (!existingEmp) return;
+        var existingAgentId = existingEmp.openclawName || existingEmp.id;
+        var existingSessionKey = 'agent:' + existingAgentId + ':main';
+        var welcomeNotifyMsg = '【项目组动态】有新同事加入了项目组「' + groupObj2.name + '」：' + newNamesForWelcome + '。\n\n请向新同事发送一条简短的欢迎消息，让TA感受到团队的温暖。';
+        if (typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated) {
+          openclaw.sendChat(existingSessionKey, welcomeNotifyMsg).then(function (result) {
+            console.log('[Group] 欢迎通知已发送给', existingEmp.name);
+          }).catch(function (e) {
+            console.warn('[Group] 欢迎通知发送失败:', existingEmp.name, e.message);
+          });
+        }
+      });
+    }
+
     // 在群聊区显示系统消息
     var area = document.getElementById('messagesArea');
     if (area) {
