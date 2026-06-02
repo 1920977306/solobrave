@@ -4355,12 +4355,17 @@ function setEmpBadge(empId, level, number) {
 }
 async function syncEmpToServer(emp) {
   try {
+    // 运行时状态（status/msg/lastActive）不应持久化到后端
+    var syncData = Object.assign({}, emp);
+    delete syncData.status;
+    delete syncData.msg;
+    delete syncData.lastActive;
     var res = await apiFetch('/api/agents/' + emp.id, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(emp)
+      body: JSON.stringify(syncData)
     });
     if (!res || res.status === 404) {
       console.warn('[syncEmpToServer] Agent', emp.id, '不在服务器上，跳过同步');
@@ -4600,6 +4605,15 @@ async function loadEmployees() {
               });
             }
           }
+          // 保留本地运行时状态，防止后端旧数据覆盖 thinking/online
+          var localRuntimes = {};
+          emps.forEach(function (e) {
+            localRuntimes[e.id] = {
+              status: e.status,
+              msg: e.msg,
+              lastActive: e.lastActive
+            };
+          });
           emps.length = 0;
           var seenIds = {};
           data.forEach(function (a) {
@@ -4608,6 +4622,12 @@ async function loadEmployees() {
               return;
             }
             if (!seenIds[a.id]) {
+              var rt = localRuntimes[a.id];
+              if (rt) {
+                a.status = rt.status;
+                a.msg = rt.msg;
+                a.lastActive = rt.lastActive;
+              }
               emps.push(a);
               seenIds[a.id] = true;
             } else {
