@@ -4893,6 +4893,12 @@ function checkTaskDeadlinesAndNotify() {
   });
 }
 
+// 判断员工是否为 AI（有 OpenClaw/API 连接配置）
+function isAIEmp(emp) {
+  if (!emp) return false;
+  return emp.connectionType === 'openclaw' || emp.connectionType === 'api' || emp.openclawName || emp.apiKey;
+}
+
 // 发送任务提醒到员工聊天
 async function sendTaskReminderToEmp(emp, task) {
   if (!emp || !emp.id || !task) return;
@@ -4905,32 +4911,46 @@ async function sendTaskReminderToEmp(emp, task) {
 
   var reminderMsg = '⏰ 任务「' + task.name + '」已超时，请尽快处理';
 
-  // 保存到后端聊天记录（skipAI 避免后端重复调用）
-  try {
-    await apiFetch('/api/chat/' + encodeURIComponent(emp.id), {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        role: 'user',
-        content: reminderMsg,
-        skipAI: true,
-        empId: emp.id
-      })
-    });
-  } catch (e) {
-    console.warn('[TaskReminder] 保存聊天记录失败:', e);
-  }
-
-  // 通过 OpenClaw 发送（触发 AI 响应）
-  if (typeof openclaw !== 'undefined' && openclaw.connected) {
-    var agentId = emp.openclawName || emp.id;
-    var sessionKey = 'agent:' + agentId + ':main';
+  if (isAIEmp(emp)) {
+    // AI 员工：保存到聊天记录 + 通过 OpenClaw 发送触发回复
     try {
-      await openclaw.sendChat(sessionKey, reminderMsg);
-      console.log('[TaskReminder] 已发送提醒给 ' + emp.name + ': ' + task.name);
+      await apiFetch('/api/chat/' + encodeURIComponent(emp.id), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          role: 'user',
+          content: reminderMsg,
+          skipAI: true,
+          empId: emp.id
+        })
+      });
     } catch (e) {
-      console.warn('[TaskReminder] OpenClaw 发送失败:', e);
+      console.warn('[TaskReminder] 保存聊天记录失败:', e);
     }
+
+    if (typeof openclaw !== 'undefined' && openclaw.connected) {
+      var agentId = emp.openclawName || emp.id;
+      var sessionKey = 'agent:' + agentId + ':main';
+      try {
+        await openclaw.sendChat(sessionKey, reminderMsg);
+        console.log('[TaskReminder] AI 员工 ' + emp.name + ' 已收到任务超时提醒');
+      } catch (e) {
+        console.warn('[TaskReminder] OpenClaw 发送失败:', e);
+      }
+    }
+  } else {
+    // 人类员工：发送通知（不保存到聊天记录）
+    var notifyBody = '任务「' + task.name + '」已于 ' + task.deadline + ' 超时，请尽快处理';
+    // 浏览器通知
+    if (Notification.permission === 'granted') {
+      new Notification('⏰ 任务超时提醒', {
+        body: notifyBody,
+        icon: emp.avatar || '📋'
+      });
+    }
+    // Toast 通知
+    showToast('📢 ' + emp.name + '：' + notifyBody);
+    console.log('[TaskReminder] 人类员工 ' + emp.name + ' 已收到通知');
   }
 
   // 标记今天已提醒
