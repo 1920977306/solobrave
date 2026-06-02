@@ -5568,7 +5568,7 @@ function ctxAction(action) {
           return e.id !== _delId;
         });
         localStorage.removeItem('sb_chat_history_' + _delId);
-        clearChatOnServer(_delId);
+        clearChatOnServer(_delId, 'personal');
         if (localStorage.getItem('sb_current_emp') === _delId) {
           localStorage.removeItem('sb_current_emp');
         }
@@ -7361,7 +7361,7 @@ function renderMsgs(type) {
       area.innerHTML = '<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
     }
     // 再异步从后端加载，如有差异则更新（但仍需校验当前员工未切换）
-    loadChatFromServer(empId, function (serverMsgs) {
+    loadChatFromServer(empId, 'personal', function (serverMsgs) {
       if (localStorage.getItem('sb_current_emp') !== empId) {
         console.warn('[renderMsgs] 员工已切换，丢弃旧回调:', empId);
         return;
@@ -10522,12 +10522,13 @@ function saveChatToServer(projId, userMsg, aiMsg, docContext) {
     console.log('[ChatSync] 保存到后端失败:', e);
   });
 }
-function loadChatFromServer(projId, callback) {
+function loadChatFromServer(id, type, callback) {
   if (typeof apiFetch !== 'function') {
     if (callback) callback([]);
     return;
   }
-  apiFetch('/api/chat/' + encodeURIComponent(projId)).then(function (res) {
+  var chatType = type || 'personal';
+  apiFetch('/api/chat/' + encodeURIComponent(id) + '?type=' + encodeURIComponent(chatType)).then(function (res) {
     return res.json();
   }).then(function (data) {
     var msgs = [];
@@ -10549,15 +10550,17 @@ function loadChatFromServer(projId, callback) {
     if (callback) callback([]);
   });
 }
-function deleteChatMsgOnServer(projId, msgId) {
+function deleteChatMsgOnServer(id, type, msgId) {
   if (typeof apiFetch !== 'function') return;
-  apiFetch('/api/chat/' + encodeURIComponent(projId) + '/' + encodeURIComponent(msgId), {
+  var chatType = type || 'personal';
+  apiFetch('/api/chat/' + encodeURIComponent(id) + '/' + encodeURIComponent(msgId) + '?type=' + encodeURIComponent(chatType), {
     method: 'DELETE'
   }).catch(function (e) {});
 }
-function clearChatOnServer(projId) {
+function clearChatOnServer(id, type) {
   if (typeof apiFetch !== 'function') return;
-  apiFetch('/api/chat/' + encodeURIComponent(projId), {
+  var chatType = type || 'personal';
+  apiFetch('/api/chat/' + encodeURIComponent(id) + '?type=' + encodeURIComponent(chatType), {
     method: 'DELETE'
   }).catch(function (e) {});
 }
