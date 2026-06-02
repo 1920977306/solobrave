@@ -4127,6 +4127,17 @@ function checkUrlParams() {
       }
     }, 500);
   }
+  if (action === 'createEmployee') {
+    setTimeout(function () {
+      if (typeof openWizard === 'function') {
+        openWizard();
+        // 清除 URL 参数
+        const url = new URL(window.location);
+        url.searchParams.delete('action');
+        window.history.replaceState({}, '', url);
+      }
+    }, 500);
+  }
 }
 function loadAIConfig() {
   const saved = localStorage.getItem('sb_ai_config');
