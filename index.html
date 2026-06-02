@@ -3480,18 +3480,12 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
     }
   }
 
-  // 加载对话摘要
-  var summaryPrompt = '';
-  try {
-    var sumRes = await apiFetch('/api/chat/summarize/' + encodeURIComponent(emp.id));
-    var sumData = await sumRes.json();
-    if (sumData && sumData.summary && sumData.summary.length > 5) {
-      summaryPrompt = '\n\n【之前对话的摘要】\n' + sumData.summary;
-    }
-  } catch (e) {}
-
   // 加载记忆注入（核心记忆始终注入 + 日常记录按相关性匹配）
   var memoryPrompt = await buildMemoryPrompt(emp.id, userMessage);
+
+  // 加载最近对话上下文（OpenClaw session 丢失时恢复历史）
+  var chatContext = await buildRecentChatContext(emp.id, 10);
+
   try {
     var agentId = emp.openclawName || emp.id;
     var sessionKey = 'agent:' + agentId + ':main';
@@ -3622,8 +3616,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
 
     // 注入 systemPrompt（包含层级关系约束）到用户消息开头
     var fullMessage = userMessage;
+    if (chatContext) fullMessage = chatContext + '\n\n' + fullMessage;
     if (systemPrompt) fullMessage = '【System Prompt】\n' + systemPrompt + '\n\n【User Message】\n' + fullMessage;
-    if (summaryPrompt) fullMessage = summaryPrompt + '\n\n' + fullMessage;
     if (memoryPrompt) fullMessage = memoryPrompt + '\n\n' + fullMessage;
     var result = await openclaw.sendChat(sessionKey, fullMessage);
     console.log('[OpenClaw] chat.send 返回:', JSON.stringify(result));
@@ -3722,6 +3716,32 @@ async function buildMemoryPrompt(empId, userMessage) {
     return '\n\n【关于用户的记忆】\n' + memText;
   } catch (e) {}
   return '';
+}
+
+// 构建最近对话上下文（用于在 OpenClaw session 丢失时恢复上下文）
+async function buildRecentChatContext(empId, limit) {
+  limit = limit || 10;
+  try {
+    var res = await apiFetch('/api/chat/' + encodeURIComponent(empId));
+    var messages = await res.json();
+    if (!messages || messages.length === 0) return '';
+
+    // 取最近 limit 条消息
+    var recent = messages.slice(-limit);
+    var lines = [];
+    recent.forEach(function (m) {
+      var roleLabel = m.role === 'user' ? '用户' : (m.role === 'assistant' ? 'AI' : '系统');
+      var content = (m.content || '').substring(0, 300);
+      if (content) {
+        lines.push(roleLabel + ': ' + content);
+      }
+    });
+
+    if (lines.length === 0) return '';
+    return '\n\n【最近对话上下文】\n' + lines.join('\n');
+  } catch (e) {
+    return '';
+  }
 }
 
 // 初始化 OpenClaw 连接
@@ -6598,6 +6618,24 @@ async function sendGroupMessage(groupId, message, mentions) {
       var memPrompt = await buildMemoryPrompt(group.leadAgentId, message);
       if (memPrompt) fullMessage = memPrompt + '\n\n' + fullMessage;
 
+      // 加载最近群聊历史上下文
+      try {
+        var ghRes = await apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/history');
+        var ghData = await ghRes.json();
+        if (ghData && ghData.messages && ghData.messages.length > 0) {
+          var recentMsgs = ghData.messages.slice(-10);
+          var ghLines = [];
+          recentMsgs.forEach(function (m) {
+            var sender = m.senderName || (m.senderType === 'user' ? '用户' : 'AI');
+            var content = (m.content || '').substring(0, 200);
+            if (content) ghLines.push(sender + ': ' + content);
+          });
+          if (ghLines.length > 0) {
+            fullMessage = '\n\n【最近群聊上下文】\n' + ghLines.join('\n') + '\n\n' + fullMessage;
+          }
+        }
+      } catch (e) {}
+
       // 注入灵魂文档（角色设定），包裹在最外层
       var leadSoul = '';
       if (leadEmp) {
@@ -6835,6 +6873,24 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   // 加载记忆注入
   var memPrompt = await buildMemoryPrompt(emp.id, userMessage || '');
   if (memPrompt) prompt = memPrompt + '\n\n' + prompt;
+
+  // 加载最近群聊历史上下文
+  try {
+    var ghRes2 = await apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/history');
+    var ghData2 = await ghRes2.json();
+    if (ghData2 && ghData2.messages && ghData2.messages.length > 0) {
+      var recentMsgs2 = ghData2.messages.slice(-10);
+      var ghLines2 = [];
+      recentMsgs2.forEach(function (m) {
+        var sender2 = m.senderName || (m.senderType === 'user' ? '用户' : 'AI');
+        var content2 = (m.content || '').substring(0, 200);
+        if (content2) ghLines2.push(sender2 + ': ' + content2);
+      });
+      if (ghLines2.length > 0) {
+        prompt = '\n\n【最近群聊上下文】\n' + ghLines2.join('\n') + '\n\n' + prompt;
+      }
+    }
+  } catch (e) {}
 
   // 注入灵魂文档（角色设定），包裹在最外层
   var empSoul = '';
