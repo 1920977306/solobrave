@@ -2875,60 +2875,6 @@ window.doLogin = function () {
 </div>
 </div>
 
-<!-- Create Project Modal -->
-<div class="modal-overlay" id="createModal">
-<div class="modal">
-<div class="modal-header">
-<div class="modal-title">创建项目组</div>
-<button class="modal-close" onclick="closeModal('createModal')">✕</button>
-</div>
-<div class="modal-body">
-<div class="modal-steps">
-<div class="step active" id="s1">1</div>
-<div class="step-line"></div>
-<div class="step" id="s2">2</div>
-<div class="step-line"></div>
-<div class="step" id="s3">3</div>
-</div>
-
-<div id="step1C">
-<div class="form-group">
-<label class="form-label">项目组名称</label>
-<input type="text" class="form-input" id="projName" placeholder="例如：前端重构">
-</div>
-<div class="form-group">
-<label class="form-label">描述</label>
-<textarea class="form-textarea" id="projDesc" placeholder="简要描述..."></textarea>
-</div>
-</div>
-
-<div id="step2C" style="display:none;">
-<div class="form-group">
-<label class="form-label">选择成员</label>
-<div class="member-picker" id="memberPicker">
-<div style="padding:12px;color:var(--text-tertiary);font-size:13px;text-align:center;">暂无可用成员，请先创建员工</div>
-</div>
-</div>
-</div>
-
-<div id="step3C" style="display:none;">
-<div style="text-align:center;padding:16px 0;">
-<div style="font-size:40px;margin-bottom:12px;">📦</div>
-<div style="font-size:15px;font-weight:600;">确认创建</div>
-</div>
-<div style="background:var(--bg-secondary);border-radius:var(--radius-md);padding:12px;">
-<div style="margin-bottom:8px;"><strong>项目：</strong><span id="cName">-</span></div>
-<div><strong>成员：</strong><span id="cMembers">-</span></div>
-</div>
-</div>
-</div>
-<div class="modal-footer">
-<button class="btn btn-secondary" id="prevBtn" onclick="prevStep()" style="display:none;">← 上一步</button>
-<button class="btn btn-primary" id="nextBtn" onclick="nextStep()">下一步 →</button>
-</div>
-</div>
-</div>
-
 <!-- Settings Panel -->
 <div class="settings-panel" id="settingsPanel">
 <div class="settings-header">
@@ -4004,7 +3950,6 @@ const API_PROVIDERS = {
 // State
 let currentTab = 'employees';
 var drawerOpen = false;
-var createStep = 1;
 var showBoard = false;
 var mentionMode = false;
 var mentionIdx = 0;
@@ -10003,11 +9948,6 @@ function renderCurrentTeamList() {
 }
 
 // Modal
-function showCreateModal() {
-  createStep = 1;
-  updateStepUI();
-  document.getElementById('createModal').classList.add('active');
-}
 function showModal(title, html) {
   var overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -10031,48 +9971,12 @@ function closeModal(id) {
   if (el) {
     el.classList.remove('show');
     setTimeout(function () {
-      el.remove();
+      // 只移除动态创建的 modal，保留静态 HTML 元素
+      if (el.id === 'dynamicModal') {
+        el.remove();
+      }
     }, 300);
   }
-}
-function nextStep() {
-  if (createStep < 3) {
-    if (createStep === 1 && !document.getElementById('projName').value) {
-      showToast('请输入名称', 'warning');
-      return;
-    }
-    createStep++;
-    updateStepUI();
-    if (createStep === 3) updateConfirm();
-  } else {
-    closeModal('createModal');
-    showToast('✅ 项目组创建成功！', 'success');
-  }
-}
-function prevStep() {
-  if (createStep > 1) {
-    createStep--;
-    updateStepUI();
-  }
-}
-function updateStepUI() {
-  document.querySelectorAll('.step').forEach(function (s, i) {
-    s.classList.remove('active', 'done');
-    if (i + 1 < createStep) s.classList.add('done');
-    if (i + 1 === createStep) s.classList.add('active');
-  });
-  document.getElementById('step1C').style.display = createStep === 1 ? 'block' : 'none';
-  document.getElementById('step2C').style.display = createStep === 2 ? 'block' : 'none';
-  document.getElementById('step3C').style.display = createStep === 3 ? 'block' : 'none';
-  document.getElementById('prevBtn').style.display = createStep > 1 ? 'block' : 'none';
-  document.getElementById('nextBtn').textContent = createStep === 3 ? '创建' : '下一步 →';
-}
-function updateConfirm() {
-  document.getElementById('cName').textContent = document.getElementById('projName').value || '-';
-  const mems = [...document.querySelectorAll('#step2C .member-option.selected .avatar + span')].map(function (s) {
-    return s.textContent;
-  }).join('、') || '无';
-  document.getElementById('cMembers').textContent = mems;
 }
 
 // Settings
