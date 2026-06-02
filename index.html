@@ -3364,36 +3364,7 @@ function sendMsg() {
   var text = input.value.trim();
   if (!text) return;
 
-  // 通知龙虾办公室用户发送了消息
-  notifyOfficeChatMessage(localStorage.getItem('sb_current_emp'), 'outgoing');
-  // 标记员工为思考中（正在等待AI回复）
-  notifyOfficeStatusChange(localStorage.getItem('sb_current_emp'), 'thinking');
-  // 同时更新本地emps数组中的状态并刷新列表
-  var _curEmpId = localStorage.getItem('sb_current_emp');
-  var _curEmp = emps.find(function (e) {
-    return e.id === _curEmpId;
-  });
-  if (_curEmp) {
-    _curEmp.status = 'thinking';
-    renderEmployeeList();
-  }
-
-  // 超时保护：60秒后如果还在thinking，自动恢复online
-  window._thinkingTimeouts = window._thinkingTimeouts || {};
-  clearTimeout(window._thinkingTimeouts[_curEmpId]);
-  window._thinkingTimeouts[_curEmpId] = setTimeout(function () {
-    var _te = emps.find(function (e) {
-      return e.id === _curEmpId;
-    });
-    if (_te && _te.status === 'thinking') {
-      _te.status = 'online';
-      renderEmployeeList();
-      notifyOfficeStatusChange(_curEmpId, 'online');
-      console.log('[Timeout] ' + _te.name + ' 思考超时，恢复在线');
-    }
-  }, 60000);
-
-  // 群聊模式：转发到 sendGroupMessage
+  // 群聊模式：不走个人聊天状态流，直接转发
   if (currentGroupId) {
     var mentions = [];
     var mentionRegex = /@([^@\s]+)/g;
@@ -3410,12 +3381,52 @@ function sendMsg() {
     sendGroupMessage(currentGroupId, text, mentions);
     return;
   }
+
+  // ===== 个人聊天状态管理 =====
+  var _curEmpId = localStorage.getItem('sb_current_emp');
+  var _curEmp = emps.find(function (e) { return e.id === _curEmpId; });
+
+  // 统一恢复函数：任何异常退出都要调用
+  function restoreOnline() {
+    window._thinkingTimeouts = window._thinkingTimeouts || {};
+    clearTimeout(window._thinkingTimeouts[_curEmpId]);
+    delete window._thinkingTimeouts[_curEmpId];
+    notifyOfficeStatusChange(_curEmpId, 'online');
+    if (_curEmp) {
+      _curEmp.status = 'online';
+      renderEmployeeList();
+    }
+  }
+
+  // 通知龙虾办公室用户发送了消息
+  notifyOfficeChatMessage(_curEmpId, 'outgoing');
+  // 标记员工为思考中
+  notifyOfficeStatusChange(_curEmpId, 'thinking');
+  if (_curEmp) {
+    _curEmp.status = 'thinking';
+    renderEmployeeList();
+  }
+
+  // 超时保护：60秒后自动恢复
+  window._thinkingTimeouts = window._thinkingTimeouts || {};
+  clearTimeout(window._thinkingTimeouts[_curEmpId]);
+  window._thinkingTimeouts[_curEmpId] = setTimeout(function () {
+    var _te = emps.find(function (e) { return e.id === _curEmpId; });
+    if (_te && _te.status === 'thinking') {
+      _te.status = 'online';
+      renderEmployeeList();
+      notifyOfficeStatusChange(_curEmpId, 'online');
+      console.log('[Timeout] ' + _te.name + ' 思考超时，恢复在线');
+    }
+  }, 60000);
+
   var area = document.getElementById('messagesArea');
   var now = new Date();
   var timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
   var emp = getCurrentEmployeeInfo();
   if (!emp || !emp.id) {
     showToast('⚠️ 未选择员工，无法发送消息');
+    restoreOnline();
     return;
   }
 
@@ -3436,6 +3447,7 @@ function sendMsg() {
   if (localStorage.getItem('sb_current_emp') !== emp.id) {
     console.warn('[sendMsg] 员工已切换，跳过用户消息 DOM 渲染:', emp.id);
     input.value = '';
+    restoreOnline();
     return;
   }
   const userMsg = document.createElement('div');
@@ -3486,6 +3498,7 @@ function sendMsg() {
         var simReply = '⚠️ OpenClaw 网关未连接，请检查 Gateway 是否运行，或配置 AI 供应商的 API Key。';
         displayAIReply(simReply, docContext, timeStr, emp.id);
         saveChatHistory(emp.id, text, simReply, docContext);
+        restoreOnline();
       }, 500);
     }
   }
@@ -3605,20 +3618,21 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
       if (!data) return;
       if (data.runId && !currentRunId) currentRunId = data.runId;
       if (currentRunId && data.runId && data.runId !== currentRunId) return;
+      // 用闭包 emp.id，不要用 localStorage（用户可能已切换员工）
+      var targetEmpId = emp.id;
       if (data.stream === 'assistant' && data.data) {
         hasStreamReply = true;
         // AI 开始流式回复 → 发送 working 状态（仅首次）
         if (!hasSentWorking) {
           hasSentWorking = true;
-          var _eidWorking = localStorage.getItem('sb_current_emp');
           var _empWorking = emps.find(function (e) {
-            return e.id === _eidWorking;
+            return e.id === targetEmpId;
           });
           if (_empWorking) {
             _empWorking.status = 'working';
             renderEmployeeList();
           }
-          notifyOfficeStatusChange(_eidWorking, 'working');
+          notifyOfficeStatusChange(targetEmpId, 'working');
         }
         // 只累积内容，不显示中间过程
         if (data.data.text) fullReply = data.data.text;else if (data.data.delta) fullReply += data.data.delta;
@@ -3630,24 +3644,22 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
         }
         // 检测是否包含工具调用，更新状态为coding
         if (data.data.tool_calls || data.data.tool_call || data.data.delta && data.data.delta.indexOf('tool_call') > -1) {
-          var _eid = localStorage.getItem('sb_current_emp');
-          var _emp = emps.find(function (e) {
-            return e.id === _eid;
+          var _empCoding = emps.find(function (e) {
+            return e.id === targetEmpId;
           });
-          if (_emp) {
-            _emp.status = 'coding';
+          if (_empCoding) {
+            _empCoding.status = 'coding';
             renderEmployeeList();
           }
-          notifyOfficeStatusChange(_eid, 'coding');
+          notifyOfficeStatusChange(targetEmpId, 'coding');
         }
       }
       if (data.stream === 'lifecycle' && data.data) {
-        var currentEmpId = localStorage.getItem('sb_current_emp');
         // AI开始思考 → 通知龙虾办公室
         if (data.data.phase === 'start' || data.data.phase === 'thinking') {
-          notifyOfficeStatusChange(currentEmpId, 'thinking');
+          notifyOfficeStatusChange(targetEmpId, 'thinking');
           var _emp2 = emps.find(function (e) {
-            return e.id === currentEmpId;
+            return e.id === targetEmpId;
           });
           if (_emp2) {
             _emp2.status = 'thinking';
@@ -3657,12 +3669,12 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
         // AI回复完成 → 通知龙虾办公室
         if (data.data.phase === 'end') {
           window._thinkingTimeouts = window._thinkingTimeouts || {};
-          clearTimeout(window._thinkingTimeouts[currentEmpId]);
-          delete window._thinkingTimeouts[currentEmpId];
-          notifyOfficeStatusChange(currentEmpId, 'online');
-          notifyOfficeChatMessage(currentEmpId, 'incoming');
+          clearTimeout(window._thinkingTimeouts[targetEmpId]);
+          delete window._thinkingTimeouts[targetEmpId];
+          notifyOfficeStatusChange(targetEmpId, 'online');
+          notifyOfficeChatMessage(targetEmpId, 'incoming');
           var _emp3 = emps.find(function (e) {
-            return e.id === currentEmpId;
+            return e.id === targetEmpId;
           });
           if (_emp3) {
             _emp3.status = 'online';
@@ -3672,11 +3684,11 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
         // AI出错 → 恢复在线
         if (data.data.phase === 'error') {
           window._thinkingTimeouts = window._thinkingTimeouts || {};
-          clearTimeout(window._thinkingTimeouts[currentEmpId]);
-          delete window._thinkingTimeouts[currentEmpId];
-          notifyOfficeStatusChange(currentEmpId, 'online');
+          clearTimeout(window._thinkingTimeouts[targetEmpId]);
+          delete window._thinkingTimeouts[targetEmpId];
+          notifyOfficeStatusChange(targetEmpId, 'online');
           var _emp4 = emps.find(function (e) {
-            return e.id === currentEmpId;
+            return e.id === targetEmpId;
           });
           if (_emp4) {
             _emp4.status = 'online';
