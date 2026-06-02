@@ -3379,13 +3379,16 @@ function sendMsg() {
   }
 
   // 超时保护：60秒后如果还在thinking，自动恢复online
-  window._thinkingTimeout = setTimeout(function () {
+  window._thinkingTimeouts = window._thinkingTimeouts || {};
+  clearTimeout(window._thinkingTimeouts[_curEmpId]);
+  window._thinkingTimeouts[_curEmpId] = setTimeout(function () {
     var _te = emps.find(function (e) {
       return e.id === _curEmpId;
     });
     if (_te && _te.status === 'thinking') {
       _te.status = 'online';
       renderEmployeeList();
+      notifyOfficeStatusChange(_curEmpId, 'online');
       console.log('[Timeout] ' + _te.name + ' 思考超时，恢复在线');
     }
   }, 60000);
@@ -3507,7 +3510,9 @@ function extractKeywords(text) {
 async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
   // 统一恢复员工在线状态
   function restoreOnline() {
-    clearTimeout(window._thinkingTimeout);
+    window._thinkingTimeouts = window._thinkingTimeouts || {};
+    clearTimeout(window._thinkingTimeouts[emp.id]);
+    delete window._thinkingTimeouts[emp.id];
     notifyOfficeStatusChange(emp.id, 'online');
     var _e = emps.find(function (e) { return e.id === emp.id; });
     if (_e) {
@@ -3651,7 +3656,9 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
         }
         // AI回复完成 → 通知龙虾办公室
         if (data.data.phase === 'end') {
-          clearTimeout(window._thinkingTimeout);
+          window._thinkingTimeouts = window._thinkingTimeouts || {};
+          clearTimeout(window._thinkingTimeouts[currentEmpId]);
+          delete window._thinkingTimeouts[currentEmpId];
           notifyOfficeStatusChange(currentEmpId, 'online');
           notifyOfficeChatMessage(currentEmpId, 'incoming');
           var _emp3 = emps.find(function (e) {
@@ -3664,7 +3671,9 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
         }
         // AI出错 → 恢复在线
         if (data.data.phase === 'error') {
-          clearTimeout(window._thinkingTimeout);
+          window._thinkingTimeouts = window._thinkingTimeouts || {};
+          clearTimeout(window._thinkingTimeouts[currentEmpId]);
+          delete window._thinkingTimeouts[currentEmpId];
           notifyOfficeStatusChange(currentEmpId, 'online');
           var _emp4 = emps.find(function (e) {
             return e.id === currentEmpId;
@@ -6610,6 +6619,18 @@ async function sendGroupMessage(groupId, message, mentions) {
       var typingHtml = '<div class="msg" id="groupTypingMsg"><div class="msg-avatar"><div class="avatar small" style="background:' + (leadEmp ? leadEmp.bg : '#8E8E93') + ';">' + (leadEmp ? renderAvatar(leadEmp, 32) : '🤖') + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + (leadEmp ? escapeHtml(leadEmp.name) : 'AI') + '</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div></div>';
       area.insertAdjacentHTML('beforeend', typingHtml);
       area.scrollTop = area.scrollHeight;
+      // 超时保护：60秒后如果还在thinking，自动恢复online
+      window._thinkingTimeouts = window._thinkingTimeouts || {};
+      clearTimeout(window._thinkingTimeouts[group.leadAgentId]);
+      window._thinkingTimeouts[group.leadAgentId] = setTimeout(function () {
+        var _gte = emps.find(function (e) { return e.id === group.leadAgentId; });
+        if (_gte && _gte.status === 'thinking') {
+          _gte.status = 'online';
+          renderEmployeeList();
+          notifyOfficeStatusChange(group.leadAgentId, 'online');
+          console.log('[Timeout] 群主 ' + _gte.name + ' 思考超时，恢复在线');
+        }
+      }, 60000);
       try {
         var fullReply = '';
         var hasStreamReply = false;
@@ -6636,6 +6657,9 @@ async function sendGroupMessage(groupId, message, mentions) {
               notifyOfficeStatusChange(group.leadAgentId, 'thinking');
             }
             if (data.data.phase === 'end' || data.data.phase === 'error') {
+              window._thinkingTimeouts = window._thinkingTimeouts || {};
+              clearTimeout(window._thinkingTimeouts[group.leadAgentId]);
+              delete window._thinkingTimeouts[group.leadAgentId];
               var t = document.getElementById('groupTypingMsg');
               if (t) t.remove();
               if (!fullReply) fullReply = '（AI 未返回内容）';
@@ -6660,6 +6684,9 @@ async function sendGroupMessage(groupId, message, mentions) {
         openclaw.on('agent', agentHandler);
         var result = await openclaw.sendChat(sessionKey, fullMessage);
         if (result && result.content && !hasStreamReply) {
+          window._thinkingTimeouts = window._thinkingTimeouts || {};
+          clearTimeout(window._thinkingTimeouts[group.leadAgentId]);
+          delete window._thinkingTimeouts[group.leadAgentId];
           var t = document.getElementById('groupTypingMsg');
           if (t) t.remove();
           var reply = '';
@@ -6682,6 +6709,9 @@ async function sendGroupMessage(groupId, message, mentions) {
         }
       } catch (e) {
         console.error('[GroupChat] 发送失败:', e);
+        window._thinkingTimeouts = window._thinkingTimeouts || {};
+        clearTimeout(window._thinkingTimeouts[group.leadAgentId]);
+        delete window._thinkingTimeouts[group.leadAgentId];
         var t = document.getElementById('groupTypingMsg');
         if (t) t.remove();
         if (typeof agentHandler === 'function') openclaw.off('agent', agentHandler);
@@ -6804,6 +6834,18 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   var typingHtml = '<div class="msg" id="mentionTyping_' + emp.id + '"><div class="msg-avatar"><div class="avatar small" style="background:' + (emp.bg || '#8E8E93') + ';">' + renderAvatar(emp, 32) + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name) + '</span><span style="font-size:10px;color:var(--text-tertiary);margin-left:6px;">🔄 自动响应</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div></div>';
   area.insertAdjacentHTML('beforeend', typingHtml);
   area.scrollTop = area.scrollHeight;
+  // 超时保护：60秒后如果还在thinking，自动恢复online
+  window._thinkingTimeouts = window._thinkingTimeouts || {};
+  clearTimeout(window._thinkingTimeouts[emp.id]);
+  window._thinkingTimeouts[emp.id] = setTimeout(function () {
+    var _mte = emps.find(function (e) { return e.id === emp.id; });
+    if (_mte && _mte.status === 'thinking') {
+      _mte.status = 'online';
+      renderEmployeeList();
+      notifyOfficeStatusChange(emp.id, 'online');
+      console.log('[Timeout] @mention ' + _mte.name + ' 思考超时，恢复在线');
+    }
+  }, 60000);
   try {
     var fullReply = '';
     var hasStreamReply = false;
@@ -6831,6 +6873,9 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
           notifyOfficeStatusChange(emp.id, 'thinking');
         }
         if (data.data.phase === 'end' || data.data.phase === 'error') {
+          window._thinkingTimeouts = window._thinkingTimeouts || {};
+          clearTimeout(window._thinkingTimeouts[emp.id]);
+          delete window._thinkingTimeouts[emp.id];
           var t = document.getElementById('mentionTyping_' + emp.id);
           if (t) t.remove();
           if (!fullReply) fullReply = '（收到，稍后回复）';
@@ -6863,6 +6908,9 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     openclaw.on('agent', agentHandler);
     var result = await openclaw.sendChat(sessionKey, prompt);
     if (result && result.content && !hasStreamReply) {
+      window._thinkingTimeouts = window._thinkingTimeouts || {};
+      clearTimeout(window._thinkingTimeouts[emp.id]);
+      delete window._thinkingTimeouts[emp.id];
       var t = document.getElementById('mentionTyping_' + emp.id);
       if (t) t.remove();
       var reply = '';
@@ -6897,6 +6945,9 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     }
   } catch (e) {
     console.error('[MentionTrigger] 触发失败:', e);
+    window._thinkingTimeouts = window._thinkingTimeouts || {};
+    clearTimeout(window._thinkingTimeouts[emp.id]);
+    delete window._thinkingTimeouts[emp.id];
     var t = document.getElementById('mentionTyping_' + emp.id);
     if (t) t.remove();
     if (typeof agentHandler === 'function') openclaw.off('agent', agentHandler);
@@ -10442,7 +10493,9 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
 
   // 统一恢复员工在线状态
   function restoreOnline() {
-    clearTimeout(window._thinkingTimeout);
+    window._thinkingTimeouts = window._thinkingTimeouts || {};
+    clearTimeout(window._thinkingTimeouts[emp.id]);
+    delete window._thinkingTimeouts[emp.id];
     notifyOfficeStatusChange(emp.id, 'online');
     var _e = emps.find(function (e) { return e.id === emp.id; });
     if (_e) {
