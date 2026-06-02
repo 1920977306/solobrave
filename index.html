@@ -2568,6 +2568,12 @@ window.doLogin = function () {
 </button>
 </div>
 </div>
+<!-- 建议归纳提示条 -->
+<div id="memorySummarizeBanner" style="display:none;margin:8px 12px 0;padding:8px 12px;background:linear-gradient(135deg,#FFF3E0 0%,#FFE0B2 100%);border:1px solid #FFB74D;border-radius:10px;cursor:pointer;transition:all 0.2s;align-items:center;gap:8px;font-size:13px;color:#E65100;" onclick="triggerSummarizeFromMemoryPanel()">
+<span style="font-size:16px;">📝</span>
+<span style="flex:1;"><strong>建议归纳</strong>：对话记录已超过15条，点击生成摘要以节省上下文</span>
+<span style="font-size:12px;background:#E65100;color:#fff;padding:2px 8px;border-radius:6px;white-space:nowrap;">立即归纳</span>
+</div>
 <div class="memory-tabs">
 <button class="memory-tab active" data-mtab="core" onclick="switchMemoryTab('core')">核心记忆</button>
 <button class="memory-tab" data-mtab="daily" onclick="switchMemoryTab('daily')">日常记录</button>
@@ -7924,8 +7930,9 @@ function getAIContextMessage(projId) {
     const fullDoc = docsData[docId];
     if (fullDoc) {
       const content = fullDoc.content || '';
-      const preview = content.slice(0, 500);
-      context += `━━━ ${doc.icon || '📄'} ${fullDoc.name} ━━━\n${preview}${content.length > 500 ? '...\n' : '\n'}\n`;
+      const limit = 3000;
+      const preview = content.length > limit ? content.slice(0, limit) + '...（内容过长已截取摘要）' : content;
+      context += `━━━ ${doc.icon || '📄'} ${fullDoc.name} ━━━\n${preview}\n\n`;
     } else {
       context += `• ${doc.icon || '📄'} ${doc.name}：${doc.path}\n`;
     }
@@ -7943,8 +7950,9 @@ function getEmployeeDocContext(empId) {
   let context = '\n\n📌 相关文档：\n';
   docs.forEach(function (d) {
     const content = d.content || '';
-    const preview = content.slice(0, 300);
-    context += `━━━ ${d.icon || '📄'} ${d.name} ━━━\n${preview}${content.length > 300 ? '...\n' : '\n'}\n`;
+    const limit = 3000;
+    const preview = content.length > limit ? content.slice(0, limit) + '...（内容过长已截取摘要）' : content;
+    context += `━━━ ${d.icon || '📄'} ${d.name} ━━━\n${preview}\n\n`;
   });
   return context;
 }
@@ -9111,6 +9119,19 @@ function renderMemoryTab(empId) {
           if (actions) actions.style.opacity = '0';
         });
       });
+
+      // 检查聊天记录数，超过15条显示"建议归纳"提示条
+      apiFetch('/api/chat/' + encodeURIComponent(empId)).then(function (r) {
+        return r.json();
+      }).then(function (chatMsgs) {
+        var banner = document.getElementById('memorySummarizeBanner');
+        if (banner) {
+          banner.style.display = (chatMsgs && chatMsgs.length >= 15) ? 'flex' : 'none';
+        }
+      }).catch(function () {
+        var banner = document.getElementById('memorySummarizeBanner');
+        if (banner) banner.style.display = 'none';
+      });
     }).catch(function (e) {
       contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载失败，请重试</div>';
       console.warn('[Memory] 加载失败:', e);
@@ -9120,6 +9141,31 @@ function renderMemoryTab(empId) {
     if (emptyEl) emptyEl.style.display = 'block';
   }
 }
+
+// 从记忆面板点击触发归纳
+function triggerSummarizeFromMemoryPanel() {
+  var empId = localStorage.getItem('sb_current_emp');
+  if (!empId) {
+    showToast('⚠️ 请先选择一个员工');
+    return;
+  }
+  showToast('📝 正在生成摘要，请稍候...');
+  apiFetch('/api/chat/summarize/' + encodeURIComponent(empId), {
+    method: 'POST'
+  }).then(function (r) {
+    return r.json();
+  }).then(function (data) {
+    showToast('✅ 摘要已生成并保存');
+    // 隐藏提示条
+    var banner = document.getElementById('memorySummarizeBanner');
+    if (banner) banner.style.display = 'none';
+    console.log('[Memory] 归纳完成:', data);
+  }).catch(function (e) {
+    showToast('❌ 归纳失败，请重试');
+    console.warn('[Memory] 归纳失败:', e);
+  });
+}
+
 function deleteMemory(empId, memoryId) {
   if (!confirm('确定删除这条记忆？')) return;
   apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + encodeURIComponent(memoryId), {
@@ -10943,10 +10989,10 @@ async function saveChatToServer(projId, userMsg, aiMsg, docContext) {
     });
     if (!resp) throw new Error('Assistant message POST returned null');
 
-    // 4. 检查是否需要触发摘要生成（每20条消息触发一次）
+    // 4. 检查是否需要触发摘要生成（每15条消息触发一次）
     var msgsResp = await apiFetch(baseUrl);
     var msgs = await msgsResp.json();
-    if (msgs && msgs.length > 0 && msgs.length % 20 === 0) {
+    if (msgs && msgs.length > 0 && msgs.length % 15 === 0) {
       apiFetch(baseUrl + '/summarize', { method: 'POST' }).catch(function (e) {
         console.log('[Summary] 摘要生成失败:', e);
       });

@@ -3189,7 +3189,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         messages = _load_chat(agent_id)
-        if len(messages) <= 5:  # 5条以内不需要压缩（降低阈值，确保少量对话也能生成摘要）
+        if len(messages) <= 15:  # 15条以内不需要压缩
             return self._send_json(200, {'summary': '', 'kept': len(messages)})
 
         # 取前 N-10 条做摘要（保留最近10条原文=5轮）
