@@ -33,7 +33,7 @@ try:
 except ImportError:
     fcntl = None
 from datetime import datetime
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse, unquote, parse_qs
 
 # 按 agent_id 细分的聊天写入锁，防止读-修改-写竞争导致消息丢失
 _chat_write_locks = {}
@@ -95,6 +95,10 @@ def _read_json(filepath, default=None):
 def _write_json(filepath, data):
     """写入 JSON 文件（加文件锁，唯一临时文件避免并发踩踏）"""
     _ensure_data_dir()
+    # 确保父目录存在（agent_id 可能包含子路径）
+    parent_dir = os.path.dirname(filepath)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
     # 用唯一临时文件名，避免并发写入时互相覆盖tmp
     tmp_path = filepath + '.tmp.' + uuid.uuid4().hex[:8]
     try:
@@ -2801,7 +2805,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'deleted': True})
 
     def _handle_get_chat(self, agent_id):
-        """GET /api/chat/:agentId"""
+        """GET /api/chat/:agentId?type=personal|group"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -2812,7 +2816,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(status, {'error': err})
             return
 
+        # 解析 type 参数
+        query = urlparse(self.path).query
+        query_params = parse_qs(query) if query else {}
+        chat_type = query_params.get('type', ['personal'])[0]
+
         messages = _load_chat(agent_id)
+        if not isinstance(messages, list):
+            messages = []
+
+        # type=personal 时过滤掉带 groupId 的消息（群聊消息不应出现在个人聊天）
+        if chat_type == 'personal':
+            original_len = len(messages)
+            messages = [m for m in messages if not m.get('groupId')]
+            if len(messages) < original_len:
+                print(f'  [ChatFilter] {agent_id}: 过滤了 {original_len - len(messages)} 条群聊消息')
+
+        print(f'  [ChatGET] {agent_id} type={chat_type} 返回 {len(messages)} 条消息')
         self._send_json(200, messages)
 
     def _handle_post_chat(self, agent_id):
@@ -2847,10 +2867,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _emp_id = body.get('empId')
         if _emp_id:
             msg['empId'] = _emp_id
+        # 保留 groupId（如果有），便于后端过滤
+        _group_id = body.get('groupId')
+        if _group_id:
+            msg['groupId'] = _group_id
 
         with _get_chat_lock(agent_id):
             messages = _load_chat(agent_id)
+            if not isinstance(messages, list):
+                messages = []
             messages.append(msg)
+            original_len = len(messages)
 
             # 如果前端标记 skipAI（AI已通过OpenClaw回复），跳过API代理
             skip_ai = body.get('skipAI', False)
@@ -2868,11 +2895,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         ai_message['empId'] = _emp_id
                     messages.append(ai_message)
                     _save_chat(agent_id, messages)
+                    print(f'  [ChatPOST] {agent_id} API代理 保存 {len(messages)} 条消息')
                     self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message})
                     return
 
             # OpenClaw 或其他
             _save_chat(agent_id, messages)
+            print(f'  [ChatPOST] {agent_id} role={role} skipAI={skip_ai} 保存后共 {len(messages)} 条消息')
 
         if connection_type == 'openclaw':
             self._send_json(200, {
@@ -2954,7 +2983,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         return None
 
     def _handle_delete_chat_message(self, agent_id, msg_id):
-        """DELETE /api/chat/:agentId/:msgId"""
+        """DELETE /api/chat/:agentId/:msgId?type=..."""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -2967,6 +2996,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         with _get_chat_lock(agent_id):
             messages = _load_chat(agent_id)
+            if not isinstance(messages, list):
+                messages = []
             original_len = len(messages)
             messages = [m for m in messages if m.get('id') != msg_id]
             if len(messages) == original_len:
@@ -2974,10 +3005,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             _save_chat(agent_id, messages)
+            print(f'  [ChatDELETE] {agent_id} 删除消息 {msg_id}，剩余 {len(messages)} 条')
         self._send_json(200, {'message': '消息已删除'})
 
     def _handle_clear_chat(self, agent_id):
-        """DELETE /api/chat/:agentId - 清空聊天记录"""
+        """DELETE /api/chat/:agentId?type=... - 清空聊天记录"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -2992,8 +3024,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if os.path.isfile(chat_file):
             try:
                 os.remove(chat_file)
-            except OSError:
+                print(f'  [ChatCLEAR] {agent_id} 聊天记录已清空')
+            except OSError as e:
+                print(f'  [ChatCLEAR] {agent_id} 清空失败: {e}')
                 pass
+        else:
+            print(f'  [ChatCLEAR] {agent_id} 文件不存在，无需清空')
 
         self._send_json(200, {'message': '聊天记录已清空'})
 
