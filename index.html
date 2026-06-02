@@ -9089,10 +9089,20 @@ function renderMemoryTab(empId) {
         html += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;">';
         html += '<div class="memory-item-content" style="flex:1;">';
         html += '<div style="margin-bottom:6px;">' + sourceLabel + expireBadge + '</div>';
-        html += '<div class="memory-item-text" style="font-size:14px;line-height:1.5;color:var(--text-primary);">' + escapeHtml(m.value || '') + '</div>';
+        html += '<div class="memory-item-text" id="memText_' + escapeAttr(m.id) + '" style="font-size:14px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(m.value || '') + '</div>';
+        html += '<div class="memory-item-edit" id="memEdit_' + escapeAttr(m.id) + '" style="display:none;">';
+        html += '<textarea class="memory-edit-input" id="memInput_' + escapeAttr(m.id) + '" style="width:100%;min-height:60px;padding:8px;border:1px solid var(--accent);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-size:14px;line-height:1.5;resize:vertical;box-sizing:border-box;" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();saveMemoryEdit(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\');}">' + escapeHtml(m.value || '') + '</textarea>';
+        html += '<div style="display:flex;gap:6px;margin-top:6px;">';
+        html += '<button class="memory-add-btn" onclick="saveMemoryEdit(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\')" style="padding:4px 12px;font-size:12px;">✅ 保存</button>';
+        html += '<button class="memory-add-btn" onclick="cancelMemoryEdit(\'' + escapeAttr(m.id) + '\')" style="padding:4px 12px;font-size:12px;background:var(--bg-tertiary);color:var(--text-secondary);">取消</button>';
+        html += '</div>';
+        html += '</div>';
         html += '<div class="memory-item-date" style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">' + escapeHtml(timeStr) + '</div>';
         html += '</div>';
         html += '<div class="memory-item-actions" style="display:flex;gap:4px;opacity:0;transition:opacity 0.2s;">';
+        html += '<button class="memory-action-btn" onclick="startMemoryEdit(\'' + escapeAttr(m.id) + '\')" title="编辑" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--accent);display:flex;align-items:center;justify-content:center;">';
+        html += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+        html += '</button>';
         // 日常记录显示"升级为核心记忆"按钮
         if (isAutoExtract) {
           html += '<button class="memory-action-btn" onclick="promoteToCore(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\')" title="升级为核心记忆" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--accent);display:flex;align-items:center;justify-content:center;">';
@@ -9163,6 +9173,53 @@ function triggerSummarizeFromMemoryPanel() {
   }).catch(function (e) {
     showToast('❌ 归纳失败，请重试');
     console.warn('[Memory] 归纳失败:', e);
+  });
+}
+
+// ========== 记忆编辑 ==========
+function startMemoryEdit(memoryId) {
+  var textEl = document.getElementById('memText_' + memoryId);
+  var editEl = document.getElementById('memEdit_' + memoryId);
+  var inputEl = document.getElementById('memInput_' + memoryId);
+  if (textEl) textEl.style.display = 'none';
+  if (editEl) editEl.style.display = 'block';
+  if (inputEl) {
+    inputEl.focus();
+    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+  }
+}
+
+function cancelMemoryEdit(memoryId) {
+  var textEl = document.getElementById('memText_' + memoryId);
+  var editEl = document.getElementById('memEdit_' + memoryId);
+  if (textEl) textEl.style.display = 'block';
+  if (editEl) editEl.style.display = 'none';
+}
+
+function saveMemoryEdit(empId, memoryId) {
+  var inputEl = document.getElementById('memInput_' + memoryId);
+  if (!inputEl) return;
+  var newValue = inputEl.value.trim();
+  if (!newValue) {
+    showToast('⚠️ 记忆内容不能为空');
+    return;
+  }
+
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + encodeURIComponent(memoryId), {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({value: newValue})
+  }).then(function (r) {
+    return r.json();
+  }).then(function (data) {
+    showToast('✅ 记忆已更新');
+    // 更新本地显示
+    var textEl = document.getElementById('memText_' + memoryId);
+    if (textEl) textEl.textContent = newValue;
+    cancelMemoryEdit(memoryId);
+  }).catch(function (e) {
+    showToast('❌ 更新失败');
+    console.warn('[Memory] 更新失败:', e);
   });
 }
 

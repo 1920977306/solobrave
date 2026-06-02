@@ -1022,6 +1022,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_update_team(team_id)
                 return
 
+        # Memory API
+        if path.startswith('/api/memory/'):
+            sub = path[len('/api/memory/'):]
+            parts = sub.split('/')
+            if len(parts) == 2:
+                self._handle_update_memory(parts[0], parts[1])
+                return
+
         self._send_json_error(404, 'Not found')
 
     def do_DELETE(self):
@@ -2924,6 +2932,36 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         memories = [m for m in memories if m.get('id') != memory_id]
         _write_json(filepath, memories)
         self._send_json(200, {'deleted': True})
+
+    def _handle_update_memory(self, emp_id, memory_id):
+        """PUT /api/memory/{empId}/{memoryId} — 修改单条记忆"""
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+
+        filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
+        memories = _read_json(filepath, [])
+
+        updated = None
+        for m in memories:
+            if m.get('id') == memory_id:
+                if 'value' in body:
+                    m['value'] = body['value']
+                if 'key' in body:
+                    m['key'] = body['key']
+                if 'source' in body:
+                    m['source'] = body['source']
+                m['time'] = int(time.time() * 1000)
+                updated = m
+                break
+
+        if not updated:
+            self._send_json_error(404, 'Memory not found')
+            return
+
+        _write_json(filepath, memories)
+        self._send_json(200, updated)
 
     def _handle_get_chat(self, agent_id):
         """GET /api/chat/:agentId?type=personal|group"""
