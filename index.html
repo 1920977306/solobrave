@@ -6598,6 +6598,16 @@ async function sendGroupMessage(groupId, message, mentions) {
       var memPrompt = await buildMemoryPrompt(group.leadAgentId, message);
       if (memPrompt) fullMessage = memPrompt + '\n\n' + fullMessage;
 
+      // 注入灵魂文档（角色设定），包裹在最外层
+      var leadSoul = '';
+      if (leadEmp) {
+        if (leadEmp.soulDoc) leadSoul = leadEmp.soulDoc;
+        else if (leadEmp.systemPrompt) leadSoul = leadEmp.systemPrompt;
+      }
+      if (leadSoul) {
+        fullMessage = '【System Prompt】\n' + leadSoul + '\n\n【User Message】\n' + fullMessage;
+      }
+
       // 显示打字指示器
       var typingHtml = '<div class="msg" id="groupTypingMsg"><div class="msg-avatar"><div class="avatar small" style="background:' + (leadEmp ? leadEmp.bg : '#8E8E93') + ';">' + (leadEmp ? renderAvatar(leadEmp, 32) : '🤖') + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + (leadEmp ? escapeHtml(leadEmp.name) : 'AI') + '</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div></div>';
       area.insertAdjacentHTML('beforeend', typingHtml);
@@ -6825,6 +6835,14 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   // 加载记忆注入
   var memPrompt = await buildMemoryPrompt(emp.id, userMessage || '');
   if (memPrompt) prompt = memPrompt + '\n\n' + prompt;
+
+  // 注入灵魂文档（角色设定），包裹在最外层
+  var empSoul = '';
+  if (emp.soulDoc) empSoul = emp.soulDoc;
+  else if (emp.systemPrompt) empSoul = emp.systemPrompt;
+  if (empSoul) {
+    prompt = '【System Prompt】\n' + empSoul + '\n\n【User Message】\n' + prompt;
+  }
 
   var agentId = emp.openclawName || emp.id;
   var sessionKey = 'agent:' + agentId + ':main';
