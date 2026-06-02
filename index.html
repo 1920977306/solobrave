@@ -2577,6 +2577,7 @@ window.doLogin = function () {
 <div class="memory-tabs">
 <button class="memory-tab active" data-mtab="core" onclick="switchMemoryTab('core')">核心记忆</button>
 <button class="memory-tab" data-mtab="daily" onclick="switchMemoryTab('daily')">日常记录</button>
+<button class="memory-tab" data-mtab="kb" onclick="switchMemoryTab('kb')">知识库</button>
 </div>
 <div class="memory-content" id="memoryContent"></div>
 <div class="memory-empty" id="memoryEmpty">
@@ -3720,12 +3721,35 @@ async function buildMemoryPrompt(empId, userMessage) {
     }
 
     var selected = selectedCore.map(function (m) { return { memory: m, score: 0 }; }).concat(selectedDaily);
-    if (selected.length === 0) return '';
+
+    // 加载员工关联的文档内容作为"知识库记忆"
+    var docMemText = '';
+    try {
+      var docsData = JSON.parse(localStorage.getItem('sb_docs') || '{}');
+      var linkedDocs = Object.values(docsData).filter(function (d) {
+        return d && d.linkedEmployees && d.linkedEmployees.indexOf(empId) > -1;
+      });
+      if (linkedDocs.length > 0) {
+        var docLines = [];
+        linkedDocs.forEach(function (d) {
+          var content = d.content || '';
+          var preview = content.length > 500 ? content.slice(0, 500) + '...' : content;
+          docLines.push('📄 《' + d.name + '》：' + preview);
+        });
+        docMemText = docLines.join('\n');
+      }
+    } catch (docErr) {}
+
+    if (selected.length === 0 && !docMemText) return '';
 
     var memText = selected.map(function (s) {
       return '- ' + s.memory.value;
     }).join('\n');
-    return '\n\n【关于用户的记忆】\n' + memText;
+
+    var result = '';
+    if (memText) result += '\n\n【关于用户的记忆】\n' + memText;
+    if (docMemText) result += '\n\n【来自知识库的记忆】\n' + docMemText;
+    return result;
   } catch (e) {}
   return '';
 }
@@ -9034,17 +9058,6 @@ function renderMemoryTab(empId) {
     apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) {
       return r.json();
     }).then(function (memories) {
-      // 过滤记忆：按 currentMemoryTab 分类
-      var filtered = memories.filter(function (m) {
-        if (currentMemoryTab === 'core') {
-          // 核心记忆：手动添加的（key 不是 auto_extract/auto）
-          return m.key !== 'auto_extract' && m.key !== 'auto';
-        } else {
-          // 日常记录：自动提取的
-          return m.key === 'auto_extract' || m.key === 'auto';
-        }
-      });
-
       // 更新 Tab 计数
       var coreCount = memories.filter(function (m) {
         return m.key !== 'auto_extract' && m.key !== 'auto';
@@ -9052,10 +9065,65 @@ function renderMemoryTab(empId) {
       var dailyCount = memories.filter(function (m) {
         return m.key === 'auto_extract' || m.key === 'auto';
       }).length;
+
+      // 计算知识库文档数
+      var kbCount = 0;
+      try {
+        var docsData = JSON.parse(localStorage.getItem('sb_docs') || '{}');
+        kbCount = Object.values(docsData).filter(function (d) {
+          return d && d.linkedEmployees && d.linkedEmployees.indexOf(empId) > -1;
+        }).length;
+      } catch (e) {}
+
       var coreTab = document.querySelector('.memory-tab[data-mtab="core"]');
       var dailyTab = document.querySelector('.memory-tab[data-mtab="daily"]');
+      var kbTab = document.querySelector('.memory-tab[data-mtab="kb"]');
       if (coreTab) coreTab.textContent = '核心记忆 (' + coreCount + ')';
       if (dailyTab) dailyTab.textContent = '日常记录 (' + dailyCount + ')';
+      if (kbTab) kbTab.textContent = '知识库 (' + kbCount + ')';
+
+      // 知识库模式：显示关联文档
+      if (currentMemoryTab === 'kb') {
+        var kbHtml = '';
+        try {
+          var docsData2 = JSON.parse(localStorage.getItem('sb_docs') || '{}');
+          var linkedDocs = Object.values(docsData2).filter(function (d) {
+            return d && d.linkedEmployees && d.linkedEmployees.indexOf(empId) > -1;
+          });
+          if (linkedDocs.length === 0) {
+            contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无关联文档，员工关联的文档会作为知识库记忆注入AI上下文</div>';
+          } else {
+            linkedDocs.forEach(function (d) {
+              var content = d.content || '';
+              var preview = content.length > 300 ? content.slice(0, 300) + '...' : content;
+              kbHtml += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;">';
+              kbHtml += '<div class="memory-item-content" style="flex:1;">';
+              kbHtml += '<div style="margin-bottom:6px;"><span style="font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px;margin-right:6px;">📚 知识库</span></div>';
+              kbHtml += '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">' + escapeHtml(d.name || '未命名文档') + '</div>';
+              kbHtml += '<div class="memory-item-text" style="font-size:13px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(preview) + '</div>';
+              kbHtml += '</div>';
+              kbHtml += '</div>';
+            });
+            contentEl.innerHTML = kbHtml;
+          }
+        } catch (e) {
+          contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载知识库失败</div>';
+        }
+        // 更新记忆总数（包含知识库）
+        if (headerEl) {
+          headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + (memories.length + kbCount) + ')</span>';
+        }
+        return;
+      }
+
+      // 过滤记忆：按 currentMemoryTab 分类
+      var filtered = memories.filter(function (m) {
+        if (currentMemoryTab === 'core') {
+          return m.key !== 'auto_extract' && m.key !== 'auto';
+        } else {
+          return m.key === 'auto_extract' || m.key === 'auto';
+        }
+      });
 
       // 更新记忆总数
       if (headerEl) {
