@@ -6278,6 +6278,11 @@ function openChat(id) {
   document.querySelectorAll('.list-item').forEach(function (i) {
     return i.classList.remove('active');
   });
+  // 公共清理：从群聊模式切换出来时，隐藏群聊专属UI
+  var _announcement = document.getElementById('groupAnnouncement');
+  if (_announcement) _announcement.style.display = 'none';
+  var _headerRight = document.getElementById('chatHeaderRight');
+  if (_headerRight) _headerRight.style.display = 'none';
   const emp = emps.find(function (e) {
     return e.id === id;
   });
