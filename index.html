@@ -10404,10 +10404,23 @@ async function callRealAI(userMessage, context) {
 function sendViaAPI(emp, userMessage, docContext, timeStr) {
   var providerId = emp.aiProvider || 'kimi';
   var provider = API_PROVIDERS[providerId];
+
+  // 统一恢复员工在线状态
+  function restoreOnline() {
+    clearTimeout(window._thinkingTimeout);
+    notifyOfficeStatusChange(emp.id, 'online');
+    var _e = emps.find(function (e) { return e.id === emp.id; });
+    if (_e) {
+      _e.status = 'online';
+      renderEmployeeList();
+    }
+  }
+
   if (!provider) {
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
     displayAIReply('⚠️ AI 供应商配置错误', docContext, timeStr, emp.id);
+    restoreOnline();
     return;
   }
   var apiKey = emp.apiKey;
@@ -10459,14 +10472,16 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
   }).then(function (res) {
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
-    if (!res.ok) {
-      if (res.status === 401) {
+    if (!res || !res.ok) {
+      var status = res ? res.status : 0;
+      if (status === 401) {
         displayAIReply('⚠️ API Key 无效，请检查 ' + (provider ? provider.name : 'AI供应商') + ' 的 API Key 是否正确', docContext, timeStr, emp.id);
-      } else if (res.status === 429) {
+      } else if (status === 429) {
         displayAIReply('⚠️ 请求过于频繁，请稍后再试', docContext, timeStr, emp.id);
       } else {
-        displayAIReply('⚠️ ' + provider.name + ' API 错误 (' + res.status + ')', docContext, timeStr, emp.id);
+        displayAIReply('⚠️ ' + provider.name + ' API 错误 (' + status + ')', docContext, timeStr, emp.id);
       }
+      restoreOnline();
       return;
     }
     return res.json();
@@ -10478,6 +10493,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
     } else if (data) {
       displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr, emp.id);
     }
+    restoreOnline();
   }).catch(function (error) {
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
@@ -10493,6 +10509,7 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
     } else {
       displayAIReply('⚠️ API 调用失败: ' + error.message, docContext, timeStr, emp.id);
     }
+    restoreOnline();
   });
 }
 
