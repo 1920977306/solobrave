@@ -2986,10 +2986,13 @@ async function apiFetch(url, options = {}) {
       doLogout();
       return null;
     }
+    if (!resp.ok) {
+      throw new Error('HTTP ' + resp.status + ' ' + resp.statusText);
+    }
     return resp;
   } catch (e) {
     console.error('API 请求失败:', e);
-    return null;
+    throw e;
   }
 }
 
@@ -10505,22 +10508,26 @@ function getCurrentEmployeeInfo() {
 
 // 保存聊天历史
 // ===== 聊天记录后端同步 =====
-function saveChatToServer(projId, userMsg, aiMsg, docContext) {
+async function saveChatToServer(projId, userMsg, aiMsg, docContext) {
   if (typeof apiFetch !== 'function') return;
   var baseUrl = '/api/chat/' + encodeURIComponent(projId);
 
-  // 串行发送，避免后端并发问题
-  apiFetch(baseUrl, {
-    method: 'POST',
-    body: JSON.stringify({
-      role: 'user',
-      content: userMsg,
-      skipAI: true,
-      empId: projId
-    })
-  }).then(function () {
+  try {
+    // 1. 保存 user 消息
+    var resp = await apiFetch(baseUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        role: 'user',
+        content: userMsg,
+        skipAI: true,
+        empId: projId
+      })
+    });
+    if (!resp) throw new Error('User message POST returned null');
+
+    // 2. 保存 system 消息（如果有文档上下文）
     if (docContext && docContext.length > 0) {
-      return apiFetch(baseUrl, {
+      resp = await apiFetch(baseUrl, {
         method: 'POST',
         body: JSON.stringify({
           role: 'system',
@@ -10529,9 +10536,11 @@ function saveChatToServer(projId, userMsg, aiMsg, docContext) {
           empId: projId
         })
       });
+      if (!resp) throw new Error('System message POST returned null');
     }
-  }).then(function () {
-    return apiFetch(baseUrl, {
+
+    // 3. 保存 assistant 消息
+    resp = await apiFetch(baseUrl, {
       method: 'POST',
       body: JSON.stringify({
         role: 'assistant',
@@ -10540,29 +10549,19 @@ function saveChatToServer(projId, userMsg, aiMsg, docContext) {
         empId: projId
       })
     });
-  }).then(function () {
-    // 检查是否需要触发摘要生成（每20条消息触发一次）
-    return apiFetch(baseUrl).then(function (res) {
-      return res.json();
-    }).then(function (msgs) {
-      if (msgs && msgs.length > 0 && msgs.length % 20 === 0) {
-        // 异步触发摘要生成，不阻塞
-        apiFetch(baseUrl + '/summarize', {
-          method: 'POST'
-        }).then(function (r) {
-          return r.json();
-        }).then(function (data) {
-          if (data.summary) {
-            console.log('[Summary] 对话摘要已生成，压缩了 ' + data.compressed + ' 条消息');
-          }
-        }).catch(function (e) {
-          console.log('[Summary] 摘要生成失败:', e);
-        });
-      }
-    });
-  }).catch(function (e) {
-    console.log('[ChatSync] 保存到后端失败:', e);
-  });
+    if (!resp) throw new Error('Assistant message POST returned null');
+
+    // 4. 检查是否需要触发摘要生成（每20条消息触发一次）
+    var msgsResp = await apiFetch(baseUrl);
+    var msgs = await msgsResp.json();
+    if (msgs && msgs.length > 0 && msgs.length % 20 === 0) {
+      apiFetch(baseUrl + '/summarize', { method: 'POST' }).catch(function (e) {
+        console.log('[Summary] 摘要生成失败:', e);
+      });
+    }
+  } catch (e) {
+    console.error('[ChatSync] 保存到后端失败，已中断后续同步:', e);
+  }
 }
 function loadChatFromServer(id, type, callback) {
   if (typeof apiFetch !== 'function') {
