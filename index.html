@@ -2557,10 +2557,16 @@ window.doLogin = function () {
 <div class="emp-tab-pane" id="emp-tab-memory">
 <div class="memory-header">
 <div class="memory-title">🧠 上下文记忆</div>
+<div style="display:flex;gap:6px;align-items:center;">
+<button class="memory-add-btn" onclick="cleanupExpiredMemories()" title="清理30天前的过期日常记录" style="background:var(--bg-tertiary);color:var(--text-secondary);">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+清理过期
+</button>
 <button class="memory-add-btn" onclick="addMemory()">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 添加记忆
 </button>
+</div>
 </div>
 <div class="memory-tabs">
 <button class="memory-tab active" data-mtab="core" onclick="switchMemoryTab('core')">核心记忆</button>
@@ -8889,13 +8895,28 @@ function renderMemoryTab(empId) {
         return;
       }
       var html = '';
+      var nowMs = Date.now();
+      var ttlMs = 30 * 24 * 3600 * 1000;
+      var warningMs = 7 * 24 * 3600 * 1000;
       filtered.forEach(function (m) {
         var timeStr = m.time ? formatTimeAgo(new Date(m.time)) : '';
         var sourceLabel = m.source ? '<span style="font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px;margin-right:6px;">' + escapeHtml(m.source) + '</span>' : '';
         var isAutoExtract = m.key === 'auto_extract' || m.key === 'auto';
+        // 计算过期状态
+        var expireBadge = '';
+        if (isAutoExtract && m.time) {
+          var ageMs = nowMs - m.time;
+          var remainMs = ttlMs - ageMs;
+          if (remainMs <= 0) {
+            expireBadge = '<span style="font-size:10px;color:#fff;background:#FF3B30;padding:1px 5px;border-radius:4px;margin-left:6px;">已过期</span>';
+          } else if (remainMs < warningMs) {
+            var remainDays = Math.ceil(remainMs / (24 * 3600 * 1000));
+            expireBadge = '<span style="font-size:10px;color:#fff;background:#FF9500;padding:1px 5px;border-radius:4px;margin-left:6px;">' + remainDays + '天后过期</span>';
+          }
+        }
         html += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;">';
         html += '<div class="memory-item-content" style="flex:1;">';
-        html += '<div style="margin-bottom:6px;">' + sourceLabel + '</div>';
+        html += '<div style="margin-bottom:6px;">' + sourceLabel + expireBadge + '</div>';
         html += '<div class="memory-item-text" style="font-size:14px;line-height:1.5;color:var(--text-primary);">' + escapeHtml(m.value || '') + '</div>';
         html += '<div class="memory-item-date" style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">' + escapeHtml(timeStr) + '</div>';
         html += '</div>';
@@ -8989,6 +9010,24 @@ function promoteToCore(empId, memoryId) {
     console.warn('[Memory] 升级失败:', e);
   });
 }
+function cleanupExpiredMemories() {
+  var empId = localStorage.getItem('sb_current_emp');
+  if (!empId) return;
+  // 后端 GET /api/memory 会自动清理过期记录，重新加载即可
+  apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) {
+    return r.json();
+  }).then(function (memories) {
+    renderMemoryTab(empId);
+    updateMemoryTabTitle(empId);
+    var dailyCount = memories.filter(function (m) {
+      return m.key === 'auto_extract' || m.key === 'auto';
+    }).length;
+    showToast('✅ 已清理过期日常记录（剩余 ' + dailyCount + ' 条）');
+  }).catch(function (e) {
+    showToast('❌ 清理失败');
+  });
+}
+
 function addMemory() {
   // 在面板内显示输入框，不使用 prompt
   var contentEl = document.getElementById('memoryContent');

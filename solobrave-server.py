@@ -2855,14 +2855,41 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     # ─── 记忆 API ─────────────────────────────────────────
 
+    # 记忆过期配置：日常记录30天后过期，核心记忆不过期
+    MEMORY_DAILY_TTL_DAYS = 30
+
+    def _cleanup_expired_memories(self, memories):
+        """清理过期记忆：日常记录超过30天过期，核心记忆保留"""
+        now = int(time.time() * 1000)
+        ttl_ms = self.MEMORY_DAILY_TTL_DAYS * 24 * 3600 * 1000
+        cleaned = []
+        expired_count = 0
+        for m in memories:
+            key = m.get('key', 'auto')
+            is_core = key not in ('auto', 'auto_extract')
+            if is_core:
+                cleaned.append(m)
+                continue
+            mem_time = m.get('time', 0)
+            if mem_time and (now - mem_time) > ttl_ms:
+                expired_count += 1
+                continue
+            cleaned.append(m)
+        if expired_count > 0:
+            print(f'  [MemoryCleanup] 清理 {expired_count} 条过期日常记录', flush=True)
+        return cleaned
+
     def _handle_get_memory(self, emp_id):
-        """GET /api/memory/{empId} — 获取记忆列表"""
+        """GET /api/memory/{empId} — 获取记忆列表（自动过滤过期）"""
         filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
         memories = _read_json(filepath, [])
+        memories = self._cleanup_expired_memories(memories)
+        # 如果清理后有变化，写回文件
+        _write_json(filepath, memories)
         self._send_json(200, memories)
 
     def _handle_post_memory(self, emp_id):
-        """POST /api/memory/{empId} — 添加记忆"""
+        """POST /api/memory/{empId} — 添加记忆（自动清理过期）"""
         body = self._read_body()
         if not body or 'value' not in body:
             self._send_json_error(400, 'Missing value')
@@ -2870,6 +2897,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         
         filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
         memories = _read_json(filepath, [])
+        
+        # 先清理过期记忆
+        memories = self._cleanup_expired_memories(memories)
         
         memory = {
             'id': str(uuid.uuid4())[:8],
