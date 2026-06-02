@@ -7382,11 +7382,41 @@ function renderMsgs(type) {
       var privateMsgs = (serverMsgs || []).filter(function (m) {
         return (m.role === 'user' || m.role === 'assistant') && !m.groupId;
       });
-      if (privateMsgs.length > 0) {
-        renderPrivateMsgs(area, emp, privateMsgs);
+      // 合并本地和后端消息：后端同步可能有延迟，避免覆盖导致本地用户消息丢失
+      var mergedMsgs = mergeChatMessages(localHistory, privateMsgs);
+      if (mergedMsgs.length > 0) {
+        renderPrivateMsgs(area, emp, mergedMsgs);
       }
     });
     return;
+  }
+  // 合并本地和后端消息，避免后端同步延迟/失败导致本地消息丢失
+  function mergeChatMessages(localMsgs, serverMsgs) {
+    var merged = [];
+    var seen = {};
+    // 先加入本地消息
+    (localMsgs || []).forEach(function (m) {
+      if (!m || (!m.role && !m.content)) return;
+      var key = (m.role || '') + '|' + (m.content || '');
+      if (!seen[key]) {
+        seen[key] = true;
+        merged.push(m);
+      }
+    });
+    // 再加入后端消息（去重）
+    (serverMsgs || []).forEach(function (m) {
+      if (!m || (!m.role && !m.content)) return;
+      var key = (m.role || '') + '|' + (m.content || '');
+      if (!seen[key]) {
+        seen[key] = true;
+        merged.push(m);
+      }
+    });
+    // 按时间升序排序
+    merged.sort(function (a, b) {
+      return new Date(a.time || 0) - new Date(b.time || 0);
+    });
+    return merged;
   }
   function renderPrivateMsgs(area, emp, history) {
     // 直接清空重绘，不保留任何 DOM 残留消息（避免切换员工时串聊）
