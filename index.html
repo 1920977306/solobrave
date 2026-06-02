@@ -4801,7 +4801,83 @@ function showReminder() {
   if (emp && emp.name) showToast(emp.name + ': ' + text.split('\n')[0]);
 }
 
-// 检查任务截止时间，对超期任务自动发送提醒给员工
+// ============ 任务精确超时触发（基于 setTimeout） ============
+var taskTimeoutTimers = {};
+
+function _getTaskTimerId(task) {
+  return 'task_' + (task.id || task.name || Math.random().toString(36).slice(2));
+}
+
+// 为单个任务设置精确超时定时器
+function scheduleTaskTimeout(task) {
+  if (!task || !task.deadline || task.done) return;
+  var timerId = _getTaskTimerId(task);
+  // 清除已有定时器
+  if (taskTimeoutTimers[timerId]) {
+    clearTimeout(taskTimeoutTimers[timerId]);
+    delete taskTimeoutTimers[timerId];
+  }
+  // 计算到截止时间当天23:59:59的毫秒数
+  var deadlineMs = new Date(task.deadline + 'T23:59:59').getTime();
+  var nowMs = Date.now();
+  var delayMs = deadlineMs - nowMs;
+  if (delayMs <= 0) {
+    // 已经超时，延迟3秒后触发（避免页面加载时瞬间发送太多）
+    taskTimeoutTimers[timerId] = setTimeout(function () {
+      _triggerTaskTimeout(task);
+    }, 3000 + Math.random() * 5000);
+    return;
+  }
+  // 设置精确定时器
+  taskTimeoutTimers[timerId] = setTimeout(function () {
+    _triggerTaskTimeout(task);
+  }, delayMs);
+  console.log('[TaskTimer] 任务「' + task.name + '」超时定时器已设置，' + Math.round(delayMs / 1000 / 60) + ' 分钟后触发');
+}
+
+// 清除任务的超时定时器
+function clearTaskTimeout(task) {
+  var timerId = _getTaskTimerId(task);
+  if (taskTimeoutTimers[timerId]) {
+    clearTimeout(taskTimeoutTimers[timerId]);
+    delete taskTimeoutTimers[timerId];
+    console.log('[TaskTimer] 任务「' + task.name + '」超时定时器已清除');
+  }
+}
+
+// 超时触发
+function _triggerTaskTimeout(task) {
+  if (!task || task.done) return;
+  var timerId = _getTaskTimerId(task);
+  delete taskTimeoutTimers[timerId];
+  var emp = emps.find(function (e) {
+    return e.id === task.assignee;
+  });
+  if (!emp) return;
+  sendTaskReminderToEmp(emp, task);
+}
+
+// 初始化所有任务的超时定时器
+function initTaskTimeoutTimers() {
+  // 清除所有已有定时器
+  Object.keys(taskTimeoutTimers).forEach(function (key) {
+    clearTimeout(taskTimeoutTimers[key]);
+    delete taskTimeoutTimers[key];
+  });
+  // 为所有未完成的、有 deadline 的任务设置定时器
+  var scheduled = 0;
+  ['todo', 'progress'].forEach(function (col) {
+    tasksData[col].forEach(function (t) {
+      if (t.deadline && !t.done) {
+        scheduleTaskTimeout(t);
+        scheduled++;
+      }
+    });
+  });
+  console.log('[TaskTimer] 已初始化 ' + scheduled + ' 个任务的精确超时触发器');
+}
+
+// 兜底：每天零点检查一次是否有遗漏（防止浏览器休眠导致 setTimeout 延迟）
 function checkTaskDeadlinesAndNotify() {
   var today = new Date().toISOString().split('T')[0];
   ['todo', 'progress'].forEach(function (col) {
@@ -4865,16 +4941,15 @@ async function sendTaskReminderToEmp(emp, task) {
 let reminderInterval = null;
 function startReminderCheck() {
   if (reminderInterval) clearInterval(reminderInterval);
-  // 每5分钟检测一次
+  // 每30分钟兜底检测一次（setTimeout 可能因浏览器休眠延迟）
   reminderInterval = setInterval(function () {
     var reminder = generateReminderMsg();
     if (reminder) showReminder();
     checkTaskDeadlinesAndNotify();
-  }, 5 * 60 * 1000);
+  }, 30 * 60 * 1000);
   // 立即检测一次
   setTimeout(function () {
     showReminder();
-    checkTaskDeadlinesAndNotify();
   }, 3000);
 }
 function renderTaskBoard() {
@@ -4946,6 +5021,13 @@ function renderTaskBoard() {
           if (taskIdx > -1) {
             const task = tasksData[draggingTask.from].splice(taskIdx, 1)[0];
             task.done = col === 'done';
+            // 管理超时定时器
+            if (col === 'done') {
+              clearTaskTimeout(task);
+            } else if (draggingTask.from === 'done' && task.deadline) {
+              // 从 done 拖回 todo/progress，重新设置定时器
+              scheduleTaskTimeout(task);
+            }
             tasksData[col].push(task);
             saveTasks();
             renderTaskBoard();
@@ -10192,6 +10274,7 @@ setInterval(function () {
 
 // Init
 loadTasks();
+initTaskTimeoutTimers();
 renderEmployeeList();
 renderTaskBoard();
 startReminderCheck();
