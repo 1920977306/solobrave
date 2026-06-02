@@ -3505,6 +3505,17 @@ function extractKeywords(text) {
 
 // 通过 OpenClaw WS 发送消息
 async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
+  // 统一恢复员工在线状态
+  function restoreOnline() {
+    clearTimeout(window._thinkingTimeout);
+    notifyOfficeStatusChange(emp.id, 'online');
+    var _e = emps.find(function (e) { return e.id === emp.id; });
+    if (_e) {
+      _e.status = 'online';
+      renderEmployeeList();
+    }
+  }
+
   // 加载对话摘要
   var summaryPrompt = '';
   try {
@@ -3701,11 +3712,13 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
         saveChatHistory(emp.id, userMessage, reply, docContext);
         openclaw.off('agent', agentHandler);
       }
+      restoreOnline();
     }
   } catch (e) {
     console.error('[OpenClaw] 发送失败:', e);
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
+    restoreOnline();
     // Agent 不存在时自动降级到 main
     var agentName = emp.openclawName || 'main';
     if (agentName !== 'main' && e.message && e.message.includes('no longer exists')) {
@@ -6671,6 +6684,13 @@ async function sendGroupMessage(groupId, message, mentions) {
         var t = document.getElementById('groupTypingMsg');
         if (t) t.remove();
         displayGroupAIReply(groupId, group.leadAgentId, '⚠️ 群聊消息发送失败: ' + e.message);
+        // 恢复群主在线状态
+        notifyOfficeStatusChange(group.leadAgentId, 'online');
+        var _ge = emps.find(function (e) { return e.id === group.leadAgentId; });
+        if (_ge) {
+          _ge.status = 'online';
+          renderEmployeeList();
+        }
       }
     }
   } else {
@@ -6866,11 +6886,23 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
         parseAndTriggerMentions(reply, groupId, emp.id);
         openclaw.off('agent', agentHandler);
       }
+      notifyOfficeStatusChange(emp.id, 'online');
+      var _me = emps.find(function (e) { return e.id === emp.id; });
+      if (_me) {
+        _me.status = 'online';
+        renderEmployeeList();
+      }
     }
   } catch (e) {
     console.error('[MentionTrigger] 触发失败:', e);
     var t = document.getElementById('mentionTyping_' + emp.id);
     if (t) t.remove();
+    notifyOfficeStatusChange(emp.id, 'online');
+    var _me2 = emps.find(function (e) { return e.id === emp.id; });
+    if (_me2) {
+      _me2.status = 'online';
+      renderEmployeeList();
+    }
   }
   mentionChainDepth--;
 }
