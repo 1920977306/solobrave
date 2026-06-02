@@ -10789,57 +10789,169 @@ function saveChatHistory(empId, userMsg, aiMsg, docContext) {
 function extractAndSaveMemory(empId, userMsg, aiReply) {
   if (typeof apiFetch !== 'function') return;
 
-  // 构造提取 prompt，让 AI 自己提炼关键事实
-  var extractPrompt = '【记忆提取任务】从以下对话中提取需要长期记住的关键信息（姓名、偏好、决策、重要事实等），每条一行，格式：- 关键信息。如果没有值得记住的信息，回复"无"。不需要寒暄，直接输出结果。\n\n用户说：' + userMsg.substring(0, 300) + '\nAI回复：' + aiReply.substring(0, 300);
+  var emp = emps.find(function (e) { return e.id === empId; });
+  if (!emp) return;
 
-  // 用同一个员工的API发提取请求
-  apiFetch('/api/chat/' + empId, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      message: extractPrompt
-    })
-  }).then(function (r) {
+  // 先加载已有记忆，避免重复提取
+  apiFetch('/api/memory/' + empId).then(function (r) {
     return r.json();
-  }).then(function (data) {
-    var extracted = data.reply || '';
-    if (extracted && extracted !== '无' && extracted.length > 2) {
-      // 保存前先加载已有记忆，检查是否重复
-      apiFetch('/api/memory/' + empId).then(function (r) {
-        return r.json();
-      }).then(function (existing) {
-        var isDuplicate = existing.some(function (m) {
-          return m.value && extracted && m.value.length > 10 && extracted.length > 10 && (m.value.indexOf(extracted.substring(0, 30)) > -1 || extracted.indexOf(m.value.substring(0, 30)) > -1);
-        });
-        if (!isDuplicate) {
-          apiFetch('/api/memory/' + empId, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              key: 'auto_extract',
-              value: extracted.substring(0, 300),
-              source: userMsg.substring(0, 100)
-            })
-          }).then(function () {
-            // 更新记忆 Tab 标题计数
-            updateMemoryTabTitle(empId);
-          }).catch(function (e) {
-            console.warn('[Memory] 保存提取结果失败:', e);
-          });
-        } else {
-          console.log('[Memory] 跳过重复记忆');
-        }
-      }).catch(function (e) {
-        console.warn('[Memory] 加载已有记忆失败:', e);
-      });
+  }).then(function (existing) {
+    if (!existing) existing = [];
+
+    // 构造提取 prompt：提供已有记忆上下文，要求提取带关系的事实
+    var existingDaily = existing.filter(function (m) {
+      return m.key === 'auto_extract' || m.key === 'auto';
+    });
+    var existingMemories = existingDaily.map(function (m) {
+      return '- ' + (m.value || '');
+    }).join('\n');
+
+    var extractPrompt = '【记忆提取任务】\n从以下对话中提取需要长期记住的关键信息。要求：\n1. 提取"事实"而非"关键词"，例如不是"蓝色"，而是"用户喜欢蓝色"\n2. 包含上下文关系，例如"用户提到下周要去上海出差"\n3. 每条记忆独立成一行，格式：- 关键信息\n4. 如果信息已经在"已有记忆"中，不要重复提取\n5. 如果没有新信息，只回复"无"\n6. 不要寒暄，直接输出结果';
+
+    if (existingMemories) {
+      extractPrompt += '\n\n【已有记忆（不要重复提取）】\n' + existingMemories;
+    }
+
+    extractPrompt += '\n\n【本次对话】\n用户说：' + userMsg.substring(0, 400) + '\nAI回复：' + aiReply.substring(0, 400);
+
+    // 根据连接类型选择提取方式
+    var connectionType = emp.connectionType || 'openclaw';
+    if (connectionType === 'openclaw' && typeof openclaw !== 'undefined' && openclaw.connected) {
+      _extractMemoryViaOpenClaw(empId, extractPrompt, existing);
+    } else if (connectionType === 'api') {
+      _extractMemoryViaAPI(empId, extractPrompt, existing);
     }
   }).catch(function (e) {
-    console.warn('[Memory] 提取请求失败:', e);
+    console.warn('[Memory] 加载已有记忆失败:', e);
   });
+}
+
+// 通过 OpenClaw WebSocket 提取记忆
+function _extractMemoryViaOpenClaw(empId, extractPrompt, existing) {
+  var emp = emps.find(function (e) { return e.id === empId; });
+  if (!emp) return;
+
+  var agentId = emp.openclawName || emp.id;
+  var sessionKey = 'agent:' + agentId + ':main';
+
+  var extractReply = '';
+  var extractRunId = null;
+  var extractTimeout = null;
+
+  var extractHandler = function (data) {
+    if (!data) return;
+    if (data.runId && !extractRunId) extractRunId = data.runId;
+    if (extractRunId && data.runId && data.runId !== extractRunId) return;
+
+    if (data.stream === 'assistant' && data.data) {
+      if (data.data.text) extractReply = data.data.text;
+      else if (data.data.delta) extractReply += data.data.delta;
+    }
+
+    if (data.stream === 'lifecycle' && data.data && (data.data.phase === 'end' || data.data.phase === 'error')) {
+      if (extractTimeout) clearTimeout(extractTimeout);
+      openclaw.off('agent', extractHandler);
+      _processExtractedMemory(empId, extractReply, existing);
+    }
+  };
+
+  openclaw.on('agent', extractHandler);
+
+  // 超时保护：30秒后强制结束
+  extractTimeout = setTimeout(function () {
+    openclaw.off('agent', extractHandler);
+    if (extractReply) {
+      _processExtractedMemory(empId, extractReply, existing);
+    } else {
+      console.log('[Memory] 提取超时，无结果');
+    }
+  }, 30000);
+
+  openclaw.sendChat(sessionKey, extractPrompt).catch(function (e) {
+    if (extractTimeout) clearTimeout(extractTimeout);
+    openclaw.off('agent', extractHandler);
+    console.warn('[Memory] OpenClaw 提取发送失败:', e);
+  });
+}
+
+// 通过 API 直接提取记忆
+function _extractMemoryViaAPI(empId, extractPrompt, existing) {
+  apiFetch('/api/chat/' + empId, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: extractPrompt, skipAI: false })
+  }).then(function (r) { return r.json(); })
+    .then(function (data) {
+      var extracted = (data.aiMessage && data.aiMessage.content) || data.reply || '';
+      _processExtractedMemory(empId, extracted, existing);
+    }).catch(function (e) {
+      console.warn('[Memory] API 提取失败:', e);
+    });
+}
+
+// 处理提取结果：拆分、去重、保存
+function _processExtractedMemory(empId, extracted, existing) {
+  if (!extracted || extracted === '无' || extracted.length < 3) return;
+
+  // 按行拆分，提取 - 开头的记忆
+  var lines = extracted.split('\n').map(function (l) { return l.trim(); });
+  var newMemories = [];
+  lines.forEach(function (line) {
+    if (line.indexOf('- ') === 0 && line.length > 3) {
+      var memValue = line.substring(2).trim();
+      if (memValue && memValue !== '无') {
+        newMemories.push(memValue);
+      }
+    }
+  });
+
+  // 如果没有 - 开头的行，尝试把整段作为一条记忆（清理提示词前缀）
+  if (newMemories.length === 0) {
+    var cleanText = extracted.replace(/【记忆提取任务】/g, '').replace(/\d+\./g, '').trim();
+    if (cleanText && cleanText !== '无' && cleanText.length > 3 && cleanText.indexOf('要求：') !== 0) {
+      newMemories.push(cleanText);
+    }
+  }
+
+  // 去重并保存
+  var savedCount = 0;
+  newMemories.forEach(function (memValue) {
+    if (memValue.length < 5) return;
+
+    // 去重检查：与已有记忆比较
+    var isDuplicate = existing.some(function (m) {
+      if (!m.value || m.value.length < 5) return false;
+      var mLower = m.value.toLowerCase();
+      var memLower = memValue.toLowerCase();
+      // 互相包含视为重复
+      if (mLower.indexOf(memLower) > -1 || memLower.indexOf(mLower) > -1) return true;
+      // 前20个字符相同视为重复
+      if (m.value.substring(0, 20) === memValue.substring(0, 20)) return true;
+      return false;
+    });
+
+    if (!isDuplicate) {
+      apiFetch('/api/memory/' + empId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'auto_extract',
+          value: memValue.substring(0, 500),
+          source: '自动提取'
+        })
+      }).then(function () {
+        console.log('[Memory] 保存记忆:', memValue.substring(0, 50));
+      }).catch(function (e) {
+        console.warn('[Memory] 保存失败:', e);
+      });
+      savedCount++;
+    }
+  });
+
+  if (savedCount > 0) {
+    updateMemoryTabTitle(empId);
+    console.log('[Memory] 共保存 ' + savedCount + ' 条新记忆');
+  }
 }
 
 // 显示 AI 回复
