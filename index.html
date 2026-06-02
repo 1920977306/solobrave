@@ -4095,10 +4095,11 @@ function notifyOfficeChatMessage(empId, direction) {
   }
 }
 
-// 检查 URL 参数 ?emp=xxx
+// 检查 URL 参数 ?emp=xxx 或 ?action=createGroup
 function checkUrlParams() {
   const params = new URLSearchParams(window.location.search);
   const empId = params.get('emp');
+  const action = params.get('action');
   if (empId) {
     // 延迟执行，确保 DOM 已加载
     setTimeout(function () {
@@ -4112,6 +4113,17 @@ function checkUrlParams() {
           return e.id === empId;
         });
         showToast('🦞 已打开与 ' + (foundEmp && foundEmp.name || empId) + ' 的聊天');
+      }
+    }, 500);
+  }
+  if (action === 'createGroup') {
+    setTimeout(function () {
+      if (typeof openGroupWizard === 'function') {
+        openGroupWizard();
+        // 清除 URL 参数
+        const url = new URL(window.location);
+        url.searchParams.delete('action');
+        window.history.replaceState({}, '', url);
       }
     }, 500);
   }

@@ -2279,6 +2279,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
     <div class="nav-spacer"></div>
     <div class="nav-actions">
       <button class="nav-action-btn" onclick="document.getElementById('searchModal').classList.add('show');document.getElementById('searchInput').focus();">🔍 搜索</button>
+      <button class="nav-action-btn" onclick="openCreateGroupInMain()">➕ 添加项目组</button>
       <button class="nav-action-btn lounge-btn" onclick="toggleLounge()" id="loungeNavBtn" style="display:none !important;">🏖️ 休闲区</button>
       <a href="./index.html" class="nav-action-btn" style="text-decoration:none;">🏠 返回主页</a>
       <button class="nav-action-btn" onclick="restartGateway()">🔄 重启网关</button>
@@ -3186,6 +3187,10 @@ function renderActivities(){
 // 跳转到主页打开对应员工聊天
 function goToMainChat(empId) {
   window.open('./index.html?emp=' + empId, '_blank');
+}
+// 跳转到主页打开创建项目组向导
+function openCreateGroupInMain() {
+  window.open('./index.html?action=createGroup', '_blank');
 }
 
 // 渲染员工网格 - 点击跳转到主页
