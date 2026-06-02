@@ -68,6 +68,18 @@ SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
 TEAMS_FILE = os.path.join(DATA_DIR, 'teams.json')
 MEMORY_DIR = os.path.join(DATA_DIR, 'memory')
 
+# 角色初始记忆种子映射：前端 role -> memory-seed 文件名
+ROLE_MEMORY_SEED_MAP = {
+    'CEO助理': 'Trumind',
+    '战略顾问': 'Trumind',
+    '前端工程师': 'Gates',
+    '后端工程师': 'Gates',
+    '产品经理': 'Trumind',
+    '运营': 'Grace',
+    '客服': 'Grace',
+    '数据分析师': 'Black',
+}
+
 # JWT 配置
 JWT_EXPIRE_SECONDS = 7 * 24 * 3600  # 7 天
 
@@ -2519,6 +2531,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         agents.append(new_agent)
         _save_agents(agents)
 
+        # 加载角色初始记忆种子
+        self._save_initial_memories(new_agent['id'], new_agent.get('role', ''))
+
         self._send_json(201, new_agent)
 
     def _handle_update_agent(self, agent_id):
@@ -2797,6 +2812,45 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return None, '权限不足', 403
         return agent, None, None
 
+
+    # ─── 角色初始记忆种子 ───────────────────────────────────
+
+    def _save_initial_memories(self, agent_id, role):
+        """根据角色加载并保存初始记忆种子"""
+        seed_name = ROLE_MEMORY_SEED_MAP.get(role)
+        if not seed_name:
+            return
+        
+        seed_path = os.path.join(STATIC_DIR, 'docs', 'role-templates', seed_name, 'memory-seed.json')
+        if not os.path.isfile(seed_path):
+            print(f'  [MemorySeed] 未找到种子文件: {seed_path}', flush=True)
+            return
+        
+        try:
+            seed_data = _read_json(seed_path, {})
+            initial_memories = seed_data.get('initial_memory', [])
+            if not initial_memories:
+                return
+            
+            filepath = os.path.join(MEMORY_DIR, f'{agent_id}.json')
+            memories = _read_json(filepath, [])
+            
+            for mem_value in initial_memories:
+                if not mem_value or len(mem_value) < 3:
+                    continue
+                memory = {
+                    'id': str(uuid.uuid4())[:8],
+                    'key': 'core',
+                    'value': mem_value,
+                    'source': '角色初始记忆(' + seed_name + ')',
+                    'time': int(time.time() * 1000)
+                }
+                memories.append(memory)
+            
+            _write_json(filepath, memories)
+            print(f'  [MemorySeed] {agent_id} 已加载 {len(initial_memories)} 条初始记忆 ({seed_name})', flush=True)
+        except Exception as e:
+            print(f'  [MemorySeed] 加载失败: {e}', flush=True)
 
 
     # ─── 记忆 API ─────────────────────────────────────────
