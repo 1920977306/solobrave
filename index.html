@@ -7665,7 +7665,7 @@ function urgeGroupMembers() {
     });
     if (!emp) return;
     setTimeout(function () {
-      triggerMentionedAgent(emp, group.id, group.leadAgentId, 'ai');
+      triggerMentionedAgent(emp, group.id, group.leadAgentId, 'ai', fullMessage);
     }, (idx + 1) * 2000);
   });
   showToast('🔔 督促消息已发送');
@@ -8331,7 +8331,10 @@ function showMention() {
   if (dd) dd.style.display = 'block';
   mentionMode = true;
   var input = document.getElementById('msgInput');
-  if (input && !input.value.endsWith('@')) input.value += '@';
+  if (input) {
+    var trimmed = input.value.replace(/\s+$/, '');
+    if (!trimmed.endsWith('@')) input.value += '@';
+  }
   if (input) input.focus();
 }
 function showMentionDropdown() {
@@ -8365,7 +8368,7 @@ function showMentionDropdown() {
   allDiv.innerHTML = '<span style="font-size:16px;">👥</span><span>所有人</span>';
   allDiv.onclick = function () {
     var input = document.getElementById('msgInput');
-    if (input) input.value = input.value.replace(/@+[^@\s]*$/, '') + '@所有人 ';
+    if (input) input.value = input.value.replace(/@+[^@\n]*$/, '') + '@所有人 ';
     dd.style.display = 'none';
     mentionMode = false;
   };
@@ -8380,7 +8383,7 @@ function showMentionDropdown() {
     item.innerHTML = '<span>' + escapeHtml(emp.name) + (roleText ? ' (' + escapeHtml(roleText) + ')' : '') + '</span>';
     item.onclick = function () {
       var input = document.getElementById('msgInput');
-      if (input) input.value = input.value.replace(/@+[^@\s]*$/, '') + '@' + emp.name + ' ';
+      if (input) input.value = input.value.replace(/@+[^@\n]*$/, '') + '@' + emp.name + ' ';
       dd.style.display = 'none';
       mentionMode = false;
     };
@@ -8395,13 +8398,14 @@ function selectMention(dir) {
   items[mentionIdx] && items[mentionIdx].classList.add('selected');
 }
 function pickMention(id) {
-  const name = id === 'all' ? '所有人' : emps.find(function (x) {
-    return x.id === id;
-  }) && emps.find(function (x) {
-    return x.id === id;
-  }).name || '';
-  const input = document.getElementById('msgInput');
-  input.value = input.value.replace(/@+[^@]*$/, '') + '@' + name + ' ';
+  var name = id === 'all' ? '所有人' : (function () {
+    var e = emps.find(function (x) {
+      return x.id === id;
+    });
+    return e && e.name || '';
+  })();
+  var input = document.getElementById('msgInput');
+  if (input) input.value = input.value.replace(/@+[^@\n]*$/, '') + '@' + name + ' ';
   (function () {
     var el = document.getElementById('mentionDropdown');
     if (el) el.classList.remove('active');
