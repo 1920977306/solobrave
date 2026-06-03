@@ -6744,6 +6744,10 @@ async function sendGroupMessage(groupId, message, mentions) {
   });
   localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
 
+  // 用户新消息，重置轮询计数器，开始新一轮 AI 自主讨论
+  window._pollRound = 0;
+  window._pollTriggered = {};
+
   // 触发对消息感兴趣的 AI 主动回复（不需要被 @）
   triggerInterestedAgents(groupId, 'user', message);
 
@@ -7045,6 +7049,96 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
       triggerMentionedAgent(emp, groupId, senderId, 'ai', replyText);
     }, delay);
   });
+}
+
+// 在 displayGroupAIReply 完成后轮询其他 AI 成员，让每个成员判断是否要回复
+function pollAgentsForReply(groupId, senderId, messageContent) {
+  // 只在群聊模式下执行
+  if (!currentGroupId || currentGroupId !== groupId) return;
+  // 最大轮次限制，避免无限循环
+  window._pollRound = window._pollRound || 0;
+  if (window._pollRound >= 2) return;
+  window._pollRound++;
+
+  var group = groups.find(function (g) {
+    return g.id === groupId;
+  });
+  if (!group || !group.members) return;
+
+  // 排除发送者自己
+  var others = group.members.filter(function (mid) {
+    if (mid === senderId) return false;
+    var e = emps.find(function (x) {
+      return x.id === mid;
+    });
+    return e && !e.archived && e.status !== 'thinking';
+  });
+  if (others.length === 0) return;
+
+  // 逐个询问，间隔 2.5 秒避免并发过大
+  others.forEach(function (mid, idx) {
+    setTimeout(function () {
+      askAgentToReply(mid, groupId, senderId, messageContent);
+    }, (idx + 1) * 2500);
+  });
+}
+
+// 让单个 AI 判断是否要回复群聊消息，直接回复内容或 SKIP
+async function askAgentToReply(mid, groupId, senderId, messageContent) {
+  var emp = emps.find(function (e) {
+    return e.id === mid;
+  });
+  if (!emp) return;
+  // 防重：同一轮对话中不重复触发同一成员
+  var pollKey = groupId + '_' + mid;
+  if (window._pollTriggered && window._pollTriggered[pollKey]) return;
+  window._pollTriggered = window._pollTriggered || {};
+  window._pollTriggered[pollKey] = true;
+
+  var group = groups.find(function (g) {
+    return g.id === groupId;
+  });
+  var groupName = group ? group.name : '项目组';
+  var memberProfiles = group && group.members ? group.members.map(function (mid2) {
+    var e = emps.find(function (x) {
+      return x.id === mid2;
+    });
+    if (!e) return '';
+    var _r = getEmpRoleDisplay(e);
+    var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
+    return e.name + '（' + (_r || '员工') + _skills + '）';
+  }).filter(function (s) { return s; }).join('、') : '';
+
+  var prompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），你在项目组「' + groupName + '」中。\n【项目组成员】' + memberProfiles + '\n\n【群聊最新内容】' + messageContent + '\n\n如果你认为这个话题值得你参与讨论，请直接回复你的观点，可以 @其他相关成员，使用 @名字 格式。\n如果你不想参与，请只回复 SKIP。\n不要解释，要么直接回复观点，要么回复 SKIP。';
+
+  emp.status = 'thinking';
+  renderEmployeeList();
+  try {
+    var agentId = emp.openclawName || emp.id;
+    var sessionKey = 'agent:' + agentId + ':main';
+    var res = await openclaw.sendChat(sessionKey, prompt);
+    var reply = res.result && res.result.content ? res.result.content.trim() : '';
+    emp.status = 'online';
+    renderEmployeeList();
+    // 回复 SKIP 或不相关内容则跳过
+    if (!reply || reply.toUpperCase() === 'SKIP' || reply.indexOf('SKIP') === 0) return;
+    // 显示回复并保存历史
+    displayGroupAIReply(groupId, mid, reply);
+    var historyKey = 'sb_group_history_' + groupId;
+    var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+    history.push({
+      role: 'assistant',
+      content: reply,
+      senderId: mid,
+      senderName: emp.name,
+      time: Date.now()
+    });
+    localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+    notifyOfficeChatMessage(mid, 'incoming');
+  } catch (e) {
+    emp.status = 'online';
+    renderEmployeeList();
+  }
 }
 
 // AI 主动发起群聊讨论（不需要用户参与）
@@ -7503,6 +7597,11 @@ function displayGroupAIReply(groupId, senderId, replyText) {
       var previewEl = groupItem.querySelector('.group-item-sub');
       if (previewEl) previewEl.textContent = group.lastMsg;
     }
+  }
+
+  // 群聊模式下，轮询其他 AI 成员判断是否回复
+  if (currentGroupId && currentGroupId === groupId) {
+    pollAgentsForReply(groupId, senderId, replyText);
   }
 }
 
