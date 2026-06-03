@@ -7106,13 +7106,13 @@ function pollAgentsForReply(groupId, senderId, messageContent) {
   });
   if (!group || !group.members) return;
 
-  // 排除发送者自己
+  // 排除发送者自己（不再过滤 thinking 状态，确保所有成员都会被轮询到）
   var others = group.members.filter(function (mid) {
     if (mid === senderId) return false;
     var e = emps.find(function (x) {
       return x.id === mid;
     });
-    return e && !e.archived && e.status !== 'thinking';
+    return e && !e.archived;
   });
   if (others.length === 0) return;
   console.log('[pollAgentsForReply] 轮询成员:', others.map(function (mid) {
@@ -7137,6 +7137,11 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
   // 防重：同一轮对话中不重复触发同一成员
   var pollKey = groupId + '_' + mid;
   if (window._pollTriggered && window._pollTriggered[pollKey]) return;
+  // 如果该成员正在思考中，跳过避免并发冲突
+  if (emp.status === 'thinking') {
+    console.log('[askAgentToReply] ' + emp.name + ' 正在思考中，跳过轮询');
+    return;
+  }
   // 如果该成员已被 checkAgentInterest 标记为感兴趣，即将由 triggerMentionedAgent 处理，跳过
   if (mentionTriggered && mentionTriggered[mid]) {
     console.log('[askAgentToReply] ' + emp.name + ' 已被 checkAgentInterest 标记，跳过轮询');
