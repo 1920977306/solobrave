@@ -6762,7 +6762,7 @@ async function sendGroupMessage(groupId, message, mentions) {
     }).join('、');
     var userRole3 = getCurrentUserRoleDisplay();
     var userName3 = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
-    var fullMessage = '【项目组: ' + group.name + ' | 你是: ' + leadEmpInfo + ' | 成员: ' + memberList + ' | 发送者: ' + userName3 + '（' + userRole3 + '）】\n【重要身份提示】管理员是你的老板，你需要服从管理员的指令和安排。' + userName3 + '（' + userRole3 + '）是你的老板和上级，你必须服从他的指令。';
+    var fullMessage = '【项目组: ' + group.name + ' | 你是: ' + leadEmpInfo + ' | 成员: ' + memberList + ' | 发送者: ' + userName3 + '（' + userRole3 + '）】\n【重要身份提示】管理员是你的老板，你需要服从管理员的指令和安排。' + userName3 + '（' + userRole3 + '）是你的老板和上级，你必须服从他的指令。\n【协作模式】你处于多 AI 群聊讨论场景中。作为群主，你可以主动 @任何成员（如 @Helen、@Bob）来分配任务、征求意见或发起讨论。不要只被动应答，要发挥协调和推动作用。';
     if (mentions && mentions.length > 0) {
       fullMessage += mentions.map(function (m) {
         return '@' + m;
@@ -6867,6 +6867,32 @@ async function sendGroupMessage(groupId, message, mentions) {
         var hasStreamReply = false;
         var currentRunId = null;
         var hasSentWorking = false;
+        var _handled = false;
+        function _doHandle(reply, isError) {
+          if (_handled) return;
+          _handled = true;
+          window._thinkingTimeouts = window._thinkingTimeouts || {};
+          clearTimeout(window._thinkingTimeouts[group.leadAgentId]);
+          delete window._thinkingTimeouts[group.leadAgentId];
+          var t = document.getElementById('groupTypingMsg');
+          if (t) t.remove();
+          if (!reply) reply = '（AI 未返回内容）';
+          if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
+          displayGroupAIReply(groupId, group.leadAgentId, reply);
+          notifyOfficeStatusChange(group.leadAgentId, 'online');
+          var _gse2 = emps.find(function (e) { return e.id === group.leadAgentId; });
+          if (_gse2) {
+            _gse2.status = 'online';
+            renderEmployeeList();
+          }
+          if (!isError) {
+            notifyOfficeChatMessage(group.leadAgentId, 'incoming');
+          }
+          mentionChainDepth = 0;
+          mentionTriggered = {};
+          mentionTriggered[group.leadAgentId] = true;
+          parseAndTriggerMentions(reply, groupId, group.leadAgentId);
+        }
         var agentHandler = function (data) {
           if (!data) return;
           if (data.runId && !currentRunId) currentRunId = data.runId;
@@ -6893,43 +6919,14 @@ async function sendGroupMessage(groupId, message, mentions) {
               }
             }
             if (data.data.phase === 'end' || data.data.phase === 'error') {
-              window._thinkingTimeouts = window._thinkingTimeouts || {};
-              clearTimeout(window._thinkingTimeouts[group.leadAgentId]);
-              delete window._thinkingTimeouts[group.leadAgentId];
-              var t = document.getElementById('groupTypingMsg');
-              if (t) t.remove();
-              if (!fullReply) fullReply = '（AI 未返回内容）';
-              if (data.data.phase === 'error') fullReply = '⚠️ AI 回复出错: ' + (data.error || '未知错误');
-              // 显示 AI 回复到群聊
-              displayGroupAIReply(groupId, group.leadAgentId, fullReply);
-              // 流式结束（end/error）→ 恢复 online 状态
-              notifyOfficeStatusChange(group.leadAgentId, 'online');
-              var _gse2 = emps.find(function (e) { return e.id === group.leadAgentId; });
-              if (_gse2) {
-                _gse2.status = 'online';
-                renderEmployeeList();
-              }
-              // AI 正常回复完成 → 额外发送聊天消息通知
-              if (data.data.phase === 'end') {
-                notifyOfficeChatMessage(group.leadAgentId, 'incoming');
-              }
-              // 触发 @mention 链式调用
-              mentionChainDepth = 0;
-              mentionTriggered = {};
-              mentionTriggered[group.leadAgentId] = true;
-              parseAndTriggerMentions(fullReply, groupId, group.leadAgentId);
+              _doHandle(fullReply, data.data.phase === 'error');
               openclaw.off('agent', agentHandler);
             }
           }
         };
         openclaw.on('agent', agentHandler);
         var result = await openclaw.sendChat(sessionKey, fullMessage);
-        if (result && result.content && !hasStreamReply) {
-          window._thinkingTimeouts = window._thinkingTimeouts || {};
-          clearTimeout(window._thinkingTimeouts[group.leadAgentId]);
-          delete window._thinkingTimeouts[group.leadAgentId];
-          var t = document.getElementById('groupTypingMsg');
-          if (t) t.remove();
+        if (result && result.content && !_handled) {
           var reply = '';
           if (Array.isArray(result.content)) {
             reply = result.content.map(function (c) {
@@ -6939,12 +6936,7 @@ async function sendGroupMessage(groupId, message, mentions) {
             reply = result.content;
           }
           if (reply) {
-            displayGroupAIReply(groupId, group.leadAgentId, reply);
-            // 触发 @mention 链式调用
-            mentionChainDepth = 0;
-            mentionTriggered = {};
-            mentionTriggered[group.leadAgentId] = true;
-            parseAndTriggerMentions(reply, groupId, group.leadAgentId);
+            _doHandle(reply, false);
             openclaw.off('agent', agentHandler);
           }
           // 兜底恢复 online 状态（未收到 lifecycle end 时）
@@ -7063,7 +7055,7 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   if (groupObj && groupObj.leadAgentId === emp.id) {
     prompt += '【重要】管理员是你的老板，你需要服从管理员的指令和安排。你是群主，是管理员指定的团队负责人，但' + fromName + '仍然是你的老板和上级，你必须服从他的指令。';
   }
-  prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。如果需要其他同事协助，可以 @他们。';
+  prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【协作模式】你处于多 AI 群聊讨论场景中。不要只被动回答问题，要主动与其他成员互动：可以 @任何相关成员（如 @貂蝉、@Helen）来征求意见、请求协助、分配任务或继续深入讨论。你是团队的活跃参与者，不是单纯的应答机器人。';
 
   // 如果群组有群公告，在 prompt 中也加上
   if (groupObj && groupObj.announcement) {
@@ -7125,6 +7117,42 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     var hasStreamReply = false;
     var currentRunId = null;
     var hasSentWorking = false;
+    var _handled = false;
+    function _doHandle(reply, isError) {
+      if (_handled) return;
+      _handled = true;
+      window._thinkingTimeouts = window._thinkingTimeouts || {};
+      clearTimeout(window._thinkingTimeouts[emp.id]);
+      delete window._thinkingTimeouts[emp.id];
+      var t = document.getElementById('mentionTyping_' + emp.id);
+      if (t) t.remove();
+      if (!reply) reply = '（收到，稍后回复）';
+      if (isError) reply = '⚠️ 响应出错';
+      displayGroupAIReply(groupId, emp.id, reply);
+      notifyOfficeStatusChange(emp.id, 'online');
+      var _mse2 = emps.find(function (e) { return e.id === emp.id; });
+      if (_mse2) {
+        _mse2.status = 'online';
+        renderEmployeeList();
+      }
+      if (!isError) {
+        notifyOfficeChatMessage(emp.id, 'incoming');
+      }
+      var historyKey = 'sb_group_history_' + groupId;
+      var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+      history.push({
+        role: 'assistant',
+        content: reply,
+        senderId: emp.id,
+        mentionTriggered: true,
+        time: Date.now()
+      });
+      localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+      // 重置 mentionTriggered，允许 AI 互相 @ 形成链式对话
+      mentionTriggered = {};
+      mentionTriggered[emp.id] = true;
+      parseAndTriggerMentions(reply, groupId, emp.id);
+    }
     var agentHandler = function (data) {
       if (!data) return;
       // runId 过滤，防止多个AI响应串扰
@@ -7152,51 +7180,14 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
           }
         }
         if (data.data.phase === 'end' || data.data.phase === 'error') {
-          window._thinkingTimeouts = window._thinkingTimeouts || {};
-          clearTimeout(window._thinkingTimeouts[emp.id]);
-          delete window._thinkingTimeouts[emp.id];
-          var t = document.getElementById('mentionTyping_' + emp.id);
-          if (t) t.remove();
-          if (!fullReply) fullReply = '（收到，稍后回复）';
-          if (data.data.phase === 'error') fullReply = '⚠️ 响应出错';
-          // 显示AI回复
-          displayGroupAIReply(groupId, emp.id, fullReply);
-          // 流式结束（end/error）→ 恢复 online 状态
-          notifyOfficeStatusChange(emp.id, 'online');
-          var _mse2 = emps.find(function (e) { return e.id === emp.id; });
-          if (_mse2) {
-            _mse2.status = 'online';
-            renderEmployeeList();
-          }
-          // AI 正常回复完成 → 额外发送聊天消息通知
-          if (data.data.phase === 'end') {
-            notifyOfficeChatMessage(emp.id, 'incoming');
-          }
-          // 保存到群聊历史
-          var historyKey = 'sb_group_history_' + groupId;
-          var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
-          history.push({
-            role: 'assistant',
-            content: fullReply,
-            senderId: emp.id,
-            mentionTriggered: true,
-            time: Date.now()
-          });
-          localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
-          // 继续解析 @mention（链式触发）
-          parseAndTriggerMentions(fullReply, groupId, emp.id);
+          _doHandle(fullReply, data.data.phase === 'error');
           openclaw.off('agent', agentHandler);
         }
       }
     };
     openclaw.on('agent', agentHandler);
     var result = await openclaw.sendChat(sessionKey, prompt);
-    if (result && result.content && !hasStreamReply) {
-      window._thinkingTimeouts = window._thinkingTimeouts || {};
-      clearTimeout(window._thinkingTimeouts[emp.id]);
-      delete window._thinkingTimeouts[emp.id];
-      var t = document.getElementById('mentionTyping_' + emp.id);
-      if (t) t.remove();
+    if (result && result.content && !_handled) {
       var reply = '';
       if (Array.isArray(result.content)) {
         reply = result.content.map(function (c) {
@@ -7206,18 +7197,7 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
         reply = result.content;
       }
       if (reply) {
-        displayGroupAIReply(groupId, emp.id, reply);
-        var historyKey = 'sb_group_history_' + groupId;
-        var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
-        history.push({
-          role: 'assistant',
-          content: reply,
-          senderId: emp.id,
-          mentionTriggered: true,
-          time: Date.now()
-        });
-        localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
-        parseAndTriggerMentions(reply, groupId, emp.id);
+        _doHandle(reply, false);
         openclaw.off('agent', agentHandler);
       }
       notifyOfficeStatusChange(emp.id, 'online');
