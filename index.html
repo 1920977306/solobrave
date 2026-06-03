@@ -7137,6 +7137,11 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
   // 防重：同一轮对话中不重复触发同一成员
   var pollKey = groupId + '_' + mid;
   if (window._pollTriggered && window._pollTriggered[pollKey]) return;
+  // 如果该成员已被 checkAgentInterest 标记为感兴趣，即将由 triggerMentionedAgent 处理，跳过
+  if (mentionTriggered && mentionTriggered[mid]) {
+    console.log('[askAgentToReply] ' + emp.name + ' 已被 checkAgentInterest 标记，跳过轮询');
+    return;
+  }
   window._pollTriggered = window._pollTriggered || {};
   window._pollTriggered[pollKey] = true;
 
@@ -7154,7 +7159,7 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     return e.name + '（' + (_r || '员工') + _skills + '）';
   }).filter(function (s) { return s; }).join('、') : '';
 
-  var prompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人说：' + messageContent + '\n\n你是这个团队的一员，有自己的专业判断和脾气。想说话就说，不想说就说 SKIP。想说的时候：\n- 有自己的观点，可以赞同也可以反对\n- 觉得谁该看到这个话题，直接@他（用 @名字 格式）\n- 不用写报告，就像真的在群里看到消息随口回复一样\n\n不想参与就回复 SKIP。';
+  var prompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人说：' + messageContent + '\n\n你是这个团队的一员，有自己的专业判断和脾气。作为团队成员，你应该积极参与讨论，表达自己的观点和想法：\n- 可以赞同也可以反对\n- 觉得谁该看到这个话题，直接@他（用 @名字 格式）\n- 不用写报告，就像真的在群里看到消息随口回复一样\n\n只有当你完全没有任何想法时，才回复 SKIP。否则请直接发表你的看法。';
 
   emp.status = 'thinking';
   renderEmployeeList();
@@ -7165,8 +7170,8 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     var reply = res.result && res.result.content ? res.result.content.trim() : '';
     emp.status = 'online';
     renderEmployeeList();
-    // 回复 SKIP 或不相关内容则跳过（不区分大小写，支持带标点的变体）
-    if (!reply || reply.toUpperCase() === 'SKIP' || reply.toUpperCase().indexOf('SKIP') === 0) {
+    // 回复 SKIP 则跳过（只判断完全等于 SKIP 的空内容，避免误过滤）
+    if (!reply || reply.toUpperCase() === 'SKIP') {
       console.log('[askAgentToReply] ' + emp.name + ' 选择 SKIP，不显示回复');
       return;
     }
@@ -7307,6 +7312,12 @@ async function checkAgentInterest(mid, groupId, senderId, messageContent) {
     return e.id === mid;
   });
   if (!emp) return;
+  // 如果该成员已被 pollAgentsForReply 轮询过，不再重复判断，避免并发冲突
+  var pollKey = groupId + '_' + mid;
+  if (window._pollTriggered && window._pollTriggered[pollKey]) {
+    console.log('[checkAgentInterest] ' + emp.name + ' 已被 pollAgentsForReply 轮询，跳过兴趣判断');
+    return;
+  }
   if (mentionTriggered && mentionTriggered[mid]) return;
   if (emp.status === 'thinking') return;
   var group = groups.find(function (g) {
