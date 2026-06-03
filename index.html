@@ -6767,9 +6767,11 @@ async function sendGroupMessage(groupId, message, mentions) {
       var e = emps.find(function (x) {
         return x.id === mid;
       });
+      if (!e) return '';
       var _r = getEmpRoleDisplay(e);
-      return e ? (_r ? e.name + '-' + _r : e.name) : mid;
-    }).join('、');
+      var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
+      return e.name + '（' + (_r || '员工') + _skills + '）';
+    }).filter(function (s) { return s; }).join('、');
     var memberMentions = (group.members || []).map(function (mid) {
       var e = emps.find(function (x) {
         return x.id === mid;
@@ -7084,7 +7086,16 @@ async function checkAgentInterest(mid, groupId, senderId, messageContent) {
     return g.id === groupId;
   });
   var groupName = group ? group.name : '项目组';
-  var checkPrompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），你在项目组「' + groupName + '」中。\n\n【群聊新消息】' + messageContent + '\n\n这条消息跟你的专业领域有关吗？你有想说的吗？\n如果有关，请只回复 YES。\n如果无关，请只回复 NO。\n不要解释，只回复 YES 或 NO。';
+  var memberProfiles = group && group.members ? group.members.map(function (mid) {
+    var e = emps.find(function (x) {
+      return x.id === mid;
+    });
+    if (!e) return '';
+    var _r = getEmpRoleDisplay(e);
+    var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
+    return e.name + '（' + (_r || '员工') + _skills + '）';
+  }).filter(function (s) { return s; }).join('、') : '';
+  var checkPrompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），你在项目组「' + groupName + '」中。\n【项目组成员】' + memberProfiles + '\n\n【群聊新消息】' + messageContent + '\n\n这条消息跟你的专业领域有关吗？你有想说的吗？\n如果有关，请只回复 YES。\n如果无关，请只回复 NO。\n不要解释，只回复 YES 或 NO。';
   mentionTriggered = mentionTriggered || {};
   mentionTriggered[mid] = true;
   try {
@@ -7136,9 +7147,11 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     var e = emps.find(function (x) {
       return x.id === mid;
     });
+    if (!e) return '';
     var _r = getEmpRoleDisplay(e);
-    return e ? (_r ? e.name + '-' + _r : e.name) : mid;
-  }).join('、') : '';
+    var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
+    return e.name + '（' + (_r || '员工') + _skills + '）';
+  }).filter(function (s) { return s; }).join('、') : '';
   var memberMentions = groupObj ? (groupObj.members || []).map(function (mid) {
     var e = emps.find(function (x) {
       return x.id === mid;
