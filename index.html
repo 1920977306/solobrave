@@ -2195,8 +2195,8 @@ window.doLogin = function () {
 
 <!-- Bottom Status -->
 <div class="sidebar-bottom-status">
-  <span class="status-dot"></span>
-  <span>已连接</span>
+  <span class="status-dot" id="sidebarStatusDot"></span>
+  <span id="sidebarStatusText">已连接</span>
 </div>
 
 
@@ -6475,6 +6475,22 @@ function updateConnectionStatus() {
     var latency = Math.floor(Math.random() * 50) + 20;
     latencyEl.textContent = '延迟: ' + latency + 'ms';
   }
+
+  // Update sidebar bottom status to avoid contradiction with connection status bar
+  var sidebarStatusText = document.getElementById('sidebarStatusText');
+  var sidebarStatusDot = document.getElementById('sidebarStatusDot');
+  if (sidebarStatusText && sidebarStatusDot) {
+    if (isOpenClawConnected) {
+      sidebarStatusText.textContent = '已连接';
+      sidebarStatusDot.style.background = '#34C759';
+    } else if (hasAPIKey) {
+      sidebarStatusText.textContent = 'API 模式';
+      sidebarStatusDot.style.background = '#FF9500';
+    } else {
+      sidebarStatusText.textContent = '未连接';
+      sidebarStatusDot.style.background = '#FF3B30';
+    }
+  }
 }
 function showConnectionDetails() {
   var details = [];
@@ -7042,6 +7058,22 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
       mentionTriggered[mentionedEmp.id] = true;
     }
   }
+
+  // 同时匹配纯文字中的成员名字（整词匹配），如果 AI 回复内容中提到了其他成员名字也要自动触发
+  groupMemberIds.forEach(function (mid) {
+    if (mid === senderId || mentionTriggered[mid]) return;
+    var emp = emps.find(function (e) {
+      return e.id === mid;
+    });
+    if (!emp || !emp.name) return;
+    var escapedName = emp.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var nameRegex = new RegExp('(?:^|[^\\w\\u4e00-\\u9fa5])' + escapedName + '(?:$|[^\\w\\u4e00-\\u9fa5])');
+    if (nameRegex.test(replyText)) {
+      matches.push(emp);
+      mentionTriggered[mid] = true;
+    }
+  });
+
   if (matches.length === 0) return;
   matches.forEach(function (emp, idx) {
     var delay = (idx + 1) * (2000 + Math.floor(Math.random() * 3000));
