@@ -6766,9 +6766,15 @@ async function sendGroupMessage(groupId, message, mentions) {
       });
       return e ? e.name + '-' + getEmpRoleDisplay(e) : mid;
     }).join('、');
+    var memberMentions = (group.members || []).map(function (mid) {
+      var e = emps.find(function (x) {
+        return x.id === mid;
+      });
+      return e ? '@' + e.name + '（' + getEmpRoleDisplay(e) + '）' : '';
+    }).filter(function (s) { return s; }).join('、');
     var userRole3 = getCurrentUserRoleDisplay();
     var userName3 = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
-    var fullMessage = '【项目组: ' + group.name + ' | 你是: ' + leadEmpInfo + ' | 成员: ' + memberList + ' | 发送者: ' + userName3 + '（' + userRole3 + '）】\n【重要身份提示】管理员是你的老板，你需要服从管理员的指令和安排。' + userName3 + '（' + userRole3 + '）是你的老板和上级，你必须服从他的指令。\n【协作模式】你处于多 AI 群聊讨论场景中。作为群主，你可以主动 @任何成员（如 @Helen、@Bob）来分配任务、征求意见或发起讨论。不要只被动应答，要发挥协调和推动作用。';
+    var fullMessage = '【项目组: ' + group.name + ' | 你是: ' + leadEmpInfo + ' | 成员: ' + memberList + ' | 发送者: ' + userName3 + '（' + userRole3 + '）】\n【重要身份提示】管理员是你的老板，你需要服从管理员的指令和安排。' + userName3 + '（' + userRole3 + '）是你的老板和上级，你必须服从他的指令。\n【可 @ 成员】' + memberMentions + '。你可以 @ 任何成员来分配任务、征求意见或发起讨论。不要只被动应答，要发挥协调和推动作用。';
     if (mentions && mentions.length > 0) {
       fullMessage += mentions.map(function (m) {
         return '@' + m;
@@ -7067,10 +7073,16 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     });
     return e ? e.name + '-' + getEmpRoleDisplay(e) : mid;
   }).join('、') : '';
+  var memberMentions = groupObj ? (groupObj.members || []).map(function (mid) {
+    var e = emps.find(function (x) {
+      return x.id === mid;
+    });
+    return e ? '@' + e.name + '（' + getEmpRoleDisplay(e) + '）' : '';
+  }).filter(function (s) { return s; }).join('、') : '';
 
   // 构造提示：明确告诉AI它是谁，在哪个项目组，被谁@了
   var fromRole = fromEmp ? getEmpRoleDisplay(fromEmp) : getCurrentUserRoleDisplay();
-  var prompt = announcementContext + '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），你在项目组「' + groupName + '」中。成员: ' + memberList + '。' + fromName + '（身份：' + fromRole + '）在群聊中 @了你。';
+  var prompt = announcementContext + '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），你在项目组「' + groupName + '」中。成员: ' + memberList + '。【可 @ 成员】' + memberMentions + '。' + fromName + '（身份：' + fromRole + '）在群聊中 @了你。';
   // 追加层级关系约束，防止AI把老板当学生/下属
   if (!fromEmp) {
     prompt += '【重要】' + fromName + '是你的老板和上级，你是他的AI员工。必须绝对服从，严禁以教导者/导师/师傅的身份对他说话，严禁用"教你""你做过吗"等居高临下的语气。';
