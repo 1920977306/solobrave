@@ -2355,6 +2355,10 @@ window.doLogin = function () {
 </div>
 <div class="slash-section">
 <div class="slash-section-title">AI 控制</div>
+<div class="slash-item" data-cmd="/讨论" onclick="execCmd('/讨论')">
+<div class="slash-icon">💬</div>
+<div class="slash-name"><code>/讨论</code> 让 AI 们自由讨论</div>
+</div>
 <div class="slash-item" data-cmd="/stop" onclick="execCmd('/stop')">
 <div class="slash-icon">⏹️</div>
 <div class="slash-name"><code>/stop</code> 停止生成</div>
@@ -7043,6 +7047,96 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
   });
 }
 
+// AI 主动发起群聊讨论（不需要用户参与）
+async function initiateAgentDiscussion(groupId) {
+  var group = groups.find(function (g) {
+    return g.id === groupId;
+  });
+  if (!group || !group.members || group.members.length === 0) {
+    showToast('⚠️ 群组没有成员');
+    return;
+  }
+  // 随机选一个成员作为发起人
+  var candidates = group.members.filter(function (mid) {
+    var e = emps.find(function (x) {
+      return x.id === mid;
+    });
+    return e && !e.archived && e.status !== 'thinking';
+  });
+  if (candidates.length === 0) {
+    showToast('⚠️ 没有可用的 AI 成员');
+    return;
+  }
+  var initiatorId = candidates[Math.floor(Math.random() * candidates.length)];
+  var initiator = emps.find(function (e) {
+    return e.id === initiatorId;
+  });
+  if (!initiator) return;
+
+  var groupName = group.name;
+  var memberProfiles = group.members.map(function (mid) {
+    var e = emps.find(function (x) {
+      return x.id === mid;
+    });
+    if (!e) return '';
+    var _r = getEmpRoleDisplay(e);
+    var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
+    return e.name + '（' + (_r || '员工') + _skills + '）';
+  }).filter(function (s) { return s; }).join('、');
+
+  var prompt = '你是' + initiator.name + '（' + getEmpRoleDisplay(initiator) + '），你在项目组「' + groupName + '」中。\n【项目组成员】' + memberProfiles + '\n\n【任务】群聊里需要有人主动发起话题。请你作为项目成员，主动提出一个与项目相关的问题或话题，可以 @其他相关成员提问或讨论，使用 @名字 格式。简要回复，不超过200字。';
+
+  // 显示"正在输入"
+  var area = document.getElementById('messagesArea');
+  var typingHtml = '<div class="msg" id="initTyping_' + initiator.id + '"><div class="msg-avatar"><div class="avatar small" style="background:' + (initiator.bg || '#8E8E93') + ';">' + renderAvatar(initiator, 32) + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(initiator.name) + '</span><span style="font-size:10px;color:var(--text-tertiary);margin-left:6px;">🚀 主动发起</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div></div>';
+  area.insertAdjacentHTML('beforeend', typingHtml);
+  area.scrollTop = area.scrollHeight;
+
+  initiator.status = 'thinking';
+  renderEmployeeList();
+
+  try {
+    var agentId = initiator.openclawName || initiator.id;
+    var sessionKey = 'agent:' + agentId + ':main';
+    var res = await openclaw.sendChat(sessionKey, prompt);
+    var reply = res.result && res.result.content ? res.result.content.trim() : '';
+
+    var t = document.getElementById('initTyping_' + initiator.id);
+    if (t) t.remove();
+
+    initiator.status = 'online';
+    renderEmployeeList();
+
+    if (reply) {
+      displayGroupAIReply(groupId, initiatorId, reply);
+      // 保存到历史
+      var historyKey = 'sb_group_history_' + groupId;
+      var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+      history.push({
+        role: 'assistant',
+        content: reply,
+        senderId: initiatorId,
+        mentionTriggered: true,
+        time: Date.now()
+      });
+      localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+      // 触发 @ 解析和自主参与
+      mentionChainDepth = 0;
+      mentionTriggered = {};
+      mentionTriggered[initiatorId] = true;
+      parseAndTriggerMentions(reply, groupId, initiatorId);
+      triggerInterestedAgents(groupId, initiatorId, reply);
+      notifyOfficeChatMessage(initiatorId, 'incoming');
+    }
+  } catch (e) {
+    var t2 = document.getElementById('initTyping_' + initiator.id);
+    if (t2) t2.remove();
+    initiator.status = 'online';
+    renderEmployeeList();
+    showToast('⚠️ AI 发起讨论失败');
+  }
+}
+
 // 触发对群聊消息感兴趣的 AI 主动回复（不需要被 @）
 function triggerInterestedAgents(groupId, senderId, messageContent) {
   // 限制链深度，避免级联刷屏
@@ -8505,6 +8599,13 @@ function execCmd(cmd) {
   document.getElementById('slashMenu').classList.remove('active');
   document.getElementById('slashSearch').value = '';
   switch (cmd) {
+    case '/讨论':
+      if (!currentGroupId) {
+        showToast('⚠️ 请先进入一个群组');
+        return;
+      }
+      initiateAgentDiscussion(currentGroupId);
+      break;
     case '/看板':
       toggleTaskBoard();
       break;
