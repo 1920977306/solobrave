@@ -6776,7 +6776,7 @@ async function sendGroupMessage(groupId, message, mentions) {
     }).filter(function (s) { return s; }).join('、');
     var userRole3 = getCurrentUserRoleDisplay();
     var userName3 = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
-    var fullMessage = '【项目组: ' + group.name + ' | 你是: ' + leadEmpInfo + ' | 成员: ' + memberList + ' | 发送者: ' + userName3 + '（' + userRole3 + '）】\n【重要身份提示】管理员是你的老板，你需要服从管理员的指令和安排。' + userName3 + '（' + userRole3 + '）是你的老板和上级，你必须服从他的指令。\n【可 @ 成员】' + memberMentions + '。你可以 @ 任何成员来分配任务、征求意见或发起讨论。不要只被动应答，要发挥协调和推动作用。';
+    var fullMessage = '【项目组: ' + group.name + ' | 你是: ' + leadEmpInfo + ' | 成员: ' + memberList + ' | 发送者: ' + userName3 + '（' + userRole3 + '）】\n【重要身份提示】管理员是你的老板，你需要服从管理员的指令和安排。' + userName3 + '（' + userRole3 + '）是你的老板和上级，你必须服从他的指令。\n【可 @ 成员】' + memberMentions + '。你可以主动 @ 其他成员提问或讨论，使用 @名字 格式。不要只被动应答，要发挥协调和推动作用。';
     if (mentions && mentions.length > 0) {
       fullMessage += mentions.map(function (m) {
         return '@' + m;
@@ -7101,9 +7101,9 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
 
   // 4. 回复要求（明确要求 @ 别人推动讨论）
   if (source === 'ai') {
-    prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【回话要求】你被 AI 同事 @了，为了保持对话连贯，请在回复中也 @' + fromName + '。如果这个话题需要更多人参与，也可以 @其他相关成员。不要只被动应答，要主动推进讨论。';
+    prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【回话要求】你被 AI 同事 @了，为了保持对话连贯，请在回复中也 @' + fromName + '。如果这个话题需要更多人参与，你可以主动 @ 其他成员提问或讨论，使用 @名字 格式。不要只被动应答，要主动推进讨论。';
   } else {
-    prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【协作模式】用户 @了你，请直接回复。你处于多 AI 群聊讨论场景中，如果这个问题涉及其他成员的专业领域，或者你需要他们的意见，请主动 @他们参与讨论。不要只被动回答问题，要积极推动团队协作。';
+    prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【协作模式】用户 @了你，请直接回复。你处于多 AI 群聊讨论场景中，如果这个问题涉及其他成员的专业领域，或者你需要他们的意见，你可以主动 @ 其他成员提问或讨论，使用 @名字 格式。不要只被动回答问题，要积极推动团队协作。';
   }
 
   // 5. 群公告（只出现一次，放在角色设定之后）
