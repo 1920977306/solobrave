@@ -6740,6 +6740,9 @@ async function sendGroupMessage(groupId, message, mentions) {
   });
   localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
 
+  // 触发对消息感兴趣的 AI 主动回复（不需要被 @）
+  triggerInterestedAgents(groupId, 'user', message);
+
   // 在消息区显示
   var area = document.getElementById('messagesArea');
   var emptyState = area.querySelector('.chat-empty-state');
@@ -6918,6 +6921,8 @@ async function sendGroupMessage(groupId, message, mentions) {
           mentionTriggered = {};
           mentionTriggered[group.leadAgentId] = true;
           parseAndTriggerMentions(reply, groupId, group.leadAgentId);
+          // 群主回复后，也让其他感兴趣的 AI 自主参与
+          triggerInterestedAgents(groupId, group.leadAgentId, reply);
         }
         var agentHandler = function (data) {
           if (!data) return;
@@ -7036,6 +7041,70 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
   });
 }
 
+// 触发对群聊消息感兴趣的 AI 主动回复（不需要被 @）
+function triggerInterestedAgents(groupId, senderId, messageContent) {
+  // 限制链深度，避免级联刷屏
+  if (mentionChainDepth >= 3) return;
+  var group = groups.find(function (g) {
+    return g.id === groupId;
+  });
+  if (!group || !group.members) return;
+  setTimeout(function () {
+    var candidates = group.members.filter(function (mid) {
+      if (mid === senderId) return false;
+      if (mentionTriggered && mentionTriggered[mid]) return false;
+      var e = emps.find(function (x) {
+        return x.id === mid;
+      });
+      return e && !e.archived && e.status !== 'thinking';
+    });
+    if (candidates.length === 0) return;
+    // 随机打乱，最多选 2 个成员判断
+    var shuffled = candidates.sort(function () {
+      return Math.random() - 0.5;
+    });
+    var selected = shuffled.slice(0, 2);
+    selected.forEach(function (mid, idx) {
+      setTimeout(function () {
+        checkAgentInterest(mid, groupId, senderId, messageContent);
+      }, (idx + 1) * 3000);
+    });
+  }, 2000);
+}
+
+// 让单个 AI 判断群聊消息是否与其相关，相关则触发完整回复
+async function checkAgentInterest(mid, groupId, senderId, messageContent) {
+  var emp = emps.find(function (e) {
+    return e.id === mid;
+  });
+  if (!emp) return;
+  if (mentionTriggered && mentionTriggered[mid]) return;
+  if (emp.status === 'thinking') return;
+  var group = groups.find(function (g) {
+    return g.id === groupId;
+  });
+  var groupName = group ? group.name : '项目组';
+  var checkPrompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），你在项目组「' + groupName + '」中。\n\n【群聊新消息】' + messageContent + '\n\n这条消息跟你的专业领域有关吗？你有想说的吗？\n如果有关，请只回复 YES。\n如果无关，请只回复 NO。\n不要解释，只回复 YES 或 NO。';
+  mentionTriggered = mentionTriggered || {};
+  mentionTriggered[mid] = true;
+  try {
+    var agentId = emp.openclawName || emp.id;
+    var sessionKey = 'agent:' + agentId + ':main';
+    emp.status = 'thinking';
+    renderEmployeeList();
+    var res = await openclaw.sendChat(sessionKey, checkPrompt);
+    var reply = res.result && res.result.content ? res.result.content.trim() : '';
+    emp.status = 'online';
+    renderEmployeeList();
+    if (reply.toUpperCase().indexOf('YES') >= 0) {
+      triggerMentionedAgent(emp, groupId, senderId, 'auto', messageContent);
+    }
+  } catch (e) {
+    emp.status = 'online';
+    renderEmployeeList();
+  }
+}
+
 // 触发用户消息中 @ 的 AI 回复（leadAgent 回复完成后调用）
 function triggerUserMentions(userMentions, groupId, senderId, originalMessage) {
   if (!userMentions || userMentions.length === 0) return;
@@ -7102,6 +7171,8 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   // 4. 回复要求（明确要求 @ 别人推动讨论）
   if (source === 'ai') {
     prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【回话要求】你被 AI 同事 @了，为了保持对话连贯，请在回复中也 @' + fromName + '。如果这个话题需要更多人参与，你可以主动 @ 其他成员提问或讨论，使用 @名字 格式。不要只被动应答，要主动推进讨论。';
+  } else if (source === 'auto') {
+    prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【自主发言】群聊中有新消息，你认为这个话题跟你的专业领域有关，所以主动参与讨论。如果这个话题需要更多人参与，你可以主动 @ 其他成员提问或讨论，使用 @名字 格式。不要只被动应答，要主动推进讨论。';
   } else {
     prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【协作模式】用户 @了你，请直接回复。你处于多 AI 群聊讨论场景中，如果这个问题涉及其他成员的专业领域，或者你需要他们的意见，你可以主动 @ 其他成员提问或讨论，使用 @名字 格式。不要只被动回答问题，要积极推动团队协作。';
   }
@@ -7206,6 +7277,8 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
       mentionTriggered = {};
       mentionTriggered[emp.id] = true;
       parseAndTriggerMentions(reply, groupId, emp.id);
+      // AI 回复后，也让其他感兴趣的 AI 自主参与
+      triggerInterestedAgents(groupId, emp.id, reply);
     }
     var agentHandler = function (data) {
       if (!data) return;
