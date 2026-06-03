@@ -7058,12 +7058,6 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   });
   var fromName = fromEmp ? fromEmp.name : '用户';
 
-  // 获取群公告上下文
-  var announcementContext = '';
-  if (group && group.announcement && group.announcement.trim().length > 0) {
-    announcementContext = '【群公告】' + group.announcement + '\n\n';
-  }
-
   // 获取项目组上下文
   var groupObj = groups.find(function (g) {
     return g.id === groupId;
@@ -7084,32 +7078,37 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     return e ? (_r ? '@' + e.name + '（' + _r + '）' : '@' + e.name) : '';
   }).filter(function (s) { return s; }).join('、') : '';
 
-  // 构造提示：明确告诉AI它是谁，在哪个项目组，被谁@了
+  // 构造提示：被 @ 的消息放在最前面，让 AI 优先聚焦
   var fromRole = fromEmp ? getEmpRoleDisplay(fromEmp) : getCurrentUserRoleDisplay();
-  var prompt = announcementContext + '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），你在项目组「' + groupName + '」中。成员: ' + memberList + '。【可 @ 成员】' + memberMentions + '。' + fromName + '（身份：' + fromRole + '）在群聊中 @了你。';
-  // 追加层级关系约束，防止AI把老板当学生/下属
+  var prompt = '';
+
+  // 1. 被 @ 的消息（核心上下文，放在第一位）
+  if (userMessage) {
+    var contextMsg = userMessage.length > 500 ? userMessage.substring(0, 500) + '...' : userMessage;
+    prompt += '【被 @ 的消息】' + fromName + '说：' + contextMsg + '\n\n';
+  }
+
+  // 2. 角色和项目组信息
+  prompt += '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），你在项目组「' + groupName + '」中。成员: ' + memberList + '。【可 @ 成员】' + memberMentions + '。' + fromName + '（身份：' + fromRole + '）在群聊中 @了你。';
+
+  // 3. 层级关系约束
   if (!fromEmp) {
     prompt += '【重要】' + fromName + '是你的老板和上级，你是他的AI员工。必须绝对服从，严禁以教导者/导师/师傅的身份对他说话，严禁用"教你""你做过吗"等居高临下的语气。';
   }
-  // 群主也是管理员/老板指派的团队负责人，同样必须服从管理员指令
   if (groupObj && groupObj.leadAgentId === emp.id) {
     prompt += '【重要】管理员是你的老板，你需要服从管理员的指令和安排。你是群主，是管理员指定的团队负责人，但' + fromName + '仍然是你的老板和上级，你必须服从他的指令。';
   }
+
+  // 4. 回复要求（明确要求 @ 别人推动讨论）
   if (source === 'ai') {
     prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【回话要求】你被 AI 同事 @了，为了保持对话连贯，请在回复中也 @' + fromName + '。如果这个话题需要更多人参与，也可以 @其他相关成员。不要只被动应答，要主动推进讨论。';
   } else {
     prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【协作模式】用户 @了你，请直接回复。你处于多 AI 群聊讨论场景中，如果这个问题涉及其他成员的专业领域，或者你需要他们的意见，请主动 @他们参与讨论。不要只被动回答问题，要积极推动团队协作。';
   }
 
-  // 注入被 @ 时的上下文消息（这是 AI 回复针对性的关键）
-  if (userMessage) {
-    var contextMsg = userMessage.length > 500 ? userMessage.substring(0, 500) + '...' : userMessage;
-    prompt += '\n【被 @ 的消息】' + fromName + '说：' + contextMsg;
-  }
-
-  // 如果群组有群公告，在 prompt 中也加上
-  if (groupObj && groupObj.announcement) {
-    prompt += '\n【群公告】' + groupObj.announcement;
+  // 5. 群公告（只出现一次，放在角色设定之后）
+  if (group && group.announcement && group.announcement.trim().length > 0) {
+    prompt += '\n\n【群公告】' + group.announcement;
   }
 
   // 加载记忆注入
