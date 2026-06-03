@@ -6994,12 +6994,17 @@ async function sendGroupMessage(groupId, message, mentions) {
 
 // ===== AI互相@系统 =====
 var mentionChainDepth = 0;
-var MENTION_MAX_DEPTH = 3;
+var MENTION_MAX_DEPTH = 5;
 var mentionTriggered = {};
 function parseAndTriggerMentions(replyText, groupId, senderId) {
   if (mentionChainDepth >= MENTION_MAX_DEPTH) return;
 
-  // 匹配 @名字（中英文都支持）
+  var group = groups.find(function (g) {
+    return g.id === groupId;
+  });
+  var groupMemberIds = group && group.members ? group.members : [];
+
+  // 匹配 @名字（中英文都支持），仅触发当前项目组成员
   var mentionRegex = /@([^\s@,，。！？;；:：、\n]{1,20})/g;
   var matches = [];
   var m;
@@ -7008,7 +7013,8 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
     var mentionedEmp = emps.find(function (e) {
       return e.name === mentionedName;
     });
-    if (mentionedEmp && mentionedEmp.id !== senderId && !mentionTriggered[mentionedEmp.id]) {
+    var isGroupMember = mentionedEmp && groupMemberIds.indexOf(mentionedEmp.id) !== -1;
+    if (isGroupMember && mentionedEmp.id !== senderId && !mentionTriggered[mentionedEmp.id]) {
       matches.push(mentionedEmp);
       mentionTriggered[mentionedEmp.id] = true;
     }
