@@ -6756,6 +6756,9 @@ async function sendGroupMessage(groupId, message, mentions) {
   var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
   if (ocOk && group.leadAgentId) {
     // 构建完整消息（包含群组上下文和 @提及）
+    var leadEmp = emps.find(function (e) {
+      return e.id === group.leadAgentId;
+    });
     var leadEmpInfo = leadEmp ? leadEmp.name + '(' + getEmpRoleDisplay(leadEmp) + ')' : '群主';
     var memberList = (group.members || []).map(function (mid) {
       var e = emps.find(function (x) {
@@ -6783,9 +6786,6 @@ async function sendGroupMessage(groupId, message, mentions) {
     if (docContext) {
       fullMessage = docContext + '\n' + fullMessage;
     }
-    var leadEmp = emps.find(function (e) {
-      return e.id === group.leadAgentId;
-    });
     var agentId = leadEmp ? leadEmp.openclawName || leadEmp.id : group.leadAgentId;
     var sessionKey = 'agent:' + agentId + ':main';
 
@@ -6829,7 +6829,12 @@ async function sendGroupMessage(groupId, message, mentions) {
           var recentMsgs = ghData.messages.slice(-10);
           var ghLines = [];
           recentMsgs.forEach(function (m) {
-            var sender = m.senderName || (m.senderType === 'user' ? '用户' : 'AI');
+            var sender = m.senderName;
+            if (!sender && m.senderId) {
+              var _se = emps.find(function (e) { return e.id === m.senderId; });
+              if (_se) sender = _se.name;
+            }
+            if (!sender) sender = m.senderType === 'user' ? '用户' : 'AI';
             var content = (m.content || '').substring(0, 200);
             if (content) ghLines.push(sender + ': ' + content);
           });
@@ -6882,6 +6887,16 @@ async function sendGroupMessage(groupId, message, mentions) {
           if (!reply) reply = '（AI 未返回内容）';
           if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
           displayGroupAIReply(groupId, group.leadAgentId, reply);
+          // 保存群主回复到群聊历史
+          var _historyKey = 'sb_group_history_' + groupId;
+          var _history = JSON.parse(localStorage.getItem(_historyKey) || '[]');
+          _history.push({
+            role: 'assistant',
+            content: reply,
+            senderId: group.leadAgentId,
+            time: Date.now()
+          });
+          localStorage.setItem(_historyKey, JSON.stringify(_history.slice(-100)));
           notifyOfficeStatusChange(group.leadAgentId, 'online');
           var _gse2 = emps.find(function (e) { return e.id === group.leadAgentId; });
           if (_gse2) {
@@ -7058,7 +7073,11 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   if (groupObj && groupObj.leadAgentId === emp.id) {
     prompt += '【重要】管理员是你的老板，你需要服从管理员的指令和安排。你是群主，是管理员指定的团队负责人，但' + fromName + '仍然是你的老板和上级，你必须服从他的指令。';
   }
-  prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【协作模式】你处于多 AI 群聊讨论场景中。不要只被动回答问题，要主动与其他成员互动：可以 @任何相关成员（如 @貂蝉、@Helen）来征求意见、请求协助、分配任务或继续深入讨论。你是团队的活跃参与者，不是单纯的应答机器人。';
+  if (source === 'ai') {
+    prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【回话要求】你被 AI 同事 @了，为了保持对话连贯，请在回复中也 @' + fromName + '。如果这个话题需要更多人参与，也可以 @其他相关成员。不要只被动应答，要主动推进讨论。';
+  } else {
+    prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【协作模式】用户 @了你，请直接回复。你处于多 AI 群聊讨论场景中，如果这个问题涉及其他成员的专业领域，或者你需要他们的意见，请主动 @他们参与讨论。不要只被动回答问题，要积极推动团队协作。';
+  }
 
   // 如果群组有群公告，在 prompt 中也加上
   if (groupObj && groupObj.announcement) {
@@ -7077,7 +7096,12 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
       var recentMsgs2 = ghData2.messages.slice(-10);
       var ghLines2 = [];
       recentMsgs2.forEach(function (m) {
-        var sender2 = m.senderName || (m.senderType === 'user' ? '用户' : 'AI');
+        var sender2 = m.senderName;
+        if (!sender2 && m.senderId) {
+          var _se2 = emps.find(function (e) { return e.id === m.senderId; });
+          if (_se2) sender2 = _se2.name;
+        }
+        if (!sender2) sender2 = m.senderType === 'user' ? '用户' : 'AI';
         var content2 = (m.content || '').substring(0, 200);
         if (content2) ghLines2.push(sender2 + ': ' + content2);
       });
