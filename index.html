@@ -6440,9 +6440,9 @@ function updateConnectionStatus() {
   var latencyEl = document.getElementById('connLatency');
   if (!openclawEl || !apiEl) return;
 
-  // Check OpenClaw connection
+  // Check OpenClaw connection（使用 openclaw.connected + authenticated，而非 readyState）
   var isOpenClawConnected = false;
-  if (typeof openclaw !== 'undefined' && openclaw.readyState === 1) {
+  if (typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated) {
     isOpenClawConnected = true;
   }
 
@@ -6456,9 +6456,11 @@ function updateConnectionStatus() {
     } catch (e) {}
   }
 
-  // Update OpenClaw status
+  // Update OpenClaw status（区分：已连接/连接中/未连接）
   if (isOpenClawConnected) {
     openclawEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#34C759;display:inline-block;margin-right:4px;"></span>OpenClaw 已连接';
+  } else if (typeof openclaw !== 'undefined' && openclaw.connected && !openclaw.authenticated) {
+    openclawEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF9500;display:inline-block;margin-right:4px;"></span>OpenClaw 连接中';
   } else {
     openclawEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF3B30;display:inline-block;margin-right:4px;"></span>OpenClaw 未连接';
   }
@@ -6495,9 +6497,12 @@ function updateConnectionStatus() {
 function showConnectionDetails() {
   var details = [];
 
-  // OpenClaw details
+  // OpenClaw details（使用 connected + authenticated 判断，而非 readyState）
   if (typeof openclaw !== 'undefined') {
-    details.push('OpenClaw 状态: ' + (openclaw.readyState === 1 ? '✅ 已连接' : '❌ 未连接'));
+    var ocStatus = '❌ 未连接';
+    if (openclaw.connected && openclaw.authenticated) ocStatus = '✅ 已连接';
+    else if (openclaw.connected && !openclaw.authenticated) ocStatus = '⏳ 连接中（未认证）';
+    details.push('OpenClaw 状态: ' + ocStatus);
     details.push('WebSocket URL: ' + (openclaw.url || '未配置'));
   } else {
     details.push('OpenClaw: 未初始化');
@@ -6756,13 +6761,15 @@ async function sendGroupMessage(groupId, message, mentions) {
     role: 'user',
     content: message,
     mentions: mentions,
+    groupId: groupId,
     time: Date.now()
   });
   localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
 
-  // 用户新消息，重置轮询计数器，开始新一轮 AI 自主讨论
+  // 用户新消息，重置轮询计数器和触发标记，开始新一轮 AI 自主讨论
   window._pollRound = 0;
   window._pollTriggered = {};
+  mentionTriggered = {};
 
   // 触发对消息感兴趣的 AI 主动回复（不需要被 @）
   triggerInterestedAgents(groupId, 'user', message);
@@ -6931,6 +6938,7 @@ async function sendGroupMessage(groupId, message, mentions) {
             role: 'assistant',
             content: reply,
             senderId: group.leadAgentId,
+            groupId: groupId,
             time: Date.now()
           });
           localStorage.setItem(_historyKey, JSON.stringify(_history.slice(-100)));
@@ -7152,8 +7160,8 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     var reply = res.result && res.result.content ? res.result.content.trim() : '';
     emp.status = 'online';
     renderEmployeeList();
-    // 回复 SKIP 或不相关内容则跳过
-    if (!reply || reply.toUpperCase() === 'SKIP' || reply.indexOf('SKIP') === 0) return;
+    // 回复 SKIP 或不相关内容则跳过（不区分大小写，支持带标点的变体）
+    if (!reply || reply.toUpperCase() === 'SKIP' || reply.toUpperCase().indexOf('SKIP') === 0) return;
     // 显示回复并保存历史
     displayGroupAIReply(groupId, mid, reply);
     var historyKey = 'sb_group_history_' + groupId;
@@ -7163,6 +7171,7 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
       content: reply,
       senderId: mid,
       senderName: emp.name,
+      groupId: groupId,
       time: Date.now()
     });
     localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
@@ -7243,6 +7252,7 @@ async function initiateAgentDiscussion(groupId) {
         content: reply,
         senderId: initiatorId,
         mentionTriggered: true,
+        groupId: groupId,
         time: Date.now()
       });
       localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
@@ -7250,6 +7260,8 @@ async function initiateAgentDiscussion(groupId) {
       mentionChainDepth = 0;
       mentionTriggered = {};
       mentionTriggered[initiatorId] = true;
+      window._pollRound = 0;
+      window._pollTriggered = {};
       parseAndTriggerMentions(reply, groupId, initiatorId);
       triggerInterestedAgents(groupId, initiatorId, reply);
       notifyOfficeChatMessage(initiatorId, 'incoming');
@@ -7317,7 +7329,6 @@ async function checkAgentInterest(mid, groupId, senderId, messageContent) {
   }).filter(function (s) { return s; }).join('、') : '';
   var checkPrompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人发了消息：' + messageContent + '\n\n你看到这个消息，心里怎么想？跟你有关吗？有话想说吗？\n如果有关，回复 YES。\n如果完全没兴趣，回复 NO。\n只回复 YES 或 NO，别废话。';
   mentionTriggered = mentionTriggered || {};
-  mentionTriggered[mid] = true;
   try {
     var agentId = emp.openclawName || emp.id;
     var sessionKey = 'agent:' + agentId + ':main';
@@ -7327,12 +7338,17 @@ async function checkAgentInterest(mid, groupId, senderId, messageContent) {
     var reply = res.result && res.result.content ? res.result.content.trim() : '';
     emp.status = 'online';
     renderEmployeeList();
-    if (reply.toUpperCase().indexOf('YES') >= 0) {
+    // 放宽判断：除 YES 外也接受 SURE/OK/想等明确表示愿意参与的词
+    var upperReply = reply.toUpperCase();
+    var isInterested = upperReply.indexOf('YES') >= 0 || upperReply.indexOf('SURE') >= 0 || upperReply.indexOf('OK') >= 0 || reply.indexOf('想') >= 0;
+    if (isInterested) {
+      mentionTriggered[mid] = true;
       triggerMentionedAgent(emp, groupId, senderId, 'auto', messageContent);
     }
   } catch (e) {
     emp.status = 'online';
     renderEmployeeList();
+    console.warn('[checkAgentInterest] ' + emp.name + ' 兴趣判断失败:', e);
   }
 }
 
@@ -7453,11 +7469,13 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   var agentId = emp.openclawName || emp.id;
   var sessionKey = 'agent:' + agentId + ':main';
 
-  // 显示"正在输入"
-  var area = document.getElementById('messagesArea');
-  var typingHtml = '<div class="msg" id="mentionTyping_' + emp.id + '"><div class="msg-avatar"><div class="avatar small" style="background:' + (emp.bg || '#8E8E93') + ';">' + renderAvatar(emp, 32) + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name) + '</span><span style="font-size:10px;color:var(--text-tertiary);margin-left:6px;">🔄 自动响应</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div></div>';
-  area.insertAdjacentHTML('beforeend', typingHtml);
-  area.scrollTop = area.scrollHeight;
+  // 显示"正在输入"（仅当仍在该群聊时才插入 DOM，避免切换后串渲染）
+  if (currentGroupId === groupId) {
+    var area = document.getElementById('messagesArea');
+    var typingHtml = '<div class="msg" id="mentionTyping_' + emp.id + '"><div class="msg-avatar"><div class="avatar small" style="background:' + (emp.bg || '#8E8E93') + ';">' + renderAvatar(emp, 32) + '</div></div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name) + '</span><span style="font-size:10px;color:var(--text-tertiary);margin-left:6px;">🔄 自动响应</span></div><div class="msg-bubble"><span class="typing-dots-inline"><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span><span class="typing-dot-inline"></span></span></div></div></div>';
+    area.insertAdjacentHTML('beforeend', typingHtml);
+    area.scrollTop = area.scrollHeight;
+  }
   // 超时保护：60秒后如果还在thinking，自动恢复online
   window._thinkingTimeouts = window._thinkingTimeouts || {};
   clearTimeout(window._thinkingTimeouts[emp.id]);
@@ -7503,6 +7521,7 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
         content: reply,
         senderId: emp.id,
         mentionTriggered: true,
+        groupId: groupId,
         time: Date.now()
       });
       localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
@@ -7587,6 +7606,8 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
 
 // 在群聊中显示 AI 回复
 function displayGroupAIReply(groupId, senderId, replyText) {
+  // 如果用户已切换出群聊，不再往当前 DOM 追加消息，避免串渲染
+  if (currentGroupId !== groupId) return;
   var area = document.getElementById('messagesArea');
   var senderEmp = emps.find(function (e) {
     return e.id === senderId;
@@ -7612,6 +7633,7 @@ function displayGroupAIReply(groupId, senderId, replyText) {
     content: replyText,
     senderId: senderId,
     senderName: senderName,
+    groupId: groupId,
     time: Date.now()
   });
   localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
@@ -7956,6 +7978,7 @@ function urgeGroupMembers() {
     senderId: group.leadAgentId,
     senderName: leadEmp.name,
     isUrge: true,
+    groupId: group.id,
     time: Date.now()
   });
   localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
@@ -11498,6 +11521,7 @@ function loadChatFromServer(id, type, callback) {
         return {
           role: m.role || 'user',
           content: m.content || '',
+          groupId: m.groupId || null,
           time: m.timestamp || Date.now()
         };
       });
@@ -11547,12 +11571,15 @@ function saveChatHistory(empId, userMsg, aiMsg, docContext) {
     time: now,
     empId: empId
   });
-  history.push({
-    role: 'assistant',
-    content: aiMsg,
-    time: now,
-    empId: empId
-  });
+  // 去重：如果最后一条已经是相同的 assistant 消息，不再追加（避免刷新或重试导致重复）
+  if (history.length === 0 || history[history.length - 1].role !== 'assistant' || history[history.length - 1].content !== aiMsg) {
+    history.push({
+      role: 'assistant',
+      content: aiMsg,
+      time: now,
+      empId: empId
+    });
+  }
   localStorage.setItem('sb_chat_history_' + empId, JSON.stringify(history.slice(-50)));
 
   // 同步到后端
