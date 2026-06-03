@@ -12654,6 +12654,7 @@ function doReset() {
 </div>
 </div>
 </div>
+</div>
 
 <!-- Toast Container -->
 <div id="toastContainer" class="toast-container"></div>
@@ -14317,7 +14318,6 @@ function checkQuota() {
 </div>
 </div>
 
-</div>
 <!-- 通知容器 -->
 <div class="notification-container" id="notificationContainer"></div>
 
@@ -14592,6 +14592,10 @@ function showChannelConfig() {
 function closeChannelConfig() {
   var panel = document.getElementById('channelConfigPanel');
   if (panel) panel.classList.remove('open');
+}
+function closeChannelConfigModal() {
+  var modal = document.getElementById('channelConfigModal');
+  if (modal) modal.style.display = 'none';
 }
 function saveChannelConfig() {
   var provider = document.getElementById('globalAIProvider').value;
