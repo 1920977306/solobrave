@@ -6931,17 +6931,7 @@ async function sendGroupMessage(groupId, message, mentions) {
           if (!reply) reply = '（AI 未返回内容）';
           if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
           displayGroupAIReply(groupId, group.leadAgentId, reply);
-          // 保存群主回复到群聊历史
-          var _historyKey = 'sb_group_history_' + groupId;
-          var _history = JSON.parse(localStorage.getItem(_historyKey) || '[]');
-          _history.push({
-            role: 'assistant',
-            content: reply,
-            senderId: group.leadAgentId,
-            groupId: groupId,
-            time: Date.now()
-          });
-          localStorage.setItem(_historyKey, JSON.stringify(_history.slice(-100)));
+          // 保存已在 displayGroupAIReply 中统一处理，此处不再重复存储
           notifyOfficeStatusChange(group.leadAgentId, 'online');
           var _gse2 = emps.find(function (e) { return e.id === group.leadAgentId; });
           if (_gse2) {
@@ -7114,6 +7104,10 @@ function pollAgentsForReply(groupId, senderId, messageContent) {
     return e && !e.archived && e.status !== 'thinking';
   });
   if (others.length === 0) return;
+  console.log('[pollAgentsForReply] 轮询成员:', others.map(function (mid) {
+    var e = emps.find(function (x) { return x.id === mid; });
+    return e ? e.name : mid;
+  }).join(', '));
 
   // 逐个询问，间隔 2.5 秒避免并发过大
   others.forEach(function (mid, idx) {
@@ -7161,24 +7155,18 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     emp.status = 'online';
     renderEmployeeList();
     // 回复 SKIP 或不相关内容则跳过（不区分大小写，支持带标点的变体）
-    if (!reply || reply.toUpperCase() === 'SKIP' || reply.toUpperCase().indexOf('SKIP') === 0) return;
-    // 显示回复并保存历史
+    if (!reply || reply.toUpperCase() === 'SKIP' || reply.toUpperCase().indexOf('SKIP') === 0) {
+      console.log('[askAgentToReply] ' + emp.name + ' 选择 SKIP，不显示回复');
+      return;
+    }
+    console.log('[askAgentToReply] ' + emp.name + ' 回复:', reply.substring(0, 50) + '...');
+    // 显示回复并保存历史（保存已在 displayGroupAIReply 中统一处理）
     displayGroupAIReply(groupId, mid, reply);
-    var historyKey = 'sb_group_history_' + groupId;
-    var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
-    history.push({
-      role: 'assistant',
-      content: reply,
-      senderId: mid,
-      senderName: emp.name,
-      groupId: groupId,
-      time: Date.now()
-    });
-    localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
     notifyOfficeChatMessage(mid, 'incoming');
   } catch (e) {
     emp.status = 'online';
     renderEmployeeList();
+    console.warn('[askAgentToReply] ' + emp.name + ' 响应异常:', e);
   }
 }
 
@@ -7244,18 +7232,7 @@ async function initiateAgentDiscussion(groupId) {
 
     if (reply) {
       displayGroupAIReply(groupId, initiatorId, reply);
-      // 保存到历史
-      var historyKey = 'sb_group_history_' + groupId;
-      var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
-      history.push({
-        role: 'assistant',
-        content: reply,
-        senderId: initiatorId,
-        mentionTriggered: true,
-        groupId: groupId,
-        time: Date.now()
-      });
-      localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+      // 保存已在 displayGroupAIReply 中统一处理，此处不再重复存储
       // 触发 @ 解析和自主参与
       mentionChainDepth = 0;
       mentionTriggered = {};
@@ -7293,12 +7270,19 @@ function triggerInterestedAgents(groupId, senderId, messageContent) {
       return e && !e.archived && e.status !== 'thinking';
     });
     if (candidates.length === 0) return;
-    // 随机打乱，最多选 2 个成员判断
-    var shuffled = candidates.sort(function () {
-      return Math.random() - 0.5;
-    });
-    var selected = shuffled.slice(0, 2);
-    selected.forEach(function (mid, idx) {
+    console.log('[triggerInterestedAgents] 候选成员:', candidates.map(function (mid) {
+      var e = emps.find(function (x) { return x.id === mid; });
+      return e ? e.name : mid;
+    }).join(', '));
+    // 随机打乱后遍历所有候选成员，不再限制只选 2 个
+    var shuffled = candidates.slice();
+    for (var i = shuffled.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = shuffled[i];
+      shuffled[i] = shuffled[j];
+      shuffled[j] = tmp;
+    }
+    shuffled.forEach(function (mid, idx) {
       setTimeout(function () {
         checkAgentInterest(mid, groupId, senderId, messageContent);
       }, (idx + 1) * 3000);
@@ -7341,6 +7325,7 @@ async function checkAgentInterest(mid, groupId, senderId, messageContent) {
     // 放宽判断：除 YES 外也接受 SURE/OK/想等明确表示愿意参与的词
     var upperReply = reply.toUpperCase();
     var isInterested = upperReply.indexOf('YES') >= 0 || upperReply.indexOf('SURE') >= 0 || upperReply.indexOf('OK') >= 0 || reply.indexOf('想') >= 0;
+    console.log('[checkAgentInterest] ' + emp.name + ' 回复:', reply, '是否感兴趣:', isInterested);
     if (isInterested) {
       mentionTriggered[mid] = true;
       triggerMentionedAgent(emp, groupId, senderId, 'auto', messageContent);
@@ -7514,17 +7499,7 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
       if (!isError) {
         notifyOfficeChatMessage(emp.id, 'incoming');
       }
-      var historyKey = 'sb_group_history_' + groupId;
-      var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
-      history.push({
-        role: 'assistant',
-        content: reply,
-        senderId: emp.id,
-        mentionTriggered: true,
-        groupId: groupId,
-        time: Date.now()
-      });
-      localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+      // 保存已在 displayGroupAIReply 中统一处理，此处不再重复存储
       // 重置 mentionTriggered，允许 AI 互相 @ 形成链式对话
       mentionTriggered = {};
       mentionTriggered[emp.id] = true;
