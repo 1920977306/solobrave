@@ -6797,11 +6797,11 @@ async function sendGroupMessage(groupId, message, mentions) {
     var agentId = leadEmp ? leadEmp.openclawName || leadEmp.id : group.leadAgentId;
     var sessionKey = 'agent:' + agentId + ':main';
 
-    // 解析用户消息中的 @mentions
+    // 解析用户消息中的 @mentions（必须在用户原始消息 message 中匹配，不能在 fullMessage 中匹配，因为 fullMessage 的系统提示里包含了所有成员的 @名字）
     var userMentions = [];
     var userMentionRegex = /@([^\s@,，。！？;；:：、\n]{1,20})/g;
     var um;
-    while ((um = userMentionRegex.exec(fullMessage)) !== null) {
+    while ((um = userMentionRegex.exec(message)) !== null) {
       var umName = um[1];
       var umEmp = emps.find(function (e) {
         return e.name === umName;
