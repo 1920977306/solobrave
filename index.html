@@ -6764,13 +6764,15 @@ async function sendGroupMessage(groupId, message, mentions) {
       var e = emps.find(function (x) {
         return x.id === mid;
       });
-      return e ? e.name + '-' + getEmpRoleDisplay(e) : mid;
+      var _r = getEmpRoleDisplay(e);
+      return e ? (_r ? e.name + '-' + _r : e.name) : mid;
     }).join('、');
     var memberMentions = (group.members || []).map(function (mid) {
       var e = emps.find(function (x) {
         return x.id === mid;
       });
-      return e ? '@' + e.name + '（' + getEmpRoleDisplay(e) + '）' : '';
+      var _r = getEmpRoleDisplay(e);
+      return e ? (_r ? '@' + e.name + '（' + _r + '）' : '@' + e.name) : '';
     }).filter(function (s) { return s; }).join('、');
     var userRole3 = getCurrentUserRoleDisplay();
     var userName3 = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
@@ -7071,13 +7073,15 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     var e = emps.find(function (x) {
       return x.id === mid;
     });
-    return e ? e.name + '-' + getEmpRoleDisplay(e) : mid;
+    var _r = getEmpRoleDisplay(e);
+    return e ? (_r ? e.name + '-' + _r : e.name) : mid;
   }).join('、') : '';
   var memberMentions = groupObj ? (groupObj.members || []).map(function (mid) {
     var e = emps.find(function (x) {
       return x.id === mid;
     });
-    return e ? '@' + e.name + '（' + getEmpRoleDisplay(e) + '）' : '';
+    var _r = getEmpRoleDisplay(e);
+    return e ? (_r ? '@' + e.name + '（' + _r + '）' : '@' + e.name) : '';
   }).filter(function (s) { return s; }).join('、') : '';
 
   // 构造提示：明确告诉AI它是谁，在哪个项目组，被谁@了
@@ -7095,6 +7099,12 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【回话要求】你被 AI 同事 @了，为了保持对话连贯，请在回复中也 @' + fromName + '。如果这个话题需要更多人参与，也可以 @其他相关成员。不要只被动应答，要主动推进讨论。';
   } else {
     prompt += '请以' + emp.name + '的身份直接回复，保持角色一致性。简要回复，不超过200字。\n【协作模式】用户 @了你，请直接回复。你处于多 AI 群聊讨论场景中，如果这个问题涉及其他成员的专业领域，或者你需要他们的意见，请主动 @他们参与讨论。不要只被动回答问题，要积极推动团队协作。';
+  }
+
+  // 注入被 @ 时的上下文消息（这是 AI 回复针对性的关键）
+  if (userMessage) {
+    var contextMsg = userMessage.length > 500 ? userMessage.substring(0, 500) + '...' : userMessage;
+    prompt += '\n【被 @ 的消息】' + fromName + '说：' + contextMsg;
   }
 
   // 如果群组有群公告，在 prompt 中也加上
@@ -8321,7 +8331,7 @@ function showMention() {
   if (dd) dd.style.display = 'block';
   mentionMode = true;
   var input = document.getElementById('msgInput');
-  if (input) input.value += '@';
+  if (input && !input.value.endsWith('@')) input.value += '@';
   if (input) input.focus();
 }
 function showMentionDropdown() {
@@ -8355,7 +8365,7 @@ function showMentionDropdown() {
   allDiv.innerHTML = '<span style="font-size:16px;">👥</span><span>所有人</span>';
   allDiv.onclick = function () {
     var input = document.getElementById('msgInput');
-    if (input) input.value = input.value.replace(/@[^@\s]*$/, '') + '@所有人 ';
+    if (input) input.value = input.value.replace(/@+[^@\s]*$/, '') + '@所有人 ';
     dd.style.display = 'none';
     mentionMode = false;
   };
@@ -8366,10 +8376,11 @@ function showMentionDropdown() {
     var item = document.createElement('div');
     item.className = 'mention-item';
     item.style.cssText = 'padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;';
-    item.innerHTML = '<span style="font-size:16px;">' + (emp.name ? escapeHtml(emp.name[0]) : '?') + '</span><span>' + escapeHtml(emp.name) + ' (' + escapeHtml(getEmpRoleDisplay(emp)) + ')</span>';
+    var roleText = getEmpRoleDisplay(emp);
+    item.innerHTML = '<span>' + escapeHtml(emp.name) + (roleText ? ' (' + escapeHtml(roleText) + ')' : '') + '</span>';
     item.onclick = function () {
       var input = document.getElementById('msgInput');
-      if (input) input.value = input.value.replace(/@[^@\s]*$/, '') + '@' + emp.name + ' ';
+      if (input) input.value = input.value.replace(/@+[^@\s]*$/, '') + '@' + emp.name + ' ';
       dd.style.display = 'none';
       mentionMode = false;
     };
@@ -8390,7 +8401,7 @@ function pickMention(id) {
     return x.id === id;
   }).name || '';
   const input = document.getElementById('msgInput');
-  input.value = input.value.replace(/@[^@]*$/, '') + '@' + name + ' ';
+  input.value = input.value.replace(/@+[^@]*$/, '') + '@' + name + ' ';
   (function () {
     var el = document.getElementById('mentionDropdown');
     if (el) el.classList.remove('active');
@@ -10406,17 +10417,17 @@ function selectModel(el, modelId) {
 
 // Employee management
 
-// 统一获取员工职能显示名称
+// 统一获取员工职能显示名称，未设置返回空字符串
 function getEmpRoleDisplay(emp) {
-  if (!emp) return '未设置';
+  if (!emp) return '';
   var role = emp.role;
   if (role === '__custom__') {
     if (emp.subCategory && emp.subCategory !== '__custom__' && emp.subCategory !== 'custom') {
       return emp.subCategory;
     }
-    return '未设置';
+    return '';
   }
-  return role || '未设置';
+  return role || '';
 }
 
 function renderCurrentTeamList() {
@@ -10750,7 +10761,7 @@ function renderLounge() {
   } else {
     content.innerHTML = '<div class="lounge-stat">🏖️ 休闲区 · <span>' + onlineCount + '</span> 在线 / <span>' + workingCount + '</span> 工作中 / ' + total + ' 总计</div>' + emps.map(function (e) {
       var statusDot = getStatusDot(e.status);
-      var roleTag = getEmpRoleDisplay(e) !== '未设置' ? '<span class="lounge-role-tag">' + escapeHtml(getEmpRoleDisplay(e)) + '</span>' : '';
+      var roleTag = getEmpRoleDisplay(e) ? '<span class="lounge-role-tag">' + escapeHtml(getEmpRoleDisplay(e)) + '</span>' : '';
       // Get today's chat count for this emp
       var chatKey = 'sb_chat_history_' + (e.id || '');
       var chatHistory = [];
