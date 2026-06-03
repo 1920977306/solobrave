@@ -3809,6 +3809,7 @@ function initOpenClaw() {
   // 监听事件（事件名必须匹配 openclaw-client.js 的 emit 名称）
   openclaw.on('connected', function () {
     console.log('[OpenClaw] WebSocket 已连接');
+    updateConnectionStatus();
   });
   openclaw.on('authenticated', function () {
     console.log('[OpenClaw] ✅ 已连接 Gateway 并认证成功！');
@@ -3820,6 +3821,7 @@ function initOpenClaw() {
       empStatusEl.textContent = '🟢 已连接';
       empStatusEl.style.color = '#34C759';
     }
+    updateConnectionStatus();
 
     // 连接成功后自动获取模型列表
     setTimeout(function () {
@@ -3840,12 +3842,15 @@ function initOpenClaw() {
       empStatusEl.textContent = '🔴 未连接';
       empStatusEl.style.color = '#FF3B30';
     }
+    updateConnectionStatus();
   });
   openclaw.on('error', function (err) {
     console.error('[OpenClaw] 连接错误:', err);
+    updateConnectionStatus();
   });
   openclaw.on('mockMode', function () {
     console.warn('[OpenClaw] ⚠️ 连接失败，已降级到 Mock 模式');
+    updateConnectionStatus();
   });
   openclaw.connect().then(function (ok) {
     console.log('[OpenClaw] connect() 返回:', ok, 'connected:', openclaw.connected, 'authenticated:', openclaw.authenticated);
@@ -6465,8 +6470,10 @@ function updateConnectionStatus() {
     openclawEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF3B30;display:inline-block;margin-right:4px;"></span>OpenClaw 未连接';
   }
 
-  // Update API status
-  if (hasAPIKey) {
+  // Update API status（OpenClaw 已连接时 API 显示为灰色备用，避免两个绿色"已连接"）
+  if (isOpenClawConnected) {
+    apiEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#8E8E93;display:inline-block;margin-right:4px;"></span>API 备用';
+  } else if (hasAPIKey) {
     apiEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#34C759;display:inline-block;margin-right:4px;"></span>API 已配置';
   } else {
     apiEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF9500;display:inline-block;margin-right:4px;"></span>API 未配置';
@@ -6757,14 +6764,18 @@ async function sendGroupMessage(groupId, message, mentions) {
   // 保存到本地历史
   var historyKey = 'sb_group_history_' + groupId;
   var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
-  history.push({
-    role: 'user',
-    content: message,
-    mentions: mentions,
-    groupId: groupId,
-    time: Date.now()
-  });
-  localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+  // 去重：如果最后一条已经是相同的用户消息，不再追加
+  var lastMsg = history.length > 0 ? history[history.length - 1] : null;
+  if (!lastMsg || lastMsg.role !== 'user' || lastMsg.content !== message) {
+    history.push({
+      role: 'user',
+      content: message,
+      mentions: mentions,
+      groupId: groupId,
+      time: Date.now()
+    });
+    localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+  }
 
   // 用户新消息，重置轮询计数器和触发标记，开始新一轮 AI 自主讨论
   window._pollRound = 0;
@@ -7600,18 +7611,21 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   area.insertAdjacentHTML('beforeend', html);
   area.scrollTop = area.scrollHeight;
 
-  // 保存到群组历史
+  // 保存到群组历史（写入前去重：最后一条 role+content+senderId 相同则跳过）
   var historyKey = 'sb_group_history_' + groupId;
   var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
-  history.push({
-    role: 'assistant',
-    content: replyText,
-    senderId: senderId,
-    senderName: senderName,
-    groupId: groupId,
-    time: Date.now()
-  });
-  localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+  var lastMsg = history.length > 0 ? history[history.length - 1] : null;
+  if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.content !== replyText || lastMsg.senderId !== senderId) {
+    history.push({
+      role: 'assistant',
+      content: replyText,
+      senderId: senderId,
+      senderName: senderName,
+      groupId: groupId,
+      time: Date.now()
+    });
+    localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+  }
 
   // 更新群组最后消息
   var group = groups.find(function (g) {
@@ -7627,6 +7641,9 @@ function displayGroupAIReply(groupId, senderId, replyText) {
       if (previewEl) previewEl.textContent = group.lastMsg;
     }
   }
+
+  // 解析回复中的 @提及 和纯文字成员名字，触发链式讨论
+  parseAndTriggerMentions(replyText, groupId, senderId);
 
   // 群聊模式下，轮询其他 AI 成员判断是否回复
   if (currentGroupId && currentGroupId === groupId) {
@@ -7944,19 +7961,22 @@ function urgeGroupMembers() {
   // 构建 @所有人 的消息
   var fullMessage = '@所有人 ' + urgeText.trim();
 
-  // 保存到历史
+  // 保存到历史（写入前去重）
   var historyKey = 'sb_group_history_' + group.id;
   var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
-  history.push({
-    role: 'assistant',
-    content: fullMessage,
-    senderId: group.leadAgentId,
-    senderName: leadEmp.name,
-    isUrge: true,
-    groupId: group.id,
-    time: Date.now()
-  });
-  localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+  var lastMsg = history.length > 0 ? history[history.length - 1] : null;
+  if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.content !== fullMessage || lastMsg.senderId !== group.leadAgentId) {
+    history.push({
+      role: 'assistant',
+      content: fullMessage,
+      senderId: group.leadAgentId,
+      senderName: leadEmp.name,
+      isUrge: true,
+      groupId: group.id,
+      time: Date.now()
+    });
+    localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+  }
 
   // 显示到聊天区
   displayGroupAIReply(group.id, group.leadAgentId, fullMessage);
