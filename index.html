@@ -7627,13 +7627,13 @@ function displayGroupAIReply(groupId, senderId, replyText) {
 
   // 最终防重：5 秒内同一个 AI 对同一内容不重复输出
   var dedupKey = groupId + '_' + senderId + '_' + (replyText || '').substring(0, 50);
-  window._dedupKey = window._dedupKey || {};
-  var lastDedup = window._dedupKey[dedupKey];
+  window._groupReplyDedup = window._groupReplyDedup || {};
+  var lastDedup = window._groupReplyDedup[dedupKey];
   if (lastDedup && Date.now() - lastDedup < 5000) {
     console.log('[displayGroupAIReply] 5秒内重复消息防重命中，跳过:', dedupKey);
     return;
   }
-  window._dedupKey[dedupKey] = Date.now();
+  window._groupReplyDedup[dedupKey] = Date.now();
 
   var area = document.getElementById('messagesArea');
   var senderEmp = emps.find(function (e) {
