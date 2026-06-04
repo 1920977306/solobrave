@@ -7736,7 +7736,7 @@ function displayGroupAIReply(groupId, senderId, replyText) {
 
   // 群聊中的对话也应沉淀为 AI 员工的个人记忆
   if (triggerMsg && triggerMsg.content && senderId) {
-    extractAndSaveMemory(senderId, triggerMsg.content, replyText);
+    extractAndSaveMemory(senderId, triggerMsg.content, replyText, true);
   }
 
   // 更新群组最后消息
@@ -11796,7 +11796,7 @@ function saveChatHistory(empId, userMsg, aiMsg, docContext) {
     });
   }
 }
-function extractAndSaveMemory(empId, userMsg, aiReply) {
+function extractAndSaveMemory(empId, userMsg, aiReply, isGroupChat) {
   if (typeof apiFetch !== 'function') return;
 
   var emp = emps.find(function (e) { return e.id === empId; });
@@ -11822,7 +11822,11 @@ function extractAndSaveMemory(empId, userMsg, aiReply) {
       extractPrompt += '\n\n【已有记忆（不要重复提取）】\n' + existingMemories;
     }
 
-    extractPrompt += '\n\n【本次对话】\n用户说：' + userMsg.substring(0, 400) + '\nAI回复：' + aiReply.substring(0, 400);
+    if (isGroupChat) {
+      extractPrompt += '\n\n【本次群聊对话】\n群里有人说：' + userMsg.substring(0, 400) + '\n你回复：' + aiReply.substring(0, 400);
+    } else {
+      extractPrompt += '\n\n【本次对话】\n用户说：' + userMsg.substring(0, 400) + '\nAI回复：' + aiReply.substring(0, 400);
+    }
 
     // 根据实际连接状态选择提取方式（不按 connectionType 硬编码）
     if (typeof openclaw !== 'undefined' && openclaw.connected) {
