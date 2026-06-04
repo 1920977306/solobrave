@@ -7134,7 +7134,6 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     return e.id === mid;
   });
   if (!emp) return;
-  console.log('[askAgentToReply] 入口:', emp.name, '| groupId:', groupId, '| senderId:', senderId, '| messageContent前30字:', (messageContent || '').substring(0, 30), '| 调用栈:\n', new Error().stack);
   // 防重：同一轮对话中不重复触发同一成员
   var pollKey = groupId + '_' + mid;
   if (window._pollTriggered && window._pollTriggered[pollKey]) return;
@@ -7377,7 +7376,6 @@ function triggerUserMentions(userMentions, groupId, senderId, originalMessage) {
 }
 async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) {
   mentionChainDepth++;
-  console.log('[triggerMentionedAgent] 入口:', emp.name, '| groupId:', groupId, '| fromId:', fromId, '| source:', source, '| userMessage前30字:', (userMessage || '').substring(0, 30), '| 调用栈:\n', new Error().stack);
 
   // 如果该成员已被 pollAgentsForReply 轮询过，跳过避免重复触发
   var pollKey = groupId + '_' + emp.id;
