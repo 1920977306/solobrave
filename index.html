@@ -358,11 +358,33 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .chat-header-right { display: flex; align-items: center; gap: 4px; }
 
 /* Group Announcement */
-.group-announcement { padding: 8px 16px; background: rgba(255, 107, 53, 0.06); border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; gap: 10px; }
-.announcement-content { flex: 1; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.announcement-content:empty::before { content: '暂无群公告'; color: var(--text-tertiary); }
-.announcement-edit-btn { font-size: 11px; color: var(--accent); background: var(--accent-light); border: none; border-radius: var(--radius-sm); padding: 3px 8px; cursor: pointer; transition: all 0.15s; }
-.announcement-edit-btn:hover { background: rgba(255, 107, 53, 0.15); }
+.group-announcement { padding: 10px 16px; background: linear-gradient(135deg, rgba(0,122,255,0.04) 0%, rgba(0,122,255,0.02) 100%); border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; gap: 10px; }
+.announcement-icon { font-size: 14px; flex-shrink: 0; opacity: 0.7; }
+.announcement-content { flex: 1; font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.4; }
+.announcement-content:empty::before { content: '暂无群公告，点击编辑添加'; color: var(--text-tertiary); font-size: 12px; }
+.announcement-edit-btn { font-size: 12px; color: var(--accent); background: transparent; border: 0.5px solid rgba(0,122,255,0.25); border-radius: var(--radius-sm); padding: 4px 10px; cursor: pointer; transition: all 0.2s; font-weight: 500; }
+.announcement-edit-btn:hover { background: rgba(0,122,255,0.08); border-color: rgba(0,122,255,0.4); }
+
+/* ===== 群公告编辑器弹窗 (Apple Style) ===== */
+.announcement-modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); opacity: 0; visibility: hidden; transition: all 0.25s ease; z-index: 300; display: flex; align-items: center; justify-content: center; }
+.announcement-modal-overlay.open { opacity: 1; visibility: visible; }
+.announcement-modal-panel { width: 90%; max-width: 520px; background: var(--bg-primary); border-radius: 20px; box-shadow: 0 25px 80px rgba(0,0,0,0.15), 0 8px 24px rgba(0,0,0,0.08); transform: scale(0.92) translateY(10px); transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); display: flex; flex-direction: column; overflow: hidden; max-height: 70vh; }
+.announcement-modal-overlay.open .announcement-modal-panel { transform: scale(1) translateY(0); }
+.announcement-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 12px; }
+.announcement-modal-title { font-size: 17px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; }
+.announcement-modal-close { width: 28px; height: 28px; border-radius: 50%; border: none; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.announcement-modal-close:hover { background: var(--separator); color: var(--text-primary); }
+.announcement-modal-body { padding: 0 24px 16px; flex: 1; min-height: 0; }
+.announcement-modal-body textarea { width: 100%; min-height: 160px; padding: 14px 16px; border: 0.5px solid var(--separator); border-radius: 12px; background: var(--bg-secondary); font-size: 15px; line-height: 1.6; color: var(--text-primary); resize: vertical; outline: none; transition: all 0.2s; font-family: inherit; box-sizing: border-box; }
+.announcement-modal-body textarea:focus { border-color: rgba(0,122,255,0.4); background: var(--bg-primary); box-shadow: 0 0 0 3px rgba(0,122,255,0.08); }
+.announcement-modal-body textarea::placeholder { color: var(--text-tertiary); }
+.announcement-modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px 24px 20px; }
+.announcement-modal-btn { padding: 8px 18px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; border: none; outline: none; }
+.announcement-modal-btn.cancel { background: transparent; color: var(--text-secondary); }
+.announcement-modal-btn.cancel:hover { background: var(--bg-tertiary); }
+.announcement-modal-btn.save { background: var(--accent); color: white; box-shadow: 0 2px 8px rgba(255,107,53,0.25); }
+.announcement-modal-btn.save:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(255,107,53,0.35); }
+.announcement-modal-hint { font-size: 12px; color: var(--text-tertiary); margin-top: 8px; }
 
 /* Progress */
 .chat-progress { display: flex; align-items: center; gap: 8px; padding: 6px 16px; background: var(--bg-secondary); border-bottom: 0.5px solid var(--separator); }
@@ -2254,9 +2276,28 @@ window.doLogin = function () {
 
 <!-- 群公告区域 -->
 <div class="group-announcement" id="groupAnnouncement" style="display:none;">
+<div class="announcement-icon">📢</div>
 <div class="announcement-content" id="announcementContent"></div>
 <button class="announcement-edit-btn" onclick="editGroupAnnouncement()">编辑</button>
-<button class="announcement-edit-btn" onclick="urgeGroupMembers()" style="background:rgba(255,59,48,0.15);color:#FF3B30;">🔔 督促</button>
+<button class="announcement-edit-btn" onclick="urgeGroupMembers()" style="border-color:rgba(255,59,48,0.25);color:#FF3B30;">🔔 督促</button>
+</div>
+
+<!-- 群公告编辑器弹窗 (Apple Style) -->
+<div class="announcement-modal-overlay" id="announcementModalOverlay" onclick="closeAnnouncementModal()">
+  <div class="announcement-modal-panel" onclick="event.stopPropagation()">
+    <div class="announcement-modal-header">
+      <div class="announcement-modal-title">📢 编辑群公告</div>
+      <button class="announcement-modal-close" onclick="closeAnnouncementModal()">✕</button>
+    </div>
+    <div class="announcement-modal-body">
+      <textarea id="announcementModalInput" placeholder="输入群公告内容，所有 AI 成员都能看到..." maxlength="500"></textarea>
+      <div class="announcement-modal-hint">支持 Markdown 格式 · 最多 500 字 · 所有群成员可见</div>
+    </div>
+    <div class="announcement-modal-footer">
+      <button class="announcement-modal-btn cancel" onclick="closeAnnouncementModal()">取消</button>
+      <button class="announcement-modal-btn save" onclick="saveAnnouncementFromModal()">保存</button>
+    </div>
+  </div>
 </div>
 
 <div class="chat-progress" id="chatProgress" style="display:none;">
@@ -7951,7 +7992,7 @@ async function createGroup() {
   }
 }
 
-// 编辑群公告
+// 编辑群公告 — 打开 Apple 风格模态弹窗
 function editGroupAnnouncement() {
   var group = groups.find(function (g) {
     return g.id === currentGroupId;
@@ -7960,10 +8001,30 @@ function editGroupAnnouncement() {
     showToast('⚠️ 请先选择一个群组');
     return;
   }
-  var newAnnouncement = prompt('编辑群公告（所有AI都能看到）：', group.announcement || '');
-  if (newAnnouncement === null) return; // 用户取消
+  var overlay = document.getElementById('announcementModalOverlay');
+  var input = document.getElementById('announcementModalInput');
+  if (!overlay || !input) return;
+  input.value = group.announcement || '';
+  overlay.classList.add('open');
+  setTimeout(function () { input.focus(); }, 100);
+}
 
-  group.announcement = newAnnouncement.trim();
+// 关闭群公告编辑器弹窗
+function closeAnnouncementModal() {
+  var overlay = document.getElementById('announcementModalOverlay');
+  if (overlay) overlay.classList.remove('open');
+}
+
+// 从弹窗保存群公告
+function saveAnnouncementFromModal() {
+  var group = groups.find(function (g) {
+    return g.id === currentGroupId;
+  });
+  if (!group) return;
+  var input = document.getElementById('announcementModalInput');
+  if (!input) return;
+  var newAnnouncement = input.value.trim();
+  group.announcement = newAnnouncement;
 
   // 保存到本地
   saveGroups();
@@ -7995,8 +8056,21 @@ function editGroupAnnouncement() {
       announcementContent.textContent = '';
     }
   }
+  closeAnnouncementModal();
   showToast('✅ 群公告已更新');
 }
+
+// 键盘快捷键：ESC 关闭，Cmd/Ctrl + Enter 保存
+document.addEventListener('keydown', function (e) {
+  var overlay = document.getElementById('announcementModalOverlay');
+  if (!overlay || !overlay.classList.contains('open')) return;
+  if (e.key === 'Escape') {
+    closeAnnouncementModal();
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    saveAnnouncementFromModal();
+  }
+});
 
 // 督促群成员 — 群主发送 @所有人 的督促消息
 function urgeGroupMembers() {
