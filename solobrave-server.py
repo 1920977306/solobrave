@@ -3046,7 +3046,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 如果前端标记 skipAI（AI已通过OpenClaw回复），跳过API代理
             skip_ai = body.get('skipAI', False)
             connection_type = agent.get('connectionType', '')
-            if not skip_ai and connection_type == 'api':
+            # 当 skipAI=false 时，无论 connectionType 是什么，都调用 AI API
+            # 这样 memory 提取等场景（_extractMemoryViaAPI）才能正常工作
+            if not skip_ai:
                 api_reply = self._call_ai_api(agent, body.get('content', ''), auth.user_info)
                 if api_reply:
                     ai_message = {
