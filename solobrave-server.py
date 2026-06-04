@@ -2900,15 +2900,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         """POST /api/memory/{empId} — 添加记忆（自动清理过期）"""
         body = self._read_body()
         if not body or 'value' not in body:
+            print(f'  [MemoryPOST] {emp_id} 失败: 缺少 value', flush=True)
             self._send_json_error(400, 'Missing value')
             return
-        
+
         filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
         memories = _read_json(filepath, [])
-        
+
         # 先清理过期记忆
         memories = self._cleanup_expired_memories(memories)
-        
+
         memory = {
             'id': str(uuid.uuid4())[:8],
             'key': body.get('key', 'auto'),
@@ -2917,12 +2918,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'time': int(time.time() * 1000)
         }
         memories.append(memory)
-        
+
         # 上限200条，超出删最旧的（避免长期使用时记忆丢失）
         if len(memories) > 200:
             memories = memories[-200:]
-        
+
         _write_json(filepath, memories)
+        print(f'  [MemoryPOST] {emp_id} 保存记忆: {memory["value"][:50]}... (共{len(memories)}条)', flush=True)
         self._send_json(200, memory)
 
     def _handle_delete_memory(self, emp_id, memory_id):
@@ -3049,7 +3051,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 当 skipAI=false 时，无论 connectionType 是什么，都调用 AI API
             # 这样 memory 提取等场景（_extractMemoryViaAPI）才能正常工作
             if not skip_ai:
-                api_reply = self._call_ai_api(agent, body.get('content', ''), auth.user_info)
+                content = body.get('content', '')
+                # 记忆提取场景不需要加载历史记录，避免 token 超限和干扰
+                is_extract = '【记忆提取任务】' in content
+                api_reply = self._call_ai_api(agent, content, auth.user_info, include_history=not is_extract)
                 if api_reply:
                     ai_message = {
                         'id': 'msg_' + uuid.uuid4().hex[:8],
