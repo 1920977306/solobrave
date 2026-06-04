@@ -32,7 +32,7 @@ try:
     import fcntl
 except ImportError:
     fcntl = None
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse, unquote, parse_qs
 
 # 按 agent_id 细分的聊天写入锁，防止读-修改-写竞争导致消息丢失
@@ -3151,8 +3151,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if chat_history:
                     recent = chat_history[-10:]
                     # 避免重复添加当前用户消息（如果已保存在历史中）
+                    # 仅当最后一条是 user、内容相同、且时间戳在 5 秒内时才去重，防止误删历史
                     if recent and recent[-1].get('role') == 'user' and recent[-1].get('content') == user_message:
-                        recent = recent[:-1]
+                        ts_str = recent[-1].get('timestamp', '')
+                        try:
+                            msg_time = datetime.fromisoformat(ts_str)
+                            if datetime.now() - msg_time < timedelta(seconds=5):
+                                recent = recent[:-1]
+                        except Exception:
+                            pass
                     for msg in recent:
                         role = msg.get('role')
                         if role in ('user', 'assistant'):

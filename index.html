@@ -11814,11 +11814,10 @@ function extractAndSaveMemory(empId, userMsg, aiReply) {
 
     extractPrompt += '\n\n【本次对话】\n用户说：' + userMsg.substring(0, 400) + '\nAI回复：' + aiReply.substring(0, 400);
 
-    // 根据连接类型选择提取方式
-    var connectionType = emp.connectionType || 'openclaw';
-    if (connectionType === 'openclaw' && typeof openclaw !== 'undefined' && openclaw.connected) {
+    // 根据实际连接状态选择提取方式（不按 connectionType 硬编码）
+    if (typeof openclaw !== 'undefined' && openclaw.connected) {
       _extractMemoryViaOpenClaw(empId, extractPrompt, existing);
-    } else if (connectionType === 'api') {
+    } else if (emp.apiKey && emp.aiProvider) {
       _extractMemoryViaAPI(empId, extractPrompt, existing);
     }
   }).catch(function (e) {
@@ -11879,7 +11878,7 @@ function _extractMemoryViaAPI(empId, extractPrompt, existing) {
   apiFetch('/api/chat/' + empId, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: extractPrompt, skipAI: false })
+    body: JSON.stringify({ content: extractPrompt, skipAI: false })
   }).then(function (r) { return r.json(); })
     .then(function (data) {
       var extracted = (data.aiMessage && data.aiMessage.content) || data.reply || '';
