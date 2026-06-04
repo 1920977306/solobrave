@@ -3141,6 +3141,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             resp_data = json.loads(resp.read().decode('utf-8'))
             if resp_data.get('choices') and resp_data['choices'][0].get('message'):
                 return resp_data['choices'][0]['message'].get('content', '')
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8', errors='replace')
+            print(f'  ❌ AI API call failed: HTTP {e.code} {e.reason}', flush=True)
+            print(f'      Provider: {api_provider}, URL: {target_url}', flush=True)
+            print(f'      Response: {error_body}', flush=True)
         except Exception as e:
             print(f'  ❌ AI API call failed: {e}', flush=True)
 
@@ -3270,14 +3275,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         })
 
     def _call_ai_for_summary(self, agent, chat_text):
-        """调用AI压缩对话为摘要"""
+        """调用AI压缩对话为摘要（带降级逻辑：AI不可用时截取最近N条消息）"""
         prompt = '请将以下对话历史压缩成一段简洁的摘要（200字以内），保留关键信息、决策和重要事实：\n\n' + chat_text
         try:
             result = self._call_ai_api(agent, prompt)
-            return result[:500] if result else '（摘要生成失败）'
+            if result:
+                return result[:500]
         except Exception as e:
             print(f'  [Summary] AI摘要失败: {e}', flush=True)
-            return '（摘要生成失败）'
+
+        # 降级：AI不可用时，截取最近 N 条消息文本作为摘要
+        lines = chat_text.strip().split('\n')
+        fallback_lines = lines[-10:] if len(lines) > 10 else lines
+        fallback = '\n'.join(fallback_lines).strip()
+        if len(fallback) > 500:
+            fallback = fallback[:500] + '...'
+        if fallback:
+            print(f'  [Summary] AI 不可用，已降级为文本截取（{len(fallback_lines)} 条消息）', flush=True)
+            return fallback
+        return ''
 
     # ═══════════════════════════════════════════════════
     # OpenClaw API（原有功能，已加认证）
