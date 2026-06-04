@@ -7716,6 +7716,11 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   // 保存到群组历史（写入前去重：最后一条 role+content+senderId 相同则跳过）
   var historyKey = 'sb_group_history_' + groupId;
   var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+  var triggerMsg = history.length > 0 ? history[history.length - 1] : null;
+  // 如果最后一条是同一个人发的 assistant，取倒数第二条作为触发消息
+  if (triggerMsg && triggerMsg.role === 'assistant' && triggerMsg.senderId === senderId && history.length > 1) {
+    triggerMsg = history[history.length - 2];
+  }
   var lastMsg = history.length > 0 ? history[history.length - 1] : null;
   if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.content !== replyText || lastMsg.senderId !== senderId) {
     history.push({
@@ -7727,6 +7732,11 @@ function displayGroupAIReply(groupId, senderId, replyText) {
       time: Date.now()
     });
     localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
+  }
+
+  // 群聊中的对话也应沉淀为 AI 员工的个人记忆
+  if (triggerMsg && triggerMsg.content && senderId) {
+    extractAndSaveMemory(senderId, triggerMsg.content, replyText);
   }
 
   // 更新群组最后消息
