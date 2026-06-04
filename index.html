@@ -7134,6 +7134,7 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     return e.id === mid;
   });
   if (!emp) return;
+  console.log('[askAgentToReply] 入口:', emp.name, '| groupId:', groupId, '| senderId:', senderId, '| messageContent前30字:', (messageContent || '').substring(0, 30), '| 调用栈:\n', new Error().stack);
   // 防重：同一轮对话中不重复触发同一成员
   var pollKey = groupId + '_' + mid;
   if (window._pollTriggered && window._pollTriggered[pollKey]) return;
@@ -7376,6 +7377,19 @@ function triggerUserMentions(userMentions, groupId, senderId, originalMessage) {
 }
 async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) {
   mentionChainDepth++;
+  console.log('[triggerMentionedAgent] 入口:', emp.name, '| groupId:', groupId, '| fromId:', fromId, '| source:', source, '| userMessage前30字:', (userMessage || '').substring(0, 30), '| 调用栈:\n', new Error().stack);
+
+  // 如果该成员已被 pollAgentsForReply 轮询过，跳过避免重复触发
+  var pollKey = groupId + '_' + emp.id;
+  if (window._pollTriggered && window._pollTriggered[pollKey]) {
+    console.log('[triggerMentionedAgent] ' + emp.name + ' 已被 pollAgentsForReply 轮询，跳过重复触发');
+    mentionChainDepth--;
+    return;
+  }
+
+  // 标记该成员已被处理，防止 pollAgentsForReply 重复轮询导致重复回复
+  window._pollTriggered = window._pollTriggered || {};
+  window._pollTriggered[pollKey] = true;
 
   // 获取群组信息
   var group = groups.find(function (g) {
@@ -7610,6 +7624,17 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
 function displayGroupAIReply(groupId, senderId, replyText) {
   // 如果用户已切换出群聊，不再往当前 DOM 追加消息，避免串渲染
   if (currentGroupId !== groupId) return;
+
+  // 最终防重：5 秒内同一个 AI 对同一内容不重复输出
+  var dedupKey = groupId + '_' + senderId + '_' + (replyText || '').substring(0, 50);
+  window._dedupKey = window._dedupKey || {};
+  var lastDedup = window._dedupKey[dedupKey];
+  if (lastDedup && Date.now() - lastDedup < 5000) {
+    console.log('[displayGroupAIReply] 5秒内重复消息防重命中，跳过:', dedupKey);
+    return;
+  }
+  window._dedupKey[dedupKey] = Date.now();
+
   var area = document.getElementById('messagesArea');
   var senderEmp = emps.find(function (e) {
     return e.id === senderId;
@@ -7623,6 +7648,26 @@ function displayGroupAIReply(groupId, senderId, replyText) {
     minute: '2-digit'
   });
   var bubbleContent = formatGroupMessage(replyText);
+
+  // DOM 去重：检查最近 3 条消息是否已有相同 sender + content，防止竞态导致重复渲染
+  var recentMsgs = area.querySelectorAll('.msg');
+  var isDuplicateDom = false;
+  for (var i = recentMsgs.length - 1, count = 0; i >= 0 && count < 3; i--, count++) {
+    var m = recentMsgs[i];
+    var nameEl = m.querySelector('.msg-sender-name');
+    var bubbleEl = m.querySelector('.msg-bubble');
+    if (nameEl && bubbleEl && nameEl.textContent === senderName && bubbleEl.textContent === replyText) {
+      isDuplicateDom = true;
+      console.log('[displayGroupAIReply] DOM 去重命中，跳过重复消息:', senderName);
+      break;
+    }
+  }
+
+  if (isDuplicateDom) {
+    // 已是重复消息，跳过插入、保存及后续链式触发
+    return;
+  }
+
   var html = '<div class="msg"><div class="msg-avatar"><div class="avatar small" style="' + senderBg + '">' + avatarHtml + '</div></div>' + '<div class="msg-content">' + '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(senderName) + '</span><span class="msg-sender-role">' + escapeHtml(senderRole) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' + '<div class="msg-bubble">' + bubbleContent + '</div>' + '</div></div>';
   area.insertAdjacentHTML('beforeend', html);
   area.scrollTop = area.scrollHeight;
