@@ -1663,10 +1663,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             groups = _load_groups()
-            # 管理员看全部，普通用户只看自己创建的
+            # 管理员看全部，普通用户看：自己创建的 + 包含自己AI员工的
             if not auth.is_admin:
                 uid = auth.user_info['userId']
-                result = [g for g in groups if g.get('createdBy') == uid]
+                agents = _load_agents()
+                my_agent_ids = {a.get('id') for a in agents if a.get('createdBy') == uid}
+                result = []
+                for g in groups:
+                    if g.get('createdBy') == uid:
+                        result.append(g)
+                        continue
+                    group_member_ids = {m.get('id') for m in g.get('members', [])}
+                    if group_member_ids & my_agent_ids:
+                        result.append(g)
                 self._send_json(200, result)
                 return
 
