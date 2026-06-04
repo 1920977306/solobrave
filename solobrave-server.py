@@ -3247,6 +3247,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
         _write_json(summary_file, {'summary': summary, 'createdAt': datetime.now().isoformat()})
 
+        # 同时写入 Mac 桌面知识库目录，方便用户查看和编辑
+        emp_name = agent.get('name', agent_id)
+        desktop_knowledge_dir = os.path.join(
+            os.path.expanduser('~'), 'Desktop', 'solobrave', 'knowledge',
+            emp_name, 'knowledge'
+        )
+        os.makedirs(desktop_knowledge_dir, exist_ok=True)
+        md_path = os.path.join(desktop_knowledge_dir, 'summary.md')
+        md_content = f'# {emp_name} 的对话摘要\n\n> 生成时间: {datetime.now().isoformat()}\n> 压缩消息数: {len(old_messages)}\n> 保留最近: 10 条\n\n---\n\n{summary}\n'
+        try:
+            with open(md_path, 'w', encoding='utf-8') as f:
+                f.write(md_content)
+            print(f'  [Summarize] 已写入桌面知识库: {md_path}', flush=True)
+        except Exception as e:
+            print(f'  [Summarize] 写入桌面知识库失败: {e}', flush=True)
+
         self._send_json(200, {
             'summary': summary,
             'compressed': len(old_messages),
