@@ -3075,12 +3075,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         else:
             self._send_json(200, {'userMessage': msg})
 
-    def _call_ai_api(self, agent, user_message, user_info=None):
-        """通过代理调用 AI API"""
+    def _call_ai_api(self, agent, user_message, user_info=None, include_history=True):
+        """通过代理调用 AI API（带记忆和上下文注入）"""
         api_provider = agent.get('apiProvider', '')
         api_key = agent.get('apiKey', '')
         api_model = agent.get('apiModel', '')
         custom_endpoint = agent.get('customEndpoint', '')
+        agent_id = agent.get('id', '')
 
         if not api_key:
             return None
@@ -3117,12 +3118,53 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             role_display = '老板/负责人' if user_role == 'admin' else ('组长' if user_role == 'leader' else '员工')
             system_prompt += f'\n\n【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- {user_name}（{role_display}）是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。\n- 严禁用"教你""指导你""你做过吗""你懂吗"等居高临下的语气。\n- 老板问你问题时，直接回答，不要反问或考验老板。'
 
+        # 注入摘要
+        if agent_id:
+            try:
+                summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
+                summary_data = _read_json(summary_file, {})
+                if summary_data.get('summary'):
+                    system_prompt += f'\n\n【历史对话摘要】\n{summary_data["summary"]}'
+            except Exception:
+                pass
+            # 注入记忆
+            try:
+                memory_file = os.path.join(MEMORY_DIR, f'{agent_id}.json')
+                memories = _read_json(memory_file, [])
+                if memories:
+                    mem_lines = []
+                    for m in memories[:8]:
+                        val = m.get('value', '')
+                        if val:
+                            mem_lines.append(f'- {val}')
+                    if mem_lines:
+                        system_prompt += '\n\n【关于用户的记忆】\n' + '\n'.join(mem_lines)
+            except Exception:
+                pass
+
+        messages = [{'role': 'system', 'content': system_prompt}]
+
+        # 加载最近聊天记录
+        if include_history and agent_id:
+            try:
+                chat_history = _load_chat(agent_id)
+                if chat_history:
+                    recent = chat_history[-10:]
+                    # 避免重复添加当前用户消息（如果已保存在历史中）
+                    if recent and recent[-1].get('role') == 'user' and recent[-1].get('content') == user_message:
+                        recent = recent[:-1]
+                    for msg in recent:
+                        role = msg.get('role')
+                        if role in ('user', 'assistant'):
+                            messages.append({'role': role, 'content': msg.get('content', '')})
+            except Exception:
+                pass
+
+        messages.append({'role': 'user', 'content': user_message})
+
         req_body = json.dumps({
             'model': api_model or 'gpt-4o-mini',
-            'messages': [
-                {'role': 'system', 'content': system_prompt},
-                {'role': 'user', 'content': user_message}
-            ],
+            'messages': messages,
             'temperature': 0.8,
             'max_tokens': 2000,
             'stream': False
@@ -3278,7 +3320,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         """调用AI压缩对话为摘要（带降级逻辑：AI不可用时截取最近N条消息）"""
         prompt = '请将以下对话历史压缩成一段简洁的摘要（200字以内），保留关键信息、决策和重要事实：\n\n' + chat_text
         try:
-            result = self._call_ai_api(agent, prompt)
+            result = self._call_ai_api(agent, prompt, include_history=False)
             if result:
                 return result[:500]
         except Exception as e:

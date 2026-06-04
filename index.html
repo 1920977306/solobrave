@@ -11473,7 +11473,7 @@ async function callRealAI(userMessage, context) {
 }
 
 // ========== API 直连发送 ==========
-function sendViaAPI(emp, userMessage, docContext, timeStr) {
+async function sendViaAPI(emp, userMessage, docContext, timeStr) {
   var providerId = emp.aiProvider || 'kimi';
   var provider = API_PROVIDERS[providerId];
 
@@ -11507,6 +11507,24 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
     model = emp.apiModel || 'custom-model';
   }
 
+  // ==== 加载记忆、上下文、摘要（与 OpenClaw 路径保持一致）====
+  var memoryPrompt = '';
+  var chatContext = '';
+  var summaryText = '';
+  try {
+    memoryPrompt = await buildMemoryPrompt(emp.id, userMessage);
+  } catch (e) {}
+  try {
+    chatContext = await buildRecentChatContext(emp.id, 10);
+  } catch (e) {}
+  try {
+    var summaryRes = await apiFetch('/api/chat/summarize/' + encodeURIComponent(emp.id));
+    var summaryData = await summaryRes.json();
+    if (summaryData && summaryData.summary) {
+      summaryText = '\n\n【历史对话摘要】\n' + summaryData.summary;
+    }
+  } catch (e) {}
+
   // 构建请求
   var systemPrompt = '';
   if (emp.soulDoc) systemPrompt = emp.soulDoc;else if (emp.systemPrompt) systemPrompt = emp.systemPrompt;
@@ -11516,13 +11534,24 @@ function sendViaAPI(emp, userMessage, docContext, timeStr) {
   var userName2 = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
   systemPrompt += '\n\n【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- ' + userName2 + '（' + userRole2 + '）是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。\n- 严禁用"教你""指导你""你做过吗""你懂吗"等居高临下的语气。\n- 老板问你问题时，直接回答，不要反问或考验老板。';
   if (docContext) systemPrompt += '\n\n【相关文档】\n' + docContext;
+  if (summaryText) {
+    systemPrompt += summaryText;
+  }
+
   var messages = [{
     role: 'system',
     content: systemPrompt
-  }, {
+  }];
+  if (memoryPrompt) {
+    messages.push({ role: 'system', content: memoryPrompt });
+  }
+  if (chatContext) {
+    messages.push({ role: 'system', content: chatContext });
+  }
+  messages.push({
     role: 'user',
     content: userMessage
-  }];
+  });
   var endpoint = baseUrl + '/chat/completions';
 
   // 智谱 API 路径不同
