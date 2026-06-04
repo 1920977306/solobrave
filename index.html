@@ -11573,10 +11573,10 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
     headers: {
       'Content-Type': 'application/json',
       'Authorization': authToken && authToken !== 'local_mode' ? 'Bearer ' + authToken : '',
-      'X-AI-API-Key': apiKey
+      'X-AI-API-Key': apiKey,
+      'X-Target-URL': endpoint
     },
     body: JSON.stringify({
-      endpoint: endpoint,
       model: model,
       messages: messages,
       temperature: 0.8,
