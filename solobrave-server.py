@@ -1668,7 +1668,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         return None, '权限不足', 403
 
     def _handle_get_groups(self):
-        """GET /api/groups — 获取所有群组"""
+        """GET /api/groups — 获取所有群组，members 附带基础信息（name/avatar/bg/role）"""
         try:
             auth = _authenticate(self.headers)
             if not auth.is_authenticated:
@@ -1676,10 +1676,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             groups = _load_groups()
+            agents = _load_agents()
+            agent_map = {a.get('id'): a for a in agents}
+
             # 管理员看全部，普通用户看：自己创建的 + 包含自己AI员工的
             if not auth.is_admin:
                 uid = auth.user_info['userId']
-                agents = _load_agents()
                 my_agent_ids = {a.get('id') for a in agents if a.get('createdBy') == uid}
                 result = []
                 for g in groups:
@@ -1696,10 +1698,32 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             group_member_ids.add(m)
                     if group_member_ids & my_agent_ids:
                         result.append(g)
-                self._send_json(200, result)
-                return
+            else:
+                result = groups
 
-            self._send_json(200, groups)
+            # 为每个 group 的 members 补充基础信息（name/avatar/bg/role），
+            # 让前端即使 emps 查不到也能显示正确名字和头像
+            for g in result:
+                members = g.get('members', [])
+                enriched = []
+                for m in members:
+                    mid = m.get('id') if isinstance(m, dict) else m
+                    agent = agent_map.get(mid)
+                    if agent:
+                        enriched.append({
+                            'id': mid,
+                            'name': agent.get('name', ''),
+                            'avatar': agent.get('avatar', '🦞'),
+                            'bg': agent.get('bg', '#FF6B35'),
+                            'role': agent.get('role', ''),
+                        })
+                    elif isinstance(m, dict):
+                        enriched.append(m)
+                    else:
+                        enriched.append({'id': m})
+                g['members'] = enriched
+
+            self._send_json(200, result)
         except Exception as e:
             print(f'  [ERROR] _handle_get_groups: {e}', flush=True)
             try:
@@ -1718,6 +1742,28 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_json(status, {'error': err})
             return
+
+        # 补充 members 基础信息
+        agents = _load_agents()
+        agent_map = {a.get('id'): a for a in agents}
+        members = group.get('members', [])
+        enriched = []
+        for m in members:
+            mid = m.get('id') if isinstance(m, dict) else m
+            agent = agent_map.get(mid)
+            if agent:
+                enriched.append({
+                    'id': mid,
+                    'name': agent.get('name', ''),
+                    'avatar': agent.get('avatar', '🦞'),
+                    'bg': agent.get('bg', '#FF6B35'),
+                    'role': agent.get('role', ''),
+                })
+            elif isinstance(m, dict):
+                enriched.append(m)
+            else:
+                enriched.append({'id': m})
+        group['members'] = enriched
 
         self._send_json(200, group)
 
@@ -2473,17 +2519,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ═══════════════════════════════════════════════════
 
     def _handle_get_agents(self):
-        """GET /api/agents — 返回所有 agents 的基础信息（脱敏），供成员列表等场景使用"""
+        """GET /api/agents — 只返回当前用户创建的 agents（严格权限）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
 
         agents = _load_agents()
+        uid = auth.user_info['userId']
 
-        # 所有已认证用户都可以获取全部 agents 的基础展示信息
-        # 敏感字段（apiKey/systemPrompt/soulDoc 等）已在下面过滤掉
-        result = agents
+        if auth.is_admin:
+            result = agents
+        elif auth.is_leader:
+            accessible_ids = _get_accessible_agent_ids(auth)
+            result = [a for a in agents
+                      if a.get('id') in accessible_ids or a.get('createdBy') == uid]
+        else:
+            accessible_ids = _get_accessible_agent_ids(auth)
+            result = [a for a in agents
+                      if a.get('id') in accessible_ids or a.get('createdBy') == uid]
 
         # 去掉敏感字段，只保留基础展示信息
         safe_result = []

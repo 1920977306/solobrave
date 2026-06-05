@@ -5222,8 +5222,16 @@ function toggleCategory(cat) {
 
 // 获取当前用户可见的员工列表（权限过滤）
 function getVisibleEmps() {
-  // 后端 /api/agents 已按权限过滤，前端直接展示
   if (!emps || emps.length === 0) return [];
+  // 侧边栏只显示当前用户创建的 agents（子账号不显示管理员创建的 AI）
+  // emps 中可能包含通过 mergeGroupMembersToEmps 合并的其他成员基础信息，
+  // 但侧边栏只显示当前用户创建的
+  var uid = currentUser && (currentUser.userId || currentUser.id);
+  if (currentUser && currentUser.role !== 'admin' && uid) {
+    return emps.filter(function (e) {
+      return e.createdBy === uid || !e.createdBy;
+    });
+  }
   return emps;
 }
 
@@ -5454,6 +5462,8 @@ async function loadGroups() {
             groups.push(g);
           });
           localStorage.setItem('sb_groups', JSON.stringify(groups));
+          // 把项目组成员信息合并到 emps，供成员列表和 @提及使用
+          mergeGroupMembersToEmps();
           return;
         }
       }
@@ -5470,8 +5480,26 @@ async function loadGroups() {
       data.forEach(function (g) {
         groups.push(g);
       });
+      mergeGroupMembersToEmps();
     } catch (e) {}
   }
+}
+
+// 将项目组中的成员信息合并到 emps，使 @提及和成员列表能正常工作
+// 同时保证侧边栏只显示当前用户创建的（通过 getVisibleEmps 过滤）
+function mergeGroupMembersToEmps() {
+  var seenIds = {};
+  emps.forEach(function (e) {
+    if (e.id) seenIds[e.id] = true;
+  });
+  groups.forEach(function (g) {
+    (g.members || []).forEach(function (m) {
+      if (typeof m === 'object' && m !== null && m.id && !seenIds[m.id]) {
+        emps.push(m);
+        seenIds[m.id] = true;
+      }
+    });
+  });
 }
 async function saveGroups() {
   localStorage.setItem('sb_groups', JSON.stringify(groups));
@@ -10464,12 +10492,13 @@ function renderGroupSettingsMembers(group) {
     var emp = emps.find(function (e) {
       return e.id === mid;
     });
-    if (!emp) {
-      // 找不到员工信息时显示占位项
-      return '<div class="group-member-item" data-mid="' + escapeAttr(mid) + '" style="padding:6px 0;">' + '<div class="group-member-avatar" style="background:#C7C7CC;width:28px;height:28px;">👤</div>' + '<div class="group-member-info" style="min-width:0;">' + '<div class="group-member-name" style="font-size:13px;">未知成员</div>' + '</div>' + '<button class="group-member-remove" onclick="removeGroupMember(\'' + escapeAttr(mid) + '\')" title="移除成员" style="width:24px;height:24px;font-size:12px;">✕</button>' + '</div>';
-    }
-    var avatarHtml = renderAvatar(emp, 28);
-    return '<div class="group-member-item" data-mid="' + escapeAttr(mid) + '" style="padding:6px 0;">' + '<div class="group-member-avatar" style="background:' + escapeAttr(emp.bg || '#888') + ';width:28px;height:28px;">' + avatarHtml + '</div>' + '<div class="group-member-info" style="min-width:0;">' + '<div class="group-member-name" style="font-size:13px;">' + escapeHtml(emp.name || '') + '</div>' + '</div>' + '<button class="group-member-remove" onclick="removeGroupMember(\'' + escapeAttr(mid) + '\')" title="移除成员" style="width:24px;height:24px;font-size:12px;">✕</button>' + '</div>';
+    // 优先使用 members 中已有的基础信息（后端 _handle_get_groups 已补充）
+    var name = (emp && emp.name) || (m && m.name) || '未知成员';
+    var avatar = (emp && emp.avatar) || (m && m.avatar) || '👤';
+    var bg = (emp && emp.bg) || (m && m.bg) || '#C7C7CC';
+    var displayObj = emp || {name: name, avatar: avatar, bg: bg, id: mid};
+    var avatarHtml = renderAvatar(displayObj, 28);
+    return '<div class="group-member-item" data-mid="' + escapeAttr(mid) + '" style="padding:6px 0;">' + '<div class="group-member-avatar" style="background:' + escapeAttr(bg) + ';width:28px;height:28px;">' + avatarHtml + '</div>' + '<div class="group-member-info" style="min-width:0;">' + '<div class="group-member-name" style="font-size:13px;">' + escapeHtml(name) + '</div>' + '</div>' + '<button class="group-member-remove" onclick="removeGroupMember(\'' + escapeAttr(mid) + '\')" title="移除成员" style="width:24px;height:24px;font-size:12px;">✕</button>' + '</div>';
   }).join('');
 }
 function renderGroupDetailMembers(group) {
@@ -10485,12 +10514,14 @@ function renderGroupDetailMembers(group) {
     var emp = emps.find(function (e) {
       return e.id === mid;
     });
-    if (!emp) {
-      // 找不到员工信息时显示占位项（灰色头像 + 未知成员）
-      return '<div class="group-member-item" data-mid="' + escapeAttr(mid) + '">' + '<div class="group-member-avatar" style="background:#C7C7CC;">👤</div>' + '<div class="group-member-info">' + '<div class="group-member-name">未知成员</div>' + '<div class="group-member-role">' + escapeAttr(mid).substring(0, 12) + '...</div>' + '</div>' + '<button class="group-member-remove" onclick="removeGroupMember(\'' + escapeAttr(mid) + '\')" title="移除成员">✕</button>' + '</div>';
-    }
-    var avatarHtml = renderAvatar(emp, 36);
-    return '<div class="group-member-item" data-mid="' + escapeAttr(mid) + '">' + '<div class="group-member-avatar" style="background:' + escapeAttr(emp.bg || '#888') + ';">' + avatarHtml + '</div>' + '<div class="group-member-info">' + '<div class="group-member-name">' + escapeHtml(emp.name || '') + '</div>' + '<div class="group-member-role">' + escapeHtml(getEmpRoleDisplay(emp)) + '</div>' + '</div>' + '<button class="group-member-remove" onclick="removeGroupMember(\'' + escapeAttr(mid) + '\')" title="移除成员">✕</button>' + '</div>';
+    // 优先使用 members 中已有的基础信息（后端 _handle_get_groups 已补充）
+    var name = (emp && emp.name) || (m && m.name) || '未知成员';
+    var avatar = (emp && emp.avatar) || (m && m.avatar) || '👤';
+    var bg = (emp && emp.bg) || (m && m.bg) || '#C7C7CC';
+    var role = (emp && getEmpRoleDisplay(emp)) || (m && m.role) || '';
+    var displayObj = emp || {name: name, avatar: avatar, bg: bg, role: role, id: mid};
+    var avatarHtml = renderAvatar(displayObj, 36);
+    return '<div class="group-member-item" data-mid="' + escapeAttr(mid) + '">' + '<div class="group-member-avatar" style="background:' + escapeAttr(bg) + ';">' + avatarHtml + '</div>' + '<div class="group-member-info">' + '<div class="group-member-name">' + escapeHtml(name) + '</div>' + '<div class="group-member-role">' + escapeHtml(role) + '</div>' + '</div>' + '<button class="group-member-remove" onclick="removeGroupMember(\'' + escapeAttr(mid) + '\')" title="移除成员">✕</button>' + '</div>';
   }).join('');
 }
 function selectGroupEmoji(el) {
