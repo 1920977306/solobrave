@@ -3015,6 +3015,11 @@ async function apiFetch(url, options = {}) {
       doLogout();
       return null;
     }
+    if (resp.status === 403) {
+      // 权限不足（如子账号访问其他用户的聊天记录），静默返回空数组，不报错
+      console.warn('[apiFetch] 403 Forbidden, skipping:', url);
+      return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
     if (!resp.ok) {
       throw new Error('HTTP ' + resp.status + ' ' + resp.statusText);
     }
