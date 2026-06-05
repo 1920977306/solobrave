@@ -4671,6 +4671,10 @@ async function loadEmployees() {
       var resp = await apiFetch('/api/agents');
       if (resp && resp.ok) {
         var data = await resp.json();
+        console.log('[loadEmployees] /api/agents 返回:', data.length, '个 agents');
+        data.forEach(function(a) {
+          console.log('[loadEmployees] agent:', a.id, a.name, 'createdBy=', a.createdBy);
+        });
 
         // 后端有权限过滤，直接用后端数据（包括空数组）
         // 检查 data 是否是数组（防止返回错误对象如 {error: '...'}）

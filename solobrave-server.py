@@ -2528,6 +2528,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         agents = _load_agents()
         uid = auth.user_info['userId']
 
+        # 调试日志：打印 uid 和所有 agent 的 createdBy，排查过滤问题
+        print(f'  [DEBUG get_agents] uid={uid} role={auth.user_info.get("role")} is_admin={auth.is_admin} is_leader={auth.is_leader}')
+        for a in agents:
+            print(f'  [DEBUG get_agents] agent id={a.get("id")} name={a.get("name")} createdBy={repr(a.get("createdBy"))}')
+
         if auth.is_admin:
             result = agents
         elif auth.is_leader:
@@ -2537,6 +2542,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         else:
             # employee: 严格只返回自己创建的 agents，侧边栏不显示其他人的 AI
             result = [a for a in agents if a.get('createdBy') == uid]
+
+        print(f'  [DEBUG get_agents] 过滤后返回 {len(result)} 个 agents')
+        for a in result:
+            print(f'  [DEBUG get_agents] -> result id={a.get("id")} name={a.get("name")} createdBy={repr(a.get("createdBy"))}')
 
         # 去掉敏感字段，只保留基础展示信息
         safe_result = []
