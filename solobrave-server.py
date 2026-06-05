@@ -69,15 +69,12 @@ TEAMS_FILE = os.path.join(DATA_DIR, 'teams.json')
 MEMORY_DIR = os.path.join(DATA_DIR, 'memory')
 
 # 角色初始记忆种子映射：前端 role -> memory-seed 文件名
+# 只映射严格匹配的角色，避免加载不相关记忆导致AI行为混乱
 ROLE_MEMORY_SEED_MAP = {
-    'CEO助理': 'Trumind',
-    '战略顾问': 'Trumind',
-    '前端工程师': 'Gates',
+    '战略顾问': 'Trumind',   # Trumind = CEO战略顾问（不是CEO助理）
+    '前端工程师': 'Gates',    # Gates = 技术负责人/全栈
     '后端工程师': 'Gates',
-    '产品经理': 'Trumind',
-    '运营': 'Grace',
-    '客服': 'Grace',
-    '数据分析师': 'Black',
+    '数据分析师': 'Black',    # Black = 商业情报/战略分析
 }
 
 # JWT 配置
@@ -1648,7 +1645,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return None, '群组不存在', 404
         # 群组创建者或管理员可访问；成员也可访问
         if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
-            member_ids = [m.get('id') for m in group.get('members', [])]
+            # 兼容 members 的两种格式：字符串数组 和 字典数组
+            member_ids = []
+            for m in group.get('members', []):
+                if isinstance(m, dict):
+                    member_ids.append(m.get('id'))
+                elif isinstance(m, str):
+                    member_ids.append(m)
             if auth.user_info['userId'] not in member_ids:
                 # 也检查 agent 是否属于该用户
                 return None, '权限不足', 403
@@ -1673,7 +1676,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     if g.get('createdBy') == uid:
                         result.append(g)
                         continue
-                    group_member_ids = {m.get('id') for m in g.get('members', [])}
+                    # 兼容 members 的两种格式：字符串数组 和 字典数组
+                    members = g.get('members', [])
+                    group_member_ids = set()
+                    for m in members:
+                        if isinstance(m, dict):
+                            group_member_ids.add(m.get('id'))
+                        elif isinstance(m, str):
+                            group_member_ids.add(m)
                     if group_member_ids & my_agent_ids:
                         result.append(g)
                 self._send_json(200, result)
@@ -1814,6 +1824,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'error': '无效的请求体，期望数组'})
             return
 
+        # 统一转换 members 格式：字符串数组 -> 字典数组，避免后续读取异常
+        for g in body:
+            members = g.get('members', [])
+            if isinstance(members, list):
+                valid_members = []
+                for m in members:
+                    if isinstance(m, dict) and m.get('id'):
+                        valid_members.append({'id': m['id'], 'role': m.get('role', '')})
+                    elif isinstance(m, str):
+                        valid_members.append({'id': m, 'role': ''})
+                g['members'] = valid_members
+
         # 只允许管理员批量覆盖；普通用户只更新自己的群组
         if auth.is_admin:
             _save_groups(body)
@@ -1880,6 +1902,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'error': '无效的请求体'})
             return
 
+        # 先统一转换现有 members 格式（兼容历史数据中的字符串数组）
+        raw_members = group.get('members', [])
+        normalized_members = []
+        for m in raw_members:
+            if isinstance(m, dict) and m.get('id'):
+                normalized_members.append({'id': m['id'], 'role': m.get('role', '')})
+            elif isinstance(m, str):
+                normalized_members.append({'id': m, 'role': ''})
+        group['members'] = normalized_members
+
         # body: {member: {id, role}} or {id, role}
         member = body.get('member', body)
         if isinstance(member, dict) and member.get('id'):
@@ -1918,6 +1950,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('权限不足', 403)
             return
 
+        # 先统一转换现有 members 格式（兼容历史数据中的字符串数组）
+        raw_members = group.get('members', [])
+        normalized_members = []
+        for m in raw_members:
+            if isinstance(m, dict) and m.get('id'):
+                normalized_members.append({'id': m['id'], 'role': m.get('role', '')})
+            elif isinstance(m, str):
+                normalized_members.append({'id': m, 'role': ''})
+        group['members'] = normalized_members
+
         original_len = len(group.get('members', []))
         group['members'] = [m for m in group.get('members', []) if m.get('id') != emp_id]
 
@@ -1948,42 +1990,32 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         result = []
         for t in teams:
-            # 权限过滤
-            if auth.is_admin:
-                visible = True
-            elif auth.is_leader:
-                # leader 可见自己管理的小组 + 子组
-                visible = t.get('leaderId') == auth.user_info.get('userId') or t.get('id') in auth.managed_team_ids
-            else:
-                # employee 可见自己所属的小组
-                visible = auth.user_info.get('userId') in t.get('members', [])
+            # 所有已认证用户均可查看团队列表（团队是组织架构分类，读取不敏感）
+            # 写入权限（创建/修改/删除）仍按角色严格控制
+            leader_name = ''
+            leader = _find_user(users, 'id', t.get('leaderId'))
+            if leader:
+                leader_name = leader.get('displayName', leader.get('username', ''))
 
-            if visible:
-                # 构建响应
-                leader_name = ''
-                leader = _find_user(users, 'id', t.get('leaderId'))
-                if leader:
-                    leader_name = leader.get('displayName', leader.get('username', ''))
+            # 计算子组
+            children = [s.get('id') for s in teams if s.get('parentId') == t.get('id')]
 
-                # 计算子组
-                children = [s.get('id') for s in teams if s.get('parentId') == t.get('id')]
-
-                team_info = {
-                    'id': t.get('id'),
-                    'name': t.get('name', ''),
-                    'description': t.get('description', ''),
-                    'parentId': t.get('parentId'),
-                    'leaderId': t.get('leaderId'),
-                    'leader': t.get('leaderId'),
-                    'leaderName': leader_name,
-                    'memberCount': len(t.get('members', [])),
-                    'agentCount': len(t.get('agentIds', [])),
-                    'members': t.get('members', []),
-                    'note': t.get('note', ''),
-                    'children': children,
-                    'createdAt': t.get('createdAt', '')
-                }
-                result.append(team_info)
+            team_info = {
+                'id': t.get('id'),
+                'name': t.get('name', ''),
+                'description': t.get('description', ''),
+                'parentId': t.get('parentId'),
+                'leaderId': t.get('leaderId'),
+                'leader': t.get('leaderId'),
+                'leaderName': leader_name,
+                'memberCount': len(t.get('members', [])),
+                'agentCount': len(t.get('agentIds', [])),
+                'members': t.get('members', []),
+                'note': t.get('note', ''),
+                'children': children,
+                'createdAt': t.get('createdAt', '')
+            }
+            result.append(team_info)
 
         self._send_json(200, result)
 

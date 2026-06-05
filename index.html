@@ -2302,6 +2302,24 @@ window.doLogin = function () {
   </div>
 </div>
 
+<!-- 督促群成员弹窗 (Apple Style) -->
+<div class="announcement-modal-overlay" id="urgeModalOverlay" onclick="closeUrgeModal()">
+  <div class="announcement-modal-panel" onclick="event.stopPropagation()">
+    <div class="announcement-modal-header">
+      <div class="announcement-modal-title">🔔 督促群成员</div>
+      <button class="announcement-modal-close" onclick="closeUrgeModal()">✕</button>
+    </div>
+    <div class="announcement-modal-body">
+      <textarea id="urgeModalInput" placeholder="输入督促内容，将 @所有人 ..." maxlength="300">各位，请尽快处理手头任务，有问题及时沟通！</textarea>
+      <div class="announcement-modal-hint">将以群主身份发送 · 自动 @所有人 · 最多 300 字</div>
+    </div>
+    <div class="announcement-modal-footer">
+      <button class="announcement-modal-btn cancel" onclick="closeUrgeModal()">取消</button>
+      <button class="announcement-modal-btn save" onclick="sendUrgeFromModal()" style="color:#FF3B30;font-weight:600;">发送督促</button>
+    </div>
+  </div>
+</div>
+
 <div class="chat-progress" id="chatProgress" style="display:none;">
 <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:60%;"></div></div>
 <span class="progress-text"><span id="progressText">60%</span></span>
@@ -2968,6 +2986,11 @@ window.doLogin = function () {
 
 <script>// ========== 工具函数 ==========
 // ========== Phase 2: 权限控制 ==========
+
+// 群聊 AI 行动边界：防止 AI 越权替老板或真人做承诺、约时间、做决策、编造事件
+// 保持拟人化，但涉及行动类决定必须先请示真人，不能自己接下或推进
+var GROUP_CHAT_ACTION_BOUNDARY = '【行动边界】你保持拟人化、有脾气、有专业判断，但绝不代表老板或任何真人做承诺、约定、决策。你没有权限代替真人安排会议时间、许诺交付物、确认合同/方案/预算、编造未发生或未核实的具体事件。如果话题涉及需要真人拍板的行动（如“约个会”“带合同来”“定个时间”“就这么办”），你必须明确说“这件事我需要先请示老板/相关同事，我不能替他决定”，并停止推进，而不是自己接下、编造或推动执行。';
+
 var projects = [];
 var currentUser = null;
 var authToken = localStorage.getItem('sb_auth_token') || null;
@@ -7207,7 +7230,7 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     return e.name + '（' + (_r || '员工') + _skills + '）';
   }).filter(function (s) { return s; }).join('、') : '';
 
-  var prompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人说：' + messageContent + '\n\n你是这个团队的一员，有自己的专业判断和脾气。作为团队成员，你应该积极参与讨论，表达自己的观点和想法：\n- 可以赞同也可以反对\n- 觉得谁该看到这个话题，直接@他（用 @名字 格式）\n- 不用写报告，就像真的在群里看到消息随口回复一样\n\n只有当你完全没有任何想法时，才回复 SKIP。否则请直接发表你的看法。';
+  var prompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人说：' + messageContent + '\n\n你是这个团队的一员，有自己的专业判断和脾气。作为团队成员，你应该积极参与讨论，表达自己的观点和想法：\n- 可以赞同也可以反对\n- 觉得谁该看到这个话题，直接@他（用 @名字 格式）\n- 不用写报告，就像真的在群里看到消息随口回复一样\n\n只有当你完全没有任何想法时，才回复 SKIP。否则请直接发表你的看法。\n\n' + GROUP_CHAT_ACTION_BOUNDARY;
 
   emp.status = 'thinking';
   renderEmployeeList();
@@ -7271,7 +7294,7 @@ async function initiateAgentDiscussion(groupId) {
     return e.name + '（' + (_r || '员工') + _skills + '）';
   }).filter(function (s) { return s; }).join('、');
 
-  var prompt = '你是' + initiator.name + '（' + getEmpRoleDisplay(initiator) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群聊里有点安静，你是这个团队的一员，有自己的想法和脾气。你看到什么想说就说，觉得谁该聊这个话题就@谁（用 @名字 格式）。不用写报告，就像真的在群里开口说话一样。';
+  var prompt = '你是' + initiator.name + '（' + getEmpRoleDisplay(initiator) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群聊里有点安静，你是这个团队的一员，有自己的想法和脾气。你看到什么想说就说，觉得谁该聊这个话题就@谁（用 @名字 格式）。不用写报告，就像真的在群里开口说话一样。\n\n' + GROUP_CHAT_ACTION_BOUNDARY;
 
   // 显示"正在输入"
   var area = document.getElementById('messagesArea');
@@ -7529,6 +7552,9 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   var empSoul = '';
   if (emp.soulDoc) empSoul = emp.soulDoc;
   else if (emp.systemPrompt) empSoul = emp.systemPrompt;
+  // 追加群聊行动边界约束
+  prompt += '\n\n' + GROUP_CHAT_ACTION_BOUNDARY;
+
   if (empSoul) {
     prompt = '【System Prompt】\n' + empSoul + '\n\n【User Message】\n' + prompt;
   }
@@ -7734,9 +7760,11 @@ function displayGroupAIReply(groupId, senderId, replyText) {
     localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
   }
 
-  // 群聊中的对话也应沉淀为 AI 员工的个人记忆
+  // 群聊中的对话也应沉淀为 AI 员工的个人记忆（延迟避免 session 冲突）
   if (triggerMsg && triggerMsg.content && senderId) {
-    extractAndSaveMemory(senderId, triggerMsg.content, replyText, true);
+    setTimeout(function () {
+      extractAndSaveMemory(senderId, triggerMsg.content, replyText, true);
+    }, 800);
   }
 
   // 更新群组最后消息
@@ -8090,20 +8118,63 @@ function saveAnnouncementFromModal() {
   }
 }
 
-// 键盘快捷键：ESC 关闭，Cmd/Ctrl + Enter 保存
+// 键盘快捷键：ESC 关闭，Cmd/Ctrl + Enter 保存/发送
 document.addEventListener('keydown', function (e) {
-  var overlay = document.getElementById('announcementModalOverlay');
-  if (!overlay || !overlay.classList.contains('open')) return;
-  if (e.key === 'Escape') {
-    closeAnnouncementModal();
+  var annOverlay = document.getElementById('announcementModalOverlay');
+  var urgeOverlay = document.getElementById('urgeModalOverlay');
+  if (annOverlay && annOverlay.classList.contains('open')) {
+    if (e.key === 'Escape') {
+      closeAnnouncementModal();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      saveAnnouncementFromModal();
+    }
+    return;
   }
-  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-    saveAnnouncementFromModal();
+  if (urgeOverlay && urgeOverlay.classList.contains('open')) {
+    if (e.key === 'Escape') {
+      closeUrgeModal();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      sendUrgeFromModal();
+    }
   }
 });
 
-// 督促群成员 — 群主发送 @所有人 的督促消息
-function urgeGroupMembers() {
+// 打开督促弹窗
+function openUrgeModal() {
+  var overlay = document.getElementById('urgeModalOverlay');
+  var input = document.getElementById('urgeModalInput');
+  if (!overlay || !input) return;
+  input.value = '各位，请尽快处理手头任务，有问题及时沟通！';
+  overlay.classList.add('open');
+  setTimeout(function () {
+    input.focus();
+    input.select();
+  }, 50);
+}
+
+// 关闭督促弹窗
+function closeUrgeModal() {
+  var overlay = document.getElementById('urgeModalOverlay');
+  if (overlay) overlay.classList.remove('open');
+}
+
+// 从弹窗发送督促消息
+function sendUrgeFromModal() {
+  var input = document.getElementById('urgeModalInput');
+  if (!input) return;
+  var urgeText = input.value || '';
+  if (!urgeText.trim()) {
+    showToast('⚠️ 督促内容不能为空');
+    return;
+  }
+  closeUrgeModal();
+  _doSendUrgeMessage(urgeText.trim());
+}
+
+// 实际发送督促消息（与弹窗解耦，便于复用）
+function _doSendUrgeMessage(urgeText) {
   var group = groups.find(function (g) {
     return g.id === currentGroupId;
   });
@@ -8118,11 +8189,9 @@ function urgeGroupMembers() {
     showToast('⚠️ 群组没有设置群主');
     return;
   }
-  var urgeText = prompt('输入督促内容（将 @所有人）：', '各位，请尽快处理手头任务，有问题及时沟通！');
-  if (!urgeText || !urgeText.trim()) return;
 
   // 构建 @所有人 的消息
-  var fullMessage = '@所有人 ' + urgeText.trim();
+  var fullMessage = '@所有人 ' + urgeText;
 
   // 保存到历史（写入前去重）
   var historyKey = 'sb_group_history_' + group.id;
@@ -8160,6 +8229,25 @@ function urgeGroupMembers() {
     }, (idx + 1) * 2000);
   });
   showToast('🔔 督促消息已发送');
+}
+
+// 督促群成员 — 群主发送 @所有人 的督促消息
+function urgeGroupMembers() {
+  var group = groups.find(function (g) {
+    return g.id === currentGroupId;
+  });
+  if (!group) {
+    showToast('⚠️ 请先进入一个群组');
+    return;
+  }
+  var leadEmp = emps.find(function (e) {
+    return e.id === group.leadAgentId;
+  });
+  if (!leadEmp) {
+    showToast('⚠️ 群组没有设置群主');
+    return;
+  }
+  openUrgeModal();
 }
 
 // 归档群聊 — 保存当前聊天记录到归档列表，保留本地记录
@@ -10218,6 +10306,8 @@ function removeGroupMember(empId) {
     saveGroups();
     renderGroupDetailMembers(group);
     renderGroupItems();
+    // 刷新群聊头部及详情弹窗中的成员数
+    _refreshGroupMemberCount(group);
     showToast('已移除成员');
   }
 }
@@ -10400,9 +10490,59 @@ function addGroupMember(empId) {
     saveGroups();
     renderGroupDetailMembers(group);
     renderGroupItems();
+    // 刷新群聊头部成员数（如果当前打开的是该群聊）
+    _refreshGroupMemberCount(group);
     closeModal();
     showToast('已添加成员');
   }
+}
+
+// 统一刷新群组相关 UI 中的成员数
+function _refreshGroupMemberCount(group) {
+  if (!group) return;
+  // 过滤幽灵成员，只统计实际存在的员工
+  var validMembers = (group.members || []).filter(function (mid) {
+    return emps.some(function (e) {
+      return e.id === mid;
+    });
+  });
+  var memberCount = validMembers.length;
+
+  // 1. 刷新群聊头部（如果当前打开的是该群聊）
+  if (currentGroupId === group.id) {
+    var chatHeaderRole = document.querySelector('.chat-header-role');
+    if (chatHeaderRole) {
+      chatHeaderRole.textContent = memberCount + ' 名成员 · 群聊';
+    }
+    // 刷新头部头像列表
+    var chatHeaderLeft = document.querySelector('.chat-header-left');
+    if (chatHeaderLeft) {
+      var emoji = group.emoji || '👥';
+      var memberAvatarsHtml = '';
+      var members = group.members || [];
+      var showCount = Math.min(members.length, 4);
+      for (var i = 0; i < showCount; i++) {
+        var m = emps.find(function (e) {
+          return e.id === members[i];
+        });
+        if (m) {
+          memberAvatarsHtml += '<div class="mini-avatar" style="background:' + escapeAttr(m.bg || '#8E8E93') + ';">' + renderAvatar(m, 20) + '</div>';
+        }
+      }
+      if (members.length > 4) {
+        memberAvatarsHtml += '<div class="mini-avatar mini-more">+' + (members.length - 4) + '</div>';
+      }
+      chatHeaderLeft.innerHTML = '<div class="group-avatar" style="background:linear-gradient(135deg,' + escapeAttr(group.bg || '#5856D6') + ',' + (group.bg || '#5856D6') + 'dd);width:36px;height:36px;border-radius:10px;font-size:18px;">' + escapeHtml(emoji) + '</div>' + '<div class="chat-header-info">' + '<div class="chat-header-name" style="display:flex;align-items:center;gap:6px;">' + '<span>' + escapeHtml(group.name) + '</span>' + '<div class="group-header-avatars">' + memberAvatarsHtml + '</div>' + '</div>' + '<div class="chat-header-role">' + memberCount + ' 名成员 · 群聊</div>' + '</div>';
+    }
+  }
+
+  // 2. 刷新群组详情弹窗中的成员数
+  var headerEl = document.getElementById('groupHeaderMemberCount');
+  if (headerEl) headerEl.textContent = memberCount;
+  var gdStatus = document.getElementById('groupDetailStatus');
+  if (gdStatus) gdStatus.innerHTML = '<span class="status-dot online"></span> ' + memberCount + ' 位成员';
+  var infoMemberEl = document.getElementById('groupInfoMemberCount');
+  if (infoMemberEl) infoMemberEl.textContent = memberCount;
 }
 function saveGroupDetail() {
   if (!currentGroupDetailId) return;
@@ -11772,8 +11912,10 @@ function saveChatHistory(empId, userMsg, aiMsg, docContext) {
   // 同步到后端
   saveChatToServer(empId, userMsg, aiMsg, docContext);
 
-  // 提取并保存记忆
-  extractAndSaveMemory(empId, userMsg, aiMsg);
+  // 提取并保存记忆（延迟 800ms，避免与刚结束的 OpenClaw session 冲突）
+  setTimeout(function () {
+    extractAndSaveMemory(empId, userMsg, aiMsg);
+  }, 800);
 
   // 保存后检查是否需要压缩
   var chatKey = 'sb_chat_history_' + empId;
@@ -11811,6 +11953,7 @@ function extractAndSaveMemory(empId, userMsg, aiReply, isGroupChat) {
 
   // 先加载已有记忆，避免重复提取
   apiFetch('/api/memory/' + empId).then(function (r) {
+    console.log('[Memory] 加载已有记忆响应状态:', r ? r.status : 'null', '员工:', emp.name);
     return r.json();
   }).then(function (existing) {
     if (!existing) existing = [];
@@ -11895,16 +12038,26 @@ function _extractMemoryViaOpenClaw(empId, extractPrompt, existing) {
     if (extractReply) {
       _processExtractedMemory(empId, extractReply, existing);
     } else {
-      console.log('[Memory] 提取超时，无结果');
+      console.warn('[Memory] OpenClaw 提取超时无结果，尝试 fallback 到 API:', emp.name);
+      if (emp.apiKey && emp.aiProvider) {
+        _extractMemoryViaAPI(empId, extractPrompt, existing);
+      } else {
+        console.warn('[Memory] 无 API 配置，fallback 不可用:', emp.name);
+      }
     }
   }, 30000);
 
   openclaw.sendChat(sessionKey, extractPrompt).then(function () {
-    console.log('[Memory] OpenClaw sendChat 已发送:', emp.name);
+    console.log('[Memory] OpenClaw sendChat 已发送:', emp.name, 'sessionKey:', sessionKey, 'prompt长度:', extractPrompt.length);
   }).catch(function (e) {
     if (extractTimeout) clearTimeout(extractTimeout);
     openclaw.off('agent', extractHandler);
-    console.warn('[Memory] OpenClaw 提取发送失败:', e);
+    console.warn('[Memory] OpenClaw 提取发送失败:', e, '员工:', emp.name);
+    // 发送失败也尝试 fallback
+    if (emp.apiKey && emp.aiProvider) {
+      console.log('[Memory] OpenClaw 发送失败，fallback 到 API:', emp.name);
+      _extractMemoryViaAPI(empId, extractPrompt, existing);
+    }
   });
 }
 
@@ -11916,14 +12069,14 @@ function _extractMemoryViaAPI(empId, extractPrompt, existing) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content: extractPrompt, skipAI: false })
   }).then(function (r) {
-    console.log('[Memory] API 提取响应状态:', r ? r.status : 'null');
+    console.log('[Memory] API 提取响应状态:', r ? r.status : 'null', '员工:', empId);
     return r.json();
   }).then(function (data) {
     var extracted = (data.aiMessage && data.aiMessage.content) || data.reply || '';
-    console.log('[Memory] API 提取结果:', extracted ? extracted.substring(0, 100) : '(空)');
+    console.log('[Memory] API 提取结果长度:', extracted.length, '前100字:', extracted ? extracted.substring(0, 100) : '(空)');
     _processExtractedMemory(empId, extracted, existing);
   }).catch(function (e) {
-    console.warn('[Memory] API 提取失败:', e);
+    console.warn('[Memory] API 提取失败:', e, '员工:', empId);
   });
 }
 
@@ -11935,27 +12088,39 @@ function _processExtractedMemory(empId, extracted, existing) {
     return;
   }
 
-  // 按行拆分，提取 - 开头的记忆
+  // 按行拆分，提取列表项：- 、数字 1. 、* 开头的记忆
   var lines = extracted.split('\n').map(function (l) { return l.trim(); });
   var newMemories = [];
   lines.forEach(function (line) {
+    if (!line || line === '无') return;
+    var memValue = '';
     if (line.indexOf('- ') === 0 && line.length > 3) {
-      var memValue = line.substring(2).trim();
-      if (memValue && memValue !== '无') {
-        newMemories.push(memValue);
-      }
+      memValue = line.substring(2).trim();
+    } else if (/^\d+\.\s+/.test(line) && line.length > 4) {
+      memValue = line.replace(/^\d+\.\s+/, '').trim();
+    } else if (line.indexOf('* ') === 0 && line.length > 3) {
+      memValue = line.substring(2).trim();
+    }
+    if (memValue && memValue !== '无' && memValue.length > 3) {
+      newMemories.push(memValue);
     }
   });
-  console.log('[Memory] 解析出 - 开头记忆数量:', newMemories.length);
+  console.log('[Memory] 解析出列表项记忆数量:', newMemories.length, '样本:', newMemories.slice(0, 3));
 
-  // 如果没有 - 开头的行，尝试把整段作为一条记忆（清理提示词前缀）
+  // 如果没有列表项，尝试把整段作为一条记忆（清理提示词前缀和编号）
   if (newMemories.length === 0) {
-    var cleanText = extracted.replace(/【记忆提取任务】/g, '').replace(/\d+\./g, '').trim();
-    if (cleanText && cleanText !== '无' && cleanText.length > 3 && cleanText.indexOf('要求：') !== 0) {
+    var cleanText = extracted
+      .replace(/【记忆提取任务】/g, '')
+      .replace(/【已有记忆[^】]*】/g, '')
+      .replace(/【本次[^】]*】/g, '')
+      .replace(/要求：[^\n]*/g, '')
+      .replace(/^\d+[\.、]\s*/gm, '')
+      .trim();
+    if (cleanText && cleanText !== '无' && cleanText.length > 5 && cleanText.indexOf('要求：') !== 0) {
       newMemories.push(cleanText);
-      console.log('[Memory] 无 - 开头行, fallback 整段作为记忆');
+      console.log('[Memory] 无列表项, fallback 整段作为记忆:', cleanText.substring(0, 80));
     } else {
-      console.log('[Memory] fallback 也不符合保存条件');
+      console.log('[Memory] fallback 也不符合保存条件, 清理后文本:', cleanText.substring(0, 80));
     }
   }
 
@@ -11993,8 +12158,11 @@ function _processExtractedMemory(empId, extracted, existing) {
         value: memValue.substring(0, 500),
         source: '自动提取'
       })
-    }).then(function () {
-      console.log('[Memory] ✅ 保存记忆成功:', memValue.substring(0, 50));
+    }).then(function (r) {
+      console.log('[Memory] ✅ 保存记忆成功:', memValue.substring(0, 50), '状态:', r ? r.status : 'null');
+      return r.json();
+    }).then(function (saved) {
+      console.log('[Memory] 后端返回记忆ID:', saved && saved.id, '员工:', empId);
     }).catch(function (e) {
       console.warn('[Memory] ❌ 保存记忆失败:', e);
     });
