@@ -5232,10 +5232,11 @@ function _getLeaderVisibleAgentIds() {
   var teams = window._visibleTeams || [];
   var ids = [];
   teams.forEach(function (t) {
-    // 小组成员（user创建的emps）
+    // 小组成员（user创建的emps），兼容字符串和字典两种格式
     if (t.members) {
-      t.members.forEach(function (mid) {
-        if (ids.indexOf(mid) < 0) ids.push(mid);
+      t.members.forEach(function (m) {
+        var mid = (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+        if (mid && ids.indexOf(mid) < 0) ids.push(mid);
       });
     }
     // OpenClaw agents
@@ -7024,7 +7025,11 @@ async function sendGroupMessage(groupId, message, mentions) {
       return e.id === group.leadAgentId;
     });
     var leadEmpInfo = leadEmp ? leadEmp.name + '(' + getEmpRoleDisplay(leadEmp) + ')' : '群主';
-    var memberList = (group.members || []).map(function (mid) {
+    // 兼容 members 的两种格式：字符串数组 和 字典数组
+    var _memberIds2 = (group.members || []).map(function (m) {
+      return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+    }).filter(function (id) { return id; });
+    var memberList = _memberIds2.map(function (mid) {
       var e = emps.find(function (x) {
         return x.id === mid;
       });
@@ -7033,7 +7038,7 @@ async function sendGroupMessage(groupId, message, mentions) {
       var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
       return e.name + '（' + (_r || '员工') + _skills + '）';
     }).filter(function (s) { return s; }).join('、');
-    var memberMentions = (group.members || []).map(function (mid) {
+    var memberMentions = _memberIds2.map(function (mid) {
       var e = emps.find(function (x) {
         return x.id === mid;
       });
@@ -7269,7 +7274,11 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
   var group = groups.find(function (g) {
     return g.id === groupId;
   });
-  var groupMemberIds = group && group.members ? group.members : [];
+  // 兼容 members 的两种格式：字符串数组 和 字典数组
+  var rawMembers = group && group.members ? group.members : [];
+  var groupMemberIds = rawMembers.map(function (m) {
+    return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+  }).filter(function (id) { return id; });
 
   // 匹配 @名字（中英文都支持），仅触发当前项目组成员
   var mentionRegex = /@([^\s@,，。！？;；:：、\n]{1,20})/g;
@@ -7326,7 +7335,10 @@ function pollAgentsForReply(groupId, senderId, messageContent) {
   if (!group || !group.members) return;
 
   // 排除发送者自己（不再过滤 thinking 状态，确保所有成员都会被轮询到）
-  var others = group.members.filter(function (mid) {
+  // 兼容 members 的两种格式：字符串数组 和 字典数组
+  var others = group.members.map(function (m) {
+    return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+  }).filter(function (id) { return id; }).filter(function (mid) {
     if (mid === senderId) return false;
     var e = emps.find(function (x) {
       return x.id === mid;
@@ -7373,7 +7385,11 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     return g.id === groupId;
   });
   var groupName = group ? group.name : '项目组';
-  var memberProfiles = group && group.members ? group.members.map(function (mid2) {
+  // 兼容 members 的两种格式：字符串数组 和 字典数组
+  var _memberIds4 = group && group.members ? group.members.map(function (m) {
+    return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+  }).filter(function (id) { return id; }) : [];
+  var memberProfiles = _memberIds4.map(function (mid2) {
     var e = emps.find(function (x) {
       return x.id === mid2;
     });
@@ -7381,7 +7397,7 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     var _r = getEmpRoleDisplay(e);
     var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
     return e.name + '（' + (_r || '员工') + _skills + '）';
-  }).filter(function (s) { return s; }).join('、') : '';
+  }).filter(function (s) { return s; }).join('、');
 
   var prompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人说：' + messageContent + '\n\n你是这个团队的一员，有自己的专业判断和脾气。作为团队成员，你应该积极参与讨论，表达自己的观点和想法：\n- 可以赞同也可以反对\n- 觉得谁该看到这个话题，直接@他（用 @名字 格式）\n- 不用写报告，就像真的在群里看到消息随口回复一样\n\n只有当你完全没有任何想法时，才回复 SKIP。否则请直接发表你的看法。\n\n' + GROUP_CHAT_ACTION_BOUNDARY;
 
@@ -7419,8 +7435,12 @@ async function initiateAgentDiscussion(groupId) {
     showToast('⚠️ 群组没有成员');
     return;
   }
+  // 兼容 members 的两种格式：字符串数组 和 字典数组
+  var _memberIds3 = group.members.map(function (m) {
+    return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+  }).filter(function (id) { return id; });
   // 随机选一个成员作为发起人
-  var candidates = group.members.filter(function (mid) {
+  var candidates = _memberIds3.filter(function (mid) {
     var e = emps.find(function (x) {
       return x.id === mid;
     });
@@ -7437,7 +7457,7 @@ async function initiateAgentDiscussion(groupId) {
   if (!initiator) return;
 
   var groupName = group.name;
-  var memberProfiles = group.members.map(function (mid) {
+  var memberProfiles = _memberIds3.map(function (mid) {
     var e = emps.find(function (x) {
       return x.id === mid;
     });
@@ -7500,8 +7520,12 @@ function triggerInterestedAgents(groupId, senderId, messageContent) {
     return g.id === groupId;
   });
   if (!group || !group.members) return;
+  // 兼容 members 的两种格式：字符串数组 和 字典数组
+  var _memberIds5 = group.members.map(function (m) {
+    return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+  }).filter(function (id) { return id; });
   setTimeout(function () {
-    var candidates = group.members.filter(function (mid) {
+    var candidates = _memberIds5.filter(function (mid) {
       if (mid === senderId) return false;
       if (mentionTriggered && mentionTriggered[mid]) return false;
       var e = emps.find(function (x) {
@@ -7548,7 +7572,11 @@ async function checkAgentInterest(mid, groupId, senderId, messageContent) {
     return g.id === groupId;
   });
   var groupName = group ? group.name : '项目组';
-  var memberProfiles = group && group.members ? group.members.map(function (mid) {
+  // 兼容 members 的两种格式：字符串数组 和 字典数组
+  var _memberIds6 = group && group.members ? group.members.map(function (m) {
+    return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+  }).filter(function (id) { return id; }) : [];
+  var memberProfiles = _memberIds6.map(function (mid) {
     var e = emps.find(function (x) {
       return x.id === mid;
     });
@@ -7556,7 +7584,7 @@ async function checkAgentInterest(mid, groupId, senderId, messageContent) {
     var _r = getEmpRoleDisplay(e);
     var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
     return e.name + '（' + (_r || '员工') + _skills + '）';
-  }).filter(function (s) { return s; }).join('、') : '';
+  }).filter(function (s) { return s; }).join('、');
   var checkPrompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人发了消息：' + messageContent + '\n\n你看到这个消息，心里怎么想？跟你有关吗？有话想说吗？\n如果有关，回复 YES。\n如果完全没兴趣，回复 NO。\n只回复 YES 或 NO，别废话。';
   mentionTriggered = mentionTriggered || {};
   try {
@@ -7622,7 +7650,11 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     return g.id === groupId;
   });
   var groupName = groupObj ? groupObj.name : '项目组';
-  var memberList = groupObj ? (groupObj.members || []).map(function (mid) {
+  // 兼容 members 的两种格式：字符串数组 和 字典数组
+  var _memberIds = groupObj ? (groupObj.members || []).map(function (m) {
+    return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+  }).filter(function (id) { return id; }) : [];
+  var memberList = _memberIds.map(function (mid) {
     var e = emps.find(function (x) {
       return x.id === mid;
     });
@@ -7630,14 +7662,14 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     var _r = getEmpRoleDisplay(e);
     var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
     return e.name + '（' + (_r || '员工') + _skills + '）';
-  }).filter(function (s) { return s; }).join('、') : '';
-  var memberMentions = groupObj ? (groupObj.members || []).map(function (mid) {
+  }).filter(function (s) { return s; }).join('、');
+  var memberMentions = _memberIds.map(function (mid) {
     var e = emps.find(function (x) {
       return x.id === mid;
     });
     var _r = getEmpRoleDisplay(e);
     return e ? (_r ? '@' + e.name + '（' + _r + '）' : '@' + e.name) : '';
-  }).filter(function (s) { return s; }).join('、') : '';
+  }).filter(function (s) { return s; }).join('、');
 
   // 构造提示：让 AI 感觉自己是真实的团队成员，有性格和主动性
   var fromRole = fromEmp ? getEmpRoleDisplay(fromEmp) : getCurrentUserRoleDisplay();
@@ -8273,7 +8305,9 @@ function saveAnnouncementFromModal() {
 
   // 通知所有 AI 成员群公告已更新
   if (group.members && group.members.length > 0 && newAnnouncement.length > 0) {
-    group.members.forEach(function (mid, idx) {
+    // 兼容 members 的两种格式：字符串数组 和 字典数组
+    group.members.forEach(function (m, idx) {
+      var mid = (typeof m === 'object' && m !== null) ? (m.id || m) : m;
       var emp = emps.find(function (e) {
         return e.id === mid;
       });
@@ -8386,7 +8420,10 @@ function _doSendUrgeMessage(urgeText) {
   displayGroupAIReply(group.id, group.leadAgentId, fullMessage);
 
   // 触发被 @ 的 AI 回复（除了群主自己）
-  var validMembers = group.members.filter(function (mid) {
+  // 兼容 members 的两种格式：字符串数组 和 字典数组
+  var validMembers = group.members.map(function (m) {
+    return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+  }).filter(function (id) { return id; }).filter(function (mid) {
     return emps.some(function (e) {
       return e.id === mid;
     }) && mid !== group.leadAgentId;
@@ -9102,7 +9139,9 @@ function showMentionDropdown() {
       return g.id === currentGroupId;
     });
     if (group && group.members) {
-      mentionList = group.members.map(function (mid) {
+      // 兼容 members 的两种格式：字符串数组 和 字典数组
+      mentionList = group.members.map(function (m) {
+        var mid = (typeof m === 'object' && m !== null) ? (m.id || m) : m;
         return emps.find(function (e) {
           return e.id === mid;
         });
@@ -10504,9 +10543,16 @@ function showAddMemberModal() {
   });
   if (!group) return;
 
-  // Find employees not in group
+  // Find employees not in group（兼容 members 的两种格式）
+  var groupMemberIdSet = {};
+  if (group.members) {
+    group.members.forEach(function (m) {
+      var mid = (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+      if (mid) groupMemberIdSet[mid] = true;
+    });
+  }
   var availableEmps = emps.filter(function (e) {
-    return !e.archived && (!group.members || group.members.indexOf(e.id) === -1);
+    return !e.archived && !groupMemberIdSet[e.id];
   });
   if (availableEmps.length === 0) {
     showToast('没有可添加的成员');
@@ -10590,7 +10636,9 @@ function confirmAddMembers() {
         return g.id === currentGroupDetailId;
       });
       if (!groupObj) return;
-      var memberList = (groupObj.members || []).map(function (mid) {
+      // 兼容 members 的两种格式：字符串数组 和 字典数组
+      var memberList = (groupObj.members || []).map(function (m) {
+        var mid = (typeof m === 'object' && m !== null) ? (m.id || m) : m;
         var e = emps.find(function (x) {
           return x.id === mid;
         });
@@ -10622,7 +10670,10 @@ function confirmAddMembers() {
         });
         return e ? e.name + '（' + getEmpRoleDisplay(e) + '）' : id;
       }).join('、');
-      var existingMemberIds = (groupObj2.members || []).filter(function (mid) {
+      // 兼容 members 的两种格式：字符串数组 和 字典数组
+      var existingMemberIds = (groupObj2.members || []).map(function (m) {
+        return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+      }).filter(function (id) { return id; }).filter(function (mid) {
         return newMemberIds.indexOf(mid) === -1;
       });
       existingMemberIds.forEach(function (existingId) {
