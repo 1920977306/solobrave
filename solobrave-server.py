@@ -1716,6 +1716,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             'avatar': agent.get('avatar', '🦞'),
                             'bg': agent.get('bg', '#FF6B35'),
                             'role': agent.get('role', ''),
+                            'createdBy': agent.get('createdBy', ''),
                         })
                     elif isinstance(m, dict):
                         enriched.append(m)
@@ -1758,6 +1759,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     'avatar': agent.get('avatar', '🦞'),
                     'bg': agent.get('bg', '#FF6B35'),
                     'role': agent.get('role', ''),
+                    'createdBy': agent.get('createdBy', ''),
                 })
             elif isinstance(m, dict):
                 enriched.append(m)
