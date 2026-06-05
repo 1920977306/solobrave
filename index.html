@@ -5227,13 +5227,12 @@ function toggleCategory(cat) {
 // 获取当前用户可见的员工列表（权限过滤）
 function getVisibleEmps() {
   if (!emps || emps.length === 0) return [];
-  // 侧边栏只显示当前用户创建的 agents（子账号不显示管理员创建的 AI）
-  // emps 中可能包含通过 mergeGroupMembersToEmps 合并的其他成员基础信息，
-  // 但侧边栏只显示当前用户创建的
+  // 侧边栏职能列表只显示 /api/agents 返回的自己创建的 agents
+  // 项目组成员（通过 mergeGroupMembersToEmps 合并进来的）只在项目组内部可见，不出现在侧边栏
   var uid = currentUser && (currentUser.userId || currentUser.id);
   if (currentUser && currentUser.role !== 'admin' && uid) {
     return emps.filter(function (e) {
-      return e.createdBy === uid || !e.createdBy;
+      return e.createdBy === uid;
     });
   }
   return emps;
