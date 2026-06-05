@@ -6848,20 +6848,61 @@ function renderGroupMessages(groupId) {
   });
   if (!group) return;
 
-  // 优先从后端加载历史，所有人共享
+  // 同时读取后端和 localStorage，合并去重显示（迁移旧数据）
   var historyKey = 'sb_group_history_' + groupId;
+  var localHistory = [];
+  try {
+    localHistory = JSON.parse(localStorage.getItem(historyKey) || '[]');
+  } catch (e) {}
+  // 给旧数据补充唯一 id
+  var hasNewLocalId = false;
+  localHistory.forEach(function (m) {
+    if (!m.id) {
+      m.id = 'msg_local_' + (m.time || Date.now()) + '_' + Math.random().toString(36).slice(2, 6);
+      hasNewLocalId = true;
+    }
+  });
+  if (hasNewLocalId) {
+    localStorage.setItem(historyKey, JSON.stringify(localHistory));
+  }
+
   apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/history')
     .then(function (r) {
       return r.json();
     })
     .then(function (data) {
-      var history = (data && data.messages) || [];
-      _doRender(history);
+      var backendHistory = (data && data.messages) || [];
+      var backendIds = {};
+      backendHistory.forEach(function (m) {
+        backendIds[m.id || ''] = true;
+      });
+      // 合并：后端为基础，补充 localStorage 独有的旧数据
+      var merged = backendHistory.slice();
+      localHistory.forEach(function (m) {
+        if (!backendIds[m.id]) {
+          merged.push(m);
+          // 把旧数据迁移到后端（一次性，不阻塞渲染）
+          apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/history', {
+            method: 'POST',
+            body: JSON.stringify(m)
+          }).catch(function (err) {
+            console.log('[renderGroupMessages] 迁移旧数据失败:', err);
+          });
+        }
+      });
+      // 按时间排序
+      merged.sort(function (a, b) {
+        return (a.time || 0) - (b.time || 0);
+      });
+      _doRender(merged);
     })
     .catch(function (err) {
       console.log('[renderGroupMessages] 后端加载失败，回退 localStorage:', err);
-      var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
-      _doRender(history);
+      // 按时间排序后渲染本地数据
+      localHistory.sort(function (a, b) {
+        return (a.time || 0) - (b.time || 0);
+      });
+      _doRender(localHistory);
     });
 
   function _doRender(history) {
