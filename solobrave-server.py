@@ -2473,7 +2473,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ═══════════════════════════════════════════════════
 
     def _handle_get_agents(self):
-        """GET /api/agents"""
+        """GET /api/agents — 返回所有 agents 的基础信息（脱敏），供成员列表等场景使用"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -2481,24 +2481,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         agents = _load_agents()
 
-        if auth.is_admin:
-            result = agents
-        elif auth.is_leader:
-            # leader: 看自己管理组+子组的agents + 自己创建的
-            accessible_ids = _get_accessible_agent_ids(auth)
+        # 所有已认证用户都可以获取全部 agents 的基础展示信息
+        # 敏感字段（apiKey/systemPrompt/soulDoc 等）已在下面过滤掉
+        result = agents
 
-            result = [a for a in agents
-                      if a.get('id') in accessible_ids or a.get('createdBy') == auth.user_info['userId']]
-        else:
-            # employee: 看自己所属组的agents + 自己创建的
-            accessible_ids = _get_accessible_agent_ids(auth)
-
-            result = [a for a in agents
-                      if a.get('id') in accessible_ids or a.get('createdBy') == auth.user_info['userId']]
-        
-
-
-        # 去掉不需要的字段
+        # 去掉敏感字段，只保留基础展示信息
         safe_result = []
         for a in result:
             safe_result.append({
@@ -2518,16 +2505,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'connectionType': a.get('connectionType', ''),
                 'apiProvider': a.get('apiProvider', ''),
                 'apiModel': a.get('apiModel', ''),
-                'apiKey': a.get('apiKey', ''),
                 'openclawAgent': a.get('openclawAgent', ''),
                 'openclawModel': a.get('openclawModel', ''),
                 'openclawName': a.get('openclawName', ''),
                 'aiProvider': a.get('aiProvider', ''),
-                'systemPrompt': a.get('systemPrompt', ''),
-                'soulDoc': a.get('soulDoc', ''),
-                'idDoc': a.get('idDoc', ''),
-                'toolsDoc': a.get('toolsDoc', ''),
-                'userDoc': a.get('userDoc', ''),
                 'department': a.get('department', ''),
                 'group': a.get('group', ''),
                 'pinned': a.get('pinned', False),
