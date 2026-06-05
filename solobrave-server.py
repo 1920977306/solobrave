@@ -925,6 +925,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path.startswith('/api/groups/'):
             sub = path[len('/api/groups/'):]
+            # /api/groups/:id/history
+            if sub.endswith('/history'):
+                group_id = sub[:-len('/history')]
+                if group_id:
+                    self._handle_post_group_history(group_id)
+                    return
             # /api/groups/:id/chat
             if sub.endswith('/chat'):
                 group_id = sub[:-len('/chat')]
@@ -1643,19 +1649,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         group = _find_group(groups, 'id', group_id)
         if not group:
             return None, '群组不存在', 404
-        # 群组创建者或管理员可访问；成员也可访问
-        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
-            # 兼容 members 的两种格式：字符串数组 和 字典数组
-            member_ids = []
-            for m in group.get('members', []):
-                if isinstance(m, dict):
-                    member_ids.append(m.get('id'))
-                elif isinstance(m, str):
-                    member_ids.append(m)
-            if auth.user_info['userId'] not in member_ids:
-                # 也检查 agent 是否属于该用户
-                return None, '权限不足', 403
-        return group, None, None
+        # 管理员和创建者直接放行
+        if auth.is_admin or group.get('createdBy') == auth.user_info.get('userId'):
+            return group, None, None
+        # 其他人：检查其 AI 员工是否在群组成员中
+        # 兼容 members 的两种格式：字符串数组 和 字典数组
+        member_ids = set()
+        for m in group.get('members', []):
+            if isinstance(m, dict):
+                member_ids.add(m.get('id'))
+            elif isinstance(m, str):
+                member_ids.add(m)
+        # 加载当前用户的所有 agent，检查是否有交集
+        agents = _load_agents()
+        my_agent_ids = {a.get('id') for a in agents if a.get('createdBy') == auth.user_info.get('userId')}
+        if member_ids & my_agent_ids:
+            return group, None, None
+        return None, '权限不足', 403
 
     def _handle_get_groups(self):
         """GET /api/groups — 获取所有群组"""
@@ -2416,6 +2426,47 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         chat_key = f'group_{group_id}'
         messages = _load_chat(chat_key)
         self._send_json(200, {'messages': messages})
+
+    def _handle_post_group_history(self, group_id):
+        """POST /api/groups/:id/history — 保存群组聊天消息"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        group, err, status = self._check_group_access(auth, group_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+
+        chat_key = f'group_{group_id}'
+        messages = _load_chat(chat_key)
+        if not isinstance(messages, list):
+            messages = []
+
+        msg = {
+            'id': body.get('id', 'msg_' + str(uuid.uuid4())[:8]),
+            'role': body.get('role', 'user'),
+            'content': body.get('content', ''),
+            'senderId': body.get('senderId', ''),
+            'senderName': body.get('senderName', ''),
+            'senderType': body.get('senderType', 'user'),
+            'groupId': group_id,
+            'time': body.get('time', int(time.time() * 1000))
+        }
+        messages.append(msg)
+
+        # 上限 500 条，超出保留最新的
+        if len(messages) > 500:
+            messages = messages[-500:]
+
+        _save_chat(chat_key, messages)
+        self._send_json(200, {'saved': True, 'id': msg['id']})
 
     # ═══════════════════════════════════════════════════
     # Agent API
