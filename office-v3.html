@@ -240,8 +240,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 
 /* ====== 员工管理 ====== */
 .emp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px}
-.emp-card{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:20px;text-align:center;cursor:pointer;transition:all 0.25s}
+.emp-card{position:relative;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:20px;text-align:center;cursor:pointer;transition:all 0.25s}
 .emp-card:hover{box-shadow:var(--shadow-md);transform:translateY(-3px)}
+.emp-card-gear{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0.06);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;opacity:0;transition:opacity 0.2s;z-index:5}
+.emp-card:hover .emp-card-gear{opacity:1}
+.emp-card-gear:hover{background:rgba(0,0,0,0.12)}
+.gear-dropdown{position:fixed;z-index:300;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.15);padding:4px 0;min-width:160px;display:none}
+.gear-item{padding:8px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.15s}
+.gear-item:hover{background:var(--gray-1)}
+.gear-divider{height:1px;background:var(--border-color);margin:4px 8px}
+.gear-submenu{position:absolute;left:100%;top:0;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.15);padding:4px 0;min-width:140px;display:none;margin-left:2px}
+.gear-has-submenu{position:relative}
+.gear-has-submenu:hover .gear-submenu{display:block}
 .emp-avatar{width:64px;height:64px;border-radius:50%;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;color:white;box-shadow:0 4px 16px rgba(0,0,0,0.12)}
 .emp-name{font-size:15px;font-weight:700;margin-bottom:2px}
 .emp-role{font-size:12px;color:var(--text-secondary)}
@@ -3209,10 +3219,11 @@ function renderEmployees(){
     var avatarHtml = renderAvatar(emp, 64);
     var statusText = emp.status==='online'?'● 在线':emp.status==='busy'?'● 忙碌':emp.status==='offline'?'● 离线':'● 空闲';
     return '<div class="emp-card" onclick="openDetailPanel(\'' + escapeAttr(emp.id) + '\')" style="cursor:pointer" title="点击查看 ' + escapeAttr(emp.name) + ' 的详情">' +
+      '<button class="emp-card-gear" onclick="event.stopPropagation();openGearMenu(event,\'' + escapeAttr(emp.id) + '\')" title="更多操作">⚙</button>' +
       '<div class="emp-avatar" style="background:linear-gradient(135deg,'+(emp.gradient && emp.gradient[0] || '#FFD60A')+' 0%,'+(emp.gradient && emp.gradient[1] || '#FFB800')+' 100%);overflow:hidden;">'+avatarHtml+'</div>' +
-      '<div class="emp-name">'+emp.name+'</div>' +
-      '<div class="emp-role">'+emp.role+'</div>' +
-      '<div class="emp-status '+emp.status+'">'+statusText+'</div>' +
+      '<div class="emp-name">'+escapeHtml(emp.name)+'</div>' +
+      '<div class="emp-role">'+escapeHtml(emp.role)+'</div>' +
+      '<div class="emp-status '+escapeAttr(emp.status)+'">'+escapeHtml(statusText)+'</div>' +
     '</div>';
   }).join('');
 }
@@ -4464,6 +4475,56 @@ function closeDetailPanel(){
   currentAgentId = null;
 }
 
+// ===== 员工卡片齿轮下拉菜单 =====
+function openGearMenu(event, empId){
+  event.stopPropagation();
+  closeGearMenu();
+  var menu = document.getElementById('gearDropdownMenu');
+  if(!menu) return;
+  menu.dataset.empId = empId;
+  menu.style.display = 'block';
+  var btn = event.currentTarget;
+  var rect = btn.getBoundingClientRect();
+  menu.style.left = rect.left + 'px';
+  menu.style.top = (rect.bottom + 4) + 'px';
+  document.addEventListener('click', closeGearMenu, {once:true});
+}
+function closeGearMenu(){
+  var menu = document.getElementById('gearDropdownMenu');
+  if(menu) menu.style.display = 'none';
+}
+function gearEditProfile(){
+  var menu = document.getElementById('gearDropdownMenu');
+  var empId = menu && menu.dataset.empId;
+  if(empId) openDetailPanel(empId);
+}
+function gearShowMoveSubmenu(){
+  var submenu = document.getElementById('gearMoveSubmenu');
+  if(!submenu) return;
+  var groups = {};
+  employees.forEach(function(e){ if(e.group) groups[e.group] = true; });
+  var html = '<div class="gear-item" onclick="gearMoveToGroup(\'\')">📂 未分组</div>';
+  Object.keys(groups).forEach(function(g){
+    html += '<div class="gear-item" onclick="gearMoveToGroup(\'' + escapeAttr(g) + '\')">📁 ' + escapeHtml(g) + '</div>';
+  });
+  submenu.innerHTML = html;
+  submenu.style.display = 'block';
+}
+function gearHideMoveSubmenu(){
+  var submenu = document.getElementById('gearMoveSubmenu');
+  if(submenu) submenu.style.display = 'none';
+}
+function gearMoveToGroup(groupName){
+  var menu = document.getElementById('gearDropdownMenu');
+  var empId = menu && menu.dataset.empId;
+  if(empId) moveEmployeeToGroup(groupName);
+  closeGearMenu();
+}
+function gearPinEmp(){
+  showToast('📌 置顶功能开发中');
+  closeGearMenu();
+}
+
 // ===== 员工改名功能 =====
 var editingName = false;
 var originalName = '';
@@ -5488,6 +5549,17 @@ async function confirmCreateAgent() {
   </div>
   <div class="detail-section-title">配置文档</div>
   <div class="detail-docs" id="detailDocs"></div>
+</div>
+
+<!-- 员工卡片齿轮下拉菜单 -->
+<div class="gear-dropdown" id="gearDropdownMenu" style="display:none;">
+  <div class="gear-item" onclick="gearEditProfile()">✏️ 编辑资料</div>
+  <div class="gear-item gear-has-submenu" onmouseenter="gearShowMoveSubmenu()" onmouseleave="gearHideMoveSubmenu()">
+    📁 移动到分组
+    <div class="gear-submenu" id="gearMoveSubmenu"></div>
+  </div>
+  <div class="gear-divider"></div>
+  <div class="gear-item" onclick="gearPinEmp()">📌 置顶</div>
 </div>
 
 <!-- 配置渠道弹窗 -->
