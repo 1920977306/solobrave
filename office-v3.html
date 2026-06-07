@@ -247,6 +247,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .emp-card-gear:hover{background:rgba(0,0,0,0.12)}
 .emp-urgent-badge{position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(255,59,48,0.12);color:#FF3B30;border:1px solid rgba(255,59,48,0.2);animation:pulseUrgent 2s ease-in-out infinite}
 @keyframes pulseUrgent{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.75;transform:scale(1.04)}}
+.emp-card.archived{opacity:0.5;filter:grayscale(0.7)}
+.emp-card.archived .emp-name{color:var(--gray-4)}
+.archive-section{padding:10px 12px;font-size:13px;font-weight:600;color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;gap:8px;border-top:1px solid var(--border-color);margin-top:8px;user-select:none}
+.archive-section .archive-arrow{transition:transform 0.2s;font-size:11px}
+.archive-section.expanded .archive-arrow{transform:rotate(90deg)}
+.archive-list{padding:8px 0}
 .gear-dropdown{position:fixed;z-index:300;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.15);padding:4px 0;min-width:160px;display:none}
 .gear-item{padding:8px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.15s}
 .gear-item:hover{background:var(--gray-1)}
@@ -3213,28 +3219,50 @@ function openCreateEmployeeInMain() {
   window.open('./index.html?action=createEmployee', '_blank');
 }
 
+// 渲染单个员工卡片
+function _renderEmpCard(emp, isArchived){
+  var avatarHtml = renderAvatar(emp, 64);
+  var statusText = emp.status==='online'?'● 在线':emp.status==='busy'?'● 忙碌':emp.status==='offline'?'● 离线':'● 空闲';
+  var urgentBadge = (emp.badge === 'urgent') ? '<span class="emp-urgent-badge">⚠️ 紧急</span>' : '';
+  var archivedClass = isArchived ? ' archived' : '';
+  return '<div class="emp-card' + archivedClass + '" onclick="openDetailPanel(\'' + escapeAttr(emp.id) + '\')" style="cursor:pointer" title="点击查看 ' + escapeAttr(emp.name) + ' 的详情">' +
+    urgentBadge +
+    '<button class="emp-card-gear" onclick="event.stopPropagation();openGearMenu(event,\'' + escapeAttr(emp.id) + '\')" title="更多操作">⚙</button>' +
+    '<div class="emp-avatar" style="background:linear-gradient(135deg,'+(emp.gradient && emp.gradient[0] || '#FFD60A')+' 0%,'+(emp.gradient && emp.gradient[1] || '#FFB800')+' 100%);overflow:hidden;">'+avatarHtml+'</div>' +
+    '<div class="emp-name">'+escapeHtml(emp.name)+(emp.pinned ? '<span style="font-size:12px;margin-left:3px">📌</span>' : '')+'</div>' +
+    '<div class="emp-role">'+escapeHtml(emp.role)+'</div>' +
+    '<div class="emp-status '+escapeAttr(emp.status)+'">'+escapeHtml(statusText)+'</div>' +
+  '</div>';
+}
+
 // 渲染员工网格 - 点击跳转到主页
 function renderEmployees(){
   var grid = document.getElementById('employeeGrid');
   if(!grid)return;
-  var sorted = employees.slice().sort(function(a, b){
-    var pa = a.pinned ? 1 : 0;
-    var pb = b.pinned ? 1 : 0;
-    return pb - pa;
+  var active = [];
+  var archived = [];
+  employees.forEach(function(e){
+    if(e.archived) archived.push(e);
+    else active.push(e);
   });
-  grid.innerHTML = sorted.map(function(emp, idx){
-    var avatarHtml = renderAvatar(emp, 64);
-    var statusText = emp.status==='online'?'● 在线':emp.status==='busy'?'● 忙碌':emp.status==='offline'?'● 离线':'● 空闲';
-    var urgentBadge = (emp.badge === 'urgent') ? '<span class="emp-urgent-badge">⚠️ 紧急</span>' : '';
-    return '<div class="emp-card" onclick="openDetailPanel(\'' + escapeAttr(emp.id) + '\')" style="cursor:pointer" title="点击查看 ' + escapeAttr(emp.name) + ' 的详情">' +
-      urgentBadge +
-      '<button class="emp-card-gear" onclick="event.stopPropagation();openGearMenu(event,\'' + escapeAttr(emp.id) + '\')" title="更多操作">⚙</button>' +
-      '<div class="emp-avatar" style="background:linear-gradient(135deg,'+(emp.gradient && emp.gradient[0] || '#FFD60A')+' 0%,'+(emp.gradient && emp.gradient[1] || '#FFB800')+' 100%);overflow:hidden;">'+avatarHtml+'</div>' +
-      '<div class="emp-name">'+escapeHtml(emp.name)+(emp.pinned ? '<span style="font-size:12px;margin-left:3px">📌</span>' : '')+'</div>' +
-      '<div class="emp-role">'+escapeHtml(emp.role)+'</div>' +
-      '<div class="emp-status '+escapeAttr(emp.status)+'">'+escapeHtml(statusText)+'</div>' +
+  active.sort(function(a, b){ return (b.pinned?1:0) - (a.pinned?1:0); });
+  archived.sort(function(a, b){ return (b.pinned?1:0) - (a.pinned?1:0); });
+  var html = active.map(function(emp){ return _renderEmpCard(emp, false); }).join('');
+  if(archived.length > 0){
+    html += '<div class="archive-section" onclick="toggleArchiveSection(this)">' +
+      '<span class="archive-arrow">▶</span>' +
+      '<span>📂 已归档 (' + archived.length + ')</span>' +
+    '</div>' +
+    '<div class="archive-list" style="display:none;">' +
+      archived.map(function(emp){ return _renderEmpCard(emp, true); }).join('') +
     '</div>';
-  }).join('');
+  }
+  grid.innerHTML = html;
+}
+function toggleArchiveSection(el){
+  el.classList.toggle('expanded');
+  var list = el.nextElementSibling;
+  if(list) list.style.display = list.style.display === 'none' ? 'block' : 'none';
 }
 
 // 辅助函数：截断消息文本
