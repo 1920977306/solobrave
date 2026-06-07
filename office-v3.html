@@ -3217,7 +3217,12 @@ function openCreateEmployeeInMain() {
 function renderEmployees(){
   var grid = document.getElementById('employeeGrid');
   if(!grid)return;
-  grid.innerHTML = employees.map(function(emp, idx){
+  var sorted = employees.slice().sort(function(a, b){
+    var pa = a.pinned ? 1 : 0;
+    var pb = b.pinned ? 1 : 0;
+    return pb - pa;
+  });
+  grid.innerHTML = sorted.map(function(emp, idx){
     var avatarHtml = renderAvatar(emp, 64);
     var statusText = emp.status==='online'?'● 在线':emp.status==='busy'?'● 忙碌':emp.status==='offline'?'● 离线':'● 空闲';
     var urgentBadge = (emp.badge === 'urgent') ? '<span class="emp-urgent-badge">⚠️ 紧急</span>' : '';
@@ -3225,7 +3230,7 @@ function renderEmployees(){
       urgentBadge +
       '<button class="emp-card-gear" onclick="event.stopPropagation();openGearMenu(event,\'' + escapeAttr(emp.id) + '\')" title="更多操作">⚙</button>' +
       '<div class="emp-avatar" style="background:linear-gradient(135deg,'+(emp.gradient && emp.gradient[0] || '#FFD60A')+' 0%,'+(emp.gradient && emp.gradient[1] || '#FFB800')+' 100%);overflow:hidden;">'+avatarHtml+'</div>' +
-      '<div class="emp-name">'+escapeHtml(emp.name)+'</div>' +
+      '<div class="emp-name">'+escapeHtml(emp.name)+(emp.pinned ? '<span style="font-size:12px;margin-left:3px">📌</span>' : '')+'</div>' +
       '<div class="emp-role">'+escapeHtml(emp.role)+'</div>' +
       '<div class="emp-status '+escapeAttr(emp.status)+'">'+escapeHtml(statusText)+'</div>' +
     '</div>';
@@ -4535,8 +4540,41 @@ function gearMoveToGroup(groupName){
   if(empId) moveEmployeeToGroup(groupName);
   closeGearMenu();
 }
-function gearPinEmp(){
-  showToast('📌 置顶功能开发中');
+async function gearPinEmp(){
+  var menu = document.getElementById('gearDropdownMenu');
+  var empId = menu && menu.dataset.empId;
+  if(!empId){ closeGearMenu(); return; }
+  var emp = null;
+  for(var i=0; i<employees.length; i++){
+    if(String(employees[i].id) === String(empId)){ emp = employees[i]; break; }
+  }
+  if(!emp){ closeGearMenu(); return; }
+  var oldPinned = emp.pinned || false;
+  var newPinned = !oldPinned;
+  emp.pinned = newPinned;
+  renderEmployees();
+  try{
+    var resp = await authFetch('/api/agents/' + encodeURIComponent(empId), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({pinned: newPinned})
+    });
+    if(resp && resp.ok){
+      showToast(newPinned ? '📌 已置顶' : '✅ 已取消置顶');
+      if(typeof lobsterChannel !== 'undefined' && lobsterChannel){
+        lobsterChannel.postMessage({type: 'employees_updated'});
+      }
+    } else {
+      showToast('❌ 置顶失败');
+      emp.pinned = oldPinned;
+      renderEmployees();
+    }
+  } catch(err){
+    console.error('[Pin] 保存失败:', err);
+    showToast('❌ 网络错误');
+    emp.pinned = oldPinned;
+    renderEmployees();
+  }
   closeGearMenu();
 }
 async function toggleUrgentBadge(empId){
