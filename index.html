@@ -5445,7 +5445,7 @@ function renderArchiveSections() {
 }
 function renderCategoryHeader(name, expanded) {
   var arrow = expanded ? '▼' : '▶';
-  return '<div class="cat-header" onclick="toggleCategory(\'' + name + '\')" style="padding:8px 12px;font-size:13px;font-weight:600;color:var(--text-primary);cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none;margin-top:4px;">' + arrow + ' ' + name + '</div>';
+  return '<div class="cat-header" onclick="toggleCategory(\'' + escapeAttr(name) + '\')" style="padding:8px 12px;font-size:13px;font-weight:600;color:var(--text-primary);cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none;margin-top:4px;">' + arrow + ' ' + escapeHtml(name) + '</div>';
 }
 function renderSubCategoryHeader(name, count) {
   var displayName = name === '未分组' ? '全部' : name;
@@ -8044,7 +8044,7 @@ function openGroupWizard() {
   if (emojiGrid) {
     emojiGrid.innerHTML = GROUP_EMOJIS.map(function (e) {
       var sel = e === gwEmoji ? ' selected' : '';
-      return '<div class="emoji-opt' + sel + '" onclick="selectGwEmoji(\'' + e + '\', this)">' + e + '</div>';
+      return '<div class="emoji-opt' + sel + '" onclick="selectGwEmoji(\'' + escapeAttr(e) + '\', this)">' + escapeHtml(e) + '</div>';
     }).join('');
   }
   // 清空输入

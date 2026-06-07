@@ -3208,7 +3208,7 @@ function renderEmployees(){
   grid.innerHTML = employees.map(function(emp, idx){
     var avatarHtml = renderAvatar(emp, 64);
     var statusText = emp.status==='online'?'● 在线':emp.status==='busy'?'● 忙碌':emp.status==='offline'?'● 离线':'● 空闲';
-    return '<div class="emp-card" onclick="openDetailPanel(\''+emp.id+'\')" style="cursor:pointer" title="点击查看 '+emp.name+' 的详情">' +
+    return '<div class="emp-card" onclick="openDetailPanel(\'' + escapeAttr(emp.id) + '\')" style="cursor:pointer" title="点击查看 ' + escapeAttr(emp.name) + ' 的详情">' +
       '<div class="emp-avatar" style="background:linear-gradient(135deg,'+(emp.gradient && emp.gradient[0] || '#FFD60A')+' 0%,'+(emp.gradient && emp.gradient[1] || '#FFB800')+' 100%);overflow:hidden;">'+avatarHtml+'</div>' +
       '<div class="emp-name">'+emp.name+'</div>' +
       '<div class="emp-role">'+emp.role+'</div>' +
@@ -3614,7 +3614,7 @@ function renderWorkZone() {
     var taskDesc = getLastAIMessage(e.id);
     
     // 新 work-card 设计
-    html += '<div class="work-card" data-status="' + statusData + '" onclick="openDetailPanel(\'' + e.id + '\')">';
+    html += '<div class="work-card" data-status="' + escapeAttr(statusData) + '" onclick="openDetailPanel(\'' + escapeAttr(e.id) + '\')">';
     
     // 头像
     html += '<div class="work-avatar">';
@@ -3713,7 +3713,7 @@ function renderSkills(){
         stars += '<span class="skill-star filled">★</span>';
       }
       html += stars + '</div></div>';
-      html += '<button class="skill-delete" onclick="deleteSkill(\'' + s.id + '\')">✕</button></div>';
+      html += '<button class="skill-delete" onclick="deleteSkill(\'' + escapeAttr(s.id) + '\')">✕</button></div>';
     });
     list.innerHTML = html;
   }
@@ -3721,7 +3721,7 @@ function renderSkills(){
     var phtml = '';
     skillPresets.forEach(function(p){
       var isUsed = skills.some(function(s){return s.name === p.name;});
-      phtml += '<div class="skill-preset' + (isUsed ? ' used' : '') + '" onclick="addSkillPreset(\'' + p.name + '\',\'' + p.emoji + '\')">' + p.emoji + ' ' + p.desc + '</div>';
+      phtml += '<div class="skill-preset' + (isUsed ? ' used' : '') + '" onclick="addSkillPreset(\'' + escapeAttr(p.name) + '\',\'' + escapeAttr(p.emoji) + '\')">' + escapeHtml(p.emoji) + ' ' + escapeHtml(p.desc) + '</div>';
     });
     presets.innerHTML = phtml;
   }
@@ -3824,9 +3824,9 @@ function renderMemory(){
         html += '</div>';
         html += '<div style="display:flex;gap:4px;">';
         if(isAuto){
-          html += '<button onclick="promoteToCore(\'' + empId + '\',\'' + m.id + '\')" title="升级为核心记忆" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--brand-primary);display:flex;align-items:center;justify-content:center;">⭐</button>';
+          html += '<button onclick="promoteToCore(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\')" title="升级为核心记忆" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--brand-primary);display:flex;align-items:center;justify-content:center;">⭐</button>';
         }
-        html += '<button onclick="deleteMemory(\'' + empId + '\',\'' + m.id + '\')" title="删除" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--text-tertiary);display:flex;align-items:center;justify-content:center;">🗑️</button>';
+        html += '<button onclick="deleteMemory(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\')" title="删除" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--text-tertiary);display:flex;align-items:center;justify-content:center;">🗑️</button>';
         html += '</div></div>';
       });
       content.innerHTML = html;
@@ -3942,7 +3942,7 @@ function renderDocs(filter=''){
       d.tags.forEach(function(t){
         tagsHtml += '<span class="doc-tag">' + t + '</span>';
       });
-      html += '<div class="doc-card" onclick="showToast(\'打开: ' + d.name + '\')">' +
+      html += '<div class="doc-card" onclick="showToast(\'打开: ' + escapeAttr(d.name) + '\')">' +
         '<div class="doc-card-icon">' + d.icon + '</div>' +
         '<div class="doc-name">' + d.name + '</div>' +
         '<div class="doc-meta"><span>📁 ' + d.type + '</span><span>🕐 ' + d.date + '</span></div>' +
@@ -4872,7 +4872,7 @@ function renderLounge(){
       // 获取今日对话数
       var dialogueCount = e.dialogueCount || e.sessions || Math.floor(Math.random() * 15);
       
-      html += '<div class="lounge-employee-item" onclick="openDetailPanel(\'' + e.id + '\')">';
+      html += '<div class="lounge-employee-item" onclick="openDetailPanel(\'' + escapeAttr(e.id) + '\')">';
       html += '<div class="lounge-avatar-wrap">';
       html += '<div class="lounge-avatar-badge ' + statusClass + '"></div>';
       html += '</div>';
@@ -4942,7 +4942,7 @@ function renderLoungeZone(){
     var dotClass = isOnline ? '' : 'offline';
     var chipClass = isOnline ? 'lounge-chip active' : 'lounge-chip';
 
-    html += '<div class="' + chipClass + '" onclick="openDetailPanel(\'' + e.id + '\')">';
+    html += '<div class="' + chipClass + '" onclick="openDetailPanel(\'' + escapeAttr(e.id) + '\')">';
     html += '<div class="lounge-avatar">';
     html += avatarHtml;
     html += '<div class="lounge-dot ' + dotClass + '"></div>';
