@@ -39,20 +39,101 @@ _IPHONE_UA = (
 
 # ─── 链接检测与解析 ─────────────────────────────────────
 
+def is_douyin_share_text(text):
+    """判断文本是否包含抖音分享链接"""
+    if not text:
+        return False
+    url_pattern = r'https?://(?:v\.douyin\.com/[\w-]+|www\.douyin\.com/video/\d+|douyin\.com/video/\d+)'
+    return bool(re.search(url_pattern, text))
+
+
+def detect_douyin_links(text):
+    """从文本中提取抖音链接列表"""
+    if not text:
+        return []
+    url_pattern = r'https?://(?:v\.douyin\.com/[\w-]+|www\.douyin\.com/video/\d+|douyin\.com/video/\d+)'
+    found = re.findall(url_pattern, text)
+    if not found:
+        share_pattern = r'https?://v\.douyin\.com/[\w-]+'
+        found = re.findall(share_pattern, text)
+    return list(set(found))
+
+
+def parse_douyin_video_quick(share_link):
+    """快速模式：只解析元信息，不下载视频、不转录语音"""
+    resolved_url, video_id, err = _resolve_douyin_url(share_link)
+    if err:
+        return {'success': False, 'error': err}
+    html, err = _fetch_douyin_page(resolved_url)
+    if err:
+        return {'success': False, 'error': err}
+    video_info = _parse_douyin_html(html, resolved_url)
+    if not video_info:
+        return {'success': False, 'error': '无法从页面提取视频信息'}
+    author = video_info.get('author', {})
+    stats = video_info.get('stats', {})
+    return {
+        'success': True,
+        'video_info': {
+            'video_id': video_info.get('video_id', ''),
+            'title': video_info.get('title', ''),
+            'author': author.get('nickname', ''),
+            'author_id': author.get('uid', ''),
+            'desc': video_info.get('desc', ''),
+            'cover_url': video_info.get('cover', ''),
+            'video_url': video_info.get('video_url', ''),
+            'tags': video_info.get('hashtags', []),
+            'duration': video_info.get('duration', 0),
+            'stats': stats,
+            'share_url': share_link,
+            'real_url': resolved_url,
+            'create_time': video_info.get('create_time', ''),
+        },
+        'transcribed': False,
+    }
+
+
+def build_douyin_context(parse_result):
+    """将解析结果转为 AI 可读的上下文文本，用于注入到聊天消息中"""
+    if not parse_result or not parse_result.get('success'):
+        return ''
+    vi = parse_result.get('video_info', {})
+    lines = ['[系统自动注入 - 抖音视频解析数据]']
+    if vi.get('title'):
+        lines.append(f"标题: {vi['title']}")
+    if vi.get('author'):
+        lines.append(f"作者: {vi['author']} (@{vi.get('author_id', '')})")
+    if vi.get('desc'):
+        lines.append(f"描述: {vi['desc']}")
+    stats = vi.get('stats', {})
+    stats_lines = []
+    if stats.get('play_count'):
+        stats_lines.append(f"播放 {stats['play_count']}")
+    if stats.get('digg_count'):
+        stats_lines.append(f"点赞 {stats['digg_count']}")
+    if stats.get('comment_count'):
+        stats_lines.append(f"评论 {stats['comment_count']}")
+    if stats.get('share_count'):
+        stats_lines.append(f"分享 {stats['share_count']}")
+    if stats.get('collect_count'):
+        stats_lines.append(f"收藏 {stats['collect_count']}")
+    if stats_lines:
+        lines.append(f"数据: {' | '.join(stats_lines)}")
+    if vi.get('tags'):
+        lines.append(f"话题: {' '.join(['#' + t for t in vi['tags']])}")
+    text_content = parse_result.get('text_content', '')
+    if text_content:
+        lines.append('')
+        lines.append('【视频文案/口播内容】')
+        lines.append(text_content)
+    return '\n'.join(lines)
+
+
 def _detect_and_parse_douyin_links(text):
     """检测文本中的抖音链接并解析，返回格式化后的分析文本
     支持格式：纯URL、分享文本（如 7.43 pda:/ ... https://v.douyin.com/xxxxx）
     """
-    # 先尝试宽泛匹配所有URL，然后从分享文本中提取
-    found_urls = []
-    # 匹配标准URL
-    url_pattern = r'https?://(?:v\.douyin\.com/[\w-]+|www\.douyin\.com/video/\d+|douyin\.com/video/\d+)'
-    found_urls = re.findall(url_pattern, text)
-    # 如果没找到，尝试从分享口令/文本中提取
-    if not found_urls:
-        # 抖音分享文本格式：数字.数字 关键词:/ 中文 https://v.douyin.com/xxxxx
-        share_pattern = r'https?://v\.douyin\.com/[\w-]+'
-        found_urls = re.findall(share_pattern, text)
+    found_urls = detect_douyin_links(text)
     if not found_urls:
         return None
     results = []
@@ -870,6 +951,10 @@ def _transcribe_audio_siliconflow(audio_path, api_key, model='FunAudioLLM/SenseV
 
 
 __all__ = [
+    'is_douyin_share_text',
+    'detect_douyin_links',
+    'parse_douyin_video_quick',
+    'build_douyin_context',
     '_detect_and_parse_douyin_links',
     '_IPHONE_UA',
     '_resolve_douyin_url',

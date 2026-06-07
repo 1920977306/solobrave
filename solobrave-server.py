@@ -3298,10 +3298,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 这样 memory 提取等场景（_extractMemoryViaAPI）才能正常工作
             if not skip_ai:
                 content = body.get('content', '')
-                # 自动检测并解析抖音链接，注入真实视频数据供AI分析
-                douyin_analysis = _detect_and_parse_douyin_links(content)
-                if douyin_analysis:
-                    content = content + '\n\n---\n【系统已自动解析抖音视频数据】\n' + douyin_analysis
                 # 记忆提取场景不需要加载历史记录，避免 token 超限和干扰
                 is_extract = '【记忆提取任务】' in content
                 api_reply = self._call_ai_api(agent, content, auth.user_info, include_history=not is_extract)
@@ -3400,6 +3396,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
         messages = [{'role': 'system', 'content': system_prompt}]
+
+        # 自动检测并解析抖音链接，注入真实视频数据
+        try:
+            if is_douyin_share_text(user_message):
+                douyin_result = parse_douyin_video_quick(user_message)
+                if douyin_result and douyin_result.get('success'):
+                    douyin_context = build_douyin_context(douyin_result)
+                    if douyin_context:
+                        user_message = douyin_context + '\n\n---\n用户原始消息：' + user_message
+        except Exception:
+            pass
 
         # 加载最近聊天记录
         if include_history and agent_id:
