@@ -4317,8 +4317,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_douyin_parse(self):
         """POST /api/douyin/parse（需认证）
-        请求体: {"url": "抖音分享链接或视频链接"}
-        响应: {"success": true, "data": {...}} 或 {"success": false, "error": "..."}
+        请求体: {"url": "抖音分享链接或视频链接", "transcribe": true}
+        响应: parse_douyin_video() 的结果
         """
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
@@ -4335,76 +4335,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'success': False, 'error': '缺少 url 参数'})
             return
 
-        print(f'  [Douyin] parse -> {url[:80]}...', flush=True)
+        transcribe = body.get('transcribe', True)
+        api_key = (body.get('api_key', '').strip()
+                   or self.headers.get('X-AI-API-Key', '')
+                   or os.environ.get('DOUYIN_API_KEY', ''))
 
-        # 步骤 1: 解析短链接，提取 video_id
-        resolved_url, video_id, err = _resolve_douyin_url(url)
-        if err:
-            print(f'  [Douyin] resolve error: {err}', flush=True)
-            self._send_json(400, {'success': False, 'error': err})
-            return
-
-        print(f'  [Douyin] resolved -> {resolved_url[:100]}... video_id={video_id}', flush=True)
-
-        # 步骤 2: 优先调用 Web API
-        video_info = None
-        if video_id:
-            api_data, api_err = _call_douyin_web_api(video_id)
-            if api_data:
-                print(f'  [Douyin] Web API OK', flush=True)
-                video_info = _parse_aweme_detail(api_data, resolved_url)
-            else:
-                print(f'  [Douyin] Web API failed: {api_err}', flush=True)
-
-        # 步骤 3: Web API 失败时降级到 HTML 解析
-        if not video_info:
-            html, err = _fetch_douyin_page(resolved_url)
-            if err:
-                print(f'  [Douyin] fetch error: {err}', flush=True)
-                self._send_json(502, {'success': False, 'error': err})
-                return
-            video_info = _parse_douyin_html(html, resolved_url)
-            if video_info is None:
-                print(f'  [Douyin] parse error: cannot extract video info', flush=True)
-                self._send_json(422, {
-                    'success': False,
-                    'error': '无法解析视频信息，Web API 和 HTML 解析均失败'
-                })
-                return
-
-        print(f'  [Douyin] parse OK: {video_info.get("title", "")[:40]}...', flush=True)
-
-        # 补全 video_id（HTML 解析可能未提取到）
-        if video_id and not video_info.get('video_id'):
-            video_info['video_id'] = video_id
-
-        # 可选：自动语音转文字
-        if body.get('transcribe') and video_info.get('video_url'):
-            video_url = video_info.get('video_url')
-            api_key = (body.get('api_key', '').strip()
-                       or self.headers.get('X-AI-API-Key', '')
-                       or os.environ.get('DOUYIN_API_KEY', ''))
-            if api_key:
-                try:
-                    # 检测 ffmpeg
-                    subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
-                    temp_dir = None
-                    try:
-                        print(f'  [Douyin] auto transcribe started...', flush=True)
-                        video_path, temp_dir = _download_video_to_temp(video_url)
-                        audio_path = _extract_audio_with_ffmpeg(video_path)
-                        if audio_path:
-                            text = _transcribe_audio_siliconflow(audio_path, api_key)
-                            if text is not None:
-                                video_info['transcript'] = text
-                                print(f'  [Douyin] auto transcribe OK, length={len(text)}', flush=True)
-                    finally:
-                        if temp_dir and os.path.isdir(temp_dir):
-                            shutil.rmtree(temp_dir, ignore_errors=True)
-                except Exception as e:
-                    print(f'  [Douyin] auto transcribe skipped: {e}', flush=True)
-
-        self._send_json(200, {'success': True, 'data': video_info})
+        print(f'  [Douyin] parse -> {url[:80]}... transcribe={transcribe}', flush=True)
+        result = parse_douyin_video(url, api_key=api_key, transcribe=transcribe)
+        if result.get('success'):
+            self._send_json(200, result)
+        else:
+            self._send_json(422, result)
 
     def _handle_douyin_transcribe(self):
         """POST /api/douyin/transcribe（需认证）

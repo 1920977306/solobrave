@@ -93,6 +93,92 @@ def parse_douyin_video_quick(share_link):
     }
 
 
+def parse_douyin_video(share_link, api_key=None, transcribe=True):
+    """完整解析：链接 → 元信息 → 下载视频 → 提取音频 → 语音转文字
+    api_key 不传则跳过语音转录
+    """
+    result = {
+        'success': False,
+        'video_info': {},
+        'media_info': {},
+        'text_content': '',
+        'transcribed': False,
+        'transcribe_error': '',
+        'download_error': '',
+    }
+    resolved_url, video_id, err = _resolve_douyin_url(share_link)
+    if err:
+        result['error'] = err
+        return result
+    video_info = None
+    if video_id:
+        api_data, api_err = _call_douyin_web_api(video_id)
+        if api_data:
+            video_info = _parse_aweme_detail(api_data, resolved_url)
+    if not video_info:
+        html, err = _fetch_douyin_page(resolved_url)
+        if err:
+            result['error'] = err
+            return result
+        video_info = _parse_douyin_html(html, resolved_url)
+        if video_info is None:
+            result['error'] = '无法解析视频信息，Web API 和 HTML 解析均失败'
+            return result
+    if video_id and not video_info.get('video_id'):
+        video_info['video_id'] = video_id
+    author = video_info.get('author', {})
+    stats = video_info.get('stats', {})
+    result['video_info'] = {
+        'video_id': video_info.get('video_id', ''),
+        'title': video_info.get('title', ''),
+        'author': author.get('nickname', ''),
+        'author_id': author.get('uid', ''),
+        'desc': video_info.get('desc', ''),
+        'cover_url': video_info.get('cover', ''),
+        'video_url': video_info.get('video_url', ''),
+        'tags': video_info.get('hashtags', []),
+        'duration': video_info.get('duration', 0),
+        'stats': stats,
+        'share_url': share_link,
+        'real_url': resolved_url,
+        'create_time': video_info.get('create_time', ''),
+    }
+    result['success'] = True
+    # 语音转文字
+    if transcribe and api_key and video_info.get('video_url'):
+        try:
+            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+        except Exception:
+            result['transcribe_error'] = '服务器未安装 ffmpeg，无法提取音频'
+            return result
+        temp_dir = None
+        try:
+            video_path, temp_dir = _download_video_to_temp(video_info['video_url'])
+            audio_path = _extract_audio_with_ffmpeg(video_path)
+            if audio_path:
+                text = _transcribe_audio_siliconflow(audio_path, api_key)
+                if text is not None:
+                    result['text_content'] = text
+                    result['transcribed'] = True
+                else:
+                    result['transcribe_error'] = '语音识别 API 调用失败'
+            else:
+                result['transcribe_error'] = 'ffmpeg 音频提取失败'
+            # 媒体信息
+            try:
+                media = _get_media_info(video_path)
+                if media:
+                    result['media_info'] = media
+            except Exception:
+                pass
+        except Exception as e:
+            result['download_error'] = str(e)
+        finally:
+            if temp_dir and os.path.isdir(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+    return result
+
+
 def build_douyin_context(parse_result):
     """将解析结果转为 AI 可读的上下文文本，用于注入到聊天消息中"""
     if not parse_result or not parse_result.get('success'):
@@ -954,6 +1040,7 @@ __all__ = [
     'is_douyin_share_text',
     'detect_douyin_links',
     'parse_douyin_video_quick',
+    'parse_douyin_video',
     'build_douyin_context',
     '_detect_and_parse_douyin_links',
     '_IPHONE_UA',
