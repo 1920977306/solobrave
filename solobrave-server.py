@@ -743,6 +743,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/openclaw/channels/feishu/status':
             self._handle_auth_required_get(path)
             return
+        if path == '/api/openclaw/dreaming':
+            self._handle_get_dreaming()
+            return
 
         # Agents API
         if path == '/api/agents':
@@ -942,6 +945,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/openclaw/gateway/restart':
             self._handle_auth_required_post(path)
+            return
+        if path == '/api/openclaw/dreaming':
+            self._handle_post_dreaming()
             return
 
         # Agents API
@@ -2806,6 +2812,79 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
         self._send_json(200, {'message': f'Agent {agent.get("name", "")} 已删除'})
+
+    # ═══════════════════════════════════════════════════
+    # Dreaming API
+    # ═══════════════════════════════════════════════════
+
+    def _handle_get_dreaming(self):
+        """GET /api/openclaw/dreaming?agentId=xxx"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        try:
+            qs = parse_qs(urlparse(self.path).query)
+            agent_id = qs.get('agentId', [''])[0]
+            if not agent_id:
+                self._send_json(400, {'error': '缺少 agentId'})
+                return
+            agents = _load_agents()
+            agent = None
+            for a in agents:
+                if a.get('id') == agent_id:
+                    agent = a
+                    break
+            if not agent:
+                self._send_json(404, {'error': 'Agent 不存在'})
+                return
+            dreaming = agent.get('dreaming', {'enabled': False, 'phase': 'idle'})
+            self._send_json(200, {'agentId': agent_id, 'enabled': dreaming.get('enabled', False), 'phase': dreaming.get('phase', 'idle')})
+        except Exception as e:
+            print(f'  [GET dreaming] ERROR: {e}', flush=True)
+            self._send_json(500, {'error': str(e)})
+
+    def _handle_post_dreaming(self):
+        """POST /api/openclaw/dreaming body:{agentId, enabled}"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        try:
+            body = self._read_body()
+            if not body:
+                self._send_json(400, {'error': '无效的请求体'})
+                return
+            agent_id = body.get('agentId')
+            enabled = body.get('enabled')
+            if not agent_id or enabled is None:
+                self._send_json(400, {'error': '缺少 agentId 或 enabled'})
+                return
+            agents = _load_agents()
+            agent = None
+            for a in agents:
+                if a.get('id') == agent_id:
+                    agent = a
+                    break
+            if not agent:
+                self._send_json(404, {'error': 'Agent 不存在'})
+                return
+            if not auth.is_admin:
+                if agent.get('createdBy') != auth.user_info['userId']:
+                    self._send_auth_error('权限不足', 403)
+                    return
+            dreaming = agent.get('dreaming', {})
+            dreaming['enabled'] = bool(enabled)
+            if enabled:
+                dreaming['phase'] = 'light'
+            else:
+                dreaming['phase'] = 'idle'
+            agent['dreaming'] = dreaming
+            _save_agents(agents)
+            self._send_json(200, {'agentId': agent_id, 'enabled': dreaming['enabled'], 'phase': dreaming['phase']})
+        except Exception as e:
+            print(f'  [POST dreaming] ERROR: {e}', flush=True)
+            self._send_json(500, {'error': str(e)})
 
     # ═══════════════════════════════════════════════════
     # 聊天 API

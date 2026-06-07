@@ -2690,6 +2690,20 @@ window.doLogin = function () {
 保存连接配置
 </button>
 </div>
+<!-- Dreaming 开关 -->
+<div class="emp-doc-section" style="margin-top:16px;">
+<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-radius:12px;background:var(--bg-secondary);border:1px solid var(--border-color);">
+<div>
+<div style="font-size:14px;font-weight:600;">🎭 Dreaming 模式</div>
+<div style="font-size:12px;color:var(--text-tertiary);margin-top:2px;">让AI员工在空闲时自主思考</div>
+</div>
+<label class="dreaming-switch">
+<input type="checkbox" id="empDreamingToggle" onchange="toggleEmpDreaming(this.checked)">
+<span class="dreaming-slider"></span>
+</label>
+</div>
+<div id="empDreamingStatus" style="font-size:12px;color:var(--text-tertiary);margin-top:6px;padding:0 4px;"></div>
+</div>
 
 </div>
 <div class="emp-detail-actions">
@@ -9748,7 +9762,53 @@ function openEmpDetail(empId) {
   if (overlay && overlay.parentElement !== document.body) document.body.appendChild(overlay);
   overlay.classList.add('open');
   loadEmpConnect(emp);
+  loadEmpDreaming(empId);
   switchEmpDetailTab('basic');
+}
+
+// ===== Dreaming 开关 =====
+async function loadEmpDreaming(empId){
+  var toggle = document.getElementById('empDreamingToggle');
+  var status = document.getElementById('empDreamingStatus');
+  if(!toggle || !status) return;
+  toggle.checked = false;
+  status.textContent = '';
+  try{
+    var resp = await apiFetch('/api/openclaw/dreaming?agentId=' + encodeURIComponent(empId));
+    if(resp && resp.ok){
+      var data = await resp.json();
+      toggle.checked = data.enabled || false;
+      status.textContent = data.enabled ? '🌙 当前阶段: ' + (data.phase || 'light') : '';
+    }
+  } catch(e){
+    console.error('[Dreaming] 加载失败:', e);
+  }
+}
+async function toggleEmpDreaming(enabled){
+  var empId = currentEmpId;
+  if(!empId) return;
+  var status = document.getElementById('empDreamingStatus');
+  try{
+    var resp = await apiFetch('/api/openclaw/dreaming', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({agentId: empId, enabled: enabled})
+    });
+    if(resp && resp.ok){
+      var data = await resp.json();
+      if(status) status.textContent = data.enabled ? '🌙 当前阶段: ' + (data.phase || 'light') : '';
+      showToast(data.enabled ? '🎭 Dreaming 已开启' : '🎭 Dreaming 已关闭');
+    } else {
+      showToast('❌ Dreaming 切换失败');
+      var toggle = document.getElementById('empDreamingToggle');
+      if(toggle) toggle.checked = !enabled;
+    }
+  } catch(e){
+    console.error('[Dreaming] 切换失败:', e);
+    showToast('❌ 网络错误');
+    var toggle = document.getElementById('empDreamingToggle');
+    if(toggle) toggle.checked = !enabled;
+  }
 }
 
 // 编辑资料：打开详情面板并切到文档编辑tab
@@ -13954,6 +14014,14 @@ document.addEventListener('keydown', function (e) {
 #teamMembersOverlay.active { display: block; }
 #teamMembersModal { position: fixed !important; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 400px; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); z-index: 300; display: none; overflow: hidden; }
 #teamMembersModal.active { display: block; }
+
+/* Dreaming toggle switch */
+.dreaming-switch { position: relative; display: inline-block; width: 48px; height: 26px; }
+.dreaming-switch input { opacity: 0; width: 0; height: 0; }
+.dreaming-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--gray-3); transition: .3s; border-radius: 26px; }
+.dreaming-slider:before { position: absolute; content: ''; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+.dreaming-switch input:checked + .dreaming-slider { background-color: var(--blue); }
+.dreaming-switch input:checked + .dreaming-slider:before { transform: translateX(22px); }
 
 </style>
 
