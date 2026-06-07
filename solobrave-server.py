@@ -4317,7 +4317,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_douyin_parse(self):
         """POST /api/douyin/parse（需认证）
-        请求体: {"url": "抖音分享链接或视频链接", "transcribe": true}
+        请求体: {"url": "链接"} 或 {"text": "分享文本"}，可选 "transcribe": true
         响应: parse_douyin_video() 的结果
         """
         auth = _authenticate(self.headers)
@@ -4327,13 +4327,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         body = self._read_body()
         if not body or not isinstance(body, dict):
-            self._send_json(400, {'success': False, 'error': '请求体必须是 JSON 对象，包含 url 字段'})
+            self._send_json(400, {'success': False, 'error': '请求体必须是 JSON 对象，包含 url 或 text 字段'})
             return
 
         url = body.get('url', '').strip()
         if not url:
-            self._send_json(400, {'success': False, 'error': '缺少 url 参数'})
-            return
+            text = body.get('text', '').strip()
+            if text:
+                links = detect_douyin_links(text)
+                if links:
+                    url = links[0]
+                else:
+                    self._send_json(400, {'success': False, 'error': 'text 中未检测到抖音链接'})
+                    return
+            else:
+                self._send_json(400, {'success': False, 'error': '缺少 url 或 text 参数'})
+                return
 
         transcribe = body.get('transcribe', True)
         api_key = (body.get('api_key', '').strip()
