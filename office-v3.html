@@ -4002,7 +4002,7 @@ function renderDocs(filter=''){
 
 function filterDocs(q){renderDocs(q);}
 
-function addDoc(){showToast('📝 新建文档功能开发中...');}
+function addDoc(){console.warn('[TODO] 新建文档功能待实现');}
 
 // ===== AI 模式选择 =====
 function selectAIMode(el){
@@ -5633,8 +5633,7 @@ async function confirmCreateAgent() {
   };
 
   var realEditMemory = function(empId, memoryId){
-    // 编辑功能待实现，先给提示
-    showToast('编辑功能开发中');
+    console.warn('[TODO] 编辑记忆功能待实现');
   };
 
   Object.defineProperty(window, 'deleteMemory', {
