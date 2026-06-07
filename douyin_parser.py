@@ -145,37 +145,39 @@ def parse_douyin_video(share_link, api_key=None, transcribe=True):
     }
     result['success'] = True
     # 语音转文字
-    if transcribe and api_key and video_info.get('video_url'):
-        try:
-            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
-        except Exception:
+    if transcribe:
+        if not api_key:
+            result['transcribe_error'] = '缺少 API Key，无法进行语音转文字'
+        elif not video_info.get('video_url'):
+            result['transcribe_error'] = '未能获取视频播放地址，无法转录'
+        elif not _check_ffmpeg():
             result['transcribe_error'] = '服务器未安装 ffmpeg，无法提取音频'
-            return result
-        temp_dir = None
-        try:
-            video_path, temp_dir = _download_video_to_temp(video_info['video_url'])
-            audio_path = _extract_audio_with_ffmpeg(video_path)
-            if audio_path:
-                text = _transcribe_audio_siliconflow(audio_path, api_key)
-                if text is not None:
-                    result['text_content'] = text
-                    result['transcribed'] = True
-                else:
-                    result['transcribe_error'] = '语音识别 API 调用失败'
-            else:
-                result['transcribe_error'] = 'ffmpeg 音频提取失败'
-            # 媒体信息
+        else:
+            temp_dir = None
             try:
-                media = _get_media_info(video_path)
-                if media:
-                    result['media_info'] = media
-            except Exception:
-                pass
-        except Exception as e:
-            result['download_error'] = str(e)
-        finally:
-            if temp_dir and os.path.isdir(temp_dir):
-                shutil.rmtree(temp_dir, ignore_errors=True)
+                video_path, temp_dir = _download_video_to_temp(video_info['video_url'])
+                audio_path = _extract_audio_with_ffmpeg(video_path)
+                if audio_path:
+                    text = _transcribe_audio_siliconflow(audio_path, api_key)
+                    if text is not None:
+                        result['text_content'] = text
+                        result['transcribed'] = True
+                    else:
+                        result['transcribe_error'] = '语音识别 API 调用失败'
+                else:
+                    result['transcribe_error'] = 'ffmpeg 音频提取失败'
+                # 媒体信息
+                try:
+                    media = _get_media_info(video_path)
+                    if media:
+                        result['media_info'] = media
+                except Exception:
+                    pass
+            except Exception as e:
+                result['transcribe_error'] = f'视频处理失败: {e}'
+            finally:
+                if temp_dir and os.path.isdir(temp_dir):
+                    shutil.rmtree(temp_dir, ignore_errors=True)
     return result
 
 
