@@ -245,6 +245,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .emp-card-gear{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0.06);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;opacity:0;transition:opacity 0.2s;z-index:5}
 .emp-card:hover .emp-card-gear{opacity:1}
 .emp-card-gear:hover{background:rgba(0,0,0,0.12)}
+.emp-urgent-badge{position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;background:rgba(255,59,48,0.12);color:#FF3B30;border:1px solid rgba(255,59,48,0.2);animation:pulseUrgent 2s ease-in-out infinite}
+@keyframes pulseUrgent{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.75;transform:scale(1.04)}}
 .gear-dropdown{position:fixed;z-index:300;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.15);padding:4px 0;min-width:160px;display:none}
 .gear-item{padding:8px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.15s}
 .gear-item:hover{background:var(--gray-1)}
@@ -3218,7 +3220,9 @@ function renderEmployees(){
   grid.innerHTML = employees.map(function(emp, idx){
     var avatarHtml = renderAvatar(emp, 64);
     var statusText = emp.status==='online'?'● 在线':emp.status==='busy'?'● 忙碌':emp.status==='offline'?'● 离线':'● 空闲';
+    var urgentBadge = (emp.badge === 'urgent') ? '<span class="emp-urgent-badge">⚠️ 紧急</span>' : '';
     return '<div class="emp-card" onclick="openDetailPanel(\'' + escapeAttr(emp.id) + '\')" style="cursor:pointer" title="点击查看 ' + escapeAttr(emp.name) + ' 的详情">' +
+      urgentBadge +
       '<button class="emp-card-gear" onclick="event.stopPropagation();openGearMenu(event,\'' + escapeAttr(emp.id) + '\')" title="更多操作">⚙</button>' +
       '<div class="emp-avatar" style="background:linear-gradient(135deg,'+(emp.gradient && emp.gradient[0] || '#FFD60A')+' 0%,'+(emp.gradient && emp.gradient[1] || '#FFB800')+' 100%);overflow:hidden;">'+avatarHtml+'</div>' +
       '<div class="emp-name">'+escapeHtml(emp.name)+'</div>' +
@@ -4152,6 +4156,16 @@ async function openDetailPanel(empId){
       }
     }
     gridHtml += '</select>';
+    gridHtml += '</div>';
+
+    // Badge 紧急标记
+    gridHtml += '<div class="detail-info-item">';
+    gridHtml += '<div class="info-label">紧急标记</div>';
+    if(emp.badge === 'urgent'){
+      gridHtml += '<div class="info-value" style="color:#FF3B30;font-weight:700">⚠️ 紧急</div>';
+    } else {
+      gridHtml += '<div class="info-value" style="color:var(--gray-4)">无</div>';
+    }
     gridHtml += '</div>';
 
     // 项目组信息
