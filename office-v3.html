@@ -4539,18 +4539,47 @@ function gearPinEmp(){
   showToast('📌 置顶功能开发中');
   closeGearMenu();
 }
-function toggleUrgentBadge(empId){
+async function toggleUrgentBadge(empId){
   var emp = null;
   for(var i=0; i<employees.length; i++){
     if(String(employees[i].id) === String(empId)){ emp = employees[i]; break; }
   }
   if(!emp) return;
-  emp.badge = (emp.badge === 'urgent') ? '' : 'urgent';
+  var oldBadge = emp.badge || '';
+  var newBadge = (oldBadge === 'urgent') ? '' : 'urgent';
+  emp.badge = newBadge;
   renderEmployees();
   if(currentDetailEmp && String(currentDetailEmp.id) === String(empId)){
     openDetailPanel(empId);
   }
-  showToast(emp.badge === 'urgent' ? '⚠️ 已标记为紧急' : '✅ 已取消紧急标记');
+  try{
+    var resp = await authFetch('/api/agents/' + encodeURIComponent(empId), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({badge: newBadge})
+    });
+    if(resp && resp.ok){
+      showToast(newBadge === 'urgent' ? '⚠️ 已标记为紧急' : '✅ 已取消紧急标记');
+      if(typeof lobsterChannel !== 'undefined' && lobsterChannel){
+        lobsterChannel.postMessage({type: 'employees_updated'});
+      }
+    } else {
+      showToast('❌ 标记失败');
+      emp.badge = oldBadge;
+      renderEmployees();
+      if(currentDetailEmp && String(currentDetailEmp.id) === String(empId)){
+        openDetailPanel(empId);
+      }
+    }
+  } catch(err){
+    console.error('[Badge] 保存失败:', err);
+    showToast('❌ 网络错误，标记未保存');
+    emp.badge = oldBadge;
+    renderEmployees();
+    if(currentDetailEmp && String(currentDetailEmp.id) === String(empId)){
+      openDetailPanel(empId);
+    }
+  }
 }
 
 // ===== 员工改名功能 =====
