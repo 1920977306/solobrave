@@ -5235,12 +5235,17 @@ function getVisibleEmps() {
   // 侧边栏职能列表只显示 /api/agents 返回的自己创建的 agents
   // 项目组成员（通过 mergeGroupMembersToEmps 合并进来的）只在项目组内部可见，不出现在侧边栏
   var uid = currentUser && (currentUser.userId || currentUser.id);
-  if (currentUser && currentUser.role !== 'admin' && uid) {
+  var role = currentUser && currentUser.role;
+  if (role === 'admin' || !uid) return emps;
+  if (role === 'leader') {
+    var visibleIds = _getLeaderVisibleAgentIds();
     return emps.filter(function (e) {
-      return e.createdBy === uid;
+      return visibleIds.indexOf(e.id) >= 0 || e.createdBy === uid;
     });
   }
-  return emps;
+  return emps.filter(function (e) {
+    return e.createdBy === uid;
+  });
 }
 
 // Leader可见的Agent ID列表（来自可视小组的members + agentIds）
