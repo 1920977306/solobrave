@@ -4605,6 +4605,43 @@ async function gearPinEmp(){
   }
   closeGearMenu();
 }
+async function gearArchiveEmp(){
+  var menu = document.getElementById('gearDropdownMenu');
+  var empId = menu && menu.dataset.empId;
+  if(!empId){ closeGearMenu(); return; }
+  var emp = null;
+  for(var i=0; i<employees.length; i++){
+    if(String(employees[i].id) === String(empId)){ emp = employees[i]; break; }
+  }
+  if(!emp){ closeGearMenu(); return; }
+  var oldArchived = emp.archived || false;
+  var newArchived = !oldArchived;
+  emp.archived = newArchived;
+  renderEmployees();
+  try{
+    var resp = await authFetch('/api/agents/' + encodeURIComponent(empId), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({archived: newArchived})
+    });
+    if(resp && resp.ok){
+      showToast(newArchived ? '📂 已归档' : '✅ 已取消归档');
+      if(typeof lobsterChannel !== 'undefined' && lobsterChannel){
+        lobsterChannel.postMessage({type: 'employees_updated'});
+      }
+    } else {
+      showToast('❌ 归档失败');
+      emp.archived = oldArchived;
+      renderEmployees();
+    }
+  } catch(err){
+    console.error('[Archive] 保存失败:', err);
+    showToast('❌ 网络错误');
+    emp.archived = oldArchived;
+    renderEmployees();
+  }
+  closeGearMenu();
+}
 async function toggleUrgentBadge(empId){
   var emp = null;
   for(var i=0; i<employees.length; i++){
@@ -5683,6 +5720,7 @@ async function confirmCreateAgent() {
   </div>
   <div class="gear-divider"></div>
   <div class="gear-item" onclick="gearPinEmp()">📌 置顶</div>
+  <div class="gear-item" onclick="gearArchiveEmp()">📂 归档/取消归档</div>
 </div>
 
 <!-- 配置渠道弹窗 -->
