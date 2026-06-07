@@ -4322,7 +4322,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         """
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
+            self._send_json(auth.status, {'success': False, 'error': auth.error})
             return
 
         body = self._read_body()
@@ -4355,7 +4355,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         """
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
+            self._send_json(auth.status, {'success': False, 'error': auth.error})
             return
 
         body = self._read_body()
