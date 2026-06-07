@@ -630,18 +630,24 @@ def _fill_result_from_video(result, video, author, stats=None, extra=None):
     """统一填充解析结果（避免三处策略重复代码）"""
     if not isinstance(video, dict):
         return False
-    result['title'] = video.get('title') or video.get('desc', '')
-    result['desc'] = video.get('desc', '')
+    # aweme 级别字段回退（抖音数据结构中 desc/create_time/text_extra 在 aweme 级别）
+    aweme_desc = extra.get('desc', '') if isinstance(extra, dict) else ''
+    result['title'] = video.get('title') or video.get('desc', '') or aweme_desc
+    result['desc'] = video.get('desc', '') or aweme_desc
     result['cover'] = _extract_cover(video.get('cover'))
     result['video_url'] = _extract_watermark_free_video(video)
     result['duration'] = _extract_duration(video)
     result['transcript'] = _extract_subtitle_text(video)
-    result['hashtags'] = _extract_hashtags(video)
+    # hashtags 可能来自 aweme 级别的 text_extra
+    text_extra = video.get('text_extra', [])
+    if not text_extra and isinstance(extra, dict):
+        text_extra = extra.get('text_extra', [])
+    result['hashtags'] = _extract_hashtags({'text_extra': text_extra})
     result['music'] = _extract_music(video)
     result['images'] = _extract_images(video)
 
-    # 发布时间
-    create_time = video.get('create_time', 0)
+    # 发布时间（aweme 级别）
+    create_time = video.get('create_time', 0) or (extra.get('create_time', 0) if isinstance(extra, dict) else 0)
     if isinstance(create_time, (int, float)) and create_time > 0:
         try:
             from datetime import datetime
