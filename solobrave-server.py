@@ -8,7 +8,8 @@ SoloBrave Server — Auth + CORS Proxy + OpenClaw Management API
   3. Agent 数据存储（JSON 文件）
   4. 聊天记录存储
   5. API 代理端点 POST /api/proxy
-  6. OpenClaw 管理 API
+  6. 抖音视频解析 POST /api/douyin/parse
+  7. OpenClaw 管理 API
 
 只使用 Python 标准库，无需额外依赖。
 数据存储目录: ~/.solobrave-data/
@@ -28,12 +29,18 @@ import hmac
 import base64
 import uuid
 import time
+import tempfile
+import mimetypes
+import shutil
 try:
     import fcntl
 except ImportError:
     fcntl = None
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, unquote, parse_qs
+
+# 抖音视频解析模块（拆分到独立文件）
+from douyin_parser import *
 
 # 按 agent_id 细分的聊天写入锁，防止读-修改-写竞争导致消息丢失
 _chat_write_locks = {}
@@ -747,6 +754,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_agent(agent_id)
                 return
 
+        # Health check (no auth required)
+        if path == '/api/health':
+            self._send_json(200, {
+                'status': 'ok',
+                'timestamp': time.time(),
+                'features': {
+                    'douyin_parse': True,
+                    'douyin_transcribe': True,
+                    'ffmpeg': _check_ffmpeg()
+                }
+            })
+            return
+
         # Users API
         if path == '/api/users':
             self._handle_get_users()
@@ -881,6 +901,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # Proxy (requires auth)
         if path == '/api/proxy':
             self._handle_proxy()
+            return
+
+        # 抖音视频解析 (requires auth)
+        if path == '/api/douyin/parse':
+            self._handle_douyin_parse()
+            return
+
+        # 抖音视频语音转文字 (requires auth)
+        if path == '/api/douyin/transcribe':
+            self._handle_douyin_transcribe()
             return
 
         # Write SOUL.md/IDENTITY.md to OpenClaw agent workspace
@@ -3189,6 +3219,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 这样 memory 提取等场景（_extractMemoryViaAPI）才能正常工作
             if not skip_ai:
                 content = body.get('content', '')
+                # 自动检测并解析抖音链接，注入真实视频数据供AI分析
+                douyin_analysis = _detect_and_parse_douyin_links(content)
+                if douyin_analysis:
+                    content = content + '\n\n---\n【系统已自动解析抖音视频数据】\n' + douyin_analysis
                 # 记忆提取场景不需要加载历史记录，避免 token 超限和干扰
                 is_extract = '【记忆提取任务】' in content
                 api_reply = self._call_ai_api(agent, content, auth.user_info, include_history=not is_extract)
@@ -4195,6 +4229,195 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             print(f'  ❌ Proxy Unexpected Error: {e} <- {target_url}', flush=True)
             self._send_json_error(500, f'Internal proxy error: {str(e)}')
 
+    def _handle_douyin_parse(self):
+        """POST /api/douyin/parse（需认证）
+        请求体: {"url": "抖音分享链接或视频链接"}
+        响应: {"success": true, "data": {...}} 或 {"success": false, "error": "..."}
+        """
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body or not isinstance(body, dict):
+            self._send_json(400, {'success': False, 'error': '请求体必须是 JSON 对象，包含 url 字段'})
+            return
+
+        url = body.get('url', '').strip()
+        if not url:
+            self._send_json(400, {'success': False, 'error': '缺少 url 参数'})
+            return
+
+        print(f'  [Douyin] parse -> {url[:80]}...', flush=True)
+
+        # 步骤 1: 解析短链接，提取 video_id
+        resolved_url, video_id, err = _resolve_douyin_url(url)
+        if err:
+            print(f'  [Douyin] resolve error: {err}', flush=True)
+            self._send_json(400, {'success': False, 'error': err})
+            return
+
+        print(f'  [Douyin] resolved -> {resolved_url[:100]}... video_id={video_id}', flush=True)
+
+        # 步骤 2: 优先调用 Web API
+        video_info = None
+        if video_id:
+            api_data, api_err = _call_douyin_web_api(video_id)
+            if api_data:
+                print(f'  [Douyin] Web API OK', flush=True)
+                video_info = _parse_aweme_detail(api_data, resolved_url)
+            else:
+                print(f'  [Douyin] Web API failed: {api_err}', flush=True)
+
+        # 步骤 3: Web API 失败时降级到 HTML 解析
+        if not video_info:
+            html, err = _fetch_douyin_page(resolved_url)
+            if err:
+                print(f'  [Douyin] fetch error: {err}', flush=True)
+                self._send_json(502, {'success': False, 'error': err})
+                return
+            video_info = _parse_douyin_html(html, resolved_url)
+            if video_info is None:
+                print(f'  [Douyin] parse error: cannot extract video info', flush=True)
+                self._send_json(422, {
+                    'success': False,
+                    'error': '无法解析视频信息，Web API 和 HTML 解析均失败'
+                })
+                return
+
+        print(f'  [Douyin] parse OK: {video_info.get("title", "")[:40]}...', flush=True)
+
+        # 补全 video_id（HTML 解析可能未提取到）
+        if video_id and not video_info.get('video_id'):
+            video_info['video_id'] = video_id
+
+        # 可选：自动语音转文字
+        if body.get('transcribe') and video_info.get('video_url'):
+            video_url = video_info.get('video_url')
+            api_key = (body.get('api_key', '').strip()
+                       or self.headers.get('X-AI-API-Key', '')
+                       or os.environ.get('DOUYIN_API_KEY', ''))
+            if api_key:
+                try:
+                    # 检测 ffmpeg
+                    subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+                    temp_dir = None
+                    try:
+                        print(f'  [Douyin] auto transcribe started...', flush=True)
+                        video_path, temp_dir = _download_video_to_temp(video_url)
+                        audio_path = _extract_audio_with_ffmpeg(video_path)
+                        if audio_path:
+                            text = _transcribe_audio_siliconflow(audio_path, api_key)
+                            if text is not None:
+                                video_info['transcript'] = text
+                                print(f'  [Douyin] auto transcribe OK, length={len(text)}', flush=True)
+                    finally:
+                        if temp_dir and os.path.isdir(temp_dir):
+                            shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception as e:
+                    print(f'  [Douyin] auto transcribe skipped: {e}', flush=True)
+
+        self._send_json(200, {'success': True, 'data': video_info})
+
+    def _handle_douyin_transcribe(self):
+        """POST /api/douyin/transcribe（需认证）
+        请求体: {"video_url": "视频直链", "api_key?": "硅基流动 API Key"}
+        响应: {"success": true, "data": {"text": "转写结果"}} 或 {"success": false, "error": "..."}
+        流程: 下载视频 -> ffmpeg 提取音频(mp3) -> 硅基流动 API 语音转文字
+        """
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body or not isinstance(body, dict):
+            self._send_json(400, {'success': False, 'error': '请求体必须是 JSON 对象'})
+            return
+
+        video_url = body.get('video_url', '').strip()
+        if not video_url:
+            self._send_json(400, {'success': False, 'error': '缺少 video_url 参数'})
+            return
+
+        # API Key: 优先请求体，其次请求头 X-AI-API-Key，最后环境变量 DOUYIN_API_KEY
+        api_key = (body.get('api_key', '').strip()
+                   or self.headers.get('X-AI-API-Key', '')
+                   or os.environ.get('DOUYIN_API_KEY', ''))
+        if not api_key:
+            self._send_json(400, {'success': False, 'error': '缺少 api_key（可放在请求体、X-AI-API-Key 请求头或 DOUYIN_API_KEY 环境变量）'})
+            return
+
+        # 检测 ffmpeg 是否可用
+        try:
+            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+        except Exception:
+            self._send_json(503, {'success': False, 'error': '服务器未安装 ffmpeg，无法提取音频'})
+            return
+
+        temp_dir = None
+        try:
+            # 1. 下载视频
+            print(f'  [Douyin] downloading video...', flush=True)
+            video_path, temp_dir = _download_video_to_temp(video_url)
+            print(f'  [Douyin] video saved: {video_path} ({os.path.getsize(video_path)} bytes)', flush=True)
+
+            # 2. 提取音频
+            print(f'  [Douyin] extracting audio with ffmpeg...', flush=True)
+            audio_path = _extract_audio_with_ffmpeg(video_path)
+            if not audio_path:
+                self._send_json(502, {'success': False, 'error': 'ffmpeg 音频提取失败'})
+                return
+            print(f'  [Douyin] audio saved: {audio_path} ({os.path.getsize(audio_path)} bytes)', flush=True)
+
+            # 3. 语音转文字
+            print(f'  [Douyin] transcribing with SiliconFlow...', flush=True)
+            text = _transcribe_audio_siliconflow(audio_path, api_key)
+            if text is None:
+                self._send_json(502, {'success': False, 'error': '硅基流动语音转文字 API 调用失败'})
+                return
+
+            # 4. 提取封面（可选，不阻断主流程）
+            cover_base64 = None
+            try:
+                cover_path = _extract_cover_from_video(video_path)
+                if cover_path:
+                    with open(cover_path, 'rb') as f:
+                        cover_base64 = 'data:image/jpeg;base64,' + base64.b64encode(f.read()).decode('utf-8')
+                    print(f'  [Douyin] cover extracted: {len(cover_base64)} bytes', flush=True)
+            except Exception as e:
+                print(f'  [Douyin] cover extraction skipped: {e}', flush=True)
+
+            # 5. 获取媒体信息（可选，不阻断主流程）
+            media_info = None
+            try:
+                media_info = _get_media_info(video_path)
+                if media_info:
+                    print(f'  [Douyin] media info: {media_info.get("width")}x{media_info.get("height")}, {media_info.get("duration")}s', flush=True)
+            except Exception as e:
+                print(f'  [Douyin] media info skipped: {e}', flush=True)
+
+            print(f'  [Douyin] transcribe OK, length={len(text)}', flush=True)
+            result_data = {'text': text}
+            if cover_base64:
+                result_data['cover_base64'] = cover_base64
+            if media_info:
+                result_data['media_info'] = media_info
+            self._send_json(200, {'success': True, 'data': result_data})
+
+        except ValueError as e:
+            print(f'  [Douyin] transcribe error: {e}', flush=True)
+            self._send_json(400, {'success': False, 'error': str(e)})
+        except Exception as e:
+            print(f'  [Douyin] transcribe error: {e}', flush=True)
+            self._send_json(500, {'success': False, 'error': f'转写失败: {str(e)}'})
+        finally:
+            # 清理临时文件
+            if temp_dir and os.path.isdir(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                print(f'  [Douyin] temp cleaned: {temp_dir}', flush=True)
+
 
 # ─── 启动 ───────────────────────────────────────────────
 def main():
@@ -4272,6 +4495,8 @@ def main():
     print(f'  [API] 群组:      /api/groups/*')
     print(f'  [API] 聊天:      /api/chat/*')
     print(f'  [API] 代理:      POST /api/proxy')
+    print(f'  [API] 抖音解析:  POST /api/douyin/parse')
+    print(f'  [API] 抖音转写:  POST /api/douyin/transcribe')
     print(f'  [API] OpenClaw:  /api/openclaw/*')
     print(f'  [API] 技能:      /api/openclaw/skills/*')
     print(f'  [CFG] 超时设置:  {PROXY_TIMEOUT}s')
