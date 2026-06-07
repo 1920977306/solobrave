@@ -4166,6 +4166,7 @@ async function openDetailPanel(empId){
     } else {
       gridHtml += '<div class="info-value" style="color:var(--gray-4)">无</div>';
     }
+    gridHtml += '<button onclick="toggleUrgentBadge(\'' + escapeAttr(empId) + '\')" style="margin-top:6px;padding:4px 10px;border-radius:6px;border:1px solid var(--border-color);background:var(--bg-secondary);font-size:12px;cursor:pointer;color:var(--text-primary)">' + (emp.badge === 'urgent' ? '取消紧急' : '标记紧急') + '</button>';
     gridHtml += '</div>';
 
     // 项目组信息
@@ -4537,6 +4538,19 @@ function gearMoveToGroup(groupName){
 function gearPinEmp(){
   showToast('📌 置顶功能开发中');
   closeGearMenu();
+}
+function toggleUrgentBadge(empId){
+  var emp = null;
+  for(var i=0; i<employees.length; i++){
+    if(String(employees[i].id) === String(empId)){ emp = employees[i]; break; }
+  }
+  if(!emp) return;
+  emp.badge = (emp.badge === 'urgent') ? '' : 'urgent';
+  renderEmployees();
+  if(currentDetailEmp && String(currentDetailEmp.id) === String(empId)){
+    openDetailPanel(empId);
+  }
+  showToast(emp.badge === 'urgent' ? '⚠️ 已标记为紧急' : '✅ 已取消紧急标记');
 }
 
 // ===== 员工改名功能 =====
