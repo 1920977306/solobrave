@@ -3857,9 +3857,6 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
     }
   }
 
-  // 加载记忆注入（核心记忆始终注入 + 日常记录按相关性匹配）
-  var memoryPrompt = await buildMemoryPrompt(emp.id, userMessage);
-
   // 加载最近对话上下文（OpenClaw session 丢失时恢复历史）
   var chatContext = await buildRecentChatContext(emp.id, 10);
 
@@ -4004,7 +4001,6 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
     var fullMessage = userMessage;
     if (chatContext) fullMessage = chatContext + '\n\n' + fullMessage;
     if (systemPrompt) fullMessage = '【System Prompt】\n' + systemPrompt + '\n\n【User Message】\n' + fullMessage;
-    if (memoryPrompt) fullMessage = memoryPrompt + '\n\n' + fullMessage;
     var result = await openclaw.sendChat(sessionKey, fullMessage);
     console.log('[OpenClaw] chat.send 返回:', JSON.stringify(result));
     // chat.send 返回确认，实际回复通过 agent 事件推送
@@ -4050,55 +4046,6 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
       displayAIReply('⚠️ OpenClaw 连接异常: ' + e.message, docContext, timeStr, emp.id);
     }
   }
-}
-
-// 构建记忆注入文本（v2 简化版：OpenClaw 路径使用，后端 API 路径已由后端统一注入）
-async function buildMemoryPrompt(empId, userMessage) {
-  try {
-    var memRes = await apiFetch('/api/memory/' + encodeURIComponent(empId));
-    var data = await memRes.json();
-    if (!data || !data.core) return '';
-
-    // v2 分池格式：直接取后端已归档和筛选后的数据
-    var coreList = (data.core || []).sort(function (a, b) { return (b.time || 0) - (a.time || 0); });
-    var dailyList = (data.daily || []).sort(function (a, b) { return (b.time || 0) - (a.time || 0); });
-
-    var memLines = [];
-    coreList.slice(0, 5).forEach(function (m) {
-      var val = (m.value || '').slice(0, 500);
-      if (val) memLines.push('- ' + val);
-    });
-    dailyList.slice(0, 3).forEach(function (m) {
-      var val = (m.value || '').slice(0, 500);
-      if (val) memLines.push('- ' + val);
-    });
-
-    // 知识库从后端获取（v2 持久化）
-    var docMemText = '';
-    try {
-      var kbRes = await apiFetch('/api/knowledge');
-      var docs = await kbRes.json();
-      var linkedDocs = docs.filter(function (d) {
-        return d && d.linkedEmployees && d.linkedEmployees.indexOf(empId) > -1;
-      });
-      if (linkedDocs.length > 0) {
-        var docLines = [];
-        linkedDocs.forEach(function (d) {
-          var preview = (d.content || '').slice(0, 500);
-          if (preview) docLines.push('📄 《' + d.name + '》：' + preview);
-        });
-        docMemText = docLines.join('\n');
-      }
-    } catch (docErr) {}
-
-    if (memLines.length === 0 && !docMemText) return '';
-
-    var result = '';
-    if (memLines.length > 0) result += '\n\n【关于用户的记忆】\n' + memLines.join('\n');
-    if (docMemText) result += '\n\n【来自知识库的记忆】\n' + docMemText;
-    return result;
-  } catch (e) {}
-  return '';
 }
 
 // 构建最近对话上下文（用于在 OpenClaw session 丢失时恢复上下文）
@@ -7213,9 +7160,6 @@ async function sendGroupMessage(groupId, message, mentions) {
           fullMessage = '\n\n【之前对话的摘要】\n' + sumData.summary + '\n\n' + fullMessage;
         }
       } catch (e) {}
-      var memPrompt = await buildMemoryPrompt(group.leadAgentId, message);
-      if (memPrompt) fullMessage = memPrompt + '\n\n' + fullMessage;
-
       // 加载最近群聊历史上下文
       try {
         var ghRes = await apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/history');
@@ -7821,10 +7765,6 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   if (group && group.announcement && group.announcement.trim().length > 0) {
     prompt += '\n\n【群公告】' + group.announcement;
   }
-
-  // 加载记忆注入
-  var memPrompt = await buildMemoryPrompt(emp.id, userMessage || '');
-  if (memPrompt) prompt = memPrompt + '\n\n' + prompt;
 
   // 加载最近群聊历史上下文
   try {
@@ -12109,13 +12049,9 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
     model = emp.apiModel || 'custom-model';
   }
 
-  // ==== 加载记忆、上下文、摘要（与 OpenClaw 路径保持一致）====
-  var memoryPrompt = '';
+  // ==== 加载上下文、摘要（记忆已由后端统一注入）====
   var chatContext = '';
   var summaryText = '';
-  try {
-    memoryPrompt = await buildMemoryPrompt(emp.id, userMessage);
-  } catch (e) {}
   try {
     chatContext = await buildRecentChatContext(emp.id, 10);
   } catch (e) {}
@@ -12147,9 +12083,6 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
     role: 'system',
     content: systemPrompt
   }];
-  if (memoryPrompt) {
-    messages.push({ role: 'system', content: memoryPrompt });
-  }
   if (chatContext) {
     messages.push({ role: 'system', content: chatContext });
   }
