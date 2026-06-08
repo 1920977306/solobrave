@@ -60,6 +60,17 @@ def _lock_file(f):
         fcntl.flock(f, fcntl.LOCK_EX)  # 支持文件对象或 fd
 
 
+def _unlock_file(f):
+    """跨平台文件解锁"""
+    if os.name == 'nt':  # Windows
+        import msvcrt
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+    else:  # Mac/Linux
+        import fcntl
+        fcntl.flock(f, fcntl.LOCK_UN)
+
+
 def _read_json(filepath, default=None):
     """读取 JSON 文件"""
     if not os.path.isfile(filepath):
@@ -78,9 +89,12 @@ def _write_json(filepath, data):
     try:
         with open(filepath, 'a+', encoding='utf-8') as lock_f:
             _lock_file(lock_f)
-            with open(tmp_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            os.replace(tmp_path, filepath)
+            try:
+                with open(tmp_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                os.replace(tmp_path, filepath)
+            finally:
+                _unlock_file(lock_f)
     except OSError:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
