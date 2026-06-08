@@ -3509,18 +3509,36 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if len(value) > cfg['store_value_max']:
             self._send_json_error(400, f'Value exceeds max length {cfg["store_value_max"]}')
             return
+        if len(value) < 1:
+            self._send_json_error(400, 'Value cannot be empty')
+            return
 
         key = body.get('key', 'auto')
         pool = 'daily' if key in ('auto', 'auto_extract') else 'core'
 
+        # 提取可选参数
+        priority = body.get('priority')
+        if priority is not None:
+            try:
+                priority = max(1, min(10, int(priority)))
+            except (ValueError, TypeError):
+                priority = None
+        tags = body.get('tags', [])
+        if not isinstance(tags, list):
+            tags = []
+        tags = [str(t).strip() for t in tags if str(t).strip()][:10]  # 最多 10 个标签
+
         try:
             memory = ms3.add_memory(
                 emp_id, value, key=key,
-                source=body.get('source', ''),
-                context=body.get('context', '')
+                source=body.get('source', 'user_input'),
+                context=body.get('context', ''),
+                priority=priority,
+                tags=tags if tags else None
             )
         except RuntimeError as e:
             self._send_json(409, {
+                'success': False,
                 'error': str(e),
                 'pool': pool,
                 'max': cfg['core_max'] if pool == 'core' else cfg['daily_max'],
@@ -3528,18 +3546,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             })
             return
 
-        # 字段映射：v3 createdAt → v2 time（前端兼容）
-        result = dict(memory)
-        if 'createdAt' in result:
-            result['time'] = result.pop('createdAt')
-        result.pop('expiresAt', None)
-        result.pop('context', None)
-        result.pop('priority', None)
-        result.pop('tags', None)
-        result.pop('accessCount', None)
+        # 字段映射：v3 → v2 前端兼容
+        mapped = dict(memory)
+        if 'createdAt' in mapped:
+            mapped['time'] = mapped.pop('createdAt')
+        mapped.pop('updatedAt', None)
+        mapped.pop('expiresAt', None)
+        mapped.pop('context', None)
+        mapped.pop('accessCount', None)
+        # priority / tags 保留给前端展示
 
         print(f'  [MemoryV3] {emp_id} 保存 {pool} 记忆: {value[:50]}...', flush=True)
-        self._send_json(200, result)
+        self._send_json(200, {
+            'success': True,
+            'data': mapped
+        })
 
     def _handle_delete_memory(self, emp_id, memory_id):
         """DELETE /api/memory/{empId}/{memoryId} — 删除单条记忆（支持 archived 数据）"""

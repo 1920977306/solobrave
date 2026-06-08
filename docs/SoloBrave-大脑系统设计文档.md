@@ -1774,26 +1774,66 @@ Authorization: Bearer eyJhbG...
 
 #### POST /api/memory/:empId
 
-**功能：** 添加记忆到指定分池
+**功能：** 添加记忆到指定分池（自动分池 + 容量检查）
+
+**路径参数：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `empId` | string | 是 | 员工唯一标识 |
 
 **请求体：**
 
-```json
-{
-  "key": "auto",
-  "value": "用户喜欢蓝色主题",
-  "source": "AI提取"
-}
-```
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `value` | string | 是 | 记忆内容，1-5000 字符 |
+| `key` | string | 否 | 记忆类型。`auto`/`auto_extract` → daily 池；其他 → core 池。默认 `auto` |
+| `source` | string | 否 | 来源标识。如 `user_input`、`chat`、`ai_extract`。默认 `user_input` |
+| `priority` | int | 否 | 优先级 1-10，仅 core 记忆有效。默认 5 |
+| `tags` | array | 否 | 标签数组，最多 10 个。如 `["凉鞋", "达人反馈"]` |
+| `context` | string | 否 | 上下文原文，仅 daily 记忆有效 |
 
 **分池规则：**
 - `key` 为 `auto` 或 `auto_extract` → `daily` 池
 - 其他值 → `core` 池
 
+**请求示例：**
+
+```json
+POST /api/memory/emp_001
+Content-Type: application/json
+
+{
+  "key": "core",
+  "value": "李馒头对凉鞋感兴趣但觉得佣金低",
+  "source": "chat",
+  "priority": 5,
+  "tags": ["凉鞋", "达人反馈"]
+}
+```
+
+**成功响应（200）：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "mem_20260608_xxx",
+    "key": "core",
+    "value": "李馒头对凉鞋感兴趣但觉得佣金低",
+    "source": "chat",
+    "priority": 5,
+    "tags": ["凉鞋", "达人反馈"],
+    "time": 1777312800000
+  }
+}
+```
+
 **容量超限响应（409）：**
 
 ```json
 {
+  "success": false,
   "error": "daily pool full (100/100)",
   "pool": "daily",
   "max": 100,
