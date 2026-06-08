@@ -35,5 +35,27 @@
     "平底舒适，适合沙滩",
     "百搭日常"
   ],
-  "product_card": "商品手卡文本摘要，从商品手卡图片/文档提取的完整信息..."
+  "product_card": "商品手卡文本摘要，从商品手卡图片/文档提取的完整信息...",
+  "hot_videos": [
+    {
+      "id": "vid_001",
+      "title": "coolchap凉鞋开箱测评",
+      "platform": "抖音",
+      "url": "https://example.com/video/001",
+      "views": 125000,
+      "likes": 8500,
+      "author": "花花穿搭",
+      "publishedAt": "2026-05-15"
+    },
+    {
+      "id": "vid_002",
+      "title": "小众设计师凉鞋推荐，不撞款！",
+      "platform": "小红书",
+      "url": "https://example.com/video/002",
+      "views": 68000,
+      "likes": 4200,
+      "author": "小美搭配日记",
+      "publishedAt": "2026-05-20"
+    }
+  ]
 }
