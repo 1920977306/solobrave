@@ -4248,19 +4248,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, updated)
 
     def _handle_delete_product(self, product_id):
-        """DELETE /api/products/{id} — 删除商品"""
+        """DELETE /api/products/{id} — 删除商品（归档：从index移除，详情文件保留并标记archived）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
         data = self._load_products()
         original = len(data.get('products', []))
+        removed_product = next((p for p in data.get('products', []) if p.get('id') == product_id), None)
         data['products'] = [p for p in data.get('products', []) if p.get('id') != product_id]
         removed = original - len(data['products'])
         self._save_products(data)
-        if removed > 0:
-            self._remove_product_file(product_id)
-        self._send_json(200, {'deleted': removed > 0, 'id': product_id})
+        if removed > 0 and removed_product:
+            # 保留详情文件，状态改为 archived
+            removed_product['status'] = 'archived'
+            removed_product['updatedAt'] = int(time.time() * 1000)
+            self._sync_product_file(removed_product)
+        self._send_json(200, {'deleted': removed > 0, 'id': product_id, 'status': 'archived' if removed > 0 else None})
 
     def _handle_search_products(self):
         """POST /api/products/search — 高级搜索/匹配"""
