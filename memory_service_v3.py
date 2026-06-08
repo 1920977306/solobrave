@@ -43,22 +43,22 @@ MEMORY_V3_CONFIG = {
     'context_max': 500,        # daily 上下文摘要字符上限
 }
 
-# 进程级文件锁
-_file_locks = {}
-_locks_mutex = threading.Lock()
-
-
-def _get_file_lock(filepath):
-    """获取文件路径对应的进程级写锁"""
-    with _locks_mutex:
-        if filepath not in _file_locks:
-            _file_locks[filepath] = threading.Lock()
-        return _file_locks[filepath]
-
-
 def _ensure_dir(path):
     """确保目录存在"""
     os.makedirs(path, exist_ok=True)
+
+
+def _lock_file(f):
+    """跨平台文件锁：Windows 用 msvcrt.locking，Unix 用 fcntl.flock"""
+    import platform
+    if platform.system() == 'Windows':
+        import msvcrt
+        # Windows: 锁定文件 1 字节（ advisory lock 模拟）
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
 
 
 def _read_json(filepath, default=None):
@@ -73,12 +73,12 @@ def _read_json(filepath, default=None):
 
 
 def _write_json(filepath, data):
-    """原子写入 JSON 文件"""
+    """原子写入 JSON 文件（跨平台文件锁保证多进程安全）"""
     _ensure_dir(os.path.dirname(filepath))
     tmp_path = filepath + '.tmp.' + uuid.uuid4().hex[:8]
-    file_lock = _get_file_lock(filepath)
     try:
-        with file_lock:
+        with open(filepath, 'a+', encoding='utf-8') as lock_f:
+            _lock_file(lock_f)
             with open(tmp_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             os.replace(tmp_path, filepath)
