@@ -1719,7 +1719,7 @@ Response: {"token": "eyJhbG...", "user": {"id": "...", "role": "admin"}}
 |---|---|---|---|
 | `pool` | string | 否 | 记忆池过滤。`core` = 仅核心记忆；`daily` = 仅日常记录；`active` = 活跃记忆（core+daily，不含归档）。默认返回全部（含归档） |
 | `key` | string | 否 | 按 key 精确过滤，如 `preference`、`auto`、`auto_extract` |
-| `tag` | string | 否 | 按标签过滤，如 `UI`、`达人反馈`。支持单标签匹配 |
+| `tag` | string | 否 | 按标签过滤，支持逗号分隔多标签 OR 匹配，如 `凉鞋,达人反馈` |
 | `search` | string | 否 | 内容模糊搜索，匹配 `value` 字段（大小写不敏感） |
 | `limit` | integer | 否 | 单池返回条数上限。默认 100，最大 500 |
 | `offset` | integer | 否 | 分页偏移量。默认 0 |

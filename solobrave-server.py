@@ -3403,8 +3403,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if key_filter and m.get('key') != key_filter:
                 return False
             if tag_filter:
-                tags = m.get('tags', []) or []
-                if tag_filter not in tags:
+                tags = set(m.get('tags', []) or [])
+                required = set(t.strip() for t in tag_filter.split(',') if t.strip())
+                if not (tags & required):  # OR 匹配：交集为空则排除
                     return False
             if search_term:
                 value = (m.get('value') or '').lower()
