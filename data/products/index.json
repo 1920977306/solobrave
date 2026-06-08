@@ -439,6 +439,15 @@
             "互动率优秀 (>5%)"
           ],
           "matchPercent": 75
+        },
+        {
+          "id": "inf_xiaomei",
+          "name": "小美搭配日记",
+          "platform": "小红书",
+          "followerCount": 580000,
+          "score": 0,
+          "reasons": [],
+          "matchPercent": 0
         }
       ]
     }
