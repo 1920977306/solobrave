@@ -482,6 +482,78 @@ def restore_memory(emp_id, mem_id):
     return restored
 
 
+def consolidate_memory(emp_id, source_ids, consolidated_value, key='core',
+                       priority=8, tags=None):
+    """
+    归纳合并：将多条 daily 记忆合并为一条 core 记忆
+    source_ids: 要合并的 daily 记忆 ID 列表
+    返回: (新记忆, 归档的ID列表)
+    """
+    cfg = MEMORY_V3_CONFIG
+    data = load_memory(emp_id)
+
+    # 收集要合并的记忆
+    sources = []
+    for sid in source_ids:
+        for m in data.get('daily', []):
+            if m.get('id') == sid:
+                sources.append(m)
+                break
+
+    if len(sources) < 2:
+        raise RuntimeError('Need at least 2 memories to consolidate')
+
+    # 检查 core 池容量
+    if len(data.get('core', [])) >= cfg['core_max']:
+        raise RuntimeError(f'Core pool full ({cfg["core_max"]})')
+
+    now = int(time.time() * 1000)
+
+    # 创建新的 core 记忆
+    new_mem = {
+        'id': 'mem_' + uuid.uuid4().hex[:8],
+        'key': key,
+        'value': consolidated_value,
+        'source': 'consolidated',
+        'priority': max(1, min(10, priority)),
+        'tags': tags or [],
+        'createdAt': now,
+        'updatedAt': now,
+        'accessCount': 0,
+        'expiresAt': None,
+    }
+
+    # 从 daily 池移除源记忆，移入归档
+    archived_ids = []
+    archive_data = load_archive(emp_id)
+    for s in sources:
+        sid = s['id']
+        data['daily'] = [m for m in data['daily'] if m.get('id') != sid]
+        archived_ids.append(sid)
+        archive_entry = {
+            'id': sid,
+            'originalKey': s.get('key', 'auto'),
+            'value': s.get('value', ''),
+            'source': s.get('source', ''),
+            'createdAt': s.get('createdAt', now),
+            'archivedAt': now,
+            'archiveReason': 'consolidated',
+        }
+        archive_data.setdefault('archived', []).append(archive_entry)
+
+    data['core'].append(new_mem)
+    save_memory(emp_id, data)
+    save_archive(emp_id, archive_data)
+
+    # 记录归纳日志
+    log_consolidation(emp_id, 'merge', source_ids, new_mem['id'],
+                      old_value='; '.join(s.get('value', '')[:100] for s in sources),
+                      new_value=consolidated_value,
+                      trigger='manual')
+
+    return new_mem, archived_ids
+
+
 # ═══════════════════════════════════════════════════
 # 归纳日志
 # ═══════════════════════════════════════════════════

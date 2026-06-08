@@ -1944,6 +1944,55 @@ Content-Type: application/json
 }
 ```
 
+#### POST /api/memory/consolidate
+
+**功能：** 归纳合并多条 daily 记忆为一条 core 记忆，原记忆移入归档（`archiveReason='consolidated'`）
+
+**请求体：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `empId` | string | 是 | 员工唯一标识 |
+| `sourceIds` | array | 是 | 要合并的 daily 记忆 ID 列表（2-10 条） |
+| `consolidatedValue` | string | 是 | 合并后的新内容，1-2000 字符 |
+| `key` | string | 否 | 合并后的类型，默认 `core` |
+| `priority` | int | 否 | 优先级 1-10，默认 8 |
+| `tags` | array | 否 | 标签数组 |
+
+**请求示例：**
+
+```json
+POST /api/memory/consolidate
+{
+  "empId": "emp_001",
+  "sourceIds": ["mem_20260608_def456", "mem_20260608_def457"],
+  "consolidatedValue": "李馒头是美妆穿搭达人，对凉鞋感兴趣，佣金可谈到20%",
+  "key": "core",
+  "priority": 8,
+  "tags": ["达人", "李馒头", "凉鞋"]
+}
+```
+
+**成功响应（200）：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "newMemory": {
+      "id": "mem_20260608_xxx",
+      "key": "core",
+      "value": "李馒头是美妆穿搭达人...",
+      "source": "consolidated",
+      "priority": 8,
+      "tags": ["达人", "李馒头", "凉鞋"],
+      "time": 1777312800000
+    },
+    "archivedIds": ["mem_20260608_def456", "mem_20260608_def457"]
+  }
+}
+```
+
 #### GET /api/memory/archived
 
 **功能：** 查看全局归档记忆（所有员工的归档数据）

@@ -864,6 +864,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/memory/archived':
             self._handle_get_archived_memories()
             return
+        if path == '/api/memory/consolidate':
+            self._handle_consolidate_memory()
+            return
         if path.startswith('/api/memory/'):
             sub = path[len('/api/memory/'):]
             parts = sub.split('/')
@@ -3553,6 +3556,70 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'total': total,
                 'limit': limit,
                 'offset': offset
+            }
+        })
+
+    def _handle_consolidate_memory(self):
+        """POST /api/memory/consolidate — 归纳合并多条 daily 记忆为 core 记忆"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+
+        emp_id = body.get('empId')
+        if not emp_id:
+            self._send_json_error(400, 'Missing empId')
+            return
+        if not _check_agent_exists(emp_id):
+            self._send_json(404, {'error': 'Agent not found'})
+            return
+
+        source_ids = body.get('sourceIds', [])
+        if len(source_ids) < 2:
+            self._send_json_error(400, 'Need at least 2 sourceIds')
+            return
+
+        consolidated_value = body.get('consolidatedValue', '')
+        if len(consolidated_value) < 1:
+            self._send_json_error(400, 'consolidatedValue cannot be empty')
+            return
+        cfg = MEMORY_CONFIG
+        if len(consolidated_value) > cfg['store_value_max']:
+            self._send_json_error(400, f'consolidatedValue exceeds max length {cfg["store_value_max"]}')
+            return
+
+        try:
+            new_mem, archived_ids = ms3.consolidate_memory(
+                emp_id,
+                source_ids,
+                consolidated_value,
+                key=body.get('key', 'core'),
+                priority=body.get('priority', 8),
+                tags=body.get('tags', [])
+            )
+        except RuntimeError as e:
+            self._send_json(409, {'success': False, 'error': str(e)})
+            return
+
+        # 字段映射
+        mapped = dict(new_mem)
+        if 'createdAt' in mapped:
+            mapped['time'] = mapped.pop('createdAt')
+        mapped.pop('updatedAt', None)
+        mapped.pop('expiresAt', None)
+        mapped.pop('accessCount', None)
+
+        print(f'  [MemoryV3] {emp_id} 归纳合并 {len(archived_ids)} 条记忆 → {new_mem["id"]}', flush=True)
+        self._send_json(200, {
+            'success': True,
+            'data': {
+                'newMemory': mapped,
+                'archivedIds': archived_ids
             }
         })
 
