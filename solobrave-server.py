@@ -4150,6 +4150,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         for ext_field in ('commission_rate', 'commission_amount', 'selling_points', 'product_card', 'hot_videos', 'matched_influencers'):
             if ext_field in body:
                 product[ext_field] = body[ext_field]
+        # 自动计算佣金金额：commission_amount = price * commission_rate / 100
+        if 'commission_rate' in body and 'commission_amount' not in body:
+            product['commission_amount'] = round(product['price'] * float(product['commission_rate']) / 100, 2)
         data['products'].append(product)
         self._save_products(data)
         print(f'  [Product] 录入商品: {product["name"]} ({product["id"]})', flush=True)
@@ -4176,6 +4179,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             p[field] = float(body[field])
                         if field == 'stock':
                             p[field] = int(body[field])
+                # 自动计算佣金金额（当 price 或 commission_rate 变更且未显式提供 commission_amount 时）
+                if ('price' in body or 'commission_rate' in body) and 'commission_amount' not in body:
+                    price = float(p.get('price', 0))
+                    rate = float(p.get('commission_rate', 0))
+                    p['commission_amount'] = round(price * rate / 100, 2)
                 p['updatedAt'] = int(time.time() * 1000)
                 updated = p
                 break
