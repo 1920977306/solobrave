@@ -3475,6 +3475,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'success': True,
             'data': {
                 'memories': all_memories,
+                'total': len(all_memories),
                 'core': core_list,
                 'daily': daily_list,
                 'archive': archive_list,

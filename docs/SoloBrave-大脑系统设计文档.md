@@ -1755,6 +1755,7 @@ Authorization: Bearer eyJhbG...
         "time": 1700000000000
       }
     ],
+    "total": 2,
     "core": [...],
     "daily": [...],
     "archive": [],
