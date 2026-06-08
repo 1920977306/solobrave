@@ -4130,7 +4130,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         data = self._load_products()
         now_ts = int(time.time() * 1000)
         product = {
-            'id': body.get('id') or ('prod_' + uuid.uuid4().hex[:8]),
+            'id': body.get('id') or f'prod_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}',
             'name': body['name'],
             'description': body.get('description', ''),
             'price': float(body.get('price', 0)),
@@ -4317,7 +4317,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         data = self._load_influencers()
         influencer = {
-            'id': body.get('id') or ('inf_' + uuid.uuid4().hex[:8]),
+            'id': body.get('id') or f'inf_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}',
             'name': body['name'],
             'avatar': body.get('avatar', ''),
             'platform': body.get('platform', '抖音'),
