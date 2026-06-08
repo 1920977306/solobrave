@@ -519,12 +519,12 @@ def consolidate_memory(emp_id, source_ids, consolidated_value, key='core',
 
     now = int(time.time() * 1000)
 
-    # 创建新的 core 记忆
+    # 创建新的 core 记忆（归纳摘要）
     new_mem = {
         'id': 'mem_' + uuid.uuid4().hex[:8],
         'key': key,
         'value': consolidated_value,
-        'source': 'consolidated',
+        'source': 'induction',
         'priority': max(1, min(10, priority)),
         'tags': tags or [],
         'createdAt': now,

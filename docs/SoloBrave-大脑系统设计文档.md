@@ -1985,7 +1985,7 @@ POST /api/memory/consolidate
       "id": "mem_20260608_xxx",
       "key": "core",
       "value": "李馒头是美妆穿搭达人...",
-      "source": "consolidated",
+      "source": "induction",
       "priority": 8,
       "tags": ["达人", "李馒头", "凉鞋"],
       "time": 1777312800000
