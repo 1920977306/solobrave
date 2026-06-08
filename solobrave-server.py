@@ -42,6 +42,9 @@ from urllib.parse import urlparse, unquote, parse_qs
 # 抖音视频解析模块（拆分到独立文件）
 from douyin_parser import *
 
+# 记忆服务 v3（新目录结构：data/memories/{empId}/）
+import memory_service_v3 as ms3
+
 # 按 agent_id 细分的聊天写入锁，防止读-修改-写竞争导致消息丢失
 _chat_write_locks = {}
 _chat_locks_mutex = threading.Lock()
@@ -78,6 +81,16 @@ ARCHIVE_DIR = os.path.join(DATA_DIR, 'memory', 'archive')
 KNOWLEDGE_DIR = os.path.join(DATA_DIR, 'knowledge')
 PRODUCT_DIR = os.path.join(DATA_DIR, 'products')
 INFLUENCER_DIR = os.path.join(DATA_DIR, 'influencers')
+
+# 记忆服务 v3 目录（物理隔离活跃记忆与归档记忆）
+ms3.MEMORY_V3_DIR = os.path.join(DATA_DIR, 'memories')
+ms3.MEMORY_V3_CONFIG['core_max'] = MEMORY_CONFIG['core_max']
+ms3.MEMORY_V3_CONFIG['daily_max'] = MEMORY_CONFIG['daily_max']
+ms3.MEMORY_V3_CONFIG['daily_ttl_days'] = MEMORY_CONFIG['daily_ttl_days']
+ms3.MEMORY_V3_CONFIG['inject_core_max'] = MEMORY_CONFIG['inject_core_max']
+ms3.MEMORY_V3_CONFIG['inject_daily_max'] = MEMORY_CONFIG['inject_daily_max']
+ms3.MEMORY_V3_CONFIG['inject_value_max'] = MEMORY_CONFIG['inject_value_max']
+ms3.MEMORY_V3_CONFIG['store_value_max'] = MEMORY_CONFIG['store_value_max']
 
 # ═══════════════════════════════════════════════════
 # 记忆系统 v2 配置（三层大脑架构）
@@ -165,108 +178,15 @@ def _write_json(filepath, data):
 
 
 # ═══════════════════════════════════════════════════
-# 记忆系统 v2 分池读写工具
+# 记忆系统 v3（使用 memory_service_v3 模块）
 # ═══════════════════════════════════════════════════
-
-def _load_memory_v2(emp_id):
-    """加载某员工的 v2 分池记忆数据
-    返回: {'core': [...], 'daily': [...], 'archive': [...], 'version': '2.0'}
-    daily 只返回 archived=False 的数据，archive 返回 archived=True 的数据
-    兼容旧版扁平数组、旧版独立 archive 字段、旧版物理归档文件
-    """
-    filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
-    raw = _read_json(filepath, None)
-    if raw is None:
-        return {'core': [], 'daily': [], 'archive': [], 'version': '2.0'}
-    # v2 格式：已经是分池字典
-    if isinstance(raw, dict) and raw.get('version') == '2.0':
-        all_daily = list(raw.get('daily', []))
-        # 兼容旧版：如果还有独立的 archive 字段，合并到 daily 并标记 archived=True
-        old_archive = raw.get('archive', [])
-        if old_archive:
-            for oa in old_archive:
-                if not any(d.get('id') == oa.get('id') for d in all_daily):
-                    oa['archived'] = True
-                    all_daily.append(oa)
-            _write_json(filepath, {'core': raw.get('core', []), 'daily': all_daily, 'version': '2.0'})
-            print(f'  [MemoryV2] {emp_id} 已将旧版 archive 字段合并到 daily 池', flush=True)
-        # 兼容旧版物理归档文件
-        try:
-            old_file = _load_archive(emp_id)
-            old_mems = old_file.get('memories', [])
-            if old_mems:
-                merged_any = False
-                for om in old_mems:
-                    if not any(d.get('id') == om.get('id') for d in all_daily):
-                        migrated = {
-                            'id': om.get('id') or ('arch_' + uuid.uuid4().hex[:8]),
-                            'key': om.get('type', 'auto'),
-                            'value': om.get('originalValue') or om.get('summary', ''),
-                            'time': om.get('originalTime') or om.get('archivedTime', int(time.time()*1000)),
-                            'archived': True,
-                            'archivedTime': om.get('archivedTime', int(time.time()*1000)),
-                            'source': om.get('source', '')
-                        }
-                        all_daily.append(migrated)
-                        merged_any = True
-                if merged_any:
-                    _write_json(filepath, {'core': raw.get('core', []), 'daily': all_daily, 'version': '2.0'})
-                    archive_fp = os.path.join(ARCHIVE_DIR, f'{emp_id}.json')
-                    if os.path.exists(archive_fp):
-                        os.remove(archive_fp)
-                    print(f'  [MemoryV2] {emp_id} 已合并旧版物理归档文件到 daily 池', flush=True)
-        except Exception as e:
-            print(f'  [MemoryV2] {emp_id} 合并旧归档失败: {e}', flush=True)
-        active = [m for m in all_daily if not m.get('archived')]
-        archived = [m for m in all_daily if m.get('archived')]
-        return {
-            'core': raw.get('core', []),
-            'daily': active,
-            'archive': archived,
-            'version': '2.0'
-        }
-    # v1 格式：扁平数组，自动迁移
-    if isinstance(raw, list):
-        migrated = {'core': [], 'daily': [], 'archive': [], 'version': '2.0'}
-        for m in raw:
-            key = m.get('key', 'auto')
-            if key in ('auto', 'auto_extract'):
-                migrated['daily'].append(m)
-            else:
-                migrated['core'].append(m)
-        _write_json(filepath, migrated)
-        print(f'  [MemoryV2] {emp_id} 已从 v1 扁平格式迁移到 v2 分池格式', flush=True)
-        return migrated
-    return {'core': [], 'daily': [], 'archive': [], 'version': '2.0'}
-
-
-def _save_memory_v2(emp_id, data):
-    """保存某员工的 v2 分池记忆数据
-    归档数据以 archived=True 标记保存在 daily 池中，不再使用独立 archive 字段
-    """
-    filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
-    daily = list(data.get('daily', []))
-    # 如果传入的数据中还有 archive 字段，合并到 daily
-    for arch in data.get('archive', []):
-        if not any(d.get('id') == arch.get('id') for d in daily):
-            arch['archived'] = True
-            daily.append(arch)
-    # 去重
-    seen = set()
-    unique_daily = []
-    for m in daily:
-        mid = m.get('id')
-        if mid and mid in seen:
-            continue
-        if mid:
-            seen.add(mid)
-        unique_daily.append(m)
-    save_data = {
-        'core': data.get('core', []),
-        'daily': unique_daily,
-        'version': '2.0'
-    }
-    _write_json(filepath, save_data)
+# 旧函数 _load_memory_v2 / _save_memory_v2 / _cleanup_and_archive_expired 已移除
+# 活跃记忆与归档记忆物理隔离：
+#   ~/.solobrave-data/memories/{empId}/memory.json   ← core + daily
+#   ~/.solobrave-data/memories/{empId}/archived.json ← 归档
+#   ~/.solobrave-data/memories/consolidation_log.json ← 归纳日志
+#
+# v2 → v3 迁移：首次加载时自动调用 ms3.migrate_from_v2()
 
 
 def _load_archive(emp_id):
@@ -280,27 +200,6 @@ def _save_archive(emp_id, data):
     filepath = os.path.join(ARCHIVE_DIR, f'{emp_id}.json')
     data['version'] = '1.0'
     _write_json(filepath, data)
-
-
-def _cleanup_and_archive_expired(emp_id, memory_data):
-    """清理过期日常记录，将其标记为 archived=True（保留在 daily 池中，不移动、不删除）
-    返回: (更新后的 memory_data, 归档数量)
-    """
-    cfg = MEMORY_CONFIG
-    now = int(time.time() * 1000)
-    ttl_ms = cfg['daily_ttl_days'] * 24 * 3600 * 1000
-    archived_count = 0
-    for m in memory_data.get('daily', []):
-        if m.get('archived'):
-            continue
-        mem_time = m.get('time', 0)
-        if mem_time and (now - mem_time) > ttl_ms:
-            m['archived'] = True
-            m['archivedTime'] = now
-            archived_count += 1
-    if archived_count > 0:
-        print(f'  [MemoryV2] {emp_id} 标记 {archived_count} 条过期日常记录为 archived=True', flush=True)
-    return memory_data, archived_count
 
 
 def _check_agent_exists(emp_id):
@@ -3448,17 +3347,52 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': 'Agent not found'})
             return
 
-        data = _load_memory_v2(emp_id)
-        data, archived = _cleanup_and_archive_expired(emp_id, data)
-        if archived > 0:
-            _save_memory_v2(emp_id, data)
-        # 同时返回归档列表（逻辑归档，可恢复）
+        # v3：活跃记忆（load_memory 内部自动归档过期 daily 到 archived.json）
+        data = ms3.load_memory(emp_id)
+        archived_count = data.get('stats', {}).get('dailyCount', 0)  # 已过期归档的数量在 load 时已处理
+        archive_data = ms3.load_archive(emp_id)
+
+        # 字段映射：v3 createdAt → v2 time（前端兼容）
+        def _map_mem(m):
+            r = dict(m)
+            if 'createdAt' in r:
+                r['time'] = r.pop('createdAt')
+            if 'updatedAt' in r:
+                r.pop('updatedAt', None)
+            if 'expiresAt' in r:
+                r.pop('expiresAt', None)
+            if 'context' in r:
+                r.pop('context', None)
+            if 'priority' in r:
+                r.pop('priority', None)
+            if 'tags' in r:
+                r.pop('tags', None)
+            if 'accessCount' in r:
+                r.pop('accessCount', None)
+            return r
+
+        def _map_arch(m):
+            r = dict(m)
+            if 'createdAt' in r:
+                r['time'] = r.pop('createdAt')
+            if 'archivedAt' in r:
+                r['archivedTime'] = r.pop('archivedAt')
+            if 'archiveReason' in r:
+                r.pop('archiveReason', None)
+            if 'originalKey' in r:
+                r.pop('originalKey', None)
+            return r
+
+        core_list = [_map_mem(m) for m in data.get('core', [])]
+        daily_list = [_map_mem(m) for m in data.get('daily', [])]
+        archive_list = [_map_arch(m) for m in archive_data.get('archived', [])]
+
         result = {
-            'core': data.get('core', []),
-            'daily': data.get('daily', []),
-            'archive': data.get('archive', []),
-            'archivedToday': archived,
-            'version': '2.0',
+            'core': core_list,
+            'daily': daily_list,
+            'archive': archive_list,
+            'archivedToday': 0,  # v3 在 load 时自动归档，不单独计数
+            'version': '3.0',
             'config': {k: v for k, v in MEMORY_CONFIG.items() if k in ('core_max', 'daily_max', 'daily_ttl_days')}
         }
         self._send_json(200, result)
@@ -3480,41 +3414,40 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         cfg = MEMORY_CONFIG
         value = body.get('value', '')
-        # 存储长度检查
         if len(value) > cfg['store_value_max']:
             self._send_json_error(400, f'Value exceeds max length {cfg["store_value_max"]}')
             return
 
-        data = _load_memory_v2(emp_id)
-        data, _ = _cleanup_and_archive_expired(emp_id, data)
-
         key = body.get('key', 'auto')
-        pool = 'core' if key not in ('auto', 'auto_extract') else 'daily'
-        target_pool = data.get(pool, [])
-        pool_max = cfg['core_max'] if pool == 'core' else cfg['daily_max']
+        pool = 'daily' if key in ('auto', 'auto_extract') else 'core'
 
-        # 容量检查：超出返回 409 冲突，不再静默截断
-        if len(target_pool) >= pool_max:
+        try:
+            memory = ms3.add_memory(
+                emp_id, value, key=key,
+                source=body.get('source', ''),
+                context=body.get('context', '')
+            )
+        except RuntimeError as e:
             self._send_json(409, {
-                'error': f'{pool} pool full ({pool_max}/{pool_max})',
+                'error': str(e),
                 'pool': pool,
-                'max': pool_max,
+                'max': cfg['core_max'] if pool == 'core' else cfg['daily_max'],
                 'suggestion': 'Archive or delete old memories first'
             })
             return
 
-        memory = {
-            'id': str(uuid.uuid4())[:8],
-            'key': key,
-            'value': value,
-            'source': body.get('source', ''),
-            'time': int(time.time() * 1000)
-        }
-        target_pool.append(memory)
-        data[pool] = target_pool
-        _save_memory_v2(emp_id, data)
-        print(f'  [MemoryV2] {emp_id} 保存 {pool} 记忆: {value[:50]}... (共{len(target_pool)}/{pool_max})', flush=True)
-        self._send_json(200, memory)
+        # 字段映射：v3 createdAt → v2 time（前端兼容）
+        result = dict(memory)
+        if 'createdAt' in result:
+            result['time'] = result.pop('createdAt')
+        result.pop('expiresAt', None)
+        result.pop('context', None)
+        result.pop('priority', None)
+        result.pop('tags', None)
+        result.pop('accessCount', None)
+
+        print(f'  [MemoryV3] {emp_id} 保存 {pool} 记忆: {value[:50]}...', flush=True)
+        self._send_json(200, result)
 
     def _handle_delete_memory(self, emp_id, memory_id):
         """DELETE /api/memory/{empId}/{memoryId} — 删除单条记忆（支持 archived 数据）"""
@@ -3526,29 +3459,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': 'Agent not found'})
             return
 
-        data = _load_memory_v2(emp_id)
-        removed = False
-        removed_mem = None
-        # 先从 core/daily 中查找
-        for pool in ('core', 'daily'):
-            for i, m in enumerate(data.get(pool, [])):
-                if m.get('id') == memory_id:
-                    removed_mem = data[pool].pop(i)
-                    removed = True
-                    break
-            if removed:
-                break
-        # 再从 archive 中查找（逻辑归档池）
-        if not removed:
-            for i, m in enumerate(data.get('archive', [])):
-                if m.get('id') == memory_id:
-                    removed_mem = data['archive'].pop(i)
-                    removed = True
-                    break
-
-        if removed_mem:
-            _save_memory_v2(emp_id, data)
-            print(f'  [MemoryV2] {emp_id} 删除记忆: {removed_mem.get("value", "")[:50]}...', flush=True)
+        removed = ms3.delete_memory(emp_id, memory_id)
+        if removed:
+            print(f'  [MemoryV3] {emp_id} 删除记忆: {memory_id}', flush=True)
 
         self._send_json(200, {'deleted': removed, 'id': memory_id})
 
@@ -3567,55 +3480,41 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing body')
             return
 
-        cfg = MEMORY_CONFIG
-        data = _load_memory_v2(emp_id)
-        updated = None
-        old_pool = None
+        updates = {}
+        if 'value' in body:
+            updates['value'] = body['value']
+        if 'source' in body:
+            updates['source'] = body['source']
+        if 'key' in body:
+            updates['key'] = body['key']
+        if 'priority' in body:
+            updates['priority'] = body['priority']
+        if 'tags' in body:
+            updates['tags'] = body['tags']
+        if 'context' in body:
+            updates['context'] = body['context']
 
-        for pool in ('core', 'daily'):
-            for m in data.get(pool, []):
-                if m.get('id') == memory_id:
-                    old_pool = pool
-                    if 'value' in body:
-                        m['value'] = body['value']
-                    if 'source' in body:
-                        m['source'] = body['source']
-                    m['time'] = int(time.time() * 1000)
-                    updated = m
-                    break
-            if updated:
-                break
+        try:
+            updated = ms3.update_memory(emp_id, memory_id, updates)
+        except RuntimeError as e:
+            self._send_json(409, {'error': str(e)})
+            return
 
         if not updated:
             self._send_json_error(404, 'Memory not found')
             return
 
-        # 支持跨池移动（key 变更时）
-        new_key = body.get('key')
-        if new_key:
-            new_pool = 'core' if new_key not in ('auto', 'auto_extract') else 'daily'
-            if new_pool != old_pool:
-                # 检查目标池容量
-                target = data.get(new_pool, [])
-                pool_max = cfg['core_max'] if new_pool == 'core' else cfg['daily_max']
-                if len(target) >= pool_max:
-                    self._send_json(409, {
-                        'error': f'Cannot move: {new_pool} pool full',
-                        'pool': new_pool,
-                        'max': pool_max
-                    })
-                    return
-                # 从旧池移除，加入新池
-                data[old_pool] = [m for m in data[old_pool] if m.get('id') != memory_id]
-                updated['key'] = new_key
-                target.append(updated)
-                data[new_pool] = target
-                print(f'  [MemoryV2] {emp_id} 记忆跨池移动: {old_pool} -> {new_pool}', flush=True)
-            else:
-                updated['key'] = new_key
+        # 字段映射：v3 createdAt → v2 time（前端兼容）
+        result = dict(updated)
+        if 'createdAt' in result:
+            result['time'] = result.pop('createdAt')
+        result.pop('expiresAt', None)
+        result.pop('context', None)
+        result.pop('priority', None)
+        result.pop('tags', None)
+        result.pop('accessCount', None)
 
-        _save_memory_v2(emp_id, data)
-        self._send_json(200, updated)
+        self._send_json(200, result)
 
     def _handle_promote_memory(self, emp_id, memory_id):
         """POST /api/memory/{empId}/{memoryId}/promote — 升级为核心记忆"""
@@ -3627,32 +3526,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': 'Agent not found'})
             return
 
-        cfg = MEMORY_CONFIG
-        data = _load_memory_v2(emp_id)
-        mem = None
-        for m in data.get('daily', []):
-            if m.get('id') == memory_id:
-                mem = m
-                break
+        try:
+            mem = ms3.promote_memory(emp_id, memory_id)
+        except RuntimeError as e:
+            self._send_json(409, {'error': str(e)})
+            return
 
         if not mem:
             self._send_json_error(404, 'Memory not found in daily pool')
             return
 
-        if len(data.get('core', [])) >= cfg['core_max']:
-            self._send_json(409, {
-                'error': 'Core pool full',
-                'max': cfg['core_max']
-            })
-            return
+        # 字段映射：v3 createdAt → v2 time（前端兼容）
+        result = dict(mem)
+        if 'createdAt' in result:
+            result['time'] = result.pop('createdAt')
+        result.pop('expiresAt', None)
+        result.pop('context', None)
 
-        data['daily'] = [m for m in data['daily'] if m.get('id') != memory_id]
-        mem['key'] = 'core'
-        mem['time'] = int(time.time() * 1000)
-        data['core'].append(mem)
-        _save_memory_v2(emp_id, data)
-        print(f'  [MemoryV2] {emp_id} 升级为核心记忆: {mem.get("value", "")[:50]}...', flush=True)
-        self._send_json(200, mem)
+        print(f'  [MemoryV3] {emp_id} 升级为核心记忆: {mem.get("value", "")[:50]}...', flush=True)
+        self._send_json(200, result)
 
     def _handle_restore_memory(self, emp_id, memory_id):
         """POST /api/memory/{empId}/{memoryId}/restore — 从归档恢复为日常记忆"""
@@ -3664,34 +3556,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': 'Agent not found'})
             return
 
-        data = _load_memory_v2(emp_id)
-        mem = None
-        for m in data.get('archive', []):
-            if m.get('id') == memory_id:
-                mem = m
-                break
+        try:
+            mem = ms3.restore_memory(emp_id, memory_id)
+        except RuntimeError as e:
+            self._send_json(409, {'error': str(e)})
+            return
 
         if not mem:
             self._send_json_error(404, 'Memory not found in archive')
             return
 
-        cfg = MEMORY_CONFIG
-        if len(data.get('daily', [])) >= cfg['daily_max']:
-            self._send_json(409, {
-                'error': 'Daily pool full',
-                'max': cfg['daily_max']
-            })
-            return
+        # 字段映射：v3 createdAt → v2 time（前端兼容）
+        result = dict(mem)
+        if 'createdAt' in result:
+            result['time'] = result.pop('createdAt')
+        result.pop('expiresAt', None)
+        result.pop('context', None)
 
-        # 恢复：移除 archived 标记
-        data['archive'] = [m for m in data.get('archive', []) if m.get('id') != memory_id]
-        mem.pop('archived', None)
-        mem.pop('archivedTime', None)
-        mem['time'] = int(time.time() * 1000)
-        data['daily'].append(mem)
-        _save_memory_v2(emp_id, data)
-        print(f'  [MemoryV2] {emp_id} 恢复归档记忆到 daily: {mem.get("value", "")[:50]}...', flush=True)
-        self._send_json(200, mem)
+        print(f'  [MemoryV3] {emp_id} 恢复归档记忆到 daily: {mem.get("value", "")[:50]}...', flush=True)
+        self._send_json(200, result)
 
     def _handle_archive_memory_cleanup(self, emp_id):
         """POST /api/memory/{empId}/archive — 手动触发归档过期日常记录"""
@@ -3703,10 +3586,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': 'Agent not found'})
             return
 
-        data = _load_memory_v2(emp_id)
-        data, archived = _cleanup_and_archive_expired(emp_id, data)
-        _save_memory_v2(emp_id, data)
-        self._send_json(200, {'archived': archived, 'empId': emp_id})
+        # v3：load_memory 内部已自动归档过期项
+        data = ms3.load_memory(emp_id)
+        archived = 0
+        archive_data = ms3.load_archive(emp_id)
+        self._send_json(200, {'archived': len(archive_data.get('archived', [])), 'empId': emp_id})
 
     # ═══════════════════════════════════════════════════
     # 知识库 API（后端持久化，替代 localStorage sb_docs）
@@ -4588,41 +4472,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     system_prompt += f'\n\n【历史对话摘要】\n{summary_data["summary"]}'
             except Exception:
                 pass
-            # 注入记忆 v2（分池注入，自动归档，容量截断）
+            # 注入记忆 v3（使用 memory_service_v3 模块）
             try:
-                cfg = MEMORY_CONFIG
-                mem_data = _load_memory_v2(agent_id)
-                mem_data, _ = _cleanup_and_archive_expired(agent_id, mem_data)
-                if _:
-                    _save_memory_v2(agent_id, mem_data)
-
-                mem_lines = []
-                # 核心记忆：按时间倒序取最新 inject_core_max 条
-                core_mems = sorted(mem_data.get('core', []), key=lambda x: x.get('time', 0), reverse=True)
-                for m in core_mems[:cfg['inject_core_max']]:
-                    val = m.get('value', '')[:cfg['inject_value_max']]
-                    if val:
-                        mem_lines.append(f'- {val}')
-
-                # 日常记录：按时间倒序取最新 inject_daily_max 条
-                daily_mems = sorted(mem_data.get('daily', []), key=lambda x: x.get('time', 0), reverse=True)
-                for m in daily_mems[:cfg['inject_daily_max']]:
-                    val = m.get('value', '')[:cfg['inject_value_max']]
-                    if val:
-                        mem_lines.append(f'- {val}')
-
-                # 如果 L2 记忆不足，从 L3 归档补充（最多 2 条相关摘要）
-                if len(mem_lines) < cfg['inject_core_max'] + cfg['inject_daily_max']:
-                    archive_data = _load_archive(agent_id)
-                    archive_mems = sorted(archive_data.get('memories', []), key=lambda x: x.get('archivedTime', 0), reverse=True)
-                    need = (cfg['inject_core_max'] + cfg['inject_daily_max']) - len(mem_lines)
-                    for m in archive_mems[:need]:
-                        val = m.get('summary', '')[:cfg['inject_value_max']]
-                        if val:
-                            mem_lines.append(f'- [归档] {val}')
-
-                if mem_lines:
-                    system_prompt += '\n\n【关于用户的记忆】\n' + '\n'.join(mem_lines)
+                system_prompt = ms3.inject_memories(agent_id, system_prompt)
             except Exception as e:
                 print(f'  [MemoryInject] {agent_id} 注入失败: {e}', flush=True)
 
