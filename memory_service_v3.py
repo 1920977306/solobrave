@@ -57,7 +57,7 @@ def _lock_file(f):
         msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
     else:  # Mac/Linux
         import fcntl
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        fcntl.flock(f, fcntl.LOCK_EX)  # 支持文件对象或 fd
 
 
 def _read_json(filepath, default=None):
