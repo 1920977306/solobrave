@@ -3765,15 +3765,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Memory not found in archive')
             return
 
-        # 字段映射：v3 createdAt → v2 time（前端兼容）
-        result = dict(mem)
-        if 'createdAt' in result:
-            result['time'] = result.pop('createdAt')
-        result.pop('expiresAt', None)
-        result.pop('context', None)
+        # 字段映射：v3 → v2 前端兼容
+        mapped = dict(mem)
+        if 'createdAt' in mapped:
+            mapped['time'] = mapped.pop('createdAt')
+        mapped.pop('expiresAt', None)
+        mapped.pop('context', None)
 
         print(f'  [MemoryV3] {emp_id} 恢复归档记忆到 daily: {mem.get("value", "")[:50]}...', flush=True)
-        self._send_json(200, result)
+        self._send_json(200, {
+            'success': True,
+            'data': mapped
+        })
 
     def _handle_archive_memory_cleanup(self, emp_id):
         """POST /api/memory/{empId}/archive — 手动触发归档过期日常记录"""
