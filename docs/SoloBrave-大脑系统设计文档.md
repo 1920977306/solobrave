@@ -1735,6 +1735,7 @@ Authorization: Bearer eyJhbG...
 
 ```json
 {
+  "success": true,
   "core": [
     {
       "id": "mem_20260608_abc124",
@@ -1746,6 +1747,7 @@ Authorization: Bearer eyJhbG...
   ],
   "daily": [],
   "archive": [],
+  "knowledge": [],
   "version": "3.0",
   "config": {
     "core_max": 50,

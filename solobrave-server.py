@@ -3457,6 +3457,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             knowledge_list = [_map_knowledge(d) for d in _apply_filters_and_paging(kb_docs)]
 
         result = {
+            'success': True,
             'core': core_list,
             'daily': daily_list,
             'archive': archive_list,
