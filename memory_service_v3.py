@@ -261,6 +261,7 @@ def add_memory(emp_id, value, key='auto', source='user_input', context=None,
         memory['tags'] = tags or []
         memory['updatedAt'] = now
         memory['accessCount'] = 0
+        memory['expiresAt'] = None
     else:
         memory['context'] = (context or '')[:cfg['context_max']]
         memory['expiresAt'] = now + ttl_ms
