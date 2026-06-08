@@ -33,37 +33,7 @@
   ],
   "product_card": "商品手卡文本...",
   "hot_videos": [
-    {
-      "id": "vid_001",
-      "title": "coolchap凉鞋开箱测评",
-      "platform": "抖音",
-      "url": "https://example.com/video/001",
-      "views": 125000,
-      "likes": 8500,
-      "author": "花花穿搭",
-      "publishedAt": "2026-05-15"
-    },
-    {
-      "id": "vid_002",
-      "title": "小众设计师凉鞋推荐，不撞款！",
-      "platform": "小红书",
-      "url": "https://example.com/video/002",
-      "views": 68000,
-      "likes": 4200,
-      "author": "小美搭配日记",
-      "publishedAt": "2026-05-20"
-    },
-    {
-      "id": "vid_003",
-      "title": "凉鞋种草视频",
-      "platform": "抖音",
-      "url": "https://v.douyin.com/jV_u-PVtvEI/",
-      "views": 0,
-      "likes": 0,
-      "author": "",
-      "publishedAt": "",
-      "analysis": "AI分析：视频突出舒适度和设计感，适合种草类达人"
-    }
+    "https://v.douyin.com/xxx"
   ],
   "matched_influencers": [
     {
