@@ -1660,6 +1660,7 @@ SoloBrave 后端目前提供约 **60 个 HTTP 端点**，全部基于 `http.serv
 | **容量控制** | 仅写入时检查 | 写入检查 + 读取时自动归档（>200条） | 自动维护 |
 | **归纳合并** | 无 | `POST /api/memory/consolidate` | AI 摘要合并，减少碎片 |
 | **记忆注入** | 前端 `buildMemoryPrompt()` + 后端 `inject_memories()` **双重注入** | 仅后端 `ms3.inject_memories()` 统一注入 | 避免重复，<br>减少 token 浪费 |
+| **并发安全** | `fcntl`（仅 Linux） | `threading.Lock()` 跨平台文件锁 | Windows/macOS/Linux<br>全兼容 |
 
 #### 后端注入逻辑（三层策略）
 
