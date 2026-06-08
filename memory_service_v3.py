@@ -52,10 +52,10 @@ def _lock_file(f):
     """跨平台文件锁：Windows 用 msvcrt.locking，Unix 用 fcntl.flock"""
     if os.name == 'nt':  # Windows
         import msvcrt
-        # Windows: 锁定文件 1 字节（ advisory lock 模拟）
+        # 阻塞锁定文件 1 字节，失败时自动重试
         f.seek(0)
-        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-    else:
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+    else:  # Mac/Linux
         import fcntl
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
 
