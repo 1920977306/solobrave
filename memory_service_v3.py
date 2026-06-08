@@ -136,6 +136,21 @@ def load_memory(emp_id):
         save_archive(emp_id, archive_data)
         result['updatedAt'] = int(time.time() * 1000)
         _write_json(filepath, result)
+
+    # 容量控制：活跃记忆超过 200 条时，自动归档最旧的 daily
+    active_total = len(result['core']) + len(result['daily'])
+    if active_total > 200 and result['daily']:
+        # 按 createdAt 升序排序，取最旧的一条
+        oldest = min(result['daily'], key=lambda m: m.get('createdAt', 0))
+        result['daily'] = [m for m in result['daily'] if m.get('id') != oldest.get('id')]
+        archive_data = load_archive(emp_id)
+        oldest['archivedAt'] = int(time.time() * 1000)
+        oldest['archiveReason'] = 'capacity'
+        archive_data.setdefault('archived', []).append(oldest)
+        save_archive(emp_id, archive_data)
+        result['updatedAt'] = int(time.time() * 1000)
+        _write_json(filepath, result)
+
     # 更新 stats
     result['stats'] = {
         'coreCount': len(result['core']),

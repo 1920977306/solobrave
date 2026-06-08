@@ -2126,6 +2126,23 @@ def _cleanup_and_archive_expired(emp_id, memory_data):
 - **可恢复**：通过 `POST /api/memory/:empId/:memId/restore` 清除 `archived` 标记
 - **核心记忆无 TTL**：`core` 池不参与过期检查
 
+**容量归档（活跃记忆总数 > 200）：**
+
+除过期归档外，系统还监控活跃记忆（core + daily）总数：
+
+```python
+active_total = len(core) + len(daily)
+if active_total > 200 and daily:
+    # 按 createdAt 升序，归档最旧的一条 daily
+    oldest = min(daily, key=lambda m: m['createdAt'])
+    oldest['archiveReason'] = 'capacity'
+```
+
+- **触发时机**：`GET /api/memory/:empId` 加载记忆时自动检查
+- **归档原因**：`capacity`（容量超限），区别于 `expired`（自然过期）
+- **优先归档 daily**：core 记忆更重要，不触发自动容量归档
+- **仅归档 1 条/次**：渐进式清理，避免一次性删除过多
+
 ### 4.6 三层注入策略
 
 记忆注入发生在 AI 对话时，由 `_call_ai_api()` 自动执行。
