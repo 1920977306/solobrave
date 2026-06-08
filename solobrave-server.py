@@ -4092,7 +4092,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             products = [p for p in products if p.get('status') == status]
         if query.get('q'):
             kw = query['q'][0].lower()
-            products = [p for p in products if kw in (p.get('name') or '').lower() or kw in (p.get('description') or '').lower() or any(kw in t.lower() for t in (p.get('tags') or []))]
+            products = [p for p in products if kw in (p.get('id') or '').lower() or kw in (p.get('name') or '').lower() or kw in (p.get('description') or '').lower() or any(kw in t.lower() for t in (p.get('tags') or []))]
         # 分页
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
