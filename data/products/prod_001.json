@@ -1,0 +1,21 @@
+{
+  "id": "prod_001",
+  "name": "coolchap设计师款凉鞋",
+  "description": "coolchap 联名设计师款，简约一字带设计，头层牛皮材质，小众不撞款。适合追求个性的都市女性。",
+  "price": 259.0,
+  "currency": "CNY",
+  "category": "鞋靴/凉鞋",
+  "tags": ["凉鞋", "沙滩", "女鞋", "平底"],
+  "sku": "SKU-SD-006",
+  "stock": 80,
+  "images": [],
+  "attributes": {
+    "color": "黑/白/棕",
+    "size": "35-40",
+    "material": "头层牛皮"
+  },
+  "status": "active",
+  "createdBy": "emp_001",
+  "createdAt": 1780848000000,
+  "updatedAt": "2026-06-08T10:00:00"
+}
