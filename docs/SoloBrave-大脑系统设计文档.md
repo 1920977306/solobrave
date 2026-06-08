@@ -2240,6 +2240,50 @@ Authorization: Bearer eyJhbG...
 }
 ```
 
+#### GET /api/products/:id
+
+**功能：** 获取单个商品详情
+
+**路径参数：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `id` | string | 是 | 商品唯一标识，如 `prod_001` |
+
+**请求示例：**
+
+```http
+GET /api/products/prod_001
+Authorization: Bearer eyJhbG...
+```
+
+**成功响应（200）：**
+
+```json
+{
+  "id": "prod_001",
+  "name": "coolchap设计师款凉鞋",
+  "price": 89.9,
+  "currency": "CNY",
+  "category": "鞋靴/凉鞋",
+  "tags": ["凉鞋", "沙滩", "女鞋", "平底", "自用好物"],
+  "sku": "SKU-SD-006",
+  "stock": 80,
+  "status": "active",
+  "createdBy": "emp_001",
+  "createdAt": "2026-06-08T10:00:00",
+  "updatedAt": "2026-06-08T10:00:00"
+}
+```
+
+**未找到响应（404）：**
+
+```json
+{
+  "error": "Product not found"
+}
+```
+
 #### POST /api/products
 
 **功能：** 录入新商品

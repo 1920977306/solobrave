@@ -15212,9 +15212,9 @@ function saveProduct() {
   });
 }
 function editProduct(productId) {
-  apiFetch('/api/products?q=' + encodeURIComponent(productId)).then(function (r) { return r.json(); }).then(function (data) {
-    var p = (data.products || []).find(function (x) { return x.id === productId; });
-    if (p) showProductForm(p);
+  apiFetch('/api/products/' + encodeURIComponent(productId)).then(function (r) { return r.json(); }).then(function (p) {
+    if (p && p.id) showProductForm(p);
+    else showToast('❌ 商品不存在');
   }).catch(function (e) {
     showToast('❌ 加载失败');
   });

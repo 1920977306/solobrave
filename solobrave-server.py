@@ -893,7 +893,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path.startswith('/api/products/'):
             product_id = path[len('/api/products/'):]
             if product_id:
-                self._handle_delete_product(product_id)
+                self._handle_get_product(product_id)
                 return
 
         # Influencer API
@@ -4099,6 +4099,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         total = len(products)
         products = products[offset:offset + limit]
         self._send_json(200, {'products': products, 'total': total, 'offset': offset, 'limit': limit})
+
+    def _handle_get_product(self, product_id):
+        """GET /api/products/:id — 获取单个商品详情"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        data = self._load_products()
+        product = None
+        for p in data.get('products', []):
+            if p.get('id') == product_id:
+                product = p
+                break
+        if not product:
+            self._send_json_error(404, 'Product not found')
+            return
+        self._send_json(200, product)
 
     def _handle_post_product(self):
         """POST /api/products — 录入商品"""
