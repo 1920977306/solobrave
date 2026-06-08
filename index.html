@@ -10105,13 +10105,30 @@ function renderMemoryTab(empId) {
           contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无归档记忆，过期日常记录会自动归档到这里</div>';
         } else {
           var archHtml = '';
+          var reasonColors = {
+            'expired': '#8E8E93',
+            'manual': '#007AFF',
+            'consolidated': '#34C759',
+            'capacity': '#FF9500'
+          };
+          var reasonLabels = {
+            'expired': '过期归档',
+            'manual': '手动归档',
+            'consolidated': '归纳归档',
+            'capacity': '容量归档'
+          };
           archiveList.forEach(function (m) {
             var timeStr = m.time ? formatTimeAgo(new Date(m.time)) : '';
             var archivedTimeStr = m.archivedTime ? formatTimeAgo(new Date(m.archivedTime)) : '';
             var sourceLabel = m.source ? '<span style="font-size:11px;color:var(--text-secondary);background:var(--bg-tertiary);padding:2px 6px;border-radius:4px;margin-right:6px;">' + escapeHtml(m.source) + '</span>' : '';
+            // v3：显示归档原因
+            var reason = m.archiveReason || 'expired';
+            var reasonColor = reasonColors[reason] || '#8E8E93';
+            var reasonLabel = reasonLabels[reason] || '已归档';
+            var reasonBadge = '<span style="font-size:10px;color:#fff;background:' + reasonColor + ';padding:1px 5px;border-radius:4px;margin-left:6px;">' + reasonLabel + '</span>';
             archHtml += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;opacity:0.85;">';
             archHtml += '<div class="memory-item-content" style="flex:1;">';
-            archHtml += '<div style="margin-bottom:6px;">' + sourceLabel + '<span style="font-size:10px;color:#fff;background:#8E8E93;padding:1px 5px;border-radius:4px;margin-left:6px;">已归档</span></div>';
+            archHtml += '<div style="margin-bottom:6px;">' + sourceLabel + reasonBadge + '</div>';
             archHtml += '<div class="memory-item-text" style="font-size:14px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(m.value || '') + '</div>';
             archHtml += '<div class="memory-item-date" style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">原始时间: ' + escapeHtml(timeStr) + ' · 归档时间: ' + escapeHtml(archivedTimeStr) + '</div>';
             archHtml += '</div>';
@@ -10148,9 +10165,15 @@ function renderMemoryTab(empId) {
       // 过滤记忆：按 currentMemoryTab 从对应分池取
       var filtered = currentMemoryTab === 'core' ? coreList : dailyList;
 
-      // 更新记忆总数
+      // 更新记忆总数 + 容量使用率
       if (headerEl) {
-        headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + (coreCount + dailyCount) + ')</span>';
+        var usageStr = '';
+        if (data.config) {
+          var corePct = Math.round((coreCount / data.config.core_max) * 100);
+          var dailyPct = Math.round((dailyCount / data.config.daily_max) * 100);
+          usageStr = ' <span style="font-size:11px;color:var(--text-tertiary);">core ' + corePct + '% · daily ' + dailyPct + '%</span>';
+        }
+        headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + (coreCount + dailyCount) + ')</span>' + usageStr;
       }
       if (filtered.length === 0) {
         contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">' + (currentMemoryTab === 'core' ? '暂无核心记忆，手动添加的记忆会显示在这里' : '暂无日常记录，AI自动提取的记忆会显示在这里') + '</div>';
@@ -10158,28 +10181,45 @@ function renderMemoryTab(empId) {
       }
       var html = '';
       var nowMs = Date.now();
-      var ttlMs = 30 * 24 * 3600 * 1000;
-      var warningMs = 7 * 24 * 3600 * 1000;
       filtered.forEach(function (m) {
         var timeStr = m.time ? formatTimeAgo(new Date(m.time)) : '';
         var sourceLabel = m.source ? '<span style="font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px;margin-right:6px;">' + escapeHtml(m.source) + '</span>' : '';
         var isAutoExtract = m.key === 'auto_extract' || m.key === 'auto';
-        // v2：过期提示改为归档提示
-        var archiveBadge = '';
-        if (isAutoExtract && m.time) {
-          var ageMs = nowMs - m.time;
-          var remainMs = ttlMs - ageMs;
+        var isCore = currentMemoryTab === 'core';
+
+        // v3 新增：核心记忆显示优先级和标签
+        var metaBadges = '';
+        if (isCore) {
+          var pri = m.priority || 5;
+          var fire = '🔥'.repeat(Math.min(pri, 5));
+          metaBadges += '<span style="font-size:11px;color:#FF6B35;margin-right:6px;" title="优先级 ' + pri + '/10">' + fire + '</span>';
+          var tags = m.tags || [];
+          tags.forEach(function (t) {
+            metaBadges += '<span style="font-size:10px;color:var(--text-secondary);background:var(--bg-tertiary);padding:1px 5px;border-radius:4px;margin-right:4px;">' + escapeHtml(t) + '</span>';
+          });
+        }
+
+        // v3 新增：日常记录显示过期倒计时（使用 expiresAt）和 context
+        var expireBadge = '';
+        var contextHint = '';
+        if (!isCore && m.expiresAt) {
+          var remainMs = m.expiresAt - nowMs;
           if (remainMs <= 0) {
-            archiveBadge = '<span style="font-size:10px;color:#fff;background:#FF3B30;padding:1px 5px;border-radius:4px;margin-left:6px;">待归档</span>';
-          } else if (remainMs < warningMs) {
+            expireBadge = '<span style="font-size:10px;color:#fff;background:#FF3B30;padding:1px 5px;border-radius:4px;margin-left:6px;">已过期</span>';
+          } else if (remainMs < 7 * 24 * 3600 * 1000) {
             var remainDays = Math.ceil(remainMs / (24 * 3600 * 1000));
-            archiveBadge = '<span style="font-size:10px;color:#fff;background:#FF9500;padding:1px 5px;border-radius:4px;margin-left:6px;">' + remainDays + '天后归档</span>';
+            expireBadge = '<span style="font-size:10px;color:#fff;background:#FF9500;padding:1px 5px;border-radius:4px;margin-left:6px;">' + remainDays + '天后过期</span>';
+          }
+          if (m.context) {
+            contextHint = '<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;padding:4px 8px;background:var(--bg-tertiary);border-radius:6px;">💬 ' + escapeHtml(m.context) + '</div>';
           }
         }
+
         html += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;">';
         html += '<div class="memory-item-content" style="flex:1;">';
-        html += '<div style="margin-bottom:6px;">' + sourceLabel + archiveBadge + '</div>';
+        html += '<div style="margin-bottom:6px;">' + sourceLabel + metaBadges + expireBadge + '</div>';
         html += '<div class="memory-item-text" id="memText_' + escapeAttr(m.id) + '" style="font-size:14px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(m.value || '') + '</div>';
+        html += contextHint;
         html += '<div class="memory-item-edit" id="memEdit_' + escapeAttr(m.id) + '" style="display:none;">';
         html += '<textarea class="memory-edit-input" id="memInput_' + escapeAttr(m.id) + '" style="width:100%;min-height:60px;padding:8px;border:1px solid var(--accent);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-size:14px;line-height:1.5;resize:vertical;box-sizing:border-box;" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();saveMemoryEdit(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\');}">' + escapeHtml(m.value || '') + '</textarea>';
         html += '<div style="display:flex;gap:6px;margin-top:6px;">';
