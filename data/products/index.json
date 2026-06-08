@@ -211,6 +211,7 @@
       "description": "coolchap 联名设计师款，简约一字带设计，头层牛皮材质，小众不撞款。适合追求个性的都市女性。",
       "price": 89.9,
       "commission_rate": 20,
+      "commission_amount": 17.98,
       "currency": "CNY",
       "category": "鞋靴/凉鞋",
       "tags": ["凉鞋", "沙滩", "女鞋", "平底"],
