@@ -384,6 +384,16 @@
           "likes": 4200,
           "author": "小美搭配日记",
           "publishedAt": "2026-05-20"
+        },
+        {
+          "id": "vid_003",
+          "title": "抖音热门凉鞋视频",
+          "platform": "抖音",
+          "url": "https://v.douyin.com/jV_u-PVtvEI/",
+          "views": 0,
+          "likes": 0,
+          "author": "",
+          "publishedAt": ""
         }
       ]
     }
