@@ -3617,17 +3617,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Memory not found')
             return
 
-        # 字段映射：v3 createdAt → v2 time（前端兼容）
-        result = dict(updated)
-        if 'createdAt' in result:
-            result['time'] = result.pop('createdAt')
-        result.pop('expiresAt', None)
-        result.pop('context', None)
-        result.pop('priority', None)
-        result.pop('tags', None)
-        result.pop('accessCount', None)
+        # 字段映射：v3 → v2 前端兼容
+        mapped = dict(updated)
+        if 'createdAt' in mapped:
+            mapped['time'] = mapped.pop('createdAt')
+        mapped.pop('updatedAt', None)
+        mapped.pop('expiresAt', None)
+        mapped.pop('accessCount', None)
 
-        self._send_json(200, result)
+        self._send_json(200, {
+            'success': True,
+            'data': mapped
+        })
 
     def _handle_promote_memory(self, emp_id, memory_id):
         """POST /api/memory/{empId}/{memoryId}/promote — 升级为核心记忆"""
