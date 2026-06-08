@@ -1787,7 +1787,7 @@ Authorization: Bearer eyJhbG...
 | 参数 | 类型 | 必选 | 说明 |
 |---|---|---|---|
 | `value` | string | 是 | 记忆内容，1-5000 字符 |
-| `key` | string | 否 | 记忆类型。`auto`/`auto_extract` → daily 池；其他 → core 池。默认 `auto` |
+| `type` | string | 否 | 记忆类型。`auto`/`auto_extract` → daily 池；其他 → core 池。默认 `auto`（兼容字段 `key`） |
 | `source` | string | 否 | 来源标识。如 `user_input`、`chat`、`ai_extract`。默认 `user_input` |
 | `priority` | int | 否 | 优先级 1-10，仅 core 记忆有效。默认 5 |
 | `tags` | array | 否 | 标签数组，最多 10 个。如 `["凉鞋", "达人反馈"]` |
@@ -1838,6 +1838,94 @@ Content-Type: application/json
   "pool": "daily",
   "max": 100,
   "suggestion": "Archive or delete old memories first"
+}
+```
+
+#### PUT /api/memory/:empId/:memId
+
+**功能：** 修改记忆内容，支持跨池移动（type 变更时自动迁移）
+
+**路径参数：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `empId` | string | 是 | 员工唯一标识 |
+| `memId` | string | 是 | 记忆唯一标识 |
+
+**请求体：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `value` | string | 否 | 新内容，1-5000 字符 |
+| `type` | string | 否 | 新类型（兼容字段 `key`）。变更时自动跨池迁移 |
+| `source` | string | 否 | 新来源 |
+| `priority` | int | 否 | 新优先级 1-10 |
+| `tags` | array | 否 | 新标签，最多 10 个 |
+| `context` | string | 否 | 新上下文（仅 daily） |
+
+**请求示例：**
+
+```json
+PUT /api/memory/emp_001/mem_20260608_abc124
+Content-Type: application/json
+
+{
+  "value": "李馒头对凉鞋感兴趣，佣金可谈到20%",
+  "type": "core",
+  "priority": 7,
+  "tags": ["凉鞋", "达人反馈", "佣金谈判"]
+}
+```
+
+**成功响应（200）：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "mem_20260608_abc124",
+    "key": "core",
+    "value": "李馒头对凉鞋感兴趣，佣金可谈到20%",
+    "source": "chat",
+    "priority": 7,
+    "tags": ["凉鞋", "达人反馈", "佣金谈判"],
+    "time": 1777312800000
+  }
+}
+```
+
+**容量超限响应（409）：**
+
+```json
+{
+  "success": false,
+  "error": "core pool full (50/50)",
+  "pool": "core",
+  "max": 50,
+  "suggestion": "Archive or delete old memories first"
+}
+```
+
+#### DELETE /api/memory/:empId/:memId
+
+**功能：** 删除指定记忆（从活跃池或归档中永久删除）
+
+**路径参数：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `empId` | string | 是 | 员工唯一标识 |
+| `memId` | string | 是 | 记忆唯一标识 |
+
+**成功响应（200）：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "deleted": true,
+    "id": "mem_20260608_abc124"
+  }
 }
 ```
 
@@ -2076,7 +2164,7 @@ POST /api/memory/:empId/:memId/promote
 
 ```
 PUT /api/memory/:empId/:memId
-Body: {"key": "core"}  # 原 key 为 auto
+Body: {"type": "core"}  # 原 type 为 auto
 ```
 
 - 检查目标池容量

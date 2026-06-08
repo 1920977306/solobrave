@@ -3513,7 +3513,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Value cannot be empty')
             return
 
-        key = body.get('key', 'auto')
+        key = body.get('type') or body.get('key', 'auto')
         pool = 'daily' if key in ('auto', 'auto_extract') else 'core'
 
         # 提取可选参数
@@ -3598,7 +3598,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             updates['value'] = body['value']
         if 'source' in body:
             updates['source'] = body['source']
-        if 'key' in body:
+        if 'type' in body:
+            updates['key'] = body['type']
+        elif 'key' in body:
             updates['key'] = body['key']
         if 'priority' in body:
             updates['priority'] = body['priority']
