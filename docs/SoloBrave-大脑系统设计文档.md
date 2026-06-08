@@ -2188,6 +2188,191 @@ POST /api/memory/consolidate
 }
 ```
 
+---
+
+#### 商品库模块
+
+#### GET /api/products
+
+**功能：** 获取商品列表，支持分类/状态/关键词筛选与分页
+
+**查询参数：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `category` | string | 否 | 按分类筛选，如 `鞋履`、`美妆护肤` |
+| `status` | string | 否 | 按状态筛选：`active`/`inactive`/`out_of_stock` |
+| `q` | string | 否 | 关键词搜索，匹配 `id`、`name`、`description`、`tags`（大小写不敏感） |
+| `offset` | int | 否 | 分页偏移量，默认 0 |
+| `limit` | int | 否 | 返回条数上限，默认 50，最大 200 |
+
+**请求示例：**
+
+```http
+GET /api/products?category=鞋履&status=active&q=凉鞋&limit=10
+Authorization: Bearer eyJhbG...
+```
+
+**响应示例：**
+
+```json
+{
+  "products": [
+    {
+      "id": "prod_001",
+      "name": "coolchap设计师款凉鞋",
+      "price": 89.9,
+      "currency": "CNY",
+      "category": "鞋靴/凉鞋",
+      "tags": ["凉鞋", "沙滩", "女鞋", "平底", "自用好物"],
+      "sku": "SKU-SD-006",
+      "stock": 80,
+      "status": "active",
+      "createdBy": "emp_001",
+      "createdAt": "2026-06-08T10:00:00",
+      "updatedAt": "2026-06-08T10:00:00"
+    }
+  ],
+  "total": 12,
+  "offset": 0,
+  "limit": 10
+}
+```
+
+#### POST /api/products
+
+**功能：** 录入新商品
+
+**请求体：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `name` | string | 是 | 商品名称 |
+| `price` | float | 否 | 价格，默认 0 |
+| `category` | string | 否 | 分类，默认 `未分类` |
+| `tags` | array | 否 | 标签数组 |
+| `sku` | string | 否 | SKU 编码 |
+| `stock` | int | 否 | 库存，默认 0 |
+| `status` | string | 否 | 状态：`active`/`inactive`/`out_of_stock`，默认 `active` |
+| `description` | string | 否 | 商品描述 |
+| `images` | array | 否 | 图片 URL 数组 |
+| `attributes` | object | 否 | 属性字典，如 `{"color": "黑/白", "size": "35-40"}` |
+
+**请求示例：**
+
+```json
+POST /api/products
+Content-Type: application/json
+
+{
+  "name": "coolchap设计师款凉鞋",
+  "price": 89.9,
+  "category": "鞋靴/凉鞋",
+  "tags": ["凉鞋", "沙滩", "女鞋", "平底"],
+  "sku": "SKU-SD-006",
+  "stock": 80,
+  "status": "active"
+}
+```
+
+**成功响应（200）：**
+
+```json
+{
+  "id": "prod_001",
+  "name": "coolchap设计师款凉鞋",
+  "price": 89.9,
+  "category": "鞋靴/凉鞋",
+  "tags": ["凉鞋", "沙滩", "女鞋", "平底"],
+  "sku": "SKU-SD-006",
+  "stock": 80,
+  "status": "active",
+  "createdAt": "2026-06-08T10:00:00",
+  "updatedAt": "2026-06-08T10:00:00"
+}
+```
+
+#### PUT /api/products/:id
+
+**功能：** 更新商品信息
+
+**路径参数：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `id` | string | 是 | 商品唯一标识，如 `prod_001` |
+
+**请求体：** 与 POST 相同，只传需要修改的字段
+
+**请求示例：**
+
+```json
+PUT /api/products/prod_001
+Content-Type: application/json
+
+{
+  "price": 99.9,
+  "stock": 100,
+  "tags": ["凉鞋", "沙滩", "女鞋", "平底", "自用好物"]
+}
+```
+
+**成功响应（200）：** 返回更新后的完整商品对象
+
+#### DELETE /api/products/:id
+
+**功能：** 删除商品
+
+**路径参数：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `id` | string | 是 | 商品唯一标识 |
+
+**成功响应（200）：**
+
+```json
+{
+  "deleted": true,
+  "id": "prod_001"
+}
+```
+
+#### POST /api/products/search
+
+**功能：** 高级搜索/匹配，支持多维度评分排序
+
+**请求体：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `name` | string | 否 | 名称关键词匹配 |
+| `category` | string | 否 | 分类精确匹配 |
+| `tags` | array | 否 | 标签匹配，支持多标签 |
+| `minPrice` | float | 否 | 最低价格 |
+| `maxPrice` | float | 否 | 最高价格 |
+| `sku` | string | 否 | SKU 精确匹配 |
+| `status` | string | 否 | 状态过滤 |
+| `attributes` | object | 否 | 属性精确匹配 |
+| `limit` | int | 否 | 返回条数上限，默认 20 |
+
+**响应示例：**
+
+```json
+{
+  "results": [
+    {
+      "product": {"id": "prod_001", "name": "coolchap设计师款凉鞋", ...},
+      "score": 45,
+      "matched": ["name", "tags:凉鞋"]
+    }
+  ],
+  "total": 5
+}
+```
+
+---
+
 #### POST /api/match/product-to-influencer
 
 **功能：** 为商品智能匹配达人
