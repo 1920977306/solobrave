@@ -4163,7 +4163,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, product)
 
     def _handle_get_product_matches(self, product_id):
-        """GET /api/products/:id/matches — 获取商品的匹配达人列表"""
+        """GET /api/products/:id/matches — 获取商品的匹配达人列表
+        优先读取商品自身的 matched_influencers 字段，无则实时计算"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -4178,16 +4179,33 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not product:
             self._send_json_error(404, 'Product not found')
             return
-        # 加载所有达人并计算匹配分数
+        query = parse_qs(urlparse(self.path).query)
+        limit = int(query.get('limit', [20])[0])
+        # 优先读取商品已存储的 matched_influencers
+        stored = product.get('matched_influencers')
+        if stored:
+            results = []
+            for item in stored:
+                results.append({
+                    'influencer': {
+                        'id': item.get('id'),
+                        'name': item.get('name'),
+                        'platform': item.get('platform'),
+                        'followerCount': item.get('followerCount'),
+                    },
+                    'score': item.get('score', item.get('matchPercent', 0)),
+                    'reasons': item.get('reasons', [])
+                })
+            self._send_json(200, {'product_id': product_id, 'matches': results[:limit], 'total': len(results), 'source': 'stored'})
+            return
+        # 无存储数据则实时计算匹配
         inf_data = self._load_influencers()
         results = []
         for inf in inf_data.get('influencers', []):
             score, reasons = self._calculate_match_score(product, inf)
             results.append({'influencer': inf, 'score': score, 'reasons': reasons})
         results.sort(key=lambda x: x['score'], reverse=True)
-        query = parse_qs(urlparse(self.path).query)
-        limit = int(query.get('limit', [20])[0])
-        self._send_json(200, {'product_id': product_id, 'matches': results[:limit], 'total': len(results)})
+        self._send_json(200, {'product_id': product_id, 'matches': results[:limit], 'total': len(results), 'source': 'live'})
 
     def _handle_post_product(self):
         """POST /api/products — 录入商品"""
