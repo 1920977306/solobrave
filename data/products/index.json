@@ -396,6 +396,50 @@
           "publishedAt": "",
           "analysis": "AI分析：视频突出舒适度和设计感，适合种草类达人"
         }
+      ],
+      "matched_influencers": [
+        {
+          "id": "inf_limantou",
+          "name": "李馒头",
+          "platform": "抖音",
+          "followerCount": 2000000,
+          "score": 82,
+          "reasons": [
+            "分类一致",
+            "标签匹配 1 个",
+            "粉丝量非常充足",
+            "互动率优秀 (>5%)"
+          ],
+          "matchPercent": 82
+        },
+        {
+          "id": "inf_huahuac",
+          "name": "花花穿搭",
+          "platform": "抖音",
+          "followerCount": 720000,
+          "score": 78,
+          "reasons": [
+            "分类一致",
+            "标签匹配 1 个",
+            "粉丝量充足",
+            "互动率优秀 (>5%)"
+          ],
+          "matchPercent": 78
+        },
+        {
+          "id": "inf_kev",
+          "name": "潮流测评师Kev",
+          "platform": "小红书",
+          "followerCount": 1200000,
+          "score": 75,
+          "reasons": [
+            "分类一致",
+            "标签匹配 1 个",
+            "粉丝量非常充足",
+            "互动率优秀 (>5%)"
+          ],
+          "matchPercent": 75
+        }
       ]
     }
   ]
