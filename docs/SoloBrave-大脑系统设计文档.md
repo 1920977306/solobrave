@@ -2373,6 +2373,162 @@ Content-Type: application/json
 
 ---
 
+#### 达人库模块
+
+#### GET /api/influencers
+
+**功能：** 获取达人列表，支持平台/分类/状态/关键词筛选与分页
+
+**查询参数：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `platform` | string | 否 | 按平台筛选，如 `抖音`、`小红书`、`B站` |
+| `category` | string | 否 | 按分类筛选，如 `穿搭`、`美妆护肤` |
+| `status` | string | 否 | 按状态筛选：`available`/`cooperating`/`resting`/`blacklist` |
+| `q` | string | 否 | 关键词搜索，匹配 `id`、`name`、`accountId`、`bio`、`tags`（大小写不敏感） |
+| `offset` | int | 否 | 分页偏移量，默认 0 |
+| `limit` | int | 否 | 返回条数上限，默认 50，最大 200 |
+
+**响应示例：**
+
+```json
+{
+  "influencers": [
+    {
+      "id": "inf_limantou",
+      "name": "李馒头",
+      "platform": "抖音",
+      "accountId": "@limantou200w",
+      "followerCount": 2000000,
+      "category": "穿搭",
+      "tags": ["穿搭", "美妆", "真实测评"],
+      "cooperationPrice": 8000,
+      "priceUnit": "元/条",
+      "status": "available",
+      "engagementRate": 4.8,
+      "avgViews": 450000
+    }
+  ],
+  "total": 11,
+  "offset": 0,
+  "limit": 10
+}
+```
+
+#### POST /api/influencers
+
+**功能：** 录入新达人
+
+**请求体：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `name` | string | 是 | 达人名称 |
+| `platform` | string | 否 | 平台，默认 `抖音` |
+| `accountId` | string | 否 | 平台账号 ID |
+| `followerCount` | int | 否 | 粉丝数，默认 0 |
+| `category` | string | 否 | 分类，默认 `未分类` |
+| `tags` | array | 否 | 标签数组 |
+| `bio` | string | 否 | 简介 |
+| `contentStyle` | string | 否 | 内容风格 |
+| `cooperationPrice` | float | 否 | 合作报价，默认 0 |
+| `priceUnit` | string | 否 | 报价单位，默认 `元/条` |
+| `contact` | string | 否 | 联系方式 |
+| `status` | string | 否 | `available`/`cooperating`/`resting`/`blacklist`，默认 `available` |
+| `engagementRate` | float | 否 | 互动率（%），默认 0 |
+| `avgViews` | int | 否 | 平均播放量，默认 0 |
+
+**请求示例：**
+
+```json
+POST /api/influencers
+Content-Type: application/json
+
+{
+  "name": "花花穿搭",
+  "platform": "抖音",
+  "accountId": "@huahuachuanda",
+  "followerCount": 720000,
+  "category": "穿搭",
+  "tags": ["穿搭", "韩系", "简约"],
+  "cooperationPrice": 3500,
+  "priceUnit": "元/条",
+  "status": "cooperating"
+}
+```
+
+**成功响应（200）：** 返回完整的达人对象（含自动生成的 `id`、`createdAt`、`updatedAt`）
+
+#### PUT /api/influencers/:id
+
+**功能：** 更新达人信息
+
+**路径参数：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `id` | string | 是 | 达人唯一标识，如 `inf_limantou` |
+
+**请求体：** 与 POST 相同，只传需要修改的字段
+
+**成功响应（200）：** 返回更新后的完整达人对象
+
+#### DELETE /api/influencers/:id
+
+**功能：** 删除达人
+
+**路径参数：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `id` | string | 是 | 达人唯一标识 |
+
+**成功响应（200）：**
+
+```json
+{
+  "deleted": true,
+  "id": "inf_limantou"
+}
+```
+
+#### POST /api/influencers/search
+
+**功能：** 高级搜索/匹配，支持多维度评分排序
+
+**请求体：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `name` | string | 否 | 名称关键词匹配 |
+| `platform` | string | 否 | 平台精确匹配 |
+| `category` | string | 否 | 分类精确匹配 |
+| `tags` | array | 否 | 标签匹配，支持多标签 |
+| `minFollowers` | int | 否 | 最低粉丝数 |
+| `maxFollowers` | int | 否 | 最高粉丝数 |
+| `minEngagement` | float | 否 | 最低互动率 |
+| `maxEngagement` | float | 否 | 最高互动率 |
+| `status` | string | 否 | 状态过滤 |
+| `limit` | int | 否 | 返回条数上限，默认 20 |
+
+**响应示例：**
+
+```json
+{
+  "results": [
+    {
+      "influencer": {"id": "inf_limantou", "name": "李馒头", ...},
+      "score": 82,
+      "matched": ["category", "tags:穿搭"]
+    }
+  ],
+  "total": 5
+}
+```
+
+---
+
 #### POST /api/match/product-to-influencer
 
 **功能：** 为商品智能匹配达人
