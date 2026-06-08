@@ -1668,11 +1668,12 @@ SoloBrave 后端目前提供约 **60 个 HTTP 端点**，全部基于 `http.serv
 data = ms3.load_memory(emp_id)  # 自动触发过期归档 + 容量检查
 ```
 
-**步骤 2：L1 核心记忆 — 按 priority + accessCount 排序，取前 5 条**
+**步骤 2：L1 核心记忆 — 全部注入，按 priority + accessCount 排序**
 ```python
 core_mems = sorted(data['core'], 
                    key=lambda x: (x['priority'], x['accessCount']), 
-                   reverse=True)[:5]
+                   reverse=True)
+# 全部 core 记忆注入，每条截断 500 字符
 # 访问计数 +1（用于后续排序）
 for m in core_mems:
     m['accessCount'] += 1

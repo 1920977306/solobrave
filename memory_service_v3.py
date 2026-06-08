@@ -623,13 +623,13 @@ def inject_memories(emp_id, system_prompt=''):
 
     mem_lines = []
 
-    # L1: 核心记忆 — 按 priority 降序，同 priority 按 accessCount 降序
+    # L1: 核心记忆 — 全部注入，按 priority 降序，同 priority 按 accessCount 降序
     core_mems = sorted(
         data.get('core', []),
         key=lambda x: (x.get('priority', 5), x.get('accessCount', 0)),
         reverse=True
     )
-    for m in core_mems[:cfg['inject_core_max']]:
+    for m in core_mems:
         val = m.get('value', '')[:cfg['inject_value_max']]
         if val:
             mem_lines.append(f'- {val}')
@@ -648,7 +648,7 @@ def inject_memories(emp_id, system_prompt=''):
 
     # L3: 归档补充 — 当 L1+L2 不足时
     total_injected = len(mem_lines)
-    target_total = cfg['inject_core_max'] + cfg['inject_daily_max']
+    target_total = len(core_mems) + cfg['inject_daily_max']
     if total_injected < target_total:
         archive_data = load_archive(emp_id)
         archive_mems = sorted(
