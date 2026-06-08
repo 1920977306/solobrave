@@ -2346,7 +2346,7 @@ Content-Type: application/json
 
 | 参数 | 类型 | 必选 | 说明 |
 |---|---|---|---|
-| `name` | string | 否 | 名称关键词匹配 |
+| `keyword` | string | 否 | 关键词模糊搜索，匹配 `name`、`description`、`selling_points` |
 | `category` | string | 否 | 分类精确匹配 |
 | `tags` | array | 否 | 标签匹配，支持多标签 |
 | `minPrice` | float | 否 | 最低价格 |
