@@ -3400,13 +3400,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return r
 
         def _map_knowledge(doc):
-            """知识库文档 → 记忆格式（兼容前端）"""
+            """知识库文档 → 记忆格式（兼容前端），过期时间 90 天"""
+            created_at = doc.get('createdAt') or int(time.time() * 1000)
+            ttl_90d = 90 * 24 * 3600 * 1000
             return {
                 'id': doc.get('id'),
                 'key': 'knowledge',
                 'value': f"[{doc.get('category', '知识')}] {doc.get('title')}: {doc.get('content', '')[:200]}",
                 'source': 'knowledge_base',
-                'time': doc.get('createdAt'),
+                'time': created_at,
+                'expiresAt': created_at + ttl_90d,
                 '_origin': doc  # 保留原始数据供前端扩展
             }
 
