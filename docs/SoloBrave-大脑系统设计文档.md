@@ -2003,9 +2003,11 @@ POST /api/memory/consolidate
 
 | 参数 | 类型 | 必选 | 说明 |
 |---|---|---|---|
-| `keyword` | string | 否 | 关键词搜索，匹配 `value` 字段 |
+| `keyword` | string | 否 | 关键词搜索，`value` 字段模糊匹配（大小写不敏感） |
 | `tag` | string | 否 | 逗号分隔多标签，OR 匹配 |
-| `type` | string | 否 | `core`/`daily`/`active`/`archive`，默认全部 |
+| `type` | string | 否 | `core`/`daily`/`active`/`archive`，不传返回全部 |
+| `key` | string | 否 | 按 key 精确过滤，如 `preference`、`auto` |
+| `empId` | string | 否 | 按员工 ID 精确过滤 |
 | `limit` | int | 否 | 返回条数上限，默认 50，最大 200 |
 | `offset` | int | 否 | 分页偏移，默认 0 |
 

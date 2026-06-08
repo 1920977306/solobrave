@@ -3641,6 +3641,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         keyword = qs.get('keyword', [''])[0].lower()
         tag_filter = qs.get('tag', [''])[0]
         type_filter = qs.get('type', [''])[0]
+        key_filter = qs.get('key', [''])[0]
+        emp_id_filter = qs.get('empId', [''])[0]
         try:
             limit = max(1, min(200, int(qs.get('limit', ['50'])[0])))
         except ValueError:
@@ -3663,6 +3665,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 required = set(t.strip() for t in tag_filter.split(',') if t.strip())
                 if not (tags & required):
                     return False
+            if key_filter:
+                if m.get('key') != key_filter:
+                    return False
             return True
 
         def _map_mem(m, emp_id, pool):
@@ -3679,6 +3684,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         if os.path.isdir(memories_dir):
             for emp_id in os.listdir(memories_dir):
+                if emp_id_filter and emp_id != emp_id_filter:
+                    continue
                 # 活跃记忆
                 mem_path = os.path.join(memories_dir, emp_id, 'memory.json')
                 if os.path.exists(mem_path):
