@@ -4164,7 +4164,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_product_matches(self, product_id):
         """GET /api/products/:id/matches — 获取商品的匹配达人列表
-        优先读取商品自身的 matched_influencers 字段，无则实时计算"""
+        优先读取商品自身的 matched_influencers，为空或超24小时则重新计算并缓存"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -4181,9 +4181,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         query = parse_qs(urlparse(self.path).query)
         limit = int(query.get('limit', [20])[0])
-        # 优先读取商品已存储的 matched_influencers
+        now = int(time.time() * 1000)
+        DAY_MS = 86400000
         stored = product.get('matched_influencers')
-        if stored:
+        last_updated = product.get('matched_influencers_updated_at', 0)
+        is_fresh = stored and last_updated and (now - last_updated) < DAY_MS
+        if is_fresh:
             results = []
             for item in stored:
                 results.append({
@@ -4196,15 +4199,33 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     'score': item.get('score', item.get('matchPercent', 0)),
                     'reasons': item.get('reasons', [])
                 })
-            self._send_json(200, {'product_id': product_id, 'matches': results[:limit], 'total': len(results), 'source': 'stored'})
+            self._send_json(200, {'product_id': product_id, 'matches': results[:limit], 'total': len(results), 'source': 'cached'})
             return
-        # 无存储数据则实时计算匹配
+        # 缓存为空或过期：实时计算并保存
         inf_data = self._load_influencers()
         results = []
         for inf in inf_data.get('influencers', []):
             score, reasons = self._calculate_match_score(product, inf)
             results.append({'influencer': inf, 'score': score, 'reasons': reasons})
         results.sort(key=lambda x: x['score'], reverse=True)
+        # 保存计算结果到商品（用于缓存）
+        cached_matches = []
+        for r in results:
+            inf = r['influencer']
+            cached_matches.append({
+                'id': inf.get('id'),
+                'name': inf.get('name'),
+                'platform': inf.get('platform'),
+                'followerCount': inf.get('followerCount'),
+                'score': r['score'],
+                'matchPercent': r['score'],
+                'reasons': r['reasons']
+            })
+        product['matched_influencers'] = cached_matches
+        product['matched_influencers_updated_at'] = now
+        product['updatedAt'] = now
+        self._save_products(data)
+        self._sync_product_file(product)
         self._send_json(200, {'product_id': product_id, 'matches': results[:limit], 'total': len(results), 'source': 'live'})
 
     def _handle_post_product(self):
