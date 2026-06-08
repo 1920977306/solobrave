@@ -861,6 +861,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
         # Memory API v2
+        if path == '/api/memory/archived':
+            self._handle_get_archived_memories()
+            return
         if path.startswith('/api/memory/'):
             sub = path[len('/api/memory/'):]
             parts = sub.split('/')
@@ -3491,6 +3494,63 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             }
         }
         self._send_json(200, result)
+
+    def _handle_get_archived_memories(self):
+        """GET /api/memory/archived — 查看全局归档记忆（支持分页/搜索）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        # 解析查询参数
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        keyword = qs.get('keyword', [''])[0].lower()
+        try:
+            limit = max(1, min(200, int(qs.get('limit', ['50'])[0])))
+        except ValueError:
+            limit = 50
+        try:
+            offset = max(0, int(qs.get('offset', ['0'])[0]))
+        except ValueError:
+            offset = 0
+
+        # 遍历所有员工的归档文件
+        archived_list = []
+        memories_dir = os.path.join(DATA_DIR, 'memories')
+        if os.path.isdir(memories_dir):
+            for emp_id in os.listdir(memories_dir):
+                arch_path = os.path.join(memories_dir, emp_id, 'archived.json')
+                if os.path.exists(arch_path):
+                    arch_data = _read_json(arch_path, {'archived': []})
+                    for m in arch_data.get('archived', []):
+                        if keyword:
+                            value = (m.get('value') or '').lower()
+                            if keyword not in value:
+                                continue
+                        mapped = dict(m)
+                        if 'createdAt' in mapped:
+                            mapped['time'] = mapped.pop('createdAt')
+                        if 'archivedAt' in mapped:
+                            mapped['archivedTime'] = mapped.pop('archivedAt')
+                        mapped['empId'] = emp_id
+                        mapped['pool'] = 'archive'
+                        archived_list.append(mapped)
+
+        # 按 archivedTime 倒序
+        archived_list.sort(key=lambda m: m.get('archivedTime', 0), reverse=True)
+        total = len(archived_list)
+        paginated = archived_list[offset:offset + limit]
+
+        self._send_json(200, {
+            'success': True,
+            'data': {
+                'memories': paginated,
+                'total': total,
+                'limit': limit,
+                'offset': offset
+            }
+        })
 
     def _handle_post_memory(self, emp_id):
         """POST /api/memory/{empId} — 添加记忆到对应分池（容量检查，超出返回 409）"""
