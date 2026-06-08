@@ -13,6 +13,17 @@
       "createdAt": 1700000000000,
       "updatedAt": 1700000000000,
       "accessCount": 3
+    },
+    {
+      "id": "mem_20260608_abc124",
+      "key": "core",
+      "value": "【待填写】",
+      "source": "user_input",
+      "priority": 5,
+      "tags": ["凉鞋", "达人反馈"],
+      "createdAt": 1700000000000,
+      "updatedAt": 1700000000000,
+      "accessCount": 0
     }
   ],
   "daily": [
@@ -27,7 +38,7 @@
     }
   ],
   "stats": {
-    "coreCount": 1,
+    "coreCount": 2,
     "dailyCount": 1,
     "totalAccess": 3
   }
