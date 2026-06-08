@@ -4074,6 +4074,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         data['version'] = '1.0'
         _write_json(filepath, data)
 
+    def _sync_product_file(self, product):
+        """同步单个商品详情到独立文件 {id}.json"""
+        filepath = os.path.join(PRODUCT_DIR, f'{product["id"]}.json')
+        _write_json(filepath, product)
+
+    def _remove_product_file(self, product_id):
+        """删除单个商品详情文件"""
+        filepath = os.path.join(PRODUCT_DIR, f'{product_id}.json')
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
     def _handle_get_products(self):
         """GET /api/products — 获取商品列表（支持 query 筛选）"""
         auth = _authenticate(self.headers)
@@ -4155,6 +4166,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             product['commission_amount'] = round(product['price'] * float(product['commission_rate']) / 100, 2)
         data['products'].append(product)
         self._save_products(data)
+        self._sync_product_file(product)
         print(f'  [Product] 录入商品: {product["name"]} ({product["id"]})', flush=True)
         self._send_json(200, product)
 
@@ -4191,6 +4203,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Product not found')
             return
         self._save_products(data)
+        self._sync_product_file(updated)
         self._send_json(200, updated)
 
     def _handle_delete_product(self, product_id):
@@ -4204,6 +4217,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         data['products'] = [p for p in data.get('products', []) if p.get('id') != product_id]
         removed = original - len(data['products'])
         self._save_products(data)
+        if removed > 0:
+            self._remove_product_file(product_id)
         self._send_json(200, {'deleted': removed > 0, 'id': product_id})
 
     def _handle_search_products(self):
@@ -4286,6 +4301,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         data['version'] = '1.0'
         _write_json(filepath, data)
 
+    def _sync_influencer_file(self, influencer):
+        """同步单个达人详情到独立文件 {id}.json"""
+        filepath = os.path.join(INFLUENCER_DIR, f'{influencer["id"]}.json')
+        _write_json(filepath, influencer)
+
+    def _remove_influencer_file(self, inf_id):
+        """删除单个达人详情文件"""
+        filepath = os.path.join(INFLUENCER_DIR, f'{inf_id}.json')
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
     def _handle_get_influencers(self):
         """GET /api/influencers — 获取达人列表（支持 query 筛选）"""
         auth = _authenticate(self.headers)
@@ -4349,6 +4375,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         }
         data['influencers'].append(influencer)
         self._save_influencers(data)
+        self._sync_influencer_file(influencer)
         print(f'  [Influencer] 录入达人: {influencer["name"]} ({influencer["id"]})', flush=True)
         self._send_json(200, influencer)
 
@@ -4380,6 +4407,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Influencer not found')
             return
         self._save_influencers(data)
+        self._sync_influencer_file(updated)
         self._send_json(200, updated)
 
     def _handle_delete_influencer(self, inf_id):
@@ -4393,6 +4421,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         data['influencers'] = [i for i in data.get('influencers', []) if i.get('id') != inf_id]
         removed = original - len(data['influencers'])
         self._save_influencers(data)
+        if removed > 0:
+            self._remove_influencer_file(inf_id)
         self._send_json(200, {'deleted': removed > 0, 'id': inf_id})
 
     def _handle_search_influencers(self):
