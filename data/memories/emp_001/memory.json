@@ -24,7 +24,8 @@
       "createdAt": 1777312800000,
       "updatedAt": 1777312800000,
       "accessCount": 0,
-      "expiresAt": null
+      "expiresAt": null,
+      "archived": false
     }
   ],
   "daily": [
