@@ -1645,7 +1645,40 @@ SoloBrave 后端目前提供约 **60 个 HTTP 端点**，全部基于 `http.serv
 | 409 | 资源冲突 | 记忆池已满、容量超限 |
 | 500 | 服务器内部错误 | 文件读写异常 |
 
-### 3.3 认证机制
+### 3.3 关键逻辑改动
+
+#### v2 → v3 核心变更
+
+| 变更项 | v2 行为 | v3 行为 | 影响 |
+|---|---|---|---|
+| **数据存储** | 单文件扁平数组 | 分池物理隔离（core/daily/archive） | 容量可控，查询更快 |
+| **过期归档** | 标记 `archived=true` 保留在 daily 池 | 物理移入 `archived.json` | 活跃数据更干净 |
+| **字段映射** | 直接返回原始字段 | `createdAt`→`time`，隐藏内部字段 | 前端兼容，减少噪音 |
+| **响应结构** | 直接返回分池数组 | 统一 `memories` 数组 + 分池双格式 | 支持表格/分类两种视图 |
+| **查询参数** | 无过滤能力 | 支持 type/tag/keyword/limit/offset | 灵活筛选 |
+| **value 限制** | >5000 字符返回 400 | >2000 字符自动截断 + warning | 友好降级 |
+| **容量控制** | 仅写入时检查 | 写入检查 + 读取时自动归档（>200条） | 自动维护 |
+| **归纳合并** | 无 | `POST /api/memory/consolidate` | AI 摘要合并，减少碎片 |
+| **知识库关联** | 无 | `type=knowledge` 返回关联文档 | 记忆+知识统一查询 |
+| **全局搜索** | 仅支持单员工 | `GET /api/memory/search` 跨员工搜索 | 统一管理 |
+
+#### 自动归档触发条件
+
+```
+daily 过期（30天未访问）    → archiveReason: expired
+活跃记忆总数 > 200 条       → archiveReason: capacity
+手动触发归档                 → archiveReason: manual
+归纳合并原始记忆              → archiveReason: consolidated
+```
+
+#### 跨池移动字段转换
+
+| 方向 | 新增字段 | 清除字段 |
+|------|---------|---------|
+| daily → core | priority, tags, updatedAt, accessCount | expiresAt, context |
+| core → daily | expiresAt=now+30天, context | priority, tags, updatedAt, accessCount |
+
+### 3.4 认证机制
 
 **请求头：**
 
@@ -1671,7 +1704,7 @@ Response: {"token": "eyJhbG...", "user": {"id": "...", "role": "admin"}}
 - Token 过期（7 天）后用户需重新登录
 - 前端 `apiFetch()` 捕获 401 后自动调用 `doLogout()`
 
-### 3.4 关键接口详细说明
+### 3.5 关键接口详细说明
 
 #### POST /api/chat/:agentId
 
