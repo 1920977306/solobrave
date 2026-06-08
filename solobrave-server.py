@@ -4487,8 +4487,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         else:
             reasons.append('无匹配标签')
 
-        # 3. 价格匹配
-        price_min, price_max, price_avg = self._parse_price_range(product.get('priceRange'))
+        # 3. 价格匹配（无 priceRange 时用 price 作为回退基准）
+        price_range = product.get('priceRange')
+        if not price_range and product.get('price') is not None:
+            p = float(product['price'])
+            price_min, price_max, price_avg = (p * 0.5, p * 1.5, p)
+        else:
+            price_min, price_max, price_avg = self._parse_price_range(price_range)
         inf_price = influencer.get('cooperationPrice', 0) or 0
         if price_min <= inf_price <= price_max:
             score += 20
@@ -4580,7 +4585,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         results = []
         for inf in influencers:
-            if inf.get('status') == 'inactive':
+            if inf.get('status') in ('inactive', 'blacklist'):
                 continue
             score, reasons = self._calculate_match_score(product, inf)
             min_score = float(body.get('minScore', 0))
@@ -4630,7 +4635,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         results = []
         for prod in products:
-            if prod.get('status') == 'inactive':
+            if prod.get('status') in ('inactive', 'out_of_stock'):
                 continue
             score, reasons = self._calculate_match_score(prod, influencer)
             min_score = float(body.get('minScore', 0))
