@@ -1995,6 +1995,44 @@ POST /api/memory/consolidate
 }
 ```
 
+#### GET /api/memory/search
+
+**功能：** 全局搜索记忆（跨员工、跨池：core + daily + archive）
+
+**查询参数：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `keyword` | string | 否 | 关键词搜索，匹配 `value` 字段 |
+| `tag` | string | 否 | 逗号分隔多标签，OR 匹配 |
+| `type` | string | 否 | `core`/`daily`/`active`/`archive`，默认全部 |
+| `limit` | int | 否 | 返回条数上限，默认 50，最大 200 |
+| `offset` | int | 否 | 分页偏移，默认 0 |
+
+**响应示例：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "memories": [
+      {
+        "id": "mem_20260608_abc124",
+        "empId": "emp_001",
+        "pool": "core",
+        "key": "core",
+        "value": "李馒头对凉鞋感兴趣但觉得佣金低",
+        "source": "chat",
+        "time": 1777312800000
+      }
+    ],
+    "total": 15,
+    "limit": 50,
+    "offset": 0
+  }
+}
+```
+
 #### GET /api/memory/archived
 
 **功能：** 查看全局归档记忆（所有员工的归档数据）

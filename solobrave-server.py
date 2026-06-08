@@ -867,6 +867,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/memory/consolidate':
             self._handle_consolidate_memory()
             return
+        if path == '/api/memory/search':
+            self._handle_search_memory()
+            return
         if path.startswith('/api/memory/'):
             sub = path[len('/api/memory/'):]
             parts = sub.split('/')
@@ -3622,6 +3625,102 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'data': {
                 'newMemory': mapped,
                 'archivedIds': archived_ids
+            }
+        })
+
+    def _handle_search_memory(self):
+        """GET /api/memory/search — 全局搜索记忆（跨员工、跨池）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        # 解析查询参数
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        keyword = qs.get('keyword', [''])[0].lower()
+        tag_filter = qs.get('tag', [''])[0]
+        type_filter = qs.get('type', [''])[0]
+        try:
+            limit = max(1, min(200, int(qs.get('limit', ['50'])[0])))
+        except ValueError:
+            limit = 50
+        try:
+            offset = max(0, int(qs.get('offset', ['0'])[0]))
+        except ValueError:
+            offset = 0
+
+        results = []
+        memories_dir = os.path.join(DATA_DIR, 'memories')
+
+        def _matches(m):
+            if keyword:
+                value = (m.get('value') or '').lower()
+                if keyword not in value:
+                    return False
+            if tag_filter:
+                tags = set(m.get('tags', []) or [])
+                required = set(t.strip() for t in tag_filter.split(',') if t.strip())
+                if not (tags & required):
+                    return False
+            return True
+
+        def _map_mem(m, emp_id, pool):
+            r = dict(m)
+            if 'createdAt' in r:
+                r['time'] = r.pop('createdAt')
+            r.pop('updatedAt', None)
+            r.pop('expiresAt', None)
+            r.pop('context', None)
+            r.pop('accessCount', None)
+            r['empId'] = emp_id
+            r['pool'] = pool
+            return r
+
+        if os.path.isdir(memories_dir):
+            for emp_id in os.listdir(memories_dir):
+                # 活跃记忆
+                mem_path = os.path.join(memories_dir, emp_id, 'memory.json')
+                if os.path.exists(mem_path):
+                    mem_data = _read_json(mem_path, {'core': [], 'daily': []})
+                    pools_to_search = []
+                    if type_filter in ('', 'core', 'active'):
+                        pools_to_search.append(('core', mem_data.get('core', [])))
+                    if type_filter in ('', 'daily', 'active'):
+                        pools_to_search.append(('daily', mem_data.get('daily', [])))
+                    for pool_name, pool_list in pools_to_search:
+                        for m in pool_list:
+                            if _matches(m):
+                                results.append(_map_mem(m, emp_id, pool_name))
+
+                # 归档记忆
+                if type_filter in ('', 'archive'):
+                    arch_path = os.path.join(memories_dir, emp_id, 'archived.json')
+                    if os.path.exists(arch_path):
+                        arch_data = _read_json(arch_path, {'archived': []})
+                        for m in arch_data.get('archived', []):
+                            if _matches(m):
+                                r = dict(m)
+                                if 'createdAt' in r:
+                                    r['time'] = r.pop('createdAt')
+                                if 'archivedAt' in r:
+                                    r['archivedTime'] = r.pop('archivedAt')
+                                r['empId'] = emp_id
+                                r['pool'] = 'archive'
+                                results.append(r)
+
+        # 按时间倒序
+        results.sort(key=lambda m: m.get('time', 0), reverse=True)
+        total = len(results)
+        paginated = results[offset:offset + limit]
+
+        self._send_json(200, {
+            'success': True,
+            'data': {
+                'memories': paginated,
+                'total': total,
+                'limit': limit,
+                'offset': offset
             }
         })
 
