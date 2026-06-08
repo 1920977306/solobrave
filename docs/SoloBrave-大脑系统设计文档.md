@@ -1721,7 +1721,7 @@ Response: {"token": "eyJhbG...", "user": {"id": "...", "role": "admin"}}
 | `key` | string | 否 | 按 key 精确过滤，如 `preference`、`auto`、`auto_extract` |
 | `tag` | string | 否 | 按标签过滤，支持逗号分隔多标签 OR 匹配，如 `凉鞋,达人反馈` |
 | `keyword` | string | 否 | 关键词搜索，`value` 字段模糊匹配（大小写不敏感） |
-| `limit` | integer | 否 | 单池返回条数上限。默认 100，最大 500 |
+| `limit` | integer | 否 | 单池返回条数上限。默认 50，最大 200 |
 | `offset` | integer | 否 | 分页偏移量。默认 0 |
 
 **请求示例：**

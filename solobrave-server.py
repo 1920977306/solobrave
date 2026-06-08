@@ -3356,9 +3356,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         tag_filter = qs.get('tag', [''])[0]
         keyword = qs.get('keyword', [''])[0].lower()
         try:
-            limit = max(1, min(500, int(qs.get('limit', ['100'])[0])))
+            limit = max(1, min(200, int(qs.get('limit', ['50'])[0])))
         except ValueError:
-            limit = 100
+            limit = 50
         try:
             offset = max(0, int(qs.get('offset', ['0'])[0]))
         except ValueError:
