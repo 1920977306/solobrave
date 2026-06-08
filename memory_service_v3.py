@@ -50,8 +50,7 @@ def _ensure_dir(path):
 
 def _lock_file(f):
     """跨平台文件锁：Windows 用 msvcrt.locking，Unix 用 fcntl.flock"""
-    import platform
-    if platform.system() == 'Windows':
+    if os.name == 'nt':  # Windows
         import msvcrt
         # Windows: 锁定文件 1 字节（ advisory lock 模拟）
         f.seek(0)
