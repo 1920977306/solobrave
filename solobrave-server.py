@@ -3576,7 +3576,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if removed:
             print(f'  [MemoryV3] {emp_id} 删除记忆: {memory_id}', flush=True)
 
-        self._send_json(200, {'deleted': removed, 'id': memory_id})
+        self._send_json(200, {
+            'success': True,
+            'data': {'deleted': removed, 'id': memory_id}
+        })
 
     def _handle_update_memory(self, emp_id, memory_id):
         """PUT /api/memory/{empId}/{memoryId} — 修改单条记忆（支持跨池移动）"""
