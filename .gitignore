@@ -1,1 +1,7 @@
 __pycache__/
+*.log
+*.tmp
+*.pyc
+test_*.py
+check_*.py
+*.docx
