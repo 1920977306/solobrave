@@ -1703,6 +1703,58 @@ Response: {"token": "eyJhbG...", "user": {"id": "...", "role": "admin"}}
 - 消息数超过 500 条时自动归档旧消息到 `memory/archive/`
 - 自动注入记忆、摘要、层级关系到 systemPrompt
 
+#### GET /api/memory/:empId
+
+**功能：** 查询员工记忆列表（活跃记忆 + 归档），支持分池过滤与搜索
+
+**路径参数：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `empId` | string | 是 | 员工唯一标识，如 `emp_001` |
+
+**查询参数：**
+
+| 参数 | 类型 | 必选 | 说明 |
+|---|---|---|---|
+| `pool` | string | 否 | 记忆池过滤。`core` = 仅核心记忆；`daily` = 仅日常记录；`active` = 活跃记忆（core+daily，不含归档）。默认返回全部（含归档） |
+| `key` | string | 否 | 按 key 精确过滤，如 `preference`、`auto`、`auto_extract` |
+| `tag` | string | 否 | 按标签过滤，如 `UI`、`达人反馈`。支持单标签匹配 |
+| `search` | string | 否 | 内容模糊搜索，匹配 `value` 字段（大小写不敏感） |
+| `limit` | integer | 否 | 单池返回条数上限。默认 100，最大 500 |
+| `offset` | integer | 否 | 分页偏移量。默认 0 |
+
+**请求示例：**
+
+```http
+GET /api/memory/emp_001?pool=active&tag=达人反馈&limit=10
+Authorization: Bearer eyJhbG...
+```
+
+**响应示例：**
+
+```json
+{
+  "core": [
+    {
+      "id": "mem_20260608_abc124",
+      "key": "core",
+      "value": "李馒头对凉鞋感兴趣但觉得佣金低",
+      "source": "chat",
+      "time": 1777312800000
+    }
+  ],
+  "daily": [],
+  "archive": [],
+  "version": "3.0",
+  "config": {
+    "core_max": 50,
+    "daily_max": 100,
+    "daily_ttl_days": 30
+  }
+}
+```
+
 #### POST /api/memory/:empId
 
 **功能：** 添加记忆到指定分池

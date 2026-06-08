@@ -3338,7 +3338,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ═══════════════════════════════════════════════════
 
     def _handle_get_memory(self, emp_id):
-        """GET /api/memory/{empId} — 获取分池记忆（自动归档过期）"""
+        """GET /api/memory/{empId}[?pool=&key=&tag=&search=&limit=&offset=] — 查询记忆列表"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -3347,9 +3347,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': 'Agent not found'})
             return
 
+        # 解析查询参数
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        pool_filter = qs.get('pool', [''])[0]
+        key_filter = qs.get('key', [''])[0]
+        tag_filter = qs.get('tag', [''])[0]
+        search_term = qs.get('search', [''])[0].lower()
+        try:
+            limit = max(1, min(500, int(qs.get('limit', ['100'])[0])))
+        except ValueError:
+            limit = 100
+        try:
+            offset = max(0, int(qs.get('offset', ['0'])[0]))
+        except ValueError:
+            offset = 0
+
         # v3：活跃记忆（load_memory 内部自动归档过期 daily 到 archived.json）
         data = ms3.load_memory(emp_id)
-        archived_count = data.get('stats', {}).get('dailyCount', 0)  # 已过期归档的数量在 load 时已处理
         archive_data = ms3.load_archive(emp_id)
 
         # 字段映射：v3 createdAt → v2 time（前端兼容）
@@ -3383,15 +3398,42 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 r.pop('originalKey', None)
             return r
 
-        core_list = [_map_mem(m) for m in data.get('core', [])]
-        daily_list = [_map_mem(m) for m in data.get('daily', [])]
-        archive_list = [_map_arch(m) for m in archive_data.get('archived', [])]
+        # 过滤 + 搜索逻辑
+        def _matches(m):
+            if key_filter and m.get('key') != key_filter:
+                return False
+            if tag_filter:
+                tags = m.get('tags', []) or []
+                if tag_filter not in tags:
+                    return False
+            if search_term:
+                value = (m.get('value') or '').lower()
+                if search_term not in value:
+                    return False
+            return True
+
+        def _apply_filters_and_paging(items):
+            filtered = [m for m in items if _matches(m)]
+            return filtered[offset:offset + limit]
+
+        core_raw = data.get('core', [])
+        daily_raw = data.get('daily', [])
+        arch_raw = archive_data.get('archived', [])
+
+        # pool 过滤
+        include_core = pool_filter in ('', 'core', 'active')
+        include_daily = pool_filter in ('', 'daily', 'active')
+        include_archive = pool_filter in ('', 'archive')
+
+        core_list = [_map_mem(m) for m in _apply_filters_and_paging(core_raw)] if include_core else []
+        daily_list = [_map_mem(m) for m in _apply_filters_and_paging(daily_raw)] if include_daily else []
+        archive_list = [_map_arch(m) for m in _apply_filters_and_paging(arch_raw)] if include_archive else []
 
         result = {
             'core': core_list,
             'daily': daily_list,
             'archive': archive_list,
-            'archivedToday': 0,  # v3 在 load 时自动归档，不单独计数
+            'archivedToday': 0,
             'version': '3.0',
             'config': {k: v for k, v in MEMORY_CONFIG.items() if k in ('core_max', 'daily_max', 'daily_ttl_days')}
         }
