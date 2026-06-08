@@ -891,9 +891,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_search_products()
             return
         if path.startswith('/api/products/'):
-            product_id = path[len('/api/products/'):]
-            if product_id:
-                self._handle_get_product(product_id)
+            rest = path[len('/api/products/'):]
+            if rest:
+                # 处理 /api/products/:id/matches
+                if '/' in rest:
+                    parts = rest.split('/')
+                    product_id = parts[0]
+                    if parts[1] == 'matches':
+                        self._handle_get_product_matches(product_id)
+                        return
+                self._handle_get_product(rest)
                 return
 
         # Influencer API
@@ -4154,6 +4161,33 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Product not found')
             return
         self._send_json(200, product)
+
+    def _handle_get_product_matches(self, product_id):
+        """GET /api/products/:id/matches — 获取商品的匹配达人列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        # 加载商品（index.json 没有则读详情文件）
+        data = self._load_products()
+        product = next((p for p in data.get('products', []) if p.get('id') == product_id), None)
+        if not product:
+            detail_path = os.path.join(PRODUCT_DIR, f'{product_id}.json')
+            if os.path.exists(detail_path):
+                product = _read_json(detail_path, None)
+        if not product:
+            self._send_json_error(404, 'Product not found')
+            return
+        # 加载所有达人并计算匹配分数
+        inf_data = self._load_influencers()
+        results = []
+        for inf in inf_data.get('influencers', []):
+            score, reasons = self._calculate_match_score(product, inf)
+            results.append({'influencer': inf, 'score': score, 'reasons': reasons})
+        results.sort(key=lambda x: x['score'], reverse=True)
+        query = parse_qs(urlparse(self.path).query)
+        limit = int(query.get('limit', [20])[0])
+        self._send_json(200, {'product_id': product_id, 'matches': results[:limit], 'total': len(results)})
 
     def _handle_post_product(self):
         """POST /api/products — 录入商品"""
