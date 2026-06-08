@@ -2201,7 +2201,7 @@ POST /api/memory/consolidate
 | 参数 | 类型 | 必选 | 说明 |
 |---|---|---|---|
 | `category` | string | 否 | 按分类筛选，如 `鞋履`、`美妆护肤` |
-| `status` | string | 否 | 按状态筛选：`active`/`inactive`/`out_of_stock` |
+| `status` | string | 否 | 按状态筛选：`active`/`paused`/`archived` |
 | `q` | string | 否 | 关键词搜索，匹配 `id`、`name`、`description`、`tags`（大小写不敏感） |
 | `offset` | int | 否 | 分页偏移量，默认 0 |
 | `limit` | int | 否 | 返回条数上限，默认 50，最大 200 |
@@ -2253,7 +2253,7 @@ Authorization: Bearer eyJhbG...
 | `tags` | array | 否 | 标签数组 |
 | `sku` | string | 否 | SKU 编码 |
 | `stock` | int | 否 | 库存，默认 0 |
-| `status` | string | 否 | 状态：`active`/`inactive`/`out_of_stock`，默认 `active` |
+| `status` | string | 否 | 状态：`active`/`paused`/`archived`，默认 `active` |
 | `description` | string | 否 | 商品描述 |
 | `images` | array | 否 | 图片 URL 数组 |
 | `attributes` | object | 否 | 属性字典，如 `{"color": "黑/白", "size": "35-40"}` |
@@ -2352,7 +2352,7 @@ Content-Type: application/json
 | `minPrice` | float | 否 | 最低价格 |
 | `maxPrice` | float | 否 | 最高价格 |
 | `sku` | string | 否 | SKU 精确匹配 |
-| `status` | string | 否 | 状态过滤 |
+| `status` | string | 否 | 状态过滤：`active`/`paused`/`archived` |
 | `attributes` | object | 否 | 属性精确匹配 |
 | `limit` | int | 否 | 返回条数上限，默认 20 |
 
