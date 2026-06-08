@@ -4128,6 +4128,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing name')
             return
         data = self._load_products()
+        now_ts = int(time.time() * 1000)
         product = {
             'id': body.get('id') or ('prod_' + uuid.uuid4().hex[:8]),
             'name': body['name'],
@@ -4142,9 +4143,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'attributes': body.get('attributes', {}),
             'status': body.get('status', 'active'),
             'createdBy': auth.user_info.get('userId'),
-            'createdAt': int(time.time() * 1000),
-            'updatedAt': int(time.time() * 1000)
+            'createdAt': now_ts,
+            'updatedAt': now_ts
         }
+        # 扩展字段（可选）：佣金、卖点、手卡、视频、匹配达人
+        for ext_field in ('commission_rate', 'commission_amount', 'selling_points', 'product_card', 'hot_videos', 'matched_influencers'):
+            if ext_field in body:
+                product[ext_field] = body[ext_field]
         data['products'].append(product)
         self._save_products(data)
         print(f'  [Product] 录入商品: {product["name"]} ({product["id"]})', flush=True)
@@ -4164,7 +4169,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         updated = None
         for p in data.get('products', []):
             if p.get('id') == product_id:
-                for field in ('name', 'description', 'price', 'currency', 'category', 'tags', 'sku', 'stock', 'images', 'attributes', 'status'):
+                for field in ('name', 'description', 'price', 'currency', 'category', 'tags', 'sku', 'stock', 'images', 'attributes', 'status', 'commission_rate', 'commission_amount', 'selling_points', 'product_card', 'hot_videos', 'matched_influencers'):
                     if field in body:
                         p[field] = body[field]
                         if field == 'price':
