@@ -1,7 +1,7 @@
 {
   "version": "3.0",
   "empId": "emp_001",
-  "updatedAt": 1700000000000,
+  "updatedAt": 1777312800000,
   "core": [
     {
       "id": "mem_20260608_abc123",
@@ -22,7 +22,7 @@
       "priority": 5,
       "tags": ["凉鞋", "达人反馈"],
       "createdAt": 1777312800000,
-      "updatedAt": 1700000000000,
+      "updatedAt": 1777312800000,
       "accessCount": 0
     }
   ],
