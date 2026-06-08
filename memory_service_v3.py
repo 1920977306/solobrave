@@ -34,9 +34,10 @@ MEMORY_V3_CONFIG = {
     'core_max': 100,           # 核心记忆池上限
     'daily_max': 100,          # 日常记录池上限
     'daily_ttl_days': 30,      # 日常记录过期天数
-    'inject_core_max': 5,      # 注入时核心记忆条数
-    'inject_daily_max': 3,     # 注入时日常记忆条数
+    'inject_core_max': 50,     # 注入时核心记忆条数（上限50，实际全部注入）
+    'inject_daily_max': 5,     # 注入时日常记忆条数
     'inject_archive_max': 2,   # 注入时归档补充条数
+    'inject_knowledge_max': 3, # 注入时知识库条数
     'inject_value_max': 500,   # 单条记忆注入字符上限
     'store_value_max': 2000,   # 单条记忆存储字符上限
     'context_max': 500,        # daily 上下文摘要字符上限
@@ -662,8 +663,28 @@ def inject_memories(emp_id, system_prompt=''):
             if val:
                 mem_lines.append(f'- [归档] {val}')
 
+    # L4: 知识库 — 取最近 3 条关联知识
+    kb_path = os.path.join(MEMORY_V3_DIR, '..', 'knowledge', emp_id, 'docs.json')
+    kb_data = _read_json(kb_path, {'docs': []})
+    kb_docs = sorted(
+        kb_data.get('docs', []),
+        key=lambda x: x.get('createdAt', 0),
+        reverse=True
+    )
+    kb_lines = []
+    for d in kb_docs[:cfg['inject_knowledge_max']]:
+        val = d.get('content', '')[:cfg['inject_value_max']]
+        if val:
+            kb_lines.append(f'- [{d.get("category", "知识")}] {d.get("title", "")}: {val}')
+
+    # 拼接注入文本
+    sections = []
     if mem_lines:
-        system_prompt += '\n\n【关于用户的记忆】\n' + '\n'.join(mem_lines)
+        sections.append('【关于用户的记忆】\n' + '\n'.join(mem_lines))
+    if kb_lines:
+        sections.append('【相关知识库】\n' + '\n'.join(kb_lines))
+    if sections:
+        system_prompt += '\n\n' + '\n\n'.join(sections)
 
     # 更新 accessCount（需要写回）
     if core_mems:

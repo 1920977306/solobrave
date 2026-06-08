@@ -1686,21 +1686,34 @@ daily_mems = sorted(data['daily'],
                     reverse=True)[:5]
 ```
 
-**步骤 4：L3 归档补充 — L1+L2 < 8 条时，取最近归档补充**
+**步骤 4：L3 归档补充 — L1+L2 不足时，取最近归档补充**
 ```python
-if len(core_mems) + len(daily_mems) < 8:
+if len(core_mems) + len(daily_mems) < target_total:
     archive_data = ms3.load_archive(emp_id)
     archive_mems = sorted(archive_data['archived'], 
                           key=lambda x: x['archivedAt'], 
                           reverse=True)[:2]
 ```
 
-**步骤 5：拼接注入文本**
+**步骤 5：L4 知识库 — 取最近 3 条关联知识**
 ```python
-# 每条截断至 500 字符
-lines = [f'- {m["value"][:500]}' for m in core_mems + daily_mems]
-lines += [f'- [归档] {m["value"][:500]}' for m in archive_mems]
-system_prompt += '\n\n【关于用户的记忆】\n' + '\n'.join(lines)
+kb_data = _read_json(f'knowledge/{emp_id}/docs.json')
+kb_docs = sorted(kb_data['docs'], 
+                 key=lambda x: x['createdAt'], 
+                 reverse=True)[:3]
+kb_lines = [f'- [{d["category"]}] {d["title"]}: {d["content"][:500]}' 
+            for d in kb_docs]
+```
+
+**步骤 6：拼接注入文本**
+```python
+sections = []
+if mem_lines:
+    sections.append('【关于用户的记忆】\n' + '\n'.join(mem_lines))
+if kb_lines:
+    sections.append('【相关知识库】\n' + '\n'.join(kb_lines))
+if sections:
+    system_prompt += '\n\n' + '\n\n'.join(sections)
 ```
 
 **注入效果示例：**
