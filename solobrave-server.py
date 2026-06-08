@@ -4085,6 +4085,33 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if os.path.exists(filepath):
             os.remove(filepath)
 
+    def _async_parse_hot_videos(self, product_id, video_urls):
+        """后台异步解析 hot_videos 的抖音链接，结果写入 hot_videos_info"""
+        try:
+            data = self._load_products()
+            product = next((p for p in data.get('products', []) if p.get('id') == product_id), None)
+            if not product:
+                return
+            if 'hot_videos_info' not in product:
+                product['hot_videos_info'] = {}
+            parsed_count = 0
+            for url in video_urls:
+                if not url or not isinstance(url, str):
+                    continue
+                # 跳过已解析成功的链接
+                if url in product['hot_videos_info'] and product['hot_videos_info'][url].get('success'):
+                    continue
+                result = parse_douyin_video_quick(url)
+                product['hot_videos_info'][url] = result
+                if result.get('success'):
+                    parsed_count += 1
+            product['updatedAt'] = int(time.time() * 1000)
+            self._save_products(data)
+            self._sync_product_file(product)
+            print(f'  [Product] 异步解析完成: {product_id}, 成功 {parsed_count}/{len(video_urls)}', flush=True)
+        except Exception as e:
+            print(f'  [Product] 异步解析失败: {product_id}, error={e}', flush=True)
+
     def _handle_get_products(self):
         """GET /api/products — 获取商品列表（支持 query 筛选）"""
         auth = _authenticate(self.headers)
@@ -4167,6 +4194,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         data['products'].append(product)
         self._save_products(data)
         self._sync_product_file(product)
+        # 异步触发抖音视频解析
+        if product.get('hot_videos'):
+            threading.Thread(
+                target=self._async_parse_hot_videos,
+                args=(product['id'], product['hot_videos']),
+                daemon=True
+            ).start()
         print(f'  [Product] 录入商品: {product["name"]} ({product["id"]})', flush=True)
         self._send_json(200, product)
 
@@ -4204,6 +4238,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         self._save_products(data)
         self._sync_product_file(updated)
+        # 异步触发抖音视频解析（当 hot_videos 被更新时）
+        if 'hot_videos' in body and updated.get('hot_videos'):
+            threading.Thread(
+                target=self._async_parse_hot_videos,
+                args=(updated['id'], updated['hot_videos']),
+                daemon=True
+            ).start()
         self._send_json(200, updated)
 
     def _handle_delete_product(self, product_id):
