@@ -1652,7 +1652,7 @@ SoloBrave 后端目前提供约 **60 个 HTTP 端点**，全部基于 `http.serv
 | 变更项 | v2 行为 | v3 行为 | 影响 |
 |---|---|---|---|
 | **数据存储** | 单文件扁平数组 | 分池物理隔离（core/daily/archive） | 容量可控，查询更快 |
-| **过期归档** | 标记 `archived=true` 保留在 daily 池 | 物理移入 `archived.json` | 活跃数据更干净 |
+| **过期归档** | v1: 30天到期**直接删除**<br>v2: 标记 `archived=true` 保留在 daily 池 | 物理移入 `archived.json`<br>（保留原始数据，可恢复） | 数据不丢失，<br>活跃池更干净 |
 | **字段映射** | 直接返回原始字段 | `createdAt`→`time`，隐藏内部字段 | 前端兼容，减少噪音 |
 | **响应结构** | 直接返回分池数组 | 统一 `memories` 数组 + 分池双格式 | 支持表格/分类两种视图 |
 | **查询参数** | 无过滤能力 | 支持 type/tag/keyword/limit/offset | 灵活筛选 |
