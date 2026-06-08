@@ -1953,6 +1953,7 @@ Content-Type: application/json
 | 参数 | 类型 | 必选 | 说明 |
 |---|---|---|---|
 | `keyword` | string | 否 | 关键词搜索，匹配 `value` 字段 |
+| `archived_reason` | string | 否 | 归档原因过滤：`expired`/`capacity`/`manual`/`consolidated` |
 | `limit` | int | 否 | 返回条数上限，默认 50，最大 200 |
 | `offset` | int | 否 | 分页偏移，默认 0 |
 

@@ -3506,6 +3506,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         keyword = qs.get('keyword', [''])[0].lower()
+        reason_filter = qs.get('archived_reason', [''])[0]
         try:
             limit = max(1, min(200, int(qs.get('limit', ['50'])[0])))
         except ValueError:
@@ -3527,6 +3528,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         if keyword:
                             value = (m.get('value') or '').lower()
                             if keyword not in value:
+                                continue
+                        if reason_filter:
+                            if m.get('archiveReason') != reason_filter:
                                 continue
                         mapped = dict(m)
                         if 'createdAt' in mapped:
