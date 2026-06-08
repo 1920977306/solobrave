@@ -2203,6 +2203,7 @@ POST /api/memory/consolidate
 | `category` | string | 否 | 按分类筛选，如 `鞋履`、`美妆护肤` |
 | `status` | string | 否 | 按状态筛选：`active`/`paused`/`archived` |
 | `q` | string | 否 | 关键词搜索，匹配 `id`、`name`、`description`、`tags`（大小写不敏感） |
+| `created_by` | string | 否 | 按创建员工筛选，如 `emp_001` |
 | `offset` | int | 否 | 分页偏移量，默认 0 |
 | `limit` | int | 否 | 返回条数上限，默认 50，最大 200 |
 
