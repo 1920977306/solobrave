@@ -3353,7 +3353,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         pool_filter = qs.get('pool', [''])[0]
         key_filter = qs.get('key', [''])[0]
         tag_filter = qs.get('tag', [''])[0]
-        search_term = qs.get('search', [''])[0].lower()
+        keyword = qs.get('keyword', [''])[0].lower()
         try:
             limit = max(1, min(500, int(qs.get('limit', ['100'])[0])))
         except ValueError:
@@ -3407,9 +3407,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 required = set(t.strip() for t in tag_filter.split(',') if t.strip())
                 if not (tags & required):  # OR 匹配：交集为空则排除
                     return False
-            if search_term:
+            if keyword:
                 value = (m.get('value') or '').lower()
-                if search_term not in value:
+                if keyword not in value:
                     return False
             return True
 
