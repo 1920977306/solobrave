@@ -1679,11 +1679,11 @@ for m in core_mems:
     m['accessCount'] += 1
 ```
 
-**步骤 3：L2 日常记录 — 按时间倒序，取前 3 条**
+**步骤 3：L2 日常记录 — 按时间倒序，取前 5 条**
 ```python
 daily_mems = sorted(data['daily'], 
                     key=lambda x: x['createdAt'], 
-                    reverse=True)[:3]
+                    reverse=True)[:5]
 ```
 
 **步骤 4：L3 归档补充 — L1+L2 < 8 条时，取最近归档补充**

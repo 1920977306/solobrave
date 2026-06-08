@@ -100,7 +100,7 @@ MEMORY_CONFIG = {
     'daily_max': 100,          # 日常记录池上限
     'daily_ttl_days': 30,      # 日常记录过期天数
     'inject_core_max': 5,      # 注入时核心记忆条数
-    'inject_daily_max': 3,     # 注入时日常记忆条数
+    'inject_daily_max': 5,     # 注入时日常记忆条数
     'inject_value_max': 500,   # 单条记忆注入字符上限
     'store_value_max': 2000,   # 单条记忆存储字符上限
     'history_inject_max': 10,  # 聊天历史注入条数
