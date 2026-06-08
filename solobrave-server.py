@@ -3364,6 +3364,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         key_filter = qs.get('key', [''])[0]
         tag_filter = qs.get('tag', [''])[0]
         keyword = qs.get('keyword', [''])[0].lower()
+        include_archived = qs.get('include_archived', ['false'])[0].lower() in ('true', '1', 'yes')
         try:
             limit = max(1, min(200, int(qs.get('limit', ['50'])[0])))
         except ValueError:
@@ -3375,7 +3376,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # v3：活跃记忆（load_memory 内部自动归档过期 daily 到 archived.json）
         data = ms3.load_memory(emp_id)
-        archive_data = ms3.load_archive(emp_id)
+        archive_data = ms3.load_archive(emp_id) if include_archived else {'archived': []}
 
         # 字段映射：v3 createdAt → v2 time（前端兼容）
         def _map_mem(m):

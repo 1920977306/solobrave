@@ -1717,10 +1717,11 @@ Response: {"token": "eyJhbG...", "user": {"id": "...", "role": "admin"}}
 
 | 参数 | 类型 | 必选 | 说明 |
 |---|---|---|---|
-| `type` | string | 否 | 数据类型过滤。`core` = 核心记忆；`daily` = 日常记录；`knowledge` = 知识库文档。不传返回全部类型（记忆+知识库） |
+| `type` | string | 否 | 数据类型过滤。`core`/`daily`/`knowledge`/`active`/`archive`。不传返回全部 |
 | `key` | string | 否 | 按 key 精确过滤，如 `preference`、`auto`、`auto_extract` |
 | `tag` | string | 否 | 按标签过滤，支持逗号分隔多标签 OR 匹配，如 `凉鞋,达人反馈` |
 | `keyword` | string | 否 | 关键词搜索，`value` 字段模糊匹配（大小写不敏感） |
+| `include_archived` | bool | 否 | 是否包含归档记忆。默认 `false`，传 `true` 时返回 archive 数据 |
 | `limit` | integer | 否 | 单池返回条数上限。默认 50，最大 200 |
 | `offset` | integer | 否 | 分页偏移量。默认 0 |
 
