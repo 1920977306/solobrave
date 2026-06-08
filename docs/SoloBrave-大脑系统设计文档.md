@@ -1660,6 +1660,38 @@ SoloBrave 后端目前提供约 **60 个 HTTP 端点**，全部基于 `http.serv
 | **容量控制** | 仅写入时检查 | 写入检查 + 读取时自动归档（>200条） | 自动维护 |
 | **归纳合并** | 无 | `POST /api/memory/consolidate` | AI 摘要合并，减少碎片 |
 | **记忆注入** | 前端 `buildMemoryPrompt()` + 后端 `inject_memories()` **双重注入** | 仅后端 `ms3.inject_memories()` 统一注入 | 避免重复，<br>减少 token 浪费 |
+
+#### 后端注入逻辑（三层策略）
+
+```python
+def inject_memories(emp_id, system_prompt):
+    # L1: 核心记忆 — 按 priority + accessCount 排序，取前 5 条
+    core_mems = sorted(data['core'], 
+                       key=lambda x: (x['priority'], x['accessCount']), 
+                       reverse=True)[:5]
+    
+    # L2: 日常记录 — 按时间倒序，取前 3 条
+    daily_mems = sorted(data['daily'], 
+                        key=lambda x: x['createdAt'], 
+                        reverse=True)[:3]
+    
+    # L3: 归档补充 — L1+L2 < 8 条时，取最近归档补充
+    if len(core_mems) + len(daily_mems) < 8:
+        archive_mems = sorted(archive_data['archived'], 
+                              key=lambda x: x['archivedAt'], 
+                              reverse=True)[:2]
+    
+    # 每条截断至 500 字符，core 访问计数 +1
+    # 最终拼接到 system_prompt 末尾
+```
+
+**注入效果示例：**
+```
+【关于用户的记忆】
+- 用户喜欢深色模式和极简UI
+- 李馒头对凉鞋感兴趣但觉得佣金低
+- [归档] 用户曾询问过口红推广方案
+```
 | **全局搜索** | 仅支持单员工 | `GET /api/memory/search` 跨员工搜索 | 统一管理 |
 
 #### 自动归档触发条件
