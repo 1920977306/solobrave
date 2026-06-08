@@ -157,6 +157,16 @@ def load_memory(emp_id):
         'dailyCount': len(result['daily']),
         'totalAccess': sum(m.get('accessCount', 0) for m in result['core'])
     }
+
+    # 归纳提醒：daily ≥ 15 条时建议触发归纳
+    if len(result['daily']) >= 15:
+        sorted_daily = sorted(result['daily'], key=lambda m: m.get('createdAt', 0))
+        result['shouldConsolidate'] = True
+        result['suggestedSourceIds'] = [m['id'] for m in sorted_daily[:5]]
+    else:
+        result['shouldConsolidate'] = False
+        result['suggestedSourceIds'] = []
+
     return result
 
 

@@ -1767,7 +1767,9 @@ Authorization: Bearer eyJhbG...
       "core_max": 50,
       "daily_max": 100,
       "daily_ttl_days": 30
-    }
+    },
+    "shouldConsolidate": false,
+    "suggestedSourceIds": []
   }
 }
 ```
