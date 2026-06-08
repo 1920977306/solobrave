@@ -1717,7 +1717,7 @@ Response: {"token": "eyJhbG...", "user": {"id": "...", "role": "admin"}}
 
 | 参数 | 类型 | 必选 | 说明 |
 |---|---|---|---|
-| `pool` | string | 否 | 记忆池过滤。`core` = 仅核心记忆；`daily` = 仅日常记录；`active` = 活跃记忆（core+daily，不含归档）。默认返回全部（含归档） |
+| `type` | string | 否 | 数据类型过滤。`core` = 核心记忆；`daily` = 日常记录；`knowledge` = 知识库文档。不传返回全部类型（记忆+知识库） |
 | `key` | string | 否 | 按 key 精确过滤，如 `preference`、`auto`、`auto_extract` |
 | `tag` | string | 否 | 按标签过滤，支持逗号分隔多标签 OR 匹配，如 `凉鞋,达人反馈` |
 | `keyword` | string | 否 | 关键词搜索，`value` 字段模糊匹配（大小写不敏感） |

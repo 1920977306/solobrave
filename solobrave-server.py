@@ -3338,7 +3338,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ═══════════════════════════════════════════════════
 
     def _handle_get_memory(self, emp_id):
-        """GET /api/memory/{empId}[?pool=&key=&tag=&search=&limit=&offset=] — 查询记忆列表"""
+        """GET /api/memory/{empId}[?type=&key=&tag=&keyword=&limit=&offset=] — 查询记忆列表"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -3350,7 +3350,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 解析查询参数
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
-        pool_filter = qs.get('pool', [''])[0]
+        # type 优先，兼容旧版 pool 参数
+        type_filter = qs.get('type', qs.get('pool', ['']))[0]
         key_filter = qs.get('key', [''])[0]
         tag_filter = qs.get('tag', [''])[0]
         keyword = qs.get('keyword', [''])[0].lower()
@@ -3398,6 +3399,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 r.pop('originalKey', None)
             return r
 
+        def _map_knowledge(doc):
+            """知识库文档 → 记忆格式（兼容前端）"""
+            return {
+                'id': doc.get('id'),
+                'key': 'knowledge',
+                'value': f"[{doc.get('category', '知识')}] {doc.get('title')}: {doc.get('content', '')[:200]}",
+                'source': 'knowledge_base',
+                'time': doc.get('createdAt'),
+                '_origin': doc  # 保留原始数据供前端扩展
+            }
+
         # 过滤 + 搜索逻辑
         def _matches(m):
             if key_filter and m.get('key') != key_filter:
@@ -3417,23 +3429,38 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             filtered = [m for m in items if _matches(m)]
             return filtered[offset:offset + limit]
 
-        core_raw = data.get('core', [])
-        daily_raw = data.get('daily', [])
-        arch_raw = archive_data.get('archived', [])
+        # type 过滤：core / daily / knowledge / active / archive / 空=全部
+        include_core = type_filter in ('', 'core', 'active')
+        include_daily = type_filter in ('', 'daily', 'active')
+        include_archive = type_filter in ('', 'archive')
+        include_knowledge = type_filter in ('', 'knowledge')
 
-        # pool 过滤
-        include_core = pool_filter in ('', 'core', 'active')
-        include_daily = pool_filter in ('', 'daily', 'active')
-        include_archive = pool_filter in ('', 'archive')
+        core_list = []
+        daily_list = []
+        archive_list = []
+        knowledge_list = []
 
-        core_list = [_map_mem(m) for m in _apply_filters_and_paging(core_raw)] if include_core else []
-        daily_list = [_map_mem(m) for m in _apply_filters_and_paging(daily_raw)] if include_daily else []
-        archive_list = [_map_arch(m) for m in _apply_filters_and_paging(arch_raw)] if include_archive else []
+        if include_core:
+            core_raw = data.get('core', [])
+            core_list = [_map_mem(m) for m in _apply_filters_and_paging(core_raw)]
+        if include_daily:
+            daily_raw = data.get('daily', [])
+            daily_list = [_map_mem(m) for m in _apply_filters_and_paging(daily_raw)]
+        if include_archive:
+            arch_raw = archive_data.get('archived', [])
+            archive_list = [_map_arch(m) for m in _apply_filters_and_paging(arch_raw)]
+        if include_knowledge:
+            # 加载员工知识库
+            kb_path = os.path.join(KNOWLEDGE_DIR, emp_id, 'docs.json')
+            kb_data = _read_json(kb_path, {'docs': []})
+            kb_docs = kb_data.get('docs', [])
+            knowledge_list = [_map_knowledge(d) for d in _apply_filters_and_paging(kb_docs)]
 
         result = {
             'core': core_list,
             'daily': daily_list,
             'archive': archive_list,
+            'knowledge': knowledge_list,
             'archivedToday': 0,
             'version': '3.0',
             'config': {k: v for k, v in MEMORY_CONFIG.items() if k in ('core_max', 'daily_max', 'daily_ttl_days')}
