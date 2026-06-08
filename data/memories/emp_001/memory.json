@@ -26,7 +26,8 @@
       "accessCount": 0,
       "expiresAt": null,
       "archived": false,
-      "archivedAt": null
+      "archivedAt": null,
+      "archivedReason": null
     }
   ],
   "daily": [
