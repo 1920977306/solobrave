@@ -1,0 +1,34 @@
+{
+  "version": "3.0",
+  "empId": "emp_001",
+  "updatedAt": 1700000000000,
+  "core": [
+    {
+      "id": "mem_20260608_abc123",
+      "key": "preference",
+      "value": "用户喜欢深色模式和极简UI",
+      "source": "user_input",
+      "priority": 8,
+      "tags": ["UI", "偏好", "主题"],
+      "createdAt": 1700000000000,
+      "updatedAt": 1700000000000,
+      "accessCount": 3
+    }
+  ],
+  "daily": [
+    {
+      "id": "mem_20260608_def456",
+      "key": "auto",
+      "value": "用户提到下周三下午有产品评审会",
+      "source": "ai_extract",
+      "createdAt": 1700000000000,
+      "context": "用户：下周三下午3点有个产品评审会，帮我准备一下材料...",
+      "expiresAt": 1702592000000
+    }
+  ],
+  "stats": {
+    "coreCount": 1,
+    "dailyCount": 1,
+    "totalAccess": 3
+  }
+}

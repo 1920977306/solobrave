@@ -1,0 +1,15 @@
+{
+  "version": "3.0",
+  "empId": "emp_001",
+  "archived": [
+    {
+      "id": "mem_20260601_ghi789",
+      "originalKey": "auto",
+      "value": "用户询问过天气",
+      "source": "ai_extract",
+      "createdAt": 1699000000000,
+      "archivedAt": 1700000000000,
+      "archiveReason": "expired"
+    }
+  ]
+}
