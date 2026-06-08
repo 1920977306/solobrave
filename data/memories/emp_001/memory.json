@@ -1,49 +1,152 @@
 {
   "version": "3.0",
   "empId": "emp_001",
-  "updatedAt": 1777312800000,
+  "updatedAt": 1780848000000,
   "core": [
     {
-      "id": "mem_20260608_abc123",
+      "id": "mem_20260608_001",
       "key": "preference",
-      "value": "用户喜欢深色模式和极简UI",
+      "value": "用户喜欢深色模式和极简UI，不喜欢弹窗干扰",
       "source": "user_input",
       "priority": 8,
       "tags": ["UI", "偏好", "主题"],
-      "createdAt": 1700000000000,
-      "updatedAt": 1700000000000,
-      "accessCount": 3
+      "createdAt": 1767196800000,
+      "updatedAt": 1780761600000,
+      "accessCount": 12
     },
     {
-      "id": "mem_20260608_abc124",
+      "id": "mem_20260608_002",
       "key": "core",
-      "value": "李馒头对凉鞋感兴趣但觉得佣金低",
+      "value": "李馒头（200w粉）对凉鞋感兴趣但觉得佣金15%太低，期望20%以上",
       "source": "chat",
       "priority": 5,
-      "tags": ["凉鞋", "达人反馈"],
-      "createdAt": 1777312800000,
-      "updatedAt": 1777312800000,
-      "accessCount": 0,
-      "expiresAt": null,
-      "archived": false,
-      "archivedAt": null,
-      "archivedReason": null
+      "tags": ["凉鞋", "达人反馈", "佣金谈判"],
+      "createdAt": 1777564800000,
+      "updatedAt": 1780761600000,
+      "accessCount": 8
+    },
+    {
+      "id": "mem_20260608_003",
+      "key": "core",
+      "value": "用户要求所有周报必须在周一上午10点前提交，格式为Markdown要点式",
+      "source": "user_input",
+      "priority": 9,
+      "tags": ["周报", "工作流", " deadline"],
+      "createdAt": 1772294400000,
+      "updatedAt": 1774972800000,
+      "accessCount": 15
+    },
+    {
+      "id": "mem_20260608_004",
+      "key": "core",
+      "value": "2026夏季主推产品为凉鞋系列，目标佣金率20%，重点投放穿搭和美妆达人",
+      "source": "user_input",
+      "priority": 7,
+      "tags": ["产品", "凉鞋", "佣金", "夏季 campaign"],
+      "createdAt": 1774972800000,
+      "updatedAt": 1780243200000,
+      "accessCount": 6
+    },
+    {
+      "id": "mem_20260608_005",
+      "key": "preference",
+      "value": "用户对长文本回复缺乏耐心，偏好要点式、带 emoji 的精简回复",
+      "source": "ai_extract",
+      "priority": 6,
+      "tags": ["沟通", "偏好", "回复风格"],
+      "createdAt": 1777564800000,
+      "updatedAt": 1780243200000,
+      "accessCount": 4
+    },
+    {
+      "id": "mem_20260608_006",
+      "key": "core",
+      "value": "所有达人合作合同必须经过法务审核，审核周期约2-3个工作日",
+      "source": "user_input",
+      "priority": 8,
+      "tags": ["流程", "法务", "达人", "合同"],
+      "createdAt": 1748707200000,
+      "updatedAt": 1772294400000,
+      "accessCount": 3
     }
   ],
   "daily": [
     {
-      "id": "mem_20260608_def456",
+      "id": "mem_20260601_001",
       "key": "auto",
-      "value": "用户提到下周三下午有产品评审会",
+      "value": "用户提到下周三（6月10日）下午3点有产品评审会，需要准备材料",
       "source": "ai_extract",
-      "createdAt": 1700000000000,
-      "context": "用户：下周三下午3点有个产品评审会，帮我准备一下材料...",
-      "expiresAt": 1702592000000
+      "createdAt": 1780243200000,
+      "context": "用户：下周三下午3点有个产品评审会，帮我准备一下材料，主要是凉鞋系列的销量数据和用户反馈...",
+      "expiresAt": 1782921600000
+    },
+    {
+      "id": "mem_20260605_001",
+      "key": "auto_extract",
+      "value": "用户询问抖音直播带货的最新政策变化，担心影响凉鞋推广计划",
+      "source": "ai_extract",
+      "createdAt": 1780588800000,
+      "context": "用户：最近抖音直播政策好像又变了，对我们凉鞋推广有影响吗？",
+      "expiresAt": 1783273600000
+    },
+    {
+      "id": "mem_20260606_001",
+      "key": "auto",
+      "value": "用户让帮忙联系3个穿搭类达人，预算佣金18-22%，要求粉丝50w+",
+      "source": "ai_extract",
+      "createdAt": 1780675200000,
+      "context": "用户：帮我找3个穿搭达人，佣金控制在18到22，粉丝要50万以上，这周就要确定合作...",
+      "expiresAt": 1783360000000
+    },
+    {
+      "id": "mem_20260606_002",
+      "key": "auto_extract",
+      "value": "用户反馈上周数据报表中的转化率数据有问题，需要重新核对",
+      "source": "ai_extract",
+      "createdAt": 1780718400000,
+      "context": "用户：上周那个报表转化率好像不对，你重新核对一下，特别是凉鞋类目的数据...",
+      "expiresAt": 1783403200000
+    },
+    {
+      "id": "mem_20260607_001",
+      "key": "auto",
+      "value": "用户提到想尝试小红书种草推广，询问预算和KOL推荐",
+      "source": "ai_extract",
+      "createdAt": 1780761600000,
+      "context": "用户：小红书种草你们做过吗？我想试试，给我个方案和预算预估...",
+      "expiresAt": 1783446400000
+    },
+    {
+      "id": "mem_20260607_002",
+      "key": "auto_extract",
+      "value": "用户询问竞品A最近的价格策略，担心价格战影响凉鞋利润率",
+      "source": "ai_extract",
+      "createdAt": 1780783200000,
+      "context": "用户：竞品A最近好像降价了，你关注一下，别让我们凉鞋利润被压缩太多...",
+      "expiresAt": 1783468000000
+    },
+    {
+      "id": "mem_20260607_003",
+      "key": "auto",
+      "value": "用户让准备下个月的运营预算表，要求包含达人合作、广告投放和物料制作",
+      "source": "ai_extract",
+      "createdAt": 1780804800000,
+      "context": "用户：下个月预算表准备一下，达人、广告、物料三项都要有，周五前给我初版...",
+      "expiresAt": 1783489600000
+    },
+    {
+      "id": "mem_20260607_004",
+      "key": "auto_extract",
+      "value": "用户提到周五要和新达人'花花穿搭'签约，提醒准备合同模板",
+      "source": "ai_extract",
+      "createdAt": 1780826400000,
+      "context": "用户：周五跟花花穿搭签约，你把合同模板准备好，走一下法务流程...",
+      "expiresAt": 1783511200000
     }
   ],
   "stats": {
-    "coreCount": 2,
-    "dailyCount": 1,
-    "totalAccess": 3
+    "coreCount": 6,
+    "dailyCount": 8,
+    "totalAccess": 48
   }
 }

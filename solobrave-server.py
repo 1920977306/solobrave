@@ -3390,10 +3390,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 r.pop('expiresAt', None)
             if 'context' in r:
                 r.pop('context', None)
-            if 'priority' in r:
-                r.pop('priority', None)
-            if 'tags' in r:
-                r.pop('tags', None)
+            # priority / tags 保留：前端核心记忆面板需要显示优先级火焰和标签
             if 'accessCount' in r:
                 r.pop('accessCount', None)
             return r
@@ -3404,8 +3401,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 r['time'] = r.pop('createdAt')
             if 'archivedAt' in r:
                 r['archivedTime'] = r.pop('archivedAt')
-            if 'archiveReason' in r:
-                r.pop('archiveReason', None)
+            # archiveReason 保留：前端归档面板需要显示归档原因标签
             if 'originalKey' in r:
                 r.pop('originalKey', None)
             return r

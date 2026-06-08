@@ -3,13 +3,58 @@
   "empId": "emp_001",
   "archived": [
     {
-      "id": "mem_20260601_ghi789",
+      "id": "mem_20250815_001",
       "originalKey": "auto",
-      "value": "用户询问过天气",
+      "value": "用户临时询问今天天气，是否需要带伞出门",
       "source": "ai_extract",
-      "createdAt": 1699000000000,
-      "archivedAt": 1700000000000,
+      "createdAt": 1755244800000,
+      "archivedAt": 1757836800000,
       "archiveReason": "expired"
+    },
+    {
+      "id": "mem_20251020_001",
+      "originalKey": "auto",
+      "value": "用户让帮忙查询一个快递单号的物流状态",
+      "source": "ai_extract",
+      "createdAt": 1760966400000,
+      "archivedAt": 1763558400000,
+      "archiveReason": "expired"
+    },
+    {
+      "id": "mem_20260501_001",
+      "originalKey": "auto",
+      "value": "用户让帮忙订一杯生椰拿铁，要求少冰无糖",
+      "source": "ai_extract",
+      "createdAt": 1777564800000,
+      "archivedAt": 1780156800000,
+      "archiveReason": "expired"
+    },
+    {
+      "id": "mem_20260410_001",
+      "originalKey": "core",
+      "value": "旧版产品信息：2025春季帆布鞋系列，佣金12%，已下线",
+      "source": "user_input",
+      "createdAt": 1774876800000,
+      "archivedAt": 1777564800000,
+      "archiveReason": "consolidated"
+    },
+    {
+      "id": "mem_20260520_001",
+      "originalKey": "auto",
+      "value": "临时活动：618预热期每日秒杀安排（5月20-31日）",
+      "source": "ai_extract",
+      "createdAt": 1778764800000,
+      "archivedAt": 1780156800000,
+      "archiveReason": "capacity"
+    },
+    {
+      "id": "mem_20260215_001",
+      "originalKey": "core",
+      "value": "用户手动归档：春节期间达人合作暂停，节后恢复",
+      "source": "user_input",
+      "createdAt": 1768550400000,
+      "archivedAt": 1771238400000,
+      "archiveReason": "manual"
     }
   ]
 }
