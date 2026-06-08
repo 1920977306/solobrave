@@ -1705,15 +1705,27 @@ kb_lines = [f'- [{d["category"]}] {d["title"]}: {d["content"][:500]}'
             for d in kb_docs]
 ```
 
-**步骤 6：拼接注入文本**
+**步骤 6：总注入量控制 — 不超过 3000 字符，超出按优先级截断**
 ```python
-sections = []
-if mem_lines:
-    sections.append('【关于用户的记忆】\n' + '\n'.join(mem_lines))
-if kb_lines:
-    sections.append('【相关知识库】\n' + '\n'.join(kb_lines))
-if sections:
-    system_prompt += '\n\n' + '\n\n'.join(sections)
+# 优先级：core > daily > archive > knowledge
+# 截断顺序：knowledge → archive → daily（保留 core）
+MAX_TOTAL_CHARS = 3000
+for sec_type, sec_text in sections:  # 按优先级排序
+    if total_chars + len(sec_text) <= MAX_TOTAL_CHARS:
+        final_texts.append(sec_text)
+        total_chars += len(sec_text)
+    else:
+        # 截断该 section 的行，低优先级直接丢弃
+        keep_lines = []
+        for line in sec_text.split('\n'):
+            if total_chars + len(line) + 1 <= MAX_TOTAL_CHARS:
+                keep_lines.append(line)
+                total_chars += len(line) + 1
+            else:
+                break
+        if keep_lines:
+            final_texts.append('\n'.join(keep_lines))
+        break
 ```
 
 **注入效果示例：**

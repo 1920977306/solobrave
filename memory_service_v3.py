@@ -622,9 +622,11 @@ def inject_memories(emp_id, system_prompt=''):
     cfg = MEMORY_V3_CONFIG
     data = load_memory(emp_id)
 
-    mem_lines = []
+    # 按优先级分层收集（core > daily > archive > knowledge）
+    MAX_TOTAL_CHARS = 3000
 
     # L1: 核心记忆 — 全部注入，按 priority 降序，同 priority 按 accessCount 降序
+    core_lines = []
     core_mems = sorted(
         data.get('core', []),
         key=lambda x: (x.get('priority', 5), x.get('accessCount', 0)),
@@ -633,10 +635,11 @@ def inject_memories(emp_id, system_prompt=''):
     for m in core_mems:
         val = m.get('value', '')[:cfg['inject_value_max']]
         if val:
-            mem_lines.append(f'- {val}')
+            core_lines.append(f'- {val}')
             m['accessCount'] = m.get('accessCount', 0) + 1
 
     # L2: 日常记录 — 按时间倒序，只取未过期的
+    daily_lines = []
     daily_mems = sorted(
         data.get('daily', []),
         key=lambda x: x.get('createdAt', 0),
@@ -645,25 +648,27 @@ def inject_memories(emp_id, system_prompt=''):
     for m in daily_mems[:cfg['inject_daily_max']]:
         val = m.get('value', '')[:cfg['inject_value_max']]
         if val:
-            mem_lines.append(f'- {val}')
+            daily_lines.append(f'- {val}')
 
     # L3: 归档补充 — 当 L1+L2 不足时
-    total_injected = len(mem_lines)
+    archive_lines = []
+    total_active = len(core_lines) + len(daily_lines)
     target_total = len(core_mems) + cfg['inject_daily_max']
-    if total_injected < target_total:
+    if total_active < target_total:
         archive_data = load_archive(emp_id)
         archive_mems = sorted(
             archive_data.get('archived', []),
             key=lambda x: x.get('archivedAt', 0),
             reverse=True
         )
-        need = min(cfg['inject_archive_max'], target_total - total_injected)
+        need = min(cfg['inject_archive_max'], target_total - total_active)
         for m in archive_mems[:need]:
             val = m.get('value', '')[:cfg['inject_value_max']]
             if val:
-                mem_lines.append(f'- [归档] {val}')
+                archive_lines.append(f'- [归档] {val}')
 
     # L4: 知识库 — 取最近 3 条关联知识
+    kb_lines = []
     kb_path = os.path.join(MEMORY_V3_DIR, '..', 'knowledge', emp_id, 'docs.json')
     kb_data = _read_json(kb_path, {'docs': []})
     kb_docs = sorted(
@@ -671,20 +676,47 @@ def inject_memories(emp_id, system_prompt=''):
         key=lambda x: x.get('createdAt', 0),
         reverse=True
     )
-    kb_lines = []
     for d in kb_docs[:cfg['inject_knowledge_max']]:
         val = d.get('content', '')[:cfg['inject_value_max']]
         if val:
             kb_lines.append(f'- [{d.get("category", "知识")}] {d.get("title", "")}: {val}')
 
-    # 拼接注入文本
+    # 总注入量控制：不超过 3000 字符，超出按优先级截断（core > daily > archive > knowledge）
+    # 先构建所有 section，然后从低优先级开始截断
     sections = []
-    if mem_lines:
-        sections.append('【关于用户的记忆】\n' + '\n'.join(mem_lines))
+    if core_lines:
+        sections.append(('core', '【关于用户的记忆】\n' + '\n'.join(core_lines)))
+    if daily_lines:
+        sections.append(('daily', '\n'.join(daily_lines)))
+    if archive_lines:
+        sections.append(('archive', '\n'.join(archive_lines)))
     if kb_lines:
-        sections.append('【相关知识库】\n' + '\n'.join(kb_lines))
-    if sections:
-        system_prompt += '\n\n' + '\n\n'.join(sections)
+        sections.append(('knowledge', '【相关知识库】\n' + '\n'.join(kb_lines)))
+
+    # 计算总字符数，从低优先级开始截断
+    final_texts = []
+    total_chars = 0
+    for sec_type, sec_text in sections:
+        sec_len = len(sec_text)
+        if total_chars + sec_len <= MAX_TOTAL_CHARS:
+            final_texts.append(sec_text)
+            total_chars += sec_len
+        else:
+            # 超出限制，截断该 section 的行
+            lines = sec_text.split('\n')
+            keep_lines = []
+            for line in lines:
+                if total_chars + len(line) + 1 <= MAX_TOTAL_CHARS:
+                    keep_lines.append(line)
+                    total_chars += len(line) + 1
+                else:
+                    break
+            if keep_lines:
+                final_texts.append('\n'.join(keep_lines))
+            break  # 低优先级 section 直接丢弃
+
+    if final_texts:
+        system_prompt += '\n\n' + '\n\n'.join(final_texts)
 
     # 更新 accessCount（需要写回）
     if core_mems:
