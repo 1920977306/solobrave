@@ -447,7 +447,8 @@
           "followerCount": 580000,
           "score": 0,
           "reasons": [],
-          "matchPercent": 0
+          "matchPercent": 0,
+          "match_score": 0.85
         }
       ]
     }
