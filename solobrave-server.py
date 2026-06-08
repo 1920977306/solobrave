@@ -3456,9 +3456,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             kb_docs = kb_data.get('docs', [])
             knowledge_list = [_map_knowledge(d) for d in _apply_filters_and_paging(kb_docs)]
 
+        # 合并为统一 memories 数组（每个项带 pool 字段）
+        all_memories = []
+        for m in core_list:
+            m['pool'] = 'core'
+            all_memories.append(m)
+        for m in daily_list:
+            m['pool'] = 'daily'
+            all_memories.append(m)
+        for m in archive_list:
+            m['pool'] = 'archive'
+            all_memories.append(m)
+        for m in knowledge_list:
+            m['pool'] = 'knowledge'
+            all_memories.append(m)
+
         result = {
             'success': True,
             'data': {
+                'memories': all_memories,
                 'core': core_list,
                 'daily': daily_list,
                 'archive': archive_list,

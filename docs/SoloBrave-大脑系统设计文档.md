@@ -1737,16 +1737,26 @@ Authorization: Bearer eyJhbG...
 {
   "success": true,
   "data": {
-    "core": [
+    "memories": [
       {
         "id": "mem_20260608_abc124",
+        "pool": "core",
         "key": "core",
         "value": "李馒头对凉鞋感兴趣但觉得佣金低",
         "source": "chat",
         "time": 1777312800000
+      },
+      {
+        "id": "mem_20260608_def456",
+        "pool": "daily",
+        "key": "auto",
+        "value": "用户提到下周三下午有产品评审会",
+        "source": "ai_extract",
+        "time": 1700000000000
       }
     ],
-    "daily": [],
+    "core": [...],
+    "daily": [...],
     "archive": [],
     "knowledge": [],
     "version": "3.0",
