@@ -1756,6 +1756,8 @@ Authorization: Bearer eyJhbG...
       }
     ],
     "total": 2,
+    "limit": 50,
+    "offset": 0,
     "core": [...],
     "daily": [...],
     "archive": [],
