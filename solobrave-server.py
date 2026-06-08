@@ -3506,9 +3506,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         cfg = MEMORY_CONFIG
         value = body.get('value', '')
+        warning = None
         if len(value) > cfg['store_value_max']:
-            self._send_json_error(400, f'Value exceeds max length {cfg["store_value_max"]}')
-            return
+            warning = f'Value truncated to {cfg["store_value_max"]} chars (original: {len(value)})'
+            value = value[:cfg['store_value_max']]
         if len(value) < 1:
             self._send_json_error(400, 'Value cannot be empty')
             return
@@ -3557,10 +3558,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # priority / tags 保留给前端展示
 
         print(f'  [MemoryV3] {emp_id} 保存 {pool} 记忆: {value[:50]}...', flush=True)
-        self._send_json(200, {
+        result = {
             'success': True,
             'data': mapped
-        })
+        }
+        if warning:
+            result['warning'] = warning
+        self._send_json(200, result)
 
     def _handle_delete_memory(self, emp_id, memory_id):
         """DELETE /api/memory/{empId}/{memoryId} — 删除单条记忆（支持 archived 数据）"""
@@ -3596,9 +3600,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing body')
             return
 
+        cfg = MEMORY_CONFIG
         updates = {}
+        warning = None
         if 'value' in body:
-            updates['value'] = body['value']
+            value = body['value']
+            if len(value) > cfg['store_value_max']:
+                warning = f'Value truncated to {cfg["store_value_max"]} chars (original: {len(value)})'
+                value = value[:cfg['store_value_max']]
+            updates['value'] = value
         if 'source' in body:
             updates['source'] = body['source']
         if 'type' in body:
@@ -3630,10 +3640,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         mapped.pop('expiresAt', None)
         mapped.pop('accessCount', None)
 
-        self._send_json(200, {
+        result = {
             'success': True,
             'data': mapped
-        })
+        }
+        if warning:
+            result['warning'] = warning
+        self._send_json(200, result)
 
     def _handle_promote_memory(self, emp_id, memory_id):
         """POST /api/memory/{empId}/{memoryId}/promote — 升级为核心记忆"""

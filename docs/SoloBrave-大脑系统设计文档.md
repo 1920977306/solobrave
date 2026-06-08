@@ -1786,7 +1786,7 @@ Authorization: Bearer eyJhbG...
 
 | 参数 | 类型 | 必选 | 说明 |
 |---|---|---|---|
-| `value` | string | 是 | 记忆内容，1-5000 字符 |
+| `value` | string | 是 | 记忆内容，1-2000 字符。超过自动截断并返回 warning |
 | `type` | string | 否 | 记忆类型。`auto`/`auto_extract` → daily 池；其他 → core 池。默认 `auto`（兼容字段 `key`） |
 | `source` | string | 否 | 来源标识。如 `user_input`、`chat`、`ai_extract`。默认 `user_input` |
 | `priority` | int | 否 | 优先级 1-10，仅 core 记忆有效。默认 5 |
@@ -1829,6 +1829,21 @@ Content-Type: application/json
 }
 ```
 
+**截断 Warning 响应（200，value 超过 2000 字符时）：**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "mem_20260608_xxx",
+    "key": "core",
+    "value": "李馒头对凉鞋感兴趣但觉得佣金低...（截断后）",
+    "time": 1777312800000
+  },
+  "warning": "Value truncated to 2000 chars (original: 3500)"
+}
+```
+
 **容量超限响应（409）：**
 
 ```json
@@ -1856,7 +1871,7 @@ Content-Type: application/json
 
 | 参数 | 类型 | 必选 | 说明 |
 |---|---|---|---|
-| `value` | string | 否 | 新内容，1-5000 字符 |
+| `value` | string | 否 | 新内容，1-2000 字符。超过自动截断并返回 warning |
 | `type` | string | 否 | 新类型（兼容字段 `key`）。变更时自动跨池迁移 |
 | `source` | string | 否 | 新来源 |
 | `priority` | int | 否 | 新优先级 1-10 |
