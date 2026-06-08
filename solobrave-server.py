@@ -3458,13 +3458,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         result = {
             'success': True,
-            'core': core_list,
-            'daily': daily_list,
-            'archive': archive_list,
-            'knowledge': knowledge_list,
-            'archivedToday': 0,
-            'version': '3.0',
-            'config': {k: v for k, v in MEMORY_CONFIG.items() if k in ('core_max', 'daily_max', 'daily_ttl_days')}
+            'data': {
+                'core': core_list,
+                'daily': daily_list,
+                'archive': archive_list,
+                'knowledge': knowledge_list,
+                'archivedToday': 0,
+                'version': '3.0',
+                'config': {k: v for k, v in MEMORY_CONFIG.items() if k in ('core_max', 'daily_max', 'daily_ttl_days')}
+            }
         }
         self._send_json(200, result)
 

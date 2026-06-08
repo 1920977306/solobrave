@@ -1736,23 +1736,25 @@ Authorization: Bearer eyJhbG...
 ```json
 {
   "success": true,
-  "core": [
-    {
-      "id": "mem_20260608_abc124",
-      "key": "core",
-      "value": "李馒头对凉鞋感兴趣但觉得佣金低",
-      "source": "chat",
-      "time": 1777312800000
+  "data": {
+    "core": [
+      {
+        "id": "mem_20260608_abc124",
+        "key": "core",
+        "value": "李馒头对凉鞋感兴趣但觉得佣金低",
+        "source": "chat",
+        "time": 1777312800000
+      }
+    ],
+    "daily": [],
+    "archive": [],
+    "knowledge": [],
+    "version": "3.0",
+    "config": {
+      "core_max": 50,
+      "daily_max": 100,
+      "daily_ttl_days": 30
     }
-  ],
-  "daily": [],
-  "archive": [],
-  "knowledge": [],
-  "version": "3.0",
-  "config": {
-    "core_max": 50,
-    "daily_max": 100,
-    "daily_ttl_days": 30
   }
 }
 ```
