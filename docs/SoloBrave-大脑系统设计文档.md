@@ -1663,26 +1663,43 @@ SoloBrave 后端目前提供约 **60 个 HTTP 端点**，全部基于 `http.serv
 
 #### 后端注入逻辑（三层策略）
 
+**步骤 1：取该 empId 的活跃记忆**
 ```python
-def inject_memories(emp_id, system_prompt):
-    # L1: 核心记忆 — 按 priority + accessCount 排序，取前 5 条
-    core_mems = sorted(data['core'], 
-                       key=lambda x: (x['priority'], x['accessCount']), 
-                       reverse=True)[:5]
-    
-    # L2: 日常记录 — 按时间倒序，取前 3 条
-    daily_mems = sorted(data['daily'], 
-                        key=lambda x: x['createdAt'], 
-                        reverse=True)[:3]
-    
-    # L3: 归档补充 — L1+L2 < 8 条时，取最近归档补充
-    if len(core_mems) + len(daily_mems) < 8:
-        archive_mems = sorted(archive_data['archived'], 
-                              key=lambda x: x['archivedAt'], 
-                              reverse=True)[:2]
-    
-    # 每条截断至 500 字符，core 访问计数 +1
-    # 最终拼接到 system_prompt 末尾
+data = ms3.load_memory(emp_id)  # 自动触发过期归档 + 容量检查
+```
+
+**步骤 2：L1 核心记忆 — 按 priority + accessCount 排序，取前 5 条**
+```python
+core_mems = sorted(data['core'], 
+                   key=lambda x: (x['priority'], x['accessCount']), 
+                   reverse=True)[:5]
+# 访问计数 +1（用于后续排序）
+for m in core_mems:
+    m['accessCount'] += 1
+```
+
+**步骤 3：L2 日常记录 — 按时间倒序，取前 3 条**
+```python
+daily_mems = sorted(data['daily'], 
+                    key=lambda x: x['createdAt'], 
+                    reverse=True)[:3]
+```
+
+**步骤 4：L3 归档补充 — L1+L2 < 8 条时，取最近归档补充**
+```python
+if len(core_mems) + len(daily_mems) < 8:
+    archive_data = ms3.load_archive(emp_id)
+    archive_mems = sorted(archive_data['archived'], 
+                          key=lambda x: x['archivedAt'], 
+                          reverse=True)[:2]
+```
+
+**步骤 5：拼接注入文本**
+```python
+# 每条截断至 500 字符
+lines = [f'- {m["value"][:500]}' for m in core_mems + daily_mems]
+lines += [f'- [归档] {m["value"][:500]}' for m in archive_mems]
+system_prompt += '\n\n【关于用户的记忆】\n' + '\n'.join(lines)
 ```
 
 **注入效果示例：**
