@@ -1659,7 +1659,7 @@ SoloBrave 后端目前提供约 **60 个 HTTP 端点**，全部基于 `http.serv
 | **value 限制** | >5000 字符返回 400 | >2000 字符自动截断 + warning | 友好降级 |
 | **容量控制** | 仅写入时检查 | 写入检查 + 读取时自动归档（>200条） | 自动维护 |
 | **归纳合并** | 无 | `POST /api/memory/consolidate` | AI 摘要合并，减少碎片 |
-| **知识库关联** | 无 | `type=knowledge` 返回关联文档 | 记忆+知识统一查询 |
+| **记忆注入** | 前端 `buildMemoryPrompt()` + 后端 `inject_memories()` **双重注入** | 仅后端 `ms3.inject_memories()` 统一注入 | 避免重复，<br>减少 token 浪费 |
 | **全局搜索** | 仅支持单员工 | `GET /api/memory/search` 跨员工搜索 | 统一管理 |
 
 #### 自动归档触发条件
