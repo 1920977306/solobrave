@@ -74,6 +74,38 @@ CHATS_DIR = os.path.join(DATA_DIR, 'chats')
 SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
 TEAMS_FILE = os.path.join(DATA_DIR, 'teams.json')
 MEMORY_DIR = os.path.join(DATA_DIR, 'memory')
+ARCHIVE_DIR = os.path.join(DATA_DIR, 'memory', 'archive')
+KNOWLEDGE_DIR = os.path.join(DATA_DIR, 'knowledge')
+PRODUCT_DIR = os.path.join(DATA_DIR, 'products')
+INFLUENCER_DIR = os.path.join(DATA_DIR, 'influencers')
+
+# ═══════════════════════════════════════════════════
+# 记忆系统 v2 配置（三层大脑架构）
+# ═══════════════════════════════════════════════════
+MEMORY_CONFIG = {
+    'core_max': 100,           # 核心记忆池上限
+    'daily_max': 100,          # 日常记录池上限
+    'daily_ttl_days': 30,      # 日常记录过期天数
+    'inject_core_max': 5,      # 注入时核心记忆条数
+    'inject_daily_max': 3,     # 注入时日常记忆条数
+    'inject_value_max': 500,   # 单条记忆注入字符上限
+    'store_value_max': 2000,   # 单条记忆存储字符上限
+    'history_inject_max': 10,  # 聊天历史注入条数
+    'summarize_threshold': 20, # 归纳触发阈值（统一前后端）
+    'chat_store_max': 500,     # 聊天记录存储上限
+}
+
+# 进程级文件锁（跨平台替代 fcntl，Windows 兼容）
+_memory_file_locks = {}
+_memory_locks_mutex = threading.Lock()
+
+def _get_memory_file_lock(filepath):
+    """获取文件路径对应的进程级写锁"""
+    with _memory_locks_mutex:
+        if filepath not in _memory_file_locks:
+            _memory_file_locks[filepath] = threading.Lock()
+        return _memory_file_locks[filepath]
+
 
 # 角色初始记忆种子映射：前端 role -> memory-seed 文件名
 # 只映射严格匹配的角色，避免加载不相关记忆导致AI行为混乱
@@ -111,24 +143,173 @@ def _read_json(filepath, default=None):
 def _write_json(filepath, data):
     """写入 JSON 文件（加文件锁，唯一临时文件避免并发踩踏）"""
     _ensure_data_dir()
-    # 确保父目录存在（agent_id 可能包含子路径）
     parent_dir = os.path.dirname(filepath)
     if parent_dir:
         os.makedirs(parent_dir, exist_ok=True)
-    # 用唯一临时文件名，避免并发写入时互相覆盖tmp
     tmp_path = filepath + '.tmp.' + uuid.uuid4().hex[:8]
+    # 跨平台文件锁：Unix 用 fcntl，Windows 用进程级 threading.Lock
+    file_lock = _get_memory_file_lock(filepath)
     try:
-        with open(tmp_path, 'w', encoding='utf-8') as f:
-            if fcntl:
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            if fcntl:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-        os.replace(tmp_path, filepath)
+        with file_lock:
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                if fcntl:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                if fcntl:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            os.replace(tmp_path, filepath)
     except OSError:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
+
+
+# ═══════════════════════════════════════════════════
+# 记忆系统 v2 分池读写工具
+# ═══════════════════════════════════════════════════
+
+def _load_memory_v2(emp_id):
+    """加载某员工的 v2 分池记忆数据
+    返回: {'core': [...], 'daily': [...], 'archive': [...], 'version': '2.0'}
+    daily 只返回 archived=False 的数据，archive 返回 archived=True 的数据
+    兼容旧版扁平数组、旧版独立 archive 字段、旧版物理归档文件
+    """
+    filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
+    raw = _read_json(filepath, None)
+    if raw is None:
+        return {'core': [], 'daily': [], 'archive': [], 'version': '2.0'}
+    # v2 格式：已经是分池字典
+    if isinstance(raw, dict) and raw.get('version') == '2.0':
+        all_daily = list(raw.get('daily', []))
+        # 兼容旧版：如果还有独立的 archive 字段，合并到 daily 并标记 archived=True
+        old_archive = raw.get('archive', [])
+        if old_archive:
+            for oa in old_archive:
+                if not any(d.get('id') == oa.get('id') for d in all_daily):
+                    oa['archived'] = True
+                    all_daily.append(oa)
+            _write_json(filepath, {'core': raw.get('core', []), 'daily': all_daily, 'version': '2.0'})
+            print(f'  [MemoryV2] {emp_id} 已将旧版 archive 字段合并到 daily 池', flush=True)
+        # 兼容旧版物理归档文件
+        try:
+            old_file = _load_archive(emp_id)
+            old_mems = old_file.get('memories', [])
+            if old_mems:
+                merged_any = False
+                for om in old_mems:
+                    if not any(d.get('id') == om.get('id') for d in all_daily):
+                        migrated = {
+                            'id': om.get('id') or ('arch_' + uuid.uuid4().hex[:8]),
+                            'key': om.get('type', 'auto'),
+                            'value': om.get('originalValue') or om.get('summary', ''),
+                            'time': om.get('originalTime') or om.get('archivedTime', int(time.time()*1000)),
+                            'archived': True,
+                            'archivedTime': om.get('archivedTime', int(time.time()*1000)),
+                            'source': om.get('source', '')
+                        }
+                        all_daily.append(migrated)
+                        merged_any = True
+                if merged_any:
+                    _write_json(filepath, {'core': raw.get('core', []), 'daily': all_daily, 'version': '2.0'})
+                    archive_fp = os.path.join(ARCHIVE_DIR, f'{emp_id}.json')
+                    if os.path.exists(archive_fp):
+                        os.remove(archive_fp)
+                    print(f'  [MemoryV2] {emp_id} 已合并旧版物理归档文件到 daily 池', flush=True)
+        except Exception as e:
+            print(f'  [MemoryV2] {emp_id} 合并旧归档失败: {e}', flush=True)
+        active = [m for m in all_daily if not m.get('archived')]
+        archived = [m for m in all_daily if m.get('archived')]
+        return {
+            'core': raw.get('core', []),
+            'daily': active,
+            'archive': archived,
+            'version': '2.0'
+        }
+    # v1 格式：扁平数组，自动迁移
+    if isinstance(raw, list):
+        migrated = {'core': [], 'daily': [], 'archive': [], 'version': '2.0'}
+        for m in raw:
+            key = m.get('key', 'auto')
+            if key in ('auto', 'auto_extract'):
+                migrated['daily'].append(m)
+            else:
+                migrated['core'].append(m)
+        _write_json(filepath, migrated)
+        print(f'  [MemoryV2] {emp_id} 已从 v1 扁平格式迁移到 v2 分池格式', flush=True)
+        return migrated
+    return {'core': [], 'daily': [], 'archive': [], 'version': '2.0'}
+
+
+def _save_memory_v2(emp_id, data):
+    """保存某员工的 v2 分池记忆数据
+    归档数据以 archived=True 标记保存在 daily 池中，不再使用独立 archive 字段
+    """
+    filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
+    daily = list(data.get('daily', []))
+    # 如果传入的数据中还有 archive 字段，合并到 daily
+    for arch in data.get('archive', []):
+        if not any(d.get('id') == arch.get('id') for d in daily):
+            arch['archived'] = True
+            daily.append(arch)
+    # 去重
+    seen = set()
+    unique_daily = []
+    for m in daily:
+        mid = m.get('id')
+        if mid and mid in seen:
+            continue
+        if mid:
+            seen.add(mid)
+        unique_daily.append(m)
+    save_data = {
+        'core': data.get('core', []),
+        'daily': unique_daily,
+        'version': '2.0'
+    }
+    _write_json(filepath, save_data)
+
+
+def _load_archive(emp_id):
+    """加载某员工的归档记忆（聊天记录归档等仍使用）"""
+    filepath = os.path.join(ARCHIVE_DIR, f'{emp_id}.json')
+    return _read_json(filepath, {'memories': [], 'summaries': [], 'version': '1.0'})
+
+
+def _save_archive(emp_id, data):
+    """保存某员工的归档记忆（聊天记录归档等仍使用）"""
+    filepath = os.path.join(ARCHIVE_DIR, f'{emp_id}.json')
+    data['version'] = '1.0'
+    _write_json(filepath, data)
+
+
+def _cleanup_and_archive_expired(emp_id, memory_data):
+    """清理过期日常记录，将其标记为 archived=True（保留在 daily 池中，不移动、不删除）
+    返回: (更新后的 memory_data, 归档数量)
+    """
+    cfg = MEMORY_CONFIG
+    now = int(time.time() * 1000)
+    ttl_ms = cfg['daily_ttl_days'] * 24 * 3600 * 1000
+    archived_count = 0
+    for m in memory_data.get('daily', []):
+        if m.get('archived'):
+            continue
+        mem_time = m.get('time', 0)
+        if mem_time and (now - mem_time) > ttl_ms:
+            m['archived'] = True
+            m['archivedTime'] = now
+            archived_count += 1
+    if archived_count > 0:
+        print(f'  [MemoryV2] {emp_id} 标记 {archived_count} 条过期日常记录为 archived=True', flush=True)
+    return memory_data, archived_count
+
+
+def _check_agent_exists(emp_id):
+    """检查员工是否存在（用于记忆API权限校验的基础检查）"""
+    agents = _load_agents()
+    for a in agents:
+        if a.get('id') == emp_id:
+            return a
+    return None
 
 
 # ─── JWT 工具（简化实现） ───────────────────────────────
@@ -780,15 +961,43 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_user(user_id)
                 return
 
-        # Memory API
+        # Memory API v2
         if path.startswith('/api/memory/'):
             sub = path[len('/api/memory/'):]
             parts = sub.split('/')
             if len(parts) == 1:
                 self._handle_get_memory(parts[0])
                 return
-            elif len(parts) == 2:
-                self._handle_delete_memory(parts[0], parts[1])
+
+        # Knowledge API
+        if path == '/api/knowledge':
+            self._handle_get_knowledge()
+            return
+
+        # Product API
+        if path == '/api/products':
+            self._handle_get_products()
+            return
+        if path == '/api/products/search':
+            self._handle_search_products()
+            return
+        if path.startswith('/api/products/'):
+            product_id = path[len('/api/products/'):]
+            if product_id:
+                self._handle_delete_product(product_id)
+                return
+
+        # Influencer API
+        if path == '/api/influencers':
+            self._handle_get_influencers()
+            return
+        if path == '/api/influencers/search':
+            self._handle_search_influencers()
+            return
+        if path.startswith('/api/influencers/'):
+            inf_id = path[len('/api/influencers/'):]
+            if inf_id:
+                self._handle_delete_influencer(inf_id)
                 return
 
         # Chat API
@@ -993,12 +1202,51 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     self._handle_add_team_member(team_id)
                     return
 
-        # Memory API
+        # Memory API v2
         if path.startswith('/api/memory/'):
-            emp_id = path[len('/api/memory/'):]
-            if emp_id and '/' not in emp_id:
-                self._handle_post_memory(emp_id)
+            sub = path[len('/api/memory/'):]
+            parts = sub.split('/')
+            if len(parts) == 1:
+                self._handle_post_memory(parts[0])
                 return
+            elif len(parts) == 2 and parts[1] == 'archive':
+                self._handle_archive_memory_cleanup(parts[0])
+                return
+            elif len(parts) == 3 and parts[2] == 'promote':
+                self._handle_promote_memory(parts[0], parts[1])
+                return
+            elif len(parts) == 3 and parts[2] == 'restore':
+                self._handle_restore_memory(parts[0], parts[1])
+                return
+
+        # Knowledge API
+        if path == '/api/knowledge':
+            self._handle_post_knowledge()
+            return
+
+        # Product API
+        if path == '/api/products':
+            self._handle_post_product()
+            return
+        if path == '/api/products/search':
+            self._handle_search_products()
+            return
+
+        # Influencer API
+        if path == '/api/influencers':
+            self._handle_post_influencer()
+            return
+        if path == '/api/influencers/search':
+            self._handle_search_influencers()
+            return
+
+        # Match API
+        if path == '/api/match/product-to-influencer':
+            self._handle_match_product_to_influencer()
+            return
+        if path == '/api/match/influencer-to-product':
+            self._handle_match_influencer_to_product()
+            return
 
         # Chat API
         if path.startswith('/api/chat/'):
@@ -1061,12 +1309,33 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_update_team(team_id)
                 return
 
-        # Memory API
+        # Memory API v2
         if path.startswith('/api/memory/'):
             sub = path[len('/api/memory/'):]
             parts = sub.split('/')
             if len(parts) == 2:
                 self._handle_update_memory(parts[0], parts[1])
+                return
+
+        # Knowledge API
+        if path.startswith('/api/knowledge/'):
+            doc_id = path[len('/api/knowledge/'):]
+            if doc_id:
+                self._handle_put_knowledge(doc_id)
+                return
+
+        # Product API
+        if path.startswith('/api/products/'):
+            product_id = path[len('/api/products/'):]
+            if product_id:
+                self._handle_put_product(product_id)
+                return
+
+        # Influencer API
+        if path.startswith('/api/influencers/'):
+            inf_id = path[len('/api/influencers/'):]
+            if inf_id:
+                self._handle_put_influencer(inf_id)
                 return
 
         self._send_json_error(404, 'Not found')
@@ -1134,12 +1403,33 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_delete_user(user_id)
                 return
 
-        # Memory API
+        # Memory API v2
         if path.startswith('/api/memory/'):
             sub = path[len('/api/memory/'):]
             parts = sub.split('/')
             if len(parts) == 2:
                 self._handle_delete_memory(parts[0], parts[1])
+                return
+
+        # Knowledge API
+        if path.startswith('/api/knowledge/'):
+            doc_id = path[len('/api/knowledge/'):]
+            if doc_id:
+                self._handle_delete_knowledge(doc_id)
+                return
+
+        # Product API
+        if path.startswith('/api/products/'):
+            product_id = path[len('/api/products/'):]
+            if product_id:
+                self._handle_delete_product(product_id)
+                return
+
+        # Influencer API
+        if path.startswith('/api/influencers/'):
+            inf_id = path[len('/api/influencers/'):]
+            if inf_id:
+                self._handle_delete_influencer(inf_id)
                 return
 
         # Chat API
@@ -2173,6 +2463,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_team_member(self, team_id, user_id):
         """GET /api/teams/:id/members/:userId"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
         # 权限检查同 GET /api/teams/:id
         self._handle_get_team(team_id)
 
@@ -2545,12 +2839,36 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         }
         messages.append(msg)
 
-        # 上限 500 条，超出保留最新的
+        # 上限 500 条，超出时归档旧消息到 L3（非静默丢弃）
+        archived_count = 0
         if len(messages) > 500:
-            messages = messages[-500:]
+            old_messages = messages[:-300]  # 保留最近 300 条
+            # 归档到 L3（不调用 AI，避免 POST 超时）
+            try:
+                archive_data = _load_archive(chat_key)
+                chat_summary = []
+                for om in old_messages:
+                    role = '用户' if om.get('role') == 'user' else 'AI'
+                    content = (om.get('content', '') or '')[:100]
+                    chat_summary.append(f'{role}: {content}')
+                archive_data['summaries'].append({
+                    'id': 'sum_' + str(uuid.uuid4())[:8],
+                    'type': 'chat_overflow',
+                    'period': f'{old_messages[0].get("time", 0)} ~ {old_messages[-1].get("time", 0)}',
+                    'summary': '\n'.join(chat_summary),
+                    'compressedCount': len(old_messages),
+                    'createdAt': int(time.time() * 1000)
+                })
+                _save_archive(chat_key, archive_data)
+                archived_count = len(old_messages)
+                messages = messages[-300:]
+                print(f'  [ChatArchive] {chat_key} 归档 {archived_count} 条溢出消息到 L3', flush=True)
+            except Exception as e:
+                print(f'  [ChatArchive] {chat_key} 归档失败: {e}，回退到静默截断', flush=True)
+                messages = messages[-500:]
 
         _save_chat(chat_key, messages)
-        self._send_json(200, {'saved': True, 'id': msg['id']})
+        self._send_json(200, {'saved': True, 'id': msg['id'], 'archived': archived_count})
 
     # ═══════════════════════════════════════════════════
     # Agent API
@@ -2951,6 +3269,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_agent_docs(self, agent_id):
         """GET /api/openclaw/agent-docs/:agentId?doc=SOUL.md"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
         from urllib.parse import parse_qs, urlparse
         parsed = urlparse(self.path)
         query_params = parse_qs(parsed.query)
@@ -3112,104 +3434,962 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # 记忆过期配置：日常记录30天后过期，核心记忆不过期
     MEMORY_DAILY_TTL_DAYS = 30
 
-    def _cleanup_expired_memories(self, memories):
-        """清理过期记忆：日常记录超过30天过期，核心记忆保留"""
-        now = int(time.time() * 1000)
-        ttl_ms = self.MEMORY_DAILY_TTL_DAYS * 24 * 3600 * 1000
-        cleaned = []
-        expired_count = 0
-        for m in memories:
-            key = m.get('key', 'auto')
-            is_core = key not in ('auto', 'auto_extract')
-            if is_core:
-                cleaned.append(m)
-                continue
-            mem_time = m.get('time', 0)
-            if mem_time and (now - mem_time) > ttl_ms:
-                expired_count += 1
-                continue
-            cleaned.append(m)
-        if expired_count > 0:
-            print(f'  [MemoryCleanup] 清理 {expired_count} 条过期日常记录', flush=True)
-        return cleaned
+    # ═══════════════════════════════════════════════════
+    # 记忆系统 v2 API（三层大脑架构）
+    # ═══════════════════════════════════════════════════
 
     def _handle_get_memory(self, emp_id):
-        """GET /api/memory/{empId} — 获取记忆列表（自动过滤过期）"""
-        filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
-        memories = _read_json(filepath, [])
-        memories = self._cleanup_expired_memories(memories)
-        # 如果清理后有变化，写回文件
-        _write_json(filepath, memories)
-        self._send_json(200, memories)
+        """GET /api/memory/{empId} — 获取分池记忆（自动归档过期）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not _check_agent_exists(emp_id):
+            self._send_json(404, {'error': 'Agent not found'})
+            return
+
+        data = _load_memory_v2(emp_id)
+        data, archived = _cleanup_and_archive_expired(emp_id, data)
+        if archived > 0:
+            _save_memory_v2(emp_id, data)
+        # 同时返回归档列表（逻辑归档，可恢复）
+        result = {
+            'core': data.get('core', []),
+            'daily': data.get('daily', []),
+            'archive': data.get('archive', []),
+            'archivedToday': archived,
+            'version': '2.0',
+            'config': {k: v for k, v in MEMORY_CONFIG.items() if k in ('core_max', 'daily_max', 'daily_ttl_days')}
+        }
+        self._send_json(200, result)
 
     def _handle_post_memory(self, emp_id):
-        """POST /api/memory/{empId} — 添加记忆（自动清理过期）"""
+        """POST /api/memory/{empId} — 添加记忆到对应分池（容量检查，超出返回 409）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not _check_agent_exists(emp_id):
+            self._send_json(404, {'error': 'Agent not found'})
+            return
+
         body = self._read_body()
         if not body or 'value' not in body:
-            print(f'  [MemoryPOST] {emp_id} 失败: 缺少 value', flush=True)
             self._send_json_error(400, 'Missing value')
             return
 
-        filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
-        memories = _read_json(filepath, [])
+        cfg = MEMORY_CONFIG
+        value = body.get('value', '')
+        # 存储长度检查
+        if len(value) > cfg['store_value_max']:
+            self._send_json_error(400, f'Value exceeds max length {cfg["store_value_max"]}')
+            return
 
-        # 先清理过期记忆
-        memories = self._cleanup_expired_memories(memories)
+        data = _load_memory_v2(emp_id)
+        data, _ = _cleanup_and_archive_expired(emp_id, data)
+
+        key = body.get('key', 'auto')
+        pool = 'core' if key not in ('auto', 'auto_extract') else 'daily'
+        target_pool = data.get(pool, [])
+        pool_max = cfg['core_max'] if pool == 'core' else cfg['daily_max']
+
+        # 容量检查：超出返回 409 冲突，不再静默截断
+        if len(target_pool) >= pool_max:
+            self._send_json(409, {
+                'error': f'{pool} pool full ({pool_max}/{pool_max})',
+                'pool': pool,
+                'max': pool_max,
+                'suggestion': 'Archive or delete old memories first'
+            })
+            return
 
         memory = {
             'id': str(uuid.uuid4())[:8],
-            'key': body.get('key', 'auto'),
-            'value': body.get('value', ''),
+            'key': key,
+            'value': value,
             'source': body.get('source', ''),
             'time': int(time.time() * 1000)
         }
-        memories.append(memory)
-
-        # 上限200条，超出删最旧的（避免长期使用时记忆丢失）
-        if len(memories) > 200:
-            memories = memories[-200:]
-
-        _write_json(filepath, memories)
-        print(f'  [MemoryPOST] {emp_id} 保存记忆: {memory["value"][:50]}... (共{len(memories)}条)', flush=True)
+        target_pool.append(memory)
+        data[pool] = target_pool
+        _save_memory_v2(emp_id, data)
+        print(f'  [MemoryV2] {emp_id} 保存 {pool} 记忆: {value[:50]}... (共{len(target_pool)}/{pool_max})', flush=True)
         self._send_json(200, memory)
 
     def _handle_delete_memory(self, emp_id, memory_id):
-        """DELETE /api/memory/{empId}/{memoryId} — 删除单条记忆"""
-        filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
-        memories = _read_json(filepath, [])
-        memories = [m for m in memories if m.get('id') != memory_id]
-        _write_json(filepath, memories)
-        self._send_json(200, {'deleted': True})
+        """DELETE /api/memory/{empId}/{memoryId} — 删除单条记忆（支持 archived 数据）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not _check_agent_exists(emp_id):
+            self._send_json(404, {'error': 'Agent not found'})
+            return
+
+        data = _load_memory_v2(emp_id)
+        removed = False
+        removed_mem = None
+        # 先从 core/daily 中查找
+        for pool in ('core', 'daily'):
+            for i, m in enumerate(data.get(pool, [])):
+                if m.get('id') == memory_id:
+                    removed_mem = data[pool].pop(i)
+                    removed = True
+                    break
+            if removed:
+                break
+        # 再从 archive 中查找（逻辑归档池）
+        if not removed:
+            for i, m in enumerate(data.get('archive', [])):
+                if m.get('id') == memory_id:
+                    removed_mem = data['archive'].pop(i)
+                    removed = True
+                    break
+
+        if removed_mem:
+            _save_memory_v2(emp_id, data)
+            print(f'  [MemoryV2] {emp_id} 删除记忆: {removed_mem.get("value", "")[:50]}...', flush=True)
+
+        self._send_json(200, {'deleted': removed, 'id': memory_id})
 
     def _handle_update_memory(self, emp_id, memory_id):
-        """PUT /api/memory/{empId}/{memoryId} — 修改单条记忆"""
+        """PUT /api/memory/{empId}/{memoryId} — 修改单条记忆（支持跨池移动）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not _check_agent_exists(emp_id):
+            self._send_json(404, {'error': 'Agent not found'})
+            return
+
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Missing body')
             return
 
-        filepath = os.path.join(MEMORY_DIR, f'{emp_id}.json')
-        memories = _read_json(filepath, [])
-
+        cfg = MEMORY_CONFIG
+        data = _load_memory_v2(emp_id)
         updated = None
-        for m in memories:
-            if m.get('id') == memory_id:
-                if 'value' in body:
-                    m['value'] = body['value']
-                if 'key' in body:
-                    m['key'] = body['key']
-                if 'source' in body:
-                    m['source'] = body['source']
-                m['time'] = int(time.time() * 1000)
-                updated = m
+        old_pool = None
+
+        for pool in ('core', 'daily'):
+            for m in data.get(pool, []):
+                if m.get('id') == memory_id:
+                    old_pool = pool
+                    if 'value' in body:
+                        m['value'] = body['value']
+                    if 'source' in body:
+                        m['source'] = body['source']
+                    m['time'] = int(time.time() * 1000)
+                    updated = m
+                    break
+            if updated:
                 break
 
         if not updated:
             self._send_json_error(404, 'Memory not found')
             return
 
-        _write_json(filepath, memories)
+        # 支持跨池移动（key 变更时）
+        new_key = body.get('key')
+        if new_key:
+            new_pool = 'core' if new_key not in ('auto', 'auto_extract') else 'daily'
+            if new_pool != old_pool:
+                # 检查目标池容量
+                target = data.get(new_pool, [])
+                pool_max = cfg['core_max'] if new_pool == 'core' else cfg['daily_max']
+                if len(target) >= pool_max:
+                    self._send_json(409, {
+                        'error': f'Cannot move: {new_pool} pool full',
+                        'pool': new_pool,
+                        'max': pool_max
+                    })
+                    return
+                # 从旧池移除，加入新池
+                data[old_pool] = [m for m in data[old_pool] if m.get('id') != memory_id]
+                updated['key'] = new_key
+                target.append(updated)
+                data[new_pool] = target
+                print(f'  [MemoryV2] {emp_id} 记忆跨池移动: {old_pool} -> {new_pool}', flush=True)
+            else:
+                updated['key'] = new_key
+
+        _save_memory_v2(emp_id, data)
         self._send_json(200, updated)
+
+    def _handle_promote_memory(self, emp_id, memory_id):
+        """POST /api/memory/{empId}/{memoryId}/promote — 升级为核心记忆"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not _check_agent_exists(emp_id):
+            self._send_json(404, {'error': 'Agent not found'})
+            return
+
+        cfg = MEMORY_CONFIG
+        data = _load_memory_v2(emp_id)
+        mem = None
+        for m in data.get('daily', []):
+            if m.get('id') == memory_id:
+                mem = m
+                break
+
+        if not mem:
+            self._send_json_error(404, 'Memory not found in daily pool')
+            return
+
+        if len(data.get('core', [])) >= cfg['core_max']:
+            self._send_json(409, {
+                'error': 'Core pool full',
+                'max': cfg['core_max']
+            })
+            return
+
+        data['daily'] = [m for m in data['daily'] if m.get('id') != memory_id]
+        mem['key'] = 'core'
+        mem['time'] = int(time.time() * 1000)
+        data['core'].append(mem)
+        _save_memory_v2(emp_id, data)
+        print(f'  [MemoryV2] {emp_id} 升级为核心记忆: {mem.get("value", "")[:50]}...', flush=True)
+        self._send_json(200, mem)
+
+    def _handle_restore_memory(self, emp_id, memory_id):
+        """POST /api/memory/{empId}/{memoryId}/restore — 从归档恢复为日常记忆"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not _check_agent_exists(emp_id):
+            self._send_json(404, {'error': 'Agent not found'})
+            return
+
+        data = _load_memory_v2(emp_id)
+        mem = None
+        for m in data.get('archive', []):
+            if m.get('id') == memory_id:
+                mem = m
+                break
+
+        if not mem:
+            self._send_json_error(404, 'Memory not found in archive')
+            return
+
+        cfg = MEMORY_CONFIG
+        if len(data.get('daily', [])) >= cfg['daily_max']:
+            self._send_json(409, {
+                'error': 'Daily pool full',
+                'max': cfg['daily_max']
+            })
+            return
+
+        # 恢复：移除 archived 标记
+        data['archive'] = [m for m in data.get('archive', []) if m.get('id') != memory_id]
+        mem.pop('archived', None)
+        mem.pop('archivedTime', None)
+        mem['time'] = int(time.time() * 1000)
+        data['daily'].append(mem)
+        _save_memory_v2(emp_id, data)
+        print(f'  [MemoryV2] {emp_id} 恢复归档记忆到 daily: {mem.get("value", "")[:50]}...', flush=True)
+        self._send_json(200, mem)
+
+    def _handle_archive_memory_cleanup(self, emp_id):
+        """POST /api/memory/{empId}/archive — 手动触发归档过期日常记录"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not _check_agent_exists(emp_id):
+            self._send_json(404, {'error': 'Agent not found'})
+            return
+
+        data = _load_memory_v2(emp_id)
+        data, archived = _cleanup_and_archive_expired(emp_id, data)
+        _save_memory_v2(emp_id, data)
+        self._send_json(200, {'archived': archived, 'empId': emp_id})
+
+    # ═══════════════════════════════════════════════════
+    # 知识库 API（后端持久化，替代 localStorage sb_docs）
+    # ═══════════════════════════════════════════════════
+
+    def _load_knowledge(self):
+        """加载全局知识库文档列表"""
+        filepath = os.path.join(KNOWLEDGE_DIR, 'index.json')
+        return _read_json(filepath, {'docs': [], 'version': '1.0'})
+
+    def _save_knowledge(self, data):
+        """保存全局知识库文档列表"""
+        filepath = os.path.join(KNOWLEDGE_DIR, 'index.json')
+        data['version'] = '1.0'
+        _write_json(filepath, data)
+
+    def _handle_get_knowledge(self):
+        """GET /api/knowledge — 获取知识库文档列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        data = self._load_knowledge()
+        self._send_json(200, data.get('docs', []))
+
+    def _handle_post_knowledge(self):
+        """POST /api/knowledge — 添加知识库文档"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body or 'name' not in body or 'content' not in body:
+            self._send_json_error(400, 'Missing name or content')
+            return
+        data = self._load_knowledge()
+        doc = {
+            'id': body.get('id') or ('doc_' + uuid.uuid4().hex[:8]),
+            'name': body['name'],
+            'content': body['content'],
+            'icon': body.get('icon', '📄'),
+            'linkedEmployees': body.get('linkedEmployees', []),
+            'createdAt': int(time.time() * 1000),
+            'updatedAt': int(time.time() * 1000)
+        }
+        data['docs'].append(doc)
+        self._save_knowledge(data)
+        self._send_json(200, doc)
+
+    def _handle_put_knowledge(self, doc_id):
+        """PUT /api/knowledge/{docId} — 更新知识库文档"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        data = self._load_knowledge()
+        updated = None
+        for d in data.get('docs', []):
+            if d.get('id') == doc_id:
+                if 'name' in body:
+                    d['name'] = body['name']
+                if 'content' in body:
+                    d['content'] = body['content']
+                if 'icon' in body:
+                    d['icon'] = body['icon']
+                if 'linkedEmployees' in body:
+                    d['linkedEmployees'] = body['linkedEmployees']
+                d['updatedAt'] = int(time.time() * 1000)
+                updated = d
+                break
+        if not updated:
+            self._send_json_error(404, 'Document not found')
+            return
+        self._save_knowledge(data)
+        self._send_json(200, updated)
+
+    def _handle_delete_knowledge(self, doc_id):
+        """DELETE /api/knowledge/{docId} — 删除知识库文档"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        data = self._load_knowledge()
+        original = len(data.get('docs', []))
+        data['docs'] = [d for d in data.get('docs', []) if d.get('id') != doc_id]
+        removed = original - len(data['docs'])
+        self._save_knowledge(data)
+        self._send_json(200, {'deleted': removed > 0, 'id': doc_id})
+
+    # ═══════════════════════════════════════════════════
+    # 商品库 API
+    # ═══════════════════════════════════════════════════
+
+    def _load_products(self):
+        """加载商品库索引"""
+        filepath = os.path.join(PRODUCT_DIR, 'index.json')
+        return _read_json(filepath, {'products': [], 'version': '1.0'})
+
+    def _save_products(self, data):
+        """保存商品库索引"""
+        filepath = os.path.join(PRODUCT_DIR, 'index.json')
+        data['version'] = '1.0'
+        _write_json(filepath, data)
+
+    def _handle_get_products(self):
+        """GET /api/products — 获取商品列表（支持 query 筛选）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        data = self._load_products()
+        products = data.get('products', [])
+        # 解析 query string 做筛选
+        query = parse_qs(urlparse(self.path).query)
+        if query.get('category'):
+            cat = query['category'][0]
+            products = [p for p in products if p.get('category') == cat]
+        if query.get('status'):
+            status = query['status'][0]
+            products = [p for p in products if p.get('status') == status]
+        if query.get('q'):
+            kw = query['q'][0].lower()
+            products = [p for p in products if kw in (p.get('name') or '').lower() or kw in (p.get('description') or '').lower() or any(kw in t.lower() for t in (p.get('tags') or []))]
+        # 分页
+        offset = int(query.get('offset', [0])[0])
+        limit = int(query.get('limit', [50])[0])
+        total = len(products)
+        products = products[offset:offset + limit]
+        self._send_json(200, {'products': products, 'total': total, 'offset': offset, 'limit': limit})
+
+    def _handle_post_product(self):
+        """POST /api/products — 录入商品"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body or 'name' not in body:
+            self._send_json_error(400, 'Missing name')
+            return
+        data = self._load_products()
+        product = {
+            'id': body.get('id') or ('prod_' + uuid.uuid4().hex[:8]),
+            'name': body['name'],
+            'description': body.get('description', ''),
+            'price': float(body.get('price', 0)),
+            'currency': body.get('currency', 'CNY'),
+            'category': body.get('category', '未分类'),
+            'tags': body.get('tags', []),
+            'sku': body.get('sku', ''),
+            'stock': int(body.get('stock', 0)),
+            'images': body.get('images', []),
+            'attributes': body.get('attributes', {}),
+            'status': body.get('status', 'active'),
+            'createdBy': auth.user_info.get('userId'),
+            'createdAt': int(time.time() * 1000),
+            'updatedAt': int(time.time() * 1000)
+        }
+        data['products'].append(product)
+        self._save_products(data)
+        print(f'  [Product] 录入商品: {product["name"]} ({product["id"]})', flush=True)
+        self._send_json(200, product)
+
+    def _handle_put_product(self, product_id):
+        """PUT /api/products/{id} — 更新商品"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        data = self._load_products()
+        updated = None
+        for p in data.get('products', []):
+            if p.get('id') == product_id:
+                for field in ('name', 'description', 'price', 'currency', 'category', 'tags', 'sku', 'stock', 'images', 'attributes', 'status'):
+                    if field in body:
+                        p[field] = body[field]
+                        if field == 'price':
+                            p[field] = float(body[field])
+                        if field == 'stock':
+                            p[field] = int(body[field])
+                p['updatedAt'] = int(time.time() * 1000)
+                updated = p
+                break
+        if not updated:
+            self._send_json_error(404, 'Product not found')
+            return
+        self._save_products(data)
+        self._send_json(200, updated)
+
+    def _handle_delete_product(self, product_id):
+        """DELETE /api/products/{id} — 删除商品"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        data = self._load_products()
+        original = len(data.get('products', []))
+        data['products'] = [p for p in data.get('products', []) if p.get('id') != product_id]
+        removed = original - len(data['products'])
+        self._save_products(data)
+        self._send_json(200, {'deleted': removed > 0, 'id': product_id})
+
+    def _handle_search_products(self):
+        """POST /api/products/search — 高级搜索/匹配"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        data = self._load_products()
+        products = data.get('products', [])
+        results = []
+        for p in products:
+            score = 0
+            matched = []
+            # 名称匹配
+            if body.get('name'):
+                name_kw = body['name'].lower()
+                if name_kw in (p.get('name') or '').lower():
+                    score += 10
+                    matched.append('name')
+            # 分类匹配
+            if body.get('category'):
+                if body['category'] == p.get('category'):
+                    score += 8
+                    matched.append('category')
+            # 标签匹配
+            if body.get('tags'):
+                search_tags = set(t.lower() for t in (body['tags'] if isinstance(body['tags'], list) else [body['tags']]))
+                product_tags = set(t.lower() for t in (p.get('tags') or []))
+                tag_match = search_tags & product_tags
+                if tag_match:
+                    score += len(tag_match) * 5
+                    matched.append('tags:' + ','.join(tag_match))
+            # 价格区间
+            if body.get('minPrice') is not None and p.get('price', 0) < float(body['minPrice']):
+                continue
+            if body.get('maxPrice') is not None and p.get('price', 0) > float(body['maxPrice']):
+                continue
+            # 属性匹配
+            if body.get('attributes'):
+                attrs_match = True
+                for k, v in body['attributes'].items():
+                    if str(p.get('attributes', {}).get(k, '')).lower() != str(v).lower():
+                        attrs_match = False
+                        break
+                if attrs_match:
+                    score += 6
+                    matched.append('attributes')
+            # SKU 精确匹配
+            if body.get('sku'):
+                if body['sku'].lower() == (p.get('sku') or '').lower():
+                    score += 15
+                    matched.append('sku')
+            # 状态过滤
+            if body.get('status') and p.get('status') != body['status']:
+                continue
+            if score > 0 or not any(k in body for k in ('name', 'category', 'tags', 'sku', 'attributes')):
+                results.append({'product': p, 'score': score, 'matched': matched})
+        # 按匹配度排序
+        results.sort(key=lambda x: x['score'], reverse=True)
+        limit = int(body.get('limit', 20))
+        self._send_json(200, {'results': results[:limit], 'total': len(results)})
+
+    # ═══════════════════════════════════════════════════
+    # 达人库 API
+    # ═══════════════════════════════════════════════════
+
+    def _load_influencers(self):
+        """加载达人库索引"""
+        filepath = os.path.join(INFLUENCER_DIR, 'index.json')
+        return _read_json(filepath, {'influencers': [], 'version': '1.0'})
+
+    def _save_influencers(self, data):
+        """保存达人库索引"""
+        filepath = os.path.join(INFLUENCER_DIR, 'index.json')
+        data['version'] = '1.0'
+        _write_json(filepath, data)
+
+    def _handle_get_influencers(self):
+        """GET /api/influencers — 获取达人列表（支持 query 筛选）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        data = self._load_influencers()
+        influencers = data.get('influencers', [])
+        query = parse_qs(urlparse(self.path).query)
+        if query.get('platform'):
+            platform = query['platform'][0]
+            influencers = [i for i in influencers if i.get('platform') == platform]
+        if query.get('category'):
+            cat = query['category'][0]
+            influencers = [i for i in influencers if i.get('category') == cat]
+        if query.get('status'):
+            status = query['status'][0]
+            influencers = [i for i in influencers if i.get('status') == status]
+        if query.get('q'):
+            kw = query['q'][0].lower()
+            influencers = [i for i in influencers if kw in (i.get('name') or '').lower() or kw in (i.get('accountId') or '').lower() or kw in (i.get('bio') or '').lower() or any(kw in t.lower() for t in (i.get('tags') or []))]
+        offset = int(query.get('offset', [0])[0])
+        limit = int(query.get('limit', [50])[0])
+        total = len(influencers)
+        influencers = influencers[offset:offset + limit]
+        self._send_json(200, {'influencers': influencers, 'total': total, 'offset': offset, 'limit': limit})
+
+    def _handle_post_influencer(self):
+        """POST /api/influencers — 录入达人"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body or 'name' not in body:
+            self._send_json_error(400, 'Missing name')
+            return
+        data = self._load_influencers()
+        influencer = {
+            'id': body.get('id') or ('inf_' + uuid.uuid4().hex[:8]),
+            'name': body['name'],
+            'avatar': body.get('avatar', ''),
+            'platform': body.get('platform', '抖音'),
+            'accountId': body.get('accountId', ''),
+            'followerCount': int(body.get('followerCount', 0)),
+            'category': body.get('category', '未分类'),
+            'tags': body.get('tags', []),
+            'bio': body.get('bio', ''),
+            'contentStyle': body.get('contentStyle', ''),
+            'cooperationPrice': float(body.get('cooperationPrice', 0)),
+            'priceUnit': body.get('priceUnit', '元/条'),
+            'contact': body.get('contact', ''),
+            'status': body.get('status', 'available'),
+            'engagementRate': float(body.get('engagementRate', 0)),
+            'avgViews': int(body.get('avgViews', 0)),
+            'lastCooperation': body.get('lastCooperation'),
+            'notes': body.get('notes', ''),
+            'createdBy': auth.user_info.get('userId'),
+            'createdAt': int(time.time() * 1000),
+            'updatedAt': int(time.time() * 1000)
+        }
+        data['influencers'].append(influencer)
+        self._save_influencers(data)
+        print(f'  [Influencer] 录入达人: {influencer["name"]} ({influencer["id"]})', flush=True)
+        self._send_json(200, influencer)
+
+    def _handle_put_influencer(self, inf_id):
+        """PUT /api/influencers/{id} — 更新达人"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        data = self._load_influencers()
+        updated = None
+        for i in data.get('influencers', []):
+            if i.get('id') == inf_id:
+                for field in ('name', 'avatar', 'platform', 'accountId', 'followerCount', 'category', 'tags', 'bio', 'contentStyle', 'cooperationPrice', 'priceUnit', 'contact', 'status', 'engagementRate', 'avgViews', 'lastCooperation', 'notes'):
+                    if field in body:
+                        i[field] = body[field]
+                        if field in ('followerCount', 'avgViews'):
+                            i[field] = int(body[field])
+                        if field in ('cooperationPrice', 'engagementRate'):
+                            i[field] = float(body[field])
+                i['updatedAt'] = int(time.time() * 1000)
+                updated = i
+                break
+        if not updated:
+            self._send_json_error(404, 'Influencer not found')
+            return
+        self._save_influencers(data)
+        self._send_json(200, updated)
+
+    def _handle_delete_influencer(self, inf_id):
+        """DELETE /api/influencers/{id} — 删除达人"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        data = self._load_influencers()
+        original = len(data.get('influencers', []))
+        data['influencers'] = [i for i in data.get('influencers', []) if i.get('id') != inf_id]
+        removed = original - len(data['influencers'])
+        self._save_influencers(data)
+        self._send_json(200, {'deleted': removed > 0, 'id': inf_id})
+
+    def _handle_search_influencers(self):
+        """POST /api/influencers/search — 高级搜索/匹配"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        data = self._load_influencers()
+        influencers = data.get('influencers', [])
+        results = []
+        for i in influencers:
+            score = 0
+            matched = []
+            # 名称匹配
+            if body.get('name'):
+                name_kw = body['name'].lower()
+                if name_kw in (i.get('name') or '').lower():
+                    score += 10
+                    matched.append('name')
+            # 账号匹配
+            if body.get('accountId'):
+                if body['accountId'].lower() == (i.get('accountId') or '').lower():
+                    score += 12
+                    matched.append('accountId')
+            # 平台匹配
+            if body.get('platform'):
+                if body['platform'] == i.get('platform'):
+                    score += 7
+                    matched.append('platform')
+            # 分类匹配
+            if body.get('category'):
+                if body['category'] == i.get('category'):
+                    score += 8
+                    matched.append('category')
+            # 标签匹配
+            if body.get('tags'):
+                search_tags = set(t.lower() for t in (body['tags'] if isinstance(body['tags'], list) else [body['tags']]))
+                inf_tags = set(t.lower() for t in (i.get('tags') or []))
+                tag_match = search_tags & inf_tags
+                if tag_match:
+                    score += len(tag_match) * 5
+                    matched.append('tags:' + ','.join(tag_match))
+            # 粉丝数区间
+            if body.get('minFollowers') is not None and i.get('followerCount', 0) < int(body['minFollowers']):
+                continue
+            if body.get('maxFollowers') is not None and i.get('followerCount', 0) > int(body['maxFollowers']):
+                continue
+            # 报价区间
+            if body.get('minPrice') is not None and i.get('cooperationPrice', 0) < float(body['minPrice']):
+                continue
+            if body.get('maxPrice') is not None and i.get('cooperationPrice', 0) > float(body['maxPrice']):
+                continue
+            # 互动率下限
+            if body.get('minEngagement') is not None and i.get('engagementRate', 0) < float(body['minEngagement']):
+                continue
+            # 状态过滤
+            if body.get('status') and i.get('status') != body['status']:
+                continue
+            if score > 0 or not any(k in body for k in ('name', 'accountId', 'platform', 'category', 'tags')):
+                results.append({'influencer': i, 'score': score, 'matched': matched})
+        results.sort(key=lambda x: x['score'], reverse=True)
+        limit = int(body.get('limit', 20))
+        self._send_json(200, {'results': results[:limit], 'total': len(results)})
+
+    # ═══════════════════════════════════════════════════
+    # 匹配引擎
+    # ═══════════════════════════════════════════════════
+
+    def _parse_price_range(self, price_range):
+        """解析商品价格区间，返回 (min, max, avg)"""
+        if not price_range:
+            return (0, 999999, 100)
+        s = str(price_range).strip().replace(' ', '')
+        import re
+        m = re.match(r'^(\d+(?:\.\d+)?)\s*[-~]\s*(\d+(?:\.\d+)?)$', s)
+        if m:
+            mn = float(m.group(1))
+            mx = float(m.group(2))
+            return (mn, mx, (mn + mx) / 2)
+        m = re.match(r'^(\d+(?:\.\d+)?)$', s)
+        if m:
+            v = float(m.group(1))
+            return (v, v, v)
+        m = re.match(r'^(?:低于|小于|以下)?\s*(\d+(?:\.\d+)?).*$', s)
+        if m:
+            v = float(m.group(1))
+            return (0, v, v / 2)
+        m = re.match(r'^(?:高于|大于|以上)?\s*(\d+(?:\.\d+)?).*$', s)
+        if m:
+            v = float(m.group(1))
+            return (v, 999999, v * 1.5)
+        return (0, 999999, 100)
+
+    def _calculate_match_score(self, product, influencer):
+        """计算商品与达人的匹配分数 (0-100+)"""
+        score = 0
+        reasons = []
+
+        # 1. 分类匹配
+        if product.get('category') and influencer.get('category'):
+            if product['category'] == influencer['category']:
+                score += 25
+                reasons.append('分类一致')
+            else:
+                reasons.append('分类不同')
+        else:
+            reasons.append('缺少分类信息')
+
+        # 2. 标签匹配
+        p_tags = set(t.lower() for t in (product.get('tags') or []))
+        i_tags = set(t.lower() for t in (influencer.get('tags') or []))
+        tag_common = p_tags & i_tags
+        if tag_common:
+            tag_score = min(len(tag_common) * 8, 24)
+            score += tag_score
+            reasons.append(f'标签匹配 {len(tag_common)} 个')
+        else:
+            reasons.append('无匹配标签')
+
+        # 3. 价格匹配
+        price_min, price_max, price_avg = self._parse_price_range(product.get('priceRange'))
+        inf_price = influencer.get('cooperationPrice', 0) or 0
+        if price_min <= inf_price <= price_max:
+            score += 20
+            reasons.append('报价在商品价格区间内')
+        elif price_min * 0.5 <= inf_price <= price_max * 1.5:
+            score += 10
+            reasons.append('报价接近商品价格区间')
+        else:
+            reasons.append('报价与商品价格区间偏差较大')
+
+        # 4. 粉丝数匹配（从商品定价角度看受众规模需求）
+        followers = influencer.get('followerCount', 0) or 0
+        if price_avg < 100:
+            if followers >= 50000:
+                score += 15; reasons.append('粉丝量充足')
+            elif followers >= 10000:
+                score += 10; reasons.append('粉丝量良好')
+            elif followers >= 1000:
+                score += 5; reasons.append('粉丝量一般')
+            else:
+                reasons.append('粉丝量较少')
+        elif price_avg < 500:
+            if followers >= 200000:
+                score += 20; reasons.append('粉丝量非常充足')
+            elif followers >= 50000:
+                score += 15; reasons.append('粉丝量充足')
+            elif followers >= 10000:
+                score += 10; reasons.append('粉丝量良好')
+            else:
+                reasons.append('粉丝量偏少')
+        else:
+            if followers >= 500000:
+                score += 25; reasons.append('头部达人，粉丝量极佳')
+            elif followers >= 200000:
+                score += 20; reasons.append('粉丝量非常充足')
+            elif followers >= 50000:
+                score += 15; reasons.append('粉丝量充足')
+            else:
+                reasons.append('粉丝量可能不足')
+
+        # 5. 互动率加分
+        engagement = influencer.get('engagementRate', 0) or 0
+        if isinstance(engagement, str):
+            engagement = engagement.replace('%', '').strip()
+            try:
+                engagement = float(engagement)
+            except ValueError:
+                engagement = 0
+        if engagement > 1:
+            engagement = engagement / 100
+        if engagement >= 0.10:
+            score += 15; reasons.append('互动率极佳 (>10%)')
+        elif engagement >= 0.05:
+            score += 10; reasons.append('互动率优秀 (>5%)')
+        elif engagement >= 0.02:
+            score += 5; reasons.append('互动率良好 (>2%)')
+        else:
+            reasons.append('互动率一般')
+
+        return score, reasons
+
+    def _handle_match_product_to_influencer(self):
+        """POST /api/match/product-to-influencer — 为商品匹配达人"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        product_id = body.get('productId')
+        if not product_id:
+            self._send_json_error(400, 'Missing productId')
+            return
+
+        pdata = self._load_products()
+        product = None
+        for p in pdata.get('products', []):
+            if p.get('id') == product_id:
+                product = p
+                break
+        if not product:
+            self._send_json_error(404, 'Product not found')
+            return
+
+        idata = self._load_influencers()
+        influencers = idata.get('influencers', [])
+
+        results = []
+        for inf in influencers:
+            if inf.get('status') == 'inactive':
+                continue
+            score, reasons = self._calculate_match_score(product, inf)
+            min_score = float(body.get('minScore', 0))
+            if score >= min_score:
+                results.append({
+                    'influencer': inf,
+                    'score': round(score, 1),
+                    'reasons': reasons,
+                    'matchPercent': min(100, int(score))
+                })
+
+        results.sort(key=lambda x: x['score'], reverse=True)
+        limit = int(body.get('limit', 10))
+        self._send_json(200, {
+            'product': product,
+            'results': results[:limit],
+            'total': len(results)
+        })
+
+    def _handle_match_influencer_to_product(self):
+        """POST /api/match/influencer-to-product — 为达人匹配商品"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        influencer_id = body.get('influencerId')
+        if not influencer_id:
+            self._send_json_error(400, 'Missing influencerId')
+            return
+
+        idata = self._load_influencers()
+        influencer = None
+        for i in idata.get('influencers', []):
+            if i.get('id') == influencer_id:
+                influencer = i
+                break
+        if not influencer:
+            self._send_json_error(404, 'Influencer not found')
+            return
+
+        pdata = self._load_products()
+        products = pdata.get('products', [])
+
+        results = []
+        for prod in products:
+            if prod.get('status') == 'inactive':
+                continue
+            score, reasons = self._calculate_match_score(prod, influencer)
+            min_score = float(body.get('minScore', 0))
+            if score >= min_score:
+                results.append({
+                    'product': prod,
+                    'score': round(score, 1),
+                    'reasons': reasons,
+                    'matchPercent': min(100, int(score))
+                })
+
+        results.sort(key=lambda x: x['score'], reverse=True)
+        limit = int(body.get('limit', 10))
+        self._send_json(200, {
+            'influencer': influencer,
+            'results': results[:limit],
+            'total': len(results)
+        })
 
     def _handle_get_chat(self, agent_id):
         """GET /api/chat/:agentId?type=personal|group"""
@@ -3291,6 +4471,34 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             messages.append(msg)
             original_len = len(messages)
 
+            # v2：聊天记录上限归档（非静默丢弃）
+            archived_count = 0
+            cfg = MEMORY_CONFIG
+            if len(messages) > cfg['chat_store_max']:
+                old_messages = messages[:-300]
+                try:
+                    archive_data = _load_archive(agent_id)
+                    chat_summary = []
+                    for om in old_messages:
+                        role_label = '用户' if om.get('role') == 'user' else 'AI'
+                        content = (om.get('content', '') or '')[:100]
+                        chat_summary.append(f'{role_label}: {content}')
+                    archive_data['summaries'].append({
+                        'id': 'sum_' + str(uuid.uuid4())[:8],
+                        'type': 'chat_overflow',
+                        'period': f'{old_messages[0].get("time", 0) or old_messages[0].get("timestamp", 0)} ~ {old_messages[-1].get("time", 0) or old_messages[-1].get("timestamp", 0)}',
+                        'summary': '\n'.join(chat_summary),
+                        'compressedCount': len(old_messages),
+                        'createdAt': int(time.time() * 1000)
+                    })
+                    _save_archive(agent_id, archive_data)
+                    archived_count = len(old_messages)
+                    messages = messages[-300:]
+                    print(f'  [ChatArchive] {agent_id} 个人聊天归档 {archived_count} 条溢出消息到 L3', flush=True)
+                except Exception as e:
+                    print(f'  [ChatArchive] {agent_id} 归档失败: {e}，回退到静默截断', flush=True)
+                    messages = messages[-cfg["chat_store_max"]:]
+
             # 如果前端标记 skipAI（AI已通过OpenClaw回复），跳过API代理
             skip_ai = body.get('skipAI', False)
             connection_type = agent.get('connectionType', '')
@@ -3313,7 +4521,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     messages.append(ai_message)
                     _save_chat(agent_id, messages)
                     print(f'  [ChatPOST] {agent_id} API代理 保存 {len(messages)} 条消息')
-                    self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message})
+                    self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message, 'archived': archived_count})
                     return
 
             # OpenClaw 或其他
@@ -3380,20 +4588,43 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     system_prompt += f'\n\n【历史对话摘要】\n{summary_data["summary"]}'
             except Exception:
                 pass
-            # 注入记忆
+            # 注入记忆 v2（分池注入，自动归档，容量截断）
             try:
-                memory_file = os.path.join(MEMORY_DIR, f'{agent_id}.json')
-                memories = _read_json(memory_file, [])
-                if memories:
-                    mem_lines = []
-                    for m in memories[:8]:
-                        val = m.get('value', '')
+                cfg = MEMORY_CONFIG
+                mem_data = _load_memory_v2(agent_id)
+                mem_data, _ = _cleanup_and_archive_expired(agent_id, mem_data)
+                if _:
+                    _save_memory_v2(agent_id, mem_data)
+
+                mem_lines = []
+                # 核心记忆：按时间倒序取最新 inject_core_max 条
+                core_mems = sorted(mem_data.get('core', []), key=lambda x: x.get('time', 0), reverse=True)
+                for m in core_mems[:cfg['inject_core_max']]:
+                    val = m.get('value', '')[:cfg['inject_value_max']]
+                    if val:
+                        mem_lines.append(f'- {val}')
+
+                # 日常记录：按时间倒序取最新 inject_daily_max 条
+                daily_mems = sorted(mem_data.get('daily', []), key=lambda x: x.get('time', 0), reverse=True)
+                for m in daily_mems[:cfg['inject_daily_max']]:
+                    val = m.get('value', '')[:cfg['inject_value_max']]
+                    if val:
+                        mem_lines.append(f'- {val}')
+
+                # 如果 L2 记忆不足，从 L3 归档补充（最多 2 条相关摘要）
+                if len(mem_lines) < cfg['inject_core_max'] + cfg['inject_daily_max']:
+                    archive_data = _load_archive(agent_id)
+                    archive_mems = sorted(archive_data.get('memories', []), key=lambda x: x.get('archivedTime', 0), reverse=True)
+                    need = (cfg['inject_core_max'] + cfg['inject_daily_max']) - len(mem_lines)
+                    for m in archive_mems[:need]:
+                        val = m.get('summary', '')[:cfg['inject_value_max']]
                         if val:
-                            mem_lines.append(f'- {val}')
-                    if mem_lines:
-                        system_prompt += '\n\n【关于用户的记忆】\n' + '\n'.join(mem_lines)
-            except Exception:
-                pass
+                            mem_lines.append(f'- [归档] {val}')
+
+                if mem_lines:
+                    system_prompt += '\n\n【关于用户的记忆】\n' + '\n'.join(mem_lines)
+            except Exception as e:
+                print(f'  [MemoryInject] {agent_id} 注入失败: {e}', flush=True)
 
         messages = [{'role': 'system', 'content': system_prompt}]
 
@@ -3545,7 +4776,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         messages = _load_chat(agent_id)
-        if len(messages) <= 15:  # 15条以内不需要压缩
+        if len(messages) <= MEMORY_CONFIG['summarize_threshold']:  # 统一阈值，20条以内不需要压缩
             return self._send_json(200, {'summary': '', 'kept': len(messages)})
 
         # 取前 N-10 条做摘要（保留最近10条原文=5轮）
@@ -3565,7 +4796,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
         _write_json(summary_file, {'summary': summary, 'createdAt': datetime.now().isoformat()})
 
-        # 同时写入 Mac 桌面知识库目录，方便用户查看和编辑
+        # v2：同时保存到 L3 归档层（后端可访问，跨设备共享）
+        try:
+            archive_data = _load_archive(agent_id)
+            archive_data['summaries'].append({
+                'id': 'sum_' + str(uuid.uuid4())[:8],
+                'type': 'ai_summary',
+                'period': f'{old_messages[0].get("time", 0) or old_messages[0].get("timestamp", 0)} ~ {old_messages[-1].get("time", 0) or old_messages[-1].get("timestamp", 0)}',
+                'summary': summary,
+                'compressedCount': len(old_messages),
+                'kept': 10,
+                'createdAt': int(time.time() * 1000)
+            })
+            _save_archive(agent_id, archive_data)
+            print(f'  [Summarize] {agent_id} 摘要已存入 L3 归档层', flush=True)
+        except Exception as e:
+            print(f'  [Summarize] 存入 L3 归档层失败: {e}', flush=True)
+
+        # 降级：同时写入 Mac 桌面知识库目录（保留原有行为）
         emp_name = agent.get('name', agent_id)
         desktop_knowledge_dir = os.path.join(
             os.path.expanduser('~'), 'Desktop', 'solobrave', 'knowledge',
@@ -3614,11 +4862,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_openclaw_status(self):
         """GET /api/openclaw/status"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
         status = _openclaw_status()
         self._send_json(200, status)
 
     def _handle_openclaw_list_agents(self):
         """GET /api/openclaw/agents"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
         success, stdout, stderr, rc = _run_openclaw(['agents', 'list', '--json'])
         if not success:
             self._send_json(200, {
@@ -3654,6 +4910,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_openclaw_list_models(self):
         """GET /api/openclaw/models"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
         success, stdout, stderr, rc = _run_openclaw(['models', 'list', '--json'])
         if success and rc == 0:
             try:
@@ -3670,6 +4930,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_openclaw_create_agent(self):
         """POST /api/openclaw/agents/create"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Invalid JSON body')
@@ -3732,6 +4996,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_openclaw_update_agent(self):
         """POST /api/openclaw/agents/update"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Invalid JSON body')
@@ -3823,6 +5091,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_openclaw_delete_agent(self, agent_name):
         """DELETE /api/openclaw/agents/:name"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
         success, stdout, stderr, rc = _run_openclaw(['agents', 'delete', agent_name])
 
         if not success:

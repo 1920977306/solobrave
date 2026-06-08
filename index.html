@@ -2029,6 +2029,48 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .sidebar-action-btn.secondary:active { transform: translateY(0); background: #D1D1D6; }
 .btn-icon { font-size: 15px; line-height: 1; flex-shrink: 0; }
 .btn-text { white-space: nowrap; }
+
+/* ===== Product Library Styles ===== */
+.product-library-panel { position: fixed; inset: 44px 0 0 0; background: var(--bg-primary); z-index: 200; display: flex; flex-direction: column; overflow: hidden; }
+.product-library-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 0.5px solid var(--separator); background: var(--bg-primary); }
+.product-library-title { font: var(--font-lg); }
+.product-library-actions { display: flex; gap: 8px; align-items: center; }
+.product-library-btn { padding: 8px 14px; border-radius: var(--radius-sm); border: none; font-size: 13px; cursor: pointer; transition: all 0.15s; }
+.product-library-btn.primary { background: var(--accent); color: #fff; }
+.product-library-btn.primary:hover { background: var(--accent-hover); }
+.product-library-searchbar { display: flex; gap: 8px; padding: 12px 20px; border-bottom: 0.5px solid var(--separator); background: var(--bg-secondary); }
+.product-library-searchbar input { flex: 1; padding: 8px 12px; border-radius: var(--radius-sm); border: 0.5px solid var(--separator); font-size: 14px; background: var(--bg-primary); }
+.product-library-searchbar select { padding: 8px 12px; border-radius: var(--radius-sm); border: 0.5px solid var(--separator); font-size: 14px; background: var(--bg-primary); }
+.product-library-list { flex: 1; overflow-y: auto; padding: 16px 20px; }
+.product-card { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 10px; display: flex; gap: 12px; align-items: flex-start; transition: all 0.15s; }
+.product-card:hover { background: var(--bg-tertiary); }
+.product-card-icon { width: 48px; height: 48px; border-radius: 10px; background: var(--accent-light); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+.product-card-info { flex: 1; min-width: 0; }
+.product-card-name { font: 600 15px/1.3 -apple-system, sans-serif; color: var(--text-primary); margin-bottom: 4px; }
+.product-card-meta { font-size: 12px; color: var(--text-secondary); display: flex; gap: 10px; flex-wrap: wrap; }
+.product-card-price { font: 600 15px/1.3 -apple-system, sans-serif; color: var(--accent); white-space: nowrap; }
+.product-card-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.2s; }
+.product-card:hover .product-card-actions { opacity: 1; }
+.product-tag { font-size: 11px; padding: 2px 8px; background: var(--accent-light); color: var(--accent); border-radius: 4px; }
+
+/* Product Modal */
+.product-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(20px); z-index: 400; display: none; align-items: center; justify-content: center; }
+.product-modal-overlay.open { display: flex; }
+.product-modal-panel { width: 88%; max-width: 480px; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
+.product-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 0.5px solid var(--separator); }
+.product-modal-title { font-size: 17px; font-weight: 600; }
+.product-modal-close { width: 28px; height: 28px; border-radius: 50%; border: none; background: transparent; cursor: pointer; font-size: 16px; color: var(--text-secondary); }
+.product-modal-body { padding: 16px 20px; flex: 1; overflow-y: auto; }
+.product-form-row { margin-bottom: 14px; }
+.product-form-row label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.product-form-row input, .product-form-row select, .product-form-row textarea { width: 100%; padding: 8px 12px; border-radius: 8px; border: 0.5px solid var(--separator); font-size: 14px; background: var(--bg-primary); box-sizing: border-box; }
+.product-modal-footer { display: flex; padding: 0; border-top: 0.5px solid var(--separator); }
+.product-modal-btn { flex: 1; padding: 14px 0; border: none; background: transparent; font-size: 16px; cursor: pointer; transition: all 0.15s; }
+.product-modal-btn + .product-modal-btn { border-left: 0.5px solid var(--separator); }
+.product-modal-btn.save { color: var(--accent); font-weight: 600; }
+.product-modal-btn.save:hover { background: var(--accent-light); }
+.product-modal-btn.cancel { color: var(--text-secondary); }
+.product-modal-btn.cancel:hover { background: var(--bg-secondary); }
 </style>
 <script>// Early login handler - works even if main script fails to load
 window.doLogin = function () {
@@ -2207,6 +2249,14 @@ window.doLogin = function () {
   <a class="sidebar-action-btn primary" href="./office-v3.html" target="_blank">
     <span class="btn-icon">🏢</span>
     <span class="btn-text">龙虾办公室</span>
+  </a>
+  <a class="sidebar-action-btn secondary" onclick="openProductLibrary()">
+    <span class="btn-icon">📦</span>
+    <span class="btn-text">商品库</span>
+  </a>
+  <a class="sidebar-action-btn secondary" onclick="openInfluencerLibrary()">
+    <span class="btn-icon">🎙️</span>
+    <span class="btn-text">达人库</span>
   </a>
   <a class="sidebar-action-btn secondary" onclick="openWizard()">
     <span class="btn-icon">＋</span>
@@ -2460,6 +2510,256 @@ window.doLogin = function () {
 
 <!-- Task Board (Full) -->
 <div class="task-board" id="taskBoard"></div>
+
+<!-- Product Library Panel -->
+<div class="product-library-panel" id="productLibraryPanel" style="display:none;">
+  <div class="product-library-header">
+    <div class="product-library-title">📦 商品库</div>
+    <div class="product-library-actions">
+      <button class="product-library-btn primary" onclick="showProductForm()">＋ 录入商品</button>
+      <button class="product-library-btn" onclick="closeProductLibrary()">✕</button>
+    </div>
+  </div>
+  <div class="product-library-searchbar">
+    <input type="text" id="productSearchInput" placeholder="搜索商品名称、SKU、标签..." oninput="searchProductsDebounced(this.value)">
+    <select id="productCategoryFilter" onchange="searchProducts()">
+      <option value="">全部分类</option>
+      <option value="手机数码">手机数码</option>
+      <option value="电脑办公">电脑办公</option>
+      <option value="家用电器">家用电器</option>
+      <option value="服装鞋包">服装鞋包</option>
+      <option value="食品饮料">食品饮料</option>
+      <option value="美妆个护">美妆个护</option>
+      <option value="家居家装">家居家装</option>
+      <option value="母婴用品">母婴用品</option>
+      <option value="运动户外">运动户外</option>
+      <option value="图书文具">图书文具</option>
+      <option value="未分类">未分类</option>
+    </select>
+    <button class="product-library-btn" onclick="searchProducts()">🔍 搜索</button>
+  </div>
+  <div class="product-library-list" id="productLibraryList">
+    <div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>
+  </div>
+</div>
+
+<!-- Product Form Modal -->
+<div class="product-modal-overlay" id="productModalOverlay" onclick="closeProductForm()">
+  <div class="product-modal-panel" onclick="event.stopPropagation()">
+    <div class="product-modal-header">
+      <div class="product-modal-title" id="productModalTitle">录入商品</div>
+      <button class="product-modal-close" onclick="closeProductForm()">✕</button>
+    </div>
+    <div class="product-modal-body">
+      <input type="hidden" id="productEditId">
+      <div class="product-form-row">
+        <label>商品名称 *</label>
+        <input type="text" id="productName" placeholder="输入商品名称">
+      </div>
+      <div class="product-form-row">
+        <label>SKU 编码</label>
+        <input type="text" id="productSku" placeholder="如：SKU-001">
+      </div>
+      <div class="product-form-row">
+        <label>分类</label>
+        <select id="productCategory">
+          <option value="未分类">未分类</option>
+          <option value="手机数码">手机数码</option>
+          <option value="电脑办公">电脑办公</option>
+          <option value="家用电器">家用电器</option>
+          <option value="服装鞋包">服装鞋包</option>
+          <option value="食品饮料">食品饮料</option>
+          <option value="美妆个护">美妆个护</option>
+          <option value="家居家装">家居家装</option>
+          <option value="母婴用品">母婴用品</option>
+          <option value="运动户外">运动户外</option>
+          <option value="图书文具">图书文具</option>
+        </select>
+      </div>
+      <div class="product-form-row">
+        <label>价格</label>
+        <input type="number" id="productPrice" placeholder="0.00" step="0.01">
+      </div>
+      <div class="product-form-row">
+        <label>库存</label>
+        <input type="number" id="productStock" placeholder="0" step="1">
+      </div>
+      <div class="product-form-row">
+        <label>标签（逗号分隔）</label>
+        <input type="text" id="productTags" placeholder="如：新品, 热销, 包邮">
+      </div>
+      <div class="product-form-row">
+        <label>商品描述</label>
+        <textarea id="productDescription" rows="3" placeholder="输入商品描述..."></textarea>
+      </div>
+      <div class="product-form-row">
+        <label>状态</label>
+        <select id="productStatus">
+          <option value="active">在售</option>
+          <option value="inactive">停售</option>
+          <option value="out_of_stock">缺货</option>
+        </select>
+      </div>
+    </div>
+    <div class="product-modal-footer">
+      <button class="product-modal-btn cancel" onclick="closeProductForm()">取消</button>
+      <button class="product-modal-btn save" onclick="saveProduct()">保存</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Influencer Library Panel -->
+<div class="product-library-panel" id="influencerLibraryPanel" style="display:none;">
+  <div class="product-library-header">
+    <div class="product-library-title">🎙️ 达人库</div>
+    <div class="product-library-actions">
+      <button class="product-library-btn primary" onclick="showInfluencerForm()">＋ 录入达人</button>
+      <button class="product-library-btn" onclick="closeInfluencerLibrary()">✕</button>
+    </div>
+  </div>
+  <div class="product-library-searchbar">
+    <input type="text" id="influencerSearchInput" placeholder="搜索达人名称、账号ID、标签..." oninput="searchInfluencersDebounced(this.value)">
+    <select id="influencerPlatformFilter" onchange="searchInfluencers()">
+      <option value="">全部平台</option>
+      <option value="抖音">抖音</option>
+      <option value="小红书">小红书</option>
+      <option value="快手">快手</option>
+      <option value="B站">B站</option>
+      <option value="微博">微博</option>
+      <option value="视频号">视频号</option>
+      <option value="Instagram">Instagram</option>
+      <option value="YouTube">YouTube</option>
+    </select>
+    <select id="influencerCategoryFilter" onchange="searchInfluencers()">
+      <option value="">全部领域</option>
+      <option value="美妆护肤">美妆护肤</option>
+      <option value="时尚穿搭">时尚穿搭</option>
+      <option value="美食探店">美食探店</option>
+      <option value="旅行户外">旅行户外</option>
+      <option value="数码科技">数码科技</option>
+      <option value="母婴育儿">母婴育儿</option>
+      <option value="家居生活">家居生活</option>
+      <option value="健身运动">健身运动</option>
+      <option value="知识科普">知识科普</option>
+      <option value="娱乐搞笑">娱乐搞笑</option>
+      <option value="未分类">未分类</option>
+    </select>
+    <button class="product-library-btn" onclick="searchInfluencers()">🔍 搜索</button>
+  </div>
+  <div class="product-library-list" id="influencerLibraryList">
+    <div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>
+  </div>
+</div>
+
+<!-- Influencer Form Modal -->
+<div class="product-modal-overlay" id="influencerModalOverlay" onclick="closeInfluencerForm()">
+  <div class="product-modal-panel" onclick="event.stopPropagation()">
+    <div class="product-modal-header">
+      <div class="product-modal-title" id="influencerModalTitle">录入达人</div>
+      <button class="product-modal-close" onclick="closeInfluencerForm()">✕</button>
+    </div>
+    <div class="product-modal-body">
+      <input type="hidden" id="influencerEditId">
+      <div class="product-form-row">
+        <label>达人名称 *</label>
+        <input type="text" id="influencerName" placeholder="输入达人名称">
+      </div>
+      <div class="product-form-row">
+        <label>平台</label>
+        <select id="influencerPlatform">
+          <option value="抖音">抖音</option>
+          <option value="小红书">小红书</option>
+          <option value="快手">快手</option>
+          <option value="B站">B站</option>
+          <option value="微博">微博</option>
+          <option value="视频号">视频号</option>
+          <option value="Instagram">Instagram</option>
+          <option value="YouTube">YouTube</option>
+        </select>
+      </div>
+      <div class="product-form-row">
+        <label>账号ID</label>
+        <input type="text" id="influencerAccountId" placeholder="如：zhangsan123">
+      </div>
+      <div class="product-form-row">
+        <label>领域分类</label>
+        <select id="influencerCategory">
+          <option value="未分类">未分类</option>
+          <option value="美妆护肤">美妆护肤</option>
+          <option value="时尚穿搭">时尚穿搭</option>
+          <option value="美食探店">美食探店</option>
+          <option value="旅行户外">旅行户外</option>
+          <option value="数码科技">数码科技</option>
+          <option value="母婴育儿">母婴育儿</option>
+          <option value="家居生活">家居生活</option>
+          <option value="健身运动">健身运动</option>
+          <option value="知识科普">知识科普</option>
+          <option value="娱乐搞笑">娱乐搞笑</option>
+        </select>
+      </div>
+      <div class="product-form-row">
+        <label>粉丝数</label>
+        <input type="number" id="influencerFollowers" placeholder="0">
+      </div>
+      <div class="product-form-row">
+        <label>合作报价</label>
+        <input type="number" id="influencerPrice" placeholder="0.00" step="0.01">
+      </div>
+      <div class="product-form-row">
+        <label>报价单位</label>
+        <select id="influencerPriceUnit">
+          <option value="元/条">元/条</option>
+          <option value="元/篇">元/篇</option>
+          <option value="元/小时">元/小时</option>
+          <option value="元/场">元/场</option>
+          <option value="元/月">元/月</option>
+        </select>
+      </div>
+      <div class="product-form-row">
+        <label>互动率 (%)</label>
+        <input type="number" id="influencerEngagement" placeholder="0.0" step="0.1">
+      </div>
+      <div class="product-form-row">
+        <label>平均播放量</label>
+        <input type="number" id="influencerAvgViews" placeholder="0">
+      </div>
+      <div class="product-form-row">
+        <label>标签（逗号分隔）</label>
+        <input type="text" id="influencerTags" placeholder="如：种草, 测评, 教程">
+      </div>
+      <div class="product-form-row">
+        <label>内容风格</label>
+        <input type="text" id="influencerStyle" placeholder="如：短视频+直播">
+      </div>
+      <div class="product-form-row">
+        <label>联系方式</label>
+        <input type="text" id="influencerContact" placeholder="如：微信 zhangsan123">
+      </div>
+      <div class="product-form-row">
+        <label>达人简介</label>
+        <textarea id="influencerBio" rows="2" placeholder="输入达人简介..."></textarea>
+      </div>
+      <div class="product-form-row">
+        <label>备注</label>
+        <textarea id="influencerNotes" rows="2" placeholder="合作备注..."></textarea>
+      </div>
+      <div class="product-form-row">
+        <label>合作状态</label>
+        <select id="influencerStatus">
+          <option value="available">可合作</option>
+          <option value="cooperating">合作中</option>
+          <option value="resting">休整中</option>
+          <option value="blacklist">黑名单</option>
+        </select>
+      </div>
+    </div>
+    <div class="product-modal-footer">
+      <button class="product-modal-btn cancel" onclick="closeInfluencerForm()">取消</button>
+      <button class="product-modal-btn save" onclick="saveInfluencer()">保存</button>
+    </div>
+  </div>
+</div>
 </div>
 </main>
 </div>
@@ -2642,6 +2942,7 @@ window.doLogin = function () {
 <div class="memory-tabs">
 <button class="memory-tab active" data-mtab="core" onclick="switchMemoryTab('core')">核心记忆</button>
 <button class="memory-tab" data-mtab="daily" onclick="switchMemoryTab('daily')">日常记录</button>
+<button class="memory-tab" data-mtab="archive" onclick="switchMemoryTab('archive')">归档</button>
 <button class="memory-tab" data-mtab="kb" onclick="switchMemoryTab('kb')">知识库</button>
 </div>
 <div class="memory-content" id="memoryContent"></div>
@@ -3139,24 +3440,6 @@ function showMainApp() {
         renderMsgs('private');
       }
     }
-    // 清理：删除不存在员工的聊天记录
-    var empIds = {};
-    emps.forEach(function (e) {
-      empIds[e.id] = true;
-    });
-    var toRemove = [];
-    for (var k = 0; k < localStorage.length; k++) {
-      var key = localStorage.key(k);
-      if (key && key.indexOf('sb_chat_history_') === 0) {
-        var eid = key.substring('sb_chat_history_'.length);
-        if (!empIds[eid]) {
-          toRemove.push(key);
-        }
-      }
-    }
-    toRemove.forEach(function (k) {
-      localStorage.removeItem(k);
-    });
   }).catch(function (err) {
     console.error('[showMainApp] 加载员工/小组失败:', err);
     renderEmployeeList();
@@ -3241,16 +3524,8 @@ async function _fullLogin() {
     // 后端未启动，降级到本地模式
     console.warn('后端不可用，降级到本地模式', e);
     var isAdminUser = username === 'admin';
-    // 尝试从已有用户列表判断角色
-    var detectedRole = 'employee';
-    try {
-      var _users = JSON.parse(localStorage.getItem('sb_users') || '[]');
-      var _u = _users.find(function (u) {
-        return u.username === username;
-      });
-      if (_u) detectedRole = _u.role;
-    } catch (ex) {}
-    if (isAdminUser) detectedRole = 'admin';
+    // 本地模式角色判断
+    var detectedRole = isAdminUser ? 'admin' : 'employee';
     currentUser = {
       id: 'local_' + Date.now(),
       username: username,
@@ -3410,7 +3685,7 @@ function copyCode(btn) {
 }
 
 // ========== 发送消息 ==========
-function sendMsg() {
+async function sendMsg() {
   var input = document.getElementById('msgInput');
   var text = input.value.trim();
   if (!text) return;
@@ -3490,10 +3765,7 @@ function sendMsg() {
     area.insertAdjacentHTML('afterbegin', '<div class="time-separator"><span>今天</span></div>');
   }
 
-  // 添加用户消息（先保存到 history，再渲染到 DOM，避免 renderMsgs 触发时丢失）
-  var _hist = JSON.parse(localStorage.getItem('sb_chat_history_' + emp.id) || '[]');
-  _hist.push({ role: 'user', content: text, time: Date.now(), empId: emp.id });
-  localStorage.setItem('sb_chat_history_' + emp.id, JSON.stringify(_hist.slice(-50)));
+  // 添加用户消息到 DOM（聊天记录由后端统一存储）
   // 防御性校验：如果用户已切换员工，不再往当前 DOM 追加消息，避免串渲染
   if (localStorage.getItem('sb_current_emp') !== emp.id) {
     console.warn('[sendMsg] 员工已切换，跳过用户消息 DOM 渲染:', emp.id);
@@ -3517,7 +3789,7 @@ function sendMsg() {
   area.scrollTop = area.scrollHeight;
 
   // 获取文档上下文
-  const docContext = getDocContextForChat();
+  const docContext = await getDocContextForChat();
 
   // OpenClaw WS → API 直连降级
   var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
@@ -3619,6 +3891,9 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
     if (summaryText) {
       systemPrompt += summaryText;
     }
+
+    // 注入商品库/达人库/匹配引擎工具说明（主大脑管控）
+    systemPrompt += buildAgentToolsContext();
 
     // 监听 agent 事件（OpenClaw v3 流式推送）
     var fullReply = '';
@@ -3777,72 +4052,49 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
   }
 }
 
-// 构建记忆注入文本（复用）
+// 构建记忆注入文本（v2 简化版：OpenClaw 路径使用，后端 API 路径已由后端统一注入）
 async function buildMemoryPrompt(empId, userMessage) {
   try {
     var memRes = await apiFetch('/api/memory/' + encodeURIComponent(empId));
-    var memories = await memRes.json();
-    if (!memories || memories.length === 0) return '';
+    var data = await memRes.json();
+    if (!data || !data.core) return '';
 
-    // 分离核心记忆（手动添加/升级）和日常记录（自动提取）
-    var coreMemories = memories.filter(function (m) {
-      return m.key !== 'auto_extract' && m.key !== 'auto';
+    // v2 分池格式：直接取后端已归档和筛选后的数据
+    var coreList = (data.core || []).sort(function (a, b) { return (b.time || 0) - (a.time || 0); });
+    var dailyList = (data.daily || []).sort(function (a, b) { return (b.time || 0) - (a.time || 0); });
+
+    var memLines = [];
+    coreList.slice(0, 5).forEach(function (m) {
+      var val = (m.value || '').slice(0, 500);
+      if (val) memLines.push('- ' + val);
     });
-    var dailyMemories = memories.filter(function (m) {
-      return m.key === 'auto_extract' || m.key === 'auto';
+    dailyList.slice(0, 3).forEach(function (m) {
+      var val = (m.value || '').slice(0, 500);
+      if (val) memLines.push('- ' + val);
     });
 
-    // 核心记忆始终注入（按时间倒序取最新的，最多5条）
-    coreMemories.sort(function (a, b) { return (b.time || 0) - (a.time || 0); });
-    var selectedCore = coreMemories.slice(0, 5);
-
-    // 日常记录按关键词相关性匹配注入（最多3条）
-    var keywords = extractKeywords(userMessage);
-    var scoredDaily = dailyMemories.map(function (m) {
-      var score = 0;
-      var memLower = (m.value || '').toLowerCase();
-      for (var i = 0; i < keywords.length; i++) {
-        if (memLower.indexOf(keywords[i].toLowerCase()) > -1) score++;
-      }
-      return { memory: m, score: score };
-    });
-    scoredDaily.sort(function (a, b) { return b.score - a.score; });
-    var relevantDaily = scoredDaily.filter(function (s) { return s.score > 0; });
-    var selectedDaily = relevantDaily.slice(0, 3);
-    // 如果没有匹配的日常记录， fallback 取最新的2条
-    if (selectedDaily.length === 0) {
-      dailyMemories.sort(function (a, b) { return (b.time || 0) - (a.time || 0); });
-      selectedDaily = dailyMemories.slice(0, 2).map(function (m) { return { memory: m, score: 0 }; });
-    }
-
-    var selected = selectedCore.map(function (m) { return { memory: m, score: 0 }; }).concat(selectedDaily);
-
-    // 加载员工关联的文档内容作为"知识库记忆"
+    // 知识库从后端获取（v2 持久化）
     var docMemText = '';
     try {
-      var docsData = JSON.parse(localStorage.getItem('sb_docs') || '{}');
-      var linkedDocs = Object.values(docsData).filter(function (d) {
+      var kbRes = await apiFetch('/api/knowledge');
+      var docs = await kbRes.json();
+      var linkedDocs = docs.filter(function (d) {
         return d && d.linkedEmployees && d.linkedEmployees.indexOf(empId) > -1;
       });
       if (linkedDocs.length > 0) {
         var docLines = [];
         linkedDocs.forEach(function (d) {
-          var content = d.content || '';
-          var preview = content.length > 500 ? content.slice(0, 500) + '...' : content;
-          docLines.push('📄 《' + d.name + '》：' + preview);
+          var preview = (d.content || '').slice(0, 500);
+          if (preview) docLines.push('📄 《' + d.name + '》：' + preview);
         });
         docMemText = docLines.join('\n');
       }
     } catch (docErr) {}
 
-    if (selected.length === 0 && !docMemText) return '';
-
-    var memText = selected.map(function (s) {
-      return '- ' + s.memory.value;
-    }).join('\n');
+    if (memLines.length === 0 && !docMemText) return '';
 
     var result = '';
-    if (memText) result += '\n\n【关于用户的记忆】\n' + memText;
+    if (memLines.length > 0) result += '\n\n【关于用户的记忆】\n' + memLines.join('\n');
     if (docMemText) result += '\n\n【来自知识库的记忆】\n' + docMemText;
     return result;
   } catch (e) {}
@@ -4112,44 +4364,13 @@ function _isDefaultEmp(emp) {
 
 // ========== AI 初始化 ==========
 document.addEventListener('DOMContentLoaded', function () {
-  // 启动时清理 localStorage 中的历史遗留默认员工
-  _cleanLocalStorageEmps();
   checkAuth();
   loadAIConfig();
   // 检查 URL 参数 ?emp=xxx 自动打开聊天
   checkUrlParams();
+  // 同步本地知识文档到后端（一次性迁移）
+  syncLocalStorageDocsToBackend();
 });
-
-function _cleanLocalStorageEmps() {
-  // 清理 sb_employees
-  var saved = localStorage.getItem('sb_employees');
-  if (saved) {
-    try {
-      var data = JSON.parse(saved);
-      if (Array.isArray(data)) {
-        var cleaned = data.filter(function (e) { return !_isDefaultEmp(e); });
-        if (cleaned.length < data.length) {
-          localStorage.setItem('sb_employees', JSON.stringify(cleaned));
-          console.warn('[Clean] 已从 localStorage(sb_employees) 清理', data.length - cleaned.length, '个历史遗留默认员工');
-        }
-      }
-    } catch (e) {}
-  }
-  // 清理旧键 emps
-  var oldSaved = localStorage.getItem('emps');
-  if (oldSaved) {
-    try {
-      var oldData = JSON.parse(oldSaved);
-      if (Array.isArray(oldData)) {
-        var oldCleaned = oldData.filter(function (e) { return !_isDefaultEmp(e); });
-        if (oldCleaned.length < oldData.length) {
-          localStorage.setItem('emps', JSON.stringify(oldCleaned));
-          console.warn('[Clean] 已从 localStorage(emps) 清理', oldData.length - oldCleaned.length, '个历史遗留默认员工');
-        }
-      }
-    } catch (e) {}
-  }
-}
 
 // ========== BroadcastChannel 双向同步 (龙虾办公室) ==========
 let lobsterChannel = null;
@@ -4402,34 +4623,10 @@ const aiModels = [{
   icon: '💎'
 }];
 
-// Archive storage
-function saveArchive() {
-  localStorage.setItem('sb_archived', JSON.stringify(emps.filter(function (e) {
-    return e.archived;
-  }).map(function (e) {
-    return e.id;
-  })));
-}
-function loadArchive() {
-  // Only use localStorage archive as fallback if backend didn't set archived
-  // Backend now returns archived field, so we don't override
-  var ids = JSON.parse(localStorage.getItem('sb_archived') || '[]');
-  ids.forEach(function (id) {
-    var emp = emps.find(function (e) {
-      return e.id === id;
-    });
-    if (emp && emp.archived === undefined) {
-      emp.archived = true;
-    }
-  });
-}
-
 // Employee sync
 var _saveEmpTimer = null;
 function saveEmployees() {
-  // 1. 始终保存到 localStorage 作为本地缓存
-  localStorage.setItem('sb_employees', JSON.stringify(emps));
-  // 2. 通知龙虾办公室数据已更新
+  // 1. 通知龙虾办公室数据已更新
   notifyOfficeEmployeesUpdated();
   // 3. 延迟同步到服务器（debounce 3秒，避免频繁调用创建重复 agent）
   if (_saveEmpTimer) clearTimeout(_saveEmpTimer);
@@ -4767,70 +4964,12 @@ async function loadEmployees() {
         }
       }
     } catch (e) {
-      console.log('从后端加载员工失败，回退到本地:', e);
+      console.log('从后端加载员工失败:', e);
     }
   } else {
     console.log('[loadEmployees] 跳过后端加载, token=', token);
   }
-  // 不再从localStorage回退，避免跨用户数据泄露
-  var saved = null;
-  if (false && saved) {
-    try {
-      var data = JSON.parse(saved);
-      // 迁移旧字母头像为数字索引(用名字hash保证一致性)
-      var needSave = false;
-      for (var k = 0; k < data.length; k++) {
-        if (data[k].avatar && typeof data[k].avatar === 'string' && data[k].avatar.length <= 2 && data[k].avatar.indexOf('data:') !== 0 && data[k].avatar.indexOf('.') < 0) {
-          var h = 0,
-            nm = data[k].name || data[k].id || '';
-          for (var c = 0; c < nm.length; c++) {
-            h = (h << 5) - h + nm.charCodeAt(c);
-            h = h & h;
-          }
-          data[k].avatar = Math.abs(h) % 24;
-          needSave = true;
-        }
-      }
-      if (needSave) {
-        localStorage.setItem('sb_employees', JSON.stringify(data));
-      }
-      emps.length = 0;
-      data.forEach(function (e) {
-        if (!_isDefaultEmp(e)) {
-          emps.push(e);
-        }
-      });
-    } catch (e) {}
-  }
 }
-// Listen for storage changes from other tabs (not same tab)
-// Only reload if the change came from another tab
-window.addEventListener('storage', function (e) {
-  if (e.key === 'sb_employees' && e.newValue) {
-    // Another tab updated employees - parse and merge carefully
-    try {
-      var otherEmps = JSON.parse(e.newValue);
-      if (otherEmps && Array.isArray(otherEmps)) {
-        // Only update if the other tab has employees we don't have
-        var localIds = emps.map(function (x) {
-          return x.id;
-        }).sort().join(',');
-        var otherIds = otherEmps.map(function (x) {
-          return x.id;
-        }).sort().join(',');
-        if (localIds !== otherIds) {
-          emps.length = 0;
-          otherEmps.forEach(function (a) {
-            if (!_isDefaultEmp(a)) {
-              emps.push(a);
-            }
-          });
-          renderEmployeeList();
-        }
-      }
-    } catch (err) {}
-  }
-});
 
 // Tasks data with drag support
 var tasksData = {
@@ -5488,27 +5627,14 @@ async function loadGroups() {
           data.forEach(function (g) {
             groups.push(g);
           });
-          localStorage.setItem('sb_groups', JSON.stringify(groups));
           // 把项目组成员信息合并到 emps，供成员列表和 @提及使用
           mergeGroupMembersToEmps();
           return;
         }
       }
     } catch (e) {
-      console.log('[Groups] 后端加载失败，回退本地:', e);
+      console.log('[Groups] 后端加载失败:', e);
     }
-  }
-  // Fallback to localStorage
-  var saved = localStorage.getItem('sb_groups');
-  if (saved) {
-    try {
-      var data = JSON.parse(saved);
-      groups.length = 0;
-      data.forEach(function (g) {
-        groups.push(g);
-      });
-      mergeGroupMembersToEmps();
-    } catch (e) {}
   }
 }
 
@@ -5529,7 +5655,6 @@ function mergeGroupMembersToEmps() {
   });
 }
 async function saveGroups() {
-  localStorage.setItem('sb_groups', JSON.stringify(groups));
   var token = localStorage.getItem('sb_auth_token');
   if (token && token !== 'local_mode' && typeof apiFetch === 'function') {
     try {
@@ -5591,7 +5716,6 @@ async function _pollGroupsForUpdates() {
       // 更新本地 groups 数组
       groups.length = 0;
       data.forEach(function (g) { groups.push(g); });
-      localStorage.setItem('sb_groups', JSON.stringify(groups));
 
       // 刷新侧栏
       renderEmployeeList();
@@ -5974,14 +6098,12 @@ function ctxAction(action) {
     case 'archive':
       emp.archived = true;
       saveEmployees();
-      saveArchive();
       syncEmpToServer(emp);
       showToast('📦 已归档');
       break;
     case 'unarchive':
       emp.archived = false;
       saveEmployees();
-      saveArchive();
       syncEmpToServer(emp);
       showToast('📥 已取消归档');
       break;
@@ -5991,7 +6113,6 @@ function ctxAction(action) {
         emps = emps.filter(function (e) {
           return e.id !== _delId;
         });
-        localStorage.removeItem('sb_chat_history_' + _delId);
         clearChatOnServer(_delId, 'personal');
         if (localStorage.getItem('sb_current_emp') === _delId) {
           localStorage.removeItem('sb_current_emp');
@@ -6152,7 +6273,6 @@ function empSettingsAction(action) {
     case 'delete':
       if (confirm('确定删除 ' + emp.name + '？')) {
         var deleteId = empSettingsTarget;
-        localStorage.removeItem('sb_chat_history_' + deleteId);
         if (localStorage.getItem('sb_current_emp') === deleteId) {
           localStorage.removeItem('sb_current_emp');
         }
@@ -6487,7 +6607,6 @@ function restoreArchivedEmp(empId) {
   if (!emp) return;
   emp.archived = false;
   saveEmployees();
-  saveArchive();
   if (typeof syncEmpToServer === 'function') {
     syncEmpToServer(emp).catch(function (e) {});
   }
@@ -6496,7 +6615,7 @@ function restoreArchivedEmp(empId) {
 }
 
 // 下载归档对话记录为JSON
-function downloadArchive(empId) {
+async function downloadArchive(empId) {
   var emp = emps.find(function (e) {
     return e.id === empId;
   });
@@ -6504,14 +6623,13 @@ function downloadArchive(empId) {
     showToast('员工不存在');
     return;
   }
-  var chatData = localStorage.getItem('sb_chat_history_' + empId) || localStorage.getItem('sb_group_history_' + empId);
   var history = [];
-  if (chatData) {
-    try {
-      history = JSON.parse(chatData);
-    } catch (e) {
-      history = [];
-    }
+  try {
+    var resp = await apiFetch('/api/chat/' + encodeURIComponent(empId));
+    var data = await resp.json();
+    history = (data && data.messages) || [];
+  } catch (e) {
+    history = [];
   }
   var exportData = {
     employee: {
@@ -6904,61 +7022,20 @@ function renderGroupMessages(groupId) {
   });
   if (!group) return;
 
-  // 同时读取后端和 localStorage，合并去重显示（迁移旧数据）
-  var historyKey = 'sb_group_history_' + groupId;
-  var localHistory = [];
-  try {
-    localHistory = JSON.parse(localStorage.getItem(historyKey) || '[]');
-  } catch (e) {}
-  // 给旧数据补充唯一 id
-  var hasNewLocalId = false;
-  localHistory.forEach(function (m) {
-    if (!m.id) {
-      m.id = 'msg_local_' + (m.time || Date.now()) + '_' + Math.random().toString(36).slice(2, 6);
-      hasNewLocalId = true;
-    }
-  });
-  if (hasNewLocalId) {
-    localStorage.setItem(historyKey, JSON.stringify(localHistory));
-  }
-
   apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/history')
     .then(function (r) {
       return r.json();
     })
     .then(function (data) {
       var backendHistory = (data && data.messages) || [];
-      var backendIds = {};
-      backendHistory.forEach(function (m) {
-        backendIds[m.id || ''] = true;
-      });
-      // 合并：后端为基础，补充 localStorage 独有的旧数据
-      var merged = backendHistory.slice();
-      localHistory.forEach(function (m) {
-        if (!backendIds[m.id]) {
-          merged.push(m);
-          // 把旧数据迁移到后端（一次性，不阻塞渲染）
-          apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/history', {
-            method: 'POST',
-            body: JSON.stringify(m)
-          }).catch(function (err) {
-            console.log('[renderGroupMessages] 迁移旧数据失败:', err);
-          });
-        }
-      });
-      // 按时间排序
-      merged.sort(function (a, b) {
+      backendHistory.sort(function (a, b) {
         return (a.time || 0) - (b.time || 0);
       });
-      _doRender(merged);
+      _doRender(backendHistory);
     })
     .catch(function (err) {
-      console.log('[renderGroupMessages] 后端加载失败，回退 localStorage:', err);
-      // 按时间排序后渲染本地数据
-      localHistory.sort(function (a, b) {
-        return (a.time || 0) - (b.time || 0);
-      });
-      _doRender(localHistory);
+      console.log('[renderGroupMessages] 后端加载失败:', err);
+      _doRender([]);
     });
 
   function _doRender(history) {
@@ -7016,23 +7093,7 @@ async function sendGroupMessage(groupId, message, mentions) {
   });
   if (!group) return;
 
-  // 保存到本地历史（兼容离线/回退）
-  var historyKey = 'sb_group_history_' + groupId;
-  var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
   var msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-  // 去重：如果最后一条已经是相同的用户消息，不再追加
-  var lastMsg = history.length > 0 ? history[history.length - 1] : null;
-  if (!lastMsg || lastMsg.role !== 'user' || lastMsg.content !== message) {
-    history.push({
-      id: msgId,
-      role: 'user',
-      content: message,
-      mentions: mentions,
-      groupId: groupId,
-      time: Date.now()
-    });
-    localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
-  }
 
   // 同步到后端，所有人共享群聊记录
   var userName3 = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
@@ -7116,7 +7177,7 @@ async function sendGroupMessage(groupId, message, mentions) {
     }
 
     // 拼入群公告/文档上下文
-    var docContext = getDocContextForChat();
+    var docContext = await getDocContextForChat();
     if (docContext) {
       fullMessage = docContext + '\n' + fullMessage;
     }
@@ -7954,7 +8015,10 @@ function displayGroupAIReply(groupId, senderId, replyText) {
     hour: '2-digit',
     minute: '2-digit'
   });
-  var bubbleContent = formatGroupMessage(replyText);
+  // 解析并移除工具调用标记
+  var toolCalls = parseToolCalls(replyText);
+  var cleanText = replyText.replace(/\[TOOL_CALL\][\s\S]*?\[\/TOOL_CALL\]/g, '').trim();
+  var bubbleContent = formatGroupMessage(cleanText);
 
   // DOM 去重：检查最近 3 条消息是否已有相同 sender + content，防止竞态导致重复渲染
   var recentMsgs = area.querySelectorAll('.msg');
@@ -7963,7 +8027,7 @@ function displayGroupAIReply(groupId, senderId, replyText) {
     var m = recentMsgs[i];
     var nameEl = m.querySelector('.msg-sender-name');
     var bubbleEl = m.querySelector('.msg-bubble');
-    if (nameEl && bubbleEl && nameEl.textContent === senderName && bubbleEl.textContent === replyText) {
+    if (nameEl && bubbleEl && nameEl.textContent === senderName && bubbleEl.textContent === cleanText) {
       isDuplicateDom = true;
       console.log('[displayGroupAIReply] DOM 去重命中，跳过重复消息:', senderName);
       break;
@@ -7979,28 +8043,20 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   area.insertAdjacentHTML('beforeend', html);
   area.scrollTop = area.scrollHeight;
 
-  // 保存到群组历史（写入前去重：最后一条 role+content+senderId 相同则跳过）
-  var historyKey = 'sb_group_history_' + groupId;
-  var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
-  var triggerMsg = history.length > 0 ? history[history.length - 1] : null;
-  // 如果最后一条是同一个人发的 assistant，取倒数第二条作为触发消息
-  if (triggerMsg && triggerMsg.role === 'assistant' && triggerMsg.senderId === senderId && history.length > 1) {
-    triggerMsg = history[history.length - 2];
+  // 如果有工具调用，主大脑自动执行并展示结果
+  if (toolCalls.length > 0) {
+    (async function() {
+      for (var i = 0; i < toolCalls.length; i++) {
+        var result = await executeToolCall(toolCalls[i]);
+        var toolTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+        var toolHtml = '<div class="msg"><div class="msg-avatar" style="font-size:20px;">🧠</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">主大脑</span><span class="msg-sender-role">系统</span><span class="msg-sender-time">' + toolTime + '</span></div><div class="msg-bubble" style="background:var(--accent-light);color:var(--accent);font-size:13px;white-space:pre-wrap;">' + escapeHtml(result) + '</div></div></div>';
+        area.insertAdjacentHTML('beforeend', toolHtml);
+        area.scrollTop = area.scrollHeight;
+      }
+    })();
   }
-  var lastMsg = history.length > 0 ? history[history.length - 1] : null;
+
   var aiMsgId = 'msg_ai_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-  if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.content !== replyText || lastMsg.senderId !== senderId) {
-    history.push({
-      id: aiMsgId,
-      role: 'assistant',
-      content: replyText,
-      senderId: senderId,
-      senderName: senderName,
-      groupId: groupId,
-      time: Date.now()
-    });
-    localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
-  }
 
   // 同步到后端，所有人共享群聊记录
   apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/history', {
@@ -8018,13 +8074,6 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   }).catch(function (err) {
     console.log('[displayGroupAIReply] 同步后端失败:', err);
   });
-
-  // 群聊中的对话也应沉淀为 AI 员工的个人记忆（延迟避免 session 冲突）
-  if (triggerMsg && triggerMsg.content && senderId) {
-    setTimeout(function () {
-      extractAndSaveMemory(senderId, triggerMsg.content, replyText, true);
-    }, 800);
-  }
 
   // 更新群组最后消息
   var group = groups.find(function (g) {
@@ -8454,23 +8503,6 @@ function _doSendUrgeMessage(urgeText) {
   // 构建 @所有人 的消息
   var fullMessage = '@所有人 ' + urgeText;
 
-  // 保存到历史（写入前去重）
-  var historyKey = 'sb_group_history_' + group.id;
-  var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
-  var lastMsg = history.length > 0 ? history[history.length - 1] : null;
-  if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg.content !== fullMessage || lastMsg.senderId !== group.leadAgentId) {
-    history.push({
-      role: 'assistant',
-      content: fullMessage,
-      senderId: group.leadAgentId,
-      senderName: leadEmp.name,
-      isUrge: true,
-      groupId: group.id,
-      time: Date.now()
-    });
-    localStorage.setItem(historyKey, JSON.stringify(history.slice(-100)));
-  }
-
   // 显示到聊天区
   displayGroupAIReply(group.id, group.leadAgentId, fullMessage);
 
@@ -8514,8 +8546,8 @@ function urgeGroupMembers() {
   openUrgeModal();
 }
 
-// 归档群聊 — 保存当前聊天记录到归档列表，保留本地记录
-function archiveGroupChat() {
+// 归档群聊 — 保存当前聊天记录到归档列表
+async function archiveGroupChat() {
   var group = groups.find(function (g) {
     return g.id === currentGroupId;
   });
@@ -8523,8 +8555,14 @@ function archiveGroupChat() {
     showToast('⚠️ 请先进入一个群组');
     return;
   }
-  var historyKey = 'sb_group_history_' + group.id;
-  var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+  var history = [];
+  try {
+    var resp = await apiFetch('/api/groups/' + encodeURIComponent(group.id) + '/history');
+    var data = await resp.json();
+    history = (data && data.messages) || [];
+  } catch (e) {
+    history = [];
+  }
   if (history.length === 0) {
     showToast('⚠️ 当前群聊没有消息可归档');
     return;
@@ -8548,7 +8586,7 @@ function archiveGroupChat() {
 }
 
 // 重置群聊 — 清空当前群聊的聊天记录
-function resetGroupChat() {
+async function resetGroupChat() {
   var group = groups.find(function (g) {
     return g.id === currentGroupId;
   });
@@ -8556,8 +8594,14 @@ function resetGroupChat() {
     showToast('⚠️ 请先进入一个群组');
     return;
   }
-  var historyKey = 'sb_group_history_' + group.id;
-  var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+  var history = [];
+  try {
+    var resp = await apiFetch('/api/groups/' + encodeURIComponent(group.id) + '/history');
+    var data = await resp.json();
+    history = (data && data.messages) || [];
+  } catch (e) {
+    history = [];
+  }
   if (history.length === 0) {
     showToast('⚠️ 当前群聊已经是空的');
     return;
@@ -8565,9 +8609,6 @@ function resetGroupChat() {
   if (!confirm('确定要清空群聊「' + group.name + '」的所有 ' + history.length + ' 条消息吗？此操作不可恢复。')) {
     return;
   }
-
-  // 清空历史
-  localStorage.setItem(historyKey, '[]');
 
   // 清空消息区
   var area = document.getElementById('messagesArea');
@@ -8616,14 +8657,7 @@ function renderMsgs(type) {
       return;
     }
 
-    // 先同步渲染 localStorage 中的历史（避免异步加载期间旧消息残留导致串聊）
-    var localHistory = JSON.parse(localStorage.getItem('sb_chat_history_' + empId) || '[]');
-    if (localHistory.length > 0) {
-      renderPrivateMsgs(area, emp, localHistory);
-    } else {
-      area.innerHTML = '<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
-    }
-    // 再异步从后端加载，如有差异则更新（但仍需校验当前员工未切换）
+    // 异步从后端加载个人聊天记录
     loadChatFromServer(empId, 'personal', function (serverMsgs) {
       if (localStorage.getItem('sb_current_emp') !== empId) {
         console.warn('[renderMsgs] 员工已切换，丢弃旧回调:', empId);
@@ -8633,41 +8667,13 @@ function renderMsgs(type) {
       var privateMsgs = (serverMsgs || []).filter(function (m) {
         return (m.role === 'user' || m.role === 'assistant') && !m.groupId;
       });
-      // 合并本地和后端消息：后端同步可能有延迟，避免覆盖导致本地用户消息丢失
-      var mergedMsgs = mergeChatMessages(localHistory, privateMsgs);
-      if (mergedMsgs.length > 0) {
-        renderPrivateMsgs(area, emp, mergedMsgs);
+      if (privateMsgs.length > 0) {
+        renderPrivateMsgs(area, emp, privateMsgs);
+      } else {
+        area.innerHTML = '<div class="chat-empty-state"><div class="empty-avatar">👋</div><div class="empty-title">开始对话</div><div class="empty-desc">在下方输入框发送消息，与AI员工开始协作<br>输入 / 查看快捷指令</div></div>';
       }
     });
     return;
-  }
-  // 合并本地和后端消息，避免后端同步延迟/失败导致本地消息丢失
-  function mergeChatMessages(localMsgs, serverMsgs) {
-    var merged = [];
-    var seen = {};
-    // 先加入本地消息
-    (localMsgs || []).forEach(function (m) {
-      if (!m || (!m.role && !m.content)) return;
-      var key = (m.role || '') + '|' + (m.content || '');
-      if (!seen[key]) {
-        seen[key] = true;
-        merged.push(m);
-      }
-    });
-    // 再加入后端消息（去重）
-    (serverMsgs || []).forEach(function (m) {
-      if (!m || (!m.role && !m.content)) return;
-      var key = (m.role || '') + '|' + (m.content || '');
-      if (!seen[key]) {
-        seen[key] = true;
-        merged.push(m);
-      }
-    });
-    // 按时间升序排序
-    merged.sort(function (a, b) {
-      return new Date(a.time || 0) - new Date(b.time || 0);
-    });
-    return merged;
   }
   function renderPrivateMsgs(area, emp, history) {
     // 直接清空重绘，不保留任何 DOM 残留消息（避免切换员工时串聊）
@@ -8818,18 +8824,25 @@ function getContextForAI(projId) {
   return null;
 }
 
-// AI 自动读取上下文（包含文档内容摘要）
-function getAIContextMessage(projId) {
+// AI 自动读取上下文（包含文档内容摘要）— v2 从后端知识库获取
+async function getAIContextMessage(projId) {
   // 从群公告获取文档列表
   const bulletin = bulletinData[projId];
   if (!bulletin || !bulletin.docs || bulletin.docs.length === 0) return '';
 
-  // 从文档库获取完整内容
-  const docsData = JSON.parse(localStorage.getItem('sb_docs') || '{}');
+  // 从后端知识库获取完整内容
+  var backendDocs = [];
+  try {
+    var r = await apiFetch('/api/knowledge');
+    backendDocs = await r.json();
+  } catch (e) {
+    console.warn('[DocContext] 后端知识库加载失败:', e);
+    return '';
+  }
   let context = '\n\n📌 当前项目文档：\n';
   bulletin.docs.forEach(function (doc) {
     const docId = (doc && doc.path && doc.path.replace)('/docs/', '');
-    const fullDoc = docsData[docId];
+    const fullDoc = backendDocs.find(function (d) { return d.id === docId; });
     if (fullDoc) {
       const content = fullDoc.content || '';
       const limit = 3000;
@@ -8842,11 +8855,18 @@ function getAIContextMessage(projId) {
   return context;
 }
 
-// 获取员工关联文档
-function getEmployeeDocContext(empId) {
-  const docsData = JSON.parse(localStorage.getItem('sb_docs') || '{}');
-  const docs = Object.values(docsData).filter(function (d) {
-    return (d && d.linkedEmployees && d.linkedEmployees.includes)(empId);
+// 获取员工关联文档 — v2 从后端知识库获取
+async function getEmployeeDocContext(empId) {
+  var backendDocs = [];
+  try {
+    var r = await apiFetch('/api/knowledge');
+    backendDocs = await r.json();
+  } catch (e) {
+    console.warn('[DocContext] 后端知识库加载失败:', e);
+    return '';
+  }
+  const docs = backendDocs.filter(function (d) {
+    return d && d.linkedEmployees && d.linkedEmployees.indexOf(empId) > -1;
   });
   if (docs.length === 0) return '';
   let context = '\n\n📌 相关文档：\n';
@@ -8859,14 +8879,71 @@ function getEmployeeDocContext(empId) {
   return context;
 }
 
-// 获取当前对话的完整文档上下文
-function getDocContextForChat() {
+// 获取当前对话的完整文档上下文 — v2 异步
+async function getDocContextForChat() {
   const activeProj = document.querySelector('.list-item[data-proj].active');
-  if (activeProj) return getAIContextMessage(activeProj.dataset.proj);
+  if (activeProj) return await getAIContextMessage(activeProj.dataset.proj);
   const activeEmp = document.querySelector('.list-item[data-id].active');
-  if (activeEmp) return getEmployeeDocContext(activeEmp.dataset.id);
+  if (activeEmp) return await getEmployeeDocContext(activeEmp.dataset.id);
   return '';
 }
+
+// 一次性迁移：localStorage sb_docs → 后端知识库
+async function syncLocalStorageDocsToBackend() {
+  var raw = localStorage.getItem('sb_docs');
+  if (!raw) return;
+  var docsData;
+  try {
+    docsData = JSON.parse(raw);
+  } catch (e) {
+    console.warn('[SyncDocs] localStorage sb_docs 解析失败:', e);
+    return;
+  }
+  var docs = Object.values(docsData).filter(function (d) {
+    return d && typeof d === 'object';
+  });
+  if (docs.length === 0) {
+    localStorage.removeItem('sb_docs');
+    return;
+  }
+  // 先获取后端已有文档，避免重复
+  var existingIds = {};
+  try {
+    var r = await apiFetch('/api/knowledge');
+    var existing = await r.json();
+    existing.forEach(function (d) { existingIds[d.id] = true; });
+  } catch (e) {
+    console.warn('[SyncDocs] 获取后端知识库失败:', e);
+  }
+  var migrated = 0;
+  for (var i = 0; i < docs.length; i++) {
+    var d = docs[i];
+    if (existingIds[d.id]) continue;
+    try {
+      await apiFetch('/api/knowledge', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: d.id,
+          name: d.name || '未命名文档',
+          content: d.content || '',
+          icon: d.icon || '📄',
+          linkedEmployees: d.linkedEmployees || []
+        })
+      });
+      migrated++;
+    } catch (e) {
+      console.warn('[SyncDocs] 迁移文档失败:', d.id, e);
+    }
+  }
+  if (migrated > 0) {
+    console.log('[SyncDocs] 已从 localStorage 迁移 ' + migrated + ' 篇文档到后端知识库');
+    showToast('📚 已同步 ' + migrated + ' 篇本地文档到后端知识库');
+  } else {
+    console.log('[SyncDocs] 无需迁移（后端已存在或本地无文档）');
+  }
+  localStorage.removeItem('sb_docs');
+}
+
 function showBulletinBar(projId) {
   const bar = document.getElementById('bulletinBar');
   const bulletin = bulletinData[projId];
@@ -9488,12 +9565,7 @@ function filterModels(q) {
 function resetContext() {
   var empId = localStorage.getItem('sb_current_emp');
   var groupId = currentGroupId;
-  // 清空 localStorage
-  if (groupId) {
-    localStorage.removeItem('sb_group_history_' + groupId);
-  }
   if (empId) {
-    localStorage.removeItem('sb_chat_history_' + empId);
     // 清空后端记录
     if (typeof apiFetch === 'function') {
       apiFetch('/api/chat/' + encodeURIComponent(empId), {
@@ -9522,48 +9594,19 @@ function compressContext() {
     return;
   }
 
-  // 从 localStorage 读取 history，保留最近 12 条（约 6 轮对话）
-  var historyKey = 'sb_chat_history_' + empId;
-  var history = JSON.parse(localStorage.getItem(historyKey) || '[]');
-  if (history.length < 12) {
-    showToast('\u{1F4DD} 对话太少，无需压缩');
-    return;
-  }
-
-  var oldCount = history.length;
-  var kept = history.slice(-12);
-  localStorage.setItem(historyKey, JSON.stringify(kept));
-
-  // 重新渲染保留的消息
-  const area = document.getElementById('messagesArea');
-  area.innerHTML = '<div class="time-separator"><span>今天</span></div>';
-
-  // 插入压缩摘要
-  var summaryHtml = '<div class="msg"><div class="msg-bubble" style="background:var(--accent-light);border:1px solid var(--accent);border-radius:12px;padding:12px;margin:12px 0;">' +
-    '<div style="font-weight:600;margin-bottom:8px;">\u{1F4E6} 上下文已压缩</div>' +
-    '<div style="font-size:12px;color:var(--text-secondary);">已清理 ' + (oldCount - kept.length) + ' 条早期消息，保留 ' + kept.length + ' 条关键上下文</div>' +
-    '</div></div>';
-  area.insertAdjacentHTML('beforeend', summaryHtml);
-
-  // 渲染保留的消息（用户消息 + AI 消息都从 history 重新生成）
-  kept.forEach(function (m) {
-    var own = m.role === 'user';
-    var timeStr = new Date(m.time).toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-    var html = '<div class="msg ' + (own ? 'own' : '') + '">' +
-      (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') +
-      '<div class="msg-content">' +
-      (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp)) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' :
-      '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') +
-      '<div class="msg-bubble">' + escapeHtml(m.content) + '</div>' +
-      '</div></div>';
-    area.insertAdjacentHTML('beforeend', html);
+  // 触发后端压缩并重新渲染
+  apiFetch('/api/chat/summarize/' + encodeURIComponent(empId), {
+    method: 'POST'
+  }).then(function (r) {
+    return r.json();
+  }).then(function (data) {
+    console.log('[Chat] 摘要压缩完成:', data);
+    showToast('\u{1F4E6} 上下文已压缩');
+    renderMsgs('private');
+  }).catch(function (e) {
+    console.warn('[Chat] 摘要压缩失败:', e);
+    showToast('⚠️ 压缩失败');
   });
-
-  area.scrollTop = area.scrollHeight;
-  showToast('\u{1F4E6} 上下文已压缩（保留 ' + kept.length + ' 条）');
 }
 // 上下文管理面板
 function showContextMenu() {
@@ -9625,7 +9668,10 @@ function archiveCurrent() {
     });
     if (emp) {
       emp.archived = true;
-      saveArchive();
+      saveEmployees();
+      if (typeof syncEmpToServer === 'function') {
+        syncEmpToServer(emp).catch(function (e) {});
+      }
       renderEmployeeList();
       document.querySelector('.chat-header-name').textContent = '已归档';
       document.querySelector('.chat-header-sub').textContent = emp.name + ' 已移至归档';
@@ -9991,82 +10037,120 @@ function renderMemoryTab(empId) {
   contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
   if (emptyEl) emptyEl.style.display = 'none';
 
-  // 从后端API加载记忆
-  if (typeof apiFetch === 'function') {
-    apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) {
-      return r.json();
-    }).then(function (memories) {
-      // 更新 Tab 计数
-      var coreCount = memories.filter(function (m) {
-        return m.key !== 'auto_extract' && m.key !== 'auto';
-      }).length;
-      var dailyCount = memories.filter(function (m) {
-        return m.key === 'auto_extract' || m.key === 'auto';
-      }).length;
+  // 从后端API加载知识库（v2 持久化）
+  var kbPromise = typeof apiFetch === 'function' ?
+    apiFetch('/api/knowledge').then(function (r) { return r.json(); }).catch(function () { return []; }) :
+    Promise.resolve([]);
 
-      // 计算知识库文档数
-      var kbCount = 0;
-      try {
-        var docsData = JSON.parse(localStorage.getItem('sb_docs') || '{}');
-        kbCount = Object.values(docsData).filter(function (d) {
-          return d && d.linkedEmployees && d.linkedEmployees.indexOf(empId) > -1;
-        }).length;
-      } catch (e) {}
+  // 从后端API加载记忆（v2 分池格式）
+  if (typeof apiFetch === 'function') {
+    Promise.all([
+      apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) { return r.json(); }),
+      kbPromise
+    ]).then(function (results) {
+      var data = results[0];
+      var kbDocs = results[1] || [];
+
+      // v2 分池格式：{core: [...], daily: [...], archive: [...]}
+      var coreList = data.core || [];
+      var dailyList = data.daily || [];
+      var archiveList = data.archive || [];
+      var coreCount = coreList.length;
+      var dailyCount = dailyList.length;
+      var archiveCount = archiveList.length;
+
+      // 知识库：筛选关联文档
+      var linkedDocs = kbDocs.filter(function (d) {
+        return d && d.linkedEmployees && d.linkedEmployees.indexOf(empId) > -1;
+      });
+      var kbCount = linkedDocs.length;
 
       var coreTab = document.querySelector('.memory-tab[data-mtab="core"]');
       var dailyTab = document.querySelector('.memory-tab[data-mtab="daily"]');
+      var archiveTab = document.querySelector('.memory-tab[data-mtab="archive"]');
       var kbTab = document.querySelector('.memory-tab[data-mtab="kb"]');
-      if (coreTab) coreTab.textContent = '核心记忆 (' + coreCount + ')';
-      if (dailyTab) dailyTab.textContent = '日常记录 (' + dailyCount + ')';
+      if (coreTab) coreTab.textContent = '核心记忆 (' + coreCount + '/' + (data.config && data.config.core_max || 100) + ')';
+      if (dailyTab) dailyTab.textContent = '日常记录 (' + dailyCount + '/' + (data.config && data.config.daily_max || 100) + ')';
+      if (archiveTab) archiveTab.textContent = '归档 (' + archiveCount + ')';
       if (kbTab) kbTab.textContent = '知识库 (' + kbCount + ')';
 
-      // 知识库模式：显示关联文档
+      // 知识库模式：显示关联文档（后端持久化）
       if (currentMemoryTab === 'kb') {
-        var kbHtml = '';
-        try {
-          var docsData2 = JSON.parse(localStorage.getItem('sb_docs') || '{}');
-          var linkedDocs = Object.values(docsData2).filter(function (d) {
-            return d && d.linkedEmployees && d.linkedEmployees.indexOf(empId) > -1;
+        if (linkedDocs.length === 0) {
+          contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无关联文档，员工关联的文档会作为知识库记忆注入AI上下文</div>';
+        } else {
+          var kbHtml = '';
+          linkedDocs.forEach(function (d) {
+            var content = d.content || '';
+            var preview = content.length > 300 ? content.slice(0, 300) + '...' : content;
+            kbHtml += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;">';
+            kbHtml += '<div class="memory-item-content" style="flex:1;">';
+            kbHtml += '<div style="margin-bottom:6px;"><span style="font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px;margin-right:6px;">📚 知识库</span></div>';
+            kbHtml += '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">' + escapeHtml(d.name || '未命名文档') + '</div>';
+            kbHtml += '<div class="memory-item-text" style="font-size:13px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(preview) + '</div>';
+            kbHtml += '</div>';
+            kbHtml += '</div>';
           });
-          if (linkedDocs.length === 0) {
-            contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无关联文档，员工关联的文档会作为知识库记忆注入AI上下文</div>';
-          } else {
-            linkedDocs.forEach(function (d) {
-              var content = d.content || '';
-              var preview = content.length > 300 ? content.slice(0, 300) + '...' : content;
-              kbHtml += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;">';
-              kbHtml += '<div class="memory-item-content" style="flex:1;">';
-              kbHtml += '<div style="margin-bottom:6px;"><span style="font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px;margin-right:6px;">📚 知识库</span></div>';
-              kbHtml += '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">' + escapeHtml(d.name || '未命名文档') + '</div>';
-              kbHtml += '<div class="memory-item-text" style="font-size:13px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(preview) + '</div>';
-              kbHtml += '</div>';
-              kbHtml += '</div>';
-            });
-            contentEl.innerHTML = kbHtml;
-          }
-        } catch (e) {
-          contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载知识库失败</div>';
+          contentEl.innerHTML = kbHtml;
         }
-        // 更新记忆总数（包含知识库）
         if (headerEl) {
-          headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + (memories.length + kbCount) + ')</span>';
+          headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + (coreCount + dailyCount + kbCount) + ')</span>';
         }
         return;
       }
 
-      // 过滤记忆：按 currentMemoryTab 分类
-      var filtered = memories.filter(function (m) {
-        if (currentMemoryTab === 'core') {
-          return m.key !== 'auto_extract' && m.key !== 'auto';
+      // 归档模式：显示已归档记忆（可恢复）
+      if (currentMemoryTab === 'archive') {
+        if (archiveList.length === 0) {
+          contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无归档记忆，过期日常记录会自动归档到这里</div>';
         } else {
-          return m.key === 'auto_extract' || m.key === 'auto';
+          var archHtml = '';
+          archiveList.forEach(function (m) {
+            var timeStr = m.time ? formatTimeAgo(new Date(m.time)) : '';
+            var archivedTimeStr = m.archivedTime ? formatTimeAgo(new Date(m.archivedTime)) : '';
+            var sourceLabel = m.source ? '<span style="font-size:11px;color:var(--text-secondary);background:var(--bg-tertiary);padding:2px 6px;border-radius:4px;margin-right:6px;">' + escapeHtml(m.source) + '</span>' : '';
+            archHtml += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;opacity:0.85;">';
+            archHtml += '<div class="memory-item-content" style="flex:1;">';
+            archHtml += '<div style="margin-bottom:6px;">' + sourceLabel + '<span style="font-size:10px;color:#fff;background:#8E8E93;padding:1px 5px;border-radius:4px;margin-left:6px;">已归档</span></div>';
+            archHtml += '<div class="memory-item-text" style="font-size:14px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(m.value || '') + '</div>';
+            archHtml += '<div class="memory-item-date" style="font-size:11px;color:var(--text-tertiary);margin-top:6px;">原始时间: ' + escapeHtml(timeStr) + ' · 归档时间: ' + escapeHtml(archivedTimeStr) + '</div>';
+            archHtml += '</div>';
+            archHtml += '<div class="memory-item-actions" style="display:flex;gap:4px;opacity:0;transition:opacity 0.2s;">';
+            archHtml += '<button class="memory-action-btn" onclick="restoreMemory(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\')" title="恢复到日常记录" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--accent);display:flex;align-items:center;justify-content:center;">';
+            archHtml += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18"/><path d="M12 3v18"/><path d="M12 3l-4 4"/><path d="M12 3l4 4"/></svg>';
+            archHtml += '</button>';
+            archHtml += '<button class="memory-action-btn" onclick="deleteMemory(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\')" title="永久删除" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--text-tertiary);display:flex;align-items:center;justify-content:center;">';
+            archHtml += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+            archHtml += '</button>';
+            archHtml += '</div>';
+            archHtml += '</div>';
+          });
+          contentEl.innerHTML = archHtml;
+          // 添加hover效果
+          var archItems = contentEl.querySelectorAll('.memory-item');
+          archItems.forEach(function (item) {
+            item.addEventListener('mouseenter', function () {
+              var actions = this.querySelector('.memory-item-actions');
+              if (actions) actions.style.opacity = '1';
+            });
+            item.addEventListener('mouseleave', function () {
+              var actions = this.querySelector('.memory-item-actions');
+              if (actions) actions.style.opacity = '0';
+            });
+          });
         }
-      });
+        if (headerEl) {
+          headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + (coreCount + dailyCount) + ')</span>';
+        }
+        return;
+      }
+
+      // 过滤记忆：按 currentMemoryTab 从对应分池取
+      var filtered = currentMemoryTab === 'core' ? coreList : dailyList;
 
       // 更新记忆总数
       if (headerEl) {
-        var count = memories && memories.length ? memories.length : 0;
-        headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + count + ')</span>';
+        headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + (coreCount + dailyCount) + ')</span>';
       }
       if (filtered.length === 0) {
         contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">' + (currentMemoryTab === 'core' ? '暂无核心记忆，手动添加的记忆会显示在这里' : '暂无日常记录，AI自动提取的记忆会显示在这里') + '</div>';
@@ -10080,21 +10164,21 @@ function renderMemoryTab(empId) {
         var timeStr = m.time ? formatTimeAgo(new Date(m.time)) : '';
         var sourceLabel = m.source ? '<span style="font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px;margin-right:6px;">' + escapeHtml(m.source) + '</span>' : '';
         var isAutoExtract = m.key === 'auto_extract' || m.key === 'auto';
-        // 计算过期状态
-        var expireBadge = '';
+        // v2：过期提示改为归档提示
+        var archiveBadge = '';
         if (isAutoExtract && m.time) {
           var ageMs = nowMs - m.time;
           var remainMs = ttlMs - ageMs;
           if (remainMs <= 0) {
-            expireBadge = '<span style="font-size:10px;color:#fff;background:#FF3B30;padding:1px 5px;border-radius:4px;margin-left:6px;">已过期</span>';
+            archiveBadge = '<span style="font-size:10px;color:#fff;background:#FF3B30;padding:1px 5px;border-radius:4px;margin-left:6px;">待归档</span>';
           } else if (remainMs < warningMs) {
             var remainDays = Math.ceil(remainMs / (24 * 3600 * 1000));
-            expireBadge = '<span style="font-size:10px;color:#fff;background:#FF9500;padding:1px 5px;border-radius:4px;margin-left:6px;">' + remainDays + '天后过期</span>';
+            archiveBadge = '<span style="font-size:10px;color:#fff;background:#FF9500;padding:1px 5px;border-radius:4px;margin-left:6px;">' + remainDays + '天后归档</span>';
           }
         }
         html += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;">';
         html += '<div class="memory-item-content" style="flex:1;">';
-        html += '<div style="margin-bottom:6px;">' + sourceLabel + expireBadge + '</div>';
+        html += '<div style="margin-bottom:6px;">' + sourceLabel + archiveBadge + '</div>';
         html += '<div class="memory-item-text" id="memText_' + escapeAttr(m.id) + '" style="font-size:14px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(m.value || '') + '</div>';
         html += '<div class="memory-item-edit" id="memEdit_' + escapeAttr(m.id) + '" style="display:none;">';
         html += '<textarea class="memory-edit-input" id="memInput_' + escapeAttr(m.id) + '" style="width:100%;min-height:60px;padding:8px;border:1px solid var(--accent);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);font-size:14px;line-height:1.5;resize:vertical;box-sizing:border-box;" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();saveMemoryEdit(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\');}">' + escapeHtml(m.value || '') + '</textarea>';
@@ -10244,60 +10328,49 @@ function deleteMemory(empId, memoryId) {
 }
 function promoteToCore(empId, memoryId) {
   if (!confirm('确定将此记忆升级为核心记忆？')) return;
-
-  // 先获取记忆内容
-  apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) {
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + encodeURIComponent(memoryId) + '/promote', {
+    method: 'POST'
+  }).then(function (r) {
     return r.json();
-  }).then(function (memories) {
-    var memory = memories.find(function (m) {
-      return m.id === memoryId;
-    });
-    if (!memory) {
-      showToast('❌ 记忆不存在');
-      return;
-    }
-
-    // 先删旧的
-    return apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + encodeURIComponent(memoryId), {
-      method: 'DELETE'
-    }).then(function () {
-      // 再以 core 身份重新创建
-      return apiFetch('/api/memory/' + encodeURIComponent(empId), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          key: 'core',
-          value: memory.value,
-          source: memory.source
-        })
-      });
-    });
   }).then(function () {
     showToast('✅ 已升级为核心记忆');
     renderMemoryTab(empId);
     updateMemoryTabTitle(empId);
   }).catch(function (e) {
-    showToast('❌ 升级失败');
+    showToast('❌ 升级失败: ' + (e.message || '核心池已满'));
     console.warn('[Memory] 升级失败:', e);
+  });
+}
+function restoreMemory(empId, memoryId) {
+  if (!confirm('确定将此归档记忆恢复到日常记录？')) return;
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + encodeURIComponent(memoryId) + '/restore', {
+    method: 'POST'
+  }).then(function (r) {
+    return r.json();
+  }).then(function () {
+    showToast('✅ 已恢复到日常记录');
+    renderMemoryTab(empId);
+    updateMemoryTabTitle(empId);
+  }).catch(function (e) {
+    showToast('❌ 恢复失败: ' + (e.message || '日常池已满'));
+    console.warn('[Memory] 恢复失败:', e);
   });
 }
 function cleanupExpiredMemories() {
   var empId = localStorage.getItem('sb_current_emp');
   if (!empId) return;
-  // 后端 GET /api/memory 会自动清理过期记录，重新加载即可
-  apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) {
+  // v2：调用归档 API，将过期日常记录标记为 archived=True（不删除，可恢复）
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/archive', {
+    method: 'POST'
+  }).then(function (r) {
     return r.json();
-  }).then(function (memories) {
+  }).then(function (data) {
     renderMemoryTab(empId);
     updateMemoryTabTitle(empId);
-    var dailyCount = memories.filter(function (m) {
-      return m.key === 'auto_extract' || m.key === 'auto';
-    }).length;
-    showToast('✅ 已清理过期日常记录（剩余 ' + dailyCount + ' 条）');
+    showToast('✅ 已标记 ' + (data.archived || 0) + ' 条过期日常记录为归档（可在归档标签恢复）');
   }).catch(function (e) {
-    showToast('❌ 清理失败');
+    showToast('❌ 归档失败');
+    console.warn('[Memory] 归档失败:', e);
   });
 }
 
@@ -10492,12 +10565,19 @@ function openGroupDetail(groupId) {
   // 更新信息区成员数
   var infoMemberEl = document.getElementById('groupInfoMemberCount');
   if (infoMemberEl) infoMemberEl.textContent = memberCount;
-  // 更新消息数
+  // 更新消息数（从后端获取）
   var msgCountEl = document.getElementById('groupInfoMsgCount');
   if (msgCountEl) {
-    var histKey = 'sb_group_history_' + groupId;
-    var hist = JSON.parse(localStorage.getItem(histKey) || '[]');
-    msgCountEl.textContent = hist.length;
+    msgCountEl.textContent = '-';
+    apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/history')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var messages = (data && data.messages) || [];
+        if (msgCountEl) msgCountEl.textContent = messages.length;
+      })
+      .catch(function () {
+        if (msgCountEl) msgCountEl.textContent = '0';
+      });
   }
   var gdAvatar = document.getElementById('groupDetailAvatar');
   if (gdAvatar) {
@@ -10999,8 +11079,11 @@ function updateMemoryTabTitle(empId) {
   if (!tabBtn) return;
   apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) {
     return r.json();
-  }).then(function (memories) {
-    var count = memories && memories.length ? memories.length : 0;
+  }).then(function (data) {
+    var core = (data && data.core) || [];
+    var daily = (data && data.daily) || [];
+    var archive = (data && data.archive) || [];
+    var count = core.length + daily.length + archive.length;
     tabBtn.textContent = '记忆 (' + count + ')';
   }).catch(function () {
     tabBtn.textContent = '记忆';
@@ -11355,7 +11438,6 @@ function deleteEmployee(empId) {
   emps = emps.filter(function (e) {
     return e.id !== empId;
   });
-  localStorage.removeItem('sb_chat_history_' + empId);
   if (localStorage.getItem('sb_current_emp') === empId) {
     localStorage.removeItem('sb_current_emp');
   }
@@ -11746,19 +11828,7 @@ function renderLounge() {
     content.innerHTML = '<div class="lounge-stat">🏖️ 休闲区 · <span>' + onlineCount + '</span> 在线 / <span>' + workingCount + '</span> 工作中 / ' + total + ' 总计</div>' + emps.map(function (e) {
       var statusDot = getStatusDot(e.status);
       var roleTag = getEmpRoleDisplay(e) ? '<span class="lounge-role-tag">' + escapeHtml(getEmpRoleDisplay(e)) + '</span>' : '';
-      // Get today's chat count for this emp
-      var chatKey = 'sb_chat_history_' + (e.id || '');
-      var chatHistory = [];
-      try {
-        var chatData = localStorage.getItem(chatKey);
-        if (chatData) chatHistory = JSON.parse(chatData);
-      } catch (err) {
-        chatHistory = [];
-      }
-      var todayChatCount = chatHistory.filter(function (m) {
-        var msgDate = m.time ? new Date(m.time).toDateString() : '';
-        return msgDate === new Date().toDateString();
-      }).length;
+      var todayChatCount = 0;
       return '<div class="lounge-item" data-emp-id="' + escapeAttr(e.id || '') + '" onclick="openEmpDetail(\'' + escapeAttr(e.id || '') + '\')">' + '<div class="lounge-avatar-wrap">' + '<div class="avatar" style="background:' + escapeAttr(e.bg || e.color || '#999') + ';display:flex;align-items:center;justify-content:center;">' + renderAvatar(e, 36) + '</div>' + '<div class="lounge-status-dot">' + statusDot + '</div>' + '</div>' + '<div class="lounge-item-info">' + '<div class="lounge-item-name">' + escapeHtml(e.name || '') + ' ' + roleTag + '</div>' + '<div class="lounge-item-status">' + escapeHtml(e.msg || e.lastActive || '离线') + '</div>' + '</div>' + (e.status === 'offline' ? '<button class="lounge-wake-btn" onclick="event.stopPropagation();wakeUpEmployee(\'' + escapeAttr(e.id || '') + '\')" title="唤醒员工">☀️</button>' : '') +
       // Hover preview card
       '<div class="lounge-preview-card">' + '<div class="lounge-preview-header">' + '<div class="avatar" style="background:' + escapeAttr(e.bg || e.color || '#999') + ';display:flex;align-items:center;justify-content:center;">' + renderAvatar(e, 32) + '</div>' + '<div>' + '<div class="lounge-preview-name">' + statusDot + ' ' + escapeHtml(e.name || '') + '</div>' + '<div class="lounge-preview-role">' + escapeHtml(getEmpRoleDisplay(e)) + '</div>' + '</div>' + '</div>' + '<div class="lounge-preview-divider"></div>' + '<div class="lounge-preview-row">📋 <span class="lounge-preview-label">当前：</span>' + escapeHtml(e.msg || '暂无任务') + '</div>' + '<div class="lounge-preview-row">💬 <span class="lounge-preview-label">今日对话：</span>' + todayChatCount + '条</div>' + '<div class="lounge-preview-row">⏱️ <span class="lounge-preview-label">状态：</span>' + escapeHtml(e.status || '离线') + '</div>' + '</div>' + '</div>';
@@ -12030,6 +12100,9 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
     systemPrompt += summaryText;
   }
 
+  // 注入商品库/达人库/匹配引擎工具说明（主大脑管控）
+  systemPrompt += buildAgentToolsContext();
+
   var messages = [{
     role: 'system',
     content: systemPrompt
@@ -12223,34 +12296,6 @@ function saveChatHistory(empId, userMsg, aiMsg, docContext) {
     console.warn('[saveChatHistory] empId 为空，跳过保存');
     return;
   }
-  var history = JSON.parse(localStorage.getItem('sb_chat_history_' + empId) || '[]');
-  var now = Date.now();
-  // 如果最后一条不是相同的用户消息，才追加（避免 sendMsg 已保存导致重复）
-  if (history.length === 0 || history[history.length - 1].role !== 'user' || history[history.length - 1].content !== userMsg) {
-    history.push({
-      role: 'user',
-      content: userMsg,
-      time: now,
-      empId: empId
-    });
-  }
-  if (docContext && docContext.length > 0) history.push({
-    role: 'system',
-    content: '[文档]' + docContext,
-    time: now,
-    empId: empId
-  });
-  // 去重：如果最后一条已经是相同的 assistant 消息，不再追加（避免刷新或重试导致重复）
-  if (history.length === 0 || history[history.length - 1].role !== 'assistant' || history[history.length - 1].content !== aiMsg) {
-    history.push({
-      role: 'assistant',
-      content: aiMsg,
-      time: now,
-      empId: empId
-    });
-  }
-  localStorage.setItem('sb_chat_history_' + empId, JSON.stringify(history.slice(-50)));
-
   // 同步到后端
   saveChatToServer(empId, userMsg, aiMsg, docContext);
 
@@ -12258,27 +12303,6 @@ function saveChatHistory(empId, userMsg, aiMsg, docContext) {
   setTimeout(function () {
     extractAndSaveMemory(empId, userMsg, aiMsg);
   }, 800);
-
-  // 保存后检查是否需要压缩
-  var chatKey = 'sb_chat_history_' + empId;
-  var currentHistory = JSON.parse(localStorage.getItem(chatKey) || '[]');
-  if (currentHistory.length > 20) {
-    // 触发后端压缩
-    apiFetch('/api/chat/summarize/' + encodeURIComponent(empId), {
-      method: 'POST'
-    }).then(function (r) {
-      return r.json();
-    }).then(function (data) {
-      console.log('[Chat] 摘要压缩完成:', data);
-      // 压缩成功后，本地只保留最近10条
-      if (data.compressed) {
-        var kept = currentHistory.slice(-10);
-        localStorage.setItem(chatKey, JSON.stringify(kept));
-      }
-    }).catch(function (e) {
-      console.warn('[Chat] 摘要压缩失败:', e);
-    });
-  }
 }
 function extractAndSaveMemory(empId, userMsg, aiReply, isGroupChat) {
   console.log('[Memory] extractAndSaveMemory 被调用:', empId, 'userMsg长度:', (userMsg || '').length, 'aiReply长度:', (aiReply || '').length, 'isGroupChat:', isGroupChat);
@@ -12520,6 +12544,90 @@ function _processExtractedMemory(empId, extracted, existing) {
 }
 
 // 显示 AI 回复
+// ========== Agent 工具调用（主大脑管控商品库/达人库）==========
+function buildAgentToolsContext() {
+  return '\n\n【系统资源（由主大脑管理，你可请求调用）】\n' +
+    '你作为AI员工，可以通过主大脑访问以下资源。当用户有相关需求时，你可以主动提出帮忙操作。\n\n' +
+    '1. 商品库 (/api/products)\n' +
+    '   - 查询商品列表、按分类/标签搜索\n' +
+    '   - 录入新商品、编辑商品信息\n' +
+    '   - 每个商品有：名称、SKU、分类、价格、库存、标签、状态\n\n' +
+    '2. 达人库 (/api/influencers)\n' +
+    '   - 查询达人列表、按平台/分类/粉丝数筛选\n' +
+    '   - 录入新达人、编辑达人信息\n' +
+    '   - 每个达人有：名称、平台、账号、粉丝数、分类、报价、互动率、标签\n\n' +
+    '3. 匹配引擎 (/api/match)\n' +
+    '   - 为指定商品智能匹配适合的推广达人\n' +
+    '   - 为指定达人智能匹配适合推广的商品\n' +
+    '   - 匹配维度：分类、标签、价格区间、粉丝数、互动率\n\n' +
+    '当你需要执行以上操作时，请在回复末尾使用以下格式（用户看不到这段标记）：\n' +
+    '[TOOL_CALL]{"action":"list_products"}[/TOOL_CALL]\n' +
+    '或 [TOOL_CALL]{"action":"match_product","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
+    '主大脑会自动执行并把结果展示给用户。\n' +
+    '【注意】禁止编造不存在的商品或达人信息，所有数据以主大脑查询结果为准。';
+}
+
+function parseToolCalls(text) {
+  var regex = /\[TOOL_CALL\]([\s\S]*?)\[\/TOOL_CALL\]/g;
+  var calls = [];
+  var m;
+  while ((m = regex.exec(text)) !== null) {
+    try {
+      calls.push(JSON.parse(m[1].trim()));
+    } catch (e) {}
+  }
+  return calls;
+}
+
+async function executeToolCall(call) {
+  try {
+    switch (call.action) {
+      case 'list_products':
+        var r = await apiFetch('/api/products');
+        var data = await r.json();
+        return '📦 商品库当前共有 ' + (data.total || data.products.length) + ' 个商品：\n' +
+          data.products.slice(0, 10).map(function(p) {
+            return '- ' + p.name + ' (¥' + (p.price || 0).toFixed(2) + ', ' + (p.category || '未分类') + ', 库存' + (p.stock || 0) + ')';
+          }).join('\n');
+      case 'list_influencers':
+        var r = await apiFetch('/api/influencers');
+        var data = await r.json();
+        return '🎙️ 达人库当前共有 ' + (data.total || data.influencers.length) + ' 个达人：\n' +
+          data.influencers.slice(0, 10).map(function(i) {
+            return '- ' + i.name + ' (' + (i.platform || '-') + ', 粉丝' + (i.followerCount >= 10000 ? (i.followerCount/10000).toFixed(1)+'w' : (i.followerCount || 0)) + ', 报价¥' + (i.cooperationPrice || 0).toFixed(0) + ')';
+          }).join('\n');
+      case 'match_product':
+        var pid = call.params && call.params.productId;
+        if (!pid) return '【工具执行失败】缺少 productId';
+        var r = await apiFetch('/api/match/product-to-influencer', {
+          method: 'POST',
+          body: JSON.stringify({productId: pid, limit: 5})
+        });
+        var data = await r.json();
+        return '🔗 为商品「' + (data.product && data.product.name || '未知') + '」匹配到 ' + data.results.length + ' 个达人：\n' +
+          data.results.slice(0, 5).map(function(res) {
+            return '- ' + res.influencer.name + ' (匹配度' + res.score + '分, ' + res.reasons.slice(0, 3).join('、') + ')';
+          }).join('\n');
+      case 'match_influencer':
+        var iid = call.params && call.params.influencerId;
+        if (!iid) return '【工具执行失败】缺少 influencerId';
+        var r = await apiFetch('/api/match/influencer-to-product', {
+          method: 'POST',
+          body: JSON.stringify({influencerId: iid, limit: 5})
+        });
+        var data = await r.json();
+        return '🔗 为达人「' + (data.influencer && data.influencer.name || '未知') + '」匹配到 ' + data.results.length + ' 个商品：\n' +
+          data.results.slice(0, 5).map(function(res) {
+            return '- ' + res.product.name + ' (匹配度' + res.score + '分)';
+          }).join('\n');
+      default:
+        return '【工具执行失败】未知操作: ' + call.action;
+    }
+  } catch (e) {
+    return '【工具执行失败】' + (e.message || String(e));
+  }
+}
+
 function displayAIReply(replyText, docContext, timeStr, expectedEmpId) {
   var area = document.getElementById('messagesArea');
   // 防御性校验：如果指定了 expectedEmpId，必须匹配当前员工才渲染，防止切换后串渲染
@@ -12559,8 +12667,12 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId) {
       saveEmployees();
     }
   }
-  var bubble = formatMessageContent(replyText);
-  if (hasDocs && replyText && replyText.indexOf('📚') === -1) {
+  // 解析并移除工具调用标记
+  var toolCalls = parseToolCalls(replyText);
+  var cleanText = replyText.replace(/\[TOOL_CALL\][\s\S]*?\[\/TOOL_CALL\]/g, '').trim();
+
+  var bubble = formatMessageContent(cleanText);
+  if (hasDocs && cleanText && cleanText.indexOf('📚') === -1) {
     bubble += '<div class="ai-doc-hint">📚 已读取 ' + countDocsInContext(docContext) + ' 个相关文档</div>';
   }
   var html = '<div class="msg">\n';
@@ -12571,6 +12683,24 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId) {
   html += '</div></div>';
   area.insertAdjacentHTML('beforeend', html);
   area.scrollTop = area.scrollHeight;
+
+  // 如果有工具调用，主大脑自动执行并展示结果
+  if (toolCalls.length > 0) {
+    (async function() {
+      for (var i = 0; i < toolCalls.length; i++) {
+        var result = await executeToolCall(toolCalls[i]);
+        var toolTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+        var toolHtml = '<div class="msg">\n';
+        toolHtml += '<div class="msg-avatar" style="font-size:20px;">🧠</div>\n';
+        toolHtml += '<div class="msg-content">\n';
+        toolHtml += '<div class="msg-sender"><span class="msg-sender-name">主大脑</span><span class="msg-sender-role">系统</span><span class="msg-sender-time">' + toolTime + '</span></div>\n';
+        toolHtml += '<div class="msg-bubble" style="background:var(--accent-light);color:var(--accent);font-size:13px;white-space:pre-wrap;">' + escapeHtml(result) + '</div>\n';
+        toolHtml += '</div></div>';
+        area.insertAdjacentHTML('beforeend', toolHtml);
+        area.scrollTop = area.scrollHeight;
+      }
+    })();
+  }
 }
 
 // Init
@@ -14208,19 +14338,8 @@ function loadUserList() {
   if (!list) return;
   apiFetch('/api/users').then(function (res) {
     if (!res) {
-      // 后端没启动，用 localStorage 降级
-      var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
-      // 添加当前用户
-      if (currentUser) {
-        var exists = users.find(function (u) {
-          return u.id === currentUser.id;
-        });
-        if (!exists) {
-          users.push(currentUser);
-          localStorage.setItem('sb_users', JSON.stringify(users));
-        }
-      }
-      renderUserList(list, users);
+      // 后端没启动，显示空列表
+      renderUserList(list, []);
       return;
     }
     return res.json();
@@ -14337,15 +14456,7 @@ function createUser() {
   }).then(function (data) {
     if (data && data.error) showToast('⚠️ ' + data.error);
   }).catch(function () {
-    // 后端未启动，存 localStorage
-    var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
-    newUser.id = 'user_' + Date.now();
-    newUser.name = newUser.displayName;
-    users.push(newUser);
-    localStorage.setItem('sb_users', JSON.stringify(users));
-    showToast('✅ 用户已创建（本地模式）');
-    closeCreateUserModal();
-    loadUserList();
+    showToast('⚠️ 后端不可用，无法创建用户');
   });
 }
 
@@ -14865,14 +14976,7 @@ function deleteUser(userId) {
   }).then(function (data) {
     if (data && data.error) showToast('⚠️ ' + data.error);
   }).catch(function () {
-    // 本地降级
-    var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
-    users = users.filter(function (u) {
-      return u.id !== userId;
-    });
-    localStorage.setItem('sb_users', JSON.stringify(users));
-    showToast('✅ 用户已删除（本地模式）');
-    loadUserList();
+    showToast('⚠️ 后端不可用，无法删除用户');
   });
 }
 
@@ -14883,26 +14987,17 @@ function editUser(userId) {
     return;
   }
 
-  // 先尝试从后端获取用户，或从本地缓存
+  // 先尝试从后端获取用户
   apiFetch('/api/users/' + userId).then(function (res) {
     if (!res) {
-      // 后端未启动，用 localStorage
-      var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
-      var user = users.find(function (u) {
-        return u.id === userId;
-      });
-      if (user) showUserEditModal(user);
+      showToast('⚠️ 后端不可用');
       return null;
     }
     return res.json();
   }).then(function (user) {
     if (user) showUserEditModal(user);
   }).catch(function () {
-    var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
-    var user = users.find(function (u) {
-      return u.id === userId;
-    });
-    if (user) showUserEditModal(user);
+    showToast('⚠️ 加载用户信息失败');
   });
 }
 
@@ -14987,61 +15082,12 @@ function saveUserEdit() {
   }).then(function (data) {
     if (data && data.error) showToast('⚠️ ' + data.error);
   }).catch(function () {
-    // 离线模式：更新 localStorage
-    var users = JSON.parse(localStorage.getItem('sb_users') || '[]');
-    var user = users.find(function (u) {
-      return u.id === userId;
-    });
-    if (user) {
-      user.displayName = displayName;
-      user.role = role;
-      user.agentQuota = agentQuota;
-      localStorage.setItem('sb_users', JSON.stringify(users));
-      showToast('✅ 用户信息已更新(本地)');
-      loadUserList();
-    } else {
-      showToast('⚠️ 更新失败');
-    }
+    showToast('⚠️ 后端不可用，无法更新用户');
     closeUserEditModal();
   });
 }
 
 // 配额管理
-// 数据迁移检查：本地 localStorage 数据同步到后端
-function checkLocalMigration() {
-  var localEmps = JSON.parse(localStorage.getItem('emps') || '[]');
-  if (localEmps.length === 0) return;
-  if (!confirm('检测到本地有 ' + localEmps.length + ' 个员工数据，是否同步到服务器？\n\n同步后数据将保存在服务器，可在任何设备访问。')) {
-    return;
-  }
-  var success = 0,
-    fail = 0;
-  var promises = localEmps.map(function (emp) {
-    return apiFetch('/api/agents', {
-      method: 'POST',
-      body: JSON.stringify(Object.assign({}, emp, {
-        createdBy: currentUser && currentUser.id,
-        createdByName: currentUser && currentUser.displayName || currentUser && currentUser.name
-      }))
-    }).then(function (res) {
-      if (res && res.ok) success++;else fail++;
-    }).catch(function () {
-      fail++;
-    });
-  });
-  Promise.all(promises).then(function () {
-    showToast('迁移完成：成功 ' + success + ' 个' + (fail > 0 ? '，失败 ' + fail + ' 个' : ''));
-    if (fail === 0) {
-      localStorage.removeItem('emps');
-      // 清理聊天记录
-      localEmps.forEach(function (emp) {
-        localStorage.removeItem('sb_chat_history_' + emp.id);
-      });
-    }
-    // 重新加载
-    if (typeof renderEmployeeList === 'function') renderEmployeeList();
-  });
-}
 function setUserQuota(userId) {
   if (!isAdmin()) {
     showToast('⚠️ 只有管理员可以设置配额');
@@ -15076,6 +15122,364 @@ function checkQuota() {
     return false;
   }
   return true;
+}
+
+// ========== 商品库 ==========
+var _productSearchTimer = null;
+function openProductLibrary() {
+  document.getElementById('productLibraryPanel').style.display = 'flex';
+  loadProducts();
+}
+function closeProductLibrary() {
+  document.getElementById('productLibraryPanel').style.display = 'none';
+}
+function loadProducts() {
+  var listEl = document.getElementById('productLibraryList');
+  listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
+  apiFetch('/api/products').then(function (r) { return r.json(); }).then(function (data) {
+    renderProductList(data.products || []);
+  }).catch(function (e) {
+    listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
+    console.warn('[Product] 加载失败:', e);
+  });
+}
+function searchProductsDebounced(val) {
+  if (_productSearchTimer) clearTimeout(_productSearchTimer);
+  _productSearchTimer = setTimeout(function () { searchProducts(); }, 300);
+}
+function searchProducts() {
+  var kw = document.getElementById('productSearchInput').value.trim();
+  var cat = document.getElementById('productCategoryFilter').value;
+  var qs = [];
+  if (kw) qs.push('q=' + encodeURIComponent(kw));
+  if (cat) qs.push('category=' + encodeURIComponent(cat));
+  var url = '/api/products' + (qs.length ? '?' + qs.join('&') : '');
+  var listEl = document.getElementById('productLibraryList');
+  listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索中...</div>';
+  apiFetch(url).then(function (r) { return r.json(); }).then(function (data) {
+    renderProductList(data.products || []);
+  }).catch(function (e) {
+    listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索失败</div>';
+  });
+}
+function renderProductList(products) {
+  var listEl = document.getElementById('productLibraryList');
+  if (products.length === 0) {
+    listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">暂无商品，点击右上角"录入商品"添加</div>';
+    return;
+  }
+  var html = '';
+  products.forEach(function (p) {
+    var tagsHtml = (p.tags || []).map(function (t) { return '<span class="product-tag">' + escapeHtml(t) + '</span>'; }).join('');
+    var statusLabel = {active: '🟢 在售', inactive: '⚫ 停售', out_of_stock: '🔴 缺货'}[p.status] || p.status;
+    html += '<div class="product-card">';
+    html += '<div class="product-card-icon">📦</div>';
+    html += '<div class="product-card-info">';
+    html += '<div class="product-card-name">' + escapeHtml(p.name) + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + statusLabel + '</span></div>';
+    html += '<div class="product-card-meta">';
+    html += '<span>SKU: ' + escapeHtml(p.sku || '-') + '</span>';
+    html += '<span>分类: ' + escapeHtml(p.category || '未分类') + '</span>';
+    html += '<span>库存: ' + (p.stock || 0) + '</span>';
+    html += '</div>';
+    html += '<div style="margin-top:6px;">' + tagsHtml + '</div>';
+    html += '</div>';
+    html += '<div class="product-card-price">¥' + (p.price || 0).toFixed(2) + '</div>';
+    html += '<div class="product-card-actions">';
+    html += '<button class="memory-action-btn" onclick="matchProductToInfluencer(\'' + escapeAttr(p.id) + '\')" title="智能匹配达人" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--success);">🔗</button>';
+    html += '<button class="memory-action-btn" onclick="editProduct(\'' + escapeAttr(p.id) + '\')" title="编辑" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--accent);">✏️</button>';
+    html += '<button class="memory-action-btn" onclick="deleteProduct(\'' + escapeAttr(p.id) + '\')" title="删除" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--text-tertiary);">🗑️</button>';
+    html += '</div>';
+    html += '</div>';
+  });
+  listEl.innerHTML = html;
+}
+function showProductForm(product) {
+  document.getElementById('productModalTitle').textContent = product ? '编辑商品' : '录入商品';
+  document.getElementById('productEditId').value = product ? product.id : '';
+  document.getElementById('productName').value = product ? product.name : '';
+  document.getElementById('productSku').value = product ? (product.sku || '') : '';
+  document.getElementById('productCategory').value = product ? (product.category || '未分类') : '未分类';
+  document.getElementById('productPrice').value = product ? (product.price || 0) : '';
+  document.getElementById('productStock').value = product ? (product.stock || 0) : '';
+  document.getElementById('productTags').value = product ? (product.tags || []).join(', ') : '';
+  document.getElementById('productDescription').value = product ? (product.description || '') : '';
+  document.getElementById('productStatus').value = product ? (product.status || 'active') : 'active';
+  document.getElementById('productModalOverlay').classList.add('open');
+}
+function closeProductForm() {
+  document.getElementById('productModalOverlay').classList.remove('open');
+}
+function saveProduct() {
+  var id = document.getElementById('productEditId').value;
+  var body = {
+    name: document.getElementById('productName').value.trim(),
+    sku: document.getElementById('productSku').value.trim(),
+    category: document.getElementById('productCategory').value,
+    price: parseFloat(document.getElementById('productPrice').value) || 0,
+    stock: parseInt(document.getElementById('productStock').value) || 0,
+    tags: document.getElementById('productTags').value.split(',').map(function (t) { return t.trim(); }).filter(function (t) { return t; }),
+    description: document.getElementById('productDescription').value.trim(),
+    status: document.getElementById('productStatus').value
+  };
+  if (!body.name) {
+    showToast('⚠️ 请输入商品名称');
+    return;
+  }
+  var url = '/api/products' + (id ? '/' + encodeURIComponent(id) : '');
+  var method = id ? 'PUT' : 'POST';
+  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function (r) {
+    return r.json();
+  }).then(function () {
+    showToast('✅ 商品已保存');
+    closeProductForm();
+    searchProducts();
+  }).catch(function (e) {
+    showToast('❌ 保存失败');
+    console.warn('[Product] 保存失败:', e);
+  });
+}
+function editProduct(productId) {
+  apiFetch('/api/products?q=' + encodeURIComponent(productId)).then(function (r) { return r.json(); }).then(function (data) {
+    var p = (data.products || []).find(function (x) { return x.id === productId; });
+    if (p) showProductForm(p);
+  }).catch(function (e) {
+    showToast('❌ 加载失败');
+  });
+}
+function deleteProduct(productId) {
+  if (!confirm('确定删除此商品？')) return;
+  apiFetch('/api/products/' + encodeURIComponent(productId), {method: 'DELETE'}).then(function () {
+    showToast('✅ 商品已删除');
+    searchProducts();
+  }).catch(function (e) {
+    showToast('❌ 删除失败');
+  });
+}
+
+// ========== 达人库 ==========
+var _influencerSearchTimer = null;
+function openInfluencerLibrary() {
+  document.getElementById('influencerLibraryPanel').style.display = 'flex';
+  loadInfluencers();
+}
+function closeInfluencerLibrary() {
+  document.getElementById('influencerLibraryPanel').style.display = 'none';
+}
+function loadInfluencers() {
+  var listEl = document.getElementById('influencerLibraryList');
+  listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
+  apiFetch('/api/influencers').then(function (r) { return r.json(); }).then(function (data) {
+    renderInfluencerList(data.influencers || []);
+  }).catch(function (e) {
+    listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
+    console.warn('[Influencer] 加载失败:', e);
+  });
+}
+function searchInfluencersDebounced(val) {
+  if (_influencerSearchTimer) clearTimeout(_influencerSearchTimer);
+  _influencerSearchTimer = setTimeout(function () { searchInfluencers(); }, 300);
+}
+function searchInfluencers() {
+  var kw = document.getElementById('influencerSearchInput').value.trim();
+  var platform = document.getElementById('influencerPlatformFilter').value;
+  var cat = document.getElementById('influencerCategoryFilter').value;
+  var qs = [];
+  if (kw) qs.push('q=' + encodeURIComponent(kw));
+  if (platform) qs.push('platform=' + encodeURIComponent(platform));
+  if (cat) qs.push('category=' + encodeURIComponent(cat));
+  var url = '/api/influencers' + (qs.length ? '?' + qs.join('&') : '');
+  var listEl = document.getElementById('influencerLibraryList');
+  listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索中...</div>';
+  apiFetch(url).then(function (r) { return r.json(); }).then(function (data) {
+    renderInfluencerList(data.influencers || []);
+  }).catch(function (e) {
+    listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索失败</div>';
+  });
+}
+function renderInfluencerList(influencers) {
+  var listEl = document.getElementById('influencerLibraryList');
+  if (influencers.length === 0) {
+    listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">暂无达人，点击右上角"录入达人"添加</div>';
+    return;
+  }
+  var html = '';
+  influencers.forEach(function (i) {
+    var tagsHtml = (i.tags || []).map(function (t) { return '<span class="product-tag">' + escapeHtml(t) + '</span>'; }).join('');
+    var statusLabel = {available: '🟢 可合作', cooperating: '🔵 合作中', resting: '🟡 休整中', blacklist: '⚫ 黑名单'}[i.status] || i.status;
+    var platformIcon = {抖音: '🎵', 小红书: '📕', 快手: '⚡', B站: '📺', 微博: '🌐', 视频号: '📱', Instagram: '📷', YouTube: '▶️'}[i.platform] || '🎙️';
+    var followerText = i.followerCount >= 10000 ? (i.followerCount / 10000).toFixed(1) + 'w' : (i.followerCount || 0);
+    html += '<div class="product-card">';
+    html += '<div class="product-card-icon">' + platformIcon + '</div>';
+    html += '<div class="product-card-info">';
+    html += '<div class="product-card-name">' + escapeHtml(i.name) + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + statusLabel + '</span></div>';
+    html += '<div class="product-card-meta">';
+    html += '<span>' + escapeHtml(i.platform || '-') + '</span>';
+    html += '<span>账号: ' + escapeHtml(i.accountId || '-') + '</span>';
+    html += '<span>粉丝: ' + followerText + '</span>';
+    html += '<span>互动: ' + (i.engagementRate || 0) + '%</span>';
+    html += '</div>';
+    html += '<div style="margin-top:6px;">' + tagsHtml + '</div>';
+    html += '</div>';
+    html += '<div class="product-card-price">¥' + (i.cooperationPrice || 0).toFixed(0) + '<span style="font-size:11px;color:var(--text-secondary);font-weight:400;">/' + escapeHtml(i.priceUnit || '元') + '</span></div>';
+    html += '<div class="product-card-actions">';
+    html += '<button class="memory-action-btn" onclick="matchInfluencerToProduct(\'' + escapeAttr(i.id) + '\')" title="智能匹配商品" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--success);">🔗</button>';
+    html += '<button class="memory-action-btn" onclick="editInfluencer(\'' + escapeAttr(i.id) + '\')" title="编辑" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--accent);">✏️</button>';
+    html += '<button class="memory-action-btn" onclick="deleteInfluencer(\'' + escapeAttr(i.id) + '\')" title="删除" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--text-tertiary);">🗑️</button>';
+    html += '</div>';
+    html += '</div>';
+  });
+  listEl.innerHTML = html;
+}
+function showInfluencerForm(inf) {
+  document.getElementById('influencerModalTitle').textContent = inf ? '编辑达人' : '录入达人';
+  document.getElementById('influencerEditId').value = inf ? inf.id : '';
+  document.getElementById('influencerName').value = inf ? inf.name : '';
+  document.getElementById('influencerPlatform').value = inf ? (inf.platform || '抖音') : '抖音';
+  document.getElementById('influencerAccountId').value = inf ? (inf.accountId || '') : '';
+  document.getElementById('influencerCategory').value = inf ? (inf.category || '未分类') : '未分类';
+  document.getElementById('influencerFollowers').value = inf ? (inf.followerCount || 0) : '';
+  document.getElementById('influencerPrice').value = inf ? (inf.cooperationPrice || 0) : '';
+  document.getElementById('influencerPriceUnit').value = inf ? (inf.priceUnit || '元/条') : '元/条';
+  document.getElementById('influencerEngagement').value = inf ? (inf.engagementRate || 0) : '';
+  document.getElementById('influencerAvgViews').value = inf ? (inf.avgViews || 0) : '';
+  document.getElementById('influencerTags').value = inf ? (inf.tags || []).join(', ') : '';
+  document.getElementById('influencerStyle').value = inf ? (inf.contentStyle || '') : '';
+  document.getElementById('influencerContact').value = inf ? (inf.contact || '') : '';
+  document.getElementById('influencerBio').value = inf ? (inf.bio || '') : '';
+  document.getElementById('influencerNotes').value = inf ? (inf.notes || '') : '';
+  document.getElementById('influencerStatus').value = inf ? (inf.status || 'available') : 'available';
+  document.getElementById('influencerModalOverlay').classList.add('open');
+}
+function closeInfluencerForm() {
+  document.getElementById('influencerModalOverlay').classList.remove('open');
+}
+function saveInfluencer() {
+  var id = document.getElementById('influencerEditId').value;
+  var body = {
+    name: document.getElementById('influencerName').value.trim(),
+    platform: document.getElementById('influencerPlatform').value,
+    accountId: document.getElementById('influencerAccountId').value.trim(),
+    category: document.getElementById('influencerCategory').value,
+    followerCount: parseInt(document.getElementById('influencerFollowers').value) || 0,
+    cooperationPrice: parseFloat(document.getElementById('influencerPrice').value) || 0,
+    priceUnit: document.getElementById('influencerPriceUnit').value,
+    engagementRate: parseFloat(document.getElementById('influencerEngagement').value) || 0,
+    avgViews: parseInt(document.getElementById('influencerAvgViews').value) || 0,
+    tags: document.getElementById('influencerTags').value.split(',').map(function (t) { return t.trim(); }).filter(function (t) { return t; }),
+    contentStyle: document.getElementById('influencerStyle').value.trim(),
+    contact: document.getElementById('influencerContact').value.trim(),
+    bio: document.getElementById('influencerBio').value.trim(),
+    notes: document.getElementById('influencerNotes').value.trim(),
+    status: document.getElementById('influencerStatus').value
+  };
+  if (!body.name) {
+    showToast('⚠️ 请输入达人名称');
+    return;
+  }
+  var url = '/api/influencers' + (id ? '/' + encodeURIComponent(id) : '');
+  var method = id ? 'PUT' : 'POST';
+  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function (r) {
+    return r.json();
+  }).then(function () {
+    showToast('✅ 达人已保存');
+    closeInfluencerForm();
+    searchInfluencers();
+  }).catch(function (e) {
+    showToast('❌ 保存失败');
+    console.warn('[Influencer] 保存失败:', e);
+  });
+}
+function editInfluencer(infId) {
+  apiFetch('/api/influencers?q=' + encodeURIComponent(infId)).then(function (r) { return r.json(); }).then(function (data) {
+    var i = (data.influencers || []).find(function (x) { return x.id === infId; });
+    if (i) showInfluencerForm(i);
+  }).catch(function (e) {
+    showToast('❌ 加载失败');
+  });
+}
+function deleteInfluencer(infId) {
+  if (!confirm('确定删除此达人？')) return;
+  apiFetch('/api/influencers/' + encodeURIComponent(infId), {method: 'DELETE'}).then(function () {
+    showToast('✅ 达人已删除');
+    searchInfluencers();
+  }).catch(function (e) {
+    showToast('❌ 删除失败');
+  });
+}
+
+// ========== 智能匹配引擎 ==========
+function matchProductToInfluencer(productId) {
+  document.getElementById('matchModalTitle').textContent = '智能匹配达人';
+  document.getElementById('matchModalBody').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">正在分析匹配...</div>';
+  document.getElementById('matchModalOverlay').classList.add('open');
+  apiFetch('/api/match/product-to-influencer', {method: 'POST', body: JSON.stringify({productId: productId, limit: 10})})
+    .then(function(r){ return r.json(); })
+    .then(function(data){ renderMatchResults(data, 'product'); })
+    .catch(function(e){
+      document.getElementById('matchModalBody').innerHTML = '<div style="padding:40px;text-align:center;color:var(--danger);">匹配失败</div>';
+      console.warn('[Match] product->influencer failed:', e);
+    });
+}
+function matchInfluencerToProduct(infId) {
+  document.getElementById('matchModalTitle').textContent = '智能匹配商品';
+  document.getElementById('matchModalBody').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">正在分析匹配...</div>';
+  document.getElementById('matchModalOverlay').classList.add('open');
+  apiFetch('/api/match/influencer-to-product', {method: 'POST', body: JSON.stringify({influencerId: infId, limit: 10})})
+    .then(function(r){ return r.json(); })
+    .then(function(data){ renderMatchResults(data, 'influencer'); })
+    .catch(function(e){
+      document.getElementById('matchModalBody').innerHTML = '<div style="padding:40px;text-align:center;color:var(--danger);">匹配失败</div>';
+      console.warn('[Match] influencer->product failed:', e);
+    });
+}
+function renderMatchResults(data, type) {
+  var results = data.results || [];
+  var subject = type === 'product' ? data.product : data.influencer;
+  var html = '';
+  if (results.length === 0) {
+    html = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">未找到合适的匹配项</div>';
+    document.getElementById('matchModalBody').innerHTML = html;
+    return;
+  }
+  html += '<div style="margin-bottom:12px;color:var(--text-secondary);font-size:13px;">';
+  html += '为 <strong style="color:var(--text-primary);">' + escapeHtml(subject.name) + '</strong> 找到 ' + results.length + ' 个匹配项';
+  html += '</div>';
+  results.forEach(function(r, idx){
+    var item = type === 'product' ? r.influencer : r.product;
+    var score = r.score;
+    var percent = r.matchPercent;
+    var reasons = (r.reasons || []).map(function(rr){ return '<span class="product-tag" style="background:rgba(59,130,246,0.12);color:#3b82f6;">' + escapeHtml(rr) + '</span>'; }).join(' ');
+    var scoreColor = percent >= 80 ? '#22c55e' : (percent >= 50 ? '#f59e0b' : '#ef4444');
+    html += '<div style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;background:var(--card-bg);margin-bottom:10px;border:1px solid var(--border-color);">';
+    html += '<div style="flex-shrink:0;width:48px;height:48px;border-radius:10px;background:var(--bg-tertiary);display:flex;align-items:center;justify-content:center;font-size:20px;">' + (type==='product'?'🎙️':'📦') + '</div>';
+    html += '<div style="flex:1;min-width:0;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
+    html += '<div style="font-weight:600;color:var(--text-primary);font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(item.name) + '</div>';
+    html += '<div style="font-weight:700;font-size:16px;color:' + scoreColor + ';">' + score + '分</div>';
+    html += '</div>';
+    html += '<div style="width:100%;height:6px;background:var(--bg-tertiary);border-radius:3px;margin-bottom:6px;overflow:hidden;">';
+    html += '<div style="width:' + percent + '%;height:100%;background:' + scoreColor + ';border-radius:3px;transition:width 0.4s ease;"></div>';
+    html += '</div>';
+    html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">';
+    if (type === 'product') {
+      html += '<span>' + escapeHtml(item.platform || '-') + '</span> · ';
+      html += '<span>粉丝: ' + (item.followerCount >= 10000 ? (item.followerCount/10000).toFixed(1)+'w' : (item.followerCount||0)) + '</span> · ';
+      html += '<span>报价: ¥' + (item.cooperationPrice||0).toFixed(0) + '</span> · ';
+      html += '<span>互动: ' + (item.engagementRate||0) + '%</span>';
+    } else {
+      html += '<span>SKU: ' + escapeHtml(item.sku || '-') + '</span> · ';
+      html += '<span>分类: ' + escapeHtml(item.category || '未分类') + '</span> · ';
+      html += '<span>¥' + (item.price||0).toFixed(2) + '</span>';
+    }
+    html += '</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:4px;">' + reasons + '</div>';
+    html += '</div>';
+    html += '</div>';
+  });
+  document.getElementById('matchModalBody').innerHTML = html;
+}
+function closeMatchModal() {
+  document.getElementById('matchModalOverlay').classList.remove('open');
 }</script>
 
 <!-- User Management Panel -->
@@ -15752,6 +16156,23 @@ function saveChannelConfig() {
 function getChannelConfig() {
   return JSON.parse(localStorage.getItem('sb_channel_config') || '{}');
 }</script>
+
+<!-- Match Result Modal -->
+<div class="product-modal-overlay" id="matchModalOverlay" onclick="closeMatchModal()">
+  <div class="product-modal-panel" style="max-width:640px;" onclick="event.stopPropagation()">
+    <div class="product-modal-header">
+      <div class="product-modal-title" id="matchModalTitle">智能匹配结果</div>
+      <button class="product-modal-close" onclick="closeMatchModal()">✕</button>
+    </div>
+    <div class="product-modal-body" id="matchModalBody" style="max-height:70vh;overflow-y:auto;">
+      <div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>
+    </div>
+    <div class="product-modal-footer">
+      <button class="product-modal-btn cancel" onclick="closeMatchModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
 
