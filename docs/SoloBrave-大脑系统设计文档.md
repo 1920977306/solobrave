@@ -1664,12 +1664,16 @@ SoloBrave 后端目前提供约 **60 个 HTTP 端点**，全部基于 `http.serv
 
 #### 自动归档触发条件
 
+**清理策略：每天运行一次，只归档、不删除任何数据。**
+
 ```
 daily 过期（30天未访问）    → archiveReason: expired
 活跃记忆总数 > 200 条       → archiveReason: capacity
 手动触发归档                 → archiveReason: manual
 归纳合并原始记忆              → archiveReason: consolidated
 ```
+
+> **核心原则**：归档 = 移动位置，不是删除。所有数据永久保留，随时可恢复。
 
 #### 跨池移动字段转换
 
