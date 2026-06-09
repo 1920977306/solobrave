@@ -173,9 +173,9 @@ def _write_json(filepath, data):
 # ═══════════════════════════════════════════════════
 # 旧函数 _load_memory_v2 / _save_memory_v2 / _cleanup_and_archive_expired 已移除
 # 活跃记忆与归档记忆物理隔离：
-#   ~/.solobrave-data/memories/{empId}/memory.json   ← core + daily
-#   ~/.solobrave-data/memories/{empId}/archived.json ← 归档
-#   ~/.solobrave-data/memories/consolidation_log.json ← 归纳日志
+#   ~/.solobrave-data/memory/{empId}/memory.json   ← core + daily
+#   ~/.solobrave-data/memory/{empId}/archived.json ← 归档
+#   ~/.solobrave-data/memory/consolidation_log.json ← 归纳日志
 #
 # v2 → v3 迁移：首次加载时自动调用 ms3.migrate_from_v2()
 
@@ -6227,7 +6227,8 @@ def main():
     _ensure_data_dir()
 
     # 同步记忆服务 v3 配置（在 main() 中执行，避免模块导入时的 NameError）
-    ms3.MEMORY_V3_DIR = os.path.join(DATA_DIR, 'memories')
+    # 注意：v2 数据目录是 'memory'（单数），复用同一目录避免迁移
+    ms3.MEMORY_V3_DIR = MEMORY_DIR
     ms3.MEMORY_V3_CONFIG['core_max'] = MEMORY_CONFIG['core_max']
     ms3.MEMORY_V3_CONFIG['daily_max'] = MEMORY_CONFIG['daily_max']
     ms3.MEMORY_V3_CONFIG['daily_ttl_days'] = MEMORY_CONFIG['daily_ttl_days']
