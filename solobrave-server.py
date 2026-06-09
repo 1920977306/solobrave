@@ -911,9 +911,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_search_influencers()
             return
         if path.startswith('/api/influencers/'):
-            inf_id = path[len('/api/influencers/'):]
-            if inf_id:
-                self._handle_get_influencer(inf_id)
+            rest = path[len('/api/influencers/'):]
+            if rest:
+                # 处理 /api/influencers/:id/matches
+                if '/' in rest:
+                    parts = rest.split('/')
+                    inf_id = parts[0]
+                    if parts[1] == 'matches':
+                        self._handle_get_influencer_matches(inf_id)
+                        return
+                self._handle_get_influencer(rest)
                 return
 
         # Chat API
@@ -4227,6 +4234,71 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._save_products(data)
         self._sync_product_file(product)
         self._send_json(200, {'product_id': product_id, 'matches': results[:limit], 'total': len(results), 'source': 'live'})
+
+    def _handle_get_influencer_matches(self, inf_id):
+        """GET /api/influencers/:id/matches — 获取达人的匹配商品列表
+        优先读取达人自身的 matched_products，为空或超24小时则重新计算并缓存"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        data = self._load_influencers()
+        influencer = next((i for i in data.get('influencers', []) if i.get('id') == inf_id), None)
+        if not influencer:
+            detail_path = os.path.join(INFLUENCER_DIR, f'{inf_id}.json')
+            if os.path.exists(detail_path):
+                influencer = _read_json(detail_path, None)
+        if not influencer:
+            self._send_json_error(404, 'Influencer not found')
+            return
+        query = parse_qs(urlparse(self.path).query)
+        limit = int(query.get('limit', [20])[0])
+        now = int(time.time() * 1000)
+        DAY_MS = 86400000
+        stored = influencer.get('matched_products')
+        last_updated = influencer.get('matched_products_updated_at', 0)
+        is_fresh = stored and last_updated and (now - last_updated) < DAY_MS
+        if is_fresh:
+            results = []
+            for item in stored:
+                results.append({
+                    'product': {
+                        'id': item.get('id'),
+                        'name': item.get('name'),
+                        'category': item.get('category'),
+                        'price': item.get('price'),
+                    },
+                    'score': item.get('score', item.get('matchPercent', 0)),
+                    'reasons': item.get('reasons', [])
+                })
+            self._send_json(200, {'influencer_id': inf_id, 'matches': results[:limit], 'total': len(results), 'source': 'cached'})
+            return
+        # 缓存为空或过期：实时计算并保存
+        prod_data = self._load_products()
+        results = []
+        for prod in prod_data.get('products', []):
+            score, reasons = self._calculate_match_score(prod, influencer)
+            results.append({'product': prod, 'score': score, 'reasons': reasons})
+        results.sort(key=lambda x: x['score'], reverse=True)
+        # 保存计算结果到达人（用于缓存）
+        cached_matches = []
+        for r in results:
+            prod = r['product']
+            cached_matches.append({
+                'id': prod.get('id'),
+                'name': prod.get('name'),
+                'category': prod.get('category'),
+                'price': prod.get('price'),
+                'score': r['score'],
+                'matchPercent': r['score'],
+                'reasons': r['reasons']
+            })
+        influencer['matched_products'] = cached_matches
+        influencer['matched_products_updated_at'] = now
+        influencer['updatedAt'] = now
+        self._save_influencers(data)
+        self._sync_influencer_file(influencer)
+        self._send_json(200, {'influencer_id': inf_id, 'matches': results[:limit], 'total': len(results), 'source': 'live'})
 
     def _handle_post_product(self):
         """POST /api/products — 录入商品"""

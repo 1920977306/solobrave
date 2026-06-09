@@ -2624,6 +2624,39 @@ window.doLogin = function () {
 </div>
 </div>
 
+<!-- Knowledge Doc Form Modal -->
+<div class="product-modal-overlay" id="knowledgeDocModalOverlay" onclick="closeKnowledgeDocForm()">
+  <div class="product-modal-panel" onclick="event.stopPropagation()">
+    <div class="product-modal-header">
+      <div class="product-modal-title" id="knowledgeDocModalTitle">新建文档</div>
+      <button class="product-modal-close" onclick="closeKnowledgeDocForm()">✕</button>
+    </div>
+    <div class="product-modal-body">
+      <input type="hidden" id="knowledgeDocEditId">
+      <div class="product-form-row">
+        <label>文档名称 *</label>
+        <input type="text" id="knowledgeDocName" placeholder="输入文档名称">
+      </div>
+      <div class="product-form-row">
+        <label>图标</label>
+        <input type="text" id="knowledgeDocIcon" placeholder="如 📄 📚 📝" value="📄">
+      </div>
+      <div class="product-form-row">
+        <label>关联员工（用逗号分隔员工ID，留空表示公共文档）</label>
+        <input type="text" id="knowledgeDocLinkedEmployees" placeholder="如 emp_xxx, emp_yyy">
+      </div>
+      <div class="product-form-row">
+        <label>文档内容 *</label>
+        <textarea id="knowledgeDocContent" rows="8" placeholder="输入文档内容..."></textarea>
+      </div>
+    </div>
+    <div class="product-modal-footer">
+      <button class="product-modal-btn cancel" onclick="closeKnowledgeDocForm()">取消</button>
+      <button class="product-modal-btn save" onclick="saveKnowledgeDoc()">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- Influencer Library Panel -->
 <div class="product-library-panel" id="influencerLibraryPanel" style="display:none;">
   <div class="product-library-header">
@@ -10058,17 +10091,27 @@ function renderMemoryTab(empId) {
 
       // 知识库模式：显示关联文档（后端持久化）
       if (currentMemoryTab === 'kb') {
+        var kbHeaderHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
+        kbHeaderHtml += '<span style="font-size:12px;color:var(--text-secondary);">关联文档会注入AI上下文</span>';
+        kbHeaderHtml += '<button onclick="openKnowledgeDocForm(null)" style="padding:6px 12px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;">＋ 新建文档</button>';
+        kbHeaderHtml += '</div>';
         if (linkedDocs.length === 0) {
-          contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无关联文档，员工关联的文档会作为知识库记忆注入AI上下文</div>';
+          contentEl.innerHTML = kbHeaderHtml + '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无关联文档，员工关联的文档会作为知识库记忆注入AI上下文</div>';
         } else {
-          var kbHtml = '';
+          var kbHtml = kbHeaderHtml;
           linkedDocs.forEach(function (d) {
             var content = d.content || '';
             var preview = content.length > 300 ? content.slice(0, 300) + '...' : content;
-            kbHtml += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;">';
+            kbHtml += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;position:relative;">';
             kbHtml += '<div class="memory-item-content" style="flex:1;">';
-            kbHtml += '<div style="margin-bottom:6px;"><span style="font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px;margin-right:6px;">📚 知识库</span></div>';
-            kbHtml += '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">' + escapeHtml(d.name || '未命名文档') + '</div>';
+            kbHtml += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
+            kbHtml += '<span style="font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px;">📚 知识库</span>';
+            kbHtml += '<div style="display:flex;gap:6px;">';
+            kbHtml += '<button onclick="event.stopPropagation();openKnowledgeDocForm(' + JSON.stringify(d).replace(/"/g, '&quot;') + ')" title="编辑" style="width:22px;height:22px;border-radius:5px;border:none;background:transparent;cursor:pointer;color:var(--text-secondary);font-size:13px;">✎</button>';
+            kbHtml += '<button onclick="event.stopPropagation();deleteKnowledgeDoc(\'' + escapeAttr(d.id) + '\')" title="删除" style="width:22px;height:22px;border-radius:5px;border:none;background:transparent;cursor:pointer;color:#FF3B30;font-size:13px;">🗑</button>';
+            kbHtml += '</div>';
+            kbHtml += '</div>';
+            kbHtml += '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">' + escapeHtml((d.icon || '📄') + ' ' + (d.name || '未命名文档')) + '</div>';
             kbHtml += '<div class="memory-item-text" style="font-size:13px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(preview) + '</div>';
             kbHtml += '</div>';
             kbHtml += '</div>';
@@ -12633,13 +12676,83 @@ async function executeToolCall(call) {
         var data = await r.json();
         return '🔗 为达人「' + (data.influencer && data.influencer.name || '未知') + '」匹配到 ' + data.results.length + ' 个商品：\n' +
           data.results.slice(0, 5).map(function(res) {
-            return '- ' + res.product.name + ' (匹配度' + res.score + '分)';
+            return '- ' + res.product.name + ' (匹配度' + res.score + '分' + (res.reasons && res.reasons.length ? '，' + res.reasons.slice(0, 3).join('、') : '') + ')';
           }).join('\n');
       default:
         return '【工具执行失败】未知操作: ' + call.action;
     }
   } catch (e) {
     return '【工具执行失败】' + (e.message || String(e));
+  }
+}
+
+// ========== 知识库文档管理 ==========
+function openKnowledgeDocForm(doc) {
+  var isEdit = !!doc;
+  document.getElementById('knowledgeDocModalTitle').textContent = isEdit ? '编辑文档' : '新建文档';
+  document.getElementById('knowledgeDocEditId').value = isEdit ? doc.id : '';
+  document.getElementById('knowledgeDocName').value = isEdit ? (doc.name || '') : '';
+  document.getElementById('knowledgeDocIcon').value = isEdit ? (doc.icon || '📄') : '📄';
+  document.getElementById('knowledgeDocContent').value = isEdit ? (doc.content || '') : '';
+  var linked = '';
+  if (isEdit && doc.linkedEmployees && doc.linkedEmployees.length) {
+    linked = Array.isArray(doc.linkedEmployees) ? doc.linkedEmployees.join(', ') : String(doc.linkedEmployees);
+  }
+  document.getElementById('knowledgeDocLinkedEmployees').value = linked;
+  document.getElementById('knowledgeDocModalOverlay').classList.add('open');
+}
+function closeKnowledgeDocForm() {
+  document.getElementById('knowledgeDocModalOverlay').classList.remove('open');
+}
+async function saveKnowledgeDoc() {
+  try {
+    var docId = document.getElementById('knowledgeDocEditId').value;
+    var name = document.getElementById('knowledgeDocName').value.trim();
+    var content = document.getElementById('knowledgeDocContent').value.trim();
+    if (!name || !content) {
+      showToast('请填写文档名称和内容');
+      return;
+    }
+    var linkedInput = document.getElementById('knowledgeDocLinkedEmployees').value.trim();
+    var linkedEmployees = [];
+    if (linkedInput) {
+      linkedEmployees = linkedInput.split(/[,，]/).map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+    }
+    // 如果没有指定关联员工，默认关联当前员工
+    var currentEmpId = localStorage.getItem('sb_current_emp');
+    if (linkedEmployees.length === 0 && currentEmpId) {
+      linkedEmployees = [currentEmpId];
+    }
+    var body = {
+      name: name,
+      icon: document.getElementById('knowledgeDocIcon').value.trim() || '📄',
+      content: content,
+      linkedEmployees: linkedEmployees
+    };
+    if (docId) {
+      await apiFetch('/api/knowledge/' + encodeURIComponent(docId), { method: 'PUT', body: JSON.stringify(body) });
+      showToast('文档已更新');
+    } else {
+      await apiFetch('/api/knowledge', { method: 'POST', body: JSON.stringify(body) });
+      showToast('文档已创建');
+    }
+    closeKnowledgeDocForm();
+    var currentEmpId = localStorage.getItem('sb_current_emp');
+    if (currentEmpId) renderMemoryTab(currentEmpId);
+  } catch (e) {
+    showToast('保存失败: ' + (e.message || e));
+  }
+}
+async function deleteKnowledgeDoc(docId) {
+  if (!docId) return;
+  if (!confirm('确定删除该文档？此操作不可恢复。')) return;
+  try {
+    await apiFetch('/api/knowledge/' + encodeURIComponent(docId), { method: 'DELETE' });
+    showToast('文档已删除');
+    var currentEmpId = localStorage.getItem('sb_current_emp');
+    if (currentEmpId) renderMemoryTab(currentEmpId);
+  } catch (e) {
+    showToast('删除失败: ' + (e.message || e));
   }
 }
 
