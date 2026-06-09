@@ -8859,7 +8859,8 @@ async function getAIContextMessage(projId) {
   var backendDocs = [];
   try {
     var r = await apiFetch('/api/knowledge');
-    backendDocs = await r.json();
+    var kbResult = await r.json();
+    backendDocs = kbResult.docs || [];
   } catch (e) {
     console.warn('[DocContext] 后端知识库加载失败:', e);
     return '';
@@ -8885,7 +8886,8 @@ async function getEmployeeDocContext(empId) {
   var backendDocs = [];
   try {
     var r = await apiFetch('/api/knowledge');
-    backendDocs = await r.json();
+    var kbResult = await r.json();
+    backendDocs = kbResult.docs || [];
   } catch (e) {
     console.warn('[DocContext] 后端知识库加载失败:', e);
     return '';
@@ -8935,8 +8937,8 @@ async function syncLocalStorageDocsToBackend() {
   var existingIds = {};
   try {
     var r = await apiFetch('/api/knowledge');
-    var existing = await r.json();
-    existing.forEach(function (d) { existingIds[d.id] = true; });
+    var existingResult = await r.json();
+    (existingResult.docs || []).forEach(function (d) { existingIds[d.id] = true; });
   } catch (e) {
     console.warn('[SyncDocs] 获取后端知识库失败:', e);
   }
@@ -10064,8 +10066,8 @@ function renderMemoryTab(empId) {
 
   // 从后端API加载知识库（v2 持久化）
   var kbPromise = typeof apiFetch === 'function' ?
-    apiFetch('/api/knowledge').then(function (r) { return r.json(); }).catch(function () { return []; }) :
-    Promise.resolve([]);
+    apiFetch('/api/knowledge').then(function (r) { return r.json(); }).catch(function () { return {docs: []}; }) :
+    Promise.resolve({docs: []});
 
   // 从后端API加载记忆（v2 分池格式）
   if (typeof apiFetch === 'function') {
@@ -10074,7 +10076,8 @@ function renderMemoryTab(empId) {
       kbPromise
     ]).then(function (results) {
       var data = results[0];
-      var kbDocs = results[1] || [];
+      var kbResult = results[1] || {docs: []};
+      var kbDocs = kbResult.docs || [];
 
       // v2 分池格式：{core: [...], daily: [...], archive: [...]}
       var coreList = data.core || [];
@@ -12841,7 +12844,8 @@ async function saveKnowledgeDoc() {
       name: name,
       icon: document.getElementById('knowledgeDocIcon').value.trim() || '📄',
       content: content,
-      linkedEmployees: linkedEmployees
+      linkedEmployees: linkedEmployees,
+      empId: currentEmpId
     };
     if (docId) {
       await apiFetch('/api/knowledge/' + encodeURIComponent(docId), { method: 'PUT', body: JSON.stringify(body) });

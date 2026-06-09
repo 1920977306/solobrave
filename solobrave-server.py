@@ -33,6 +33,7 @@ import tempfile
 import mimetypes
 import shutil
 import math
+import sqlite3
 try:
     import fcntl
 except ImportError:
@@ -83,6 +84,7 @@ KNOWLEDGE_DIR = os.path.join(DATA_DIR, 'knowledge')
 PRODUCT_DIR = os.path.join(DATA_DIR, 'products')
 INFLUENCER_DIR = os.path.join(DATA_DIR, 'influencers')
 EMBEDDING_DIR = os.path.join(DATA_DIR, 'embeddings')
+DB_PATH = os.path.join(DATA_DIR, 'solobrave.db')
 
 # ═══════════════════════════════════════════════════
 # Embedding 配置（RAG 向量检索）
@@ -871,10 +873,19 @@ def ensure_embedding(entity_type, entity, api_key, provider='openai'):
 def build_all_embeddings(api_key, provider='openai'):
     """批量构建所有知识库文档和产品的 embedding"""
     os.makedirs(EMBEDDING_DIR, exist_ok=True)
-    # 知识库文档
-    kb_data = _read_json(os.path.join(KNOWLEDGE_DIR, 'index.json'), {'docs': []})
-    for doc in kb_data.get('docs', []):
-        ensure_embedding('doc', doc, api_key, provider)
+    # 知识库文档（从 SQLite 读取，更新 embedding 列）
+    conn = _db_conn()
+    try:
+        rows = conn.execute('SELECT * FROM knowledge').fetchall()
+        for row in rows:
+            doc = _knowledge_row_to_dict(row)
+            emb = ensure_embedding('doc', doc, api_key, provider)
+            if emb:
+                conn.execute('UPDATE knowledge SET embedding = ? WHERE id = ?',
+                             (json.dumps(emb), row['id']))
+        conn.commit()
+    finally:
+        conn.close()
     # 产品
     prod_data = _read_json(os.path.join(PRODUCT_DIR, 'index.json'), {'products': []})
     for product in prod_data.get('products', []):
@@ -894,15 +905,23 @@ def rag_retrieve(query, api_key, provider='openai', top_k_docs=3, top_k_products
 
     results = {'docs': [], 'products': [], 'context': ''}
 
-    # 2. 知识库文档检索
-    kb_data = _read_json(os.path.join(KNOWLEDGE_DIR, 'index.json'), {'docs': []})
+    # 2. 知识库文档检索（从 SQLite 读取带 embedding 的知识）
+    conn = _db_conn()
     doc_scores = []
-    for doc in kb_data.get('docs', []):
-        emb = load_embedding('doc', doc.get('id', ''))
-        if emb:
+    try:
+        rows = conn.execute(
+            'SELECT id, title, content, category, embedding, created_at, updated_at FROM knowledge WHERE embedding IS NOT NULL'
+        ).fetchall()
+    finally:
+        conn.close()
+    for row in rows:
+        try:
+            emb = json.loads(row['embedding'])
             score = cosine_similarity(query_emb, emb)
             if score > 0.0:
-                doc_scores.append((score, doc))
+                doc_scores.append((score, _knowledge_row_to_dict(row)))
+        except Exception:
+            continue
     doc_scores.sort(key=lambda x: x[0], reverse=True)
     results['docs'] = [d for _, d in doc_scores[:top_k_docs]]
 
@@ -950,6 +969,280 @@ def format_rag_context(docs, products):
                 lines.append(f"佣金: {p.get('commission_rate')}%")
             lines.append('')
     return '\n'.join(lines)
+
+
+# ═══════════════════════════════════════════════════
+# SQLite 数据库初始化与知识库 ORM
+# ═══════════════════════════════════════════════════
+
+def _db_conn():
+    """获取 SQLite 数据库连接（线程安全）"""
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    """初始化数据库，创建 knowledge 表（启动时调用）"""
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = _db_conn()
+    try:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS knowledge (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                category TEXT DEFAULT '',
+                embedding TEXT,
+                created_at INTEGER,
+                updated_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge(category)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_created ON knowledge(created_at)')
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _knowledge_row_to_dict(row):
+    """将 sqlite3.Row 转为前端兼容 dict（保留 name/icon/linkedEmployees 兼容字段）"""
+    if not row:
+        return None
+    return {
+        'id': row['id'],
+        'title': row['title'],
+        'name': row['title'],  # 兼容旧前端
+        'content': row['content'],
+        'category': row['category'] or '',
+        'embedding': json.loads(row['embedding']) if row['embedding'] else None,
+        'createdAt': row['created_at'],
+        'updatedAt': row['updated_at'],
+        'icon': '📄',  # 兼容旧前端
+        'linkedEmployees': [],  # 兼容旧前端（SQLite 版不再使用）
+    }
+
+
+def knowledge_create(title, content, category='', embedding=None, api_key=None, provider='openai'):
+    """创建知识条目，自动生成 embedding"""
+    kid = 'kb_' + uuid.uuid4().hex[:8]
+    now = int(time.time() * 1000)
+
+    # 如果没有传入 embedding 但有 api_key，自动生成
+    if embedding is None and api_key:
+        try:
+            text = f'{title}\n{content}'
+            if category:
+                text = f'分类: {category}\n' + text
+            emb = get_embedding(text[:8000], api_key, provider)
+            embedding = json.dumps(emb) if emb else None
+        except Exception as e:
+            print(f'  [Knowledge] embedding 生成失败: {e}', flush=True)
+
+    conn = _db_conn()
+    try:
+        conn.execute('''
+            INSERT INTO knowledge (id, title, content, category, embedding, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (kid, title, content, category or '', embedding, now, now))
+        conn.commit()
+        return _knowledge_row_to_dict(conn.execute(
+            'SELECT * FROM knowledge WHERE id = ?', (kid,)
+        ).fetchone())
+    finally:
+        conn.close()
+
+
+def knowledge_get_by_id(kid):
+    """获取单条知识详情"""
+    conn = _db_conn()
+    try:
+        row = conn.execute('SELECT * FROM knowledge WHERE id = ?', (kid,)).fetchone()
+        return _knowledge_row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def knowledge_list(offset=0, limit=50, category=None, keyword=None):
+    """知识列表（支持分页、分类筛选、关键词搜索）"""
+    conn = _db_conn()
+    try:
+        where = []
+        params = []
+        if category:
+            where.append('category = ?')
+            params.append(category)
+        if keyword:
+            where.append('(title LIKE ? OR content LIKE ?)')
+            like = f'%{keyword}%'
+            params.extend([like, like])
+
+        sql = 'SELECT * FROM knowledge'
+        if where:
+            sql += ' WHERE ' + ' AND '.join(where)
+        sql += ' ORDER BY updated_at DESC LIMIT ? OFFSET ?'
+        params.extend([limit, offset])
+
+        rows = conn.execute(sql, params).fetchall()
+        docs = [_knowledge_row_to_dict(r) for r in rows]
+
+        # 总数
+        count_sql = 'SELECT COUNT(*) FROM knowledge'
+        if where:
+            count_sql += ' WHERE ' + ' AND '.join(where[:-2] if where else [])
+            # 简化：直接重新构造 count 条件
+        count_params = params[:-2]  # 去掉 limit 和 offset
+        # 重新构造 count
+        count_where = []
+        count_params = []
+        if category:
+            count_where.append('category = ?')
+            count_params.append(category)
+        if keyword:
+            count_where.append('(title LIKE ? OR content LIKE ?)')
+            like = f'%{keyword}%'
+            count_params.extend([like, like])
+        count_sql = 'SELECT COUNT(*) FROM knowledge'
+        if count_where:
+            count_sql += ' WHERE ' + ' AND '.join(count_where)
+        total = conn.execute(count_sql, count_params).fetchone()[0]
+
+        return {'docs': docs, 'total': total, 'offset': offset, 'limit': limit}
+    finally:
+        conn.close()
+
+
+def knowledge_update(kid, title=None, content=None, category=None, embedding=None, api_key=None, provider='openai'):
+    """更新知识条目，内容变更时自动更新 embedding"""
+    conn = _db_conn()
+    try:
+        row = conn.execute('SELECT * FROM knowledge WHERE id = ?', (kid,)).fetchone()
+        if not row:
+            return None
+
+        updates = {}
+        if title is not None:
+            updates['title'] = title
+        if content is not None:
+            updates['content'] = content
+        if category is not None:
+            updates['category'] = category
+
+        # 如果内容或标题变更，且有 api_key，重新生成 embedding
+        if ('title' in updates or 'content' in updates or 'category' in updates) and api_key:
+            try:
+                new_title = updates.get('title', row['title'])
+                new_content = updates.get('content', row['content'])
+                new_cat = updates.get('category', row['category'])
+                text = f'{new_title}\n{new_content}'
+                if new_cat:
+                    text = f'分类: {new_cat}\n' + text
+                emb = get_embedding(text[:8000], api_key, provider)
+                if emb:
+                    updates['embedding'] = json.dumps(emb)
+            except Exception as e:
+                print(f'  [Knowledge] update embedding 失败: {e}', flush=True)
+
+        if embedding is not None and 'embedding' not in updates:
+            updates['embedding'] = json.dumps(embedding) if isinstance(embedding, list) else embedding
+
+        if not updates:
+            return _knowledge_row_to_dict(row)
+
+        updates['updated_at'] = int(time.time() * 1000)
+        fields = ', '.join(f'{k} = ?' for k in updates.keys())
+        values = list(updates.values()) + [kid]
+        conn.execute(f'UPDATE knowledge SET {fields} WHERE id = ?', values)
+        conn.commit()
+        return _knowledge_row_to_dict(conn.execute(
+            'SELECT * FROM knowledge WHERE id = ?', (kid,)
+        ).fetchone())
+    finally:
+        conn.close()
+
+
+def knowledge_delete(kid):
+    """删除知识条目"""
+    conn = _db_conn()
+    try:
+        cur = conn.execute('DELETE FROM knowledge WHERE id = ?', (kid,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def knowledge_search_semantic(query, api_key, provider='openai', limit=3):
+    """语义检索：用 embedding 向量相似度返回最相关的知识"""
+    if not query or not query.strip() or not api_key:
+        return []
+
+    # 1. 获取 query 的 embedding
+    query_emb = get_embedding(query, api_key, provider)
+    if not query_emb:
+        return []
+
+    # 2. 加载所有带 embedding 的知识
+    conn = _db_conn()
+    try:
+        rows = conn.execute(
+            'SELECT id, title, content, category, embedding, created_at, updated_at FROM knowledge WHERE embedding IS NOT NULL'
+        ).fetchall()
+    finally:
+        conn.close()
+
+    # 3. 计算余弦相似度并排序
+    scored = []
+    for row in rows:
+        try:
+            emb = json.loads(row['embedding'])
+            score = cosine_similarity(query_emb, emb)
+            if score > 0.0:
+                scored.append((score, row))
+        except Exception:
+            continue
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [_knowledge_row_to_dict(r) for _, r in scored[:limit]]
+
+
+def knowledge_migrate_from_json():
+    """从旧版 JSON 知识库迁移到 SQLite（启动时调用）"""
+    json_path = os.path.join(KNOWLEDGE_DIR, 'index.json')
+    if not os.path.exists(json_path):
+        return 0
+    data = _read_json(json_path, {'docs': []})
+    docs = data.get('docs', [])
+    if not docs:
+        return 0
+
+    conn = _db_conn()
+    migrated = 0
+    try:
+        for doc in docs:
+            # 检查是否已存在
+            existing = conn.execute('SELECT 1 FROM knowledge WHERE id = ?', (doc.get('id'),)).fetchone()
+            if existing:
+                continue
+            now = doc.get('createdAt', int(time.time() * 1000))
+            conn.execute('''
+                INSERT INTO knowledge (id, title, content, category, embedding, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                doc.get('id'),
+                doc.get('name', doc.get('title', '未命名')),
+                doc.get('content', ''),
+                doc.get('category', ''),
+                None,
+                now,
+                doc.get('updatedAt', now),
+            ))
+            migrated += 1
+        conn.commit()
+        print(f'  [Knowledge] 从 JSON 迁移 {migrated} 条记录到 SQLite', flush=True)
+    finally:
+        conn.close()
+    return migrated
 
 
 # ─── 请求处理器 ────────────────────────────────────────
@@ -1111,6 +1404,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/knowledge':
             self._handle_get_knowledge()
             return
+        if path == '/api/knowledge/search':
+            self._handle_get_knowledge_search()
+            return
+        if path.startswith('/api/knowledge/'):
+            kid = path[len('/api/knowledge/'):]
+            if kid:
+                self._handle_get_knowledge_detail(kid)
+                return
 
         # Product API
         if path == '/api/products':
@@ -4231,40 +4532,102 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _write_json(filepath, data)
 
     def _handle_get_knowledge(self):
-        """GET /api/knowledge — 获取知识库文档列表"""
+        """GET /api/knowledge — 获取知识库列表（支持分页、分类筛选、关键词搜索）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        data = self._load_knowledge()
-        self._send_json(200, data.get('docs', []))
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        offset = max(0, int(qs.get('offset', [0])[0]))
+        limit = max(1, min(100, int(qs.get('limit', [50])[0])))
+        category = qs.get('category', [''])[0] or None
+        keyword = qs.get('q', [''])[0] or None
+        result = knowledge_list(offset, limit, category, keyword)
+        self._send_json(200, result)
+
+    def _handle_get_knowledge_detail(self, kid):
+        """GET /api/knowledge/<id> — 单条知识详情"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        doc = knowledge_get_by_id(kid)
+        if not doc:
+            self._send_json_error(404, 'Knowledge not found')
+            return
+        self._send_json(200, doc)
+
+    def _handle_get_knowledge_search(self):
+        """GET /api/knowledge/search?q=xxx&limit=3 — 语义检索"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        query = qs.get('q', [''])[0]
+        limit = min(10, max(1, int(qs.get('limit', [3])[0])))
+        if not query:
+            self._send_json_error(400, 'Missing query param q')
+            return
+
+        # 获取当前员工的 API key（从 header 或 query 中的 empId）
+        api_key = None
+        provider = 'openai'
+        emp_id = qs.get('empId', [''])[0]
+        if emp_id:
+            agents = _load_agents()
+            agent = agents.get(emp_id)
+            if agent:
+                api_key = agent.get('apiKey')
+                provider = agent.get('aiProvider', 'openai')
+        if not api_key:
+            self._send_json_error(400, 'No API key available. Please configure AI provider.')
+            return
+
+        try:
+            docs = knowledge_search_semantic(query, api_key, provider, limit)
+            self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
+        except Exception as e:
+            print(f'  [KnowledgeSearch] failed: {e}', flush=True)
+            self._send_json_error(500, f'Search failed: {str(e)}')
 
     def _handle_post_knowledge(self):
-        """POST /api/knowledge — 添加知识库文档"""
+        """POST /api/knowledge — 新增知识（自动生成向量）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
         body = self._read_body()
-        if not body or 'name' not in body or 'content' not in body:
-            self._send_json_error(400, 'Missing name or content')
+        # 兼容旧前端：name 字段映射为 title
+        title = body.get('title') or body.get('name')
+        if not body or not title or 'content' not in body:
+            self._send_json_error(400, 'Missing title or content')
             return
-        data = self._load_knowledge()
-        doc = {
-            'id': body.get('id') or ('doc_' + uuid.uuid4().hex[:8]),
-            'name': body['name'],
-            'content': body['content'],
-            'icon': body.get('icon', '📄'),
-            'linkedEmployees': body.get('linkedEmployees', []),
-            'createdAt': int(time.time() * 1000),
-            'updatedAt': int(time.time() * 1000)
-        }
-        data['docs'].append(doc)
-        self._save_knowledge(data)
+
+        # 获取 API key 用于生成 embedding
+        api_key = None
+        provider = 'openai'
+        emp_id = body.get('empId')
+        if emp_id:
+            agents = _load_agents()
+            agent = agents.get(emp_id)
+            if agent:
+                api_key = agent.get('apiKey')
+                provider = agent.get('aiProvider', 'openai')
+
+        doc = knowledge_create(
+            title=title,
+            content=body['content'],
+            category=body.get('category', ''),
+            api_key=api_key,
+            provider=provider,
+        )
         self._send_json(200, doc)
 
     def _handle_put_knowledge(self, doc_id):
-        """PUT /api/knowledge/{docId} — 更新知识库文档"""
+        """PUT /api/knowledge/{docId} — 更新知识（自动更新向量）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -4273,39 +4636,41 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not body:
             self._send_json_error(400, 'Missing body')
             return
-        data = self._load_knowledge()
-        updated = None
-        for d in data.get('docs', []):
-            if d.get('id') == doc_id:
-                if 'name' in body:
-                    d['name'] = body['name']
-                if 'content' in body:
-                    d['content'] = body['content']
-                if 'icon' in body:
-                    d['icon'] = body['icon']
-                if 'linkedEmployees' in body:
-                    d['linkedEmployees'] = body['linkedEmployees']
-                d['updatedAt'] = int(time.time() * 1000)
-                updated = d
-                break
+
+        # 获取 API key 用于更新 embedding
+        api_key = None
+        provider = 'openai'
+        emp_id = body.get('empId')
+        if emp_id:
+            agents = _load_agents()
+            agent = agents.get(emp_id)
+            if agent:
+                api_key = agent.get('apiKey')
+                provider = agent.get('aiProvider', 'openai')
+
+        # 兼容旧前端：name 字段映射为 title
+        title = body.get('title') or body.get('name')
+        updated = knowledge_update(
+            kid=doc_id,
+            title=title,
+            content=body.get('content'),
+            category=body.get('category'),
+            api_key=api_key,
+            provider=provider,
+        )
         if not updated:
-            self._send_json_error(404, 'Document not found')
+            self._send_json_error(404, 'Knowledge not found')
             return
-        self._save_knowledge(data)
         self._send_json(200, updated)
 
     def _handle_delete_knowledge(self, doc_id):
-        """DELETE /api/knowledge/{docId} — 删除知识库文档"""
+        """DELETE /api/knowledge/{docId} — 删除知识"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        data = self._load_knowledge()
-        original = len(data.get('docs', []))
-        data['docs'] = [d for d in data.get('docs', []) if d.get('id') != doc_id]
-        removed = original - len(data['docs'])
-        self._save_knowledge(data)
-        self._send_json(200, {'deleted': removed > 0, 'id': doc_id})
+        deleted = knowledge_delete(doc_id)
+        self._send_json(200, {'deleted': deleted, 'id': doc_id})
 
     # ═══════════════════════════════════════════════════
     # RAG API
@@ -6529,7 +6894,7 @@ def main():
 
     # Override data directory if specified
     if args.data:
-        global DATA_DIR, SECRET_FILE, USERS_FILE, AGENTS_FILE, GROUPS_FILE, CHATS_DIR, SETTINGS_FILE, TEAMS_FILE, MEMORY_DIR
+        global DATA_DIR, SECRET_FILE, USERS_FILE, AGENTS_FILE, GROUPS_FILE, CHATS_DIR, SETTINGS_FILE, TEAMS_FILE, MEMORY_DIR, DB_PATH
         DATA_DIR = os.path.abspath(args.data)
         SECRET_FILE = os.path.join(DATA_DIR, '.secret')
         USERS_FILE = os.path.join(DATA_DIR, 'users.json')
@@ -6539,9 +6904,14 @@ def main():
         SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
         TEAMS_FILE = os.path.join(DATA_DIR, 'teams.json')
         MEMORY_DIR = os.path.join(DATA_DIR, 'memory')
+        DB_PATH = os.path.join(DATA_DIR, 'solobrave.db')
 
     # 确保数据目录
     _ensure_data_dir()
+
+    # 初始化 SQLite 数据库（知识库）
+    init_db()
+    knowledge_migrate_from_json()
 
     # 同步记忆服务 v3 配置（在 main() 中执行，避免模块导入时的 NameError）
     # 注意：v2 数据目录是 'memory'（单数），复用同一目录避免迁移
