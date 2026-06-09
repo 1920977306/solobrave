@@ -5653,6 +5653,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _group_id = body.get('groupId')
         if _group_id:
             msg['groupId'] = _group_id
+        # 保留引用信息（RAG citations）
+        _citations = body.get('citations')
+        if _citations:
+            msg['citations'] = _citations
 
         with _get_chat_lock(agent_id):
             messages = _load_chat(agent_id)

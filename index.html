@@ -2144,7 +2144,289 @@ window.doLogin = function () {
       if (btn) btn.disabled = false;
     });
   }
-};</script>
+};
+</script>
+<style>
+/* ========================================
+   Citation / RAG 引用标签样式
+   ======================================== */
+.citation-bar {
+  margin-top: 8px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s;
+}
+.citation-bar:hover { background: var(--bg-secondary); }
+.citation-toggle { font-size: 10px; transition: transform 0.2s; }
+.citation-bar.open .citation-toggle { transform: rotate(180deg); }
+.citation-panel {
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.citation-panel.hidden { display: none; }
+.citation-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: white;
+  border: 1px solid var(--separator);
+  border-radius: 20px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.citation-tag:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-card);
+}
+
+/* ========================================
+   Knowledge 管理页面样式
+   ======================================== */
+.knowledge-area {
+  display: none;
+  height: 100%;
+  flex-direction: row;
+}
+.knowledge-area.active { display: flex; }
+.knowledge-sidebar {
+  width: 240px;
+  min-width: 240px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--separator);
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+}
+.knowledge-sidebar-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+.knowledge-search {
+  position: relative;
+  margin-bottom: 12px;
+}
+.knowledge-search input {
+  width: 100%;
+  padding: 8px 12px 8px 32px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  background: var(--bg-primary);
+}
+.knowledge-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  opacity: 0.5;
+}
+.knowledge-new-btn {
+  padding: 10px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 16px;
+  transition: all 0.15s;
+}
+.knowledge-new-btn:hover { background: var(--accent-hover); }
+.knowledge-cat-list {
+  flex: 1;
+  overflow-y: auto;
+}
+.knowledge-cat-item {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all 0.15s;
+}
+.knowledge-cat-item:hover { background: var(--bg-secondary); color: var(--text-primary); }
+.knowledge-cat-item.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
+.knowledge-cat-count {
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.knowledge-list {
+  width: 320px;
+  min-width: 320px;
+  background: var(--bg-primary);
+  border-right: 1px solid var(--separator);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.knowledge-list-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--separator);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.knowledge-list-items {
+  flex: 1;
+  overflow-y: auto;
+}
+.knowledge-list-item {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--separator);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.knowledge-list-item:hover { background: var(--bg-secondary); }
+.knowledge-list-item.active { background: var(--accent-light); }
+.knowledge-list-item-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.knowledge-list-item-meta {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.knowledge-list-item-cat {
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  font-size: 11px;
+}
+.knowledge-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.knowledge-editor-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--separator);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.knowledge-editor-title-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  font-weight: 500;
+}
+.knowledge-editor-cat-input {
+  width: 160px;
+  padding: 10px 14px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+}
+.knowledge-editor-toolbar {
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--separator);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.knowledge-editor-toolbar button {
+  padding: 6px 12px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.knowledge-editor-toolbar button:hover { background: var(--bg-secondary); }
+.knowledge-editor-toolbar button.primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.knowledge-editor-toolbar button.primary:hover { background: var(--accent-hover); }
+.knowledge-editor-toolbar .status-text {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.knowledge-editor-body {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+.knowledge-editor-textarea {
+  flex: 1;
+  padding: 16px 20px;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  line-height: 1.7;
+  resize: none;
+  font-family: 'SF Mono', Monaco, monospace;
+  background: var(--bg-primary);
+}
+.knowledge-editor-preview {
+  flex: 1;
+  padding: 16px 20px;
+  overflow-y: auto;
+  border-left: 1px solid var(--separator);
+  background: var(--bg-primary);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.knowledge-editor-preview h1, .knowledge-editor-preview h2, .knowledge-editor-preview h3 {
+  margin-top: 16px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.knowledge-editor-preview p { margin-bottom: 8px; }
+.knowledge-editor-preview code {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.knowledge-editor-preview pre {
+  background: var(--bg-tertiary);
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+}
+</style>
 </head>
 <body>
 <!-- Message Context Menu (right-click on chat bubbles) -->
@@ -2276,6 +2558,10 @@ window.doLogin = function () {
   <a class="sidebar-action-btn secondary" onclick="openWizard()">
     <span class="btn-icon">＋</span>
     <span class="btn-text">新增员工</span>
+  </a>
+  <a class="sidebar-action-btn secondary" onclick="openKnowledgePage()">
+    <span class="btn-icon">📚</span>
+    <span class="btn-text">知识库</span>
   </a>
 </div>
 
@@ -2832,6 +3118,55 @@ window.doLogin = function () {
       <button class="product-modal-btn" id="influencerDetailMatchBtn">🔍 匹配商品</button>
       <button class="product-modal-btn" style="background:var(--danger);color:#fff;" id="influencerDetailDeleteBtn">删除</button>
       <button class="product-modal-btn save" id="influencerDetailEditBtn">编辑</button>
+    </div>
+  </div>
+</div>
+
+<!-- Knowledge Management Area -->
+<div class="knowledge-area" id="knowledgeArea">
+  <!-- Left Sidebar: Categories + Search -->
+  <div class="knowledge-sidebar">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+      <button onclick="closeKnowledgePage()" style="padding:6px 10px;border:1px solid var(--separator);border-radius:var(--radius-sm);background:var(--bg-primary);font-size:12px;cursor:pointer;">← 返回聊天</button>
+    </div>
+    <div class="knowledge-sidebar-title">📚 知识库</div>
+    <div class="knowledge-search">
+      <span class="knowledge-search-icon">🔍</span>
+      <input type="text" id="knowledgeSearchInput" placeholder="搜索知识..." oninput="filterKnowledgeList(this.value)">
+    </div>
+    <button class="knowledge-new-btn" onclick="createNewKnowledge()">＋ 新建知识</button>
+    <div class="knowledge-cat-list" id="knowledgeCatList">
+      <div class="knowledge-cat-item active" data-cat="" onclick="selectKnowledgeCategory('')">
+        <span>全部</span><span class="knowledge-cat-count" id="knowledgeCatCountAll">0</span>
+      </div>
+    </div>
+  </div>
+  <!-- Middle: Knowledge List -->
+  <div class="knowledge-list">
+    <div class="knowledge-list-header">知识条目</div>
+    <div class="knowledge-list-items" id="knowledgeListItems"></div>
+  </div>
+  <!-- Right: Editor -->
+  <div class="knowledge-editor">
+    <div class="knowledge-editor-header">
+      <input type="text" class="knowledge-editor-title-input" id="knowledgeEditTitle" placeholder="知识标题">
+      <input type="text" class="knowledge-editor-cat-input" id="knowledgeEditCategory" placeholder="分类">
+    </div>
+    <div class="knowledge-editor-toolbar">
+      <button onclick="toggleKnowledgePreview()">👁 预览</button>
+      <button class="primary" onclick="saveKnowledgeFromEditor()">💾 保存</button>
+      <button onclick="deleteKnowledgeFromEditor()" style="color:var(--danger);">🗑 删除</button>
+      <span class="status-text" id="knowledgeEditStatus"></span>
+    </div>
+    <div class="knowledge-editor-body" id="knowledgeEditorBody">
+      <textarea class="knowledge-editor-textarea" id="knowledgeEditContent" placeholder="输入 Markdown 内容...
+
+支持：
+# 标题
+**粗体** *斜体*
+- 列表项
+```代码块```"></textarea>
+      <div class="knowledge-editor-preview hidden" id="knowledgeEditPreview"></div>
     </div>
   </div>
 </div>
@@ -3894,8 +4229,8 @@ async function sendMsg() {
         var t = document.getElementById('typingMsg');
         if (t) t.remove();
         var simReply = '⚠️ OpenClaw 网关未连接，请检查 Gateway 是否运行，或配置 AI 供应商的 API Key。';
-        displayAIReply(simReply, docContext, timeStr, emp.id);
-        saveChatHistory(emp.id, text, simReply, docContext);
+        displayAIReply(simReply, docContext, timeStr, emp.id, []);
+        saveChatHistory(emp.id, text, simReply, docContext, []);
         restoreOnline();
       }, 500);
     }
@@ -3968,10 +4303,11 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
     systemPrompt += buildAgentToolsContext();
 
     // 注入 RAG 检索结果（产品知识库）
+    var ragResult = { context: '', citations: [] };
     try {
-      var ragContext = await retrieveRAGContext(emp.id, userMessage);
-      if (ragContext) {
-        systemPrompt += '\n\n' + ragContext;
+      ragResult = await retrieveRAGContext(emp.id, userMessage);
+      if (ragResult.context) {
+        systemPrompt += '\n\n' + ragResult.context;
       }
     } catch (e) {
       console.warn('[RAG] OpenClaw 路径注入失败:', e);
@@ -3990,8 +4326,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
       if (t) t.remove();
       if (!reply) reply = '（AI 未返回内容）';
       if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
-      displayAIReply(reply, docContext, timeStr, emp.id);
-      saveChatHistory(emp.id, userMessage, reply, docContext);
+      displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations);
+      saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations);
     }
     var agentHandler = function (data) {
       if (!data) return;
@@ -4124,11 +4460,11 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
         // 重试成功后通过事件监听接收回复，不再 await
         // 但需要注意 agentHandler 已注册，它会处理回复
       } catch (retryErr) {
-        displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr, emp.id);
-        saveChatHistory(emp.id, userMessage, '⚠️ Agent 不存在', docContext);
+        displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr, emp.id, []);
+        saveChatHistory(emp.id, userMessage, '⚠️ Agent 不存在', docContext, []);
       }
     } else {
-      displayAIReply('⚠️ OpenClaw 连接异常: ' + e.message, docContext, timeStr, emp.id);
+      displayAIReply('⚠️ OpenClaw 连接异常: ' + e.message, docContext, timeStr, emp.id, []);
     }
   }
 }
@@ -12133,7 +12469,7 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
   if (!provider) {
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
-    displayAIReply('⚠️ AI 供应商配置错误', docContext, timeStr, emp.id);
+    displayAIReply('⚠️ AI 供应商配置错误', docContext, timeStr, emp.id, []);
     restoreOnline();
     return;
   }
@@ -12178,10 +12514,11 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
   systemPrompt += buildAgentToolsContext();
 
   // 注入 RAG 检索结果（产品知识库）
+  var ragResult2 = { context: '', citations: [] };
   try {
-    var ragContext2 = await retrieveRAGContext(emp.id, userMessage);
-    if (ragContext2) {
-      systemPrompt += '\n\n' + ragContext2;
+    ragResult2 = await retrieveRAGContext(emp.id, userMessage);
+    if (ragResult2.context) {
+      systemPrompt += '\n\n' + ragResult2.context;
     }
   } catch (e) {
     console.warn('[RAG] API 路径注入失败:', e);
@@ -12224,11 +12561,11 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
     if (!res || !res.ok) {
       var status = res ? res.status : 0;
       if (status === 401) {
-        displayAIReply('⚠️ API Key 无效，请检查 ' + (provider ? provider.name : 'AI供应商') + ' 的 API Key 是否正确', docContext, timeStr, emp.id);
+        displayAIReply('⚠️ API Key 无效，请检查 ' + (provider ? provider.name : 'AI供应商') + ' 的 API Key 是否正确', docContext, timeStr, emp.id, []);
       } else if (status === 429) {
-        displayAIReply('⚠️ 请求过于频繁，请稍后再试', docContext, timeStr, emp.id);
+        displayAIReply('⚠️ 请求过于频繁，请稍后再试', docContext, timeStr, emp.id, []);
       } else {
-        displayAIReply('⚠️ ' + provider.name + ' API 错误 (' + status + ')', docContext, timeStr, emp.id);
+        displayAIReply('⚠️ ' + provider.name + ' API 错误 (' + status + ')', docContext, timeStr, emp.id, []);
       }
       restoreOnline();
       return;
@@ -12237,26 +12574,26 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
   }).then(function (data) {
     if (data && data.choices && data.choices[0] && data.choices[0].message) {
       var reply = data.choices[0].message.content || '';
-      displayAIReply(reply, docContext, timeStr, emp.id);
-      saveChatHistory(emp.id, userMessage, reply, docContext);
+      displayAIReply(reply, docContext, timeStr, emp.id, ragResult2.citations);
+      saveChatHistory(emp.id, userMessage, reply, docContext, ragResult2.citations);
     } else if (data) {
-      displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr, emp.id);
+      displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr, emp.id, []);
     }
     restoreOnline();
   }).catch(function (error) {
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
     if (error.message && (error.message.indexOf('Failed to fetch') >= 0 || error.message.indexOf('NetworkError') >= 0 || error.message.indexOf('CORS') >= 0)) {
-      displayAIReply('⚠️ 网络/CORS 错误\n\n浏览器直接调用 API 会遇到 CORS 限制。\n当前使用模拟回复，后续可通过后端代理解决。', docContext, timeStr, emp.id);
+      displayAIReply('⚠️ 网络/CORS 错误\n\n浏览器直接调用 API 会遇到 CORS 限制。\n当前使用模拟回复，后续可通过后端代理解决。', docContext, timeStr, emp.id, []);
       // CORS 错误时 fallback 到 mock
       setTimeout(function () {
         var simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
         var simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
-        displayAIReply(simReply, docContext, timeStr, emp.id);
-        saveChatHistory(emp.id, userMessage, simReply, docContext);
+        displayAIReply(simReply, docContext, timeStr, emp.id, []);
+        saveChatHistory(emp.id, userMessage, simReply, docContext, []);
       }, 500);
     } else {
-      displayAIReply('⚠️ API 调用失败: ' + error.message, docContext, timeStr, emp.id);
+      displayAIReply('⚠️ API 调用失败: ' + error.message, docContext, timeStr, emp.id, []);
     }
     restoreOnline();
   });
@@ -12274,8 +12611,9 @@ function getCurrentEmployeeInfo() {
 
 // 保存聊天历史
 // ===== 聊天记录后端同步 =====
-async function saveChatToServer(projId, userMsg, aiMsg, docContext) {
+async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations) {
   if (typeof apiFetch !== 'function') return;
+  citations = citations || [];
   var baseUrl = '/api/chat/' + encodeURIComponent(projId);
 
   try {
@@ -12305,15 +12643,19 @@ async function saveChatToServer(projId, userMsg, aiMsg, docContext) {
       if (!resp) throw new Error('System message POST returned null');
     }
 
-    // 3. 保存 assistant 消息
+    // 3. 保存 assistant 消息（附带引用信息）
+    var assistantBody = {
+      role: 'assistant',
+      content: aiMsg,
+      skipAI: true,
+      empId: projId
+    };
+    if (citations.length > 0) {
+      assistantBody.citations = citations;
+    }
     resp = await apiFetch(baseUrl, {
       method: 'POST',
-      body: JSON.stringify({
-        role: 'assistant',
-        content: aiMsg,
-        skipAI: true,
-        empId: projId
-      })
+      body: JSON.stringify(assistantBody)
     });
     if (!resp) throw new Error('Assistant message POST returned null');
 
@@ -12372,13 +12714,14 @@ function clearChatOnServer(id, type) {
     method: 'DELETE'
   }).catch(function (e) {});
 }
-function saveChatHistory(empId, userMsg, aiMsg, docContext) {
+function saveChatHistory(empId, userMsg, aiMsg, docContext, citations) {
   if (!empId) {
     console.warn('[saveChatHistory] empId 为空，跳过保存');
     return;
   }
+  citations = citations || [];
   // 同步到后端
-  saveChatToServer(empId, userMsg, aiMsg, docContext);
+  saveChatToServer(empId, userMsg, aiMsg, docContext, citations);
 
   // 提取并保存记忆（延迟 800ms，避免与刚结束的 OpenClaw session 冲突）
   setTimeout(function () {
@@ -12628,9 +12971,9 @@ function _processExtractedMemory(empId, extracted, existing) {
 // 显示 AI 回复
 // ========== RAG 检索（Embedding API 向量检索）==========
 async function retrieveRAGContext(empId, query) {
-  if (!query || query.length < 2) return '';
+  if (!query || query.length < 2) return { context: '', citations: [] };
   var emp = emps.find(function(e) { return e.id === empId; });
-  if (!emp || !emp.apiKey) return '';
+  if (!emp || !emp.apiKey) return { context: '', citations: [] };
   try {
     var r = await apiFetch('/api/rag/retrieve', {
       method: 'POST',
@@ -12638,10 +12981,21 @@ async function retrieveRAGContext(empId, query) {
       body: JSON.stringify({ query: query, empId: empId, topK: 3 })
     });
     var data = await r.json();
-    return data.context || '';
+    var citations = [];
+    if (data.docs) {
+      data.docs.forEach(function(d) {
+        citations.push({ id: d.id, title: d.title || d.name || '未命名', type: 'doc' });
+      });
+    }
+    if (data.products) {
+      data.products.forEach(function(p) {
+        citations.push({ id: p.id, title: p.name || '未命名', type: 'product' });
+      });
+    }
+    return { context: data.context || '', citations: citations };
   } catch (e) {
     console.warn('[RAG] 检索失败:', e);
-    return '';
+    return { context: '', citations: [] };
   }
 }
 
@@ -12686,6 +13040,18 @@ function parseToolCalls(text) {
     } catch (e) {}
   }
   return calls;
+}
+
+function toggleCitationPanel(panelId) {
+  var panel = document.getElementById(panelId);
+  if (!panel) return;
+  panel.classList.toggle('hidden');
+  var bar = panel.previousElementSibling;
+  if (bar) bar.classList.toggle('open');
+}
+
+function showCitationDetail(id, title, type) {
+  alert((type === 'product' ? '📦 产品' : '📄 知识') + '\nID: ' + id + '\n标题: ' + title);
 }
 
 async function executeToolCall(call) {
@@ -12874,7 +13240,8 @@ async function deleteKnowledgeDoc(docId) {
   }
 }
 
-function displayAIReply(replyText, docContext, timeStr, expectedEmpId) {
+function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations) {
+  citations = citations || [];
   var area = document.getElementById('messagesArea');
   // 防御性校验：如果指定了 expectedEmpId，必须匹配当前员工才渲染，防止切换后串渲染
   if (expectedEmpId && localStorage.getItem('sb_current_emp') !== expectedEmpId) {
@@ -12921,11 +13288,23 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId) {
   if (hasDocs && cleanText && cleanText.indexOf('📚') === -1) {
     bubble += '<div class="ai-doc-hint">📚 已读取 ' + countDocsInContext(docContext) + ' 个相关文档</div>';
   }
+  // 引用知识标签
+  var citationHtml = '';
+  if (citations.length > 0) {
+    var citeId = 'citations_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    var citeItems = citations.map(function(c, idx) {
+      var icon = c.type === 'product' ? '📦' : '📄';
+      return '<span class="citation-tag" onclick="event.stopPropagation();showCitationDetail(\'' + c.id + '\', \'' + escapeHtml(c.title).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\', \'' + c.type + '\')">' + icon + ' ' + escapeHtml(c.title) + '</span>';
+    }).join('');
+    citationHtml = '<div class="citation-bar" onclick="toggleCitationPanel(\'' + citeId + '\')">📚 引用了 ' + citations.length + ' 条知识 <span class="citation-toggle">▼</span></div>' +
+      '<div class="citation-panel hidden" id="' + citeId + '">' + citeItems + '</div>';
+  }
   var html = '<div class="msg">\n';
   html += '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>\n';
   html += '<div class="msg-content">\n';
   html += '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name) + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp)) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>\n';
   html += '<div class="msg-bubble">' + bubble + '</div>\n';
+  if (citationHtml) html += citationHtml;
   html += '</div></div>';
   area.insertAdjacentHTML('beforeend', html);
   area.scrollTop = area.scrollHeight;
@@ -15525,6 +15904,185 @@ function searchInfluencersDebounced(val) {
   if (_influencerSearchTimer) clearTimeout(_influencerSearchTimer);
   _influencerSearchTimer = setTimeout(function () { searchInfluencers(); }, 300);
 }
+
+// ========== Knowledge Page ==========
+var _knowledgeData = { docs: [], categories: [] };
+var _knowledgeCurrentCat = '';
+var _knowledgeCurrentId = null;
+var _knowledgePreviewMode = false;
+
+function openKnowledgePage() {
+  document.getElementById('chatArea').style.display = 'none';
+  document.getElementById('knowledgeArea').classList.add('active');
+  loadKnowledgePage();
+}
+function closeKnowledgePage() {
+  document.getElementById('knowledgeArea').classList.remove('active');
+  document.getElementById('chatArea').style.display = 'flex';
+}
+async function loadKnowledgePage() {
+  try {
+    var r = await apiFetch('/api/knowledge?limit=200');
+    var data = await r.json();
+    _knowledgeData.docs = data.docs || [];
+    // 提取分类
+    var catMap = {};
+    _knowledgeData.docs.forEach(function(d) {
+      var cat = d.category || '未分类';
+      catMap[cat] = (catMap[cat] || 0) + 1;
+    });
+    _knowledgeData.categories = Object.keys(catMap);
+    renderKnowledgeCategories(catMap);
+    renderKnowledgeList(_knowledgeData.docs);
+    // 默认选中第一个
+    if (_knowledgeData.docs.length > 0 && !_knowledgeCurrentId) {
+      selectKnowledgeItem(_knowledgeData.docs[0].id);
+    }
+  } catch (e) {
+    console.warn('[KnowledgePage] 加载失败:', e);
+    document.getElementById('knowledgeListItems').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
+  }
+}
+function renderKnowledgeCategories(catMap) {
+  var html = '<div class="knowledge-cat-item' + (_knowledgeCurrentCat === '' ? ' active' : '') + '" data-cat="" onclick="selectKnowledgeCategory(\'\')"><span>全部</span><span class="knowledge-cat-count">' + _knowledgeData.docs.length + '</span></div>';
+  _knowledgeData.categories.forEach(function(cat) {
+    html += '<div class="knowledge-cat-item' + (_knowledgeCurrentCat === cat ? ' active' : '') + '" data-cat="' + escapeAttr(cat) + '" onclick="selectKnowledgeCategory(\'' + escapeAttr(cat).replace(/'/g, "\\'") + '\')"><span>' + escapeHtml(cat) + '</span><span class="knowledge-cat-count">' + (catMap[cat] || 0) + '</span></div>';
+  });
+  document.getElementById('knowledgeCatList').innerHTML = html;
+}
+function selectKnowledgeCategory(cat) {
+  _knowledgeCurrentCat = cat;
+  document.querySelectorAll('.knowledge-cat-item').forEach(function(el) {
+    el.classList.toggle('active', el.dataset.cat === cat);
+  });
+  var filtered = cat === '' ? _knowledgeData.docs : _knowledgeData.docs.filter(function(d) { return (d.category || '未分类') === cat; });
+  renderKnowledgeList(filtered);
+}
+function filterKnowledgeList(keyword) {
+  var kw = (keyword || '').toLowerCase();
+  var filtered = _knowledgeData.docs.filter(function(d) {
+    return !kw || (d.title || d.name || '').toLowerCase().indexOf(kw) > -1 || (d.content || '').toLowerCase().indexOf(kw) > -1;
+  });
+  renderKnowledgeList(filtered);
+}
+function renderKnowledgeList(docs) {
+  var el = document.getElementById('knowledgeListItems');
+  if (!docs || docs.length === 0) {
+    el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">暂无知识</div>';
+    return;
+  }
+  var html = '';
+  docs.forEach(function(d) {
+    var isActive = d.id === _knowledgeCurrentId;
+    html += '<div class="knowledge-list-item' + (isActive ? ' active' : '') + '" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id).replace(/'/g, "\\'") + '\')">';
+    html += '<div class="knowledge-list-item-title">' + escapeHtml(d.title || d.name || '未命名') + '</div>';
+    html += '<div class="knowledge-list-item-meta"><span class="knowledge-list-item-cat">' + escapeHtml(d.category || '未分类') + '</span><span>' + formatDate(d.updatedAt) + '</span></div>';
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+function selectKnowledgeItem(id) {
+  _knowledgeCurrentId = id;
+  var doc = _knowledgeData.docs.find(function(d) { return d.id === id; });
+  if (!doc) return;
+  document.getElementById('knowledgeEditTitle').value = doc.title || doc.name || '';
+  document.getElementById('knowledgeEditCategory').value = doc.category || '';
+  document.getElementById('knowledgeEditContent').value = doc.content || '';
+  document.getElementById('knowledgeEditStatus').textContent = '';
+  _knowledgePreviewMode = false;
+  updateKnowledgeEditorView();
+  // 更新列表高亮
+  document.querySelectorAll('.knowledge-list-item').forEach(function(el) {
+    el.classList.remove('active');
+  });
+  var activeEl = document.querySelector('.knowledge-list-item[onclick*="' + id + '"]');
+  if (activeEl) activeEl.classList.add('active');
+}
+function createNewKnowledge() {
+  _knowledgeCurrentId = null;
+  document.getElementById('knowledgeEditTitle').value = '';
+  document.getElementById('knowledgeEditCategory').value = '';
+  document.getElementById('knowledgeEditContent').value = '';
+  document.getElementById('knowledgeEditStatus').textContent = '';
+  _knowledgePreviewMode = false;
+  updateKnowledgeEditorView();
+  document.getElementById('knowledgeEditTitle').focus();
+}
+function updateKnowledgeEditorView() {
+  var textarea = document.getElementById('knowledgeEditContent');
+  var preview = document.getElementById('knowledgeEditPreview');
+  if (_knowledgePreviewMode) {
+    textarea.classList.add('hidden');
+    preview.classList.remove('hidden');
+    preview.innerHTML = renderMarkdown(document.getElementById('knowledgeEditContent').value);
+  } else {
+    textarea.classList.remove('hidden');
+    preview.classList.add('hidden');
+  }
+}
+function toggleKnowledgePreview() {
+  _knowledgePreviewMode = !_knowledgePreviewMode;
+  updateKnowledgeEditorView();
+}
+function renderMarkdown(text) {
+  if (typeof marked !== 'undefined') {
+    try {
+      return marked.parse(text || '');
+    } catch (e) {
+      console.warn('[Markdown] 解析失败:', e);
+    }
+  }
+  // fallback: 简单转换
+  return escapeHtml(text || '').replace(/\n/g, '<br>');
+}
+async function saveKnowledgeFromEditor() {
+  var title = document.getElementById('knowledgeEditTitle').value.trim();
+  var content = document.getElementById('knowledgeEditContent').value.trim();
+  var category = document.getElementById('knowledgeEditCategory').value.trim();
+  if (!title || !content) {
+    showToast('请填写标题和内容');
+    return;
+  }
+  var statusEl = document.getElementById('knowledgeEditStatus');
+  statusEl.textContent = '保存中...';
+  try {
+    var body = { title: title, content: content, category: category };
+    var url = _knowledgeCurrentId ? '/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId) : '/api/knowledge';
+    var method = _knowledgeCurrentId ? 'PUT' : 'POST';
+    var r = await apiFetch(url, { method: method, body: JSON.stringify(body) });
+    var result = await r.json();
+    statusEl.textContent = '知识库更新中...';
+    showToast('✅ 已保存，正在生成向量...');
+    // 刷新列表
+    await loadKnowledgePage();
+    if (result && result.id) {
+      selectKnowledgeItem(result.id);
+    }
+    statusEl.textContent = '已保存并生成向量';
+    setTimeout(function() { statusEl.textContent = ''; }, 3000);
+  } catch (e) {
+    statusEl.textContent = '保存失败';
+    showToast('❌ 保存失败');
+    console.warn('[KnowledgePage] 保存失败:', e);
+  }
+}
+async function deleteKnowledgeFromEditor() {
+  if (!_knowledgeCurrentId) {
+    showToast('请先选择要删除的知识');
+    return;
+  }
+  if (!confirm('确定删除该知识？此操作不可恢复。')) return;
+  try {
+    await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId), { method: 'DELETE' });
+    showToast('✅ 已删除');
+    _knowledgeCurrentId = null;
+    await loadKnowledgePage();
+    createNewKnowledge();
+  } catch (e) {
+    showToast('❌ 删除失败');
+    console.warn('[KnowledgePage] 删除失败:', e);
+  }
+}
 function searchInfluencers() {
   var kw = document.getElementById('influencerSearchInput').value.trim();
   var platform = document.getElementById('influencerPlatformFilter').value;
@@ -16253,6 +16811,7 @@ function closeMatchModal() {
 <!-- 通知容器 -->
 <div class="notification-container" id="notificationContainer"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="avatars.js?v=1778166504"></script>
 <script src="openclaw-client.js"></script>
 <script>// ========================================
