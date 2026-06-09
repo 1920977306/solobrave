@@ -12,7 +12,7 @@ SoloBrave Server — Auth + CORS Proxy + OpenClaw Management API
   7. OpenClaw 管理 API
 
 只使用 Python 标准库，无需额外依赖。
-数据存储目录: ~/.solobrave-data/
+数据存储目录: <project>/data/ (可通过 --data 覆盖)
 """
 
 import http.server
@@ -67,8 +67,8 @@ ALLOWED_DOMAINS = []  # 域名白名单，留空不限制
 OPENCLAW_CLI = '/opt/homebrew/bin/openclaw'
 OPENCLAW_TIMEOUT = 30
 
-# 数据存储目录
-DATA_DIR = os.path.join(os.path.expanduser('~'), '.solobrave-data')
+# 数据存储目录（项目内 data/ 目录，支持 --data 覆盖）
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 SECRET_FILE = os.path.join(DATA_DIR, '.secret')
 USERS_FILE = os.path.join(DATA_DIR, 'users.json')
 AGENTS_FILE = os.path.join(DATA_DIR, 'agents.json')
@@ -173,9 +173,9 @@ def _write_json(filepath, data):
 # ═══════════════════════════════════════════════════
 # 旧函数 _load_memory_v2 / _save_memory_v2 / _cleanup_and_archive_expired 已移除
 # 活跃记忆与归档记忆物理隔离：
-#   ~/.solobrave-data/memory/{empId}/memory.json   ← core + daily
-#   ~/.solobrave-data/memory/{empId}/archived.json ← 归档
-#   ~/.solobrave-data/memory/consolidation_log.json ← 归纳日志
+#   <DATA_DIR>/memory/{empId}/memory.json   ← core + daily
+#   <DATA_DIR>/memory/{empId}/archived.json ← 归档
+#   <DATA_DIR>/memory/consolidation_log.json ← 归纳日志
 #
 # v2 → v3 迁移：首次加载时自动调用 ms3.migrate_from_v2()
 
@@ -3485,25 +3485,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             m['pool'] = 'knowledge'
             all_memories.append(m)
 
-        result = {
-            'success': True,
-            'data': {
-                'memories': all_memories,
-                'total': len(all_memories),
-                'limit': limit,
-                'offset': offset,
-                'core': core_list,
-                'daily': daily_list,
-                'archive': archive_list,
-                'knowledge': knowledge_list,
-                'archivedToday': 0,
-                'version': '3.0',
-                'config': {k: v for k, v in MEMORY_CONFIG.items() if k in ('core_max', 'daily_max', 'daily_ttl_days')},
-                'shouldConsolidate': data.get('shouldConsolidate', False),
-                'suggestedSourceIds': data.get('suggestedSourceIds', [])
-            }
-        }
-        self._send_json(200, result)
+        # 直接返回 data（前端兼容 v2 格式，不包装 success）
+        self._send_json(200, {
+            'memories': all_memories,
+            'total': len(all_memories),
+            'limit': limit,
+            'offset': offset,
+            'core': core_list,
+            'daily': daily_list,
+            'archive': archive_list,
+            'knowledge': knowledge_list,
+            'archivedToday': 0,
+            'version': '3.0',
+            'config': {k: v for k, v in MEMORY_CONFIG.items() if k in ('core_max', 'daily_max', 'daily_ttl_days')},
+            'shouldConsolidate': data.get('shouldConsolidate', False),
+            'suggestedSourceIds': data.get('suggestedSourceIds', [])
+        })
 
     def _handle_get_archived_memories(self):
         """GET /api/memory/archived — 查看全局归档记忆（支持分页/搜索）"""
@@ -6205,7 +6202,7 @@ def main():
     parser = argparse.ArgumentParser(description='SoloBrave Server')
     parser.add_argument('port', nargs='?', type=int, default=_default_port, help='Listen port (default: 8080)')
     parser.add_argument('--bind', default=_default_bind, help='Bind address (default: 0.0.0.0)')
-    parser.add_argument('--data', default=None, help='Data directory (default: ~/.solobrave-data)')
+    parser.add_argument('--data', default=None, help='Data directory (default: <project>/data/)')
     args = parser.parse_args()
     PORT = args.port
     BIND = args.bind
