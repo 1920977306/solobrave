@@ -12607,19 +12607,27 @@ function buildAgentToolsContext() {
   return '\n\n【系统资源（由主大脑管理，你可请求调用）】\n' +
     '你作为AI员工，可以通过主大脑访问以下资源。当用户有相关需求时，你可以主动提出帮忙操作。\n\n' +
     '1. 商品库 (/api/products)\n' +
-    '   - 查询商品列表、按分类/标签搜索\n' +
-    '   - 录入新商品、编辑商品信息\n' +
+    '   - 查询商品列表：list_products\n' +
+    '   - 按关键词搜索商品：search_products，参数 {"query":"关键词"}\n' +
+    '   - 查看单个商品详情：get_product_detail，参数 {"productId":"prod_xxx"}\n' +
+    '   - 录入新商品、编辑商品信息（需人工在UI操作）\n' +
     '   - 每个商品有：名称、SKU、分类、价格、库存、标签、状态\n\n' +
     '2. 达人库 (/api/influencers)\n' +
-    '   - 查询达人列表、按平台/分类/粉丝数筛选\n' +
-    '   - 录入新达人、编辑达人信息\n' +
+    '   - 查询达人列表：list_influencers\n' +
+    '   - 按关键词搜索达人：search_influencers，参数 {"query":"关键词"}\n' +
+    '   - 查看单个达人详情：get_influencer_detail，参数 {"influencerId":"inf_xxx"}\n' +
+    '   - 录入新达人、编辑达人信息（需人工在UI操作）\n' +
     '   - 每个达人有：名称、平台、账号、粉丝数、分类、报价、互动率、标签\n\n' +
     '3. 匹配引擎 (/api/match)\n' +
-    '   - 为指定商品智能匹配适合的推广达人\n' +
-    '   - 为指定达人智能匹配适合推广的商品\n' +
+    '   - 为指定商品智能匹配达人：match_product，参数 {"productId":"prod_xxx"}\n' +
+    '   - 为指定达人智能匹配商品：match_influencer，参数 {"influencerId":"inf_xxx"}\n' +
+    '   - 读取商品匹配缓存：get_product_matches，参数 {"productId":"prod_xxx"}\n' +
+    '   - 读取达人匹配缓存：get_influencer_matches，参数 {"influencerId":"inf_xxx"}\n' +
     '   - 匹配维度：分类、标签、价格区间、粉丝数、互动率\n\n' +
     '当你需要执行以上操作时，请在回复末尾使用以下格式（用户看不到这段标记）：\n' +
     '[TOOL_CALL]{"action":"list_products"}[/TOOL_CALL]\n' +
+    '[TOOL_CALL]{"action":"search_products","params":{"query":"口红"}}[/TOOL_CALL]\n' +
+    '[TOOL_CALL]{"action":"get_product_detail","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"match_product","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
     '主大脑会自动执行并把结果展示给用户。\n' +
     '【注意】禁止编造不存在的商品或达人信息，所有数据以主大脑查询结果为准。';
@@ -12654,6 +12662,52 @@ async function executeToolCall(call) {
           data.influencers.slice(0, 10).map(function(i) {
             return '- ' + i.name + ' (' + (i.platform || '-') + ', 粉丝' + (i.followerCount >= 10000 ? (i.followerCount/10000).toFixed(1)+'w' : (i.followerCount || 0)) + ', 报价¥' + (i.cooperationPrice || 0).toFixed(0) + ')';
           }).join('\n');
+      case 'search_products':
+        var q = call.params && call.params.query;
+        if (!q) return '【工具执行失败】缺少 query';
+        var r = await apiFetch('/api/products?q=' + encodeURIComponent(q));
+        var data = await r.json();
+        return '📦 搜索商品「' + q + '」找到 ' + (data.total || data.products.length) + ' 个结果：\n' +
+          data.products.slice(0, 10).map(function(p) {
+            return '- ' + p.name + ' (¥' + (p.price || 0).toFixed(2) + ', ' + (p.category || '未分类') + ', 库存' + (p.stock || 0) + ')';
+          }).join('\n');
+      case 'search_influencers':
+        var q = call.params && call.params.query;
+        if (!q) return '【工具执行失败】缺少 query';
+        var r = await apiFetch('/api/influencers?q=' + encodeURIComponent(q));
+        var data = await r.json();
+        return '🎙️ 搜索达人「' + q + '」找到 ' + (data.total || data.influencers.length) + ' 个结果：\n' +
+          data.influencers.slice(0, 10).map(function(i) {
+            return '- ' + i.name + ' (' + (i.platform || '-') + ', 粉丝' + (i.followerCount >= 10000 ? (i.followerCount/10000).toFixed(1)+'w' : (i.followerCount || 0)) + ', 报价¥' + (i.cooperationPrice || 0).toFixed(0) + ')';
+          }).join('\n');
+      case 'get_product_detail':
+        var pid = call.params && call.params.productId;
+        if (!pid) return '【工具执行失败】缺少 productId';
+        var r = await apiFetch('/api/products/' + encodeURIComponent(pid));
+        var p = await r.json();
+        return '📦 商品详情：\n' +
+          '名称：' + (p.name || '未命名') + '\n' +
+          '分类：' + (p.category || '未分类') + '\n' +
+          '价格：¥' + (p.price || 0).toFixed(2) + '\n' +
+          '库存：' + (p.stock || 0) + '\n' +
+          'SKU：' + (p.sku || '-') + '\n' +
+          '标签：' + ((p.tags || []).join('、') || '-') + '\n' +
+          '状态：' + (p.status || '-') + '\n' +
+          '描述：' + ((p.description || '').slice(0, 200) || '-');
+      case 'get_influencer_detail':
+        var iid = call.params && call.params.influencerId;
+        if (!iid) return '【工具执行失败】缺少 influencerId';
+        var r = await apiFetch('/api/influencers/' + encodeURIComponent(iid));
+        var i = await r.json();
+        return '🎙️ 达人详情：\n' +
+          '名称：' + (i.name || '未命名') + '\n' +
+          '平台：' + (i.platform || '-') + ' / ' + (i.accountId || '-') + '\n' +
+          '粉丝：' + (i.followerCount >= 10000 ? (i.followerCount/10000).toFixed(1)+'w' : (i.followerCount || 0)) + '\n' +
+          '分类：' + (i.category || '未分类') + '\n' +
+          '报价：¥' + (i.cooperationPrice || 0).toFixed(0) + (i.priceUnit || '') + '\n' +
+          '互动率：' + (i.engagementRate || 0) + '%\n' +
+          '标签：' + ((i.tags || []).join('、') || '-') + '\n' +
+          '简介：' + ((i.bio || '').slice(0, 200) || '-');
       case 'match_product':
         var pid = call.params && call.params.productId;
         if (!pid) return '【工具执行失败】缺少 productId';
@@ -12677,6 +12731,26 @@ async function executeToolCall(call) {
         return '🔗 为达人「' + (data.influencer && data.influencer.name || '未知') + '」匹配到 ' + data.results.length + ' 个商品：\n' +
           data.results.slice(0, 5).map(function(res) {
             return '- ' + res.product.name + ' (匹配度' + res.score + '分' + (res.reasons && res.reasons.length ? '，' + res.reasons.slice(0, 3).join('、') : '') + ')';
+          }).join('\n');
+      case 'get_product_matches':
+        var pid = call.params && call.params.productId;
+        if (!pid) return '【工具执行失败】缺少 productId';
+        var r = await apiFetch('/api/products/' + encodeURIComponent(pid) + '/matches?limit=5');
+        var data = await r.json();
+        return '📦 商品「' + (data.product_id || pid) + '」的匹配达人（' + (data.source === 'cached' ? '缓存' : '实时') + '）共 ' + (data.total || data.matches.length) + ' 个：\n' +
+          data.matches.slice(0, 5).map(function(res) {
+            var inf = res.influencer || {};
+            return '- ' + inf.name + ' (' + (inf.platform || '-') + ', 粉丝' + (inf.followerCount >= 10000 ? (inf.followerCount/10000).toFixed(1)+'w' : (inf.followerCount || 0)) + ', 匹配度' + res.score + '分)';
+          }).join('\n');
+      case 'get_influencer_matches':
+        var iid = call.params && call.params.influencerId;
+        if (!iid) return '【工具执行失败】缺少 influencerId';
+        var r = await apiFetch('/api/influencers/' + encodeURIComponent(iid) + '/matches?limit=5');
+        var data = await r.json();
+        return '🎙️ 达人「' + (data.influencer_id || iid) + '」的匹配商品（' + (data.source === 'cached' ? '缓存' : '实时') + '）共 ' + (data.total || data.matches.length) + ' 个：\n' +
+          data.matches.slice(0, 5).map(function(res) {
+            var prod = res.product || {};
+            return '- ' + prod.name + ' (¥' + (prod.price || 0).toFixed(2) + ', 匹配度' + res.score + '分)';
           }).join('\n');
       default:
         return '【工具执行失败】未知操作: ' + call.action;
