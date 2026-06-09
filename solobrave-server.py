@@ -32,6 +32,7 @@ import time
 import tempfile
 import mimetypes
 import shutil
+import math
 try:
     import fcntl
 except ImportError:
@@ -81,6 +82,38 @@ ARCHIVE_DIR = os.path.join(DATA_DIR, 'memory', 'archive')
 KNOWLEDGE_DIR = os.path.join(DATA_DIR, 'knowledge')
 PRODUCT_DIR = os.path.join(DATA_DIR, 'products')
 INFLUENCER_DIR = os.path.join(DATA_DIR, 'influencers')
+EMBEDDING_DIR = os.path.join(DATA_DIR, 'embeddings')
+
+# ═══════════════════════════════════════════════════
+# Embedding 配置（RAG 向量检索）
+# ═══════════════════════════════════════════════════
+EMBEDDING_PROVIDERS = {
+    'openai': {
+        'url': 'https://api.openai.com/v1/embeddings',
+        'model': 'text-embedding-3-small',
+        'dim': 1536,
+    },
+    'kimi': {
+        'url': 'https://api.moonshot.cn/v1/embeddings',
+        'model': 'moonshot-v1-embedding',
+        'dim': 1536,
+    },
+    'moonshot': {
+        'url': 'https://api.moonshot.cn/v1/embeddings',
+        'model': 'moonshot-v1-embedding',
+        'dim': 1536,
+    },
+    'zhipu': {
+        'url': 'https://open.bigmodel.cn/api/paas/v4/embeddings',
+        'model': 'embedding-2',
+        'dim': 1024,
+    },
+    'deepseek': {
+        'url': 'https://api.deepseek.com/v1/embeddings',
+        'model': 'text-embedding',
+        'dim': 1536,
+    },
+}
 
 # ═══════════════════════════════════════════════════
 # 记忆系统 v2 配置（三层大脑架构）
@@ -713,6 +746,212 @@ def _require_admin(auth):
     return None, None
 
 
+# ═══════════════════════════════════════════════════
+# Embedding / RAG 向量检索（纯 Python 标准库实现）
+# ═══════════════════════════════════════════════════
+
+def get_embedding(text, api_key, provider='openai'):
+    """调用 Embedding API 获取向量，纯 urllib 实现"""
+    if not text or not text.strip():
+        return None
+    cfg = EMBEDDING_PROVIDERS.get(provider, EMBEDDING_PROVIDERS['openai'])
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {api_key}',
+    }
+    body = json.dumps({
+        'input': text[:8000],  # 限制长度，避免超长
+        'model': cfg['model'],
+        'encoding_format': 'float',
+    }).encode('utf-8')
+    req = urllib.request.Request(cfg['url'], data=body, headers=headers, method='POST')
+    # 创建 SSL context，忽略证书验证（避免部分环境的证书问题）
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+    with urllib.request.urlopen(req, timeout=30, context=ssl_ctx) as resp:
+        data = json.loads(resp.read().decode('utf-8'))
+        if data.get('data') and len(data['data']) > 0:
+            emb = data['data'][0].get('embedding')
+            if emb and isinstance(emb, list):
+                return emb
+    return None
+
+
+def cosine_similarity(a, b):
+    """纯 Python 计算余弦相似度"""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    mag_a = math.sqrt(sum(x * x for x in a))
+    mag_b = math.sqrt(sum(x * x for x in b))
+    if mag_a == 0.0 or mag_b == 0.0:
+        return 0.0
+    return dot / (mag_a * mag_b)
+
+
+def _get_embedding_cache_path(entity_type, entity_id):
+    return os.path.join(EMBEDDING_DIR, f'{entity_type}_{entity_id}.json')
+
+
+def load_embedding(entity_type, entity_id):
+    """加载缓存的 embedding"""
+    path = _get_embedding_cache_path(entity_type, entity_id)
+    if os.path.exists(path):
+        data = _read_json(path, None)
+        if data and 'embedding' in data:
+            return data['embedding']
+    return None
+
+
+def save_embedding(entity_type, entity_id, embedding):
+    """保存 embedding 到缓存"""
+    os.makedirs(EMBEDDING_DIR, exist_ok=True)
+    path = _get_embedding_cache_path(entity_type, entity_id)
+    _write_json(path, {
+        'embedding': embedding,
+        'updatedAt': int(time.time() * 1000),
+    })
+
+
+def delete_embedding_cache(entity_type, entity_id):
+    """删除 embedding 缓存"""
+    path = _get_embedding_cache_path(entity_type, entity_id)
+    if os.path.exists(path):
+        os.remove(path)
+
+
+def build_entity_text(entity_type, entity):
+    """构建用于 embedding 的文本"""
+    if entity_type == 'doc':
+        parts = [entity.get('name', '')]
+        if entity.get('category'):
+            parts.append(f"分类: {entity['category']}")
+        if entity.get('tags'):
+            parts.append(f"标签: {', '.join(entity['tags'])}")
+        parts.append(entity.get('content', ''))
+        return '\n'.join(parts)
+    elif entity_type == 'product':
+        parts = [entity.get('name', '')]
+        if entity.get('category'):
+            parts.append(f"分类: {entity['category']}")
+        if entity.get('tags'):
+            parts.append(f"标签: {', '.join(entity['tags'])}")
+        if entity.get('description'):
+            parts.append(entity['description'])
+        if entity.get('selling_points'):
+            parts.append(f"卖点: {entity['selling_points']}")
+        if entity.get('sku'):
+            parts.append(f"SKU: {entity['sku']}")
+        return '\n'.join(parts)
+    return ''
+
+
+def ensure_embedding(entity_type, entity, api_key, provider='openai'):
+    """确保 entity 的 embedding 已生成，没有则实时生成"""
+    entity_id = entity.get('id')
+    if not entity_id:
+        return None
+    emb = load_embedding(entity_type, entity_id)
+    if emb:
+        return emb
+    text = build_entity_text(entity_type, entity)
+    if not text.strip():
+        return None
+    try:
+        emb = get_embedding(text, api_key, provider)
+        if emb:
+            save_embedding(entity_type, entity_id, emb)
+        return emb
+    except Exception as e:
+        print(f'  [Embedding] {entity_type} {entity_id} 生成失败: {e}', flush=True)
+        return None
+
+
+def build_all_embeddings(api_key, provider='openai'):
+    """批量构建所有知识库文档和产品的 embedding"""
+    os.makedirs(EMBEDDING_DIR, exist_ok=True)
+    # 知识库文档
+    kb_data = _read_json(os.path.join(KNOWLEDGE_DIR, 'index.json'), {'docs': []})
+    for doc in kb_data.get('docs', []):
+        ensure_embedding('doc', doc, api_key, provider)
+    # 产品
+    prod_data = _read_json(os.path.join(PRODUCT_DIR, 'index.json'), {'products': []})
+    for product in prod_data.get('products', []):
+        ensure_embedding('product', product, api_key, provider)
+    print(f'  [Embedding] 批量构建完成', flush=True)
+
+
+def rag_retrieve(query, api_key, provider='openai', top_k_docs=3, top_k_products=3):
+    """RAG 检索：基于向量相似度返回相关知识库文档和产品"""
+    if not query or not query.strip() or not api_key:
+        return {'docs': [], 'products': [], 'context': ''}
+
+    # 1. 获取 query 的 embedding
+    query_emb = get_embedding(query, api_key, provider)
+    if not query_emb:
+        return {'docs': [], 'products': [], 'context': ''}
+
+    results = {'docs': [], 'products': [], 'context': ''}
+
+    # 2. 知识库文档检索
+    kb_data = _read_json(os.path.join(KNOWLEDGE_DIR, 'index.json'), {'docs': []})
+    doc_scores = []
+    for doc in kb_data.get('docs', []):
+        emb = load_embedding('doc', doc.get('id', ''))
+        if emb:
+            score = cosine_similarity(query_emb, emb)
+            if score > 0.0:
+                doc_scores.append((score, doc))
+    doc_scores.sort(key=lambda x: x[0], reverse=True)
+    results['docs'] = [d for _, d in doc_scores[:top_k_docs]]
+
+    # 3. 产品库检索
+    prod_data = _read_json(os.path.join(PRODUCT_DIR, 'index.json'), {'products': []})
+    product_scores = []
+    for product in prod_data.get('products', []):
+        emb = load_embedding('product', product.get('id', ''))
+        if emb:
+            score = cosine_similarity(query_emb, emb)
+            if score > 0.0:
+                product_scores.append((score, product))
+    product_scores.sort(key=lambda x: x[0], reverse=True)
+    results['products'] = [p for _, p in product_scores[:top_k_products]]
+
+    # 4. 格式化上下文
+    results['context'] = format_rag_context(results['docs'], results['products'])
+    return results
+
+
+def format_rag_context(docs, products):
+    """将检索结果格式化为注入 system prompt 的文本"""
+    lines = []
+    if docs:
+        lines.append('【知识库文档】')
+        for d in docs:
+            content = (d.get('content') or '')[:1200]
+            lines.append(f"━━━ {d.get('icon', '📄')} {d.get('name', '未命名')} ━━━")
+            lines.append(content)
+            if len(d.get('content', '')) > 1200:
+                lines.append('...（内容已截取）')
+            lines.append('')
+    if products:
+        lines.append('【产品信息】')
+        for p in products:
+            lines.append(f"━━━ 📦 {p.get('name', '未命名')} ━━━")
+            lines.append(f"价格: ¥{p.get('price', 0)} | 分类: {p.get('category', '未分类')} | SKU: {p.get('sku', 'N/A')}")
+            if p.get('description'):
+                lines.append(f"描述: {p.get('description')[:400]}")
+            if p.get('selling_points'):
+                lines.append(f"卖点: {p.get('selling_points')[:300]}")
+            if p.get('tags'):
+                lines.append(f"标签: {', '.join(p.get('tags', []))}")
+            if p.get('commission_rate'):
+                lines.append(f"佣金: {p.get('commission_rate')}%")
+            lines.append('')
+    return '\n'.join(lines)
+
+
 # ─── 请求处理器 ────────────────────────────────────────
 
 class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
@@ -1070,6 +1309,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/openclaw/dreaming':
             self._handle_post_dreaming()
+            return
+
+        # RAG API
+        if path == '/api/rag/retrieve':
+            self._handle_post_rag_retrieve()
+            return
+        if path == '/api/rag/build':
+            self._handle_post_rag_build()
             return
 
         # Agents API
@@ -4061,6 +4308,70 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'deleted': removed > 0, 'id': doc_id})
 
     # ═══════════════════════════════════════════════════
+    # RAG API
+    # ═══════════════════════════════════════════════════
+
+    def _handle_post_rag_retrieve(self):
+        """POST /api/rag/retrieve — RAG 向量检索"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body or 'query' not in body:
+            self._send_json_error(400, 'Missing query')
+            return
+        query = body['query']
+        emp_id = body.get('empId')
+        top_k = min(10, max(1, body.get('topK', 3)))
+
+        # 获取员工的 API key 和 provider
+        api_key = None
+        provider = 'openai'
+        if emp_id:
+            agents = _load_agents()
+            agent = agents.get(emp_id)
+            if agent:
+                api_key = agent.get('apiKey')
+                provider = agent.get('aiProvider', 'openai')
+        if not api_key:
+            self._send_json_error(400, 'No API key available for embedding. Please configure AI provider in employee settings.')
+            return
+
+        try:
+            result = rag_retrieve(query, api_key, provider, top_k_docs=top_k, top_k_products=top_k)
+            self._send_json(200, result)
+        except Exception as e:
+            print(f'  [RAG] retrieve failed: {e}', flush=True)
+            self._send_json_error(500, f'RAG retrieve failed: {str(e)}')
+
+    def _handle_post_rag_build(self):
+        """POST /api/rag/build — 批量构建所有 embedding 索引"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body() or {}
+        emp_id = body.get('empId')
+        api_key = None
+        provider = 'openai'
+        if emp_id:
+            agents = _load_agents()
+            agent = agents.get(emp_id)
+            if agent:
+                api_key = agent.get('apiKey')
+                provider = agent.get('aiProvider', 'openai')
+        if not api_key:
+            self._send_json_error(400, 'No API key available')
+            return
+        try:
+            build_all_embeddings(api_key, provider)
+            self._send_json(200, {'success': True, 'message': 'Embedding index built'})
+        except Exception as e:
+            print(f'  [RAG] build failed: {e}', flush=True)
+            self._send_json_error(500, f'Build failed: {str(e)}')
+
+    # ═══════════════════════════════════════════════════
     # 商品库 API
     # ═══════════════════════════════════════════════════
 
@@ -5107,6 +5418,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 system_prompt = ms3.inject_memories(agent_id, system_prompt)
             except Exception as e:
                 print(f'  [MemoryInject] {agent_id} 注入失败: {e}', flush=True)
+
+            # 注入 RAG 检索结果（产品知识库）
+            try:
+                if api_key:
+                    rag_result = rag_retrieve(user_message, api_key, api_provider, top_k_docs=2, top_k_products=2)
+                    if rag_result.get('context'):
+                        system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'
+            except Exception as e:
+                print(f'  [RAG] {agent_id} 注入失败: {e}', flush=True)
 
         messages = [{'role': 'system', 'content': system_prompt}]
 

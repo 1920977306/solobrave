@@ -3967,6 +3967,16 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
     // 注入商品库/达人库/匹配引擎工具说明（主大脑管控）
     systemPrompt += buildAgentToolsContext();
 
+    // 注入 RAG 检索结果（产品知识库）
+    try {
+      var ragContext = await retrieveRAGContext(emp.id, userMessage);
+      if (ragContext) {
+        systemPrompt += '\n\n' + ragContext;
+      }
+    } catch (e) {
+      console.warn('[RAG] OpenClaw 路径注入失败:', e);
+    }
+
     // 监听 agent 事件（OpenClaw v3 流式推送）
     var fullReply = '';
     var hasStreamReply = false;
@@ -12164,6 +12174,16 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
   // 注入商品库/达人库/匹配引擎工具说明（主大脑管控）
   systemPrompt += buildAgentToolsContext();
 
+  // 注入 RAG 检索结果（产品知识库）
+  try {
+    var ragContext2 = await retrieveRAGContext(emp.id, userMessage);
+    if (ragContext2) {
+      systemPrompt += '\n\n' + ragContext2;
+    }
+  } catch (e) {
+    console.warn('[RAG] API 路径注入失败:', e);
+  }
+
   var messages = [{
     role: 'system',
     content: systemPrompt
@@ -12603,6 +12623,25 @@ function _processExtractedMemory(empId, extracted, existing) {
 }
 
 // 显示 AI 回复
+// ========== RAG 检索（Embedding API 向量检索）==========
+async function retrieveRAGContext(empId, query) {
+  if (!query || query.length < 2) return '';
+  var emp = emps.find(function(e) { return e.id === empId; });
+  if (!emp || !emp.apiKey) return '';
+  try {
+    var r = await apiFetch('/api/rag/retrieve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: query, empId: empId, topK: 3 })
+    });
+    var data = await r.json();
+    return data.context || '';
+  } catch (e) {
+    console.warn('[RAG] 检索失败:', e);
+    return '';
+  }
+}
+
 // ========== Agent 工具调用（主大脑管控商品库/达人库）==========
 function buildAgentToolsContext() {
   return '\n\n【系统资源（由主大脑管理，你可请求调用）】\n' +
