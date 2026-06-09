@@ -99,16 +99,6 @@ MEMORY_CONFIG = {
     'chat_store_max': 500,     # 聊天记录存储上限
 }
 
-# 记忆服务 v3 目录同步（物理隔离活跃记忆与归档记忆）
-ms3.MEMORY_V3_DIR = os.path.join(DATA_DIR, 'memories')
-ms3.MEMORY_V3_CONFIG['core_max'] = MEMORY_CONFIG['core_max']
-ms3.MEMORY_V3_CONFIG['daily_max'] = MEMORY_CONFIG['daily_max']
-ms3.MEMORY_V3_CONFIG['daily_ttl_days'] = MEMORY_CONFIG['daily_ttl_days']
-ms3.MEMORY_V3_CONFIG['inject_core_max'] = MEMORY_CONFIG['inject_core_max']
-ms3.MEMORY_V3_CONFIG['inject_daily_max'] = MEMORY_CONFIG['inject_daily_max']
-ms3.MEMORY_V3_CONFIG['inject_value_max'] = MEMORY_CONFIG['inject_value_max']
-ms3.MEMORY_V3_CONFIG['store_value_max'] = MEMORY_CONFIG['store_value_max']
-
 # 进程级文件锁（跨平台替代 fcntl，Windows 兼容）
 _memory_file_locks = {}
 _memory_locks_mutex = threading.Lock()
@@ -6235,6 +6225,16 @@ def main():
 
     # 确保数据目录
     _ensure_data_dir()
+
+    # 同步记忆服务 v3 配置（在 main() 中执行，避免模块导入时的 NameError）
+    ms3.MEMORY_V3_DIR = os.path.join(DATA_DIR, 'memories')
+    ms3.MEMORY_V3_CONFIG['core_max'] = MEMORY_CONFIG['core_max']
+    ms3.MEMORY_V3_CONFIG['daily_max'] = MEMORY_CONFIG['daily_max']
+    ms3.MEMORY_V3_CONFIG['daily_ttl_days'] = MEMORY_CONFIG['daily_ttl_days']
+    ms3.MEMORY_V3_CONFIG['inject_core_max'] = MEMORY_CONFIG['inject_core_max']
+    ms3.MEMORY_V3_CONFIG['inject_daily_max'] = MEMORY_CONFIG['inject_daily_max']
+    ms3.MEMORY_V3_CONFIG['inject_value_max'] = MEMORY_CONFIG['inject_value_max']
+    ms3.MEMORY_V3_CONFIG['store_value_max'] = MEMORY_CONFIG['store_value_max']
 
     # 启动时主动清理历史遗留默认员工数据
     _clean_agents_file()
