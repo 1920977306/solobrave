@@ -913,7 +913,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path.startswith('/api/influencers/'):
             inf_id = path[len('/api/influencers/'):]
             if inf_id:
-                self._handle_delete_influencer(inf_id)
+                self._handle_get_influencer(inf_id)
                 return
 
         # Chat API
@@ -4456,6 +4456,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         total = len(influencers)
         influencers = influencers[offset:offset + limit]
         self._send_json(200, {'influencers': influencers, 'total': total, 'offset': offset, 'limit': limit})
+
+    def _handle_get_influencer(self, inf_id):
+        """GET /api/influencers/:id — 获取单个达人详情"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        data = self._load_influencers()
+        influencer = next((i for i in data.get('influencers', []) if i.get('id') == inf_id), None)
+        if not influencer:
+            self._send_json_error(404, 'Influencer not found')
+            return
+        self._send_json(200, influencer)
 
     def _handle_post_influencer(self):
         """POST /api/influencers — 录入达人"""
