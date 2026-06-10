@@ -560,6 +560,31 @@ def _run_openclaw(args, cwd=None, input_data=None):
         return False, '', str(e), -1
 
 
+def _sync_agent_api_key_to_openclaw(agent):
+    """
+    将员工的 API Key 同步到 OpenClaw。
+    调用: openclaw models auth --agent <id> paste-api-key --provider <provider>
+    API Key 通过 stdin 传递。
+    """
+    agent_id = agent.get('id')
+    api_key = agent.get('apiKey', '').strip()
+    provider = agent.get('apiProvider', '') or agent.get('aiProvider', '')
+    if not api_key or not provider:
+        return False, '缺少 apiKey 或 provider'
+    if not os.path.isfile(OPENCLAW_CLI):
+        return False, f'OpenClaw CLI 未找到: {OPENCLAW_CLI}'
+
+    args = ['models', 'auth', '--agent', agent_id, 'paste-api-key', '--provider', provider]
+    success, stdout, stderr, rc = _run_openclaw(args, input_data=api_key)
+    if success and rc == 0:
+        print(f'  [OpenClawSync] API Key 已同步: {agent_id} provider={provider}', flush=True)
+        return True, stdout
+    else:
+        err = stderr or stdout or f'returncode={rc}'
+        print(f'  [OpenClawSync] API Key 同步失败: {agent_id} provider={provider} err={err}', flush=True)
+        return False, err
+
+
 def _openclaw_status():
     """检查 OpenClaw Gateway 状态"""
     if not os.path.isfile(OPENCLAW_CLI):
@@ -3511,6 +3536,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 break
         agents.append(new_agent)
         _save_agents(agents)
+        # 自动同步 API Key 到 OpenClaw
+        if new_agent.get('apiKey') and (new_agent.get('apiProvider') or new_agent.get('aiProvider')):
+            _sync_agent_api_key_to_openclaw(new_agent)
 
         # 加载角色初始记忆种子
         self._save_initial_memories(new_agent['id'], new_agent.get('role', ''))
@@ -3550,6 +3578,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         self._send_auth_error('权限不足', 403)
                         return
 
+            # 检测 API Key 是否变动
+            old_api_key = agent.get('apiKey', '')
+            old_provider = agent.get('apiProvider', '') or agent.get('aiProvider', '')
+
             # 可更新字段
             updatable = ['name', 'role', 'bg', 'avatar', 'status', 'msg', 'archived',
                          'permission', 'visibility', 'connectionType', 'apiProvider',
@@ -3566,6 +3598,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         agent[key] = body[key]
 
             _save_agents(agents)
+
+            # 自动同步 API Key 到 OpenClaw（有变动时）
+            new_api_key = agent.get('apiKey', '')
+            new_provider = agent.get('apiProvider', '') or agent.get('aiProvider', '')
+            if new_api_key and new_provider:
+                if new_api_key != old_api_key or new_provider != old_provider:
+                    _sync_agent_api_key_to_openclaw(agent)
+
             print(f'  [PUT agent] saved ok, sending response', flush=True)
             self._send_json(200, agent)
         except Exception as e:
