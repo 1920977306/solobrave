@@ -5123,17 +5123,31 @@ const aiModels = [{
 
 // Employee sync
 var _saveEmpTimer = null;
-function saveEmployees() {
+var _dirtyEmpIds = new Set();
+function saveEmployees(empIds) {
   // 1. 通知龙虾办公室数据已更新
   notifyOfficeEmployeesUpdated();
+  // 标记需要同步的员工 ID
+  if (empIds) {
+    if (Array.isArray(empIds)) {
+      empIds.forEach(function (id) { _dirtyEmpIds.add(id); });
+    } else {
+      _dirtyEmpIds.add(empIds);
+    }
+  } else {
+    // 未指定则同步所有员工
+    emps.forEach(function (e) { _dirtyEmpIds.add(e.id); });
+  }
   // 3. 延迟同步到服务器（debounce 3秒，避免频繁调用创建重复 agent）
   if (_saveEmpTimer) clearTimeout(_saveEmpTimer);
   _saveEmpTimer = setTimeout(function () {
     var token = localStorage.getItem('sb_auth_token');
     if (token && token !== 'local_mode' && typeof apiFetch === 'function') {
-      emps.forEach(function (emp) {
-        syncEmpToServer(emp);
+      _dirtyEmpIds.forEach(function (empId) {
+        var emp = emps.find(function (e) { return e.id === empId; });
+        if (emp) syncEmpToServer(emp);
       });
+      _dirtyEmpIds.clear();
     }
   }, 3000);
 }
@@ -5162,6 +5176,7 @@ async function syncEmpToServer(emp) {
     delete syncData.status;
     delete syncData.msg;
     delete syncData.lastActive;
+    console.log('[syncEmpToServer] 发送 PUT /api/agents/' + emp.id, 'body_keys=' + Object.keys(syncData).join(','));
     var res = await apiFetch('/api/agents/' + emp.id, {
       method: 'PUT',
       headers: {
@@ -11792,13 +11807,16 @@ async function saveEmpConnect() {
   });
   if (!emp) return;
   var selectedProvider = document.getElementById('empConnectAIProvider').value;
+  var apiKeyVal = document.getElementById('empConnectApiKey').value.trim();
+  console.log('[saveEmpConnect] 准备保存 emp=' + emp.id + ' provider=' + selectedProvider + ' apiKey_len=' + apiKeyVal.length);
   emp.apiProvider = selectedProvider;  // 同步为实际供应商，避免被硬编码为 'openclaw'
   emp.aiProvider = selectedProvider;
   emp.openclawName = document.getElementById('empConnectOpenclawName').value.trim() || 'main';
-  emp.apiKey = document.getElementById('empConnectApiKey').value.trim();
+  emp.apiKey = apiKeyVal;
   emp.apiModel = document.getElementById('empConnectModel').value;
   emp.customEndpoint = document.getElementById('empConnectBaseUrl').value.trim();
-  saveEmployees();
+  console.log('[saveEmpConnect] emp.apiKey 已设置=' + (emp.apiKey ? '有值(' + emp.apiKey.length + ')' : '空'));
+  saveEmployees(currentEmpId);  // 只同步当前员工，避免刷所有员工
 
   // 自动在 Gateway 注册/更新 Agent
   var regResult = await registerOpenClawAgent(emp);
