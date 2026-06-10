@@ -96,7 +96,7 @@ def _write_json(filepath, data):
                 _unlock_file(lock_f)
         # 解锁后再替换，避免 Windows 上替换被锁定文件失败
         os.replace(tmp_path, filepath)
-    except OSError:
+    except (OSError, TypeError) as e:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
@@ -767,7 +767,10 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
 
     # 更新 accessCount（需要写回）
     if core_mems:
-        save_memory(emp_id, data)
+        try:
+            save_memory(emp_id, data)
+        except Exception as e:
+            print(f'  [MemoryInject] {emp_id} accessCount 写回失败: {e}', flush=True)
 
     return system_prompt
 
