@@ -4440,8 +4440,9 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
     var hasSentWorking = false;
     var _handled = false;
     function _doHandle(reply, isError) {
-      if (_handled) return;
+      if (_handled) { console.log('[OpenClaw] _doHandle 已处理，跳过'); return; }
       _handled = true;
+      console.log('[OpenClaw] _doHandle 调用 reply_len=' + (reply || '').length + ' isError=' + isError);
       var t = document.getElementById('typingMsg');
       if (t) t.remove();
       if (!reply) reply = '（AI 未返回内容）';
@@ -4450,13 +4451,17 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
       saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations);
     }
     var agentHandler = function (data) {
-      if (!data) return;
+      if (!data) { console.log('[OpenClaw] agentHandler 收到空数据'); return; }
+      console.log('[OpenClaw] agentHandler 收到事件:', data.stream, 'phase=', data.data && data.data.phase || '-', 'runId=', data.runId);
       if (data.runId && !currentRunId) currentRunId = data.runId;
-      if (currentRunId && data.runId && data.runId !== currentRunId) return;
+      if (currentRunId && data.runId && data.runId !== currentRunId) { console.log('[OpenClaw] 跳过非当前runId:', data.runId, 'current=', currentRunId); return; }
       // 用闭包 emp.id，不要用 localStorage（用户可能已切换员工）
       var targetEmpId = emp.id;
       if (data.stream === 'assistant' && data.data) {
         hasStreamReply = true;
+        var deltaLen = (data.data.delta || '').length;
+        var textLen = (data.data.text || '').length;
+        console.log('[OpenClaw] 收到AI消息片段 delta_len=' + deltaLen + ' text_len=' + textLen);
         // AI 开始流式回复 → 发送 working 状态（仅首次）
         if (!hasSentWorking) {
           hasSentWorking = true;
@@ -4503,6 +4508,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
         }
         // AI回复完成 → 通知龙虾办公室
         if (data.data.phase === 'end') {
+          console.log('[OpenClaw] AI回复结束，总长度=' + fullReply.length + ' hasStreamReply=' + hasStreamReply);
           window._thinkingTimeouts = window._thinkingTimeouts || {};
           clearTimeout(window._thinkingTimeouts[targetEmpId]);
           delete window._thinkingTimeouts[targetEmpId];
@@ -4518,6 +4524,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
         }
         // AI出错 → 恢复在线
         if (data.data.phase === 'error') {
+          console.log('[OpenClaw] AI回复出错，总长度=' + fullReply.length + ' error=', data.data.error || '-');
           window._thinkingTimeouts = window._thinkingTimeouts || {};
           clearTimeout(window._thinkingTimeouts[targetEmpId]);
           delete window._thinkingTimeouts[targetEmpId];
@@ -4531,6 +4538,9 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
           }
         }
         if (data.data.phase === 'end' || data.data.phase === 'error') {
+          if (!fullReply) {
+            console.log('[OpenClaw] AI回复为空或出错，原因=' + (data.data.phase === 'error' ? 'error事件' : 'end事件但fullReply为空'));
+          }
           _doHandle(fullReply, data.data.phase === 'error');
           openclaw.off('agent', agentHandler);
         }
@@ -12699,6 +12709,7 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
   if (providerId === 'zhipu') {
     endpoint = baseUrl + '/chat/completions';
   }
+  console.log('[API] 发送请求 -> /api/proxy endpoint=' + endpoint + ' model=' + model + ' messages=' + messages.length);
   apiFetch('/api/proxy', {
     method: 'POST',
     headers: {
@@ -12714,10 +12725,12 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
       max_tokens: 2000
     })
   }).then(function (res) {
+    console.log('[API] /api/proxy 响应 status=' + (res ? res.status : 'null') + ' ok=' + (res ? res.ok : 'null'));
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
     if (!res || !res.ok) {
       var status = res ? res.status : 0;
+      console.log('[API] /api/proxy 请求失败 status=' + status);
       if (status === 401) {
         displayAIReply('⚠️ API Key 无效，请检查 ' + (provider ? provider.name : 'AI供应商') + ' 的 API Key 是否正确', docContext, timeStr, emp.id, []);
       } else if (status === 429) {
@@ -12732,13 +12745,16 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
   }).then(function (data) {
     if (data && data.choices && data.choices[0] && data.choices[0].message) {
       var reply = data.choices[0].message.content || '';
+      console.log('[API] AI回复 content_len=' + reply.length);
       displayAIReply(reply, docContext, timeStr, emp.id, ragResult2.citations);
       saveChatHistory(emp.id, userMessage, reply, docContext, ragResult2.citations);
     } else if (data) {
+      console.log('[API] 返回格式异常 data=', JSON.stringify(data).substring(0, 200));
       displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr, emp.id, []);
     }
     restoreOnline();
   }).catch(function (error) {
+    console.log('[API] /api/proxy 异常:', error.message || error);
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
     if (error.message && (error.message.indexOf('Failed to fetch') >= 0 || error.message.indexOf('NetworkError') >= 0 || error.message.indexOf('CORS') >= 0)) {

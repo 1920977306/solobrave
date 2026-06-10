@@ -6774,7 +6774,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if body:
             forward_headers['Content-Length'] = str(len(body))
 
-        print(f'  🔄 Proxy -> {target_url}', flush=True)
+        # 解析 body 中的 model 信息（用于日志）
+        body_info = ''
+        if body:
+            try:
+                body_json = json.loads(body.decode('utf-8'))
+                body_info = f"model={body_json.get('model','?')} messages={len(body_json.get('messages',[]))}"
+            except Exception:
+                body_info = f'body_len={len(body)}'
+        print(f'  [Proxy] 收到请求 -> {target_url} {body_info}', flush=True)
         try:
             req = urllib.request.Request(target_url, data=body, headers=forward_headers, method='POST')
             ctx = ssl.create_default_context()
@@ -6783,12 +6791,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             resp_body = resp.read()
             resp_content_type = resp.headers.get('Content-Type', 'application/json')
 
+            # 解析响应中的 choices 长度用于日志
+            choices_info = ''
+            try:
+                resp_json = json.loads(resp_body.decode('utf-8'))
+                choices = resp_json.get('choices', [])
+                choices_info = f' choices={len(choices)}'
+                if choices and choices[0].get('message'):
+                    content = choices[0]['message'].get('content', '')
+                    choices_info += f' content_len={len(content)}'
+            except Exception:
+                pass
+            print(f'  [Proxy] API返回 status={resp.status}{choices_info} <- {target_url}', flush=True)
+
             self.send_response(resp.status)
             self._add_cors_headers()
             self.send_header('Content-Type', resp_content_type)
             self.end_headers()
             self.wfile.write(resp_body)
-            print(f'  ✅ Proxy OK ({resp.status}) <- {target_url}', flush=True)
 
         except urllib.error.HTTPError as e:
             status = e.code
@@ -6806,7 +6826,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 503: 'AI 服务暂不可用',
             }
             detail = error_messages.get(status, f'HTTP {status}')
-            print(f'  ❌ Proxy Error ({status}): {detail} <- {target_url}', flush=True)
+            err_text = ''
+            try:
+                err_text = err_body.decode('utf-8', errors='replace')[:200]
+            except Exception:
+                pass
+            print(f'  [Proxy] API错误 status={status} detail={detail} err={err_text} <- {target_url}', flush=True)
 
             self.send_response(status)
             self._add_cors_headers()
