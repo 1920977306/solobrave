@@ -11791,9 +11791,10 @@ async function saveEmpConnect() {
     return e.id === currentEmpId;
   });
   if (!emp) return;
-  emp.apiProvider = 'openclaw';
+  var selectedProvider = document.getElementById('empConnectAIProvider').value;
+  emp.apiProvider = selectedProvider;  // 同步为实际供应商，避免被硬编码为 'openclaw'
+  emp.aiProvider = selectedProvider;
   emp.openclawName = document.getElementById('empConnectOpenclawName').value.trim() || 'main';
-  emp.aiProvider = document.getElementById('empConnectAIProvider').value;
   emp.apiKey = document.getElementById('empConnectApiKey').value.trim();
   emp.apiModel = document.getElementById('empConnectModel').value;
   emp.customEndpoint = document.getElementById('empConnectBaseUrl').value.trim();

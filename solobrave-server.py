@@ -568,7 +568,8 @@ def _sync_agent_api_key_to_openclaw(agent):
     """
     agent_id = agent.get('id')
     api_key = agent.get('apiKey', '').strip()
-    provider = agent.get('apiProvider', '') or agent.get('aiProvider', '')
+    # 优先 aiProvider（前端实际选择的 AI 供应商），其次 apiProvider
+    provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
     if not api_key or not provider:
         return False, '缺少 apiKey 或 provider'
     if not os.path.isfile(OPENCLAW_CLI):
