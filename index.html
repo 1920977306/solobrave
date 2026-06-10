@@ -10697,18 +10697,12 @@ function renderMemoryTab(empId) {
         });
       });
 
-      // 检查聊天记录数，超过15条显示"建议归纳"提示条
-      apiFetch('/api/chat/' + encodeURIComponent(empId)).then(function (r) {
-        return r.json();
-      }).then(function (chatMsgs) {
-        var banner = document.getElementById('memorySummarizeBanner');
-        if (banner) {
-          banner.style.display = (chatMsgs && chatMsgs.length >= 15) ? 'flex' : 'none';
-        }
-      }).catch(function () {
-        var banner = document.getElementById('memorySummarizeBanner');
-        if (banner) banner.style.display = 'none';
-      });
+      // 根据后端 shouldConsolidate 状态显示"建议归纳"提示条
+      var banner = document.getElementById('memorySummarizeBanner');
+      if (banner) {
+        banner.style.display = data.shouldConsolidate ? 'flex' : 'none';
+        banner.dataset.sourceIds = JSON.stringify(data.suggestedSourceIds || []);
+      }
     }).catch(function (e) {
       contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载失败，请重试</div>';
       console.warn('[Memory] 加载失败:', e);
@@ -10726,19 +10720,63 @@ function triggerSummarizeFromMemoryPanel() {
     showToast('⚠️ 请先选择一个员工');
     return;
   }
-  showToast('📝 正在生成摘要，请稍候...');
-  apiFetch('/api/chat/summarize/' + encodeURIComponent(empId), {
-    method: 'POST'
+
+  var banner = document.getElementById('memorySummarizeBanner');
+  var sourceIds = [];
+  try {
+    sourceIds = JSON.parse(banner && banner.dataset.sourceIds ? banner.dataset.sourceIds : '[]');
+  } catch (e) {
+    sourceIds = [];
+  }
+
+  if (sourceIds.length < 2) {
+    showToast('⚠️ 没有足够的记忆可以归纳');
+    return;
+  }
+
+  showToast('📝 正在归纳记忆，请稍候...');
+
+  // 加载当前记忆以获取源记忆内容
+  apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) {
+    return r.json();
+  }).then(function (memData) {
+    var allMemories = (memData.daily || []).concat(memData.core || []);
+    var sourceMemories = [];
+    sourceIds.forEach(function (id) {
+      var m = allMemories.find(function (mem) { return mem.id === id; });
+      if (m) sourceMemories.push(m);
+    });
+
+    if (sourceMemories.length < 2) {
+      throw new Error('源记忆不足');
+    }
+
+    // 生成 consolidatedValue：拼接源记忆内容
+    var consolidatedValue = sourceMemories.map(function (m) {
+      return '• ' + (m.value || '');
+    }).join('\n');
+
+    return apiFetch('/api/memory/consolidate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        empId: empId,
+        sourceIds: sourceIds,
+        consolidatedValue: consolidatedValue,
+        key: 'core',
+        priority: 8,
+        tags: ['归纳']
+      })
+    });
   }).then(function (r) {
     return r.json();
   }).then(function (data) {
-    showToast('✅ 摘要已生成并保存');
-    // 隐藏提示条
-    var banner = document.getElementById('memorySummarizeBanner');
+    showToast('✅ 记忆归纳完成');
     if (banner) banner.style.display = 'none';
+    renderMemoryTab(empId);
     console.log('[Memory] 归纳完成:', data);
   }).catch(function (e) {
-    showToast('❌ 归纳失败，请重试');
+    showToast('❌ 归纳失败：' + (e.message || '请重试'));
     console.warn('[Memory] 归纳失败:', e);
   });
 }
