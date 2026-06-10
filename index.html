@@ -12688,7 +12688,7 @@ async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations) {
     var msgsResp = await apiFetch(baseUrl);
     var msgs = await msgsResp.json();
     if (msgs && msgs.length > 0 && msgs.length % 15 === 0) {
-      apiFetch(baseUrl + '/summarize', { method: 'POST' }).catch(function (e) {
+      apiFetch('/api/chat/summarize/' + encodeURIComponent(projId), { method: 'POST' }).catch(function (e) {
         console.log('[Summary] 摘要生成失败:', e);
       });
     }
@@ -15950,7 +15950,7 @@ function closeKnowledgePage() {
 async function loadKnowledgePage(page) {
   if (page) _knowledgePage = page;
   try {
-    var empId = _currentAgent ? _currentAgent.id : '';
+    var empId = localStorage.getItem('sb_current_emp') || '';
     var offset = (_knowledgePage - 1) * _knowledgePageSize;
     var url = '/api/knowledge?limit=' + _knowledgePageSize + '&offset=' + offset;
     if (empId) url += '&empId=' + encodeURIComponent(empId);
@@ -15998,7 +15998,7 @@ async function filterKnowledgeList(keyword) {
   var kw = (keyword || '').trim();
   _knowledgePage = 1;  // 搜索回到第一页
   try {
-    var empId = _currentAgent ? _currentAgent.id : '';
+    var empId = localStorage.getItem('sb_current_emp') || '';
     var url = '/api/knowledge?limit=' + _knowledgePageSize + '&offset=0';
     if (empId) url += '&empId=' + encodeURIComponent(empId);
     if (_knowledgeCurrentCat) url += '&category=' + encodeURIComponent(_knowledgeCurrentCat);
@@ -16109,7 +16109,7 @@ async function saveKnowledgeFromEditor() {
   var statusEl = document.getElementById('knowledgeEditStatus');
   statusEl.textContent = '保存中...';
   try {
-    var empId = _currentAgent ? _currentAgent.id : '';
+    var empId = localStorage.getItem('sb_current_emp') || '';
     var body = { title: title, content: content, category: category, empId: empId };
     var url = _knowledgeCurrentId ? '/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId) : '/api/knowledge';
     var method = _knowledgeCurrentId ? 'PUT' : 'POST';

@@ -138,6 +138,17 @@ def load_memory(emp_id):
         'daily': raw.get('daily', []),
         'stats': raw.get('stats', {})
     }
+    # 为旧数据（v3 之前创建）中没有 id 的记忆自动补 id
+    need_save = False
+    for pool in ('core', 'daily'):
+        for m in result.get(pool, []):
+            if not m.get('id'):
+                m['id'] = 'mem_' + uuid.uuid4().hex[:8]
+                need_save = True
+    if need_save:
+        result['updatedAt'] = int(time.time() * 1000)
+        _write_json(filepath, result)
+
     # 清理已过期但未归档的 daily（标记为过期，不移动到归档文件）
     result['daily'], expired_ids = _filter_expired(result['daily'])
     if expired_ids:
@@ -627,10 +638,13 @@ def get_consolidation_logs(emp_id=None, limit=50):
 # 注入策略
 # ═══════════════════════════════════════════════════
 
-def inject_memories(emp_id, system_prompt=''):
+def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, provider='openai', agent_config=None):
     """
     为 AI 对话注入记忆，返回更新后的 system_prompt
-    注入优先级：core（按priority+accessCount排序）→ daily（按时间倒序）→ archive（补充）
+    注入优先级：core（按priority+accessCount排序）→ daily（按时间倒序）→ archive（补充）→ knowledge（语义检索）
+    
+    user_message: 当前用户消息，用于知识库语义检索
+    api_key/provider/agent_config: 知识库向量化 API 配置
     """
     cfg = MEMORY_V3_CONFIG
     data = load_memory(emp_id)
@@ -680,19 +694,31 @@ def inject_memories(emp_id, system_prompt=''):
             if val:
                 archive_lines.append(f'- [归档] {val}')
 
-    # L4: 知识库 — 取最近 3 条关联知识
+    # L4: 知识库 — 语义检索获取与当前对话相关的知识
     kb_lines = []
-    kb_path = os.path.join(MEMORY_V3_DIR, '..', 'knowledge', emp_id, 'docs.json')
-    kb_data = _read_json(kb_path, {'docs': []})
-    kb_docs = sorted(
-        kb_data.get('docs', []),
-        key=lambda x: x.get('createdAt', 0),
-        reverse=True
-    )
-    for d in kb_docs[:cfg['inject_knowledge_max']]:
-        val = d.get('content', '')[:cfg['inject_value_max']]
-        if val:
-            kb_lines.append(f'- [{d.get("category", "知识")}] {d.get("title", "")}: {val}')
+    try:
+        import knowledge_service as ks
+        # 空知识库 graceful handling
+        conn = ks._db_conn()
+        try:
+            count_row = conn.execute('SELECT COUNT(*) as c FROM knowledge WHERE emp_id=? AND status="ok"',
+                                     (emp_id,)).fetchone()
+            kb_count = count_row['c'] if count_row else 0
+        finally:
+            conn.close()
+
+        if kb_count > 0 and api_key and user_message:
+            kb_docs = ks.knowledge_search_semantic(
+                user_message, emp_id, api_key, provider, agent_config,
+                limit=cfg['inject_knowledge_max']
+            )
+            for d in kb_docs:
+                # 注入内容取最相关的 chunk（如果有）
+                val = (d.get('relevantChunk') or d.get('content', ''))[:cfg['inject_value_max']]
+                if val:
+                    kb_lines.append(f'- [{d.get("category", "知识")}] {d.get("title", "")}: {val}')
+    except Exception:
+        pass  # 降级：静默忽略知识库注入失败
 
     # 总注入量控制：不超过 3000 字符，超出按优先级截断（core > daily > archive > knowledge）
     # 先构建所有 section，然后从低优先级开始截断
