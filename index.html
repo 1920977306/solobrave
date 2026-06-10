@@ -2203,16 +2203,19 @@ window.doLogin = function () {
   display: none;
   height: 100%;
   flex-direction: row;
+  min-width: 0;
 }
 .knowledge-area.active { display: flex; }
 .knowledge-sidebar {
-  width: 240px;
-  min-width: 240px;
+  flex: 0 0 240px;
+  max-width: 240px;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--separator);
   display: flex;
   flex-direction: column;
   padding: 16px;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 .knowledge-sidebar-title {
   font-size: 16px;
@@ -2267,6 +2270,14 @@ window.doLogin = function () {
   align-items: center;
   justify-content: space-between;
   transition: all 0.15s;
+  min-width: 0;
+  gap: 8px;
+}
+.knowledge-cat-item span:first-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 .knowledge-cat-item:hover { background: var(--bg-secondary); color: var(--text-primary); }
 .knowledge-cat-item.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
@@ -2277,13 +2288,14 @@ window.doLogin = function () {
   border-radius: 10px;
 }
 .knowledge-list {
-  width: 320px;
-  min-width: 320px;
+  flex: 0 0 320px;
+  max-width: 320px;
   background: var(--bg-primary);
   border-right: 1px solid var(--separator);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-sizing: border-box;
 }
 .knowledge-list-header {
   padding: 16px;
@@ -2319,15 +2331,22 @@ window.doLogin = function () {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
+  overflow: hidden;
 }
 .knowledge-list-item-cat {
   padding: 2px 8px;
   background: var(--bg-tertiary);
   border-radius: 10px;
   font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 .knowledge-editor {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2398,6 +2417,8 @@ window.doLogin = function () {
   resize: none;
   font-family: 'SF Mono', Monaco, monospace;
   background: var(--bg-primary);
+  min-width: 0;
+  word-break: break-word;
 }
 .knowledge-editor-preview {
   flex: 1;
@@ -2407,6 +2428,9 @@ window.doLogin = function () {
   background: var(--bg-primary);
   font-size: 14px;
   line-height: 1.7;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 .knowledge-editor-preview h1, .knowledge-editor-preview h2, .knowledge-editor-preview h3 {
   margin-top: 16px;
@@ -3145,6 +3169,7 @@ window.doLogin = function () {
   <div class="knowledge-list">
     <div class="knowledge-list-header">知识条目</div>
     <div class="knowledge-list-items" id="knowledgeListItems"></div>
+    <div class="knowledge-pagination" id="knowledgePagination"></div>
   </div>
   <!-- Right: Editor -->
   <div class="knowledge-editor">
@@ -15906,10 +15931,12 @@ function searchInfluencersDebounced(val) {
 }
 
 // ========== Knowledge Page ==========
-var _knowledgeData = { docs: [], categories: [] };
+var _knowledgeData = { docs: [], categories: [], total: 0 };
 var _knowledgeCurrentCat = '';
 var _knowledgeCurrentId = null;
 var _knowledgePreviewMode = false;
+var _knowledgePage = 1;
+var _knowledgePageSize = 20;
 
 function openKnowledgePage() {
   document.getElementById('chatArea').style.display = 'none';
@@ -15920,20 +15947,29 @@ function closeKnowledgePage() {
   document.getElementById('knowledgeArea').classList.remove('active');
   document.getElementById('chatArea').style.display = 'flex';
 }
-async function loadKnowledgePage() {
+async function loadKnowledgePage(page) {
+  if (page) _knowledgePage = page;
   try {
-    var r = await apiFetch('/api/knowledge?limit=200');
+    var empId = _currentAgent ? _currentAgent.id : '';
+    var offset = (_knowledgePage - 1) * _knowledgePageSize;
+    var url = '/api/knowledge?limit=' + _knowledgePageSize + '&offset=' + offset;
+    if (empId) url += '&empId=' + encodeURIComponent(empId);
+    if (_knowledgeCurrentCat) url += '&category=' + encodeURIComponent(_knowledgeCurrentCat);
+    var r = await apiFetch(url);
     var data = await r.json();
     _knowledgeData.docs = data.docs || [];
-    // 提取分类
+    _knowledgeData.total = data.total || 0;
+    // 分类统计需要单独请求（因为分页只返回当前页）
+    // 简化：用当前页数据展示分类（分类点击会重新请求）
     var catMap = {};
     _knowledgeData.docs.forEach(function(d) {
       var cat = d.category || '未分类';
       catMap[cat] = (catMap[cat] || 0) + 1;
     });
     _knowledgeData.categories = Object.keys(catMap);
-    renderKnowledgeCategories(catMap);
+    renderKnowledgeCategories(catMap, _knowledgeData.total);
     renderKnowledgeList(_knowledgeData.docs);
+    renderKnowledgePagination(_knowledgeData.total, _knowledgePage, _knowledgePageSize);
     // 默认选中第一个
     if (_knowledgeData.docs.length > 0 && !_knowledgeCurrentId) {
       selectKnowledgeItem(_knowledgeData.docs[0].id);
@@ -15943,27 +15979,39 @@ async function loadKnowledgePage() {
     document.getElementById('knowledgeListItems').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
   }
 }
-function renderKnowledgeCategories(catMap) {
-  var html = '<div class="knowledge-cat-item' + (_knowledgeCurrentCat === '' ? ' active' : '') + '" data-cat="" onclick="selectKnowledgeCategory(\'\')"><span>全部</span><span class="knowledge-cat-count">' + _knowledgeData.docs.length + '</span></div>';
+function renderKnowledgeCategories(catMap, total) {
+  var html = '<div class="knowledge-cat-item' + (_knowledgeCurrentCat === '' ? ' active' : '') + '" data-cat="" onclick="selectKnowledgeCategory(\'\')"><span>全部</span><span class="knowledge-cat-count">' + (total || _knowledgeData.total) + '</span></div>';
   _knowledgeData.categories.forEach(function(cat) {
     html += '<div class="knowledge-cat-item' + (_knowledgeCurrentCat === cat ? ' active' : '') + '" data-cat="' + escapeAttr(cat) + '" onclick="selectKnowledgeCategory(\'' + escapeAttr(cat).replace(/'/g, "\\'") + '\')"><span>' + escapeHtml(cat) + '</span><span class="knowledge-cat-count">' + (catMap[cat] || 0) + '</span></div>';
   });
   document.getElementById('knowledgeCatList').innerHTML = html;
 }
-function selectKnowledgeCategory(cat) {
+async function selectKnowledgeCategory(cat) {
   _knowledgeCurrentCat = cat;
+  _knowledgePage = 1;  // 切换分类回到第一页
   document.querySelectorAll('.knowledge-cat-item').forEach(function(el) {
     el.classList.toggle('active', el.dataset.cat === cat);
   });
-  var filtered = cat === '' ? _knowledgeData.docs : _knowledgeData.docs.filter(function(d) { return (d.category || '未分类') === cat; });
-  renderKnowledgeList(filtered);
+  await loadKnowledgePage(1);
 }
-function filterKnowledgeList(keyword) {
-  var kw = (keyword || '').toLowerCase();
-  var filtered = _knowledgeData.docs.filter(function(d) {
-    return !kw || (d.title || d.name || '').toLowerCase().indexOf(kw) > -1 || (d.content || '').toLowerCase().indexOf(kw) > -1;
-  });
-  renderKnowledgeList(filtered);
+async function filterKnowledgeList(keyword) {
+  var kw = (keyword || '').trim();
+  _knowledgePage = 1;  // 搜索回到第一页
+  try {
+    var empId = _currentAgent ? _currentAgent.id : '';
+    var url = '/api/knowledge?limit=' + _knowledgePageSize + '&offset=0';
+    if (empId) url += '&empId=' + encodeURIComponent(empId);
+    if (_knowledgeCurrentCat) url += '&category=' + encodeURIComponent(_knowledgeCurrentCat);
+    if (kw) url += '&q=' + encodeURIComponent(kw);
+    var r = await apiFetch(url);
+    var data = await r.json();
+    _knowledgeData.docs = data.docs || [];
+    _knowledgeData.total = data.total || 0;
+    renderKnowledgeList(_knowledgeData.docs);
+    renderKnowledgePagination(_knowledgeData.total, _knowledgePage, _knowledgePageSize);
+  } catch (e) {
+    console.warn('[KnowledgePage] 搜索失败:', e);
+  }
 }
 function renderKnowledgeList(docs) {
   var el = document.getElementById('knowledgeListItems');
@@ -15974,11 +16022,26 @@ function renderKnowledgeList(docs) {
   var html = '';
   docs.forEach(function(d) {
     var isActive = d.id === _knowledgeCurrentId;
+    var statusIcon = d.status === 'error' ? ' ⚠️' : (d.chunkCount > 0 ? ' ✅' : '');
     html += '<div class="knowledge-list-item' + (isActive ? ' active' : '') + '" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id).replace(/'/g, "\\'") + '\')">';
-    html += '<div class="knowledge-list-item-title">' + escapeHtml(d.title || d.name || '未命名') + '</div>';
+    html += '<div class="knowledge-list-item-title">' + escapeHtml(d.title || d.name || '未命名') + statusIcon + '</div>';
     html += '<div class="knowledge-list-item-meta"><span class="knowledge-list-item-cat">' + escapeHtml(d.category || '未分类') + '</span><span>' + formatDate(d.updatedAt) + '</span></div>';
     html += '</div>';
   });
+  el.innerHTML = html;
+}
+function renderKnowledgePagination(total, page, pageSize) {
+  var el = document.getElementById('knowledgePagination');
+  if (!total || total <= pageSize) {
+    el.innerHTML = '';
+    return;
+  }
+  var totalPages = Math.ceil(total / pageSize);
+  var html = '<div style="display:flex;align-items:center;justify-content:center;gap:4px;padding:8px;border-top:1px solid var(--separator);">';
+  html += '<button ' + (page <= 1 ? 'disabled' : '') + ' onclick="loadKnowledgePage(' + (page - 1) + ')" style="padding:4px 8px;border:1px solid var(--separator);border-radius:var(--radius-sm);background:var(--bg-primary);font-size:12px;cursor:pointer;" ' + (page <= 1 ? 'style="opacity:0.4;cursor:not-allowed;"' : '') + '>←</button>';
+  html += '<span style="font-size:12px;color:var(--text-secondary);">' + page + ' / ' + totalPages + '</span>';
+  html += '<button ' + (page >= totalPages ? 'disabled' : '') + ' onclick="loadKnowledgePage(' + (page + 1) + ')" style="padding:4px 8px;border:1px solid var(--separator);border-radius:var(--radius-sm);background:var(--bg-primary);font-size:12px;cursor:pointer;" ' + (page >= totalPages ? 'style="opacity:0.4;cursor:not-allowed;"' : '') + '>→</button>';
+  html += '</div>';
   el.innerHTML = html;
 }
 function selectKnowledgeItem(id) {
@@ -16046,7 +16109,8 @@ async function saveKnowledgeFromEditor() {
   var statusEl = document.getElementById('knowledgeEditStatus');
   statusEl.textContent = '保存中...';
   try {
-    var body = { title: title, content: content, category: category };
+    var empId = _currentAgent ? _currentAgent.id : '';
+    var body = { title: title, content: content, category: category, empId: empId };
     var url = _knowledgeCurrentId ? '/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId) : '/api/knowledge';
     var method = _knowledgeCurrentId ? 'PUT' : 'POST';
     var r = await apiFetch(url, { method: method, body: JSON.stringify(body) });
