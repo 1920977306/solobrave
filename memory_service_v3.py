@@ -92,9 +92,10 @@ def _write_json(filepath, data):
             try:
                 with open(tmp_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
-                os.replace(tmp_path, filepath)
             finally:
                 _unlock_file(lock_f)
+        # 解锁后再替换，避免 Windows 上替换被锁定文件失败
+        os.replace(tmp_path, filepath)
     except OSError:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -600,7 +601,14 @@ def log_consolidation(emp_id, ctype, source_ids, target_id=None,
     ctype: merge / promote / demote / delete / split
     """
     filepath = _consolidation_log_path()
-    log_data = _read_json(filepath, {'version': '3.0', 'logs': []})
+    raw = _read_json(filepath, {'version': '3.0', 'logs': []})
+    # 兼容旧格式：如果日志文件是列表，自动迁移为对象格式
+    if isinstance(raw, list):
+        log_data = {'version': '3.0', 'logs': raw}
+    elif isinstance(raw, dict):
+        log_data = raw
+    else:
+        log_data = {'version': '3.0', 'logs': []}
 
     log_entry = {
         'id': 'log_' + uuid.uuid4().hex[:8],
