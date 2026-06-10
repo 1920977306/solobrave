@@ -16013,6 +16013,7 @@ var _knowledgeCurrentId = null;
 var _knowledgePreviewMode = false;
 var _knowledgePage = 1;
 var _knowledgePageSize = 20;
+var _knowledgeInitialized = false;
 
 function openKnowledgePage() {
   document.getElementById('knowledgeArea').classList.add('active');
@@ -16020,6 +16021,8 @@ function openKnowledgePage() {
 }
 function closeKnowledgePage() {
   document.getElementById('knowledgeArea').classList.remove('active');
+  _knowledgeInitialized = false;
+  _knowledgeCurrentId = null;
 }
 async function loadKnowledgePage(page) {
   if (page) _knowledgePage = page;
@@ -16044,8 +16047,9 @@ async function loadKnowledgePage(page) {
     renderKnowledgeCategories(catMap, _knowledgeData.total);
     renderKnowledgeList(_knowledgeData.docs);
     renderKnowledgePagination(_knowledgeData.total, _knowledgePage, _knowledgePageSize);
-    // 默认选中第一个
-    if (_knowledgeData.docs.length > 0 && !_knowledgeCurrentId) {
+    // 默认选中第一个（只在首次打开知识库时）
+    if (!_knowledgeInitialized && _knowledgeData.docs.length > 0 && !_knowledgeCurrentId) {
+      _knowledgeInitialized = true;
       selectKnowledgeItem(_knowledgeData.docs[0].id);
     }
   } catch (e) {
@@ -16137,13 +16141,20 @@ function selectKnowledgeItem(id) {
 }
 function createNewKnowledge() {
   _knowledgeCurrentId = null;
-  document.getElementById('knowledgeEditTitle').value = '';
-  document.getElementById('knowledgeEditCategory').value = '';
-  document.getElementById('knowledgeEditContent').value = '';
-  document.getElementById('knowledgeEditStatus').textContent = '';
+  var titleEl = document.getElementById('knowledgeEditTitle');
+  var catEl = document.getElementById('knowledgeEditCategory');
+  var contentEl = document.getElementById('knowledgeEditContent');
+  var statusEl = document.getElementById('knowledgeEditStatus');
+  if (titleEl) titleEl.value = '';
+  if (catEl) catEl.value = '';
+  if (contentEl) contentEl.value = '';
+  if (statusEl) statusEl.textContent = '';
   _knowledgePreviewMode = false;
   updateKnowledgeEditorView();
-  document.getElementById('knowledgeEditTitle').focus();
+  if (titleEl) {
+    try { titleEl.focus(); } catch (e) {}
+  }
+  console.log('[Knowledge] 新建知识，表单已清空');
 }
 function updateKnowledgeEditorView() {
   var textarea = document.getElementById('knowledgeEditContent');
