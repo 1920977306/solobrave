@@ -2200,14 +2200,45 @@ window.doLogin = function () {
    Knowledge 管理页面样式
    ======================================== */
 .knowledge-area {
+  position: fixed;
+  inset: 44px 0 0 0;
+  background: var(--bg-primary);
+  z-index: 200;
   display: none;
-  flex: 1;
-  height: 100%;
-  flex-direction: row;
-  min-width: 0;
+  flex-direction: column;
   overflow: hidden;
 }
 .knowledge-area.active { display: flex; }
+.knowledge-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 0.5px solid var(--separator);
+  background: var(--bg-primary);
+  flex-shrink: 0;
+}
+.knowledge-header-title { font: var(--font-lg); }
+.knowledge-header-actions { display: flex; gap: 8px; align-items: center; }
+.knowledge-header-btn {
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: none;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+.knowledge-header-btn.primary { background: var(--accent); color: #fff; }
+.knowledge-header-btn.primary:hover { background: var(--accent-hover); }
+.knowledge-body {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  min-width: 0;
+}
 .knowledge-sidebar {
   flex: 0 0 240px;
   max-width: 240px;
@@ -3148,57 +3179,62 @@ window.doLogin = function () {
   </div>
 </div>
 
+</main>
+</div>
+
 <!-- Knowledge Management Area -->
 <div class="knowledge-area" id="knowledgeArea">
-  <!-- Left Sidebar: Categories + Search -->
-  <div class="knowledge-sidebar">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-      <button onclick="closeKnowledgePage()" style="padding:6px 10px;border:1px solid var(--separator);border-radius:var(--radius-sm);background:var(--bg-primary);font-size:12px;cursor:pointer;">← 返回聊天</button>
+  <div class="knowledge-header">
+    <div class="knowledge-header-title">📚 知识库</div>
+    <div class="knowledge-header-actions">
+      <button class="knowledge-header-btn primary" onclick="createNewKnowledge()">＋ 新建知识</button>
+      <button class="knowledge-header-btn" onclick="closeKnowledgePage()">✕</button>
     </div>
-    <div class="knowledge-sidebar-title">📚 知识库</div>
-    <div class="knowledge-search">
-      <span class="knowledge-search-icon">🔍</span>
-      <input type="text" id="knowledgeSearchInput" placeholder="搜索知识..." oninput="filterKnowledgeList(this.value)">
-    </div>
-    <button class="knowledge-new-btn" onclick="createNewKnowledge()">＋ 新建知识</button>
-    <div class="knowledge-cat-list" id="knowledgeCatList">
-      <div class="knowledge-cat-item active" data-cat="" onclick="selectKnowledgeCategory('')">
-        <span>全部</span><span class="knowledge-cat-count" id="knowledgeCatCountAll">0</span>
+  </div>
+  <div class="knowledge-body">
+    <!-- Left Sidebar: Categories + Search -->
+    <div class="knowledge-sidebar">
+      <div class="knowledge-sidebar-title">分类</div>
+      <div class="knowledge-search">
+        <span class="knowledge-search-icon">🔍</span>
+        <input type="text" id="knowledgeSearchInput" placeholder="搜索知识..." oninput="filterKnowledgeList(this.value)">
+      </div>
+      <div class="knowledge-cat-list" id="knowledgeCatList">
+        <div class="knowledge-cat-item active" data-cat="" onclick="selectKnowledgeCategory('')">
+          <span>全部</span><span class="knowledge-cat-count" id="knowledgeCatCountAll">0</span>
+        </div>
       </div>
     </div>
-  </div>
-  <!-- Middle: Knowledge List -->
-  <div class="knowledge-list">
-    <div class="knowledge-list-header">知识条目</div>
-    <div class="knowledge-list-items" id="knowledgeListItems"></div>
-    <div class="knowledge-pagination" id="knowledgePagination"></div>
-  </div>
-  <!-- Right: Editor -->
-  <div class="knowledge-editor">
-    <div class="knowledge-editor-header">
-      <input type="text" class="knowledge-editor-title-input" id="knowledgeEditTitle" placeholder="知识标题">
-      <input type="text" class="knowledge-editor-cat-input" id="knowledgeEditCategory" placeholder="分类">
+    <!-- Middle: Knowledge List -->
+    <div class="knowledge-list">
+      <div class="knowledge-list-header">知识条目</div>
+      <div class="knowledge-list-items" id="knowledgeListItems"></div>
+      <div class="knowledge-pagination" id="knowledgePagination"></div>
     </div>
-    <div class="knowledge-editor-toolbar">
-      <button onclick="toggleKnowledgePreview()">👁 预览</button>
-      <button class="primary" onclick="saveKnowledgeFromEditor()">💾 保存</button>
-      <button onclick="deleteKnowledgeFromEditor()" style="color:var(--danger);">🗑 删除</button>
-      <span class="status-text" id="knowledgeEditStatus"></span>
-    </div>
-    <div class="knowledge-editor-body" id="knowledgeEditorBody">
-      <textarea class="knowledge-editor-textarea" id="knowledgeEditContent" placeholder="输入 Markdown 内容...
+    <!-- Right: Editor -->
+    <div class="knowledge-editor">
+      <div class="knowledge-editor-header">
+        <input type="text" class="knowledge-editor-title-input" id="knowledgeEditTitle" placeholder="知识标题">
+        <input type="text" class="knowledge-editor-cat-input" id="knowledgeEditCategory" placeholder="分类">
+      </div>
+      <div class="knowledge-editor-toolbar">
+        <button onclick="toggleKnowledgePreview()">👁 预览</button>
+        <button class="primary" onclick="saveKnowledgeFromEditor()">💾 保存</button>
+        <button onclick="deleteKnowledgeFromEditor()" style="color:var(--danger);">🗑 删除</button>
+        <span class="status-text" id="knowledgeEditStatus"></span>
+      </div>
+      <div class="knowledge-editor-body" id="knowledgeEditorBody">
+        <textarea class="knowledge-editor-textarea" id="knowledgeEditContent" placeholder="输入 Markdown 内容...
 
 支持：
 # 标题
 **粗体** *斜体*
 - 列表项
 ```代码块```"></textarea>
-      <div class="knowledge-editor-preview hidden" id="knowledgeEditPreview"></div>
+        <div class="knowledge-editor-preview hidden" id="knowledgeEditPreview"></div>
+      </div>
     </div>
   </div>
-</div>
-
-</main>
 </div>
 
 <!-- Employee Detail Panel -->
@@ -15941,13 +15977,11 @@ var _knowledgePage = 1;
 var _knowledgePageSize = 20;
 
 function openKnowledgePage() {
-  document.getElementById('chatArea').style.display = 'none';
   document.getElementById('knowledgeArea').classList.add('active');
   loadKnowledgePage();
 }
 function closeKnowledgePage() {
   document.getElementById('knowledgeArea').classList.remove('active');
-  document.getElementById('chatArea').style.display = 'flex';
 }
 async function loadKnowledgePage(page) {
   if (page) _knowledgePage = page;
