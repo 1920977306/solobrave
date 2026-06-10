@@ -2,23 +2,59 @@
 """
 批量同步员工 API Key 到 OpenClaw
 
-遍历 agents.json 中所有配置了 apiKey + apiProvider/aiProvider 的员工，
+遍历 agents.json 中所有配置了 apiKey + provider 的员工，
 调用 openclaw models auth --agent <id> paste-api-key --provider <provider>
 将 API Key 同步到 OpenClaw。
 
 用法:
+    # 自动搜索 agents.json
     python sync_api_keys_to_openclaw.py
+
+    # 指定数据目录
+    python sync_api_keys_to_openclaw.py --data-dir /path/to/data
+
+    # 调试模式（打印所有员工的字段详情）
+    python sync_api_keys_to_openclaw.py --debug
 """
 
+import argparse
 import json
 import os
 import subprocess
 import sys
 
 OPENCLAW_CLI = '/opt/homebrew/bin/openclaw'
-DATA_DIR = os.path.join(os.path.expanduser('~'), '.solobrave-data')
-AGENTS_FILE = os.path.join(DATA_DIR, 'agents.json')
 OPENCLAW_TIMEOUT = 30
+
+
+def find_agents_json(data_dir=None):
+    """搜索 agents.json 文件，返回找到的路径或 None"""
+    candidates = []
+
+    # 1. 命令行/环境变量指定
+    if data_dir:
+        candidates.append(os.path.join(data_dir, 'agents.json'))
+    env_dir = os.environ.get('SOLOBRAVE_DATA_DIR')
+    if env_dir:
+        candidates.append(os.path.join(env_dir, 'agents.json'))
+
+    # 2. 项目目录下的 data/
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(script_dir, 'data', 'agents.json'))
+
+    # 3. 用户主目录下的 .solobrave-data/
+    candidates.append(os.path.join(os.path.expanduser('~'), '.solobrave-data', 'agents.json'))
+
+    # 4. 当前工作目录下的 data/
+    candidates.append(os.path.join(os.getcwd(), 'data', 'agents.json'))
+
+    print('[Search] 搜索 agents.json 路径:')
+    for p in candidates:
+        exists = os.path.isfile(p)
+        print(f'  {"✓" if exists else "✗"} {p}')
+        if exists:
+            return p
+    return None
 
 
 def _run_openclaw(args, input_data=None):
@@ -41,11 +77,24 @@ def _run_openclaw(args, input_data=None):
         return False, '', str(e), -1
 
 
+def get_provider(agent):
+    """从员工数据中提取 provider，支持多种字段名"""
+    # 优先 aiProvider（前端用的字段），其次 apiProvider
+    return agent.get('aiProvider', '') or agent.get('apiProvider', '')
+
+
+def has_api_config(agent):
+    """判断员工是否配置了 API Key + Provider"""
+    api_key = (agent.get('apiKey', '') or '').strip()
+    provider = get_provider(agent)
+    return bool(api_key and provider)
+
+
 def sync_agent_api_key(agent):
     """同步单个员工的 API Key 到 OpenClaw"""
     agent_id = agent.get('id')
-    api_key = agent.get('apiKey', '').strip()
-    provider = agent.get('apiProvider', '') or agent.get('aiProvider', '')
+    api_key = (agent.get('apiKey', '') or '').strip()
+    provider = get_provider(agent)
 
     if not api_key or not provider:
         return False, '缺少 apiKey 或 provider'
@@ -62,39 +111,73 @@ def sync_agent_api_key(agent):
 
 
 def main():
-    if not os.path.isfile(AGENTS_FILE):
-        print(f'[Error] 找不到 agents.json: {AGENTS_FILE}')
+    parser = argparse.ArgumentParser(description='批量同步员工 API Key 到 OpenClaw')
+    parser.add_argument('--data-dir', help='指定数据目录（包含 agents.json）')
+    parser.add_argument('--debug', action='store_true', help='调试模式：打印所有员工字段')
+    args = parser.parse_args()
+
+    agents_file = find_agents_json(args.data_dir)
+    if not agents_file:
+        print('[Error] 找不到 agents.json，请用 --data-dir 指定数据目录')
         sys.exit(1)
 
-    with open(AGENTS_FILE, 'r', encoding='utf-8') as f:
+    print(f'[Info] 使用: {agents_file}')
+    print()
+
+    with open(agents_file, 'r', encoding='utf-8') as f:
         agents = json.load(f)
 
     if not isinstance(agents, list):
         print('[Error] agents.json 格式错误，应为数组')
         sys.exit(1)
 
-    # 筛选出有 apiKey 的员工
-    candidates = []
-    for a in agents:
-        if a.get('apiKey', '').strip() and (a.get('apiProvider') or a.get('aiProvider')):
-            candidates.append(a)
+    print(f'[Info] 共 {len(agents)} 个员工')
+    print()
 
-    print(f'[Info] 共 {len(agents)} 个员工，其中 {len(candidates)} 个配置了 API Key')
+    # 调试模式：打印每个员工的字段
+    if args.debug:
+        print('[Debug] 所有员工字段详情:')
+        for a in agents:
+            print(f'  id={a.get("id")} name={a.get("name")}')
+            relevant_keys = ['apiKey', 'aiProvider', 'apiProvider', 'apiModel',
+                             'connectionType', 'openclawName', 'openclawAgent']
+            for k in relevant_keys:
+                v = a.get(k)
+                if v:
+                    display = v[:4] + '****' if 'Key' in k and len(v) > 4 else v
+                    print(f'    {k}={display}')
+        print()
+
+    # 筛选出有 apiKey 的员工
+    candidates = [a for a in agents if has_api_config(a)]
+    no_key = [a for a in agents if not has_api_config(a)]
+
+    print(f'[Info] 配置了 API Key 的员工: {len(candidates)} 个')
+    print(f'[Info] 未配置 API Key 的员工: {len(no_key)} 个')
     print()
 
     if not candidates:
         print('[Info] 没有需要同步的员工')
         return
 
+    # 列出要同步的员工
+    print('将要同步的员工:')
+    for a in candidates:
+        agent_id = a.get('id', '?')
+        name = a.get('name', '?')
+        provider = get_provider(a)
+        api_key_masked = (a.get('apiKey', '') or '')[:4] + '****'
+        print(f'  [{agent_id}] {name}  provider={provider}  apiKey={api_key_masked}')
+    print()
+
     success_count = 0
     fail_count = 0
     for agent in candidates:
         agent_id = agent.get('id', '?')
         name = agent.get('name', '?')
-        provider = agent.get('apiProvider', '') or agent.get('aiProvider', '')
-        api_key_masked = agent.get('apiKey', '')[:4] + '****' if agent.get('apiKey') else '无'
+        provider = get_provider(agent)
 
-        print(f'[{agent_id}] {name} provider={provider} apiKey={api_key_masked} ... ', end='', flush=True)
+        print(f'[{agent_id}] {name} provider={provider} ... ', end='', flush=True)
         ok, msg = sync_agent_api_key(agent)
         if ok:
             print('OK')
