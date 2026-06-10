@@ -47,6 +47,9 @@ from douyin_parser import *
 # 记忆服务 v3（新目录结构：data/memories/{empId}/）
 import memory_service_v3 as ms3
 
+# 知识库服务（分段向量化 + 员工隔离，独立模块避免循环导入）
+import knowledge_service as ks
+
 # 按 agent_id 细分的聊天写入锁，防止读-修改-写竞争导致消息丢失
 _chat_write_locks = {}
 _chat_locks_mutex = threading.Lock()
@@ -446,6 +449,15 @@ def _load_agents():
         return []
     return [a for a in agents if not _is_default_agent(a)]
 
+
+def _get_agent_by_id(agent_id):
+    """根据 ID 获取单个 Agent"""
+    agents = _load_agents()
+    for a in agents:
+        if a.get('id') == agent_id:
+            return a
+    return None
+
 def _clean_agents_file():
     """主动清理 agents.json 中的历史遗留默认员工数据"""
     agents = _read_json(AGENTS_FILE, [])
@@ -609,6 +621,14 @@ class AuthResult:
     @property
     def is_admin(self):
         return self.user_info and self.user_info.get('role') == 'admin'
+
+    @property
+    def user_id(self):
+        return self.user_info.get('userId') if self.user_info else None
+
+    @property
+    def role(self):
+        return self.user_info.get('role') if self.user_info else None
 
     def load_user_record(self):
         if self.user_info:
@@ -1712,6 +1732,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # Chat API
         if path.startswith('/api/chat/'):
             sub = path[len('/api/chat/'):]
+            print(f'  [ChatPOST] 路由匹配: path={path} sub={sub}', flush=True)
             # /api/chat/summarize/:agentId
             if sub.startswith('summarize/'):
                 agent_id = sub[len('summarize/'):]
@@ -4532,7 +4553,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _write_json(filepath, data)
 
     def _handle_get_knowledge(self):
-        """GET /api/knowledge — 获取知识库列表（支持分页、分类筛选、关键词搜索）"""
+        """GET /api/knowledge — 获取知识库列表（支持分页、分类筛选、关键词搜索、员工隔离）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -4540,10 +4561,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         offset = max(0, int(qs.get('offset', [0])[0]))
-        limit = max(1, min(100, int(qs.get('limit', [50])[0])))
+        limit = max(1, min(100, int(qs.get('limit', [20])[0])))  # 默认20条
         category = qs.get('category', [''])[0] or None
         keyword = qs.get('q', [''])[0] or None
-        result = knowledge_list(offset, limit, category, keyword)
+        target_emp_id = qs.get('empId', [''])[0] or auth.user_id
+
+        # 权限检查
+        if not ks.check_knowledge_permission(auth.user_id, target_emp_id, getattr(auth, 'role', None)):
+            self._send_auth_error('Permission denied', 403)
+            return
+
+        result = ks.knowledge_list(offset, limit, category, keyword, target_emp_id)
         self._send_json(200, result)
 
     def _handle_get_knowledge_detail(self, kid):
@@ -4552,14 +4580,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        doc = knowledge_get_by_id(kid)
+        doc = ks.knowledge_get_by_id(kid)
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
+            return
+        # 权限检查
+        if not ks.check_knowledge_permission(auth.user_id, doc.get('empId'), getattr(auth, 'role', None)):
+            self._send_auth_error('Permission denied', 403)
             return
         self._send_json(200, doc)
 
     def _handle_get_knowledge_search(self):
-        """GET /api/knowledge/search?q=xxx&limit=3 — 语义检索"""
+        """GET /api/knowledge/search?q=xxx&limit=3 — 语义检索（带员工隔离）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -4572,29 +4604,33 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing query param q')
             return
 
-        # 获取当前员工的 API key（从 header 或 query 中的 empId）
+        target_emp_id = qs.get('empId', [''])[0] or auth.user_id
+        if not ks.check_knowledge_permission(auth.user_id, target_emp_id, getattr(auth, 'role', None)):
+            self._send_auth_error('Permission denied', 403)
+            return
+
+        # 获取员工的 API key 和配置
         api_key = None
         provider = 'openai'
-        emp_id = qs.get('empId', [''])[0]
-        if emp_id:
-            agents = _load_agents()
-            agent = agents.get(emp_id)
-            if agent:
-                api_key = agent.get('apiKey')
-                provider = agent.get('aiProvider', 'openai')
+        agent_config = None
+        agent = _get_agent_by_id(target_emp_id)
+        if agent:
+            api_key = agent.get('apiKey')
+            provider = agent.get('aiProvider', 'openai')
+            agent_config = agent
         if not api_key:
             self._send_json_error(400, 'No API key available. Please configure AI provider.')
             return
 
         try:
-            docs = knowledge_search_semantic(query, api_key, provider, limit)
+            docs = ks.knowledge_search_semantic(query, target_emp_id, api_key, provider, agent_config, limit)
             self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
         except Exception as e:
             print(f'  [KnowledgeSearch] failed: {e}', flush=True)
             self._send_json_error(500, f'Search failed: {str(e)}')
 
     def _handle_post_knowledge(self):
-        """POST /api/knowledge — 新增知识（自动生成向量）"""
+        """POST /api/knowledge — 新增知识（自动分段+向量化）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -4606,28 +4642,40 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing title or content')
             return
 
-        # 获取 API key 用于生成 embedding
+        # 确定 emp_id（优先 body，否则用当前用户）
+        emp_id = body.get('empId') or auth.user_id
+        # 权限：普通员工只能创建自己的知识
+        if not ks.check_knowledge_permission(auth.user_id, emp_id, getattr(auth, 'role', None)):
+            self._send_auth_error('Permission denied', 403)
+            return
+
+        # 获取 API key 和 agent 配置
         api_key = None
         provider = 'openai'
-        emp_id = body.get('empId')
-        if emp_id:
-            agents = _load_agents()
-            agent = agents.get(emp_id)
-            if agent:
-                api_key = agent.get('apiKey')
-                provider = agent.get('aiProvider', 'openai')
+        agent_config = None
+        agent = _get_agent_by_id(emp_id)
+        if agent:
+            api_key = agent.get('apiKey')
+            provider = agent.get('aiProvider', 'openai')
+            agent_config = agent
 
-        doc = knowledge_create(
-            title=title,
-            content=body['content'],
-            category=body.get('category', ''),
-            api_key=api_key,
-            provider=provider,
-        )
-        self._send_json(200, doc)
+        try:
+            doc = ks.knowledge_create(
+                title=title,
+                content=body['content'],
+                category=body.get('category', ''),
+                emp_id=emp_id,
+                api_key=api_key,
+                provider=provider,
+                agent_config=agent_config,
+            )
+            self._send_json(200, doc)
+        except Exception as e:
+            print(f'  [Knowledge] create failed: {e}', flush=True)
+            self._send_json_error(500, f'Create failed: {str(e)}')
 
     def _handle_put_knowledge(self, doc_id):
-        """PUT /api/knowledge/{docId} — 更新知识（自动更新向量）"""
+        """PUT /api/knowledge/{docId} — 更新知识（自动重新分段+向量化）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -4637,31 +4685,43 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing body')
             return
 
-        # 获取 API key 用于更新 embedding
+        # 先查出原知识，检查权限
+        doc = ks.knowledge_get_by_id(doc_id)
+        if not doc:
+            self._send_json_error(404, 'Knowledge not found')
+            return
+        if not ks.check_knowledge_permission(auth.user_id, doc.get('empId'), getattr(auth, 'role', None)):
+            self._send_auth_error('Permission denied', 403)
+            return
+
+        # 获取 API key 和 agent 配置
         api_key = None
         provider = 'openai'
-        emp_id = body.get('empId')
-        if emp_id:
-            agents = _load_agents()
-            agent = agents.get(emp_id)
-            if agent:
-                api_key = agent.get('apiKey')
-                provider = agent.get('aiProvider', 'openai')
+        agent_config = None
+        emp_id = doc.get('empId')
+        agent = _get_agent_by_id(emp_id)
+        if agent:
+            api_key = agent.get('apiKey')
+            provider = agent.get('aiProvider', 'openai')
+            agent_config = agent
 
         # 兼容旧前端：name 字段映射为 title
         title = body.get('title') or body.get('name')
-        updated = knowledge_update(
-            kid=doc_id,
-            title=title,
-            content=body.get('content'),
-            category=body.get('category'),
-            api_key=api_key,
-            provider=provider,
-        )
-        if not updated:
-            self._send_json_error(404, 'Knowledge not found')
-            return
-        self._send_json(200, updated)
+        try:
+            updated = ks.knowledge_update(
+                kid=doc_id,
+                title=title,
+                content=body.get('content'),
+                category=body.get('category'),
+                emp_id=emp_id,
+                api_key=api_key,
+                provider=provider,
+                agent_config=agent_config,
+            )
+            self._send_json(200, updated)
+        except Exception as e:
+            print(f'  [Knowledge] update failed: {e}', flush=True)
+            self._send_json_error(500, f'Update failed: {str(e)}')
 
     def _handle_delete_knowledge(self, doc_id):
         """DELETE /api/knowledge/{docId} — 删除知识"""
@@ -4669,7 +4729,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        deleted = knowledge_delete(doc_id)
+        # 检查权限
+        doc = ks.knowledge_get_by_id(doc_id)
+        if not doc:
+            self._send_json_error(404, 'Knowledge not found')
+            return
+        if not ks.check_knowledge_permission(auth.user_id, doc.get('empId'), getattr(auth, 'role', None)):
+            self._send_auth_error('Permission denied', 403)
+            return
+        deleted = ks.knowledge_delete(doc_id)
         self._send_json(200, {'deleted': deleted, 'id': doc_id})
 
     # ═══════════════════════════════════════════════════
@@ -4677,7 +4745,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ═══════════════════════════════════════════════════
 
     def _handle_post_rag_retrieve(self):
-        """POST /api/rag/retrieve — RAG 向量检索"""
+        """POST /api/rag/retrieve — RAG 向量检索（带员工隔离）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -4687,24 +4755,42 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing query')
             return
         query = body['query']
-        emp_id = body.get('empId')
+        emp_id = body.get('empId') or auth.user_id
         top_k = min(10, max(1, body.get('topK', 3)))
+
+        # 权限检查
+        if not ks.check_knowledge_permission(auth.user_id, emp_id, getattr(auth, 'role', None)):
+            self._send_auth_error('Permission denied', 403)
+            return
 
         # 获取员工的 API key 和 provider
         api_key = None
         provider = 'openai'
-        if emp_id:
-            agents = _load_agents()
-            agent = agents.get(emp_id)
-            if agent:
-                api_key = agent.get('apiKey')
-                provider = agent.get('aiProvider', 'openai')
+        agent_config = None
+        agent = _get_agent_by_id(emp_id)
+        if agent:
+            api_key = agent.get('apiKey')
+            provider = agent.get('aiProvider', 'openai')
+            agent_config = agent
         if not api_key:
             self._send_json_error(400, 'No API key available for embedding. Please configure AI provider in employee settings.')
             return
 
         try:
-            result = rag_retrieve(query, api_key, provider, top_k_docs=top_k, top_k_products=top_k)
+            result = ks.rag_retrieve(query, emp_id, api_key, provider, agent_config, top_k_docs=top_k)
+            # 同时检索产品库（所有员工共享）
+            prod_data = _read_json(os.path.join(PRODUCT_DIR, 'index.json'), {'products': []})
+            query_emb = ks.get_embedding(query, api_key, provider)
+            if query_emb:
+                product_scores = []
+                for product in prod_data.get('products', []):
+                    emb = load_embedding('product', product.get('id', ''))
+                    if emb:
+                        score = ks.cosine_similarity(query_emb, emb)
+                        if score > 0.0:
+                            product_scores.append((score, product))
+                product_scores.sort(key=lambda x: x[0], reverse=True)
+                result['products'] = [p for _, p in product_scores[:top_k]]
             self._send_json(200, result)
         except Exception as e:
             print(f'  [RAG] retrieve failed: {e}', flush=True)
@@ -4720,12 +4806,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         emp_id = body.get('empId')
         api_key = None
         provider = 'openai'
-        if emp_id:
-            agents = _load_agents()
-            agent = agents.get(emp_id)
-            if agent:
-                api_key = agent.get('apiKey')
-                provider = agent.get('aiProvider', 'openai')
+        agent = _get_agent_by_id(emp_id)
+        if agent:
+            api_key = agent.get('apiKey')
+            provider = agent.get('aiProvider', 'openai')
         if not api_key:
             self._send_json_error(400, 'No API key available')
             return
@@ -5619,6 +5703,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_chat(self, agent_id):
         """POST /api/chat/:agentId"""
+        print(f'  [ChatPOST] 收到请求: {agent_id} path={self.path}', flush=True)
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -5784,14 +5869,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 pass
             # 注入记忆 v3（使用 memory_service_v3 模块）
             try:
-                system_prompt = ms3.inject_memories(agent_id, system_prompt)
+                system_prompt = ms3.inject_memories(
+                    agent_id, system_prompt,
+                    user_message=user_message,
+                    api_key=api_key,
+                    provider=api_provider,
+                    agent_config=agent,
+                )
             except Exception as e:
                 print(f'  [MemoryInject] {agent_id} 注入失败: {e}', flush=True)
 
             # 注入 RAG 检索结果（产品知识库）
             try:
                 if api_key:
-                    rag_result = rag_retrieve(user_message, api_key, api_provider, top_k_docs=2, top_k_products=2)
+                    rag_result = ks.rag_retrieve(user_message, agent_id, api_key, api_provider, agent, top_k_docs=2)
                     if rag_result.get('context'):
                         system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'
             except Exception as e:
@@ -6914,8 +7005,11 @@ def main():
     _ensure_data_dir()
 
     # 初始化 SQLite 数据库（知识库）
-    init_db()
-    knowledge_migrate_from_json()
+    init_db()  # 保留旧 init_db 兼容
+    ks.set_data_dir(DATA_DIR)
+    ks.init_db()
+    # 旧数据迁移（幂等，自动触发分段和向量化）
+    ks.knowledge_migrate_from_json(DATA_DIR, lambda eid: _get_agent_by_id(eid) or {})
 
     # 同步记忆服务 v3 配置（在 main() 中执行，避免模块导入时的 NameError）
     # 注意：v2 数据目录是 'memory'（单数），复用同一目录避免迁移
