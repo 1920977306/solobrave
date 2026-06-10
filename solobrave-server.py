@@ -3411,7 +3411,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         for a in result:
             print(f'  [DEBUG get_agents] -> result id={a.get("id")} name={a.get("name")} createdBy={repr(a.get("createdBy"))}')
 
-        # 去掉敏感字段，只保留基础展示信息
+        # 返回员工完整数据（包含 apiKey，前端需要它来显示和保存）
         safe_result = []
         for a in result:
             safe_result.append({
@@ -3431,6 +3431,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'connectionType': a.get('connectionType', ''),
                 'apiProvider': a.get('apiProvider', ''),
                 'apiModel': a.get('apiModel', ''),
+                'apiKey': a.get('apiKey', ''),
                 'openclawAgent': a.get('openclawAgent', ''),
                 'openclawModel': a.get('openclawModel', ''),
                 'openclawName': a.get('openclawName', ''),
