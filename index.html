@@ -11920,7 +11920,7 @@ async function registerOpenClawAgent(emp) {
 
   // 3. 更新 emp 的 openclawName 为 ASCII agentId（供 sendViaOpenClaw 使用）
   emp.openclawName = emp._agentId;
-  saveEmployees();
+  saveEmployees(emp.id);  // 只同步当前员工，避免刷所有员工
   return {
     success: true,
     error: null,

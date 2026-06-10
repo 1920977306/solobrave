@@ -3560,7 +3560,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(400, {'error': '无效的请求体'})
                 return
 
-            print(f'  [PUT agent] id={agent_id} body_keys={list(body.keys())[:10]}', flush=True)
+            body_keys = list(body.keys())
+            print(f'  [PUT agent] id={agent_id} body_keys={body_keys}', flush=True)
 
             agents = _load_agents()
             agent = None
@@ -3592,21 +3593,30 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                          'systemPrompt', 'department', 'customEndpoint',
                          'group', 'pinned', 'idDoc', 'soulDoc', 'toolsDoc', 'userDoc',
                          'badge', 'createdBy', 'createdByName']
+            saved_keys = []
             for key in updatable:
                 if key in body:
                     if key == 'role':
                         agent[key] = _sanitize_role(body[key])
                     else:
                         agent[key] = body[key]
+                    saved_keys.append(key)
+
+            print(f'  [PUT agent] id={agent_id} 实际保存字段={saved_keys}', flush=True)
 
             _save_agents(agents)
 
             # 自动同步 API Key 到 OpenClaw（有变动时）
             new_api_key = agent.get('apiKey', '')
             new_provider = agent.get('apiProvider', '') or agent.get('aiProvider', '')
+            print(f'  [PUT agent] id={agent_id} 同步检测: old_key={bool(old_api_key)} new_key={bool(new_api_key)} old_prov={old_provider} new_prov={new_provider}', flush=True)
             if new_api_key and new_provider:
                 if new_api_key != old_api_key or new_provider != old_provider:
                     _sync_agent_api_key_to_openclaw(agent)
+                else:
+                    print(f'  [PUT agent] id={agent_id} API Key 未变动，跳过同步', flush=True)
+            else:
+                print(f'  [PUT agent] id={agent_id} 缺少 apiKey 或 provider，跳过同步', flush=True)
 
             print(f'  [PUT agent] saved ok, sending response', flush=True)
             self._send_json(200, agent)
@@ -4836,6 +4846,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, result)
         except Exception as e:
             print(f'  [RAG] retrieve failed: {e}', flush=True)
+            import traceback; traceback.print_exc()
+            self._send_json_error(500, f'RAG retrieve failed: {str(e)}')
             self._send_json_error(500, f'RAG retrieve failed: {str(e)}')
 
     def _handle_post_rag_build(self):
