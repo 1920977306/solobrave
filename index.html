@@ -2086,6 +2086,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .product-modal-btn.save:hover { background: var(--accent-light); }
 .product-modal-btn.cancel { color: var(--text-secondary); }
 .product-modal-btn.cancel:hover { background: var(--bg-secondary); }
+.chat-image-preview-bar { display: flex; gap: 8px; margin-bottom: 8px; padding: 4px; }
+.chat-image-preview-item { position: relative; width: 80px; height: 80px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-color, #E5E5EA); }
+.chat-image-preview-item img { width: 100%; height: 100%; object-fit: cover; }
+.chat-image-preview-remove { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; background: rgba(0,0,0,0.5); color: #fff; border-radius: 50%; font-size: 12px; line-height: 18px; text-align: center; cursor: pointer; }
+.chat-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chat-image-thumb { max-width: 200px; max-height: 150px; border-radius: 8px; cursor: pointer; }
+.memory-image-toast { position: fixed; bottom: 80px; right: 20px; background: var(--bg-secondary); border: 1px solid var(--border-color, #E5E5EA); border-radius: 12px; padding: 12px 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-size: 13px; z-index: 9999; display: flex; align-items: center; gap: 10px; }
+#attachBtn:hover { background: var(--bg-tertiary) !important; color: var(--text-secondary) !important; transform: none; }
 </style>
 <script>// Early login handler - works even if main script fails to load
 window.doLogin = function () {
@@ -2914,7 +2922,10 @@ window.doLogin = function () {
 <div class="mention-header" style="padding:8px 12px;font-size:12px;color:var(--text-secondary);border-bottom:1px solid var(--separator);">选择要 @ 的员工</div>
 <div class="mention-list" id="mentionList" style="padding:4px 0;"></div>
 </div>
+<div class="chat-image-preview-bar" id="imagePreviewBar" style="display:none;"></div>
 <textarea id="msgInput" rows="1" placeholder="输入消息，/查看快捷指令" oninput="if(this.value.startsWith('/')){document.getElementById('slashMenu').style.display='block';document.getElementById('slashSearch').value=this.value.slice(1);filterSlashCommands(this.value.slice(1));}else{document.getElementById('slashMenu').style.display='none';} if(this.value.includes('@')){showMentionDropdown();}else{document.getElementById('mentionDropdown').style.display='none';}"></textarea>
+<button class="send-btn-v2" id="attachBtn" title="上传图片" style="background:var(--bg-secondary);color:var(--text-secondary);margin-right:4px;">📎</button>
+<input type="file" id="imageFileInput" accept="image/*" multiple style="display:none;">
 <button class="send-btn-v2" id="sendBtn">➤</button>
 </div>
 <div class="input-hint">按 Enter 发送，Shift+Enter 换行</div>
@@ -3839,6 +3850,7 @@ var GROUP_CHAT_ACTION_BOUNDARY = '【行动边界】你保持拟人化、有脾�
 var projects = [];
 var currentUser = null;
 var authToken = localStorage.getItem('sb_auth_token') || null;
+window._pendingImages = [];
 
 // 统一 API 请求（带认证 token）
 async function apiFetch(url, options = {}) {
@@ -4229,11 +4241,120 @@ function copyCode(btn) {
   }
 }
 
+// ========== 图片处理 ==========
+function compressImageToBase64(file) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var img = new Image();
+      img.onload = function() {
+        var canvas = document.createElement('canvas');
+        var maxWidth = 1024;
+        var width = img.width;
+        var height = img.height;
+        if (width > maxWidth) {
+          height = Math.round(height * maxWidth / width);
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        var base64 = canvas.toDataURL('image/jpeg', 0.85);
+        resolve({base64: base64, filename: file.name});
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+function handleImageFiles(files) {
+  if (!files || files.length === 0) return;
+  var remaining = 3 - window._pendingImages.length;
+  if (remaining <= 0) {
+    showToast('最多只能选择3张图片');
+    return;
+  }
+  var toProcess = Array.prototype.slice.call(files, 0, remaining);
+  toProcess.forEach(function(file) {
+    if (!file.type.startsWith('image/')) return;
+    compressImageToBase64(file).then(function(img) {
+      window._pendingImages.push(img);
+      renderImagePreview();
+    }).catch(function(e) {
+      console.warn('图片处理失败:', e);
+    });
+  });
+}
+function renderImagePreview() {
+  var bar = document.getElementById('imagePreviewBar');
+  if (!bar) return;
+  if (window._pendingImages.length === 0) {
+    bar.innerHTML = '';
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  bar.innerHTML = window._pendingImages.map(function(img, idx) {
+    return '<div class="chat-image-preview-item"><img src="' + img.base64 + '"><div class="chat-image-preview-remove" onclick="removePendingImage(' + idx + ')">×</div></div>';
+  }).join('');
+}
+function removePendingImage(idx) {
+  window._pendingImages.splice(idx, 1);
+  renderImagePreview();
+}
+function clearPendingImages() {
+  window._pendingImages = [];
+  renderImagePreview();
+}
+function buildChatImagesHtml(images) {
+  if (!images || images.length === 0) return '';
+  var imgs = images.map(function(img) {
+    var src = img.base64 || img;
+    return '<img src="' + src + '" class="chat-image-thumb" onclick="previewImage(this.src)">';
+  }).join('');
+  return '<div class="chat-images">' + imgs + '</div>';
+}
+function previewImage(src) {
+  var overlay = document.getElementById('imagePreviewOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'imagePreviewOverlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;cursor:pointer;';
+    overlay.onclick = function() { overlay.style.display = 'none'; overlay.querySelector('img').src = ''; };
+    var img = document.createElement('img');
+    img.style.cssText = 'max-width:90%;max-height:90%;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.3);';
+    overlay.appendChild(img);
+    document.body.appendChild(overlay);
+  }
+  overlay.querySelector('img').src = src;
+  overlay.style.display = 'flex';
+}
+function saveImageMemory() {
+  var toast = document.getElementById('memoryImageToast');
+  if (toast) toast.remove();
+  var empId = localStorage.getItem('sb_current_emp');
+  if (!empId) return;
+  var lastReply = window._lastAIReplyText || '';
+  if (!lastReply) return;
+  apiFetch('/api/memory/' + encodeURIComponent(empId), {
+    method: 'POST',
+    body: JSON.stringify({key: 'auto_extract', value: '图片内容：' + lastReply})
+  }).catch(function(e) {});
+}
+function dismissImageMemory() {
+  var toast = document.getElementById('memoryImageToast');
+  if (toast) toast.remove();
+}
+
 // ========== 发送消息 ==========
 async function sendMsg() {
   var input = document.getElementById('msgInput');
   var text = input.value.trim();
-  if (!text) return;
+  var pendingImages = window._pendingImages.slice();
+  if (!text && !pendingImages.length) return;
 
   // 群聊模式：不走个人聊天状态流，直接转发
   if (currentGroupId) {
@@ -4249,7 +4370,8 @@ async function sendMsg() {
     input.value = '';
     document.getElementById('mentionDropdown').style.display = 'none';
     document.getElementById('slashMenu').style.display = 'none';
-    sendGroupMessage(currentGroupId, text, mentions);
+    clearPendingImages();
+    sendGroupMessage(currentGroupId, text, mentions, pendingImages);
     return;
   }
 
@@ -4315,14 +4437,17 @@ async function sendMsg() {
   if (localStorage.getItem('sb_current_emp') !== emp.id) {
     console.warn('[sendMsg] 员工已切换，跳过用户消息 DOM 渲染:', emp.id);
     input.value = '';
+    clearPendingImages();
     restoreOnline();
     return;
   }
   const userMsg = document.createElement('div');
   userMsg.className = 'msg own';
-  userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + escapeHtml(text) + '</div></div>';
+  var imagesHtml = buildChatImagesHtml(pendingImages);
+  userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + escapeHtml(text || '') + '</div>' + imagesHtml + '</div>';
   area.appendChild(userMsg);
   input.value = '';
+  clearPendingImages();
   area.scrollTop = area.scrollHeight;
 
   // 显示打字指示器
@@ -4346,26 +4471,27 @@ async function sendMsg() {
     aiProvider: emp.aiProvider,
     ocOk: ocOk
   });
+  window._lastUserMessageHadImages = pendingImages.length > 0;
   if (ocOk) {
     console.log('[Chat] 使用 OpenClaw WS 发送');
-    sendViaOpenClaw(emp, text, docContext, timeStr);
+    sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages);
   } else if (emp.apiKey && emp.aiProvider) {
     // Gateway 未连接，降级到 API 直连
     console.log('[Chat] OpenClaw 未连接，降级到 API 直连');
-    sendViaAPI(emp, text, docContext, timeStr);
+    sendViaAPI(emp, text, docContext, timeStr, pendingImages);
   } else {
     // 即使没有配置AI，也用 OpenClaw main agent 兜底
     console.log('[Chat] 无API配置，尝试OpenClaw main兜底');
     if (typeof openclaw !== 'undefined' && openclaw.connected) {
       emp.openclawName = emp.openclawName || 'main';
-      sendViaOpenClaw(emp, text, docContext, timeStr);
+      sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages);
     } else {
       setTimeout(function () {
         var t = document.getElementById('typingMsg');
         if (t) t.remove();
         var simReply = '⚠️ OpenClaw 网关未连接，请检查 Gateway 是否运行，或配置 AI 供应商的 API Key。';
         displayAIReply(simReply, docContext, timeStr, emp.id, []);
-        saveChatHistory(emp.id, text, simReply, docContext, []);
+        saveChatHistory(emp.id, text, simReply, docContext, [], pendingImages);
         restoreOnline();
       }, 500);
     }
@@ -4388,7 +4514,8 @@ function extractKeywords(text) {
 }
 
 // 通过 OpenClaw WS 发送消息
-async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
+async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
+  images = images || [];
   // 统一恢复员工在线状态
   function restoreOnline() {
     window._thinkingTimeouts = window._thinkingTimeouts || {};
@@ -4463,7 +4590,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
       if (!reply) reply = '（AI 未返回内容）';
       if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
       displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations);
-      saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations);
+      saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images);
     }
     var agentHandler = function (data) {
       if (!data) { console.log('[OpenClaw] agentHandler 收到空数据'); return; }
@@ -4565,6 +4692,12 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
 
     // 注入 systemPrompt（包含层级关系约束）到用户消息开头
     var fullMessage = userMessage;
+    if (images && images.length > 0) {
+      fullMessage += '\n\n【用户发送了 ' + images.length + ' 张图片】';
+      images.forEach(function(img) {
+        fullMessage += '\n[图片: ' + img.filename + ']\n' + img.base64;
+      });
+    }
     if (chatContext) fullMessage = chatContext + '\n\n' + fullMessage;
     if (systemPrompt) fullMessage = '【System Prompt】\n' + systemPrompt + '\n\n【User Message】\n' + fullMessage;
     var result = await openclaw.sendChat(sessionKey, fullMessage);
@@ -4606,7 +4739,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr) {
         // 但需要注意 agentHandler 已注册，它会处理回复
       } catch (retryErr) {
         displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr, emp.id, []);
-        saveChatHistory(emp.id, userMessage, '⚠️ Agent 不存在', docContext, []);
+        saveChatHistory(emp.id, userMessage, '⚠️ Agent 不存在', docContext, [], images);
       }
     } else {
       displayAIReply('⚠️ OpenClaw 连接异常: ' + e.message, docContext, timeStr, emp.id, []);
@@ -6377,6 +6510,43 @@ document.getElementById('msgInput').addEventListener('keydown', function (e) {
   }
 });
 document.getElementById('msgInput').addEventListener('input', handleInput);
+// 图片粘贴/拖拽/附件上传
+(function () {
+  var input = document.getElementById('msgInput');
+  var wrap = input && input.closest('.input-wrap-v2');
+  if (wrap) {
+    wrap.addEventListener('paste', function (e) {
+      if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+        handleImageFiles(e.clipboardData.files);
+      }
+    });
+    wrap.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      wrap.style.background = '#E5E5EA';
+    });
+    wrap.addEventListener('dragleave', function (e) {
+      wrap.style.background = '';
+    });
+    wrap.addEventListener('drop', function (e) {
+      e.preventDefault();
+      wrap.style.background = '';
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleImageFiles(e.dataTransfer.files);
+      }
+    });
+  }
+  var attachBtn = document.getElementById('attachBtn');
+  var fileInput = document.getElementById('imageFileInput');
+  if (attachBtn && fileInput) {
+    attachBtn.addEventListener('click', function () {
+      fileInput.click();
+    });
+    fileInput.addEventListener('change', function () {
+      handleImageFiles(fileInput.files);
+      fileInput.value = '';
+    });
+  }
+})();
 (function () {
   var el = document.getElementById('mentionBtn');
   if (el) el.addEventListener('click', function () {
@@ -7635,28 +7805,31 @@ function formatGroupMessage(text) {
 }
 
 // 发送群聊消息
-async function sendGroupMessage(groupId, message, mentions) {
+async function sendGroupMessage(groupId, message, mentions, images) {
   var group = groups.find(function (g) {
     return g.id === groupId;
   });
   if (!group) return;
 
   var msgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  images = images || [];
 
   // 同步到后端，所有人共享群聊记录
   var userName3 = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
+  var bodyObj = {
+    id: msgId,
+    role: 'user',
+    content: message,
+    senderId: currentUser && currentUser.userId || currentUser && currentUser.id || '',
+    senderName: userName3,
+    senderType: 'user',
+    groupId: groupId,
+    time: Date.now()
+  };
+  if (images.length > 0) bodyObj.images = images;
   apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/history', {
     method: 'POST',
-    body: JSON.stringify({
-      id: msgId,
-      role: 'user',
-      content: message,
-      senderId: currentUser && currentUser.userId || currentUser && currentUser.id || '',
-      senderName: userName3,
-      senderType: 'user',
-      groupId: groupId,
-      time: Date.now()
-    })
+    body: JSON.stringify(bodyObj)
   }).catch(function (err) {
     console.log('[sendGroupMessage] 同步后端失败:', err);
   });
@@ -7678,7 +7851,8 @@ async function sendGroupMessage(groupId, message, mentions) {
     minute: '2-digit'
   });
   var bubbleContent = formatGroupMessage(message);
-  area.insertAdjacentHTML('beforeend', '<div class="msg own"><div class="msg-content">' + '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>' + '<div class="msg-bubble">' + bubbleContent + '</div>' + '</div></div>');
+  var imagesHtml = buildChatImagesHtml(images);
+  area.insertAdjacentHTML('beforeend', '<div class="msg own"><div class="msg-content">' + '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>' + '<div class="msg-bubble">' + bubbleContent + '</div>' + imagesHtml + '</div></div>');
   area.scrollTop = area.scrollHeight;
 
   // 通过 OpenClaw WS 发送给 leadAgent
@@ -9231,7 +9405,8 @@ function renderMsgs(type) {
         hour: '2-digit',
         minute: '2-digit'
       });
-      return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + escapeHtml(m.content) + '</div>' + '</div></div>';
+      var imagesHtml2 = own ? buildChatImagesHtml(m.images) : '';
+      return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + escapeHtml(m.content) + '</div>' + imagesHtml2 + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
     if (typingMsg) {
       area.appendChild(typingMsg);
@@ -12671,7 +12846,8 @@ async function callRealAI(userMessage, context) {
 }
 
 // ========== API 直连发送 ==========
-async function sendViaAPI(emp, userMessage, docContext, timeStr) {
+async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
+  images = images || [];
   var providerId = emp.aiProvider || 'kimi';
   var provider = API_PROVIDERS[providerId];
 
@@ -12753,10 +12929,18 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
   if (chatContext) {
     messages.push({ role: 'system', content: chatContext });
   }
-  messages.push({
-    role: 'user',
-    content: userMessage
-  });
+  if (images && images.length > 0) {
+    var userContent = [{type: 'text', text: userMessage}];
+    images.forEach(function(img) {
+      userContent.push({type: 'image_url', image_url: {url: img.base64}});
+    });
+    messages.push({role: 'user', content: userContent});
+  } else {
+    messages.push({
+      role: 'user',
+      content: userMessage
+    });
+  }
   var endpoint = baseUrl + '/chat/completions';
 
   // 智谱 API 路径不同
@@ -12801,7 +12985,7 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
       var reply = data.choices[0].message.content || '';
       console.log('[API] AI回复 content_len=' + reply.length);
       displayAIReply(reply, docContext, timeStr, emp.id, ragResult2.citations);
-      saveChatHistory(emp.id, userMessage, reply, docContext, ragResult2.citations);
+      saveChatHistory(emp.id, userMessage, reply, docContext, ragResult2.citations, images);
     } else if (data) {
       console.log('[API] 返回格式异常 data=', JSON.stringify(data).substring(0, 200));
       displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr, emp.id, []);
@@ -12818,7 +13002,7 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr) {
         var simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
         var simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
         displayAIReply(simReply, docContext, timeStr, emp.id, []);
-        saveChatHistory(emp.id, userMessage, simReply, docContext, []);
+        saveChatHistory(emp.id, userMessage, simReply, docContext, [], images);
       }, 500);
     } else {
       displayAIReply('⚠️ API 调用失败: ' + error.message, docContext, timeStr, emp.id, []);
@@ -12839,21 +13023,24 @@ function getCurrentEmployeeInfo() {
 
 // 保存聊天历史
 // ===== 聊天记录后端同步 =====
-async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations) {
+async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, images) {
   if (typeof apiFetch !== 'function') return;
   citations = citations || [];
+  images = images || [];
   var baseUrl = '/api/chat/' + encodeURIComponent(projId);
 
   try {
     // 1. 保存 user 消息
+    var userBody = {
+      role: 'user',
+      content: userMsg,
+      skipAI: true,
+      empId: projId
+    };
+    if (images.length > 0) userBody.images = images;
     var resp = await apiFetch(baseUrl, {
       method: 'POST',
-      body: JSON.stringify({
-        role: 'user',
-        content: userMsg,
-        skipAI: true,
-        empId: projId
-      })
+      body: JSON.stringify(userBody)
     });
     if (!resp) throw new Error('User message POST returned null');
 
@@ -12915,7 +13102,8 @@ function loadChatFromServer(id, type, callback) {
           role: m.role || 'user',
           content: m.content || '',
           groupId: m.groupId || null,
-          time: m.timestamp || Date.now()
+          time: m.timestamp || Date.now(),
+          images: m.images || null
         };
       });
       // 按时间升序排序（旧消息在前，新消息在后）
@@ -12942,14 +13130,15 @@ function clearChatOnServer(id, type) {
     method: 'DELETE'
   }).catch(function (e) {});
 }
-function saveChatHistory(empId, userMsg, aiMsg, docContext, citations) {
+function saveChatHistory(empId, userMsg, aiMsg, docContext, citations, images) {
   if (!empId) {
     console.warn('[saveChatHistory] empId 为空，跳过保存');
     return;
   }
   citations = citations || [];
+  images = images || [];
   // 同步到后端
-  saveChatToServer(empId, userMsg, aiMsg, docContext, citations);
+  saveChatToServer(empId, userMsg, aiMsg, docContext, citations, images);
 
   // 提取并保存记忆（延迟 800ms，避免与刚结束的 OpenClaw session 冲突）
   setTimeout(function () {
@@ -13540,6 +13729,19 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
   html += '</div></div>';
   area.insertAdjacentHTML('beforeend', html);
   area.scrollTop = area.scrollHeight;
+
+  window._lastAIReplyText = cleanText;
+  if (window._lastUserMessageHadImages) {
+    setTimeout(function() {
+      if (document.getElementById('memoryImageToast')) return;
+      var toast = document.createElement('div');
+      toast.className = 'memory-image-toast';
+      toast.id = 'memoryImageToast';
+      toast.innerHTML = '📸 这张图片的内容要保存到记忆里吗？<button onclick="saveImageMemory()" style="padding:4px 10px;border-radius:6px;border:none;background:var(--accent);color:#fff;font-size:12px;cursor:pointer;">保存到记忆</button><button onclick="dismissImageMemory()" style="padding:4px 10px;border-radius:6px;border:none;background:var(--bg-tertiary);color:var(--text-secondary);font-size:12px;cursor:pointer;">忽略</button>';
+      document.body.appendChild(toast);
+      setTimeout(function() { dismissImageMemory(); }, 10000);
+    }, 500);
+  }
 
   // 如果有工具调用，主大脑自动执行并展示结果（仅在群聊中展示，单聊静默执行）
   if (toolCalls.length > 0) {

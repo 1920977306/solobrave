@@ -5931,6 +5931,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _citations = body.get('citations')
         if _citations:
             msg['citations'] = _citations
+        # 保留图片信息（多模态）
+        images = body.get('images', [])
+        if images:
+            msg['images'] = images
 
         with _get_chat_lock(agent_id):
             messages = _load_chat(agent_id)
@@ -5974,9 +5978,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 这样 memory 提取等场景（_extractMemoryViaAPI）才能正常工作
             if not skip_ai:
                 content = body.get('content', '')
+                images = body.get('images', [])
+                if images:
+                    user_payload = [{'type': 'text', 'text': content}]
+                    for img in images:
+                        user_payload.append({'type': 'image_url', 'image_url': {'url': img.get('base64', '')}})
+                else:
+                    user_payload = content
                 # 记忆提取场景不需要加载历史记录，避免 token 超限和干扰
                 is_extract = '【记忆提取任务】' in content
-                api_reply = self._call_ai_api(agent, content, auth.user_info, include_history=not is_extract)
+                api_reply = self._call_ai_api(agent, user_payload, auth.user_info, include_history=not is_extract)
                 if api_reply:
                     ai_message = {
                         'id': 'msg_' + uuid.uuid4().hex[:8],
@@ -6062,11 +6073,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     system_prompt += f'\n\n【历史对话摘要】\n{summary_data["summary"]}'
             except Exception:
                 pass
+            # 提取纯文本（用于 RAG、记忆注入、抖音检测）
+            user_text = user_message
+            if isinstance(user_message, list):
+                text_parts = [item.get('text', '') for item in user_message if isinstance(item, dict) and item.get('type') == 'text']
+                user_text = ''.join(text_parts)
+
             # 注入记忆 v3（使用 memory_service_v3 模块）
             try:
                 system_prompt = ms3.inject_memories(
                     agent_id, system_prompt,
-                    user_message=user_message,
+                    user_message=user_text,
                     api_key=api_key,
                     provider=api_provider,
                     agent_config=agent,
@@ -6080,7 +6097,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     emb_provider, emb_key = _get_embedding_override()
                     rag_api_key = emb_key or api_key
                     rag_provider = emb_provider or api_provider
-                    rag_result = ks.rag_retrieve(user_message, agent_id, rag_api_key, rag_provider, agent, top_k_docs=2)
+                    rag_result = ks.rag_retrieve(user_text, agent_id, rag_api_key, rag_provider, agent, top_k_docs=2)
                     if rag_result.get('context'):
                         system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'
             except Exception as e:
@@ -6090,12 +6107,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # 自动检测并解析抖音链接，注入真实视频数据
         try:
-            if is_douyin_share_text(user_message):
-                douyin_result = parse_douyin_video_quick(user_message)
+            if is_douyin_share_text(user_text):
+                douyin_result = parse_douyin_video_quick(user_text)
                 if douyin_result and douyin_result.get('success'):
                     douyin_context = build_douyin_context(douyin_result)
                     if douyin_context:
-                        user_message = douyin_context + '\n\n---\n用户原始消息：' + user_message
+                        if isinstance(user_message, list):
+                            for item in user_message:
+                                if isinstance(item, dict) and item.get('type') == 'text':
+                                    original_text = item.get('text', '')
+                                    item['text'] = douyin_context + '\n\n---\n用户原始消息：' + original_text
+                                    break
+                        else:
+                            user_message = douyin_context + '\n\n---\n用户原始消息：' + user_message
         except Exception:
             pass
 
@@ -6259,6 +6283,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         for msg in old_messages:
             role = msg.get('role', 'user')
             content = msg.get('content', '')
+            if isinstance(content, list):
+                text_parts = [item.get('text', '') for item in content if isinstance(item, dict) and item.get('type') == 'text']
+                content = ''.join(text_parts) if text_parts else (str(content[0]) if content else '')
             chat_text += ('用户' if role == 'user' else 'AI') + ': ' + content[:200] + '\n'
 
         # 调 AI 做摘要

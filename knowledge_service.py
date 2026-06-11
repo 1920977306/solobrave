@@ -672,6 +672,9 @@ def rag_retrieve(query, emp_id, api_key, provider, agent_config=None, top_k_docs
     整个函数被 try-catch 保护，出错时降级返回空结果，避免拖垮主流程。
     """
     try:
+        if isinstance(query, list):
+            text_parts = [item.get('text', '') for item in query if isinstance(item, dict) and item.get('type') == 'text']
+            query = ''.join(text_parts)
         if not query or not query.strip() or not api_key:
             return {'docs': [], 'context': ''}
 
@@ -778,6 +781,9 @@ def format_rag_context(docs):
 
 def knowledge_search_fallback(query, emp_id, limit=3):
     """API 失败时的关键词搜索 fallback（LIKE）"""
+    if isinstance(query, list):
+        text_parts = [item.get('text', '') for item in query if isinstance(item, dict) and item.get('type') == 'text']
+        query = ''.join(text_parts)
     if not query or not query.strip():
         return []
     keyword = f'%{query}%'
