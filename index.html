@@ -4156,6 +4156,21 @@ function escapeAttr(s) {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// 格式化日期时间戳
+function formatDate(ts) {
+  if (!ts) return '';
+  var d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  var now = new Date();
+  var y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
+  var h = d.getHours(), min = d.getMinutes();
+  var pad = function(n) { return n < 10 ? '0' + n : n; };
+  if (y === now.getFullYear() && m === now.getMonth() + 1 && day === now.getDate()) {
+    return pad(h) + ':' + pad(min);
+  }
+  return y + '-' + pad(m) + '-' + pad(day) + ' ' + pad(h) + ':' + pad(min);
+}
+
 // 格式化消息内容（支持代码块、换行等）
 function formatMessageContent(text) {
   if (!text) return '';
@@ -12971,16 +12986,16 @@ function extractAndSaveMemory(empId, userMsg, aiReply, isGroupChat) {
       return '- ' + (m.value || '');
     }).join('\n');
 
-    var extractPrompt = '【记忆提取任务】\n从以下对话中提取需要长期记住的关键信息。要求：\n1. 提取"事实"而非"关键词"，例如不是"蓝色"，而是"用户喜欢蓝色"\n2. 包含上下文关系，例如"用户提到下周要去上海出差"\n3. 每条记忆独立成一行，格式：- 关键信息\n4. 如果信息已经在"已有记忆"中，不要重复提取\n5. 如果没有新信息，只回复"无"\n6. 不要寒暄，直接输出结果';
+    var extractPrompt = '【记忆提取任务】\n从以下对话中提取需要长期记住的用户相关信息。要求：\n1. 提取"事实"而非"关键词"，例如不是"蓝色"，而是"用户喜欢蓝色"\n2. 包含上下文关系，例如"用户提到下周要去上海出差"\n3. 值得记住的信息包括：用户偏好、计划安排、重要事实、人际关系、工作/生活背景等\n4. 每条记忆独立成一行，格式：- 关键信息\n5. 如果信息已经在"已有记忆"中，不要重复提取\n6. 只有当确实没有任何值得记住的新信息时，才回复"无"\n7. 不要寒暄，直接输出结果\n\n示例值得提取的记忆：\n- 用户喜欢蓝色\n- 用户下周要去上海出差\n- 用户是产品经理，负责电商业务\n- 用户提到想学习Python编程';
 
     if (existingMemories) {
       extractPrompt += '\n\n【已有记忆（不要重复提取）】\n' + existingMemories;
     }
 
     if (isGroupChat) {
-      extractPrompt += '\n\n【本次群聊对话】\n群里有人说：' + userMsg.substring(0, 400) + '\n你回复：' + aiReply.substring(0, 400);
+      extractPrompt += '\n\n【本次群聊对话】\n群里有人说：' + userMsg.substring(0, 800) + '\n你回复：' + aiReply.substring(0, 800);
     } else {
-      extractPrompt += '\n\n【本次对话】\n用户说：' + userMsg.substring(0, 400) + '\nAI回复：' + aiReply.substring(0, 400);
+      extractPrompt += '\n\n【本次对话】\n用户说：' + userMsg.substring(0, 800) + '\nAI回复：' + aiReply.substring(0, 800);
     }
 
     console.log('[Memory] 提取方式判断 - openclaw.connected:', typeof openclaw !== 'undefined' && openclaw.connected, 'apiKey:', !!emp.apiKey, 'aiProvider:', !!emp.aiProvider);
@@ -13526,20 +13541,22 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
   area.insertAdjacentHTML('beforeend', html);
   area.scrollTop = area.scrollHeight;
 
-  // 如果有工具调用，主大脑自动执行并展示结果
+  // 如果有工具调用，主大脑自动执行并展示结果（仅在群聊中展示，单聊静默执行）
   if (toolCalls.length > 0) {
     (async function() {
       for (var i = 0; i < toolCalls.length; i++) {
         var result = await executeToolCall(toolCalls[i]);
-        var toolTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
-        var toolHtml = '<div class="msg">\n';
-        toolHtml += '<div class="msg-avatar" style="font-size:20px;">🧠</div>\n';
-        toolHtml += '<div class="msg-content">\n';
-        toolHtml += '<div class="msg-sender"><span class="msg-sender-name">主大脑</span><span class="msg-sender-role">系统</span><span class="msg-sender-time">' + toolTime + '</span></div>\n';
-        toolHtml += '<div class="msg-bubble" style="background:var(--accent-light);color:var(--accent);font-size:13px;white-space:pre-wrap;">' + escapeHtml(result) + '</div>\n';
-        toolHtml += '</div></div>';
-        area.insertAdjacentHTML('beforeend', toolHtml);
-        area.scrollTop = area.scrollHeight;
+        if (currentGroupId) {
+          var toolTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+          var toolHtml = '<div class="msg">\n';
+          toolHtml += '<div class="msg-avatar" style="font-size:20px;">🧠</div>\n';
+          toolHtml += '<div class="msg-content">\n';
+          toolHtml += '<div class="msg-sender"><span class="msg-sender-name">主大脑</span><span class="msg-sender-role">系统</span><span class="msg-sender-time">' + toolTime + '</span></div>\n';
+          toolHtml += '<div class="msg-bubble" style="background:var(--accent-light);color:var(--accent);font-size:13px;white-space:pre-wrap;">' + escapeHtml(result) + '</div>\n';
+          toolHtml += '</div></div>';
+          area.insertAdjacentHTML('beforeend', toolHtml);
+          area.scrollTop = area.scrollHeight;
+        }
       }
     })();
   }

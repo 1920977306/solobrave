@@ -135,7 +135,7 @@ def _get_embedding_override():
     """获取全局 embedding 覆盖配置，返回 (provider, api_key) 或 ('', '')"""
     settings = _read_json(SETTINGS_FILE, {})
     provider = EMBEDDING_OVERRIDE_PROVIDER or settings.get('embeddingProvider', '')
-    api_key = EMBEDDING_OVERRIDE_API_KEY or settings.get('embeddingApiKey', '')
+    api_key = EMBEDDING_OVERRIDE_API_KEY or settings.get('embeddingApiKey', '').strip()
     return provider, api_key
 
 # ═══════════════════════════════════════════════════

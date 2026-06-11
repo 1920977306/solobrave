@@ -676,7 +676,8 @@ def rag_retrieve(query, emp_id, api_key, provider, agent_config=None, top_k_docs
             return {'docs': [], 'context': ''}
 
         cfg = (agent_config or {}).get('knowledge', {})
-        embedding_model = cfg.get('embeddingModel', 'text-embedding-3-small')
+        provider_cfg = EMBEDDING_PROVIDERS.get(provider, EMBEDDING_PROVIDERS['openai'])
+        embedding_model = cfg.get('embeddingModel', provider_cfg['model'])
 
         # 1. 获取 query embedding
         query_emb = get_embedding_cached(query, api_key, provider, embedding_model)
