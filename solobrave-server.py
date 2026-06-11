@@ -482,6 +482,32 @@ def _sanitize_role(role):
     return role if role else ''
 
 
+import re as _re
+_LOG_POLLUTION_PATTERNS = [
+    _re.compile(r'\[\d{2}:\d{2}:\d{2}\]\s+"(GET|POST|PUT|DELETE|OPTIONS)\s+[^"]*\s+HTTP/1\.1"\s+\d+'),
+    _re.compile(r'\[\d{2}:\d{2}:\d{2}\]\s+\['),
+    _re.compile(r'\[PUT agent\]|\[GET agents\]|\[POST agent\]|\[OpenClawSync\]'),
+]
+
+def _is_log_polluted(value):
+    """检测值是否被服务器日志污染"""
+    if not isinstance(value, str) or len(value) < 30:
+        return False
+    for pat in _LOG_POLLUTION_PATTERNS:
+        if pat.search(value):
+            return True
+    return False
+
+def _sanitize_api_key(api_key):
+    """清理 apiKey：如果被日志污染则返回空字符串"""
+    if not isinstance(api_key, str):
+        return ''
+    if _is_log_polluted(api_key):
+        print(f'  [SANITIZE] apiKey 被日志污染，长度={len(api_key)}，已清空', flush=True)
+        return ''
+    return api_key.strip()
+
+
 # ─── 群组管理 ──────────────────────────────────────────
 
 def _load_groups():
@@ -3520,7 +3546,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'connectionType': body.get('connectionType', ''),
             'apiProvider': body.get('apiProvider', ''),
             'apiModel': body.get('apiModel', ''),
-            'apiKey': body.get('apiKey', ''),
+            'apiKey': _sanitize_api_key(body.get('apiKey', '')),
             'openclawAgent': body.get('openclawAgent', ''),
             'openclawModel': body.get('openclawModel', ''),
             'openclawName': body.get('openclawName', ''),
@@ -3598,6 +3624,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if key in body:
                     if key == 'role':
                         agent[key] = _sanitize_role(body[key])
+                    elif key == 'apiKey':
+                        agent[key] = _sanitize_api_key(body[key])
                     else:
                         agent[key] = body[key]
                     saved_keys.append(key)

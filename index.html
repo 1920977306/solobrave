@@ -5169,6 +5169,18 @@ function setEmpBadge(empId, level, number) {
   saveEmployees();
   renderEmployeeList();
 }
+function _isLogPolluted(value) {
+  if (typeof value !== 'string' || value.length < 30) return false;
+  var patterns = [
+    /\[\d{2}:\d{2}:\d{2}\]\s+"(GET|POST|PUT|DELETE|OPTIONS)\s+[^"]*\s+HTTP\/1\.1"\s+\d+/,
+    /\[\d{2}:\d{2}:\d{2}\]\s+\[/,
+    /\[PUT agent\]|\[GET agents\]|\[POST agent\]|\[OpenClawSync\]/
+  ];
+  for (var i = 0; i < patterns.length; i++) {
+    if (patterns[i].test(value)) return true;
+  }
+  return false;
+}
 async function syncEmpToServer(emp) {
   try {
     // 运行时状态（status/msg/lastActive）不应持久化到后端
@@ -5176,6 +5188,12 @@ async function syncEmpToServer(emp) {
     delete syncData.status;
     delete syncData.msg;
     delete syncData.lastActive;
+    // 防御：检测 apiKey 是否被日志污染
+    if (syncData.apiKey && _isLogPolluted(syncData.apiKey)) {
+      console.warn('[syncEmpToServer] apiKey 被日志污染，长度=' + syncData.apiKey.length + '，已清空');
+      syncData.apiKey = '';
+      emp.apiKey = '';
+    }
     console.log('[syncEmpToServer] 发送 PUT /api/agents/' + emp.id, 'body_keys=' + Object.keys(syncData).join(','));
     var res = await apiFetch('/api/agents/' + emp.id, {
       method: 'PUT',
