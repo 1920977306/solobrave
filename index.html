@@ -2806,6 +2806,9 @@ window.doLogin = function () {
     <div class="nav-item active" id="navMessages" onclick="switchModule('messages')" title="消息">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     </div>
+    <div class="nav-item" id="navOffice" onclick="openLobsterOffice()" title="龙虾办公室">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/></svg>
+    </div>
     <div class="nav-item" id="navKnowledge" onclick="switchModule('knowledge')" title="知识库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>
     </div>
@@ -15324,6 +15327,7 @@ document.addEventListener('keydown', function (e) {
 </style>
 
 
+<script>
 function showAISwitcher() {
   if (typeof showGlobalSearch === 'function') {
     document.getElementById('globalSearchModal').style.display = 'flex';
@@ -15347,6 +15351,9 @@ function showSettings() {
   } else {
     alert('设置面板');
   }
+}
+function openLobsterOffice() {
+  window.open('./office-v3.html', '_blank');
 }
 
 // ========== 用户管理面板 ==========
