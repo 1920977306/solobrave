@@ -85,6 +85,8 @@ def get_embedding(text, api_key, provider='openai', model=None):
     """调用 Embedding API 获取向量，纯 urllib 实现"""
     import ssl
     import urllib.request
+    if api_key and isinstance(api_key, str):
+        api_key = api_key.strip()
     if not text or not text.strip() or not api_key:
         return None
     cfg = _get_embedding_provider_cfg(provider)

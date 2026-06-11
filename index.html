@@ -13009,11 +13009,15 @@ function _extractMemoryViaOpenClaw(empId, extractPrompt, existing) {
   }
 
   var agentId = emp.openclawName || emp.id;
-  var sessionKey = 'agent:' + agentId + ':main';
+  // 使用独立 session，避免与聊天 session 的上下文互相污染
+  var sessionKey = 'agent:' + agentId + ':memory_extract';
 
   var extractReply = '';
   var extractRunId = null;
   var extractTimeout = null;
+
+  // 强化上下文隔离：让 AI 明确知道这是一个独立的提取任务，忽略任何之前的对话
+  var isolatedPrompt = '【以下是一个完全独立的记忆提取任务，请忽略之前的所有对话上下文，仅根据本次提供的内容执行提取】\n\n' + extractPrompt;
 
   var extractHandler = function (data) {
     if (!data) return;
@@ -13051,7 +13055,7 @@ function _extractMemoryViaOpenClaw(empId, extractPrompt, existing) {
     }
   }, 30000);
 
-  openclaw.sendChat(sessionKey, extractPrompt).then(function () {
+  openclaw.sendChat(sessionKey, isolatedPrompt).then(function () {
     console.log('[Memory] OpenClaw sendChat 已发送:', emp.name, 'sessionKey:', sessionKey, 'prompt长度:', extractPrompt.length);
   }).catch(function (e) {
     if (extractTimeout) clearTimeout(extractTimeout);

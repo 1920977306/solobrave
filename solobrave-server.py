@@ -451,7 +451,7 @@ def _is_default_agent(agent):
     return False
 
 def _load_agents():
-    """加载 Agent 列表，过滤掉历史遗留的默认员工，并检测 apiKey 污染"""
+    """加载 Agent 列表，过滤掉历史遗留的默认员工，并检测关键字段污染"""
     agents = _read_json(AGENTS_FILE, [])
     if not isinstance(agents, list):
         return []
@@ -459,10 +459,17 @@ def _load_agents():
     for a in agents:
         if _is_default_agent(a):
             continue
+        # 检测 apiKey 污染
         ak = a.get('apiKey', '')
         if _is_log_polluted(ak):
             print(f'  [LOAD_GUARD] 加载时发现 apiKey 被污染: {a.get("id")} len={len(ak)} 已清空', flush=True)
             a['apiKey'] = ''
+        # 检测 systemPrompt / soulDoc / idDoc 污染（日志写入 JSON 时可能连带污染）
+        for field in ('systemPrompt', 'soulDoc', 'idDoc', 'toolsDoc', 'userDoc'):
+            val = a.get(field, '')
+            if _is_log_polluted(val):
+                print(f'  [LOAD_GUARD] 加载时发现 {field} 被污染: {a.get("id")} len={len(val)} 已清空', flush=True)
+                a[field] = ''
         cleaned.append(a)
     return cleaned
 
@@ -606,7 +613,7 @@ def _run_openclaw(args, cwd=None, input_data=None):
 def _sync_agent_api_key_to_openclaw(agent):
     """
     将员工的 API Key 同步到 OpenClaw。
-    调用: openclaw models auth --agent <id> paste-api-key --provider <provider>
+    调用: echo <api_key> | openclaw models auth paste-api-key --provider <provider> --profile-id <agent_id>:manual
     API Key 通过 stdin 传递。
     """
     agent_id = agent.get('id')
@@ -618,7 +625,7 @@ def _sync_agent_api_key_to_openclaw(agent):
     if not os.path.isfile(OPENCLAW_CLI):
         return False, f'OpenClaw CLI 未找到: {OPENCLAW_CLI}'
 
-    args = ['models', 'auth', '--agent', agent_id, 'paste-api-key', '--provider', provider]
+    args = ['models', 'auth', 'paste-api-key', '--provider', provider, '--profile-id', f'{agent_id}:manual']
     success, stdout, stderr, rc = _run_openclaw(args, input_data=api_key)
     if success and rc == 0:
         print(f'  [OpenClawSync] API Key 已同步: {agent_id} provider={provider}', flush=True)
@@ -3420,14 +3427,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         _save_chat(chat_key, messages)
 
-        # 群聊记忆：将 AI 回复保存到发送者的 daily 记忆中
+        # 群聊记忆：AI 回复保存到发送 AI 的记忆，用户消息保存到群聊 lead 的记忆
         sender_id = msg.get('senderId', '')
         sender_type = msg.get('senderType', 'user')
-        if sender_type == 'agent' and sender_id:
-            try:
-                content = msg.get('content', '')
-                if content:
-                    memory_value = f"【群聊】{msg.get('senderName', 'AI')}说：{content[:500]}"
+        content = msg.get('content', '')
+        if content:
+            memory_value = f"【群聊】{msg.get('senderName', 'AI')}说：{content[:500]}"
+            if sender_type == 'agent' and sender_id:
+                try:
                     ms3.add_memory(
                         sender_id,
                         value=memory_value,
@@ -3435,9 +3442,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         tags=['group_chat'],
                         source='群聊对话'
                     )
-                    print(f'  [GroupMemory] {sender_id} 群聊消息已保存到 daily 记忆', flush=True)
-            except Exception as e:
-                print(f'  [GroupMemory] {sender_id} 保存群聊记忆失败: {e}', flush=True)
+                    print(f'  [GroupMemory] {sender_id} (AI) 群聊消息已保存到 daily 记忆', flush=True)
+                except Exception as e:
+                    print(f'  [GroupMemory] {sender_id} 保存群聊记忆失败: {e}', flush=True)
+            elif sender_type == 'user':
+                # 用户消息写入群聊 lead 的记忆，确保 lead 能获取完整上下文
+                lead_id = group.get('leadAgentId', '')
+                if lead_id:
+                    try:
+                        ms3.add_memory(
+                            lead_id,
+                            value=memory_value,
+                            key='daily',
+                            tags=['group_chat', 'user_msg'],
+                            source='群聊对话'
+                        )
+                        print(f'  [GroupMemory] {lead_id} (lead) 用户群聊消息已保存到 daily 记忆', flush=True)
+                    except Exception as e:
+                        print(f'  [GroupMemory] {lead_id} 保存用户群聊记忆失败: {e}', flush=True)
 
         self._send_json(200, {'saved': True, 'id': msg['id'], 'archived': archived_count})
 
@@ -4753,8 +4775,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         agent_config = None
         agent = _get_agent_by_id(target_emp_id)
         if agent:
-            api_key = agent.get('apiKey')
-            provider = agent.get('aiProvider', 'openai')
+            api_key = (agent.get('apiKey') or '').strip()
+            provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
             agent_config = agent
         if not api_key:
             self._send_json_error(400, 'No API key available. Please configure AI provider.')
@@ -4793,8 +4815,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         agent_config = None
         agent = _get_agent_by_id(emp_id)
         if agent:
-            api_key = agent.get('apiKey')
-            provider = agent.get('aiProvider', 'openai')
+            api_key = (agent.get('apiKey') or '').strip()
+            provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
             agent_config = agent
 
         try:
@@ -4839,8 +4861,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         emp_id = doc.get('empId')
         agent = _get_agent_by_id(emp_id)
         if agent:
-            api_key = agent.get('apiKey')
-            provider = agent.get('aiProvider', 'openai')
+            api_key = (agent.get('apiKey') or '').strip()
+            provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
             agent_config = agent
 
         # 兼容旧前端：name 字段映射为 title
@@ -4907,8 +4929,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         agent_config = None
         agent = _get_agent_by_id(emp_id)
         if agent:
-            api_key = agent.get('apiKey')
-            provider = agent.get('aiProvider', 'openai')
+            api_key = (agent.get('apiKey') or '').strip()
+            provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
             agent_config = agent
         if not api_key:
             self._send_json_error(400, 'No API key available for embedding. Please configure AI provider in employee settings.')
@@ -4948,8 +4970,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         provider = 'openai'
         agent = _get_agent_by_id(emp_id)
         if agent:
-            api_key = agent.get('apiKey')
-            provider = agent.get('aiProvider', 'openai')
+            api_key = (agent.get('apiKey') or '').strip()
+            provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
         if not api_key:
             self._send_json_error(400, 'No API key available')
             return
@@ -5957,8 +5979,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _call_ai_api(self, agent, user_message, user_info=None, include_history=True):
         """通过代理调用 AI API（带记忆和上下文注入）"""
-        api_provider = agent.get('apiProvider', '')
-        api_key = agent.get('apiKey', '')
+        api_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
+        api_key = (agent.get('apiKey', '') or '').strip()
         api_model = agent.get('apiModel', '')
         custom_endpoint = agent.get('customEndpoint', '')
         agent_id = agent.get('id', '')
@@ -5974,7 +5996,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             base_url = 'https://api.openai.com/v1'
         elif api_provider == 'deepseek':
             base_url = 'https://api.deepseek.com/v1'
-        elif api_provider == 'moonshot':
+        elif api_provider == 'moonshot' or api_provider == 'kimi':
             base_url = 'https://api.moonshot.cn/v1'
         elif api_provider == 'zhipu':
             base_url = 'https://open.bigmodel.cn/api/paas/v4'
@@ -5989,8 +6011,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         target_url = base_url + '/chat/completions'
 
         system_prompt = f'你是 {agent.get("name", "AI")}，一个 {agent.get("role", "助手")}。请用第一人称回复，保持角色一致性。'
-        if agent.get('systemPrompt'):
-            system_prompt += '\n\n' + agent['systemPrompt']
+        soul_doc = agent.get('soulDoc', '')
+        sys_prompt_field = agent.get('systemPrompt', '')
+        if soul_doc:
+            system_prompt += '\n\n' + soul_doc
+        elif sys_prompt_field:
+            system_prompt += '\n\n' + sys_prompt_field
         # 注入层级关系约束，防止 AI 把老板当学生/下属
         if user_info:
             user_name = user_info.get('name') or user_info.get('displayName') or '用户'

@@ -101,7 +101,7 @@ def sync_agent_api_key(agent):
     if not os.path.isfile(OPENCLAW_CLI):
         return False, f'OpenClaw CLI 未找到: {OPENCLAW_CLI}'
 
-    args = ['models', 'auth', '--agent', agent_id, 'paste-api-key', '--provider', provider]
+    args = ['models', 'auth', 'paste-api-key', '--provider', provider, '--profile-id', f'{agent_id}:manual']
     success, stdout, stderr, rc = _run_openclaw(args, input_data=api_key)
     if success and rc == 0:
         return True, stdout.strip()
