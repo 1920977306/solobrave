@@ -5183,11 +5183,13 @@ function _isLogPolluted(value) {
 }
 async function syncEmpToServer(emp) {
   try {
-    // 运行时状态（status/msg/lastActive）不应持久化到后端
+    // 运行时状态（status/msg/lastActive/tokens/tokenStats）不应持久化到后端
     var syncData = Object.assign({}, emp);
     delete syncData.status;
     delete syncData.msg;
     delete syncData.lastActive;
+    delete syncData.tokens;
+    delete syncData.tokenStats;
     // 防御：检测 apiKey 是否被日志污染
     if (syncData.apiKey && _isLogPolluted(syncData.apiKey)) {
       console.warn('[syncEmpToServer] apiKey 被日志污染，长度=' + syncData.apiKey.length + '，已清空');

@@ -3410,6 +3410,26 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 messages = messages[-500:]
 
         _save_chat(chat_key, messages)
+
+        # 群聊记忆：将 AI 回复保存到发送者的 daily 记忆中
+        sender_id = msg.get('senderId', '')
+        sender_type = msg.get('senderType', 'user')
+        if sender_type == 'agent' and sender_id:
+            try:
+                content = msg.get('content', '')
+                if content:
+                    memory_value = f"【群聊】{msg.get('senderName', 'AI')}说：{content[:500]}"
+                    ms3.add_memory(
+                        sender_id,
+                        value=memory_value,
+                        key='daily',
+                        tags=['group_chat'],
+                        source='群聊对话'
+                    )
+                    print(f'  [GroupMemory] {sender_id} 群聊消息已保存到 daily 记忆', flush=True)
+            except Exception as e:
+                print(f'  [GroupMemory] {sender_id} 保存群聊记忆失败: {e}', flush=True)
+
         self._send_json(200, {'saved': True, 'id': msg['id'], 'archived': archived_count})
 
     # ═══════════════════════════════════════════════════
@@ -3615,9 +3635,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         self._send_auth_error('权限不足', 403)
                         return
 
-            # 检测 API Key 是否变动
+            # 检测 API Key 是否变动（优先 aiProvider，与 _sync_agent_api_key_to_openclaw 一致）
             old_api_key = agent.get('apiKey', '')
-            old_provider = agent.get('apiProvider', '') or agent.get('aiProvider', '')
+            old_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
 
             # 可更新字段
             updatable = ['name', 'role', 'bg', 'avatar', 'status', 'msg', 'archived',
@@ -3665,7 +3685,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
             # 自动同步 API Key 到 OpenClaw（有变动时）
             new_api_key = agent.get('apiKey', '')
-            new_provider = agent.get('apiProvider', '') or agent.get('aiProvider', '')
+            new_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
             print(f'  [PUT agent] id={agent_id} 同步检测: old_key={bool(old_api_key)} new_key={bool(new_api_key)} old_prov={old_provider} new_prov={new_provider}', flush=True)
             if new_api_key and new_provider:
                 if new_api_key != old_api_key or new_provider != old_provider:
