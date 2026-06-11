@@ -451,11 +451,20 @@ def _is_default_agent(agent):
     return False
 
 def _load_agents():
-    """加载 Agent 列表，过滤掉历史遗留的默认员工"""
+    """加载 Agent 列表，过滤掉历史遗留的默认员工，并检测 apiKey 污染"""
     agents = _read_json(AGENTS_FILE, [])
     if not isinstance(agents, list):
         return []
-    return [a for a in agents if not _is_default_agent(a)]
+    cleaned = []
+    for a in agents:
+        if _is_default_agent(a):
+            continue
+        ak = a.get('apiKey', '')
+        if _is_log_polluted(ak):
+            print(f'  [LOAD_GUARD] 加载时发现 apiKey 被污染: {a.get("id")} len={len(ak)} 已清空', flush=True)
+            a['apiKey'] = ''
+        cleaned.append(a)
+    return cleaned
 
 
 def _get_agent_by_id(agent_id):
