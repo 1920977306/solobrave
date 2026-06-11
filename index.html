@@ -10,7 +10,7 @@
    V7 - Apple 抽屉式面板设计
    ======================================== */
 
-/* CSS Variables - Light Mode (Feishu Style) */
+/* CSS Variables - Feishu Light Mode */
 :root {
   --accent: #0a84ff;
   --accent-hover: #0070e0;
@@ -40,8 +40,8 @@
   --font-xs: 400 13px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
   --font-micro: 400 11px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
   
-  /* Feishu three-column layout colors - Light */
-  --left-nav-bg: #f7f7f8;
+  /* Feishu three-column layout colors */
+  --left-nav-bg: #2e2e33;
   --mid-sidebar-bg: #ffffff;
   --right-content-bg: #ffffff;
   --primary-blue: #0a84ff;
@@ -82,7 +82,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex: 1;
 }
 .left-nav-bottom {
@@ -90,6 +90,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-direction: column;
   align-items: center;
   padding-bottom: 8px;
+  position: relative;
 }
 .nav-item {
   width: 44px;
@@ -101,15 +102,15 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   cursor: pointer;
   transition: all 0.15s ease;
   position: relative;
-  color: var(--text-secondary);
+  color: #86909c;
 }
 .nav-item:hover {
-  background: var(--hover-bg);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
 }
 .nav-item.active {
-  color: var(--primary-blue);
-  background: var(--selected-bg);
+  color: #ffffff;
+  background: transparent;
 }
 .nav-item.active::before {
   content: '';
@@ -119,7 +120,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   transform: translateY(-50%);
   width: 2px;
   height: 20px;
-  background: var(--primary-blue);
+  background: #0a84ff;
   border-radius: 0 2px 2px 0;
 }
 .nav-item svg {
@@ -142,10 +143,6 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .nav-avatar:hover {
   transform: scale(1.1);
-}
-
-.left-nav-bottom {
-  position: relative;
 }
 
 .user-dropdown {
@@ -298,27 +295,24 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .sidebar-logo { font: var(--font-lg); }
 .sidebar-logo span { color: var(--accent); }
 
-.tab-switcher { display: flex; gap: 2px; padding: 8px 12px; background: var(--bg-secondary); border-radius: var(--radius-md); margin: 12px; }
-.tab-btn { flex: 1; padding: 7px; border-radius: var(--radius-sm); font: var(--font-sm); color: var(--text-secondary); transition: all 0.15s; text-align: center; }
-.tab-btn.active { background: var(--bg-primary); color: var(--accent); box-shadow: var(--shadow-card); }
-
 .sidebar-search {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 12px 12px 8px;
   padding: 8px 12px;
-  background: #f2f3f5;
-  border-radius: 10px;
+  background: #f5f5f5;
+  border-radius: 8px;
   border: none;
   transition: all 0.2s;
 }
 .sidebar-search:focus-within {
-  background: #e5e6eb;
+  background: #eeeeee;
 }
 .sidebar-search-icon {
-  font-size: 14px;
-  opacity: 0.5;
+  width: 16px;
+  height: 16px;
+  opacity: 0.6;
   flex-shrink: 0;
   color: var(--text-tertiary);
 }
@@ -335,7 +329,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 
 .list-section { flex: 1; overflow-y: auto; }
-.section-title { font: 600 11px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; color: var(--text-secondary); letter-spacing: 0.05em; text-transform: uppercase; padding: 16px 14px 8px; }
+.section-title { font: 600 11px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; color: #86909c; letter-spacing: 1px; text-transform: uppercase; padding: 16px 14px 8px; }
 .dept-group { margin-bottom: 4px; }
 .dept-header {
   display: flex;
@@ -346,14 +340,14 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .dept-title {
   font: 600 11px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
-  color: var(--text-secondary);
-  letter-spacing: 0.04em;
+  color: #86909c;
+  letter-spacing: 1px;
   text-transform: uppercase;
 }
 .dept-count {
   font: 500 10px/1 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
   color: var(--text-tertiary);
-  background: #f2f3f5;
+  background: #f5f5f5;
   padding: 2px 6px;
   border-radius: 8px;
 }
@@ -388,36 +382,30 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   display: flex; 
   align-items: center; 
   gap: 10px; 
-  padding: 10px 12px; 
-  margin: 3px 8px; 
+  padding: 8px 12px; 
+  margin: 1px 8px; 
   cursor: pointer; 
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); 
+  transition: all 0.15s ease; 
   position: relative; 
-  border-radius: 12px; 
+  border-radius: 8px; 
   background: transparent;
   border: none;
+  height: 56px;
 }
 
 .list-item:hover { 
-  background: var(--hover-bg);
+  background: #f5f7fa;
 }
 
 .list-item:hover .item-actions { opacity: 1; }
 
 .list-item.active { 
-  background: rgba(10, 132, 255, 0.15);
+  background: #e8f3ff;
 }
 
-.list-item.active::before { 
-  content: ''; 
-  position: absolute; 
-  left: 0; 
-  top: 50%; 
-  transform: translateY(-50%); 
-  width: 2px; 
-  height: 16px; 
-  background: var(--primary-blue);
-  border-radius: 0 2px 2px 0;
+.list-item.active .emp-name,
+.list-item.active .group-item-name { 
+  color: var(--text-primary);
 }
 
 .list-item.archived { opacity: 0.6; }
@@ -517,17 +505,22 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   .left-nav-bottom {
     display: none;
   }
+  .nav-item {
+    width: 36px;
+    height: 36px;
+  }
+  .nav-item svg {
+    width: 18px;
+    height: 18px;
+  }
   .nav-item.active::before {
     left: 50%;
     top: auto;
-    bottom: 4px;
+    bottom: 2px;
     transform: translateX(-50%);
     width: 16px;
     height: 2px;
     border-radius: 2px;
-  }
-  .app-container {
-    flex-direction: column;
   }
   .app-sidebar {
     left: 0;
@@ -623,7 +616,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .header-btn:hover { background: var(--bg-secondary); color: var(--accent); }
 
 /* Chat Header V2 - 参考截图样式 */
-.chat-header-v2 { padding: 10px 16px; border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; justify-content: space-between; background: var(--bg-primary); height: 52px; box-sizing: border-box; }
+.chat-header-v2 { padding: 0 16px; border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; justify-content: space-between; background: var(--bg-primary); height: 48px; box-sizing: border-box; }
 .chat-header-left { display: flex; align-items: center; gap: 10px; }
 .chat-header-v2 .avatar { width: 36px; height: 36px; font-size: 16px; }
 .chat-header-v2 .chat-header-info { display: flex; flex-direction: column; gap: 2px; }
@@ -1419,7 +1412,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
    ======================================== */
 .settings-panel { position: absolute; inset: 0; background: var(--bg-primary); z-index: 10; display: none; flex-direction: column; }
 .settings-panel.open { display: flex; }
-.settings-header { padding: 12px 16px; border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; justify-content: space-between; }
+.settings-header { padding: 0 16px; border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; justify-content: space-between; height: 48px; box-sizing: border-box; }
 .settings-title { font: var(--font-lg); }
 .settings-body { flex: 1; overflow-y: auto; padding: 16px; }
 .settings-section { margin-bottom: 20px; }
@@ -1474,18 +1467,12 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   .app-main.show-board { flex-direction: column !important; }
   .app-main.show-board #chatArea, .app-main.show-board #taskBoard { width: 100% !important; }
   
-  /* Mobile menu button */
-  .mobile-menu-btn { display: flex !important; }
 }
 
 @media (max-width: 480px) {
-  .banner-nav { display: none; }
   .status-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
   .quick-grid { grid-template-columns: repeat(3, 1fr) !important; }
 }
-
-/* Mobile menu button */
-.mobile-menu-btn { display: none; position: fixed; bottom: 20px; left: 20px; width: 48px; height: 48px; border-radius: 50%; background: var(--accent); color: white; border: none; cursor: pointer; align-items: center; justify-content: center; font-size: 20px; box-shadow: var(--shadow-fab); z-index: 150; }
 
 /* ========================================
    KEYBOARD NAVIGATION
@@ -2199,7 +2186,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 
 /* ===== Product Library Styles ===== */
 .product-library-panel { position: absolute; inset: 0; background: var(--bg-primary); z-index: 10; display: none; flex-direction: column; overflow: hidden; }
-.product-library-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 0.5px solid var(--separator); background: var(--bg-primary); }
+.product-library-header { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 0.5px solid var(--separator); background: var(--bg-primary); height: 48px; box-sizing: border-box; }
 .product-library-title { font: var(--font-lg); }
 .product-library-actions { display: flex; gap: 8px; align-items: center; }
 .product-library-btn { padding: 8px 14px; border-radius: var(--radius-sm); border: none; font-size: 13px; cursor: pointer; transition: all 0.15s; }
@@ -2388,10 +2375,12 @@ window.doLogin = function () {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
+  padding: 0 16px;
   border-bottom: 0.5px solid var(--separator);
   background: var(--bg-primary);
   flex-shrink: 0;
+  height: 48px;
+  box-sizing: border-box;
 }
 .knowledge-header-title { font: var(--font-lg); }
 .knowledge-header-actions { display: flex; gap: 8px; align-items: center; }
@@ -2785,13 +2774,6 @@ window.doLogin = function () {
 <!-- Skip Link -->
 <a href="#main-chat" class="skip-link">跳到聊天区域</a>
 
-<!-- Mobile Menu Button -->
-<button class="mobile-menu-btn" onclick="toggleSidebar()" aria-label="打开菜单">
-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-</button>
-
-
-
 <!-- Global Search Modal (Soybean-inspired) -->
 <div class="modal-overlay" id="globalSearchModal" onclick="closeGlobalSearch()">
 <div class="search-modal" onclick="event.stopPropagation()">
@@ -2824,14 +2806,8 @@ window.doLogin = function () {
     <div class="nav-item active" id="navMessages" onclick="switchModule('messages')" title="消息">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     </div>
-    <div class="nav-item" id="navLobster" onclick="openLobsterOffice()" title="龙虾办公室">
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12h4"/><path d="M10 8h4"/><path d="M10 16h4"/><path d="M14 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"/><path d="M6 21h14a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2h-2"/></svg>
-    </div>
     <div class="nav-item" id="navKnowledge" onclick="switchModule('knowledge')" title="知识库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>
-    </div>
-    <div class="nav-item" id="navProjects" onclick="switchModule('projects')" title="项目组">
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
     </div>
     <div class="nav-item" id="navProducts" onclick="switchModule('products')" title="商品库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
@@ -2863,8 +2839,8 @@ window.doLogin = function () {
 <aside class="app-sidebar">
 
 <div class="sidebar-search">
-<span class="sidebar-search-icon">🔍</span>
-<input type="text" placeholder="搜索员工、消息..." id="searchInput" oninput="filterEmployeeList(this.value)">
+<svg class="sidebar-search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+<input type="text" placeholder="搜索" id="searchInput" oninput="filterEmployeeList(this.value)">
 </div>
 
 <!-- Employee List (default) -->
@@ -6329,7 +6305,7 @@ function renderEmployeeList() {
       if (pinnedEmps.length > 0) {
         html += renderSubCategoryHeader('📌 置顶', pinnedEmps.length);
         html += pinnedEmps.map(function (e) {
-          return '<div class="list-item pinned-item" data-id="' + escapeAttr(e.id) + '" draggable="true" oncontextmenu="event.preventDefault();showEmpSettingsMenu(event,this.dataset.id)" style="background:rgba(0,122,255,0.04);border-left:3px solid var(--accent);">' + renderEmployeeItem(e, true) + '</div>';
+          return '<div class="list-item pinned-item" data-id="' + escapeAttr(e.id) + '" draggable="true" oncontextmenu="event.preventDefault();showEmpSettingsMenu(event,this.dataset.id)" style="background:rgba(0,122,255,0.04);">' + renderEmployeeItem(e, true) + '</div>';
         }).join('');
       }
 
@@ -6474,8 +6450,7 @@ function renderArchiveSections() {
   }
 }
 function renderCategoryHeader(name, expanded) {
-  var arrow = expanded ? '▼' : '▶';
-  return '<div class="cat-header" onclick="toggleCategory(\'' + escapeAttr(name) + '\')" style="padding:8px 12px;font-size:13px;font-weight:600;color:var(--text-primary);cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none;margin-top:4px;">' + arrow + ' ' + escapeHtml(name) + '</div>';
+  return '<div class="section-title">' + escapeHtml(name) + '</div>';
 }
 function renderSubCategoryHeader(name, count) {
   var displayName = name === '未分组' ? '全部' : name;
@@ -6611,21 +6586,14 @@ function renderGroupItems() {
     return '<div style="padding:8px 24px;font-size:12px;color:var(--text-tertiary);">暂无项目组，点击 + 创建</div>';
   }
   return groups.map(function (g) {
-    // 显示完整成员数（不按用户过滤）
     var memberCount = (g.members || []).length;
     var lastMsg = g.lastMsg || '';
     var emoji = g.emoji || '👥';
     var isActive = currentGroupId === g.id;
-    return '<div class="list-item" data-group="' + escapeAttr(g.id) + '" style="padding-left:24px;' + (isActive ? 'background:var(--accent-light);' : '') + '" onclick="openGroupChat(\'' + escapeAttr(g.id) + '\')" oncontextmenu="event.preventDefault();event.stopPropagation();openGroupDetail(\'' + escapeAttr(g.id) + '\');">' + '<div class="group-avatar" style="background:linear-gradient(135deg,' + escapeAttr(g.bg || '#5856D6') + ',' + (g.bg || '#5856D6') + 'dd);">' + escapeHtml(emoji) + '</div>' + '<div class="group-item-info"><div class="group-item-name">' + escapeHtml(g.name) + '</div><div class="group-item-sub">' + memberCount + ' 人' + (lastMsg ? ' · ' + escapeHtml(lastMsg) : '') + '</div></div>' + '</div>';
+    return '<div class="list-item" data-group="' + escapeAttr(g.id) + '" style="' + (isActive ? 'background:#e8f3ff;' : '') + '" onclick="openGroupChat(\'' + escapeAttr(g.id) + '\')" oncontextmenu="event.preventDefault();event.stopPropagation();openGroupDetail(\'' + escapeAttr(g.id) + '\');">' + '<div class="group-avatar" style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,' + escapeAttr(g.bg || '#5856D6') + ',' + (g.bg || '#5856D6') + 'dd);display:flex;align-items:center;justify-content:center;font-size:16px;">' + escapeHtml(emoji) + '</div>' + '<div class="group-item-info" style="flex:1;min-width:0;"><div class="group-item-name" style="font-size:14px;font-weight:500;color:var(--text-primary);">' + escapeHtml(g.name) + '</div><div class="group-item-sub" style="font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + memberCount + ' 人' + (lastMsg ? ' · ' + escapeHtml(lastMsg) : '') + '</div></div>' + '<div class="group-meta" style="flex-shrink:0;text-align:right;margin-left:8px;"><div style="font-size:12px;color:var(--text-secondary);">' + memberCount + '人</div></div>' + '</div>';
   }).join('');
 }
 
-// Init
-document.querySelectorAll('.tab-btn').forEach(function (b) {
-  return b.addEventListener('click', function () {
-    return switchTab(b.dataset.tab);
-  });
-});
 // 侧栏点击事件统一在 renderEmployeeList() 后的 bindListEvents() 中绑定，避免重复
 // Setup drag for employee items
 emps.forEach(function (e) {
@@ -6767,18 +6735,9 @@ document.querySelectorAll('.member-option').forEach(function (o) {
   });
 });
 
-// Tab Switch
+// Tab Switch (legacy, no-op since projects are merged into messages list)
 function switchTab(tab) {
   currentTab = tab;
-  document.querySelectorAll('.tab-btn').forEach(function (b) {
-    return b.classList.toggle('active', b.dataset.tab === tab);
-  });
-  document.getElementById('employeeList').classList.toggle('hidden', tab !== 'employees');
-  document.getElementById('projectList').classList.toggle('hidden', tab !== 'projects');
-  // Show archive list when tab is archived
-  if (tab === 'archived') {
-    renderArchivedList();
-  }
 }
 
 // ===== Archive & Drag =====
@@ -6835,16 +6794,6 @@ function renderEmployeeItem(e, showCreator) {
     creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:rgba(10,132,255,0.15);border-radius:4px;font-size:11px;color:#0a84ff;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
   }
 
-  // Badge 标记
-  var badgeHtml = '';
-  if (e.badge && e.badge.level) {
-    var blevel = e.badge.level;
-    var bnum = e.badge.number;
-    var bclass = 'emp-badge ' + escapeAttr(blevel);
-    var btext = bnum ? escapeHtml('' + bnum) : '';
-    if (!bnum) bclass = bclass + ' dot';
-    badgeHtml = '<div class="' + bclass + '">' + btext + '</div>';
-  }
   var avatarUrl = e.avatarUrl || e.avatar;
   var hasImg = avatarUrl && avatarUrl.indexOf('http') === 0;
   var avatarContent = hasImg ? '<img src="' + escapeAttr(avatarUrl) + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" />' : e.name ? escapeHtml(e.name.charAt(0)) : '?';
@@ -6852,7 +6801,6 @@ function renderEmployeeItem(e, showCreator) {
   var avatarColor = hasImg ? 'transparent' : '#f5f5f7';
   var statusClass = escapeAttr(e.status || 'offline');
   var previewText = escapeHtml(getEmpRoleDisplay(e));
-  // Get last message preview if available
   var lastMsgPreview = '';
   if (e.lastMessage) {
     lastMsgPreview = escapeHtml(e.lastMessage);
@@ -6860,7 +6808,8 @@ function renderEmployeeItem(e, showCreator) {
   var previewHtml = lastMsgPreview 
     ? '<div class="emp-preview" style="margin-top:2px;">' + lastMsgPreview + '</div>'
     : '<div class="emp-preview">' + previewText + '</div>';
-  return '<div class="emp-avatar-wrap" style="position:relative;flex-shrink:0;"><div class="emp-avatar" style="background:' + avatarBg + ';color:' + avatarColor + ';width:40px;height:40px;border-radius:50%;">' + avatarContent + '</div><div class="status-dot ' + statusClass + '" style="position:absolute;bottom:0px;right:0px;width:10px;height:10px;border-radius:50%;border:2px solid #ffffff;"></div></div><div class="emp-info" style="flex:1;min-width:0;"><div class="emp-name" style="font-size:14px;font-weight:500;color:var(--text-primary);display:flex;align-items:center;">' + escapeHtml(e.name || '') + creatorTag + '</div>' + previewHtml + '</div>';
+  var statusLabel = e.status === 'online' ? '在线' : e.status === 'busy' ? '忙碌' : '离线';
+  return '<div class="emp-avatar-wrap" style="position:relative;flex-shrink:0;"><div class="emp-avatar" style="background:' + avatarBg + ';color:' + avatarColor + ';width:40px;height:40px;border-radius:50%;">' + avatarContent + '</div><div class="status-dot ' + statusClass + '" style="position:absolute;bottom:0px;right:0px;width:10px;height:10px;border-radius:50%;border:2px solid #ffffff;"></div></div><div class="emp-info" style="flex:1;min-width:0;"><div class="emp-name" style="font-size:14px;font-weight:500;color:var(--text-primary);display:flex;align-items:center;">' + escapeHtml(e.name || '') + creatorTag + '</div>' + previewHtml + '</div><div class="emp-meta" style="flex-shrink:0;text-align:right;margin-left:8px;"><div class="status-text" style="font-size:12px;color:var(--text-secondary);">' + statusLabel + '</div></div>';
 }
 function bindListEvents() {
   // data-id = 员工（个人聊天）
@@ -10595,7 +10544,7 @@ function archiveCurrent() {
       showToast('📦 ' + escapeHtml(emp.name || '') + ' 已归档');
     }
   } else {
-    switchTab('archived');
+    renderEmployeeList();
     showToast('📦 已切换到归档');
   }
 }
@@ -17646,47 +17595,37 @@ function switchModule(module) {
     // Show chat area
     document.getElementById('chatArea').style.display = 'flex';
     if (employeeList) employeeList.style.display = 'block';
-    if (projectList) projectList.style.display = 'block';
-    // Restore search placeholder
+    if (projectList) projectList.style.display = 'none';
     var searchInput = document.getElementById('searchInput');
-    if (searchInput) searchInput.placeholder = '搜索员工、消息...';
+    if (searchInput) searchInput.placeholder = '搜索';
     renderEmployeeList();
   } else if (module === 'knowledge') {
     if (employeeList) employeeList.style.display = 'none';
     if (projectList) projectList.style.display = 'none';
     var searchInput = document.getElementById('searchInput');
-    if (searchInput) searchInput.placeholder = '搜索知识库...';
-    // Show knowledge in right panel
+    if (searchInput) searchInput.placeholder = '搜索';
     document.getElementById('knowledgeArea').style.display = 'flex';
     document.getElementById('knowledgeArea').classList.add('active');
     loadKnowledgeList();
-  } else if (module === 'projects') {
-    if (employeeList) employeeList.style.display = 'none';
-    if (projectList) projectList.style.display = 'block';
-    var searchInput = document.getElementById('searchInput');
-    if (searchInput) searchInput.placeholder = '搜索项目组...';
-    // Show project list in mid, task board or placeholder in right
-    document.getElementById('chatArea').style.display = 'flex';
-    renderProjectListMid();
   } else if (module === 'products') {
     if (employeeList) employeeList.style.display = 'none';
     if (projectList) projectList.style.display = 'none';
     var searchInput = document.getElementById('searchInput');
-    if (searchInput) searchInput.placeholder = '搜索商品...';
+    if (searchInput) searchInput.placeholder = '搜索';
     document.getElementById('productLibraryPanel').style.display = 'flex';
     loadProducts();
   } else if (module === 'influencers') {
     if (employeeList) employeeList.style.display = 'none';
     if (projectList) projectList.style.display = 'none';
     var searchInput = document.getElementById('searchInput');
-    if (searchInput) searchInput.placeholder = '搜索达人...';
+    if (searchInput) searchInput.placeholder = '搜索';
     document.getElementById('influencerLibraryPanel').style.display = 'flex';
     loadInfluencers();
   } else if (module === 'settings') {
     if (employeeList) employeeList.style.display = 'none';
     if (projectList) projectList.style.display = 'none';
     var searchInput = document.getElementById('searchInput');
-    if (searchInput) searchInput.placeholder = '搜索设置...';
+    if (searchInput) searchInput.placeholder = '搜索';
     document.querySelector('.settings-panel').style.display = 'flex';
     document.querySelector('.settings-panel').classList.add('open');
     renderSettingsMid();
@@ -17698,10 +17637,6 @@ function openGlobalSearch() {
   if (modal) modal.classList.add('show');
   var input = document.getElementById('globalSearchInput');
   if (input) input.focus();
-}
-
-function openLobsterOffice() {
-  window.open('./office-v3.html', '_blank');
 }
 
 function showUserMenu() {
@@ -17739,13 +17674,6 @@ function showUserProfile() {
   if (dropdown) dropdown.classList.remove('show');
   if (!currentUser) return;
   showToast('👤 ' + escapeHtml(currentUser.displayName || currentUser.name) + ' · ' + getCurrentUserRoleDisplay());
-}
-
-function renderProjectListMid() {
-  var list = document.getElementById('projectList');
-  if (!list) return;
-  list.innerHTML = '<div class="section-title">项目组</div>' + renderGroupItems();
-  list.style.display = 'block';
 }
 
 function renderSettingsMid() {
