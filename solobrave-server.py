@@ -193,6 +193,14 @@ def _write_json(filepath, data):
     file_lock = _get_memory_file_lock(filepath)
     try:
         with file_lock:
+            # 防御：写入前检查 agents.json 中是否有 apiKey 被污染
+            if filepath == AGENTS_FILE and isinstance(data, list):
+                for agent in data:
+                    if isinstance(agent, dict):
+                        ak = agent.get('apiKey', '')
+                        if _is_log_polluted(ak):
+                            print(f'  [WRITE_GUARD] 写入前发现 apiKey 被污染: {agent.get("id")} len={len(ak)} 已清空', flush=True)
+                            agent['apiKey'] = ''
             with open(tmp_path, 'w', encoding='utf-8') as f:
                 if fcntl:
                     fcntl.flock(f.fileno(), fcntl.LOCK_EX)
@@ -3632,7 +3640,28 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
             print(f'  [PUT agent] id={agent_id} 实际保存字段={saved_keys}', flush=True)
 
+            # 根因排查：保存前打印 apiKey 详情
+            pre_save_api_key = agent.get('apiKey', '')
+            if pre_save_api_key:
+                print(f'  [PUT agent] id={agent_id} 保存前 apiKey len={len(pre_save_api_key)} preview={repr(pre_save_api_key[:50])}', flush=True)
+
             _save_agents(agents)
+
+            # 根因排查：保存后重新加载并对比
+            post_agents = _load_agents()
+            post_agent = None
+            for a in post_agents:
+                if a.get('id') == agent_id:
+                    post_agent = a
+                    break
+            if post_agent:
+                post_api_key = post_agent.get('apiKey', '')
+                if post_api_key != pre_save_api_key:
+                    print(f'  [PUT agent] id={agent_id} 保存后 apiKey 发生变化! pre_len={len(pre_save_api_key)} post_len={len(post_api_key)} post_preview={repr(post_api_key[:50])}', flush=True)
+                    import traceback
+                    traceback.print_stack()
+                elif post_api_key:
+                    print(f'  [PUT agent] id={agent_id} 保存后 apiKey 一致 len={len(post_api_key)}', flush=True)
 
             # 自动同步 API Key 到 OpenClaw（有变动时）
             new_api_key = agent.get('apiKey', '')

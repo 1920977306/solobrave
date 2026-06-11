@@ -13488,7 +13488,7 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
       targetEmp.tokenStats.output += outputTokens;
       targetEmp.tokenStats.total += inputTokens + outputTokens;
       targetEmp.tokens = targetEmp.tokenStats.total;
-      saveEmployees();
+      saveEmployees(currentEmpId);
     }
   }
   // 解析并移除工具调用标记
