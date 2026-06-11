@@ -144,6 +144,66 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   transform: scale(1.1);
 }
 
+.left-nav-bottom {
+  position: relative;
+}
+
+.user-dropdown {
+  position: absolute;
+  left: 44px;
+  bottom: 4px;
+  width: 180px;
+  background: var(--bg-primary);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
+  z-index: 500;
+  display: none;
+  overflow: hidden;
+}
+.user-dropdown.show {
+  display: block;
+}
+.user-dropdown-header {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.user-dropdown-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.user-dropdown-role {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.user-dropdown-divider {
+  height: 0.5px;
+  background: var(--separator);
+  margin: 0 10px;
+}
+.user-dropdown-item {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.user-dropdown-item:hover {
+  background: var(--hover-bg);
+}
+.user-dropdown-item.danger {
+  color: #FF3B30;
+}
+.user-dropdown-item.danger:hover {
+  background: rgba(255, 59, 48, 0.06);
+}
+
 /* Mid sidebar toggle button for mobile */
 .mid-toggle-btn {
   display: none;
@@ -233,10 +293,6 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .banner-left { display: flex; align-items: center; gap: 8px; }
 .banner-logo { font-weight: 700; font-size: 15px; color: var(--text-primary); }
 .banner-url { font-size: 11px; color: var(--text-tertiary); }
-.banner-right { display: flex; align-items: center; gap: 10px; }
-.banner-avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; color: white; cursor: pointer; transition: transform 0.15s; }
-.banner-avatar:hover { transform: scale(1.1); }
-
 /* Sidebar */
 .sidebar-header { padding: 14px 16px; border-bottom: 0.5px solid var(--separator); margin-top: 44px; display: none; }
 .sidebar-logo { font: var(--font-lg); }
@@ -911,15 +967,6 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .context-actions { display: flex; gap: 6px; }
 .ctx-btn { padding: 5px 8px; background: var(--bg-secondary); border-radius: var(--radius-sm); font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; transition: all 0.15s; }
 .ctx-btn:hover { background: var(--accent-light); color: var(--accent); }
-
-/* ========================================
-   FAB BUTTON - 悬浮按钮
-   ======================================== */
-.fab-button { position: fixed; bottom: 90px; right: 24px; width: 52px; height: 52px; border-radius: 26px; background: var(--accent); box-shadow: var(--shadow-fab); display: flex; align-items: center; justify-content: center; z-index: 350; cursor: grab; transition: box-shadow 0.2s, opacity 0.2s; color: white; font-size: 22px; user-select: none; -webkit-user-select: none; touch-action: none; }
-.fab-button.dragging { cursor: grabbing; box-shadow: 0 8px 32px rgba(255, 107, 53, 0.5); opacity: 0.85; }
-.fab-button:hover { transform: scale(1.08); box-shadow: 0 6px 24px rgba(255, 107, 53, 0.4); }
-.fab-button:active { transform: scale(0.95); }
-.fab-button .badge { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; background: #FF3B30; color: white; border-radius: 9px; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
 
 /* ========================================
    DRAWER OVERLAY - 遮罩层
@@ -2795,6 +2842,17 @@ window.doLogin = function () {
   </div>
   <div class="left-nav-bottom">
     <div class="nav-avatar" id="navUserAvatar" onclick="showUserMenu()" title="用户菜单">?</div>
+    <div class="user-dropdown" id="userDropdown">
+      <div class="user-dropdown-header">
+        <div class="user-dropdown-name" id="dropdownUserName">用户</div>
+        <div class="user-dropdown-role" id="dropdownUserRole">员工</div>
+      </div>
+      <div class="user-dropdown-divider"></div>
+      <div class="user-dropdown-item" onclick="showUserProfile()">👤 个人信息</div>
+      <div class="user-dropdown-item" onclick="showAdminPanel()" id="dropdownAdminItem" style="display:none;">⚙️ 管理员面板</div>
+      <div class="user-dropdown-divider"></div>
+      <div class="user-dropdown-item danger" onclick="confirmLogout()">🚪 退出登录</div>
+    </div>
   </div>
 </nav>
 
@@ -2806,23 +2864,18 @@ window.doLogin = function () {
 <input type="text" placeholder="搜索员工、消息..." id="searchInput" oninput="filterEmployeeList(this.value)">
 </div>
 
-<!-- Module-specific list content -->
-<div class="list-section" id="midListContent"></div>
-
 <!-- Employee List (default) -->
 <div class="list-section" id="employeeList"></div>
+
+<!-- Project List -->
+<div class="list-section hidden" id="projectList">
+<div class="section-title">我的项目组</div>
+</div>
 
 <!-- Bottom Status -->
 <div class="sidebar-bottom-status">
   <span class="status-dot" id="sidebarStatusDot"></span>
   <span id="sidebarStatusText">已连接</span>
-</div>
-
-
-
-<!-- Project List -->
-<div class="list-section hidden" id="projectList">
-<div class="section-title">我的项目组</div>
 </div>
 
 
@@ -2846,10 +2899,6 @@ window.doLogin = function () {
 <div class="banner-left">
 <span class="banner-logo">全可AI</span>
 <span class="banner-url">www.solobrave.com</span>
-</div>
-<div class="banner-right">
-<div id="userInfo"></div>
-<div class="banner-avatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);" title="全可AI">🧠</div>
 </div>
 </div>
 
@@ -4285,10 +4334,16 @@ function applyPermissions() {
 
 // 更新顶部栏用户信息
 function updateUserInfo() {
-  var userInfo = document.getElementById('userInfo');
-  if (userInfo && currentUser) {
-    userInfo.innerHTML = '<div style="display:flex;align-items:center;gap:8px;">' + '<div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-hover));display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:600;">' + (currentUser.displayName || currentUser.name ? (currentUser.displayName || currentUser.name).charAt(0).toUpperCase() : '?') + '</div>' + '<span style="font-size:13px;font-weight:500;">' + escapeHtml(currentUser.displayName || currentUser.name) + '</span>' + '<button onclick="doLogout()" style="padding:4px 8px;border-radius:6px;background:var(--bg-secondary);color:var(--text-secondary);font-size:11px;cursor:pointer;border:none;" onmouseover="this.style.background=\'var(--bg-tertiary)\'" onmouseout="this.style.background=\'var(--bg-secondary)\'">退出</button>' + '</div>';
-  }
+  if (!currentUser) return;
+  var navAvatar = document.getElementById('navUserAvatar');
+  var dropdownName = document.getElementById('dropdownUserName');
+  var dropdownRole = document.getElementById('dropdownUserRole');
+  var dropdownAdminItem = document.getElementById('dropdownAdminItem');
+  var initial = (currentUser.displayName || currentUser.name || '?').charAt(0).toUpperCase();
+  if (navAvatar) navAvatar.textContent = initial;
+  if (dropdownName) dropdownName.textContent = escapeHtml(currentUser.displayName || currentUser.name || '用户');
+  if (dropdownRole) dropdownRole.textContent = getCurrentUserRoleDisplay();
+  if (dropdownAdminItem) dropdownAdminItem.style.display = isAdmin() ? '' : 'none';
 }
 function escapeHtml(s) {
   if (!s) return '';
@@ -15118,23 +15173,6 @@ function doReset() {
 <div id="toastContainer" class="toast-container"></div>
 
 
-<!-- FAB Menu -->
-<div class="fab-menu" id="fabMenu">
-  <div class="fab-menu-item" onclick="showAISwitcher()">🔄 切换AI</div>
-  <div class="fab-menu-item" onclick="startNewChat()">➕ 新建对话</div>
-  <div class="fab-menu-item" onclick="showGlobalSearch()">🔍 全局搜索</div>
-  <div class="fab-menu-item" onclick="showUserManagement()" data-admin-only>👥 用户管理</div>
-  <div class="fab-menu-item" onclick="showTeamManagement()" data-admin-only>🏢 团队管理</div>
-  <div class="fab-menu-item" onclick="showSettings()" data-admin-only>⚙️ 设置</div>
-  <div class="fab-menu-item" onclick="showTokenStats()" data-admin-only>📊 Token 统计</div>
-  <div class="fab-menu-item" onclick="showChannelConfig()" data-admin-only>🔌 渠道配置</div>
-</div>
-
-<!-- FAB Button -->
-<button class="fab-button" aria-label="快捷菜单">
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-</button>
-
 <script>function showToast(msg, type) {
   type = type || 'info';
   var container = document.getElementById('toastContainer');
@@ -15203,33 +15241,9 @@ document.addEventListener('keydown', function (e) {
 #userEditModal .btn-secondary:hover { background: var(--bg-tertiary); }
 </style>
 
-<!-- FAB Menu Styles -->
+<!-- ========== User Management Panel ========== -->
 <style>
-.fab-menu {
-  position: fixed;
-  bottom: 156px;
-  right: 24px;
-  background: var(--bg-primary);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-modal);
-  min-width: 160px;
-  z-index: 351;
-  display: none;
-  overflow: hidden;
-}
-.fab-menu.show { display: block; }
-.fab-menu-item {
-  padding: 12px 16px;
-  cursor: pointer;
-  transition: background 0.2s;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.fab-menu-item:hover { background: var(--bg-secondary); }
-
-/* ========== User Management Panel ========== */
+.user-management-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 400px; max-width: 100%; background: var(--bg-primary); box-shadow: var(--shadow-modal); transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); display: flex; flex-direction: column; z-index: 260; }
 .user-management-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 400px; max-width: 100%; background: var(--bg-primary); box-shadow: var(--shadow-modal); transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); display: flex; flex-direction: column; z-index: 260; }
 .user-management-panel.open { transform: translateX(0); }
 .user-management-header { display: flex; align-items: center; justify-content: space-between; padding: 20px; border-bottom: 0.5px solid var(--separator); }
@@ -15357,136 +15371,8 @@ document.addEventListener('keydown', function (e) {
 
 </style>
 
-<!-- FAB Menu Scripts -->
-<script>function toggleFabMenu(e) {
-  if (e) e.stopPropagation();
-  var menu = document.getElementById('fabMenu');
-  var btn = document.querySelector('.fab-button');
-  // 更新菜单位置跟随按钮
-  var btnRect = btn.getBoundingClientRect();
-  menu.style.bottom = window.innerHeight - btnRect.top + 8 + 'px';
-  menu.style.right = window.innerWidth - btnRect.right + 'px';
-  menu.classList.toggle('show');
-  document.onclick = function () {
-    menu.classList.remove('show');
-    document.onclick = null;
-  };
-}
 
-// 确保FAB按钮和菜单在body下（避免被display:none父容器隐藏）
-(function () {
-  var fab = document.querySelector('.fab-button');
-  var menu = document.getElementById('fabMenu');
-  if (fab && fab.parentElement !== document.body) document.body.appendChild(fab);
-  if (menu && menu.parentElement !== document.body) document.body.appendChild(menu);
-})();
-
-// FAB拖拽
-(function () {
-  var fab = document.querySelector('.fab-button');
-  if (!fab) return;
-  var isDragging = false,
-    wasDragged = false;
-  var startX, startY, startLeft, startBottom;
-  var THRESHOLD = 6;
-  function getXY(e) {
-    var t = e.touches ? e.touches[0] : e;
-    return {
-      x: t.clientX,
-      y: t.clientY
-    };
-  }
-  function onDown(e) {
-    if (e.button && e.button !== 0) return;
-    var p = getXY(e);
-    isDragging = true;
-    wasDragged = false;
-    startX = p.x;
-    startY = p.y;
-    var r = fab.getBoundingClientRect();
-    startLeft = r.left;
-    startBottom = window.innerHeight - r.bottom;
-    fab.classList.add('dragging');
-    e.preventDefault();
-  }
-  function onMove(e) {
-    if (!isDragging) return;
-    var p = getXY(e);
-    var dx = p.x - startX,
-      dy = p.y - startY;
-    if (!wasDragged && (Math.abs(dx) > THRESHOLD || Math.abs(dy) > THRESHOLD)) wasDragged = true;
-    if (wasDragged) {
-      var nl = Math.max(0, Math.min(window.innerWidth - 52, startLeft + dx));
-      var nb = Math.max(0, Math.min(window.innerHeight - 52, startBottom - dy));
-      fab.style.left = nl + 'px';
-      fab.style.bottom = nb + 'px';
-      fab.style.right = 'auto';
-      e.preventDefault();
-    }
-  }
-  function onUp(e) {
-    if (!isDragging) return;
-    isDragging = false;
-    fab.classList.remove('dragging');
-    if (wasDragged) {
-      // 吸附到最近的边
-      var r = fab.getBoundingClientRect();
-      var cx = r.left + 26;
-      if (cx > window.innerWidth / 2) {
-        fab.style.left = 'auto';
-        fab.style.right = '24px';
-      } else {
-        fab.style.right = 'auto';
-        fab.style.left = '24px';
-      }
-      fab.style.bottom = window.innerHeight - r.bottom + 'px';
-      // 保存位置
-      try {
-        localStorage.setItem('fab_pos', fab.style.right + '|' + fab.style.left + '|' + fab.style.bottom);
-      } catch (x) {}
-    }
-  }
-  fab.addEventListener('mousedown', onDown);
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('mouseup', onUp);
-  fab.addEventListener('touchstart', onDown, {
-    passive: false
-  });
-  document.addEventListener('touchmove', onMove, {
-    passive: false
-  });
-  document.addEventListener('touchend', onUp);
-
-  // 恢复位置
-  try {
-    var sp = localStorage.getItem('fab_pos');
-    if (sp) {
-      var parts = sp.split('|');
-      if (parts[0] !== 'auto') {
-        fab.style.right = parts[0];
-        fab.style.left = 'auto';
-      }
-      if (parts[1] !== 'auto') {
-        fab.style.left = parts[1];
-        fab.style.right = 'auto';
-      }
-      if (parts[2]) fab.style.bottom = parts[2];
-    }
-  } catch (x) {}
-
-  // 点击：非拖拽时才打开菜单
-  fab.addEventListener('click', function (e) {
-    if (wasDragged) {
-      e.stopPropagation();
-      e.preventDefault();
-      wasDragged = false;
-    } else {
-      toggleFabMenu(e);
-    }
-  });
-})();
 function showAISwitcher() {
-  document.getElementById('fabMenu').classList.remove('show');
   if (typeof showGlobalSearch === 'function') {
     document.getElementById('globalSearchModal').style.display = 'flex';
     document.getElementById('globalSearchInput').focus();
@@ -15495,7 +15381,6 @@ function showAISwitcher() {
   }
 }
 function startNewChat() {
-  document.getElementById('fabMenu').classList.remove('show');
   if (typeof startNewConversation === 'function') {
     startNewConversation();
   } else if (typeof startNewChat === 'function') {
@@ -15505,7 +15390,6 @@ function startNewChat() {
   }
 }
 function showSettings() {
-  document.getElementById('fabMenu').classList.remove('show');
   if (typeof toggleSettings === 'function') {
     toggleSettings();
   } else {
@@ -15526,12 +15410,10 @@ function showUserManagement() {
     document.body.appendChild(panel);
   }
   panel.classList.add('open');
-  document.querySelector('.fab-button').style.display = 'none';
   loadUserList();
 }
 function closeUserManagement() {
   document.getElementById('userManagementPanel').classList.remove('open');
-  document.querySelector('.fab-button').style.display = 'flex';
 }
 
 // 加载用户列表
@@ -15674,14 +15556,12 @@ function showTeamManagement() {
     document.body.appendChild(panel);
   }
   panel.classList.add('open');
-  document.querySelector('.fab-button').style.display = 'none';
   loadTeamList();
 }
 
 // 关闭团队管理面板
 function closeTeamManagement() {
   document.getElementById('teamManagementPanel').classList.remove('open');
-  document.querySelector('.fab-button').style.display = 'flex';
 }
 
 // 加载小组列表
@@ -17818,10 +17698,40 @@ function openGlobalSearch() {
 }
 
 function showUserMenu() {
-  // Toggle logout or user menu
-  if (typeof doLogout === 'function') {
-    if (confirm('确定要退出登录吗？')) doLogout();
+  var dropdown = document.getElementById('userDropdown');
+  if (!dropdown) return;
+  var isOpen = dropdown.classList.contains('show');
+  if (isOpen) {
+    dropdown.classList.remove('show');
+    document.removeEventListener('click', closeUserDropdown);
+  } else {
+    dropdown.classList.add('show');
+    setTimeout(function () {
+      document.addEventListener('click', closeUserDropdown);
+    }, 0);
   }
+}
+function closeUserDropdown(e) {
+  var dropdown = document.getElementById('userDropdown');
+  var avatar = document.getElementById('navUserAvatar');
+  if (!dropdown || !avatar) return;
+  if (!dropdown.contains(e.target) && e.target !== avatar && !avatar.contains(e.target)) {
+    dropdown.classList.remove('show');
+    document.removeEventListener('click', closeUserDropdown);
+  }
+}
+function confirmLogout() {
+  var dropdown = document.getElementById('userDropdown');
+  if (dropdown) dropdown.classList.remove('show');
+  if (confirm('确定要退出登录吗？')) {
+    doLogout();
+  }
+}
+function showUserProfile() {
+  var dropdown = document.getElementById('userDropdown');
+  if (dropdown) dropdown.classList.remove('show');
+  if (!currentUser) return;
+  showToast('👤 ' + escapeHtml(currentUser.displayName || currentUser.name) + ' · ' + getCurrentUserRoleDisplay());
 }
 
 function renderProjectListMid() {
