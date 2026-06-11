@@ -100,12 +100,12 @@ EMBEDDING_PROVIDERS = {
     },
     'kimi': {
         'url': 'https://api.moonshot.cn/v1/embeddings',
-        'model': 'moonshot-v1-embedding',
+        'model': 'moonshot-v3-embedding',
         'dim': 1536,
     },
     'moonshot': {
         'url': 'https://api.moonshot.cn/v1/embeddings',
-        'model': 'moonshot-v1-embedding',
+        'model': 'moonshot-v3-embedding',
         'dim': 1536,
     },
     'zhipu': {
@@ -118,7 +118,25 @@ EMBEDDING_PROVIDERS = {
         'model': 'text-embedding',
         'dim': 1536,
     },
+    'siliconflow': {
+        'url': 'https://api.siliconflow.cn/v1/embeddings',
+        'model': 'BAAI/bge-m3',
+        'dim': 1024,
+    },
 }
+
+# 全局 embedding 覆盖配置（允许 RAG 使用与聊天不同的 provider/API Key）
+# 优先级：环境变量 > settings.json > agent 自身配置
+EMBEDDING_OVERRIDE_PROVIDER = os.environ.get('SOLOBRAVE_EMBEDDING_PROVIDER', '')
+EMBEDDING_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_EMBEDDING_API_KEY', '')
+
+
+def _get_embedding_override():
+    """获取全局 embedding 覆盖配置，返回 (provider, api_key) 或 ('', '')"""
+    settings = _read_json(SETTINGS_FILE, {})
+    provider = EMBEDDING_OVERRIDE_PROVIDER or settings.get('embeddingProvider', '')
+    api_key = EMBEDDING_OVERRIDE_API_KEY or settings.get('embeddingApiKey', '')
+    return provider, api_key
 
 # ═══════════════════════════════════════════════════
 # 记忆系统 v2 配置（三层大脑架构）
@@ -4769,14 +4787,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('Permission denied', 403)
             return
 
-        # 获取员工的 API key 和配置
+        # 获取员工的 API key 和 provider（支持全局 embedding 覆盖配置）
+        override_provider, override_key = _get_embedding_override()
         api_key = None
         provider = 'openai'
         agent_config = None
         agent = _get_agent_by_id(target_emp_id)
         if agent:
-            api_key = (agent.get('apiKey') or '').strip()
-            provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
+            api_key = override_key or (agent.get('apiKey') or '').strip()
+            provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
             agent_config = agent
         if not api_key:
             self._send_json_error(400, 'No API key available. Please configure AI provider.')
@@ -4809,14 +4828,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('Permission denied', 403)
             return
 
-        # 获取 API key 和 agent 配置
+        # 获取 API key 和 agent 配置（支持全局 embedding 覆盖配置）
+        override_provider, override_key = _get_embedding_override()
         api_key = None
         provider = 'openai'
         agent_config = None
         agent = _get_agent_by_id(emp_id)
         if agent:
-            api_key = (agent.get('apiKey') or '').strip()
-            provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
+            api_key = override_key or (agent.get('apiKey') or '').strip()
+            provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
             agent_config = agent
 
         try:
@@ -4854,15 +4874,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('Permission denied', 403)
             return
 
-        # 获取 API key 和 agent 配置
+        # 获取 API key 和 agent 配置（支持全局 embedding 覆盖配置）
+        override_provider, override_key = _get_embedding_override()
         api_key = None
         provider = 'openai'
         agent_config = None
         emp_id = doc.get('empId')
         agent = _get_agent_by_id(emp_id)
         if agent:
-            api_key = (agent.get('apiKey') or '').strip()
-            provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
+            api_key = override_key or (agent.get('apiKey') or '').strip()
+            provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
             agent_config = agent
 
         # 兼容旧前端：name 字段映射为 title
@@ -4923,14 +4944,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('Permission denied', 403)
             return
 
-        # 获取员工的 API key 和 provider
+        # 获取员工的 API key 和 provider（支持全局 embedding 覆盖配置）
+        override_provider, override_key = _get_embedding_override()
         api_key = None
         provider = 'openai'
         agent_config = None
         agent = _get_agent_by_id(emp_id)
         if agent:
-            api_key = (agent.get('apiKey') or '').strip()
-            provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
+            api_key = override_key or (agent.get('apiKey') or '').strip()
+            provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
             agent_config = agent
         if not api_key:
             self._send_json_error(400, 'No API key available for embedding. Please configure AI provider in employee settings.')
@@ -4966,12 +4988,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         body = self._read_body() or {}
         emp_id = body.get('empId')
+        override_provider, override_key = _get_embedding_override()
         api_key = None
         provider = 'openai'
         agent = _get_agent_by_id(emp_id)
         if agent:
-            api_key = (agent.get('apiKey') or '').strip()
-            provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
+            api_key = override_key or (agent.get('apiKey') or '').strip()
+            provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
         if not api_key:
             self._send_json_error(400, 'No API key available')
             return
@@ -6048,7 +6071,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 注入 RAG 检索结果（产品知识库）
             try:
                 if api_key:
-                    rag_result = ks.rag_retrieve(user_message, agent_id, api_key, api_provider, agent, top_k_docs=2)
+                    emb_provider, emb_key = _get_embedding_override()
+                    rag_api_key = emb_key or api_key
+                    rag_provider = emb_provider or api_provider
+                    rag_result = ks.rag_retrieve(user_message, agent_id, rag_api_key, rag_provider, agent, top_k_docs=2)
                     if rag_result.get('context'):
                         system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'
             except Exception as e:

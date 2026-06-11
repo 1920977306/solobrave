@@ -60,11 +60,11 @@ EMBEDDING_PROVIDERS = {
     },
     'kimi': {
         'url': 'https://api.moonshot.cn/v1/embeddings',
-        'model': 'moonshot-v1-embedding',
+        'model': 'moonshot-v3-embedding',
     },
     'moonshot': {
         'url': 'https://api.moonshot.cn/v1/embeddings',
-        'model': 'moonshot-v1-embedding',
+        'model': 'moonshot-v3-embedding',
     },
     'zhipu': {
         'url': 'https://open.bigmodel.cn/api/paas/v4/embeddings',
@@ -73,6 +73,10 @@ EMBEDDING_PROVIDERS = {
     'deepseek': {
         'url': 'https://api.deepseek.com/v1/embeddings',
         'model': 'text-embedding',
+    },
+    'siliconflow': {
+        'url': 'https://api.siliconflow.cn/v1/embeddings',
+        'model': 'BAAI/bge-m3',
     },
 }
 
