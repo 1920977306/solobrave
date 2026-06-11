@@ -702,7 +702,7 @@ def rag_retrieve(query, emp_id, api_key, provider, agent_config=None, top_k_docs
                        c.chunk_index, c.content as chunk_content, c.embedding
                 FROM knowledge_chunks c
                 JOIN knowledge k ON c.knowledge_id = k.id
-                WHERE c.emp_id = ? AND k.status = 'ok' AND c.embedding_model = ?
+                WHERE c.emp_id = ? AND k.status = 'ok' AND c.embedding_model = ? AND c.embedding IS NOT NULL
             ''', (emp_id, embedding_model)).fetchall()
         finally:
             conn.close()

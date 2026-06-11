@@ -127,8 +127,8 @@ EMBEDDING_PROVIDERS = {
 
 # 全局 embedding 覆盖配置（允许 RAG 使用与聊天不同的 provider/API Key）
 # 优先级：环境变量 > settings.json > agent 自身配置
-EMBEDDING_OVERRIDE_PROVIDER = os.environ.get('SOLOBRAVE_EMBEDDING_PROVIDER', '')
-EMBEDDING_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_EMBEDDING_API_KEY', '')
+EMBEDDING_OVERRIDE_PROVIDER = os.environ.get('SOLOBRAVE_EMBEDDING_PROVIDER', '').strip()
+EMBEDDING_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_EMBEDDING_API_KEY', '').strip()
 
 
 def _get_embedding_override():
@@ -4548,7 +4548,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         print(f'  [MemoryV3] {emp_id} 保存 {pool} 记忆: {value[:50]}...', flush=True)
         result = {
             'success': True,
-            'data': mapped
+            'data': mapped,
+            'id': mapped.get('id')
         }
         if warning:
             result['warning'] = warning
@@ -4962,7 +4963,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             result = ks.rag_retrieve(query, emp_id, api_key, provider, agent_config, top_k_docs=top_k)
             # 同时检索产品库（所有员工共享）
             prod_data = _read_json(os.path.join(PRODUCT_DIR, 'index.json'), {'products': []})
-            query_emb = ks.get_embedding(query, api_key, provider)
+            try:
+                query_emb = ks.get_embedding(query, api_key, provider)
+            except Exception as e:
+                print(f'  [RAG] product embedding query failed: {e}', flush=True)
+                query_emb = None
             if query_emb:
                 product_scores = []
                 for product in prod_data.get('products', []):
@@ -4977,7 +4982,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             print(f'  [RAG] retrieve failed: {e}', flush=True)
             import traceback; traceback.print_exc()
-            self._send_json_error(500, f'RAG retrieve failed: {str(e)}')
             self._send_json_error(500, f'RAG retrieve failed: {str(e)}')
 
     def _handle_post_rag_build(self):
@@ -6025,6 +6029,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             base_url = 'https://open.bigmodel.cn/api/paas/v4'
         elif api_provider == 'anthropic':
             base_url = 'https://api.anthropic.com/v1'
+        elif api_provider == 'siliconflow':
+            base_url = 'https://api.siliconflow.cn/v1'
         else:
             if custom_endpoint:
                 base_url = custom_endpoint.rstrip('/')
@@ -6118,8 +6124,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         messages.append({'role': 'user', 'content': user_message})
 
+        # 根据 provider 选择默认模型
+        default_models = {
+            'openai': 'gpt-4o-mini',
+            'kimi': 'moonshot-v1-8k',
+            'moonshot': 'moonshot-v1-8k',
+            'deepseek': 'deepseek-chat',
+            'zhipu': 'glm-4-flash',
+            'anthropic': 'claude-3-5-sonnet-20241022',
+            'siliconflow': 'deepseek-ai/DeepSeek-V3',
+        }
+        resolved_model = api_model or default_models.get(api_provider, 'gpt-4o-mini')
+
         req_body = json.dumps({
-            'model': api_model or 'gpt-4o-mini',
+            'model': resolved_model,
             'messages': messages,
             'temperature': 0.8,
             'max_tokens': 2000,
