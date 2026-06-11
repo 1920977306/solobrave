@@ -2824,6 +2824,9 @@ window.doLogin = function () {
     <div class="nav-item active" id="navMessages" onclick="switchModule('messages')" title="消息">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     </div>
+    <div class="nav-item" id="navLobster" onclick="openLobsterOffice()" title="龙虾办公室">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12h4"/><path d="M10 8h4"/><path d="M10 16h4"/><path d="M14 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"/><path d="M6 21h14a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2h-2"/></svg>
+    </div>
     <div class="nav-item" id="navKnowledge" onclick="switchModule('knowledge')" title="知识库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>
     </div>
@@ -17695,6 +17698,10 @@ function openGlobalSearch() {
   if (modal) modal.classList.add('show');
   var input = document.getElementById('globalSearchInput');
   if (input) input.focus();
+}
+
+function openLobsterOffice() {
+  window.open('./office-v3.html', '_blank');
 }
 
 function showUserMenu() {
