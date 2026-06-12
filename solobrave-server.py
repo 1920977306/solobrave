@@ -47,7 +47,7 @@ from douyin_parser import *
 # 记忆服务 v3（新目录结构：data/memories/{empId}/）
 import memory_service_v3 as ms3
 
-# 知识库服务（分段向量化 + 员工隔离，独立模块避免循环导入）
+# 知识库服务（分段向量化 + 全局公共，独立模块避免循环导入）
 import knowledge_service as ks
 
 # 按 agent_id 细分的聊天写入锁，防止读-修改-写竞争导致消息丢失
@@ -1594,6 +1594,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if group_id:
                     self._handle_get_group_history(group_id)
                     return
+            # /api/groups/:id/memory
+            if sub.endswith('/memory'):
+                group_id = sub[:-len('/memory')]
+                if group_id:
+                    self._handle_get_group_memory(group_id)
+                    return
             # /api/groups/:id
             if '/' not in sub:
                 if sub:
@@ -1751,6 +1757,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if group_id:
                     self._handle_post_group_history(group_id)
                     return
+            # /api/groups/:id/memory
+            if sub.endswith('/memory'):
+                group_id = sub[:-len('/memory')]
+                if group_id:
+                    self._handle_post_group_memory(group_id)
+                    return
             # /api/groups/:id/chat
             if sub.endswith('/chat'):
                 group_id = sub[:-len('/chat')]
@@ -1763,6 +1775,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if group_id:
                     self._handle_add_group_member(group_id)
                     return
+            # /api/groups/:groupId/memory/:memId/promote
+            gmem_parts = sub.split('/')
+            if len(gmem_parts) == 4 and gmem_parts[1] == 'memory' and gmem_parts[3] == 'promote':
+                self._handle_promote_group_memory(gmem_parts[0], gmem_parts[2])
+                return
 
         # Teams API (V2)
         if path == '/api/teams':
@@ -1859,7 +1876,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_batch_save_groups()
             return
         if path.startswith('/api/groups/'):
-            group_id = path[len('/api/groups/'):]
+            sub = path[len('/api/groups/'):]
+            # /api/groups/:groupId/memory/:memId
+            if '/memory/' in sub:
+                parts = sub.split('/memory/')
+                if len(parts) == 2 and parts[0] and parts[1]:
+                    self._handle_update_group_memory(parts[0], parts[1])
+                    return
+            group_id = sub
             if group_id:
                 self._handle_update_group(group_id)
                 return
@@ -1941,6 +1965,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             sub = path[len('/api/groups/'):]
             # /api/groups/:id/members/:empId
             parts = sub.split('/')
+            if len(parts) == 3 and parts[1] == 'memory':
+                # /api/groups/:groupId/memory/:memId
+                self._handle_delete_group_memory(parts[0], parts[2])
+                return
             if len(parts) == 2 and parts[1].startswith('members'):
                 pass  # handled below
             elif len(parts) == 3 and parts[1] == 'members':
@@ -3445,12 +3473,26 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         _save_chat(chat_key, messages)
 
-        # 群聊记忆：AI 回复保存到发送 AI 的记忆，用户消息保存到群聊 lead 的记忆
+        # 群聊记忆：同步到项目组公共记忆 + 参与 AI 的个人记忆
         sender_id = msg.get('senderId', '')
         sender_type = msg.get('senderType', 'user')
         content = msg.get('content', '')
         if content:
             memory_value = f"【群聊】{msg.get('senderName', 'AI')}说：{content[:500]}"
+            # 1) 项目组公共记忆（原始消息作为日常记录）
+            try:
+                ms3.add_group_memory(
+                    group_id,
+                    value=memory_value,
+                    key='daily',
+                    source='群聊对话',
+                    context=content[:500]
+                )
+                print(f'  [GroupMemory] group_{group_id} 群聊消息已保存到项目组公共记忆', flush=True)
+            except Exception as e:
+                print(f'  [GroupMemory] group_{group_id} 保存项目组公共记忆失败: {e}', flush=True)
+
+            # 2) 发送者 AI 的个人记忆
             if sender_type == 'agent' and sender_id:
                 try:
                     ms3.add_memory(
@@ -3463,23 +3505,313 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     print(f'  [GroupMemory] {sender_id} (AI) 群聊消息已保存到 daily 记忆', flush=True)
                 except Exception as e:
                     print(f'  [GroupMemory] {sender_id} 保存群聊记忆失败: {e}', flush=True)
-            elif sender_type == 'user':
-                # 用户消息写入群聊 lead 的记忆，确保 lead 能获取完整上下文
-                lead_id = group.get('leadAgentId', '')
-                if lead_id:
-                    try:
-                        ms3.add_memory(
-                            lead_id,
-                            value=memory_value,
-                            key='daily',
-                            tags=['group_chat', 'user_msg'],
-                            source='群聊对话'
-                        )
-                        print(f'  [GroupMemory] {lead_id} (lead) 用户群聊消息已保存到 daily 记忆', flush=True)
-                    except Exception as e:
-                        print(f'  [GroupMemory] {lead_id} 保存用户群聊记忆失败: {e}', flush=True)
+
+            # 3) 所有参与 AI（含群主）都保存一份群聊上下文，确保任何 AI 被触发时都能拿到完整群聊背景
+            member_ids = set()
+            for m in group.get('members', []):
+                mid = m.get('id') if isinstance(m, dict) else m
+                if mid:
+                    member_ids.add(mid)
+            lead_id = group.get('leadAgentId', '')
+            if lead_id:
+                member_ids.add(lead_id)
+            for mid in member_ids:
+                if mid == sender_id and sender_type == 'agent':
+                    continue  # 发送者已在上面保存
+                try:
+                    ms3.add_memory(
+                        mid,
+                        value=memory_value,
+                        key='daily',
+                        tags=['group_chat', 'context'],
+                        source='群聊对话'
+                    )
+                    print(f'  [GroupMemory] {mid} 群聊上下文已保存到 daily 记忆', flush=True)
+                except Exception as e:
+                    print(f'  [GroupMemory] {mid} 保存群聊上下文失败: {e}', flush=True)
 
         self._send_json(200, {'saved': True, 'id': msg['id'], 'archived': archived_count})
+
+    # ═══════════════════════════════════════════════════
+    # 项目组记忆 API
+    # ═══════════════════════════════════════════════════
+
+    def _handle_get_group_memory(self, group_id):
+        """GET /api/groups/:groupId/memory — 获取项目组公共记忆"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        group, err, status = self._check_group_access(auth, group_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        type_filter = qs.get('type', qs.get('pool', ['']))[0]
+        keyword = qs.get('keyword', [''])[0].lower()
+        include_archived = qs.get('include_archived', ['false'])[0].lower() in ('true', '1', 'yes')
+        try:
+            limit = max(1, min(200, int(qs.get('limit', ['50'])[0])))
+        except ValueError:
+            limit = 50
+        try:
+            offset = max(0, int(qs.get('offset', ['0'])[0]))
+        except ValueError:
+            offset = 0
+
+        data = ms3.load_group_memory(group_id)
+        archive_data = ms3.load_group_archive(group_id) if include_archived else {'archived': []}
+
+        def _map_mem(m):
+            r = dict(m)
+            if 'createdAt' in r:
+                r['time'] = r.pop('createdAt')
+            if 'updatedAt' in r:
+                r.pop('updatedAt', None)
+            if 'expiresAt' in r:
+                r.pop('expiresAt', None)
+            if 'context' in r:
+                r.pop('context', None)
+            if 'accessCount' in r:
+                r.pop('accessCount', None)
+            return r
+
+        def _map_arch(m):
+            r = dict(m)
+            if 'createdAt' in r:
+                r['time'] = r.pop('createdAt')
+            if 'archivedAt' in r:
+                r['archivedTime'] = r.pop('archivedAt')
+            if 'originalKey' in r:
+                r.pop('originalKey', None)
+            return r
+
+        def _matches(m):
+            if keyword:
+                value = (m.get('value') or '').lower()
+                if keyword not in value:
+                    return False
+            return True
+
+        def _apply_filters(items):
+            filtered = [m for m in items if _matches(m)]
+            return filtered[offset:offset + limit]
+
+        include_core = type_filter in ('', 'core', 'active')
+        include_daily = type_filter in ('', 'daily', 'active')
+        include_archive = type_filter in ('', 'archive')
+
+        core_list, daily_list, archive_list = [], [], []
+        if include_core:
+            core_list = [_map_mem(m) for m in _apply_filters(data.get('core', []))]
+        if include_daily:
+            daily_list = [_map_mem(m) for m in _apply_filters(data.get('daily', []))]
+        if include_archive:
+            archive_list = [_map_arch(m) for m in _apply_filters(archive_data.get('archived', []))]
+
+        all_memories = []
+        for m in core_list:
+            m['pool'] = 'core'
+            all_memories.append(m)
+        for m in daily_list:
+            m['pool'] = 'daily'
+            all_memories.append(m)
+        for m in archive_list:
+            m['pool'] = 'archive'
+            all_memories.append(m)
+
+        self._send_json(200, {
+            'memories': all_memories,
+            'total': len(all_memories),
+            'limit': limit,
+            'offset': offset,
+            'core': core_list,
+            'daily': daily_list,
+            'archive': archive_list,
+            'version': '3.0'
+        })
+
+    def _handle_post_group_memory(self, group_id):
+        """POST /api/groups/:groupId/memory — 添加项目组公共记忆"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        group, err, status = self._check_group_access(auth, group_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+        value = (body.get('value') or '').strip()
+        if not value:
+            self._send_json(400, {'error': '记忆内容不能为空'})
+            return
+        key = body.get('type') or body.get('key', 'auto')
+        try:
+            memory = ms3.add_group_memory(
+                group_id, value,
+                key=key,
+                source=body.get('source', 'user_input'),
+                context=body.get('context', '')
+            )
+            self._send_json(200, {
+                'id': memory['id'],
+                'key': memory['key'],
+                'pool': 'daily' if key in ('auto', 'auto_extract', 'daily') else 'core',
+                'value': memory['value'],
+                'createdAt': memory['createdAt']
+            })
+        except ValueError as e:
+            self._send_json(400, {'error': str(e)})
+        except RuntimeError as e:
+            self._send_json(409, {'error': str(e)})
+        except Exception as e:
+            self._send_json(500, {'error': str(e)})
+
+    def _handle_update_group_memory(self, group_id, mem_id):
+        """PUT /api/groups/:groupId/memory/:memId — 修改项目组记忆"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        group, err, status = self._check_group_access(auth, group_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json(400, {'error': '无效的请求体'})
+            return
+        data = ms3.load_group_memory(group_id)
+        found = None
+        old_pool = None
+        for pool in ('core', 'daily'):
+            for m in data.get(pool, []):
+                if m.get('id') == mem_id:
+                    found = m
+                    old_pool = pool
+                    break
+            if found:
+                break
+        if not found:
+            self._send_json(404, {'error': '记忆不存在'})
+            return
+        if 'value' in body:
+            found['value'] = body['value']
+        if 'source' in body:
+            found['source'] = body['source']
+        new_key = body.get('key')
+        if new_key:
+            new_pool = 'daily' if new_key in ('auto', 'auto_extract', 'daily') else 'core'
+            if new_pool != old_pool:
+                cfg = ms3.MEMORY_V3_CONFIG
+                target = data.get(new_pool, [])
+                pool_max = cfg['daily_max'] if new_pool == 'daily' else cfg['core_max']
+                if len(target) >= pool_max:
+                    self._send_json(409, {'error': f'{new_pool} pool full'})
+                    return
+                now = int(time.time() * 1000)
+                if new_pool == 'core':
+                    found['priority'] = body.get('priority', 5)
+                    found['tags'] = body.get('tags', [])
+                    found['updatedAt'] = now
+                    found['accessCount'] = found.get('accessCount', 0)
+                    found.pop('context', None)
+                    found.pop('expiresAt', None)
+                else:
+                    found['context'] = body.get('context', '')[:cfg['context_max']]
+                    found['expiresAt'] = now + cfg['daily_ttl_days'] * 24 * 3600 * 1000
+                    found.pop('priority', None)
+                    found.pop('tags', None)
+                    found.pop('updatedAt', None)
+                    found.pop('accessCount', None)
+                data[old_pool] = [m for m in data[old_pool] if m.get('id') != mem_id]
+                found['key'] = new_key
+                target.append(found)
+                data[new_pool] = target
+            else:
+                found['key'] = new_key
+                if old_pool == 'core':
+                    if 'priority' in body:
+                        found['priority'] = body['priority']
+                    if 'tags' in body:
+                        found['tags'] = body['tags']
+                    found['updatedAt'] = int(time.time() * 1000)
+                else:
+                    if 'context' in body:
+                        found['context'] = body['context'][:ms3.MEMORY_V3_CONFIG['context_max']]
+        ms3.save_group_memory(group_id, data)
+        self._send_json(200, {'success': True, 'id': mem_id})
+
+    def _handle_delete_group_memory(self, group_id, mem_id):
+        """DELETE /api/groups/:groupId/memory/:memId — 删除项目组记忆"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        group, err, status = self._check_group_access(auth, group_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        data = ms3.load_group_memory(group_id)
+        removed = False
+        for pool in ('core', 'daily'):
+            original = len(data.get(pool, []))
+            data[pool] = [m for m in data.get(pool, []) if m.get('id') != mem_id]
+            if len(data[pool]) < original:
+                removed = True
+        if removed:
+            ms3.save_group_memory(group_id, data)
+        else:
+            archive_data = ms3.load_group_archive(group_id)
+            original = len(archive_data.get('archived', []))
+            archive_data['archived'] = [m for m in archive_data.get('archived', []) if m.get('id') != mem_id]
+            if len(archive_data['archived']) < original:
+                ms3.save_group_archive(group_id, archive_data)
+                removed = True
+        if removed:
+            self._send_json(200, {'success': True})
+        else:
+            self._send_json(404, {'error': '记忆不存在'})
+
+    def _handle_promote_group_memory(self, group_id, mem_id):
+        """POST /api/groups/:groupId/memory/:memId/promote — 升级为项目组核心记忆"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        group, err, status = self._check_group_access(auth, group_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        data = ms3.load_group_memory(group_id)
+        mem = None
+        for m in data.get('daily', []):
+            if m.get('id') == mem_id:
+                mem = m
+                break
+        if not mem:
+            self._send_json(404, {'error': '日常记录不存在'})
+            return
+        cfg = ms3.MEMORY_V3_CONFIG
+        if len(data.get('core', [])) >= cfg['core_max']:
+            self._send_json(409, {'error': f'Core pool full ({cfg["core_max"]})'})
+            return
+        data['daily'] = [m for m in data['daily'] if m.get('id') != mem_id]
+        mem['key'] = 'core'
+        mem['priority'] = 5
+        mem['tags'] = []
+        mem['updatedAt'] = int(time.time() * 1000)
+        mem['accessCount'] = mem.get('accessCount', 0)
+        mem.pop('context', None)
+        mem.pop('expiresAt', None)
+        data['core'].append(mem)
+        ms3.save_group_memory(group_id, data)
+        self._send_json(200, {'success': True, 'id': mem_id})
 
     # ═══════════════════════════════════════════════════
     # Agent API
@@ -4211,11 +4543,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             arch_raw = archive_data.get('archived', [])
             archive_list = [_map_arch(m) for m in _apply_filters_and_paging(arch_raw)]
         if include_knowledge:
-            # 加载员工知识库
-            kb_path = os.path.join(KNOWLEDGE_DIR, emp_id, 'docs.json')
-            kb_data = _read_json(kb_path, {'docs': []})
-            kb_docs = kb_data.get('docs', [])
-            knowledge_list = [_map_knowledge(d) for d in _apply_filters_and_paging(kb_docs)]
+            # v3：知识库已改为全局公共，从 SQLite 统一读取
+            try:
+                kb_result = ks.knowledge_list(offset=offset, limit=limit, category=None, keyword=keyword if keyword else None, emp_id='')
+                kb_docs = kb_result.get('docs', [])
+            except Exception as e:
+                print(f'  [MemoryAPI] 加载全局知识库失败: {e}', flush=True)
+                kb_docs = []
+            knowledge_list = [_map_knowledge(d) for d in kb_docs]
 
         # 合并为统一 memories 数组（每个项带 pool 字段）
         all_memories = []
@@ -4732,7 +5067,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _write_json(filepath, data)
 
     def _handle_get_knowledge(self):
-        """GET /api/knowledge — 获取知识库列表（支持分页、分类筛选、关键词搜索、员工隔离）"""
+        """GET /api/knowledge — 获取全局公共知识库列表（支持分页、分类筛选、关键词搜索）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -4743,7 +5078,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         limit = max(1, min(100, int(qs.get('limit', [20])[0])))  # 默认20条
         category = qs.get('category', [''])[0] or None
         keyword = qs.get('q', [''])[0] or None
-        target_emp_id = qs.get('empId', [''])[0] or auth.user_id
+        target_emp_id = qs.get('empId', [''])[0]  # 空表示全局公共知识库
 
         # 权限检查
         if not ks.check_knowledge_permission(auth.user_id, target_emp_id, getattr(auth, 'role', None)):
@@ -4770,7 +5105,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, doc)
 
     def _handle_get_knowledge_search(self):
-        """GET /api/knowledge/search?q=xxx&limit=3 — 语义检索（带员工隔离）"""
+        """GET /api/knowledge/search?q=xxx&limit=3 — 语义检索（全局知识库）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -4783,17 +5118,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing query param q')
             return
 
-        target_emp_id = qs.get('empId', [''])[0] or auth.user_id
+        target_emp_id = qs.get('empId', [''])[0]  # 空表示全局
         if not ks.check_knowledge_permission(auth.user_id, target_emp_id, getattr(auth, 'role', None)):
             self._send_auth_error('Permission denied', 403)
             return
 
-        # 获取员工的 API key 和 provider（支持全局 embedding 覆盖配置）
+        # 获取 API key 和 provider（全局知识库使用当前用户 agent 配置，支持全局 embedding 覆盖配置）
         override_provider, override_key = _get_embedding_override()
         api_key = None
         provider = 'openai'
         agent_config = None
-        agent = _get_agent_by_id(target_emp_id)
+        agent = _get_agent_by_id(target_emp_id or auth.user_id)
         if agent:
             api_key = override_key or (agent.get('apiKey') or '').strip()
             provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
@@ -4810,7 +5145,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(500, f'Search failed: {str(e)}')
 
     def _handle_post_knowledge(self):
-        """POST /api/knowledge — 新增知识（自动分段+向量化）"""
+        """POST /api/knowledge — 新增全局公共知识（自动分段+向量化）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -4822,9 +5157,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing title or content')
             return
 
-        # 确定 emp_id（优先 body，否则用当前用户）
-        emp_id = body.get('empId') or auth.user_id
-        # 权限：普通员工只能创建自己的知识
+        # 知识库已全局公共：emp_id 为空；兼容旧前端传入 empId
+        emp_id = body.get('empId') or ''
         if not ks.check_knowledge_permission(auth.user_id, emp_id, getattr(auth, 'role', None)):
             self._send_auth_error('Permission denied', 403)
             return
@@ -4834,7 +5168,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         api_key = None
         provider = 'openai'
         agent_config = None
-        agent = _get_agent_by_id(emp_id)
+        agent = _get_agent_by_id(auth.user_id)
         if agent:
             api_key = override_key or (agent.get('apiKey') or '').strip()
             provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
@@ -4856,7 +5190,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(500, f'Create failed: {str(e)}')
 
     def _handle_put_knowledge(self, doc_id):
-        """PUT /api/knowledge/{docId} — 更新知识（自动重新分段+向量化）"""
+        """PUT /api/knowledge/{docId} — 更新全局公共知识（自动重新分段+向量化）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -4880,8 +5214,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         api_key = None
         provider = 'openai'
         agent_config = None
-        emp_id = doc.get('empId')
-        agent = _get_agent_by_id(emp_id)
+        emp_id = doc.get('empId') or ''
+        agent = _get_agent_by_id(auth.user_id)
         if agent:
             api_key = override_key or (agent.get('apiKey') or '').strip()
             provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
@@ -4927,7 +5261,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ═══════════════════════════════════════════════════
 
     def _handle_post_rag_retrieve(self):
-        """POST /api/rag/retrieve — RAG 向量检索（带员工隔离）"""
+        """POST /api/rag/retrieve — RAG 向量检索（全局知识库 + 产品库）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -4937,7 +5271,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing query')
             return
         query = body['query']
-        emp_id = body.get('empId') or auth.user_id
+        emp_id = body.get('empId') or ''  # 空表示全局知识库
         top_k = min(10, max(1, body.get('topK', 3)))
 
         # 权限检查
@@ -4945,12 +5279,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('Permission denied', 403)
             return
 
-        # 获取员工的 API key 和 provider（支持全局 embedding 覆盖配置）
+        # 获取 API key 和 provider（全局知识库使用当前用户配置，支持全局 embedding 覆盖配置）
         override_provider, override_key = _get_embedding_override()
         api_key = None
         provider = 'openai'
         agent_config = None
-        agent = _get_agent_by_id(emp_id)
+        agent = _get_agent_by_id(auth.user_id)
         if agent:
             api_key = override_key or (agent.get('apiKey') or '').strip()
             provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
@@ -6015,7 +6349,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         else:
             self._send_json(200, {'userMessage': msg})
 
-    def _call_ai_api(self, agent, user_message, user_info=None, include_history=True):
+    def _call_ai_api(self, agent, user_message, user_info=None, include_history=True, group_id=None):
         """通过代理调用 AI API（带记忆和上下文注入）"""
         api_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
         api_key = (agent.get('apiKey', '') or '').strip()
@@ -6090,6 +6424,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 )
             except Exception as e:
                 print(f'  [MemoryInject] {agent_id} 注入失败: {e}', flush=True)
+
+            # 注入项目组公共记忆（群聊场景）
+            if group_id:
+                try:
+                    system_prompt = ms3.inject_group_memories(group_id, system_prompt)
+                except Exception as e:
+                    print(f'  [GroupMemoryInject] {group_id} 注入失败: {e}', flush=True)
 
             # 注入 RAG 检索结果（产品知识库）
             try:

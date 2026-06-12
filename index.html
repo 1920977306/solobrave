@@ -268,7 +268,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .module-action-btn.primary { background: var(--accent); color: #fff; }
 .module-action-btn.primary:hover { background: var(--accent-hover); }
 .module-action-btn.danger { color: #FF3B30; }
-.module-action-btn.danger:hover { background: rgba(255,59,48,0.08); }
+.module-action-btn.danger:hover { background: #FF3B30; color: #fff; }
 .module-form-row { margin-bottom: 14px; }
 .module-form-row label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
 .module-form-row input, .module-form-row select, .module-form-row textarea { width: 100%; padding: 8px 12px; border: 0.5px solid var(--separator); border-radius: 6px; background: var(--bg-primary); font-size: 14px; box-sizing: border-box; }
@@ -2592,6 +2592,74 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .product-card:hover .product-card-actions { opacity: 1; }
 .product-tag { font-size: 11px; padding: 2px 8px; background: var(--accent-light); color: var(--accent); border-radius: 4px; }
 
+/* Settings pages — unified card/list styles */
+.settings-section-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin: 16px 0 10px; }
+.settings-section-title:first-child { margin-top: 0; }
+.settings-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.settings-stat-card { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 16px; border: 0.5px solid var(--separator); }
+.settings-stat-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.settings-stat-value { font-size: 28px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.5px; }
+.settings-stat-unit { font-size: 13px; color: var(--text-secondary); margin-left: 4px; font-weight: 500; }
+.settings-chart-card { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 16px; border: 0.5px solid var(--separator); margin-bottom: 12px; }
+.settings-chart-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; }
+.settings-bar-chart { display: flex; flex-direction: column; gap: 10px; }
+.settings-bar-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.settings-bar-label { width: 80px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.settings-bar-track { flex: 1; height: 8px; background: var(--bg-tertiary); border-radius: 4px; overflow: hidden; }
+.settings-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-hover)); border-radius: 4px; min-width: 2px; }
+.settings-bar-value { width: 60px; text-align: right; color: var(--text-primary); font-weight: 500; flex-shrink: 0; }
+.settings-line-chart { position: relative; height: 160px; }
+.settings-line-svg { width: 100%; height: 100%; overflow: visible; }
+.settings-line-path { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.settings-line-area { fill: rgba(0,122,255,0.08); stroke: none; }
+.settings-line-grid { stroke: var(--separator); stroke-width: 0.5; }
+.settings-line-dot { fill: var(--accent); r: 3; }
+.settings-list-card { background: var(--bg-secondary); border-radius: var(--radius-md); border: 0.5px solid var(--separator); overflow: hidden; }
+.settings-list-header { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 0.5px solid var(--separator); background: var(--bg-primary); }
+.settings-list-header input { flex: 1; }
+.settings-list-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 0.5px solid var(--separator); font-size: 14px; }
+.settings-list-row:last-child { border-bottom: none; }
+.settings-list-row:hover { background: var(--bg-tertiary); }
+.settings-list-empty { padding: 40px; text-align: center; color: var(--text-secondary); font-size: 14px; }
+.settings-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+.settings-tag-primary { background: var(--accent-light); color: var(--accent); }
+.settings-tag-success { background: #E8F5E9; color: #2E7D32; }
+.settings-tag-warning { background: #FFF3E0; color: #E65100; }
+.settings-tag-danger { background: #FFEBEE; color: #C62828; }
+.settings-permission-rolebar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.settings-permission-rolechip { padding: 6px 12px; border-radius: 999px; background: var(--bg-secondary); border: 0.5px solid var(--separator); font-size: 13px; cursor: pointer; transition: all 0.15s; }
+.settings-permission-rolechip:hover { background: var(--bg-tertiary); }
+.settings-permission-rolechip.active { background: var(--accent-light); border-color: var(--accent); color: var(--accent); font-weight: 500; }
+.settings-permission-matrix { background: var(--bg-secondary); border-radius: var(--radius-md); border: 0.5px solid var(--separator); overflow: hidden; }
+.settings-permission-row { display: grid; grid-template-columns: 1fr 80px 80px 80px; align-items: center; padding: 10px 12px; border-bottom: 0.5px solid var(--separator); font-size: 13px; }
+.settings-permission-row:last-child { border-bottom: none; }
+.settings-permission-row.header { background: var(--bg-tertiary); font-weight: 600; color: var(--text-secondary); font-size: 12px; }
+.settings-permission-row label { display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.settings-permission-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+.settings-user-card { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--bg-secondary); border-radius: var(--radius-md); margin-bottom: 10px; border: 0.5px solid transparent; transition: all 0.15s; }
+.settings-user-card:hover { background: var(--bg-tertiary); border-color: var(--accent); }
+.settings-user-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-hover)); display: flex; align-items: center; justify-content: center; color: white; font-size: 14px; font-weight: 600; flex-shrink: 0; }
+.settings-user-info { flex: 1; min-width: 0; }
+.settings-user-name { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+.settings-user-meta { font-size: 12px; color: var(--text-secondary); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.settings-user-actions { display: flex; gap: 6px; opacity: 0; transition: opacity 0.2s; }
+.settings-user-card:hover .settings-user-actions { opacity: 1; }
+.settings-user-actions button { padding: 5px 10px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; transition: all 0.15s; background: var(--bg-tertiary); color: var(--text-secondary); }
+.settings-user-actions button:hover { background: var(--accent); color: white; }
+.settings-user-actions button.danger:hover { background: #FF3B30; }
+.settings-team-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--bg-secondary); border-radius: var(--radius-md); margin-bottom: 8px; border: 0.5px solid transparent; transition: all 0.15s; }
+.settings-team-card:hover { background: var(--bg-tertiary); border-color: var(--accent); }
+.settings-team-icon { width: 36px; height: 36px; border-radius: 10px; background: var(--accent-light); display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+.settings-team-info { flex: 1; min-width: 0; }
+.settings-team-name { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+.settings-team-meta { font-size: 12px; color: var(--text-secondary); }
+.settings-team-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.2s; }
+.settings-team-card:hover .settings-team-actions { opacity: 1; }
+.settings-team-actions button { padding: 4px 8px; border-radius: 6px; border: none; cursor: pointer; font-size: 11px; transition: all 0.15s; background: var(--bg-tertiary); color: var(--text-secondary); }
+.settings-team-actions button:hover { background: var(--accent); color: white; }
+.settings-team-actions button.danger:hover { background: #FF3B30; }
+.settings-team-indent { display: inline-block; color: var(--text-tertiary); font-size: 12px; margin-right: 4px; }
+
 /* Influencer Library */
 .influencer-avatar { width: 48px; height: 48px; border-radius: 50%; overflow: hidden; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .influencer-avatar-lg { width: 64px; height: 64px; border-radius: 50%; overflow: hidden; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -3391,7 +3459,7 @@ window.doLogin = function () {
 <!-- Settings Right -->
 <div class="module-right" id="settingsRight">
   <div class="module-right-header">
-    <div class="module-right-title" id="settingsRightTitle">AI 模型</div>
+    <div class="module-right-title" id="settingsRightTitle">算力统计</div>
     <div class="module-right-actions" id="settingsRightActions"></div>
   </div>
   <div class="module-right-content" id="settingsRightContent"></div>
@@ -3411,14 +3479,13 @@ window.doLogin = function () {
 </div>
 </div>
 <div class="chat-header-right" id="chatHeaderRight" style="display:none;">
-<button class="announcement-edit-btn" onclick="archiveGroupChat()" title="归档当前群聊" style="background:rgba(88,86,214,0.15);color:#5856D6;">📦 归档</button>
-<button class="announcement-edit-btn" onclick="resetGroupChat()" title="重置当前群聊" style="background:rgba(255,59,48,0.15);color:#FF3B30;margin-left:6px;">🔄 重置</button>
 <div class="chat-more-menu">
   <button class="chat-more-btn" onclick="toggleChatMoreMenu()" title="更多">⋮</button>
   <div class="chat-more-dropdown" id="chatMoreDropdown">
     <div onclick="openCompressModalWithConfirm()"><span>❄️</span> 压缩上下文</div>
     <div onclick="openScanModal()"><span>🔍</span> 扫描上下文</div>
-    <div onclick="openResetModal()"><span>🔄</span> 清空上下文</div>
+    <div onclick="handleMenuReset()"><span>🔄</span> 重置</div>
+    <div id="menuArchiveItem" onclick="archiveGroupChat(); closeChatMoreMenu();" style="display:none;"><span>📦</span> 归档</div>
     <div onclick="jumpToTokens(); closeChatMoreMenu();">跳转至 Tokens <span class="token-count" id="tokenCount">665</span></div>
   </div>
 </div>
@@ -3616,10 +3683,6 @@ window.doLogin = function () {
       <div class="product-form-row">
         <label>图标</label>
         <input type="text" id="knowledgeDocIcon" placeholder="如 📄 📚 📝" value="📄">
-      </div>
-      <div class="product-form-row">
-        <label>关联员工（用逗号分隔员工ID，留空表示公共文档）</label>
-        <input type="text" id="knowledgeDocLinkedEmployees" placeholder="如 emp_xxx, emp_yyy">
       </div>
       <div class="product-form-row">
         <label>文档内容 *</label>
@@ -7843,8 +7906,7 @@ function openChat(id) {
   // 公共清理：从群聊模式切换出来时，隐藏群聊专属UI
   var _announcement = document.getElementById('groupAnnouncement');
   if (_announcement) _announcement.style.display = 'none';
-  var _headerRight = document.getElementById('chatHeaderRight');
-  if (_headerRight) _headerRight.style.display = 'none';
+  closeChatMoreMenu();
   const emp = emps.find(function (e) {
     return e.id === id;
   });
@@ -7875,6 +7937,11 @@ function openChat(id) {
     document.getElementById('messagesArea').innerHTML = '';
     renderMsgs('private');
     hideBulletin();
+    // 员工私聊显示右上角更多菜单（隐藏群聊专属的归档）
+    var _headerRight = document.getElementById('chatHeaderRight');
+    if (_headerRight) _headerRight.style.display = 'flex';
+    var _archiveItem = document.getElementById('menuArchiveItem');
+    if (_archiveItem) _archiveItem.style.display = 'none';
   }
   // 项目分支：支持 projs 数组和 emps 中 isProject=true 的项目类型
   const proj = projs.find(function (p) {
@@ -7907,6 +7974,9 @@ function openChat(id) {
     showBulletinBar(id);
     startSupervisorTimer(); // 启动督促定时器
     updateSupervisorStatusButton();
+    // 项目分支不显示聊天头部右侧操作菜单
+    var _headerRight2 = document.getElementById('chatHeaderRight');
+    if (_headerRight2) _headerRight2.style.display = 'none';
   }
 }
 
@@ -7961,9 +8031,12 @@ function openGroupChat(groupId) {
   var chatProgress = document.getElementById('chatProgress');
   if (chatProgress) chatProgress.style.display = 'none';
 
-  // 显示归档/重置按钮（仅群聊模式）
+  // 显示更多菜单（仅群聊模式），并在菜单中展示归档入口
+  closeChatMoreMenu();
   var chatHeaderRight = document.getElementById('chatHeaderRight');
   if (chatHeaderRight) chatHeaderRight.style.display = 'flex';
+  var _archiveItem = document.getElementById('menuArchiveItem');
+  if (_archiveItem) _archiveItem.style.display = 'flex';
 
   // 显示群公告
   var announcementEl = document.getElementById('groupAnnouncement');
@@ -8114,6 +8187,17 @@ async function sendGroupMessage(groupId, message, mentions, images) {
     console.log('[sendGroupMessage] 同步后端失败:', err);
   });
 
+  // 群聊消息触发记忆提取：参与 AI 的个人记忆 + 项目组公共记忆
+  setTimeout(function () {
+    var _memberIds3 = (group.members || []).map(function (m) {
+      return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+    }).filter(function (id) { return id; });
+    _memberIds3.forEach(function (mid) {
+      extractAndSaveMemory(mid, message, '', true);
+    });
+    extractAndSaveGroupMemory(groupId, message, '');
+  }, 800);
+
   // 用户新消息，重置轮询计数器和触发标记，开始新一轮 AI 自主讨论
   window._pollRound = 0;
   window._pollTriggered = {};
@@ -8183,6 +8267,13 @@ async function sendGroupMessage(groupId, message, mentions, images) {
     if (docContext) {
       fullMessage = docContext + '\n' + fullMessage;
     }
+
+    // 注入项目组公共记忆（核心 + 日常）
+    var groupMemoryContext = await loadGroupMemoryForPrompt(groupId);
+    if (groupMemoryContext) {
+      fullMessage = groupMemoryContext + '\n\n' + fullMessage;
+    }
+
     var agentId = leadEmp ? leadEmp.openclawName || leadEmp.id : group.leadAgentId;
     var sessionKey = 'agent:' + agentId + ':main';
 
@@ -8516,6 +8607,14 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
 
   var prompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人说：' + messageContent + '\n\n你是这个团队的一员，有自己的专业判断和脾气。作为团队成员，你应该积极参与讨论，表达自己的观点和想法：\n- 可以赞同也可以反对\n- 觉得谁该看到这个话题，直接@他（用 @名字 格式）\n- 不用写报告，就像真的在群里看到消息随口回复一样\n\n只有当你完全没有任何想法时，才回复 SKIP。否则请直接发表你的看法。\n\n' + GROUP_CHAT_ACTION_BOUNDARY;
 
+  // 注入项目组公共记忆
+  try {
+    var groupMemCtx3 = await loadGroupMemoryForPrompt(groupId);
+    if (groupMemCtx3) {
+      prompt = groupMemCtx3 + '\n\n' + prompt;
+    }
+  } catch (e) {}
+
   emp.status = 'thinking';
   renderEmployeeList();
   try {
@@ -8844,6 +8943,14 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     }
   } catch (e) {}
 
+  // 注入项目组公共记忆（核心 + 日常）
+  try {
+    var groupMemCtx2 = await loadGroupMemoryForPrompt(groupId);
+    if (groupMemCtx2) {
+      prompt = groupMemCtx2 + '\n\n' + prompt;
+    }
+  } catch (e) {}
+
   // 注入灵魂文档（角色设定），包裹在最外层
   var empSoul = '';
   if (emp.soulDoc) empSoul = emp.soulDoc;
@@ -9069,6 +9176,12 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   }).catch(function (err) {
     console.log('[displayGroupAIReply] 同步后端失败:', err);
   });
+
+  // 群聊 AI 回复触发记忆提取：发送 AI 的个人记忆 + 项目组公共记忆
+  setTimeout(function () {
+    extractAndSaveMemory(senderId, '', replyText, true);
+    extractAndSaveGroupMemory(groupId, '', replyText);
+  }, 800);
 
   // 更新群组最后消息
   var group = groups.find(function (g) {
@@ -9852,29 +9965,9 @@ async function getAIContextMessage(projId) {
   return context;
 }
 
-// 获取员工关联文档 — v2 从后端知识库获取
+// 获取员工关联文档 — v3 知识库已全局公共，由后端语义搜索统一注入，前端不再全量注入
 async function getEmployeeDocContext(empId) {
-  var backendDocs = [];
-  try {
-    var r = await apiFetch('/api/knowledge');
-    var kbResult = await r.json();
-    backendDocs = kbResult.docs || [];
-  } catch (e) {
-    console.warn('[DocContext] 后端知识库加载失败:', e);
-    return '';
-  }
-  const docs = backendDocs.filter(function (d) {
-    return d && d.linkedEmployees && d.linkedEmployees.indexOf(empId) > -1;
-  });
-  if (docs.length === 0) return '';
-  let context = '\n\n📌 相关文档：\n';
-  docs.forEach(function (d) {
-    const content = d.content || '';
-    const limit = 3000;
-    const preview = content.length > limit ? content.slice(0, limit) + '...（内容过长已截取摘要）' : content;
-    context += `━━━ ${d.icon || '📄'} ${d.name} ━━━\n${preview}\n\n`;
-  });
-  return context;
+  return '';
 }
 
 // 获取当前对话的完整文档上下文 — v2 异步
@@ -9924,8 +10017,7 @@ async function syncLocalStorageDocsToBackend() {
           id: d.id,
           name: d.name || '未命名文档',
           content: d.content || '',
-          icon: d.icon || '📄',
-          linkedEmployees: d.linkedEmployees || []
+          icon: d.icon || '📄'
         })
       });
       migrated++;
@@ -10254,6 +10346,14 @@ function toggleChatMoreMenu() {
 function closeChatMoreMenu() {
   var dd = document.getElementById('chatMoreDropdown');
   if (dd) dd.classList.remove('show');
+}
+function handleMenuReset() {
+  closeChatMoreMenu();
+  if (currentGroupId) {
+    resetGroupChat();
+  } else {
+    openResetModal();
+  }
 }
 function filterSlashCommands(q) {
   var items = document.querySelectorAll('#slashSections .slash-item');
@@ -11091,11 +11191,8 @@ function renderMemoryTab(empId) {
       var dailyCount = dailyList.length;
       var archiveCount = archiveList.length;
 
-      // 知识库：筛选关联文档
-      var linkedDocs = kbDocs.filter(function (d) {
-        return d && d.linkedEmployees && d.linkedEmployees.indexOf(empId) > -1;
-      });
-      var kbCount = linkedDocs.length;
+      // 知识库：v3 已改为全局公共，员工详情页展示全部共享文档
+      var kbCount = kbDocs.length;
 
       var coreTab = document.querySelector('.memory-tab[data-mtab="core"]');
       var dailyTab = document.querySelector('.memory-tab[data-mtab="daily"]');
@@ -11109,14 +11206,14 @@ function renderMemoryTab(empId) {
       // 知识库模式：显示关联文档（后端持久化）
       if (currentMemoryTab === 'kb') {
         var kbHeaderHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
-        kbHeaderHtml += '<span style="font-size:12px;color:var(--text-secondary);">关联文档会注入AI上下文</span>';
+        kbHeaderHtml += '<span style="font-size:12px;color:var(--text-secondary);">全局公共知识库（所有员工共享）</span>';
         kbHeaderHtml += '<button onclick="openKnowledgeDocForm(null)" style="padding:6px 12px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;">＋ 新建文档</button>';
         kbHeaderHtml += '</div>';
-        if (linkedDocs.length === 0) {
-          contentEl.innerHTML = kbHeaderHtml + '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无关联文档，员工关联的文档会作为知识库记忆注入AI上下文</div>';
+        if (kbDocs.length === 0) {
+          contentEl.innerHTML = kbHeaderHtml + '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无知识文档，点击右上角新建全局共享文档</div>';
         } else {
           var kbHtml = kbHeaderHtml;
-          linkedDocs.forEach(function (d) {
+          kbDocs.forEach(function (d) {
             var content = d.content || '';
             var preview = content.length > 300 ? content.slice(0, 300) + '...' : content;
             kbHtml += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;position:relative;">';
@@ -13696,6 +13793,129 @@ function _processExtractedMemory(empId, extracted, existing) {
   }
 }
 
+// ========== 项目组公共记忆 ==========
+function _processExtractedGroupMemory(groupId, extracted, existing) {
+  if (!extracted || extracted === '无' || extracted.length < 3) return;
+  var lines = extracted.split('\n').map(function (l) { return l.trim(); });
+  var newMemories = [];
+  lines.forEach(function (line) {
+    if (!line || line === '无') return;
+    var memValue = '';
+    if (line.indexOf('- ') === 0 && line.length > 3) memValue = line.substring(2).trim();
+    else if (/^\d+\.\s+/.test(line) && line.length > 4) memValue = line.replace(/^\d+\.\s+/, '').trim();
+    else if (line.indexOf('* ') === 0 && line.length > 3) memValue = line.substring(2).trim();
+    if (memValue && memValue !== '无' && memValue.length > 3) newMemories.push(memValue);
+  });
+  if (newMemories.length === 0) {
+    var cleanText = extracted.replace(/【记忆提取任务】/g, '').replace(/【已有记忆[^】]*】/g, '').replace(/【本次[^】]*】/g, '').replace(/要求：[^\n]*/g, '').replace(/^\d+[\.、]\s*/gm, '').trim();
+    if (cleanText && cleanText !== '无' && cleanText.length > 5 && cleanText.indexOf('要求：') !== 0) {
+      newMemories.push(cleanText);
+    }
+  }
+  newMemories.forEach(function (memValue) {
+    if (memValue.length < 5) return;
+    var isDuplicate = existing.some(function (m) {
+      if (!m.value || m.value.length < 5) return false;
+      var mLower = m.value.toLowerCase();
+      var memLower = memValue.toLowerCase();
+      if (mLower.indexOf(memLower) > -1 || memLower.indexOf(mLower) > -1) return true;
+      if (m.value.substring(0, 20) === memValue.substring(0, 20)) return true;
+      return false;
+    });
+    if (isDuplicate) return;
+    apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        key: 'auto_extract',
+        value: memValue.substring(0, 500),
+        source: '群聊自动提取'
+      })
+    }).catch(function (e) { console.warn('[GroupMemory] 保存项目组记忆失败:', e); });
+  });
+}
+
+function extractAndSaveGroupMemory(groupId, userMsg, aiReply) {
+  if (!groupId) return;
+  apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/memory').then(function (r) { return r.json(); }).then(function (data) {
+    if (!data) data = {};
+    var allMemories = data.memories || [];
+    var existingDaily = allMemories.filter(function (m) { return m.key === 'auto_extract' || m.key === 'auto'; });
+    var existingMemories = existingDaily.map(function (m) { return '- ' + (m.value || ''); }).join('\n');
+    var extractPrompt = '【记忆提取任务】\n从以下群聊对话中提取需要长期记住的项目组相关信息。要求：\n1. 提取"事实"而非"关键词"\n2. 包含上下文关系，例如"团队决定下周发布新版本"\n3. 值得记住的信息包括：项目决策、团队分工、重要安排、共识结论等\n4. 每条记忆独立成一行，格式：- 关键信息\n5. 如果信息已经在"已有记忆"中，不要重复提取\n6. 只有当确实没有任何值得记住的新信息时，才回复"无"\n7. 不要寒暄，直接输出结果';
+    if (existingMemories) extractPrompt += '\n\n【已有记忆（不要重复提取）】\n' + existingMemories;
+    extractPrompt += '\n\n【本次群聊对话】\n';
+    if (userMsg) extractPrompt += '群里有人说：' + userMsg.substring(0, 800) + '\n';
+    if (aiReply) extractPrompt += '你回复：' + aiReply.substring(0, 800) + '\n';
+    var group = groups.find(function (g) { return g.id === groupId; });
+    var leadEmp = group ? emps.find(function (e) { return e.id === group.leadAgentId; }) : null;
+    if (typeof openclaw !== 'undefined' && openclaw.connected) {
+      var agentId = leadEmp ? (leadEmp.openclawName || leadEmp.id) : (group ? group.leadAgentId : '');
+      var sessionKey = 'agent:' + agentId + ':memory_extract';
+      var isolatedPrompt = '【以下是一个完全独立的记忆提取任务，请忽略之前的所有对话上下文，仅根据本次提供的内容执行提取】\n\n' + extractPrompt;
+      var extractReply = '';
+      var extractRunId = null;
+      var extractTimeout = null;
+      var extractHandler = function (data) {
+        if (!data) return;
+        if (data.runId && !extractRunId) extractRunId = data.runId;
+        if (extractRunId && data.runId && data.runId !== extractRunId) return;
+        if (data.stream === 'assistant' && data.data) {
+          if (data.data.text) extractReply = data.data.text;
+          else if (data.data.delta) extractReply += data.data.delta;
+        }
+        if (data.stream === 'lifecycle' && data.data && (data.data.phase === 'end' || data.data.phase === 'error')) {
+          if (extractTimeout) clearTimeout(extractTimeout);
+          openclaw.off('agent', extractHandler);
+          _processExtractedGroupMemory(groupId, extractReply, allMemories);
+        }
+      };
+      openclaw.on('agent', extractHandler);
+      extractTimeout = setTimeout(function () {
+        openclaw.off('agent', extractHandler);
+        if (extractReply) _processExtractedGroupMemory(groupId, extractReply, allMemories);
+      }, 30000);
+      openclaw.sendChat(sessionKey, isolatedPrompt).catch(function () {
+        if (extractTimeout) clearTimeout(extractTimeout);
+        openclaw.off('agent', extractHandler);
+      });
+    } else if (leadEmp && leadEmp.apiKey && leadEmp.aiProvider) {
+      apiFetch('/api/chat/' + encodeURIComponent(leadEmp.id), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: extractPrompt, skipAI: false })
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        var extracted = (data.aiMessage && data.aiMessage.content) || data.reply || '';
+        _processExtractedGroupMemory(groupId, extracted, allMemories);
+      }).catch(function (e) { console.warn('[GroupMemory] API 提取失败:', e); });
+    }
+  }).catch(function (e) { console.warn('[GroupMemory] 加载项目组记忆失败:', e); });
+}
+
+async function loadGroupMemoryForPrompt(groupId) {
+  if (!groupId) return '';
+  try {
+    var r = await apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/memory?type=active');
+    var data = await r.json();
+    if (!data || !data.memories || data.memories.length === 0) return '';
+    var coreLines = [];
+    var dailyLines = [];
+    data.memories.forEach(function (m) {
+      var val = (m.value || '').substring(0, 300);
+      if (!val) return;
+      if (m.pool === 'core') coreLines.push('- ' + val);
+      else if (m.pool === 'daily') dailyLines.push('- ' + val);
+    });
+    var parts = [];
+    if (coreLines.length) parts.push('【项目组核心记忆】\n' + coreLines.join('\n'));
+    if (dailyLines.length) parts.push('【项目组日常记录】\n' + dailyLines.join('\n'));
+    return parts.length ? '\n\n' + parts.join('\n\n') : '';
+  } catch (e) {
+    console.warn('[GroupMemory] 加载项目组记忆上下文失败:', e);
+    return '';
+  }
+}
+
 // 显示 AI 回复
 // ========== RAG 检索（Embedding API 向量检索）==========
 async function retrieveRAGContext(empId, query) {
@@ -13905,11 +14125,6 @@ function openKnowledgeDocForm(doc) {
   document.getElementById('knowledgeDocName').value = isEdit ? (doc.name || '') : '';
   document.getElementById('knowledgeDocIcon').value = isEdit ? (doc.icon || '📄') : '📄';
   document.getElementById('knowledgeDocContent').value = isEdit ? (doc.content || '') : '';
-  var linked = '';
-  if (isEdit && doc.linkedEmployees && doc.linkedEmployees.length) {
-    linked = Array.isArray(doc.linkedEmployees) ? doc.linkedEmployees.join(', ') : String(doc.linkedEmployees);
-  }
-  document.getElementById('knowledgeDocLinkedEmployees').value = linked;
   document.getElementById('knowledgeDocModalOverlay').classList.add('open');
 }
 function closeKnowledgeDocForm() {
@@ -13924,22 +14139,10 @@ async function saveKnowledgeDoc() {
       showToast('请填写文档名称和内容');
       return;
     }
-    var linkedInput = document.getElementById('knowledgeDocLinkedEmployees').value.trim();
-    var linkedEmployees = [];
-    if (linkedInput) {
-      linkedEmployees = linkedInput.split(/[,，]/).map(function(s) { return s.trim(); }).filter(function(s) { return s; });
-    }
-    // 如果没有指定关联员工，默认关联当前员工
-    var currentEmpId = localStorage.getItem('sb_current_emp');
-    if (linkedEmployees.length === 0 && currentEmpId) {
-      linkedEmployees = [currentEmpId];
-    }
     var body = {
       name: name,
       icon: document.getElementById('knowledgeDocIcon').value.trim() || '📄',
-      content: content,
-      linkedEmployees: linkedEmployees,
-      empId: currentEmpId
+      content: content
     };
     if (docId) {
       await apiFetch('/api/knowledge/' + encodeURIComponent(docId), { method: 'PUT', body: JSON.stringify(body) });
@@ -15504,7 +15707,7 @@ function showUserManagement() {
   switchModule('settings');
 }
 function closeUserManagement() {
-  _settingsSelectedCategory = 'ai';
+  _settingsSelectedCategory = 'compute';
   renderSettingsMid();
 }
 
@@ -15527,18 +15730,30 @@ function loadUserList() {
 }
 function renderUserList(list, users) {
   if (users.length === 0) {
-    list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">👥</div><div>暂无用户</div></div>';
+    list.innerHTML = '<div class="settings-list-empty"><div style="font-size:32px;margin-bottom:12px">👥</div><div>暂无用户</div></div>';
     return;
   }
   list.innerHTML = users.map(function (u) {
     var displayName = u.displayName || u.name || u.username;
     var roleBadge = '';
-    if (u.role === 'admin') roleBadge = '<span style="display:inline-flex;align-items:center;gap:2px;padding:2px 6px;background:#FFF3E0;color:#E65100;border-radius:4px;font-size:11px;">👑 管理员</span>';else if (u.role === 'leader') roleBadge = '<span style="display:inline-flex;align-items:center;gap:2px;padding:2px 6px;background:#E3F2FD;color:#1565C0;border-radius:4px;font-size:11px;">⭐ 组长</span>';else roleBadge = '<span style="display:inline-flex;align-items:center;gap:2px;padding:2px 6px;background:#E8F5E9;color:#2E7D32;border-radius:4px;font-size:11px;">🦞 员工</span>';
+    if (u.role === 'admin') roleBadge = '<span class="settings-tag settings-tag-warning">👑 管理员</span>';
+    else if (u.role === 'leader') roleBadge = '<span class="settings-tag settings-tag-primary">⭐ 组长</span>';
+    else roleBadge = '<span class="settings-tag settings-tag-success">🦞 员工</span>';
     var teamTag = '';
     if (u.teamIds && u.teamIds.length > 0) {
-      teamTag = '<span style="display:inline-block;margin-top:4px;padding:1px 6px;background:var(--accent-light);color:var(--accent);border-radius:3px;font-size:10px;">🏢 已有小组</span>';
+      teamTag = '<span class="settings-tag settings-tag-primary">🏢 已有小组</span>';
     }
-    return '<div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--bg-secondary);border-radius:8px;margin-bottom:8px;">' + '<div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-hover));display:flex;align-items:center;justify-content:center;color:white;font-size:14px;font-weight:600;">' + (displayName ? displayName.charAt(0).toUpperCase() : '?') + '</div>' + '<div style="flex:1;">' + '<div style="font-size:14px;font-weight:600;">' + escapeHtml(displayName) + '</div>' + '<div style="font-size:12px;color:var(--text-tertiary);">@' + escapeHtml(u.username) + ' · ' + roleBadge + '</div>' + teamTag + '</div>' + '<div style="display:flex;gap:8px;">' + '<button onclick="editUser(\'' + escapeAttr(u.id) + '\')" style="padding:4px 8px;border-radius:4px;background:var(--bg-tertiary);border:none;cursor:pointer;font-size:12px;">编辑</button>' + (u.id !== (currentUser && currentUser.id) ? '<button onclick="deleteUser(\'' + escapeAttr(u.id) + '\')" style="padding:4px 8px;border-radius:4px;background:#FF3B30;color:white;border:none;cursor:pointer;font-size:12px;">删除</button>' : '') + '</div>' + '</div>';
+    return '<div class="settings-user-card">'
+      + '<div class="settings-user-avatar">' + (displayName ? displayName.charAt(0).toUpperCase() : '?') + '</div>'
+      + '<div class="settings-user-info">'
+      + '<div class="settings-user-name">' + escapeHtml(displayName) + '</div>'
+      + '<div class="settings-user-meta">@' + escapeHtml(u.username) + ' · ' + roleBadge + '</div>'
+      + (teamTag ? '<div class="settings-user-meta">' + teamTag + '</div>' : '')
+      + '</div>'
+      + '<div class="settings-user-actions">'
+      + '<button onclick="editUser(\'' + escapeAttr(u.id) + '\')">编辑</button>'
+      + (u.id !== (currentUser && currentUser.id) ? '<button class="danger" onclick="deleteUser(\'' + escapeAttr(u.id) + '\')">删除</button>' : '')
+      + '</div></div>';
   }).join('');
 }
 
@@ -15649,7 +15864,7 @@ function showTeamManagement() {
 
 // 关闭团队管理面板
 function closeTeamManagement() {
-  _settingsSelectedCategory = 'ai';
+  _settingsSelectedCategory = 'compute';
   renderSettingsMid();
 }
 
@@ -15705,51 +15920,39 @@ function refreshTeamMenus() {
   }
 }
 
-// 渲染小组列表（树形结构）
+// 渲染小组列表（树形卡片结构）
 function renderTeamList(teams) {
   var list = document.getElementById('teamList');
   if (!list) return;
   if (!teams) teams = [];
   if (!teams.length) {
-    list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">🏢</div><div>暂无小组</div></div>';
+    list.innerHTML = '<div class="settings-list-empty"><div style="font-size:32px;margin-bottom:12px">🏢</div><div>暂无小组</div></div>';
     return;
   }
 
   var treePrefix = ['', '├─ ', '│  ├─ ', '│  │  ├─ ', '│  │  │  ├─ '];
   function renderTeamItem(team, level) {
-    var children = teams.filter(function (t) {
-      return t.parentId === team.id;
-    });
+    var children = teams.filter(function (t) { return t.parentId === team.id; });
     var hasChildren = children.length > 0;
     var prefix = treePrefix[level] || ('│  '.repeat(level) + '├─ ');
     var memberCount = team.memberCount !== undefined ? team.memberCount : (team.agentIds ? team.agentIds.length : 0);
     var leaderName = team.leaderName || '未设置';
-    var childHtml = children.map(function (c) {
-      return renderTeamItem(c, level + 1);
-    }).join('');
-    return '<div class="team-tree-item">' +
-      '<span class="team-tree-indent">' + prefix + '</span>' +
-      '<span class="team-tree-icon">' + (hasChildren ? '📂' : '📁') + '</span>' +
-      '<div class="team-tree-info">' +
-      '<div class="team-tree-name">' + escapeHtml(team.name) + '</div>' +
-      '<div class="team-tree-meta">' +
-      '<span class="team-tree-leader">👤 ' + escapeHtml(leaderName) + '</span>' +
-      ' · <span>👥 ' + memberCount + ' 名成员</span>' +
-      (team.description ? ' · ' + escapeHtml(team.description) : '') +
-      '</div></div>' +
-      '<div class="team-tree-actions">' +
-      '<button class="team-tree-btn" onclick="showAddSubTeamModal(\'' + escapeAttr(team.id) + '\')">➕ 子小组</button>' +
-      '<button class="team-tree-btn" onclick="showTeamMembersModal(\'' + escapeAttr(team.id) + '\')">成员</button>' +
-      '<button class="team-tree-btn" onclick="showEditTeamModal(\'' + escapeAttr(team.id) + '\')">编辑</button>' +
-      '<button class="team-tree-btn danger" onclick="deleteTeamById(\'' + escapeAttr(team.id) + '\')">删除</button>' +
-      '</div></div>' + childHtml;
+    var childHtml = children.map(function (c) { return renderTeamItem(c, level + 1); }).join('');
+    return '<div class="settings-team-card">'
+      + '<div class="settings-team-icon">' + (hasChildren ? '📂' : '📁') + '</div>'
+      + '<div class="settings-team-info">'
+      + '<div class="settings-team-name"><span class="settings-team-indent">' + prefix + '</span>' + escapeHtml(team.name) + '</div>'
+      + '<div class="settings-team-meta">👤 ' + escapeHtml(leaderName) + ' · 👥 ' + memberCount + ' 名成员' + (team.description ? ' · ' + escapeHtml(team.description) : '') + '</div>'
+      + '</div>'
+      + '<div class="settings-team-actions">'
+      + '<button onclick="showAddSubTeamModal(\'' + escapeAttr(team.id) + '\')">➕ 子小组</button>'
+      + '<button onclick="showTeamMembersModal(\'' + escapeAttr(team.id) + '\')">成员</button>'
+      + '<button onclick="showEditTeamModal(\'' + escapeAttr(team.id) + '\')">编辑</button>'
+      + '<button class="danger" onclick="deleteTeamById(\'' + escapeAttr(team.id) + '\')">删除</button>'
+      + '</div></div>' + childHtml;
   }
-  var rootTeams = teams.filter(function (t) {
-    return !t.parentId;
-  });
-  list.innerHTML = rootTeams.map(function (t) {
-    return renderTeamItem(t, 0);
-  }).join('');
+  var rootTeams = teams.filter(function (t) { return !t.parentId; });
+  list.innerHTML = rootTeams.map(function (t) { return renderTeamItem(t, 0); }).join('');
 }
 
 // 显示创建小组弹窗
@@ -16471,10 +16674,8 @@ function closeKnowledgeEditor() {
 async function loadKnowledgePage(page) {
   if (page) _knowledgePage = page;
   try {
-    var empId = localStorage.getItem('sb_current_emp') || '';
     var offset = (_knowledgePage - 1) * _knowledgePageSize;
     var url = '/api/knowledge?limit=' + _knowledgePageSize + '&offset=' + offset;
-    if (empId) url += '&empId=' + encodeURIComponent(empId);
     if (_knowledgeCurrentCat) url += '&category=' + encodeURIComponent(_knowledgeCurrentCat);
     var r = await apiFetch(url);
     var data = await r.json();
@@ -16547,9 +16748,7 @@ async function filterKnowledgeList(keyword) {
   var kw = (keyword || '').trim();
   _knowledgePage = 1;
   try {
-    var empId = localStorage.getItem('sb_current_emp') || '';
     var url = '/api/knowledge?limit=' + _knowledgePageSize + '&offset=0';
-    if (empId) url += '&empId=' + encodeURIComponent(empId);
     if (_knowledgeCurrentCat) url += '&category=' + encodeURIComponent(_knowledgeCurrentCat);
     if (kw) url += '&q=' + encodeURIComponent(kw);
     var r = await apiFetch(url);
@@ -16713,8 +16912,7 @@ async function saveKnowledgeFromEditor() {
   var statusEl = document.getElementById('knowledgeEditStatus');
   statusEl.textContent = '保存中...';
   try {
-    var empId = localStorage.getItem('sb_current_emp') || '';
-    var body = { title: title, content: content, category: category, empId: empId };
+    var body = { title: title, content: content, category: category };
     var url = _knowledgeCurrentId ? '/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId) : '/api/knowledge';
     var method = _knowledgeCurrentId ? 'PUT' : 'POST';
     var r = await apiFetch(url, { method: method, body: JSON.stringify(body) });
@@ -17895,17 +18093,297 @@ function showUserProfile() {
   showToast('👤 ' + escapeHtml(currentUser.displayName || currentUser.name) + ' · ' + getCurrentUserRoleDisplay());
 }
 
-var _settingsSelectedCategory = 'ai';
+function formatNumber(n) {
+  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+// ========== 算力统计 ==========
+function getComputeStats() {
+  var baseUsed = parseInt(localStorage.getItem('sb_tokens_used') || '0');
+  var totalTokens = baseUsed || 124580;
+  var totalCalls = parseInt(localStorage.getItem('sb_compute_calls') || '0') || 3420;
+  var employeeStats = JSON.parse(localStorage.getItem('sb_compute_by_employee') || 'null') || [
+    { name: 'Alice', tokens: 45200, calls: 980 },
+    { name: 'Bob', tokens: 32100, calls: 650 },
+    { name: 'Carol', tokens: 28300, calls: 720 },
+    { name: 'David', tokens: 18980, calls: 1070 }
+  ];
+  var timeStats = JSON.parse(localStorage.getItem('sb_compute_by_time') || 'null') || [
+    { date: '周一', tokens: 18200 }, { date: '周二', tokens: 24500 },
+    { date: '周三', tokens: 19800 }, { date: '周四', tokens: 31200 },
+    { date: '周五', tokens: 26880 }, { date: '周六', tokens: 15000 },
+    { date: '周日', tokens: 9000 }
+  ];
+  return { totalTokens: totalTokens, totalCalls: totalCalls, employeeStats: employeeStats, timeStats: timeStats };
+}
+function loadComputeStats() {
+  var area = document.getElementById('computeStatsArea');
+  if (!area) return;
+  area.innerHTML = renderComputeStats(getComputeStats());
+}
+function renderComputeStats(stats) {
+  var html = '<div class="settings-stats-grid">';
+  html += '<div class="settings-stat-card"><div class="settings-stat-label">Token 使用总量</div><div class="settings-stat-value">' + formatNumber(stats.totalTokens) + '<span class="settings-stat-unit">tokens</span></div></div>';
+  html += '<div class="settings-stat-card"><div class="settings-stat-label">调用次数</div><div class="settings-stat-value">' + formatNumber(stats.totalCalls) + '<span class="settings-stat-unit">次</span></div></div>';
+  html += '<div class="settings-stat-card"><div class="settings-stat-label">人均调用</div><div class="settings-stat-value">' + Math.round(stats.totalCalls / Math.max(stats.employeeStats.length, 1)) + '<span class="settings-stat-unit">次</span></div></div>';
+  html += '<div class="settings-stat-card"><div class="settings-stat-label">平均单次 Token</div><div class="settings-stat-value">' + Math.round(stats.totalTokens / Math.max(stats.totalCalls, 1)) + '<span class="settings-stat-unit">tokens</span></div></div>';
+  html += '</div>';
+  html += '<div class="settings-chart-card"><div class="settings-chart-title">按员工统计</div><div class="settings-bar-chart">';
+  var maxEmp = Math.max.apply(Math, stats.employeeStats.map(function (e) { return e.tokens; }));
+  stats.employeeStats.forEach(function (e) {
+    var pct = maxEmp ? Math.round(e.tokens / maxEmp * 100) : 0;
+    html += '<div class="settings-bar-row"><div class="settings-bar-label" title="' + escapeHtml(e.name) + '">' + escapeHtml(e.name) + '</div><div class="settings-bar-track"><div class="settings-bar-fill" style="width:' + pct + '%;"></div></div><div class="settings-bar-value">' + formatNumber(e.tokens) + '</div></div>';
+  });
+  html += '</div></div>';
+  html += '<div class="settings-chart-card"><div class="settings-chart-title">按时间统计（近7天）</div><div class="settings-line-chart"><svg class="settings-line-svg" viewBox="0 0 600 160" preserveAspectRatio="none">';
+  var maxTime = Math.max.apply(Math, stats.timeStats.map(function (t) { return t.tokens; })) || 1;
+  var points = stats.timeStats.map(function (t, i) {
+    var x = (i / (stats.timeStats.length - 1 || 1)) * 600;
+    var y = 160 - (t.tokens / maxTime) * 140 - 10;
+    return x + ',' + y;
+  });
+  html += '<polygon class="settings-line-area" points="0,160 ' + points.join(' ') + ' 600,160" />';
+  html += '<polyline class="settings-line-path" points="' + points.join(' ') + '" />';
+  stats.timeStats.forEach(function (t, i) {
+    var x = (i / (stats.timeStats.length - 1 || 1)) * 600;
+    var y = 160 - (t.tokens / maxTime) * 140 - 10;
+    html += '<circle class="settings-line-dot" cx="' + x + '" cy="' + y + '" /><text x="' + x + '" y="155" text-anchor="middle" font-size="10" fill="var(--text-secondary)">' + escapeHtml(t.date) + '</text>';
+  });
+  html += '</svg></div></div>';
+  return html;
+}
+
+// ========== 权限管理 ==========
+var _permissionRolesDefaults = [
+  { id: 'admin', name: '管理员', permissions: { dashboard: { view: true, operate: true, manage: true }, knowledge: { view: true, operate: true, manage: true }, products: { view: true, operate: true, manage: true }, chat: { view: true, operate: true, manage: true }, users: { view: true, operate: true, manage: true }, teams: { view: true, operate: true, manage: true }, forbidden: { view: true, operate: true, manage: true }, settings: { view: true, operate: true, manage: true } } },
+  { id: 'leader', name: '组长', permissions: { dashboard: { view: true, operate: true, manage: false }, knowledge: { view: true, operate: true, manage: false }, products: { view: true, operate: false, manage: false }, chat: { view: true, operate: true, manage: false }, users: { view: true, operate: false, manage: false }, teams: { view: true, operate: false, manage: false }, forbidden: { view: true, operate: false, manage: false }, settings: { view: true, operate: false, manage: false } } },
+  { id: 'employee', name: '员工', permissions: { dashboard: { view: true, operate: false, manage: false }, knowledge: { view: true, operate: false, manage: false }, products: { view: true, operate: false, manage: false }, chat: { view: true, operate: true, manage: false }, users: { view: false, operate: false, manage: false }, teams: { view: false, operate: false, manage: false }, forbidden: { view: false, operate: false, manage: false }, settings: { view: false, operate: false, manage: false } } }
+];
+var _permissionRoles = JSON.parse(JSON.stringify(_permissionRolesDefaults));
+var _selectedPermissionRole = 'admin';
+var _permissionUsers = [
+  { id: 'u1', name: 'Alice', role: 'admin' },
+  { id: 'u2', name: 'Bob', role: 'leader' },
+  { id: 'u3', name: 'Carol', role: 'employee' }
+];
+var _selectedPermissionUser = '';
+var _userPermissionOverrides = {};
+function loadPermissionSettings() {
+  var area = document.getElementById('permissionSettingsArea');
+  if (!area) return;
+  if (!isAdmin()) {
+    area.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">权限管理功能仅对管理员开放</div>';
+    return;
+  }
+  var saved = localStorage.getItem('sb_permission_roles');
+  if (saved) {
+    try { _permissionRoles = JSON.parse(saved); } catch (e) {}
+  }
+  var savedUsers = localStorage.getItem('sb_user_permission_overrides');
+  if (savedUsers) {
+    try { _userPermissionOverrides = JSON.parse(savedUsers); } catch (e) {}
+  }
+  area.innerHTML = renderPermissionSettings();
+  renderUserPermissionMatrix();
+}
+function renderPermissionSettings() {
+  var html = '<div class="settings-section-title">角色权限</div>';
+  html += '<div class="settings-permission-rolebar">';
+  _permissionRoles.forEach(function (r) {
+    html += '<div class="settings-permission-rolechip ' + (_selectedPermissionRole === r.id ? 'active' : '') + '" onclick="selectPermissionRole(\'' + r.id + '\')">' + escapeHtml(r.name) + '</div>';
+  });
+  html += '</div>';
+  var role = _permissionRoles.find(function (r) { return r.id === _selectedPermissionRole; });
+  var modules = [
+    { key: 'dashboard', name: '工作台' }, { key: 'knowledge', name: '知识库' },
+    { key: 'products', name: '商品库' }, { key: 'chat', name: '聊天' },
+    { key: 'users', name: '用户管理' }, { key: 'teams', name: '团队管理' },
+    { key: 'forbidden', name: '违禁词' }, { key: 'settings', name: '系统设置' }
+  ];
+  html += '<div class="settings-permission-matrix">';
+  html += '<div class="settings-permission-row header"><div>模块</div><div>查看</div><div>操作</div><div>管理</div></div>';
+  modules.forEach(function (m) {
+    var p = role.permissions[m.key] || {};
+    html += '<div class="settings-permission-row">';
+    html += '<div>' + escapeHtml(m.name) + '</div>';
+    html += '<label><input type="checkbox" ' + (p.view ? 'checked' : '') + ' onchange="togglePermission(\'' + m.key + '\', \'view\', this.checked)"></label>';
+    html += '<label><input type="checkbox" ' + (p.operate ? 'checked' : '') + ' onchange="togglePermission(\'' + m.key + '\', \'operate\', this.checked)"></label>';
+    html += '<label><input type="checkbox" ' + (p.manage ? 'checked' : '') + ' onchange="togglePermission(\'' + m.key + '\', \'manage\', this.checked)"></label>';
+    html += '</div>';
+  });
+  html += '</div>';
+  html += '<div style="margin-top:12px;display:flex;gap:8px;margin-bottom:20px;"><button class="module-action-btn primary" onclick="savePermissionSettings()">保存角色权限</button><button class="module-action-btn" onclick="resetPermissionSettings()">恢复默认</button></div>';
+
+  html += '<div class="settings-section-title">单独用户权限</div>';
+  html += '<div class="module-form-row"><label class="form-label">选择用户</label><select class="form-select" id="permissionUserSelect" onchange="selectPermissionUser(this.value)"><option value="">-- 选择用户 --</option>' + _permissionUsers.map(function (u) { return '<option value="' + u.id + '" ' + (_selectedPermissionUser === u.id ? 'selected' : '') + '>' + escapeHtml(u.name) + '（' + escapeHtml(u.role) + '）</option>'; }).join('') + '</select></div>';
+  html += '<div id="userPermissionMatrix"></div>';
+
+  return html;
+}
+function renderUserPermissionMatrix() {
+  var container = document.getElementById('userPermissionMatrix');
+  if (!container) return;
+  if (!_selectedPermissionUser) {
+    container.innerHTML = '';
+    return;
+  }
+  var modules = [
+    { key: 'dashboard', name: '工作台' }, { key: 'knowledge', name: '知识库' },
+    { key: 'products', name: '商品库' }, { key: 'chat', name: '聊天' },
+    { key: 'users', name: '用户管理' }, { key: 'teams', name: '团队管理' },
+    { key: 'forbidden', name: '违禁词' }, { key: 'settings', name: '系统设置' }
+  ];
+  var overrides = _userPermissionOverrides[_selectedPermissionUser] || {};
+  var html = '<div class="settings-permission-matrix">';
+  html += '<div class="settings-permission-row header"><div>模块</div><div>查看</div><div>操作</div><div>管理</div></div>';
+  modules.forEach(function (m) {
+    var p = overrides[m.key] || {};
+    html += '<div class="settings-permission-row">';
+    html += '<div>' + escapeHtml(m.name) + '</div>';
+    html += '<label><input type="checkbox" ' + (p.view ? 'checked' : '') + ' onchange="toggleUserPermission(\'' + m.key + '\', \'view\', this.checked)"></label>';
+    html += '<label><input type="checkbox" ' + (p.operate ? 'checked' : '') + ' onchange="toggleUserPermission(\'' + m.key + '\', \'operate\', this.checked)"></label>';
+    html += '<label><input type="checkbox" ' + (p.manage ? 'checked' : '') + ' onchange="toggleUserPermission(\'' + m.key + '\', \'manage\', this.checked)"></label>';
+    html += '</div>';
+  });
+  html += '</div>';
+  html += '<div style="margin-top:12px;display:flex;gap:8px;"><button class="module-action-btn primary" onclick="saveUserPermissions()">保存用户权限</button><button class="module-action-btn" onclick="resetUserPermissions()">清除覆盖</button></div>';
+  container.innerHTML = html;
+}
+function selectPermissionRole(roleId) {
+  _selectedPermissionRole = roleId;
+  loadPermissionSettings();
+}
+function togglePermission(moduleKey, type, checked) {
+  var role = _permissionRoles.find(function (r) { return r.id === _selectedPermissionRole; });
+  if (!role) return;
+  if (!role.permissions[moduleKey]) role.permissions[moduleKey] = {};
+  role.permissions[moduleKey][type] = checked;
+}
+function savePermissionSettings() {
+  localStorage.setItem('sb_permission_roles', JSON.stringify(_permissionRoles));
+  showToast('✅ 权限配置已保存');
+}
+function resetPermissionSettings() {
+  if (!confirm('确定要恢复默认权限配置吗？')) return;
+  _permissionRoles = JSON.parse(JSON.stringify(_permissionRolesDefaults));
+  localStorage.removeItem('sb_permission_roles');
+  loadPermissionSettings();
+  showToast('🔄 已恢复默认权限');
+}
+function selectPermissionUser(userId) {
+  _selectedPermissionUser = userId;
+  renderUserPermissionMatrix();
+}
+function toggleUserPermission(moduleKey, type, checked) {
+  if (!_selectedPermissionUser) return;
+  if (!_userPermissionOverrides[_selectedPermissionUser]) _userPermissionOverrides[_selectedPermissionUser] = {};
+  if (!_userPermissionOverrides[_selectedPermissionUser][moduleKey]) _userPermissionOverrides[_selectedPermissionUser][moduleKey] = {};
+  _userPermissionOverrides[_selectedPermissionUser][moduleKey][type] = checked;
+}
+function saveUserPermissions() {
+  localStorage.setItem('sb_user_permission_overrides', JSON.stringify(_userPermissionOverrides));
+  showToast('✅ 用户权限已保存');
+}
+function resetUserPermissions() {
+  if (!_selectedPermissionUser) return;
+  if (!confirm('确定要清除该用户的单独权限覆盖吗？')) return;
+  delete _userPermissionOverrides[_selectedPermissionUser];
+  localStorage.setItem('sb_user_permission_overrides', JSON.stringify(_userPermissionOverrides));
+  renderUserPermissionMatrix();
+  showToast('🔄 已清除用户权限覆盖');
+}
+
+// ========== 违禁词管理 ==========
+function getForbiddenWords() {
+  return JSON.parse(localStorage.getItem('sb_forbidden_words') || 'null') || ['色情', '暴力', '赌博', '毒品', '诈骗'];
+}
+function saveForbiddenWords(words) {
+  localStorage.setItem('sb_forbidden_words', JSON.stringify(words));
+}
+function loadForbiddenWords() {
+  var area = document.getElementById('forbiddenWordsArea');
+  if (!area) return;
+  area.innerHTML = renderForbiddenWordsUI();
+  renderForbiddenList();
+}
+function renderForbiddenWordsUI() {
+  var html = '<div class="settings-list-card">';
+  html += '<div class="settings-list-header">';
+  html += '<input type="text" id="forbiddenSearchInput" class="form-input" placeholder="搜索违禁词..." oninput="filterForbiddenWords()">';
+  html += '<button class="module-action-btn primary" onclick="showAddForbiddenWordModal()">➕ 添加</button>';
+  html += '<button class="module-action-btn" onclick="showBatchForbiddenWordModal()">批量添加</button>';
+  html += '</div>';
+  html += '<div id="forbiddenList"></div>';
+  html += '</div>';
+  return html;
+}
+function renderForbiddenList() {
+  var container = document.getElementById('forbiddenList');
+  if (!container) return;
+  var allWords = getForbiddenWords();
+  var searchInput = document.getElementById('forbiddenSearchInput');
+  var search = searchInput ? searchInput.value : '';
+  var displayItems = allWords.map(function (w, i) { return { word: w, index: i }; });
+  if (search) displayItems = displayItems.filter(function (item) { return item.word.indexOf(search) >= 0; });
+  if (displayItems.length === 0) {
+    container.innerHTML = '<div class="settings-list-empty">暂无违禁词</div>';
+    return;
+  }
+  container.innerHTML = displayItems.map(function (item) {
+    return '<div class="settings-list-row"><span>' + escapeHtml(item.word) + '</span><button class="module-action-btn danger" onclick="deleteForbiddenWord(' + item.index + ')">删除</button></div>';
+  }).join('');
+}
+function filterForbiddenWords() {
+  renderForbiddenList();
+}
+function showAddForbiddenWordModal() {
+  var word = prompt('请输入要添加的违禁词：');
+  if (word && word.trim()) {
+    var words = getForbiddenWords();
+    if (words.indexOf(word.trim()) >= 0) {
+      showToast('⚠️ 该违禁词已存在');
+      return;
+    }
+    words.push(word.trim());
+    saveForbiddenWords(words);
+    renderForbiddenList();
+    showToast('✅ 已添加违禁词');
+  }
+}
+function showBatchForbiddenWordModal() {
+  var text = prompt('请批量输入违禁词，每行一个：');
+  if (!text) return;
+  var newWords = text.split(/\n/).map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+  if (!newWords.length) return;
+  var words = getForbiddenWords();
+  var added = 0;
+  newWords.forEach(function (w) {
+    if (words.indexOf(w) < 0) { words.push(w); added++; }
+  });
+  saveForbiddenWords(words);
+  renderForbiddenList();
+  showToast('✅ 批量添加 ' + added + ' 个违禁词');
+}
+function deleteForbiddenWord(index) {
+  if (!confirm('确定要删除该违禁词吗？')) return;
+  var words = getForbiddenWords();
+  words.splice(index, 1);
+  saveForbiddenWords(words);
+  renderForbiddenList();
+  showToast('🗑️ 已删除违禁词');
+}
+
+var _settingsSelectedCategory = 'compute';
 
 function renderSettingsMid() {
   var list = document.getElementById('settingsMidList');
   if (!list) return;
   var categories = [
-    { id: 'ai', icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>', title: 'AI 模型' },
+    { id: 'compute', icon: '<path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/>', title: '算力统计' },
     { id: 'notification', icon: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>', title: '通知' },
     { id: 'account', icon: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>', title: '账号' },
-    { id: 'system', icon: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>', title: '系统设置' },
     { id: 'permission', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/>', title: '权限管理' },
+    { id: 'forbidden', icon: '<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>', title: '违禁词管理' },
     { id: 'users', icon: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/>', title: '用户管理' },
     { id: 'teams', icon: '<path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><rect x="4" y="2" width="16" height="20" rx="2"/>', title: '团队管理' }
   ];
@@ -17940,28 +18418,29 @@ function renderSettingsRight() {
   var contentEl = document.getElementById('settingsRightContent');
   var actionsEl = document.getElementById('settingsRightActions');
   if (titleEl) titleEl.textContent = {
-    ai: 'AI 模型', notification: '通知', account: '账号', system: '系统设置', permission: '权限管理', users: '用户管理', teams: '团队管理'
+    compute: '算力统计', notification: '通知', account: '账号', permission: '权限管理', forbidden: '违禁词管理', users: '用户管理', teams: '团队管理'
   }[_settingsSelectedCategory] || '设置';
   if (actionsEl) actionsEl.innerHTML = '';
   if (!contentEl) return;
   var html = '';
-  if (_settingsSelectedCategory === 'ai') {
-    html += '<div class="module-form-row"><label>当前模型</label><select class="form-select" id="settingsModelSelect"><option>GPT-4o</option><option>Claude 3.5</option></select></div>';
-    html += '<div class="module-form-row"><label>默认温度</label><input type="range" min="0" max="1" step="0.1" value="0.7" id="settingsTemperature"></div>';
-    html += '<div class="module-form-row"><label>最大回复长度</label><input type="number" value="2048" id="settingsMaxTokens"></div>';
+  if (_settingsSelectedCategory === 'compute') {
+    html += '<div id="computeStatsArea"></div>';
   } else if (_settingsSelectedCategory === 'notification') {
     html += '<div class="settings-item"><span class="settings-item-label">消息通知</span><div class="toggle active" onclick="this.classList.toggle(\'active\')"></div></div>';
     html += '<div class="settings-item"><span class="settings-item-label">群主督促</span><div class="toggle active" onclick="this.classList.toggle(\'active\')"></div></div>';
     html += '<div class="settings-item"><span class="settings-item-label">任务提醒</span><div class="toggle active" onclick="this.classList.toggle(\'active\')"></div></div>';
   } else if (_settingsSelectedCategory === 'account') {
-    html += '<div class="module-form-row"><label>显示名称</label><input type="text" id="settingsDisplayName" placeholder="输入显示名称"></div>';
-    html += '<div class="module-form-row"><label>邮箱</label><input type="email" id="settingsEmail" placeholder="输入邮箱"></div>';
+    html += '<div class="settings-section-title">账号信息</div>';
+    html += '<div class="module-form-row"><label class="form-label">显示名称</label><input type="text" id="settingsDisplayName" class="form-input" placeholder="输入显示名称"></div>';
+    html += '<div class="module-form-row"><label class="form-label">邮箱</label><input type="email" id="settingsEmail" class="form-input" placeholder="输入邮箱"></div>';
     html += '<div class="module-form-row"><button class="module-action-btn primary" onclick="showUserProfile()">查看个人信息</button></div>';
-  } else if (_settingsSelectedCategory === 'system') {
-    html += '<div class="module-form-row"><label>主题</label><select class="form-select"><option>浅色</option><option>深色</option></select></div>';
-    html += '<div class="module-form-row"><label>语言</label><select class="form-select"><option>中文</option><option>English</option></select></div>';
+    html += '<div class="settings-section-title">系统偏好</div>';
+    html += '<div class="module-form-row"><label class="form-label">主题</label><select class="form-select" id="settingsTheme"><option>浅色</option><option>深色</option></select></div>';
+    html += '<div class="module-form-row"><label class="form-label">语言</label><select class="form-select" id="settingsLanguage"><option>中文</option><option>English</option></select></div>';
   } else if (_settingsSelectedCategory === 'permission') {
-    html += '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">权限管理功能仅对管理员开放</div>';
+    html += '<div id="permissionSettingsArea"></div>';
+  } else if (_settingsSelectedCategory === 'forbidden') {
+    html += '<div id="forbiddenWordsArea"></div>';
   } else if (_settingsSelectedCategory === 'users') {
     if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="showCreateUserModal()">➕ 添加用户</button>';
     html += '<div id="userList"></div>';
@@ -17970,6 +18449,9 @@ function renderSettingsRight() {
     html += '<div id="teamList"></div>';
   }
   contentEl.innerHTML = html;
+  if (_settingsSelectedCategory === 'compute') loadComputeStats();
+  if (_settingsSelectedCategory === 'permission') loadPermissionSettings();
+  if (_settingsSelectedCategory === 'forbidden') loadForbiddenWords();
   if (_settingsSelectedCategory === 'users') loadUserList();
   if (_settingsSelectedCategory === 'teams') loadTeamList();
 }

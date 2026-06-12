@@ -643,6 +643,240 @@ def get_consolidation_logs(emp_id=None, limit=50):
 
 
 # ═══════════════════════════════════════════════════
+# 项目组记忆（group memory）
+# ═══════════════════════════════════════════════════
+
+def _group_memory_dir():
+    return os.path.join(MEMORY_V3_DIR, 'groups')
+
+
+def _group_memory_file_path(group_id):
+    return os.path.join(_group_memory_dir(), f'group_{group_id}.json')
+
+
+def _group_archive_file_path(group_id):
+    return os.path.join(_group_memory_dir(), f'group_{group_id}_archived.json')
+
+
+def _empty_group_memory(group_id):
+    return {
+        'version': '3.0',
+        'groupId': group_id,
+        'updatedAt': int(time.time() * 1000),
+        'core': [],
+        'daily': [],
+        'stats': {'coreCount': 0, 'dailyCount': 0, 'totalAccess': 0}
+    }
+
+
+def load_group_memory(group_id):
+    """加载项目组活跃记忆（core + daily）"""
+    filepath = _group_memory_file_path(group_id)
+    raw = _read_json(filepath, None)
+    if raw is None:
+        return _empty_group_memory(group_id)
+    result = {
+        'version': raw.get('version', '3.0'),
+        'groupId': raw.get('groupId', group_id),
+        'updatedAt': raw.get('updatedAt', int(time.time() * 1000)),
+        'core': raw.get('core', []),
+        'daily': raw.get('daily', []),
+        'stats': raw.get('stats', {})
+    }
+    need_save = False
+    for pool in ('core', 'daily'):
+        for m in result.get(pool, []):
+            if not m.get('id'):
+                m['id'] = 'mem_' + uuid.uuid4().hex[:8]
+                need_save = True
+    if need_save:
+        result['updatedAt'] = int(time.time() * 1000)
+        _write_json(filepath, result)
+
+    # 自动归档过期 daily
+    result['daily'], expired = _filter_expired(result['daily'])
+    if expired:
+        archive_data = load_group_archive(group_id)
+        for m in expired:
+            m['archivedAt'] = int(time.time() * 1000)
+            m['archiveReason'] = 'expired'
+            archive_data.setdefault('archived', []).append(m)
+        save_group_archive(group_id, archive_data)
+        result['updatedAt'] = int(time.time() * 1000)
+        _write_json(filepath, result)
+
+    # 容量控制
+    active_total = len(result['core']) + len(result['daily'])
+    if active_total > 200 and result['daily']:
+        oldest = min(result['daily'], key=lambda m: m.get('createdAt', 0))
+        result['daily'] = [m for m in result['daily'] if m.get('id') != oldest.get('id')]
+        archive_data = load_group_archive(group_id)
+        oldest['archivedAt'] = int(time.time() * 1000)
+        oldest['archiveReason'] = 'capacity'
+        archive_data.setdefault('archived', []).append(oldest)
+        save_group_archive(group_id, archive_data)
+        result['updatedAt'] = int(time.time() * 1000)
+        _write_json(filepath, result)
+
+    result['stats'] = {
+        'coreCount': len(result['core']),
+        'dailyCount': len(result['daily']),
+        'totalAccess': sum(m.get('accessCount', 0) for m in result['core'])
+    }
+    return result
+
+
+def save_group_memory(group_id, data):
+    """保存项目组活跃记忆"""
+    filepath = _group_memory_file_path(group_id)
+    data['updatedAt'] = int(time.time() * 1000)
+    _write_json(filepath, data)
+
+
+def load_group_archive(group_id):
+    """加载项目组归档记忆"""
+    filepath = _group_archive_file_path(group_id)
+    raw = _read_json(filepath, None)
+    if raw is None:
+        return {'version': '3.0', 'groupId': group_id, 'archived': []}
+    if isinstance(raw, list):
+        return {'version': '3.0', 'groupId': group_id, 'archived': raw}
+    return {
+        'version': raw.get('version', '3.0'),
+        'groupId': raw.get('groupId', group_id),
+        'archived': raw.get('archived', [])
+    }
+
+
+def save_group_archive(group_id, data):
+    """保存项目组归档记忆"""
+    filepath = _group_archive_file_path(group_id)
+    _write_json(filepath, data)
+
+
+def add_group_memory(group_id, value, key='daily', source='group_chat', context=None):
+    """添加项目组公共记忆；key='auto'/'auto_extract'/'daily' 入 daily，其他入 core"""
+    cfg = MEMORY_V3_CONFIG
+    if len(value) > cfg['store_value_max']:
+        raise ValueError(f'Value exceeds max length {cfg["store_value_max"]}')
+
+    pool = 'daily' if key in ('auto', 'auto_extract', 'daily') else 'core'
+    pool_max = cfg['daily_max'] if pool == 'daily' else cfg['core_max']
+
+    data = load_group_memory(group_id)
+    target = data.get(pool, [])
+    if len(target) >= pool_max:
+        raise RuntimeError(f'{pool} pool full ({len(target)}/{pool_max})')
+
+    now = int(time.time() * 1000)
+    ttl_ms = cfg['daily_ttl_days'] * 24 * 3600 * 1000
+    memory = {
+        'id': 'mem_' + uuid.uuid4().hex[:8],
+        'key': key,
+        'value': value,
+        'source': source,
+        'createdAt': now,
+    }
+    if pool == 'core':
+        memory['priority'] = 5
+        memory['tags'] = []
+        memory['updatedAt'] = now
+        memory['accessCount'] = 0
+        memory['expiresAt'] = None
+    else:
+        memory['context'] = (context or '')[:cfg['context_max']]
+        memory['expiresAt'] = now + ttl_ms
+
+    target.append(memory)
+    data[pool] = target
+    save_group_memory(group_id, data)
+    return memory
+
+
+def get_group_memory_stats(group_id):
+    """获取项目组记忆统计"""
+    data = load_group_memory(group_id)
+    archive_data = load_group_archive(group_id)
+    cfg = MEMORY_V3_CONFIG
+    return {
+        'groupId': group_id,
+        'core': {
+            'count': len(data.get('core', [])),
+            'max': cfg['core_max'],
+            'usagePercent': round(len(data.get('core', [])) / cfg['core_max'] * 100, 1)
+        },
+        'daily': {
+            'count': len(data.get('daily', [])),
+            'max': cfg['daily_max'],
+            'usagePercent': round(len(data.get('daily', [])) / cfg['daily_max'] * 100, 1)
+        },
+        'archived': {'count': len(archive_data.get('archived', []))}
+    }
+
+
+def inject_group_memories(group_id, system_prompt=''):
+    """为群聊 AI prompt 注入项目组公共记忆（core + daily）"""
+    if not group_id:
+        return system_prompt
+    data = load_group_memory(group_id)
+    cfg = MEMORY_V3_CONFIG
+    MAX_TOTAL_CHARS = 2000
+
+    core_lines = []
+    for m in sorted(data.get('core', []),
+                    key=lambda x: (x.get('priority', 5), x.get('accessCount', 0)),
+                    reverse=True):
+        val = m.get('value', '')[:cfg['inject_value_max']]
+        if val:
+            core_lines.append(f'- {val}')
+            m['accessCount'] = m.get('accessCount', 0) + 1
+
+    daily_lines = []
+    for m in sorted(data.get('daily', []),
+                    key=lambda x: x.get('createdAt', 0),
+                    reverse=True)[:cfg['inject_daily_max']]:
+        val = m.get('value', '')[:cfg['inject_value_max']]
+        if val:
+            daily_lines.append(f'- {val}')
+
+    sections = []
+    if core_lines:
+        sections.append(('core', '【项目组核心记忆】\n' + '\n'.join(core_lines)))
+    if daily_lines:
+        sections.append(('daily', '【项目组日常记录】\n' + '\n'.join(daily_lines)))
+
+    final_texts = []
+    total_chars = 0
+    for sec_type, sec_text in sections:
+        sec_len = len(sec_text)
+        if total_chars + sec_len <= MAX_TOTAL_CHARS:
+            final_texts.append(sec_text)
+            total_chars += sec_len
+        else:
+            lines = sec_text.split('\n')
+            keep_lines = []
+            for line in lines:
+                if total_chars + len(line) + 1 <= MAX_TOTAL_CHARS:
+                    keep_lines.append(line)
+                    total_chars += len(line) + 1
+                else:
+                    break
+            if keep_lines:
+                final_texts.append('\n'.join(keep_lines))
+            break
+
+    if final_texts:
+        system_prompt += '\n\n' + '\n\n'.join(final_texts)
+
+    if data.get('core'):
+        try:
+            save_group_memory(group_id, data)
+        except Exception:
+            pass
+    return system_prompt
+
+
+# ═══════════════════════════════════════════════════
 # 注入策略
 # ═══════════════════════════════════════════════════
 
@@ -709,15 +943,15 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
         # 空知识库 graceful handling
         conn = ks._db_conn()
         try:
-            count_row = conn.execute('SELECT COUNT(*) as c FROM knowledge WHERE emp_id=? AND status="ok"',
-                                     (emp_id,)).fetchone()
+            count_row = conn.execute('SELECT COUNT(*) as c FROM knowledge WHERE status="ok" AND (emp_id IS NULL OR emp_id=?)',
+                                     ('',)).fetchone()
             kb_count = count_row['c'] if count_row else 0
         finally:
             conn.close()
 
         if kb_count > 0 and api_key and user_message:
             kb_docs = ks.knowledge_search_semantic(
-                user_message, emp_id, api_key, provider, agent_config,
+                user_message, '', api_key, provider, agent_config,
                 limit=cfg['inject_knowledge_max']
             )
             for d in kb_docs:

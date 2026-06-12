@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Knowledge Service — 知识库分段向量化 + 员工隔离 + 权限控制
+Knowledge Service — 知识库分段向量化 + 全局公共 + 权限控制
 =============================================================
 被 solobrave-server.py 和 memory_service_v3.py 共用，避免循环导入。
 """
@@ -404,9 +404,12 @@ def knowledge_create(title, content, category, emp_id, api_key, provider, agent_
     创建知识条目，自动分段 + 向量化。
     agent_config 用于读取 chunkSize / chunkOverlap / embeddingModel。
     如果 api_key 为空，只保存数据不生成向量（status='pending'）。
+    emp_id 留空表示全局公共知识库。
     """
     kid = _gen_id('kb')
     now = _now_ms()
+    # 全局知识库使用空字符串
+    actual_emp_id = emp_id or ''
 
     # agent 配置
     cfg = (agent_config or {}).get('knowledge', {})
@@ -419,14 +422,14 @@ def knowledge_create(title, content, category, emp_id, api_key, provider, agent_
         conn.execute('''
             INSERT INTO knowledge (id, emp_id, title, content, category, status, chunk_count, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?)
-        ''', (kid, emp_id, title, content, category or '', now, now))
+        ''', (kid, actual_emp_id, title, content, category or '', now, now))
         conn.commit()
     finally:
         conn.close()
 
     # 分段（无论是否有 API key，先保存 chunks）
     try:
-        _save_chunks_without_embedding(kid, emp_id, content, chunk_size, overlap)
+        _save_chunks_without_embedding(kid, actual_emp_id, content, chunk_size, overlap)
     except Exception as e:
         print(f'  [Knowledge] chunking failed: {e}', flush=True)
         conn = _db_conn()
@@ -444,7 +447,7 @@ def knowledge_create(title, content, category, emp_id, api_key, provider, agent_
 
     # 向量化
     try:
-        _vectorize_chunks(kid, emp_id, api_key, provider, embedding_model)
+        _vectorize_chunks(kid, actual_emp_id, api_key, provider, embedding_model)
         conn = _db_conn()
         try:
             conn.execute('UPDATE knowledge SET status="ok" WHERE id=?', (kid,))
@@ -499,7 +502,7 @@ def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
             chunk_size = cfg.get('chunkSize', 500)
             overlap = cfg.get('chunkOverlap', 100)
             embedding_model = cfg.get('embeddingModel', 'text-embedding-3-small')
-            actual_emp_id = emp_id or row['emp_id']
+            actual_emp_id = emp_id or row['emp_id'] or ''
 
             # 先分段（无论是否有 API key）
             _save_chunks_without_embedding(kid, actual_emp_id, content, chunk_size, overlap)
@@ -551,14 +554,18 @@ def knowledge_get_by_id(kid):
 
 
 def knowledge_list(offset=0, limit=50, category=None, keyword=None, emp_id=None):
-    """知识列表（支持分页、分类筛选、关键词搜索、员工隔离）"""
+    """知识列表（支持分页、分类筛选、关键词搜索；emp_id 为空时返回全局公共知识库）"""
     conn = _db_conn()
     try:
-        where = []
-        params = []
+        where = ['status = ?']
+        params = ['ok']
+        # 员工隔离已取消：默认返回全局知识库；若指定 emp_id 仅作兼容保留
         if emp_id:
             where.append('emp_id = ?')
             params.append(emp_id)
+        else:
+            where.append('(emp_id IS NULL OR emp_id = ?)')
+            params.append('')
         if category:
             where.append('category = ?')
             params.append(category)
@@ -668,7 +675,7 @@ def _rechunk_and_vectorize(kid, emp_id, content, api_key, provider,
 def rag_retrieve(query, emp_id, api_key, provider, agent_config=None, top_k_docs=3):
     """
     RAG 检索：在 knowledge_chunks 中搜索，返回关联的原始文档。
-    带员工隔离和 5 分钟缓存。
+    知识库已改为全局公共，emp_id 仅用于缓存 key 兼容。
     整个函数被 try-catch 保护，出错时降级返回空结果，避免拖垮主流程。
     """
     try:
@@ -705,8 +712,8 @@ def rag_retrieve(query, emp_id, api_key, provider, agent_config=None, top_k_docs
                        c.chunk_index, c.content as chunk_content, c.embedding
                 FROM knowledge_chunks c
                 JOIN knowledge k ON c.knowledge_id = k.id
-                WHERE c.emp_id = ? AND k.status = 'ok' AND c.embedding_model = ? AND c.embedding IS NOT NULL
-            ''', (emp_id, embedding_model)).fetchall()
+                WHERE k.status = 'ok' AND c.embedding_model = ? AND c.embedding IS NOT NULL
+            ''', (embedding_model,)).fetchall()
         finally:
             conn.close()
 
@@ -779,8 +786,8 @@ def format_rag_context(docs):
 # Fallback：关键词搜索
 # ═══════════════════════════════════════════════════
 
-def knowledge_search_fallback(query, emp_id, limit=3):
-    """API 失败时的关键词搜索 fallback（LIKE）"""
+def knowledge_search_fallback(query, emp_id=None, limit=3):
+    """API 失败时的关键词搜索 fallback（LIKE）；全局知识库"""
     if isinstance(query, list):
         text_parts = [item.get('text', '') for item in query if isinstance(item, dict) and item.get('type') == 'text']
         query = ''.join(text_parts)
@@ -792,10 +799,10 @@ def knowledge_search_fallback(query, emp_id, limit=3):
         rows = conn.execute('''
             SELECT id, title, content, category, created_at, updated_at
             FROM knowledge
-            WHERE emp_id = ? AND status = 'ok' AND (title LIKE ? OR content LIKE ?)
+            WHERE status = 'ok' AND (title LIKE ? OR content LIKE ?)
             ORDER BY updated_at DESC
             LIMIT ?
-        ''', (emp_id, keyword, keyword, limit)).fetchall()
+        ''', (keyword, keyword, limit)).fetchall()
         return [_knowledge_row_to_dict(r) for r in rows]
     finally:
         conn.close()
@@ -823,8 +830,11 @@ def knowledge_search_semantic(query, emp_id, api_key, provider, agent_config=Non
 # ═══════════════════════════════════════════════════
 
 def check_knowledge_permission(requester_id, target_emp_id, requester_role=None):
-    """检查 requester 是否有权限访问 target_emp_id 的知识库"""
+    """检查 requester 是否有权限访问知识库；知识库已全局公共，仅保留 admin 兜底"""
     if requester_role == 'admin':
+        return True
+    # 全局知识库对所有人开放
+    if not target_emp_id:
         return True
     return requester_id == target_emp_id
 
@@ -862,12 +872,12 @@ def knowledge_migrate_from_json(data_dir, get_agent_config_fn):
             content = doc.get('content', '')
             category = doc.get('category', '')
 
-            # 幂等：检查是否已存在（按 title + emp_id 去重）
+            # v3：旧版按员工隔离的知识库统一迁移为全局公共知识库（按 title 去重）
             conn = _db_conn()
             try:
                 existing = conn.execute(
-                    'SELECT id FROM knowledge WHERE emp_id=? AND title=?',
-                    (emp_id, title)
+                    'SELECT id FROM knowledge WHERE (emp_id IS NULL OR emp_id = ?) AND title=?',
+                    ('', title)
                 ).fetchone()
                 if existing:
                     print(f'  [Migrate] Skip existing: {title}', flush=True)
@@ -888,7 +898,7 @@ def knowledge_migrate_from_json(data_dir, get_agent_config_fn):
 
             # 导入（自动触发分段和向量化）
             try:
-                knowledge_create(title, content, category, emp_id, api_key, provider, agent_config)
+                knowledge_create(title, content, category, '', api_key, provider, agent_config)
                 migrated += 1
                 print(f'  [Migrate] Migrated: {title}', flush=True)
             except Exception as e:
