@@ -120,7 +120,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   transform: translateY(-50%);
   width: 2px;
   height: 20px;
-  background: #0a84ff;
+  background: #007AFF;
   border-radius: 0 2px 2px 0;
 }
 .nav-item svg {
@@ -273,6 +273,366 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .module-form-row textarea { resize: vertical; min-height: 80px; }
 .module-empty { padding: 40px; text-align: center; color: var(--text-tertiary); }
 
+/* ========================================
+   KNOWLEDGE BASE - Feishu Cloud Docs
+   ======================================== */
+.app-main.knowledge-active { flex-direction: row; }
+#knowledgeMidList {
+  display: none;
+  width: 320px;
+  flex-shrink: 0;
+  background: #ffffff;
+  border-right: 1px solid var(--separator);
+  flex-direction: column;
+  overflow: hidden;
+}
+#knowledgeMidList.active { display: flex; }
+#knowledgeRight { flex: 1; min-width: 0; }
+
+/* Category sidebar */
+.knowledge-cat-sidebar { background: #ffffff; }
+.knowledge-cat-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #F5F5F5;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 12px;
+}
+.knowledge-cat-search svg {
+  width: 16px; height: 16px;
+  color: #86909c;
+  flex-shrink: 0;
+}
+.knowledge-cat-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  color: var(--text-primary);
+  outline: none;
+}
+.knowledge-cat-search input::placeholder { color: #86909c; }
+.knowledge-cat-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px;
+}
+.knowledge-cat-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 2px 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: #ffffff;
+  border-left: 3px solid transparent;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.knowledge-cat-item:hover { background: #F8F9FA; }
+.knowledge-cat-item.active {
+  background: rgba(0,122,255,0.08);
+  border-left-color: #007AFF;
+  color: #007AFF;
+}
+.knowledge-cat-item.active svg { color: #007AFF; }
+.knowledge-cat-item svg {
+  width: 18px; height: 18px;
+  color: #86909c;
+  flex-shrink: 0;
+}
+.knowledge-cat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-cat-count {
+  font-size: 12px;
+  color: #86909c;
+  background: #F5F5F5;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.knowledge-cat-item.active .knowledge-cat-count { background: rgba(0,122,255,0.12); color: #007AFF; }
+.knowledge-cat-new {
+  width: calc(100% - 16px);
+  margin: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #86909c;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: center;
+}
+.knowledge-cat-new:hover { background: #F5F5F5; }
+
+/* Middle list */
+.knowledge-mid-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 0.5px solid var(--separator);
+  flex-shrink: 0;
+}
+.knowledge-mid-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.knowledge-mid-count {
+  flex: 1;
+  font-size: 13px;
+  color: #86909c;
+}
+.knowledge-mid-new {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: none;
+  background: #007AFF;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.knowledge-mid-new:hover { background: #0066CC; }
+.knowledge-mid-items {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+.knowledge-mid-card {
+  margin: 8px 12px;
+  padding: 14px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  cursor: pointer;
+  transition: all 0.15s;
+  border-left: 3px solid transparent;
+}
+.knowledge-mid-card:hover { background: #F8F9FA; }
+.knowledge-mid-card.active {
+  border-left-color: #007AFF;
+  background: rgba(0,122,255,0.04);
+}
+.knowledge-mid-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.knowledge-mid-card-title {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.knowledge-mid-card-tag {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  background: rgba(0,122,255,0.08);
+  color: #007AFF;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.knowledge-mid-card-body {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #86909c;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.knowledge-mid-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: 12px;
+  color: #86909c;
+}
+.knowledge-mid-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #86909c;
+  gap: 12px;
+  padding: 40px 20px;
+}
+.knowledge-mid-empty-icon { font-size: 48px; }
+.knowledge-mid-empty-text { font-size: 14px; }
+.knowledge-mid-empty-btn {
+  padding: 8px 20px;
+  border-radius: 999px;
+  border: none;
+  background: #007AFF;
+  color: #ffffff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.knowledge-mid-empty-btn:hover { background: #0066CC; }
+.knowledge-mid-pagination {
+  padding: 8px;
+  border-top: 0.5px solid var(--separator);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.knowledge-mid-pagination button {
+  padding: 4px 8px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.knowledge-mid-pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+.knowledge-mid-pagination span { font-size: 12px; color: #86909c; }
+
+/* Right editor */
+.knowledge-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+}
+.knowledge-editor-header {
+  padding: 20px 24px 16px;
+  border-bottom: 0.5px solid var(--separator);
+  flex-shrink: 0;
+}
+#knowledgeEditTitle {
+  width: 100%;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  border: none;
+  border-bottom: 1px solid var(--separator);
+  padding: 0 0 10px;
+  margin-bottom: 12px;
+  outline: none;
+  background: transparent;
+}
+#knowledgeEditTitle::placeholder { color: #86909c; }
+#knowledgeEditTitle:focus { border-bottom-color: #007AFF; }
+#knowledgeEditCategory {
+  min-width: 140px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 0.5px solid var(--separator);
+  background: #F5F5F5;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+}
+.knowledge-editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 24px;
+  border-bottom: 0.5px solid var(--separator);
+  flex-shrink: 0;
+  gap: 12px;
+}
+.knowledge-editor-tabs { display: flex; align-items: center; gap: 8px; }
+.knowledge-editor-tab {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: #86909c;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.knowledge-editor-tab:hover { color: #007AFF; }
+.knowledge-editor-tab.active { background: rgba(0,122,255,0.08); color: #007AFF; font-weight: 500; }
+.knowledge-editor-tools { display: flex; align-items: center; gap: 6px; }
+.knowledge-editor-tools button {
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #86909c;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+}
+.knowledge-editor-tools button:hover { color: #007AFF; background: rgba(0,122,255,0.06); }
+.knowledge-editor-tools svg { width: 16px; height: 16px; }
+.knowledge-editor-body {
+  flex: 1;
+  overflow-y: auto;
+  position: relative;
+  min-height: 0;
+}
+#knowledgeEditContent {
+  width: 100%;
+  min-height: 300px;
+  height: 100%;
+  padding: 16px 24px;
+  font-size: 15px;
+  line-height: 1.7;
+  background: #ffffff;
+  border: none;
+  outline: none;
+  resize: none;
+  box-sizing: border-box;
+}
+#knowledgeEditPreview {
+  width: 100%;
+  min-height: 300px;
+  height: 100%;
+  padding: 16px 24px;
+  font-size: 15px;
+  line-height: 1.7;
+  background: #ffffff;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+#knowledgeEditPreview.hidden { display: none; }
+.knowledge-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 24px;
+  border-top: 0.5px solid var(--separator);
+  flex-shrink: 0;
+}
+.knowledge-editor-footer button {
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: none;
+}
+.knowledge-editor-cancel { background: #F5F5F5; color: #86909c; }
+.knowledge-editor-cancel:hover { background: #E5E5EA; }
+.knowledge-editor-save { background: #007AFF; color: #ffffff; }
+.knowledge-editor-save:hover { background: #0066CC; }
+#knowledgeEditStatus {
+  padding: 0 24px 8px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
 
 .messages-area {
   order: 1;
@@ -355,7 +715,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 
 .list-section { flex: 1; overflow-y: auto; padding-bottom: 28px; }
-.section-title { font: 600 11px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; color: #86909c; letter-spacing: 1px; text-transform: uppercase; padding: 16px 14px 8px; }
+.section-title { font: 12px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; color: #86909c; letter-spacing: 1px; padding: 16px 14px 8px; }
 .dept-group { margin-bottom: 4px; }
 .dept-header {
   display: flex;
@@ -365,10 +725,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   margin: 0 8px;
 }
 .dept-title {
-  font: 600 11px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  font: 12px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
   color: #86909c;
   letter-spacing: 1px;
-  text-transform: uppercase;
 }
 .dept-count {
   font: 500 10px/1 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
@@ -867,87 +1226,108 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* ========================================
    INPUT AREA V2 - 视频风格布局
    ======================================== */
-.input-toolbar-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-top: 1px solid var(--separator);
-}
-.toolbar-actions { display: flex; align-items: center; gap: 12px; }
-.toolbar-right { display: flex; align-items: center; gap: 16px; }
-.token-link { font-size: 13px; color: var(--text-secondary); text-decoration: none; cursor: pointer; transition: color 0.15s; }
-.token-link:hover { color: var(--accent); }
-.connection-status { font-size: 12px; color: #34C759; font-weight: 500; }
-.connection-status::before { content: ''; display: inline-block; width: 6px; height: 6px; background: #34C759; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
-.toolbar-action-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  font-weight: 500;
-  border: none;
+/* Chat header more menu */
+.chat-more-menu { position: relative; margin-left: 6px; }
+.chat-more-btn {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px;
   cursor: pointer;
   transition: all 0.15s;
-  background: transparent;
-  color: var(--text-primary);
 }
-.toolbar-action-btn:hover { background: var(--bg-secondary); }
-.toolbar-action-btn .icon-box {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
+.chat-more-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.chat-more-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 0.5px solid var(--separator);
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.12);
+  padding: 6px;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 200;
+}
+.chat-more-dropdown.show { display: flex; }
+.chat-more-dropdown > div {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  flex-shrink: 0;
+  gap: 8px;
+  transition: background 0.15s;
 }
-.toolbar-action-btn.blue .icon-box { background: #007AFF; color: white; }
-.toolbar-action-btn.yellow .icon-box { background: #FF9500; color: white; }
-.toolbar-action-btn.purple .icon-box { background: #AF52DE; color: white; }
-
+.chat-more-dropdown > div:hover { background: var(--bg-tertiary); }
+.chat-more-dropdown .token-count { margin-left: auto; color: var(--text-tertiary); font-size: 12px; }
 
 .input-area-v2 {
   padding: 10px 16px 12px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: #ffffff;
   border-top: 1px solid var(--separator);
+  position: relative;
 }
 .input-wrap-v2 {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   gap: 8px;
-  background: #f2f3f5;
-  border-radius: 20px;
+  background: #F5F5F5;
+  border-radius: 16px;
   padding: 10px 14px;
   transition: all 0.2s;
+  border: 1px solid transparent;
+  position: relative;
 }
-.input-wrap-v2:focus-within { background: #e5e6eb; }
+.input-wrap-v2:focus-within {
+  border-color: #007AFF;
+  box-shadow: 0 0 0 3px rgba(0,122,255,0.1);
+}
+.input-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.input-tool-btn {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #86909c;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+}
+.input-tool-btn:hover { color: #007AFF; background: rgba(0,122,255,0.06); }
+.input-tool-btn svg { width: 18px; height: 18px; }
 .input-wrap-v2 textarea {
   flex: 1;
-  min-height: 80px;
+  min-height: 66px;
   max-height: 200px;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
   background: transparent;
   border: none;
   outline: none;
   resize: none;
-  padding: 4px 0;
+  padding: 0;
   color: var(--text-primary);
 }
 .input-wrap-v2 textarea::placeholder { color: var(--text-tertiary); }
 .send-btn-v2 {
-  width: 32px;
-  height: 32px;
-  background: var(--accent);
+  width: 36px;
+  height: 36px;
+  background: #C7C7CC;
   color: white;
   border-radius: 50%;
   display: flex;
@@ -957,15 +1337,12 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-shrink: 0;
   border: none;
   cursor: pointer;
+  align-self: flex-end;
 }
-.send-btn-v2:hover { background: var(--accent-hover); transform: scale(1.05); }
-.input-hint {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  margin-top: 6px;
-  text-align: right;
-  letter-spacing: 0.02em;
-}
+.send-btn-v2:not(:disabled) { background: #007AFF; }
+.send-btn-v2:not(:disabled):hover { background: #0066CC; transform: scale(1.05); }
+.send-btn-v2 svg { width: 18px; height: 18px; }
+.input-hint { display: none; }
 .token-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .token-label { font: var(--font-micro); color: var(--text-secondary); white-space: nowrap; }
 .token-track { flex: 1; height: 4px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden; }
@@ -1351,7 +1728,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .slash-icon { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
 .slash-name { font-size: 13px; }
 .slash-name code { background: var(--bg-secondary); padding: 2px 6px; border-radius: 4px; font-family: 'SF Mono', monospace; font-size: 12px; color: var(--accent); margin-right: 6px; }
-.mention-dropdown.active, .slash-menu.active { display: block; }
+.mention-dropdown.active, .slash-menu.active { display: block !important; }
 .mention-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; transition: background 0.1s; }
 .mention-item:hover, .mention-item.selected { background: var(--accent-light); }
 .mention-info { flex: 1; }
@@ -2253,7 +2630,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .chat-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .chat-image-thumb { max-width: 200px; max-height: 150px; border-radius: 8px; cursor: pointer; }
 .memory-image-toast { position: fixed; bottom: 80px; right: 20px; background: var(--bg-secondary); border: 1px solid var(--border-color, #E5E5EA); border-radius: 12px; padding: 12px 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-size: 13px; z-index: 9999; display: flex; align-items: center; gap: 10px; }
-#attachBtn:hover { background: #e5e6eb !important; color: var(--text-secondary) !important; transform: none; }
 </style>
 <script>// Early login handler - works even if main script fails to load
 window.doLogin = function () {
@@ -2869,18 +3245,14 @@ window.doLogin = function () {
 <div class="section-title">我的项目组</div>
 </div>
 
-<!-- Knowledge Mid -->
-<div class="module-mid" id="knowledgeMid">
-  <div class="sidebar-search">
-    <svg class="sidebar-search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-    <input type="text" placeholder="搜索知识..." id="knowledgeMidSearch" oninput="onModuleSearch(this.value)">
+<!-- Knowledge Category Sidebar -->
+<div class="module-mid knowledge-cat-sidebar" id="knowledgeMid">
+  <div class="knowledge-cat-search">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input type="text" placeholder="搜索分类/知识..." id="knowledgeMidSearch" oninput="onModuleSearch(this.value)">
   </div>
-  <div class="module-filter-row">
-    <select id="knowledgeMidCategory" onchange="onKnowledgeMidCategoryChange(this.value)"><option value="">全部分类</option></select>
-  </div>
-  <div class="section-title">知识条目</div>
-  <div class="module-mid-list" id="knowledgeMidList"></div>
-  <div id="knowledgeMidPagination"></div>
+  <div class="knowledge-cat-list" id="knowledgeMidCategory"></div>
+  <button class="knowledge-cat-new" onclick="createNewKnowledgeCategory()">+ 新建分类</button>
 </div>
 
 <!-- Products Mid -->
@@ -2935,28 +3307,45 @@ window.doLogin = function () {
 
 <!-- Main Content -->
 <main class="app-main">
+<!-- Knowledge Middle List -->
+<div class="knowledge-mid-list" id="knowledgeMidList">
+  <div class="knowledge-mid-header">
+    <div class="knowledge-mid-title" id="knowledgeMidTitle">全部</div>
+    <div class="knowledge-mid-count" id="knowledgeMidCount">共 0 条</div>
+    <button class="knowledge-mid-new" onclick="createNewKnowledge()">+ 新建知识</button>
+  </div>
+  <div class="knowledge-mid-items" id="knowledgeMidItems"></div>
+  <div class="knowledge-mid-pagination" id="knowledgeMidPagination"></div>
+</div>
+
 <!-- Knowledge Right -->
 <div class="module-right" id="knowledgeRight">
-  <div class="module-right-header">
-    <div class="module-right-title">知识详情</div>
-    <div class="module-right-actions">
-      <button class="module-action-btn" onclick="toggleKnowledgePreview()">预览</button>
-      <button class="module-action-btn primary" onclick="saveKnowledgeFromEditor()">保存</button>
-      <button class="module-action-btn danger" onclick="deleteKnowledgeFromEditor()">删除</button>
-    </div>
-  </div>
-  <div class="module-right-content">
-    <div class="module-form-row">
+  <div class="module-right-content knowledge-editor">
+    <div class="knowledge-editor-header">
       <input type="text" id="knowledgeEditTitle" placeholder="知识标题">
+      <select id="knowledgeEditCategory"><option value="">选择分类</option></select>
     </div>
-    <div class="module-form-row">
-      <input type="text" id="knowledgeEditCategory" placeholder="分类">
+    <div class="knowledge-editor-toolbar">
+      <div class="knowledge-editor-tabs">
+        <button class="knowledge-editor-tab active" data-tab="edit" onclick="switchKnowledgeTab('edit')">编辑</button>
+        <button class="knowledge-editor-tab" data-tab="preview" onclick="switchKnowledgeTab('preview')">预览</button>
+      </div>
+      <div class="knowledge-editor-tools">
+        <button type="button" onclick="insertMarkdown('**','**')" title="粗体"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h9a4 4 0 0 0 0-8H6v16"/><path d="M6 12h10a4 4 0 0 1 0 8H6"/></svg></button>
+        <button type="button" onclick="insertMarkdown('*','*')" title="斜体"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" x2="10" y1="4" y2="4"/><line x1="14" x2="5" y1="20" y2="20"/><line x1="15" x2="9" y1="4" y2="20"/></svg></button>
+        <button type="button" onclick="insertMarkdown('- ','')" title="列表"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg></button>
+        <button type="button" onclick="insertMarkdown('```\n','\n```')" title="代码块"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></button>
+      </div>
     </div>
-    <div class="module-form-row" style="flex:1;display:flex;flex-direction:column;min-height:200px;">
-      <textarea id="knowledgeEditContent" placeholder="输入 Markdown 内容..." style="flex:1;min-height:200px;"></textarea>
+    <div class="knowledge-editor-body">
+      <textarea id="knowledgeEditContent" placeholder="输入 Markdown 内容..."></textarea>
+      <div id="knowledgeEditPreview" class="hidden"></div>
     </div>
-    <div id="knowledgeEditPreview" class="hidden" style="flex:1;overflow-y:auto;padding:16px;border:0.5px solid var(--separator);border-radius:6px;background:var(--bg-primary);"></div>
-    <div id="knowledgeEditStatus" style="font-size:12px;color:var(--text-tertiary);margin-top:8px;"></div>
+    <div class="knowledge-editor-footer">
+      <button type="button" class="knowledge-editor-cancel" onclick="closeKnowledgeEditor()">取消</button>
+      <button type="button" class="knowledge-editor-save" onclick="saveKnowledgeFromEditor()">保存</button>
+    </div>
+    <div id="knowledgeEditStatus"></div>
   </div>
 </div>
 
@@ -3022,6 +3411,15 @@ window.doLogin = function () {
 <div class="chat-header-right" id="chatHeaderRight" style="display:none;">
 <button class="announcement-edit-btn" onclick="archiveGroupChat()" title="归档当前群聊" style="background:rgba(88,86,214,0.15);color:#5856D6;">📦 归档</button>
 <button class="announcement-edit-btn" onclick="resetGroupChat()" title="重置当前群聊" style="background:rgba(255,59,48,0.15);color:#FF3B30;margin-left:6px;">🔄 重置</button>
+<div class="chat-more-menu">
+  <button class="chat-more-btn" onclick="toggleChatMoreMenu()" title="更多">⋮</button>
+  <div class="chat-more-dropdown" id="chatMoreDropdown">
+    <div onclick="openCompressModalWithConfirm()"><span>❄️</span> 压缩上下文</div>
+    <div onclick="openScanModal()"><span>🔍</span> 扫描上下文</div>
+    <div onclick="openResetModal()"><span>🔄</span> 清空上下文</div>
+    <div onclick="jumpToTokens(); closeChatMoreMenu();">跳转至 Tokens <span class="token-count" id="tokenCount">665</span></div>
+  </div>
+</div>
 </div>
 </div>
 
@@ -3107,27 +3505,9 @@ window.doLogin = function () {
 <div class="context-item danger" onclick="ctxAction('delete')">🗑️ 删除</div>
 </div>
 
-<!-- 输入框上方工具栏 -->
-<div class="input-toolbar-top">
-<div class="toolbar-actions">
-<button class="toolbar-action-btn blue" onclick="if(confirm('确定要压缩上下文吗？这将清理早期消息。'))openCompressModal()" title="压缩上下文">
-<span class="icon-box">❄️</span> 压缩
-</button>
-<button class="toolbar-action-btn yellow" onclick="openScanModal()" title="扫描上下文">
-<span class="icon-box">🔍</span> 扫描
-</button>
-<button class="toolbar-action-btn purple" onclick="openResetModal()" title="清空上下文">
-<span class="icon-box">🔄</span> 重置
-</button>
-</div>
-<div class="toolbar-right">
-<a href="#" class="token-link" onclick="jumpToTokens();return false;">跳转至 Tokens <span id="tokenCount">665</span></a>
-<span class="connection-status">已接通</span>
-</div>
-</div>
-
 <!-- 输入框区域 -->
 <div class="input-area-v2">
+<div class="input-wrap-v2">
 <div class="slash-menu" id="slashMenu">
 <div class="slash-header">
 <input type="text" class="slash-search" id="slashSearch" placeholder="搜索命令..." oninput="filterSlashCommands(this.value)">
@@ -3195,19 +3575,22 @@ window.doLogin = function () {
 </div>
 </div>
 </div>
-<div class="input-wrap-v2">
 <!-- Mention Dropdown -->
-<div class="mention-dropdown" id="mentionDropdown" style="display:none;position:absolute;bottom:100%;left:0;right:0;background:var(--bg-primary);border:1px solid var(--separator);border-radius:8px;box-shadow:0 -4px 12px rgba(0,0,0,0.1);max-height:200px;overflow-y:auto;z-index:100;margin-bottom:8px;">
+<div class="mention-dropdown" id="mentionDropdown" style="position:absolute;bottom:100%;left:0;right:0;background:var(--bg-primary);border:1px solid var(--separator);border-radius:8px;box-shadow:0 -4px 12px rgba(0,0,0,0.1);max-height:200px;overflow-y:auto;z-index:100;margin-bottom:8px;">
 <div class="mention-header" style="padding:8px 12px;font-size:12px;color:var(--text-secondary);border-bottom:1px solid var(--separator);">选择要 @ 的员工</div>
 <div class="mention-list" id="mentionList" style="padding:4px 0;"></div>
 </div>
 <div class="chat-image-preview-bar" id="imagePreviewBar" style="display:none;"></div>
-<textarea id="msgInput" rows="1" placeholder="输入消息，/查看快捷指令" oninput="if(this.value.startsWith('/')){document.getElementById('slashMenu').style.display='block';document.getElementById('slashSearch').value=this.value.slice(1);filterSlashCommands(this.value.slice(1));}else{document.getElementById('slashMenu').style.display='none';} if(this.value.includes('@')){showMentionDropdown();}else{document.getElementById('mentionDropdown').style.display='none';}"></textarea>
-<button class="send-btn-v2" id="attachBtn" title="上传图片" style="background:var(--bg-secondary);color:var(--text-secondary);margin-right:4px;">📎</button>
-<input type="file" id="imageFileInput" accept="image/*" multiple style="display:none;">
-<button class="send-btn-v2" id="sendBtn">➤</button>
+<div class="input-toolbar-left">
+  <button class="input-tool-btn" type="button" onclick="document.getElementById('imageFileInput').click()" title="附件"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+  <button class="input-tool-btn" type="button" onclick="insertTextAtCursor('😊')" title="表情"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/></svg></button>
+  <button class="input-tool-btn" type="button" onclick="showMention()" title="@ 提及"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg></button>
+  <button class="input-tool-btn" type="button" onclick="openSlashMenu()" title="/ 命令"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="m6 16 6-12"/><path d="m18 16-6-12"/></svg></button>
 </div>
-<div class="input-hint">按 Enter 发送，Shift+Enter 换行</div>
+<textarea id="msgInput" rows="3" placeholder="输入消息..." oninput="handleInput();"></textarea>
+<input type="file" id="imageFileInput" accept="image/*" multiple style="display:none;">
+<button class="send-btn-v2" id="sendBtn" type="button" disabled title="发送"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+</div>
 </div>
 
 <!-- Task Board (Full) -->
@@ -4216,12 +4599,13 @@ function renderImagePreview() {
   if (window._pendingImages.length === 0) {
     bar.innerHTML = '';
     bar.style.display = 'none';
-    return;
+  } else {
+    bar.style.display = 'flex';
+    bar.innerHTML = window._pendingImages.map(function(img, idx) {
+      return '<div class="chat-image-preview-item"><img src="' + img.base64 + '"><div class="chat-image-preview-remove" onclick="removePendingImage(' + idx + ')">×</div></div>';
+    }).join('');
   }
-  bar.style.display = 'flex';
-  bar.innerHTML = window._pendingImages.map(function(img, idx) {
-    return '<div class="chat-image-preview-item"><img src="' + img.base64 + '"><div class="chat-image-preview-remove" onclick="removePendingImage(' + idx + ')">×</div></div>';
-  }).join('');
+  updateSendButtonState();
 }
 function removePendingImage(idx) {
   window._pendingImages.splice(idx, 1);
@@ -4230,6 +4614,12 @@ function removePendingImage(idx) {
 function clearPendingImages() {
   window._pendingImages = [];
   renderImagePreview();
+}
+function updateSendButtonState() {
+  var input = document.getElementById('msgInput');
+  var sendBtn = document.getElementById('sendBtn');
+  if (!input || !sendBtn) return;
+  sendBtn.disabled = !input.value.trim() && (!window._pendingImages || window._pendingImages.length === 0);
 }
 function buildChatImagesHtml(images) {
   if (!images || images.length === 0) return '';
@@ -4293,6 +4683,7 @@ async function sendMsg() {
     document.getElementById('mentionDropdown').style.display = 'none';
     document.getElementById('slashMenu').style.display = 'none';
     clearPendingImages();
+    updateSendButtonState();
     sendGroupMessage(currentGroupId, text, mentions, pendingImages);
     return;
   }
@@ -4360,6 +4751,7 @@ async function sendMsg() {
     console.warn('[sendMsg] 员工已切换，跳过用户消息 DOM 渲染:', emp.id);
     input.value = '';
     clearPendingImages();
+    updateSendButtonState();
     restoreOnline();
     return;
   }
@@ -4370,6 +4762,7 @@ async function sendMsg() {
   area.appendChild(userMsg);
   input.value = '';
   clearPendingImages();
+  updateSendButtonState();
   area.scrollTop = area.scrollHeight;
 
   // 显示打字指示器
@@ -6451,12 +6844,8 @@ document.getElementById('msgInput').addEventListener('input', handleInput);
       }
     });
   }
-  var attachBtn = document.getElementById('attachBtn');
   var fileInput = document.getElementById('imageFileInput');
-  if (attachBtn && fileInput) {
-    attachBtn.addEventListener('click', function () {
-      fileInput.click();
-    });
+  if (fileInput) {
     fileInput.addEventListener('change', function () {
       handleImageFiles(fileInput.files);
       fileInput.value = '';
@@ -6485,6 +6874,7 @@ document.addEventListener('click', function (e) {
     if (el) el.classList.remove('active');
   })();
   if (!e.target.closest('.slash-menu')) document.getElementById('slashMenu').classList.remove('active');
+  if (!e.target.closest('.chat-more-menu')) closeChatMoreMenu();
 });
 document.querySelectorAll('.member-option').forEach(function (o) {
   return o.addEventListener('click', function () {
@@ -6557,14 +6947,13 @@ function renderEmployeeItem(e, showCreator) {
   var avatarBg = hasImg ? 'transparent' : (e.bg || '#3a3a3c');
   var avatarColor = hasImg ? 'transparent' : '#f5f5f7';
   var statusClass = escapeAttr(e.status || 'offline');
-  var previewText = escapeHtml(getEmpRoleDisplay(e));
   var lastMsgPreview = '';
   if (e.lastMessage) {
     lastMsgPreview = escapeHtml(e.lastMessage);
   }
-  var previewHtml = lastMsgPreview 
+  var previewHtml = lastMsgPreview
     ? '<div class="emp-preview" style="margin-top:2px;">' + lastMsgPreview + '</div>'
-    : '<div class="emp-preview">' + previewText + '</div>';
+    : '<div class="emp-preview" style="color:var(--text-tertiary);">暂无消息</div>';
   var statusLabel = e.status === 'online' ? '在线' : e.status === 'busy' ? '忙碌' : '离线';
   return '<div class="emp-avatar-wrap" style="position:relative;flex-shrink:0;"><div class="emp-avatar" style="background:' + avatarBg + ';color:' + avatarColor + ';width:40px;height:40px;border-radius:50%;">' + avatarContent + '</div><div class="status-dot ' + statusClass + '" style="position:absolute;bottom:0px;right:0px;width:10px;height:10px;border-radius:50%;border:2px solid #ffffff;"></div></div><div class="emp-info" style="flex:1;min-width:0;"><div class="emp-name" style="font-size:14px;font-weight:500;color:var(--text-primary);display:flex;align-items:center;">' + escapeHtml(e.name || '') + creatorTag + '</div>' + previewHtml + '</div><div class="emp-meta" style="flex-shrink:0;text-align:right;margin-left:8px;"><div class="status-text" style="font-size:12px;color:var(--text-secondary);">' + statusLabel + '</div></div>';
 }
@@ -7363,10 +7752,7 @@ function doMoveGroup(newGroup) {
 
 // ============ Connection Status Bar ============
 function updateConnectionStatus() {
-  var openclawEl = document.getElementById('connStatusOpenClaw');
-  var apiEl = document.getElementById('connStatusAPI');
-  var latencyEl = document.getElementById('connLatency');
-  if (!openclawEl || !apiEl) return;
+  var statusEl = document.getElementById('connStatusText');
 
   // Check OpenClaw connection（使用 openclaw.connected + authenticated，而非 readyState）
   var isOpenClawConnected = false;
@@ -7384,29 +7770,10 @@ function updateConnectionStatus() {
     } catch (e) {}
   }
 
-  // Update OpenClaw status（区分：已连接/连接中/未连接）
-  if (isOpenClawConnected) {
-    openclawEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#34C759;display:inline-block;margin-right:4px;"></span>OpenClaw 已连接';
-  } else if (typeof openclaw !== 'undefined' && openclaw.connected && !openclaw.authenticated) {
-    openclawEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF9500;display:inline-block;margin-right:4px;"></span>OpenClaw 连接中';
-  } else {
-    openclawEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF3B30;display:inline-block;margin-right:4px;"></span>OpenClaw 未连接';
-  }
-
-  // Update API status（OpenClaw 已连接时 API 显示为灰色备用，避免两个绿色"已连接"）
-  if (isOpenClawConnected) {
-    apiEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#8E8E93;display:inline-block;margin-right:4px;"></span>API 备用';
-  } else if (hasAPIKey) {
-    apiEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#34C759;display:inline-block;margin-right:4px;"></span>API 已配置';
-  } else {
-    apiEl.innerHTML = '<span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF9500;display:inline-block;margin-right:4px;"></span>API 未配置';
-  }
-
-  // Update latency (mock for now)
-  if (latencyEl) {
-    var latency = Math.floor(Math.random() * 50) + 20;
-    latencyEl.textContent = '延迟: ' + latency + 'ms';
-  }
+  // Build minimal status text
+  var latency = Math.floor(Math.random() * 50) + 20;
+  var connText = isOpenClawConnected ? 'OpenClaw 已连接' : (typeof openclaw !== 'undefined' && openclaw.connected && !openclaw.authenticated ? 'OpenClaw 连接中' : 'OpenClaw 未连接');
+  if (statusEl) statusEl.textContent = '已接通 · 延迟: ' + latency + 'ms · ' + connText;
 
   // Update sidebar bottom status to avoid contradiction with connection status bar
   var sidebarStatusText = document.getElementById('sidebarStatusText');
@@ -9827,6 +10194,10 @@ function openSupervisorConfigFromHeader() {
 // Handle Input
 function handleInput() {
   const val = document.getElementById('msgInput').value;
+  const sendBtn = document.getElementById('sendBtn');
+  if (sendBtn) {
+    sendBtn.disabled = !val.trim() && (!window._pendingImages || window._pendingImages.length === 0);
+  }
   if (val.startsWith('/')) {
     document.getElementById('slashMenu').classList.add('active');
     document.getElementById('slashSearch').value = val.slice(1);
@@ -9846,6 +10217,35 @@ function handleInput() {
     })();
     mentionMode = false;
   }
+}
+function openSlashMenu() {
+  var input = document.getElementById('msgInput');
+  if (!input) return;
+  input.value = '/';
+  input.focus();
+  handleInput();
+}
+function insertTextAtCursor(text) {
+  var input = document.getElementById('msgInput');
+  if (!input) return;
+  var start = input.selectionStart || 0;
+  var end = input.selectionEnd || 0;
+  input.value = input.value.substring(0, start) + text + input.value.substring(end);
+  input.selectionStart = input.selectionEnd = start + text.length;
+  input.focus();
+  handleInput();
+}
+function openCompressModalWithConfirm() {
+  closeChatMoreMenu();
+  if (confirm('确定要压缩上下文吗？这将清理早期消息。')) openCompressModal();
+}
+function toggleChatMoreMenu() {
+  var dd = document.getElementById('chatMoreDropdown');
+  if (dd) dd.classList.toggle('show');
+}
+function closeChatMoreMenu() {
+  var dd = document.getElementById('chatMoreDropdown');
+  if (dd) dd.classList.remove('show');
 }
 function filterSlashCommands(q) {
   var items = document.querySelectorAll('#slashSections .slash-item');
@@ -16087,32 +16487,57 @@ async function loadKnowledgePage(page) {
     _knowledgeInitialized = true;
   } catch (e) {
     console.warn('[KnowledgePage] 加载失败:', e);
-    var midList = document.getElementById('knowledgeMidList');
-    if (midList) midList.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
+    var midItems = document.getElementById('knowledgeMidItems');
+    if (midItems) midItems.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
   }
 }
 function renderKnowledgeCategories(catMap, total) {
-  var select = document.getElementById('knowledgeMidCategory');
-  if (!select) return;
-  var html = '<option value="">全部分类 (' + (total || _knowledgeData.total) + ')</option>';
+  var list = document.getElementById('knowledgeMidCategory');
+  if (!list) return;
+  var html = '';
+  html += '<div class="knowledge-cat-item' + (!_knowledgeCurrentCat ? ' active' : '') + '" onclick="selectKnowledgeCategory(\'\')">';
+  html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
+  html += '<span class="knowledge-cat-name">全部分类</span><span class="knowledge-cat-count">' + (total || _knowledgeData.total) + '</span></div>';
   _knowledgeData.categories.forEach(function(cat) {
-    html += '<option value="' + escapeAttr(cat) + '"' + (_knowledgeCurrentCat === cat ? ' selected' : '') + '>' + escapeHtml(cat) + ' (' + (catMap[cat] || 0) + ')</option>';
+    html += '<div class="knowledge-cat-item' + (_knowledgeCurrentCat === cat ? ' active' : '') + '" onclick="selectKnowledgeCategory(\'' + escapeAttr(cat).replace(/'/g, "\\'") + '\')">';
+    html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+    html += '<span class="knowledge-cat-name">' + escapeHtml(cat) + '</span><span class="knowledge-cat-count">' + (catMap[cat] || 0) + '</span></div>';
   });
-  select.innerHTML = html;
+  list.innerHTML = html;
+  // Update editor category select
+  var editorCat = document.getElementById('knowledgeEditCategory');
+  if (editorCat) {
+    var opts = '<option value="">选择分类</option>';
+    _knowledgeData.categories.forEach(function(cat) {
+      opts += '<option value="' + escapeAttr(cat) + '">' + escapeHtml(cat) + '</option>';
+    });
+    var currentVal = editorCat.value;
+    editorCat.innerHTML = opts;
+    editorCat.value = currentVal || '';
+  }
+  // Update middle list header title
+  var titleEl = document.getElementById('knowledgeMidTitle');
+  if (titleEl) titleEl.textContent = _knowledgeCurrentCat || '全部';
 }
 function onKnowledgeMidCategoryChange(cat) {
   selectKnowledgeCategory(cat);
 }
 async function selectKnowledgeCategory(cat) {
   _knowledgeCurrentCat = cat;
-  _knowledgePage = 1;  // 切换分类回到第一页
-  var select = document.getElementById('knowledgeMidCategory');
-  if (select) select.value = cat;
+  _knowledgePage = 1;
+  // Update active class in sidebar
+  document.querySelectorAll('.knowledge-cat-item').forEach(function(item) {
+    item.classList.remove('active');
+  });
+  var activeItem = document.querySelector('.knowledge-cat-item[onclick*="' + (cat ? escapeAttr(cat).replace(/'/g, "\\'") : "selectKnowledgeCategory('')") + '"]');
+  if (activeItem) activeItem.classList.add('active');
+  var titleEl = document.getElementById('knowledgeMidTitle');
+  if (titleEl) titleEl.textContent = cat || '全部';
   await loadKnowledgePage(1);
 }
 async function filterKnowledgeList(keyword) {
   var kw = (keyword || '').trim();
-  _knowledgePage = 1;  // 搜索回到第一页
+  _knowledgePage = 1;
   try {
     var empId = localStorage.getItem('sb_current_emp') || '';
     var url = '/api/knowledge?limit=' + _knowledgePageSize + '&offset=0';
@@ -16129,20 +16554,27 @@ async function filterKnowledgeList(keyword) {
     console.warn('[KnowledgePage] 搜索失败:', e);
   }
 }
+function getKnowledgePreview(content) {
+  if (!content) return '';
+  return content.replace(/[#*`\[\]()!>\-]/g, '').replace(/\s+/g, ' ').trim();
+}
 function renderKnowledgeList(docs) {
-  var el = document.getElementById('knowledgeMidList');
+  var el = document.getElementById('knowledgeMidItems');
+  var countEl = document.getElementById('knowledgeMidCount');
+  if (countEl) countEl.textContent = '共 ' + (_knowledgeData.total || 0) + ' 条';
   if (!el) return;
   if (!docs || docs.length === 0) {
-    el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">暂无知识</div>';
+    el.innerHTML = '<div class="knowledge-mid-empty"><div class="knowledge-mid-empty-icon">📖</div><div class="knowledge-mid-empty-text">暂无知识文档</div><button class="knowledge-mid-empty-btn" onclick="createNewKnowledge()">手动添加</button></div>';
     return;
   }
   var html = '';
   docs.forEach(function(d) {
     var isActive = d.id === _knowledgeCurrentId;
-    var statusIcon = d.status === 'error' ? ' ⚠️' : (d.chunkCount > 0 ? ' ✅' : '');
-    html += '<div class="list-item' + (isActive ? ' active' : '') + '" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id).replace(/'/g, "\\'") + '\')">';
-    html += '<div class="emp-info"><div class="emp-name">' + escapeHtml(d.title || d.name || '未命名') + statusIcon + '</div>';
-    html += '<div class="emp-preview"><span style="padding:2px 8px;background:var(--bg-tertiary);border-radius:10px;font-size:11px;">' + escapeHtml(d.category || '未分类') + '</span> · ' + formatDate(d.updatedAt) + '</div></div>';
+    var preview = getKnowledgePreview(d.content);
+    html += '<div class="knowledge-mid-card' + (isActive ? ' active' : '') + '" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id).replace(/'/g, "\\'") + '\')">';
+    html += '<div class="knowledge-mid-card-header"><div class="knowledge-mid-card-title">' + escapeHtml(d.title || d.name || '未命名') + '</div><span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
+    html += '<div class="knowledge-mid-card-body">' + escapeHtml(preview) + '</div>';
+    html += '<div class="knowledge-mid-card-meta">' + formatDate(d.updatedAt) + '</div>';
     html += '</div>';
   });
   el.innerHTML = html;
@@ -16154,11 +16586,10 @@ function renderKnowledgePagination(total, page, pageSize) {
     return;
   }
   var totalPages = Math.ceil(total / pageSize);
-  var html = '<div style="display:flex;align-items:center;justify-content:center;gap:4px;padding:8px;border-top:1px solid var(--separator);">';
-  html += '<button ' + (page <= 1 ? 'disabled' : '') + ' onclick="loadKnowledgePage(' + (page - 1) + ')" style="padding:4px 8px;border:1px solid var(--separator);border-radius:var(--radius-sm);background:var(--bg-primary);font-size:12px;cursor:pointer;" ' + (page <= 1 ? 'style="opacity:0.4;cursor:not-allowed;"' : '') + '>←</button>';
-  html += '<span style="font-size:12px;color:var(--text-secondary);">' + page + ' / ' + totalPages + '</span>';
-  html += '<button ' + (page >= totalPages ? 'disabled' : '') + ' onclick="loadKnowledgePage(' + (page + 1) + ')" style="padding:4px 8px;border:1px solid var(--separator);border-radius:var(--radius-sm);background:var(--bg-primary);font-size:12px;cursor:pointer;" ' + (page >= totalPages ? 'style="opacity:0.4;cursor:not-allowed;"' : '') + '>→</button>';
-  html += '</div>';
+  var html = '';
+  html += '<button ' + (page <= 1 ? 'disabled' : '') + ' onclick="loadKnowledgePage(' + (page - 1) + ')">←</button>';
+  html += '<span>' + page + ' / ' + totalPages + '</span>';
+  html += '<button ' + (page >= totalPages ? 'disabled' : '') + ' onclick="loadKnowledgePage(' + (page + 1) + ')">→</button>';
   el.innerHTML = html;
 }
 function selectKnowledgeItem(id) {
@@ -16166,7 +16597,14 @@ function selectKnowledgeItem(id) {
   var doc = _knowledgeData.docs.find(function(d) { return d.id === id; });
   if (!doc) return;
   document.getElementById('knowledgeEditTitle').value = doc.title || doc.name || '';
-  document.getElementById('knowledgeEditCategory').value = doc.category || '';
+  var catEl = document.getElementById('knowledgeEditCategory');
+  if (catEl) {
+    var cat = doc.category || '';
+    if (cat && !Array.prototype.slice.call(catEl.options).some(function(o) { return o.value === cat; })) {
+      catEl.innerHTML += '<option value="' + escapeAttr(cat) + '">' + escapeHtml(cat) + '</option>';
+    }
+    catEl.value = cat;
+  }
   document.getElementById('knowledgeEditContent').value = doc.content || '';
   var statusEl = document.getElementById('knowledgeEditStatus');
   if (statusEl) statusEl.textContent = '';
@@ -16174,11 +16612,11 @@ function selectKnowledgeItem(id) {
   updateKnowledgeEditorView();
   var right = document.getElementById('knowledgeRight');
   if (right) right.classList.add('active');
-  // 更新列表高亮
-  document.querySelectorAll('#knowledgeMidList .list-item').forEach(function(el) {
+  // Update active card
+  document.querySelectorAll('.knowledge-mid-card').forEach(function(el) {
     el.classList.remove('active');
   });
-  var activeEl = document.querySelector('#knowledgeMidList .list-item[onclick*="' + id + '"]');
+  var activeEl = document.querySelector('.knowledge-mid-card[onclick*="' + id + '"]');
   if (activeEl) activeEl.classList.add('active');
 }
 function createNewKnowledge() {
@@ -16188,7 +16626,7 @@ function createNewKnowledge() {
   var contentEl = document.getElementById('knowledgeEditContent');
   var statusEl = document.getElementById('knowledgeEditStatus');
   if (titleEl) titleEl.value = '';
-  if (catEl) catEl.value = '';
+  if (catEl) catEl.value = _knowledgeCurrentCat || '';
   if (contentEl) contentEl.value = '';
   if (statusEl) statusEl.textContent = '';
   _knowledgePreviewMode = false;
@@ -16200,22 +16638,50 @@ function createNewKnowledge() {
   }
   console.log('[Knowledge] 新建知识，表单已清空');
 }
+function createNewKnowledgeCategory() {
+  var name = prompt('请输入新分类名称');
+  if (!name) return;
+  createNewKnowledge();
+  var catEl = document.getElementById('knowledgeEditCategory');
+  if (catEl) {
+    var val = name.trim();
+    if (val && !Array.prototype.slice.call(catEl.options).some(function(o) { return o.value === val; })) {
+      catEl.innerHTML += '<option value="' + escapeAttr(val) + '">' + escapeHtml(val) + '</option>';
+    }
+    catEl.value = val;
+  }
+}
 function updateKnowledgeEditorView() {
   var textarea = document.getElementById('knowledgeEditContent');
   var preview = document.getElementById('knowledgeEditPreview');
   if (!textarea || !preview) return;
   if (_knowledgePreviewMode) {
-    textarea.parentElement.classList.add('hidden');
+    textarea.classList.add('hidden');
     preview.classList.remove('hidden');
     preview.innerHTML = renderMarkdown(textarea.value);
   } else {
-    textarea.parentElement.classList.remove('hidden');
+    textarea.classList.remove('hidden');
     preview.classList.add('hidden');
   }
 }
-function toggleKnowledgePreview() {
-  _knowledgePreviewMode = !_knowledgePreviewMode;
+function switchKnowledgeTab(tab) {
+  _knowledgePreviewMode = (tab === 'preview');
+  document.querySelectorAll('.knowledge-editor-tab').forEach(function(t) {
+    t.classList.toggle('active', t.dataset.tab === tab);
+  });
   updateKnowledgeEditorView();
+}
+function insertMarkdown(before, after) {
+  var textarea = document.getElementById('knowledgeEditContent');
+  if (!textarea) return;
+  var start = textarea.selectionStart || 0;
+  var end = textarea.selectionEnd || 0;
+  var selected = textarea.value.substring(start, end);
+  var replacement = before + selected + after;
+  textarea.value = textarea.value.substring(0, start) + replacement + textarea.value.substring(end);
+  textarea.selectionStart = start + before.length;
+  textarea.selectionEnd = start + before.length + selected.length;
+  textarea.focus();
 }
 function renderMarkdown(text) {
   if (typeof marked !== 'undefined') {
@@ -16888,19 +17354,8 @@ function closeMatchModal() {
 </div>
 
 <!-- Bottom Connection Status Bar -->
-<div id="connectionStatusBar" style="position:fixed;bottom:0;left:56px;right:0;height:28px;background:var(--bg-primary);border-top:1px solid var(--separator);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:12px;color:var(--text-secondary);z-index:100;">
-  <div style="display:flex;align-items:center;gap:12px;">
-    <span id="connStatusOpenClaw" style="display:flex;align-items:center;gap:4px;">
-      <span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#34C759;"></span>OpenClaw 已连接
-    </span>
-    <span id="connStatusAPI" style="display:flex;align-items:center;gap:4px;">
-      <span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#FF9500;"></span>API 未配置
-    </span>
-  </div>
-  <div style="display:flex;align-items:center;gap:8px;">
-    <span id="connLatency">延迟: --ms</span>
-    <button onclick="showConnectionDetails()" style="background:none;border:none;color:var(--text-tertiary);cursor:pointer;font-size:11px;">详情</button>
-  </div>
+<div id="connectionStatusBar" style="position:fixed;bottom:0;left:56px;right:0;height:28px;background:#ffffff;border-top:1px solid var(--separator);display:flex;align-items:center;justify-content:flex-start;padding:0 16px;font-size:12px;color:#86909c;z-index:100;">
+  <span id="connStatusText">已接通 · 延迟: --ms · OpenClaw 未连接</span>
 </div>
 
 <!-- Move Group Modal -->
@@ -17340,6 +17795,12 @@ function switchModule(module) {
   var employeeList = document.getElementById('employeeList');
   var projectList = document.getElementById('projectList');
   var searchInput = document.getElementById('searchInput');
+
+  // Manage knowledge three-column layout
+  var appMain = document.querySelector('.app-main');
+  var knowledgeMidList = document.getElementById('knowledgeMidList');
+  if (appMain) appMain.classList.toggle('knowledge-active', module === 'knowledge');
+  if (knowledgeMidList) knowledgeMidList.classList.toggle('active', module === 'knowledge');
 
   if (module === 'messages') {
     document.getElementById('chatArea').style.display = 'flex';
