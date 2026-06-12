@@ -63,12 +63,12 @@ button { font: inherit; border: none; background: none; cursor: pointer; outline
 input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 /* Layout - Feishu Three-Column */
-.app-container { display: flex; height: calc(100vh - 48px - 28px); overflow: hidden; background: #ffffff; margin-top: 48px; margin-bottom: 28px; }
+.app-container { display: flex; height: calc(100vh - 48px); overflow: hidden; background: #ffffff; margin-top: 48px; }
 
 /* Left Navigation Bar (56px) */
 .left-nav {
   width: 56px;
-  height: calc(100vh - 48px - 28px);
+  height: calc(100vh - 48px);
   background: var(--left-nav-bg);
   display: flex;
   flex-direction: column;
@@ -252,8 +252,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* Module containers */
 .module-mid, .module-right { display: none; height: 100%; flex-direction: column; overflow: hidden; }
 .module-mid.active, .module-right.active { display: flex; }
-.module-mid-list { flex: 1; overflow-y: auto; }
-.module-right-content { flex: 1; overflow-y: auto; padding: 16px; }
+.module-mid-list { flex: 1; overflow-y: auto; padding-bottom: 28px; }
+.module-right-content { flex: 1; overflow-y: auto; padding: 16px 16px 44px 16px; }
 .module-mid-header { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; height: 48px; border-bottom: 0.5px solid var(--separator); flex-shrink: 0; }
 .module-mid-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
 .module-filter-row { display: flex; gap: 8px; padding: 8px 12px; }
@@ -279,6 +279,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  padding-bottom: 28px;
 }
 .input-toolbar-top {
   order: 2;
@@ -353,7 +354,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: var(--text-tertiary);
 }
 
-.list-section { flex: 1; overflow-y: auto; }
+.list-section { flex: 1; overflow-y: auto; padding-bottom: 28px; }
 .section-title { font: 600 11px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; color: #86909c; letter-spacing: 1px; text-transform: uppercase; padding: 16px 14px 8px; }
 .dept-group { margin-bottom: 4px; }
 .dept-header {
@@ -3000,6 +3001,7 @@ window.doLogin = function () {
 <div class="module-right" id="settingsRight">
   <div class="module-right-header">
     <div class="module-right-title" id="settingsRightTitle">AI 模型</div>
+    <div class="module-right-actions" id="settingsRightActions"></div>
   </div>
   <div class="module-right-content" id="settingsRightContent"></div>
 </div>
@@ -14942,17 +14944,8 @@ document.addEventListener('keydown', function (e) {
 #userEditModal .btn-secondary:hover { background: var(--bg-tertiary); }
 </style>
 
-<!-- ========== User Management Panel ========== -->
+<!-- ========== User / Team Management Modals ========== -->
 <style>
-.user-management-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 400px; max-width: 100%; background: var(--bg-primary); box-shadow: var(--shadow-modal); transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); display: flex; flex-direction: column; z-index: 260; }
-.user-management-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 400px; max-width: 100%; background: var(--bg-primary); box-shadow: var(--shadow-modal); transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); display: flex; flex-direction: column; z-index: 260; }
-.user-management-panel.open { transform: translateX(0); }
-.user-management-header { display: flex; align-items: center; justify-content: space-between; padding: 20px; border-bottom: 0.5px solid var(--separator); }
-.user-management-title { font-size: 18px; font-weight: 600; }
-.user-management-close { width: 32px; height: 32px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-secondary); }
-.user-management-close:hover { background: var(--bg-secondary); }
-.user-management-content { flex: 1; overflow-y: auto; padding: 20px; }
-
 /* 连接配置面板 */
 #empConnectProviders .provider-opt {
   flex: 1;
@@ -15016,14 +15009,7 @@ document.addEventListener('keydown', function (e) {
   box-sizing: border-box;
 }
 
-/* ===== 团队管理面板样式 ===== */
-.team-management-panel { position: fixed !important; right: 0; top: 0; bottom: 0; width: 420px; max-width: 100%; background: var(--bg-primary); box-shadow: var(--shadow-modal); transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); display: flex; flex-direction: column; z-index: 260; }
-.team-management-panel.open { transform: translateX(0); }
-.team-management-header { display: flex; align-items: center; justify-content: space-between; padding: 20px; border-bottom: 0.5px solid var(--separator); }
-.team-management-title { font-size: 18px; font-weight: 600; }
-.team-management-close { width: 32px; height: 32px; border: none; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-secondary); }
-.team-management-close:hover { background: var(--bg-secondary); }
-.team-management-content { flex: 1; overflow-y: auto; padding: 20px; }
+/* ===== 团队管理样式 ===== */
 
 /* Team Tree Item */
 .team-tree-item { display: flex; align-items: center; gap: 10px; padding: 12px; background: var(--bg-secondary); border-radius: 10px; margin-bottom: 6px; transition: all 0.2s; border: 0.5px solid transparent; }
@@ -15041,10 +15027,7 @@ document.addEventListener('keydown', function (e) {
 .team-tree-btn.danger:hover { background: #FF3B30; }
 
 /* ===== 管理面板子弹窗 ===== */
-/* 面板保持 fixed 滑出，子弹窗用 fixed 但z-index高于面板 */
-.user-management-panel { overflow: hidden; }
-.team-management-panel { overflow: hidden; }
-
+/* 子弹窗用 fixed 且 z-index 高于内容区 */
 #userEditOverlay, #createUserOverlay, #createTeamOverlay { position: fixed !important; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.45); backdrop-filter: blur(8px); z-index: 299; display: none; }
 #userEditOverlay.active, #createUserOverlay.active, #createTeamOverlay.active { display: block; }
 #userEditModal, #createUserModal, #createTeamModal { position: fixed !important; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 400px; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); z-index: 300; display: none; overflow: hidden; }
@@ -15108,17 +15091,13 @@ function showUserManagement() {
     showToast('⚠️ 只有管理员可以管理用户');
     return;
   }
-  closeTeamManagement();
-  var panel = document.getElementById('userManagementPanel');
-  // 确保面板在body下，不受display:none父容器影响
-  if (panel.parentElement !== document.body) {
-    document.body.appendChild(panel);
-  }
-  panel.classList.add('open');
-  loadUserList();
+  closeUserDropdownDirect();
+  _settingsSelectedCategory = 'users';
+  switchModule('settings');
 }
 function closeUserManagement() {
-  document.getElementById('userManagementPanel').classList.remove('open');
+  _settingsSelectedCategory = 'ai';
+  renderSettingsMid();
 }
 
 // 加载用户列表
@@ -15255,18 +15234,15 @@ var allTeams = [];
 
 // 显示团队管理面板
 function showTeamManagement() {
-  closeUserManagement();
-  var panel = document.getElementById('teamManagementPanel');
-  if (panel.parentElement !== document.body) {
-    document.body.appendChild(panel);
-  }
-  panel.classList.add('open');
-  loadTeamList();
+  closeUserDropdownDirect();
+  _settingsSelectedCategory = 'teams';
+  switchModule('settings');
 }
 
 // 关闭团队管理面板
 function closeTeamManagement() {
-  document.getElementById('teamManagementPanel').classList.remove('open');
+  _settingsSelectedCategory = 'ai';
+  renderSettingsMid();
 }
 
 // 加载小组列表
@@ -16685,20 +16661,8 @@ function closeMatchModal() {
   document.getElementById('matchModalOverlay').classList.remove('open');
 }</script>
 
-<!-- User Management Panel -->
-<div class="user-management-panel" id="userManagementPanel">
-  <div class="user-management-header">
-    <div class="user-management-title">👥 用户管理</div>
-    <button class="user-management-close" onclick="closeUserManagement()">✕</button>
-  </div>
-  <div class="user-management-content">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <div style="font-size:14px;font-weight:600;">用户列表</div>
-      <button onclick="showCreateUserModal()" style="padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">➕ 添加用户</button>
-    </div>
-    <div id="userList"></div>
-  </div>
-  <!-- User Edit Modal -->
+<!-- User Management Modals -->
+<!-- User Edit Modal -->
 <div id="userEditOverlay" onclick="closeUserEditModal()"></div>
 <div id="userEditModal">
   <div class="modal-header">
@@ -16743,7 +16707,8 @@ function closeMatchModal() {
     <button class="btn btn-primary" onclick="saveUserEdit()">保存</button>
   </div>
 </div>
-  <!-- Create User Modal -->
+
+<!-- Create User Modal -->
 <div id="createUserOverlay" onclick="closeCreateUserModal()"></div>
 <div id="createUserModal">
   <div class="modal-header">
@@ -16783,22 +16748,9 @@ function closeMatchModal() {
     <button class="btn btn-primary" onclick="createUser()">创建</button>
   </div>
 </div>
-</div>
 
-<!-- Team Management Panel -->
-<div class="team-management-panel" id="teamManagementPanel">
-  <div class="team-management-header">
-    <div class="team-management-title">🏢 团队管理</div>
-    <button class="team-management-close" onclick="closeTeamManagement()">✕</button>
-  </div>
-  <div class="team-management-content">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <div style="font-size:14px;font-weight:600;">小组列表</div>
-      <button onclick="showCreateTeamModal()" style="padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">➕ 新建小组</button>
-    </div>
-    <div id="teamList"></div>
-  </div>
-  <!-- Create Team Modal -->
+<!-- Team Management Modals -->
+<!-- Create Team Modal -->
 <div id="createTeamOverlay" onclick="closeCreateTeamModal()"></div>
 <div id="createTeamModal">
   <div class="modal-header">
@@ -16835,7 +16787,6 @@ function closeMatchModal() {
     <button class="btn btn-secondary" onclick="closeCreateTeamModal()">取消</button>
     <button class="btn btn-primary" onclick="createTeam()">创建</button>
   </div>
-</div>
 </div>
 
 <!-- Edit Team Modal -->
@@ -17485,7 +17436,9 @@ function renderSettingsMid() {
     { id: 'notification', icon: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>', title: '通知' },
     { id: 'account', icon: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>', title: '账号' },
     { id: 'system', icon: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>', title: '系统设置' },
-    { id: 'permission', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/>', title: '权限管理' }
+    { id: 'permission', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/>', title: '权限管理' },
+    { id: 'users', icon: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/>', title: '用户管理' },
+    { id: 'teams', icon: '<path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><rect x="4" y="2" width="16" height="20" rx="2"/>', title: '团队管理' }
   ];
   var html = '';
   categories.forEach(function (c) {
@@ -17516,9 +17469,11 @@ function filterSettingsList(value) {
 function renderSettingsRight() {
   var titleEl = document.getElementById('settingsRightTitle');
   var contentEl = document.getElementById('settingsRightContent');
+  var actionsEl = document.getElementById('settingsRightActions');
   if (titleEl) titleEl.textContent = {
-    ai: 'AI 模型', notification: '通知', account: '账号', system: '系统设置', permission: '权限管理'
+    ai: 'AI 模型', notification: '通知', account: '账号', system: '系统设置', permission: '权限管理', users: '用户管理', teams: '团队管理'
   }[_settingsSelectedCategory] || '设置';
+  if (actionsEl) actionsEl.innerHTML = '';
   if (!contentEl) return;
   var html = '';
   if (_settingsSelectedCategory === 'ai') {
@@ -17538,8 +17493,16 @@ function renderSettingsRight() {
     html += '<div class="module-form-row"><label>语言</label><select class="form-select"><option>中文</option><option>English</option></select></div>';
   } else if (_settingsSelectedCategory === 'permission') {
     html += '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">权限管理功能仅对管理员开放</div>';
+  } else if (_settingsSelectedCategory === 'users') {
+    if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="showCreateUserModal()">➕ 添加用户</button>';
+    html += '<div id="userList"></div>';
+  } else if (_settingsSelectedCategory === 'teams') {
+    if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="showCreateTeamModal()">➕ 新建小组</button>';
+    html += '<div id="teamList"></div>';
   }
   contentEl.innerHTML = html;
+  if (_settingsSelectedCategory === 'users') loadUserList();
+  if (_settingsSelectedCategory === 'teams') loadTeamList();
 }
 
 function toggleMidSidebar() {
