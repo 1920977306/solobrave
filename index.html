@@ -63,12 +63,12 @@ button { font: inherit; border: none; background: none; cursor: pointer; outline
 input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 /* Layout - Feishu Three-Column */
-.app-container { display: flex; height: calc(100vh - 48px); overflow: hidden; background: #ffffff; margin-top: 48px; }
+.app-container { display: flex; height: calc(100vh - 48px - 28px); overflow: hidden; background: #ffffff; margin-top: 48px; margin-bottom: 28px; }
 
 /* Left Navigation Bar (56px) */
 .left-nav {
   width: 56px;
-  height: calc(100vh - 48px);
+  height: calc(100vh - 48px - 28px);
   background: var(--left-nav-bg);
   display: flex;
   flex-direction: column;
@@ -249,6 +249,31 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-direction: column;
   height: 100%;
 }
+/* Module containers */
+.module-mid, .module-right { display: none; height: 100%; flex-direction: column; overflow: hidden; }
+.module-mid.active, .module-right.active { display: flex; }
+.module-mid-list { flex: 1; overflow-y: auto; }
+.module-right-content { flex: 1; overflow-y: auto; padding: 16px; }
+.module-mid-header { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; height: 48px; border-bottom: 0.5px solid var(--separator); flex-shrink: 0; }
+.module-mid-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.module-filter-row { display: flex; gap: 8px; padding: 8px 12px; }
+.module-filter-row select { flex: 1; padding: 6px 8px; border-radius: 6px; border: 0.5px solid var(--separator); background: var(--bg-primary); font-size: 13px; }
+.module-right-header { height: 48px; padding: 0 16px; border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; justify-content: space-between; background: #fff; flex-shrink: 0; }
+.module-right-title { font-size: 15px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.module-right-actions { display: flex; gap: 8px; align-items: center; }
+.module-action-btn { padding: 6px 12px; border-radius: 6px; border: none; font-size: 13px; cursor: pointer; transition: all 0.15s; background: var(--bg-secondary); color: var(--text-primary); }
+.module-action-btn:hover { background: var(--bg-tertiary); }
+.module-action-btn.primary { background: var(--accent); color: #fff; }
+.module-action-btn.primary:hover { background: var(--accent-hover); }
+.module-action-btn.danger { color: #FF3B30; }
+.module-action-btn.danger:hover { background: rgba(255,59,48,0.08); }
+.module-form-row { margin-bottom: 14px; }
+.module-form-row label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.module-form-row input, .module-form-row select, .module-form-row textarea { width: 100%; padding: 8px 12px; border: 0.5px solid var(--separator); border-radius: 6px; background: var(--bg-primary); font-size: 14px; box-sizing: border-box; }
+.module-form-row textarea { resize: vertical; min-height: 80px; }
+.module-empty { padding: 40px; text-align: center; color: var(--text-tertiary); }
+
+
 .messages-area {
   order: 1;
   flex: 1;
@@ -445,13 +470,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 
 /* Module content transitions */
-#chatArea, #knowledgeArea, #productLibraryPanel, #influencerLibraryPanel, .settings-panel {
-  animation: fadeIn 0.2s ease;
-}
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
+#chatArea { animation: fadeIn 0.2s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
 /* ===== Feishu Three-Column Responsive ===== */
 @media (max-width: 768px) {
   .mid-toggle-btn {
@@ -548,10 +569,6 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .proj-name { font: var(--font-sm); }
 .proj-progress { font: var(--font-micro); color: var(--accent); font-weight: 500; margin-left: auto; }
 
-.sidebar-actions { padding: 10px 12px; border-top: 0.5px solid var(--separator); display: flex; flex-direction: column; gap: 8px; }
-.action-btn { flex: 1; padding: 8px; background: var(--bg-secondary); border-radius: var(--radius-md); font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; gap: 4px; transition: all 0.15s; }
-.action-btn:hover { background: var(--accent-light); color: var(--accent); }
-.action-btn.lounge-btn.active { background: var(--accent-light); color: var(--accent); }
 
 /* Lounge Drawer */
 .lounge-drawer { position: fixed; right: -320px; top: 0; width: 320px; height: 100vh; background: var(--bg-secondary); border-left: 1px solid var(--separator); z-index: 300; transition: right 0.3s ease; display: flex; flex-direction: column; box-shadow: -4px 0 20px rgba(0,0,0,0.1); }
@@ -2172,18 +2189,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 }
 
 
-/* ===== 侧栏操作按钮 ===== */
-.sidebar-actions { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; }
-.sidebar-action-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 12px; border-radius: 10px; font: 600 12px/1.3 -apple-system, sans-serif; cursor: pointer; transition: all 0.2s cubic-bezier(0.25, 0.1, 0.25, 1); border: none; text-decoration: none; position: relative; overflow: hidden; }
-.sidebar-action-btn.primary { background: linear-gradient(135deg, #FF6B35, #E55A2B); color: #fff; box-shadow: 0 2px 8px rgba(255, 107, 53, 0.25); }
-.sidebar-action-btn.primary:hover { box-shadow: 0 4px 14px rgba(255, 107, 53, 0.35); transform: translateY(-1px); }
-.sidebar-action-btn.primary:active { transform: translateY(0); box-shadow: 0 1px 4px rgba(255, 107, 53, 0.2); }
-.sidebar-action-btn.secondary { background: #F2F2F7; color: #1D1D1F; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); }
-.sidebar-action-btn.secondary:hover { background: #E5E5EA; transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0, 0, 0, 0.06); }
-.sidebar-action-btn.secondary:active { transform: translateY(0); background: #D1D1D6; }
-.btn-icon { font-size: 15px; line-height: 1; flex-shrink: 0; }
-.btn-text { white-space: nowrap; }
-
 /* ===== Product Library Styles ===== */
 .product-library-panel { position: absolute; inset: 0; background: var(--bg-primary); z-index: 10; display: none; flex-direction: column; overflow: hidden; }
 .product-library-header { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 0.5px solid var(--separator); background: var(--bg-primary); height: 48px; box-sizing: border-box; }
@@ -2830,10 +2835,19 @@ window.doLogin = function () {
         <div class="user-dropdown-role" id="dropdownUserRole">员工</div>
       </div>
       <div class="user-dropdown-divider"></div>
-      <div class="user-dropdown-item" onclick="showUserProfile()">👤 个人信息</div>
-      <div class="user-dropdown-item" onclick="showAdminPanel()" id="dropdownAdminItem" style="display:none;">⚙️ 管理员面板</div>
+      <div class="user-dropdown-item" onclick="showAISwitcher(); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg> 切换AI</div>
+      <div class="user-dropdown-item" onclick="startNewChat(); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg> 新建对话</div>
+      <div class="user-dropdown-item" onclick="openGlobalSearch(); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> 全局搜索</div>
       <div class="user-dropdown-divider"></div>
-      <div class="user-dropdown-item danger" onclick="confirmLogout()">🚪 退出登录</div>
+      <div class="user-dropdown-item" onclick="showUserManagement(); closeUserDropdownDirect()" id="dropdownAdminItem" style="display:none;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></svg> 用户管理</div>
+      <div class="user-dropdown-item" onclick="showTeamManagement(); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><rect x="4" y="2" width="16" height="20" rx="2"/></svg> 团队管理</div>
+      <div class="user-dropdown-item" onclick="switchModule('settings'); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 设置</div>
+      <div class="user-dropdown-divider"></div>
+      <div class="user-dropdown-item" onclick="showTokenStats(); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></svg> Token统计</div>
+      <div class="user-dropdown-item" onclick="showChannelConfig(); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M15 8a3 3 0 0 1-3 3 3 3 0 0 0-3 3v4h6v-4a3 3 0 0 0-3-3 3 3 0 0 1-3-3V2"/><path d="M9 8V2"/><path d="M6 17h12"/></svg> 渠道配置</div>
+      <div class="user-dropdown-item" onclick="showUserProfile(); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> 个人信息</div>
+      <div class="user-dropdown-divider"></div>
+      <div class="user-dropdown-item danger" onclick="confirmLogout()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg> 退出登录</div>
     </div>
   </div>
 </nav>
@@ -2843,7 +2857,7 @@ window.doLogin = function () {
 
 <div class="sidebar-search">
 <svg class="sidebar-search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-<input type="text" placeholder="搜索" id="searchInput" oninput="filterEmployeeList(this.value)">
+<input type="text" placeholder="搜索" id="searchInput" oninput="onModuleSearch(this.value)">
 </div>
 
 <!-- Employee List (default) -->
@@ -2852,6 +2866,53 @@ window.doLogin = function () {
 <!-- Project List -->
 <div class="list-section hidden" id="projectList">
 <div class="section-title">我的项目组</div>
+</div>
+
+<!-- Knowledge Mid -->
+<div class="module-mid" id="knowledgeMid">
+  <div class="sidebar-search">
+    <svg class="sidebar-search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input type="text" placeholder="搜索知识..." id="knowledgeMidSearch" oninput="onModuleSearch(this.value)">
+  </div>
+  <div class="module-filter-row">
+    <select id="knowledgeMidCategory" onchange="onKnowledgeMidCategoryChange(this.value)"><option value="">全部分类</option></select>
+  </div>
+  <div class="section-title">知识条目</div>
+  <div class="module-mid-list" id="knowledgeMidList"></div>
+  <div id="knowledgeMidPagination"></div>
+</div>
+
+<!-- Products Mid -->
+<div class="module-mid" id="productsMid">
+  <div class="sidebar-search">
+    <svg class="sidebar-search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input type="text" placeholder="搜索商品..." id="productsMidSearch" oninput="onModuleSearch(this.value)">
+  </div>
+  <div class="module-filter-row">
+    <select id="productsMidCategory" onchange="searchProducts()"><option value="">全部分类</option><option value="手机数码">手机数码</option><option value="电脑办公">电脑办公</option><option value="家用电器">家用电器</option><option value="服装鞋包">服装鞋包</option><option value="食品饮料">食品饮料</option><option value="美妆个护">美妆个护</option><option value="家居家装">家居家装</option><option value="母婴用品">母婴用品</option><option value="运动户外">运动户外</option><option value="图书文具">图书文具</option><option value="未分类">未分类</option></select>
+  </div>
+  <div class="section-title">商品列表</div>
+  <div class="module-mid-list" id="productsMidList"></div>
+</div>
+
+<!-- Influencers Mid -->
+<div class="module-mid" id="influencersMid">
+  <div class="sidebar-search">
+    <svg class="sidebar-search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input type="text" placeholder="搜索达人..." id="influencersMidSearch" oninput="onModuleSearch(this.value)">
+  </div>
+  <div class="module-filter-row">
+    <select id="influencersMidPlatform" onchange="searchInfluencers()"><option value="">全部平台</option><option value="抖音">抖音</option><option value="小红书">小红书</option><option value="快手">快手</option><option value="B站">B站</option><option value="微博">微博</option><option value="视频号">视频号</option><option value="Instagram">Instagram</option><option value="YouTube">YouTube</option></select>
+    <select id="influencersMidCategory" onchange="searchInfluencers()"><option value="">全部领域</option><option value="美妆护肤">美妆护肤</option><option value="时尚穿搭">时尚穿搭</option><option value="美食探店">美食探店</option><option value="旅行户外">旅行户外</option><option value="数码科技">数码科技</option><option value="母婴育儿">母婴育儿</option><option value="家居生活">家居生活</option><option value="健身运动">健身运动</option><option value="知识科普">知识科普</option><option value="娱乐搞笑">娱乐搞笑</option><option value="未分类">未分类</option></select>
+  </div>
+  <div class="section-title">达人列表</div>
+  <div class="module-mid-list" id="influencersMidList"></div>
+</div>
+
+<!-- Settings Mid -->
+<div class="module-mid" id="settingsMid">
+  <div class="section-title" style="padding-top:12px;">设置</div>
+  <div class="module-mid-list" id="settingsMidList"></div>
 </div>
 
 <!-- Bottom Status -->
@@ -2863,20 +2924,7 @@ window.doLogin = function () {
 
 </aside>
 
-<!-- Lounge Drawer -->
-<div class="lounge-drawer" id="loungeDrawer">
-<div class="lounge-header">
-<div class="lounge-title">🏖️ 休闲区</div>
-<button class="lounge-close" onclick="toggleLounge()">
-<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-</button>
-</div>
-<div class="lounge-content" id="loungeContent">
-<!-- Rendered by JS -->
-</div>
-</div>
 
-<!-- Top Banner -->
 <div class="top-banner">
 <div class="banner-left">
 <span class="banner-logo">全可AI</span>
@@ -2886,6 +2934,76 @@ window.doLogin = function () {
 
 <!-- Main Content -->
 <main class="app-main">
+<!-- Knowledge Right -->
+<div class="module-right" id="knowledgeRight">
+  <div class="module-right-header">
+    <div class="module-right-title">知识详情</div>
+    <div class="module-right-actions">
+      <button class="module-action-btn" onclick="toggleKnowledgePreview()">预览</button>
+      <button class="module-action-btn primary" onclick="saveKnowledgeFromEditor()">保存</button>
+      <button class="module-action-btn danger" onclick="deleteKnowledgeFromEditor()">删除</button>
+    </div>
+  </div>
+  <div class="module-right-content">
+    <div class="module-form-row">
+      <input type="text" id="knowledgeEditTitle" placeholder="知识标题">
+    </div>
+    <div class="module-form-row">
+      <input type="text" id="knowledgeEditCategory" placeholder="分类">
+    </div>
+    <div class="module-form-row" style="flex:1;display:flex;flex-direction:column;min-height:200px;">
+      <textarea id="knowledgeEditContent" placeholder="输入 Markdown 内容..." style="flex:1;min-height:200px;"></textarea>
+    </div>
+    <div id="knowledgeEditPreview" class="hidden" style="flex:1;overflow-y:auto;padding:16px;border:0.5px solid var(--separator);border-radius:6px;background:var(--bg-primary);"></div>
+    <div id="knowledgeEditStatus" style="font-size:12px;color:var(--text-tertiary);margin-top:8px;"></div>
+  </div>
+</div>
+
+<!-- Products Right -->
+<div class="module-right" id="productsRight">
+  <div class="module-right-header">
+    <div class="module-right-title" id="productsRightTitle">商品详情</div>
+    <div class="module-right-actions">
+      <button class="module-action-btn" onclick="createNewProduct()">新建</button>
+      <button class="module-action-btn primary" onclick="saveProduct()">保存</button>
+      <button class="module-action-btn danger" onclick="deleteProductFromRight()">删除</button>
+    </div>
+  </div>
+  <div class="module-right-content" id="productsRightContent">
+    <input type="hidden" id="productEditId">
+    <div class="module-form-row"><label>商品名称 *</label><input type="text" id="productName" placeholder="输入商品名称"></div>
+    <div class="module-form-row"><label>SKU 编码</label><input type="text" id="productSku" placeholder="如：SKU-001"></div>
+    <div class="module-form-row"><label>分类</label><select id="productCategory"><option value="未分类">未分类</option><option value="手机数码">手机数码</option><option value="电脑办公">电脑办公</option><option value="家用电器">家用电器</option><option value="服装鞋包">服装鞋包</option><option value="食品饮料">食品饮料</option><option value="美妆个护">美妆个护</option><option value="家居家装">家居家装</option><option value="母婴用品">母婴用品</option><option value="运动户外">运动户外</option><option value="图书文具">图书文具</option></select></div>
+    <div class="module-form-row"><label>价格</label><input type="number" id="productPrice" placeholder="0.00" step="0.01"></div>
+    <div class="module-form-row"><label>库存</label><input type="number" id="productStock" placeholder="0" step="1"></div>
+    <div class="module-form-row"><label>标签（逗号分隔）</label><input type="text" id="productTags" placeholder="如：新品, 热销, 包邮"></div>
+    <div class="module-form-row"><label>商品描述</label><textarea id="productDescription" rows="3" placeholder="输入商品描述..."></textarea></div>
+    <div class="module-form-row"><label>状态</label><select id="productStatus"><option value="active">在售</option><option value="inactive">停售</option><option value="out_of_stock">缺货</option></select></div>
+  </div>
+</div>
+
+<!-- Influencers Right -->
+<div class="module-right" id="influencersRight">
+  <div class="module-right-header">
+    <div class="module-right-title" id="influencersRightTitle">达人详情</div>
+    <div class="module-right-actions" id="influencersRightActions">
+      <button class="module-action-btn" onclick="createNewInfluencer()">新建</button>
+      <button class="module-action-btn" onclick="editInfluencerFromRight()">编辑</button>
+      <button class="module-action-btn primary" onclick="saveInfluencerFromRight()">保存</button>
+      <button class="module-action-btn danger" onclick="deleteInfluencerFromRight()">删除</button>
+    </div>
+  </div>
+  <div class="module-right-content" id="influencersRightContent"></div>
+</div>
+
+<!-- Settings Right -->
+<div class="module-right" id="settingsRight">
+  <div class="module-right-header">
+    <div class="module-right-title" id="settingsRightTitle">AI 模型</div>
+  </div>
+  <div class="module-right-content" id="settingsRightContent"></div>
+</div>
+
 <!-- Chat Area -->
 <div class="chat-area" id="chatArea">
 <div class="chat-header-v2">
@@ -3093,105 +3211,7 @@ window.doLogin = function () {
 <!-- Task Board (Full) -->
 <div class="task-board" id="taskBoard"></div>
 
-<!-- Product Library Panel -->
-<div class="product-library-panel" id="productLibraryPanel" style="display:none;">
-  <div class="product-library-header">
-    <div class="product-library-title">📦 商品库</div>
-    <div class="product-library-actions">
-      <button class="product-library-btn primary" onclick="showProductForm()">＋ 录入商品</button>
-      <button class="product-library-btn" onclick="closeProductLibrary()">✕</button>
-    </div>
-  </div>
-  <div class="product-library-searchbar">
-    <input type="text" id="productSearchInput" placeholder="搜索商品名称、SKU、标签..." oninput="searchProductsDebounced(this.value)">
-    <select id="productCategoryFilter" onchange="searchProducts()">
-      <option value="">全部分类</option>
-      <option value="手机数码">手机数码</option>
-      <option value="电脑办公">电脑办公</option>
-      <option value="家用电器">家用电器</option>
-      <option value="服装鞋包">服装鞋包</option>
-      <option value="食品饮料">食品饮料</option>
-      <option value="美妆个护">美妆个护</option>
-      <option value="家居家装">家居家装</option>
-      <option value="母婴用品">母婴用品</option>
-      <option value="运动户外">运动户外</option>
-      <option value="图书文具">图书文具</option>
-      <option value="未分类">未分类</option>
-    </select>
-    <button class="product-library-btn" onclick="searchProducts()">🔍 搜索</button>
-  </div>
-  <div class="product-library-list" id="productLibraryList">
-    <div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>
-  </div>
-</div>
 
-<!-- Product Form Modal -->
-<div class="product-modal-overlay" id="productModalOverlay" onclick="closeProductForm()">
-  <div class="product-modal-panel" onclick="event.stopPropagation()">
-    <div class="product-modal-header">
-      <div class="product-modal-title" id="productModalTitle">录入商品</div>
-      <button class="product-modal-close" onclick="closeProductForm()">✕</button>
-    </div>
-    <div class="product-modal-body">
-      <input type="hidden" id="productEditId">
-      <div class="product-form-row">
-        <label>商品名称 *</label>
-        <input type="text" id="productName" placeholder="输入商品名称">
-      </div>
-      <div class="product-form-row">
-        <label>SKU 编码</label>
-        <input type="text" id="productSku" placeholder="如：SKU-001">
-      </div>
-      <div class="product-form-row">
-        <label>分类</label>
-        <select id="productCategory">
-          <option value="未分类">未分类</option>
-          <option value="手机数码">手机数码</option>
-          <option value="电脑办公">电脑办公</option>
-          <option value="家用电器">家用电器</option>
-          <option value="服装鞋包">服装鞋包</option>
-          <option value="食品饮料">食品饮料</option>
-          <option value="美妆个护">美妆个护</option>
-          <option value="家居家装">家居家装</option>
-          <option value="母婴用品">母婴用品</option>
-          <option value="运动户外">运动户外</option>
-          <option value="图书文具">图书文具</option>
-        </select>
-      </div>
-      <div class="product-form-row">
-        <label>价格</label>
-        <input type="number" id="productPrice" placeholder="0.00" step="0.01">
-      </div>
-      <div class="product-form-row">
-        <label>库存</label>
-        <input type="number" id="productStock" placeholder="0" step="1">
-      </div>
-      <div class="product-form-row">
-        <label>标签（逗号分隔）</label>
-        <input type="text" id="productTags" placeholder="如：新品, 热销, 包邮">
-      </div>
-      <div class="product-form-row">
-        <label>商品描述</label>
-        <textarea id="productDescription" rows="3" placeholder="输入商品描述..."></textarea>
-      </div>
-      <div class="product-form-row">
-        <label>状态</label>
-        <select id="productStatus">
-          <option value="active">在售</option>
-          <option value="inactive">停售</option>
-          <option value="out_of_stock">缺货</option>
-        </select>
-      </div>
-    </div>
-    <div class="product-modal-footer">
-      <button class="product-modal-btn cancel" onclick="closeProductForm()">取消</button>
-      <button class="product-modal-btn save" onclick="saveProduct()">保存</button>
-    </div>
-  </div>
-</div>
-</div>
-
-<!-- Knowledge Doc Form Modal -->
 <div class="product-modal-overlay" id="knowledgeDocModalOverlay" onclick="closeKnowledgeDocForm()">
   <div class="product-modal-panel" onclick="event.stopPropagation()">
     <div class="product-modal-header">
@@ -3224,247 +3244,10 @@ window.doLogin = function () {
   </div>
 </div>
 
-<!-- Influencer Library Panel -->
-<div class="product-library-panel" id="influencerLibraryPanel" style="display:none;">
-  <div class="product-library-header">
-    <div class="product-library-title">🎙️ 达人库</div>
-    <div class="product-library-actions">
-      <button class="product-library-btn primary" onclick="showInfluencerForm()">＋ 录入达人</button>
-      <button class="product-library-btn" onclick="closeInfluencerLibrary()">✕</button>
-    </div>
-  </div>
-  <div class="product-library-searchbar">
-    <input type="text" id="influencerSearchInput" placeholder="搜索达人名称、账号ID、标签..." oninput="searchInfluencersDebounced(this.value)">
-    <select id="influencerPlatformFilter" onchange="searchInfluencers()">
-      <option value="">全部平台</option>
-      <option value="抖音">抖音</option>
-      <option value="小红书">小红书</option>
-      <option value="快手">快手</option>
-      <option value="B站">B站</option>
-      <option value="微博">微博</option>
-      <option value="视频号">视频号</option>
-      <option value="Instagram">Instagram</option>
-      <option value="YouTube">YouTube</option>
-    </select>
-    <select id="influencerCategoryFilter" onchange="searchInfluencers()">
-      <option value="">全部领域</option>
-      <option value="美妆护肤">美妆护肤</option>
-      <option value="时尚穿搭">时尚穿搭</option>
-      <option value="美食探店">美食探店</option>
-      <option value="旅行户外">旅行户外</option>
-      <option value="数码科技">数码科技</option>
-      <option value="母婴育儿">母婴育儿</option>
-      <option value="家居生活">家居生活</option>
-      <option value="健身运动">健身运动</option>
-      <option value="知识科普">知识科普</option>
-      <option value="娱乐搞笑">娱乐搞笑</option>
-      <option value="未分类">未分类</option>
-    </select>
-    <button class="product-library-btn" onclick="searchInfluencers()">🔍 搜索</button>
-  </div>
-  <div class="product-library-list" id="influencerLibraryList">
-    <div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>
-  </div>
+
 </div>
 
-<!-- Influencer Form Modal -->
-<div class="product-modal-overlay" id="influencerModalOverlay" onclick="closeInfluencerForm()">
-  <div class="product-modal-panel" onclick="event.stopPropagation()" style="max-width:640px;">
-    <div class="product-modal-header">
-      <div class="product-modal-title" id="influencerModalTitle">录入达人</div>
-      <button class="product-modal-close" onclick="closeInfluencerForm()">✕</button>
-    </div>
-    <div class="product-modal-body product-form-grid">
-      <input type="hidden" id="influencerEditId">
-      <div class="product-form-row full" style="text-align:center;">
-        <div id="influencerAvatarPreview" class="influencer-avatar-lg" style="display:inline-flex;font-size:32px;">🎙️</div>
-      </div>
-      <div class="product-form-row full">
-        <label>头像链接</label>
-        <input type="text" id="influencerAvatar" placeholder="输入头像图片URL，留空使用平台默认" oninput="updateInfluencerAvatarPreview(this.value)">
-      </div>
-      <div class="product-form-row full">
-        <label>达人名称 *</label>
-        <input type="text" id="influencerName" placeholder="输入达人名称">
-      </div>
-      <div class="product-form-row">
-        <label>平台</label>
-        <select id="influencerPlatform" onchange="updateInfluencerAvatarPreview(document.getElementById('influencerAvatar').value)">
-          <option value="抖音">抖音</option>
-          <option value="小红书">小红书</option>
-          <option value="快手">快手</option>
-          <option value="B站">B站</option>
-          <option value="微博">微博</option>
-          <option value="视频号">视频号</option>
-          <option value="Instagram">Instagram</option>
-          <option value="YouTube">YouTube</option>
-        </select>
-      </div>
-      <div class="product-form-row">
-        <label>账号ID</label>
-        <input type="text" id="influencerAccountId" placeholder="如：zhangsan123">
-      </div>
-      <div class="product-form-row">
-        <label>领域分类</label>
-        <select id="influencerCategory">
-          <option value="未分类">未分类</option>
-          <option value="美妆护肤">美妆护肤</option>
-          <option value="时尚穿搭">时尚穿搭</option>
-          <option value="美食探店">美食探店</option>
-          <option value="旅行户外">旅行户外</option>
-          <option value="数码科技">数码科技</option>
-          <option value="母婴育儿">母婴育儿</option>
-          <option value="家居生活">家居生活</option>
-          <option value="健身运动">健身运动</option>
-          <option value="知识科普">知识科普</option>
-          <option value="娱乐搞笑">娱乐搞笑</option>
-        </select>
-      </div>
-      <div class="product-form-row">
-        <label>合作状态</label>
-        <select id="influencerStatus">
-          <option value="available">可合作</option>
-          <option value="cooperating">合作中</option>
-          <option value="resting">休整中</option>
-          <option value="blacklist">黑名单</option>
-        </select>
-      </div>
-      <div class="product-form-row">
-        <label>粉丝数</label>
-        <input type="number" id="influencerFollowers" placeholder="0">
-      </div>
-      <div class="product-form-row">
-        <label>互动率 (%)</label>
-        <input type="number" id="influencerEngagement" placeholder="0.0" step="0.1">
-      </div>
-      <div class="product-form-row">
-        <label>合作报价</label>
-        <input type="number" id="influencerPrice" placeholder="0.00" step="0.01">
-      </div>
-      <div class="product-form-row">
-        <label>报价单位</label>
-        <select id="influencerPriceUnit">
-          <option value="元/条">元/条</option>
-          <option value="元/篇">元/篇</option>
-          <option value="元/小时">元/小时</option>
-          <option value="元/场">元/场</option>
-          <option value="元/月">元/月</option>
-        </select>
-      </div>
-      <div class="product-form-row">
-        <label>平均播放量</label>
-        <input type="number" id="influencerAvgViews" placeholder="0">
-      </div>
-      <div class="product-form-row">
-        <label>内容风格</label>
-        <input type="text" id="influencerStyle" placeholder="如：短视频+直播">
-      </div>
-      <div class="product-form-row full">
-        <label>标签（逗号分隔）</label>
-        <input type="text" id="influencerTags" placeholder="如：种草, 测评, 教程">
-      </div>
-      <div class="product-form-row full">
-        <label>联系方式</label>
-        <input type="text" id="influencerContact" placeholder="如：微信 zhangsan123">
-      </div>
-      <div class="product-form-row full">
-        <label>达人简介</label>
-        <textarea id="influencerBio" rows="2" placeholder="输入达人简介..."></textarea>
-      </div>
-      <div class="product-form-row full">
-        <label>备注</label>
-        <textarea id="influencerNotes" rows="2" placeholder="合作备注..."></textarea>
-      </div>
-    </div>
-    <div class="product-modal-footer">
-      <button class="product-modal-btn cancel" onclick="closeInfluencerForm()">取消</button>
-      <button class="product-modal-btn save" onclick="saveInfluencer()">保存</button>
-    </div>
-  </div>
-</div>
-</div>
 
-<!-- Influencer Detail Modal -->
-<div class="product-modal-overlay" id="influencerDetailOverlay" onclick="closeInfluencerDetail()">
-  <div class="product-modal-panel" onclick="event.stopPropagation()" style="max-width:520px;">
-    <div class="product-modal-header">
-      <div class="product-modal-title" id="influencerDetailName">达人详情</div>
-      <button class="product-modal-close" onclick="closeInfluencerDetail()">✕</button>
-    </div>
-    <div class="product-modal-body" id="influencerDetailBody" style="font-size:14px;line-height:1.6;">
-      <!-- 动态渲染 -->
-    </div>
-    <div class="product-modal-footer">
-      <button class="product-modal-btn cancel" onclick="closeInfluencerDetail()">关闭</button>
-      <button class="product-modal-btn" id="influencerDetailMatchBtn">🔍 匹配商品</button>
-      <button class="product-modal-btn" style="background:var(--danger);color:#fff;" id="influencerDetailDeleteBtn">删除</button>
-      <button class="product-modal-btn save" id="influencerDetailEditBtn">编辑</button>
-    </div>
-  </div>
-</div>
-
-</main>
-</div>
-
-<!-- Knowledge Management Area -->
-<div class="knowledge-area" id="knowledgeArea">
-  <div class="knowledge-header">
-    <div class="knowledge-header-title">📚 知识库</div>
-    <div class="knowledge-header-actions">
-      <button class="knowledge-header-btn primary" onclick="createNewKnowledge()">＋ 新建知识</button>
-      <button class="knowledge-header-btn" onclick="closeKnowledgePage()">✕</button>
-    </div>
-  </div>
-  <div class="knowledge-body">
-    <!-- Left Sidebar: Categories + Search -->
-    <div class="knowledge-sidebar">
-      <div class="knowledge-sidebar-title">分类</div>
-      <div class="knowledge-search">
-        <span class="knowledge-search-icon">🔍</span>
-        <input type="text" id="knowledgeSearchInput" placeholder="搜索知识..." oninput="filterKnowledgeList(this.value)">
-      </div>
-      <div class="knowledge-cat-list" id="knowledgeCatList">
-        <div class="knowledge-cat-item active" data-cat="" onclick="selectKnowledgeCategory('')">
-          <span>全部</span><span class="knowledge-cat-count" id="knowledgeCatCountAll">0</span>
-        </div>
-      </div>
-    </div>
-    <!-- Middle: Knowledge List -->
-    <div class="knowledge-list">
-      <div class="knowledge-list-header">知识条目</div>
-      <div class="knowledge-list-items" id="knowledgeListItems"></div>
-      <div class="knowledge-pagination" id="knowledgePagination"></div>
-    </div>
-    <!-- Editor Overlay -->
-    <div class="knowledge-editor-overlay" id="knowledgeEditorOverlay" onclick="closeKnowledgeEditor()"></div>
-    <!-- Right: Editor Drawer -->
-    <div class="knowledge-editor" id="knowledgeEditorDrawer">
-      <div class="knowledge-editor-header">
-        <button class="knowledge-editor-close" onclick="closeKnowledgeEditor()">✕</button>
-        <input type="text" class="knowledge-editor-title-input" id="knowledgeEditTitle" placeholder="知识标题">
-        <input type="text" class="knowledge-editor-cat-input" id="knowledgeEditCategory" placeholder="分类">
-      </div>
-      <div class="knowledge-editor-toolbar">
-        <button onclick="toggleKnowledgePreview()">👁 预览</button>
-        <button class="primary" onclick="saveKnowledgeFromEditor()">💾 保存</button>
-        <button onclick="deleteKnowledgeFromEditor()" style="color:var(--danger);">🗑 删除</button>
-        <span class="status-text" id="knowledgeEditStatus"></span>
-      </div>
-      <div class="knowledge-editor-body" id="knowledgeEditorBody">
-        <textarea class="knowledge-editor-textarea" id="knowledgeEditContent" placeholder="输入 Markdown 内容...
-
-支持：
-# 标题
-**粗体** *斜体*
-- 列表项
-```代码块```"></textarea>
-        <div class="knowledge-editor-preview hidden" id="knowledgeEditPreview"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Employee Detail Panel -->
 <div class="emp-detail-overlay" id="empDetailOverlay" onclick="closeEmpDetail()">
 <div class="emp-detail-panel" onclick="event.stopPropagation()">
 <div class="emp-detail-header">
@@ -3964,37 +3747,6 @@ window.doLogin = function () {
 <div style="margin-top:16px;">
 <div style="font-weight:600;margin-bottom:8px">当前团队</div>
 <div id="currentTeamList"></div>
-</div>
-</div>
-</div>
-
-<!-- Settings Panel -->
-<div class="settings-panel" id="settingsPanel">
-<div class="settings-header">
-<div class="settings-title">设置</div>
-<button class="modal-close" onclick="toggleSettings()">✕</button>
-</div>
-<div class="settings-body">
-<div class="settings-section">
-<div class="settings-section-title">AI 模型</div>
-<div class="settings-item">
-<span class="settings-item-label">当前模型</span>
-<select class="form-select" style="width:130px;">
-<option>GPT-4o</option>
-<option>Claude 3.5</option>
-</select>
-</div>
-</div>
-<div class="settings-section">
-<div class="settings-section-title">通知</div>
-<div class="settings-item">
-<span class="settings-item-label">消息通知</span>
-<div class="toggle active" onclick="this.classList.toggle('active')"></div>
-</div>
-<div class="settings-item">
-<span class="settings-item-label">群主督促</span>
-<div class="toggle active" onclick="this.classList.toggle('active')"></div>
-</div>
 </div>
 </div>
 </div>
@@ -12507,7 +12259,7 @@ function closeModal(id) {
 
 // Settings
 function toggleSettings() {
-  document.getElementById('settingsPanel').classList.toggle('open');
+  switchModule('settings');
 }
 
 // Activity Feed Auto Update
@@ -12759,15 +12511,9 @@ function performGlobalSearch(q) {
   }).join('') : `<div class="search-empty">🔍 没有找到 "${escapeHtml(q)}" 相关结果</div>`;
 }
 
-// Lounge Functions
+// Lounge Functions (drawer removed; kept for compatibility)
 function toggleLounge() {
-  const drawer = document.getElementById('loungeDrawer');
-  const btn = document.querySelector('.lounge-btn');
-  drawer.classList.toggle('open');
-  btn.classList.toggle('active');
-  if (drawer.classList.contains('open')) {
-    renderLounge();
-  }
+  // lounge drawer removed
 }
 function renderLounge() {
   var content = document.getElementById('loungeContent');
@@ -16170,12 +15916,13 @@ var _productSearchTimer = null;
 function openProductLibrary() { switchModule('products'); }
 function closeProductLibrary() { switchModule('messages'); }
 function loadProducts() {
-  var listEl = document.getElementById('productLibraryList');
+  var listEl = document.getElementById('productsMidList');
+  if (!listEl) return;
   listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
   apiFetch('/api/products').then(function (r) { return r.json(); }).then(function (data) {
     renderProductList(data.products || []);
   }).catch(function (e) {
-    listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
+    if (listEl) listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
     console.warn('[Product] 加载失败:', e);
   });
 }
@@ -16184,53 +15931,47 @@ function searchProductsDebounced(val) {
   _productSearchTimer = setTimeout(function () { searchProducts(); }, 300);
 }
 function searchProducts() {
-  var kw = document.getElementById('productSearchInput').value.trim();
-  var cat = document.getElementById('productCategoryFilter').value;
+  var searchInput = document.getElementById('productsMidSearch');
+  var catInput = document.getElementById('productsMidCategory');
+  var kw = searchInput ? searchInput.value.trim() : '';
+  var cat = catInput ? catInput.value : '';
   var qs = [];
   if (kw) qs.push('q=' + encodeURIComponent(kw));
   if (cat) qs.push('category=' + encodeURIComponent(cat));
   var url = '/api/products' + (qs.length ? '?' + qs.join('&') : '');
-  var listEl = document.getElementById('productLibraryList');
-  listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索中...</div>';
+  var listEl = document.getElementById('productsMidList');
+  if (listEl) listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索中...</div>';
   apiFetch(url).then(function (r) { return r.json(); }).then(function (data) {
     renderProductList(data.products || []);
   }).catch(function (e) {
-    listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索失败</div>';
+    if (listEl) listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索失败</div>';
   });
 }
 function renderProductList(products) {
-  var listEl = document.getElementById('productLibraryList');
+  var listEl = document.getElementById('productsMidList');
+  if (!listEl) return;
   if (products.length === 0) {
     listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">暂无商品，点击右上角"录入商品"添加</div>';
     return;
   }
   var html = '';
   products.forEach(function (p) {
-    var tagsHtml = (p.tags || []).map(function (t) { return '<span class="product-tag">' + escapeHtml(t) + '</span>'; }).join('');
-    var statusLabel = {active: '🟢 在售', inactive: '⚫ 停售', out_of_stock: '🔴 缺货'}[p.status] || p.status;
-    html += '<div class="product-card">';
-    html += '<div class="product-card-icon">📦</div>';
-    html += '<div class="product-card-info">';
-    html += '<div class="product-card-name">' + escapeHtml(p.name) + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + statusLabel + '</span></div>';
-    html += '<div class="product-card-meta">';
-    html += '<span>SKU: ' + escapeHtml(p.sku || '-') + '</span>';
-    html += '<span>分类: ' + escapeHtml(p.category || '未分类') + '</span>';
-    html += '<span>库存: ' + (p.stock || 0) + '</span>';
+    var statusMap = {active: '在售', inactive: '停售', out_of_stock: '缺货'};
+    var statusLabel = statusMap[p.status] || p.status;
+    html += '<div class="list-item" onclick="editProduct(\'' + escapeAttr(p.id) + '\')">';
+    html += '<div class="emp-avatar" style="background:var(--accent-light);color:var(--accent);">📦</div>';
+    html += '<div class="emp-info">';
+    html += '<div class="emp-name">' + escapeHtml(p.name) + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + statusLabel + '</span></div>';
+    html += '<div class="emp-preview">SKU: ' + escapeHtml(p.sku || '-') + ' · 分类: ' + escapeHtml(p.category || '未分类') + ' · 库存: ' + (p.stock || 0) + '</div>';
     html += '</div>';
-    html += '<div style="margin-top:6px;">' + tagsHtml + '</div>';
-    html += '</div>';
-    html += '<div class="product-card-price">¥' + (p.price || 0).toFixed(2) + '</div>';
-    html += '<div class="product-card-actions">';
-    html += '<button class="memory-action-btn" onclick="matchProductToInfluencer(\'' + escapeAttr(p.id) + '\')" title="智能匹配达人" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--success);">🔗</button>';
-    html += '<button class="memory-action-btn" onclick="editProduct(\'' + escapeAttr(p.id) + '\')" title="编辑" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--accent);">✏️</button>';
-    html += '<button class="memory-action-btn" onclick="deleteProduct(\'' + escapeAttr(p.id) + '\')" title="删除" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--text-tertiary);">🗑️</button>';
-    html += '</div>';
+    html += '<div class="emp-time" style="color:var(--accent);font-weight:600;">¥' + (p.price || 0).toFixed(2) + '</div>';
     html += '</div>';
   });
   listEl.innerHTML = html;
 }
 function showProductForm(product) {
-  document.getElementById('productModalTitle').textContent = product ? '编辑商品' : '录入商品';
+  var titleEl = document.getElementById('productsRightTitle');
+  if (titleEl) titleEl.textContent = product ? '编辑商品' : '录入商品';
   document.getElementById('productEditId').value = product ? product.id : '';
   document.getElementById('productName').value = product ? product.name : '';
   document.getElementById('productSku').value = product ? (product.sku || '') : '';
@@ -16240,10 +15981,20 @@ function showProductForm(product) {
   document.getElementById('productTags').value = product ? (product.tags || []).join(', ') : '';
   document.getElementById('productDescription').value = product ? (product.description || '') : '';
   document.getElementById('productStatus').value = product ? (product.status || 'active') : 'active';
-  document.getElementById('productModalOverlay').classList.add('open');
+  var right = document.getElementById('productsRight');
+  if (right) right.classList.add('active');
 }
 function closeProductForm() {
-  document.getElementById('productModalOverlay').classList.remove('open');
+  var right = document.getElementById('productsRight');
+  if (right) right.classList.remove('active');
+}
+function createNewProduct() {
+  showProductForm(null);
+}
+function deleteProductFromRight() {
+  var id = document.getElementById('productEditId').value;
+  if (id) deleteProduct(id);
+  else closeProductForm();
 }
 function saveProduct() {
   var id = document.getElementById('productEditId').value;
@@ -16297,12 +16048,13 @@ var _influencerSearchTimer = null;
 function openInfluencerLibrary() { switchModule('influencers'); }
 function closeInfluencerLibrary() { switchModule('messages'); }
 function loadInfluencers() {
-  var listEl = document.getElementById('influencerLibraryList');
+  var listEl = document.getElementById('influencersMidList');
+  if (!listEl) return;
   listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
   apiFetch('/api/influencers').then(function (r) { return r.json(); }).then(function (data) {
     renderInfluencerList(data.influencers || []);
   }).catch(function (e) {
-    listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
+    if (listEl) listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
     console.warn('[Influencer] 加载失败:', e);
   });
 }
@@ -16321,21 +16073,16 @@ var _knowledgePageSize = 20;
 var _knowledgeInitialized = false;
 
 function openKnowledgePage() {
-  document.getElementById('knowledgeArea').classList.add('active');
-  loadKnowledgePage();
+  switchModule('knowledge');
 }
 function closeKnowledgePage() { switchModule('messages'); closeKnowledgeEditor(); _knowledgeInitialized = false; _knowledgeCurrentId = null; }
 function openKnowledgeEditor() {
-  var drawer = document.getElementById('knowledgeEditorDrawer');
-  var overlay = document.getElementById('knowledgeEditorOverlay');
-  if (drawer) drawer.classList.add('active');
-  if (overlay) overlay.classList.add('active');
+  var right = document.getElementById('knowledgeRight');
+  if (right) right.classList.add('active');
 }
 function closeKnowledgeEditor() {
-  var drawer = document.getElementById('knowledgeEditorDrawer');
-  var overlay = document.getElementById('knowledgeEditorOverlay');
-  if (drawer) drawer.classList.remove('active');
-  if (overlay) overlay.classList.remove('active');
+  var right = document.getElementById('knowledgeRight');
+  if (right) right.classList.remove('active');
 }
 async function loadKnowledgePage(page) {
   if (page) _knowledgePage = page;
@@ -16364,22 +16111,27 @@ async function loadKnowledgePage(page) {
     _knowledgeInitialized = true;
   } catch (e) {
     console.warn('[KnowledgePage] 加载失败:', e);
-    document.getElementById('knowledgeListItems').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
+    var midList = document.getElementById('knowledgeMidList');
+    if (midList) midList.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
   }
 }
 function renderKnowledgeCategories(catMap, total) {
-  var html = '<div class="knowledge-cat-item' + (_knowledgeCurrentCat === '' ? ' active' : '') + '" data-cat="" onclick="selectKnowledgeCategory(\'\')"><span>全部</span><span class="knowledge-cat-count">' + (total || _knowledgeData.total) + '</span></div>';
+  var select = document.getElementById('knowledgeMidCategory');
+  if (!select) return;
+  var html = '<option value="">全部分类 (' + (total || _knowledgeData.total) + ')</option>';
   _knowledgeData.categories.forEach(function(cat) {
-    html += '<div class="knowledge-cat-item' + (_knowledgeCurrentCat === cat ? ' active' : '') + '" data-cat="' + escapeAttr(cat) + '" onclick="selectKnowledgeCategory(\'' + escapeAttr(cat).replace(/'/g, "\\'") + '\')"><span>' + escapeHtml(cat) + '</span><span class="knowledge-cat-count">' + (catMap[cat] || 0) + '</span></div>';
+    html += '<option value="' + escapeAttr(cat) + '"' + (_knowledgeCurrentCat === cat ? ' selected' : '') + '>' + escapeHtml(cat) + ' (' + (catMap[cat] || 0) + ')</option>';
   });
-  document.getElementById('knowledgeCatList').innerHTML = html;
+  select.innerHTML = html;
+}
+function onKnowledgeMidCategoryChange(cat) {
+  selectKnowledgeCategory(cat);
 }
 async function selectKnowledgeCategory(cat) {
   _knowledgeCurrentCat = cat;
   _knowledgePage = 1;  // 切换分类回到第一页
-  document.querySelectorAll('.knowledge-cat-item').forEach(function(el) {
-    el.classList.toggle('active', el.dataset.cat === cat);
-  });
+  var select = document.getElementById('knowledgeMidCategory');
+  if (select) select.value = cat;
   await loadKnowledgePage(1);
 }
 async function filterKnowledgeList(keyword) {
@@ -16402,7 +16154,8 @@ async function filterKnowledgeList(keyword) {
   }
 }
 function renderKnowledgeList(docs) {
-  var el = document.getElementById('knowledgeListItems');
+  var el = document.getElementById('knowledgeMidList');
+  if (!el) return;
   if (!docs || docs.length === 0) {
     el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">暂无知识</div>';
     return;
@@ -16411,17 +16164,17 @@ function renderKnowledgeList(docs) {
   docs.forEach(function(d) {
     var isActive = d.id === _knowledgeCurrentId;
     var statusIcon = d.status === 'error' ? ' ⚠️' : (d.chunkCount > 0 ? ' ✅' : '');
-    html += '<div class="knowledge-list-item' + (isActive ? ' active' : '') + '" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id).replace(/'/g, "\\'") + '\')">';
-    html += '<div class="knowledge-list-item-title">' + escapeHtml(d.title || d.name || '未命名') + statusIcon + '</div>';
-    html += '<div class="knowledge-list-item-meta"><span class="knowledge-list-item-cat">' + escapeHtml(d.category || '未分类') + '</span><span>' + formatDate(d.updatedAt) + '</span></div>';
+    html += '<div class="list-item' + (isActive ? ' active' : '') + '" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id).replace(/'/g, "\\'") + '\')">';
+    html += '<div class="emp-info"><div class="emp-name">' + escapeHtml(d.title || d.name || '未命名') + statusIcon + '</div>';
+    html += '<div class="emp-preview"><span style="padding:2px 8px;background:var(--bg-tertiary);border-radius:10px;font-size:11px;">' + escapeHtml(d.category || '未分类') + '</span> · ' + formatDate(d.updatedAt) + '</div></div>';
     html += '</div>';
   });
   el.innerHTML = html;
 }
 function renderKnowledgePagination(total, page, pageSize) {
-  var el = document.getElementById('knowledgePagination');
-  if (!total || total <= pageSize) {
-    el.innerHTML = '';
+  var el = document.getElementById('knowledgeMidPagination');
+  if (!el || !total || total <= pageSize) {
+    if (el) el.innerHTML = '';
     return;
   }
   var totalPages = Math.ceil(total / pageSize);
@@ -16439,15 +16192,17 @@ function selectKnowledgeItem(id) {
   document.getElementById('knowledgeEditTitle').value = doc.title || doc.name || '';
   document.getElementById('knowledgeEditCategory').value = doc.category || '';
   document.getElementById('knowledgeEditContent').value = doc.content || '';
-  document.getElementById('knowledgeEditStatus').textContent = '';
+  var statusEl = document.getElementById('knowledgeEditStatus');
+  if (statusEl) statusEl.textContent = '';
   _knowledgePreviewMode = false;
   updateKnowledgeEditorView();
-  openKnowledgeEditor();
+  var right = document.getElementById('knowledgeRight');
+  if (right) right.classList.add('active');
   // 更新列表高亮
-  document.querySelectorAll('.knowledge-list-item').forEach(function(el) {
+  document.querySelectorAll('#knowledgeMidList .list-item').forEach(function(el) {
     el.classList.remove('active');
   });
-  var activeEl = document.querySelector('.knowledge-list-item[onclick*="' + id + '"]');
+  var activeEl = document.querySelector('#knowledgeMidList .list-item[onclick*="' + id + '"]');
   if (activeEl) activeEl.classList.add('active');
 }
 function createNewKnowledge() {
@@ -16462,7 +16217,8 @@ function createNewKnowledge() {
   if (statusEl) statusEl.textContent = '';
   _knowledgePreviewMode = false;
   updateKnowledgeEditorView();
-  openKnowledgeEditor();
+  var right = document.getElementById('knowledgeRight');
+  if (right) right.classList.add('active');
   if (titleEl) {
     try { titleEl.focus(); } catch (e) {}
   }
@@ -16471,12 +16227,13 @@ function createNewKnowledge() {
 function updateKnowledgeEditorView() {
   var textarea = document.getElementById('knowledgeEditContent');
   var preview = document.getElementById('knowledgeEditPreview');
+  if (!textarea || !preview) return;
   if (_knowledgePreviewMode) {
-    textarea.classList.add('hidden');
+    textarea.parentElement.classList.add('hidden');
     preview.classList.remove('hidden');
-    preview.innerHTML = renderMarkdown(document.getElementById('knowledgeEditContent').value);
+    preview.innerHTML = renderMarkdown(textarea.value);
   } else {
-    textarea.classList.remove('hidden');
+    textarea.parentElement.classList.remove('hidden');
     preview.classList.add('hidden');
   }
 }
@@ -16537,7 +16294,8 @@ async function deleteKnowledgeFromEditor() {
     await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId), { method: 'DELETE' });
     showToast('✅ 已删除');
     _knowledgeCurrentId = null;
-    closeKnowledgeEditor();
+    var right = document.getElementById('knowledgeRight');
+    if (right) right.classList.remove('active');
     await loadKnowledgePage();
   } catch (e) {
     showToast('❌ 删除失败');
@@ -16545,88 +16303,99 @@ async function deleteKnowledgeFromEditor() {
   }
 }
 function searchInfluencers() {
-  var kw = document.getElementById('influencerSearchInput').value.trim();
-  var platform = document.getElementById('influencerPlatformFilter').value;
-  var cat = document.getElementById('influencerCategoryFilter').value;
+  var searchInput = document.getElementById('influencersMidSearch');
+  var platformInput = document.getElementById('influencersMidPlatform');
+  var catInput = document.getElementById('influencersMidCategory');
+  var kw = searchInput ? searchInput.value.trim() : '';
+  var platform = platformInput ? platformInput.value : '';
+  var cat = catInput ? catInput.value : '';
   var qs = [];
   if (kw) qs.push('q=' + encodeURIComponent(kw));
   if (platform) qs.push('platform=' + encodeURIComponent(platform));
   if (cat) qs.push('category=' + encodeURIComponent(cat));
   var url = '/api/influencers' + (qs.length ? '?' + qs.join('&') : '');
-  var listEl = document.getElementById('influencerLibraryList');
-  listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索中...</div>';
+  var listEl = document.getElementById('influencersMidList');
+  if (listEl) listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索中...</div>';
   apiFetch(url).then(function (r) { return r.json(); }).then(function (data) {
     renderInfluencerList(data.influencers || []);
   }).catch(function (e) {
-    listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索失败</div>';
+    if (listEl) listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索失败</div>';
   });
 }
 function renderInfluencerList(influencers) {
-  var listEl = document.getElementById('influencerLibraryList');
+  var listEl = document.getElementById('influencersMidList');
+  if (!listEl) return;
   if (influencers.length === 0) {
     listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">暂无达人，点击右上角"录入达人"添加</div>';
     return;
   }
   var html = '';
   influencers.forEach(function (i) {
-    var statusMap = {available: {label: '可合作', bg: 'rgba(34,197,94,0.12)', color: '#16a34a'}, cooperating: {label: '合作中', bg: 'rgba(59,130,246,0.12)', color: '#2563eb'}, resting: {label: '休整中', bg: 'rgba(245,158,11,0.12)', color: '#d97706'}, blacklist: {label: '黑名单', bg: 'rgba(107,114,128,0.12)', color: '#4b5563'}};
-    var st = statusMap[i.status] || {label: i.status || '未知', bg: 'var(--bg-tertiary)', color: 'var(--text-secondary)'};
+    var statusMap = {available: '可合作', cooperating: '合作中', resting: '休整中', blacklist: '黑名单'};
+    var statusLabel = statusMap[i.status] || (i.status || '未知');
     var platformIcon = {抖音: '🎵', 小红书: '📕', 快手: '⚡', B站: '📺', 微博: '🌐', 视频号: '📱', Instagram: '📷', YouTube: '▶️'}[i.platform] || '🎙️';
     var followerText = i.followerCount >= 10000 ? (i.followerCount / 10000).toFixed(1) + 'w' : (i.followerCount || 0);
     var avatarHtml = i.avatar ? '<img src="' + escapeHtml(i.avatar) + '" style="width:100%;height:100%;object-fit:cover;">' : '<span style="font-size:22px;">' + platformIcon + '</span>';
-    html += '<div class="product-card" onclick="openInfluencerDetail(\'' + escapeAttr(i.id) + '\')" style="cursor:pointer;align-items:center;">';
-    html += '<div class="influencer-avatar">' + avatarHtml + '</div>';
-    html += '<div class="product-card-info">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
-    html += '<div class="product-card-name">' + escapeHtml(i.name) + '</div>';
-    html += '<span class="influencer-status-tag" style="background:' + st.bg + ';color:' + st.color + ';margin-left:8px;">' + st.label + '</span>';
-    html += '</div>';
-    html += '<div class="product-card-meta">';
-    html += '<span>粉丝: ' + followerText + '</span>';
-    html += '<span>类目: ' + escapeHtml(i.category || '未分类') + '</span>';
-    html += '</div>';
-    html += '</div>';
-    html += '<div class="product-card-actions">';
-    html += '<button class="memory-action-btn" onclick="event.stopPropagation();matchInfluencerToProduct(\'' + escapeAttr(i.id) + '\')" title="智能匹配商品" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--success);">🔗</button>';
-    html += '<button class="memory-action-btn" onclick="event.stopPropagation();editInfluencer(\'' + escapeAttr(i.id) + '\')" title="编辑" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--accent);">✏️</button>';
-    html += '<button class="memory-action-btn" onclick="event.stopPropagation();deleteInfluencer(\'' + escapeAttr(i.id) + '\')" title="删除" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--text-tertiary);">🗑️</button>';
+    html += '<div class="list-item" onclick="openInfluencerDetail(\'' + escapeAttr(i.id) + '\')">';
+    html += '<div class="emp-avatar" style="background:var(--bg-tertiary);">' + avatarHtml + '</div>';
+    html += '<div class="emp-info">';
+    html += '<div class="emp-name">' + escapeHtml(i.name) + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + statusLabel + '</span></div>';
+    html += '<div class="emp-preview">粉丝: ' + followerText + ' · 类目: ' + escapeHtml(i.category || '未分类') + '</div>';
     html += '</div>';
     html += '</div>';
   });
   listEl.innerHTML = html;
 }
 function showInfluencerForm(inf) {
-  document.getElementById('influencerModalTitle').textContent = inf ? '编辑达人' : '录入达人';
-  document.getElementById('influencerEditId').value = inf ? inf.id : '';
-  document.getElementById('influencerName').value = inf ? inf.name : '';
-  document.getElementById('influencerAvatar').value = inf ? (inf.avatar || '') : '';
-  document.getElementById('influencerPlatform').value = inf ? (inf.platform || '抖音') : '抖音';
+  var titleEl = document.getElementById('influencersRightTitle');
+  if (titleEl) titleEl.textContent = inf ? '编辑达人' : '录入达人';
+  var contentEl = document.getElementById('influencersRightContent');
+  if (!contentEl) return;
+  var html = '<input type="hidden" id="influencerEditId" value="' + (inf ? escapeAttr(inf.id) : '') + '">';
+  html += '<div class="module-form-row" style="text-align:center;"><div id="influencerAvatarPreview" class="influencer-avatar-lg" style="display:inline-flex;font-size:32px;">🎙️</div></div>';
+  html += '<div class="module-form-row"><label>头像链接</label><input type="text" id="influencerAvatar" placeholder="输入头像图片URL，留空使用平台默认" value="' + (inf ? escapeAttr(inf.avatar || '') : '') + '" oninput="updateInfluencerAvatarPreview(this.value)"></div>';
+  html += '<div class="module-form-row"><label>达人名称 *</label><input type="text" id="influencerName" placeholder="输入达人名称" value="' + (inf ? escapeAttr(inf.name || '') : '') + '"></div>';
+  html += '<div class="module-form-row"><label>平台</label><select id="influencerPlatform" onchange="updateInfluencerAvatarPreview(document.getElementById(\'influencerAvatar\').value)">' + renderOptions(['抖音','小红书','快手','B站','微博','视频号','Instagram','YouTube'], inf ? inf.platform : '抖音') + '</select></div>';
+  html += '<div class="module-form-row"><label>账号ID</label><input type="text" id="influencerAccountId" placeholder="如：zhangsan123" value="' + (inf ? escapeAttr(inf.accountId || '') : '') + '"></div>';
+  html += '<div class="module-form-row"><label>领域分类</label><select id="influencerCategory">' + renderOptions(['未分类','美妆护肤','时尚穿搭','美食探店','旅行户外','数码科技','母婴育儿','家居生活','健身运动','知识科普','娱乐搞笑'], inf ? inf.category : '未分类') + '</select></div>';
+  html += '<div class="module-form-row"><label>合作状态</label><select id="influencerStatus">' + renderOptions([{v:'available',l:'可合作'},{v:'cooperating',l:'合作中'},{v:'resting',l:'休整中'},{v:'blacklist',l:'黑名单'}], inf ? inf.status : 'available') + '</select></div>';
+  html += '<div class="module-form-row"><label>粉丝数</label><input type="number" id="influencerFollowers" placeholder="0" value="' + (inf ? (inf.followerCount || 0) : '') + '"></div>';
+  html += '<div class="module-form-row"><label>互动率 (%)</label><input type="number" id="influencerEngagement" placeholder="0.0" step="0.1" value="' + (inf ? (inf.engagementRate || 0) : '') + '"></div>';
+  html += '<div class="module-form-row"><label>合作报价</label><input type="number" id="influencerPrice" placeholder="0.00" step="0.01" value="' + (inf ? (inf.cooperationPrice || 0) : '') + '"></div>';
+  html += '<div class="module-form-row"><label>报价单位</label><select id="influencerPriceUnit">' + renderOptions(['元/条','元/篇','元/小时','元/场','元/月'], inf ? inf.priceUnit : '元/条') + '</select></div>';
+  html += '<div class="module-form-row"><label>平均播放量</label><input type="number" id="influencerAvgViews" placeholder="0" value="' + (inf ? (inf.avgViews || 0) : '') + '"></div>';
+  html += '<div class="module-form-row"><label>内容风格</label><input type="text" id="influencerStyle" placeholder="如：短视频+直播" value="' + (inf ? escapeAttr(inf.contentStyle || '') : '') + '"></div>';
+  html += '<div class="module-form-row"><label>标签（逗号分隔）</label><input type="text" id="influencerTags" placeholder="如：种草, 测评, 教程" value="' + (inf ? escapeAttr((inf.tags || []).join(', ')) : '') + '"></div>';
+  html += '<div class="module-form-row"><label>联系方式</label><input type="text" id="influencerContact" placeholder="如：微信 zhangsan123" value="' + (inf ? escapeAttr(inf.contact || '') : '') + '"></div>';
+  html += '<div class="module-form-row"><label>达人简介</label><textarea id="influencerBio" rows="2" placeholder="输入达人简介...">' + (inf ? escapeHtml(inf.bio || '') : '') + '</textarea></div>';
+  html += '<div class="module-form-row"><label>备注</label><textarea id="influencerNotes" rows="2" placeholder="合作备注...">' + (inf ? escapeHtml(inf.notes || '') : '') + '</textarea></div>';
+  contentEl.innerHTML = html;
   updateInfluencerAvatarPreview(inf ? inf.avatar : '');
-  document.getElementById('influencerAccountId').value = inf ? (inf.accountId || '') : '';
-  document.getElementById('influencerCategory').value = inf ? (inf.category || '未分类') : '未分类';
-  document.getElementById('influencerFollowers').value = inf ? (inf.followerCount || 0) : '';
-  document.getElementById('influencerPrice').value = inf ? (inf.cooperationPrice || 0) : '';
-  document.getElementById('influencerPriceUnit').value = inf ? (inf.priceUnit || '元/条') : '元/条';
-  document.getElementById('influencerEngagement').value = inf ? (inf.engagementRate || 0) : '';
-  document.getElementById('influencerAvgViews').value = inf ? (inf.avgViews || 0) : '';
-  document.getElementById('influencerTags').value = inf ? (inf.tags || []).join(', ') : '';
-  document.getElementById('influencerStyle').value = inf ? (inf.contentStyle || '') : '';
-  document.getElementById('influencerContact').value = inf ? (inf.contact || '') : '';
-  document.getElementById('influencerBio').value = inf ? (inf.bio || '') : '';
-  document.getElementById('influencerNotes').value = inf ? (inf.notes || '') : '';
-  document.getElementById('influencerStatus').value = inf ? (inf.status || 'available') : 'available';
-  document.getElementById('influencerModalOverlay').classList.add('open');
+  var right = document.getElementById('influencersRight');
+  if (right) right.classList.add('active');
+  var actions = document.getElementById('influencersRightActions');
+  if (actions) actions.innerHTML = '<button class="module-action-btn primary" onclick="saveInfluencerFromRight()">保存</button><button class="module-action-btn danger" onclick="closeInfluencerForm()">取消</button>';
+}
+function renderOptions(opts, selected) {
+  return opts.map(function(o) {
+    var v = typeof o === 'string' ? o : o.v;
+    var l = typeof o === 'string' ? o : o.l;
+    return '<option value="' + escapeAttr(v) + '"' + (selected === v ? ' selected' : '') + '>' + escapeHtml(l) + '</option>';
+  }).join('');
 }
 function closeInfluencerForm() {
-  document.getElementById('influencerModalOverlay').classList.remove('open');
+  var right = document.getElementById('influencersRight');
+  if (right) right.classList.remove('active');
 }
 function updateInfluencerAvatarPreview(url) {
   var el = document.getElementById('influencerAvatarPreview');
+  if (!el) return;
   if (url && url.trim()) {
     el.innerHTML = '<img src="' + escapeHtml(url.trim()) + '" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML=\'<span style=\\\'font-size:32px;\\\'>🎙️</span>\'">';
   } else {
-    var platform = document.getElementById('influencerPlatform').value;
-    var icon = {抖音: '🎵', 小红书: '📕', 快手: '⚡', B站: '📺', 微博: '🌐', 视频号: '📱', Instagram: '📷', YouTube: '▶️'}[platform] || '🎙️';
+    var platform = document.getElementById('influencerPlatform');
+    var platformVal = platform ? platform.value : '抖音';
+    var icon = {抖音: '🎵', 小红书: '📕', 快手: '⚡', B站: '📺', 微博: '🌐', 视频号: '📱', Instagram: '📷', YouTube: '▶️'}[platformVal] || '🎙️';
     el.innerHTML = '<span style="font-size:32px;">' + icon + '</span>';
   }
 }
@@ -16735,12 +16504,14 @@ function openInfluencerDetail(infId) {
     html += '<div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:20px;">正在加载...</div>';
     html += '</div>';
 
-    document.getElementById('influencerDetailName').textContent = i.name;
-    document.getElementById('influencerDetailBody').innerHTML = html;
-    document.getElementById('influencerDetailEditBtn').onclick = function () { closeInfluencerDetail(); editInfluencer(i.id); };
-    document.getElementById('influencerDetailDeleteBtn').onclick = function () { closeInfluencerDetail(); deleteInfluencer(i.id); };
-    document.getElementById('influencerDetailMatchBtn').onclick = function () { matchInfluencerToProduct(i.id); };
-    document.getElementById('influencerDetailOverlay').classList.add('open');
+    var titleEl = document.getElementById('influencersRightTitle');
+    if (titleEl) titleEl.textContent = i.name;
+    var contentEl = document.getElementById('influencersRightContent');
+    if (contentEl) contentEl.innerHTML = html;
+    var actions = document.getElementById('influencersRightActions');
+    if (actions) actions.innerHTML = '<button class="module-action-btn" onclick="matchInfluencerToProduct(\'' + escapeAttr(i.id) + '\')">匹配商品</button><button class="module-action-btn" onclick="editInfluencer(\'' + escapeAttr(i.id) + '\')">编辑</button><button class="module-action-btn danger" onclick="deleteInfluencer(\'' + escapeAttr(i.id) + '\')">删除</button>';
+    var right = document.getElementById('influencersRight');
+    if (right) right.classList.add('active');
 
     // 异步加载关联商品与热卖视频
     loadInfluencerHotVideos(infId);
@@ -16808,7 +16579,26 @@ function loadInfluencerHotVideos(infId) {
     });
 }
 function closeInfluencerDetail() {
-  document.getElementById('influencerDetailOverlay').classList.remove('open');
+  var right = document.getElementById('influencersRight');
+  if (right) right.classList.remove('active');
+}
+function editInfluencerFromRight() {
+  var id = document.getElementById('influencerEditId');
+  if (id && id.value) editInfluencer(id.value);
+}
+function saveInfluencerFromRight() {
+  saveInfluencer();
+}
+function deleteInfluencerFromRight() {
+  var idEl = document.getElementById('influencerEditId');
+  if (idEl && idEl.value) {
+    if (confirm('确定删除此达人？')) deleteInfluencer(idEl.value);
+  } else {
+    closeInfluencerForm();
+  }
+}
+function createNewInfluencer() {
+  showInfluencerForm(null);
 }
 function deleteInfluencer(infId) {
   if (!confirm('确定删除此达人？')) return;
@@ -17147,7 +16937,7 @@ function closeMatchModal() {
 </div>
 
 <!-- Bottom Connection Status Bar -->
-<div id="connectionStatusBar" style="position:fixed;bottom:0;left:0;right:0;height:28px;background:var(--bg-primary);border-top:1px solid var(--separator);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:12px;color:var(--text-secondary);z-index:100;">
+<div id="connectionStatusBar" style="position:fixed;bottom:0;left:56px;right:0;height:28px;background:var(--bg-primary);border-top:1px solid var(--separator);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:12px;color:var(--text-secondary);z-index:100;">
   <div style="display:flex;align-items:center;gap:12px;">
     <span id="connStatusOpenClaw" style="display:flex;align-items:center;gap:4px;">
       <span class="status-indicator" style="width:8px;height:8px;border-radius:50%;background:#34C759;"></span>OpenClaw 已连接
@@ -17576,7 +17366,7 @@ var currentModule = 'messages';
 
 function switchModule(module) {
   currentModule = module;
-  
+
   // Update left nav active state
   document.querySelectorAll('.nav-item').forEach(function(el) {
     el.classList.remove('active');
@@ -17584,59 +17374,61 @@ function switchModule(module) {
   var navId = 'nav' + module.charAt(0).toUpperCase() + module.slice(1);
   var navEl = document.getElementById(navId);
   if (navEl) navEl.classList.add('active');
-  
-  // Hide all right-panel modules
-  document.getElementById('chatArea').style.display = 'none';
-  document.getElementById('knowledgeArea').style.display = 'none';
-  document.getElementById('knowledgeArea').classList.remove('active');
-  document.getElementById('productLibraryPanel').style.display = 'none';
-  document.getElementById('influencerLibraryPanel').style.display = 'none';
-  document.querySelector('.settings-panel').style.display = 'none';
-  document.querySelector('.settings-panel').classList.remove('open');
-  
+
+  // Hide all module mid/right containers
+  ['knowledgeMid', 'productsMid', 'influencersMid', 'settingsMid'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
+  ['knowledgeRight', 'productsRight', 'influencersRight', 'settingsRight'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
+
   // Reset mid sidebar content
   var employeeList = document.getElementById('employeeList');
   var projectList = document.getElementById('projectList');
-  
+  var searchInput = document.getElementById('searchInput');
+
   if (module === 'messages') {
-    // Show chat area
     document.getElementById('chatArea').style.display = 'flex';
     if (employeeList) employeeList.style.display = 'block';
     if (projectList) projectList.style.display = 'none';
-    var searchInput = document.getElementById('searchInput');
     if (searchInput) searchInput.placeholder = '搜索';
     renderEmployeeList();
-  } else if (module === 'knowledge') {
+  } else {
+    document.getElementById('chatArea').style.display = 'none';
     if (employeeList) employeeList.style.display = 'none';
     if (projectList) projectList.style.display = 'none';
-    var searchInput = document.getElementById('searchInput');
     if (searchInput) searchInput.placeholder = '搜索';
-    document.getElementById('knowledgeArea').style.display = 'flex';
-    document.getElementById('knowledgeArea').classList.add('active');
-    loadKnowledgeList();
-  } else if (module === 'products') {
-    if (employeeList) employeeList.style.display = 'none';
-    if (projectList) projectList.style.display = 'none';
-    var searchInput = document.getElementById('searchInput');
-    if (searchInput) searchInput.placeholder = '搜索';
-    document.getElementById('productLibraryPanel').style.display = 'flex';
-    loadProducts();
-  } else if (module === 'influencers') {
-    if (employeeList) employeeList.style.display = 'none';
-    if (projectList) projectList.style.display = 'none';
-    var searchInput = document.getElementById('searchInput');
-    if (searchInput) searchInput.placeholder = '搜索';
-    document.getElementById('influencerLibraryPanel').style.display = 'flex';
-    loadInfluencers();
-  } else if (module === 'settings') {
-    if (employeeList) employeeList.style.display = 'none';
-    if (projectList) projectList.style.display = 'none';
-    var searchInput = document.getElementById('searchInput');
-    if (searchInput) searchInput.placeholder = '搜索';
-    document.querySelector('.settings-panel').style.display = 'flex';
-    document.querySelector('.settings-panel').classList.add('open');
-    renderSettingsMid();
+    var mid = document.getElementById(module + 'Mid');
+    var right = document.getElementById(module + 'Right');
+    if (mid) mid.classList.add('active');
+    if (right) right.classList.add('active');
+    if (module === 'knowledge') loadKnowledgePage();
+    else if (module === 'products') loadProducts();
+    else if (module === 'influencers') loadInfluencers();
+    else if (module === 'settings') renderSettingsMid();
   }
+}
+
+function onModuleSearch(value) {
+  if (currentModule === 'messages') {
+    filterEmployeeList(value);
+  } else if (currentModule === 'knowledge') {
+    filterKnowledgeList(value);
+  } else if (currentModule === 'products') {
+    searchProductsDebounced(value);
+  } else if (currentModule === 'influencers') {
+    searchInfluencersDebounced(value);
+  } else if (currentModule === 'settings') {
+    filterSettingsList(value);
+  }
+}
+
+function closeUserDropdownDirect() {
+  var dropdown = document.getElementById('userDropdown');
+  if (dropdown) dropdown.classList.remove('show');
 }
 
 function openGlobalSearch() {
@@ -17683,11 +17475,71 @@ function showUserProfile() {
   showToast('👤 ' + escapeHtml(currentUser.displayName || currentUser.name) + ' · ' + getCurrentUserRoleDisplay());
 }
 
+var _settingsSelectedCategory = 'ai';
+
 function renderSettingsMid() {
-  var list = document.getElementById('employeeList');
+  var list = document.getElementById('settingsMidList');
   if (!list) return;
-  list.innerHTML = '<div style="padding:20px;color:var(--text-secondary);text-align:center;">⚙️ 设置面板<br><span style="font-size:12px;">在右侧查看详细设置</span></div>';
-  list.style.display = 'block';
+  var categories = [
+    { id: 'ai', icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>', title: 'AI 模型' },
+    { id: 'notification', icon: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>', title: '通知' },
+    { id: 'account', icon: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>', title: '账号' },
+    { id: 'system', icon: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>', title: '系统设置' },
+    { id: 'permission', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/>', title: '权限管理' }
+  ];
+  var html = '';
+  categories.forEach(function (c) {
+    var isActive = _settingsSelectedCategory === c.id;
+    html += '<div class="list-item' + (isActive ? ' active' : '') + '" onclick="selectSettingsCategory(\'' + c.id + '\')">';
+    html += '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + c.icon + '</svg>';
+    html += '<div class="emp-info"><div class="emp-name">' + escapeHtml(c.title) + '</div></div>';
+    html += '</div>';
+  });
+  list.innerHTML = html;
+  renderSettingsRight();
+}
+
+function selectSettingsCategory(id) {
+  _settingsSelectedCategory = id;
+  renderSettingsMid();
+}
+
+function filterSettingsList(value) {
+  var items = document.querySelectorAll('#settingsMidList .list-item');
+  var lower = (value || '').toLowerCase();
+  items.forEach(function (item) {
+    var text = item.textContent || '';
+    item.style.display = text.toLowerCase().indexOf(lower) >= 0 ? 'flex' : 'none';
+  });
+}
+
+function renderSettingsRight() {
+  var titleEl = document.getElementById('settingsRightTitle');
+  var contentEl = document.getElementById('settingsRightContent');
+  if (titleEl) titleEl.textContent = {
+    ai: 'AI 模型', notification: '通知', account: '账号', system: '系统设置', permission: '权限管理'
+  }[_settingsSelectedCategory] || '设置';
+  if (!contentEl) return;
+  var html = '';
+  if (_settingsSelectedCategory === 'ai') {
+    html += '<div class="module-form-row"><label>当前模型</label><select class="form-select" id="settingsModelSelect"><option>GPT-4o</option><option>Claude 3.5</option></select></div>';
+    html += '<div class="module-form-row"><label>默认温度</label><input type="range" min="0" max="1" step="0.1" value="0.7" id="settingsTemperature"></div>';
+    html += '<div class="module-form-row"><label>最大回复长度</label><input type="number" value="2048" id="settingsMaxTokens"></div>';
+  } else if (_settingsSelectedCategory === 'notification') {
+    html += '<div class="settings-item"><span class="settings-item-label">消息通知</span><div class="toggle active" onclick="this.classList.toggle(\'active\')"></div></div>';
+    html += '<div class="settings-item"><span class="settings-item-label">群主督促</span><div class="toggle active" onclick="this.classList.toggle(\'active\')"></div></div>';
+    html += '<div class="settings-item"><span class="settings-item-label">任务提醒</span><div class="toggle active" onclick="this.classList.toggle(\'active\')"></div></div>';
+  } else if (_settingsSelectedCategory === 'account') {
+    html += '<div class="module-form-row"><label>显示名称</label><input type="text" id="settingsDisplayName" placeholder="输入显示名称"></div>';
+    html += '<div class="module-form-row"><label>邮箱</label><input type="email" id="settingsEmail" placeholder="输入邮箱"></div>';
+    html += '<div class="module-form-row"><button class="module-action-btn primary" onclick="showUserProfile()">查看个人信息</button></div>';
+  } else if (_settingsSelectedCategory === 'system') {
+    html += '<div class="module-form-row"><label>主题</label><select class="form-select"><option>浅色</option><option>深色</option></select></div>';
+    html += '<div class="module-form-row"><label>语言</label><select class="form-select"><option>中文</option><option>English</option></select></div>';
+  } else if (_settingsSelectedCategory === 'permission') {
+    html += '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">权限管理功能仅对管理员开放</div>';
+  }
+  contentEl.innerHTML = html;
 }
 
 function toggleMidSidebar() {
