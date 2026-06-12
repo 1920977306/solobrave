@@ -58,7 +58,7 @@ html { scroll-behavior: smooth; }
 ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }
 
-html, body { height: 100%; font: var(--font-md); color: var(--text-primary); background: #ffffff; }
+html, body { height: 100%; font: var(--font-md); color: var(--text-primary); background: #ffffff; overflow: hidden; }
 button { font: inherit; border: none; background: none; cursor: pointer; outline: none; }
 input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
@@ -82,7 +82,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+  gap: 4px;
   flex: 1;
 }
 .left-nav-bottom {
@@ -95,33 +96,33 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .nav-item {
   width: 44px;
   height: 44px;
-  border-radius: 8px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.15s ease;
   position: relative;
-  color: #86909c;
+  color: #9ca3af;
 }
 .nav-item:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.10);
   color: #ffffff;
 }
 .nav-item.active {
   color: #ffffff;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.12);
 }
 .nav-item.active::before {
   content: '';
   position: absolute;
-  left: -8px;
+  left: -6px;
   top: 50%;
   transform: translateY(-50%);
-  width: 2px;
-  height: 20px;
-  background: #007AFF;
-  border-radius: 0 2px 2px 0;
+  width: 3px;
+  height: 18px;
+  background: #3370FF;
+  border-radius: 0 3px 3px 0;
 }
 .nav-item svg {
   width: 20px;
@@ -241,6 +242,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   min-width: 0;
   background: var(--right-content-bg);
   position: relative;
+  padding-bottom: 28px;
 }
 
 /* ===== 修复聊天布局顺序 ===== */
@@ -3596,6 +3598,8 @@ window.doLogin = function () {
 <!-- Task Board (Full) -->
 <div class="task-board" id="taskBoard"></div>
 
+</main>
+</div>
 
 <div class="product-modal-overlay" id="knowledgeDocModalOverlay" onclick="closeKnowledgeDocForm()">
   <div class="product-modal-panel" onclick="event.stopPropagation()">
@@ -6576,7 +6580,7 @@ function renderArchiveSections() {
         content1v1.innerHTML = '<div class="archive-empty">暂无归档对话</div>';
       } else {
         content1v1.innerHTML = archived1v1.map(function (e) {
-          return '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" style="padding:6px 12px;cursor:pointer;">' + '<div class="item-avatar" style="width:32px;height:32px;"><div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg || '') + ';">' + renderAvatar(e, 32) + '</div></div>' + '<div class="item-info"><div class="item-name" style="font-size:13px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:11px;">' + escapeHtml(getEmpRoleDisplay(e)) + '</div></div>' + '<div class="archive-actions" style="display:flex;gap:4px;align-items:center;flex-shrink:0;">' + '<button onclick="event.stopPropagation();downloadArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="下载对话记录">📥</button>' + '<button onclick="event.stopPropagation();continueArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="继续对话">💬</button>' + '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="恢复员工">📂</button>' + '</div>' + '</div>';
+          return '<div class="list-item archived" data-id="' + escapeAttr(e.id) + '" style="padding:8px 12px;cursor:pointer;">' + '<div class="item-avatar" style="width:40px;height:40px;"><div class="avatar small" style="width:40px;height:40px;background:' + escapeAttr(e.bg || '') + ';">' + renderAvatar(e, 40) + '</div></div>' + '<div class="item-info"><div class="item-name" style="font-size:14px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:12px;">' + escapeHtml(getEmpRoleDisplay(e)) + '</div></div>' + '<div class="archive-actions" style="display:flex;gap:4px;align-items:center;flex-shrink:0;">' + '<button onclick="event.stopPropagation();downloadArchive(\'' + escapeAttr(e.id) + '\')" style="padding:4px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:12px;cursor:pointer;" title="下载对话记录">📥</button>' + '<button onclick="event.stopPropagation();continueArchive(\'' + escapeAttr(e.id) + '\')" style="padding:4px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:12px;cursor:pointer;" title="继续对话">💬</button>' + '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:4px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:12px;cursor:pointer;" title="恢复员工">📂</button>' + '</div>' + '</div>';
         }).join('');
       }
     }
@@ -6593,7 +6597,7 @@ function renderArchiveSections() {
         contentProj.innerHTML = '<div class="archive-empty">暂无归档项目</div>';
       } else {
         contentProj.innerHTML = archivedProjects.map(function (e) {
-          return '<div class="list-item archived" data-proj="' + escapeAttr(e.id) + '" style="padding:6px 12px;cursor:pointer;">' + '<div class="item-avatar" style="width:32px;height:32px;"><div class="avatar small" style="width:32px;height:32px;background:' + escapeAttr(e.bg || '') + ';">' + renderAvatar(e, 32) + '</div></div>' + '<div class="item-info"><div class="item-name" style="font-size:13px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:11px;">' + escapeHtml(getEmpRoleDisplay(e)) + '</div></div>' + '<div class="archive-actions" style="display:flex;gap:4px;align-items:center;flex-shrink:0;">' + '<button onclick="event.stopPropagation();downloadArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="下载群聊记录">📥</button>' + '<button onclick="event.stopPropagation();continueArchive(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="继续群聊">💬</button>' + '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:3px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:11px;cursor:pointer;" title="恢复群组">📂</button>' + '</div>' + '</div>';
+          return '<div class="list-item archived" data-proj="' + escapeAttr(e.id) + '" style="padding:8px 12px;cursor:pointer;">' + '<div class="item-avatar" style="width:40px;height:40px;"><div class="avatar small" style="width:40px;height:40px;background:' + escapeAttr(e.bg || '') + ';">' + renderAvatar(e, 40) + '</div></div>' + '<div class="item-info"><div class="item-name" style="font-size:14px;">' + escapeHtml(e.name || '') + '</div><div class="item-msg" style="font-size:12px;">' + escapeHtml(getEmpRoleDisplay(e)) + '</div></div>' + '<div class="archive-actions" style="display:flex;gap:4px;align-items:center;flex-shrink:0;">' + '<button onclick="event.stopPropagation();downloadArchive(\'' + escapeAttr(e.id) + '\')" style="padding:4px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:12px;cursor:pointer;" title="下载群聊记录">📥</button>' + '<button onclick="event.stopPropagation();continueArchive(\'' + escapeAttr(e.id) + '\')" style="padding:4px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:12px;cursor:pointer;" title="继续群聊">💬</button>' + '<button onclick="event.stopPropagation();restoreArchivedEmp(\'' + escapeAttr(e.id) + '\')" style="padding:4px 8px;border:1px solid var(--border-color);border-radius:6px;background:transparent;font-size:12px;cursor:pointer;" title="恢复群组">📂</button>' + '</div>' + '</div>';
         }).join('');
       }
     }
@@ -6927,12 +6931,21 @@ function renderAvatar(emp, size) {
     var idx = Math.abs(hash) % AVATAR_PRESETS.length;
     return '<img src="' + escapeAttr(AVATAR_PRESETS[idx]) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
   }
-  // 4. Ultimate fallback
-  return escapeHtml(emp.avatar || '🦞');
+  // 4. Ultimate fallback: styled letter avatar
+  var name = emp.name || emp.id || '?';
+  var letter = escapeHtml(name.charAt(0).toUpperCase());
+  var colors = ['#FF6B35', '#FF9500', '#FFCC00', '#34C759', '#007AFF', '#5856D6', '#AF52DE', '#FF2D55'];
+  var hash = 0;
+  for (var c = 0; c < name.length; c++) {
+    hash = (hash << 5) - hash + name.charCodeAt(c);
+    hash = hash & hash;
+  }
+  var bg = colors[Math.abs(hash) % colors.length];
+  return '<div style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:' + bg + ';color:#fff;display:flex;align-items:center;justify-content:center;font-size:' + (size * 0.45) + 'px;font-weight:600;">' + letter + '</div>';
 }
 function renderEmployeeItem(e, showCreator) {
   var size = 40;
-  var avatarHtml = renderAvatar(e, size);
+  var avatarContent = renderAvatar(e, size);
   var creatorTag = '';
 
   // admin/leader视图：显示创建者标签
@@ -6941,11 +6954,6 @@ function renderEmployeeItem(e, showCreator) {
     creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:rgba(10,132,255,0.15);border-radius:4px;font-size:11px;color:#0a84ff;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
   }
 
-  var avatarUrl = e.avatarUrl || e.avatar;
-  var hasImg = avatarUrl && avatarUrl.indexOf('http') === 0;
-  var avatarContent = hasImg ? '<img src="' + escapeAttr(avatarUrl) + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" />' : e.name ? escapeHtml(e.name.charAt(0)) : '?';
-  var avatarBg = hasImg ? 'transparent' : (e.bg || '#3a3a3c');
-  var avatarColor = hasImg ? 'transparent' : '#f5f5f7';
   var statusClass = escapeAttr(e.status || 'offline');
   var lastMsgPreview = '';
   if (e.lastMessage) {
@@ -6955,7 +6963,7 @@ function renderEmployeeItem(e, showCreator) {
     ? '<div class="emp-preview" style="margin-top:2px;">' + lastMsgPreview + '</div>'
     : '<div class="emp-preview" style="color:var(--text-tertiary);">暂无消息</div>';
   var statusLabel = e.status === 'online' ? '在线' : e.status === 'busy' ? '忙碌' : '离线';
-  return '<div class="emp-avatar-wrap" style="position:relative;flex-shrink:0;"><div class="emp-avatar" style="background:' + avatarBg + ';color:' + avatarColor + ';width:40px;height:40px;border-radius:50%;">' + avatarContent + '</div><div class="status-dot ' + statusClass + '" style="position:absolute;bottom:0px;right:0px;width:10px;height:10px;border-radius:50%;border:2px solid #ffffff;"></div></div><div class="emp-info" style="flex:1;min-width:0;"><div class="emp-name" style="font-size:14px;font-weight:500;color:var(--text-primary);display:flex;align-items:center;">' + escapeHtml(e.name || '') + creatorTag + '</div>' + previewHtml + '</div><div class="emp-meta" style="flex-shrink:0;text-align:right;margin-left:8px;"><div class="status-text" style="font-size:12px;color:var(--text-secondary);">' + statusLabel + '</div></div>';
+  return '<div class="emp-avatar-wrap" style="position:relative;flex-shrink:0;width:40px;height:40px;"><div class="emp-avatar" style="width:40px;height:40px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;">' + avatarContent + '</div><div class="status-dot ' + statusClass + '" style="position:absolute;bottom:0px;right:0px;width:10px;height:10px;border-radius:50%;border:2px solid #ffffff;"></div></div><div class="emp-info" style="flex:1;min-width:0;"><div class="emp-name" style="font-size:14px;font-weight:500;color:var(--text-primary);display:flex;align-items:center;">' + escapeHtml(e.name || '') + creatorTag + '</div>' + previewHtml + '</div><div class="emp-meta" style="flex-shrink:0;text-align:right;margin-left:8px;"><div class="status-text" style="font-size:12px;color:var(--text-secondary);">' + statusLabel + '</div></div>';
 }
 function bindListEvents() {
   // data-id = 员工（个人聊天）
@@ -15011,7 +15019,7 @@ async function finishWizard() {
 
 <!-- 模态框控制脚本 -->
 <script>function jumpToTokens() {
-  showToast('🔍 跳转至 Tokens 统计页面');
+  openTokenStats();
 }
 function openCompressModal() {
   document.getElementById('compressModal').classList.add('show');
@@ -17503,7 +17511,7 @@ function renderAvatarBadge(emp, avatarClass) {
 // 更新 renderEmployeeItem 函数中的 badge 渲染
 var _originalRenderEmployeeItem = renderEmployeeItem;
 renderEmployeeItem = function (e, showCreator) {
-  var size = 44;
+  var size = 40;
   var avatarHtml = renderAvatar(e, size);
   var creatorTag = '';
 
@@ -17517,8 +17525,8 @@ renderEmployeeItem = function (e, showCreator) {
   var badgeHtml = renderAvatarBadge(e, 'avatar small');
 
   // 组装头像容器（含 Badge）
-  var avatarContainer = '<div class="item-avatar" style="position:relative;width:' + size + 'px;height:' + size + 'px;flex-shrink:0;"><div class="avatar small ' + (e.badge && e.badge.level === 'urgent' ? 'pulse-urgent' : e.badge && e.badge.level === 'important' ? 'pulse-important' : '') + '" style="background:' + escapeAttr(e.bg || '') + ';width:' + size + 'px;height:' + size + 'px;">' + avatarHtml + badgeHtml + '</div><div class="status-dot ' + escapeAttr(e.status || 'offline') + '" style="position:absolute;bottom:1px;right:1px;width:13px;height:13px;border:2.5px solid var(--bg-primary);border-radius:50%;box-shadow:0 0 0 0.5px rgba(0,0,0,0.06);transition:transform 0.2s;"></div></div>';
-  return avatarContainer + '<div class="item-info" style="min-width:0;"><div class="item-name" style="font-weight:500;font-size:14px;letter-spacing:-0.01em;">' + escapeHtml(e.name || '') + creatorTag + '</div><div class="item-msg" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg || '') + '</div></div>';
+  var avatarContainer = '<div class="item-avatar" style="position:relative;width:' + size + 'px;height:' + size + 'px;flex-shrink:0;"><div class="avatar small ' + (e.badge && e.badge.level === 'urgent' ? 'pulse-urgent' : e.badge && e.badge.level === 'important' ? 'pulse-important' : '') + '" style="background:' + escapeAttr(e.bg || '') + ';width:' + size + 'px;height:' + size + 'px;overflow:hidden;">' + avatarHtml + badgeHtml + '</div><div class="status-dot ' + escapeAttr(e.status || 'offline') + '" style="position:absolute;bottom:0;right:0;width:11px;height:11px;border:2px solid var(--bg-primary);border-radius:50%;box-shadow:0 0 0 0.5px rgba(0,0,0,0.06);transition:transform 0.2s;"></div></div>';
+  return avatarContainer + '<div class="item-info" style="flex:1;min-width:0;"><div class="item-name" style="font-weight:500;font-size:14px;letter-spacing:-0.01em;">' + escapeHtml(e.name || '') + creatorTag + '</div><div class="item-msg" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg || '') + '</div></div>';
 };
 
 // ========================================
