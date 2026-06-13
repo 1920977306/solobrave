@@ -451,8 +451,7 @@ def _init_default_admin():
 
 # 可用模块列表（与 switchModule 取值对齐）
 AVAILABLE_MODULES = [
-    'dashboard', 'messages', 'employees', 'groups',
-    'knowledge', 'products', 'influencers', 'matches', 'settings'
+    'dashboard', 'messages', 'knowledge', 'settings'
 ]
 
 
@@ -460,19 +459,16 @@ def _default_permission_templates():
     """默认角色权限模板
 
     角色：超级管理员 / 管理员 / 普通用户
-    模块沿用现有 key：dashboard/messages/employees/groups/knowledge/products/influencers/matches/settings
+    模块 key：dashboard/messages/knowledge/settings
     """
     superadmin_modules = {m: True for m in AVAILABLE_MODULES}
     admin_modules = {m: True for m in AVAILABLE_MODULES}
+    # 管理员不能进入 settings（权限管理在 settings 内）
+    admin_modules['settings'] = False
     user_modules = {
         'dashboard': True,
         'messages': True,
-        'employees': False,
-        'groups': False,
         'knowledge': True,
-        'products': False,
-        'influencers': False,
-        'matches': False,
         'settings': False,
     }
     return {
