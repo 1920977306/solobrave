@@ -2660,6 +2660,103 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .settings-team-actions button.danger:hover { background: #FF3B30; }
 .settings-team-indent { display: inline-block; color: var(--text-tertiary); font-size: 12px; margin-right: 4px; }
 
+/* ========================================
+   Settings — Apple/Feishu style
+   ======================================== */
+#settingsMid { width: 200px; flex-shrink: 0; background: #ffffff; border-right: 1px solid var(--separator); }
+#settingsMidList { padding: 8px 0; }
+#settingsMidList .list-item { margin: 2px 10px; border-radius: 8px; border-left: 2px solid transparent; height: 44px; padding: 8px 12px; }
+#settingsMidList .list-item:hover { background: #f5f7fa; }
+#settingsMidList .list-item.active { background: var(--accent-light); border-left-color: var(--accent); color: var(--accent); }
+#settingsMidList .list-item.active svg { color: var(--accent); }
+#settingsMidList .list-item .emp-name { font-weight: 500; font-size: 14px; }
+#settingsRight { flex: 1; min-width: 0; background: #f5f6f7; }
+#settingsRight .module-right-content { padding: 20px; }
+
+.settings-card { background: #ffffff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02); border: 0.5px solid var(--separator); padding: 20px; margin-bottom: 16px; }
+.settings-card:last-child { margin-bottom: 0; }
+.settings-card-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 16px; }
+.settings-card-subtitle { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+
+.settings-segmented { display: inline-flex; background: var(--bg-tertiary); border-radius: 8px; padding: 2px; gap: 2px; }
+.settings-segmented-item { padding: 6px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; color: var(--text-secondary); transition: all 0.15s; border: none; background: transparent; }
+.settings-segmented-item:hover { color: var(--text-primary); }
+.settings-segmented-item.active { background: #ffffff; color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,0.08); font-weight: 500; }
+
+.settings-permission-row-card { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; background: var(--bg-secondary); border-radius: 10px; margin-bottom: 8px; border: 0.5px solid var(--separator); transition: all 0.15s; }
+.settings-permission-row-card:last-child { margin-bottom: 0; }
+.settings-permission-row-card:hover { background: var(--bg-tertiary); }
+.settings-permission-tag { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; cursor: pointer; user-select: none; }
+.settings-permission-tag.granted { background: #E8F5E9; color: #2E7D32; }
+.settings-permission-tag.denied { background: #F5F5F5; color: #86909c; }
+
+.settings-notification-item { display: flex; gap: 12px; padding: 14px 16px; background: var(--bg-secondary); border-radius: 10px; margin-bottom: 8px; border: 0.5px solid var(--separator); align-items: flex-start; transition: all 0.15s; }
+.settings-notification-item:last-child { margin-bottom: 0; }
+.settings-notification-item:hover { background: var(--bg-tertiary); }
+.settings-notification-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+.settings-notification-dot.unread { background: #FF3B30; }
+.settings-notification-dot.read { background: var(--separator); }
+.settings-notification-content { flex: 1; min-width: 0; }
+.settings-notification-time { font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px; }
+.settings-notification-text { font-size: 14px; color: var(--text-primary); line-height: 1.4; }
+.settings-empty { padding: 60px 20px; text-align: center; color: var(--text-tertiary); font-size: 14px; }
+
+.settings-list-searchbar { margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.settings-list-searchbar input { flex: 1; min-width: 0; padding: 10px 14px; border: 0.5px solid var(--separator); border-radius: 10px; font-size: 14px; background: #ffffff; box-sizing: border-box; }
+.settings-list-searchbar input:focus { outline: none; border-color: var(--accent); }
+.settings-list-searchbar button { flex-shrink: 0; }
+
+.settings-user-card { display: flex; align-items: center; gap: 14px; padding: 16px; background: #ffffff; border-radius: 12px; margin-bottom: 12px; border: 0.5px solid var(--separator); box-shadow: 0 1px 3px rgba(0,0,0,0.04); transition: all 0.15s; }
+.settings-user-card:last-child { margin-bottom: 0; }
+.settings-user-card:hover { border-color: var(--accent); }
+.settings-user-avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-hover)); display: flex; align-items: center; justify-content: center; color: white; font-size: 14px; font-weight: 600; flex-shrink: 0; overflow: hidden; }
+.settings-user-info { flex: 1; min-width: 0; }
+.settings-user-name { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+.settings-user-meta { font-size: 12px; color: var(--text-secondary); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.settings-user-actions { display: flex; gap: 8px; opacity: 0; transition: opacity 0.2s; }
+.settings-user-card:hover .settings-user-actions { opacity: 1; }
+.settings-user-actions button { padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; transition: all 0.15s; background: var(--bg-tertiary); color: var(--text-secondary); }
+.settings-user-actions button:hover { background: var(--accent); color: white; }
+.settings-user-actions button.danger:hover { background: #FF3B30; }
+
+.settings-team-card { display: flex; align-items: center; gap: 12px; padding: 16px; background: #ffffff; border-radius: 12px; margin-bottom: 12px; border: 0.5px solid var(--separator); box-shadow: 0 1px 3px rgba(0,0,0,0.04); transition: all 0.15s; }
+.settings-team-card:last-child { margin-bottom: 0; }
+.settings-team-card:hover { border-color: var(--accent); }
+.settings-team-icon { width: 40px; height: 40px; border-radius: 10px; background: var(--accent-light); display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+.settings-team-info { flex: 1; min-width: 0; }
+.settings-team-name { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; white-space: normal; word-break: break-word; }
+.settings-team-meta { font-size: 12px; color: var(--text-secondary); }
+.settings-team-members { display: flex; align-items: center; margin-top: 8px; }
+.settings-team-member-avatar { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #ffffff; margin-left: -8px; overflow: hidden; flex-shrink: 0; background: var(--bg-tertiary); }
+.settings-team-member-avatar:first-child { margin-left: 0; }
+.settings-team-actions { display: flex; gap: 8px; opacity: 0; transition: opacity 0.2s; }
+.settings-team-card:hover .settings-team-actions { opacity: 1; }
+.settings-team-actions button { padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; transition: all 0.15s; background: var(--bg-tertiary); color: var(--text-secondary); }
+.settings-team-actions button:hover { background: var(--accent); color: white; }
+.settings-team-actions button.danger:hover { background: #FF3B30; }
+
+.settings-form-row { margin-bottom: 16px; }
+.settings-form-row:last-child { margin-bottom: 0; }
+.settings-form-row label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.settings-form-row select { width: 100%; padding: 10px 14px; border: 0.5px solid var(--separator); border-radius: 10px; background: #ffffff; font-size: 14px; box-sizing: border-box; }
+.settings-form-row select:focus { outline: none; border-color: var(--accent); }
+
+.settings-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.settings-stat-card { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 16px; border: 0.5px solid var(--separator); }
+.settings-stat-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.settings-stat-value { font-size: 28px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.5px; }
+.settings-stat-unit { font-size: 13px; color: var(--text-secondary); margin-left: 4px; font-weight: 500; }
+.settings-chart-card { background: #ffffff; border-radius: 12px; padding: 20px; border: 0.5px solid var(--separator); box-shadow: 0 1px 3px rgba(0,0,0,0.04); margin-bottom: 16px; }
+.settings-chart-card:last-child { margin-bottom: 0; }
+.settings-chart-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 16px; }
+.settings-bar-chart { display: flex; flex-direction: column; gap: 12px; }
+.settings-bar-row { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.settings-bar-label { width: 90px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.settings-bar-track { flex: 1; height: 10px; background: var(--bg-tertiary); border-radius: 5px; overflow: hidden; }
+.settings-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-hover)); border-radius: 5px; min-width: 2px; }
+.settings-bar-value { width: 70px; text-align: right; color: var(--text-primary); font-weight: 500; flex-shrink: 0; }
+.settings-line-chart { position: relative; height: 160px; }
+
 /* Influencer Library */
 .influencer-avatar { width: 48px; height: 48px; border-radius: 50%; overflow: hidden; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .influencer-avatar-lg { width: 64px; height: 64px; border-radius: 50%; overflow: hidden; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -16212,25 +16309,32 @@ function closeUserManagement() {
 }
 
 // 加载用户列表
+var _userListCache = [];
+
 function loadUserList() {
   var list = document.getElementById('userList');
   if (!list) return;
   apiFetch('/api/users').then(function (res) {
     if (!res) {
-      // 后端没启动，显示空列表
+      _userListCache = [];
       renderUserList(list, []);
       return;
     }
     return res.json();
   }).then(function (users) {
-    if (users) renderUserList(list, users);
+    if (users) {
+      _userListCache = Array.isArray(users) ? users : (users.users || []);
+      renderUserList(list, _userListCache);
+    }
   }).catch(function () {
+    _userListCache = [];
     if (list) list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">👥</div><div>加载用户列表失败</div></div>';
   });
 }
 function renderUserList(list, users) {
-  if (users.length === 0) {
-    list.innerHTML = '<div class="settings-list-empty"><div style="font-size:32px;margin-bottom:12px">👥</div><div>暂无用户</div></div>';
+  if (!list) return;
+  if (!users || users.length === 0) {
+    list.innerHTML = '<div class="settings-empty"><div style="font-size:32px;margin-bottom:12px">👥</div><div>暂无用户</div></div>';
     return;
   }
   list.innerHTML = users.map(function (u) {
@@ -16243,8 +16347,9 @@ function renderUserList(list, users) {
     if (u.teamIds && u.teamIds.length > 0) {
       teamTag = '<span class="settings-tag settings-tag-primary">🏢 已有小组</span>';
     }
+    var avatarHtml = renderAvatar({ name: displayName, avatar: u.avatar }, 40);
     return '<div class="settings-user-card">'
-      + '<div class="settings-user-avatar">' + (displayName ? displayName.charAt(0).toUpperCase() : '?') + '</div>'
+      + '<div class="settings-user-avatar">' + avatarHtml + '</div>'
       + '<div class="settings-user-info">'
       + '<div class="settings-user-name">' + escapeHtml(displayName) + '</div>'
       + '<div class="settings-user-meta">@' + escapeHtml(u.username) + ' · ' + roleBadge + '</div>'
@@ -16255,6 +16360,18 @@ function renderUserList(list, users) {
       + (u.id !== (currentUser && currentUser.id) ? '<button class="danger" onclick="deleteUser(\'' + escapeAttr(u.id) + '\')">删除</button>' : '')
       + '</div></div>';
   }).join('');
+}
+function filterUserList() {
+  var input = document.getElementById('userSearchInput');
+  var list = document.getElementById('userList');
+  if (!input || !list) return;
+  var value = (input.value || '').toLowerCase();
+  var filtered = _userListCache.filter(function (u) {
+    var name = (u.displayName || u.name || u.username || '').toLowerCase();
+    var username = (u.username || '').toLowerCase();
+    return name.indexOf(value) >= 0 || username.indexOf(value) >= 0;
+  });
+  renderUserList(list, filtered);
 }
 
 // 创建用户Modal相关变量
@@ -16375,7 +16492,10 @@ function loadTeamList() {
       return res.json();
     }
     return [];
-  }).then(function (teams) {
+  }).then(async function (teams) {
+    if (typeof loadEmployees === 'function' && !emps.length) {
+      try { await loadEmployees(); } catch (e) {}
+    }
     allTeams = teams || [];
     renderTeamList(allTeams);
     refreshTeamMenus();
@@ -16421,12 +16541,28 @@ function refreshTeamMenus() {
 }
 
 // 渲染小组列表（树形卡片结构）
+function renderTeamMemberAvatars(agentIds) {
+  if (!agentIds || !agentIds.length) return '';
+  var ids = agentIds.slice(0, 5);
+  var extra = agentIds.length - ids.length;
+  var html = '<div class="settings-team-members">';
+  ids.forEach(function (id) {
+    var emp = emps.find(function (e) { return e.id === id; });
+    html += '<div class="settings-team-member-avatar" title="' + escapeAttr(emp ? emp.name : id) + '">' + renderAvatar(emp || { name: id }, 28) + '</div>';
+  });
+  if (extra > 0) {
+    html += '<div class="settings-team-member-avatar" style="display:flex;align-items:center;justify-content:center;background:var(--bg-tertiary);color:var(--text-secondary);font-size:11px;font-weight:500;">+' + extra + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
 function renderTeamList(teams) {
   var list = document.getElementById('teamList');
   if (!list) return;
   if (!teams) teams = [];
   if (!teams.length) {
-    list.innerHTML = '<div class="settings-list-empty"><div style="font-size:32px;margin-bottom:12px">🏢</div><div>暂无小组</div></div>';
+    list.innerHTML = '<div class="settings-empty"><div style="font-size:32px;margin-bottom:12px">🏢</div><div>暂无小组</div></div>';
     return;
   }
 
@@ -16443,6 +16579,7 @@ function renderTeamList(teams) {
       + '<div class="settings-team-info">'
       + '<div class="settings-team-name"><span class="settings-team-indent">' + prefix + '</span>' + escapeHtml(team.name) + '</div>'
       + '<div class="settings-team-meta">👤 ' + escapeHtml(leaderName) + ' · 👥 ' + memberCount + ' 名成员' + (team.description ? ' · ' + escapeHtml(team.description) : '') + '</div>'
+      + renderTeamMemberAvatars(team.agentIds)
       + '</div>'
       + '<div class="settings-team-actions">'
       + '<button onclick="showAddSubTeamModal(\'' + escapeAttr(team.id) + '\')">➕ 子小组</button>'
@@ -18614,38 +18751,65 @@ function formatNumber(n) {
 }
 
 // ========== 算力统计 ==========
-function getComputeStats() {
+function getComputeStats(employeeStats) {
   var baseUsed = parseInt(localStorage.getItem('sb_tokens_used') || '0');
   var totalTokens = baseUsed || 124580;
   var totalCalls = parseInt(localStorage.getItem('sb_compute_calls') || '0') || 3420;
-  var employeeStats = JSON.parse(localStorage.getItem('sb_compute_by_employee') || 'null') || [
-    { name: 'Alice', tokens: 45200, calls: 980 },
-    { name: 'Bob', tokens: 32100, calls: 650 },
-    { name: 'Carol', tokens: 28300, calls: 720 },
-    { name: 'David', tokens: 18980, calls: 1070 }
-  ];
   var timeStats = JSON.parse(localStorage.getItem('sb_compute_by_time') || 'null') || [
     { date: '周一', tokens: 18200 }, { date: '周二', tokens: 24500 },
     { date: '周三', tokens: 19800 }, { date: '周四', tokens: 31200 },
     { date: '周五', tokens: 26880 }, { date: '周六', tokens: 15000 },
     { date: '周日', tokens: 9000 }
   ];
-  return { totalTokens: totalTokens, totalCalls: totalCalls, employeeStats: employeeStats, timeStats: timeStats };
+  return { totalTokens: totalTokens, totalCalls: totalCalls, employeeStats: employeeStats || [], timeStats: timeStats };
 }
-function loadComputeStats() {
+async function loadComputeStats() {
   var area = document.getElementById('computeStatsArea');
   if (!area) return;
-  area.innerHTML = renderComputeStats(getComputeStats());
+  area.innerHTML = '<div class="settings-card"><div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div></div>';
+  var employeeStats = [];
+  var localStats = JSON.parse(localStorage.getItem('sb_compute_by_employee') || 'null') || [];
+  try {
+    var resp = await apiFetch('/api/agents');
+    var agents = [];
+    if (resp && resp.ok) agents = await resp.json();
+    if (!Array.isArray(agents)) agents = [];
+    if (agents.length) {
+      employeeStats = agents.map(function (a) {
+        var local = localStats.find(function (s) { return s.id === a.id || s.name === a.name; }) || {};
+        var tokenStats = a.tokenStats || {};
+        return {
+          id: a.id,
+          name: a.name || '未命名',
+          tokens: local.tokens || tokenStats.total || 0,
+          calls: local.calls || 0
+        };
+      });
+    }
+  } catch (e) {
+    console.warn('[loadComputeStats] 获取员工失败，使用本地数据', e);
+  }
+  if (!employeeStats.length) {
+    employeeStats = localStats.length ? localStats : [
+      { name: 'Alice', tokens: 45200, calls: 980 },
+      { name: 'Bob', tokens: 32100, calls: 650 },
+      { name: 'Carol', tokens: 28300, calls: 720 },
+      { name: 'David', tokens: 18980, calls: 1070 }
+    ];
+  }
+  area.innerHTML = renderComputeStats(getComputeStats(employeeStats));
 }
 function renderComputeStats(stats) {
-  var html = '<div class="settings-stats-grid">';
+  var html = '<div class="settings-card">';
+  html += '<div class="settings-stats-grid">';
   html += '<div class="settings-stat-card"><div class="settings-stat-label">Token 使用总量</div><div class="settings-stat-value">' + formatNumber(stats.totalTokens) + '<span class="settings-stat-unit">tokens</span></div></div>';
   html += '<div class="settings-stat-card"><div class="settings-stat-label">调用次数</div><div class="settings-stat-value">' + formatNumber(stats.totalCalls) + '<span class="settings-stat-unit">次</span></div></div>';
   html += '<div class="settings-stat-card"><div class="settings-stat-label">人均调用</div><div class="settings-stat-value">' + Math.round(stats.totalCalls / Math.max(stats.employeeStats.length, 1)) + '<span class="settings-stat-unit">次</span></div></div>';
   html += '<div class="settings-stat-card"><div class="settings-stat-label">平均单次 Token</div><div class="settings-stat-value">' + Math.round(stats.totalTokens / Math.max(stats.totalCalls, 1)) + '<span class="settings-stat-unit">tokens</span></div></div>';
   html += '</div>';
+  html += '</div>';
   html += '<div class="settings-chart-card"><div class="settings-chart-title">按员工统计</div><div class="settings-bar-chart">';
-  var maxEmp = Math.max.apply(Math, stats.employeeStats.map(function (e) { return e.tokens; }));
+  var maxEmp = Math.max.apply(Math, stats.employeeStats.map(function (e) { return e.tokens; })) || 1;
   stats.employeeStats.forEach(function (e) {
     var pct = maxEmp ? Math.round(e.tokens / maxEmp * 100) : 0;
     html += '<div class="settings-bar-row"><div class="settings-bar-label" title="' + escapeHtml(e.name) + '">' + escapeHtml(e.name) + '</div><div class="settings-bar-track"><div class="settings-bar-fill" style="width:' + pct + '%;"></div></div><div class="settings-bar-value">' + formatNumber(e.tokens) + '</div></div>';
@@ -18667,6 +18831,61 @@ function renderComputeStats(stats) {
   });
   html += '</svg></div></div>';
   return html;
+}
+
+// ========== 通知历史 ==========
+function _getNotificationHistory() {
+  try {
+    return JSON.parse(localStorage.getItem('sb_notification_history') || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+function _saveNotificationHistory(list) {
+  localStorage.setItem('sb_notification_history', JSON.stringify(list.slice(0, 100)));
+}
+function addNotificationHistory(text, type) {
+  var list = _getNotificationHistory();
+  list.unshift({
+    id: 'n_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+    text: text || '',
+    type: type || 'system',
+    read: false,
+    createdAt: Date.now()
+  });
+  _saveNotificationHistory(list);
+}
+function toggleNotificationRead(id) {
+  var list = _getNotificationHistory();
+  list.forEach(function (n) { if (n.id === id) n.read = !n.read; });
+  _saveNotificationHistory(list);
+  renderNotificationHistory();
+}
+function markAllNotificationsRead() {
+  var list = _getNotificationHistory();
+  list.forEach(function (n) { n.read = true; });
+  _saveNotificationHistory(list);
+  renderNotificationHistory();
+}
+function renderNotificationHistory() {
+  var area = document.getElementById('notificationHistoryArea');
+  if (!area) return;
+  var list = _getNotificationHistory();
+  if (!list.length) {
+    area.innerHTML = '<div class="settings-empty"><div style="font-size:32px;margin-bottom:12px">🔔</div><div>暂无通知</div></div>';
+    return;
+  }
+  var html = '<div style="margin-bottom:12px;text-align:right;"><button class="module-action-btn" onclick="markAllNotificationsRead()">全部已读</button></div>';
+  html += list.map(function (n) {
+    var timeStr = new Date(n.createdAt).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return '<div class="settings-notification-item" onclick="toggleNotificationRead(\'' + escapeAttr(n.id) + '\')">'
+      + '<div class="settings-notification-dot ' + (n.read ? 'read' : 'unread') + '"></div>'
+      + '<div class="settings-notification-content">'
+      + '<div class="settings-notification-time">' + escapeHtml(timeStr) + '</div>'
+      + '<div class="settings-notification-text">' + escapeHtml(n.text) + '</div>'
+      + '</div></div>';
+  }).join('');
+  area.innerHTML = html;
 }
 
 // ========== 权限管理 ==========
@@ -18745,28 +18964,29 @@ async function loadPermissionSettings() {
 function renderPermissionSettings() {
   var role = _getPermissionRole(_selectedPermissionRole);
   if (!role) return '<div style="padding:20px;text-align:center;">无角色模板</div>';
-  var html = '<div class="settings-section-title">角色模板</div>';
-  html += '<div class="settings-permission-rolebar">';
+  var html = '<div class="settings-card">';
+  html += '<div class="settings-card-title">角色模板</div>';
+  html += '<div class="settings-segmented">';
   (_permissionConfig.roleTemplates || []).forEach(function (r) {
-    html += '<div class="settings-permission-rolechip ' + (_selectedPermissionRole === r.id ? 'active' : '') + '" onclick="selectPermissionRole(\'' + r.id + '\')">' + escapeHtml(r.name) + '</div>';
+    html += '<button class="settings-segmented-item ' + (_selectedPermissionRole === r.id ? 'active' : '') + '" onclick="selectPermissionRole(\'' + r.id + '\')">' + escapeHtml(r.name) + '</button>';
   });
   html += '</div>';
+  html += '</div>';
 
-  html += '<div class="settings-section-title">模块权限</div>';
-  html += '<div class="settings-permission-matrix">';
-  html += '<div class="settings-permission-row header"><div>模块</div><div>允许访问</div></div>';
+  html += '<div class="settings-card">';
+  html += '<div class="settings-card-title">模块权限</div>';
   _availableModules.forEach(function (m) {
     var label = _permissionModuleLabels[m] || m;
-    var active = role.modules[m] ? ' active' : '';
-    html += '<div class="settings-permission-row">';
-    html += '<div>' + escapeHtml(label) + '</div>';
-    html += '<div><div class="toggle' + active + '" onclick="togglePermissionModule(\'' + m + '\', this)"></div></div>';
+    var granted = role.modules[m];
+    html += '<div class="settings-permission-row-card">';
+    html += '<div style="font-size:14px;color:var(--text-primary);">' + escapeHtml(label) + '</div>';
+    html += '<span class="settings-permission-tag ' + (granted ? 'granted' : 'denied') + '" onclick="togglePermissionModule(\'' + m + '\', this)">' + (granted ? '有权限' : '无权限') + '</span>';
     html += '</div>';
   });
   html += '</div>';
 
-  html += '<div class="settings-section-title" style="margin-top:16px;">知识库分类</div>';
-  html += '<div style="background:var(--bg-secondary);border-radius:var(--radius-md);border:0.5px solid var(--separator);padding:12px;">';
+  html += '<div class="settings-card">';
+  html += '<div class="settings-card-title">知识库分类</div>';
   var cats = role.knowledgeCategories || [];
   var allSelected = cats.indexOf('*') >= 0;
   html += '<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;font-size:13px;"><input type="checkbox" value="*" ' + (allSelected ? 'checked' : '') + ' onchange="toggleRoleCategory(\'*\', this.checked)"> 全部分类（*）</label>';
@@ -18780,13 +19000,14 @@ function renderPermissionSettings() {
   } else {
     html += '<div style="font-size:12px;color:var(--text-tertiary);padding-top:8px;">暂无知识库分类，可在创建知识条目时添加。</div>';
   }
+  html += '<div style="margin-top:16px;display:flex;gap:8px;"><button class="module-action-btn primary" onclick="savePermissionSettings()">保存角色权限</button><button class="module-action-btn" onclick="resetPermissionSettings()">恢复默认</button></div>';
   html += '</div>';
 
-  html += '<div style="margin-top:12px;display:flex;gap:8px;margin-bottom:24px;"><button class="module-action-btn primary" onclick="savePermissionSettings()">保存角色权限</button><button class="module-action-btn" onclick="resetPermissionSettings()">恢复默认</button></div>';
-
-  html += '<div class="settings-section-title">单独用户权限覆盖</div>';
-  html += '<div class="module-form-row"><label class="form-label">选择用户</label><select class="form-select" id="permissionUserSelect" onchange="selectPermissionUser(this.value)"><option value="">-- 选择用户 --</option>' + _permissionUsers.map(function (u) { return '<option value="' + u.id + '">' + escapeHtml(u.displayName || u.username) + '（' + escapeHtml(u.role) + '）</option>'; }).join('') + '</select></div>';
+  html += '<div class="settings-card">';
+  html += '<div class="settings-card-title">单独用户权限覆盖</div>';
+  html += '<div class="settings-form-row"><label class="form-label">选择用户</label><select class="form-select" id="permissionUserSelect" onchange="selectPermissionUser(this.value)"><option value="">-- 选择用户 --</option>' + _permissionUsers.map(function (u) { return '<option value="' + u.id + '">' + escapeHtml(u.displayName || u.username) + '（' + escapeHtml(u.role) + '）</option>'; }).join('') + '</select></div>';
   html += '<div id="userPermissionMatrix"></div>';
+  html += '</div>';
   return html;
 }
 
@@ -18798,18 +19019,17 @@ function renderUserPermissionMatrix() {
     return;
   }
   var state = _permissionUserState;
-  var html = '<div class="settings-section-title" style="margin-top:8px;">模块覆盖</div>';
-  html += '<div class="settings-permission-matrix">';
-  html += '<div class="settings-permission-row header"><div>模块</div><div>允许访问</div></div>';
+  var html = '<div class="settings-card-subtitle" style="margin-top:12px;">模块覆盖</div>';
   _availableModules.forEach(function (m) {
     var label = _permissionModuleLabels[m] || m;
-    var active = state.modules[m] ? ' active' : '';
-    html += '<div class="settings-permission-row"><div>' + escapeHtml(label) + '</div><div><div class="toggle' + active + '" onclick="toggleUserPermissionModule(\'' + m + '\', this)"></div></div></div>';
+    var granted = state.modules[m];
+    html += '<div class="settings-permission-row-card">';
+    html += '<div style="font-size:14px;color:var(--text-primary);">' + escapeHtml(label) + '</div>';
+    html += '<span class="settings-permission-tag ' + (granted ? 'granted' : 'denied') + '" onclick="toggleUserPermissionModule(\'' + m + '\', this)">' + (granted ? '有权限' : '无权限') + '</span>';
+    html += '</div>';
   });
-  html += '</div>';
 
-  html += '<div class="settings-section-title" style="margin-top:16px;">知识库分类覆盖</div>';
-  html += '<div style="background:var(--bg-secondary);border-radius:var(--radius-md);border:0.5px solid var(--separator);padding:12px;">';
+  html += '<div class="settings-card-subtitle" style="margin-top:16px;">知识库分类覆盖</div>';
   var cats = state.knowledgeCategories || [];
   var allSelected = cats.indexOf('*') >= 0;
   html += '<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;font-size:13px;"><input type="checkbox" value="*" ' + (allSelected ? 'checked' : '') + ' onchange="toggleUserCategory(\'*\', this.checked)"> 全部分类（*）</label>';
@@ -18823,9 +19043,8 @@ function renderUserPermissionMatrix() {
   } else {
     html += '<div style="font-size:12px;color:var(--text-tertiary);padding-top:8px;">暂无知识库分类。</div>';
   }
-  html += '</div>';
 
-  html += '<div style="margin-top:12px;display:flex;gap:8px;"><button class="module-action-btn primary" onclick="saveUserPermissions()">保存用户覆盖</button><button class="module-action-btn" onclick="resetUserPermissions()">清除覆盖</button></div>';
+  html += '<div style="margin-top:16px;display:flex;gap:8px;"><button class="module-action-btn primary" onclick="saveUserPermissions()">保存用户覆盖</button><button class="module-action-btn" onclick="resetUserPermissions()">清除覆盖</button></div>';
   container.innerHTML = html;
 }
 
@@ -18839,7 +19058,8 @@ function togglePermissionModule(moduleKey, el) {
   if (!role) return;
   var val = !role.modules[moduleKey];
   role.modules[moduleKey] = val;
-  el.classList.toggle('active', val);
+  el.className = 'settings-permission-tag ' + (val ? 'granted' : 'denied');
+  el.textContent = val ? '有权限' : '无权限';
 }
 function toggleRoleCategory(cat, checked) {
   var role = _getPermissionRole(_selectedPermissionRole);
@@ -18900,8 +19120,10 @@ function selectPermissionUser(userId) {
 }
 function toggleUserPermissionModule(moduleKey, el) {
   if (!_permissionUserState) return;
-  _permissionUserState.modules[moduleKey] = !_permissionUserState.modules[moduleKey];
-  el.classList.toggle('active', _permissionUserState.modules[moduleKey]);
+  var val = !_permissionUserState.modules[moduleKey];
+  _permissionUserState.modules[moduleKey] = val;
+  el.className = 'settings-permission-tag ' + (val ? 'granted' : 'denied');
+  el.textContent = val ? '有权限' : '无权限';
 }
 function toggleUserCategory(cat, checked) {
   if (!_permissionUserState) return;
@@ -18974,8 +19196,9 @@ function loadForbiddenWords() {
   renderForbiddenList();
 }
 function renderForbiddenWordsUI() {
-  var html = '<div class="settings-list-card">';
-  html += '<div class="settings-list-header">';
+  var html = '<div class="settings-card">';
+  html += '<div class="settings-card-title">违禁词列表</div>';
+  html += '<div class="settings-list-searchbar" style="display:flex;gap:8px;">';
   html += '<input type="text" id="forbiddenSearchInput" class="form-input" placeholder="搜索违禁词..." oninput="filterForbiddenWords()">';
   html += '<button class="module-action-btn primary" onclick="showAddForbiddenWordModal()">➕ 添加</button>';
   html += '<button class="module-action-btn" onclick="showBatchForbiddenWordModal()">批量添加</button>';
@@ -18993,7 +19216,7 @@ function renderForbiddenList() {
   var displayItems = allWords.map(function (w, i) { return { word: w, index: i }; });
   if (search) displayItems = displayItems.filter(function (item) { return item.word.indexOf(search) >= 0; });
   if (displayItems.length === 0) {
-    container.innerHTML = '<div class="settings-list-empty">暂无违禁词</div>';
+    container.innerHTML = '<div class="settings-empty"><div style="font-size:32px;margin-bottom:12px">🚫</div><div>暂无违禁词</div></div>';
     return;
   }
   container.innerHTML = displayItems.map(function (item) {
@@ -19093,30 +19316,49 @@ function renderSettingsRight() {
   if (_settingsSelectedCategory === 'compute') {
     html += '<div id="computeStatsArea"></div>';
   } else if (_settingsSelectedCategory === 'notification') {
+    html += '<div class="settings-card">';
+    html += '<div class="settings-card-title">通知开关</div>';
     html += '<div class="settings-item"><span class="settings-item-label">消息通知</span><div class="toggle active" onclick="this.classList.toggle(\'active\')"></div></div>';
     html += '<div class="settings-item"><span class="settings-item-label">群主督促</span><div class="toggle active" onclick="this.classList.toggle(\'active\')"></div></div>';
     html += '<div class="settings-item"><span class="settings-item-label">任务提醒</span><div class="toggle active" onclick="this.classList.toggle(\'active\')"></div></div>';
+    html += '</div>';
+    html += '<div class="settings-card">';
+    html += '<div class="settings-card-title">通知历史</div>';
+    html += '<div id="notificationHistoryArea"></div>';
+    html += '</div>';
   } else if (_settingsSelectedCategory === 'account') {
-    html += '<div class="settings-section-title">账号信息</div>';
-    html += '<div class="module-form-row"><label class="form-label">显示名称</label><input type="text" id="settingsDisplayName" class="form-input" placeholder="输入显示名称"></div>';
-    html += '<div class="module-form-row"><label class="form-label">邮箱</label><input type="email" id="settingsEmail" class="form-input" placeholder="输入邮箱"></div>';
-    html += '<div class="module-form-row"><button class="module-action-btn primary" onclick="showUserProfile()">查看个人信息</button></div>';
-    html += '<div class="settings-section-title">系统偏好</div>';
-    html += '<div class="module-form-row"><label class="form-label">主题</label><select class="form-select" id="settingsTheme"><option>浅色</option><option>深色</option></select></div>';
-    html += '<div class="module-form-row"><label class="form-label">语言</label><select class="form-select" id="settingsLanguage"><option>中文</option><option>English</option></select></div>';
+    html += '<div class="settings-card">';
+    html += '<div class="settings-card-title">账号信息</div>';
+    html += '<div class="settings-form-row"><label class="form-label">显示名称</label><input type="text" id="settingsDisplayName" class="form-input" placeholder="输入显示名称"></div>';
+    html += '<div class="settings-form-row"><label class="form-label">邮箱</label><input type="email" id="settingsEmail" class="form-input" placeholder="输入邮箱"></div>';
+    html += '</div>';
+    html += '<div class="settings-card">';
+    html += '<div class="settings-card-title">系统偏好</div>';
+    html += '<div class="settings-form-row"><label class="form-label">主题</label><select class="form-select" id="settingsTheme"><option>浅色</option><option>深色</option></select></div>';
+    html += '<div class="settings-form-row"><label class="form-label">语言</label><select class="form-select" id="settingsLanguage"><option>中文</option><option>English</option></select></div>';
+    html += '</div>';
+    html += '<div class="settings-card" style="display:flex;justify-content:flex-end;">';
+    html += '<button class="module-action-btn primary" onclick="showUserProfile()">查看个人信息</button>';
+    html += '</div>';
   } else if (_settingsSelectedCategory === 'permission') {
     html += '<div id="permissionSettingsArea"></div>';
   } else if (_settingsSelectedCategory === 'forbidden') {
     html += '<div id="forbiddenWordsArea"></div>';
   } else if (_settingsSelectedCategory === 'users') {
     if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="showCreateUserModal()">➕ 添加用户</button>';
+    html += '<div class="settings-card">';
+    html += '<div class="settings-list-searchbar"><input type="text" id="userSearchInput" class="form-input" placeholder="搜索用户名字或 @ID..." oninput="filterUserList()"></div>';
     html += '<div id="userList"></div>';
+    html += '</div>';
   } else if (_settingsSelectedCategory === 'teams') {
     if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="showCreateTeamModal()">➕ 新建小组</button>';
+    html += '<div class="settings-card">';
     html += '<div id="teamList"></div>';
+    html += '</div>';
   }
   contentEl.innerHTML = html;
   if (_settingsSelectedCategory === 'compute') loadComputeStats();
+  if (_settingsSelectedCategory === 'notification') renderNotificationHistory();
   if (_settingsSelectedCategory === 'permission') loadPermissionSettings();
   if (_settingsSelectedCategory === 'forbidden') loadForbiddenWords();
   if (_settingsSelectedCategory === 'users') loadUserList();

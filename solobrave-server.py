@@ -3295,6 +3295,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'memberCount': len(t.get('members', [])),
                 'agentCount': len(t.get('agentIds', [])),
                 'members': t.get('members', []),
+                'agentIds': t.get('agentIds', []),
                 'note': t.get('note', ''),
                 'children': children,
                 'createdAt': t.get('createdAt', '')
