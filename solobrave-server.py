@@ -2464,6 +2464,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('Permission denied', 403)
             return
         perms = _load_permissions()
+        perms['modules'] = AVAILABLE_MODULES
         self._send_json(200, perms)
 
     def _handle_get_permission_modules(self):
