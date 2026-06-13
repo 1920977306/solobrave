@@ -361,6 +361,26 @@ def init_db():
         ''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_cache_model ON embedding_cache(model)')
 
+        # 知识版本历史表
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS knowledge_versions (
+                id TEXT PRIMARY KEY,
+                knowledge_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                category TEXT DEFAULT '',
+                emp_id TEXT DEFAULT '',
+                status TEXT DEFAULT 'ok',
+                chunk_count INTEGER DEFAULT 0,
+                created_by TEXT,
+                created_at INTEGER,
+                UNIQUE(knowledge_id, version)
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_versions_kid ON knowledge_versions(knowledge_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_versions_created ON knowledge_versions(created_at)')
+
         conn.commit()
         print('  [KnowledgeService] DB initialized', flush=True)
     finally:
@@ -467,14 +487,46 @@ def knowledge_create(title, content, category, emp_id, api_key, provider, agent_
     return knowledge_get_by_id(kid)
 
 
-def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
-                     api_key=None, provider='openai', agent_config=None):
-    """更新知识条目，内容变更时重新分段+向量化"""
+def _save_knowledge_version(kid, created_by=None):
+    """把 knowledge 当前记录保存为历史版本"""
     conn = _db_conn()
     try:
         row = conn.execute('SELECT * FROM knowledge WHERE id = ?', (kid,)).fetchone()
         if not row:
             return None
+        next_version = conn.execute(
+            'SELECT COALESCE(MAX(version), 0) + 1 FROM knowledge_versions WHERE knowledge_id = ?',
+            (kid,)
+        ).fetchone()[0]
+        vid = _gen_id('kbv')
+        conn.execute('''
+            INSERT INTO knowledge_versions (id, knowledge_id, version, title, content, category,
+                                            emp_id, status, chunk_count, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            vid, kid, next_version, row['title'], row['content'], row['category'] or '',
+            row['emp_id'] or '', row['status'] or 'ok', row['chunk_count'] or 0,
+            created_by or '', _now_ms()
+        ))
+        conn.commit()
+        return vid
+    finally:
+        conn.close()
+
+
+def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
+                     api_key=None, provider='openai', agent_config=None, created_by=None):
+    """更新知识条目，内容变更时先保存历史版本，再重新分段+向量化"""
+    conn = _db_conn()
+    try:
+        row = conn.execute('SELECT * FROM knowledge WHERE id = ?', (kid,)).fetchone()
+        if not row:
+            return None
+
+        # 内容或标题变更时保留历史版本
+        will_change_content = title is not None or content is not None or category is not None
+        if will_change_content:
+            _save_knowledge_version(kid, created_by=created_by)
 
         updates = {}
         if title is not None:
@@ -532,15 +584,88 @@ def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
 
 
 def knowledge_delete(kid):
-    """删除知识条目，级联删除 chunks"""
+    """删除知识条目，级联删除 chunks 和历史版本"""
     conn = _db_conn()
     try:
         conn.execute('DELETE FROM knowledge_chunks WHERE knowledge_id = ?', (kid,))
+        conn.execute('DELETE FROM knowledge_versions WHERE knowledge_id = ?', (kid,))
         cur = conn.execute('DELETE FROM knowledge WHERE id = ?', (kid,))
         conn.commit()
         return cur.rowcount > 0
     finally:
         conn.close()
+
+
+def _knowledge_version_row_to_dict(row):
+    """将 knowledge_versions 行转为前端兼容 dict"""
+    if not row:
+        return None
+    return {
+        'id': row['id'],
+        'knowledgeId': row['knowledge_id'],
+        'version': row['version'],
+        'title': row['title'],
+        'content': row['content'],
+        'category': row['category'] or '',
+        'empId': row['emp_id'] or '',
+        'status': row['status'] or 'ok',
+        'chunkCount': row['chunk_count'] or 0,
+        'createdBy': row['created_by'] or '',
+        'createdAt': row['created_at'],
+    }
+
+
+def knowledge_get_versions(kid, offset=0, limit=50):
+    """获取知识文档的历史版本列表"""
+    conn = _db_conn()
+    try:
+        rows = conn.execute('''
+            SELECT * FROM knowledge_versions WHERE knowledge_id = ?
+            ORDER BY version DESC LIMIT ? OFFSET ?
+        ''', (kid, limit, offset)).fetchall()
+        total = conn.execute(
+            'SELECT COUNT(*) FROM knowledge_versions WHERE knowledge_id = ?', (kid,)
+        ).fetchone()[0]
+        return {
+            'versions': [_knowledge_version_row_to_dict(r) for r in rows],
+            'total': total,
+            'offset': offset,
+            'limit': limit
+        }
+    finally:
+        conn.close()
+
+
+def knowledge_get_version(kid, version):
+    """获取知识文档某一具体版本"""
+    conn = _db_conn()
+    try:
+        row = conn.execute('''
+            SELECT * FROM knowledge_versions WHERE knowledge_id = ? AND version = ?
+        ''', (kid, version)).fetchone()
+        return _knowledge_version_row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def knowledge_rollback(kid, version, api_key=None, provider='openai', agent_config=None, created_by=None):
+    """回滚知识文档到指定历史版本"""
+    target = knowledge_get_version(kid, version)
+    if not target:
+        return None
+    # 先保存当前版本
+    _save_knowledge_version(kid, created_by=created_by)
+    # 用历史内容更新主表
+    return knowledge_update(
+        kid=kid,
+        title=target['title'],
+        content=target['content'],
+        category=target['category'],
+        api_key=api_key,
+        provider=provider,
+        agent_config=agent_config,
+        created_by=created_by
+    )
 
 
 def knowledge_get_by_id(kid):

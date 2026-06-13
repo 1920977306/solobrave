@@ -24,6 +24,8 @@ import uuid
 import threading
 from collections import Counter
 
+import knowledge_service as ks
+
 # ═══════════════════════════════════════════════════
 # 配置
 # ═══════════════════════════════════════════════════
@@ -41,6 +43,7 @@ MEMORY_V3_CONFIG = {
     'inject_value_max': 500,   # 单条记忆注入字符上限
     'store_value_max': 2000,   # 单条记忆存储字符上限
     'context_max': 500,        # daily 上下文摘要字符上限
+    'dedup_threshold': 0.85,   # 智能去重相似度阈值
 }
 
 def _ensure_dir(path):
@@ -100,6 +103,116 @@ def _write_json(filepath, data):
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
+
+
+# ═══════════════════════════════════════════════════
+# 智能去重辅助函数
+# ═══════════════════════════════════════════════════
+
+
+def _char_jaccard_similarity(a, b):
+    """字符级 Jaccard 相似度（无 API key 时的 fallback）"""
+    if not a or not b:
+        return 0.0
+    set_a = set(a)
+    set_b = set(b)
+    if not set_a or not set_b:
+        return 0.0
+    intersection = len(set_a & set_b)
+    union = len(set_a | set_b)
+    return intersection / union if union else 0.0
+
+
+def _find_duplicate_memory(value, memories, api_key=None, provider='openai', threshold=0.85):
+    """
+    在 memories 列表中查找语义重复的记忆。
+    优先使用 embedding + 余弦相似度；失败或无 api_key 时 fallback 到字符 Jaccard。
+    返回: (duplicate_memory, similarity)，无重复返回 (None, 0.0)
+    """
+    if not memories:
+        return None, 0.0
+
+    best_mem = None
+    best_sim = 0.0
+
+    # 路径 1：embedding 语义相似度
+    if api_key:
+        try:
+            value_emb = ks.get_embedding_cached(value, api_key, provider)
+            if value_emb:
+                for m in memories:
+                    m_value = m.get('value', '')
+                    if not m_value:
+                        continue
+                    m_emb = ks.get_embedding_cached(m_value, api_key, provider)
+                    if not m_emb:
+                        continue
+                    sim = ks.cosine_similarity(value_emb, m_emb)
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_mem = m
+                if best_mem and best_sim >= threshold:
+                    return best_mem, best_sim
+        except Exception:
+            pass
+
+    # 路径 2：字符 Jaccard fallback
+    best_mem = None
+    best_sim = 0.0
+    for m in memories:
+        sim = _char_jaccard_similarity(value, m.get('value', ''))
+        if sim > best_sim:
+            best_sim = sim
+            best_mem = m
+
+    if best_mem and best_sim >= threshold:
+        return best_mem, best_sim
+    return None, 0.0
+
+
+def _merge_duplicate_memory(target, source, merged_at=None):
+    """
+    将 source 记忆合并到 target 记忆中。
+    保留更长的 value，更新 updatedAt，记录 mergedFrom（保留最近 10 条），合并 tags。
+    返回合并后的 target。
+    """
+    if merged_at is None:
+        merged_at = int(time.time() * 1000)
+
+    # 保留更长的 value
+    target_value = target.get('value', '')
+    source_value = source.get('value', '')
+    if len(source_value) > len(target_value):
+        target['value'] = source_value
+
+    # 更新 core 相关字段
+    if 'updatedAt' in target or 'updatedAt' in source:
+        target['updatedAt'] = merged_at
+
+    # 合并 tags（去重，保持顺序）
+    target_tags = list(target.get('tags', [])) if isinstance(target.get('tags'), list) else []
+    source_tags = list(source.get('tags', [])) if isinstance(source.get('tags'), list) else []
+    seen = set(target_tags)
+    merged_tags = target_tags[:]
+    for t in source_tags:
+        if t not in seen:
+            seen.add(t)
+            merged_tags.append(t)
+    target['tags'] = merged_tags
+
+    # 记录合并来源
+    merged_from = target.get('mergedFrom', [])
+    if not isinstance(merged_from, list):
+        merged_from = []
+    merged_from.append({
+        'id': source.get('id'),
+        'value': source.get('value', '')[:200],
+        'source': source.get('source', ''),
+        'mergedAt': merged_at,
+    })
+    target['mergedFrom'] = merged_from[-10:]
+
+    return target
 
 
 # ═══════════════════════════════════════════════════
@@ -196,6 +309,12 @@ def load_memory(emp_id):
         result['shouldConsolidate'] = False
         result['suggestedSourceIds'] = []
 
+    # 冲突提示：列出所有处于 conflict 状态的核心记忆
+    result['conflicts'] = [
+        m for m in result.get('core', [])
+        if m.get('conflictStatus') == 'conflict'
+    ]
+
     return result
 
 
@@ -268,11 +387,12 @@ def _filter_expired(daily_list):
 # ═══════════════════════════════════════════════════
 
 def add_memory(emp_id, value, key='auto', source='user_input', context=None,
-               priority=None, tags=None):
+               priority=None, tags=None, api_key=None, provider='openai'):
     """
     添加记忆
     key='auto' 或 'auto_extract' → daily 池
     其他值 → core 池
+    同一池内若存在语义重复记忆，将自动合并。
     """
     cfg = MEMORY_V3_CONFIG
     if len(value) > cfg['store_value_max']:
@@ -308,6 +428,24 @@ def add_memory(emp_id, value, key='auto', source='user_input', context=None,
         memory['context'] = (context or '')[:cfg['context_max']]
         memory['expiresAt'] = now + ttl_ms
 
+    # 智能去重：在同一池中查找语义重复
+    duplicate, sim = _find_duplicate_memory(
+        value, target, api_key=api_key, provider=provider,
+        threshold=cfg.get('dedup_threshold', 0.85)
+    )
+    if duplicate:
+        new_value = memory.get('value', '')
+        _merge_duplicate_memory(duplicate, memory, merged_at=now)
+        data[pool] = target
+        save_memory(emp_id, data)
+        log_consolidation(
+            emp_id, 'duplicate_merge', [memory['id'], duplicate['id']], duplicate['id'],
+            old_value=new_value,
+            new_value=duplicate.get('value', ''),
+            trigger='auto'
+        )
+        return duplicate
+
     target.append(memory)
     data[pool] = target
     save_memory(emp_id, data)
@@ -324,11 +462,12 @@ def get_memory(emp_id, mem_id):
     return None, None
 
 
-def update_memory(emp_id, mem_id, updates):
+def update_memory(emp_id, mem_id, updates, api_key=None, provider='openai'):
     """
     更新记忆
     updates: dict，可包含 value / key / source / priority / tags / context
     支持跨池移动（key 变更时）
+    更新后若与同一池其他记忆语义重复，将自动合并。
     """
     cfg = MEMORY_V3_CONFIG
     data = load_memory(emp_id)
@@ -355,6 +494,7 @@ def update_memory(emp_id, mem_id, updates):
         found['source'] = updates['source']
 
     # 跨池移动检查
+    current_pool = old_pool
     new_key = updates.get('key')
     if new_key:
         new_pool = 'daily' if new_key in ('auto', 'auto_extract') else 'core'
@@ -383,6 +523,7 @@ def update_memory(emp_id, mem_id, updates):
             found['key'] = new_key
             target.append(found)
             data[new_pool] = target
+            current_pool = new_pool
         else:
             found['key'] = new_key
             if old_pool == 'core':
@@ -394,6 +535,25 @@ def update_memory(emp_id, mem_id, updates):
             else:
                 if 'context' in updates:
                     found['context'] = updates['context'][:cfg['context_max']]
+
+    # 智能去重：在当前池中排除自己后查找重复
+    pool_mems = [m for m in data.get(current_pool, []) if m.get('id') != mem_id]
+    duplicate, sim = _find_duplicate_memory(
+        found.get('value', ''), pool_mems, api_key=api_key, provider=provider,
+        threshold=cfg.get('dedup_threshold', 0.85)
+    )
+    if duplicate:
+        old_value = duplicate.get('value', '')
+        _merge_duplicate_memory(duplicate, found, merged_at=int(time.time() * 1000))
+        data[current_pool] = [m for m in data[current_pool] if m.get('id') != mem_id]
+        save_memory(emp_id, data)
+        log_consolidation(
+            emp_id, 'duplicate_merge', [found['id'], duplicate['id']], duplicate['id'],
+            old_value=old_value,
+            new_value=duplicate.get('value', ''),
+            trigger='auto'
+        )
+        return duplicate
 
     save_memory(emp_id, data)
     return found
@@ -792,8 +952,152 @@ def archive_inducted_memories(emp_id):
 
 
 # ═══════════════════════════════════════════════════
+# 记忆冲突处理
+# ═══════════════════════════════════════════════════
+
+def _detect_conflicting_memories(core_memories, api_key=None, provider='openai', ai_resolve_fn=None):
+    """
+    调用 AI 检测核心记忆中的语义冲突。
+    为控制 O(n^2) 成本，只检测最近 7 天内新增/更新的记忆与全部核心记忆的冲突。
+    ai_resolve_fn(prompt, system_prompt) 由调用方提供，返回 JSON 列表。
+    返回: [{'memoryId': id, 'conflictWith': [other_id], 'reason': str}]
+    """
+    if not core_memories or len(core_memories) < 2:
+        return []
+    if not ai_resolve_fn:
+        return []
+
+    now = int(time.time() * 1000)
+    seven_days_ms = 7 * 24 * 3600 * 1000
+    recent_ids = [
+        m.get('id') for m in core_memories
+        if (m.get('updatedAt') or m.get('createdAt') or 0) > now - seven_days_ms
+    ]
+    if len(recent_ids) < 1:
+        return []
+
+    # 构建要检测的记忆对（recent vs all）
+    mem_map = {m.get('id'): m for m in core_memories if m.get('id')}
+    pairs = []
+    for rid in recent_ids:
+        for m in core_memories:
+            oid = m.get('id')
+            if not oid or oid == rid:
+                continue
+            pairs.append((rid, oid))
+    if not pairs:
+        return []
+
+    # 构造 prompt
+    pair_texts = []
+    for rid, oid in pairs:
+        rmem = mem_map.get(rid, {})
+        omem = mem_map.get(oid, {})
+        pair_texts.append(
+            f"Pair: {rid} vs {oid}\n"
+            f"[{rid}] {rmem.get('value', '')}\n"
+            f"[{oid}] {omem.get('value', '')}"
+        )
+
+    system_prompt = (
+        "你是一个记忆冲突检测专家。请分析下面给出的核心记忆对，"
+        "找出语义上相互矛盾（不能同时为真）的对。"
+        "返回 JSON 数组，每个元素包含 memoryId、conflictWith（list）、reason。"
+        "如果没有冲突，返回空数组 []。"
+        "只输出 JSON，不要额外解释。"
+    )
+    prompt = (
+        "请判断以下核心记忆对是否存在语义冲突：\n\n"
+        + "\n\n".join(pair_texts)
+        + "\n\n只输出 JSON 数组。"
+    )
+
+    try:
+        result = ai_resolve_fn(prompt, system_prompt)
+        if isinstance(result, list):
+            return result
+        if isinstance(result, str):
+            parsed = json.loads(result)
+            return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+    return []
+
+
+def detect_core_memory_conflicts(emp_id, api_key=None, provider='openai', ai_resolve_fn=None):
+    """
+    检测某员工核心记忆中的语义冲突。
+    返回: [{'memoryId': id, 'conflictWith': [other_id], 'reason': str}]
+    """
+    data = load_memory(emp_id)
+    core_memories = data.get('core', [])
+    return _detect_conflicting_memories(core_memories, api_key, provider, ai_resolve_fn)
+
+
+def mark_memory_conflict(emp_id, mem_id, conflict_with, reason=''):
+    """
+    标记某条核心记忆为冲突状态，并记录与其冲突的记忆 ID。
+    conflict_with: list of mem_id
+    """
+    if not conflict_with:
+        return None
+    data = load_memory(emp_id)
+    target = None
+    for m in data.get('core', []):
+        if m.get('id') == mem_id:
+            target = m
+            break
+    if not target:
+        return None
+
+    now = int(time.time() * 1000)
+    target['conflictStatus'] = 'conflict'
+    existing = set(target.get('conflictWith', []))
+    existing.update(conflict_with)
+    target['conflictWith'] = list(existing)
+    target['conflictNote'] = reason
+    target['updatedAt'] = now
+
+    # 同时反向标记对方记忆
+    for oid in conflict_with:
+        for m in data.get('core', []):
+            if m.get('id') == oid:
+                m['conflictStatus'] = 'conflict'
+                m_existing = set(m.get('conflictWith', []))
+                m_existing.add(mem_id)
+                m['conflictWith'] = list(m_existing)
+                m['updatedAt'] = now
+                break
+
+    save_memory(emp_id, data)
+    return target
+
+
+def resolve_memory_conflict(emp_id, mem_id, resolution=''):
+    """将某条核心记忆的冲突状态标记为已解决"""
+    data = load_memory(emp_id)
+    target = None
+    for m in data.get('core', []):
+        if m.get('id') == mem_id:
+            target = m
+            break
+    if not target:
+        return None
+
+    now = int(time.time() * 1000)
+    target['conflictStatus'] = 'resolved'
+    target['conflictResolvedAt'] = now
+    target['conflictNote'] = resolution or target.get('conflictNote', '')
+    target['updatedAt'] = now
+
+    save_memory(emp_id, data)
+    return target
+
+
+# ═══════════════════════════════════════════════════
 # 归纳日志
 # ═══════════════════════════════════════════════════
+
 
 def log_consolidation(emp_id, ctype, source_ids, target_id=None,
                       old_value=None, new_value=None, trigger='manual'):
@@ -839,6 +1143,22 @@ def get_consolidation_logs(emp_id=None, limit=50):
     if emp_id:
         logs = [l for l in logs if l.get('empId') == emp_id]
     # 按时间倒序
+    logs = sorted(logs, key=lambda x: x.get('timestamp', 0), reverse=True)
+    return logs[:limit]
+
+
+def get_duplicate_merge_logs(emp_id, limit=50):
+    """
+    获取去重合并日志（type='duplicate_merge'）。
+    支持项目组：当 emp_id 以 'group_' 开头时读取对应 group 的合并记录。
+    """
+    filepath = _consolidation_log_path()
+    log_data = _read_json(filepath, {'logs': []})
+    logs = log_data.get('logs', [])
+    logs = [
+        l for l in logs
+        if l.get('type') == 'duplicate_merge' and l.get('empId') == emp_id
+    ]
     logs = sorted(logs, key=lambda x: x.get('timestamp', 0), reverse=True)
     return logs[:limit]
 
@@ -955,7 +1275,8 @@ def save_group_archive(group_id, data):
     _write_json(filepath, data)
 
 
-def add_group_memory(group_id, value, key='daily', source='group_chat', context=None):
+def add_group_memory(group_id, value, key='daily', source='group_chat', context=None,
+                     api_key=None, provider='openai'):
     """添加项目组公共记忆；key='auto'/'auto_extract'/'daily' 入 daily，其他入 core"""
     cfg = MEMORY_V3_CONFIG
     if len(value) > cfg['store_value_max']:
@@ -988,10 +1309,118 @@ def add_group_memory(group_id, value, key='daily', source='group_chat', context=
         memory['context'] = (context or '')[:cfg['context_max']]
         memory['expiresAt'] = now + ttl_ms
 
+    # 智能去重
+    duplicate, sim = _find_duplicate_memory(
+        value, target, api_key=api_key, provider=provider,
+        threshold=cfg.get('dedup_threshold', 0.85)
+    )
+    if duplicate:
+        old_value = duplicate.get('value', '')
+        _merge_duplicate_memory(duplicate, memory, merged_at=now)
+        data[pool] = target
+        save_group_memory(group_id, data)
+        log_consolidation(
+            'group_' + group_id, 'duplicate_merge', [memory['id'], duplicate['id']], duplicate['id'],
+            old_value=old_value,
+            new_value=duplicate.get('value', ''),
+            trigger='auto'
+        )
+        return duplicate
+
     target.append(memory)
     data[pool] = target
     save_group_memory(group_id, data)
     return memory
+
+
+def update_group_memory(group_id, mem_id, updates, api_key=None, provider='openai'):
+    """
+    更新项目组记忆；支持跨池移动与去重合并。
+    updates: dict，可包含 value / key / source / priority / tags / context
+    """
+    cfg = MEMORY_V3_CONFIG
+    data = load_group_memory(group_id)
+
+    found = None
+    old_pool = None
+    for pool in ('core', 'daily'):
+        for m in data.get(pool, []):
+            if m.get('id') == mem_id:
+                found = m
+                old_pool = pool
+                break
+        if found:
+            break
+
+    if not found:
+        return None
+
+    if 'value' in updates:
+        found['value'] = updates['value']
+    if 'source' in updates:
+        found['source'] = updates['source']
+
+    current_pool = old_pool
+    new_key = updates.get('key')
+    if new_key:
+        new_pool = 'daily' if new_key in ('auto', 'auto_extract', 'daily') else 'core'
+        if new_pool != old_pool:
+            target = data.get(new_pool, [])
+            pool_max = cfg['daily_max'] if new_pool == 'daily' else cfg['core_max']
+            if len(target) >= pool_max:
+                raise RuntimeError(f'Cannot move: {new_pool} pool full')
+            if new_pool == 'core':
+                found['priority'] = updates.get('priority', 5)
+                found['tags'] = updates.get('tags', [])
+                found['updatedAt'] = int(time.time() * 1000)
+                found['accessCount'] = found.get('accessCount', 0)
+                found.pop('context', None)
+                found.pop('expiresAt', None)
+            else:
+                found['context'] = updates.get('context', '')[:cfg['context_max']]
+                found['expiresAt'] = int(time.time() * 1000) + cfg['daily_ttl_days'] * 24 * 3600 * 1000
+                found.pop('priority', None)
+                found.pop('tags', None)
+                found.pop('updatedAt', None)
+                found.pop('accessCount', None)
+            data[old_pool] = [m for m in data[old_pool] if m.get('id') != mem_id]
+            found['key'] = new_key
+            target.append(found)
+            data[new_pool] = target
+            current_pool = new_pool
+        else:
+            found['key'] = new_key
+            if old_pool == 'core':
+                if 'priority' in updates:
+                    found['priority'] = updates['priority']
+                if 'tags' in updates:
+                    found['tags'] = updates['tags']
+                found['updatedAt'] = int(time.time() * 1000)
+            else:
+                if 'context' in updates:
+                    found['context'] = updates['context'][:cfg['context_max']]
+
+    # 智能去重：在当前池中排除自己后查找重复
+    pool_mems = [m for m in data.get(current_pool, []) if m.get('id') != mem_id]
+    duplicate, sim = _find_duplicate_memory(
+        found.get('value', ''), pool_mems, api_key=api_key, provider=provider,
+        threshold=cfg.get('dedup_threshold', 0.85)
+    )
+    if duplicate:
+        old_value = duplicate.get('value', '')
+        _merge_duplicate_memory(duplicate, found, merged_at=int(time.time() * 1000))
+        data[current_pool] = [m for m in data[current_pool] if m.get('id') != mem_id]
+        save_group_memory(group_id, data)
+        log_consolidation(
+            'group_' + group_id, 'duplicate_merge', [found['id'], duplicate['id']], duplicate['id'],
+            old_value=old_value,
+            new_value=duplicate.get('value', ''),
+            trigger='auto'
+        )
+        return duplicate
+
+    save_group_memory(group_id, data)
+    return found
 
 
 def get_group_memory_stats(group_id):

@@ -1656,6 +1656,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'core-candidates':
                 self._handle_get_core_candidates(parts[0])
                 return
+            if len(parts) == 2 and parts[1] == 'merge-history':
+                self._handle_get_merge_history(parts[0])
+                return
+            if len(parts) == 2 and parts[1] == 'conflicts':
+                self._handle_get_conflicts(parts[0])
+                return
 
         # Permissions API
         if path == '/api/permissions':
@@ -1673,9 +1679,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_knowledge_search()
             return
         if path.startswith('/api/knowledge/'):
-            kid = path[len('/api/knowledge/'):]
-            if kid:
-                self._handle_get_knowledge_detail(kid)
+            sub = path[len('/api/knowledge/'):]
+            parts = sub.split('/')
+            if len(parts) == 1:
+                self._handle_get_knowledge_detail(parts[0])
+                return
+            if len(parts) == 2 and parts[1] == 'versions':
+                self._handle_get_knowledge_versions(parts[0])
+                return
+            if len(parts) == 3 and parts[1] == 'versions':
+                self._handle_get_knowledge_version(parts[0], parts[2])
                 return
 
         # Product API
@@ -1973,11 +1986,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             elif len(parts) == 4 and parts[1] == 'core-candidates' and parts[3] == 'dismiss':
                 self._handle_dismiss_core_candidate(parts[0], parts[2])
                 return
+            elif len(parts) == 2 and parts[1] == 'detect-conflicts':
+                self._handle_detect_conflicts(parts[0])
+                return
+            elif len(parts) == 4 and parts[2] == 'resolve-conflict':
+                self._handle_resolve_conflict(parts[0], parts[1])
+                return
 
         # Knowledge API
         if path == '/api/knowledge':
             self._handle_post_knowledge()
             return
+        if path.startswith('/api/knowledge/'):
+            sub = path[len('/api/knowledge/'):]
+            parts = sub.split('/')
+            if len(parts) == 2 and parts[1] == 'rollback':
+                self._handle_knowledge_rollback(parts[0])
+                return
 
         # Product API
         if path == '/api/products':
@@ -3931,12 +3956,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'error': '记忆内容不能为空'})
             return
         key = body.get('type') or body.get('key', 'auto')
+
+        # 去重需要调用 Embedding API，使用当前用户任意一个 agent 的 key（group 本身不绑定 key）
+        agents = _load_agents()
+        api_key = ''
+        provider = 'openai'
+        for a in agents:
+            if a.get('createdBy') == auth.user_info.get('userId') and a.get('apiKey', '').strip():
+                api_key = a.get('apiKey', '').strip()
+                provider = a.get('aiProvider', '') or a.get('apiProvider', '') or 'openai'
+                break
+
         try:
             memory = ms3.add_group_memory(
                 group_id, value,
                 key=key,
                 source=body.get('source', 'user_input'),
-                context=body.get('context', '')
+                context=body.get('context', ''),
+                api_key=api_key,
+                provider=provider
             )
             self._send_json(200, {
                 'id': memory['id'],
@@ -3966,66 +4004,41 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not body:
             self._send_json(400, {'error': '无效的请求体'})
             return
-        data = ms3.load_group_memory(group_id)
-        found = None
-        old_pool = None
-        for pool in ('core', 'daily'):
-            for m in data.get(pool, []):
-                if m.get('id') == mem_id:
-                    found = m
-                    old_pool = pool
-                    break
-            if found:
+
+        updates = {}
+        if 'value' in body:
+            updates['value'] = body['value']
+        if 'source' in body:
+            updates['source'] = body['source']
+        if 'key' in body:
+            updates['key'] = body['key']
+        if 'priority' in body:
+            updates['priority'] = body['priority']
+        if 'tags' in body:
+            updates['tags'] = body['tags']
+        if 'context' in body:
+            updates['context'] = body['context']
+
+        # 去重需要 Embedding API，使用当前用户任意一个 agent 的 key
+        agents = _load_agents()
+        api_key = ''
+        provider = 'openai'
+        for a in agents:
+            if a.get('createdBy') == auth.user_info.get('userId') and a.get('apiKey', '').strip():
+                api_key = a.get('apiKey', '').strip()
+                provider = a.get('aiProvider', '') or a.get('apiProvider', '') or 'openai'
                 break
-        if not found:
+
+        try:
+            updated = ms3.update_group_memory(group_id, mem_id, updates, api_key=api_key, provider=provider)
+        except RuntimeError as e:
+            self._send_json(409, {'error': str(e)})
+            return
+
+        if not updated:
             self._send_json(404, {'error': '记忆不存在'})
             return
-        if 'value' in body:
-            found['value'] = body['value']
-        if 'source' in body:
-            found['source'] = body['source']
-        new_key = body.get('key')
-        if new_key:
-            new_pool = 'daily' if new_key in ('auto', 'auto_extract', 'daily') else 'core'
-            if new_pool != old_pool:
-                cfg = ms3.MEMORY_V3_CONFIG
-                target = data.get(new_pool, [])
-                pool_max = cfg['daily_max'] if new_pool == 'daily' else cfg['core_max']
-                if len(target) >= pool_max:
-                    self._send_json(409, {'error': f'{new_pool} pool full'})
-                    return
-                now = int(time.time() * 1000)
-                if new_pool == 'core':
-                    found['priority'] = body.get('priority', 5)
-                    found['tags'] = body.get('tags', [])
-                    found['updatedAt'] = now
-                    found['accessCount'] = found.get('accessCount', 0)
-                    found.pop('context', None)
-                    found.pop('expiresAt', None)
-                else:
-                    found['context'] = body.get('context', '')[:cfg['context_max']]
-                    found['expiresAt'] = now + cfg['daily_ttl_days'] * 24 * 3600 * 1000
-                    found.pop('priority', None)
-                    found.pop('tags', None)
-                    found.pop('updatedAt', None)
-                    found.pop('accessCount', None)
-                data[old_pool] = [m for m in data[old_pool] if m.get('id') != mem_id]
-                found['key'] = new_key
-                target.append(found)
-                data[new_pool] = target
-            else:
-                found['key'] = new_key
-                if old_pool == 'core':
-                    if 'priority' in body:
-                        found['priority'] = body['priority']
-                    if 'tags' in body:
-                        found['tags'] = body['tags']
-                    found['updatedAt'] = int(time.time() * 1000)
-                else:
-                    if 'context' in body:
-                        found['context'] = body['context'][:ms3.MEMORY_V3_CONFIG['context_max']]
-        ms3.save_group_memory(group_id, data)
-        self._send_json(200, {'success': True, 'id': mem_id})
+        self._send_json(200, {'success': True, 'id': updated.get('id', mem_id)})
 
     def _handle_delete_group_memory(self, group_id, mem_id):
         """DELETE /api/groups/:groupId/memory/:memId — 删除项目组记忆"""
@@ -5145,13 +5158,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             tags = []
         tags = [str(t).strip() for t in tags if str(t).strip()][:10]  # 最多 10 个标签
 
+        # 去重需要调用 Embedding API，优先使用该 agent 自身的 API key
+        agent = _get_agent_by_id(emp_id) or {}
+        api_key = (agent.get('apiKey') or '').strip()
+        provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
+
         try:
             memory = ms3.add_memory(
                 emp_id, value, key=key,
                 source=body.get('source', 'user_input'),
                 context=body.get('context', ''),
                 priority=priority,
-                tags=tags if tags else None
+                tags=tags if tags else None,
+                api_key=api_key,
+                provider=provider
             )
         except RuntimeError as e:
             self._send_json(409, {
@@ -5239,8 +5259,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if 'context' in body:
             updates['context'] = body['context']
 
+        # 去重需要调用 Embedding API
+        agent = _get_agent_by_id(emp_id) or {}
+        api_key = (agent.get('apiKey') or '').strip()
+        provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
+
         try:
-            updated = ms3.update_memory(emp_id, memory_id, updates)
+            updated = ms3.update_memory(emp_id, memory_id, updates, api_key=api_key, provider=provider)
         except RuntimeError as e:
             self._send_json(409, {'error': str(e)})
             return
@@ -5461,6 +5486,88 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'empId': emp_id
         })
 
+    def _handle_get_merge_history(self, emp_id):
+        """GET /api/memory/{empId}/merge-history — 获取去重合并记录"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        agent, err, status = self._check_agent_access(auth, emp_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        limit = max(1, min(200, int(qs.get('limit', ['50'])[0])))
+        logs = ms3.get_duplicate_merge_logs(emp_id, limit=limit)
+        self._send_json(200, {'success': True, 'empId': emp_id, 'merges': logs})
+
+    def _handle_get_conflicts(self, emp_id):
+        """GET /api/memory/{empId}/conflicts — 获取核心记忆冲突列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        agent, err, status = self._check_agent_access(auth, emp_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        data = ms3.load_memory(emp_id)
+        conflicts = [m for m in data.get('core', []) if m.get('conflictStatus') == 'conflict']
+        self._send_json(200, {'success': True, 'empId': emp_id, 'conflicts': conflicts})
+
+    def _handle_detect_conflicts(self, emp_id):
+        """POST /api/memory/{empId}/detect-conflicts — 手动触发冲突检测"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        agent, err, status = self._check_agent_access(auth, emp_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        agent = _get_agent_by_id(emp_id)
+        if not agent:
+            self._send_json(404, {'error': 'Agent not found'})
+            return
+        api_key = (agent.get('apiKey') or '').strip()
+        provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
+        if not api_key:
+            self._send_json_error(400, 'Agent has no API key, cannot detect conflicts')
+            return
+
+        def _ai_resolve(prompt, system_prompt):
+            return _call_ai_for_json(prompt, agent, system_prompt=system_prompt)
+
+        try:
+            detected = ms3.detect_core_memory_conflicts(emp_id, api_key, provider, _ai_resolve)
+            self._send_json(200, {'success': True, 'empId': emp_id, 'detected': detected})
+        except Exception as e:
+            print(f'  [DetectConflicts] failed: {e}', flush=True)
+            self._send_json_error(500, f'Detect failed: {str(e)}')
+
+    def _handle_resolve_conflict(self, emp_id, mem_id):
+        """POST /api/memory/{empId}/{memId}/resolve-conflict — 解决冲突"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        agent, err, status = self._check_agent_access(auth, emp_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        body = self._read_body() or {}
+        resolution = body.get('resolution', '')
+        try:
+            mem = ms3.resolve_memory_conflict(emp_id, mem_id, resolution=resolution)
+            if not mem:
+                self._send_json_error(404, 'Memory not found')
+                return
+            self._send_json(200, {'success': True, 'empId': emp_id, 'memory': mem})
+        except Exception as e:
+            print(f'  [ResolveConflict] failed: {e}', flush=True)
+            self._send_json_error(500, f'Resolve failed: {str(e)}')
+
     # ═══════════════════════════════════════════════════
     # 知识库 API（后端持久化，替代 localStorage sb_docs）
     # ═══════════════════════════════════════════════════
@@ -5672,6 +5779,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 api_key=api_key,
                 provider=provider,
                 agent_config=agent_config,
+                created_by=auth.user_id,
             )
             self._send_json(200, updated)
         except Exception as e:
@@ -5695,6 +5803,103 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         deleted = ks.knowledge_delete(doc_id)
         self._send_json(200, {'deleted': deleted, 'id': doc_id})
+
+    def _handle_get_knowledge_versions(self, doc_id):
+        """GET /api/knowledge/<id>/versions — 获取历史版本列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        doc = ks.knowledge_get_by_id(doc_id)
+        if not doc:
+            self._send_json_error(404, 'Knowledge not found')
+            return
+        if not _can_access_knowledge_category(auth, doc.get('category', '')):
+            self._send_auth_error('No permission for this knowledge category', 403)
+            return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        offset = max(0, int(qs.get('offset', [0])[0]))
+        limit = max(1, min(100, int(qs.get('limit', [20])[0])))
+        result = ks.knowledge_get_versions(doc_id, offset, limit)
+        self._send_json(200, result)
+
+    def _handle_get_knowledge_version(self, doc_id, version):
+        """GET /api/knowledge/<id>/versions/<version> — 获取某一历史版本"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        doc = ks.knowledge_get_by_id(doc_id)
+        if not doc:
+            self._send_json_error(404, 'Knowledge not found')
+            return
+        try:
+            version = int(version)
+        except ValueError:
+            self._send_json_error(400, 'Invalid version')
+            return
+        v = ks.knowledge_get_version(doc_id, version)
+        if not v:
+            self._send_json_error(404, 'Version not found')
+            return
+        if not _can_access_knowledge_category(auth, v.get('category', '')):
+            self._send_auth_error('No permission for this knowledge category', 403)
+            return
+        self._send_json(200, v)
+
+    def _handle_knowledge_rollback(self, doc_id):
+        """POST /api/knowledge/<id>/rollback — 回滚到指定版本"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        doc = ks.knowledge_get_by_id(doc_id)
+        if not doc:
+            self._send_json_error(404, 'Knowledge not found')
+            return
+        if not _can_access_knowledge_category(auth, doc.get('category', '')):
+            self._send_auth_error('No permission for this knowledge category', 403)
+            return
+        body = self._read_body() or {}
+        version = body.get('version')
+        if version is None:
+            self._send_json_error(400, 'Missing version')
+            return
+        try:
+            version = int(version)
+        except ValueError:
+            self._send_json_error(400, 'Invalid version')
+            return
+
+        override_provider, override_key = _get_embedding_override()
+        api_key = None
+        provider = 'openai'
+        agent_config = None
+        agent = _get_agent_by_id(auth.user_id)
+        if agent:
+            api_key = override_key or (agent.get('apiKey') or '').strip()
+            provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
+            agent_config = agent
+
+        try:
+            rolled = ks.knowledge_rollback(
+                doc_id, version,
+                api_key=api_key,
+                provider=provider,
+                agent_config=agent_config,
+                created_by=auth.user_id
+            )
+            if not rolled:
+                self._send_json_error(404, 'Rollback target not found')
+                return
+            self._send_json(200, {'success': True, 'knowledge': rolled})
+        except Exception as e:
+            print(f'  [KnowledgeRollback] failed: {e}', flush=True)
+            self._send_json_error(500, f'Rollback failed: {str(e)}')
 
     # ═══════════════════════════════════════════════════
     # RAG API
@@ -8143,10 +8348,39 @@ def _run_daily_memory_jobs(startup=False):
                 continue
             _generate_core_candidates_for_agent(agent)
             _induct_knowledge_for_agent(agent)
+            _detect_conflicts_for_agent(agent)
             processed += 1
         except Exception as e:
             print(f'  [DailyJob] agent {agent.get("id")} 处理失败: {e}', flush=True)
     print(f'  [DailyJob] {label}完成，共处理 {processed}/{len(agents)} 个 agent', flush=True)
+
+
+def _detect_conflicts_for_agent(agent):
+    """为单个 agent 自动检测核心记忆冲突（每日任务调用）"""
+    emp_id = agent.get('id')
+    api_key = (agent.get('apiKey') or '').strip()
+    provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
+    if not api_key:
+        return 0
+
+    def _ai_resolve(prompt, system_prompt):
+        return _call_ai_for_json(prompt, agent, system_prompt=system_prompt)
+
+    try:
+        detected = ms3.detect_core_memory_conflicts(emp_id, api_key, provider, _ai_resolve)
+        if not detected:
+            return 0
+        for item in detected:
+            mem_id = item.get('memoryId')
+            conflict_with = item.get('conflictWith', [])
+            reason = item.get('reason', '')
+            if mem_id and conflict_with:
+                ms3.mark_memory_conflict(emp_id, mem_id, conflict_with, reason)
+        print(f'  [DailyJob] {emp_id} 检测到 {len(detected)} 组核心记忆冲突', flush=True)
+        return len(detected)
+    except Exception as e:
+        print(f'  [DailyJob] {emp_id} 冲突检测失败: {e}', flush=True)
+        return 0
 
 
 def _generate_core_candidates_for_agent(agent):

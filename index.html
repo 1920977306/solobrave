@@ -3696,6 +3696,22 @@ window.doLogin = function () {
   </div>
 </div>
 
+<!-- 知识库文档版本历史弹窗 -->
+<div class="product-modal-overlay" id="knowledgeVersionModalOverlay" onclick="closeKnowledgeVersionModal()">
+  <div class="product-modal-panel" style="max-width:560px;max-height:80vh;" onclick="event.stopPropagation()">
+    <div class="product-modal-header">
+      <div class="product-modal-title" id="knowledgeVersionModalTitle">版本历史</div>
+      <button class="product-modal-close" onclick="closeKnowledgeVersionModal()">✕</button>
+    </div>
+    <div class="product-modal-body" id="knowledgeVersionModalBody" style="overflow-y:auto;">
+      <div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div>
+    </div>
+    <div class="product-modal-footer">
+      <button class="product-modal-btn cancel" onclick="closeKnowledgeVersionModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
 <!-- 核心记忆候选确认弹窗 -->
 <div class="product-modal-overlay" id="coreCandidateModalOverlay" onclick="closeCoreCandidateModal()">
   <div class="product-modal-panel" style="max-width:560px;max-height:80vh;" onclick="event.stopPropagation()">
@@ -3708,6 +3724,22 @@ window.doLogin = function () {
     </div>
     <div class="product-modal-footer">
       <button class="product-modal-btn cancel" onclick="closeCoreCandidateModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 记忆冲突处理弹窗 -->
+<div class="product-modal-overlay" id="memoryConflictModalOverlay" onclick="closeMemoryConflictModal()">
+  <div class="product-modal-panel" style="max-width:560px;max-height:80vh;" onclick="event.stopPropagation()">
+    <div class="product-modal-header">
+      <div class="product-modal-title">核心记忆冲突处理</div>
+      <button class="product-modal-close" onclick="closeMemoryConflictModal()">✕</button>
+    </div>
+    <div class="product-modal-body" id="memoryConflictModalBody" style="overflow-y:auto;">
+      <div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div>
+    </div>
+    <div class="product-modal-footer">
+      <button class="product-modal-btn cancel" onclick="closeMemoryConflictModal()">关闭</button>
     </div>
   </div>
 </div>
@@ -3919,11 +3951,18 @@ window.doLogin = function () {
 <span id="memoryInductBannerText" style="flex:1;"><strong>知识库归纳</strong>：记忆数量充足，可自动生成知识文档</span>
 <span style="font-size:12px;background:#2E7D32;color:#fff;padding:2px 8px;border-radius:6px;white-space:nowrap;">一键归纳</span>
 </div>
+<!-- 记忆冲突提示条 -->
+<div id="memoryConflictBanner" style="display:none;margin:8px 12px 0;padding:8px 12px;background:linear-gradient(135deg,#FFEBEE 0%,#FFCDD2 100%);border:1px solid #EF5350;border-radius:10px;cursor:pointer;transition:all 0.2s;align-items:center;gap:8px;font-size:13px;color:#C62828;" onclick="openMemoryConflictModal()">
+<span style="font-size:16px;">⚠️</span>
+<span id="memoryConflictBannerText" style="flex:1;"><strong>记忆冲突</strong>：发现 0 条核心记忆存在冲突，请点击确认处理</span>
+<span style="font-size:12px;background:#C62828;color:#fff;padding:2px 8px;border-radius:6px;white-space:nowrap;">去处理</span>
+</div>
 <div class="memory-tabs">
 <button class="memory-tab active" data-mtab="core" onclick="switchMemoryTab('core')">核心记忆</button>
 <button class="memory-tab" data-mtab="daily" onclick="switchMemoryTab('daily')">日常记录</button>
 <button class="memory-tab" data-mtab="archive" onclick="switchMemoryTab('archive')">归档</button>
 <button class="memory-tab" data-mtab="kb" onclick="switchMemoryTab('kb')">知识库</button>
+<button class="memory-tab" data-mtab="merge" onclick="switchMemoryTab('merge')">合并记录</button>
 </div>
 <div class="memory-content" id="memoryContent"></div>
 <div class="memory-empty" id="memoryEmpty">
@@ -11276,16 +11315,28 @@ function renderMemoryTab(empId) {
     var candidatePromise = typeof apiFetch === 'function' ?
       apiFetch('/api/memory/' + encodeURIComponent(empId) + '/core-candidates').then(function (r) { return r.json(); }).catch(function () { return {candidates: []}; }) :
       Promise.resolve({candidates: []});
+    var conflictsPromise = typeof apiFetch === 'function' ?
+      apiFetch('/api/memory/' + encodeURIComponent(empId) + '/conflicts').then(function (r) { return r.json(); }).catch(function () { return {conflicts: []}; }) :
+      Promise.resolve({conflicts: []});
+    var mergeHistoryPromise = typeof apiFetch === 'function' ?
+      apiFetch('/api/memory/' + encodeURIComponent(empId) + '/merge-history').then(function (r) { return r.json(); }).catch(function () { return {merges: []}; }) :
+      Promise.resolve({merges: []});
     Promise.all([
       apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) { return r.json(); }),
       kbPromise,
-      candidatePromise
+      candidatePromise,
+      conflictsPromise,
+      mergeHistoryPromise
     ]).then(function (results) {
       var data = results[0];
       var kbResult = results[1] || {docs: []};
       var kbDocs = kbResult.docs || [];
       var candidateResult = results[2] || {candidates: []};
       var pendingCandidates = (candidateResult.candidates || []).filter(function (c) { return c.status === 'pending'; });
+      var conflictsResult = results[3] || {conflicts: []};
+      var conflictList = conflictsResult.conflicts || [];
+      var mergeHistoryResult = results[4] || {merges: []};
+      var mergeList = mergeHistoryResult.merges || [];
 
       // v2 分池格式：{core: [...], daily: [...], archive: [...]}
       var coreList = data.core || [];
@@ -11302,10 +11353,12 @@ function renderMemoryTab(empId) {
       var dailyTab = document.querySelector('.memory-tab[data-mtab="daily"]');
       var archiveTab = document.querySelector('.memory-tab[data-mtab="archive"]');
       var kbTab = document.querySelector('.memory-tab[data-mtab="kb"]');
+      var mergeTab = document.querySelector('.memory-tab[data-mtab="merge"]');
       if (coreTab) coreTab.textContent = '核心记忆 (' + coreCount + '/' + (data.config && data.config.core_max || 100) + ')';
       if (dailyTab) dailyTab.textContent = '日常记录 (' + dailyCount + '/' + (data.config && data.config.daily_max || 100) + ')';
       if (archiveTab) archiveTab.textContent = '归档 (' + archiveCount + ')';
       if (kbTab) kbTab.textContent = '知识库 (' + kbCount + ')';
+      if (mergeTab) mergeTab.textContent = '合并记录 (' + mergeList.length + ')';
 
       // 知识库模式：显示关联文档（后端持久化）
       if (currentMemoryTab === 'kb') {
@@ -11326,6 +11379,7 @@ function renderMemoryTab(empId) {
             kbHtml += '<span style="font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px;">📚 知识库</span>';
             kbHtml += '<div style="display:flex;gap:6px;">';
             kbHtml += '<button onclick="event.stopPropagation();openKnowledgeDocForm(' + JSON.stringify(d).replace(/"/g, '&quot;') + ')" title="编辑" style="width:22px;height:22px;border-radius:5px;border:none;background:transparent;cursor:pointer;color:var(--text-secondary);font-size:13px;">✎</button>';
+            kbHtml += '<button onclick="event.stopPropagation();openKnowledgeVersionModal(\'' + escapeAttr(d.id) + '\', \'' + escapeAttr(d.name || '未命名文档') + '\')" title="历史" style="width:22px;height:22px;border-radius:5px;border:none;background:transparent;cursor:pointer;color:var(--text-secondary);font-size:13px;">🕐</button>';
             kbHtml += '<button onclick="event.stopPropagation();deleteKnowledgeDoc(\'' + escapeAttr(d.id) + '\')" title="删除" style="width:22px;height:22px;border-radius:5px;border:none;background:transparent;cursor:pointer;color:#FF3B30;font-size:13px;">🗑</button>';
             kbHtml += '</div>';
             kbHtml += '</div>';
@@ -11338,6 +11392,15 @@ function renderMemoryTab(empId) {
         }
         if (headerEl) {
           headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + (coreCount + dailyCount + kbCount) + ')</span>';
+        }
+        return;
+      }
+
+      // 合并记录模式
+      if (currentMemoryTab === 'merge') {
+        renderMergeHistory(empId);
+        if (headerEl) {
+          headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + (coreCount + dailyCount) + ')</span>';
         }
         return;
       }
@@ -11442,6 +11505,11 @@ function renderMemoryTab(empId) {
           });
         }
 
+        // 三期新增：冲突徽标
+        if (m.conflictStatus === 'conflict') {
+          metaBadges += '<span style="font-size:10px;color:#fff;background:#FF3B30;padding:1px 5px;border-radius:4px;margin-left:6px;cursor:pointer;" onclick="event.stopPropagation();openMemoryConflictModal()" title="点击处理冲突">⚠️ 冲突</span>';
+        }
+
         // v3 新增：日常记录显示过期倒计时（使用 expiresAt）和 context
         var expireBadge = '';
         var contextHint = '';
@@ -11524,6 +11592,14 @@ function renderMemoryTab(empId) {
       if (inductBanner) {
         inductBanner.style.display = (coreCount + dailyCount >= 15 && hasUninducted) ? 'flex' : 'none';
       }
+
+      // 三期：记忆冲突提示条
+      var conflictBanner = document.getElementById('memoryConflictBanner');
+      var conflictText = document.getElementById('memoryConflictBannerText');
+      if (conflictBanner) {
+        conflictBanner.style.display = conflictList.length > 0 ? 'flex' : 'none';
+        if (conflictText) conflictText.textContent = '发现 ' + conflictList.length + ' 条核心记忆存在冲突，请点击确认处理';
+      }
     }).catch(function (e) {
       contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载失败，请重试</div>';
       console.warn('[Memory] 加载失败:', e);
@@ -11532,6 +11608,47 @@ function renderMemoryTab(empId) {
     contentEl.innerHTML = '';
     if (emptyEl) emptyEl.style.display = 'block';
   }
+}
+
+// 三期：渲染去重合并记录列表
+function renderMergeHistory(empId) {
+  var contentEl = document.getElementById('memoryContent');
+  if (!contentEl) return;
+  contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/merge-history').then(function (r) { return r.json(); }).then(function (data) {
+    var merges = data.merges || [];
+    if (merges.length === 0) {
+      contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无合并记录</div>';
+      return;
+    }
+    var html = '';
+    merges.forEach(function (m) {
+      var timeStr = m.timestamp ? new Date(m.timestamp).toLocaleString('zh-CN') : '-';
+      var oldValue = m.oldValue || '';
+      var newValue = m.newValue || '';
+      var sourceIds = m.sourceIds || [];
+      var oldPreview = oldValue.length > 80 ? oldValue.slice(0, 80) + '...' : oldValue;
+      var newPreview = newValue.length > 80 ? newValue.slice(0, 80) + '...' : newValue;
+      html += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:8px;">';
+      html += '<div style="font-size:11px;color:var(--text-tertiary);margin-bottom:6px;">' + escapeHtml(timeStr) + '</div>';
+      if (sourceIds.length) {
+        html += '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">合并来源 ID: ' + escapeHtml(sourceIds.join(', ')) + '</div>';
+      }
+      html += '<div style="margin-bottom:6px;">';
+      html += '<span style="font-size:11px;color:var(--text-secondary);background:var(--bg-tertiary);padding:2px 6px;border-radius:4px;margin-right:6px;">合并前</span>';
+      html += '<span style="font-size:13px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(oldPreview) + '</span>';
+      html += '</div>';
+      html += '<div>';
+      html += '<span style="font-size:11px;color:#fff;background:var(--accent);padding:2px 6px;border-radius:4px;margin-right:6px;">合并后</span>';
+      html += '<span style="font-size:13px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(newPreview) + '</span>';
+      html += '</div>';
+      html += '</div>';
+    });
+    contentEl.innerHTML = html;
+  }).catch(function (e) {
+    if (contentEl) contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载失败，请重试</div>';
+    console.warn('[MergeHistory] 加载失败:', e);
+  });
 }
 
 // 从记忆面板点击触发归纳
@@ -11661,6 +11778,69 @@ function dismissCoreCandidate(candId) {
     openCoreCandidateModal();
   }).catch(function (e) {
     showToast('❌ 忽略失败');
+  });
+}
+
+// ========== 三期：记忆冲突提示与处理 ==========
+function openMemoryConflictModal() {
+  var empId = localStorage.getItem('sb_current_emp');
+  if (!empId) return;
+  var overlay = document.getElementById('memoryConflictModalOverlay');
+  var body = document.getElementById('memoryConflictModalBody');
+  if (overlay) overlay.classList.add('open');
+  if (body) body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/conflicts').then(function (r) { return r.json(); }).then(function (data) {
+    var conflicts = data.conflicts || [];
+    if (conflicts.length === 0) {
+      if (body) body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无冲突</div>';
+      return;
+    }
+    var html = '';
+    conflicts.forEach(function (c) {
+      var memId = c.id || '';
+      var value = c.value || '';
+      var conflictWith = c.conflictWith || [];
+      var reason = c.conflictNote || '';
+      html += '<div style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:10px;">';
+      html += '<div style="font-size:12px;color:#FF3B30;font-weight:600;margin-bottom:8px;">⚠️ 冲突</div>';
+      html += '<div style="padding:8px;background:var(--bg-tertiary);border-radius:8px;margin-bottom:8px;">';
+      html += '<div style="font-size:13px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(value) + '</div>';
+      html += '</div>';
+      if (conflictWith.length) {
+        html += '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">冲突记忆 ID: ' + escapeHtml(conflictWith.join(', ')) + '</div>';
+      }
+      if (reason) {
+        html += '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px;">原因: ' + escapeHtml(reason) + '</div>';
+      }
+      html += '<div style="display:flex;gap:8px;justify-content:flex-end;">';
+      html += '<button class="memory-add-btn" onclick="resolveMemoryConflict(\'' + escapeAttr(empId) + '\', \'' + escapeAttr(memId) + '\')">已解决</button>';
+      html += '</div>';
+      html += '</div>';
+    });
+    if (body) body.innerHTML = html;
+  }).catch(function (e) {
+    if (body) body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
+    console.warn('[MemoryConflict] 加载失败:', e);
+  });
+}
+function closeMemoryConflictModal() {
+  var overlay = document.getElementById('memoryConflictModalOverlay');
+  if (overlay) overlay.classList.remove('open');
+}
+function resolveMemoryConflict(empId, memId) {
+  if (!empId || !memId) return;
+  if (!confirm('确定将该冲突标记为已解决？')) return;
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/' + encodeURIComponent(memId) + '/resolve-conflict', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({resolution: 'resolved'})
+  }).then(function (r) { return r.json(); }).then(function () {
+    showToast('✅ 冲突已解决');
+    renderMemoryTab(empId);
+    openMemoryConflictModal();
+  }).catch(function (e) {
+    showToast('❌ 解决失败');
+    console.warn('[MemoryConflict] 解决失败:', e);
   });
 }
 
@@ -14399,6 +14579,92 @@ async function deleteKnowledgeDoc(docId) {
   } catch (e) {
     showToast('删除失败: ' + (e.message || e));
   }
+}
+
+// ========== 三期：知识库文档版本历史 ==========
+var currentKnowledgeVersionDocId = null;
+function openKnowledgeVersionModal(docId, docName) {
+  currentKnowledgeVersionDocId = docId;
+  var overlay = document.getElementById('knowledgeVersionModalOverlay');
+  var title = document.getElementById('knowledgeVersionModalTitle');
+  if (title) title.textContent = escapeHtml(docName || '文档') + ' 版本历史';
+  if (overlay) overlay.classList.add('open');
+  loadKnowledgeVersions(docId);
+}
+function closeKnowledgeVersionModal() {
+  currentKnowledgeVersionDocId = null;
+  var overlay = document.getElementById('knowledgeVersionModalOverlay');
+  if (overlay) overlay.classList.remove('open');
+}
+function loadKnowledgeVersions(docId) {
+  var body = document.getElementById('knowledgeVersionModalBody');
+  if (body) body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
+  apiFetch('/api/knowledge/' + encodeURIComponent(docId) + '/versions').then(function (r) { return r.json(); }).then(function (data) {
+    var versions = data.versions || [];
+    if (versions.length === 0) {
+      if (body) body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无版本记录</div>';
+      return;
+    }
+    var html = '';
+    versions.forEach(function (v) {
+      var content = v.content || '';
+      var preview = content.length > 80 ? content.slice(0, 80) + '...' : content;
+      var timeStr = v.createdAt ? new Date(v.createdAt).toLocaleString('zh-CN') : '-';
+      html += '<div style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:10px;">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
+      html += '<span style="font-size:14px;font-weight:600;color:var(--text-primary);">版本 ' + escapeHtml(String(v.version || '-')) + '</span>';
+      html += '<span style="font-size:11px;color:var(--text-tertiary);">' + escapeHtml(timeStr) + '</span>';
+      html += '</div>';
+      html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">操作者: ' + escapeHtml(v.createdBy || '-') + '</div>';
+      html += '<div style="font-size:13px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;margin-bottom:10px;">' + escapeHtml(preview) + '</div>';
+      html += '<div style="display:flex;gap:8px;justify-content:flex-end;">';
+      html += '<button class="memory-add-btn" style="background:var(--bg-tertiary);color:var(--text-secondary);" onclick="viewKnowledgeVersion(\'' + escapeAttr(docId) + '\', ' + Number(v.version) + ')">查看</button>';
+      html += '<button class="memory-add-btn" onclick="rollbackKnowledgeVersion(\'' + escapeAttr(docId) + '\', ' + Number(v.version) + ')">回滚</button>';
+      html += '</div>';
+      html += '</div>';
+    });
+    if (body) body.innerHTML = html;
+  }).catch(function (e) {
+    if (body) body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
+    console.warn('[KnowledgeVersion] 加载失败:', e);
+  });
+}
+function viewKnowledgeVersion(docId, version) {
+  apiFetch('/api/knowledge/' + encodeURIComponent(docId) + '/versions/' + encodeURIComponent(version)).then(function (r) { return r.json(); }).then(function (data) {
+    var v = data.version || data;
+    var content = v.content || '';
+    var timeStr = v.createdAt ? new Date(v.createdAt).toLocaleString('zh-CN') : '-';
+    var html = '<div style="padding:16px;background:var(--bg-secondary);border-radius:12px;">';
+    html += '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">版本 ' + escapeHtml(String(v.version || '-')) + ' · ' + escapeHtml(timeStr) + '</div>';
+    html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">操作者: ' + escapeHtml(v.createdBy || '-') + '</div>';
+    html += '<div style="font-size:13px;line-height:1.6;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(content) + '</div>';
+    html += '</div>';
+    var modal = document.createElement('div');
+    modal.className = 'product-modal-overlay open';
+    modal.style.zIndex = '10001';
+    modal.innerHTML = '<div class="product-modal-panel" style="max-width:560px;max-height:80vh;" onclick="event.stopPropagation()"><div class="product-modal-header"><div class="product-modal-title">版本详情</div><button class="product-modal-close" onclick="this.closest(\'.product-modal-overlay\').remove()">✕</button></div><div class="product-modal-body" style="overflow-y:auto;">' + html + '</div><div class="product-modal-footer"><button class="product-modal-btn cancel" onclick="this.closest(\'.product-modal-overlay\').remove()">关闭</button></div></div>';
+    modal.onclick = function () { modal.remove(); };
+    document.body.appendChild(modal);
+  }).catch(function (e) {
+    showToast('加载版本详情失败');
+    console.warn('[KnowledgeVersion] 查看失败:', e);
+  });
+}
+function rollbackKnowledgeVersion(docId, version) {
+  if (!confirm('确定回滚到版本 ' + version + '？当前内容将被覆盖。')) return;
+  apiFetch('/api/knowledge/' + encodeURIComponent(docId) + '/rollback', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({version: parseInt(version, 10)})
+  }).then(function (r) { return r.json(); }).then(function () {
+    showToast('✅ 已回滚到版本 ' + version);
+    var currentEmpId = localStorage.getItem('sb_current_emp');
+    if (currentEmpId) renderMemoryTab(currentEmpId);
+    if (currentKnowledgeVersionDocId === docId) loadKnowledgeVersions(docId);
+  }).catch(function (e) {
+    showToast('❌ 回滚失败: ' + (e.message || e));
+    console.warn('[KnowledgeVersion] 回滚失败:', e);
+  });
 }
 
 function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations) {
