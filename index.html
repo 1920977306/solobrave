@@ -11956,6 +11956,9 @@ function triggerInductFromMemoryPanel() {
     method: 'POST'
   }).then(function (r) { return r.json(); }).then(function (data) {
     showToast('✅ 已生成 ' + (data.createdDocs || 0) + ' 篇知识文档');
+    // 归纳完成后立即隐藏顶部提示条（无论是否生成文档，用户已响应过提示）
+    var inductBanner = document.getElementById('memoryInductBanner');
+    if (inductBanner) inductBanner.style.display = 'none';
     renderMemoryTab(empId);
     openInductResultModal(data);
   }).catch(function (e) {
@@ -11969,7 +11972,8 @@ function openInductResultModal(data) {
   if (overlay) overlay.classList.add('open');
   if (!body) return;
   if (!data || !data.createdDocs) {
-    body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">本次未生成知识文档</div>';
+    var reasonText = (data && data.reason) ? data.reason : '本次未生成知识文档';
+    body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">' + escapeHtml(reasonText) + '</div>';
     if (archiveBtn) archiveBtn.style.display = 'none';
     return;
   }
@@ -11979,6 +11983,11 @@ function openInductResultModal(data) {
 function closeInductResultModal() {
   var overlay = document.getElementById('inductResultModalOverlay');
   if (overlay) overlay.classList.remove('open');
+  // 关闭弹窗后刷新记忆面板并隐藏归纳提示条
+  var empId = getCurrentEmpId();
+  var inductBanner = document.getElementById('memoryInductBanner');
+  if (inductBanner) inductBanner.style.display = 'none';
+  if (empId) renderMemoryTab(empId);
 }
 function archiveInductedMemories() {
   var empId = getCurrentEmpId();

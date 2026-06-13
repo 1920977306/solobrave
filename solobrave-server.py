@@ -5474,7 +5474,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': 'Agent not found'})
             return
         try:
-            count = _induct_knowledge_for_agent(agent)
+            count, reason = _induct_knowledge_for_agent(agent)
         except Exception as e:
             print(f'  [InductKnowledge] manual failed: {e}', flush=True)
             self._send_json_error(500, f'Induction failed: {str(e)}')
@@ -5482,6 +5482,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {
             'success': True,
             'createdDocs': count,
+            'reason': reason,
             'empId': emp_id
         })
 
@@ -8370,7 +8371,7 @@ def _run_daily_memory_jobs(startup=False):
             if not emp_id:
                 continue
             _generate_core_candidates_for_agent(agent)
-            _induct_knowledge_for_agent(agent)
+            _induct_knowledge_for_agent(agent)  # 返回值 (count, reason) 每日任务不需要处理
             _detect_conflicts_for_agent(agent)
             processed += 1
         except Exception as e:
@@ -8455,23 +8456,20 @@ def _generate_core_candidates_for_agent(agent):
 
 
 def _induct_knowledge_for_agent(agent):
-    """为单个 agent 执行知识归纳：活跃记忆 >=15 且存在未归纳记忆时触发"""
+    """为单个 agent 执行知识归纳：活跃记忆 >=15 且存在未归纳记忆时触发
+
+    返回 (created_count, reason)，reason 在 created_count == 0 时给出原因说明。
+    """
     emp_id = agent.get('id')
     data = ms3.load_memory(emp_id)
     core_count = len(data.get('core', []))
     daily_count = len(data.get('daily', []))
     if core_count + daily_count < 15:
-        return 0
+        return 0, '活跃记忆总数不足 15 条，无法归纳'
 
     uninducted = ms3.get_uninducted_active_memories(emp_id)
     if len(uninducted) < 15:
-        return 0
-
-    last_at = ms3.get_last_knowledge_induction_at(emp_id)
-    newly_uninducted = [(m, pool) for m, pool in uninducted if m.get('createdAt', 0) > last_at]
-    if len(newly_uninducted) < 15:
-        # 如果总数够但新增不够，说明已经归纳过，避免重复
-        return 0
+        return 0, f'未归纳记忆仅 {len(uninducted)} 条，不足 15 条，无法归纳'
 
     lines = []
     for m, pool in uninducted:
@@ -8489,8 +8487,10 @@ def _induct_knowledge_for_agent(agent):
     )
     system_prompt = '你是一个知识库整理助手，负责将记忆沉淀为结构化的全局共享文档。必须严格返回 JSON 数组。'
     docs = _call_ai_for_json(prompt, agent, system_prompt=system_prompt)
+    if docs is None:
+        return 0, 'AI 调用失败（可能是未配置 API Key 或模型不可用）'
     if not docs:
-        return 0
+        return 0, '记忆内容不足以生成有价值的知识文档'
 
     api_key = (agent.get('apiKey', '') or '').strip()
     provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
@@ -8523,7 +8523,8 @@ def _induct_knowledge_for_agent(agent):
         ms3.mark_memories_inducted(emp_id, source_ids)
         ms3.set_last_knowledge_induction_at(emp_id)
         print(f'  [DailyJob] {emp_id} 归纳 {created_count} 篇知识文档', flush=True)
-    return created_count
+        return created_count, None
+    return 0, 'AI 返回的文档未通过校验（缺少标题或正文），未生成知识文档'
 
 
 def main():
