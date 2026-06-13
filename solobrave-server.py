@@ -4524,13 +4524,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         identity_doc = body.get('identityDoc', '')
         user_doc = body.get('userDoc', '')
         agents_doc = body.get('agentsDoc', '')
-        workspace_path = body.get('workspacePath', '~/.openclaw/workspace-' + agent_id)
+        tools_doc = body.get('toolsDoc', '')
+        workspace_path = body.get('workspacePath', '')
 
         if not agent_id:
             self._send_json(400, {'error': '缺少 agentId'})
             return
 
         import os
+        if not workspace_path:
+            # 默认 workspace 路径与 get-agent-docs 保持一致：优先使用 openclawName
+            agents = _load_agents()
+            openclaw_name = ''
+            for a in agents:
+                if a.get('id') == agent_id:
+                    openclaw_name = a.get('openclawName', '')
+                    break
+            workspace_path = '~/.openclaw/workspace-' + (openclaw_name or agent_id)
         workspace_path = os.path.expanduser(workspace_path)
 
         try:
@@ -4556,6 +4566,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 with open(os.path.join(workspace_path, 'AGENTS.md'), 'w', encoding='utf-8') as f:
                     f.write(agents_doc)
                 written.append('AGENTS.md')
+
+            if tools_doc:
+                with open(os.path.join(workspace_path, 'TOOLS.md'), 'w', encoding='utf-8') as f:
+                    f.write(tools_doc)
+                written.append('TOOLS.md')
 
             self._send_json(200, {
                 'ok': True,
@@ -4600,7 +4615,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             elif doc_name == 'USER.md':
                 content = agent.get('userDoc', '')
             elif doc_name == 'TOOLS.md':
-                content = agent.get('agentsDoc', '')
+                content = agent.get('toolsDoc', agent.get('agentsDoc', ''))
             self._send_json(200, {'content': content, 'source': 'local'})
             return
 
@@ -4626,7 +4641,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             elif doc_name == 'USER.md':
                 content = agent.get('userDoc', '')
             elif doc_name == 'TOOLS.md':
-                content = agent.get('agentsDoc', '')
+                content = agent.get('toolsDoc', agent.get('agentsDoc', ''))
             self._send_json(200, {'content': content, 'source': 'local_fallback'})
 
     def _handle_write_soul(self):

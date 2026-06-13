@@ -2815,11 +2815,29 @@ async function saveDocContent(docName, content) {
     
     if(resp && resp.ok){
       // 同时更新本地 emp 对象
+      var fieldName = '';
       if(emp){
-        if(docName === 'SOUL.md') emp.soulDoc = content;
-        else if(docName === 'IDENTITY.md') emp.idDoc = content;
-        else if(docName === 'USER.md') emp.userDoc = content;
-        else if(docName === 'TOOLS.md') emp.toolsDoc = content;
+        if(docName === 'SOUL.md') { emp.soulDoc = content; fieldName = 'soulDoc'; }
+        else if(docName === 'IDENTITY.md') { emp.idDoc = content; fieldName = 'idDoc'; }
+        else if(docName === 'USER.md') { emp.userDoc = content; fieldName = 'userDoc'; }
+        else if(docName === 'TOOLS.md') { emp.toolsDoc = content; fieldName = 'toolsDoc'; }
+      }
+      // 同步到 agents.json，确保刷新后仍可读取
+      if(fieldName){
+        try {
+          var syncBody = {};
+          syncBody[fieldName] = content;
+          var syncResp = await authFetch('/api/agents/' + encodeURIComponent(currentAgentId), {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(syncBody)
+          });
+          if(!syncResp || !syncResp.ok){
+            console.warn('[Office] 文档字段同步到 agents.json 失败:', syncResp ? syncResp.status : 'no response');
+          }
+        } catch(syncErr){
+          console.warn('[Office] 文档字段同步异常:', syncErr.message);
+        }
       }
       showToast('✅ 文档已保存');
       // 通知主页刷新
