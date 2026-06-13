@@ -1557,6 +1557,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         return None
 
     # ─── 路由 ──────────────────────────────────────────
+    def _normalize_path(self, path):
+        """统一处理路径：去掉 query string 和末尾斜杠（根路径除外）"""
+        path = path.split('?')[0]
+        if path != '/' and path.endswith('/'):
+            path = path[:-1]
+        return path
+
     def do_OPTIONS(self):
         self._send_cors_preflight()
 
@@ -1571,10 +1578,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
     def _do_GET(self):
-        path = self.path.split('?')[0]  # 去掉 query string
+        path = self._normalize_path(self.path)
 
         # Auth routes (no auth required)
-        if path == '/api/auth/me':
+        if path == '/api/auth/me' or path == '/auth/me':
             self._handle_auth_me()
             return
 
@@ -1834,7 +1841,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
     def _do_POST(self):
-        path = self.path.split('?')[0]
+        path = self._normalize_path(self.path)
 
         # Auth routes
         if path == '/api/auth/login':
@@ -2057,7 +2064,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
     def _do_PUT(self):
-        path = self.path.split('?')[0]
+        path = self._normalize_path(self.path)
 
         # Groups API
         if path == '/api/groups':
@@ -2151,7 +2158,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
     def _do_DELETE(self):
-        path = self.path.split('?')[0]
+        path = self._normalize_path(self.path)
 
         # OpenClaw
         if path.startswith('/api/openclaw/agents/'):
