@@ -11124,6 +11124,8 @@ function openDrawer() {
 }
 // Employee Detail Panel
 var currentEmpId = null;
+// 在用户主动点击"一键归纳"后，临时抑制顶部归纳提示条，避免关闭弹窗/切换标签页时反复出现
+var inductBannerSuppressed = false;
 function getCurrentEmpId() {
   // 员工详情页优先使用 currentEmpId，聊天页回退到 sb_current_emp
   return currentEmpId || localStorage.getItem('sb_current_emp');
@@ -11133,6 +11135,7 @@ function openEmpDetail(empId) {
     return e.id === empId;
   });
   if (!emp) return;
+  inductBannerSuppressed = false;
   currentEmpId = empId;
   selectedAvatar = emp.avatar || '🦞';
   selectedColor = emp.color || '#FF6B35';
@@ -11691,7 +11694,8 @@ function renderMemoryTab(empId) {
       var inductBanner = document.getElementById('memoryInductBanner');
       var hasUninducted = coreList.concat(dailyList).some(function (m) { return !m.inductedAt; });
       if (inductBanner) {
-        inductBanner.style.display = (coreCount + dailyCount >= 15 && hasUninducted) ? 'flex' : 'none';
+        // 用户已在本页点击过归纳并看到结果，暂时抑制提示条，避免反复打扰
+        inductBanner.style.display = (!inductBannerSuppressed && coreCount + dailyCount >= 15 && hasUninducted) ? 'flex' : 'none';
       }
 
       // 三期：记忆冲突提示条
@@ -11952,17 +11956,19 @@ function triggerInductFromMemoryPanel() {
     return;
   }
   showToast('📚 正在归纳到知识库，请稍候...');
+  // 用户已响应归纳提示，本页面临时抑制提示条
+  inductBannerSuppressed = true;
   apiFetch('/api/memory/' + encodeURIComponent(empId) + '/induct-to-knowledge', {
     method: 'POST'
   }).then(function (r) { return r.json(); }).then(function (data) {
     showToast('✅ 已生成 ' + (data.createdDocs || 0) + ' 篇知识文档');
-    // 归纳完成后立即隐藏顶部提示条（无论是否生成文档，用户已响应过提示）
-    var inductBanner = document.getElementById('memoryInductBanner');
-    if (inductBanner) inductBanner.style.display = 'none';
     renderMemoryTab(empId);
     openInductResultModal(data);
   }).catch(function (e) {
     showToast('❌ 归纳失败');
+    // 调用失败时用户并未完成归纳，恢复提示条以便重试
+    inductBannerSuppressed = false;
+    renderMemoryTab(empId);
   });
 }
 function openInductResultModal(data) {
@@ -11983,11 +11989,7 @@ function openInductResultModal(data) {
 function closeInductResultModal() {
   var overlay = document.getElementById('inductResultModalOverlay');
   if (overlay) overlay.classList.remove('open');
-  // 关闭弹窗后刷新记忆面板并隐藏归纳提示条
-  var empId = getCurrentEmpId();
-  var inductBanner = document.getElementById('memoryInductBanner');
-  if (inductBanner) inductBanner.style.display = 'none';
-  if (empId) renderMemoryTab(empId);
+  // 弹窗关闭时无需再 renderMemoryTab：triggerInductFromMemoryPanel / archiveInductedMemories 已刷新过面板
 }
 function archiveInductedMemories() {
   var empId = getCurrentEmpId();
@@ -12263,6 +12265,7 @@ function removeOpenClawSkill(slug) {
 function closeEmpDetail() {
   document.getElementById('empDetailOverlay').classList.remove('open');
   currentEmpId = null;
+  inductBannerSuppressed = false;
 }
 // ESC key to close modals
 document.addEventListener('keydown', function (e) {
