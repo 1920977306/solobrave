@@ -11124,6 +11124,10 @@ function openDrawer() {
 }
 // Employee Detail Panel
 var currentEmpId = null;
+function getCurrentEmpId() {
+  // 员工详情页优先使用 currentEmpId，聊天页回退到 sb_current_emp
+  return currentEmpId || localStorage.getItem('sb_current_emp');
+}
 function openEmpDetail(empId) {
   const emp = emps.find(function (e) {
     return e.id === empId;
@@ -11750,7 +11754,7 @@ function renderMergeHistory(empId) {
 
 // 从记忆面板点击触发归纳
 function triggerSummarizeFromMemoryPanel() {
-  var empId = localStorage.getItem('sb_current_emp');
+  var empId = getCurrentEmpId();
   if (!empId) {
     showToast('⚠️ 请先选择一个员工');
     return;
@@ -11818,7 +11822,7 @@ function triggerSummarizeFromMemoryPanel() {
 
 // ========== 二期：核心记忆候选与知识归纳 UI ==========
 function openCoreCandidateModal() {
-  var empId = localStorage.getItem('sb_current_emp');
+  var empId = getCurrentEmpId();
   if (!empId) return;
   var overlay = document.getElementById('coreCandidateModalOverlay');
   var body = document.getElementById('coreCandidateModalBody');
@@ -11852,7 +11856,7 @@ function closeCoreCandidateModal() {
   if (overlay) overlay.classList.remove('open');
 }
 function confirmCoreCandidate(candId) {
-  var empId = localStorage.getItem('sb_current_emp');
+  var empId = getCurrentEmpId();
   if (!empId) return;
   apiFetch('/api/memory/' + encodeURIComponent(empId) + '/core-candidates/' + encodeURIComponent(candId) + '/confirm', {
     method: 'POST'
@@ -11865,7 +11869,7 @@ function confirmCoreCandidate(candId) {
   });
 }
 function dismissCoreCandidate(candId) {
-  var empId = localStorage.getItem('sb_current_emp');
+  var empId = getCurrentEmpId();
   if (!empId) return;
   apiFetch('/api/memory/' + encodeURIComponent(empId) + '/core-candidates/' + encodeURIComponent(candId) + '/dismiss', {
     method: 'POST'
@@ -11880,7 +11884,7 @@ function dismissCoreCandidate(candId) {
 
 // ========== 三期：记忆冲突提示与处理 ==========
 function openMemoryConflictModal() {
-  var empId = localStorage.getItem('sb_current_emp');
+  var empId = getCurrentEmpId();
   if (!empId) return;
   var overlay = document.getElementById('memoryConflictModalOverlay');
   var body = document.getElementById('memoryConflictModalBody');
@@ -11942,7 +11946,7 @@ function resolveMemoryConflict(empId, memId) {
 }
 
 function triggerInductFromMemoryPanel() {
-  var empId = localStorage.getItem('sb_current_emp');
+  var empId = getCurrentEmpId();
   if (!empId) {
     showToast('⚠️ 请先选择一个员工');
     return;
@@ -11977,7 +11981,7 @@ function closeInductResultModal() {
   if (overlay) overlay.classList.remove('open');
 }
 function archiveInductedMemories() {
-  var empId = localStorage.getItem('sb_current_emp');
+  var empId = getCurrentEmpId();
   if (!empId) return;
   apiFetch('/api/memory/' + encodeURIComponent(empId) + '/archive-inducted', {
     method: 'POST'
@@ -12081,7 +12085,7 @@ function restoreMemory(empId, memoryId) {
   });
 }
 function cleanupExpiredMemories() {
-  var empId = localStorage.getItem('sb_current_emp');
+  var empId = getCurrentEmpId();
   if (!empId) return;
   // v2：调用归档 API，将过期日常记录标记为 archived=True（不删除，可恢复）
   apiFetch('/api/memory/' + encodeURIComponent(empId) + '/archive', {
@@ -12130,7 +12134,7 @@ function confirmAddMemory() {
     showToast('请输入记忆内容');
     return;
   }
-  var empId = currentEmpId;
+  var empId = getCurrentEmpId();
   if (!empId) return;
   apiFetch('/api/memory/' + encodeURIComponent(empId), {
     method: 'POST',
