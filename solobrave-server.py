@@ -457,15 +457,18 @@ AVAILABLE_MODULES = [
 
 
 def _default_permission_templates():
-    """默认角色权限模板"""
+    """默认角色权限模板
+
+    角色：超级管理员 / 管理员 / 普通用户
+    模块沿用现有 key：dashboard/messages/employees/groups/knowledge/products/influencers/matches/settings
+    """
+    superadmin_modules = {m: True for m in AVAILABLE_MODULES}
     admin_modules = {m: True for m in AVAILABLE_MODULES}
-    leader_modules = {m: True for m in AVAILABLE_MODULES}
-    # leader 默认不能进入设置里的用户/权限管理，但可见 settings 本身
-    employee_modules = {
+    user_modules = {
         'dashboard': True,
         'messages': True,
-        'employees': True,
-        'groups': True,
+        'employees': False,
+        'groups': False,
         'knowledge': True,
         'products': False,
         'influencers': False,
@@ -475,9 +478,9 @@ def _default_permission_templates():
     return {
         'version': '1.0',
         'roleTemplates': [
-            {'id': 'admin', 'name': '管理员', 'modules': admin_modules, 'knowledgeCategories': ['*']},
-            {'id': 'leader', 'name': '组长', 'modules': leader_modules, 'knowledgeCategories': ['*']},
-            {'id': 'employee', 'name': '员工', 'modules': employee_modules, 'knowledgeCategories': []},
+            {'id': 'admin', 'name': '超级管理员', 'modules': superadmin_modules, 'knowledgeCategories': ['*']},
+            {'id': 'leader', 'name': '管理员', 'modules': admin_modules, 'knowledgeCategories': ['*']},
+            {'id': 'employee', 'name': '普通用户', 'modules': user_modules, 'knowledgeCategories': []},
         ],
         'userOverrides': {}
     }
