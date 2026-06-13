@@ -178,11 +178,14 @@ def load_memory(emp_id):
         _write_json(filepath, result)
 
     # 更新 stats
+    stats = raw.get('stats', {}) if raw else {}
     result['stats'] = {
         'coreCount': len(result['core']),
         'dailyCount': len(result['daily']),
-        'totalAccess': sum(m.get('accessCount', 0) for m in result['core'])
+        'totalAccess': sum(m.get('accessCount', 0) for m in result['core']),
+        'lastKnowledgeInductionAt': stats.get('lastKnowledgeInductionAt', 0)
     }
+    result['lastKnowledgeInductionAt'] = result['stats']['lastKnowledgeInductionAt']
 
     # 归纳提醒：daily ≥ 15 条时建议触发归纳
     if len(result['daily']) >= 15:
@@ -200,10 +203,12 @@ def save_memory(emp_id, data):
     """保存活跃记忆"""
     filepath = _memory_file_path(emp_id)
     data['updatedAt'] = int(time.time() * 1000)
+    old_stats = data.get('stats', {})
     data['stats'] = {
         'coreCount': len(data.get('core', [])),
         'dailyCount': len(data.get('daily', [])),
-        'totalAccess': sum(m.get('accessCount', 0) for m in data.get('core', []))
+        'totalAccess': sum(m.get('accessCount', 0) for m in data.get('core', [])),
+        'lastKnowledgeInductionAt': old_stats.get('lastKnowledgeInductionAt', 0)
     }
     _write_json(filepath, data)
 
@@ -235,7 +240,8 @@ def _empty_memory(emp_id):
         'updatedAt': int(time.time() * 1000),
         'core': [],
         'daily': [],
-        'stats': {'coreCount': 0, 'dailyCount': 0, 'totalAccess': 0}
+        'stats': {'coreCount': 0, 'dailyCount': 0, 'totalAccess': 0, 'lastKnowledgeInductionAt': 0},
+        'lastKnowledgeInductionAt': 0
     }
 
 
@@ -591,6 +597,201 @@ def consolidate_memory(emp_id, source_ids, consolidated_value, key='core',
 
 
 # ═══════════════════════════════════════════════════
+# 核心记忆候选（二期新增）
+# ═══════════════════════════════════════════════════
+
+def _core_candidates_file_path(emp_id):
+    """核心记忆候选文件路径"""
+    return os.path.join(MEMORY_V3_DIR, emp_id, 'core_candidates.json')
+
+
+def load_core_candidates(emp_id):
+    """加载核心记忆候选列表"""
+    filepath = _core_candidates_file_path(emp_id)
+    raw = _read_json(filepath, None)
+    if raw is None:
+        return {'version': '3.0', 'empId': emp_id, 'candidates': []}
+    return {
+        'version': raw.get('version', '3.0'),
+        'empId': raw.get('empId', emp_id),
+        'candidates': raw.get('candidates', []) if isinstance(raw.get('candidates'), list) else []
+    }
+
+
+def save_core_candidates(emp_id, data):
+    """保存核心记忆候选列表"""
+    filepath = _core_candidates_file_path(emp_id)
+    _write_json(filepath, data)
+
+
+def _candidate_id():
+    return 'cand_' + uuid.uuid4().hex[:8]
+
+
+def add_core_candidates(emp_id, candidate_values):
+    """
+    批量添加核心记忆候选（去重：同 value 不再新增）
+    candidate_values: [{'value': str, 'reason': str, 'sourceIds': [str]}]
+    返回新增数量
+    """
+    data = load_core_candidates(emp_id)
+    existing_values = {c.get('value', '').strip(): True for c in data.get('candidates', []) if c.get('status') != 'dismissed'}
+    added = 0
+    now = int(time.time() * 1000)
+    for cand in candidate_values or []:
+        value = str(cand.get('value', '')).strip()
+        if not value:
+            continue
+        if value in existing_values:
+            continue
+        data['candidates'].append({
+            'id': cand.get('id') or _candidate_id(),
+            'value': value,
+            'reason': str(cand.get('reason', '')).strip(),
+            'sourceIds': list(cand.get('sourceIds', [])) if isinstance(cand.get('sourceIds'), (list, tuple)) else [],
+            'status': 'pending',
+            'createdAt': cand.get('createdAt') or now,
+        })
+        existing_values[value] = True
+        added += 1
+    if added > 0:
+        save_core_candidates(emp_id, data)
+    return added
+
+
+def get_pending_core_candidates(emp_id):
+    """返回待确认的核心记忆候选"""
+    data = load_core_candidates(emp_id)
+    return [c for c in data.get('candidates', []) if c.get('status') == 'pending']
+
+
+def get_core_candidate_by_id(emp_id, cand_id):
+    """按 ID 查找候选"""
+    data = load_core_candidates(emp_id)
+    for c in data.get('candidates', []):
+        if c.get('id') == cand_id:
+            return c, data
+    return None, data
+
+
+def update_core_candidate_status(emp_id, cand_id, status):
+    """更新候选状态：pending / confirmed / dismissed"""
+    cand, data = get_core_candidate_by_id(emp_id, cand_id)
+    if not cand:
+        return None
+    cand['status'] = status
+    cand['updatedAt'] = int(time.time() * 1000)
+    save_core_candidates(emp_id, data)
+    return cand
+
+
+def archive_source_memories_as_promoted(emp_id, source_ids):
+    """确认候选后，将源 daily 记忆归档（archiveReason='promoted'）"""
+    if not source_ids:
+        return []
+    data = load_memory(emp_id)
+    archive_data = load_archive(emp_id)
+    archived_ids = []
+    now = int(time.time() * 1000)
+    for pool in ('core', 'daily'):
+        kept = []
+        for m in data.get(pool, []):
+            if m.get('id') in source_ids:
+                archived_ids.append(m['id'])
+                archive_entry = {
+                    'id': m['id'],
+                    'originalKey': m.get('key', 'auto'),
+                    'value': m.get('value', ''),
+                    'source': m.get('source', ''),
+                    'createdAt': m.get('createdAt', now),
+                    'archivedAt': now,
+                    'archiveReason': 'promoted',
+                }
+                archive_data.setdefault('archived', []).append(archive_entry)
+            else:
+                kept.append(m)
+        data[pool] = kept
+    if archived_ids:
+        save_memory(emp_id, data)
+        save_archive(emp_id, archive_data)
+    return archived_ids
+
+
+# ═══════════════════════════════════════════════════
+# 知识归纳标记（二期新增）
+# ═══════════════════════════════════════════════════
+
+def mark_memories_inducted(emp_id, mem_ids):
+    """批量标记活跃记忆为已归纳"""
+    if not mem_ids:
+        return 0
+    data = load_memory(emp_id)
+    now = int(time.time() * 1000)
+    marked = 0
+    for pool in ('core', 'daily'):
+        for m in data.get(pool, []):
+            if m.get('id') in mem_ids and not m.get('inductedAt'):
+                m['inductedAt'] = now
+                marked += 1
+    if marked > 0:
+        save_memory(emp_id, data)
+    return marked
+
+
+def get_uninducted_active_memories(emp_id):
+    """获取未归纳的活跃记忆列表"""
+    data = load_memory(emp_id)
+    result = []
+    for pool in ('core', 'daily'):
+        for m in data.get(pool, []):
+            if not m.get('inductedAt'):
+                result.append((m, pool))
+    return result
+
+
+def get_last_knowledge_induction_at(emp_id):
+    """获取上次知识归纳时间戳"""
+    data = load_memory(emp_id)
+    return data.get('stats', {}).get('lastKnowledgeInductionAt', 0)
+
+
+def set_last_knowledge_induction_at(emp_id, timestamp=None):
+    """更新上次知识归纳时间戳"""
+    data = load_memory(emp_id)
+    data.setdefault('stats', {})['lastKnowledgeInductionAt'] = timestamp or int(time.time() * 1000)
+    save_memory(emp_id, data)
+
+
+def archive_inducted_memories(emp_id):
+    """归档所有已归纳的活跃记忆，返回归档的 ID 列表"""
+    data = load_memory(emp_id)
+    archive_data = load_archive(emp_id)
+    now = int(time.time() * 1000)
+    archived_ids = []
+    for pool in ('core', 'daily'):
+        kept = []
+        for m in data.get(pool, []):
+            if m.get('inductedAt'):
+                archived_ids.append(m['id'])
+                archive_data.setdefault('archived', []).append({
+                    'id': m['id'],
+                    'originalKey': m.get('key', 'auto'),
+                    'value': m.get('value', ''),
+                    'source': m.get('source', ''),
+                    'createdAt': m.get('createdAt', now),
+                    'archivedAt': now,
+                    'archiveReason': 'inducted',
+                })
+            else:
+                kept.append(m)
+        data[pool] = kept
+    if archived_ids:
+        save_memory(emp_id, data)
+        save_archive(emp_id, archive_data)
+    return archived_ids
+
+
+# ═══════════════════════════════════════════════════
 # 归纳日志
 # ═══════════════════════════════════════════════════
 
@@ -880,13 +1081,14 @@ def inject_group_memories(group_id, system_prompt=''):
 # 注入策略
 # ═══════════════════════════════════════════════════
 
-def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, provider='openai', agent_config=None):
+def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, provider='openai', agent_config=None, allowed_knowledge_categories=None):
     """
     为 AI 对话注入记忆，返回更新后的 system_prompt
     注入优先级：core（按priority+accessCount排序）→ daily（按时间倒序）→ archive（补充）→ knowledge（语义检索）
     
     user_message: 当前用户消息，用于知识库语义检索
     api_key/provider/agent_config: 知识库向量化 API 配置
+    allowed_knowledge_categories: 知识库分类权限过滤（None 表示不限制）
     """
     cfg = MEMORY_V3_CONFIG
     data = load_memory(emp_id)
@@ -952,7 +1154,8 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
         if kb_count > 0 and api_key and user_message:
             kb_docs = ks.knowledge_search_semantic(
                 user_message, '', api_key, provider, agent_config,
-                limit=cfg['inject_knowledge_max']
+                limit=cfg['inject_knowledge_max'],
+                allowed_categories=allowed_knowledge_categories
             )
             for d in kb_docs:
                 # 注入内容取最相关的 chunk（如果有）

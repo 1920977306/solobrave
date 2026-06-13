@@ -3255,22 +3255,22 @@ window.doLogin = function () {
     <div class="nav-item" id="navSearch" onclick="openGlobalSearch()" title="搜索 (Ctrl+K)">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
     </div>
-    <div class="nav-item active" id="navMessages" onclick="switchModule('messages')" title="消息">
+    <div class="nav-item active" id="navMessages" data-module="messages" onclick="switchModule('messages')" title="消息">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     </div>
     <div class="nav-item" id="navOffice" onclick="openLobsterOffice()" title="龙虾办公室">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/></svg>
     </div>
-    <div class="nav-item" id="navKnowledge" onclick="switchModule('knowledge')" title="知识库">
+    <div class="nav-item" id="navKnowledge" data-module="knowledge" onclick="switchModule('knowledge')" title="知识库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>
     </div>
-    <div class="nav-item" id="navProducts" onclick="switchModule('products')" title="商品库">
+    <div class="nav-item" id="navProducts" data-module="products" onclick="switchModule('products')" title="商品库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
     </div>
-    <div class="nav-item" id="navInfluencers" onclick="switchModule('influencers')" title="达人库">
+    <div class="nav-item" id="navInfluencers" data-module="influencers" onclick="switchModule('influencers')" title="达人库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
     </div>
-    <div class="nav-item" id="navSettings" onclick="switchModule('settings')" title="设置">
+    <div class="nav-item" id="navSettings" data-module="settings" onclick="switchModule('settings')" title="设置">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
     </div>
   </div>
@@ -3607,7 +3607,7 @@ window.doLogin = function () {
 <div class="slash-icon">📋</div>
 <div class="slash-name"><code>/看板</code> 打开任务看板</div>
 </div>
-<div class="slash-item" data-cmd="/新建组" onclick="execCmd('/新建组')">
+<div class="slash-item" data-cmd="/新建组" data-module="groups" onclick="execCmd('/新建组')">
 <div class="slash-icon">➕</div>
 <div class="slash-name"><code>/新建组</code> 创建项目组</div>
 </div>
@@ -3692,6 +3692,39 @@ window.doLogin = function () {
     <div class="product-modal-footer">
       <button class="product-modal-btn cancel" onclick="closeKnowledgeDocForm()">取消</button>
       <button class="product-modal-btn save" onclick="saveKnowledgeDoc()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 核心记忆候选确认弹窗 -->
+<div class="product-modal-overlay" id="coreCandidateModalOverlay" onclick="closeCoreCandidateModal()">
+  <div class="product-modal-panel" style="max-width:560px;max-height:80vh;" onclick="event.stopPropagation()">
+    <div class="product-modal-header">
+      <div class="product-modal-title">核心记忆候选</div>
+      <button class="product-modal-close" onclick="closeCoreCandidateModal()">✕</button>
+    </div>
+    <div class="product-modal-body" id="coreCandidateModalBody" style="overflow-y:auto;">
+      <div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div>
+    </div>
+    <div class="product-modal-footer">
+      <button class="product-modal-btn cancel" onclick="closeCoreCandidateModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 知识归纳结果弹窗 -->
+<div class="product-modal-overlay" id="inductResultModalOverlay" onclick="closeInductResultModal()">
+  <div class="product-modal-panel" style="max-width:560px;max-height:80vh;" onclick="event.stopPropagation()">
+    <div class="product-modal-header">
+      <div class="product-modal-title">知识归纳结果</div>
+      <button class="product-modal-close" onclick="closeInductResultModal()">✕</button>
+    </div>
+    <div class="product-modal-body" id="inductResultModalBody" style="overflow-y:auto;">
+      <div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div>
+    </div>
+    <div class="product-modal-footer">
+      <button class="product-modal-btn cancel" onclick="closeInductResultModal()">关闭</button>
+      <button class="product-modal-btn save" id="inductArchiveBtn" onclick="archiveInductedMemories()">归档已归纳记忆</button>
     </div>
   </div>
 </div>
@@ -3873,6 +3906,18 @@ window.doLogin = function () {
 <span style="font-size:16px;">📝</span>
 <span style="flex:1;"><strong>建议归纳</strong>：对话记录已超过15条，点击生成摘要以节省上下文</span>
 <span style="font-size:12px;background:#E65100;color:#fff;padding:2px 8px;border-radius:6px;white-space:nowrap;">立即归纳</span>
+</div>
+<!-- 核心记忆候选提示条 -->
+<div id="memoryCandidateBanner" style="display:none;margin:8px 12px 0;padding:8px 12px;background:linear-gradient(135deg,#E3F2FD 0%,#BBDEFB 100%);border:1px solid #64B5F6;border-radius:10px;cursor:pointer;transition:all 0.2s;align-items:center;gap:8px;font-size:13px;color:#1565C0;" onclick="openCoreCandidateModal()">
+<span style="font-size:16px;">💡</span>
+<span id="memoryCandidateBannerText" style="flex:1;"><strong>核心记忆候选</strong>：发现 0 条待确认</span>
+<span style="font-size:12px;background:#1565C0;color:#fff;padding:2px 8px;border-radius:6px;white-space:nowrap;">去确认</span>
+</div>
+<!-- 知识库自动归纳提示条 -->
+<div id="memoryInductBanner" style="display:none;margin:8px 12px 0;padding:8px 12px;background:linear-gradient(135deg,#E8F5E9 0%,#C8E6C9 100%);border:1px solid #81C784;border-radius:10px;cursor:pointer;transition:all 0.2s;align-items:center;gap:8px;font-size:13px;color:#2E7D32;" onclick="triggerInductFromMemoryPanel()">
+<span style="font-size:16px;">📚</span>
+<span id="memoryInductBannerText" style="flex:1;"><strong>知识库归纳</strong>：记忆数量充足，可自动生成知识文档</span>
+<span style="font-size:12px;background:#2E7D32;color:#fff;padding:2px 8px;border-radius:6px;white-space:nowrap;">一键归纳</span>
 </div>
 <div class="memory-tabs">
 <button class="memory-tab active" data-mtab="core" onclick="switchMemoryTab('core')">核心记忆</button>
@@ -4191,7 +4236,7 @@ window.doLogin = function () {
 </div>
 
 <div style="margin-top:20px;">
-<button class="btn-primary" onclick="openWizard()" style="width:100%;padding:10px;border-radius:8px;background:var(--accent);color:white;border:none;font-weight:500;">
+<button class="btn-primary" data-module="employees" onclick="openWizard()" style="width:100%;padding:10px;border-radius:8px;background:var(--accent);color:white;border:none;font-weight:500;">
 ➕ 添加员工
 </button>
 </div>
@@ -4260,7 +4305,10 @@ async function checkAuth() {
       const resp = await apiFetch('/api/auth/me');
       if (resp && resp.ok) {
         const data = await resp.json();
-        currentUser = data.user || JSON.parse(savedUser);
+        currentUser = data.user || data || JSON.parse(savedUser);
+        if (currentUser && currentUser.permissions) {
+          localStorage.setItem('sb_current_user', JSON.stringify(currentUser));
+        }
         authToken = savedToken;
         showMainApp();
         return;
@@ -4412,7 +4460,9 @@ async function _fullLogin() {
         avatar: data.user.avatar || 0,
         createdAt: data.user.createdAt,
         teamIds: data.user.teamIds || [],
-        managedTeamIds: data.user.managedTeamIds || []
+        managedTeamIds: data.user.managedTeamIds || [],
+        roleTemplateId: data.user.roleTemplateId || null,
+        permissions: data.user.permissions || null
       };
       // Leader角色加载可见小组
       if (isLeader() && typeof loadVisibleTeams === 'function') {
@@ -4441,7 +4491,15 @@ async function _fullLogin() {
       displayName: isAdminUser ? '管理员' : username,
       role: detectedRole,
       avatar: isAdminUser ? 0 : 1,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      roleTemplateId: detectedRole,
+      permissions: {
+        modules: {
+          dashboard: true, messages: true, employees: true, groups: true,
+          knowledge: true, products: true, influencers: true, matches: true, settings: isAdminUser
+        },
+        knowledgeCategories: ['*']
+      }
     };
     authToken = 'local_mode';
     localStorage.setItem('sb_current_user', JSON.stringify(currentUser));
@@ -4490,6 +4548,29 @@ function requireRole(requiredRole) {
   return true;
 }
 
+function hasModulePermission(module) {
+  if (!currentUser) return false;
+  if (isAdmin()) return true;
+  var perms = currentUser.permissions;
+  if (!perms || !perms.modules) return true; // 未配置权限时默认放行（兼容旧数据）
+  return !!perms.modules[module];
+}
+
+function getAllowedKnowledgeCategories() {
+  if (!currentUser) return [];
+  var perms = currentUser.permissions;
+  if (!perms || !Array.isArray(perms.knowledgeCategories)) return ['*'];
+  return perms.knowledgeCategories;
+}
+
+function hasKnowledgeCategoryPermission(category) {
+  if (!currentUser) return false;
+  if (isAdmin()) return true;
+  var cats = getAllowedKnowledgeCategories();
+  if (cats.indexOf('*') > -1) return true;
+  return cats.indexOf(category || '') > -1;
+}
+
 // 应用权限控制
 function applyPermissions() {
   // 处理 data-admin-only 属性
@@ -4507,14 +4588,22 @@ function applyPermissions() {
     el.style.display = isAdmin() || isLeader() ? '' : 'none';
   });
 
-  // 员工视图：隐藏部分管理功能
+  // 二期：按模块权限显示/隐藏入口
+  document.querySelectorAll('[data-module]').forEach(function (el) {
+    var mod = el.getAttribute('data-module');
+    if (mod && !hasModulePermission(mod)) {
+      el.style.display = 'none';
+    }
+  });
+
+  // 员工视图：隐藏部分管理功能（保留旧逻辑兼容）
   if (isEmployee()) {
     // 员工也可以新增员工（创建自己的AI助手）
     // 不隐藏新增员工按钮
 
     // 隐藏系统设置入口（仅管理员可配置）
     var settingsBtn = document.querySelector('button[onclick="showSettings()"]');
-    if (settingsBtn) settingsBtn.style.display = 'none';
+    if (settingsBtn && !hasModulePermission('settings')) settingsBtn.style.display = 'none';
   }
 }
 
@@ -6495,10 +6584,13 @@ function renderEmployeeList() {
   });
   var html = '';
   var state = getSidebarState();
+  var canSeeEmployees = hasModulePermission('employees');
+  var canSeeGroups = hasModulePermission('groups');
 
   // ===== 一级分类：职能 =====
-  html += renderCategoryHeader('职能', state['职能']);
-  if (state['职能']) {
+  if (canSeeEmployees) {
+    html += renderCategoryHeader('职能', state['职能']);
+    if (state['职能']) {
     if (visible.length === 0) {
       // 没有员工时显示空状态提示
       html += '<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方「新增员工」按钮，创建属于你的AI员工</div><div style="font-size:11px;margin-top:6px;color:var(--text-tertiary)">双击员工可查看详情 · 右键更多操作</div></div>';
@@ -6540,17 +6632,19 @@ function renderEmployeeList() {
         }).join('');
       });
     }
+    html += '<div class="sidebar-divider"></div>';
   }
-
-  // 分隔线：员工列表和项目组之间
-  html += '<div class="sidebar-divider"></div>';
+}
 
   // ===== 一级分类：项目组 =====
-  html += renderCategoryHeader('项目组', state['项目组']);
-  if (state['项目组']) {
-    html += renderGroupItems();
-    // 添加 "+" 按钮
-    html += '<div style="padding:4px 24px;display:flex;justify-content:center;"><div class="group-add-btn" onclick="openGroupWizard()" title="创建项目组">+</div></div>';
+  if (canSeeGroups) {
+    html += renderCategoryHeader('项目组', state['项目组']);
+    if (state['项目组']) {
+      html += renderGroupItems();
+      // 添加 "+" 按钮
+      html += '<div style="padding:4px 24px;display:flex;justify-content:center;" data-module="groups"><div class="group-add-btn" onclick="openGroupWizard()" title="创建项目组">+</div></div>';
+    }
+    html += '<div class="sidebar-divider"></div>';
   }
 
   // 归档区域（合并1v1对话和项目组归档）
@@ -9210,6 +9304,10 @@ function displayGroupAIReply(groupId, senderId, replyText) {
 // ========== 创建群组向导 ==========
 var GROUP_EMOJIS = ['🚀', '🎨', '💡', '🔧', '📊', '🎯', '⚡', '🔥', '🌈', '🎮', '🤖', '📱', '🌐', '🏗️', '📦', '🔔'];
 function openGroupWizard() {
+  if (!hasModulePermission('groups')) {
+    showToast('⛔ 你没有项目组管理权限', 'warning');
+    return;
+  }
   gwStep = 1;
   gwEmoji = '🚀';
   gwMembers = [];
@@ -11175,13 +11273,19 @@ function renderMemoryTab(empId) {
 
   // 从后端API加载记忆（v2 分池格式）
   if (typeof apiFetch === 'function') {
+    var candidatePromise = typeof apiFetch === 'function' ?
+      apiFetch('/api/memory/' + encodeURIComponent(empId) + '/core-candidates').then(function (r) { return r.json(); }).catch(function () { return {candidates: []}; }) :
+      Promise.resolve({candidates: []});
     Promise.all([
       apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) { return r.json(); }),
-      kbPromise
+      kbPromise,
+      candidatePromise
     ]).then(function (results) {
       var data = results[0];
       var kbResult = results[1] || {docs: []};
       var kbDocs = kbResult.docs || [];
+      var candidateResult = results[2] || {candidates: []};
+      var pendingCandidates = (candidateResult.candidates || []).filter(function (c) { return c.status === 'pending'; });
 
       // v2 分池格式：{core: [...], daily: [...], archive: [...]}
       var coreList = data.core || [];
@@ -11405,6 +11509,21 @@ function renderMemoryTab(empId) {
         banner.style.display = data.shouldConsolidate ? 'flex' : 'none';
         banner.dataset.sourceIds = JSON.stringify(data.suggestedSourceIds || []);
       }
+
+      // 二期：核心记忆候选提示条
+      var candBanner = document.getElementById('memoryCandidateBanner');
+      var candText = document.getElementById('memoryCandidateBannerText');
+      if (candBanner) {
+        candBanner.style.display = pendingCandidates.length > 0 ? 'flex' : 'none';
+        if (candText) candText.textContent = '发现 ' + pendingCandidates.length + ' 条核心记忆候选，待你确认';
+      }
+
+      // 二期：知识库自动归纳提示条（记忆总数 >=15 且存在未归纳记忆）
+      var inductBanner = document.getElementById('memoryInductBanner');
+      var hasUninducted = coreList.concat(dailyList).some(function (m) { return !m.inductedAt; });
+      if (inductBanner) {
+        inductBanner.style.display = (coreCount + dailyCount >= 15 && hasUninducted) ? 'flex' : 'none';
+      }
     }).catch(function (e) {
       contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载失败，请重试</div>';
       console.warn('[Memory] 加载失败:', e);
@@ -11480,6 +11599,117 @@ function triggerSummarizeFromMemoryPanel() {
   }).catch(function (e) {
     showToast('❌ 归纳失败：' + (e.message || '请重试'));
     console.warn('[Memory] 归纳失败:', e);
+  });
+}
+
+// ========== 二期：核心记忆候选与知识归纳 UI ==========
+function openCoreCandidateModal() {
+  var empId = localStorage.getItem('sb_current_emp');
+  if (!empId) return;
+  var overlay = document.getElementById('coreCandidateModalOverlay');
+  var body = document.getElementById('coreCandidateModalBody');
+  if (overlay) overlay.classList.add('open');
+  if (body) body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/core-candidates').then(function (r) { return r.json(); }).then(function (data) {
+    var candidates = (data.candidates || []).filter(function (c) { return c.status === 'pending'; });
+    if (candidates.length === 0) {
+      if (body) body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无待确认候选</div>';
+      return;
+    }
+    var html = '';
+    candidates.forEach(function (c) {
+      html += '<div style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:10px;">';
+      html += '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">' + escapeHtml(c.value) + '</div>';
+      if (c.reason) {
+        html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">💡 ' + escapeHtml(c.reason) + '</div>';
+      }
+      html += '<div style="display:flex;gap:8px;justify-content:flex-end;">';
+      html += '<button class="memory-add-btn" style="background:var(--bg-tertiary);color:var(--text-secondary);" onclick="dismissCoreCandidate(\'' + escapeAttr(c.id) + '\')">忽略</button>';
+      html += '<button class="memory-add-btn" onclick="confirmCoreCandidate(\'' + escapeAttr(c.id) + '\')">确认为核心记忆</button>';
+      html += '</div></div>';
+    });
+    if (body) body.innerHTML = html;
+  }).catch(function (e) {
+    if (body) body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
+  });
+}
+function closeCoreCandidateModal() {
+  var overlay = document.getElementById('coreCandidateModalOverlay');
+  if (overlay) overlay.classList.remove('open');
+}
+function confirmCoreCandidate(candId) {
+  var empId = localStorage.getItem('sb_current_emp');
+  if (!empId) return;
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/core-candidates/' + encodeURIComponent(candId) + '/confirm', {
+    method: 'POST'
+  }).then(function (r) { return r.json(); }).then(function () {
+    showToast('✅ 已升级为核心记忆');
+    renderMemoryTab(empId);
+    openCoreCandidateModal();
+  }).catch(function (e) {
+    showToast('❌ 确认失败');
+  });
+}
+function dismissCoreCandidate(candId) {
+  var empId = localStorage.getItem('sb_current_emp');
+  if (!empId) return;
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/core-candidates/' + encodeURIComponent(candId) + '/dismiss', {
+    method: 'POST'
+  }).then(function (r) { return r.json(); }).then(function () {
+    showToast('✅ 已忽略该候选');
+    renderMemoryTab(empId);
+    openCoreCandidateModal();
+  }).catch(function (e) {
+    showToast('❌ 忽略失败');
+  });
+}
+
+function triggerInductFromMemoryPanel() {
+  var empId = localStorage.getItem('sb_current_emp');
+  if (!empId) {
+    showToast('⚠️ 请先选择一个员工');
+    return;
+  }
+  showToast('📚 正在归纳到知识库，请稍候...');
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/induct-to-knowledge', {
+    method: 'POST'
+  }).then(function (r) { return r.json(); }).then(function (data) {
+    showToast('✅ 已生成 ' + (data.createdDocs || 0) + ' 篇知识文档');
+    renderMemoryTab(empId);
+    openInductResultModal(data);
+  }).catch(function (e) {
+    showToast('❌ 归纳失败');
+  });
+}
+function openInductResultModal(data) {
+  var overlay = document.getElementById('inductResultModalOverlay');
+  var body = document.getElementById('inductResultModalBody');
+  var archiveBtn = document.getElementById('inductArchiveBtn');
+  if (overlay) overlay.classList.add('open');
+  if (!body) return;
+  if (!data || !data.createdDocs) {
+    body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">本次未生成知识文档</div>';
+    if (archiveBtn) archiveBtn.style.display = 'none';
+    return;
+  }
+  body.innerHTML = '<div style="padding:4px 0 12px;font-size:13px;color:var(--text-secondary);">已生成 ' + data.createdDocs + ' 篇知识文档并写入全局知识库</div>';
+  if (archiveBtn) archiveBtn.style.display = '';
+}
+function closeInductResultModal() {
+  var overlay = document.getElementById('inductResultModalOverlay');
+  if (overlay) overlay.classList.remove('open');
+}
+function archiveInductedMemories() {
+  var empId = localStorage.getItem('sb_current_emp');
+  if (!empId) return;
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/archive-inducted', {
+    method: 'POST'
+  }).then(function (r) { return r.json(); }).then(function (data) {
+    showToast('✅ 已归档 ' + (data.archivedIds || []).length + ' 条已归纳记忆');
+    closeInductResultModal();
+    renderMemoryTab(empId);
+  }).catch(function (e) {
+    showToast('❌ 归档失败');
   });
 }
 
@@ -14339,6 +14569,10 @@ function toggleWizSkill(slug) {
   renderWizSkillGrid();
 }
 function openWizard() {
+  if (!hasModulePermission('employees')) {
+    showToast('⛔ 你没有员工管理权限', 'warning');
+    return;
+  }
   wizStep = 1;
   soulAnswers = {};
   currentSoulQ = 0;
@@ -16703,26 +16937,37 @@ async function loadKnowledgePage(page) {
 function renderKnowledgeCategories(catMap, total) {
   var list = document.getElementById('knowledgeMidCategory');
   if (!list) return;
+  // 按权限过滤分类
+  var allowedCats = getAllowedKnowledgeCategories();
+  var canAll = allowedCats.indexOf('*') > -1;
+  var visibleCats = _knowledgeData.categories.filter(function(cat) {
+    return canAll || allowedCats.indexOf(cat) > -1;
+  });
+
   var html = '';
   html += '<div class="knowledge-cat-item' + (!_knowledgeCurrentCat ? ' active' : '') + '" onclick="selectKnowledgeCategory(\'\')">';
   html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
   html += '<span class="knowledge-cat-name">全部分类</span><span class="knowledge-cat-count">' + (total || _knowledgeData.total) + '</span></div>';
-  _knowledgeData.categories.forEach(function(cat) {
+  visibleCats.forEach(function(cat) {
     html += '<div class="knowledge-cat-item' + (_knowledgeCurrentCat === cat ? ' active' : '') + '" onclick="selectKnowledgeCategory(\'' + escapeAttr(cat).replace(/'/g, "\\'") + '\')">';
     html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
     html += '<span class="knowledge-cat-name">' + escapeHtml(cat) + '</span><span class="knowledge-cat-count">' + (catMap[cat] || 0) + '</span></div>';
   });
   list.innerHTML = html;
-  // Update editor category select
+  // Update editor category select（只显示有权限分类）
   var editorCat = document.getElementById('knowledgeEditCategory');
   if (editorCat) {
     var opts = '<option value="">选择分类</option>';
-    _knowledgeData.categories.forEach(function(cat) {
+    visibleCats.forEach(function(cat) {
       opts += '<option value="' + escapeAttr(cat) + '">' + escapeHtml(cat) + '</option>';
     });
     var currentVal = editorCat.value;
     editorCat.innerHTML = opts;
-    editorCat.value = currentVal || '';
+    if (currentVal && (canAll || allowedCats.indexOf(currentVal) > -1)) {
+      editorCat.value = currentVal;
+    } else {
+      editorCat.value = '';
+    }
   }
   // Update middle list header title
   var titleEl = document.getElementById('knowledgeMidTitle');
@@ -17977,6 +18222,11 @@ function getChannelConfig() {
 var currentModule = 'messages';
 
 function switchModule(module) {
+  if (!hasModulePermission(module)) {
+    showToast('⛔ 你没有该模块的访问权限', 'warning');
+    if (module !== 'messages') switchModule('messages');
+    return;
+  }
   currentModule = module;
 
   // Update left nav active state
@@ -18154,143 +18404,294 @@ function renderComputeStats(stats) {
 }
 
 // ========== 权限管理 ==========
-var _permissionRolesDefaults = [
-  { id: 'admin', name: '管理员', permissions: { dashboard: { view: true, operate: true, manage: true }, knowledge: { view: true, operate: true, manage: true }, products: { view: true, operate: true, manage: true }, chat: { view: true, operate: true, manage: true }, users: { view: true, operate: true, manage: true }, teams: { view: true, operate: true, manage: true }, forbidden: { view: true, operate: true, manage: true }, settings: { view: true, operate: true, manage: true } } },
-  { id: 'leader', name: '组长', permissions: { dashboard: { view: true, operate: true, manage: false }, knowledge: { view: true, operate: true, manage: false }, products: { view: true, operate: false, manage: false }, chat: { view: true, operate: true, manage: false }, users: { view: true, operate: false, manage: false }, teams: { view: true, operate: false, manage: false }, forbidden: { view: true, operate: false, manage: false }, settings: { view: true, operate: false, manage: false } } },
-  { id: 'employee', name: '员工', permissions: { dashboard: { view: true, operate: false, manage: false }, knowledge: { view: true, operate: false, manage: false }, products: { view: true, operate: false, manage: false }, chat: { view: true, operate: true, manage: false }, users: { view: false, operate: false, manage: false }, teams: { view: false, operate: false, manage: false }, forbidden: { view: false, operate: false, manage: false }, settings: { view: false, operate: false, manage: false } } }
-];
-var _permissionRoles = JSON.parse(JSON.stringify(_permissionRolesDefaults));
+var _permissionConfig = null;
+var _permissionUsers = [];
+var _permissionCategories = [];
+var _availableModules = ['dashboard', 'messages', 'employees', 'groups', 'knowledge', 'products', 'influencers', 'matches', 'settings'];
+var _permissionModuleLabels = {
+  dashboard: '工作台', messages: '消息', employees: '员工', groups: '群组',
+  knowledge: '知识库', products: '商品库', influencers: '达人库', matches: '匹配', settings: '设置'
+};
 var _selectedPermissionRole = 'admin';
-var _permissionUsers = [
-  { id: 'u1', name: 'Alice', role: 'admin' },
-  { id: 'u2', name: 'Bob', role: 'leader' },
-  { id: 'u3', name: 'Carol', role: 'employee' }
-];
 var _selectedPermissionUser = '';
-var _userPermissionOverrides = {};
-function loadPermissionSettings() {
+var _permissionUserState = null;
+
+function _getPermissionRole(roleId) {
+  return (_permissionConfig && (_permissionConfig.roleTemplates || []).find(function (r) { return r.id === roleId; })) || null;
+}
+function _getPermissionUser(userId) {
+  return (_permissionUsers || []).find(function (u) { return u.id === userId; }) || null;
+}
+function _getUserBaseTemplate(user) {
+  if (!user) return null;
+  return _getPermissionRole(user.roleTemplateId) || _getPermissionRole(user.role) || null;
+}
+function _getDefaultRoleModules(roleId) {
+  var allTrue = {};
+  _availableModules.forEach(function (m) { allTrue[m] = true; });
+  if (roleId === 'admin' || roleId === 'leader') return allTrue;
+  var emp = {};
+  _availableModules.forEach(function (m) { emp[m] = false; });
+  emp.dashboard = true; emp.messages = true; emp.employees = true; emp.groups = true; emp.knowledge = true;
+  return emp;
+}
+
+async function loadPermissionSettings() {
   var area = document.getElementById('permissionSettingsArea');
   if (!area) return;
-  if (!isAdmin()) {
-    area.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">权限管理功能仅对管理员开放</div>';
+  if (!isAdmin() || localStorage.getItem('sb_auth_token') === 'local_mode') {
+    area.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">权限管理仅对登录的管理员开放</div>';
     return;
   }
-  var saved = localStorage.getItem('sb_permission_roles');
-  if (saved) {
-    try { _permissionRoles = JSON.parse(saved); } catch (e) {}
+  area.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
+  try {
+    var [permsResp, usersResp, knowResp, modResp] = await Promise.all([
+      apiFetch('/api/permissions'),
+      apiFetch('/api/users'),
+      apiFetch('/api/knowledge?limit=1000&offset=0'),
+      apiFetch('/api/permissions/modules')
+    ]);
+    var perms = await permsResp.json();
+    var users = await usersResp.json();
+    var know = await knowResp.json();
+    var modData = await modResp.json();
+    _permissionConfig = perms;
+    _permissionUsers = Array.isArray(users) ? users : (users.users || []);
+    if (modData && Array.isArray(modData.modules)) _availableModules = modData.modules;
+    var cats = [];
+    (know.docs || []).forEach(function (d) {
+      if (d.category && cats.indexOf(d.category) < 0) cats.push(d.category);
+    });
+    cats.sort();
+    _permissionCategories = cats;
+    if (!_getPermissionRole(_selectedPermissionRole)) {
+      _selectedPermissionRole = (_permissionConfig.roleTemplates && _permissionConfig.roleTemplates[0] && _permissionConfig.roleTemplates[0].id) || 'admin';
+    }
+    _selectedPermissionUser = '';
+    _permissionUserState = null;
+    area.innerHTML = renderPermissionSettings();
+  } catch (e) {
+    console.error('loadPermissionSettings error', e);
+    area.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载失败：' + escapeHtml(e.message) + '</div>';
   }
-  var savedUsers = localStorage.getItem('sb_user_permission_overrides');
-  if (savedUsers) {
-    try { _userPermissionOverrides = JSON.parse(savedUsers); } catch (e) {}
-  }
-  area.innerHTML = renderPermissionSettings();
-  renderUserPermissionMatrix();
 }
+
 function renderPermissionSettings() {
-  var html = '<div class="settings-section-title">角色权限</div>';
+  var role = _getPermissionRole(_selectedPermissionRole);
+  if (!role) return '<div style="padding:20px;text-align:center;">无角色模板</div>';
+  var html = '<div class="settings-section-title">角色模板</div>';
   html += '<div class="settings-permission-rolebar">';
-  _permissionRoles.forEach(function (r) {
+  (_permissionConfig.roleTemplates || []).forEach(function (r) {
     html += '<div class="settings-permission-rolechip ' + (_selectedPermissionRole === r.id ? 'active' : '') + '" onclick="selectPermissionRole(\'' + r.id + '\')">' + escapeHtml(r.name) + '</div>';
   });
   html += '</div>';
-  var role = _permissionRoles.find(function (r) { return r.id === _selectedPermissionRole; });
-  var modules = [
-    { key: 'dashboard', name: '工作台' }, { key: 'knowledge', name: '知识库' },
-    { key: 'products', name: '商品库' }, { key: 'chat', name: '聊天' },
-    { key: 'users', name: '用户管理' }, { key: 'teams', name: '团队管理' },
-    { key: 'forbidden', name: '违禁词' }, { key: 'settings', name: '系统设置' }
-  ];
+
+  html += '<div class="settings-section-title">模块权限</div>';
   html += '<div class="settings-permission-matrix">';
-  html += '<div class="settings-permission-row header"><div>模块</div><div>查看</div><div>操作</div><div>管理</div></div>';
-  modules.forEach(function (m) {
-    var p = role.permissions[m.key] || {};
+  html += '<div class="settings-permission-row header"><div>模块</div><div>允许访问</div></div>';
+  _availableModules.forEach(function (m) {
+    var label = _permissionModuleLabels[m] || m;
+    var active = role.modules[m] ? ' active' : '';
     html += '<div class="settings-permission-row">';
-    html += '<div>' + escapeHtml(m.name) + '</div>';
-    html += '<label><input type="checkbox" ' + (p.view ? 'checked' : '') + ' onchange="togglePermission(\'' + m.key + '\', \'view\', this.checked)"></label>';
-    html += '<label><input type="checkbox" ' + (p.operate ? 'checked' : '') + ' onchange="togglePermission(\'' + m.key + '\', \'operate\', this.checked)"></label>';
-    html += '<label><input type="checkbox" ' + (p.manage ? 'checked' : '') + ' onchange="togglePermission(\'' + m.key + '\', \'manage\', this.checked)"></label>';
+    html += '<div>' + escapeHtml(label) + '</div>';
+    html += '<div><div class="toggle' + active + '" onclick="togglePermissionModule(\'' + m + '\', this)"></div></div>';
     html += '</div>';
   });
   html += '</div>';
-  html += '<div style="margin-top:12px;display:flex;gap:8px;margin-bottom:20px;"><button class="module-action-btn primary" onclick="savePermissionSettings()">保存角色权限</button><button class="module-action-btn" onclick="resetPermissionSettings()">恢复默认</button></div>';
 
-  html += '<div class="settings-section-title">单独用户权限</div>';
-  html += '<div class="module-form-row"><label class="form-label">选择用户</label><select class="form-select" id="permissionUserSelect" onchange="selectPermissionUser(this.value)"><option value="">-- 选择用户 --</option>' + _permissionUsers.map(function (u) { return '<option value="' + u.id + '" ' + (_selectedPermissionUser === u.id ? 'selected' : '') + '>' + escapeHtml(u.name) + '（' + escapeHtml(u.role) + '）</option>'; }).join('') + '</select></div>';
+  html += '<div class="settings-section-title" style="margin-top:16px;">知识库分类</div>';
+  html += '<div style="background:var(--bg-secondary);border-radius:var(--radius-md);border:0.5px solid var(--separator);padding:12px;">';
+  var cats = role.knowledgeCategories || [];
+  var allSelected = cats.indexOf('*') >= 0;
+  html += '<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;font-size:13px;"><input type="checkbox" value="*" ' + (allSelected ? 'checked' : '') + ' onchange="toggleRoleCategory(\'*\', this.checked)"> 全部分类（*）</label>';
+  if (_permissionCategories.length) {
+    html += '<div style="border-top:0.5px solid var(--separator);padding-top:8px;display:flex;flex-wrap:wrap;gap:8px;">';
+    _permissionCategories.forEach(function (cat) {
+      var checked = allSelected || cats.indexOf(cat) >= 0 ? 'checked' : '';
+      html += '<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;"><input type="checkbox" value="' + escapeHtml(cat) + '" ' + checked + ' onchange="toggleRoleCategory(\'' + escapeHtml(cat).replace(/'/g, "\\'") + '\', this.checked)"> ' + escapeHtml(cat) + '</label>';
+    });
+    html += '</div>';
+  } else {
+    html += '<div style="font-size:12px;color:var(--text-tertiary);padding-top:8px;">暂无知识库分类，可在创建知识条目时添加。</div>';
+  }
+  html += '</div>';
+
+  html += '<div style="margin-top:12px;display:flex;gap:8px;margin-bottom:24px;"><button class="module-action-btn primary" onclick="savePermissionSettings()">保存角色权限</button><button class="module-action-btn" onclick="resetPermissionSettings()">恢复默认</button></div>';
+
+  html += '<div class="settings-section-title">单独用户权限覆盖</div>';
+  html += '<div class="module-form-row"><label class="form-label">选择用户</label><select class="form-select" id="permissionUserSelect" onchange="selectPermissionUser(this.value)"><option value="">-- 选择用户 --</option>' + _permissionUsers.map(function (u) { return '<option value="' + u.id + '">' + escapeHtml(u.displayName || u.username) + '（' + escapeHtml(u.role) + '）</option>'; }).join('') + '</select></div>';
   html += '<div id="userPermissionMatrix"></div>';
-
   return html;
 }
+
 function renderUserPermissionMatrix() {
   var container = document.getElementById('userPermissionMatrix');
   if (!container) return;
-  if (!_selectedPermissionUser) {
+  if (!_selectedPermissionUser || !_permissionUserState) {
     container.innerHTML = '';
     return;
   }
-  var modules = [
-    { key: 'dashboard', name: '工作台' }, { key: 'knowledge', name: '知识库' },
-    { key: 'products', name: '商品库' }, { key: 'chat', name: '聊天' },
-    { key: 'users', name: '用户管理' }, { key: 'teams', name: '团队管理' },
-    { key: 'forbidden', name: '违禁词' }, { key: 'settings', name: '系统设置' }
-  ];
-  var overrides = _userPermissionOverrides[_selectedPermissionUser] || {};
-  var html = '<div class="settings-permission-matrix">';
-  html += '<div class="settings-permission-row header"><div>模块</div><div>查看</div><div>操作</div><div>管理</div></div>';
-  modules.forEach(function (m) {
-    var p = overrides[m.key] || {};
-    html += '<div class="settings-permission-row">';
-    html += '<div>' + escapeHtml(m.name) + '</div>';
-    html += '<label><input type="checkbox" ' + (p.view ? 'checked' : '') + ' onchange="toggleUserPermission(\'' + m.key + '\', \'view\', this.checked)"></label>';
-    html += '<label><input type="checkbox" ' + (p.operate ? 'checked' : '') + ' onchange="toggleUserPermission(\'' + m.key + '\', \'operate\', this.checked)"></label>';
-    html += '<label><input type="checkbox" ' + (p.manage ? 'checked' : '') + ' onchange="toggleUserPermission(\'' + m.key + '\', \'manage\', this.checked)"></label>';
-    html += '</div>';
+  var state = _permissionUserState;
+  var html = '<div class="settings-section-title" style="margin-top:8px;">模块覆盖</div>';
+  html += '<div class="settings-permission-matrix">';
+  html += '<div class="settings-permission-row header"><div>模块</div><div>允许访问</div></div>';
+  _availableModules.forEach(function (m) {
+    var label = _permissionModuleLabels[m] || m;
+    var active = state.modules[m] ? ' active' : '';
+    html += '<div class="settings-permission-row"><div>' + escapeHtml(label) + '</div><div><div class="toggle' + active + '" onclick="toggleUserPermissionModule(\'' + m + '\', this)"></div></div></div>';
   });
   html += '</div>';
-  html += '<div style="margin-top:12px;display:flex;gap:8px;"><button class="module-action-btn primary" onclick="saveUserPermissions()">保存用户权限</button><button class="module-action-btn" onclick="resetUserPermissions()">清除覆盖</button></div>';
+
+  html += '<div class="settings-section-title" style="margin-top:16px;">知识库分类覆盖</div>';
+  html += '<div style="background:var(--bg-secondary);border-radius:var(--radius-md);border:0.5px solid var(--separator);padding:12px;">';
+  var cats = state.knowledgeCategories || [];
+  var allSelected = cats.indexOf('*') >= 0;
+  html += '<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;font-size:13px;"><input type="checkbox" value="*" ' + (allSelected ? 'checked' : '') + ' onchange="toggleUserCategory(\'*\', this.checked)"> 全部分类（*）</label>';
+  if (_permissionCategories.length) {
+    html += '<div style="border-top:0.5px solid var(--separator);padding-top:8px;display:flex;flex-wrap:wrap;gap:8px;">';
+    _permissionCategories.forEach(function (cat) {
+      var checked = allSelected || cats.indexOf(cat) >= 0 ? 'checked' : '';
+      html += '<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;"><input type="checkbox" value="' + escapeHtml(cat) + '" ' + checked + ' onchange="toggleUserCategory(\'' + escapeHtml(cat).replace(/'/g, "\\'") + '\', this.checked)"> ' + escapeHtml(cat) + '</label>';
+    });
+    html += '</div>';
+  } else {
+    html += '<div style="font-size:12px;color:var(--text-tertiary);padding-top:8px;">暂无知识库分类。</div>';
+  }
+  html += '</div>';
+
+  html += '<div style="margin-top:12px;display:flex;gap:8px;"><button class="module-action-btn primary" onclick="saveUserPermissions()">保存用户覆盖</button><button class="module-action-btn" onclick="resetUserPermissions()">清除覆盖</button></div>';
   container.innerHTML = html;
 }
+
 function selectPermissionRole(roleId) {
   _selectedPermissionRole = roleId;
-  loadPermissionSettings();
+  var area = document.getElementById('permissionSettingsArea');
+  if (area) area.innerHTML = renderPermissionSettings();
 }
-function togglePermission(moduleKey, type, checked) {
-  var role = _permissionRoles.find(function (r) { return r.id === _selectedPermissionRole; });
+function togglePermissionModule(moduleKey, el) {
+  var role = _getPermissionRole(_selectedPermissionRole);
   if (!role) return;
-  if (!role.permissions[moduleKey]) role.permissions[moduleKey] = {};
-  role.permissions[moduleKey][type] = checked;
+  var val = !role.modules[moduleKey];
+  role.modules[moduleKey] = val;
+  el.classList.toggle('active', val);
 }
-function savePermissionSettings() {
-  localStorage.setItem('sb_permission_roles', JSON.stringify(_permissionRoles));
-  showToast('✅ 权限配置已保存');
+function toggleRoleCategory(cat, checked) {
+  var role = _getPermissionRole(_selectedPermissionRole);
+  if (!role) return;
+  var cats = role.knowledgeCategories || [];
+  if (cat === '*') {
+    role.knowledgeCategories = checked ? ['*'] : [];
+  } else {
+    if (checked) {
+      if (cats.indexOf(cat) < 0) {
+        cats = cats.filter(function (c) { return c !== '*'; });
+        cats.push(cat);
+      }
+    } else {
+      cats = cats.filter(function (c) { return c !== cat; });
+    }
+    role.knowledgeCategories = cats;
+  }
+  var area = document.getElementById('permissionSettingsArea');
+  if (area) area.innerHTML = renderPermissionSettings();
+}
+async function savePermissionSettings() {
+  var role = _getPermissionRole(_selectedPermissionRole);
+  if (!role) return;
+  try {
+    var resp = await apiFetch('/api/permissions/roles/' + role.id, {
+      method: 'PUT',
+      body: JSON.stringify({ modules: role.modules, knowledgeCategories: role.knowledgeCategories })
+    });
+    if (!resp || !resp.ok) throw new Error('保存失败');
+    showToast('✅ 角色权限已保存');
+  } catch (e) {
+    showToast('❌ ' + e.message);
+  }
 }
 function resetPermissionSettings() {
-  if (!confirm('确定要恢复默认权限配置吗？')) return;
-  _permissionRoles = JSON.parse(JSON.stringify(_permissionRolesDefaults));
-  localStorage.removeItem('sb_permission_roles');
-  loadPermissionSettings();
-  showToast('🔄 已恢复默认权限');
+  if (!confirm('确定要恢复该角色的默认权限吗？')) return;
+  var role = _getPermissionRole(_selectedPermissionRole);
+  if (!role) return;
+  role.modules = _getDefaultRoleModules(role.id);
+  role.knowledgeCategories = role.id === 'employee' ? [] : ['*'];
+  var area = document.getElementById('permissionSettingsArea');
+  if (area) area.innerHTML = renderPermissionSettings();
+  showToast('🔄 已恢复默认，请点击保存生效');
 }
 function selectPermissionUser(userId) {
   _selectedPermissionUser = userId;
+  var user = _getPermissionUser(userId);
+  var base = _getUserBaseTemplate(user);
+  var override = (_permissionConfig && (_permissionConfig.userOverrides || {})[userId]) || {};
+  _permissionUserState = { modules: {}, knowledgeCategories: [] };
+  _availableModules.forEach(function (m) {
+    var overrideVal = override.modules && typeof override.modules[m] === 'boolean' ? override.modules[m] : undefined;
+    _permissionUserState.modules[m] = overrideVal !== undefined ? overrideVal : (base ? base.modules[m] : false);
+  });
+  _permissionUserState.knowledgeCategories = Array.isArray(override.knowledgeCategories) ? override.knowledgeCategories.slice() : (base ? (base.knowledgeCategories || []).slice() : []);
   renderUserPermissionMatrix();
 }
-function toggleUserPermission(moduleKey, type, checked) {
-  if (!_selectedPermissionUser) return;
-  if (!_userPermissionOverrides[_selectedPermissionUser]) _userPermissionOverrides[_selectedPermissionUser] = {};
-  if (!_userPermissionOverrides[_selectedPermissionUser][moduleKey]) _userPermissionOverrides[_selectedPermissionUser][moduleKey] = {};
-  _userPermissionOverrides[_selectedPermissionUser][moduleKey][type] = checked;
+function toggleUserPermissionModule(moduleKey, el) {
+  if (!_permissionUserState) return;
+  _permissionUserState.modules[moduleKey] = !_permissionUserState.modules[moduleKey];
+  el.classList.toggle('active', _permissionUserState.modules[moduleKey]);
 }
-function saveUserPermissions() {
-  localStorage.setItem('sb_user_permission_overrides', JSON.stringify(_userPermissionOverrides));
-  showToast('✅ 用户权限已保存');
-}
-function resetUserPermissions() {
-  if (!_selectedPermissionUser) return;
-  if (!confirm('确定要清除该用户的单独权限覆盖吗？')) return;
-  delete _userPermissionOverrides[_selectedPermissionUser];
-  localStorage.setItem('sb_user_permission_overrides', JSON.stringify(_userPermissionOverrides));
+function toggleUserCategory(cat, checked) {
+  if (!_permissionUserState) return;
+  var cats = _permissionUserState.knowledgeCategories || [];
+  if (cat === '*') {
+    _permissionUserState.knowledgeCategories = checked ? ['*'] : [];
+  } else {
+    if (checked) {
+      if (cats.indexOf(cat) < 0) {
+        cats = cats.filter(function (c) { return c !== '*'; });
+        cats.push(cat);
+      }
+    } else {
+      cats = cats.filter(function (c) { return c !== cat; });
+    }
+    _permissionUserState.knowledgeCategories = cats;
+  }
   renderUserPermissionMatrix();
-  showToast('🔄 已清除用户权限覆盖');
+}
+async function saveUserPermissions() {
+  if (!_selectedPermissionUser || !_permissionUserState) return;
+  var body = {
+    modules: _permissionUserState.modules,
+    knowledgeCategories: _permissionUserState.knowledgeCategories
+  };
+  try {
+    var resp = await apiFetch('/api/permissions/users/' + _selectedPermissionUser, {
+      method: 'PUT',
+      body: JSON.stringify(body)
+    });
+    if (!resp || !resp.ok) throw new Error('保存失败');
+    if (!_permissionConfig.userOverrides) _permissionConfig.userOverrides = {};
+    _permissionConfig.userOverrides[_selectedPermissionUser] = body;
+    showToast('✅ 用户权限覆盖已保存');
+  } catch (e) {
+    showToast('❌ ' + e.message);
+  }
+}
+async function resetUserPermissions() {
+  if (!_selectedPermissionUser) return;
+  if (!confirm('确定要清除该用户的权限覆盖吗？')) return;
+  try {
+    var resp = await apiFetch('/api/permissions/users/' + _selectedPermissionUser, {
+      method: 'PUT',
+      body: JSON.stringify({})
+    });
+    if (!resp || !resp.ok) throw new Error('清除失败');
+    if (_permissionConfig.userOverrides && _permissionConfig.userOverrides[_selectedPermissionUser]) {
+      delete _permissionConfig.userOverrides[_selectedPermissionUser];
+    }
+    _permissionUserState = null;
+    renderUserPermissionMatrix();
+    showToast('🔄 已清除用户权限覆盖');
+  } catch (e) {
+    showToast('❌ ' + e.message);
+  }
 }
 
 // ========== 违禁词管理 ==========

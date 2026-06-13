@@ -81,6 +81,7 @@ GROUPS_FILE = os.path.join(DATA_DIR, 'groups.json')
 CHATS_DIR = os.path.join(DATA_DIR, 'chats')
 SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
 TEAMS_FILE = os.path.join(DATA_DIR, 'teams.json')
+PERMISSIONS_FILE = os.path.join(DATA_DIR, 'permissions.json')
 MEMORY_DIR = os.path.join(DATA_DIR, 'memory')
 ARCHIVE_DIR = os.path.join(DATA_DIR, 'memory', 'archive')
 KNOWLEDGE_DIR = os.path.join(DATA_DIR, 'knowledge')
@@ -444,6 +445,145 @@ def _init_default_admin():
         print('  🔑 默认管理员账号: admin / admin123，请尽快修改密码')
         return admin
     return None
+
+
+# ─── 权限管理 ─────────────────────────────────────────
+
+# 可用模块列表（与 switchModule 取值对齐）
+AVAILABLE_MODULES = [
+    'dashboard', 'messages', 'employees', 'groups',
+    'knowledge', 'products', 'influencers', 'matches', 'settings'
+]
+
+
+def _default_permission_templates():
+    """默认角色权限模板"""
+    admin_modules = {m: True for m in AVAILABLE_MODULES}
+    leader_modules = {m: True for m in AVAILABLE_MODULES}
+    # leader 默认不能进入设置里的用户/权限管理，但可见 settings 本身
+    employee_modules = {
+        'dashboard': True,
+        'messages': True,
+        'employees': True,
+        'groups': True,
+        'knowledge': True,
+        'products': False,
+        'influencers': False,
+        'matches': False,
+        'settings': False,
+    }
+    return {
+        'version': '1.0',
+        'roleTemplates': [
+            {'id': 'admin', 'name': '管理员', 'modules': admin_modules, 'knowledgeCategories': ['*']},
+            {'id': 'leader', 'name': '组长', 'modules': leader_modules, 'knowledgeCategories': ['*']},
+            {'id': 'employee', 'name': '员工', 'modules': employee_modules, 'knowledgeCategories': []},
+        ],
+        'userOverrides': {}
+    }
+
+
+def _load_permissions():
+    """加载权限配置；不存在时初始化默认模板"""
+    data = _read_json(PERMISSIONS_FILE, None)
+    if not isinstance(data, dict):
+        data = _default_permission_templates()
+        _save_permissions(data)
+    # 兼容补齐
+    if 'roleTemplates' not in data or not isinstance(data['roleTemplates'], list):
+        data['roleTemplates'] = _default_permission_templates()['roleTemplates']
+    if 'userOverrides' not in data or not isinstance(data['userOverrides'], dict):
+        data['userOverrides'] = {}
+    # 补齐缺失模块键
+    for tmpl in data['roleTemplates']:
+        modules = tmpl.get('modules', {})
+        for m in AVAILABLE_MODULES:
+            if m not in modules:
+                modules[m] = False
+        tmpl['modules'] = modules
+    return data
+
+
+def _save_permissions(data):
+    """保存权限配置"""
+    _write_json(PERMISSIONS_FILE, data)
+
+
+def _get_role_template(permissions, role_or_template_id):
+    """按 roleTemplateId 或 role 查找模板"""
+    if not role_or_template_id:
+        return None
+    for tmpl in permissions.get('roleTemplates', []):
+        if tmpl.get('id') == role_or_template_id:
+            return tmpl
+    # 回退：按 role 字段匹配
+    fallback_map = {'admin': 'admin', 'leader': 'leader', 'employee': 'employee'}
+    tid = fallback_map.get(role_or_template_id)
+    if tid:
+        for tmpl in permissions.get('roleTemplates', []):
+            if tmpl.get('id') == tid:
+                return tmpl
+    return None
+
+
+def _get_effective_permissions(user_or_auth):
+    """合并角色模板 + 用户覆盖，返回 {modules, knowledgeCategories}"""
+    permissions = _load_permissions()
+    if hasattr(user_or_auth, 'user_record') and user_or_auth.user_record:
+        user = user_or_auth.user_record
+    elif isinstance(user_or_auth, dict):
+        user = user_or_auth
+    else:
+        # 默认最小权限
+        return {'modules': {m: False for m in AVAILABLE_MODULES}, 'knowledgeCategories': []}
+
+    role = user.get('role', 'employee')
+    template_id = user.get('roleTemplateId') or role
+    template = _get_role_template(permissions, template_id) or _get_role_template(permissions, role) or {}
+
+    base_modules = dict(template.get('modules', {}))
+    base_cats = list(template.get('knowledgeCategories', []))
+
+    override = permissions.get('userOverrides', {}).get(user.get('id', '')) or {}
+    override_modules = override.get('modules', {})
+    override_cats = override.get('knowledgeCategories')
+
+    merged_modules = {m: base_modules.get(m, False) for m in AVAILABLE_MODULES}
+    if isinstance(override_modules, dict):
+        for m, v in override_modules.items():
+            if m in AVAILABLE_MODULES:
+                merged_modules[m] = bool(v)
+
+    merged_cats = base_cats
+    if isinstance(override_cats, list):
+        merged_cats = override_cats
+
+    return {'modules': merged_modules, 'knowledgeCategories': merged_cats}
+
+
+def _has_module_permission(user_or_auth, module):
+    """检查用户是否有某模块权限"""
+    if module not in AVAILABLE_MODULES:
+        return True
+    perms = _get_effective_permissions(user_or_auth)
+    return perms.get('modules', {}).get(module, False)
+
+
+def _allowed_knowledge_categories(user_or_auth):
+    """返回用户允许查看的知识库分类列表；['*'] 表示全部"""
+    perms = _get_effective_permissions(user_or_auth)
+    return perms.get('knowledgeCategories', [])
+
+
+def _can_access_knowledge_category(user_or_auth, category):
+    """检查用户是否有权访问某知识库分类"""
+    cats = _allowed_knowledge_categories(user_or_auth)
+    if '*' in cats:
+        return True
+    if not category:
+        # 未分类默认允许，除非显式被排除？这里按允许列表控制
+        return '' in cats
+    return category in cats
 
 
 # ─── Agent 管理 ─────────────────────────────────────────
@@ -1513,6 +1653,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(parts) == 1:
                 self._handle_get_memory(parts[0])
                 return
+            if len(parts) == 2 and parts[1] == 'core-candidates':
+                self._handle_get_core_candidates(parts[0])
+                return
+
+        # Permissions API
+        if path == '/api/permissions':
+            self._handle_get_permissions()
+            return
+        if path == '/api/permissions/modules':
+            self._handle_get_permission_modules()
+            return
 
         # Knowledge API
         if path == '/api/knowledge':
@@ -1810,6 +1961,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             elif len(parts) == 3 and parts[2] == 'restore':
                 self._handle_restore_memory(parts[0], parts[1])
                 return
+            elif len(parts) == 2 and parts[1] == 'induct-to-knowledge':
+                self._handle_induct_to_knowledge(parts[0])
+                return
+            elif len(parts) == 2 and parts[1] == 'archive-inducted':
+                self._handle_archive_inducted(parts[0])
+                return
+            elif len(parts) == 4 and parts[1] == 'core-candidates' and parts[3] == 'confirm':
+                self._handle_confirm_core_candidate(parts[0], parts[2])
+                return
+            elif len(parts) == 4 and parts[1] == 'core-candidates' and parts[3] == 'dismiss':
+                self._handle_dismiss_core_candidate(parts[0], parts[2])
+                return
 
         # Knowledge API
         if path == '/api/knowledge':
@@ -1915,6 +2078,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             parts = sub.split('/')
             if len(parts) == 2:
                 self._handle_update_memory(parts[0], parts[1])
+                return
+
+        # Permissions API
+        if path.startswith('/api/permissions/roles/'):
+            role_id = path[len('/api/permissions/roles/'):]
+            if role_id:
+                self._handle_update_role_permissions(role_id)
+                return
+        if path.startswith('/api/permissions/users/'):
+            user_id = path[len('/api/permissions/users/'):]
+            if user_id:
+                self._handle_update_user_permissions(user_id)
                 return
 
         # Knowledge API
@@ -2144,7 +2319,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'username': user['username'],
                 'role': user.get('role', 'employee'),
                 'displayName': user.get('displayName', user['username']),
-                'avatar': user.get('avatar', 0)
+                'avatar': user.get('avatar', 0),
+                'agentQuota': user.get('agentQuota', 10),
+                'apiQuota': user.get('apiQuota', 1000),
+                'teamIds': user.get('teamIds', []),
+                'subordinateIds': user.get('subordinateIds', []),
+                'roleTemplateId': user.get('roleTemplateId'),
+                'permissions': _get_effective_permissions({'id': user['id'], 'role': user.get('role', 'employee'), 'roleTemplateId': user.get('roleTemplateId')})
             }
         })
 
@@ -2239,8 +2420,84 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'displayName': user.get('displayName', user['username']),
             'avatar': user.get('avatar', 0),
             'agentQuota': user.get('agentQuota', 10),
-            'apiQuota': user.get('apiQuota', 1000)
+            'apiQuota': user.get('apiQuota', 1000),
+            'permissions': _get_effective_permissions(auth),
+            'roleTemplateId': user.get('roleTemplateId')
         })
+
+    def _handle_get_permissions(self):
+        """GET /api/permissions — 获取完整权限配置（仅 admin）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated or not auth.is_admin:
+            self._send_auth_error('Permission denied', 403)
+            return
+        perms = _load_permissions()
+        self._send_json(200, perms)
+
+    def _handle_get_permission_modules(self):
+        """GET /api/permissions/modules — 返回可用模块列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        self._send_json(200, {'modules': AVAILABLE_MODULES})
+
+    def _handle_update_role_permissions(self, role_id):
+        """PUT /api/permissions/roles/{roleId}"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated or not auth.is_admin:
+            self._send_auth_error('Permission denied', 403)
+            return
+        body = self._read_body()
+        if not body or not isinstance(body, dict):
+            self._send_json_error(400, 'Invalid body')
+            return
+        perms = _load_permissions()
+        template = None
+        for tmpl in perms.get('roleTemplates', []):
+            if tmpl.get('id') == role_id:
+                template = tmpl
+                break
+        if not template:
+            self._send_json_error(404, 'Role template not found')
+            return
+        if 'modules' in body and isinstance(body['modules'], dict):
+            merged = {m: bool(template.get('modules', {}).get(m, False)) for m in AVAILABLE_MODULES}
+            for m, v in body['modules'].items():
+                if m in AVAILABLE_MODULES:
+                    merged[m] = bool(v)
+            template['modules'] = merged
+        if 'knowledgeCategories' in body and isinstance(body['knowledgeCategories'], list):
+            template['knowledgeCategories'] = [str(c) for c in body['knowledgeCategories']]
+        _save_permissions(perms)
+        self._send_json(200, {'success': True, 'roleTemplate': template})
+
+    def _handle_update_user_permissions(self, user_id):
+        """PUT /api/permissions/users/{userId} — 更新用户权限覆盖；body 为空对象则删除覆盖"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated or not auth.is_admin:
+            self._send_auth_error('Permission denied', 403)
+            return
+        body = self._read_body()
+        if body is None:
+            self._send_json_error(400, 'Invalid body')
+            return
+        perms = _load_permissions()
+        overrides = perms.setdefault('userOverrides', {})
+        if not isinstance(body, dict) or (not body.get('modules') and not body.get('knowledgeCategories')):
+            # 删除覆盖
+            if user_id in overrides:
+                del overrides[user_id]
+            _save_permissions(perms)
+            self._send_json(200, {'success': True, 'userOverride': None})
+            return
+        override = overrides.setdefault(user_id, {})
+        if 'modules' in body and isinstance(body['modules'], dict):
+            override['modules'] = {m: bool(v) for m, v in body['modules'].items() if m in AVAILABLE_MODULES}
+        if 'knowledgeCategories' in body and isinstance(body['knowledgeCategories'], list):
+            override['knowledgeCategories'] = [str(c) for c in body['knowledgeCategories']]
+        _save_permissions(perms)
+        self._send_json(200, {'success': True, 'userOverride': override})
 
     def _handle_change_password(self):
         """POST /api/auth/change-password"""
@@ -2296,6 +2553,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_auth_error(err, status)
             return
+        if not self._require_module_permission(auth, 'settings'): return
 
         users = _load_users()
         result = []
@@ -2328,6 +2586,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_auth_error(err, status)
             return
+        if not self._require_module_permission(auth, 'settings'): return
 
         users = _load_users()
         user = _find_user(users, 'id', user_id)
@@ -2362,6 +2621,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_auth_error(err, status)
             return
+        if not self._require_module_permission(auth, 'settings'): return
 
         body = self._read_body()
         if not body:
@@ -2441,6 +2701,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_auth_error(err, status)
             return
+        if not self._require_module_permission(auth, 'settings'): return
 
         # 不能删自己
         if auth.user_info['userId'] == user_id:
@@ -2464,6 +2725,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'settings'): return
 
         users = _load_users()
         user = _find_user(users, 'id', user_id)
@@ -2513,6 +2775,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_auth_error(err, status)
             return
+        if not self._require_module_permission(auth, 'settings'): return
 
         body = self._read_body()
         if not body:
@@ -2604,6 +2867,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not auth.is_authenticated:
                 self._send_auth_error(auth.error, auth.status)
                 return
+            if not self._require_module_permission(auth, 'groups'): return
 
             groups = _load_groups()
             agents = _load_agents()
@@ -2668,6 +2932,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'groups'): return
 
         group, err, status = self._check_group_access(auth, group_id)
         if err:
@@ -2705,6 +2970,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'groups'): return
 
         body = self._read_body()
         if not body:
@@ -2756,6 +3022,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'groups'): return
 
         groups = _load_groups()
         group = _find_group(groups, 'id', group_id)
@@ -2843,6 +3110,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'groups'): return
 
         groups = _load_groups()
         group = _find_group(groups, 'id', group_id)
@@ -2874,6 +3142,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'groups'): return
 
         groups = _load_groups()
         group = _find_group(groups, 'id', group_id)
@@ -2927,6 +3196,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'groups'): return
 
         groups = _load_groups()
         group = _find_group(groups, 'id', group_id)
@@ -2971,6 +3241,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'settings'): return
 
         teams = _load_teams()
         users = _load_users()
@@ -3013,6 +3284,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'settings'): return
 
         teams = _load_teams()
         team = _find_team(teams, 'id', team_id)
@@ -3084,6 +3356,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_auth_error(err, status)
             return
+        if not self._require_module_permission(auth, 'settings'): return
 
         body = self._read_body()
         if not body:
@@ -3157,6 +3430,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'settings'): return
 
         teams = _load_teams()
         team = _find_team(teams, 'id', team_id)
@@ -3218,6 +3492,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_auth_error(err, status)
             return
+        if not self._require_module_permission(auth, 'settings'): return
 
         teams = _load_teams()
         team = _find_team(teams, 'id', team_id)
@@ -3253,6 +3528,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'settings'): return
 
         teams = _load_teams()
         team = _find_team(teams, 'id', team_id)
@@ -3297,6 +3573,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'settings'): return
 
         teams = _load_teams()
         team = _find_team(teams, 'id', team_id)
@@ -3339,6 +3616,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'groups'): return
 
         group, err, status = self._check_group_access(auth, group_id)
         if err:
@@ -3415,6 +3693,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'groups'): return
 
         group, err, status = self._check_group_access(auth, group_id)
         if err:
@@ -3638,6 +3917,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'groups'): return
         group, err, status = self._check_group_access(auth, group_id)
         if err:
             self._send_json(status, {'error': err})
@@ -3784,6 +4064,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'groups'): return
         group, err, status = self._check_group_access(auth, group_id)
         if err:
             self._send_json(status, {'error': err})
@@ -3823,6 +4104,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'employees'): return
 
         agents = _load_agents()
         uid = auth.user_info['userId']
@@ -3887,6 +4169,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'employees'): return
 
         agents = _load_agents()
         agent = None
@@ -3922,6 +4205,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'employees'): return
 
         body = self._read_body()
         if not body:
@@ -3989,6 +4273,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not auth.is_authenticated:
                 self._send_auth_error(auth.error, auth.status)
                 return
+            if not self._require_module_permission(auth, 'employees'): return
 
             body = self._read_body()
             if not body:
@@ -4090,6 +4375,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'employees'): return
 
         agents = _load_agents()
         agent = None
@@ -4379,6 +4665,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_admin and agent.get('createdBy') != auth.user_info['userId'] and agent.get('visibility') != 'all':
             return None, '权限不足', 403
         return agent, None, None
+
+    def _require_module_permission(self, auth, module):
+        """检查当前用户是否有指定模块权限，无权限时直接返回 403"""
+        if not _has_module_permission(auth, module):
+            self._send_auth_error('Permission denied', 403)
+            return False
+        return True
 
 
     # ─── 角色初始记忆种子 ───────────────────────────────────
@@ -5051,6 +5344,123 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         archive_data = ms3.load_archive(emp_id)
         self._send_json(200, {'archived': len(archive_data.get('archived', [])), 'empId': emp_id})
 
+    def _handle_get_core_candidates(self, emp_id):
+        """GET /api/memory/{empId}/core-candidates — 获取核心记忆候选列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        agent, err, status = self._check_agent_access(auth, emp_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        candidates = ms3.get_pending_core_candidates(emp_id)
+        self._send_json(200, {
+            'empId': emp_id,
+            'candidates': candidates,
+            'total': len(candidates)
+        })
+
+    def _handle_confirm_core_candidate(self, emp_id, cand_id):
+        """POST /api/memory/{empId}/core-candidates/{candId}/confirm"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        agent, err, status = self._check_agent_access(auth, emp_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        cand = ms3.update_core_candidate_status(emp_id, cand_id, 'confirmed')
+        if not cand:
+            self._send_json_error(404, 'Candidate not found')
+            return
+        try:
+            new_mem = ms3.add_memory(
+                emp_id,
+                value=cand['value'],
+                key='core',
+                source='candidate',
+                priority=8,
+                tags=['AI提炼']
+            )
+            # 归档源 daily 记忆
+            ms3.archive_source_memories_as_promoted(emp_id, cand.get('sourceIds', []))
+        except Exception as e:
+            print(f'  [CoreCandidate] confirm failed: {e}', flush=True)
+            self._send_json_error(500, f'Confirm failed: {str(e)}')
+            return
+        self._send_json(200, {
+            'success': True,
+            'candidate': cand,
+            'memory': new_mem
+        })
+
+    def _handle_dismiss_core_candidate(self, emp_id, cand_id):
+        """POST /api/memory/{empId}/core-candidates/{candId}/dismiss"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        agent, err, status = self._check_agent_access(auth, emp_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        cand = ms3.update_core_candidate_status(emp_id, cand_id, 'dismissed')
+        if not cand:
+            self._send_json_error(404, 'Candidate not found')
+            return
+        self._send_json(200, {'success': True, 'candidate': cand})
+
+    def _handle_induct_to_knowledge(self, emp_id):
+        """POST /api/memory/{empId}/induct-to-knowledge — 手动触发知识归纳"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin and auth.user_id != emp_id:
+            self._send_auth_error('Permission denied', 403)
+            return
+        agent = _get_agent_by_id(emp_id)
+        if not agent:
+            self._send_json(404, {'error': 'Agent not found'})
+            return
+        try:
+            count = _induct_knowledge_for_agent(agent)
+        except Exception as e:
+            print(f'  [InductKnowledge] manual failed: {e}', flush=True)
+            self._send_json_error(500, f'Induction failed: {str(e)}')
+            return
+        self._send_json(200, {
+            'success': True,
+            'createdDocs': count,
+            'empId': emp_id
+        })
+
+    def _handle_archive_inducted(self, emp_id):
+        """POST /api/memory/{empId}/archive-inducted — 归档所有已归纳的活跃记忆"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin and auth.user_id != emp_id:
+            self._send_auth_error('Permission denied', 403)
+            return
+        if not _check_agent_exists(emp_id):
+            self._send_json(404, {'error': 'Agent not found'})
+            return
+        try:
+            archived_ids = ms3.archive_inducted_memories(emp_id)
+        except Exception as e:
+            print(f'  [ArchiveInducted] failed: {e}', flush=True)
+            self._send_json_error(500, f'Archive failed: {str(e)}')
+            return
+        self._send_json(200, {
+            'success': True,
+            'archivedIds': archived_ids,
+            'empId': emp_id
+        })
+
     # ═══════════════════════════════════════════════════
     # 知识库 API（后端持久化，替代 localStorage sb_docs）
     # ═══════════════════════════════════════════════════
@@ -5072,6 +5482,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'knowledge'): return
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         offset = max(0, int(qs.get('offset', [0])[0]))
@@ -5084,8 +5495,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not ks.check_knowledge_permission(auth.user_id, target_emp_id, getattr(auth, 'role', None)):
             self._send_auth_error('Permission denied', 403)
             return
+        if not self._require_module_permission(auth, 'knowledge'):
+            return
 
-        result = ks.knowledge_list(offset, limit, category, keyword, target_emp_id)
+        allowed_cats = _allowed_knowledge_categories(auth)
+        # 如果用户请求了具体分类，校验是否有权限
+        if category and not _can_access_knowledge_category(auth, category):
+            self._send_json(200, {'docs': [], 'total': 0, 'offset': offset, 'limit': limit})
+            return
+
+        result = ks.knowledge_list(offset, limit, category, keyword, target_emp_id, allowed_categories=allowed_cats)
         self._send_json(200, result)
 
     def _handle_get_knowledge_detail(self, kid):
@@ -5094,6 +5513,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'knowledge'): return
         doc = ks.knowledge_get_by_id(kid)
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
@@ -5101,6 +5521,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 权限检查
         if not ks.check_knowledge_permission(auth.user_id, doc.get('empId'), getattr(auth, 'role', None)):
             self._send_auth_error('Permission denied', 403)
+            return
+        if not _can_access_knowledge_category(auth, doc.get('category', '')):
+            self._send_auth_error('No permission for this knowledge category', 403)
             return
         self._send_json(200, doc)
 
@@ -5110,6 +5533,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'knowledge'): return
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         query = qs.get('q', [''])[0]
@@ -5138,7 +5562,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         try:
-            docs = ks.knowledge_search_semantic(query, target_emp_id, api_key, provider, agent_config, limit)
+            allowed_cats = _allowed_knowledge_categories(auth)
+            docs = ks.knowledge_search_semantic(query, target_emp_id, api_key, provider, agent_config, limit, allowed_categories=allowed_cats)
             self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
         except Exception as e:
             print(f'  [KnowledgeSearch] failed: {e}', flush=True)
@@ -5150,6 +5575,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'knowledge'): return
         body = self._read_body()
         # 兼容旧前端：name 字段映射为 title
         title = body.get('title') or body.get('name')
@@ -5161,6 +5587,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         emp_id = body.get('empId') or ''
         if not ks.check_knowledge_permission(auth.user_id, emp_id, getattr(auth, 'role', None)):
             self._send_auth_error('Permission denied', 403)
+            return
+        category = body.get('category', '')
+        if not _can_access_knowledge_category(auth, category):
+            self._send_auth_error('No permission for this knowledge category', 403)
             return
 
         # 获取 API key 和 agent 配置（支持全局 embedding 覆盖配置）
@@ -5195,6 +5625,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'knowledge'): return
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Missing body')
@@ -5207,6 +5638,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not ks.check_knowledge_permission(auth.user_id, doc.get('empId'), getattr(auth, 'role', None)):
             self._send_auth_error('Permission denied', 403)
+            return
+        # 分类权限：必须对原文档分类有权限，且不能修改到无权限的分类
+        if not _can_access_knowledge_category(auth, doc.get('category', '')):
+            self._send_auth_error('No permission for this knowledge category', 403)
+            return
+        new_category = body.get('category')
+        if new_category is not None and not _can_access_knowledge_category(auth, new_category):
+            self._send_auth_error('No permission for target knowledge category', 403)
             return
 
         # 获取 API key 和 agent 配置（支持全局 embedding 覆盖配置）
@@ -5245,6 +5684,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'knowledge'): return
         # 检查权限
         doc = ks.knowledge_get_by_id(doc_id)
         if not doc:
@@ -5294,7 +5734,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         try:
-            result = ks.rag_retrieve(query, emp_id, api_key, provider, agent_config, top_k_docs=top_k)
+            allowed_cats = _allowed_knowledge_categories(auth)
+            result = ks.rag_retrieve(query, emp_id, api_key, provider, agent_config, top_k_docs=top_k, allowed_categories=allowed_cats)
             # 同时检索产品库（所有员工共享）
             prod_data = _read_json(os.path.join(PRODUCT_DIR, 'index.json'), {'products': []})
             try:
@@ -5402,6 +5843,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'products'): return
         data = self._load_products()
         products = data.get('products', [])
         # 解析 query string 做筛选
@@ -5428,6 +5870,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'products'): return
         data = self._load_products()
         product = None
         for p in data.get('products', []):
@@ -5446,6 +5889,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'products'): return
         # 加载商品（index.json 没有则读详情文件）
         data = self._load_products()
         product = next((p for p in data.get('products', []) if p.get('id') == product_id), None)
@@ -5512,6 +5956,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'influencers'): return
         data = self._load_influencers()
         influencer = next((i for i in data.get('influencers', []) if i.get('id') == inf_id), None)
         if not influencer:
@@ -5576,6 +6021,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'products'): return
         body = self._read_body()
         if not body or 'name' not in body:
             self._send_json_error(400, 'Missing name')
@@ -5625,6 +6071,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'products'): return
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Missing body')
@@ -5668,6 +6115,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'products'): return
         data = self._load_products()
         original = len(data.get('products', []))
         removed_product = next((p for p in data.get('products', []) if p.get('id') == product_id), None)
@@ -5687,6 +6135,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'products'): return
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Missing body')
@@ -5778,6 +6227,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'influencers'): return
         data = self._load_influencers()
         influencers = data.get('influencers', [])
         query = parse_qs(urlparse(self.path).query)
@@ -5805,6 +6255,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'influencers'): return
         data = self._load_influencers()
         influencer = next((i for i in data.get('influencers', []) if i.get('id') == inf_id), None)
         if not influencer:
@@ -5818,6 +6269,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'influencers'): return
         body = self._read_body()
         if not body or 'name' not in body:
             self._send_json_error(400, 'Missing name')
@@ -5858,6 +6310,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'influencers'): return
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Missing body')
@@ -5889,6 +6342,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'influencers'): return
         data = self._load_influencers()
         original = len(data.get('influencers', []))
         data['influencers'] = [i for i in data.get('influencers', []) if i.get('id') != inf_id]
@@ -5904,6 +6358,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'influencers'): return
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Missing body')
@@ -6094,6 +6549,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'matches'): return
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Missing body')
@@ -6144,6 +6600,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'matches'): return
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Missing body')
@@ -6231,6 +6688,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'messages'): return
 
         agent, err, status = self._check_agent_access(auth, agent_id)
         if err:
@@ -6321,7 +6779,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     user_payload = content
                 # 记忆提取场景不需要加载历史记录，避免 token 超限和干扰
                 is_extract = '【记忆提取任务】' in content
-                api_reply = self._call_ai_api(agent, user_payload, auth.user_info, include_history=not is_extract)
+                allowed_cats = _allowed_knowledge_categories(auth)
+                api_reply = self._call_ai_api(agent, user_payload, auth.user_info, include_history=not is_extract, allowed_knowledge_categories=allowed_cats)
                 if api_reply:
                     ai_message = {
                         'id': 'msg_' + uuid.uuid4().hex[:8],
@@ -6349,7 +6808,128 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         else:
             self._send_json(200, {'userMessage': msg})
 
-    def _call_ai_api(self, agent, user_message, user_info=None, include_history=True, group_id=None):
+def _resolve_ai_base_url(api_provider, custom_endpoint=''):
+    """根据 provider 和自定义 endpoint 返回 base URL（不含 /chat/completions）"""
+    if api_provider == 'custom' and custom_endpoint:
+        return custom_endpoint.rstrip('/')
+    mapping = {
+        'openai': 'https://api.openai.com/v1',
+        'deepseek': 'https://api.deepseek.com/v1',
+        'moonshot': 'https://api.moonshot.cn/v1',
+        'kimi': 'https://api.moonshot.cn/v1',
+        'zhipu': 'https://open.bigmodel.cn/api/paas/v4',
+        'anthropic': 'https://api.anthropic.com/v1',
+        'siliconflow': 'https://api.siliconflow.cn/v1',
+    }
+    if api_provider in mapping:
+        return mapping[api_provider]
+    if custom_endpoint:
+        return custom_endpoint.rstrip('/')
+    return ''
+
+
+def _resolve_ai_model(api_provider, api_model=''):
+    """根据 provider 选择默认模型"""
+    if api_model:
+        return api_model
+    default_models = {
+        'openai': 'gpt-4o-mini',
+        'kimi': 'moonshot-v1-8k',
+        'moonshot': 'moonshot-v1-8k',
+        'deepseek': 'deepseek-chat',
+        'zhipu': 'glm-4-flash',
+        'anthropic': 'claude-3-5-sonnet-20241022',
+        'siliconflow': 'deepseek-ai/DeepSeek-V3',
+    }
+    return default_models.get(api_provider, 'gpt-4o-mini')
+
+
+def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT):
+    """底层 AI chat/completions 调用，返回字符串内容或 None（供聊天、定时任务复用）"""
+    if not api_key:
+        return None
+    base_url = _resolve_ai_base_url(api_provider, custom_endpoint or '')
+    if not base_url:
+        return None
+    target_url = base_url + '/chat/completions'
+    resolved_model = _resolve_ai_model(api_provider, api_model or '')
+
+    req_body = json.dumps({
+        'model': resolved_model,
+        'messages': messages,
+        'temperature': 0.8,
+        'max_tokens': 2000,
+        'stream': False
+    }).encode('utf-8')
+
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {api_key}',
+        'Content-Length': str(len(req_body))
+    }
+
+    try:
+        req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
+        ctx = ssl.create_default_context()
+        resp = urllib.request.urlopen(req, timeout=timeout, context=ctx)
+        resp_data = json.loads(resp.read().decode('utf-8'))
+        if resp_data.get('choices') and resp_data['choices'][0].get('message'):
+            return resp_data['choices'][0]['message'].get('content', '')
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8', errors='replace')
+        print(f'  ❌ AI API call failed: HTTP {e.code} {e.reason}', flush=True)
+        print(f'      Provider: {api_provider}, URL: {target_url}', flush=True)
+        print(f'      Response: {error_body}', flush=True)
+    except Exception as e:
+        print(f'  ❌ AI API call failed: {e}', flush=True)
+    return None
+
+
+def _extract_json_array(text):
+    """从 AI 返回文本中提取第一个 JSON 数组；失败返回 []"""
+    if not text:
+        return []
+    cleaned = text.strip()
+    # 去掉 markdown 代码块标记
+    if cleaned.startswith('```'):
+        cleaned = cleaned.split('```', 2)[-1].strip()
+        if cleaned.lower().startswith('json'):
+            cleaned = cleaned[4:].strip()
+    # 找第一个 '[' 和匹配的最后一个 ']'
+    start = cleaned.find('[')
+    end = cleaned.rfind(']')
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(cleaned[start:end + 1])
+        except Exception:
+            pass
+    # 兜底：尝试整段解析
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+    return []
+
+
+def _call_ai_for_json(prompt, agent, system_prompt=None):
+    """调用 AI 并尝试返回 JSON 数组；agent 为 dict（至少含 aiProvider/apiKey/apiModel/customEndpoint）"""
+    api_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
+    api_key = (agent.get('apiKey', '') or '').strip()
+    api_model = agent.get('apiModel', '')
+    custom_endpoint = agent.get('customEndpoint', '')
+    if not api_key:
+        return None
+    messages = []
+    if system_prompt:
+        messages.append({'role': 'system', 'content': system_prompt})
+    messages.append({'role': 'user', 'content': prompt})
+    content = _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=120)
+    if content is None:
+        return None
+    return _extract_json_array(content)
+
+
+    def _call_ai_api(self, agent, user_message, user_info=None, include_history=True, group_id=None, allowed_knowledge_categories=None):
         """通过代理调用 AI API（带记忆和上下文注入）"""
         api_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
         api_key = (agent.get('apiKey', '') or '').strip()
@@ -6359,30 +6939,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         if not api_key:
             return None
-
-        # 确定 base URL
-        base_url = ''
-        if api_provider == 'custom' and custom_endpoint:
-            base_url = custom_endpoint.rstrip('/')
-        elif api_provider == 'openai':
-            base_url = 'https://api.openai.com/v1'
-        elif api_provider == 'deepseek':
-            base_url = 'https://api.deepseek.com/v1'
-        elif api_provider == 'moonshot' or api_provider == 'kimi':
-            base_url = 'https://api.moonshot.cn/v1'
-        elif api_provider == 'zhipu':
-            base_url = 'https://open.bigmodel.cn/api/paas/v4'
-        elif api_provider == 'anthropic':
-            base_url = 'https://api.anthropic.com/v1'
-        elif api_provider == 'siliconflow':
-            base_url = 'https://api.siliconflow.cn/v1'
-        else:
-            if custom_endpoint:
-                base_url = custom_endpoint.rstrip('/')
-            else:
-                return None
-
-        target_url = base_url + '/chat/completions'
 
         system_prompt = f'你是 {agent.get("name", "AI")}，一个 {agent.get("role", "助手")}。请用第一人称回复，保持角色一致性。'
         soul_doc = agent.get('soulDoc', '')
@@ -6421,6 +6977,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     api_key=api_key,
                     provider=api_provider,
                     agent_config=agent,
+                    allowed_knowledge_categories=allowed_knowledge_categories,
                 )
             except Exception as e:
                 print(f'  [MemoryInject] {agent_id} 注入失败: {e}', flush=True)
@@ -6438,7 +6995,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     emb_provider, emb_key = _get_embedding_override()
                     rag_api_key = emb_key or api_key
                     rag_provider = emb_provider or api_provider
-                    rag_result = ks.rag_retrieve(user_text, agent_id, rag_api_key, rag_provider, agent, top_k_docs=2)
+                    rag_result = ks.rag_retrieve(user_text, agent_id, rag_api_key, rag_provider, agent, top_k_docs=2, allowed_categories=allowed_knowledge_categories)
                     if rag_result.get('context'):
                         system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'
             except Exception as e:
@@ -6489,48 +7046,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         messages.append({'role': 'user', 'content': user_message})
 
-        # 根据 provider 选择默认模型
-        default_models = {
-            'openai': 'gpt-4o-mini',
-            'kimi': 'moonshot-v1-8k',
-            'moonshot': 'moonshot-v1-8k',
-            'deepseek': 'deepseek-chat',
-            'zhipu': 'glm-4-flash',
-            'anthropic': 'claude-3-5-sonnet-20241022',
-            'siliconflow': 'deepseek-ai/DeepSeek-V3',
-        }
-        resolved_model = api_model or default_models.get(api_provider, 'gpt-4o-mini')
-
-        req_body = json.dumps({
-            'model': resolved_model,
-            'messages': messages,
-            'temperature': 0.8,
-            'max_tokens': 2000,
-            'stream': False
-        }).encode('utf-8')
-
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {api_key}',
-            'Content-Length': str(len(req_body))
-        }
-
-        try:
-            req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
-            ctx = ssl.create_default_context()
-            resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
-            resp_data = json.loads(resp.read().decode('utf-8'))
-            if resp_data.get('choices') and resp_data['choices'][0].get('message'):
-                return resp_data['choices'][0]['message'].get('content', '')
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode('utf-8', errors='replace')
-            print(f'  ❌ AI API call failed: HTTP {e.code} {e.reason}', flush=True)
-            print(f'      Provider: {api_provider}, URL: {target_url}', flush=True)
-            print(f'      Response: {error_body}', flush=True)
-        except Exception as e:
-            print(f'  ❌ AI API call failed: {e}', flush=True)
-
-        return None
+        return _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT)
 
     def _handle_delete_chat_message(self, agent_id, msg_id):
         """DELETE /api/chat/:agentId/:msgId?type=..."""
@@ -6589,6 +7105,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'messages'): return
 
         _, err, status = self._check_agent_access(auth, agent_id)
         if err:
@@ -6606,6 +7123,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'messages'): return
 
         agent, err, status = self._check_agent_access(auth, agent_id)
         if err:
@@ -7577,6 +8095,180 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
 
 # ─── 启动 ───────────────────────────────────────────────
+# ═══════════════════════════════════════════════════
+# 每日记忆定时任务（二期新增）
+# ═══════════════════════════════════════════════════
+
+DAILY_JOB_HOUR = 3  # 每天凌晨 3 点执行
+
+
+def _next_daily_run_at(hour=DAILY_JOB_HOUR):
+    """计算下一次运行时间（本地时间）的 unix timestamp（秒）"""
+    now = datetime.now()
+    target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return int(target.timestamp())
+
+
+def _daily_memory_job_loop():
+    """守护线程：每天固定时间执行记忆候选生成与知识归纳"""
+    while True:
+        try:
+            next_run = _next_daily_run_at(DAILY_JOB_HOUR)
+            sleep_seconds = max(1, next_run - int(time.time()))
+            print(f'  [DailyJob] 下次执行时间: {datetime.fromtimestamp(next_run).isoformat()} (约 {sleep_seconds // 3600}h {sleep_seconds % 3600 // 60}m 后)', flush=True)
+            time.sleep(sleep_seconds)
+            _run_daily_memory_jobs(startup=False)
+        except Exception as e:
+            print(f'  [DailyJob] 循环异常: {e}', flush=True)
+            time.sleep(60)
+
+
+def _run_daily_memory_jobs(startup=False):
+    """遍历所有 agent，执行核心记忆候选生成和知识归纳"""
+    label = '启动补跑' if startup else '每日记忆任务'
+    print(f'  [DailyJob] 开始执行{label}...', flush=True)
+    agents = _load_agents()
+    if not agents:
+        print(f'  [DailyJob] 无 agent，跳过', flush=True)
+        return
+    processed = 0
+    for agent in agents:
+        try:
+            if not agent.get('apiKey', '').strip():
+                continue
+            emp_id = agent.get('id')
+            if not emp_id:
+                continue
+            _generate_core_candidates_for_agent(agent)
+            _induct_knowledge_for_agent(agent)
+            processed += 1
+        except Exception as e:
+            print(f'  [DailyJob] agent {agent.get("id")} 处理失败: {e}', flush=True)
+    print(f'  [DailyJob] {label}完成，共处理 {processed}/{len(agents)} 个 agent', flush=True)
+
+
+def _generate_core_candidates_for_agent(agent):
+    """为单个 agent 生成核心记忆候选"""
+    emp_id = agent.get('id')
+    data = ms3.load_memory(emp_id)
+    cutoff = int(time.time() * 1000) - 7 * 24 * 3600 * 1000
+    recent_dailies = [m for m in data.get('daily', []) if m.get('createdAt', 0) >= cutoff]
+    if len(recent_dailies) < 3:
+        return 0
+
+    lines = []
+    for m in recent_dailies:
+        lines.append(f"[{m.get('id')}] {m.get('value', '')}")
+    prompt = (
+        "以下是某 AI 员工近 7 天的日常记录，每条格式为 [记忆ID] 内容。\n"
+        "请判断哪些事实、偏好、习惯或特征是重要且稳定的，适合作为核心记忆长期保留。\n"
+        "返回 JSON 数组，每项包含：\n"
+        "- value: 核心记忆文本（简洁，50字以内）\n"
+        "- reason: 为什么它重要/稳定（50字以内）\n"
+        "- sourceIds: 支持该结论的原始记忆 ID 列表（从每条记录的 [] 中提取）\n"
+        "如果不足以生成候选，返回空数组 []。只输出 JSON 数组，不要解释。\n\n"
+        + '\n'.join(lines)
+    )
+    system_prompt = '你是一个记忆整理助手，专门从日常记录中提炼核心记忆。必须严格返回 JSON 数组。'
+    candidates = _call_ai_for_json(prompt, agent, system_prompt=system_prompt)
+    if not candidates:
+        return 0
+    valid = []
+    for c in candidates:
+        if not isinstance(c, dict):
+            continue
+        value = str(c.get('value', '')).strip()
+        if not value:
+            continue
+        source_ids = c.get('sourceIds', [])
+        if not isinstance(source_ids, list):
+            source_ids = []
+        valid.append({
+            'value': value,
+            'reason': str(c.get('reason', '')).strip(),
+            'sourceIds': source_ids
+        })
+    if not valid:
+        return 0
+    added = ms3.add_core_candidates(emp_id, valid)
+    print(f'  [DailyJob] {emp_id} 生成 {added} 条核心记忆候选', flush=True)
+    return added
+
+
+def _induct_knowledge_for_agent(agent):
+    """为单个 agent 执行知识归纳：活跃记忆 >=15 且存在未归纳记忆时触发"""
+    emp_id = agent.get('id')
+    data = ms3.load_memory(emp_id)
+    core_count = len(data.get('core', []))
+    daily_count = len(data.get('daily', []))
+    if core_count + daily_count < 15:
+        return 0
+
+    uninducted = ms3.get_uninducted_active_memories(emp_id)
+    if len(uninducted) < 15:
+        return 0
+
+    last_at = ms3.get_last_knowledge_induction_at(emp_id)
+    newly_uninducted = [(m, pool) for m, pool in uninducted if m.get('createdAt', 0) > last_at]
+    if len(newly_uninducted) < 15:
+        # 如果总数够但新增不够，说明已经归纳过，避免重复
+        return 0
+
+    lines = []
+    for m, pool in uninducted:
+        prefix = '【核心】' if pool == 'core' else '【日常】'
+        lines.append(f"{prefix} {m.get('value', '')}")
+    prompt = (
+        "以下是某 AI 员工的核心记忆和日常记录。请将其中重复、相关、可沉淀的信息整理成结构化知识文档，"
+        "存入全局知识库供所有人共享。\n"
+        "返回 JSON 数组，每项包含：\n"
+        "- title: 文档标题（简短）\n"
+        "- category: 文档分类（如 产品规范、工作流程、客户偏好、项目经验 等，请合理推断）\n"
+        "- content: 文档正文（Markdown 格式，结构化、去重、信息准确）\n"
+        "如果内容不足以生成有价值的文档，返回空数组 []。只输出 JSON 数组，不要解释。\n\n"
+        + '\n'.join(lines[:50])  # 限制输入长度，避免 prompt 过大
+    )
+    system_prompt = '你是一个知识库整理助手，负责将记忆沉淀为结构化的全局共享文档。必须严格返回 JSON 数组。'
+    docs = _call_ai_for_json(prompt, agent, system_prompt=system_prompt)
+    if not docs:
+        return 0
+
+    api_key = (agent.get('apiKey', '') or '').strip()
+    provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
+    created_count = 0
+    for d in docs:
+        if not isinstance(d, dict):
+            continue
+        title = str(d.get('title', '')).strip()
+        content = str(d.get('content', '')).strip()
+        if not title or not content:
+            continue
+        category = str(d.get('category', '')).strip()
+        try:
+            ks.knowledge_create(
+                title=title,
+                content=content,
+                category=category,
+                emp_id='',  # 全局公共
+                api_key=api_key,
+                provider=provider,
+                agent_config=agent,
+            )
+            created_count += 1
+        except Exception as e:
+            print(f'  [DailyJob] {emp_id} 知识文档创建失败: {e}', flush=True)
+
+    if created_count > 0:
+        # 标记所有本次参与归纳的源记忆为已归纳
+        source_ids = [m['id'] for m, _ in uninducted]
+        ms3.mark_memories_inducted(emp_id, source_ids)
+        ms3.set_last_knowledge_induction_at(emp_id)
+        print(f'  [DailyJob] {emp_id} 归纳 {created_count} 篇知识文档', flush=True)
+    return created_count
+
+
 def main():
     global PORT, BIND
     import argparse
@@ -7592,7 +8284,7 @@ def main():
 
     # Override data directory if specified
     if args.data:
-        global DATA_DIR, SECRET_FILE, USERS_FILE, AGENTS_FILE, GROUPS_FILE, CHATS_DIR, SETTINGS_FILE, TEAMS_FILE, MEMORY_DIR, DB_PATH
+        global DATA_DIR, SECRET_FILE, USERS_FILE, AGENTS_FILE, GROUPS_FILE, CHATS_DIR, SETTINGS_FILE, TEAMS_FILE, PERMISSIONS_FILE, MEMORY_DIR, DB_PATH
         DATA_DIR = os.path.abspath(args.data)
         SECRET_FILE = os.path.join(DATA_DIR, '.secret')
         USERS_FILE = os.path.join(DATA_DIR, 'users.json')
@@ -7601,6 +8293,7 @@ def main():
         CHATS_DIR = os.path.join(DATA_DIR, 'chats')
         SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
         TEAMS_FILE = os.path.join(DATA_DIR, 'teams.json')
+        PERMISSIONS_FILE = os.path.join(DATA_DIR, 'permissions.json')
         MEMORY_DIR = os.path.join(DATA_DIR, 'memory')
         DB_PATH = os.path.join(DATA_DIR, 'solobrave.db')
 
@@ -7651,6 +8344,17 @@ def main():
         print(f'  [CLAW] OpenClaw CLI: OK ({OPENCLAW_CLI})')
     else:
         print(f'  [CLAW] OpenClaw CLI: NOT FOUND ({OPENCLAW_CLI})')
+
+    # 启动每日记忆定时任务线程
+    threading.Thread(target=_daily_memory_job_loop, daemon=True).start()
+    print('  [DailyJob] 每日记忆任务调度线程已启动')
+
+    # 启动补跑：服务启动后 10 秒执行一次记忆候选生成与知识归纳
+    def _startup_memory_job():
+        time.sleep(10)
+        _run_daily_memory_jobs(startup=True)
+    threading.Thread(target=_startup_memory_job, daemon=True).start()
+    print('  [DailyJob] 启动补跑任务已调度（10 秒后执行）')
 
     # Allow port reuse to avoid "Address already in use"
     class ReuseHTTPServer(http.server.ThreadingHTTPServer):

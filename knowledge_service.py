@@ -553,7 +553,7 @@ def knowledge_get_by_id(kid):
         conn.close()
 
 
-def knowledge_list(offset=0, limit=50, category=None, keyword=None, emp_id=None):
+def knowledge_list(offset=0, limit=50, category=None, keyword=None, emp_id=None, allowed_categories=None):
     """知识列表（支持分页、分类筛选、关键词搜索；emp_id 为空时返回全局公共知识库）"""
     conn = _db_conn()
     try:
@@ -569,6 +569,14 @@ def knowledge_list(offset=0, limit=50, category=None, keyword=None, emp_id=None)
         if category:
             where.append('category = ?')
             params.append(category)
+        # 分类权限过滤（allowed_categories=None 表示不限制；['*'] 表示全部）
+        if allowed_categories is not None and '*' not in allowed_categories:
+            if allowed_categories:
+                placeholders = ', '.join('?' for _ in allowed_categories)
+                where.append(f'category IN ({placeholders})')
+                params.extend(allowed_categories)
+            else:
+                where.append('1 = 0')
         if keyword:
             where.append('(title LIKE ? OR content LIKE ?)')
             like = f'%{keyword}%'
@@ -672,7 +680,7 @@ def _rechunk_and_vectorize(kid, emp_id, content, api_key, provider,
 # RAG 检索
 # ═══════════════════════════════════════════════════
 
-def rag_retrieve(query, emp_id, api_key, provider, agent_config=None, top_k_docs=3):
+def rag_retrieve(query, emp_id, api_key, provider, agent_config=None, top_k_docs=3, allowed_categories=None):
     """
     RAG 检索：在 knowledge_chunks 中搜索，返回关联的原始文档。
     知识库已改为全局公共，emp_id 仅用于缓存 key 兼容。
@@ -694,26 +702,39 @@ def rag_retrieve(query, emp_id, api_key, provider, agent_config=None, top_k_docs
         if not query_emb:
             return {'docs': [], 'context': ''}
 
-        # 2. 语义搜索结果缓存
+        # 2. 语义搜索结果缓存（加入分类权限影响 key）
         query_hash = hashlib.md5(query.encode('utf-8')).hexdigest()
-        cache_key = _rag_cache_key(emp_id, query_hash, top_k_docs, embedding_model)
+        cats_hash = ''
+        if allowed_categories is not None:
+            cats_hash = hashlib.md5(json.dumps(allowed_categories, sort_keys=True).encode()).hexdigest()[:8]
+        cache_key = _rag_cache_key(emp_id, query_hash, top_k_docs, embedding_model + ':' + cats_hash)
         cached = _rag_cache_get(cache_key, ttl=300)
         if cached is not None:
             return cached
 
-        # 3. 在 chunks 中计算余弦相似度（带员工隔离 + 模型隔离）
+        # 3. 在 chunks 中计算余弦相似度（带员工隔离 + 模型隔离 + 分类权限）
         import struct
         q_vec = query_emb
 
+        where_clauses = ["k.status = 'ok'", "c.embedding_model = ?", "c.embedding IS NOT NULL"]
+        sql_params = [embedding_model]
+        if allowed_categories is not None and '*' not in allowed_categories:
+            if allowed_categories:
+                placeholders = ', '.join('?' for _ in allowed_categories)
+                where_clauses.append(f'k.category IN ({placeholders})')
+                sql_params.extend(allowed_categories)
+            else:
+                where_clauses.append('1 = 0')
+
         conn = _db_conn()
         try:
-            rows = conn.execute('''
+            rows = conn.execute(f'''
                 SELECT k.id, k.title, k.category, k.content, k.emp_id, k.status,
                        c.chunk_index, c.content as chunk_content, c.embedding
                 FROM knowledge_chunks c
                 JOIN knowledge k ON c.knowledge_id = k.id
-                WHERE k.status = 'ok' AND c.embedding_model = ? AND c.embedding IS NOT NULL
-            ''', (embedding_model,)).fetchall()
+                WHERE {' AND '.join(where_clauses)}
+            ''', tuple(sql_params)).fetchall()
         finally:
             conn.close()
 
@@ -812,13 +833,13 @@ def knowledge_search_fallback(query, emp_id=None, limit=3):
 # 语义搜索（供 MS3 和 API 使用）
 # ═══════════════════════════════════════════════════
 
-def knowledge_search_semantic(query, emp_id, api_key, provider, agent_config=None, limit=3):
+def knowledge_search_semantic(query, emp_id, api_key, provider, agent_config=None, limit=3, allowed_categories=None):
     """
     语义检索，带 fallback。
     供 MS3 inject_memories 和 API 搜索使用。
     """
     try:
-        result = rag_retrieve(query, emp_id, api_key, provider, agent_config, top_k_docs=limit)
+        result = rag_retrieve(query, emp_id, api_key, provider, agent_config, top_k_docs=limit, allowed_categories=allowed_categories)
         return result.get('docs', [])
     except Exception as e:
         print(f'  [KnowledgeSearch] semantic failed, fallback to keyword: {e}', flush=True)
