@@ -445,6 +445,35 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-radius: 999px;
   font-size: 12px;
 }
+.knowledge-mid-card-title-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.knowledge-mid-card-title-wrap .knowledge-mid-card-title { flex: 1; }
+.knowledge-mid-card-edit {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #86909c;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+.knowledge-mid-card:hover .knowledge-mid-card-edit { opacity: 1; }
+.knowledge-mid-card-edit:hover {
+  background: rgba(22, 93, 255, 0.08);
+  color: #165DFF;
+}
 .knowledge-mid-card-body {
   font-size: 12px;
   line-height: 1.6;
@@ -635,6 +664,96 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 12px;
   color: var(--text-tertiary);
 }
+
+/* 知识库编辑弹窗 */
+.knowledge-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.knowledge-modal-overlay.active { display: flex; }
+.knowledge-modal {
+  background: #ffffff;
+  border-radius: 12px;
+  width: 560px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+.knowledge-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border-bottom: 1px solid #E5E5EA;
+}
+.knowledge-modal-title { font-size: 16px; font-weight: 600; color: #1f2329; }
+.knowledge-modal-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 20px;
+  line-height: 1;
+  color: #86909c;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.knowledge-modal-close:hover { background: #F5F5F5; color: #1f2329; }
+.knowledge-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.knowledge-modal-field { display: flex; flex-direction: column; gap: 6px; }
+.knowledge-modal-field label { font-size: 13px; font-weight: 500; color: #1f2329; }
+.knowledge-modal-field input,
+.knowledge-modal-field textarea {
+  padding: 10px 12px;
+  border: 1px solid #E5E5EA;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1f2329;
+  background: #ffffff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+.knowledge-modal-field input:focus,
+.knowledge-modal-field textarea:focus {
+  border-color: #165DFF;
+  box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.08);
+}
+#knowledgeModalContent { min-height: 200px; resize: vertical; }
+.knowledge-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid #E5E5EA;
+}
+.knowledge-modal-footer button {
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: none;
+}
+.knowledge-modal-cancel { background: #F5F5F5; color: #86909c; }
+.knowledge-modal-cancel:hover { background: #E5E5EA; }
+.knowledge-modal-save { background: #165DFF; color: #ffffff; }
+.knowledge-modal-save:hover { background: #0f4fd8; }
 
 .messages-area {
   order: 1;
@@ -3513,6 +3632,35 @@ window.doLogin = function () {
       <button type="button" class="knowledge-editor-save" onclick="saveKnowledgeFromEditor()">保存</button>
     </div>
     <div id="knowledgeEditStatus"></div>
+  </div>
+</div>
+
+<!-- 知识库编辑弹窗 -->
+<div class="knowledge-modal-overlay" id="knowledgeModalOverlay" onclick="closeKnowledgeModal(event)">
+  <div class="knowledge-modal" onclick="event.stopPropagation()">
+    <div class="knowledge-modal-header">
+      <div class="knowledge-modal-title">编辑知识</div>
+      <button class="knowledge-modal-close" onclick="closeKnowledgeModal()">×</button>
+    </div>
+    <div class="knowledge-modal-body">
+      <div class="knowledge-modal-field">
+        <label>标题</label>
+        <input type="text" id="knowledgeModalTitle" placeholder="输入知识标题">
+      </div>
+      <div class="knowledge-modal-field">
+        <label>分类</label>
+        <input type="text" id="knowledgeModalCategory" list="knowledgeModalCategoryList" placeholder="选择或输入新分类">
+        <datalist id="knowledgeModalCategoryList"></datalist>
+      </div>
+      <div class="knowledge-modal-field">
+        <label>内容</label>
+        <textarea id="knowledgeModalContent" placeholder="输入知识内容..."></textarea>
+      </div>
+    </div>
+    <div class="knowledge-modal-footer">
+      <button type="button" class="knowledge-modal-cancel" onclick="closeKnowledgeModal()">取消</button>
+      <button type="button" class="knowledge-modal-save" onclick="saveKnowledgeFromModal()">保存</button>
+    </div>
   </div>
 </div>
 
@@ -17443,7 +17591,12 @@ function renderKnowledgeList(docs) {
     var isActive = d.id === _knowledgeCurrentId;
     var preview = getKnowledgePreview(d.content);
     html += '<div class="knowledge-mid-card' + (isActive ? ' active' : '') + '" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id).replace(/'/g, "\\'") + '\')">';
-    html += '<div class="knowledge-mid-card-header"><div class="knowledge-mid-card-title">' + escapeHtml(d.title || d.name || '未命名') + '</div><span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
+    html += '<div class="knowledge-mid-card-header">';
+    html += '<div class="knowledge-mid-card-title-wrap"><div class="knowledge-mid-card-title">' + escapeHtml(d.title || d.name || '未命名') + '</div>';
+    html += '<button class="knowledge-mid-card-edit" title="编辑" onclick="event.stopPropagation(); openKnowledgeModal(\'' + escapeAttr(d.id).replace(/'/g, "\\'") + '\')">';
+    html += '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    html += '</button></div>';
+    html += '<span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
     html += '<div class="knowledge-mid-card-body">' + escapeHtml(preview) + '</div>';
     html += '<div class="knowledge-mid-card-meta">' + formatDate(d.updatedAt) + '</div>';
     html += '</div>';
@@ -17596,6 +17749,64 @@ async function saveKnowledgeFromEditor() {
     console.warn('[KnowledgePage] 保存失败:', e);
   }
 }
+
+// ========== 知识库编辑弹窗 ==========
+var _knowledgeModalDocId = null;
+function openKnowledgeModal(docId) {
+  var doc = (_knowledgeData.docs || []).find(function(d) { return d.id === docId; });
+  if (!doc) return;
+  _knowledgeModalDocId = docId;
+  document.getElementById('knowledgeModalTitle').value = doc.title || doc.name || '';
+  document.getElementById('knowledgeModalContent').value = doc.content || '';
+  // 分类下拉选项：从现有分类来
+  var catInput = document.getElementById('knowledgeModalCategory');
+  var dataList = document.getElementById('knowledgeModalCategoryList');
+  var cats = (_knowledgeData.categories || []).slice();
+  if (doc.category && cats.indexOf(doc.category) === -1) {
+    cats.push(doc.category);
+  }
+  dataList.innerHTML = cats.map(function(cat) { return '<option value="' + escapeAttr(cat) + '">' + escapeHtml(cat) + '</option>'; }).join('');
+  catInput.value = doc.category || '';
+  document.getElementById('knowledgeModalOverlay').classList.add('active');
+}
+function closeKnowledgeModal(e) {
+  // 允许点击遮罩或关闭按钮；e 不存在时直接关闭
+  if (e && e.target !== e.currentTarget) return;
+  document.getElementById('knowledgeModalOverlay').classList.remove('active');
+  _knowledgeModalDocId = null;
+}
+async function saveKnowledgeFromModal() {
+  if (!_knowledgeModalDocId) return;
+  var title = document.getElementById('knowledgeModalTitle').value.trim();
+  var category = document.getElementById('knowledgeModalCategory').value.trim();
+  var content = document.getElementById('knowledgeModalContent').value.trim();
+  if (!title || !content) {
+    showToast('请填写标题和内容');
+    return;
+  }
+  var saveBtn = document.querySelector('.knowledge-modal-save');
+  var originalText = saveBtn.textContent;
+  saveBtn.textContent = '保存中...';
+  saveBtn.disabled = true;
+  try {
+    var body = { title: title, content: content, category: category };
+    var r = await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeModalDocId), {
+      method: 'PUT',
+      body: JSON.stringify(body)
+    });
+    await r.json();
+    showToast('✅ 已保存');
+    await loadKnowledgePage();
+    closeKnowledgeModal();
+  } catch (e) {
+    showToast('❌ 保存失败');
+    console.warn('[KnowledgePage] 弹窗保存失败:', e);
+  } finally {
+    saveBtn.textContent = originalText;
+    saveBtn.disabled = false;
+  }
+}
+
 async function deleteKnowledgeFromEditor() {
   if (!_knowledgeCurrentId) {
     showToast('请先选择要删除的知识');
