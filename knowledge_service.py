@@ -23,9 +23,90 @@ DB_PATH = None
 
 def set_data_dir(data_dir):
     """设置数据目录（由 solobrave-server.py 启动时调用）"""
-    global DATA_DIR, DB_PATH
+    global DATA_DIR, DB_PATH, SETTINGS_FILE, AGENTS_FILE
     DATA_DIR = data_dir
     DB_PATH = os.path.join(DATA_DIR, 'solobrave.db')
+    SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
+    AGENTS_FILE = os.path.join(DATA_DIR, 'agents.json')
+
+
+# 默认路径（未被 set_data_dir 设置时使用）
+DEFAULT_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+SETTINGS_FILE = os.path.join(DEFAULT_DATA_DIR, 'settings.json')
+AGENTS_FILE = os.path.join(DEFAULT_DATA_DIR, 'agents.json')
+
+
+# 环境变量覆盖（与 solobrave-server.py 保持一致）
+EMBEDDING_OVERRIDE_PROVIDER = os.environ.get('SOLOBRAVE_EMBEDDING_PROVIDER', '').strip()
+EMBEDDING_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_EMBEDDING_API_KEY', '').strip()
+
+
+def _read_json(filepath, default=None):
+    """读取 JSON 文件，失败返回 default"""
+    if not os.path.exists(filepath):
+        return default if default is not None else {}
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return default if default is not None else {}
+
+
+def _get_agent_by_id(emp_id):
+    """根据 emp_id 查找 agent 配置"""
+    if not emp_id or not AGENTS_FILE:
+        return None
+    agents = _read_json(AGENTS_FILE, [])
+    for a in agents:
+        if a.get('id') == emp_id:
+            return a
+    return None
+
+
+def get_embedding_config(emp_id=None):
+    """
+    获取 embedding 配置。
+    优先级：环境变量 > settings.json 全局配置 > 员工 aiProvider/apiKey。
+    返回: {'provider': str, 'apiKey': str, 'baseUrl': str, 'model': str}
+    """
+    settings = _read_json(SETTINGS_FILE, {})
+    emb_settings = settings.get('embedding', {}) or {}
+
+    provider = EMBEDDING_OVERRIDE_PROVIDER
+    api_key = EMBEDDING_OVERRIDE_API_KEY
+
+    if not provider:
+        provider = (emb_settings.get('provider') or settings.get('embeddingProvider', '')).strip()
+    if not api_key:
+        api_key = (emb_settings.get('apiKey') or settings.get('embeddingApiKey', '')).strip()
+
+    base_url = (emb_settings.get('baseUrl', '')).strip()
+    model = (emb_settings.get('model', '')).strip()
+
+    if emp_id:
+        agent = _get_agent_by_id(emp_id) or {}
+        if not provider:
+            provider = (agent.get('aiProvider', '') or agent.get('apiProvider', '')).strip()
+        if not api_key:
+            api_key = (agent.get('apiKey') or '').strip()
+        if not model:
+            model = (agent.get('embeddingModel') or '').strip()
+
+    provider = provider or 'openai'
+
+    provider_cfg = EMBEDDING_PROVIDERS.get(provider)
+    if provider_cfg:
+        if not base_url:
+            base_url = provider_cfg['url']
+        if not model:
+            model = provider_cfg['model']
+
+    return {
+        'provider': provider,
+        'apiKey': api_key,
+        'baseUrl': base_url,
+        'model': model,
+    }
 
 
 def _db_conn():
@@ -66,6 +147,10 @@ EMBEDDING_PROVIDERS = {
         'url': 'https://api.moonshot.cn/v1/embeddings',
         'model': 'moonshot-v3-embedding',
     },
+    'kimicode': {
+        'url': 'https://api.kimi.com/coding/v1/embeddings',
+        'model': 'kimi-for-coding',
+    },
     'zhipu': {
         'url': 'https://open.bigmodel.cn/api/paas/v4/embeddings',
         'model': 'embedding-2',
@@ -76,7 +161,7 @@ EMBEDDING_PROVIDERS = {
     },
     'siliconflow': {
         'url': 'https://api.siliconflow.cn/v1/embeddings',
-        'model': 'BAAI/bge-m3',
+        'model': 'BAAI/bge-large-zh-v1.5',
     },
 }
 
@@ -85,7 +170,7 @@ def _get_embedding_provider_cfg(provider):
     return EMBEDDING_PROVIDERS.get(provider, EMBEDDING_PROVIDERS['openai'])
 
 
-def get_embedding(text, api_key, provider='openai', model=None):
+def get_embedding(text, api_key, provider='openai', model=None, base_url=None):
     """调用 Embedding API 获取向量，纯 urllib 实现"""
     import ssl
     import urllib.request
@@ -94,6 +179,7 @@ def get_embedding(text, api_key, provider='openai', model=None):
     if not text or not text.strip() or not api_key:
         return None
     cfg = _get_embedding_provider_cfg(provider)
+    target_url = base_url or cfg['url']
     headers = {
         'Content-Type': 'application/json',
         'Authorization': f'Bearer {api_key}',
@@ -103,7 +189,7 @@ def get_embedding(text, api_key, provider='openai', model=None):
         'model': model or cfg['model'],
         'encoding_format': 'float',
     }).encode('utf-8')
-    req = urllib.request.Request(cfg['url'], data=body, headers=headers, method='POST')
+    req = urllib.request.Request(target_url, data=body, headers=headers, method='POST')
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
@@ -166,7 +252,7 @@ def _save_embedding_cache(content_hash, embedding_bytes, model):
         conn.close()
 
 
-def get_embedding_cached(text, api_key, provider, model=None):
+def get_embedding_cached(text, api_key, provider, model=None, base_url=None):
     """
     获取 embedding，带 MD5 缓存。
     返回 float list（非 bytes），维度由模型决定（当前约定 1536 维）。
@@ -184,7 +270,7 @@ def get_embedding_cached(text, api_key, provider, model=None):
         return list(struct.unpack(f'{len(cached_bytes)//4}f', cached_bytes))
 
     # 调用 API
-    emb = get_embedding(text, api_key, provider, model)
+    emb = get_embedding(text, api_key, provider, model=model, base_url=base_url)
     if emb:
         import struct
         emb_bytes = struct.pack(f'{len(emb)}f', *emb)
@@ -419,11 +505,11 @@ def _knowledge_row_to_dict(row):
     }
 
 
-def knowledge_create(title, content, category, emp_id, api_key, provider, agent_config=None):
+def knowledge_create(title, content, category, emp_id, api_key=None, provider='openai', agent_config=None, model=None, base_url=None):
     """
     创建知识条目，自动分段 + 向量化。
-    agent_config 用于读取 chunkSize / chunkOverlap / embeddingModel。
-    如果 api_key 为空，只保存数据不生成向量（status='pending'）。
+    优先使用全局 embedding 配置（通过 get_embedding_config），不再依赖传入的 api_key/provider。
+    如果全局未配置 api_key，只保存数据不生成向量（status='pending'）。
     emp_id 留空表示全局公共知识库。
     """
     kid = _gen_id('kb')
@@ -431,11 +517,16 @@ def knowledge_create(title, content, category, emp_id, api_key, provider, agent_
     # 全局知识库使用空字符串
     actual_emp_id = emp_id or ''
 
-    # agent 配置
+    # 使用全局 embedding 配置（不再依赖传入的 api_key/provider）
+    emb_cfg = get_embedding_config(emp_id or None)
+    api_key = emb_cfg['apiKey']
+    provider = emb_cfg['provider']
+
+    # agent 配置仅用于 chunkSize / chunkOverlap
     cfg = (agent_config or {}).get('knowledge', {})
     chunk_size = cfg.get('chunkSize', 500)
     overlap = cfg.get('chunkOverlap', 100)
-    embedding_model = cfg.get('embeddingModel', 'text-embedding-3-small')
+    embedding_model = emb_cfg['model']
 
     conn = _db_conn()
     try:
@@ -467,7 +558,7 @@ def knowledge_create(title, content, category, emp_id, api_key, provider, agent_
 
     # 向量化
     try:
-        _vectorize_chunks(kid, actual_emp_id, api_key, provider, embedding_model)
+        _vectorize_chunks(kid, actual_emp_id, api_key, provider, embedding_model, base_url=emb_cfg['baseUrl'])
         conn = _db_conn()
         try:
             conn.execute('UPDATE knowledge SET status="ok" WHERE id=?', (kid,))
@@ -515,8 +606,9 @@ def _save_knowledge_version(kid, created_by=None):
 
 
 def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
-                     api_key=None, provider='openai', agent_config=None, created_by=None):
-    """更新知识条目，内容变更时先保存历史版本，再重新分段+向量化"""
+                     api_key=None, provider='openai', agent_config=None, created_by=None,
+                     model=None, base_url=None):
+    """更新知识条目，内容变更时先保存历史版本，再重新分段+向量化；使用全局 embedding 配置"""
     conn = _db_conn()
     try:
         row = conn.execute('SELECT * FROM knowledge WHERE id = ?', (kid,)).fetchone()
@@ -550,18 +642,24 @@ def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
     # 内容变更时重新分段+向量化
     if content is not None:
         try:
+            actual_emp_id = emp_id or row['emp_id'] or ''
+
+            # 使用全局 embedding 配置（不再依赖传入的 api_key/provider）
+            emb_cfg = get_embedding_config(actual_emp_id or None)
+            api_key = emb_cfg['apiKey']
+            provider = emb_cfg['provider']
+
             cfg = (agent_config or {}).get('knowledge', {})
             chunk_size = cfg.get('chunkSize', 500)
             overlap = cfg.get('chunkOverlap', 100)
-            embedding_model = cfg.get('embeddingModel', 'text-embedding-3-small')
-            actual_emp_id = emp_id or row['emp_id'] or ''
+            embedding_model = emb_cfg['model']
 
             # 先分段（无论是否有 API key）
             _save_chunks_without_embedding(kid, actual_emp_id, content, chunk_size, overlap)
 
             # 有 API key 再向量化
             if api_key:
-                _vectorize_chunks(kid, actual_emp_id, api_key, provider, embedding_model)
+                _vectorize_chunks(kid, actual_emp_id, api_key, provider, embedding_model, base_url=emb_cfg['baseUrl'])
                 conn = _db_conn()
                 try:
                     conn.execute('UPDATE knowledge SET status="ok" WHERE id=?', (kid,))
@@ -648,11 +746,15 @@ def knowledge_get_version(kid, version):
         conn.close()
 
 
-def knowledge_rollback(kid, version, api_key=None, provider='openai', agent_config=None, created_by=None):
-    """回滚知识文档到指定历史版本"""
+def knowledge_rollback(kid, version, api_key=None, provider='openai', agent_config=None, created_by=None,
+                       model=None, base_url=None):
+    """回滚知识文档到指定历史版本；embedding 配置由 knowledge_update 内部获取"""
     target = knowledge_get_version(kid, version)
     if not target:
         return None
+    # 获取当前文档 emp_id，用于 embedding 配置查找
+    current = knowledge_get_by_id(kid)
+    emp_id = current.get('empId') if current else ''
     # 先保存当前版本
     _save_knowledge_version(kid, created_by=created_by)
     # 用历史内容更新主表
@@ -661,10 +763,13 @@ def knowledge_rollback(kid, version, api_key=None, provider='openai', agent_conf
         title=target['title'],
         content=target['content'],
         category=target['category'],
+        emp_id=emp_id,
         api_key=api_key,
         provider=provider,
         agent_config=agent_config,
-        created_by=created_by
+        created_by=created_by,
+        model=model,
+        base_url=base_url
     )
 
 
@@ -768,7 +873,7 @@ def _save_chunks_without_embedding(kid, emp_id, content, chunk_size, overlap):
         conn.close()
 
 
-def _vectorize_chunks(kid, emp_id, api_key, provider, embedding_model):
+def _vectorize_chunks(kid, emp_id, api_key, provider, embedding_model, base_url=None):
     """为已存在的 chunks 生成 embedding，并记录模型名"""
     import struct
     conn = _db_conn()
@@ -778,7 +883,7 @@ def _vectorize_chunks(kid, emp_id, api_key, provider, embedding_model):
             (kid,)
         ).fetchall()
         for row in rows:
-            emb = get_embedding_cached(row['content'], api_key, provider, embedding_model)
+            emb = get_embedding_cached(row['content'], api_key, provider, embedding_model, base_url=base_url)
             if emb is None:
                 raise RuntimeError(f'chunk {row["chunk_index"]} embedding failed')
             emb_bytes = struct.pack(f'{len(emb)}f', *emb)
@@ -792,38 +897,44 @@ def _vectorize_chunks(kid, emp_id, api_key, provider, embedding_model):
 
 
 def _rechunk_and_vectorize(kid, emp_id, content, api_key, provider,
-                           embedding_model, chunk_size, overlap):
+                           embedding_model, chunk_size, overlap, base_url=None):
     """
     删除旧 chunks，重新分段并生成 embedding。
     失败时抛出异常，但旧 chunks 已被删除。
     """
     _save_chunks_without_embedding(kid, emp_id, content, chunk_size, overlap)
-    _vectorize_chunks(kid, emp_id, api_key, provider, embedding_model)
+    _vectorize_chunks(kid, emp_id, api_key, provider, embedding_model, base_url=base_url)
 
 
 # ═══════════════════════════════════════════════════
 # RAG 检索
 # ═══════════════════════════════════════════════════
 
-def rag_retrieve(query, emp_id, api_key, provider, agent_config=None, top_k_docs=3, allowed_categories=None):
+def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=None, top_k_docs=3, allowed_categories=None,
+                 model=None, base_url=None):
     """
     RAG 检索：在 knowledge_chunks 中搜索，返回关联的原始文档。
-    知识库已改为全局公共，emp_id 仅用于缓存 key 兼容。
+    知识库已改为全局公共，emp_id 仅用于缓存 key 兼容；使用全局 embedding 配置，不再依赖传入的 api_key/provider。
     整个函数被 try-catch 保护，出错时降级返回空结果，避免拖垮主流程。
     """
     try:
         if isinstance(query, list):
             text_parts = [item.get('text', '') for item in query if isinstance(item, dict) and item.get('type') == 'text']
             query = ''.join(text_parts)
-        if not query or not query.strip() or not api_key:
+        if not query or not query.strip():
             return {'docs': [], 'context': ''}
 
-        cfg = (agent_config or {}).get('knowledge', {})
-        provider_cfg = EMBEDDING_PROVIDERS.get(provider, EMBEDDING_PROVIDERS['openai'])
-        embedding_model = cfg.get('embeddingModel', provider_cfg['model'])
+        # 使用全局 embedding 配置
+        emb_cfg = get_embedding_config(emp_id or None)
+        api_key = emb_cfg['apiKey']
+        provider = emb_cfg['provider']
+        embedding_model = emb_cfg['model']
+        base_url = emb_cfg['baseUrl']
+        if not api_key:
+            return {'docs': [], 'context': ''}
 
         # 1. 获取 query embedding
-        query_emb = get_embedding_cached(query, api_key, provider, embedding_model)
+        query_emb = get_embedding_cached(query, api_key, provider, embedding_model, base_url=base_url)
         if not query_emb:
             return {'docs': [], 'context': ''}
 
@@ -958,13 +1069,18 @@ def knowledge_search_fallback(query, emp_id=None, limit=3):
 # 语义搜索（供 MS3 和 API 使用）
 # ═══════════════════════════════════════════════════
 
-def knowledge_search_semantic(query, emp_id, api_key, provider, agent_config=None, limit=3, allowed_categories=None):
+def knowledge_search_semantic(query, emp_id, api_key=None, provider='openai', agent_config=None, limit=3, allowed_categories=None,
+                              model=None, base_url=None):
     """
-    语义检索，带 fallback。
+    语义检索，带 fallback；使用全局 embedding 配置，不再依赖传入的 api_key/provider。
     供 MS3 inject_memories 和 API 搜索使用。
     """
     try:
-        result = rag_retrieve(query, emp_id, api_key, provider, agent_config, top_k_docs=limit, allowed_categories=allowed_categories)
+        # 使用全局 embedding 配置
+        emb_cfg = get_embedding_config(emp_id or None)
+        result = rag_retrieve(query, emp_id, emb_cfg['apiKey'], emb_cfg['provider'], agent_config,
+                              top_k_docs=limit, allowed_categories=allowed_categories,
+                              model=emb_cfg['model'], base_url=emb_cfg['baseUrl'])
         return result.get('docs', [])
     except Exception as e:
         print(f'  [KnowledgeSearch] semantic failed, fallback to keyword: {e}', flush=True)

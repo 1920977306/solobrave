@@ -109,6 +109,11 @@ EMBEDDING_PROVIDERS = {
         'model': 'moonshot-v3-embedding',
         'dim': 1536,
     },
+    'kimicode': {
+        'url': 'https://api.kimi.com/coding/v1/embeddings',
+        'model': 'kimi-for-coding',
+        'dim': 1536,
+    },
     'zhipu': {
         'url': 'https://open.bigmodel.cn/api/paas/v4/embeddings',
         'model': 'embedding-2',
@@ -121,7 +126,7 @@ EMBEDDING_PROVIDERS = {
     },
     'siliconflow': {
         'url': 'https://api.siliconflow.cn/v1/embeddings',
-        'model': 'BAAI/bge-m3',
+        'model': 'BAAI/bge-large-zh-v1.5',
         'dim': 1024,
     },
 }
@@ -132,12 +137,82 @@ EMBEDDING_OVERRIDE_PROVIDER = os.environ.get('SOLOBRAVE_EMBEDDING_PROVIDER', '')
 EMBEDDING_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_EMBEDDING_API_KEY', '').strip()
 
 
+# 知识归纳模拟模式开关：无真实 API Key 时返回示例知识文档，便于测试/演示
+# 优先级：环境变量 > settings.json
+SOLOBRAVE_KNOWLEDGE_MOCK_MODE = os.environ.get('SOLOBRAVE_KNOWLEDGE_MOCK_MODE', '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def get_embedding_config(emp_id=None):
+    """
+    获取全局 embedding 配置。
+    优先级：环境变量 > settings.json 中的 embedding 配置 > 员工自身 AI 配置。
+    返回: {'provider': str, 'apiKey': str, 'baseUrl': str, 'model': str}
+    """
+    settings = _read_json(SETTINGS_FILE, {})
+    emb_settings = settings.get('embedding', {}) or {}
+
+    # 环境变量最高优先级
+    provider = EMBEDDING_OVERRIDE_PROVIDER
+    api_key = EMBEDDING_OVERRIDE_API_KEY
+
+    # settings.json 中的 embedding 配置（新嵌套格式优先，兼容旧平铺格式）
+    if not provider:
+        provider = (emb_settings.get('provider') or settings.get('embeddingProvider', '')).strip()
+    if not api_key:
+        api_key = (emb_settings.get('apiKey') or settings.get('embeddingApiKey', '')).strip()
+
+    base_url = (emb_settings.get('baseUrl', '')).strip()
+    model = (emb_settings.get('model', '')).strip()
+
+    # 全局未配置时 fallback 到员工的 aiProvider / apiKey
+    if emp_id:
+        agent = _get_agent_by_id(emp_id) or {}
+        if not provider:
+            provider = (agent.get('aiProvider', '') or agent.get('apiProvider', '')).strip()
+        if not api_key:
+            api_key = (agent.get('apiKey') or '').strip()
+        if not model:
+            model = (agent.get('embeddingModel') or '').strip()
+
+    provider = provider or 'openai'
+
+    # 未指定 baseUrl / model 时，从 EMBEDDING_PROVIDERS 补全
+    provider_cfg = EMBEDDING_PROVIDERS.get(provider)
+    if provider_cfg:
+        if not base_url:
+            base_url = provider_cfg['url']
+        if not model:
+            model = provider_cfg['model']
+
+    return {
+        'provider': provider,
+        'apiKey': api_key,
+        'baseUrl': base_url,
+        'model': model,
+    }
+
+
 def _get_embedding_override():
     """获取全局 embedding 覆盖配置，返回 (provider, api_key) 或 ('', '')"""
+    cfg = get_embedding_config()
+    return cfg['provider'], cfg['apiKey']
+
+
+def _get_embedding_config_for_user():
+    """
+    获取当前用户的全局 embedding 配置。
+    不关联任何员工，直接返回 settings.json / 环境变量中的全局配置。
+    """
+    return get_embedding_config()
+
+
+def _get_knowledge_mock_mode():
+    """是否开启知识归纳模拟模式"""
+    if SOLOBRAVE_KNOWLEDGE_MOCK_MODE:
+        return True
     settings = _read_json(SETTINGS_FILE, {})
-    provider = EMBEDDING_OVERRIDE_PROVIDER or settings.get('embeddingProvider', '')
-    api_key = EMBEDDING_OVERRIDE_API_KEY or settings.get('embeddingApiKey', '').strip()
-    return provider, api_key
+    value = settings.get('knowledgeMockMode', False)
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
 
 # ═══════════════════════════════════════════════════
 # 记忆系统 v2 配置（三层大脑架构）
@@ -1005,21 +1080,23 @@ def _require_admin(auth):
 # Embedding / RAG 向量检索（纯 Python 标准库实现）
 # ═══════════════════════════════════════════════════
 
-def get_embedding(text, api_key, provider='openai'):
+def get_embedding(text, api_key, provider='openai', model=None, base_url=None):
     """调用 Embedding API 获取向量，纯 urllib 实现"""
     if not text or not text.strip():
         return None
     cfg = EMBEDDING_PROVIDERS.get(provider, EMBEDDING_PROVIDERS['openai'])
+    target_url = base_url or cfg['url']
+    target_model = model or cfg['model']
     headers = {
         'Content-Type': 'application/json',
         'Authorization': f'Bearer {api_key}',
     }
     body = json.dumps({
         'input': text[:8000],  # 限制长度，避免超长
-        'model': cfg['model'],
+        'model': target_model,
         'encoding_format': 'float',
     }).encode('utf-8')
-    req = urllib.request.Request(cfg['url'], data=body, headers=headers, method='POST')
+    req = urllib.request.Request(target_url, data=body, headers=headers, method='POST')
     # 创建 SSL context，忽略证书验证（避免部分环境的证书问题）
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False
@@ -1102,7 +1179,7 @@ def build_entity_text(entity_type, entity):
     return ''
 
 
-def ensure_embedding(entity_type, entity, api_key, provider='openai'):
+def ensure_embedding(entity_type, entity, api_key, provider='openai', model=None, base_url=None):
     """确保 entity 的 embedding 已生成，没有则实时生成"""
     entity_id = entity.get('id')
     if not entity_id:
@@ -1114,7 +1191,7 @@ def ensure_embedding(entity_type, entity, api_key, provider='openai'):
     if not text.strip():
         return None
     try:
-        emb = get_embedding(text, api_key, provider)
+        emb = get_embedding(text, api_key, provider, model=model, base_url=base_url)
         if emb:
             save_embedding(entity_type, entity_id, emb)
         return emb
@@ -1123,8 +1200,18 @@ def ensure_embedding(entity_type, entity, api_key, provider='openai'):
         return None
 
 
-def build_all_embeddings(api_key, provider='openai'):
-    """批量构建所有知识库文档和产品的 embedding"""
+def build_all_embeddings(api_key=None, provider='openai', model=None, base_url=None):
+    """批量构建所有知识库文档和产品的 embedding；使用全局 embedding 配置，不再依赖传入参数"""
+    # 使用全局 embedding 配置
+    emb_cfg = get_embedding_config()
+    api_key = emb_cfg['apiKey']
+    provider = emb_cfg['provider']
+    model = emb_cfg['model']
+    base_url = emb_cfg['baseUrl']
+    if not api_key:
+        print(f'  [Embedding] 全局未配置 API key，跳过批量构建', flush=True)
+        return
+
     os.makedirs(EMBEDDING_DIR, exist_ok=True)
     # 知识库文档（从 SQLite 读取，更新 embedding 列）
     conn = _db_conn()
@@ -1132,7 +1219,7 @@ def build_all_embeddings(api_key, provider='openai'):
         rows = conn.execute('SELECT * FROM knowledge').fetchall()
         for row in rows:
             doc = _knowledge_row_to_dict(row)
-            emb = ensure_embedding('doc', doc, api_key, provider)
+            emb = ensure_embedding('doc', doc, api_key, provider, model=model, base_url=base_url)
             if emb:
                 conn.execute('UPDATE knowledge SET embedding = ? WHERE id = ?',
                              (json.dumps(emb), row['id']))
@@ -1142,17 +1229,17 @@ def build_all_embeddings(api_key, provider='openai'):
     # 产品
     prod_data = _read_json(os.path.join(PRODUCT_DIR, 'index.json'), {'products': []})
     for product in prod_data.get('products', []):
-        ensure_embedding('product', product, api_key, provider)
+        ensure_embedding('product', product, api_key, provider, model=model, base_url=base_url)
     print(f'  [Embedding] 批量构建完成', flush=True)
 
 
-def rag_retrieve(query, api_key, provider='openai', top_k_docs=3, top_k_products=3):
+def rag_retrieve(query, api_key, provider='openai', top_k_docs=3, top_k_products=3, model=None, base_url=None):
     """RAG 检索：基于向量相似度返回相关知识库文档和产品"""
     if not query or not query.strip() or not api_key:
         return {'docs': [], 'products': [], 'context': ''}
 
     # 1. 获取 query 的 embedding
-    query_emb = get_embedding(query, api_key, provider)
+    query_emb = get_embedding(query, api_key, provider, model=model, base_url=base_url)
     if not query_emb:
         return {'docs': [], 'products': [], 'context': ''}
 
@@ -1276,7 +1363,7 @@ def _knowledge_row_to_dict(row):
     }
 
 
-def knowledge_create(title, content, category='', embedding=None, api_key=None, provider='openai'):
+def knowledge_create(title, content, category='', embedding=None, api_key=None, provider='openai', model=None, base_url=None):
     """创建知识条目，自动生成 embedding"""
     kid = 'kb_' + uuid.uuid4().hex[:8]
     now = int(time.time() * 1000)
@@ -1287,7 +1374,7 @@ def knowledge_create(title, content, category='', embedding=None, api_key=None, 
             text = f'{title}\n{content}'
             if category:
                 text = f'分类: {category}\n' + text
-            emb = get_embedding(text[:8000], api_key, provider)
+            emb = get_embedding(text[:8000], api_key, provider, model=model, base_url=base_url)
             embedding = json.dumps(emb) if emb else None
         except Exception as e:
             print(f'  [Knowledge] embedding 生成失败: {e}', flush=True)
@@ -1365,7 +1452,7 @@ def knowledge_list(offset=0, limit=50, category=None, keyword=None):
         conn.close()
 
 
-def knowledge_update(kid, title=None, content=None, category=None, embedding=None, api_key=None, provider='openai'):
+def knowledge_update(kid, title=None, content=None, category=None, embedding=None, api_key=None, provider='openai', model=None, base_url=None):
     """更新知识条目，内容变更时自动更新 embedding"""
     conn = _db_conn()
     try:
@@ -1390,7 +1477,7 @@ def knowledge_update(kid, title=None, content=None, category=None, embedding=Non
                 text = f'{new_title}\n{new_content}'
                 if new_cat:
                     text = f'分类: {new_cat}\n' + text
-                emb = get_embedding(text[:8000], api_key, provider)
+                emb = get_embedding(text[:8000], api_key, provider, model=model, base_url=base_url)
                 if emb:
                     updates['embedding'] = json.dumps(emb)
             except Exception as e:
@@ -1425,13 +1512,13 @@ def knowledge_delete(kid):
         conn.close()
 
 
-def knowledge_search_semantic(query, api_key, provider='openai', limit=3):
+def knowledge_search_semantic(query, api_key, provider='openai', limit=3, model=None, base_url=None):
     """语义检索：用 embedding 向量相似度返回最相关的知识"""
     if not query or not query.strip() or not api_key:
         return []
 
     # 1. 获取 query 的 embedding
-    query_emb = get_embedding(query, api_key, provider)
+    query_emb = get_embedding(query, api_key, provider, model=model, base_url=base_url)
     if not query_emb:
         return []
 
@@ -1675,6 +1762,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/permissions/modules':
             self._handle_get_permission_modules()
+            return
+
+        # Settings API
+        if path == '/api/settings':
+            self._handle_get_settings()
             return
 
         # Knowledge API
@@ -2123,6 +2215,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_update_user_permissions(user_id)
                 return
 
+        # Settings API
+        if path == '/api/settings':
+            self._handle_put_settings()
+            return
+
         # Knowledge API
         if path.startswith('/api/knowledge/'):
             doc_id = path[len('/api/knowledge/'):]
@@ -2473,6 +2570,62 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         self._send_json(200, {'modules': AVAILABLE_MODULES})
+
+    def _handle_get_settings(self):
+        """GET /api/settings — 读取全局设置（含 embedding 配置）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'settings'):
+            return
+        settings = _read_json(SETTINGS_FILE, {})
+        # 统一返回 embedding 嵌套结构（兼容旧平铺字段）
+        emb = settings.get('embedding', {}) or {}
+        if not emb.get('provider') and settings.get('embeddingProvider'):
+            emb['provider'] = settings['embeddingProvider']
+        if not emb.get('apiKey') and settings.get('embeddingApiKey'):
+            emb['apiKey'] = settings['embeddingApiKey']
+        settings['embedding'] = emb
+        self._send_json(200, settings)
+
+    def _handle_put_settings(self):
+        """PUT /api/settings — 更新全局设置（含 embedding 配置）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'settings'):
+            return
+        body = self._read_body()
+        if not body or not isinstance(body, dict):
+            self._send_json_error(400, 'Invalid body')
+            return
+        settings = _read_json(SETTINGS_FILE, {})
+
+        # 仅允许更新白名单内的顶层字段，避免污染
+        allowed_top_keys = {'embedding', 'knowledgeMockMode', 'embeddingProvider', 'embeddingApiKey'}
+        for key in allowed_top_keys:
+            if key in body:
+                settings[key] = body[key]
+
+        # 同步兼容：embedding 嵌套结构与旧平铺字段保持一致
+        emb = settings.get('embedding', {}) or {}
+        if 'embeddingProvider' in body:
+            emb['provider'] = body['embeddingProvider']
+        if 'embeddingApiKey' in body:
+            emb['apiKey'] = body['embeddingApiKey']
+        if 'embedding' in body:
+            if body['embedding']:
+                settings['embeddingProvider'] = body['embedding'].get('provider', '')
+                settings['embeddingApiKey'] = body['embedding'].get('apiKey', '')
+            else:
+                settings.pop('embeddingProvider', None)
+                settings.pop('embeddingApiKey', None)
+        settings['embedding'] = emb
+
+        _write_json(SETTINGS_FILE, settings)
+        self._send_json(200, settings)
 
     def _handle_update_role_permissions(self, role_id):
         """PUT /api/permissions/roles/{roleId}"""
@@ -3791,6 +3944,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         content = msg.get('content', '')
         if content:
             memory_value = f"【群聊】{msg.get('senderName', 'AI')}说：{content[:500]}"
+            # 群聊去重使用全局配置或当前用户 agent key
+            chat_emb_cfg = _get_embedding_config_for_user()
             # 1) 项目组公共记忆（原始消息作为日常记录）
             try:
                 ms3.add_group_memory(
@@ -3798,7 +3953,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     value=memory_value,
                     key='daily',
                     source='群聊对话',
-                    context=content[:500]
+                    context=content[:500],
+                    api_key=chat_emb_cfg['apiKey'],
+                    provider=chat_emb_cfg['provider'],
+                    model=chat_emb_cfg['model'],
+                    base_url=chat_emb_cfg['baseUrl']
                 )
                 print(f'  [GroupMemory] group_{group_id} 群聊消息已保存到项目组公共记忆', flush=True)
             except Exception as e:
@@ -3807,12 +3966,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 2) 发送者 AI 的个人记忆
             if sender_type == 'agent' and sender_id:
                 try:
+                    sender_cfg = get_embedding_config(sender_id)
                     ms3.add_memory(
                         sender_id,
                         value=memory_value,
                         key='daily',
                         tags=['group_chat'],
-                        source='群聊对话'
+                        source='群聊对话',
+                        api_key=sender_cfg['apiKey'] or chat_emb_cfg['apiKey'],
+                        provider=sender_cfg['provider'] or chat_emb_cfg['provider'],
+                        model=sender_cfg['model'] or chat_emb_cfg['model'],
+                        base_url=sender_cfg['baseUrl'] or chat_emb_cfg['baseUrl']
                     )
                     print(f'  [GroupMemory] {sender_id} (AI) 群聊消息已保存到 daily 记忆', flush=True)
                 except Exception as e:
@@ -3831,12 +3995,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if mid == sender_id and sender_type == 'agent':
                     continue  # 发送者已在上面保存
                 try:
+                    member_cfg = get_embedding_config(mid)
                     ms3.add_memory(
                         mid,
                         value=memory_value,
                         key='daily',
                         tags=['group_chat', 'context'],
-                        source='群聊对话'
+                        source='群聊对话',
+                        api_key=member_cfg['apiKey'] or chat_emb_cfg['apiKey'],
+                        provider=member_cfg['provider'] or chat_emb_cfg['provider'],
+                        model=member_cfg['model'] or chat_emb_cfg['model'],
+                        base_url=member_cfg['baseUrl'] or chat_emb_cfg['baseUrl']
                     )
                     print(f'  [GroupMemory] {mid} 群聊上下文已保存到 daily 记忆', flush=True)
                 except Exception as e:
@@ -3965,15 +4134,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         key = body.get('type') or body.get('key', 'auto')
 
-        # 去重需要调用 Embedding API，使用当前用户任意一个 agent 的 key（group 本身不绑定 key）
-        agents = _load_agents()
-        api_key = ''
-        provider = 'openai'
-        for a in agents:
-            if a.get('createdBy') == auth.user_info.get('userId') and a.get('apiKey', '').strip():
-                api_key = a.get('apiKey', '').strip()
-                provider = a.get('aiProvider', '') or a.get('apiProvider', '') or 'openai'
-                break
+        # 去重需要调用 Embedding API，使用全局配置或当前用户任意一个 agent 的 key
+        emb_cfg = _get_embedding_config_for_user()
 
         try:
             memory = ms3.add_group_memory(
@@ -3981,8 +4143,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 key=key,
                 source=body.get('source', 'user_input'),
                 context=body.get('context', ''),
-                api_key=api_key,
-                provider=provider
+                api_key=emb_cfg['apiKey'],
+                provider=emb_cfg['provider'],
+                model=emb_cfg['model'],
+                base_url=emb_cfg['baseUrl']
             )
             self._send_json(200, {
                 'id': memory['id'],
@@ -4027,18 +4191,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if 'context' in body:
             updates['context'] = body['context']
 
-        # 去重需要 Embedding API，使用当前用户任意一个 agent 的 key
-        agents = _load_agents()
-        api_key = ''
-        provider = 'openai'
-        for a in agents:
-            if a.get('createdBy') == auth.user_info.get('userId') and a.get('apiKey', '').strip():
-                api_key = a.get('apiKey', '').strip()
-                provider = a.get('aiProvider', '') or a.get('apiProvider', '') or 'openai'
-                break
+        # 去重需要 Embedding API，使用全局配置或当前用户任意一个 agent 的 key
+        emb_cfg = _get_embedding_config_for_user()
 
         try:
-            updated = ms3.update_group_memory(group_id, mem_id, updates, api_key=api_key, provider=provider)
+            updated = ms3.update_group_memory(
+                group_id, mem_id, updates,
+                api_key=emb_cfg['apiKey'],
+                provider=emb_cfg['provider'],
+                model=emb_cfg['model'],
+                base_url=emb_cfg['baseUrl']
+            )
         except RuntimeError as e:
             self._send_json(409, {'error': str(e)})
             return
@@ -5181,10 +5344,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             tags = []
         tags = [str(t).strip() for t in tags if str(t).strip()][:10]  # 最多 10 个标签
 
-        # 去重需要调用 Embedding API，优先使用该 agent 自身的 API key
+        # 去重需要调用 Embedding API，优先使用全局配置，否则 fallback 到该 agent 自身 key
         agent = _get_agent_by_id(emp_id) or {}
-        api_key = (agent.get('apiKey') or '').strip()
-        provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
+        emb_cfg = get_embedding_config((agent or {}).get('id'))
 
         try:
             memory = ms3.add_memory(
@@ -5193,8 +5355,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 context=body.get('context', ''),
                 priority=priority,
                 tags=tags if tags else None,
-                api_key=api_key,
-                provider=provider
+                api_key=emb_cfg['apiKey'],
+                provider=emb_cfg['provider'],
+                model=emb_cfg['model'],
+                base_url=emb_cfg['baseUrl']
             )
         except RuntimeError as e:
             self._send_json(409, {
@@ -5282,13 +5446,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if 'context' in body:
             updates['context'] = body['context']
 
-        # 去重需要调用 Embedding API
+        # 去重需要调用 Embedding API，优先使用全局配置，否则 fallback 到该 agent 自身 key
         agent = _get_agent_by_id(emp_id) or {}
-        api_key = (agent.get('apiKey') or '').strip()
-        provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
+        emb_cfg = get_embedding_config((agent or {}).get('id'))
 
         try:
-            updated = ms3.update_memory(emp_id, memory_id, updates, api_key=api_key, provider=provider)
+            updated = ms3.update_memory(
+                emp_id, memory_id, updates,
+                api_key=emb_cfg['apiKey'],
+                provider=emb_cfg['provider'],
+                model=emb_cfg['model'],
+                base_url=emb_cfg['baseUrl']
+            )
         except RuntimeError as e:
             self._send_json(409, {'error': str(e)})
             return
@@ -5424,13 +5593,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Candidate not found')
             return
         try:
+            confirm_cfg = get_embedding_config(emp_id)
             new_mem = ms3.add_memory(
                 emp_id,
                 value=cand['value'],
                 key='core',
                 source='candidate',
                 priority=8,
-                tags=['AI提炼']
+                tags=['AI提炼'],
+                api_key=confirm_cfg['apiKey'],
+                provider=confirm_cfg['provider'],
+                model=confirm_cfg['model'],
+                base_url=confirm_cfg['baseUrl']
             )
             # 归档源 daily 记忆
             ms3.archive_source_memories_as_promoted(emp_id, cand.get('sourceIds', []))
@@ -5554,9 +5728,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not agent:
             self._send_json(404, {'error': 'Agent not found'})
             return
-        api_key = (agent.get('apiKey') or '').strip()
-        provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
-        if not api_key:
+        emb_cfg = get_embedding_config((agent or {}).get('id'))
+        if not emb_cfg['apiKey']:
             self._send_json_error(400, 'Agent has no API key, cannot detect conflicts')
             return
 
@@ -5564,7 +5737,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return _call_ai_for_json(prompt, agent, system_prompt=system_prompt)
 
         try:
-            detected = ms3.detect_core_memory_conflicts(emp_id, api_key, provider, _ai_resolve)
+            detected = ms3.detect_core_memory_conflicts(emp_id, emb_cfg['apiKey'], emb_cfg['provider'], _ai_resolve)
             self._send_json(200, {'success': True, 'empId': emp_id, 'detected': detected})
         except Exception as e:
             print(f'  [DetectConflicts] failed: {e}', flush=True)
@@ -5678,23 +5851,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('Permission denied', 403)
             return
 
-        # 获取 API key 和 provider（全局知识库使用当前用户 agent 配置，支持全局 embedding 覆盖配置）
-        override_provider, override_key = _get_embedding_override()
-        api_key = None
-        provider = 'openai'
-        agent_config = None
+        # 获取 API key 和 provider（全局知识库使用当前用户 agent 配置，支持全局 embedding 配置）
         agent = _get_agent_by_id(target_emp_id or auth.user_id)
-        if agent:
-            api_key = override_key or (agent.get('apiKey') or '').strip()
-            provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
-            agent_config = agent
+        emb_cfg = get_embedding_config((agent or {}).get('id'))
+        api_key = emb_cfg['apiKey']
+        provider = emb_cfg['provider']
         if not api_key:
             self._send_json_error(400, 'No API key available. Please configure AI provider.')
             return
+        agent_config = dict(agent) if agent else None
+        if agent_config and emb_cfg.get('model'):
+            agent_config['embeddingModel'] = emb_cfg['model']
 
         try:
             allowed_cats = _allowed_knowledge_categories(auth)
-            docs = ks.knowledge_search_semantic(query, target_emp_id, api_key, provider, agent_config, limit, allowed_categories=allowed_cats)
+            docs = ks.knowledge_search_semantic(
+                query, target_emp_id, api_key, provider, agent_config,
+                limit, allowed_categories=allowed_cats,
+                model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl')
+            )
             self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
         except Exception as e:
             print(f'  [KnowledgeSearch] failed: {e}', flush=True)
@@ -5724,16 +5899,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('No permission for this knowledge category', 403)
             return
 
-        # 获取 API key 和 agent 配置（支持全局 embedding 覆盖配置）
-        override_provider, override_key = _get_embedding_override()
-        api_key = None
-        provider = 'openai'
-        agent_config = None
+        # 获取 API key 和 agent 配置（支持全局 embedding 配置）
         agent = _get_agent_by_id(auth.user_id)
-        if agent:
-            api_key = override_key or (agent.get('apiKey') or '').strip()
-            provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
-            agent_config = agent
+        emb_cfg = get_embedding_config((agent or {}).get('id'))
+        api_key = emb_cfg['apiKey']
+        provider = emb_cfg['provider']
+        agent_config = dict(agent) if agent else None
+        if agent_config and emb_cfg.get('model'):
+            agent_config['embeddingModel'] = emb_cfg['model']
 
         try:
             doc = ks.knowledge_create(
@@ -5744,6 +5917,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 api_key=api_key,
                 provider=provider,
                 agent_config=agent_config,
+                model=emb_cfg.get('model'),
+                base_url=emb_cfg.get('baseUrl'),
             )
             self._send_json(200, doc)
         except Exception as e:
@@ -5779,17 +5954,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('No permission for target knowledge category', 403)
             return
 
-        # 获取 API key 和 agent 配置（支持全局 embedding 覆盖配置）
-        override_provider, override_key = _get_embedding_override()
-        api_key = None
-        provider = 'openai'
-        agent_config = None
+        # 获取 API key 和 agent 配置（支持全局 embedding 配置）
         emp_id = doc.get('empId') or ''
         agent = _get_agent_by_id(auth.user_id)
-        if agent:
-            api_key = override_key or (agent.get('apiKey') or '').strip()
-            provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
-            agent_config = agent
+        emb_cfg = get_embedding_config((agent or {}).get('id'))
+        api_key = emb_cfg['apiKey']
+        provider = emb_cfg['provider']
+        agent_config = dict(agent) if agent else None
+        if agent_config and emb_cfg.get('model'):
+            agent_config['embeddingModel'] = emb_cfg['model']
 
         # 兼容旧前端：name 字段映射为 title
         title = body.get('title') or body.get('name')
@@ -5804,6 +5977,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 provider=provider,
                 agent_config=agent_config,
                 created_by=auth.user_id,
+                model=emb_cfg.get('model'),
+                base_url=emb_cfg.get('baseUrl'),
             )
             self._send_json(200, updated)
         except Exception as e:
@@ -5899,15 +6074,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Invalid version')
             return
 
-        override_provider, override_key = _get_embedding_override()
-        api_key = None
-        provider = 'openai'
-        agent_config = None
         agent = _get_agent_by_id(auth.user_id)
-        if agent:
-            api_key = override_key or (agent.get('apiKey') or '').strip()
-            provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
-            agent_config = agent
+        emb_cfg = get_embedding_config((agent or {}).get('id'))
+        api_key = emb_cfg['apiKey']
+        provider = emb_cfg['provider']
+        agent_config = dict(agent) if agent else None
+        if agent_config and emb_cfg.get('model'):
+            agent_config['embeddingModel'] = emb_cfg['model']
 
         try:
             rolled = ks.knowledge_rollback(
@@ -5915,7 +6088,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 api_key=api_key,
                 provider=provider,
                 agent_config=agent_config,
-                created_by=auth.user_id
+                created_by=auth.user_id,
+                model=emb_cfg.get('model'),
+                base_url=emb_cfg.get('baseUrl')
             )
             if not rolled:
                 self._send_json_error(404, 'Rollback target not found')
@@ -5948,27 +6123,29 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('Permission denied', 403)
             return
 
-        # 获取 API key 和 provider（全局知识库使用当前用户配置，支持全局 embedding 覆盖配置）
-        override_provider, override_key = _get_embedding_override()
-        api_key = None
-        provider = 'openai'
-        agent_config = None
+        # 获取 API key 和 provider（全局知识库使用当前用户配置，支持全局 embedding 配置）
         agent = _get_agent_by_id(auth.user_id)
-        if agent:
-            api_key = override_key or (agent.get('apiKey') or '').strip()
-            provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
-            agent_config = agent
+        emb_cfg = get_embedding_config((agent or {}).get('id'))
+        api_key = emb_cfg['apiKey']
+        provider = emb_cfg['provider']
         if not api_key:
             self._send_json_error(400, 'No API key available for embedding. Please configure AI provider in employee settings.')
             return
+        agent_config = dict(agent) if agent else None
+        if agent_config and emb_cfg.get('model'):
+            agent_config['embeddingModel'] = emb_cfg['model']
 
         try:
             allowed_cats = _allowed_knowledge_categories(auth)
-            result = ks.rag_retrieve(query, emp_id, api_key, provider, agent_config, top_k_docs=top_k, allowed_categories=allowed_cats)
+            result = ks.rag_retrieve(
+                query, emp_id, api_key, provider, agent_config,
+                top_k_docs=top_k, allowed_categories=allowed_cats,
+                model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl')
+            )
             # 同时检索产品库（所有员工共享）
             prod_data = _read_json(os.path.join(PRODUCT_DIR, 'index.json'), {'products': []})
             try:
-                query_emb = ks.get_embedding(query, api_key, provider)
+                query_emb = ks.get_embedding(query, api_key, provider, model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
             except Exception as e:
                 print(f'  [RAG] product embedding query failed: {e}', flush=True)
                 query_emb = None
@@ -5996,18 +6173,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         body = self._read_body() or {}
         emp_id = body.get('empId')
-        override_provider, override_key = _get_embedding_override()
-        api_key = None
-        provider = 'openai'
         agent = _get_agent_by_id(emp_id)
-        if agent:
-            api_key = override_key or (agent.get('apiKey') or '').strip()
-            provider = override_provider or (agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai')
+        emb_cfg = get_embedding_config((agent or {}).get('id'))
+        api_key = emb_cfg['apiKey']
+        provider = emb_cfg['provider']
         if not api_key:
             self._send_json_error(400, 'No API key available')
             return
         try:
-            build_all_embeddings(api_key, provider)
+            build_all_embeddings(api_key, provider, model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
             self._send_json(200, {'success': True, 'message': 'Embedding index built'})
         except Exception as e:
             print(f'  [RAG] build failed: {e}', flush=True)
@@ -7046,6 +7220,7 @@ def _resolve_ai_base_url(api_provider, custom_endpoint=''):
         'deepseek': 'https://api.deepseek.com/v1',
         'moonshot': 'https://api.moonshot.cn/v1',
         'kimi': 'https://api.moonshot.cn/v1',
+        'kimicode': 'https://api.kimi.com/coding/v1',
         'zhipu': 'https://open.bigmodel.cn/api/paas/v4',
         'anthropic': 'https://api.anthropic.com/v1',
         'siliconflow': 'https://api.siliconflow.cn/v1',
@@ -7065,6 +7240,7 @@ def _resolve_ai_model(api_provider, api_model=''):
         'openai': 'gpt-4o-mini',
         'kimi': 'moonshot-v1-8k',
         'moonshot': 'moonshot-v1-8k',
+        'kimicode': 'kimi-for-coding',
         'deepseek': 'deepseek-chat',
         'zhipu': 'glm-4-flash',
         'anthropic': 'claude-3-5-sonnet-20241022',
@@ -7140,22 +7316,83 @@ def _extract_json_array(text):
     return []
 
 
+def _generate_mock_knowledge_docs(prompt, agent):
+    """模拟模式：根据 prompt 中的记忆行生成示例知识文档（无需真实 API）"""
+    agent_name = agent.get('name', 'AI 员工')
+    memory_lines = []
+    for line in prompt.splitlines():
+        stripped = line.strip()
+        if stripped.startswith('【核心】') or stripped.startswith('【日常】'):
+            memory_lines.append(stripped)
+    if not memory_lines:
+        memory_lines = ['【日常】 暂无具体记忆条目（模拟数据）']
+
+    sample_lines = memory_lines[:5]
+    content_a = (
+        f"## {agent_name} 的关键记忆沉淀\n\n"
+        + '\n'.join(f'- {line}' for line in sample_lines)
+        + '\n\n> 这是 **模拟模式** 生成的示例知识文档，用于在没有配置 API Key 的测试/演示环境中验证知识归纳流程。'
+    )
+    return [
+        {
+            'title': f'{agent_name} 的记忆沉淀（模拟）',
+            'category': '产品规范',
+            'content': content_a,
+        },
+        {
+            'title': f'{agent_name} 的工作流程示例（模拟）',
+            'category': '工作流程',
+            'content': (
+                f'## {agent_name} 的工作流程示例\n\n'
+                '1. 收集并整理日常记录与核心记忆；\n'
+                '2. 对重复、相关的信息进行去重与结构化；\n'
+                '3. 沉淀为全局共享的知识文档，供团队复用。\n\n'
+                '> 这是 **模拟模式** 生成的示例文档，不包含真实 AI 生成内容。'
+            ),
+        },
+    ]
+
+
 def _call_ai_for_json(prompt, agent, system_prompt=None):
-    """调用 AI 并尝试返回 JSON 数组；agent 为 dict（至少含 aiProvider/apiKey/apiModel/customEndpoint）"""
-    api_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
-    api_key = (agent.get('apiKey', '') or '').strip()
+    """调用 AI 并尝试返回 JSON 数组；通过 openclaw CLI 调用"""
+    # 模拟模式：知识归纳场景无需真实 API Key，直接返回示例文档
+    if _get_knowledge_mock_mode() and system_prompt and '知识库整理助手' in system_prompt:
+        print(f'  [Knowledge] mock mode enabled for {agent.get("id", "?")}, returning sample docs', flush=True)
+        return _generate_mock_knowledge_docs(prompt, agent)
+
     api_model = agent.get('apiModel', '')
-    custom_endpoint = agent.get('customEndpoint', '')
-    if not api_key:
-        return None
-    messages = []
+
+    # 1. 拼接 system_prompt 和 prompt 成完整提示词
+    full_prompt = ''
     if system_prompt:
-        messages.append({'role': 'system', 'content': system_prompt})
-    messages.append({'role': 'user', 'content': prompt})
-    content = _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=120)
-    if content is None:
+        full_prompt += system_prompt + '\n\n'
+    full_prompt += prompt
+
+    # 2. 构造 openclaw CLI 调用
+    args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--prompt', full_prompt, '--json']
+    # 3. 有 apiModel 就加 --model 参数
+    if api_model:
+        args.extend(['--model', api_model])
+
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=OPENCLAW_TIMEOUT
+        )
+        if result.returncode != 0:
+            print(f'  [OpenClaw] infer failed: {result.stderr}', flush=True)
+            return None
+        # 4. 解析返回 JSON，从 outputs[0].text 取 AI 回复
+        output = json.loads(result.stdout)
+        content = output.get('outputs', [{}])[0].get('text', '')
+        # 5. 提取 JSON 数组返回
+        return _extract_json_array(content)
+    except Exception as e:
+        # 6. 出错打印错误返回 None
+        print(f'  [OpenClaw] _call_ai_for_json failed: {e}', flush=True)
         return None
-    return _extract_json_array(content)
 
 
     def _call_ai_api(self, agent, user_message, user_info=None, include_history=True, group_id=None, allowed_knowledge_categories=None):
@@ -7200,13 +7437,20 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
 
             # 注入记忆 v3（使用 memory_service_v3 模块）
             try:
+                emb_cfg = get_embedding_config((agent or {}).get('id'))
+                # 知识库语义检索使用 embedding 专用配置
+                inject_config = dict(agent) if agent else None
+                if inject_config and emb_cfg.get('model'):
+                    inject_config['embeddingModel'] = emb_cfg['model']
                 system_prompt = ms3.inject_memories(
                     agent_id, system_prompt,
                     user_message=user_text,
-                    api_key=api_key,
-                    provider=api_provider,
-                    agent_config=agent,
+                    api_key=emb_cfg['apiKey'] or api_key,
+                    provider=emb_cfg['provider'] or api_provider,
+                    agent_config=inject_config,
                     allowed_knowledge_categories=allowed_knowledge_categories,
+                    model=emb_cfg.get('model'),
+                    base_url=emb_cfg.get('baseUrl'),
                 )
             except Exception as e:
                 print(f'  [MemoryInject] {agent_id} 注入失败: {e}', flush=True)
@@ -7221,10 +7465,17 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
             # 注入 RAG 检索结果（产品知识库）
             try:
                 if api_key:
-                    emb_provider, emb_key = _get_embedding_override()
-                    rag_api_key = emb_key or api_key
-                    rag_provider = emb_provider or api_provider
-                    rag_result = ks.rag_retrieve(user_text, agent_id, rag_api_key, rag_provider, agent, top_k_docs=2, allowed_categories=allowed_knowledge_categories)
+                    emb_cfg = get_embedding_config((agent or {}).get('id'))
+                    rag_api_key = emb_cfg['apiKey'] or api_key
+                    rag_provider = emb_cfg['provider'] or api_provider
+                    rag_agent_config = dict(agent) if agent else None
+                    if rag_agent_config and emb_cfg.get('model'):
+                        rag_agent_config['embeddingModel'] = emb_cfg['model']
+                    rag_result = ks.rag_retrieve(
+                        user_text, agent_id, rag_api_key, rag_provider, rag_agent_config,
+                        top_k_docs=2, allowed_categories=allowed_knowledge_categories,
+                        model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl')
+                    )
                     if rag_result.get('context'):
                         system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'
             except Exception as e:
@@ -8492,8 +8743,12 @@ def _induct_knowledge_for_agent(agent):
     if not docs:
         return 0, '记忆内容不足以生成有价值的知识文档'
 
-    api_key = (agent.get('apiKey', '') or '').strip()
-    provider = agent.get('aiProvider', '') or agent.get('apiProvider', '') or 'openai'
+    emb_cfg = get_embedding_config((agent or {}).get('id'))
+    api_key = emb_cfg['apiKey']
+    provider = emb_cfg['provider']
+    agent_config = dict(agent) if agent else None
+    if agent_config and emb_cfg.get('model'):
+        agent_config['embeddingModel'] = emb_cfg['model']
     created_count = 0
     for d in docs:
         if not isinstance(d, dict):
@@ -8511,7 +8766,9 @@ def _induct_knowledge_for_agent(agent):
                 emp_id='',  # 全局公共
                 api_key=api_key,
                 provider=provider,
-                agent_config=agent,
+                agent_config=agent_config,
+                model=emb_cfg.get('model'),
+                base_url=emb_cfg.get('baseUrl'),
             )
             created_count += 1
         except Exception as e:

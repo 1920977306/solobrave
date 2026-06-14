@@ -123,7 +123,8 @@ def _char_jaccard_similarity(a, b):
     return intersection / union if union else 0.0
 
 
-def _find_duplicate_memory(value, memories, api_key=None, provider='openai', threshold=0.85):
+def _find_duplicate_memory(value, memories, api_key=None, provider='openai', threshold=0.85,
+                            model=None, base_url=None):
     """
     在 memories 列表中查找语义重复的记忆。
     优先使用 embedding + 余弦相似度；失败或无 api_key 时 fallback 到字符 Jaccard。
@@ -138,13 +139,13 @@ def _find_duplicate_memory(value, memories, api_key=None, provider='openai', thr
     # 路径 1：embedding 语义相似度
     if api_key:
         try:
-            value_emb = ks.get_embedding_cached(value, api_key, provider)
+            value_emb = ks.get_embedding_cached(value, api_key, provider, model=model, base_url=base_url)
             if value_emb:
                 for m in memories:
                     m_value = m.get('value', '')
                     if not m_value:
                         continue
-                    m_emb = ks.get_embedding_cached(m_value, api_key, provider)
+                    m_emb = ks.get_embedding_cached(m_value, api_key, provider, model=model, base_url=base_url)
                     if not m_emb:
                         continue
                     sim = ks.cosine_similarity(value_emb, m_emb)
@@ -387,12 +388,13 @@ def _filter_expired(daily_list):
 # ═══════════════════════════════════════════════════
 
 def add_memory(emp_id, value, key='auto', source='user_input', context=None,
-               priority=None, tags=None, api_key=None, provider='openai'):
+               priority=None, tags=None, api_key=None, provider='openai',
+               model=None, base_url=None):
     """
     添加记忆
     key='auto' 或 'auto_extract' → daily 池
     其他值 → core 池
-    同一池内若存在语义重复记忆，将自动合并。
+    同一池内若存在语义重复记忆，将自动合并；使用全局 embedding 配置做去重。
     """
     cfg = MEMORY_V3_CONFIG
     if len(value) > cfg['store_value_max']:
@@ -428,10 +430,12 @@ def add_memory(emp_id, value, key='auto', source='user_input', context=None,
         memory['context'] = (context or '')[:cfg['context_max']]
         memory['expiresAt'] = now + ttl_ms
 
-    # 智能去重：在同一池中查找语义重复
+    # 智能去重：在同一池中查找语义重复；使用全局 embedding 配置
+    emb_cfg = ks.get_embedding_config(emp_id)
     duplicate, sim = _find_duplicate_memory(
-        value, target, api_key=api_key, provider=provider,
-        threshold=cfg.get('dedup_threshold', 0.85)
+        value, target, api_key=emb_cfg['apiKey'], provider=emb_cfg['provider'],
+        threshold=cfg.get('dedup_threshold', 0.85),
+        model=emb_cfg['model'], base_url=emb_cfg['baseUrl']
     )
     if duplicate:
         new_value = memory.get('value', '')
@@ -462,12 +466,13 @@ def get_memory(emp_id, mem_id):
     return None, None
 
 
-def update_memory(emp_id, mem_id, updates, api_key=None, provider='openai'):
+def update_memory(emp_id, mem_id, updates, api_key=None, provider='openai',
+                  model=None, base_url=None):
     """
     更新记忆
     updates: dict，可包含 value / key / source / priority / tags / context
     支持跨池移动（key 变更时）
-    更新后若与同一池其他记忆语义重复，将自动合并。
+    更新后若与同一池其他记忆语义重复，将自动合并；使用全局 embedding 配置做去重。
     """
     cfg = MEMORY_V3_CONFIG
     data = load_memory(emp_id)
@@ -536,11 +541,13 @@ def update_memory(emp_id, mem_id, updates, api_key=None, provider='openai'):
                 if 'context' in updates:
                     found['context'] = updates['context'][:cfg['context_max']]
 
-    # 智能去重：在当前池中排除自己后查找重复
+    # 智能去重：在当前池中排除自己后查找重复；使用全局 embedding 配置
+    emb_cfg = ks.get_embedding_config(emp_id)
     pool_mems = [m for m in data.get(current_pool, []) if m.get('id') != mem_id]
     duplicate, sim = _find_duplicate_memory(
-        found.get('value', ''), pool_mems, api_key=api_key, provider=provider,
-        threshold=cfg.get('dedup_threshold', 0.85)
+        found.get('value', ''), pool_mems, api_key=emb_cfg['apiKey'], provider=emb_cfg['provider'],
+        threshold=cfg.get('dedup_threshold', 0.85),
+        model=emb_cfg['model'], base_url=emb_cfg['baseUrl']
     )
     if duplicate:
         old_value = duplicate.get('value', '')
@@ -1276,8 +1283,8 @@ def save_group_archive(group_id, data):
 
 
 def add_group_memory(group_id, value, key='daily', source='group_chat', context=None,
-                     api_key=None, provider='openai'):
-    """添加项目组公共记忆；key='auto'/'auto_extract'/'daily' 入 daily，其他入 core"""
+                     api_key=None, provider='openai', model=None, base_url=None):
+    """添加项目组公共记忆；key='auto'/'auto_extract'/'daily' 入 daily，其他入 core；使用全局 embedding 配置做去重"""
     cfg = MEMORY_V3_CONFIG
     if len(value) > cfg['store_value_max']:
         raise ValueError(f'Value exceeds max length {cfg["store_value_max"]}')
@@ -1309,10 +1316,12 @@ def add_group_memory(group_id, value, key='daily', source='group_chat', context=
         memory['context'] = (context or '')[:cfg['context_max']]
         memory['expiresAt'] = now + ttl_ms
 
-    # 智能去重
+    # 智能去重：使用全局 embedding 配置（项目组记忆无特定员工）
+    emb_cfg = ks.get_embedding_config()
     duplicate, sim = _find_duplicate_memory(
-        value, target, api_key=api_key, provider=provider,
-        threshold=cfg.get('dedup_threshold', 0.85)
+        value, target, api_key=emb_cfg['apiKey'], provider=emb_cfg['provider'],
+        threshold=cfg.get('dedup_threshold', 0.85),
+        model=emb_cfg['model'], base_url=emb_cfg['baseUrl']
     )
     if duplicate:
         old_value = duplicate.get('value', '')
@@ -1333,9 +1342,10 @@ def add_group_memory(group_id, value, key='daily', source='group_chat', context=
     return memory
 
 
-def update_group_memory(group_id, mem_id, updates, api_key=None, provider='openai'):
+def update_group_memory(group_id, mem_id, updates, api_key=None, provider='openai',
+                        model=None, base_url=None):
     """
-    更新项目组记忆；支持跨池移动与去重合并。
+    更新项目组记忆；支持跨池移动与去重合并；使用全局 embedding 配置做去重。
     updates: dict，可包含 value / key / source / priority / tags / context
     """
     cfg = MEMORY_V3_CONFIG
@@ -1400,11 +1410,13 @@ def update_group_memory(group_id, mem_id, updates, api_key=None, provider='opena
                 if 'context' in updates:
                     found['context'] = updates['context'][:cfg['context_max']]
 
-    # 智能去重：在当前池中排除自己后查找重复
+    # 智能去重：在当前池中排除自己后查找重复；使用全局 embedding 配置
+    emb_cfg = ks.get_embedding_config()
     pool_mems = [m for m in data.get(current_pool, []) if m.get('id') != mem_id]
     duplicate, sim = _find_duplicate_memory(
-        found.get('value', ''), pool_mems, api_key=api_key, provider=provider,
-        threshold=cfg.get('dedup_threshold', 0.85)
+        found.get('value', ''), pool_mems, api_key=emb_cfg['apiKey'], provider=emb_cfg['provider'],
+        threshold=cfg.get('dedup_threshold', 0.85),
+        model=emb_cfg['model'], base_url=emb_cfg['baseUrl']
     )
     if duplicate:
         old_value = duplicate.get('value', '')
@@ -1510,17 +1522,22 @@ def inject_group_memories(group_id, system_prompt=''):
 # 注入策略
 # ═══════════════════════════════════════════════════
 
-def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, provider='openai', agent_config=None, allowed_knowledge_categories=None):
+def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, provider='openai',
+                    agent_config=None, allowed_knowledge_categories=None,
+                    model=None, base_url=None):
     """
     为 AI 对话注入记忆，返回更新后的 system_prompt
     注入优先级：core（按priority+accessCount排序）→ daily（按时间倒序）→ archive（补充）→ knowledge（语义检索）
-    
+
     user_message: 当前用户消息，用于知识库语义检索
-    api_key/provider/agent_config: 知识库向量化 API 配置
+    api_key/provider/agent_config/model/base_url: 已废弃，保留签名兼容；实际使用全局 embedding 配置
     allowed_knowledge_categories: 知识库分类权限过滤（None 表示不限制）
     """
     cfg = MEMORY_V3_CONFIG
     data = load_memory(emp_id)
+
+    # 使用全局 embedding 配置做记忆注入（知识库语义检索）
+    emb_cfg = ks.get_embedding_config()
 
     # 按优先级分层收集（core > daily > archive > knowledge）
     MAX_TOTAL_CHARS = 3000
@@ -1580,11 +1597,12 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
         finally:
             conn.close()
 
-        if kb_count > 0 and api_key and user_message:
+        if kb_count > 0 and emb_cfg['apiKey'] and user_message:
             kb_docs = ks.knowledge_search_semantic(
-                user_message, '', api_key, provider, agent_config,
+                user_message, '', emb_cfg['apiKey'], emb_cfg['provider'], agent_config,
                 limit=cfg['inject_knowledge_max'],
-                allowed_categories=allowed_knowledge_categories
+                allowed_categories=allowed_knowledge_categories,
+                model=emb_cfg['model'], base_url=emb_cfg['baseUrl']
             )
             for d in kb_docs:
                 # 注入内容取最相关的 chunk（如果有）
