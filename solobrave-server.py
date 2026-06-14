@@ -7360,7 +7360,9 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
         print(f'  [Knowledge] mock mode enabled for {agent.get("id", "?")}, returning sample docs', flush=True)
         return _generate_mock_knowledge_docs(prompt, agent)
 
-    api_model = agent.get('apiModel', '')
+    # 优先使用 agent.apiModel；未配置时根据 provider 取默认模型，避免 openclaw 因空模型名 404
+    api_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
+    api_model = agent.get('apiModel', '') or _resolve_ai_model(api_provider, '')
 
     # 1. 拼接 system_prompt 和 prompt 成完整提示词
     full_prompt = ''
@@ -7374,6 +7376,8 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
     if api_model:
         args.extend(['--model', api_model])
 
+    print(f'  [OpenClaw] infer cmd: {" ".join(args[:6])} ... --model {api_model if api_model else "(none)"}', flush=True)
+
     try:
         result = subprocess.run(
             args,
@@ -7382,7 +7386,7 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
             timeout=OPENCLAW_TIMEOUT
         )
         if result.returncode != 0:
-            print(f'  [OpenClaw] infer failed: {result.stderr}', flush=True)
+            print(f'  [OpenClaw] infer failed (code={result.returncode}): {result.stderr}', flush=True)
             return None
         # 4. 解析返回 JSON，从 outputs[0].text 取 AI 回复
         output = json.loads(result.stdout)
@@ -8580,7 +8584,6 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
 # ═══════════════════════════════════════════════════
 
 DAILY_JOB_HOUR = 3  # 每天凌晨 3 点执行
-
 
 def _next_daily_run_at(hour=DAILY_JOB_HOUR):
     """计算下一次运行时间（本地时间）的 unix timestamp（秒）"""
