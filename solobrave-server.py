@@ -1758,9 +1758,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/memory/archived':
             self._handle_get_archived_memories()
             return
-        if path == '/api/memory/consolidate':
-            self._handle_consolidate_memory()
-            return
         if path == '/api/memory/search':
             self._handle_search_memory()
             return
@@ -2081,6 +2078,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
         # Memory API v2
+        if path == '/api/memory/consolidate':
+            self._handle_consolidate_memory()
+            return
         if path.startswith('/api/memory/'):
             sub = path[len('/api/memory/'):]
             parts = sub.split('/')
