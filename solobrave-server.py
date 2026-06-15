@@ -70,7 +70,7 @@ ALLOWED_DOMAINS = []  # 域名白名单，留空不限制
 
 # OpenClaw CLI 路径
 OPENCLAW_CLI = '/opt/homebrew/bin/openclaw'
-OPENCLAW_TIMEOUT = 30
+OPENCLAW_TIMEOUT = 120
 
 # 数据存储目录（项目内 data/ 目录，支持 --data 覆盖）
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
@@ -7290,8 +7290,8 @@ def _resolve_ai_model(api_provider, api_model=''):
         return api_model
     default_models = {
         'openai': 'gpt-4o-mini',
-        'kimi': 'moonshot-v1-8k',
-        'moonshot': 'moonshot-v1-8k',
+        'kimi': 'kimi-for-coding',
+        'moonshot': 'kimi-for-coding',
         'kimicode': 'kimi-for-coding',
         'deepseek': 'deepseek-chat',
         'zhipu': 'glm-4-flash',
