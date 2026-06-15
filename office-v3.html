@@ -644,6 +644,35 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .docs-content{flex:1;padding:16px;overflow-y:auto;font-size:13px;line-height:1.6;color:var(--text-primary)}
 .docs-content h4{margin-bottom:8px;font-size:14px}
 
+/* ====== 配置文档卡片 ====== */
+.config-docs-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.config-doc-card{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:16px;cursor:pointer;transition:all .2s cubic-bezier(.4,0,.2,1);position:relative;overflow:hidden}
+.config-doc-card:hover{box-shadow:var(--shadow-md);transform:translateY(-2px);border-color:transparent}
+.config-doc-card-icon{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--brand-primary),var(--brand-secondary));display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;margin-bottom:12px}
+.config-doc-card-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px}
+.config-doc-card-desc{font-size:12px;color:var(--text-secondary);margin-bottom:8px}
+.config-doc-card-preview{font-size:11px;color:var(--gray-4);line-height:1.5;max-height:3.2em;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:pre-wrap;word-break:break-word}
+
+/* ====== 配置文档大模态框 ====== */
+.config-doc-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);backdrop-filter:blur(8px);z-index:11000;display:flex;align-items:center;justify-content:center;opacity:0;visibility:hidden;transition:opacity .25s ease,visibility .25s ease}
+.config-doc-modal-overlay.active{opacity:1;visibility:visible}
+.config-doc-modal-panel{width:75%;height:85%;max-width:1200px;max-height:900px;background:var(--bg-secondary);border-radius:var(--radius-lg);box-shadow:0 25px 60px rgba(0,0,0,0.25);display:flex;flex-direction:column;overflow:hidden;transform:scale(0.95);transition:transform .25s cubic-bezier(.32,.72,0,1)}
+.config-doc-modal-overlay.active .config-doc-modal-panel{transform:scale(1)}
+.config-doc-modal-header{padding:16px 24px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:12px;flex-shrink:0}
+.config-doc-modal-header h3{font-size:17px;font-weight:700;margin:0;flex:1}
+.config-doc-modal-save{padding:8px 16px;border-radius:8px;border:none;background:var(--blue);color:#fff;font-size:13px;font-weight:500;cursor:pointer;transition:all .2s}
+.config-doc-modal-save:hover{background:#0056b3}
+.config-doc-modal-close{width:32px;height:32px;border-radius:50%;border:none;background:var(--gray-2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--gray-5);transition:all .2s;flex-shrink:0}
+.config-doc-modal-close:hover{background:var(--gray-3)}
+.config-doc-modal-body{flex:1;display:flex;overflow:hidden}
+.config-doc-modal-nav{width:180px;background:var(--gray-1);border-right:1px solid var(--border-color);padding:16px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;flex-shrink:0}
+.config-doc-modal-nav-item{padding:10px 12px;border-radius:8px;font-size:13px;cursor:pointer;transition:all .2s;color:var(--text-primary);display:flex;align-items:center;gap:8px}
+.config-doc-modal-nav-item:hover{background:var(--gray-2)}
+.config-doc-modal-nav-item.active{background:var(--blue);color:#fff}
+.config-doc-modal-content{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.config-doc-modal-titlebar{padding:14px 20px;border-bottom:1px solid var(--border-color);font-size:14px;font-weight:600;color:var(--text-primary);flex-shrink:0}
+#configDocModalEditor{flex:1;width:100%;padding:20px 24px;font-size:14px;line-height:1.7;font-family:'SF Mono',Monaco,Menlo,monospace;background:var(--bg-secondary);color:var(--text-primary);border:none;outline:none;resize:none;white-space:pre-wrap;overflow-y:auto}
+
 /* 配置弹窗 - 修复布局 */
 /* ====== 配置面板 - Flex 布局修复 ====== */
 .config-panel{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(0.95);width:90%;max-width:560px;max-height:85vh;background:white;border-radius:16px;box-shadow:0 25px 50px rgba(0,0,0,0.2);z-index:10000;opacity:0;visibility:hidden;transition:all .3s ease;display:flex;flex-direction:column;overflow:hidden}
@@ -4247,35 +4276,45 @@ async function openDetailPanel(empId){
     document.getElementById('detailInfoGrid').innerHTML = gridHtml;
   }
   
-  // Docs section
-  var docsHtml = '<div class="docs-layout">';
-  docsHtml += '<div class="docs-nav">';
-  docsHtml += '<div class="docs-nav-item active" data-doc="IDENTITY.md" onclick="switchDocTab(this)">IDENTITY.md</div>';
-  docsHtml += '<div class="docs-nav-item" data-doc="USER.md" onclick="switchDocTab(this)">USER.md</div>';
-  docsHtml += '<div class="docs-nav-item" data-doc="SOUL.md" onclick="switchDocTab(this)">SOUL.md</div>';
-  docsHtml += '<div class="docs-nav-item" data-doc="TOOLS.md" onclick="switchDocTab(this)">TOOLS.md</div>';
+  // Docs section - 卡片入口，点击打开大模态框编辑
+  var docList = [
+    {name:'IDENTITY.md', icon:'🪪', desc:'身份标识与基本信息'},
+    {name:'USER.md', icon:'👤', desc:'用户适配档案'},
+    {name:'SOUL.md', icon:'🧠', desc:'人格与行为设定'},
+    {name:'TOOLS.md', icon:'🛠️', desc:'工具与技能说明'}
+  ];
+  var docsHtml = '<div class="config-docs-grid">';
+  docList.forEach(function(d){
+    var safeId = d.name.replace(/\./g, '_');
+    docsHtml += '<div class="config-doc-card" onclick="openConfigDocModal(\'' + d.name + '\')">' +
+      '<div class="config-doc-card-icon">' + d.icon + '</div>' +
+      '<div class="config-doc-card-title">' + d.name + '</div>' +
+      '<div class="config-doc-card-desc">' + d.desc + '</div>' +
+      '<div class="config-doc-card-preview" id="configDocPreview_' + safeId + '">点击加载完整内容</div>' +
+      '</div>';
+  });
   docsHtml += '</div>';
-  docsHtml += '<div class="docs-content">';
-  docsHtml += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h4 style="margin:0">IDENTITY.md</h4><button onclick="saveCurrentDoc()" style="padding:4px 12px;border-radius:6px;border:none;background:var(--blue);color:white;font-size:12px;cursor:pointer">💾 保存</button></div>';
-  docsHtml += '<textarea id="docEditor" style="width:100%;height:calc(100% - 40px);border:1px solid var(--border-color);border-radius:8px;padding:12px;font-size:12px;font-family:monospace;resize:none;background:var(--gray-1);color:var(--gray-6);line-height:1.6;white-space:pre-wrap" placeholder="编辑文档内容...">加载中...</textarea>';
-  docsHtml += '</div>';
-  docsHtml += '</div>';
-  
+
   document.getElementById('detailDocs').innerHTML = docsHtml;
   document.getElementById('detailOverlay').classList.add('active');
   document.getElementById('detailPanel').classList.add('active');
-  
+
   // 初始化 Dreaming 状态
   initDreamingStatus();
-  
-  // 异步加载第一个文档内容
-  var firstDoc = await loadDocContent('IDENTITY.md');
-  var editor = document.getElementById('docEditor');
-  if(editor) {
-    editor.value = firstDoc;
-    docCache[currentAgentId + '_IDENTITY.md'] = firstDoc;
-  }
-  currentDocName = 'IDENTITY.md';
+
+  // 异步加载每个文档的预览首行
+  docList.forEach(function(d){
+    loadDocContent(d.name).then(function(content){
+      var safeId = d.name.replace(/\./g, '_');
+      var previewEl = document.getElementById('configDocPreview_' + safeId);
+      if(previewEl && content !== undefined){
+        var firstLine = content.split('\n').filter(function(l){ return l.trim(); })[0] || '';
+        previewEl.textContent = firstLine.substring(0,120) || '（空文档）';
+      }
+    }).catch(function(err){
+      console.log('[Office] 预览加载失败:', d.name, err);
+    });
+  });
 }
 
 async function switchDocTab(el){
@@ -4324,6 +4363,71 @@ async function saveCurrentDoc(){
   var activeTab = document.querySelector('.docs-nav-item.active');
   var docName = activeTab ? activeTab.getAttribute('data-doc') : 'IDENTITY.md';
   await saveDocContent(docName, editor.value);
+}
+
+// ====== 配置文档大模态框 ======
+function openConfigDocModal(docName){
+  currentDocName = docName || 'IDENTITY.md';
+  renderConfigDocModalNav();
+  updateConfigDocModalTitle();
+  document.getElementById('configDocModalOverlay').classList.add('active');
+  loadConfigDocIntoModal(currentDocName);
+}
+
+function closeConfigDocModal(){
+  document.getElementById('configDocModalOverlay').classList.remove('active');
+}
+
+function renderConfigDocModalNav(){
+  document.querySelectorAll('.config-doc-modal-nav-item').forEach(function(item){
+    item.classList.toggle('active', item.getAttribute('data-doc') === currentDocName);
+  });
+}
+
+function updateConfigDocModalTitle(){
+  var titlebar = document.getElementById('configDocModalTitlebar');
+  if(titlebar) titlebar.textContent = currentDocName;
+}
+
+async function loadConfigDocIntoModal(docName){
+  var editor = document.getElementById('configDocModalEditor');
+  if(!editor) return;
+  var cacheKey = currentAgentId + '_' + docName;
+  if(docCache[cacheKey] !== undefined){
+    editor.value = docCache[cacheKey];
+  } else {
+    editor.value = '加载中...';
+    try {
+      var content = await loadDocContent(docName);
+      editor.value = content || '';
+      docCache[cacheKey] = editor.value;
+    } catch(e){
+      editor.value = '';
+    }
+  }
+}
+
+async function switchConfigDocTab(docName){
+  if(!currentAgentId || !docName) return;
+  // 缓存当前编辑器内容
+  var editor = document.getElementById('configDocModalEditor');
+  if(editor && currentDocName){
+    docCache[currentAgentId + '_' + currentDocName] = editor.value;
+  }
+  currentDocName = docName;
+  renderConfigDocModalNav();
+  updateConfigDocModalTitle();
+  await loadConfigDocIntoModal(docName);
+}
+
+async function saveConfigDocModal(){
+  var editor = document.getElementById('configDocModalEditor');
+  if(!editor || !currentDocName) return;
+  // 先更新缓存
+  if(currentAgentId){
+    docCache[currentAgentId + '_' + currentDocName] = editor.value;
+  }
+  await saveDocContent(currentDocName, editor.value);
 }
 
 function openChannelConfig(){
@@ -5726,6 +5830,29 @@ async function confirmCreateAgent() {
   </div>
   <div class="detail-section-title">配置文档</div>
   <div class="detail-docs" id="detailDocs"></div>
+</div>
+
+<!-- 配置文档大模态框 -->
+<div class="config-doc-modal-overlay" id="configDocModalOverlay" onclick="closeConfigDocModal()">
+  <div class="config-doc-modal-panel" onclick="event.stopPropagation()">
+    <div class="config-doc-modal-header">
+      <h3>📄 配置文档</h3>
+      <button type="button" class="config-doc-modal-save" onclick="saveConfigDocModal()">💾 保存</button>
+      <button type="button" class="config-doc-modal-close" onclick="closeConfigDocModal()">✕</button>
+    </div>
+    <div class="config-doc-modal-body">
+      <div class="config-doc-modal-nav" id="configDocModalNav">
+        <div class="config-doc-modal-nav-item active" data-doc="IDENTITY.md" onclick="switchConfigDocTab('IDENTITY.md')">🪪 IDENTITY.md</div>
+        <div class="config-doc-modal-nav-item" data-doc="USER.md" onclick="switchConfigDocTab('USER.md')">👤 USER.md</div>
+        <div class="config-doc-modal-nav-item" data-doc="SOUL.md" onclick="switchConfigDocTab('SOUL.md')">🧠 SOUL.md</div>
+        <div class="config-doc-modal-nav-item" data-doc="TOOLS.md" onclick="switchConfigDocTab('TOOLS.md')">🛠️ TOOLS.md</div>
+      </div>
+      <div class="config-doc-modal-content">
+        <div class="config-doc-modal-titlebar" id="configDocModalTitlebar">IDENTITY.md</div>
+        <textarea id="configDocModalEditor" placeholder="编辑文档内容..."></textarea>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- 员工卡片齿轮下拉菜单 -->

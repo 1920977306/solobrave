@@ -281,8 +281,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .app-main.knowledge-active { flex-direction: row; }
 #knowledgeMidList {
   display: none;
-  flex: 1;
-  min-width: 0;
+  flex: 0 0 32%;
+  min-width: 260px;
+  max-width: 400px;
   background: #ffffff;
   border-right: 1px solid var(--separator);
   flex-direction: column;
@@ -813,9 +814,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .knowledge-modal {
   background: #ffffff;
   border-radius: 12px;
-  width: 560px;
-  max-width: 90vw;
-  max-height: 90vh;
+  width: 75%;
+  max-width: 900px;
+  height: 85vh;
+  max-height: 800px;
   display: flex;
   flex-direction: column;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
@@ -867,7 +869,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-color: #165DFF;
   box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.08);
 }
-#knowledgeModalContent { min-height: 200px; resize: vertical; }
+#knowledgeModalContent { flex: 1; min-height: 300px; resize: none; }
+.knowledge-modal-body .knowledge-modal-field:last-child { flex: 1; display: flex; }
+.knowledge-modal-body .knowledge-modal-field:last-child textarea { flex: 1; }
 .knowledge-modal-footer {
   display: flex;
   justify-content: flex-end;
