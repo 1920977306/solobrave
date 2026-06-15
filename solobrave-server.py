@@ -68,29 +68,9 @@ PROXY_TIMEOUT = 60  # 秒
 ALLOWED_HTTP_METHODS = {'GET', 'HEAD', 'POST', 'OPTIONS', 'DELETE'}
 ALLOWED_DOMAINS = []  # 域名白名单，留空不限制
 
-# OpenClaw CLI 路径（可通过环境变量覆盖，便于跨平台部署）
-OPENCLAW_CLI = os.environ.get('OPENCLAW_CLI', '/opt/homebrew/bin/openclaw')
+# OpenClaw CLI 路径
+OPENCLAW_CLI = '/opt/homebrew/bin/openclaw'
 OPENCLAW_TIMEOUT = 30
-
-# 应用内 provider -> OpenClaw CLI provider id 映射
-# OpenClaw 中 Moonshot 的 provider id 为 moonshot，Kimi Coding 为 kimi
-_OPENCLAW_PROVIDER_MAP = {
-    'kimi': 'moonshot',
-    'moonshot': 'moonshot',
-    'kimicode': 'kimi',
-    'deepseek': 'deepseek',
-    'zhipu': 'zhipu',
-    'anthropic': 'anthropic',
-    'siliconflow': 'siliconflow',
-    'openai': 'openai',
-}
-
-
-def _openclaw_provider_for(app_provider):
-    """将应用内员工配置的 provider 名称映射为 OpenClaw CLI 识别的 provider id"""
-    if not app_provider:
-        return ''
-    return _OPENCLAW_PROVIDER_MAP.get(app_provider.lower(), app_provider)
 
 # 数据存储目录（项目内 data/ 目录，支持 --data 覆盖）
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
@@ -865,30 +845,26 @@ def _run_openclaw(args, cwd=None, input_data=None):
 def _sync_agent_api_key_to_openclaw(agent):
     """
     将员工的 API Key 同步到 OpenClaw。
-    OpenClaw 的 infer model run 按 provider 查找默认 auth profile，
-    因此使用标准 profile id '<provider>:manual'，不再用 empId 作为 profile id。
+    调用: echo <api_key> | openclaw models auth paste-api-key --provider <provider> --profile-id <agent_id>:manual
     API Key 通过 stdin 传递。
     """
     agent_id = agent.get('id')
     api_key = agent.get('apiKey', '').strip()
     # 优先 aiProvider（前端实际选择的 AI 供应商），其次 apiProvider
-    app_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
-    provider = _openclaw_provider_for(app_provider)
+    provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
     if not api_key or not provider:
         return False, '缺少 apiKey 或 provider'
     if not os.path.isfile(OPENCLAW_CLI):
         return False, f'OpenClaw CLI 未找到: {OPENCLAW_CLI}'
 
-    # OpenClaw 默认使用 <provider>:manual profile；按 provider 存key才能让 infer 命中
-    profile_id = f'{provider}:manual'
-    args = ['models', 'auth', 'paste-api-key', '--provider', provider, '--profile-id', profile_id]
+    args = ['models', 'auth', 'paste-api-key', '--provider', provider, '--profile-id', f'{agent_id}:manual']
     success, stdout, stderr, rc = _run_openclaw(args, input_data=api_key)
     if success and rc == 0:
-        print(f'  [OpenClawSync] API Key 已同步: {agent_id} app_provider={app_provider} openclaw_provider={provider} profile={profile_id}', flush=True)
+        print(f'  [OpenClawSync] API Key 已同步: {agent_id} provider={provider}', flush=True)
         return True, stdout
     else:
         err = stderr or stdout or f'returncode={rc}'
-        print(f'  [OpenClawSync] API Key 同步失败: {agent_id} app_provider={app_provider} openclaw_provider={provider} profile={profile_id} err={err}', flush=True)
+        print(f'  [OpenClawSync] API Key 同步失败: {agent_id} provider={provider} err={err}', flush=True)
         return False, err
 
 
@@ -7387,8 +7363,6 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
     # 优先使用 agent.apiModel；未配置时根据 provider 取默认模型，避免 openclaw 因空模型名 404
     api_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
     api_model = agent.get('apiModel', '') or _resolve_ai_model(api_provider, '')
-    # 映射为 OpenClaw CLI 识别的 provider id（如 kimi -> moonshot）
-    oc_provider = _openclaw_provider_for(api_provider)
 
     # 1. 拼接 system_prompt 和 prompt 成完整提示词
     full_prompt = ''
@@ -7398,17 +7372,11 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
 
     # 2. 构造 openclaw CLI 调用
     args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--prompt', full_prompt, '--json']
-    # 显式指定 provider，避免 openclaw 使用默认 provider 导致模型 404
-    if oc_provider:
-        args.extend(['--provider', oc_provider])
-    # 3. 有 apiModel 就加 --model 参数；推荐用 <provider>/<model> 形式
+    # 3. 有 apiModel 就加 --model 参数
     if api_model:
-        model_arg = api_model
-        if oc_provider and '/' not in api_model:
-            model_arg = f'{oc_provider}/{api_model}'
-        args.extend(['--model', model_arg])
+        args.extend(['--model', api_model])
 
-    print(f'  [OpenClaw] infer cmd: provider={oc_provider} model={api_model} prompt_len={len(full_prompt)}', flush=True)
+    print(f'  [OpenClaw] infer cmd: {" ".join(args[:6])} ... --model {api_model if api_model else "(none)"}', flush=True)
 
     try:
         result = subprocess.run(

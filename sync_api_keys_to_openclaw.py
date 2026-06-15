@@ -23,27 +23,8 @@ import os
 import subprocess
 import sys
 
-OPENCLAW_CLI = os.environ.get('OPENCLAW_CLI', '/opt/homebrew/bin/openclaw')
+OPENCLAW_CLI = '/opt/homebrew/bin/openclaw'
 OPENCLAW_TIMEOUT = 30
-
-# 应用内 provider -> OpenClaw CLI provider id 映射
-_OPENCLAW_PROVIDER_MAP = {
-    'kimi': 'moonshot',
-    'moonshot': 'moonshot',
-    'kimicode': 'kimi',
-    'deepseek': 'deepseek',
-    'zhipu': 'zhipu',
-    'anthropic': 'anthropic',
-    'siliconflow': 'siliconflow',
-    'openai': 'openai',
-}
-
-
-def _openclaw_provider_for(app_provider):
-    """将应用内员工配置的 provider 名称映射为 OpenClaw CLI 识别的 provider id"""
-    if not app_provider:
-        return ''
-    return _OPENCLAW_PROVIDER_MAP.get(app_provider.lower(), app_provider)
 
 
 def find_agents_json(data_dir=None):
@@ -113,17 +94,14 @@ def sync_agent_api_key(agent):
     """同步单个员工的 API Key 到 OpenClaw"""
     agent_id = agent.get('id')
     api_key = (agent.get('apiKey', '') or '').strip()
-    app_provider = get_provider(agent)
-    provider = _openclaw_provider_for(app_provider)
+    provider = get_provider(agent)
 
     if not api_key or not provider:
         return False, '缺少 apiKey 或 provider'
     if not os.path.isfile(OPENCLAW_CLI):
         return False, f'OpenClaw CLI 未找到: {OPENCLAW_CLI}'
 
-    # OpenClaw 默认使用 <provider>:manual profile；按 provider 存key才能让 infer 命中
-    profile_id = f'{provider}:manual'
-    args = ['models', 'auth', 'paste-api-key', '--provider', provider, '--profile-id', profile_id]
+    args = ['models', 'auth', 'paste-api-key', '--provider', provider, '--profile-id', f'{agent_id}:manual']
     success, stdout, stderr, rc = _run_openclaw(args, input_data=api_key)
     if success and rc == 0:
         return True, stdout.strip()
