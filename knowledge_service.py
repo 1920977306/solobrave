@@ -408,12 +408,16 @@ def init_db():
         _add_column_if_not_exists(conn, 'knowledge', 'emp_id', "TEXT DEFAULT ''")
         _add_column_if_not_exists(conn, 'knowledge', 'status', "TEXT DEFAULT 'ok'")
         _add_column_if_not_exists(conn, 'knowledge', 'chunk_count', "INTEGER DEFAULT 0")
+        _add_column_if_not_exists(conn, 'knowledge', 'scope', "TEXT DEFAULT 'global'")
+        _add_column_if_not_exists(conn, 'knowledge', 'team_id', "TEXT DEFAULT ''")
 
         # 创建索引
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_emp ON knowledge(emp_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge(category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_created ON knowledge(created_at)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_scope ON knowledge(scope)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_team_id ON knowledge(team_id)')
 
         # 分段表
         conn.execute('''
@@ -457,6 +461,8 @@ def init_db():
                 content TEXT NOT NULL,
                 category TEXT DEFAULT '',
                 emp_id TEXT DEFAULT '',
+                scope TEXT DEFAULT 'global',
+                team_id TEXT DEFAULT '',
                 status TEXT DEFAULT 'ok',
                 chunk_count INTEGER DEFAULT 0,
                 created_by TEXT,
@@ -496,6 +502,8 @@ def _knowledge_row_to_dict(row):
         'name': row['title'],  # 兼容旧前端
         'content': row['content'],
         'category': row['category'] or '',
+        'scope': row['scope'] or 'global',
+        'teamId': row['team_id'] or '',
         'status': row['status'] or 'ok',
         'chunkCount': row['chunk_count'] or 0,
         'createdAt': row['created_at'],
@@ -505,17 +513,20 @@ def _knowledge_row_to_dict(row):
     }
 
 
-def knowledge_create(title, content, category, emp_id, api_key=None, provider='openai', agent_config=None, model=None, base_url=None):
+def knowledge_create(title, content, category, emp_id, api_key=None, provider='openai', agent_config=None, model=None, base_url=None,
+                     scope='global', team_id=''):
     """
     创建知识条目，自动分段 + 向量化。
     优先使用全局 embedding 配置（通过 get_embedding_config），不再依赖传入的 api_key/provider。
     如果全局未配置 api_key，只保存数据不生成向量（status='pending'）。
-    emp_id 留空表示全局公共知识库。
+    emp_id 留空表示全局公共知识库；scope 支持 global / team / personal。
     """
     kid = _gen_id('kb')
     now = _now_ms()
     # 全局知识库使用空字符串
     actual_emp_id = emp_id or ''
+    actual_scope = scope or 'global'
+    actual_team_id = team_id or ''
 
     # 使用全局 embedding 配置（不再依赖传入的 api_key/provider）
     emb_cfg = get_embedding_config(emp_id or None)
@@ -531,9 +542,9 @@ def knowledge_create(title, content, category, emp_id, api_key=None, provider='o
     conn = _db_conn()
     try:
         conn.execute('''
-            INSERT INTO knowledge (id, emp_id, title, content, category, status, chunk_count, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?)
-        ''', (kid, actual_emp_id, title, content, category or '', now, now))
+            INSERT INTO knowledge (id, emp_id, title, content, category, scope, team_id, status, chunk_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)
+        ''', (kid, actual_emp_id, title, content, category or '', actual_scope, actual_team_id, now, now))
         conn.commit()
     finally:
         conn.close()
@@ -592,11 +603,12 @@ def _save_knowledge_version(kid, created_by=None):
         vid = _gen_id('kbv')
         conn.execute('''
             INSERT INTO knowledge_versions (id, knowledge_id, version, title, content, category,
-                                            emp_id, status, chunk_count, created_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            emp_id, scope, team_id, status, chunk_count, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             vid, kid, next_version, row['title'], row['content'], row['category'] or '',
-            row['emp_id'] or '', row['status'] or 'ok', row['chunk_count'] or 0,
+            row['emp_id'] or '', row['scope'] or 'global', row['team_id'] or '',
+            row['status'] or 'ok', row['chunk_count'] or 0,
             created_by or '', _now_ms()
         ))
         conn.commit()
@@ -607,7 +619,7 @@ def _save_knowledge_version(kid, created_by=None):
 
 def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
                      api_key=None, provider='openai', agent_config=None, created_by=None,
-                     model=None, base_url=None):
+                     model=None, base_url=None, scope=None, team_id=None):
     """更新知识条目，内容变更时先保存历史版本，再重新分段+向量化；使用全局 embedding 配置"""
     conn = _db_conn()
     try:
@@ -627,6 +639,12 @@ def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
             updates['content'] = content
         if category is not None:
             updates['category'] = category
+        if emp_id is not None:
+            updates['emp_id'] = emp_id
+        if scope is not None:
+            updates['scope'] = scope
+        if team_id is not None:
+            updates['team_id'] = team_id
         updates['updated_at'] = _now_ms()
 
         if not updates:
@@ -706,6 +724,8 @@ def _knowledge_version_row_to_dict(row):
         'content': row['content'],
         'category': row['category'] or '',
         'empId': row['emp_id'] or '',
+        'scope': row['scope'] or 'global',
+        'teamId': row['team_id'] or '',
         'status': row['status'] or 'ok',
         'chunkCount': row['chunk_count'] or 0,
         'createdBy': row['created_by'] or '',
@@ -783,19 +803,59 @@ def knowledge_get_by_id(kid):
         conn.close()
 
 
-def knowledge_list(offset=0, limit=50, category=None, keyword=None, emp_id=None, allowed_categories=None):
-    """知识列表（支持分页、分类筛选、关键词搜索；emp_id 为空时返回全局公共知识库）"""
+def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_categories=None,
+                   scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None,
+                   emp_id=None):
+    """
+    知识列表（支持分页、分类筛选、关键词搜索、三层隔离）。
+    scope: all/global/team/personal；None 默认按可读权限返回全部。
+    emp_id 为旧参数：空字符串等价于 global，非空等价于 personal(user_id=emp_id)。
+    """
     conn = _db_conn()
     try:
         where = ['status = ?']
         params = ['ok']
-        # 员工隔离已取消：默认返回全局知识库；若指定 emp_id 仅作兼容保留
-        if emp_id:
-            where.append('emp_id = ?')
-            params.append(emp_id)
+
+        # 兼容旧 emp_id 参数
+        if emp_id is not None and scope is None:
+            if emp_id == '' or emp_id is None:
+                scope = 'global'
+            else:
+                scope = 'personal'
+                user_id = emp_id
+
+        # 三层隔离过滤
+        if scope == 'global':
+            where.append("(scope IS NULL OR scope = 'global')")
+        elif scope == 'personal':
+            where.append("scope = 'personal'")
+            if user_id:
+                where.append('emp_id = ?')
+                params.append(user_id)
+        elif scope == 'team':
+            where.append("scope = 'team'")
+            if team_id:
+                where.append('team_id = ?')
+                params.append(team_id)
+            elif user_team_ids:
+                placeholders = ', '.join('?' for _ in user_team_ids)
+                where.append(f'team_id IN ({placeholders})')
+                params.extend(user_team_ids)
+            elif not is_admin:
+                where.append('1 = 0')
         else:
-            where.append('(emp_id IS NULL OR emp_id = ?)')
-            params.append('')
+            # 默认：按可读权限返回（global + 自己的 personal + 所在 team）
+            if not is_admin:
+                readable = ["(scope IS NULL OR scope = 'global')"]
+                if user_id:
+                    readable.append("(scope = 'personal' AND emp_id = ?)")
+                    params.append(user_id)
+                if user_team_ids:
+                    placeholders = ', '.join('?' for _ in user_team_ids)
+                    readable.append(f"(scope = 'team' AND team_id IN ({placeholders}))")
+                    params.extend(user_team_ids)
+                where.append('(' + ' OR '.join(readable) + ')')
+
         if category:
             where.append('category = ?')
             params.append(category)
@@ -911,10 +971,11 @@ def _rechunk_and_vectorize(kid, emp_id, content, api_key, provider,
 # ═══════════════════════════════════════════════════
 
 def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=None, top_k_docs=3, allowed_categories=None,
-                 model=None, base_url=None):
+                 model=None, base_url=None, requester_id=None, is_admin=False, team_ids=None):
     """
     RAG 检索：在 knowledge_chunks 中搜索，返回关联的原始文档。
-    知识库已改为全局公共，emp_id 仅用于缓存 key 兼容；使用全局 embedding 配置，不再依赖传入的 api_key/provider。
+    支持三层隔离：global 全员可读，personal 仅自己，team 仅团队成员可读。
+    使用全局 embedding 配置，不再依赖传入的 api_key/provider。
     整个函数被 try-catch 保护，出错时降级返回空结果，避免拖垮主流程。
     """
     try:
@@ -938,22 +999,35 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
         if not query_emb:
             return {'docs': [], 'context': ''}
 
-        # 2. 语义搜索结果缓存（加入分类权限影响 key）
+        # 2. 语义搜索结果缓存（加入分类权限 + 请求者身份影响 key）
         query_hash = hashlib.md5(query.encode('utf-8')).hexdigest()
         cats_hash = ''
         if allowed_categories is not None:
             cats_hash = hashlib.md5(json.dumps(allowed_categories, sort_keys=True).encode()).hexdigest()[:8]
-        cache_key = _rag_cache_key(emp_id, query_hash, top_k_docs, embedding_model + ':' + cats_hash)
+        scope_hash = hashlib.md5(f'{requester_id}:{is_admin}:{sorted(team_ids or [])}'.encode()).hexdigest()[:8]
+        cache_key = _rag_cache_key(emp_id, query_hash, top_k_docs, embedding_model + ':' + cats_hash + ':' + scope_hash)
         cached = _rag_cache_get(cache_key, ttl=300)
         if cached is not None:
             return cached
 
-        # 3. 在 chunks 中计算余弦相似度（带员工隔离 + 模型隔离 + 分类权限）
+        # 3. 在 chunks 中计算余弦相似度（带三层隔离 + 模型隔离 + 分类权限）
         import struct
         q_vec = query_emb
 
         where_clauses = ["k.status = 'ok'", "c.embedding_model = ?", "c.embedding IS NOT NULL"]
         sql_params = [embedding_model]
+
+        # 三层隔离过滤（未提供 requester_id 时不限制，保持兼容）
+        if requester_id is not None and not is_admin:
+            readable = ["(k.scope IS NULL OR k.scope = 'global')"]
+            readable.append("(k.scope = 'personal' AND k.emp_id = ?)")
+            sql_params.append(requester_id)
+            if team_ids:
+                placeholders = ', '.join('?' for _ in team_ids)
+                readable.append(f"(k.scope = 'team' AND k.team_id IN ({placeholders}))")
+                sql_params.extend(team_ids)
+            where_clauses.append('(' + ' OR '.join(readable) + ')')
+
         if allowed_categories is not None and '*' not in allowed_categories:
             if allowed_categories:
                 placeholders = ', '.join('?' for _ in allowed_categories)
@@ -965,7 +1039,7 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
         conn = _db_conn()
         try:
             rows = conn.execute(f'''
-                SELECT k.id, k.title, k.category, k.content, k.emp_id, k.status,
+                SELECT k.id, k.title, k.category, k.content, k.emp_id, k.status, k.scope, k.team_id,
                        c.chunk_index, c.content as chunk_content, c.embedding
                 FROM knowledge_chunks c
                 JOIN knowledge k ON c.knowledge_id = k.id
@@ -1043,8 +1117,8 @@ def format_rag_context(docs):
 # Fallback：关键词搜索
 # ═══════════════════════════════════════════════════
 
-def knowledge_search_fallback(query, emp_id=None, limit=3):
-    """API 失败时的关键词搜索 fallback（LIKE）；全局知识库"""
+def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is_admin=False, team_ids=None):
+    """API 失败时的关键词搜索 fallback（LIKE）；带三层隔离"""
     if isinstance(query, list):
         text_parts = [item.get('text', '') for item in query if isinstance(item, dict) and item.get('type') == 'text']
         query = ''.join(text_parts)
@@ -1053,13 +1127,26 @@ def knowledge_search_fallback(query, emp_id=None, limit=3):
     keyword = f'%{query}%'
     conn = _db_conn()
     try:
-        rows = conn.execute('''
-            SELECT id, title, content, category, created_at, updated_at
+        where = ["status = 'ok'", "(title LIKE ? OR content LIKE ?)"]
+        params = [keyword, keyword]
+        if requester_id is not None and not is_admin:
+            readable = ["(scope IS NULL OR scope = 'global')"]
+            readable.append("(scope = 'personal' AND emp_id = ?)")
+            params.append(requester_id)
+            if team_ids:
+                placeholders = ', '.join('?' for _ in team_ids)
+                readable.append(f"(scope = 'team' AND team_id IN ({placeholders}))")
+                params.extend(team_ids)
+            where.append('(' + ' OR '.join(readable) + ')')
+        sql = '''
+            SELECT id, title, content, category, scope, team_id, emp_id, created_at, updated_at
             FROM knowledge
-            WHERE status = 'ok' AND (title LIKE ? OR content LIKE ?)
+            WHERE ''' + ' AND '.join(where) + '''
             ORDER BY updated_at DESC
             LIMIT ?
-        ''', (keyword, keyword, limit)).fetchall()
+        '''
+        params.append(limit)
+        rows = conn.execute(sql, tuple(params)).fetchall()
         return [_knowledge_row_to_dict(r) for r in rows]
     finally:
         conn.close()
@@ -1070,7 +1157,8 @@ def knowledge_search_fallback(query, emp_id=None, limit=3):
 # ═══════════════════════════════════════════════════
 
 def knowledge_search_semantic(query, emp_id, api_key=None, provider='openai', agent_config=None, limit=3, allowed_categories=None,
-                              model=None, base_url=None):
+                              model=None, base_url=None,
+                              requester_id=None, is_admin=False, team_ids=None):
     """
     语义检索，带 fallback；使用全局 embedding 配置，不再依赖传入的 api_key/provider。
     供 MS3 inject_memories 和 API 搜索使用。
@@ -1080,11 +1168,12 @@ def knowledge_search_semantic(query, emp_id, api_key=None, provider='openai', ag
         emb_cfg = get_embedding_config(emp_id or None)
         result = rag_retrieve(query, emp_id, emb_cfg['apiKey'], emb_cfg['provider'], agent_config,
                               top_k_docs=limit, allowed_categories=allowed_categories,
-                              model=emb_cfg['model'], base_url=emb_cfg['baseUrl'])
+                              model=emb_cfg['model'], base_url=emb_cfg['baseUrl'],
+                              requester_id=requester_id, is_admin=is_admin, team_ids=team_ids)
         return result.get('docs', [])
     except Exception as e:
         print(f'  [KnowledgeSearch] semantic failed, fallback to keyword: {e}', flush=True)
-        return knowledge_search_fallback(query, emp_id, limit)
+        return knowledge_search_fallback(query, emp_id, limit, requester_id=requester_id, is_admin=is_admin, team_ids=team_ids)
 
 
 # ═══════════════════════════════════════════════════
@@ -1092,13 +1181,82 @@ def knowledge_search_semantic(query, emp_id, api_key=None, provider='openai', ag
 # ═══════════════════════════════════════════════════
 
 def check_knowledge_permission(requester_id, target_emp_id, requester_role=None):
-    """检查 requester 是否有权限访问知识库；知识库已全局公共，仅保留 admin 兜底"""
+    """检查 requester 是否有权限访问知识库；兼容旧版按 emp_id 判断"""
     if requester_role == 'admin':
         return True
-    # 全局知识库对所有人开放
     if not target_emp_id:
         return True
     return requester_id == target_emp_id
+
+
+def _doc_scope(doc):
+    """从 doc dict 获取 scope（兼容缺失 scope 的旧数据）"""
+    return (doc.get('scope') or 'global') if doc else 'global'
+
+
+def can_read_knowledge(doc, user_id, is_admin=False, user_team_ids=None):
+    """判断用户是否可读某条知识"""
+    scope = _doc_scope(doc)
+    if scope == 'global':
+        return True
+    if scope == 'personal':
+        return is_admin or doc.get('empId') == user_id
+    if scope == 'team':
+        team_id = doc.get('teamId')
+        return is_admin or (user_team_ids and team_id in user_team_ids)
+    return False
+
+
+def can_edit_knowledge(doc, user_id, is_admin=False, managed_team_ids=None):
+    """判断用户是否可编辑/删除/移动某条知识"""
+    scope = _doc_scope(doc)
+    if scope == 'global':
+        return is_admin
+    if scope == 'personal':
+        return is_admin or doc.get('empId') == user_id
+    if scope == 'team':
+        team_id = doc.get('teamId')
+        return is_admin or (managed_team_ids and team_id in managed_team_ids)
+    return False
+
+
+def can_create_knowledge(scope, user_id, is_admin=False, team_id=None, user_team_ids=None, managed_team_ids=None):
+    """判断用户是否可在指定 scope 下新建知识"""
+    if scope == 'global':
+        return is_admin
+    if scope == 'personal':
+        return True
+    if scope == 'team':
+        if is_admin:
+            return True
+        # 团队成员即可在所在团队创建；严格编辑权限可由 managed_team_ids 控制
+        if managed_team_ids and team_id in managed_team_ids:
+            return True
+        if user_team_ids and team_id in user_team_ids:
+            return True
+        return False
+    return False
+
+
+def knowledge_move(kid, scope, team_id='', moved_by=''):
+    """移动知识到指定 scope/team，并保存历史版本"""
+    doc = knowledge_get_by_id(kid)
+    if not doc:
+        return None
+    actual_scope = scope or 'global'
+    actual_team_id = team_id or ''
+    _save_knowledge_version(kid, created_by=moved_by)
+    conn = _db_conn()
+    try:
+        now = _now_ms()
+        conn.execute(
+            'UPDATE knowledge SET scope=?, team_id=?, updated_at=? WHERE id=?',
+            (actual_scope, actual_team_id, now, kid)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return knowledge_get_by_id(kid)
 
 
 # ═══════════════════════════════════════════════════

@@ -2101,6 +2101,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'rollback':
                 self._handle_knowledge_rollback(parts[0])
                 return
+            if len(parts) == 2 and parts[1] == 'move':
+                self._handle_knowledge_move(parts[0])
+                return
 
         # Product API
         if path == '/api/products':
@@ -5037,10 +5040,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if include_knowledge:
             # v3：知识库已改为全局公共，从 SQLite 统一读取
             try:
-                kb_result = ks.knowledge_list(offset=offset, limit=limit, category=None, keyword=keyword if keyword else None, emp_id='')
+                kb_result = ks.knowledge_list(
+                    offset=offset, limit=limit, category=None,
+                    keyword=keyword if keyword else None,
+                    user_id=auth.user_id, is_admin=auth.is_admin,
+                    user_team_ids=auth.team_ids
+                )
                 kb_docs = kb_result.get('docs', [])
             except Exception as e:
-                print(f'  [MemoryAPI] 加载全局知识库失败: {e}', flush=True)
+                print(f'  [MemoryAPI] 加载知识库失败: {e}', flush=True)
                 kb_docs = []
             knowledge_list = [_map_knowledge(d) for d in kb_docs]
 
@@ -5648,7 +5656,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': 'Agent not found'})
             return
         try:
-            count, reason = _induct_knowledge_for_agent(agent)
+            count, reason = _induct_knowledge_for_agent(agent, owner_user_id=auth.user_id)
         except Exception as e:
             print(f'  [InductKnowledge] manual failed: {e}', flush=True)
             self._send_json_error(500, f'Induction failed: {str(e)}')
@@ -5781,7 +5789,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _write_json(filepath, data)
 
     def _handle_get_knowledge(self):
-        """GET /api/knowledge — 获取全局公共知识库列表（支持分页、分类筛选、关键词搜索）"""
+        """GET /api/knowledge — 获取知识库列表（支持分页、分类、关键词、scope 三层隔离）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -5793,14 +5801,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         limit = max(1, min(100, int(qs.get('limit', [20])[0])))  # 默认20条
         category = qs.get('category', [''])[0] or None
         keyword = qs.get('q', [''])[0] or None
-        target_emp_id = qs.get('empId', [''])[0]  # 空表示全局公共知识库
-
-        # 权限检查
-        if not ks.check_knowledge_permission(auth.user_id, target_emp_id, getattr(auth, 'role', None)):
-            self._send_auth_error('Permission denied', 403)
-            return
-        if not self._require_module_permission(auth, 'knowledge'):
-            return
+        scope = qs.get('scope', [''])[0] or None
+        team_id = qs.get('teamId', [''])[0] or None
+        target_emp_id = qs.get('empId', [''])[0] or None  # 兼容旧参数
 
         allowed_cats = _allowed_knowledge_categories(auth)
         # 如果用户请求了具体分类，校验是否有权限
@@ -5808,7 +5811,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'docs': [], 'total': 0, 'offset': offset, 'limit': limit})
             return
 
-        result = ks.knowledge_list(offset, limit, category, keyword, target_emp_id, allowed_categories=allowed_cats)
+        result = ks.knowledge_list(
+            offset=offset, limit=limit, category=category, keyword=keyword,
+            allowed_categories=allowed_cats,
+            scope=scope, team_id=team_id, user_id=auth.user_id,
+            is_admin=auth.is_admin, user_team_ids=auth.team_ids,
+            emp_id=target_emp_id
+        )
         self._send_json(200, result)
 
     def _handle_get_knowledge_detail(self, kid):
@@ -5823,7 +5832,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Knowledge not found')
             return
         # 权限检查
-        if not ks.check_knowledge_permission(auth.user_id, doc.get('empId'), getattr(auth, 'role', None)):
+        if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids):
             self._send_auth_error('Permission denied', 403)
             return
         if not _can_access_knowledge_category(auth, doc.get('category', '')):
@@ -5832,7 +5841,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, doc)
 
     def _handle_get_knowledge_search(self):
-        """GET /api/knowledge/search?q=xxx&limit=3 — 语义检索（全局知识库）"""
+        """GET /api/knowledge/search?q=xxx&limit=3 — 语义检索（带三层隔离）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -5846,10 +5855,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing query param q')
             return
 
-        target_emp_id = qs.get('empId', [''])[0]  # 空表示全局
-        if not ks.check_knowledge_permission(auth.user_id, target_emp_id, getattr(auth, 'role', None)):
-            self._send_auth_error('Permission denied', 403)
-            return
+        target_emp_id = qs.get('empId', [''])[0]  # 空表示全局（用于 embedding 配置）
 
         # 获取 API key 和 provider（全局知识库使用当前用户 agent 配置，支持全局 embedding 配置）
         agent = _get_agent_by_id(target_emp_id or auth.user_id)
@@ -5868,7 +5874,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             docs = ks.knowledge_search_semantic(
                 query, target_emp_id, api_key, provider, agent_config,
                 limit, allowed_categories=allowed_cats,
-                model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl')
+                model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
+                requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids
             )
             self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
         except Exception as e:
@@ -5889,9 +5896,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing title or content')
             return
 
-        # 知识库已全局公共：emp_id 为空；兼容旧前端传入 empId
+        scope = body.get('scope', 'global')
+        team_id = body.get('teamId') or ''
+        # 兼容旧前端传入 empId
         emp_id = body.get('empId') or ''
-        if not ks.check_knowledge_permission(auth.user_id, emp_id, getattr(auth, 'role', None)):
+        if scope == 'personal' and not emp_id:
+            emp_id = auth.user_id
+        if not ks.can_create_knowledge(scope, auth.user_id, is_admin=auth.is_admin,
+                                       team_id=team_id, user_team_ids=auth.team_ids,
+                                       managed_team_ids=auth.managed_team_ids):
             self._send_auth_error('Permission denied', 403)
             return
         category = body.get('category', '')
@@ -5919,6 +5932,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 agent_config=agent_config,
                 model=emb_cfg.get('model'),
                 base_url=emb_cfg.get('baseUrl'),
+                scope=scope,
+                team_id=team_id,
             )
             self._send_json(200, doc)
         except Exception as e:
@@ -5942,7 +5957,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        if not ks.check_knowledge_permission(auth.user_id, doc.get('empId'), getattr(auth, 'role', None)):
+        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin, managed_team_ids=auth.managed_team_ids):
             self._send_auth_error('Permission denied', 403)
             return
         # 分类权限：必须对原文档分类有权限，且不能修改到无权限的分类
@@ -5997,7 +6012,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        if not ks.check_knowledge_permission(auth.user_id, doc.get('empId'), getattr(auth, 'role', None)):
+        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin, managed_team_ids=auth.managed_team_ids):
             self._send_auth_error('Permission denied', 403)
             return
         deleted = ks.knowledge_delete(doc_id)
@@ -6060,6 +6075,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
+        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin, managed_team_ids=auth.managed_team_ids):
+            self._send_auth_error('Permission denied', 403)
+            return
         if not _can_access_knowledge_category(auth, doc.get('category', '')):
             self._send_auth_error('No permission for this knowledge category', 403)
             return
@@ -6100,6 +6118,40 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             print(f'  [KnowledgeRollback] failed: {e}', flush=True)
             self._send_json_error(500, f'Rollback failed: {str(e)}')
 
+    def _handle_knowledge_move(self, doc_id):
+        """POST /api/knowledge/{docId}/move — 移动知识到指定 scope/team"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        doc = ks.knowledge_get_by_id(doc_id)
+        if not doc:
+            self._send_json_error(404, 'Knowledge not found')
+            return
+        # 原知识编辑权限
+        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin, managed_team_ids=auth.managed_team_ids):
+            self._send_auth_error('Permission denied', 403)
+            return
+        body = self._read_body() or {}
+        new_scope = body.get('scope')
+        new_team_id = body.get('teamId') or ''
+        if new_scope not in ('global', 'team', 'personal'):
+            self._send_json_error(400, 'Invalid scope')
+            return
+        # 目标 scope 创建权限
+        if not ks.can_create_knowledge(new_scope, auth.user_id, is_admin=auth.is_admin,
+                                       team_id=new_team_id, user_team_ids=auth.team_ids,
+                                       managed_team_ids=auth.managed_team_ids):
+            self._send_auth_error('Permission denied for target scope', 403)
+            return
+        try:
+            moved = ks.knowledge_move(doc_id, new_scope, new_team_id, moved_by=auth.user_id)
+            self._send_json(200, {'success': True, 'knowledge': moved})
+        except Exception as e:
+            print(f'  [KnowledgeMove] failed: {e}', flush=True)
+            self._send_json_error(500, f'Move failed: {str(e)}')
+
     # ═══════════════════════════════════════════════════
     # RAG API
     # ═══════════════════════════════════════════════════
@@ -6118,9 +6170,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         emp_id = body.get('empId') or ''  # 空表示全局知识库
         top_k = min(10, max(1, body.get('topK', 3)))
 
-        # 权限检查
-        if not ks.check_knowledge_permission(auth.user_id, emp_id, getattr(auth, 'role', None)):
-            self._send_auth_error('Permission denied', 403)
+        # 权限检查：只要登录即可使用 RAG，具体文档隔离由 rag_retrieve 内部按 scope 过滤
+        if not self._require_module_permission(auth, 'knowledge'):
             return
 
         # 获取 API key 和 provider（全局知识库使用当前用户配置，支持全局 embedding 配置）
@@ -6140,7 +6191,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             result = ks.rag_retrieve(
                 query, emp_id, api_key, provider, agent_config,
                 top_k_docs=top_k, allowed_categories=allowed_cats,
-                model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl')
+                model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
+                requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids
             )
             # 同时检索产品库（所有员工共享）
             prod_data = _read_json(os.path.join(PRODUCT_DIR, 'index.json'), {'products': []})
@@ -7478,7 +7530,8 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
                     rag_result = ks.rag_retrieve(
                         user_text, agent_id, rag_api_key, rag_provider, rag_agent_config,
                         top_k_docs=2, allowed_categories=allowed_knowledge_categories,
-                        model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl')
+                        model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
+                        requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids
                     )
                     if rag_result.get('context'):
                         system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'
@@ -8625,7 +8678,7 @@ def _run_daily_memory_jobs(startup=False):
             if not emp_id:
                 continue
             _generate_core_candidates_for_agent(agent)
-            _induct_knowledge_for_agent(agent)  # 返回值 (count, reason) 每日任务不需要处理
+            _induct_knowledge_for_agent(agent, owner_user_id=agent.get('createdBy') or '')  # 默认进入个人库
             _detect_conflicts_for_agent(agent)
             processed += 1
         except Exception as e:
@@ -8709,12 +8762,14 @@ def _generate_core_candidates_for_agent(agent):
     return added
 
 
-def _induct_knowledge_for_agent(agent):
+def _induct_knowledge_for_agent(agent, owner_user_id=None):
     """为单个 agent 执行知识归纳：活跃记忆 >=15 且存在未归纳记忆时触发
 
     返回 (created_count, reason)，reason 在 created_count == 0 时给出原因说明。
+    owner_user_id 为知识所有者；未提供时尝试使用 agent.createdBy，否则回退到 global。
     """
     emp_id = agent.get('id')
+    actual_owner = owner_user_id or agent.get('createdBy') or ''
     data = ms3.load_memory(emp_id)
     core_count = len(data.get('core', []))
     daily_count = len(data.get('daily', []))
@@ -8766,12 +8821,14 @@ def _induct_knowledge_for_agent(agent):
                 title=title,
                 content=content,
                 category=category,
-                emp_id='',  # 全局公共
+                emp_id=actual_owner,  # personal 所有者
                 api_key=api_key,
                 provider=provider,
                 agent_config=agent_config,
                 model=emb_cfg.get('model'),
                 base_url=emb_cfg.get('baseUrl'),
+                scope='personal' if actual_owner else 'global',
+                team_id='',
             )
             created_count += 1
         except Exception as e:

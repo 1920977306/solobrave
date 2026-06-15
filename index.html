@@ -281,15 +281,24 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .app-main.knowledge-active { flex-direction: row; }
 #knowledgeMidList {
   display: none;
-  width: 320px;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
   background: #ffffff;
   border-right: 1px solid var(--separator);
   flex-direction: column;
   overflow: hidden;
 }
 #knowledgeMidList.active { display: flex; }
-#knowledgeRight { flex: 1; min-width: 0; }
+#knowledgeRight {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  background: #ffffff;
+  border-right: 1px solid var(--separator);
+  flex-direction: column;
+  overflow: hidden;
+}
+#knowledgeRight.active { display: flex; }
 
 /* Category sidebar */
 .knowledge-cat-sidebar { background: #ffffff; }
@@ -371,6 +380,29 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .knowledge-cat-new:hover { background: #F5F5F5; }
 
+/* Scope tabs */
+.knowledge-scope-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 12px 6px;
+  border-bottom: 0.5px solid var(--separator);
+  flex-shrink: 0;
+}
+.knowledge-scope-tab {
+  flex: 1;
+  padding: 6px 4px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+.knowledge-scope-tab:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.knowledge-scope-tab.active { background: var(--accent-light); color: var(--accent); font-weight: 500; }
+
 /* Middle list */
 .knowledge-mid-header {
   display: flex;
@@ -384,43 +416,74 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
+  flex-shrink: 0;
 }
 .knowledge-mid-count {
-  flex: 1;
   font-size: 13px;
   color: #86909c;
+  flex-shrink: 0;
 }
+.knowledge-mid-search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  border: 0.5px solid var(--separator);
+}
+.knowledge-mid-search svg { color: var(--text-tertiary); flex-shrink: 0; }
+.knowledge-mid-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.knowledge-mid-search input::placeholder { color: var(--text-tertiary); }
 .knowledge-mid-new {
   padding: 6px 14px;
-  border-radius: 999px;
+  border-radius: 8px;
   border: none;
-  background: #007AFF;
+  background: var(--accent);
   color: #ffffff;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s;
+  flex-shrink: 0;
 }
-.knowledge-mid-new:hover { background: #0066CC; }
+.knowledge-mid-new:hover { background: var(--accent-hover); }
 .knowledge-mid-items {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 0;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  align-content: start;
 }
 .knowledge-mid-card {
-  margin: 8px 12px;
-  padding: 14px;
+  margin: 0;
+  padding: 16px;
   background: #ffffff;
   border-radius: 12px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  border: 0.5px solid var(--separator);
   cursor: pointer;
   transition: all 0.15s;
-  border-left: 3px solid transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-.knowledge-mid-card:hover { background: #F8F9FA; }
+.knowledge-mid-card:hover { border-color: var(--accent); box-shadow: 0 4px 12px rgba(10,132,255,0.08); }
 .knowledge-mid-card.active {
-  border-left-color: #007AFF;
-  background: rgba(0,122,255,0.04);
+  border-color: var(--accent);
+  background: var(--accent-light);
 }
 .knowledge-mid-card-header {
   display: flex;
@@ -487,9 +550,11 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .knowledge-mid-card-meta {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 12px;
   color: #86909c;
+  margin-top: auto;
 }
 .knowledge-mid-empty {
   flex: 1;
@@ -664,6 +729,74 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 12px;
   color: var(--text-tertiary);
 }
+.knowledge-editor.hidden { display: none; }
+
+/* 知识库详情面板 */
+.knowledge-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.knowledge-view.hidden { display: none; }
+.knowledge-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 0.5px solid var(--separator);
+  flex-shrink: 0;
+}
+.knowledge-view-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.knowledge-view-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.knowledge-view-actions .module-action-btn.danger { color: #FF3B30; }
+.knowledge-view-actions .module-action-btn.danger:hover { background: #FF3B30; color: #fff; }
+.knowledge-view-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 0.5px solid var(--separator);
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.knowledge-view-tag, .knowledge-view-scope {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--accent-light);
+  color: var(--accent);
+}
+.knowledge-view-scope.scope-global { background: #E8F5E9; color: #2E7D32; }
+.knowledge-view-scope.scope-team { background: #E3F2FD; color: #1565C0; }
+.knowledge-view-scope.scope-personal { background: #FFF3E0; color: #EF6C00; }
+.knowledge-view-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+.knowledge-view-body h1, .knowledge-view-body h2, .knowledge-view-body h3 { margin-top: 1em; margin-bottom: 0.5em; }
+.knowledge-view-body p { margin: 0.6em 0; }
+.knowledge-view-body ul, .knowledge-view-body ol { padding-left: 1.5em; margin: 0.6em 0; }
+.knowledge-view-body code { background: var(--bg-tertiary); padding: 2px 5px; border-radius: 4px; }
+.knowledge-view-body pre { background: var(--bg-tertiary); padding: 12px; border-radius: 8px; overflow-x: auto; }
+.knowledge-empty { padding: 60px 20px; text-align: center; color: var(--text-tertiary); }
 
 /* 知识库编辑弹窗 */
 .knowledge-modal-overlay {
@@ -3533,9 +3666,11 @@ window.doLogin = function () {
 
 <!-- Knowledge Category Sidebar -->
 <div class="module-mid knowledge-cat-sidebar" id="knowledgeMid">
-  <div class="knowledge-cat-search">
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-    <input type="text" placeholder="搜索分类/知识..." id="knowledgeMidSearch" oninput="onModuleSearch(this.value)">
+  <div class="knowledge-scope-tabs" id="knowledgeScopeTabs">
+    <button class="knowledge-scope-tab active" data-scope="all" onclick="selectKnowledgeScope('all')">全部</button>
+    <button class="knowledge-scope-tab" data-scope="global" onclick="selectKnowledgeScope('global')">全局</button>
+    <button class="knowledge-scope-tab" data-scope="team" onclick="selectKnowledgeScope('team')">团队</button>
+    <button class="knowledge-scope-tab" data-scope="personal" onclick="selectKnowledgeScope('personal')">个人</button>
   </div>
   <div class="knowledge-cat-list" id="knowledgeMidCategory"></div>
   <button class="knowledge-cat-new" onclick="createNewKnowledgeCategory()">+ 新建分类</button>
@@ -3596,9 +3731,13 @@ window.doLogin = function () {
 <!-- Knowledge Middle List -->
 <div class="knowledge-mid-list" id="knowledgeMidList">
   <div class="knowledge-mid-header">
-    <div class="knowledge-mid-title" id="knowledgeMidTitle">全部</div>
+    <div class="knowledge-mid-title" id="knowledgeMidTitle">全部文档</div>
     <div class="knowledge-mid-count" id="knowledgeMidCount">共 0 条</div>
-    <button class="knowledge-mid-new" onclick="createNewKnowledge()">+ 新建知识</button>
+    <div class="knowledge-mid-search">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" placeholder="搜索知识文档..." id="knowledgeMainSearch" oninput="onKnowledgeMainSearch(this.value)">
+    </div>
+    <button class="knowledge-mid-new" onclick="createNewKnowledge()">+ 新建文档</button>
   </div>
   <div class="knowledge-mid-items" id="knowledgeMidItems"></div>
   <div class="knowledge-mid-pagination" id="knowledgeMidPagination"></div>
@@ -3606,7 +3745,29 @@ window.doLogin = function () {
 
 <!-- Knowledge Right -->
 <div class="module-right" id="knowledgeRight">
-  <div class="module-right-content knowledge-editor">
+  <!-- 详情面板（默认） -->
+  <div class="module-right-content knowledge-view" id="knowledgeViewPanel">
+    <div class="knowledge-view-header">
+      <div class="knowledge-view-title" id="knowledgeViewTitle">-</div>
+      <div class="knowledge-view-actions">
+        <button class="module-action-btn" onclick="editCurrentKnowledge()">编辑</button>
+        <button class="module-action-btn" onclick="moveCurrentKnowledge()">移动到</button>
+        <button class="module-action-btn danger" onclick="deleteCurrentKnowledge()">删除</button>
+        <button class="module-action-btn" onclick="closeKnowledgeRight()">关闭</button>
+      </div>
+    </div>
+    <div class="knowledge-view-meta">
+      <span class="knowledge-view-tag" id="knowledgeViewCategory">未分类</span>
+      <span class="knowledge-view-scope" id="knowledgeViewScope">全局</span>
+      <span class="knowledge-view-time" id="knowledgeViewTime">-</span>
+    </div>
+    <div class="knowledge-view-body" id="knowledgeViewBody">
+      <div class="knowledge-empty">点击左侧卡片查看详情</div>
+    </div>
+  </div>
+
+  <!-- 编辑面板 -->
+  <div class="module-right-content knowledge-editor hidden" id="knowledgeEditPanel">
     <div class="knowledge-editor-header">
       <input type="text" id="knowledgeEditTitle" placeholder="知识标题">
       <select id="knowledgeEditCategory"><option value="">选择分类</option></select>
@@ -17455,10 +17616,13 @@ function searchInfluencersDebounced(val) {
 var _knowledgeData = { docs: [], categories: [], total: 0 };
 var _knowledgeCurrentCat = '';
 var _knowledgeCurrentId = null;
+var _knowledgeScope = 'all';
 var _knowledgePreviewMode = false;
 var _knowledgePage = 1;
 var _knowledgePageSize = 20;
 var _knowledgeInitialized = false;
+
+var _knowledgeScopeNames = { all: '全部文档', global: '全局知识库', team: '团队知识库', personal: '个人知识库' };
 
 function openKnowledgePage() {
   switchModule('knowledge');
@@ -17467,17 +17631,39 @@ function closeKnowledgePage() { switchModule('messages'); closeKnowledgeEditor()
 function openKnowledgeEditor() {
   var right = document.getElementById('knowledgeRight');
   if (right) right.classList.add('active');
+  var viewPanel = document.getElementById('knowledgeViewPanel');
+  var editPanel = document.getElementById('knowledgeEditPanel');
+  if (viewPanel) viewPanel.classList.add('hidden');
+  if (editPanel) editPanel.classList.remove('hidden');
 }
 function closeKnowledgeEditor() {
+  var editPanel = document.getElementById('knowledgeEditPanel');
+  var viewPanel = document.getElementById('knowledgeViewPanel');
+  if (editPanel) editPanel.classList.add('hidden');
+  if (viewPanel) viewPanel.classList.remove('hidden');
+  if (!_knowledgeCurrentId) {
+    var right = document.getElementById('knowledgeRight');
+    if (right) right.classList.remove('active');
+  } else {
+    renderKnowledgeView(_knowledgeCurrentId);
+  }
+}
+function closeKnowledgeRight() {
+  _knowledgeCurrentId = null;
   var right = document.getElementById('knowledgeRight');
   if (right) right.classList.remove('active');
+  document.querySelectorAll('.knowledge-mid-card').forEach(function(el) { el.classList.remove('active'); });
 }
 async function loadKnowledgePage(page) {
   if (page) _knowledgePage = page;
   try {
     var offset = (_knowledgePage - 1) * _knowledgePageSize;
     var url = '/api/knowledge?limit=' + _knowledgePageSize + '&offset=' + offset;
+    if (_knowledgeScope && _knowledgeScope !== 'all') url += '&scope=' + encodeURIComponent(_knowledgeScope);
     if (_knowledgeCurrentCat) url += '&category=' + encodeURIComponent(_knowledgeCurrentCat);
+    var searchInput = document.getElementById('knowledgeMainSearch');
+    var kw = searchInput ? searchInput.value.trim() : '';
+    if (kw) url += '&q=' + encodeURIComponent(kw);
     var r = await apiFetch(url);
     var data = await r.json();
     _knowledgeData.docs = data.docs || [];
@@ -17493,7 +17679,6 @@ async function loadKnowledgePage(page) {
     renderKnowledgeCategories(catMap, _knowledgeData.total);
     renderKnowledgeList(_knowledgeData.docs);
     renderKnowledgePagination(_knowledgeData.total, _knowledgePage, _knowledgePageSize);
-    // 抽屉模式下不自动打开编辑器，保持两栏展示
     _knowledgeInitialized = true;
   } catch (e) {
     console.warn('[KnowledgePage] 加载失败:', e);
@@ -17538,7 +17723,7 @@ function renderKnowledgeCategories(catMap, total) {
   }
   // Update middle list header title
   var titleEl = document.getElementById('knowledgeMidTitle');
-  if (titleEl) titleEl.textContent = _knowledgeCurrentCat || '全部';
+  if (titleEl) titleEl.textContent = _knowledgeScopeNames[_knowledgeScope] || '全部文档';
 }
 function onKnowledgeMidCategoryChange(cat) {
   selectKnowledgeCategory(cat);
@@ -17552,9 +17737,23 @@ async function selectKnowledgeCategory(cat) {
   });
   var activeItem = document.querySelector('.knowledge-cat-item[onclick*="' + (cat ? escapeAttr(cat).replace(/'/g, "\\'") : "selectKnowledgeCategory('')") + '"]');
   if (activeItem) activeItem.classList.add('active');
-  var titleEl = document.getElementById('knowledgeMidTitle');
-  if (titleEl) titleEl.textContent = cat || '全部';
   await loadKnowledgePage(1);
+}
+async function selectKnowledgeScope(scope) {
+  _knowledgeScope = scope || 'all';
+  _knowledgePage = 1;
+  document.querySelectorAll('.knowledge-scope-tab').forEach(function(t) {
+    t.classList.toggle('active', t.dataset.scope === _knowledgeScope);
+  });
+  var titleEl = document.getElementById('knowledgeMidTitle');
+  if (titleEl) titleEl.textContent = _knowledgeScopeNames[_knowledgeScope] || '全部文档';
+  await loadKnowledgePage(1);
+}
+function onKnowledgeMainSearch(value) {
+  clearTimeout(window._knowledgeSearchTimer);
+  window._knowledgeSearchTimer = setTimeout(function () {
+    loadKnowledgePage(1);
+  }, 250);
 }
 async function filterKnowledgeList(keyword) {
   var kw = (keyword || '').trim();
@@ -17586,19 +17785,22 @@ function renderKnowledgeList(docs) {
     el.innerHTML = '<div class="knowledge-mid-empty"><div class="knowledge-mid-empty-icon">📖</div><div class="knowledge-mid-empty-text">暂无知识文档</div><button class="knowledge-mid-empty-btn" onclick="createNewKnowledge()">手动添加</button></div>';
     return;
   }
+  var scopeClassMap = { global: 'scope-global', team: 'scope-team', personal: 'scope-personal' };
+  var scopeNameMap = { global: '全局', team: '团队', personal: '个人' };
   var html = '';
   docs.forEach(function(d) {
     var isActive = d.id === _knowledgeCurrentId;
-    var preview = getKnowledgePreview(d.content);
-    html += '<div class="knowledge-mid-card' + (isActive ? ' active' : '') + '" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id).replace(/'/g, "\\'") + '\')">';
+    var preview = getKnowledgePreview(d.content).slice(0, 100);
+    var scope = d.scope || 'global';
+    html += '<div class="knowledge-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(d.id || '') + '" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
     html += '<div class="knowledge-mid-card-header">';
-    html += '<div class="knowledge-mid-card-title-wrap"><div class="knowledge-mid-card-title">' + escapeHtml(d.title || d.name || '未命名') + '</div>';
-    html += '<button class="knowledge-mid-card-edit" title="编辑" onclick="event.stopPropagation(); openKnowledgeModal(\'' + escapeAttr(d.id).replace(/'/g, "\\'") + '\')">';
-    html += '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
-    html += '</button></div>';
+    html += '<div class="knowledge-mid-card-title-wrap"><div class="knowledge-mid-card-title">' + escapeHtml(d.title || d.name || '未命名') + '</div></div>';
     html += '<span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
-    html += '<div class="knowledge-mid-card-body">' + escapeHtml(preview) + '</div>';
-    html += '<div class="knowledge-mid-card-meta">' + formatDate(d.updatedAt) + '</div>';
+    html += '<div class="knowledge-mid-card-body">' + escapeHtml(preview) + (preview.length >= 100 ? '...' : '') + '</div>';
+    html += '<div class="knowledge-mid-card-meta">';
+    html += '<span class="knowledge-view-scope ' + (scopeClassMap[scope] || 'scope-global') + '">' + (scopeNameMap[scope] || '全局') + '</span>';
+    html += '<span>' + formatDate(d.updatedAt) + '</span>';
+    html += '</div>';
     html += '</div>';
   });
   el.innerHTML = html;
@@ -17620,28 +17822,57 @@ function selectKnowledgeItem(id) {
   _knowledgeCurrentId = id;
   var doc = _knowledgeData.docs.find(function(d) { return d.id === id; });
   if (!doc) return;
-  document.getElementById('knowledgeEditTitle').value = doc.title || doc.name || '';
-  var catEl = document.getElementById('knowledgeEditCategory');
-  if (catEl) {
-    var cat = doc.category || '';
-    if (cat && !Array.prototype.slice.call(catEl.options).some(function(o) { return o.value === cat; })) {
-      catEl.innerHTML += '<option value="' + escapeAttr(cat) + '">' + escapeHtml(cat) + '</option>';
-    }
-    catEl.value = cat;
-  }
-  document.getElementById('knowledgeEditContent').value = doc.content || '';
-  var statusEl = document.getElementById('knowledgeEditStatus');
-  if (statusEl) statusEl.textContent = '';
-  _knowledgePreviewMode = false;
-  updateKnowledgeEditorView();
+  renderKnowledgeView(doc);
   var right = document.getElementById('knowledgeRight');
   if (right) right.classList.add('active');
   // Update active card
   document.querySelectorAll('.knowledge-mid-card').forEach(function(el) {
     el.classList.remove('active');
   });
-  var activeEl = document.querySelector('.knowledge-mid-card[onclick*="' + id + '"]');
+  var activeEl = document.querySelector('.knowledge-mid-card[data-id="' + escapeAttr(id || '') + '"]');
   if (activeEl) activeEl.classList.add('active');
+}
+
+function renderKnowledgeView(doc) {
+  var viewPanel = document.getElementById('knowledgeViewPanel');
+  var editPanel = document.getElementById('knowledgeEditPanel');
+  if (viewPanel) viewPanel.classList.remove('hidden');
+  if (editPanel) editPanel.classList.add('hidden');
+
+  var titleEl = document.getElementById('knowledgeViewTitle');
+  var catEl = document.getElementById('knowledgeViewCategory');
+  var scopeEl = document.getElementById('knowledgeViewScope');
+  var timeEl = document.getElementById('knowledgeViewTime');
+  var bodyEl = document.getElementById('knowledgeViewBody');
+
+  if (titleEl) titleEl.textContent = doc.title || doc.name || '未命名';
+  if (catEl) catEl.textContent = doc.category || '未分类';
+
+  var scopeClassMap = { global: 'scope-global', team: 'scope-team', personal: 'scope-personal' };
+  var scopeNameMap = { global: '全局', team: '团队', personal: '个人' };
+  var scope = doc.scope || 'global';
+  if (scopeEl) {
+    scopeEl.textContent = scopeNameMap[scope] || '全局';
+    scopeEl.className = 'knowledge-view-scope ' + (scopeClassMap[scope] || 'scope-global');
+  }
+  if (timeEl) timeEl.textContent = '更新于 ' + formatDate(doc.updatedAt);
+  if (bodyEl) bodyEl.innerHTML = renderMarkdown(doc.content || '');
+
+  // 同步编辑表单
+  var editTitle = document.getElementById('knowledgeEditTitle');
+  var editCat = document.getElementById('knowledgeEditCategory');
+  var editContent = document.getElementById('knowledgeEditContent');
+  if (editTitle) editTitle.value = doc.title || doc.name || '';
+  if (editContent) editContent.value = doc.content || '';
+  if (editCat) {
+    var cat = doc.category || '';
+    if (cat && !Array.prototype.slice.call(editCat.options).some(function(o) { return o.value === cat; })) {
+      editCat.innerHTML += '<option value="' + escapeAttr(cat) + '">' + escapeHtml(cat) + '</option>';
+    }
+    editCat.value = cat;
+  }
+  _knowledgePreviewMode = false;
+  updateKnowledgeEditorView();
 }
 function createNewKnowledge() {
   _knowledgeCurrentId = null;
@@ -17655,8 +17886,7 @@ function createNewKnowledge() {
   if (statusEl) statusEl.textContent = '';
   _knowledgePreviewMode = false;
   updateKnowledgeEditorView();
-  var right = document.getElementById('knowledgeRight');
-  if (right) right.classList.add('active');
+  openKnowledgeEditor();
   if (titleEl) {
     try { titleEl.focus(); } catch (e) {}
   }
@@ -17730,6 +17960,17 @@ async function saveKnowledgeFromEditor() {
   statusEl.textContent = '保存中...';
   try {
     var body = { title: title, content: content, category: category };
+    if (!_knowledgeCurrentId) {
+      // 新建时默认使用当前选中的 scope
+      var createScope = (_knowledgeScope && _knowledgeScope !== 'all') ? _knowledgeScope : 'global';
+      body.scope = createScope;
+      if (createScope === 'team' && currentUser && currentUser.teamIds && currentUser.teamIds.length > 0) {
+        body.teamId = currentUser.teamIds[0];
+      }
+      if (createScope === 'personal') {
+        body.empId = currentUser ? currentUser.userId || currentUser.id : '';
+      }
+    }
     var url = _knowledgeCurrentId ? '/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId) : '/api/knowledge';
     var method = _knowledgeCurrentId ? 'PUT' : 'POST';
     var r = await apiFetch(url, { method: method, body: JSON.stringify(body) });
@@ -17747,6 +17988,66 @@ async function saveKnowledgeFromEditor() {
     statusEl.textContent = '保存失败';
     showToast('❌ 保存失败');
     console.warn('[KnowledgePage] 保存失败:', e);
+  }
+}
+
+function editCurrentKnowledge() {
+  if (!_knowledgeCurrentId) return;
+  openKnowledgeEditor();
+}
+
+async function deleteCurrentKnowledge() {
+  if (!_knowledgeCurrentId) {
+    showToast('请先选择要删除的知识');
+    return;
+  }
+  if (!confirm('确定删除该知识？此操作不可恢复。')) return;
+  try {
+    await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId), { method: 'DELETE' });
+    showToast('✅ 已删除');
+    _knowledgeCurrentId = null;
+    closeKnowledgeRight();
+    await loadKnowledgePage();
+  } catch (e) {
+    showToast('❌ 删除失败');
+    console.warn('[KnowledgePage] 删除失败:', e);
+  }
+}
+
+async function moveCurrentKnowledge() {
+  if (!_knowledgeCurrentId) return;
+  var doc = _knowledgeData.docs.find(function (d) { return d.id === _knowledgeCurrentId; });
+  if (!doc) return;
+  var targetScope = prompt('移动到：global（全局）、team（团队）、personal（个人）', doc.scope || 'global');
+  if (!targetScope) return;
+  targetScope = targetScope.trim();
+  if (['global', 'team', 'personal'].indexOf(targetScope) === -1) {
+    showToast('无效的 scope');
+    return;
+  }
+  var teamId = '';
+  if (targetScope === 'team') {
+    var userTeamIds = (currentUser && currentUser.teamIds) || [];
+    if (userTeamIds.length === 0) {
+      showToast('你没有所属团队，无法移动到团队知识库');
+      return;
+    }
+    teamId = prompt('请输入团队 ID' + (userTeamIds.length === 1 ? '（默认：' + userTeamIds[0] + '）' : ''), userTeamIds[0] || '');
+    if (!teamId) return;
+  }
+  try {
+    var r = await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId) + '/move', {
+      method: 'POST',
+      body: JSON.stringify({ scope: targetScope, teamId: teamId })
+    });
+    await r.json();
+    showToast('✅ 已移动');
+    await loadKnowledgePage();
+    var moved = _knowledgeData.docs.find(function (d) { return d.id === _knowledgeCurrentId; });
+    if (moved) renderKnowledgeView(moved);
+  } catch (e) {
+    showToast('❌ 移动失败');
+    console.warn('[KnowledgePage] 移动失败:', e);
   }
 }
 
@@ -18902,7 +19203,13 @@ function switchModule(module) {
     var mid = document.getElementById(module + 'Mid');
     var right = document.getElementById(module + 'Right');
     if (mid) mid.classList.add('active');
-    if (right) right.classList.add('active');
+    if (right) {
+      if (module === 'knowledge') {
+        right.classList.remove('active');
+      } else {
+        right.classList.add('active');
+      }
+    }
     if (module === 'knowledge') loadKnowledgePage();
     else if (module === 'products') loadProducts();
     else if (module === 'influencers') loadInfluencers();
@@ -18914,7 +19221,11 @@ function onModuleSearch(value) {
   if (currentModule === 'messages') {
     filterEmployeeList(value);
   } else if (currentModule === 'knowledge') {
-    filterKnowledgeList(value);
+    var mainSearch = document.getElementById('knowledgeMainSearch');
+    if (mainSearch && mainSearch.value !== value) {
+      mainSearch.value = value;
+      onKnowledgeMainSearch(value);
+    }
   } else if (currentModule === 'products') {
     searchProductsDebounced(value);
   } else if (currentModule === 'influencers') {
@@ -19502,7 +19813,8 @@ function renderSettingsMid() {
     { id: 'permission', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/>', title: '权限管理' },
     { id: 'forbidden', icon: '<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>', title: '违禁词管理' },
     { id: 'users', icon: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/>', title: '用户管理' },
-    { id: 'teams', icon: '<path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><rect x="4" y="2" width="16" height="20" rx="2"/>', title: '团队管理' }
+    { id: 'teams', icon: '<path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><rect x="4" y="2" width="16" height="20" rx="2"/>', title: '团队管理' },
+    { id: 'members', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', title: '成员管理' }
   ];
   var html = '';
   categories.forEach(function (c) {
@@ -19535,7 +19847,7 @@ function renderSettingsRight() {
   var contentEl = document.getElementById('settingsRightContent');
   var actionsEl = document.getElementById('settingsRightActions');
   if (titleEl) titleEl.textContent = {
-    compute: '算力统计', notification: '通知', account: '账号', permission: '权限管理', forbidden: '违禁词管理', users: '用户管理', teams: '团队管理'
+    compute: '算力统计', notification: '通知', account: '账号', permission: '权限管理', forbidden: '违禁词管理', users: '用户管理', teams: '团队管理', members: '成员管理'
   }[_settingsSelectedCategory] || '设置';
   if (actionsEl) actionsEl.innerHTML = '';
   if (!contentEl) return;
@@ -19582,6 +19894,12 @@ function renderSettingsRight() {
     html += '<div class="settings-card">';
     html += '<div id="teamList"></div>';
     html += '</div>';
+  } else if (_settingsSelectedCategory === 'members') {
+    if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="openWizard()" style="border-radius:8px;">➕ 添加成员</button>';
+    html += '<div class="settings-card">';
+    html += '<div class="settings-list-searchbar"><input type="text" id="memberSearchInput" class="form-input" placeholder="搜索成员名字..." oninput="filterSettingsMemberList()"></div>';
+    html += '<div id="settingsMemberList"></div>';
+    html += '</div>';
   }
   contentEl.innerHTML = html;
   if (_settingsSelectedCategory === 'compute') loadComputeStats();
@@ -19590,10 +19908,51 @@ function renderSettingsRight() {
   if (_settingsSelectedCategory === 'forbidden') loadForbiddenWords();
   if (_settingsSelectedCategory === 'users') loadUserList();
   if (_settingsSelectedCategory === 'teams') loadTeamList();
+  if (_settingsSelectedCategory === 'members') renderSettingsMemberList();
 }
 
 function toggleMidSidebar() {
   document.querySelector('.app-sidebar').classList.toggle('open');
+}
+
+function renderSettingsMemberList() {
+  var container = document.getElementById('settingsMemberList');
+  if (!container) return;
+  var list = (emps || []).filter(function (e) {
+    return e && e.id && !_isDefaultEmp(e);
+  });
+  list.sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+  if (list.length === 0) {
+    container.innerHTML = '<div class="settings-empty">暂无成员，点击右上角添加</div>';
+    return;
+  }
+  var html = '';
+  list.forEach(function (emp) {
+    var name = escapeHtml(emp.name || emp.displayName || '未命名');
+    var roleLabel = escapeHtml(getEmpRoleDisplay(emp) || 'AI员工');
+    var provider = escapeHtml(emp.aiProvider || emp.apiProvider || '');
+    html += '<div class="settings-user-card settings-member-row" onclick="openEmpDetail(\'' + escapeAttr(emp.id || '') + '\')" style="cursor:pointer;">';
+    html += '<div class="settings-user-avatar" style="background:' + escapeAttr(emp.color || emp.bg || '#0a84ff') + ';">' + renderAvatar(emp, 40) + '</div>';
+    html += '<div class="settings-user-info">';
+    html += '<div class="settings-user-name">' + name + '</div>';
+    html += '<div class="settings-user-meta"><span>' + roleLabel + '</span>' + (provider ? '<span>·</span><span>' + provider + '</span>' : '') + '</div>';
+    html += '</div>';
+    html += '<div class="settings-user-actions">';
+    html += '<button onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(emp.id || '') + '\')">查看</button>';
+    html += '</div>';
+    html += '</div>';
+  });
+  container.innerHTML = html;
+}
+
+function filterSettingsMemberList() {
+  var input = document.getElementById('memberSearchInput');
+  var keyword = (input ? input.value : '').toLowerCase();
+  var rows = document.querySelectorAll('.settings-member-row');
+  rows.forEach(function (row) {
+    var text = row.textContent || '';
+    row.style.display = text.toLowerCase().indexOf(keyword) >= 0 ? 'flex' : 'none';
+  });
 }
 
 
