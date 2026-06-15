@@ -1312,7 +1312,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .msg-sender-name { font-weight: 600; color: var(--text-primary); }
 .msg-sender-role { font-size: 11px; color: var(--text-tertiary); font-weight: normal; }
 .msg-sender-time { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
-.msg-bubble { padding: 10px 14px; border-radius: 18px; background: #f2f3f5; font-size: 14px; line-height: 1.5; word-break: break-word; color: var(--text-primary); }
+.msg-bubble { padding: 10px 14px; border-radius: 18px; background: #f2f3f5; font-size: 14px; line-height: 1.5; word-break: break-word; white-space: pre-wrap; color: var(--text-primary); }
 
 /* Apple 风格 - 用户消息（右侧，浅蓝色） */
 .msg.own .msg-bubble {
@@ -1330,6 +1330,17 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-radius: 18px 18px 18px 4px;
   color: var(--text-primary);
 }
+
+/* 消息气泡内的 Markdown 元素 */
+.msg-bubble h2, .msg-bubble h3, .msg-bubble h4, .msg-bubble h5, .msg-bubble h6 { margin: 8px 0 4px; font-weight: 600; line-height: 1.4; }
+.msg-bubble h2 { font-size: 16px; }
+.msg-bubble h3 { font-size: 15px; }
+.msg-bubble h4, .msg-bubble h5, .msg-bubble h6 { font-size: 14px; }
+.msg-bubble ul, .msg-bubble ol { margin: 6px 0; padding-left: 20px; }
+.msg-bubble li { margin: 2px 0; }
+.msg-bubble p { margin: 6px 0; }
+.msg.own .msg-bubble .inline-code { background: rgba(255,255,255,0.25); color: #fff; }
+.msg.own .msg-bubble ul, .msg.own .msg-bubble ol { padding-left: 18px; }
 
 .msg { animation: msg-in 0.3s ease-out; }
 @keyframes msg-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -5089,7 +5100,7 @@ function formatDate(ts) {
   return y + '-' + pad(m) + '-' + pad(day) + ' ' + pad(h) + ':' + pad(min);
 }
 
-// 格式化消息内容（支持代码块、换行等）
+// 格式化消息内容（支持代码块、列表、标题、加粗、行内代码等）
 function formatMessageContent(text) {
   if (!text) return '';
 
@@ -5111,12 +5122,82 @@ function formatMessageContent(text) {
       var langLabel = lang ? '<div class="code-lang">' + escapeHtml(lang) + '</div>' : '';
       result += '<div class="code-block">' + langLabel + '<pre><code>' + escapeHtml(code) + '</code></pre><button class="code-copy-btn" onclick="copyCode(this)">📋 复制</button></div>';
     } else {
-      // 普通文本 - 处理换行和行内代码
-      var formatted = part.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>').replace(/\n/g, '<br>');
-      result += formatted;
+      result += formatMessageInline(part);
     }
   }
   return result;
+}
+
+// 普通文本 Markdown 格式化（逃逸 HTML + 行内代码 + 加粗/斜体 + 标题 + 列表 + 换行）
+function formatMessageInline(text) {
+  if (!text) return '';
+  // 先按行内代码 `...` 分段，避免代码内容被转义
+  var tokens = text.split(/(`[^`]+`)/g);
+  var out = '';
+  for (var i = 0; i < tokens.length; i++) {
+    var tok = tokens[i];
+    if (tok.charAt(0) === '`' && tok.charAt(tok.length - 1) === '`') {
+      out += '<code class="inline-code">' + escapeHtml(tok.slice(1, -1)) + '</code>';
+    } else {
+      var s = escapeHtml(tok);
+      // 加粗 **text**
+      s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      // 斜体 *text*（不与加粗冲突）
+      s = s.replace(/(^|[\s(])\*([^*\s][^*]*?)\*($|[\s)])/g, '$1<em>$2</em>$3');
+      // 标题
+      s = s.replace(/^###### (.*)$/gm, '<h6>$1</h6>');
+      s = s.replace(/^##### (.*)$/gm, '<h5>$1</h5>');
+      s = s.replace(/^#### (.*)$/gm, '<h4>$1</h4>');
+      s = s.replace(/^### (.*)$/gm, '<h4>$1</h4>');
+      s = s.replace(/^## (.*)$/gm, '<h3>$1</h3>');
+      s = s.replace(/^# (.*)$/gm, '<h2>$1</h2>');
+      // 列表（只处理一级，保留分段换行用于后续 <br>）
+      s = renderSimpleLists(s);
+      // 剩余换行转成 <br>
+      s = s.replace(/\n/g, '<br>');
+      out += s;
+    }
+  }
+  return out;
+}
+
+// 把一级无序/有序列表行转换成 <ul>/<ol>
+function renderSimpleLists(text) {
+  var lines = text.split('\n');
+  var out = [];
+  var i = 0;
+  var ulRe = /^(\s*)[-*] (.*)$/;
+  var olRe = /^(\s*)\d+\.\s+(.*)$/;
+  while (i < lines.length) {
+    var line = lines[i];
+    var ulMatch = line.match(ulRe);
+    var olMatch = line.match(olRe);
+    if (ulMatch) {
+      var items = [];
+      while (i < lines.length) {
+        var m = lines[i].match(ulRe);
+        if (!m) break;
+        items.push('<li>' + m[2] + '</li>');
+        i++;
+      }
+      out.push('<ul>' + items.join('') + '</ul>');
+      continue;
+    }
+    if (olMatch) {
+      var items = [];
+      while (i < lines.length) {
+        var m = lines[i].match(olRe);
+        if (!m) break;
+        items.push('<li>' + m[2] + '</li>');
+        i++;
+      }
+      out.push('<ol>' + items.join('') + '</ol>');
+      continue;
+    }
+    out.push(line);
+    i++;
+  }
+  return out.join('\n');
 }
 
 // 复制代码
@@ -5359,7 +5440,7 @@ async function sendMsg() {
   const userMsg = document.createElement('div');
   userMsg.className = 'msg own';
   var imagesHtml = buildChatImagesHtml(pendingImages);
-  userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + escapeHtml(text || '') + '</div>' + imagesHtml + '</div>';
+  userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + formatMessageContent(text || '') + '</div>' + imagesHtml + '</div>';
   area.appendChild(userMsg);
   input.value = '';
   clearPendingImages();
@@ -8667,8 +8748,9 @@ function renderGroupMessages(groupId) {
         });
       }
 
-      // 处理 @提及高亮
-      var bubbleContent = formatGroupMessage(m.content);
+      // 处理 @提及高亮：AI/assistant 消息走 Markdown 渲染，用户消息保持纯文本 + @高亮
+      var isAgent = m.role === 'assistant' || m.senderType === 'agent';
+      var bubbleContent = isAgent ? highlightMentions(formatMessageContent(m.content)) : formatGroupMessage(m.content);
       if (isOwn) {
         html += '<div class="msg own"><div class="msg-content">' + '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>' + '<div class="msg-bubble">' + bubbleContent + '</div>' + '</div></div>';
       } else {
@@ -8694,6 +8776,12 @@ function formatGroupMessage(text) {
   // 处理换行
   result = result.replace(/\n/g, '<br>');
   return result;
+}
+
+// 在已有 HTML 中安全地高亮 @提及（避免破坏标签属性）
+function highlightMentions(html) {
+  if (!html) return '';
+  return html.replace(/@([^\s<>"'&]+)/g, '<span class="mention-tag">@$1</span>');
 }
 
 // 发送群聊消息
@@ -9659,7 +9747,7 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   // 解析并移除工具调用标记
   var toolCalls = parseToolCalls(replyText);
   var cleanText = replyText.replace(/\[TOOL_CALL\][\s\S]*?\[\/TOOL_CALL\]/g, '').trim();
-  var bubbleContent = formatGroupMessage(cleanText);
+  var bubbleContent = highlightMentions(formatMessageContent(cleanText));
 
   // DOM 去重：检查最近 3 条消息是否已有相同 sender + content，防止竞态导致重复渲染
   var recentMsgs = area.querySelectorAll('.msg');
@@ -10342,7 +10430,7 @@ function renderMsgs(type) {
         minute: '2-digit'
       });
       var imagesHtml2 = own ? buildChatImagesHtml(m.images) : '';
-      return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + escapeHtml(m.content) + '</div>' + imagesHtml2 + '</div></div>';
+      return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + formatMessageContent(m.content) + '</div>' + imagesHtml2 + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
     if (typingMsg) {
       area.appendChild(typingMsg);
@@ -10360,7 +10448,7 @@ function renderMsgs(type) {
       return x.id === m.sender;
     });
     const own = m.sender === 'user';
-    return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(e, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(e && e.name || '') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(e) || '') + '</span><span class="msg-sender-time">' + escapeHtml(m.time || '') + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + escapeHtml(m.time || '') + '</span></div>') + '<div class="msg-bubble">' + m.text + '</div>' + '</div></div>';
+    return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(e, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(e && e.name || '') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(e) || '') + '</span><span class="msg-sender-time">' + escapeHtml(m.time || '') + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + escapeHtml(m.time || '') + '</span></div>') + '<div class="msg-bubble">' + formatMessageContent(m.text) + '</div>' + '</div></div>';
   }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
   area.scrollTop = area.scrollHeight;
 }
