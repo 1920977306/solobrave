@@ -7398,17 +7398,15 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
 
     # 2. 构造 openclaw CLI 调用
     args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--prompt', full_prompt, '--json']
-    # 显式指定 provider，避免 openclaw 使用默认 provider 导致模型 404
-    if oc_provider:
-        args.extend(['--provider', oc_provider])
-    # 3. 有 apiModel 就加 --model 参数；推荐用 <provider>/<model> 形式
+    # 3. 有 apiModel 就加 --model 参数；使用 <provider>/<model> 形式让 OpenClaw 自动识别 provider
+    # （生产环境 OpenClaw v2026.6.5 不支持 --provider 参数）
     if api_model:
         model_arg = api_model
         if oc_provider and '/' not in api_model:
             model_arg = f'{oc_provider}/{api_model}'
         args.extend(['--model', model_arg])
 
-    print(f'  [OpenClaw] infer cmd: provider={oc_provider} model={api_model} prompt_len={len(full_prompt)}', flush=True)
+    print(f'  [OpenClaw] infer cmd: model={model_arg if api_model else "(none)"} prompt_len={len(full_prompt)}', flush=True)
 
     try:
         result = subprocess.run(
