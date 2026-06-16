@@ -318,6 +318,697 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 #knowledgeRightOverlay.open { opacity: 1; visibility: visible; }
 
+/* ========================================
+   PRODUCTS LIBRARY - Feishu Cloud Docs
+   ======================================== */
+.app-main.products-active { flex-direction: row; }
+#productsMidList {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  background: #ffffff;
+  border-right: 1px solid var(--separator);
+  flex-direction: column;
+  overflow: hidden;
+}
+#productsMidList.active { display: flex; }
+
+/* Products Left Sidebar - brand/category nav */
+.products-left-sidebar {
+  width: 100%;
+  height: 100%;
+  background: #ffffff;
+  border-right: 1px solid var(--separator);
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  overflow: hidden;
+}
+.products-brand-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: all 0.15s;
+  background: #f5f7fa;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.products-brand-icon:hover { background: var(--hover-bg); color: var(--text-primary); }
+.products-brand-icon.active {
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(10,132,255,0.3);
+}
+.products-brand-icon svg { width: 20px; height: 20px; }
+.products-brand-letter {
+  font-size: 16px;
+  font-weight: 700;
+}
+.products-cat-list {
+  width: 100%;
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-top: 0.5px solid var(--separator);
+  margin-top: 4px;
+}
+.products-cat-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  margin: 2px 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.products-cat-item:hover { background: var(--hover-bg); }
+.products-cat-item.active {
+  background: var(--accent-light);
+  color: var(--accent);
+  font-weight: 500;
+}
+.products-cat-item span {
+  font-size: 11px;
+  color: #86909c;
+  background: #F5F5F5;
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+.products-cat-item.active span { background: rgba(10,132,255,0.12); color: var(--accent); }
+
+/* Products Middle List */
+.products-mid-list { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.products-mid-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 0.5px solid var(--separator);
+  flex-shrink: 0;
+}
+.products-mid-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+.products-mid-count {
+  font-size: 13px;
+  color: #86909c;
+  flex-shrink: 0;
+}
+.products-mid-search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  border: 0.5px solid var(--separator);
+}
+.products-mid-search svg { color: var(--text-tertiary); flex-shrink: 0; width: 16px; height: 16px; }
+.products-mid-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.products-mid-search input::placeholder { color: var(--text-tertiary); }
+.products-mid-new {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.products-mid-new:hover { background: var(--accent-hover); }
+.products-mid-items {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px 28px;
+}
+.products-mid-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  border: 0.5px solid var(--separator);
+  cursor: pointer;
+  transition: all 0.15s;
+  min-height: 80px;
+}
+.products-mid-card:hover { border-color: var(--accent); box-shadow: 0 4px 12px rgba(10,132,255,0.08); }
+.products-mid-card.active {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+.products-mid-card-image {
+  width: 60px;
+  height: 60px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #f5f7fa;
+}
+.products-mid-card-placeholder {
+  width: 60px;
+  height: 60px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+.products-mid-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.products-mid-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.products-mid-card-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.products-mid-card-metrics {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.products-mid-card-price {
+  font-weight: 600;
+  color: var(--accent);
+}
+.products-mid-card-commission {
+  color: #FF6B35;
+  background: rgba(255,107,53,0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.products-mid-card-sales { color: var(--text-secondary); }
+.products-status-active,
+.products-status-inactive,
+.products-status-out_of_stock {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.products-status-active { background: rgba(52,199,89,0.10); color: #34C759; }
+.products-status-inactive { background: rgba(134,144,156,0.10); color: #86909c; }
+.products-status-out_of_stock { background: rgba(255,59,48,0.10); color: #FF3B30; }
+.products-mid-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-top: 0.5px solid var(--separator);
+  flex-shrink: 0;
+}
+.products-mid-pagination button {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0.5px solid var(--separator);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.products-mid-pagination button:hover { background: var(--hover-bg); }
+.products-mid-pagination button.active {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+.products-mid-pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.products-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: var(--text-tertiary);
+  gap: 12px;
+}
+.products-empty-icon { font-size: 48px; }
+.products-empty-text { font-size: 14px; }
+.products-empty-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.products-loading { padding: 40px; text-align: center; color: var(--text-tertiary); }
+
+/* Products Right Drawer */
+.products-right {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 560px;
+  max-width: 100%;
+  background: #ffffff;
+  box-shadow: -8px 0 40px rgba(0,0,0,0.12);
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+  z-index: 251;
+  flex-direction: column;
+  overflow: hidden;
+}
+.products-right.active { transform: translateX(0); }
+.products-right-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.products-right-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 250;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s;
+}
+.products-right-overlay.open { opacity: 1; visibility: visible; }
+
+/* AI Analysis Card */
+.products-ai-card {
+  background: linear-gradient(135deg, #f5f7ff 0%, #ffffff 100%);
+  border: 0.5px solid rgba(10,132,255,0.15);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(10,132,255,0.06);
+}
+.products-ai-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.products-ai-score {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.products-ai-info { flex: 1; min-width: 0; }
+.products-ai-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.products-ai-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.products-ai-btn {
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.products-ai-btn:hover { background: var(--accent-hover); }
+.products-ai-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.products-ai-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.products-ai-section {
+  background: rgba(255,255,255,0.7);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.products-ai-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.products-ai-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* Tabs */
+.products-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.products-tab {
+  flex: 1;
+  padding: 8px 4px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+.products-tab:hover { color: var(--text-primary); }
+.products-tab.active { background: #ffffff; color: var(--accent); font-weight: 500; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.products-tab-panels { flex: 1; min-height: 0; }
+.products-tab-panel { display: none; }
+.products-tab-panel.active { display: block; }
+
+/* Tab panel content */
+.products-panel-section {
+  background: #ffffff;
+  border: 0.5px solid var(--separator);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.products-panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+.products-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.products-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.products-detail-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.products-detail-value {
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.products-sku-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.products-sku-table th,
+.products-sku-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 0.5px solid var(--separator);
+}
+.products-sku-table th {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.products-rate-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 0.5px solid var(--separator);
+  font-size: 13px;
+}
+.products-rate-row:last-child { border-bottom: none; }
+.products-rate-label { color: var(--text-secondary); }
+.products-rate-value { font-weight: 600; color: var(--accent); }
+.products-progress-item {
+  margin-bottom: 10px;
+}
+.products-progress-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.products-progress-bar {
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.products-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+.products-influencer-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 0.5px solid var(--separator);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  background: #ffffff;
+}
+.products-influencer-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #f5f7fa;
+  flex-shrink: 0;
+}
+.products-influencer-avatar-placeholder {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.products-influencer-info { flex: 1; min-width: 0; }
+.products-influencer-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+.products-influencer-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.products-influencer-metrics {
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.products-influencer-metrics div { margin-bottom: 2px; }
+.products-source-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--accent-light);
+  color: var(--accent);
+}
+.products-video-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.products-video-item {
+  padding: 10px 12px;
+  border: 0.5px solid var(--separator);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.products-video-item a {
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+.products-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.products-tag {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+/* Product Edit Modal - scoped to #productModalOverlay to avoid conflicting with legacy modals */
+#productModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(4px);
+  z-index: 400;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+#productModalOverlay.active { display: flex; }
+#productModalOverlay .product-modal {
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#productModalOverlay .product-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 0.5px solid var(--separator);
+}
+#productModalOverlay .product-modal-title { font-size: 17px; font-weight: 600; color: var(--text-primary); }
+#productModalOverlay .product-modal-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#productModalOverlay .product-modal-close:hover { background: var(--hover-bg); }
+#productModalOverlay .product-modal-body {
+  padding: 16px 20px;
+  flex: 1;
+  overflow-y: auto;
+}
+#productModalOverlay .product-modal-field { margin-bottom: 14px; }
+#productModalOverlay .product-modal-field label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+#productModalOverlay .product-modal-field input,
+#productModalOverlay .product-modal-field select,
+#productModalOverlay .product-modal-field textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 0.5px solid var(--separator);
+  font-size: 14px;
+  background: var(--bg-primary);
+  box-sizing: border-box;
+}
+#productModalOverlay .product-modal-field textarea { min-height: 80px; resize: vertical; }
+#productModalOverlay .product-modal-field input:focus,
+#productModalOverlay .product-modal-field select:focus,
+#productModalOverlay .product-modal-field textarea:focus { border-color: var(--accent); }
+#productModalOverlay .product-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 0.5px solid var(--separator);
+}
+#productModalOverlay .product-modal-cancel,
+#productModalOverlay .product-modal-save {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+#productModalOverlay .product-modal-cancel { background: var(--bg-tertiary); color: var(--text-primary); }
+#productModalOverlay .product-modal-cancel:hover { background: var(--hover-bg); }
+#productModalOverlay .product-modal-save { background: var(--accent); color: #ffffff; }
+#productModalOverlay .product-modal-save:hover { background: var(--accent-hover); }
+
 /* Category sidebar */
 .knowledge-cat-sidebar { background: #ffffff; }
 .knowledge-cat-search {
@@ -3708,17 +4399,15 @@ window.doLogin = function () {
   <button class="knowledge-cat-new" onclick="createNewKnowledgeCategory()">+ 新建分类</button>
 </div>
 
-<!-- Products Mid -->
-<div class="module-mid" id="productsMid">
-  <div class="sidebar-search">
-    <svg class="sidebar-search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-    <input type="text" placeholder="搜索商品..." id="productsMidSearch" oninput="onModuleSearch(this.value)">
+<!-- Products Left Sidebar -->
+<div class="module-mid products-left-sidebar" id="productsLeftSidebar">
+  <div class="products-brand-icon active" data-brand="" onclick="selectProductBrand('')" title="全部品牌">
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
   </div>
-  <div class="module-filter-row">
-    <select id="productsMidCategory" onchange="searchProducts()"><option value="">全部分类</option><option value="手机数码">手机数码</option><option value="电脑办公">电脑办公</option><option value="家用电器">家用电器</option><option value="服装鞋包">服装鞋包</option><option value="食品饮料">食品饮料</option><option value="美妆个护">美妆个护</option><option value="家居家装">家居家装</option><option value="母婴用品">母婴用品</option><option value="运动户外">运动户外</option><option value="图书文具">图书文具</option><option value="未分类">未分类</option></select>
+  <div class="products-brand-icon" data-brand="COOLCHAP" onclick="selectProductBrand('COOLCHAP')" title="COOLCHAP">
+    <div class="products-brand-letter">C</div>
   </div>
-  <div class="section-title">商品列表</div>
-  <div class="module-mid-list" id="productsMidList"></div>
+  <div class="products-cat-list" id="productsCatList"></div>
 </div>
 
 <!-- Influencers Mid -->
@@ -3859,26 +4548,78 @@ window.doLogin = function () {
   </div>
 </div>
 
+<!-- Products Middle List -->
+<div class="products-mid-list" id="productsMidList">
+  <div class="products-mid-header">
+    <div class="products-mid-title" id="productsMidTitle">全部商品</div>
+    <div class="products-mid-count" id="productsMidCount">共 0 条</div>
+    <div class="products-mid-search">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" placeholder="搜索商品..." id="productsMidSearch" oninput="onProductSearch(this.value)">
+    </div>
+    <button class="products-mid-new" onclick="createNewProduct()">+ 录入商品</button>
+  </div>
+  <div class="products-mid-items" id="productsMidItems"></div>
+  <div class="products-mid-pagination" id="productsMidPagination"></div>
+</div>
+
 <!-- Products Right -->
-<div class="module-right" id="productsRight">
-  <div class="module-right-header">
-    <div class="module-right-title" id="productsRightTitle">商品详情</div>
-    <div class="module-right-actions">
-      <button class="module-action-btn" onclick="createNewProduct()">新建</button>
-      <button class="module-action-btn primary" onclick="saveProduct()">保存</button>
-      <button class="module-action-btn danger" onclick="deleteProductFromRight()">删除</button>
+<div class="module-right products-right" id="productsRight">
+  <div class="products-right-content" id="productsRightContent">
+    <!-- AI Analysis Card at top -->
+    <div class="products-ai-card" id="productsAICard">
+      <div class="products-ai-header">
+        <div class="products-ai-score" id="productsAIScore">-</div>
+        <div class="products-ai-info">
+          <div class="products-ai-title">AI 智能选品分析</div>
+          <div class="products-ai-status" id="productsAIStatus">点击按钮生成分析</div>
+        </div>
+        <button class="products-ai-btn" id="productsAIBtn" onclick="analyzeProductAI()">AI 分析</button>
+      </div>
+      <div class="products-ai-body" id="productsAIBody"></div>
+    </div>
+    <!-- Tabs -->
+    <div class="products-tabs">
+      <button class="products-tab active" data-tab="detail" onclick="switchProductTab('detail')">商品详情</button>
+      <button class="products-tab" data-tab="sales" onclick="switchProductTab('sales')">带货数据</button>
+      <button class="products-tab" data-tab="influencers" onclick="switchProductTab('influencers')">达人合作</button>
+      <button class="products-tab" data-tab="audience" onclick="switchProductTab('audience')">受众画像</button>
+    </div>
+    <div class="products-tab-panels" id="productsTabPanels">
+      <div class="products-tab-panel active" data-panel="detail" id="productsPanelDetail"></div>
+      <div class="products-tab-panel" data-panel="sales" id="productsPanelSales"></div>
+      <div class="products-tab-panel" data-panel="influencers" id="productsPanelInfluencers"></div>
+      <div class="products-tab-panel" data-panel="audience" id="productsPanelAudience"></div>
     </div>
   </div>
-  <div class="module-right-content" id="productsRightContent">
-    <input type="hidden" id="productEditId">
-    <div class="module-form-row"><label>商品名称 *</label><input type="text" id="productName" placeholder="输入商品名称"></div>
-    <div class="module-form-row"><label>SKU 编码</label><input type="text" id="productSku" placeholder="如：SKU-001"></div>
-    <div class="module-form-row"><label>分类</label><select id="productCategory"><option value="未分类">未分类</option><option value="手机数码">手机数码</option><option value="电脑办公">电脑办公</option><option value="家用电器">家用电器</option><option value="服装鞋包">服装鞋包</option><option value="食品饮料">食品饮料</option><option value="美妆个护">美妆个护</option><option value="家居家装">家居家装</option><option value="母婴用品">母婴用品</option><option value="运动户外">运动户外</option><option value="图书文具">图书文具</option></select></div>
-    <div class="module-form-row"><label>价格</label><input type="number" id="productPrice" placeholder="0.00" step="0.01"></div>
-    <div class="module-form-row"><label>库存</label><input type="number" id="productStock" placeholder="0" step="1"></div>
-    <div class="module-form-row"><label>标签（逗号分隔）</label><input type="text" id="productTags" placeholder="如：新品, 热销, 包邮"></div>
-    <div class="module-form-row"><label>商品描述</label><textarea id="productDescription" rows="3" placeholder="输入商品描述..."></textarea></div>
-    <div class="module-form-row"><label>状态</label><select id="productStatus"><option value="active">在售</option><option value="inactive">停售</option><option value="out_of_stock">缺货</option></select></div>
+</div>
+<!-- Products Right Overlay -->
+<div class="products-right-overlay" id="productsRightOverlay" onclick="closeProductRight()"></div>
+
+<!-- Product Edit Modal (small modal like knowledge modal) -->
+<div class="product-modal-overlay" id="productModalOverlay" onclick="closeProductModal(event)">
+  <div class="product-modal" onclick="event.stopPropagation()">
+    <div class="product-modal-header">
+      <div class="product-modal-title" id="productModalTitle">录入商品</div>
+      <button class="product-modal-close" onclick="closeProductModal()">×</button>
+    </div>
+    <div class="product-modal-body">
+      <input type="hidden" id="productEditId">
+      <div class="product-modal-field"><label>商品名称 *</label><input type="text" id="productName" placeholder="输入商品名称"></div>
+      <div class="product-modal-field"><label>副标题</label><input type="text" id="productSubtitle" placeholder="输入副标题"></div>
+      <div class="product-modal-field"><label>品牌</label><input type="text" id="productBrand" value="COOLCHAP"></div>
+      <div class="product-modal-field"><label>类目</label><input type="text" id="productCategory" value="拖鞋"></div>
+      <div class="product-modal-field"><label>价格 *</label><input type="number" id="productPrice" placeholder="0.00"></div>
+      <div class="product-modal-field"><label>库存</label><input type="number" id="productStock" value="0"></div>
+      <div class="product-modal-field"><label>SKU 规格</label><textarea id="productSkuSpecs" placeholder='{"颜色":["米白"],"尺码":["36-40"]}'></textarea></div>
+      <div class="product-modal-field"><label>状态</label>
+        <select id="productStatus"><option value="active">在售</option><option value="inactive">停售</option><option value="out_of_stock">缺货</option></select>
+      </div>
+    </div>
+    <div class="product-modal-footer">
+      <button class="product-modal-cancel" onclick="closeProductModal()">取消</button>
+      <button class="product-modal-save" onclick="saveProduct()">保存</button>
+    </div>
   </div>
 </div>
 
@@ -17572,135 +18313,418 @@ function checkQuota() {
 }
 
 // ========== 商品库 ==========
-var _productSearchTimer = null;
+var _productData = { products: [], total: 0 };
+var _productCurrentBrand = '';
+var _productCurrentCategory = '';
+var _productCurrentId = null;
+var _productPage = 1;
+var _productPageSize = 20;
+var _productTab = 'detail';
+
 function openProductLibrary() { switchModule('products'); }
-function closeProductLibrary() { switchModule('messages'); }
-function loadProducts() {
-  var listEl = document.getElementById('productsMidList');
-  if (!listEl) return;
-  listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
-  apiFetch('/api/products').then(function (r) { return r.json(); }).then(function (data) {
-    renderProductList(data.products || []);
-  }).catch(function (e) {
-    if (listEl) listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
-    console.warn('[Product] 加载失败:', e);
-  });
+function closeProductLibrary() { switchModule('messages'); closeProductRight(); }
+
+function closeProductRight() {
+  _productCurrentId = null;
+  var right = document.getElementById('productsRight');
+  var overlay = document.getElementById('productsRightOverlay');
+  if (right) right.classList.remove('active');
+  if (overlay) overlay.classList.remove('open');
+  document.querySelectorAll('.products-mid-card').forEach(function(el) { el.classList.remove('active'); });
 }
-function searchProductsDebounced(val) {
-  if (_productSearchTimer) clearTimeout(_productSearchTimer);
-  _productSearchTimer = setTimeout(function () { searchProducts(); }, 300);
-}
-function searchProducts() {
-  var searchInput = document.getElementById('productsMidSearch');
-  var catInput = document.getElementById('productsMidCategory');
-  var kw = searchInput ? searchInput.value.trim() : '';
-  var cat = catInput ? catInput.value : '';
-  var qs = [];
+
+function loadProducts(page) {
+  if (page) _productPage = page;
+  var offset = (_productPage - 1) * _productPageSize;
+  var qs = ['limit=' + _productPageSize, 'offset=' + offset];
+  if (_productCurrentBrand) qs.push('brand=' + encodeURIComponent(_productCurrentBrand));
+  if (_productCurrentCategory) qs.push('category=' + encodeURIComponent(_productCurrentCategory));
+  var kw = document.getElementById('productsMidSearch') ? document.getElementById('productsMidSearch').value.trim() : '';
   if (kw) qs.push('q=' + encodeURIComponent(kw));
-  if (cat) qs.push('category=' + encodeURIComponent(cat));
-  var url = '/api/products' + (qs.length ? '?' + qs.join('&') : '');
-  var listEl = document.getElementById('productsMidList');
-  if (listEl) listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索中...</div>';
-  apiFetch(url).then(function (r) { return r.json(); }).then(function (data) {
-    renderProductList(data.products || []);
-  }).catch(function (e) {
-    if (listEl) listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索失败</div>';
+  var url = '/api/products?' + qs.join('&');
+  var itemsEl = document.getElementById('productsMidItems');
+  if (itemsEl) itemsEl.innerHTML = '<div class="products-loading">加载中...</div>';
+  apiFetch(url).then(function(r){return r.json();}).then(function(data){
+    _productData.products = data.products || [];
+    _productData.total = data.total || 0;
+    renderProductList(_productData.products);
+    renderProductPagination(_productData.total, _productPage, _productPageSize);
+    renderProductCategories();
+  }).catch(function(e){
+    if (itemsEl) itemsEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
   });
 }
+
+function onProductSearch(value) {
+  clearTimeout(window._productSearchTimer);
+  window._productSearchTimer = setTimeout(function(){ _productPage = 1; loadProducts(); }, 250);
+}
+
 function renderProductList(products) {
-  var listEl = document.getElementById('productsMidList');
-  if (!listEl) return;
-  if (products.length === 0) {
-    listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">暂无商品，点击右上角"录入商品"添加</div>';
+  var el = document.getElementById('productsMidItems');
+  var countEl = document.getElementById('productsMidCount');
+  if (countEl) countEl.textContent = '共 ' + (_productData.total || 0) + ' 条';
+  if (!el) return;
+  if (!products || products.length === 0) {
+    el.innerHTML = '<div class="products-empty"><div class="products-empty-icon">📦</div><div class="products-empty-text">暂无商品</div><button class="products-empty-btn" onclick="createNewProduct()">录入商品</button></div>';
     return;
   }
+  var statusMap = {active:'在售', inactive:'停售', out_of_stock:'缺货'};
   var html = '';
-  products.forEach(function (p) {
-    var statusMap = {active: '在售', inactive: '停售', out_of_stock: '缺货'};
-    var statusLabel = statusMap[p.status] || p.status;
-    html += '<div class="list-item" onclick="editProduct(\'' + escapeAttr(p.id) + '\')">';
-    html += '<div class="emp-avatar" style="background:var(--accent-light);color:var(--accent);">📦</div>';
-    html += '<div class="emp-info">';
-    html += '<div class="emp-name">' + escapeHtml(p.name) + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + statusLabel + '</span></div>';
-    html += '<div class="emp-preview">SKU: ' + escapeHtml(p.sku || '-') + ' · 分类: ' + escapeHtml(p.category || '未分类') + ' · 库存: ' + (p.stock || 0) + '</div>';
-    html += '</div>';
-    html += '<div class="emp-time" style="color:var(--accent);font-weight:600;">¥' + (p.price || 0).toFixed(2) + '</div>';
-    html += '</div>';
+  products.forEach(function(p){
+    var isActive = p.id === _productCurrentId;
+    var rates = p.commission_rates || {};
+    var firstRate = rates[Object.keys(rates)[0]] || p.commission_rate || 0;
+    var placeholder = getProductPlaceholder(p);
+    html += '<div class="products-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(p.id) + '" onclick="selectProductItem(\'' + escapeAttr(p.id).replace(/'/g,"\\'") + '\')">';
+    html += placeholder;
+    html += '<div class="products-mid-card-info">';
+    html += '<div class="products-mid-card-title">' + escapeHtml(p.name) + '</div>';
+    html += '<div class="products-mid-card-subtitle">' + escapeHtml(p.subtitle || '') + '</div>';
+    html += '<div class="products-mid-card-metrics">';
+    html += '<span class="products-mid-card-price">¥' + (p.price || 0).toFixed(2) + '</span>';
+    html += '<span class="products-mid-card-commission">佣金 ' + firstRate + '%</span>';
+    html += '<span class="products-mid-card-sales">月销 ' + formatNumber(p.monthly_sales || 0) + '</span>';
+    html += '<span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status) + '</span>';
+    html += '</div></div></div>';
   });
-  listEl.innerHTML = html;
+  el.innerHTML = html;
 }
-function showProductForm(product) {
-  var titleEl = document.getElementById('productsRightTitle');
-  if (titleEl) titleEl.textContent = product ? '编辑商品' : '录入商品';
-  document.getElementById('productEditId').value = product ? product.id : '';
-  document.getElementById('productName').value = product ? product.name : '';
-  document.getElementById('productSku').value = product ? (product.sku || '') : '';
-  document.getElementById('productCategory').value = product ? (product.category || '未分类') : '未分类';
-  document.getElementById('productPrice').value = product ? (product.price || 0) : '';
-  document.getElementById('productStock').value = product ? (product.stock || 0) : '';
-  document.getElementById('productTags').value = product ? (product.tags || []).join(', ') : '';
-  document.getElementById('productDescription').value = product ? (product.description || '') : '';
-  document.getElementById('productStatus').value = product ? (product.status || 'active') : 'active';
-  var right = document.getElementById('productsRight');
-  if (right) right.classList.add('active');
+
+function getProductPlaceholder(p) {
+  var brandColors = {'COOLCHAP':'#FF6B35'};
+  var color = brandColors[p.brand] || '#165DFF';
+  var ch = (p.name || '?').charAt(0);
+  return '<div class="products-mid-card-placeholder" style="background:' + color + '">' + escapeHtml(ch) + '</div>';
 }
-function closeProductForm() {
-  var right = document.getElementById('productsRight');
-  if (right) right.classList.remove('active');
+
+function renderProductPagination(total, page, pageSize) {
+  var el = document.getElementById('productsMidPagination');
+  if (!el) return;
+  var totalPages = Math.ceil(total / pageSize) || 1;
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  var html = '';
+  html += '<button onclick="loadProducts(' + (page - 1) + ')" ' + (page <= 1 ? 'disabled' : '') + '>上一页</button>';
+  for (var i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) {
+      html += '<button class="' + (i === page ? 'active' : '') + '" onclick="loadProducts(' + i + ')">' + i + '</button>';
+    } else if (i === page - 2 || i === page + 2) {
+      html += '<span style="color:#86909c;font-size:13px;">...</span>';
+    }
+  }
+  html += '<button onclick="loadProducts(' + (page + 1) + ')" ' + (page >= totalPages ? 'disabled' : '') + '>下一页</button>';
+  el.innerHTML = html;
 }
+
+function selectProductItem(id) {
+  _productCurrentId = id;
+  var p = _productData.products.find(function(x){return x.id === id;});
+  if (!p) return;
+  apiFetch('/api/products/' + encodeURIComponent(id)).then(function(r){return r.json();}).then(function(product){
+    renderProductDetail(product);
+    var right = document.getElementById('productsRight');
+    var overlay = document.getElementById('productsRightOverlay');
+    if (right) right.classList.add('active');
+    if (overlay) overlay.classList.add('open');
+    document.querySelectorAll('.products-mid-card').forEach(function(el){el.classList.remove('active');});
+    var activeEl = document.querySelector('.products-mid-card[data-id="' + escapeAttr(id) + '"]');
+    if (activeEl) activeEl.classList.add('active');
+  }).catch(function(e){ showToast('加载失败'); });
+}
+
+function renderProductDetail(p) {
+  // AI card
+  var ai = p.ai_analysis || {};
+  var scoreEl = document.getElementById('productsAIScore');
+  var statusEl = document.getElementById('productsAIStatus');
+  var bodyEl = document.getElementById('productsAIBody');
+  if (ai.ai_score) {
+    if (scoreEl) scoreEl.textContent = ai.ai_score + '星';
+    if (statusEl) statusEl.textContent = 'AI 已完成分析';
+    if (bodyEl) bodyEl.innerHTML = '<div class="products-ai-section"><div class="products-ai-label">竞争分析</div><div class="products-ai-text">' + escapeHtml(ai.competition_analysis || '-') + '</div></div><div class="products-ai-section"><div class="products-ai-label">选品建议</div><div class="products-ai-text">' + escapeHtml(ai.selection_advice || '-') + '</div></div>';
+  } else {
+    if (scoreEl) scoreEl.textContent = '-';
+    if (statusEl) statusEl.textContent = '点击按钮生成分析';
+    if (bodyEl) bodyEl.innerHTML = '';
+  }
+  // Reset tab
+  _productTab = 'detail';
+  document.querySelectorAll('.products-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.tab === 'detail'); });
+  document.querySelectorAll('.products-tab-panel').forEach(function(p){ p.classList.toggle('active', p.dataset.panel === 'detail'); });
+  // Render panels
+  renderProductPanelDetail(p);
+  renderProductPanelSales(p);
+  renderProductPanelInfluencers(p);
+  renderProductPanelAudience(p);
+}
+
+function switchProductTab(tab) {
+  _productTab = tab;
+  document.querySelectorAll('.products-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.tab === tab); });
+  document.querySelectorAll('.products-tab-panel').forEach(function(p){ p.classList.toggle('active', p.dataset.panel === tab); });
+}
+
+function renderProductPanelDetail(p) {
+  var el = document.getElementById('productsPanelDetail');
+  if (!el) return;
+  var statusMap = {active:'在售', inactive:'停售', out_of_stock:'缺货'};
+  var html = '<div class="products-panel-section">';
+  html += '<div class="products-panel-title">基本信息</div>';
+  html += '<div class="products-detail-grid">';
+  html += '<div class="products-detail-item"><div class="products-detail-label">商品名称</div><div class="products-detail-value">' + escapeHtml(p.name || '-') + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">品牌</div><div class="products-detail-value">' + escapeHtml(p.brand || '-') + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">类目</div><div class="products-detail-value">' + escapeHtml(p.category || '-') + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">价格</div><div class="products-detail-value">¥' + (p.price || 0).toFixed(2) + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">库存</div><div class="products-detail-value">' + (p.stock || 0) + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">状态</div><div class="products-detail-value">' + (statusMap[p.status] || p.status || '-') + '</div></div>';
+  html += '</div></div>';
+  if (p.subtitle || p.description) {
+    html += '<div class="products-panel-section">';
+    html += '<div class="products-panel-title">商品描述</div>';
+    html += '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">' + escapeHtml(p.subtitle || p.description || '-') + '</div>';
+    html += '</div>';
+  }
+  if (p.sku_specs && Object.keys(p.sku_specs).length > 0) {
+    html += '<div class="products-panel-section">';
+    html += '<div class="products-panel-title">SKU 规格</div>';
+    html += '<table class="products-sku-table"><thead><tr><th>规格项</th><th>选项</th></tr></thead><tbody>';
+    Object.keys(p.sku_specs).forEach(function(k){
+      var vals = p.sku_specs[k];
+      var valStr = Array.isArray(vals) ? vals.join(', ') : String(vals);
+      html += '<tr><td>' + escapeHtml(k) + '</td><td>' + escapeHtml(valStr) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+  if (p.tags && p.tags.length) {
+    html += '<div class="products-panel-section">';
+    html += '<div class="products-panel-title">标签</div>';
+    html += '<div class="products-tag-list">';
+    p.tags.forEach(function(tag){ html += '<span class="products-tag">' + escapeHtml(tag) + '</span>'; });
+    html += '</div></div>';
+  }
+  html += '<div style="display:flex;gap:10px;padding:0 4px;">';
+  html += '<button class="product-modal-save" onclick="editCurrentProduct()" style="flex:1;padding:10px 16px;">编辑商品</button>';
+  html += '<button class="product-modal-cancel" onclick="deleteCurrentProduct()" style="flex:1;padding:10px 16px;color:#FF3B30;">删除商品</button>';
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function renderProductPanelSales(p) {
+  var el = document.getElementById('productsPanelSales');
+  if (!el) return;
+  var html = '<div class="products-panel-section">';
+  html += '<div class="products-panel-title">销售概览</div>';
+  html += '<div class="products-detail-grid">';
+  html += '<div class="products-detail-item"><div class="products-detail-label">月销量</div><div class="products-detail-value">' + formatNumber(p.monthly_sales || 0) + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">月 GMV</div><div class="products-detail-value">¥' + formatNumber(p.monthly_gmv || 0) + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">佣金金额</div><div class="products-detail-value">¥' + (p.commission_amount || 0).toFixed(2) + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">转化率</div><div class="products-detail-value">' + (p.conversion_rate || 0).toFixed(2) + '%</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">客单价</div><div class="products-detail-value">¥' + (p.avg_order_value || 0).toFixed(2) + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">合作达人数</div><div class="products-detail-value">' + (p.influencer_count || 0) + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">视频数</div><div class="products-detail-value">' + (p.video_count || 0) + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">直播数</div><div class="products-detail-value">' + (p.live_count || 0) + '</div></div>';
+  html += '</div></div>';
+  if (p.commission_rates && Object.keys(p.commission_rates).length > 0) {
+    html += '<div class="products-panel-section">';
+    html += '<div class="products-panel-title">佣金率（分周期）</div>';
+    Object.keys(p.commission_rates).forEach(function(k){
+      html += '<div class="products-rate-row"><span class="products-rate-label">' + escapeHtml(k) + '</span><span class="products-rate-value">' + p.commission_rates[k] + '%</span></div>';
+    });
+    html += '</div>';
+  }
+  if (p.channel_distribution && Object.keys(p.channel_distribution).length > 0) {
+    html += '<div class="products-panel-section">';
+    html += '<div class="products-panel-title">渠道分布</div>';
+    var channels = p.channel_distribution;
+    var total = Object.keys(channels).reduce(function(a,k){ return k === 'brand_info' ? a : a + (parseFloat(channels[k])||0); }, 0);
+    Object.keys(channels).forEach(function(k){
+      if (k === 'brand_info') return;
+      var v = parseFloat(channels[k]) || 0;
+      var pct = total ? (v / total * 100) : 0;
+      html += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(k) + '</span><span>' + v + ' (' + pct.toFixed(1) + '%)</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + pct + '%"></div></div></div>';
+    });
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function renderProductPanelInfluencers(p) {
+  var el = document.getElementById('productsPanelInfluencers');
+  if (!el) return;
+  var influencers = p.influencers || [];
+  if (influencers.length === 0) {
+    el.innerHTML = '<div class="products-empty"><div class="products-empty-text">暂无达人数据</div></div>';
+    return;
+  }
+  var html = '<div class="products-panel-section">';
+  html += '<div class="products-panel-title">合作达人 (' + influencers.length + ')</div>';
+  influencers.forEach(function(inf){
+    var avatar = inf.avatar ? '<img class="products-influencer-avatar" src="' + escapeAttr(inf.avatar) + '" alt="">' : '<div class="products-influencer-avatar-placeholder">' + escapeHtml((inf.name || '?').charAt(0)) + '</div>';
+    html += '<div class="products-influencer-card">';
+    html += avatar;
+    html += '<div class="products-influencer-info">';
+    html += '<div class="products-influencer-name">' + escapeHtml(inf.name || '-') + '</div>';
+    html += '<div class="products-influencer-meta">粉丝 ' + formatNumber(inf.followerCount || inf.followers || 0) + ' · 销量 ' + formatNumber(inf.sales || 0) + '</div>';
+    html += '</div>';
+    html += '<div class="products-influencer-metrics">';
+    html += '<div>GMV ¥' + formatNumber(inf.settlementAmount || inf.gmv || 0) + '</div>';
+    html += '<div>转化 ' + (inf.conversion_rate || inf.conversionRate || 0).toFixed(2) + '%</div>';
+    html += '<div>佣金 ' + (inf.commission_rate || inf.commissionRate || 0) + '%</div>';
+    html += '<div><span class="products-source-badge">' + escapeHtml(inf.source || '-') + '</span></div>';
+    html += '</div></div>';
+    if (inf.videos && inf.videos.length > 0) {
+      html += '<div class="products-video-list" style="margin:-4px 0 10px 56px;">';
+      inf.videos.forEach(function(v){
+        html += '<div class="products-video-item">' + (v.title ? '<div style="font-weight:500;margin-bottom:4px;">' + escapeHtml(v.title) + '</div>' : '') + (v.url ? '<a href="' + escapeAttr(v.url) + '" target="_blank">' + escapeHtml(v.url) + '</a>' : '') + '</div>';
+      });
+      html += '</div>';
+    }
+  });
+  html += '</div>';
+  if (p.videos && p.videos.length > 0) {
+    html += '<div class="products-panel-section">';
+    html += '<div class="products-panel-title">相关视频 (' + p.videos.length + ')</div>';
+    html += '<div class="products-video-list">';
+    p.videos.forEach(function(v){
+      html += '<div class="products-video-item">' + (v.title ? '<div style="font-weight:500;margin-bottom:4px;">' + escapeHtml(v.title) + '</div>' : '') + (v.url ? '<a href="' + escapeAttr(v.url) + '" target="_blank">' + escapeHtml(v.url) + '</a>' : '') + '</div>';
+    });
+    html += '</div></div>';
+  }
+  el.innerHTML = html;
+}
+
+function renderProductPanelAudience(p) {
+  var el = document.getElementById('productsPanelAudience');
+  if (!el) return;
+  var audience = p.audience || {};
+  var html = '';
+  function renderDistSection(title, obj) {
+    if (!obj || Object.keys(obj).length === 0) return '';
+    var total = Object.values(obj).reduce(function(a,b){return a + (parseFloat(b)||0);}, 0);
+    var sectionHtml = '<div class="products-panel-section">';
+    sectionHtml += '<div class="products-panel-title">' + title + '</div>';
+    Object.keys(obj).forEach(function(k){
+      var v = parseFloat(obj[k]) || 0;
+      var pct = total ? (v / total * 100) : 0;
+      sectionHtml += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(k) + '</span><span>' + (pct > 0 ? pct.toFixed(1) + '%' : v) + '</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(pct, 100) + '%"></div></div></div>';
+    });
+    sectionHtml += '</div>';
+    return sectionHtml;
+  }
+  html += renderDistSection('性别分布', audience.gender);
+  html += renderDistSection('年龄分布', audience.age);
+  html += renderDistSection('地域分布', audience.region);
+  html += renderDistSection('职业分布', audience.occupation);
+  if (audience.interests && audience.interests.length > 0) {
+    html += '<div class="products-panel-section">';
+    html += '<div class="products-panel-title">兴趣标签</div>';
+    html += '<div class="products-tag-list">';
+    audience.interests.forEach(function(tag){ html += '<span class="products-tag">' + escapeHtml(tag) + '</span>'; });
+    html += '</div></div>';
+  }
+  if (!html) {
+    html = '<div class="products-empty"><div class="products-empty-text">暂无受众画像数据</div></div>';
+  }
+  el.innerHTML = html;
+}
+
+function analyzeProductAI() {
+  if (!_productCurrentId) return;
+  var btn = document.getElementById('productsAIBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '分析中...'; }
+  apiFetch('/api/products/' + encodeURIComponent(_productCurrentId) + '/analyze', {method:'POST'}).then(function(r){return r.json();}).then(function(data){
+    var p = _productData.products.find(function(x){return x.id === _productCurrentId;});
+    if (p) p.ai_analysis = data.ai_analysis;
+    renderProductDetail(p || data);
+    showToast('✅ AI 分析完成');
+  }).catch(function(e){ showToast('❌ 分析失败'); }).finally(function(){
+    if (btn) { btn.disabled = false; btn.textContent = 'AI 分析'; }
+  });
+}
+
 function createNewProduct() {
-  showProductForm(null);
+  document.getElementById('productEditId').value = '';
+  document.getElementById('productName').value = '';
+  document.getElementById('productSubtitle').value = '';
+  document.getElementById('productBrand').value = _productCurrentBrand || 'COOLCHAP';
+  document.getElementById('productCategory').value = _productCurrentCategory || '拖鞋';
+  document.getElementById('productPrice').value = '';
+  document.getElementById('productStock').value = '0';
+  document.getElementById('productSkuSpecs').value = '';
+  document.getElementById('productStatus').value = 'active';
+  document.getElementById('productModalTitle').textContent = '录入商品';
+  document.getElementById('productModalOverlay').classList.add('active');
 }
-function deleteProductFromRight() {
-  var id = document.getElementById('productEditId').value;
-  if (id) deleteProduct(id);
-  else closeProductForm();
+
+function editCurrentProduct() {
+  if (!_productCurrentId) return;
+  apiFetch('/api/products/' + encodeURIComponent(_productCurrentId)).then(function(r){return r.json();}).then(function(p){
+    document.getElementById('productEditId').value = p.id;
+    document.getElementById('productName').value = p.name || '';
+    document.getElementById('productSubtitle').value = p.subtitle || '';
+    document.getElementById('productBrand').value = p.brand || '';
+    document.getElementById('productCategory').value = p.category || '';
+    document.getElementById('productPrice').value = p.price || '';
+    document.getElementById('productStock').value = p.stock || 0;
+    document.getElementById('productSkuSpecs').value = p.sku_specs ? JSON.stringify(p.sku_specs, null, 2) : '';
+    document.getElementById('productStatus').value = p.status || 'active';
+    document.getElementById('productModalTitle').textContent = '编辑商品';
+    document.getElementById('productModalOverlay').classList.add('active');
+  });
 }
+
+function closeProductModal(e) { if (e && e.target !== e.currentTarget) return; document.getElementById('productModalOverlay').classList.remove('active'); }
+
 function saveProduct() {
   var id = document.getElementById('productEditId').value;
+  var skuSpecsRaw = document.getElementById('productSkuSpecs').value.trim();
+  var skuSpecs = {};
+  if (skuSpecsRaw) { try { skuSpecs = JSON.parse(skuSpecsRaw); } catch(e){ showToast('SKU 规格格式错误'); return; } }
   var body = {
     name: document.getElementById('productName').value.trim(),
-    sku: document.getElementById('productSku').value.trim(),
-    category: document.getElementById('productCategory').value,
+    subtitle: document.getElementById('productSubtitle').value.trim(),
+    brand: document.getElementById('productBrand').value.trim(),
+    category: document.getElementById('productCategory').value.trim(),
     price: parseFloat(document.getElementById('productPrice').value) || 0,
     stock: parseInt(document.getElementById('productStock').value) || 0,
-    tags: document.getElementById('productTags').value.split(',').map(function (t) { return t.trim(); }).filter(function (t) { return t; }),
-    description: document.getElementById('productDescription').value.trim(),
+    sku_specs: skuSpecs,
     status: document.getElementById('productStatus').value
   };
-  if (!body.name) {
-    showToast('⚠️ 请输入商品名称');
-    return;
-  }
+  if (!body.name) { showToast('请输入商品名称'); return; }
   var url = '/api/products' + (id ? '/' + encodeURIComponent(id) : '');
   var method = id ? 'PUT' : 'POST';
-  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function (r) {
-    return r.json();
-  }).then(function () {
-    showToast('✅ 商品已保存');
-    closeProductForm();
-    searchProducts();
-  }).catch(function (e) {
-    showToast('❌ 保存失败');
-    console.warn('[Product] 保存失败:', e);
-  });
+  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(){ showToast('✅ 已保存'); closeProductModal(); loadProducts(); }).catch(function(){ showToast('❌ 保存失败'); });
 }
-function editProduct(productId) {
-  apiFetch('/api/products/' + encodeURIComponent(productId)).then(function (r) { return r.json(); }).then(function (p) {
-    if (p && p.id) showProductForm(p);
-    else showToast('❌ 商品不存在');
-  }).catch(function (e) {
-    showToast('❌ 加载失败');
-  });
-}
-function deleteProduct(productId) {
+
+function deleteCurrentProduct() {
+  if (!_productCurrentId) { showToast('请选择商品'); return; }
   if (!confirm('确定删除此商品？')) return;
-  apiFetch('/api/products/' + encodeURIComponent(productId), {method: 'DELETE'}).then(function () {
-    showToast('✅ 商品已删除');
-    searchProducts();
-  }).catch(function (e) {
-    showToast('❌ 删除失败');
-  });
+  apiFetch('/api/products/' + encodeURIComponent(_productCurrentId), {method:'DELETE'}).then(function(){ showToast('✅ 已删除'); closeProductRight(); loadProducts(); }).catch(function(){ showToast('❌ 删除失败'); });
+}
+
+function selectProductBrand(brand) {
+  _productCurrentBrand = brand;
+  _productPage = 1;
+  document.querySelectorAll('.products-brand-icon').forEach(function(el){ el.classList.toggle('active', el.dataset.brand === brand); });
+  loadProducts();
+  renderProductCategories();
+}
+
+function selectProductCategory(cat) {
+  _productCurrentCategory = cat;
+  _productPage = 1;
+  loadProducts();
+  renderProductCategories();
+}
+
+function renderProductCategories() {
+  var el = document.getElementById('productsCatList');
+  if (!el) return;
+  var cats = {};
+  _productData.products.forEach(function(p){ var c = p.category || '未分类'; cats[c] = (cats[c]||0)+1; });
+  var html = '<div class="products-cat-item' + (!_productCurrentCategory ? ' active' : '') + '" onclick="selectProductCategory(\'\')">全部分类</div>';
+  Object.keys(cats).forEach(function(c){ html += '<div class="products-cat-item' + (_productCurrentCategory === c ? ' active' : '') + '" onclick="selectProductCategory(\'' + escapeAttr(c).replace(/'/g,"\\'") + '\')">' + escapeHtml(c) + ' <span>' + cats[c] + '</span></div>'; });
+  el.innerHTML = html;
 }
 
 // ========== 达人库 ==========
@@ -19290,13 +20314,17 @@ function switchModule(module) {
   if (navEl) navEl.classList.add('active');
 
   // Hide all module mid/right containers
-  ['knowledgeMid', 'productsMid', 'influencersMid', 'settingsMid'].forEach(function(id) {
+  ['knowledgeMid', 'productsLeftSidebar', 'influencersMid', 'settingsMid'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.classList.remove('active');
   });
   ['knowledgeRight', 'productsRight', 'influencersRight', 'settingsRight'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.classList.remove('active');
+  });
+  ['knowledgeRightOverlay', 'productsRightOverlay'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.remove('open');
   });
 
   // Reset mid sidebar content
@@ -19311,6 +20339,15 @@ function switchModule(module) {
   if (appMain) appMain.classList.toggle('knowledge-active', module === 'knowledge');
   if (knowledgeMidList) knowledgeMidList.classList.toggle('active', module === 'knowledge');
   if (knowledgeRightOverlay) knowledgeRightOverlay.classList.remove('open');
+
+  // Manage products three-column layout
+  var productsLeftSidebar = document.getElementById('productsLeftSidebar');
+  var productsMidList = document.getElementById('productsMidList');
+  var productsRightOverlay = document.getElementById('productsRightOverlay');
+  if (appMain) appMain.classList.toggle('products-active', module === 'products');
+  if (productsLeftSidebar) productsLeftSidebar.classList.toggle('active', module === 'products');
+  if (productsMidList) productsMidList.classList.toggle('active', module === 'products');
+  if (productsRightOverlay) productsRightOverlay.classList.remove('open');
 
   if (module === 'messages') {
     document.getElementById('chatArea').style.display = 'flex';
@@ -19327,14 +20364,14 @@ function switchModule(module) {
     var right = document.getElementById(module + 'Right');
     if (mid) mid.classList.add('active');
     if (right) {
-      if (module === 'knowledge') {
+      if (module === 'knowledge' || module === 'products') {
         right.classList.remove('active');
       } else {
         right.classList.add('active');
       }
     }
     if (module === 'knowledge') loadKnowledgePage();
-    else if (module === 'products') loadProducts();
+    else if (module === 'products') { loadProducts(); renderProductCategories(); }
     else if (module === 'influencers') loadInfluencers();
     else if (module === 'settings') renderSettingsMid();
   }
@@ -19350,7 +20387,11 @@ function onModuleSearch(value) {
       onKnowledgeMainSearch(value);
     }
   } else if (currentModule === 'products') {
-    searchProductsDebounced(value);
+    var productSearch = document.getElementById('productsMidSearch');
+    if (productSearch && productSearch.value !== value) {
+      productSearch.value = value;
+      onProductSearch(value);
+    }
   } else if (currentModule === 'influencers') {
     searchInfluencersDebounced(value);
   } else if (currentModule === 'settings') {

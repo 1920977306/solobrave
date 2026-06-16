@@ -526,7 +526,7 @@ def _init_default_admin():
 
 # 可用模块列表（与 switchModule 取值对齐）
 AVAILABLE_MODULES = [
-    'dashboard', 'messages', 'knowledge', 'settings'
+    'dashboard', 'messages', 'knowledge', 'settings', 'products'
 ]
 
 
@@ -534,7 +534,7 @@ def _default_permission_templates():
     """默认角色权限模板
 
     角色：超级管理员 / 管理员 / 普通用户
-    模块 key：dashboard/messages/knowledge/settings
+    模块 key：dashboard/messages/knowledge/settings/products
     """
     superadmin_modules = {m: True for m in AVAILABLE_MODULES}
     admin_modules = {m: True for m in AVAILABLE_MODULES}
@@ -544,6 +544,7 @@ def _default_permission_templates():
         'dashboard': True,
         'messages': True,
         'knowledge': True,
+        'products': True,
         'settings': False,
     }
     return {
@@ -1226,9 +1227,14 @@ def build_all_embeddings(api_key=None, provider='openai', model=None, base_url=N
         conn.commit()
     finally:
         conn.close()
-    # 产品
-    prod_data = _read_json(os.path.join(PRODUCT_DIR, 'index.json'), {'products': []})
-    for product in prod_data.get('products', []):
+    # 产品（从 SQLite 读取）
+    conn = _db_conn()
+    try:
+        rows = conn.execute('SELECT * FROM products WHERE status != ?', ('archived',)).fetchall()
+        products = [_product_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+    for product in products:
         ensure_embedding('product', product, api_key, provider, model=model, base_url=base_url)
     print(f'  [Embedding] 批量构建完成', flush=True)
 
@@ -1265,10 +1271,15 @@ def rag_retrieve(query, api_key, provider='openai', top_k_docs=3, top_k_products
     doc_scores.sort(key=lambda x: x[0], reverse=True)
     results['docs'] = [d for _, d in doc_scores[:top_k_docs]]
 
-    # 3. 产品库检索
-    prod_data = _read_json(os.path.join(PRODUCT_DIR, 'index.json'), {'products': []})
+    # 3. 产品库检索（从 SQLite 读取）
+    conn = _db_conn()
+    try:
+        rows = conn.execute('SELECT * FROM products WHERE status != ?', ('archived',)).fetchall()
+        products = [_product_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
     product_scores = []
-    for product in prod_data.get('products', []):
+    for product in products:
         emb = load_embedding('product', product.get('id', ''))
         if emb:
             score = cosine_similarity(query_emb, emb)
@@ -1323,7 +1334,7 @@ def _db_conn():
 
 
 def init_db():
-    """初始化数据库，创建 knowledge 表（启动时调用）"""
+    """初始化数据库，创建 knowledge/products 表（启动时调用）"""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = _db_conn()
     try:
@@ -1340,7 +1351,48 @@ def init_db():
         ''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge(category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_created ON knowledge(created_at)')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS products (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                subtitle TEXT DEFAULT '',
+                main_image TEXT DEFAULT '',
+                price REAL DEFAULT 0,
+                price_range TEXT DEFAULT '',
+                brand TEXT DEFAULT '',
+                category TEXT DEFAULT '',
+                sku_specs TEXT DEFAULT '{}',
+                stock INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'active',
+                monthly_sales INTEGER DEFAULT 0,
+                monthly_gmv REAL DEFAULT 0,
+                commission_rates TEXT DEFAULT '{}',
+                commission_amount REAL DEFAULT 0,
+                conversion_rate REAL DEFAULT 0,
+                avg_order_value REAL DEFAULT 0,
+                influencer_count INTEGER DEFAULT 0,
+                video_count INTEGER DEFAULT 0,
+                live_count INTEGER DEFAULT 0,
+                channel_distribution TEXT DEFAULT '{}',
+                influencers TEXT DEFAULT '[]',
+                audience TEXT DEFAULT '{}',
+                ai_analysis TEXT DEFAULT '{}',
+                videos TEXT DEFAULT '[]',
+                created_at INTEGER,
+                updated_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)')
         conn.commit()
+
+        # 旧 JSON 数据迁移（幂等）
+        _migrate_json_products_to_sqlite()
+
+        # 空表时写入 COOLCHAP 示例数据
+        _seed_coolchap_data(conn)
     finally:
         conn.close()
 
@@ -1361,6 +1413,335 @@ def _knowledge_row_to_dict(row):
         'icon': '📄',  # 兼容旧前端
         'linkedEmployees': [],  # 兼容旧前端（SQLite 版不再使用）
     }
+
+
+# ─── 商品库 SQLite 辅助函数 ─────────────────────────────
+
+_PRODUCT_COLUMNS = [
+    'id', 'name', 'subtitle', 'main_image', 'price', 'price_range', 'brand',
+    'category', 'sku_specs', 'stock', 'status', 'monthly_sales', 'monthly_gmv',
+    'commission_rates', 'commission_amount', 'conversion_rate', 'avg_order_value',
+    'influencer_count', 'video_count', 'live_count', 'channel_distribution',
+    'influencers', 'audience', 'ai_analysis', 'videos', 'created_at', 'updated_at'
+]
+
+
+def _product_row_to_dict(row):
+    """将 products 表的 sqlite3.Row 转为前端兼容 dict"""
+    if not row:
+        return None
+
+    def _json_col(col, default=None):
+        val = row[col]
+        if val is None:
+            return default
+        try:
+            return json.loads(val)
+        except Exception:
+            return default
+
+    product = {
+        'id': row['id'],
+        'name': row['name'] or '',
+        'subtitle': row['subtitle'] or '',
+        'main_image': row['main_image'] or '',
+        'price': row['price'] if row['price'] is not None else 0,
+        'price_range': row['price_range'] or '',
+        'brand': row['brand'] or '',
+        'category': row['category'] or '',
+        'sku_specs': _json_col('sku_specs', {}),
+        'stock': row['stock'] if row['stock'] is not None else 0,
+        'status': row['status'] or 'active',
+        'monthly_sales': row['monthly_sales'] if row['monthly_sales'] is not None else 0,
+        'monthly_gmv': row['monthly_gmv'] if row['monthly_gmv'] is not None else 0,
+        'commission_rates': _json_col('commission_rates', {}),
+        'commission_amount': row['commission_amount'] if row['commission_amount'] is not None else 0,
+        'conversion_rate': row['conversion_rate'] if row['conversion_rate'] is not None else 0,
+        'avg_order_value': row['avg_order_value'] if row['avg_order_value'] is not None else 0,
+        'influencer_count': row['influencer_count'] if row['influencer_count'] is not None else 0,
+        'video_count': row['video_count'] if row['video_count'] is not None else 0,
+        'live_count': row['live_count'] if row['live_count'] is not None else 0,
+        'channel_distribution': _json_col('channel_distribution', {}),
+        'influencers': _json_col('influencers', []),
+        'audience': _json_col('audience', {}),
+        'ai_analysis': _json_col('ai_analysis', {}),
+        'videos': _json_col('videos', []),
+        'created_at': row['created_at'],
+        'updated_at': row['updated_at'],
+        'createdAt': row['created_at'],
+        'updatedAt': row['updated_at'],
+    }
+
+    # 兼容旧代码/匹配逻辑/RAG 格式化的字段
+    product['description'] = product['subtitle']
+    product['tags'] = []
+    product['sku'] = ''
+    if isinstance(product['sku_specs'], dict):
+        product['attributes'] = product['sku_specs']
+        product['sku'] = product['sku_specs'].get('SKU') or product['sku_specs'].get('sku') or ''
+    else:
+        product['attributes'] = {}
+    product['images'] = [product['main_image']] if product['main_image'] else []
+    product['priceRange'] = product['price_range']
+    rates = product['commission_rates']
+    if isinstance(rates, dict) and rates:
+        product['commission_rate'] = max(
+            (v for v in rates.values() if isinstance(v, (int, float))),
+            default=0
+        )
+    else:
+        product['commission_rate'] = 0
+    product['selling_points'] = ''
+    return product
+
+
+def _dict_to_product_row(p):
+    """将请求体/旧 dict 转换为 products 表行数据（含 JSON 序列化）"""
+    def _get(*keys, default=None):
+        for k in keys:
+            if k in p and p[k] is not None:
+                return p[k]
+        return default
+
+    def _dump(val):
+        if val is None:
+            return '{}'
+        return json.dumps(val, ensure_ascii=False)
+
+    sku_specs = _get('sku_specs', 'skuSpecs', 'attributes')
+    if sku_specs is None:
+        sku_val = _get('sku')
+        if sku_val:
+            sku_specs = {'SKU': sku_val}
+    if isinstance(sku_specs, str):
+        sku_specs = {'SKU': sku_specs}
+    if sku_specs is None:
+        sku_specs = {}
+
+    commission_rates = _get('commission_rates', 'commissionRates', 'commission_rate', 'commissionRate')
+    if isinstance(commission_rates, (int, float)):
+        commission_rates = {'default': commission_rates}
+    if commission_rates is None:
+        commission_rates = {}
+
+    main_image = _get('main_image', 'mainImage')
+    if not main_image:
+        images = _get('images', default=[])
+        if isinstance(images, list) and images:
+            main_image = images[0]
+
+    return {
+        'id': p.get('id'),
+        'name': p.get('name'),
+        'subtitle': _get('subtitle', 'description') or '',
+        'main_image': main_image or '',
+        'price': float(_get('price', default=0) or 0),
+        'price_range': _get('price_range', 'priceRange') or '',
+        'brand': _get('brand', default='') or '',
+        'category': _get('category', default='') or '',
+        'sku_specs': _dump(sku_specs),
+        'stock': int(_get('stock', default=0) or 0),
+        'status': _get('status', default='active') or 'active',
+        'monthly_sales': int(_get('monthly_sales', 'monthlySales', default=0) or 0),
+        'monthly_gmv': float(_get('monthly_gmv', 'monthlyGmv', 'monthlyGMV', default=0) or 0),
+        'commission_rates': _dump(commission_rates),
+        'commission_amount': float(_get('commission_amount', 'commissionAmount', default=0) or 0),
+        'conversion_rate': float(_get('conversion_rate', 'conversionRate', default=0) or 0),
+        'avg_order_value': float(_get('avg_order_value', 'avgOrderValue', default=0) or 0),
+        'influencer_count': int(_get('influencer_count', 'influencerCount', default=0) or 0),
+        'video_count': int(_get('video_count', 'videoCount', default=0) or 0),
+        'live_count': int(_get('live_count', 'liveCount', default=0) or 0),
+        'channel_distribution': _dump(_get('channel_distribution', 'channelDistribution', default={})),
+        'influencers': _dump(_get('influencers', 'matched_influencers', 'matchedInfluencers', default=[])),
+        'audience': _dump(_get('audience', default={})),
+        'ai_analysis': _dump(_get('ai_analysis', 'aiAnalysis', default={})),
+        'videos': _dump(_get('videos', 'hot_videos', 'hotVideos', default=[])),
+        'created_at': _get('created_at', 'createdAt'),
+        'updated_at': _get('updated_at', 'updatedAt'),
+    }
+
+
+def _migrate_json_products_to_sqlite():
+    """将旧版 data/products/index.json 迁移到 SQLite products 表"""
+    old_path = os.path.join(PRODUCT_DIR, 'index.json')
+    if not os.path.isfile(old_path):
+        return
+    print('  [Product] 发现旧版 JSON 商品库，开始迁移到 SQLite...', flush=True)
+    data = _read_json(old_path, {'products': []})
+    products = data.get('products', [])
+    if not products:
+        try:
+            os.rename(old_path, old_path + '.bak')
+            print('  [Product] 旧 JSON 为空，已备份', flush=True)
+        except Exception as e:
+            print(f'  [Product] 备份旧 JSON 失败: {e}', flush=True)
+        return
+
+    conn = _db_conn()
+    try:
+        inserted = 0
+        skipped = 0
+        for p in products:
+            pid = p.get('id')
+            if not pid:
+                continue
+            if conn.execute('SELECT 1 FROM products WHERE id = ?', (pid,)).fetchone():
+                skipped += 1
+                continue
+            row = _dict_to_product_row(p)
+            now = int(time.time() * 1000)
+            if not row['created_at']:
+                row['created_at'] = now
+            if not row['updated_at']:
+                row['updated_at'] = now
+            conn.execute(
+                f"INSERT INTO products ({', '.join(_PRODUCT_COLUMNS)}) VALUES ({', '.join('?' * len(_PRODUCT_COLUMNS))})",
+                tuple(row[c] for c in _PRODUCT_COLUMNS)
+            )
+            inserted += 1
+        conn.commit()
+        print(f'  [Product] JSON 迁移完成: 插入 {inserted} 条, 跳过 {skipped} 条', flush=True)
+    finally:
+        conn.close()
+
+    try:
+        bak_path = old_path + '.bak'
+        if os.path.exists(bak_path):
+            os.remove(bak_path)
+        os.rename(old_path, bak_path)
+        print(f'  [Product] 旧 JSON 已备份: {bak_path}', flush=True)
+    except Exception as e:
+        print(f'  [Product] 备份旧 JSON 失败: {e}', flush=True)
+
+
+def _seed_coolchap_data(conn):
+    """当不存在 COOLCHAP 品牌商品时，写入 COOLCHAP 品牌示例数据"""
+    count = conn.execute("SELECT COUNT(*) FROM products WHERE brand = 'COOLCHAP'").fetchone()[0]
+    if count > 0:
+        return
+
+    now = int(time.time() * 1000)
+    brand_info = {
+        'name': 'COOLCHAP',
+        'category': '拖鞋',
+        'store': 'COOLCHAP官方旗舰店',
+        'note': '示例品牌种子数据'
+    }
+    base_channel = {
+        'brand_info': brand_info,
+        '达人带货': 97.25,
+        '视频': 92.72,
+        '直播': 15.3,
+        '商城': 2.75,
+        '其他': 0
+    }
+    base_audience = {
+        'gender': {'女': 96.83, '男': 3.17},
+        'age': {'31-35': 33.48, '26-30': 28.12, '36-40': 18.67, '18-25': 12.45, '41+': 7.28},
+        'region': {'四川': 7.81, '广东': 6.92, '浙江': 6.54, '江苏': 6.12, '河南': 5.88, '山东': 5.43},
+        'occupation': {'精致妈妈': 31.45, '都市白领': 24.18, 'Z世代': 18.62, '小镇青年': 14.75, '其他': 11.0},
+        'interests': {'时尚穿搭': 45.2, '美妆护肤': 22.1, '家居生活': 15.3, '亲子育儿': 10.4, '其他': 7.0}
+    }
+    base_influencers = [
+        {
+            'id': 'inf_lumama',
+            'name': '璐妈妈',
+            'followerCount': 528000,
+            'sales': 1324,
+            'settlementAmount': 188456,
+            'conversionRate': 3.2,
+            'commissionRate': 20,
+            'source': '抖音精选联盟'
+        },
+        {
+            'id': 'inf_dapeishi_w',
+            'name': '搭配师W',
+            'followerCount': 123000,
+            'sales': 568,
+            'settlementAmount': 80952,
+            'conversionRate': 2.8,
+            'commissionRate': 15,
+            'source': '手动录入'
+        },
+        {
+            'id': 'inf_chaoxie',
+            'name': '潮鞋研究所',
+            'followerCount': 891000,
+            'sales': 2103,
+            'settlementAmount': 299784,
+            'conversionRate': 4.1,
+            'commissionRate': 5,
+            'source': '抖音精选联盟'
+        },
+        {
+            'id': 'inf_xiaomei',
+            'name': '小美穿搭日记',
+            'followerCount': 245000,
+            'sales': 892,
+            'settlementAmount': 127312,
+            'conversionRate': 3.5,
+            'commissionRate': 10,
+            'source': '手动录入'
+        }
+    ]
+
+    def make_videos(product_name):
+        return [
+            {'title': f'{product_name} 开箱测评', 'cover': '', 'url': '', 'views': 120000, 'likes': 5600},
+            {'title': f'{product_name} 穿搭推荐', 'cover': '', 'url': '', 'views': 85000, 'likes': 3200}
+        ]
+
+    seed_items = [
+        {'name': '迪丽热巴同款拖鞋', 'subtitle': '明星同款舒适厚底拖鞋', 'price': 179, 'monthly_sales': 20200, 'rate': 5},
+        {'name': '嘭嘭爱心人字拖', 'subtitle': '爱心造型夏日人字拖', 'price': 129, 'monthly_sales': 8882, 'rate': 20},
+        {'name': '芙芮莎拖鞋', 'subtitle': '高端皮质时尚拖鞋', 'price': 519, 'monthly_sales': 2883, 'rate': 5},
+        {'name': '云朵厚底拖', 'subtitle': '软糯云朵厚底居家拖鞋', 'price': 199, 'monthly_sales': 5600, 'rate': 15},
+        {'name': '草莓熊联名拖', 'subtitle': '草莓熊联名可爱拖鞋', 'price': 159, 'monthly_sales': 4300, 'rate': 10},
+        {'name': '经典纯色一字拖', 'subtitle': '百搭经典纯色一字拖', 'price': 99, 'monthly_sales': 12500, 'rate': 8},
+    ]
+
+    for idx, item in enumerate(seed_items, 1):
+        pid = f'prod_coolchap_{idx}_{uuid.uuid4().hex[:6]}'
+        price = item['price']
+        monthly_sales = item['monthly_sales']
+        rate = item['rate']
+        monthly_gmv = round(price * monthly_sales, 2)
+        commission_amount = round(price * rate / 100, 2)
+        row = {
+            'id': pid,
+            'name': item['name'],
+            'subtitle': item['subtitle'],
+            'main_image': '',
+            'price': price,
+            'price_range': f'¥{price}',
+            'brand': 'COOLCHAP',
+            'category': '拖鞋',
+            'sku_specs': json.dumps({'颜色': ['米白', '黑色'], '尺码': ['36-40']}, ensure_ascii=False),
+            'stock': 10000,
+            'status': 'active',
+            'monthly_sales': monthly_sales,
+            'monthly_gmv': monthly_gmv,
+            'commission_rates': json.dumps({'投放期': rate, '常规活动期': max(5, rate // 2), '其他': 5}, ensure_ascii=False),
+            'commission_amount': commission_amount,
+            'conversion_rate': 3.5,
+            'avg_order_value': price,
+            'influencer_count': len(base_influencers),
+            'video_count': 2,
+            'live_count': 1,
+            'channel_distribution': json.dumps(base_channel, ensure_ascii=False),
+            'influencers': json.dumps(base_influencers, ensure_ascii=False),
+            'audience': json.dumps(base_audience, ensure_ascii=False),
+            'ai_analysis': json.dumps({}, ensure_ascii=False),
+            'videos': json.dumps(make_videos(item['name']), ensure_ascii=False),
+            'created_at': now,
+            'updated_at': now,
+        }
+        conn.execute(
+            f"INSERT INTO products ({', '.join(_PRODUCT_COLUMNS)}) VALUES ({', '.join('?' * len(_PRODUCT_COLUMNS))})",
+            tuple(row[c] for c in _PRODUCT_COLUMNS)
+        )
+    conn.commit()
+    print(f'  [Product] 已写入 COOLCHAP 示例数据 {len(seed_items)} 条', flush=True)
 
 
 def knowledge_create(title, content, category='', embedding=None, api_key=None, provider='openai', model=None, base_url=None):
@@ -2112,6 +2493,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/products/search':
             self._handle_search_products()
             return
+        if path.startswith('/api/products/'):
+            sub = path[len('/api/products/'):]
+            parts = sub.split('/')
+            if len(parts) == 2 and parts[1] == 'analyze':
+                self._handle_analyze_product_ai(parts[0])
+                return
 
         # Influencer API
         if path == '/api/influencers':
@@ -6194,8 +6581,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
                 requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids
             )
-            # 同时检索产品库（所有员工共享）
-            prod_data = _read_json(os.path.join(PRODUCT_DIR, 'index.json'), {'products': []})
+            # 同时检索产品库（所有员工共享，从 SQLite 读取）
+            conn = _db_conn()
+            try:
+                rows = conn.execute('SELECT * FROM products WHERE status != ?', ('archived',)).fetchall()
+                products = [_product_row_to_dict(r) for r in rows]
+            finally:
+                conn.close()
             try:
                 query_emb = ks.get_embedding(query, api_key, provider, model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
             except Exception as e:
@@ -6203,7 +6595,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 query_emb = None
             if query_emb:
                 product_scores = []
-                for product in prod_data.get('products', []):
+                for product in products:
                     emb = load_embedding('product', product.get('id', ''))
                     if emb:
                         score = ks.cosine_similarity(query_emb, emb)
@@ -6244,53 +6636,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ═══════════════════════════════════════════════════
 
     def _load_products(self):
-        """加载商品库索引"""
-        filepath = os.path.join(PRODUCT_DIR, 'index.json')
-        return _read_json(filepath, {'products': [], 'version': '1.0'})
+        """从 SQLite 加载全部商品（返回兼容旧格式的 dict）"""
+        conn = _db_conn()
+        try:
+            rows = conn.execute('SELECT * FROM products ORDER BY updated_at DESC').fetchall()
+            products = [_product_row_to_dict(r) for r in rows]
+            return {'products': products, 'total': len(products), 'version': '1.0'}
+        finally:
+            conn.close()
 
     def _save_products(self, data):
-        """保存商品库索引"""
-        filepath = os.path.join(PRODUCT_DIR, 'index.json')
-        data['version'] = '1.0'
-        _write_json(filepath, data)
-
-    def _sync_product_file(self, product):
-        """同步单个商品详情到独立文件 {id}.json"""
-        filepath = os.path.join(PRODUCT_DIR, f'{product["id"]}.json')
-        _write_json(filepath, product)
-
-    def _remove_product_file(self, product_id):
-        """删除单个商品详情文件"""
-        filepath = os.path.join(PRODUCT_DIR, f'{product_id}.json')
-        if os.path.exists(filepath):
-            os.remove(filepath)
-
-    def _async_parse_hot_videos(self, product_id, video_urls):
-        """后台异步解析 hot_videos 的抖音链接，结果写入 hot_videos_info"""
-        try:
-            data = self._load_products()
-            product = next((p for p in data.get('products', []) if p.get('id') == product_id), None)
-            if not product:
-                return
-            if 'hot_videos_info' not in product:
-                product['hot_videos_info'] = {}
-            parsed_count = 0
-            for url in video_urls:
-                if not url or not isinstance(url, str):
-                    continue
-                # 跳过已解析成功的链接
-                if url in product['hot_videos_info'] and product['hot_videos_info'][url].get('success'):
-                    continue
-                result = parse_douyin_video_quick(url)
-                product['hot_videos_info'][url] = result
-                if result.get('success'):
-                    parsed_count += 1
-            product['updatedAt'] = int(time.time() * 1000)
-            self._save_products(data)
-            self._sync_product_file(product)
-            print(f'  [Product] 异步解析完成: {product_id}, 成功 {parsed_count}/{len(video_urls)}', flush=True)
-        except Exception as e:
-            print(f'  [Product] 异步解析失败: {product_id}, error={e}', flush=True)
+        """保留签名兼容；商品库已迁移到 SQLite，此函数不再执行文件写入"""
+        pass
 
     def _handle_get_products(self):
         """GET /api/products — 获取商品列表（支持 query 筛选）"""
@@ -6306,12 +6663,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if query.get('category'):
             cat = query['category'][0]
             products = [p for p in products if p.get('category') == cat]
+        if query.get('brand'):
+            brand = query['brand'][0]
+            products = [p for p in products if p.get('brand') == brand]
         if query.get('status'):
             status = query['status'][0]
             products = [p for p in products if p.get('status') == status]
         if query.get('q'):
             kw = query['q'][0].lower()
-            products = [p for p in products if kw in (p.get('id') or '').lower() or kw in (p.get('name') or '').lower() or kw in (p.get('description') or '').lower() or any(kw in t.lower() for t in (p.get('tags') or []))]
+            products = [p for p in products if kw in (p.get('id') or '').lower()
+                        or kw in (p.get('name') or '').lower()
+                        or kw in (p.get('description') or '').lower()
+                        or kw in (p.get('brand') or '').lower()
+                        or kw in (p.get('category') or '').lower()
+                        or any(kw in t.lower() for t in (p.get('tags') or []))]
         # 分页
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
@@ -6326,12 +6691,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'): return
-        data = self._load_products()
-        product = None
-        for p in data.get('products', []):
-            if p.get('id') == product_id:
-                product = p
-                break
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
+            product = _product_row_to_dict(row)
+        finally:
+            conn.close()
         if not product:
             self._send_json_error(404, 'Product not found')
             return
@@ -6345,13 +6710,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'): return
-        # 加载商品（index.json 没有则读详情文件）
-        data = self._load_products()
-        product = next((p for p in data.get('products', []) if p.get('id') == product_id), None)
-        if not product:
-            detail_path = os.path.join(PRODUCT_DIR, f'{product_id}.json')
-            if os.path.exists(detail_path):
-                product = _read_json(detail_path, None)
+        # 从 SQLite 加载商品
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
+            product = _product_row_to_dict(row)
+        finally:
+            conn.close()
         if not product:
             self._send_json_error(404, 'Product not found')
             return
@@ -6359,8 +6724,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         limit = int(query.get('limit', [20])[0])
         now = int(time.time() * 1000)
         DAY_MS = 86400000
-        stored = product.get('matched_influencers')
-        last_updated = product.get('matched_influencers_updated_at', 0)
+        ai_analysis = product.get('ai_analysis') or {}
+        stored = ai_analysis.get('matched_influencers') or product.get('matched_influencers')
+        last_updated = ai_analysis.get('matched_influencers_updated_at', 0)
         is_fresh = stored and last_updated and (now - last_updated) < DAY_MS
         if is_fresh:
             results = []
@@ -6397,11 +6763,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'matchPercent': r['score'],
                 'reasons': r['reasons']
             })
-        product['matched_influencers'] = cached_matches
-        product['matched_influencers_updated_at'] = now
-        product['updatedAt'] = now
-        self._save_products(data)
-        self._sync_product_file(product)
+        ai_analysis['matched_influencers'] = cached_matches
+        ai_analysis['matched_influencers_updated_at'] = now
+        conn = _db_conn()
+        try:
+            conn.execute(
+                'UPDATE products SET ai_analysis = ?, updated_at = ? WHERE id = ?',
+                (json.dumps(ai_analysis, ensure_ascii=False), now, product_id)
+            )
+            conn.commit()
+        finally:
+            conn.close()
         self._send_json(200, {'product_id': product_id, 'matches': results[:limit], 'total': len(results), 'source': 'live'})
 
     def _handle_get_influencer_matches(self, inf_id):
@@ -6481,44 +6853,33 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not body or 'name' not in body:
             self._send_json_error(400, 'Missing name')
             return
-        data = self._load_products()
         now_ts = int(time.time() * 1000)
-        product = {
-            'id': body.get('id') or f'prod_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}',
-            'name': body['name'],
-            'description': body.get('description', ''),
-            'price': float(body.get('price', 0)),
-            'currency': body.get('currency', 'CNY'),
-            'category': body.get('category', '未分类'),
-            'tags': body.get('tags', []),
-            'sku': body.get('sku', ''),
-            'stock': int(body.get('stock', 0)),
-            'images': body.get('images', []),
-            'attributes': body.get('attributes', {}),
-            'status': body.get('status', 'active'),
-            'createdBy': auth.user_info.get('userId'),
-            'createdAt': now_ts,
-            'updatedAt': now_ts
-        }
-        # 扩展字段（可选）：佣金、卖点、手卡、视频、匹配达人
-        for ext_field in ('commission_rate', 'commission_amount', 'selling_points', 'product_card', 'hot_videos', 'matched_influencers'):
-            if ext_field in body:
-                product[ext_field] = body[ext_field]
+        product = dict(body)
+        product.setdefault('id', f'prod_{now_ts}_{uuid.uuid4().hex[:6]}')
+        product.setdefault('createdAt', now_ts)
+        product.setdefault('updatedAt', now_ts)
+        # 兼容旧字段 commission_rate -> commission_rates
+        if 'commission_rate' in body and 'commission_rates' not in body:
+            product['commission_rates'] = {'default': float(body['commission_rate'])}
         # 自动计算佣金金额：commission_amount = price * commission_rate / 100
         if 'commission_rate' in body and 'commission_amount' not in body:
-            product['commission_amount'] = round(product['price'] * float(product['commission_rate']) / 100, 2)
-        data['products'].append(product)
-        self._save_products(data)
-        self._sync_product_file(product)
-        # 异步触发抖音视频解析
-        if product.get('hot_videos'):
-            threading.Thread(
-                target=self._async_parse_hot_videos,
-                args=(product['id'], product['hot_videos']),
-                daemon=True
-            ).start()
-        print(f'  [Product] 录入商品: {product["name"]} ({product["id"]})', flush=True)
-        self._send_json(200, product)
+            product['commission_amount'] = round(float(body.get('price', 0) or 0) * float(body['commission_rate']) / 100, 2)
+        row = _dict_to_product_row(product)
+        row['created_at'] = row['created_at'] or now_ts
+        row['updated_at'] = row['updated_at'] or now_ts
+        conn = _db_conn()
+        try:
+            conn.execute(
+                f"INSERT INTO products ({', '.join(_PRODUCT_COLUMNS)}) VALUES ({', '.join('?' * len(_PRODUCT_COLUMNS))})",
+                tuple(row[c] for c in _PRODUCT_COLUMNS)
+            )
+            conn.commit()
+            row_out = conn.execute('SELECT * FROM products WHERE id = ?', (row['id'],)).fetchone()
+            product_out = _product_row_to_dict(row_out)
+        finally:
+            conn.close()
+        print(f'  [Product] 录入商品: {product_out["name"]} ({product_out["id"]})', flush=True)
+        self._send_json(200, product_out)
 
     def _handle_put_product(self, product_id):
         """PUT /api/products/{id} — 更新商品"""
@@ -6531,58 +6892,68 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not body:
             self._send_json_error(400, 'Missing body')
             return
-        data = self._load_products()
-        updated = None
-        for p in data.get('products', []):
-            if p.get('id') == product_id:
-                for field in ('name', 'description', 'price', 'currency', 'category', 'tags', 'sku', 'stock', 'images', 'attributes', 'status', 'commission_rate', 'commission_amount', 'selling_points', 'product_card', 'hot_videos', 'matched_influencers'):
-                    if field in body:
-                        p[field] = body[field]
-                        if field == 'price':
-                            p[field] = float(body[field])
-                        if field == 'stock':
-                            p[field] = int(body[field])
-                # 自动计算佣金金额（当 price 或 commission_rate 变更且未显式提供 commission_amount 时）
-                if ('price' in body or 'commission_rate' in body) and 'commission_amount' not in body:
-                    price = float(p.get('price', 0))
-                    rate = float(p.get('commission_rate', 0))
-                    p['commission_amount'] = round(price * rate / 100, 2)
-                p['updatedAt'] = int(time.time() * 1000)
-                updated = p
-                break
-        if not updated:
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
+            existing = _product_row_to_dict(row)
+        finally:
+            conn.close()
+        if not existing:
             self._send_json_error(404, 'Product not found')
             return
-        self._save_products(data)
-        self._sync_product_file(updated)
-        # 异步触发抖音视频解析（当 hot_videos 被更新时）
-        if 'hot_videos' in body and updated.get('hot_videos'):
-            threading.Thread(
-                target=self._async_parse_hot_videos,
-                args=(updated['id'], updated['hot_videos']),
-                daemon=True
-            ).start()
-        self._send_json(200, updated)
+        now_ts = int(time.time() * 1000)
+        updated = dict(existing)
+        updated.update(body)
+        updated['id'] = product_id
+        updated['updatedAt'] = now_ts
+        # 兼容旧字段 commission_rate -> commission_rates
+        if 'commission_rate' in body and 'commission_rates' not in body:
+            updated['commission_rates'] = {'default': float(body['commission_rate'])}
+        # 自动计算佣金金额（当 price 或 commission_rate 变更且未显式提供 commission_amount 时）
+        if ('price' in body or 'commission_rate' in body) and 'commission_amount' not in body:
+            price = float(updated.get('price', 0) or 0)
+            rate = float(updated.get('commission_rate', 0) or 0)
+            updated['commission_amount'] = round(price * rate / 100, 2)
+        row = _dict_to_product_row(updated)
+        row['created_at'] = existing['created_at']
+        row['updated_at'] = now_ts
+        conn = _db_conn()
+        try:
+            conn.execute(
+                f"UPDATE products SET {', '.join(f'{c} = ?' for c in _PRODUCT_COLUMNS)} WHERE id = ?",
+                tuple(row[c] for c in _PRODUCT_COLUMNS) + (product_id,)
+            )
+            conn.commit()
+            row_out = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
+            product_out = _product_row_to_dict(row_out)
+        finally:
+            conn.close()
+        print(f'  [Product] 更新商品: {product_out["name"]} ({product_id})', flush=True)
+        self._send_json(200, product_out)
 
     def _handle_delete_product(self, product_id):
-        """DELETE /api/products/{id} — 删除商品（归档：从index移除，详情文件保留并标记archived）"""
+        """DELETE /api/products/{id} — 删除商品（硬删除，符合常规 CRUD 语义）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'): return
-        data = self._load_products()
-        original = len(data.get('products', []))
-        removed_product = next((p for p in data.get('products', []) if p.get('id') == product_id), None)
-        data['products'] = [p for p in data.get('products', []) if p.get('id') != product_id]
-        removed = original - len(data['products'])
-        self._save_products(data)
-        if removed > 0 and removed_product:
-            # 保留详情文件，状态改为 archived
-            removed_product['status'] = 'archived'
-            removed_product['updatedAt'] = int(time.time() * 1000)
-            self._sync_product_file(removed_product)
-        self._send_json(200, {'deleted': removed > 0, 'id': product_id, 'status': 'archived' if removed > 0 else None})
+        conn = _db_conn()
+        try:
+            cur = conn.execute('DELETE FROM products WHERE id = ?', (product_id,))
+            conn.commit()
+            deleted = cur.rowcount > 0
+        finally:
+            conn.close()
+        # 同步清理可能存在的 embedding 缓存文件
+        if deleted:
+            try:
+                cache_path = _get_embedding_cache_path('product', product_id)
+                if os.path.exists(cache_path):
+                    os.remove(cache_path)
+            except Exception:
+                pass
+        self._send_json(200, {'deleted': deleted, 'id': product_id})
 
     def _handle_search_products(self):
         """POST /api/products/search — 高级搜索/匹配"""
@@ -6649,6 +7020,95 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         results.sort(key=lambda x: x['score'], reverse=True)
         limit = int(body.get('limit', 20))
         self._send_json(200, {'results': results[:limit], 'total': len(results)})
+
+    def _handle_analyze_product_ai(self, product_id):
+        """POST /api/products/:id/analyze — 调用 AI 生成选品分析"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
+            product = _product_row_to_dict(row)
+        finally:
+            conn.close()
+        if not product:
+            self._send_json_error(404, 'Product not found')
+            return
+
+        cfg = get_embedding_config()
+        api_key = cfg['apiKey']
+        if not api_key:
+            self._send_json_error(503, 'AI service not configured: missing API key')
+            return
+
+        # 优先使用 kimicode；未配置时回退到全局 embedding provider
+        api_provider = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
+        api_model = cfg['model'] or _resolve_ai_model(api_provider, '')
+        base_url = cfg['baseUrl'] or _resolve_ai_base_url(api_provider, '')
+
+        prompt = (
+            f"请为以下商品做选品分析，只返回 JSON，不要返回其他内容。\n"
+            f"JSON 格式：{{\"ai_score\": 1-5 的整数, \"competition_analysis\": \"...\", \"selection_advice\": \"...\"}}\n\n"
+            f"商品名称：{product.get('name', '')}\n"
+            f"品牌：{product.get('brand', '')}\n"
+            f"分类：{product.get('category', '')}\n"
+            f"价格：¥{product.get('price', 0)}\n"
+            f"月销量：{product.get('monthly_sales', 0)}\n"
+            f"月 GMV：¥{product.get('monthly_gmv', 0)}\n"
+            f"佣金策略：{json.dumps(product.get('commission_rates', {}), ensure_ascii=False)}\n"
+            f"转化率：{product.get('conversion_rate', 0)}%\n"
+            f"受众画像：{json.dumps(product.get('audience', {}), ensure_ascii=False)}\n"
+        )
+        messages = [
+            {'role': 'system', 'content': '你是电商选品分析助手，擅长根据商品数据给出结构化分析。'},
+            {'role': 'user', 'content': prompt}
+        ]
+        content = _call_chat_completion(api_provider, api_key, api_model, base_url, messages)
+        if not content:
+            self._send_json_error(503, 'AI analysis failed or returned empty response')
+            return
+
+        # 解析 JSON（兼容 markdown 代码块）
+        cleaned = content.strip()
+        if cleaned.startswith('```'):
+            cleaned = cleaned.split('```', 2)[-1].strip()
+            if cleaned.lower().startswith('json'):
+                cleaned = cleaned[4:].strip()
+        try:
+            analysis = json.loads(cleaned)
+        except Exception:
+            # 尝试从文本中提取第一个 JSON 对象
+            start = cleaned.find('{')
+            end = cleaned.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                try:
+                    analysis = json.loads(cleaned[start:end + 1])
+                except Exception:
+                    self._send_json_error(500, 'AI response is not valid JSON')
+                    return
+            else:
+                self._send_json_error(500, 'AI response is not valid JSON')
+                return
+
+        if not isinstance(analysis, dict):
+            self._send_json_error(500, 'AI response is not a JSON object')
+            return
+
+        now_ts = int(time.time() * 1000)
+        conn = _db_conn()
+        try:
+            conn.execute(
+                'UPDATE products SET ai_analysis = ?, updated_at = ? WHERE id = ?',
+                (json.dumps(analysis, ensure_ascii=False), now_ts, product_id)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'id': product_id, 'ai_analysis': analysis})
 
     # ═══════════════════════════════════════════════════
     # 达人库 API
