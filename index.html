@@ -6291,6 +6291,12 @@ async function sendMsg() {
   var _curEmpId = localStorage.getItem('sb_current_emp');
   var _curEmp = emps.find(function (e) { return e.id === _curEmpId; });
 
+  // 当前员工已被删除/不存在
+  if (!_curEmp) {
+    closeCurrentChatAsDeleted();
+    return;
+  }
+
   // 统一恢复函数：任何异常退出都要调用
   function restoreOnline() {
     window._thinkingTimeouts = window._thinkingTimeouts || {};
@@ -6487,6 +6493,15 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
       }
     } catch (e) {
       console.warn('[RAG] OpenClaw 路径注入失败:', e);
+    }
+
+    // AI 调用前防御：最终 systemPrompt 必须包含身份约束关键字
+    if (!validateFinalSystemPrompt(systemPrompt)) {
+      var t = document.getElementById('typingMsg');
+      if (t) t.remove();
+      displayAIReply('⚠️ AI身份约束缺失，禁止调用AI', docContext, timeStr, emp.id, []);
+      restoreOnline();
+      return;
     }
 
     // 监听 agent 事件（OpenClaw v3 流式推送）
@@ -8738,20 +8753,23 @@ function ctxAction(action) {
     case 'delete':
       if (confirm('确定删除 ' + emp.name + '？')) {
         var _delId = contextTarget;
+        var _wasCurrent2 = localStorage.getItem('sb_current_emp') === _delId;
         emps = emps.filter(function (e) {
           return e.id !== _delId;
         });
         clearChatOnServer(_delId, 'personal');
-        if (localStorage.getItem('sb_current_emp') === _delId) {
-          localStorage.removeItem('sb_current_emp');
-        }
         saveEmployees();
         if (typeof apiFetch === 'function') {
           apiFetch('/api/agents/' + _delId, {
             method: 'DELETE'
           }).catch(function () {});
         }
-        renderMsgs('private');
+        if (currentEmpId === _delId) closeEmpDetail();
+        if (_wasCurrent2) {
+          openNextEmployeeOrEmpty();
+        } else {
+          renderMsgs('private');
+        }
         showToast('🗑️ 已删除');
       }
       break;
@@ -8901,9 +8919,7 @@ function empSettingsAction(action) {
     case 'delete':
       if (confirm('确定删除 ' + emp.name + '？')) {
         var deleteId = empSettingsTarget;
-        if (localStorage.getItem('sb_current_emp') === deleteId) {
-          localStorage.removeItem('sb_current_emp');
-        }
+        var _wasCurrent3 = localStorage.getItem('sb_current_emp') === deleteId;
         for (var i = emps.length - 1; i >= 0; i--) {
           if (emps[i].id === deleteId) emps.splice(i, 1);
         }
@@ -8914,7 +8930,12 @@ function empSettingsAction(action) {
             method: 'DELETE'
           }).catch(function () {});
         }
-        renderMsgs('private');
+        if (currentEmpId === deleteId) closeEmpDetail();
+        if (_wasCurrent3) {
+          openNextEmployeeOrEmpty();
+        } else {
+          renderMsgs('private');
+        }
         showToast('🗑️ 已删除');
       }
       break;
@@ -14501,19 +14522,23 @@ function editEmpFromDetail() {
   if (emp) showEditModal(emp.id);
 }
 function deleteEmployee(empId) {
+  var wasCurrent = localStorage.getItem('sb_current_emp') === empId;
   emps = emps.filter(function (e) {
     return e.id !== empId;
   });
-  if (localStorage.getItem('sb_current_emp') === empId) {
-    localStorage.removeItem('sb_current_emp');
-  }
   saveEmployees();
   if (typeof apiFetch === 'function') {
     apiFetch('/api/agents/' + empId, {
       method: 'DELETE'
     }).catch(function () {});
   }
-  renderMsgs('private');
+  closeEmpDetail();
+  renderEmployeeList();
+  if (wasCurrent) {
+    openNextEmployeeOrEmpty();
+  } else {
+    renderMsgs('private');
+  }
   showToast('🗑️ 已删除');
 }
 function deleteEmpFromDetail() {
@@ -15171,6 +15196,15 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
     console.warn('[RAG] API 路径注入失败:', e);
   }
 
+  // AI 调用前防御：最终 systemPrompt 必须包含身份约束关键字
+  if (!validateFinalSystemPrompt(systemPrompt)) {
+    var t = document.getElementById('typingMsg');
+    if (t) t.remove();
+    displayAIReply('⚠️ AI身份约束缺失，禁止调用AI', docContext, timeStr, emp.id, []);
+    restoreOnline();
+    return;
+  }
+
   var messages = [{
     role: 'system',
     content: systemPrompt
@@ -15270,6 +15304,40 @@ function getCurrentEmployeeInfo() {
   return emp || null;
 }
 
+function isEmployeeNotFoundError(res, data) {
+  if (!res || !data) return false;
+  return res.status === 404 && data.error === '员工不存在';
+}
+
+function closeCurrentChatAsDeleted() {
+  localStorage.removeItem('sb_current_emp');
+  closeEmpDetail();
+  renderMsgs('private');
+  renderEmployeeList();
+  showToast('该员工已被删除');
+}
+
+function openNextEmployeeOrEmpty() {
+  var visible = getVisibleEmps().filter(function (e) {
+    return e && e.id && !e.isProject && !e.archived;
+  });
+  if (visible.length) {
+    openChat(visible[0].id);
+  } else {
+    localStorage.removeItem('sb_current_emp');
+    renderMsgs('private');
+    renderEmployeeList();
+  }
+}
+
+function validateFinalSystemPrompt(systemPrompt) {
+  if (!systemPrompt || systemPrompt.indexOf('管理员是你的老板') < 0) {
+    showToast('AI身份约束缺失，禁止调用AI');
+    return false;
+  }
+  return true;
+}
+
 // 保存聊天历史
 // ===== 聊天记录后端同步 =====
 async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, images) {
@@ -15292,6 +15360,15 @@ async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, i
       body: JSON.stringify(userBody)
     });
     if (!resp) throw new Error('User message POST returned null');
+    if (resp.status === 404) {
+      try {
+        var errData = await resp.clone().json();
+        if (errData && errData.error === '员工不存在') {
+          closeCurrentChatAsDeleted();
+          return;
+        }
+      } catch (e) {}
+    }
 
     // 2. 保存 system 消息（如果有文档上下文）
     if (docContext && docContext.length > 0) {
@@ -15342,6 +15419,14 @@ function loadChatFromServer(id, type, callback) {
   }
   var chatType = type || 'personal';
   apiFetch('/api/chat/' + encodeURIComponent(id) + '?type=' + encodeURIComponent(chatType)).then(function (res) {
+    if (res.status === 404) {
+      return res.json().then(function (data) {
+        if (data && data.error === '员工不存在') {
+          closeCurrentChatAsDeleted();
+        }
+        return [];
+      }).catch(function () { return []; });
+    }
     return res.json();
   }).then(function (data) {
     var msgs = [];

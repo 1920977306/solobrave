@@ -661,6 +661,20 @@ def _can_access_knowledge_category(user_or_auth, category):
     return category in cats
 
 
+def _validate_agent_for_ai(agent):
+    """AI 调用前校验：员工必须存在且未删除，systemPrompt/soulDoc 必须包含身份约束关键字"""
+    if not isinstance(agent, dict):
+        return False, '员工不存在'
+    if agent.get('status') == 'archived' or agent.get('archived'):
+        return False, '员工不存在'
+    effective_prompt = (agent.get('soulDoc') or agent.get('systemPrompt') or '').strip()
+    if not effective_prompt:
+        return False, 'AI身份约束缺失，禁止调用AI'
+    if '管理员是你的老板' not in effective_prompt:
+        return False, 'AI身份约束缺失，禁止调用AI'
+    return True, None
+
+
 # ─── Agent 管理 ─────────────────────────────────────────
 
 # 前端历史遗留的硬编码默认员工ID（已移除，但后端数据可能仍保留，需过滤）
@@ -683,14 +697,16 @@ def _is_default_agent(agent):
         return True
     return False
 
-def _load_agents():
-    """加载 Agent 列表，过滤掉历史遗留的默认员工，并检测关键字段污染"""
+def _load_agents(include_archived=False):
+    """加载 Agent 列表，过滤掉历史遗留的默认员工与已删除(archived)员工，并检测关键字段污染"""
     agents = _read_json(AGENTS_FILE, [])
     if not isinstance(agents, list):
         return []
     cleaned = []
     for a in agents:
         if _is_default_agent(a):
+            continue
+        if not include_archived and (a.get('status') == 'archived' or a.get('archived')):
             continue
         # 检测 apiKey 污染
         ak = a.get('apiKey', '')
@@ -2747,11 +2763,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # /api/chat/:agentId/:msgId
             parts = path[len('/api/chat/'):].split('/')
             if len(parts) == 2:
-                self._handle_delete_chat_message(parts[0], parts[1])
+                _handle_delete_chat_message(self, parts[0], parts[1])
                 return
             # /api/chat/:agentId (clear all)
             if len(parts) == 1:
-                self._handle_clear_chat(parts[0])
+                _handle_clear_chat(self, parts[0])
                 return
 
         self._send_json_error(404, 'Not found')
@@ -4874,7 +4890,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 break
 
         if not agent:
-            self._send_json(404, {'error': 'Agent 不存在'})
+            self._send_json(404, {'error': '员工不存在'})
             return
 
         # 权限校验
@@ -4944,7 +4960,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'customEndpoint': body.get('customEndpoint', ''),
         }
 
-        agents = _load_agents()
+        agents = _load_agents(include_archived=True)
         # 检查 ID 重复
         for a in agents:
             if a.get('id') == new_agent['id']:
@@ -4978,7 +4994,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             body_keys = list(body.keys())
             print(f'  [PUT agent] id={agent_id} body_keys={body_keys}', flush=True)
 
-            agents = _load_agents()
+            agents = _load_agents(include_archived=True)
             agent = None
             for a in agents:
                 if a.get('id') == agent_id:
@@ -4986,7 +5002,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     break
 
             if not agent:
-                self._send_json(404, {'error': 'Agent 不存在'})
+                self._send_json(404, {'error': '员工不存在'})
+                return
+            if agent.get('status') == 'archived' or agent.get('archived'):
+                self._send_json(404, {'error': '员工不存在'})
                 return
 
             # 权限校验
@@ -5072,7 +5091,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not self._require_module_permission(auth, 'employees'): return
 
-        agents = _load_agents()
+        agents = _load_agents(include_archived=True)
         agent = None
         for a in agents:
             if a.get('id') == agent_id:
@@ -5080,7 +5099,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 break
 
         if not agent:
-            self._send_json(404, {'error': 'Agent 不存在'})
+            self._send_json(404, {'error': '员工不存在'})
+            return
+        if agent.get('status') == 'archived' or agent.get('archived'):
+            self._send_json(404, {'error': '员工不存在'})
             return
 
         # 权限校验
@@ -5091,16 +5113,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     self._send_auth_error('权限不足', 403)
                     return
 
-        agents = [a for a in agents if a.get('id') != agent_id]
+        # 软删除：保留数据，标记为 archived
+        agent['status'] = 'archived'
+        agent['archived'] = True
+        agent['archivedAt'] = datetime.now().isoformat()
         _save_agents(agents)
-
-        # 删除聊天记录
-        chat_file = os.path.join(CHATS_DIR, f'{agent_id}.json')
-        if os.path.isfile(chat_file):
-            try:
-                os.remove(chat_file)
-            except OSError:
-                pass
 
         self._send_json(200, {'message': f'Agent {agent.get("name", "")} 已删除'})
 
@@ -5127,7 +5144,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     agent = a
                     break
             if not agent:
-                self._send_json(404, {'error': 'Agent 不存在'})
+                self._send_json(404, {'error': '员工不存在'})
                 return
             dreaming = agent.get('dreaming', {'enabled': False, 'phase': 'idle'})
             self._send_json(200, {'agentId': agent_id, 'enabled': dreaming.get('enabled', False), 'phase': dreaming.get('phase', 'idle')})
@@ -5158,7 +5175,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     agent = a
                     break
             if not agent:
-                self._send_json(404, {'error': 'Agent 不存在'})
+                self._send_json(404, {'error': '员工不存在'})
                 return
             if not auth.is_admin:
                 if agent.get('createdBy') != auth.user_info['userId']:
@@ -5275,7 +5292,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 break
 
         if not agent:
-            self._send_json(404, {'error': 'Agent 不存在'})
+            self._send_json(404, {'error': '员工不存在'})
             return
 
         openclaw_name = agent.get('openclawName', '')
@@ -5371,7 +5388,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 agent = a
                 break
         if not agent:
-            return None, 'Agent 不存在', 404
+            return None, '员工不存在', 404
         if not auth.is_admin and agent.get('createdBy') != auth.user_info['userId'] and agent.get('visibility') != 'all':
             return None, '权限不足', 403
         return agent, None, None
@@ -7731,6 +7748,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(status, {'error': err})
             return
 
+        # AI 调用前校验：员工状态 + systemPrompt 身份约束
+        ok, ai_err = _validate_agent_for_ai(agent)
+        if not ok:
+            code = 404 if ai_err == '员工不存在' else 400
+            self._send_json(code, {'error': ai_err})
+            return
+
         body = self._read_body()
         if not body:
             self._send_json(400, {'error': '无效的请求体'})
@@ -7816,7 +7840,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 # 记忆提取场景不需要加载历史记录，避免 token 超限和干扰
                 is_extract = '【记忆提取任务】' in content
                 allowed_cats = _allowed_knowledge_categories(auth)
-                api_reply = self._call_ai_api(agent, user_payload, auth.user_info, include_history=not is_extract, allowed_knowledge_categories=allowed_cats)
+                api_reply = _call_ai_api(agent, user_payload, auth.user_info, include_history=not is_extract, allowed_knowledge_categories=allowed_cats)
                 if api_reply:
                     ai_message = {
                         'id': 'msg_' + uuid.uuid4().hex[:8],
@@ -8032,1184 +8056,1189 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
         return None
 
 
-    def _call_ai_api(self, agent, user_message, user_info=None, include_history=True, group_id=None, allowed_knowledge_categories=None):
-        """通过代理调用 AI API（带记忆和上下文注入）"""
-        api_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
-        api_key = (agent.get('apiKey', '') or '').strip()
-        api_model = agent.get('apiModel', '')
-        custom_endpoint = agent.get('customEndpoint', '')
-        agent_id = agent.get('id', '')
+def _call_ai_api(agent, user_message, user_info=None, include_history=True, group_id=None, allowed_knowledge_categories=None):
+    """通过代理调用 AI API（带记忆和上下文注入）"""
+    # AI 调用前校验：员工状态 + systemPrompt 身份约束
+    ok, ai_err = _validate_agent_for_ai(agent)
+    if not ok:
+        return f'⚠️ {ai_err}' if ai_err != '员工不存在' else None
 
-        if not api_key:
-            return None
+    api_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
+    api_key = (agent.get('apiKey', '') or '').strip()
+    api_model = agent.get('apiModel', '')
+    custom_endpoint = agent.get('customEndpoint', '')
+    agent_id = agent.get('id', '')
 
-        system_prompt = f'你是 {agent.get("name", "AI")}，一个 {agent.get("role", "助手")}。请用第一人称回复，保持角色一致性。'
-        soul_doc = agent.get('soulDoc', '')
-        sys_prompt_field = agent.get('systemPrompt', '')
-        if soul_doc:
-            system_prompt += '\n\n' + soul_doc
-        elif sys_prompt_field:
-            system_prompt += '\n\n' + sys_prompt_field
-        # 注入层级关系约束，防止 AI 把老板当学生/下属
-        if user_info:
-            user_name = user_info.get('name') or user_info.get('displayName') or '用户'
-            user_role = user_info.get('role', '用户')
-            role_display = '老板/负责人' if user_role == 'admin' else ('组长' if user_role == 'leader' else '员工')
-            system_prompt += f'\n\n【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- {user_name}（{role_display}）是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。\n- 严禁用"教你""指导你""你做过吗""你懂吗"等居高临下的语气。\n- 老板问你问题时，直接回答，不要反问或考验老板。'
+    if not api_key:
+        return None
 
-        # 注入摘要
-        if agent_id:
-            try:
-                summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
-                summary_data = _read_json(summary_file, {})
-                if summary_data.get('summary'):
-                    system_prompt += f'\n\n【历史对话摘要】\n{summary_data["summary"]}'
-            except Exception:
-                pass
-            # 提取纯文本（用于 RAG、记忆注入、抖音检测）
-            user_text = user_message
-            if isinstance(user_message, list):
-                text_parts = [item.get('text', '') for item in user_message if isinstance(item, dict) and item.get('type') == 'text']
-                user_text = ''.join(text_parts)
+    system_prompt = f'你是 {agent.get("name", "AI")}，一个 {agent.get("role", "助手")}。请用第一人称回复，保持角色一致性。'
+    soul_doc = agent.get('soulDoc', '')
+    sys_prompt_field = agent.get('systemPrompt', '')
+    if soul_doc:
+        system_prompt += '\n\n' + soul_doc
+    elif sys_prompt_field:
+        system_prompt += '\n\n' + sys_prompt_field
+    # 注入层级关系约束，防止 AI 把老板当学生/下属
+    if user_info:
+        user_name = user_info.get('name') or user_info.get('displayName') or '用户'
+        user_role = user_info.get('role', '用户')
+        role_display = '老板/负责人' if user_role == 'admin' else ('组长' if user_role == 'leader' else '员工')
+        system_prompt += f'\n\n【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- {user_name}（{role_display}）是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。\n- 严禁用"教你""指导你""你做过吗""你懂吗"等居高临下的语气。\n- 老板问你问题时，直接回答，不要反问或考验老板。'
 
-            # 注入记忆 v3（使用 memory_service_v3 模块）
-            try:
-                emb_cfg = get_embedding_config((agent or {}).get('id'))
-                # 知识库语义检索使用 embedding 专用配置
-                inject_config = dict(agent) if agent else None
-                if inject_config and emb_cfg.get('model'):
-                    inject_config['embeddingModel'] = emb_cfg['model']
-                system_prompt = ms3.inject_memories(
-                    agent_id, system_prompt,
-                    user_message=user_text,
-                    api_key=emb_cfg['apiKey'] or api_key,
-                    provider=emb_cfg['provider'] or api_provider,
-                    agent_config=inject_config,
-                    allowed_knowledge_categories=allowed_knowledge_categories,
-                    model=emb_cfg.get('model'),
-                    base_url=emb_cfg.get('baseUrl'),
-                )
-            except Exception as e:
-                print(f'  [MemoryInject] {agent_id} 注入失败: {e}', flush=True)
-
-            # 注入项目组公共记忆（群聊场景）
-            if group_id:
-                try:
-                    system_prompt = ms3.inject_group_memories(group_id, system_prompt)
-                except Exception as e:
-                    print(f'  [GroupMemoryInject] {group_id} 注入失败: {e}', flush=True)
-
-            # 注入 RAG 检索结果（产品知识库）
-            try:
-                if api_key:
-                    emb_cfg = get_embedding_config((agent or {}).get('id'))
-                    rag_api_key = emb_cfg['apiKey'] or api_key
-                    rag_provider = emb_cfg['provider'] or api_provider
-                    rag_agent_config = dict(agent) if agent else None
-                    if rag_agent_config and emb_cfg.get('model'):
-                        rag_agent_config['embeddingModel'] = emb_cfg['model']
-                    rag_result = ks.rag_retrieve(
-                        user_text, agent_id, rag_api_key, rag_provider, rag_agent_config,
-                        top_k_docs=2, allowed_categories=allowed_knowledge_categories,
-                        model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
-                        requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids
-                    )
-                    if rag_result.get('context'):
-                        system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'
-            except Exception as e:
-                print(f'  [RAG] {agent_id} 注入失败: {e}', flush=True)
-
-        messages = [{'role': 'system', 'content': system_prompt}]
-
-        # 自动检测并解析抖音链接，注入真实视频数据
+    # 注入摘要
+    if agent_id:
         try:
-            if is_douyin_share_text(user_text):
-                douyin_result = parse_douyin_video_quick(user_text)
-                if douyin_result and douyin_result.get('success'):
-                    douyin_context = build_douyin_context(douyin_result)
-                    if douyin_context:
-                        if isinstance(user_message, list):
-                            for item in user_message:
-                                if isinstance(item, dict) and item.get('type') == 'text':
-                                    original_text = item.get('text', '')
-                                    item['text'] = douyin_context + '\n\n---\n用户原始消息：' + original_text
-                                    break
-                        else:
-                            user_message = douyin_context + '\n\n---\n用户原始消息：' + user_message
+            summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
+            summary_data = _read_json(summary_file, {})
+            if summary_data.get('summary'):
+                system_prompt += f'\n\n【历史对话摘要】\n{summary_data["summary"]}'
+        except Exception:
+            pass
+        # 提取纯文本（用于 RAG、记忆注入、抖音检测）
+        user_text = user_message
+        if isinstance(user_message, list):
+            text_parts = [item.get('text', '') for item in user_message if isinstance(item, dict) and item.get('type') == 'text']
+            user_text = ''.join(text_parts)
+
+        # 注入记忆 v3（使用 memory_service_v3 模块）
+        try:
+            emb_cfg = get_embedding_config((agent or {}).get('id'))
+            # 知识库语义检索使用 embedding 专用配置
+            inject_config = dict(agent) if agent else None
+            if inject_config and emb_cfg.get('model'):
+                inject_config['embeddingModel'] = emb_cfg['model']
+            system_prompt = ms3.inject_memories(
+                agent_id, system_prompt,
+                user_message=user_text,
+                api_key=emb_cfg['apiKey'] or api_key,
+                provider=emb_cfg['provider'] or api_provider,
+                agent_config=inject_config,
+                allowed_knowledge_categories=allowed_knowledge_categories,
+                model=emb_cfg.get('model'),
+                base_url=emb_cfg.get('baseUrl'),
+            )
+        except Exception as e:
+            print(f'  [MemoryInject] {agent_id} 注入失败: {e}', flush=True)
+
+        # 注入项目组公共记忆（群聊场景）
+        if group_id:
+            try:
+                system_prompt = ms3.inject_group_memories(group_id, system_prompt)
+            except Exception as e:
+                print(f'  [GroupMemoryInject] {group_id} 注入失败: {e}', flush=True)
+
+        # 注入 RAG 检索结果（产品知识库）
+        try:
+            if api_key:
+                emb_cfg = get_embedding_config((agent or {}).get('id'))
+                rag_api_key = emb_cfg['apiKey'] or api_key
+                rag_provider = emb_cfg['provider'] or api_provider
+                rag_agent_config = dict(agent) if agent else None
+                if rag_agent_config and emb_cfg.get('model'):
+                    rag_agent_config['embeddingModel'] = emb_cfg['model']
+                rag_result = ks.rag_retrieve(
+                    user_text, agent_id, rag_api_key, rag_provider, rag_agent_config,
+                    top_k_docs=2, allowed_categories=allowed_knowledge_categories,
+                    model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
+                    requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids
+                )
+                if rag_result.get('context'):
+                    system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'
+        except Exception as e:
+            print(f'  [RAG] {agent_id} 注入失败: {e}', flush=True)
+
+    messages = [{'role': 'system', 'content': system_prompt}]
+
+    # 自动检测并解析抖音链接，注入真实视频数据
+    try:
+        if is_douyin_share_text(user_text):
+            douyin_result = parse_douyin_video_quick(user_text)
+            if douyin_result and douyin_result.get('success'):
+                douyin_context = build_douyin_context(douyin_result)
+                if douyin_context:
+                    if isinstance(user_message, list):
+                        for item in user_message:
+                            if isinstance(item, dict) and item.get('type') == 'text':
+                                original_text = item.get('text', '')
+                                item['text'] = douyin_context + '\n\n---\n用户原始消息：' + original_text
+                                break
+                    else:
+                        user_message = douyin_context + '\n\n---\n用户原始消息：' + user_message
+    except Exception:
+        pass
+
+    # 加载最近聊天记录
+    if include_history and agent_id:
+        try:
+            chat_history = _load_chat(agent_id)
+            if chat_history:
+                recent = chat_history[-10:]
+                # 避免重复添加当前用户消息（如果已保存在历史中）
+                # 仅当最后一条是 user、内容相同、且时间戳在 5 秒内时才去重，防止误删历史
+                if recent and recent[-1].get('role') == 'user' and recent[-1].get('content') == user_message:
+                    ts_str = recent[-1].get('timestamp', '')
+                    try:
+                        msg_time = datetime.fromisoformat(ts_str)
+                        if datetime.now() - msg_time < timedelta(seconds=5):
+                            recent = recent[:-1]
+                    except Exception:
+                        pass
+                for msg in recent:
+                    role = msg.get('role')
+                    if role in ('user', 'assistant'):
+                        messages.append({'role': role, 'content': msg.get('content', '')})
         except Exception:
             pass
 
-        # 加载最近聊天记录
-        if include_history and agent_id:
-            try:
-                chat_history = _load_chat(agent_id)
-                if chat_history:
-                    recent = chat_history[-10:]
-                    # 避免重复添加当前用户消息（如果已保存在历史中）
-                    # 仅当最后一条是 user、内容相同、且时间戳在 5 秒内时才去重，防止误删历史
-                    if recent and recent[-1].get('role') == 'user' and recent[-1].get('content') == user_message:
-                        ts_str = recent[-1].get('timestamp', '')
-                        try:
-                            msg_time = datetime.fromisoformat(ts_str)
-                            if datetime.now() - msg_time < timedelta(seconds=5):
-                                recent = recent[:-1]
-                        except Exception:
-                            pass
-                    for msg in recent:
-                        role = msg.get('role')
-                        if role in ('user', 'assistant'):
-                            messages.append({'role': role, 'content': msg.get('content', '')})
-            except Exception:
-                pass
+    messages.append({'role': 'user', 'content': user_message})
 
-        messages.append({'role': 'user', 'content': user_message})
+    return _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT)
 
-        return _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT)
+def _handle_delete_chat_message(self, agent_id, msg_id):
+    """DELETE /api/chat/:agentId/:msgId?type=..."""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
 
-    def _handle_delete_chat_message(self, agent_id, msg_id):
-        """DELETE /api/chat/:agentId/:msgId?type=..."""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
+    _, err, status = self._check_agent_access(auth, agent_id)
+    if err:
+        self._send_json(status, {'error': err})
+        return
 
-        _, err, status = self._check_agent_access(auth, agent_id)
-        if err:
-            self._send_json(status, {'error': err})
-            return
-
-        with _get_chat_lock(agent_id):
-            messages = _load_chat(agent_id)
-            if not isinstance(messages, list):
-                messages = []
-            original_len = len(messages)
-            messages = [m for m in messages if m.get('id') != msg_id]
-            if len(messages) == original_len:
-                self._send_json(404, {'error': '消息不存在'})
-                return
-
-            _save_chat(agent_id, messages)
-            print(f'  [ChatDELETE] {agent_id} 删除消息 {msg_id}，剩余 {len(messages)} 条')
-        self._send_json(200, {'message': '消息已删除'})
-
-    def _handle_clear_chat(self, agent_id):
-        """DELETE /api/chat/:agentId?type=... - 清空聊天记录"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-
-        _, err, status = self._check_agent_access(auth, agent_id)
-        if err:
-            self._send_json(status, {'error': err})
-            return
-
-        chat_file = os.path.join(CHATS_DIR, f'{agent_id}.json')
-        if os.path.isfile(chat_file):
-            try:
-                os.remove(chat_file)
-                print(f'  [ChatCLEAR] {agent_id} 聊天记录已清空')
-            except OSError as e:
-                print(f'  [ChatCLEAR] {agent_id} 清空失败: {e}')
-                pass
-        else:
-            print(f'  [ChatCLEAR] {agent_id} 文件不存在，无需清空')
-
-        self._send_json(200, {'message': '聊天记录已清空'})
-
-    def _handle_get_summarize(self, agent_id):
-        """GET /api/chat/summarize/:agentId - 读取已保存的对话摘要"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not self._require_module_permission(auth, 'messages'): return
-
-        _, err, status = self._check_agent_access(auth, agent_id)
-        if err:
-            self._send_json(status, {'error': err})
-            return
-
-        summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
-        data = _read_json(summary_file, {})
-        summary = data.get('summary', '')
-        self._send_json(200, {'summary': summary, 'createdAt': data.get('createdAt', '')})
-
-    def _handle_summarize_chat(self, agent_id):
-        """POST /api/chat/summarize/:agentId - 将旧对话压缩成摘要"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not self._require_module_permission(auth, 'messages'): return
-
-        agent, err, status = self._check_agent_access(auth, agent_id)
-        if err:
-            self._send_json(status, {'error': err})
-            return
-
+    with _get_chat_lock(agent_id):
         messages = _load_chat(agent_id)
-        if len(messages) <= MEMORY_CONFIG['summarize_threshold']:  # 统一阈值，20条以内不需要压缩
-            return self._send_json(200, {'summary': '', 'kept': len(messages)})
+        if not isinstance(messages, list):
+            messages = []
+        original_len = len(messages)
+        messages = [m for m in messages if m.get('id') != msg_id]
+        if len(messages) == original_len:
+            self._send_json(404, {'error': '消息不存在'})
+            return
 
-        # 取前 N-10 条做摘要（保留最近10条原文=5轮）
-        old_messages = messages[:-10]
+        _save_chat(agent_id, messages)
+        print(f'  [ChatDELETE] {agent_id} 删除消息 {msg_id}，剩余 {len(messages)} 条')
+    self._send_json(200, {'message': '消息已删除'})
 
-        # 拼接旧对话文本
-        chat_text = ''
-        for msg in old_messages:
-            role = msg.get('role', 'user')
-            content = msg.get('content', '')
-            if isinstance(content, list):
-                text_parts = [item.get('text', '') for item in content if isinstance(item, dict) and item.get('type') == 'text']
-                content = ''.join(text_parts) if text_parts else (str(content[0]) if content else '')
-            chat_text += ('用户' if role == 'user' else 'AI') + ': ' + content[:200] + '\n'
+def _handle_clear_chat(self, agent_id):
+    """DELETE /api/chat/:agentId?type=... - 清空聊天记录"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
 
-        # 调 AI 做摘要
-        summary = self._call_ai_for_summary(agent, chat_text)
+    _, err, status = self._check_agent_access(auth, agent_id)
+    if err:
+        self._send_json(status, {'error': err})
+        return
 
-        # 保存摘要到单独文件
-        summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
-        _write_json(summary_file, {'summary': summary, 'createdAt': datetime.now().isoformat()})
-
-        # v2：同时保存到 L3 归档层（后端可访问，跨设备共享）
+    chat_file = os.path.join(CHATS_DIR, f'{agent_id}.json')
+    if os.path.isfile(chat_file):
         try:
-            archive_data = _load_archive(agent_id)
-            archive_data['summaries'].append({
-                'id': 'sum_' + str(uuid.uuid4())[:8],
-                'type': 'ai_summary',
-                'period': f'{old_messages[0].get("time", 0) or old_messages[0].get("timestamp", 0)} ~ {old_messages[-1].get("time", 0) or old_messages[-1].get("timestamp", 0)}',
-                'summary': summary,
-                'compressedCount': len(old_messages),
-                'kept': 10,
-                'createdAt': int(time.time() * 1000)
-            })
-            _save_archive(agent_id, archive_data)
-            print(f'  [Summarize] {agent_id} 摘要已存入 L3 归档层', flush=True)
-        except Exception as e:
-            print(f'  [Summarize] 存入 L3 归档层失败: {e}', flush=True)
+            os.remove(chat_file)
+            print(f'  [ChatCLEAR] {agent_id} 聊天记录已清空')
+        except OSError as e:
+            print(f'  [ChatCLEAR] {agent_id} 清空失败: {e}')
+            pass
+    else:
+        print(f'  [ChatCLEAR] {agent_id} 文件不存在，无需清空')
 
-        self._send_json(200, {
+    self._send_json(200, {'message': '聊天记录已清空'})
+
+def _handle_get_summarize(self, agent_id):
+    """GET /api/chat/summarize/:agentId - 读取已保存的对话摘要"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+    if not self._require_module_permission(auth, 'messages'): return
+
+    _, err, status = self._check_agent_access(auth, agent_id)
+    if err:
+        self._send_json(status, {'error': err})
+        return
+
+    summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
+    data = _read_json(summary_file, {})
+    summary = data.get('summary', '')
+    self._send_json(200, {'summary': summary, 'createdAt': data.get('createdAt', '')})
+
+def _handle_summarize_chat(self, agent_id):
+    """POST /api/chat/summarize/:agentId - 将旧对话压缩成摘要"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+    if not self._require_module_permission(auth, 'messages'): return
+
+    agent, err, status = self._check_agent_access(auth, agent_id)
+    if err:
+        self._send_json(status, {'error': err})
+        return
+
+    messages = _load_chat(agent_id)
+    if len(messages) <= MEMORY_CONFIG['summarize_threshold']:  # 统一阈值，20条以内不需要压缩
+        return self._send_json(200, {'summary': '', 'kept': len(messages)})
+
+    # 取前 N-10 条做摘要（保留最近10条原文=5轮）
+    old_messages = messages[:-10]
+
+    # 拼接旧对话文本
+    chat_text = ''
+    for msg in old_messages:
+        role = msg.get('role', 'user')
+        content = msg.get('content', '')
+        if isinstance(content, list):
+            text_parts = [item.get('text', '') for item in content if isinstance(item, dict) and item.get('type') == 'text']
+            content = ''.join(text_parts) if text_parts else (str(content[0]) if content else '')
+        chat_text += ('用户' if role == 'user' else 'AI') + ': ' + content[:200] + '\n'
+
+    # 调 AI 做摘要
+    summary = self._call_ai_for_summary(agent, chat_text)
+
+    # 保存摘要到单独文件
+    summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
+    _write_json(summary_file, {'summary': summary, 'createdAt': datetime.now().isoformat()})
+
+    # v2：同时保存到 L3 归档层（后端可访问，跨设备共享）
+    try:
+        archive_data = _load_archive(agent_id)
+        archive_data['summaries'].append({
+            'id': 'sum_' + str(uuid.uuid4())[:8],
+            'type': 'ai_summary',
+            'period': f'{old_messages[0].get("time", 0) or old_messages[0].get("timestamp", 0)} ~ {old_messages[-1].get("time", 0) or old_messages[-1].get("timestamp", 0)}',
             'summary': summary,
-            'compressed': len(old_messages),
-            'kept': 10
+            'compressedCount': len(old_messages),
+            'kept': 10,
+            'createdAt': int(time.time() * 1000)
         })
+        _save_archive(agent_id, archive_data)
+        print(f'  [Summarize] {agent_id} 摘要已存入 L3 归档层', flush=True)
+    except Exception as e:
+        print(f'  [Summarize] 存入 L3 归档层失败: {e}', flush=True)
 
-    def _call_ai_for_summary(self, agent, chat_text):
-        """调用AI压缩对话为摘要（带降级逻辑：AI不可用时截取最近N条消息）"""
-        prompt = '请将以下对话历史压缩成一段简洁的摘要（200字以内），保留关键信息、决策和重要事实：\n\n' + chat_text
-        try:
-            result = self._call_ai_api(agent, prompt, include_history=False)
-            if result:
-                return result[:500]
-        except Exception as e:
-            print(f'  [Summary] AI摘要失败: {e}', flush=True)
+    self._send_json(200, {
+        'summary': summary,
+        'compressed': len(old_messages),
+        'kept': 10
+    })
 
-        # 降级：AI不可用时，截取最近 N 条消息文本作为摘要
-        lines = chat_text.strip().split('\n')
-        fallback_lines = lines[-10:] if len(lines) > 10 else lines
-        fallback = '\n'.join(fallback_lines).strip()
-        if len(fallback) > 500:
-            fallback = fallback[:500] + '...'
-        if fallback:
-            print(f'  [Summary] AI 不可用，已降级为文本截取（{len(fallback_lines)} 条消息）', flush=True)
-            return fallback
-        return ''
+def _call_ai_for_summary(self, agent, chat_text):
+    """调用AI压缩对话为摘要（带降级逻辑：AI不可用时截取最近N条消息）"""
+    prompt = '请将以下对话历史压缩成一段简洁的摘要（200字以内），保留关键信息、决策和重要事实：\n\n' + chat_text
+    try:
+        result = _call_ai_api(agent, prompt, include_history=False)
+        if result:
+            return result[:500]
+    except Exception as e:
+        print(f'  [Summary] AI摘要失败: {e}', flush=True)
 
-    # ═══════════════════════════════════════════════════
-    # OpenClaw API（原有功能，已加认证）
-    # ═══════════════════════════════════════════════════
+    # 降级：AI不可用时，截取最近 N 条消息文本作为摘要
+    lines = chat_text.strip().split('\n')
+    fallback_lines = lines[-10:] if len(lines) > 10 else lines
+    fallback = '\n'.join(fallback_lines).strip()
+    if len(fallback) > 500:
+        fallback = fallback[:500] + '...'
+    if fallback:
+        print(f'  [Summary] AI 不可用，已降级为文本截取（{len(fallback_lines)} 条消息）', flush=True)
+        return fallback
+    return ''
 
-    def _handle_openclaw_status(self):
-        """GET /api/openclaw/status"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        status = _openclaw_status()
-        self._send_json(200, status)
+# ═══════════════════════════════════════════════════
+# OpenClaw API（原有功能，已加认证）
+# ═══════════════════════════════════════════════════
 
-    def _handle_openclaw_list_agents(self):
-        """GET /api/openclaw/agents"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        success, stdout, stderr, rc = _run_openclaw(['agents', 'list', '--json'])
-        if not success:
-            self._send_json(200, {
-                'agents': [],
-                'warning': stderr or 'OpenClaw CLI not available'
-            })
-            return
+def _handle_openclaw_status(self):
+    """GET /api/openclaw/status"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+    status = _openclaw_status()
+    self._send_json(200, status)
 
-        if rc != 0:
-            self._send_json(200, {
-                'agents': [],
-                'warning': stderr.strip() or f'Command failed (rc={rc})'
-            })
-            return
+def _handle_openclaw_list_agents(self):
+    """GET /api/openclaw/agents"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+    success, stdout, stderr, rc = _run_openclaw(['agents', 'list', '--json'])
+    if not success:
+        self._send_json(200, {
+            'agents': [],
+            'warning': stderr or 'OpenClaw CLI not available'
+        })
+        return
 
+    if rc != 0:
+        self._send_json(200, {
+            'agents': [],
+            'warning': stderr.strip() or f'Command failed (rc={rc})'
+        })
+        return
+
+    try:
+        data = json.loads(stdout.strip())
+        if isinstance(data, list):
+            self._send_json(200, {'agents': data})
+        elif isinstance(data, dict) and 'agents' in data:
+            self._send_json(200, data)
+        else:
+            self._send_json(200, {'agents': [data] if isinstance(data, dict) else []})
+    except json.JSONDecodeError:
+        # 非JSON输出，尝试解析文本
+        lines = stdout.strip().split('\n')
+        agents = []
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                agents.append({'name': line, 'source': 'cli-text'})
+        self._send_json(200, {'agents': agents, 'source': 'text-parse'})
+
+def _handle_openclaw_list_models(self):
+    """GET /api/openclaw/models"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+    success, stdout, stderr, rc = _run_openclaw(['models', 'list', '--json'])
+    if success and rc == 0:
         try:
             data = json.loads(stdout.strip())
             if isinstance(data, list):
-                self._send_json(200, {'agents': data})
-            elif isinstance(data, dict) and 'agents' in data:
+                self._send_json(200, {'models': data})
+                return
+            elif isinstance(data, dict) and 'models' in data:
                 self._send_json(200, data)
-            else:
-                self._send_json(200, {'agents': [data] if isinstance(data, dict) else []})
+                return
         except json.JSONDecodeError:
-            # 非JSON输出，尝试解析文本
-            lines = stdout.strip().split('\n')
-            agents = []
-            for line in lines:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    agents.append({'name': line, 'source': 'cli-text'})
-            self._send_json(200, {'agents': agents, 'source': 'text-parse'})
+            pass
+    self._send_json(200, {'models': _default_models(), 'source': 'default'})
 
-    def _handle_openclaw_list_models(self):
-        """GET /api/openclaw/models"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        success, stdout, stderr, rc = _run_openclaw(['models', 'list', '--json'])
-        if success and rc == 0:
-            try:
-                data = json.loads(stdout.strip())
-                if isinstance(data, list):
-                    self._send_json(200, {'models': data})
-                    return
-                elif isinstance(data, dict) and 'models' in data:
-                    self._send_json(200, data)
-                    return
-            except json.JSONDecodeError:
-                pass
-        self._send_json(200, {'models': _default_models(), 'source': 'default'})
+def _handle_openclaw_create_agent(self):
+    """POST /api/openclaw/agents/create"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+    body = self._read_body()
+    if not body:
+        self._send_json_error(400, 'Invalid JSON body')
+        return
 
-    def _handle_openclaw_create_agent(self):
-        """POST /api/openclaw/agents/create"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        body = self._read_body()
-        if not body:
-            self._send_json_error(400, 'Invalid JSON body')
-            return
+    name = body.get('name', '').strip()
+    model = body.get('model', '').strip()
+    soul = body.get('soul', '').strip()
+    workspace = body.get('workspace', '').strip()
 
-        name = body.get('name', '').strip()
-        model = body.get('model', '').strip()
-        soul = body.get('soul', '').strip()
-        workspace = body.get('workspace', '').strip()
+    if not name:
+        self._send_json_error(400, 'Agent name is required')
+        return
 
-        if not name:
-            self._send_json_error(400, 'Agent name is required')
-            return
+    # 构建 CLI 参数 (--non-interactive requires --workspace)
+    home = os.path.expanduser('~')
+    if not workspace:
+        workspace = os.path.join(home, '.openclaw', 'agents', name)
+    # 确保 workspace 目录存在
+    os.makedirs(workspace, exist_ok=True)
 
-        # 构建 CLI 参数 (--non-interactive requires --workspace)
-        home = os.path.expanduser('~')
-        if not workspace:
-            workspace = os.path.join(home, '.openclaw', 'agents', name)
-        # 确保 workspace 目录存在
-        os.makedirs(workspace, exist_ok=True)
+    args = ['agents', 'add', name, '--workspace', workspace, '--non-interactive']
+    if model:
+        args.extend(['--model', model])
 
-        args = ['agents', 'add', name, '--workspace', workspace, '--non-interactive']
-        if model:
-            args.extend(['--model', model])
+    success, stdout, stderr, rc = _run_openclaw(args)
 
-        success, stdout, stderr, rc = _run_openclaw(args)
+    if not success:
+        self._send_json(500, {
+            'success': False,
+            'error': stderr or 'OpenClaw CLI not available'
+        })
+        return
 
-        if not success:
-            self._send_json(500, {
-                'success': False,
-                'error': stderr or 'OpenClaw CLI not available'
-            })
-            return
-
-        if rc != 0:
-            self._send_json(500, {
-                'success': False,
-                'error': stderr.strip() or f'Command failed with code {rc}',
-                'output': stdout.strip()
-            })
-            return
-
-        # Write SOUL.md if provided
-        if soul:
-            soul_path = os.path.join(workspace, 'SOUL.md')
-            try:
-                with open(soul_path, 'w', encoding='utf-8') as f:
-                    f.write(soul)
-            except OSError as e:
-                logging.warning(f"Failed to write SOUL.md: {e}")
-
-        self._send_json(200, {
-            'success': True,
-            'name': name,
-            'model': model,
-            'workspace': workspace,
-            'soul_written': bool(soul),
+    if rc != 0:
+        self._send_json(500, {
+            'success': False,
+            'error': stderr.strip() or f'Command failed with code {rc}',
             'output': stdout.strip()
         })
+        return
 
-    def _handle_openclaw_update_agent(self):
-        """POST /api/openclaw/agents/update"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        body = self._read_body()
-        if not body:
-            self._send_json_error(400, 'Invalid JSON body')
-            return
+    # Write SOUL.md if provided
+    if soul:
+        soul_path = os.path.join(workspace, 'SOUL.md')
+        try:
+            with open(soul_path, 'w', encoding='utf-8') as f:
+                f.write(soul)
+        except OSError as e:
+            logging.warning(f"Failed to write SOUL.md: {e}")
 
-        name = body.get('name', '').strip()
-        soul = body.get('soul', '').strip()
-        model = body.get('model', '').strip()
+    self._send_json(200, {
+        'success': True,
+        'name': name,
+        'model': model,
+        'workspace': workspace,
+        'soul_written': bool(soul),
+        'output': stdout.strip()
+    })
 
-        if not name:
-            self._send_json_error(400, 'Agent name is required')
-            return
+def _handle_openclaw_update_agent(self):
+    """POST /api/openclaw/agents/update"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+    body = self._read_body()
+    if not body:
+        self._send_json_error(400, 'Invalid JSON body')
+        return
 
-        results = {'success': True, 'updates': []}
+    name = body.get('name', '').strip()
+    soul = body.get('soul', '').strip()
+    model = body.get('model', '').strip()
 
-        if soul:
-            home = os.path.expanduser('~')
-            possible_workspaces = [
-                os.path.join(home, '.openclaw', 'agents', name),
-                os.path.join(home, '.openclaw', name),
-            ]
+    if not name:
+        self._send_json_error(400, 'Agent name is required')
+        return
 
-            soul_written = False
-            for ws in possible_workspaces:
-                soul_path = os.path.join(ws, 'SOUL.md')
-                if os.path.isdir(ws):
-                    try:
-                        with open(soul_path, 'w', encoding='utf-8') as f:
-                            f.write(soul)
-                        results['updates'].append(f'SOUL.md updated at {ws}')
-                        results['workspace'] = ws
-                        soul_written = True
-                        break
-                    except OSError as e:
-                        results['updates'].append(f'Failed to write SOUL.md: {str(e)}')
+    results = {'success': True, 'updates': []}
+
+    if soul:
+        home = os.path.expanduser('~')
+        possible_workspaces = [
+            os.path.join(home, '.openclaw', 'agents', name),
+            os.path.join(home, '.openclaw', name),
+        ]
+
+        soul_written = False
+        for ws in possible_workspaces:
+            soul_path = os.path.join(ws, 'SOUL.md')
+            if os.path.isdir(ws):
+                try:
+                    with open(soul_path, 'w', encoding='utf-8') as f:
+                        f.write(soul)
+                    results['updates'].append(f'SOUL.md updated at {ws}')
+                    results['workspace'] = ws
+                    soul_written = True
+                    break
+                except OSError as e:
+                    results['updates'].append(f'Failed to write SOUL.md: {str(e)}')
+
+        if not soul_written:
+            success, stdout, stderr, rc = _run_openclaw(['agents', 'list', '--json'])
+            if success and rc == 0:
+                try:
+                    agents_data = json.loads(stdout.strip())
+                    agents_list = agents_data if isinstance(agents_data, list) else agents_data.get('agents', [])
+                    for agent in agents_list:
+                        agent_name = agent.get('name', agent.get('agentId', ''))
+                        if agent_name == name:
+                            ws = agent.get('workspace', agent.get('path', ''))
+                            if ws:
+                                soul_path = os.path.join(ws, 'SOUL.md')
+                                try:
+                                    with open(soul_path, 'w', encoding='utf-8') as f:
+                                        f.write(soul)
+                                    results['updates'].append(f'SOUL.md updated at {ws}')
+                                    results['workspace'] = ws
+                                    soul_written = True
+                                except OSError as e:
+                                    results['updates'].append(f'Failed to write SOUL.md: {str(e)}')
+                            break
+                except (json.JSONDecodeError, KeyError):
+                    pass
 
             if not soul_written:
-                success, stdout, stderr, rc = _run_openclaw(['agents', 'list', '--json'])
-                if success and rc == 0:
-                    try:
-                        agents_data = json.loads(stdout.strip())
-                        agents_list = agents_data if isinstance(agents_data, list) else agents_data.get('agents', [])
-                        for agent in agents_list:
-                            agent_name = agent.get('name', agent.get('agentId', ''))
-                            if agent_name == name:
-                                ws = agent.get('workspace', agent.get('path', ''))
-                                if ws:
-                                    soul_path = os.path.join(ws, 'SOUL.md')
-                                    try:
-                                        with open(soul_path, 'w', encoding='utf-8') as f:
-                                            f.write(soul)
-                                        results['updates'].append(f'SOUL.md updated at {ws}')
-                                        results['workspace'] = ws
-                                        soul_written = True
-                                    except OSError as e:
-                                        results['updates'].append(f'Failed to write SOUL.md: {str(e)}')
-                                break
-                    except (json.JSONDecodeError, KeyError):
-                        pass
+                results['updates'].append('Could not find workspace directory for SOUL.md update')
 
-                if not soul_written:
-                    results['updates'].append('Could not find workspace directory for SOUL.md update')
+    if model:
+        del_success, del_stdout, del_stderr, del_rc = _run_openclaw(['agents', 'delete', name])
+        if del_success and del_rc == 0:
+            ws = results.get('workspace', os.path.join(os.path.expanduser('~'), '.openclaw', 'agents', name))
+            add_success, add_stdout, add_stderr, add_rc = _run_openclaw([
+                'agents', 'add', name, '--workspace', ws, '--model', model, '--non-interactive'
+            ])
+            if add_success and add_rc == 0:
+                results['updates'].append(f'Agent recreated with model: {model}')
+            else:
+                results['success'] = False
+                results['error'] = add_stderr.strip() or 'Failed to recreate agent with new model'
+        else:
+            results['updates'].append(f'Delete step: {del_stderr.strip() or "ok"}')
+            ws = os.path.join(os.path.expanduser('~'), '.openclaw', 'agents', name)
+            add_success, add_stdout, add_stderr, add_rc = _run_openclaw([
+                'agents', 'add', name, '--workspace', ws, '--model', model, '--non-interactive'
+            ])
+            if add_success and add_rc == 0:
+                results['updates'].append(f'Agent created with model: {model}')
+            else:
+                results['success'] = False
+                results['error'] = add_stderr.strip() or 'Failed to create agent with new model'
 
-        if model:
-            del_success, del_stdout, del_stderr, del_rc = _run_openclaw(['agents', 'delete', name])
-            if del_success and del_rc == 0:
-                ws = results.get('workspace', os.path.join(os.path.expanduser('~'), '.openclaw', 'agents', name))
-                add_success, add_stdout, add_stderr, add_rc = _run_openclaw([
-                    'agents', 'add', name, '--workspace', ws, '--model', model, '--non-interactive'
-                ])
-                if add_success and add_rc == 0:
-                    results['updates'].append(f'Agent recreated with model: {model}')
+    self._send_json(200, results)
+
+def _handle_openclaw_delete_agent(self, agent_name):
+    """DELETE /api/openclaw/agents/:name"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+    success, stdout, stderr, rc = _run_openclaw(['agents', 'delete', agent_name])
+
+    if not success:
+        self._send_json(500, {
+            'success': False,
+            'error': stderr or 'OpenClaw CLI not available'
+        })
+        return
+
+    if rc != 0:
+        self._send_json(500, {
+            'success': False,
+            'error': stderr.strip() or f'Command failed with code {rc}',
+            'output': stdout.strip()
+        })
+        return
+
+    self._send_json(200, {
+        'success': True,
+        'name': agent_name,
+        'output': stdout.strip()
+    })
+
+# ═══════════════════════════════════════════════════
+# 技能管理 API (OpenClaw Skills)
+# ═══════════════════════════════════════════════════
+
+def _handle_skills_list(self):
+    """GET /api/openclaw/skills/list - 列出已安装技能"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+
+    success, stdout, stderr, rc = _run_openclaw(['skill', 'list', '--json'])
+
+    if not success:
+        self._send_json(200, {
+            'skills': [],
+            'warning': stderr or 'OpenClaw CLI not available'
+        })
+        return
+
+    if rc != 0:
+        self._send_json(200, {
+            'skills': [],
+            'warning': stderr.strip() or 'Command failed'
+        })
+        return
+
+    try:
+        data = json.loads(stdout.strip())
+        if isinstance(data, list):
+            self._send_json(200, {'skills': data})
+        elif isinstance(data, dict) and 'skills' in data:
+            self._send_json(200, data)
+        else:
+            self._send_json(200, {'skills': []})
+    except json.JSONDecodeError:
+        lines = stdout.strip().split('\n')
+        skills = []
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                parts = line.split()
+                if len(parts) >= 2:
+                    skills.append({'name': parts[0], 'version': parts[1]})
                 else:
-                    results['success'] = False
-                    results['error'] = add_stderr.strip() or 'Failed to recreate agent with new model'
-            else:
-                results['updates'].append(f'Delete step: {del_stderr.strip() or "ok"}')
-                ws = os.path.join(os.path.expanduser('~'), '.openclaw', 'agents', name)
-                add_success, add_stdout, add_stderr, add_rc = _run_openclaw([
-                    'agents', 'add', name, '--workspace', ws, '--model', model, '--non-interactive'
-                ])
-                if add_success and add_rc == 0:
-                    results['updates'].append(f'Agent created with model: {model}')
-                else:
-                    results['success'] = False
-                    results['error'] = add_stderr.strip() or 'Failed to create agent with new model'
+                    skills.append({'name': line, 'version': ''})
+        self._send_json(200, {'skills': skills, 'source': 'text-parse'})
 
-        self._send_json(200, results)
+def _handle_skills_search(self):
+    """GET /api/openclaw/skills/search?q=keyword - 搜索社区技能"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
 
-    def _handle_openclaw_delete_agent(self, agent_name):
-        """DELETE /api/openclaw/agents/:name"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        success, stdout, stderr, rc = _run_openclaw(['agents', 'delete', agent_name])
+    query = ''
+    if '?' in self.path:
+        from urllib.parse import parse_qs, urlparse
+        qs = parse_qs(urlparse(self.path).query)
+        query = qs.get('q', [''])[0]
 
-        if not success:
-            self._send_json(500, {
-                'success': False,
-                'error': stderr or 'OpenClaw CLI not available'
-            })
-            return
+    if not query:
+        self._send_json(400, {'error': 'Missing query parameter "q"'})
+        return
 
-        if rc != 0:
-            self._send_json(500, {
-                'success': False,
-                'error': stderr.strip() or f'Command failed with code {rc}',
-                'output': stdout.strip()
-            })
-            return
+    success, stdout, stderr, rc = _run_openclaw(['skill', 'search', query, '--json'])
 
+    if not success:
         self._send_json(200, {
-            'success': True,
-            'name': agent_name,
-            'output': stdout.strip()
+            'results': [],
+            'query': query,
+            'warning': stderr or 'OpenClaw CLI not available'
         })
+        return
 
-    # ═══════════════════════════════════════════════════
-    # 技能管理 API (OpenClaw Skills)
-    # ═══════════════════════════════════════════════════
-
-    def _handle_skills_list(self):
-        """GET /api/openclaw/skills/list - 列出已安装技能"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-
-        success, stdout, stderr, rc = _run_openclaw(['skill', 'list', '--json'])
-
-        if not success:
-            self._send_json(200, {
-                'skills': [],
-                'warning': stderr or 'OpenClaw CLI not available'
-            })
-            return
-
-        if rc != 0:
-            self._send_json(200, {
-                'skills': [],
-                'warning': stderr.strip() or 'Command failed'
-            })
-            return
-
-        try:
-            data = json.loads(stdout.strip())
-            if isinstance(data, list):
-                self._send_json(200, {'skills': data})
-            elif isinstance(data, dict) and 'skills' in data:
-                self._send_json(200, data)
-            else:
-                self._send_json(200, {'skills': []})
-        except json.JSONDecodeError:
-            lines = stdout.strip().split('\n')
-            skills = []
-            for line in lines:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        skills.append({'name': parts[0], 'version': parts[1]})
-                    else:
-                        skills.append({'name': line, 'version': ''})
-            self._send_json(200, {'skills': skills, 'source': 'text-parse'})
-
-    def _handle_skills_search(self):
-        """GET /api/openclaw/skills/search?q=keyword - 搜索社区技能"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-
-        query = ''
-        if '?' in self.path:
-            from urllib.parse import parse_qs, urlparse
-            qs = parse_qs(urlparse(self.path).query)
-            query = qs.get('q', [''])[0]
-
-        if not query:
-            self._send_json(400, {'error': 'Missing query parameter "q"'})
-            return
-
-        success, stdout, stderr, rc = _run_openclaw(['skill', 'search', query, '--json'])
-
-        if not success:
-            self._send_json(200, {
-                'results': [],
-                'query': query,
-                'warning': stderr or 'OpenClaw CLI not available'
-            })
-            return
-
-        if rc != 0:
-            self._send_json(200, {
-                'results': [],
-                'query': query,
-                'warning': stderr.strip() or 'Command failed'
-            })
-            return
-
-        try:
-            data = json.loads(stdout.strip())
-            if isinstance(data, list):
-                self._send_json(200, {'results': data, 'query': query})
-            elif isinstance(data, dict) and 'results' in data:
-                self._send_json(200, data)
-            else:
-                self._send_json(200, {'results': [data] if isinstance(data, dict) else [], 'query': query})
-        except json.JSONDecodeError:
-            self._send_json(200, {'results': [], 'query': query, 'raw': stdout.strip()})
-
-    def _handle_skills_install(self):
-        """POST /api/openclaw/skills/install - 安装技能"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-
-        body = self._read_body()
-        if not body:
-            self._send_json(400, {'error': 'Invalid JSON body'})
-            return
-
-        skill_name = body.get('skillName', '').strip()
-        if not skill_name:
-            self._send_json(400, {'error': 'skillName is required'})
-            return
-
-        success, stdout, stderr, rc = _run_openclaw(['skill', 'install', skill_name])
-
-        if not success:
-            self._send_json(500, {
-                'success': False,
-                'skillName': skill_name,
-                'error': stderr or 'OpenClaw CLI not available'
-            })
-            return
-
-        if rc != 0:
-            self._send_json(500, {
-                'success': False,
-                'skillName': skill_name,
-                'error': stderr.strip() or 'Installation failed',
-                'output': stdout.strip()
-            })
-            return
-
+    if rc != 0:
         self._send_json(200, {
-            'success': True,
+            'results': [],
+            'query': query,
+            'warning': stderr.strip() or 'Command failed'
+        })
+        return
+
+    try:
+        data = json.loads(stdout.strip())
+        if isinstance(data, list):
+            self._send_json(200, {'results': data, 'query': query})
+        elif isinstance(data, dict) and 'results' in data:
+            self._send_json(200, data)
+        else:
+            self._send_json(200, {'results': [data] if isinstance(data, dict) else [], 'query': query})
+    except json.JSONDecodeError:
+        self._send_json(200, {'results': [], 'query': query, 'raw': stdout.strip()})
+
+def _handle_skills_install(self):
+    """POST /api/openclaw/skills/install - 安装技能"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+
+    body = self._read_body()
+    if not body:
+        self._send_json(400, {'error': 'Invalid JSON body'})
+        return
+
+    skill_name = body.get('skillName', '').strip()
+    if not skill_name:
+        self._send_json(400, {'error': 'skillName is required'})
+        return
+
+    success, stdout, stderr, rc = _run_openclaw(['skill', 'install', skill_name])
+
+    if not success:
+        self._send_json(500, {
+            'success': False,
             'skillName': skill_name,
-            'output': stdout.strip()
+            'error': stderr or 'OpenClaw CLI not available'
         })
+        return
 
-    def _handle_skills_remove(self):
-        """POST /api/openclaw/skills/remove - 卸载技能"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-
-        body = self._read_body()
-        if not body:
-            self._send_json(400, {'error': 'Invalid JSON body'})
-            return
-
-        skill_name = body.get('skillName', '').strip()
-        if not skill_name:
-            self._send_json(400, {'error': 'skillName is required'})
-            return
-
-        success, stdout, stderr, rc = _run_openclaw(['skill', 'remove', skill_name])
-
-        if not success:
-            self._send_json(500, {
-                'success': False,
-                'skillName': skill_name,
-                'error': stderr or 'OpenClaw CLI not available'
-            })
-            return
-
-        if rc != 0:
-            self._send_json(500, {
-                'success': False,
-                'skillName': skill_name,
-                'error': stderr.strip() or 'Removal failed',
-                'output': stdout.strip()
-            })
-            return
-
-        self._send_json(200, {
-            'success': True,
+    if rc != 0:
+        self._send_json(500, {
+            'success': False,
             'skillName': skill_name,
+            'error': stderr.strip() or 'Installation failed',
             'output': stdout.strip()
         })
+        return
 
-    # ═══════════════════════════════════════════════════
-    # 飞书渠道配置 API
-    # ═══════════════════════════════════════════════════
+    self._send_json(200, {
+        'success': True,
+        'skillName': skill_name,
+        'output': stdout.strip()
+    })
 
-    def _handle_feishu_status(self):
-        """GET /api/openclaw/channels/feishu/status"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
+def _handle_skills_remove(self):
+    """POST /api/openclaw/skills/remove - 卸载技能"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
 
-        import os
-        config_path = os.path.expanduser('~/.openclaw/openclaw.json')
-        config = _read_json(config_path, {})
-        channels = config.get('channels', {})
-        feishu = channels.get('feishu', {})
-        accounts = feishu.get('accounts', {})
-        default_account = accounts.get('default', accounts.get('main', {}))
+    body = self._read_body()
+    if not body:
+        self._send_json(400, {'error': 'Invalid JSON body'})
+        return
 
-        # 新格式优先从顶层读，fallback 到 accounts.default
-        app_id = feishu.get('appId', default_account.get('appId', ''))
-        app_secret = feishu.get('appSecret', default_account.get('appSecret', ''))
-        bot_name = default_account.get('name', default_account.get('botName', '全可AI助手'))
+    skill_name = body.get('skillName', '').strip()
+    if not skill_name:
+        self._send_json(400, {'error': 'skillName is required'})
+        return
 
-        masked_secret = ''
-        if app_secret:
-            masked_secret = app_secret[:4] + '*' * (len(app_secret) - 4) if len(app_secret) > 4 else '****'
+    success, stdout, stderr, rc = _run_openclaw(['skill', 'remove', skill_name])
 
-        # 检查连接状态 - 通过 openclaw channels status 判断
-        connected = feishu.get('enabled', False)
-
-        self._send_json(200, {
-            'appId': app_id,
-            'appSecret': masked_secret,
-            'botName': bot_name,
-            'dmPolicy': feishu.get('dmPolicy', 'pairing'),
-            'domain': feishu.get('domain', 'feishu'),
-            'enabled': feishu.get('enabled', False),
-            'connected': connected,
-            'paired': True  # 如果有 enabled=true 且配置完整就认为已配对
+    if not success:
+        self._send_json(500, {
+            'success': False,
+            'skillName': skill_name,
+            'error': stderr or 'OpenClaw CLI not available'
         })
+        return
 
-    def _handle_feishu_config(self):
-        """POST /api/openclaw/channels/feishu"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
+    if rc != 0:
+        self._send_json(500, {
+            'success': False,
+            'skillName': skill_name,
+            'error': stderr.strip() or 'Removal failed',
+            'output': stdout.strip()
+        })
+        return
 
-        body = self._read_body()
-        if not body:
-            self._send_json(400, {'error': '无效的请求体'})
-            return
+    self._send_json(200, {
+        'success': True,
+        'skillName': skill_name,
+        'output': stdout.strip()
+    })
 
-        app_id = body.get('appId', '').strip()
-        app_secret = body.get('appSecret', '').strip()
-        bot_name = body.get('botName', '全可AI助手').strip()
-        dm_policy = body.get('dmPolicy', 'pairing')
-        enabled = body.get('enabled', True)
+# ═══════════════════════════════════════════════════
+# 飞书渠道配置 API
+# ═══════════════════════════════════════════════════
 
-        if not app_id:
-            self._send_json(400, {'error': 'App ID 不能为空'})
-            return
+def _handle_feishu_status(self):
+    """GET /api/openclaw/channels/feishu/status"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
 
-        import os
-        import shutil
-        config_path = os.path.expanduser('~/.openclaw/openclaw.json')
+    import os
+    config_path = os.path.expanduser('~/.openclaw/openclaw.json')
+    config = _read_json(config_path, {})
+    channels = config.get('channels', {})
+    feishu = channels.get('feishu', {})
+    accounts = feishu.get('accounts', {})
+    default_account = accounts.get('default', accounts.get('main', {}))
 
-        # 读取现有配置
-        config = _read_json(config_path, {})
-        if 'channels' not in config:
-            config['channels'] = {}
+    # 新格式优先从顶层读，fallback 到 accounts.default
+    app_id = feishu.get('appId', default_account.get('appId', ''))
+    app_secret = feishu.get('appSecret', default_account.get('appSecret', ''))
+    bot_name = default_account.get('name', default_account.get('botName', '全可AI助手'))
 
-        # 备份原文件
-        if os.path.exists(config_path):
-            shutil.copy2(config_path, config_path + '.bak')
+    masked_secret = ''
+    if app_secret:
+        masked_secret = app_secret[:4] + '*' * (len(app_secret) - 4) if len(app_secret) > 4 else '****'
 
-        # 更新飞书配置 - appSecret 为空时保留原值
-        feishu_cfg = config.get('channels', {}).get('feishu', {})
-        existing_accounts = feishu_cfg.get('accounts', {})
-        existing_default = existing_accounts.get('default', {})
-        
-        if not app_secret:
-            app_secret = feishu_cfg.get('appSecret', existing_default.get('appSecret', ''))
-        
-        # 新格式：顶层 + accounts.default 双份，与 openclaw channels add 一致
-        config['channels']['feishu'] = {
-            'enabled': enabled,
-            'dmPolicy': dm_policy,
-            'domain': feishu_cfg.get('domain', 'feishu'),
-            'appId': app_id,
-            'appSecret': app_secret,
-            'accounts': {
-                'default': {
-                    'appId': app_id,
-                    'appSecret': app_secret,
-                    'name': bot_name
-                }
+    # 检查连接状态 - 通过 openclaw channels status 判断
+    connected = feishu.get('enabled', False)
+
+    self._send_json(200, {
+        'appId': app_id,
+        'appSecret': masked_secret,
+        'botName': bot_name,
+        'dmPolicy': feishu.get('dmPolicy', 'pairing'),
+        'domain': feishu.get('domain', 'feishu'),
+        'enabled': feishu.get('enabled', False),
+        'connected': connected,
+        'paired': True  # 如果有 enabled=true 且配置完整就认为已配对
+    })
+
+def _handle_feishu_config(self):
+    """POST /api/openclaw/channels/feishu"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+
+    body = self._read_body()
+    if not body:
+        self._send_json(400, {'error': '无效的请求体'})
+        return
+
+    app_id = body.get('appId', '').strip()
+    app_secret = body.get('appSecret', '').strip()
+    bot_name = body.get('botName', '全可AI助手').strip()
+    dm_policy = body.get('dmPolicy', 'pairing')
+    enabled = body.get('enabled', True)
+
+    if not app_id:
+        self._send_json(400, {'error': 'App ID 不能为空'})
+        return
+
+    import os
+    import shutil
+    config_path = os.path.expanduser('~/.openclaw/openclaw.json')
+
+    # 读取现有配置
+    config = _read_json(config_path, {})
+    if 'channels' not in config:
+        config['channels'] = {}
+
+    # 备份原文件
+    if os.path.exists(config_path):
+        shutil.copy2(config_path, config_path + '.bak')
+
+    # 更新飞书配置 - appSecret 为空时保留原值
+    feishu_cfg = config.get('channels', {}).get('feishu', {})
+    existing_accounts = feishu_cfg.get('accounts', {})
+    existing_default = existing_accounts.get('default', {})
+    
+    if not app_secret:
+        app_secret = feishu_cfg.get('appSecret', existing_default.get('appSecret', ''))
+    
+    # 新格式：顶层 + accounts.default 双份，与 openclaw channels add 一致
+    config['channels']['feishu'] = {
+        'enabled': enabled,
+        'dmPolicy': dm_policy,
+        'domain': feishu_cfg.get('domain', 'feishu'),
+        'appId': app_id,
+        'appSecret': app_secret,
+        'accounts': {
+            'default': {
+                'appId': app_id,
+                'appSecret': app_secret,
+                'name': bot_name
             }
         }
+    }
 
-        # 保存配置
+    # 保存配置
+    try:
+        _write_json(config_path, config)
+    except Exception as e:
+        self._send_json(500, {'error': f'保存配置失败: {str(e)}'})
+        return
+
+    # 自动重启 Gateway
+    success, stdout, stderr, rc = _run_openclaw(['gateway', 'restart'])
+    if success and rc == 0:
+        self._send_json(200, {
+            'success': True,
+            'message': '飞书配置已保存，Gateway 已重启',
+            'appId': app_id,
+            'botName': bot_name
+        })
+    else:
+        self._send_json(200, {
+            'success': True,
+            'message': '飞书配置已保存，但 Gateway 重启失败',
+            'warning': stderr or 'Gateway restart failed',
+            'appId': app_id,
+            'botName': bot_name
+        })
+
+def _handle_pairing_approve(self):
+    """POST /api/openclaw/pairing/approve"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+
+    body = self._read_body()
+    if not body:
+        self._send_json(400, {'error': '无效的请求体'})
+        return
+
+    channel = body.get('channel', 'feishu')
+    code = body.get('code', '').strip()
+
+    if not code:
+        self._send_json(400, {'error': '配对码不能为空'})
+        return
+
+    success, stdout, stderr, rc = _run_openclaw(['pairing', 'approve', channel, code])
+
+    if success and rc == 0:
+        self._send_json(200, {
+            'success': True,
+            'message': '配对码已批准',
+            'channel': channel,
+            'code': code
+        })
+    else:
+        self._send_json(500, {
+            'success': False,
+            'error': stderr.strip() or '配对批准失败',
+            'output': stdout.strip()
+        })
+
+def _handle_gateway_restart(self):
+    """POST /api/openclaw/gateway/restart"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+
+    success, stdout, stderr, rc = _run_openclaw(['gateway', 'restart'])
+
+    if success and rc == 0:
+        self._send_json(200, {
+            'success': True,
+            'message': 'Gateway 已重启',
+            'output': stdout.strip()
+        })
+    else:
+        self._send_json(500, {
+            'success': False,
+            'error': stderr.strip() or 'Gateway 重启失败',
+            'output': stdout.strip()
+        })
+
+# ═══════════════════════════════════════════════════
+# CORS 代理（需认证）
+# ═══════════════════════════════════════════════════
+
+def _handle_proxy(self):
+    """POST /api/proxy（需认证）"""
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+
+    target_url = self.headers.get('X-Target-URL', '')
+    if not target_url:
+        self._send_json_error(400, 'Missing X-Target-URL header')
+        return
+
+    if not target_url.startswith('https://'):
+        self._send_json_error(403, 'Only HTTPS targets are allowed')
+        return
+
+    if ALLOWED_DOMAINS:
+        host = urlparse(target_url).hostname or ''
+        if not any(host == d or host.endswith('.' + d) for d in ALLOWED_DOMAINS):
+            self._send_json_error(403, f'Domain {host} not in allowed list')
+            return
+
+    content_length = int(self.headers.get('Content-Length', 0))
+    body = self.rfile.read(content_length) if content_length > 0 else None
+
+    forward_headers = {}
+    # 代理请求使用的是用户 AI 的 API Key，不是 SoloBrave 的 token
+    # 从请求体或 header 中获取 AI API 的 Authorization
+    auth_header = self.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer ') and not auth_header.startswith('Bearer ey'):  # 粗略区分 JWT 和 API Key
+        # 如果看起来像 API Key，转发它
+        pass
+    # 从请求头中取 AI API Key（前端可能放在 X-AI-API-Key 中）
+    ai_api_key = self.headers.get('X-AI-API-Key', '')
+    if ai_api_key:
+        forward_headers['Authorization'] = f'Bearer {ai_api_key}'
+    elif auth_header and not auth_header.startswith('Bearer ey'):
+        forward_headers['Authorization'] = auth_header
+
+    content_type = self.headers.get('Content-Type', 'application/json')
+    if content_type:
+        forward_headers['Content-Type'] = content_type
+    if body:
+        forward_headers['Content-Length'] = str(len(body))
+
+    # 解析 body 中的 model 信息（用于日志）
+    body_info = ''
+    if body:
         try:
-            _write_json(config_path, config)
-        except Exception as e:
-            self._send_json(500, {'error': f'保存配置失败: {str(e)}'})
-            return
-
-        # 自动重启 Gateway
-        success, stdout, stderr, rc = _run_openclaw(['gateway', 'restart'])
-        if success and rc == 0:
-            self._send_json(200, {
-                'success': True,
-                'message': '飞书配置已保存，Gateway 已重启',
-                'appId': app_id,
-                'botName': bot_name
-            })
-        else:
-            self._send_json(200, {
-                'success': True,
-                'message': '飞书配置已保存，但 Gateway 重启失败',
-                'warning': stderr or 'Gateway restart failed',
-                'appId': app_id,
-                'botName': bot_name
-            })
-
-    def _handle_pairing_approve(self):
-        """POST /api/openclaw/pairing/approve"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-
-        body = self._read_body()
-        if not body:
-            self._send_json(400, {'error': '无效的请求体'})
-            return
-
-        channel = body.get('channel', 'feishu')
-        code = body.get('code', '').strip()
-
-        if not code:
-            self._send_json(400, {'error': '配对码不能为空'})
-            return
-
-        success, stdout, stderr, rc = _run_openclaw(['pairing', 'approve', channel, code])
-
-        if success and rc == 0:
-            self._send_json(200, {
-                'success': True,
-                'message': '配对码已批准',
-                'channel': channel,
-                'code': code
-            })
-        else:
-            self._send_json(500, {
-                'success': False,
-                'error': stderr.strip() or '配对批准失败',
-                'output': stdout.strip()
-            })
-
-    def _handle_gateway_restart(self):
-        """POST /api/openclaw/gateway/restart"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-
-        success, stdout, stderr, rc = _run_openclaw(['gateway', 'restart'])
-
-        if success and rc == 0:
-            self._send_json(200, {
-                'success': True,
-                'message': 'Gateway 已重启',
-                'output': stdout.strip()
-            })
-        else:
-            self._send_json(500, {
-                'success': False,
-                'error': stderr.strip() or 'Gateway 重启失败',
-                'output': stdout.strip()
-            })
-
-    # ═══════════════════════════════════════════════════
-    # CORS 代理（需认证）
-    # ═══════════════════════════════════════════════════
-
-    def _handle_proxy(self):
-        """POST /api/proxy（需认证）"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-
-        target_url = self.headers.get('X-Target-URL', '')
-        if not target_url:
-            self._send_json_error(400, 'Missing X-Target-URL header')
-            return
-
-        if not target_url.startswith('https://'):
-            self._send_json_error(403, 'Only HTTPS targets are allowed')
-            return
-
-        if ALLOWED_DOMAINS:
-            host = urlparse(target_url).hostname or ''
-            if not any(host == d or host.endswith('.' + d) for d in ALLOWED_DOMAINS):
-                self._send_json_error(403, f'Domain {host} not in allowed list')
-                return
-
-        content_length = int(self.headers.get('Content-Length', 0))
-        body = self.rfile.read(content_length) if content_length > 0 else None
-
-        forward_headers = {}
-        # 代理请求使用的是用户 AI 的 API Key，不是 SoloBrave 的 token
-        # 从请求体或 header 中获取 AI API 的 Authorization
-        auth_header = self.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer ') and not auth_header.startswith('Bearer ey'):  # 粗略区分 JWT 和 API Key
-            # 如果看起来像 API Key，转发它
-            pass
-        # 从请求头中取 AI API Key（前端可能放在 X-AI-API-Key 中）
-        ai_api_key = self.headers.get('X-AI-API-Key', '')
-        if ai_api_key:
-            forward_headers['Authorization'] = f'Bearer {ai_api_key}'
-        elif auth_header and not auth_header.startswith('Bearer ey'):
-            forward_headers['Authorization'] = auth_header
-
-        content_type = self.headers.get('Content-Type', 'application/json')
-        if content_type:
-            forward_headers['Content-Type'] = content_type
-        if body:
-            forward_headers['Content-Length'] = str(len(body))
-
-        # 解析 body 中的 model 信息（用于日志）
-        body_info = ''
-        if body:
-            try:
-                body_json = json.loads(body.decode('utf-8'))
-                body_info = f"model={body_json.get('model','?')} messages={len(body_json.get('messages',[]))}"
-            except Exception:
-                body_info = f'body_len={len(body)}'
-        print(f'  [Proxy] 收到请求 -> {target_url} {body_info}', flush=True)
-        try:
-            req = urllib.request.Request(target_url, data=body, headers=forward_headers, method='POST')
-            ctx = ssl.create_default_context()
-            resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
-
-            resp_body = resp.read()
-            resp_content_type = resp.headers.get('Content-Type', 'application/json')
-
-            # 解析响应中的 choices 长度用于日志
-            choices_info = ''
-            try:
-                resp_json = json.loads(resp_body.decode('utf-8'))
-                choices = resp_json.get('choices', [])
-                choices_info = f' choices={len(choices)}'
-                if choices and choices[0].get('message'):
-                    content = choices[0]['message'].get('content', '')
-                    choices_info += f' content_len={len(content)}'
-            except Exception:
-                pass
-            print(f'  [Proxy] API返回 status={resp.status}{choices_info} <- {target_url}', flush=True)
-
-            self.send_response(resp.status)
-            self._add_cors_headers()
-            self.send_header('Content-Type', resp_content_type)
-            self.end_headers()
-            self.wfile.write(resp_body)
-
-        except urllib.error.HTTPError as e:
-            status = e.code
-            try:
-                err_body = e.read()
-            except Exception:
-                err_body = b'{}'
-
-            error_messages = {
-                401: 'API Key 无效或认证失败',
-                403: 'API 访问被拒绝',
-                429: '请求过于频繁，请稍后再试',
-                500: 'AI 服务端内部错误',
-                502: 'AI 服务网关错误',
-                503: 'AI 服务暂不可用',
-            }
-            detail = error_messages.get(status, f'HTTP {status}')
-            err_text = ''
-            try:
-                err_text = err_body.decode('utf-8', errors='replace')[:200]
-            except Exception:
-                pass
-            print(f'  [Proxy] API错误 status={status} detail={detail} err={err_text} <- {target_url}', flush=True)
-
-            self.send_response(status)
-            self._add_cors_headers()
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            try:
-                json.loads(err_body)
-                self.wfile.write(err_body)
-            except Exception:
-                self.wfile.write(json.dumps({
-                    'error': {'message': detail, 'type': 'proxy_error', 'code': status}
-                }).encode())
-
-        except urllib.error.URLError as e:
-            reason = str(e.reason) if hasattr(e, 'reason') else str(e)
-            print(f'  ❌ Proxy Network Error: {reason} <- {target_url}', flush=True)
-            self._send_json_error(502, f'Network error: {reason}')
-
-        except TimeoutError:
-            print(f'  ❌ Proxy Timeout ({PROXY_TIMEOUT}s) <- {target_url}', flush=True)
-            self._send_json_error(504, f'Request timed out after {PROXY_TIMEOUT}s')
-
-        except Exception as e:
-            print(f'  ❌ Proxy Unexpected Error: {e} <- {target_url}', flush=True)
-            self._send_json_error(500, f'Internal proxy error: {str(e)}')
-
-    def _handle_douyin_parse(self):
-        """POST /api/douyin/parse（需认证）
-        请求体: {"url": "链接"} 或 {"text": "分享文本"}，可选 "transcribe": true
-        响应: parse_douyin_video() 的结果
-        """
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_json(auth.status, {'success': False, 'error': auth.error})
-            return
-
-        body = self._read_body()
-        if not body or not isinstance(body, dict):
-            self._send_json(400, {'success': False, 'error': '请求体必须是 JSON 对象，包含 url 或 text 字段'})
-            return
-
-        url = body.get('url', '').strip()
-        if not url:
-            text = body.get('text', '').strip()
-            if text:
-                links = detect_douyin_links(text)
-                if links:
-                    url = links[0]
-                else:
-                    self._send_json(400, {'success': False, 'error': 'text 中未检测到抖音链接'})
-                    return
-            else:
-                self._send_json(400, {'success': False, 'error': '缺少 url 或 text 参数'})
-                return
-
-        transcribe = body.get('transcribe', True)
-        api_key = (body.get('api_key', '').strip()
-                   or self.headers.get('X-AI-API-Key', '')
-                   or os.environ.get('DOUYIN_API_KEY', ''))
-
-        print(f'  [Douyin] parse -> {url[:80]}... transcribe={transcribe}', flush=True)
-        result = parse_douyin_video(url, api_key=api_key, transcribe=transcribe)
-        if result.get('success'):
-            self._send_json(200, result)
-        else:
-            self._send_json(422, result)
-
-    def _handle_douyin_transcribe(self):
-        """POST /api/douyin/transcribe（需认证）
-        请求体: {"video_url": "视频直链", "api_key?": "硅基流动 API Key"}
-        响应: {"success": true, "data": {"text": "转写结果"}} 或 {"success": false, "error": "..."}
-        流程: 下载视频 -> ffmpeg 提取音频(mp3) -> 硅基流动 API 语音转文字
-        """
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_json(auth.status, {'success': False, 'error': auth.error})
-            return
-
-        body = self._read_body()
-        if not body or not isinstance(body, dict):
-            self._send_json(400, {'success': False, 'error': '请求体必须是 JSON 对象'})
-            return
-
-        video_url = body.get('video_url', '').strip()
-        if not video_url:
-            self._send_json(400, {'success': False, 'error': '缺少 video_url 参数'})
-            return
-
-        # API Key: 优先请求体，其次请求头 X-AI-API-Key，最后环境变量 DOUYIN_API_KEY
-        api_key = (body.get('api_key', '').strip()
-                   or self.headers.get('X-AI-API-Key', '')
-                   or os.environ.get('DOUYIN_API_KEY', ''))
-        if not api_key:
-            self._send_json(400, {'success': False, 'error': '缺少 api_key（可放在请求体、X-AI-API-Key 请求头或 DOUYIN_API_KEY 环境变量）'})
-            return
-
-        # 检测 ffmpeg 是否可用
-        try:
-            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+            body_json = json.loads(body.decode('utf-8'))
+            body_info = f"model={body_json.get('model','?')} messages={len(body_json.get('messages',[]))}"
         except Exception:
-            self._send_json(503, {'success': False, 'error': '服务器未安装 ffmpeg，无法提取音频'})
+            body_info = f'body_len={len(body)}'
+    print(f'  [Proxy] 收到请求 -> {target_url} {body_info}', flush=True)
+    try:
+        req = urllib.request.Request(target_url, data=body, headers=forward_headers, method='POST')
+        ctx = ssl.create_default_context()
+        resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+
+        resp_body = resp.read()
+        resp_content_type = resp.headers.get('Content-Type', 'application/json')
+
+        # 解析响应中的 choices 长度用于日志
+        choices_info = ''
+        try:
+            resp_json = json.loads(resp_body.decode('utf-8'))
+            choices = resp_json.get('choices', [])
+            choices_info = f' choices={len(choices)}'
+            if choices and choices[0].get('message'):
+                content = choices[0]['message'].get('content', '')
+                choices_info += f' content_len={len(content)}'
+        except Exception:
+            pass
+        print(f'  [Proxy] API返回 status={resp.status}{choices_info} <- {target_url}', flush=True)
+
+        self.send_response(resp.status)
+        self._add_cors_headers()
+        self.send_header('Content-Type', resp_content_type)
+        self.end_headers()
+        self.wfile.write(resp_body)
+
+    except urllib.error.HTTPError as e:
+        status = e.code
+        try:
+            err_body = e.read()
+        except Exception:
+            err_body = b'{}'
+
+        error_messages = {
+            401: 'API Key 无效或认证失败',
+            403: 'API 访问被拒绝',
+            429: '请求过于频繁，请稍后再试',
+            500: 'AI 服务端内部错误',
+            502: 'AI 服务网关错误',
+            503: 'AI 服务暂不可用',
+        }
+        detail = error_messages.get(status, f'HTTP {status}')
+        err_text = ''
+        try:
+            err_text = err_body.decode('utf-8', errors='replace')[:200]
+        except Exception:
+            pass
+        print(f'  [Proxy] API错误 status={status} detail={detail} err={err_text} <- {target_url}', flush=True)
+
+        self.send_response(status)
+        self._add_cors_headers()
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        try:
+            json.loads(err_body)
+            self.wfile.write(err_body)
+        except Exception:
+            self.wfile.write(json.dumps({
+                'error': {'message': detail, 'type': 'proxy_error', 'code': status}
+            }).encode())
+
+    except urllib.error.URLError as e:
+        reason = str(e.reason) if hasattr(e, 'reason') else str(e)
+        print(f'  ❌ Proxy Network Error: {reason} <- {target_url}', flush=True)
+        self._send_json_error(502, f'Network error: {reason}')
+
+    except TimeoutError:
+        print(f'  ❌ Proxy Timeout ({PROXY_TIMEOUT}s) <- {target_url}', flush=True)
+        self._send_json_error(504, f'Request timed out after {PROXY_TIMEOUT}s')
+
+    except Exception as e:
+        print(f'  ❌ Proxy Unexpected Error: {e} <- {target_url}', flush=True)
+        self._send_json_error(500, f'Internal proxy error: {str(e)}')
+
+def _handle_douyin_parse(self):
+    """POST /api/douyin/parse（需认证）
+    请求体: {"url": "链接"} 或 {"text": "分享文本"}，可选 "transcribe": true
+    响应: parse_douyin_video() 的结果
+    """
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_json(auth.status, {'success': False, 'error': auth.error})
+        return
+
+    body = self._read_body()
+    if not body or not isinstance(body, dict):
+        self._send_json(400, {'success': False, 'error': '请求体必须是 JSON 对象，包含 url 或 text 字段'})
+        return
+
+    url = body.get('url', '').strip()
+    if not url:
+        text = body.get('text', '').strip()
+        if text:
+            links = detect_douyin_links(text)
+            if links:
+                url = links[0]
+            else:
+                self._send_json(400, {'success': False, 'error': 'text 中未检测到抖音链接'})
+                return
+        else:
+            self._send_json(400, {'success': False, 'error': '缺少 url 或 text 参数'})
             return
 
-        temp_dir = None
+    transcribe = body.get('transcribe', True)
+    api_key = (body.get('api_key', '').strip()
+               or self.headers.get('X-AI-API-Key', '')
+               or os.environ.get('DOUYIN_API_KEY', ''))
+
+    print(f'  [Douyin] parse -> {url[:80]}... transcribe={transcribe}', flush=True)
+    result = parse_douyin_video(url, api_key=api_key, transcribe=transcribe)
+    if result.get('success'):
+        self._send_json(200, result)
+    else:
+        self._send_json(422, result)
+
+def _handle_douyin_transcribe(self):
+    """POST /api/douyin/transcribe（需认证）
+    请求体: {"video_url": "视频直链", "api_key?": "硅基流动 API Key"}
+    响应: {"success": true, "data": {"text": "转写结果"}} 或 {"success": false, "error": "..."}
+    流程: 下载视频 -> ffmpeg 提取音频(mp3) -> 硅基流动 API 语音转文字
+    """
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_json(auth.status, {'success': False, 'error': auth.error})
+        return
+
+    body = self._read_body()
+    if not body or not isinstance(body, dict):
+        self._send_json(400, {'success': False, 'error': '请求体必须是 JSON 对象'})
+        return
+
+    video_url = body.get('video_url', '').strip()
+    if not video_url:
+        self._send_json(400, {'success': False, 'error': '缺少 video_url 参数'})
+        return
+
+    # API Key: 优先请求体，其次请求头 X-AI-API-Key，最后环境变量 DOUYIN_API_KEY
+    api_key = (body.get('api_key', '').strip()
+               or self.headers.get('X-AI-API-Key', '')
+               or os.environ.get('DOUYIN_API_KEY', ''))
+    if not api_key:
+        self._send_json(400, {'success': False, 'error': '缺少 api_key（可放在请求体、X-AI-API-Key 请求头或 DOUYIN_API_KEY 环境变量）'})
+        return
+
+    # 检测 ffmpeg 是否可用
+    try:
+        subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+    except Exception:
+        self._send_json(503, {'success': False, 'error': '服务器未安装 ffmpeg，无法提取音频'})
+        return
+
+    temp_dir = None
+    try:
+        # 1. 下载视频
+        print(f'  [Douyin] downloading video...', flush=True)
+        video_path, temp_dir = _download_video_to_temp(video_url)
+        print(f'  [Douyin] video saved: {video_path} ({os.path.getsize(video_path)} bytes)', flush=True)
+
+        # 2. 提取音频
+        print(f'  [Douyin] extracting audio with ffmpeg...', flush=True)
+        audio_path = _extract_audio_with_ffmpeg(video_path)
+        if not audio_path:
+            self._send_json(502, {'success': False, 'error': 'ffmpeg 音频提取失败'})
+            return
+        print(f'  [Douyin] audio saved: {audio_path} ({os.path.getsize(audio_path)} bytes)', flush=True)
+
+        # 3. 语音转文字
+        print(f'  [Douyin] transcribing with SiliconFlow...', flush=True)
+        text = _transcribe_audio_siliconflow(audio_path, api_key)
+        if text is None:
+            self._send_json(502, {'success': False, 'error': '硅基流动语音转文字 API 调用失败'})
+            return
+
+        # 4. 提取封面（可选，不阻断主流程）
+        cover_base64 = None
         try:
-            # 1. 下载视频
-            print(f'  [Douyin] downloading video...', flush=True)
-            video_path, temp_dir = _download_video_to_temp(video_url)
-            print(f'  [Douyin] video saved: {video_path} ({os.path.getsize(video_path)} bytes)', flush=True)
-
-            # 2. 提取音频
-            print(f'  [Douyin] extracting audio with ffmpeg...', flush=True)
-            audio_path = _extract_audio_with_ffmpeg(video_path)
-            if not audio_path:
-                self._send_json(502, {'success': False, 'error': 'ffmpeg 音频提取失败'})
-                return
-            print(f'  [Douyin] audio saved: {audio_path} ({os.path.getsize(audio_path)} bytes)', flush=True)
-
-            # 3. 语音转文字
-            print(f'  [Douyin] transcribing with SiliconFlow...', flush=True)
-            text = _transcribe_audio_siliconflow(audio_path, api_key)
-            if text is None:
-                self._send_json(502, {'success': False, 'error': '硅基流动语音转文字 API 调用失败'})
-                return
-
-            # 4. 提取封面（可选，不阻断主流程）
-            cover_base64 = None
-            try:
-                cover_path = _extract_cover_from_video(video_path)
-                if cover_path:
-                    with open(cover_path, 'rb') as f:
-                        cover_base64 = 'data:image/jpeg;base64,' + base64.b64encode(f.read()).decode('utf-8')
-                    print(f'  [Douyin] cover extracted: {len(cover_base64)} bytes', flush=True)
-            except Exception as e:
-                print(f'  [Douyin] cover extraction skipped: {e}', flush=True)
-
-            # 5. 获取媒体信息（可选，不阻断主流程）
-            media_info = None
-            try:
-                media_info = _get_media_info(video_path)
-                if media_info:
-                    print(f'  [Douyin] media info: {media_info.get("width")}x{media_info.get("height")}, {media_info.get("duration")}s', flush=True)
-            except Exception as e:
-                print(f'  [Douyin] media info skipped: {e}', flush=True)
-
-            print(f'  [Douyin] transcribe OK, length={len(text)}', flush=True)
-            result_data = {'text': text}
-            if cover_base64:
-                result_data['cover_base64'] = cover_base64
-            if media_info:
-                result_data['media_info'] = media_info
-            self._send_json(200, {'success': True, 'data': result_data})
-
-        except ValueError as e:
-            print(f'  [Douyin] transcribe error: {e}', flush=True)
-            self._send_json(400, {'success': False, 'error': str(e)})
+            cover_path = _extract_cover_from_video(video_path)
+            if cover_path:
+                with open(cover_path, 'rb') as f:
+                    cover_base64 = 'data:image/jpeg;base64,' + base64.b64encode(f.read()).decode('utf-8')
+                print(f'  [Douyin] cover extracted: {len(cover_base64)} bytes', flush=True)
         except Exception as e:
-            print(f'  [Douyin] transcribe error: {e}', flush=True)
-            self._send_json(500, {'success': False, 'error': f'转写失败: {str(e)}'})
-        finally:
-            # 清理临时文件
-            if temp_dir and os.path.isdir(temp_dir):
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                print(f'  [Douyin] temp cleaned: {temp_dir}', flush=True)
+            print(f'  [Douyin] cover extraction skipped: {e}', flush=True)
+
+        # 5. 获取媒体信息（可选，不阻断主流程）
+        media_info = None
+        try:
+            media_info = _get_media_info(video_path)
+            if media_info:
+                print(f'  [Douyin] media info: {media_info.get("width")}x{media_info.get("height")}, {media_info.get("duration")}s', flush=True)
+        except Exception as e:
+            print(f'  [Douyin] media info skipped: {e}', flush=True)
+
+        print(f'  [Douyin] transcribe OK, length={len(text)}', flush=True)
+        result_data = {'text': text}
+        if cover_base64:
+            result_data['cover_base64'] = cover_base64
+        if media_info:
+            result_data['media_info'] = media_info
+        self._send_json(200, {'success': True, 'data': result_data})
+
+    except ValueError as e:
+        print(f'  [Douyin] transcribe error: {e}', flush=True)
+        self._send_json(400, {'success': False, 'error': str(e)})
+    except Exception as e:
+        print(f'  [Douyin] transcribe error: {e}', flush=True)
+        self._send_json(500, {'success': False, 'error': f'转写失败: {str(e)}'})
+    finally:
+        # 清理临时文件
+        if temp_dir and os.path.isdir(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            print(f'  [Douyin] temp cleaned: {temp_dir}', flush=True)
 
 
 # ─── 启动 ───────────────────────────────────────────────
@@ -9218,6 +9247,23 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
 # ═══════════════════════════════════════════════════
 
 DAILY_JOB_HOUR = 3  # 每天凌晨 3 点执行
+
+# 修复历史遗留的缩进问题：以下 handler 被错误地定义在模块级别，
+# 但 dispatch 仍通过 self._handle_xxx 调用。这里把它们绑定回请求处理类。
+_MODULE_LEVEL_HANDLERS = (
+    '_handle_delete_chat_message', '_handle_clear_chat',
+    '_handle_get_summarize', '_handle_summarize_chat', '_call_ai_for_summary',
+    '_handle_openclaw_status', '_handle_openclaw_list_agents', '_handle_openclaw_list_models',
+    '_handle_openclaw_create_agent', '_handle_openclaw_update_agent', '_handle_openclaw_delete_agent',
+    '_handle_skills_list', '_handle_skills_search', '_handle_skills_install', '_handle_skills_remove',
+    '_handle_feishu_status', '_handle_feishu_config', '_handle_pairing_approve', '_handle_gateway_restart',
+    '_handle_proxy', '_handle_douyin_parse', '_handle_douyin_transcribe',
+)
+for _h in _MODULE_LEVEL_HANDLERS:
+    _fn = globals().get(_h)
+    if _fn:
+        setattr(SoloBraveHandler, _h, _fn)
+
 
 def _next_daily_run_at(hour=DAILY_JOB_HOUR):
     """计算下一次运行时间（本地时间）的 unix timestamp（秒）"""
