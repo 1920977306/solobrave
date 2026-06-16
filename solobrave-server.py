@@ -1996,7 +1996,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         timestamp = datetime.now().strftime('%H:%M:%S')
         msg = format % args
-        print(f'  [{timestamp}] {msg}', flush=True)
+        try:
+            line = f'  [{timestamp}] {msg}'
+        except Exception:
+            line = f'  [{timestamp}] <log encode error>'
+        try:
+            sys.stdout.buffer.write(line.encode('utf-8', errors='replace') + b'\n')
+            sys.stdout.buffer.flush()
+        except Exception:
+            pass
 
     # ─── JSON 响应 ─────────────────────────────────────
     def _send_json(self, code, data):
@@ -2221,6 +2229,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if agent_id:
                 self._handle_get_chat(agent_id)
                 return
+
+        # Global Search API
+        if path == '/api/search':
+            self._handle_global_search()
+            return
 
         # Groups API
         if path == '/api/groups':
@@ -3710,6 +3723,114 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
         self._send_json(200, {'message': f'群组 {group.get("name", "")} 已删除'})
+
+    def _handle_global_search(self):
+        """GET /api/search?q=xxx&scope=all|employees|groups|knowledge&limit=8"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        q = (qs.get('q', [''])[0] or '').strip().lower()
+        scope = qs.get('scope', ['all'])[0] or 'all'
+        try:
+            limit = max(1, min(20, int(qs.get('limit', ['8'])[0])))
+        except Exception:
+            limit = 8
+
+        if not q:
+            self._send_json(200, {'q': '', 'scope': scope, 'groups': {}})
+            return
+
+        allowed_scopes = {'all', 'employees', 'groups', 'knowledge'}
+        if scope not in allowed_scopes:
+            scope = 'all'
+
+        result_groups = {}
+
+        def _match(text):
+            if not isinstance(text, str):
+                return False
+            return q in text.lower()
+
+        # AI员工
+        if scope in ('all', 'employees') and _has_module_permission(auth, 'employees'):
+            agents = _load_agents()
+            matched = []
+            for a in agents:
+                texts = [
+                    a.get('name', ''),
+                    a.get('role', ''),
+                    a.get('department', ''),
+                    a.get('systemPrompt', ''),
+                    a.get('msg', ''),
+                ]
+                if any(_match(t) for t in texts):
+                    matched.append({
+                        'id': a.get('id'),
+                        'name': a.get('name', ''),
+                        'role': a.get('role', ''),
+                        'avatar': a.get('avatar'),
+                        'bg': a.get('bg', '#FF6B35'),
+                    })
+                if len(matched) >= limit:
+                    break
+            if matched:
+                result_groups['employees'] = matched
+
+        # 项目组
+        if scope in ('all', 'groups') and _has_module_permission(auth, 'groups'):
+            groups = _load_groups()
+            matched = []
+            for g in groups:
+                texts = [
+                    g.get('name', ''),
+                    g.get('description', ''),
+                ]
+                if any(_match(t) for t in texts):
+                    members = g.get('members', []) or []
+                    matched.append({
+                        'id': g.get('id'),
+                        'name': g.get('name', ''),
+                        'avatar': g.get('avatar', '👥'),
+                        'memberCount': len(members),
+                    })
+                if len(matched) >= limit:
+                    break
+            if matched:
+                result_groups['groups'] = matched
+
+        # 知识库
+        if scope in ('all', 'knowledge') and _has_module_permission(auth, 'knowledge'):
+            try:
+                allowed_cats = _allowed_knowledge_categories(auth)
+                res = ks.knowledge_list(
+                    offset=0, limit=limit, keyword=q,
+                    allowed_categories=allowed_cats,
+                    user_id=auth.user_id,
+                    is_admin=auth.is_admin,
+                    user_team_ids=auth.team_ids
+                )
+                docs = res.get('docs', []) or []
+                matched = []
+                for d in docs:
+                    content = d.get('content', '') or ''
+                    preview = _re.sub(r'[#*`\[\]()!>-]', ' ', content)
+                    preview = _re.sub(r'\s+', ' ', preview).strip()[:80]
+                    matched.append({
+                        'id': d.get('id'),
+                        'title': d.get('title', ''),
+                        'category': d.get('category', ''),
+                        'preview': preview,
+                    })
+                if matched:
+                    result_groups['knowledge'] = matched
+            except Exception as e:
+                print(f'  [ERROR] global search knowledge: {e}', flush=True)
+
+        self._send_json(200, {'q': q, 'scope': scope, 'groups': result_groups})
 
     def _handle_add_group_member(self, group_id):
         """POST /api/groups/:id/members — 添加成员"""
@@ -9407,6 +9528,7 @@ def main():
     print(f'  [API] 认证:      /api/auth/*')
     print(f'  [API] 用户管理:  /api/users/*')
     print(f'  [API] Agent:     /api/agents/*')
+    print(f'  [API] 全局搜索:  GET /api/search')
     print(f'  [API] 群组:      /api/groups/*')
     print(f'  [API] 聊天:      /api/chat/*')
     print(f'  [API] 代理:      POST /api/proxy')
