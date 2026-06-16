@@ -7232,7 +7232,8 @@ function saveEmployees(empIds) {
     if (token && token !== 'local_mode' && typeof apiFetch === 'function') {
       _dirtyEmpIds.forEach(function (empId) {
         var emp = emps.find(function (e) { return e.id === empId; });
-        if (emp) syncEmpToServer(emp);
+        // 已归档/已删除的员工不再通过 PUT 同步，避免后端 404
+        if (emp && !isArchivedEmp(emp)) syncEmpToServer(emp);
       });
       _dirtyEmpIds.clear();
     }
@@ -8003,20 +8004,41 @@ function toggleCategory(cat) {
 }
 
 // 获取当前用户可见的员工列表（权限过滤）
+function isArchivedEmp(e) {
+  return e && (e.archived === true || e.status === 'archived');
+}
+
+function archiveEmp(emp) {
+  if (!emp) return;
+  emp.archived = true;
+  emp.status = 'archived';
+  emp.archivedAt = new Date().toISOString();
+}
+
+function unarchiveEmp(emp) {
+  if (!emp) return;
+  emp.archived = false;
+  emp.status = 'online';
+  delete emp.archivedAt;
+}
+
 function getVisibleEmps() {
   if (!emps || emps.length === 0) return [];
-  // 侧边栏职能列表只显示 /api/agents 返回的自己创建的 agents
+  // 侧边栏职能列表只显示未归档的自己创建的 agents
   // 项目组成员（通过 mergeGroupMembersToEmps 合并进来的）只在项目组内部可见，不出现在侧边栏
   var uid = currentUser && (currentUser.userId || currentUser.id);
   var role = currentUser && currentUser.role;
-  if (role === 'admin' || !uid) return emps;
+  var active = emps.filter(function (e) {
+    return !isArchivedEmp(e);
+  });
+  if (role === 'admin' || !uid) return active;
   if (role === 'leader') {
     var visibleIds = _getLeaderVisibleAgentIds();
-    return emps.filter(function (e) {
+    return active.filter(function (e) {
       return visibleIds.indexOf(e.id) >= 0 || e.createdBy === uid;
     });
   }
-  return emps.filter(function (e) {
+  return active.filter(function (e) {
     return e.createdBy === uid;
   });
 }
@@ -8046,7 +8068,7 @@ function renderEmployeeList() {
   var list = document.getElementById('employeeList');
   if (!list) return;
   var visible = getVisibleEmps().filter(function (e) {
-    return !e.archived;
+    return !isArchivedEmp(e);
   });
   var html = '';
   var state = getSidebarState();
@@ -8115,7 +8137,7 @@ function renderEmployeeList() {
 
   // 归档区域（合并1v1对话和项目组归档）
   var archived = emps.filter(function (e) {
-    return e.archived;
+    return isArchivedEmp(e);
   });
   var archived1v1 = archived.filter(function (e) {
     return !e.isProject;
@@ -8183,7 +8205,7 @@ function filterEmployeeList(query) {
 // 渲染侧栏底部的归档区域
 function renderArchiveSections() {
   var archived = emps.filter(function (e) {
-    return e.archived;
+    return isArchivedEmp(e);
   });
   var archived1v1 = archived.filter(function (e) {
     return !e.isProject;
@@ -8272,6 +8294,15 @@ function mergeGroupMembersToEmps() {
   groups.forEach(function (g) {
     (g.members || []).forEach(function (m) {
       if (typeof m === 'object' && m !== null && m.id && !seenIds[m.id]) {
+        // 只合并已存在于 /api/agents 的完整员工对象，避免已删除/无名的成员变成空白项
+        var existing = emps.find(function (e) { return e.id === m.id; });
+        if (existing && existing.name) {
+          return; // 已存在，无需重复添加
+        }
+        if (!m.name) {
+          console.warn('[mergeGroupMembersToEmps] 跳过无名成员:', m.id);
+          return;
+        }
         emps.push(m);
         seenIds[m.id] = true;
       }
@@ -8403,7 +8434,13 @@ emps.forEach(function (e) {
         return x.id === draggedId;
       });
       if (emp) {
-        emp.archived = !emp.archived;
+        if (isArchivedEmp(emp)) {
+          unarchiveEmp(emp);
+        } else {
+          archiveEmp(emp);
+        }
+        saveEmployees();
+        if (typeof syncEmpToServer === 'function') syncEmpToServer(emp).catch(function () {});
         renderEmployeeList();
       }
     });
@@ -8519,7 +8556,7 @@ let contextTarget = null;
 function renderArchivedList() {
   var list = document.getElementById('employeeList');
   var archived = emps.filter(function (e) {
-    return e.archived;
+    return isArchivedEmp(e);
   });
   if (archived.length === 0) {
     list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">📦</div><div>暂无归档</div></div>';
@@ -8739,13 +8776,13 @@ function ctxAction(action) {
       break;
     // case 'move' - moved to submenu
     case 'archive':
-      emp.archived = true;
+      archiveEmp(emp);
       saveEmployees();
       syncEmpToServer(emp);
       showToast('📦 已归档');
       break;
     case 'unarchive':
-      emp.archived = false;
+      unarchiveEmp(emp);
       saveEmployees();
       syncEmpToServer(emp);
       showToast('📥 已取消归档');
@@ -8754,11 +8791,13 @@ function ctxAction(action) {
       if (confirm('确定删除 ' + emp.name + '？')) {
         var _delId = contextTarget;
         var _wasCurrent2 = localStorage.getItem('sb_current_emp') === _delId;
-        emps = emps.filter(function (e) {
-          return e.id !== _delId;
-        });
+        var _delEmp2 = emps.find(function (e) { return e.id === _delId; });
+        if (_delEmp2) {
+          _delEmp2.status = 'archived';
+          _delEmp2.archived = true;
+          _delEmp2.archivedAt = new Date().toISOString();
+        }
         clearChatOnServer(_delId, 'personal');
-        saveEmployees();
         if (typeof apiFetch === 'function') {
           apiFetch('/api/agents/' + _delId, {
             method: 'DELETE'
@@ -8878,7 +8917,7 @@ function empSettingsAction(action) {
       showMoveGroupModal(empSettingsTarget);
       break;
     case 'archive':
-      emp.archived = true;
+      archiveEmp(emp);
       saveEmployees();
       syncEmpToServer(emp);
       showToast('📦 已归档');
@@ -8920,10 +8959,12 @@ function empSettingsAction(action) {
       if (confirm('确定删除 ' + emp.name + '？')) {
         var deleteId = empSettingsTarget;
         var _wasCurrent3 = localStorage.getItem('sb_current_emp') === deleteId;
-        for (var i = emps.length - 1; i >= 0; i--) {
-          if (emps[i].id === deleteId) emps.splice(i, 1);
+        var _delEmp3 = emps.find(function (e) { return e.id === deleteId; });
+        if (_delEmp3) {
+          _delEmp3.status = 'archived';
+          _delEmp3.archived = true;
+          _delEmp3.archivedAt = new Date().toISOString();
         }
-        saveEmployees();
         // 同步删除后端
         if (typeof apiFetch === 'function') {
           apiFetch('/api/agents/' + deleteId, {
@@ -9254,7 +9295,7 @@ function restoreArchivedEmp(empId) {
     return e.id === empId;
   });
   if (!emp) return;
-  emp.archived = false;
+  unarchiveEmp(emp);
   saveEmployees();
   if (typeof syncEmpToServer === 'function') {
     syncEmpToServer(emp).catch(function (e) {});
@@ -9319,7 +9360,7 @@ function continueArchive(empId) {
   }
 
   // 先恢复员工
-  emp.archived = false;
+  unarchiveEmp(emp);
   saveEmployees();
   if (typeof syncEmpToServer === 'function') {
     syncEmpToServer(emp).catch(function (e) {});
@@ -12375,7 +12416,7 @@ function archiveCurrent() {
       return e.id === activeItem.dataset.id;
     });
     if (emp) {
-      emp.archived = true;
+      archiveEmp(emp);
       saveEmployees();
       if (typeof syncEmpToServer === 'function') {
         syncEmpToServer(emp).catch(function (e) {});
@@ -14523,10 +14564,13 @@ function editEmpFromDetail() {
 }
 function deleteEmployee(empId) {
   var wasCurrent = localStorage.getItem('sb_current_emp') === empId;
-  emps = emps.filter(function (e) {
-    return e.id !== empId;
-  });
-  saveEmployees();
+  var emp = emps.find(function (e) { return e.id === empId; });
+  if (emp) {
+    emp.status = 'archived';
+    emp.archived = true;
+    emp.archivedAt = new Date().toISOString();
+  }
+  // 删除不再同步到 saveEmployees，直接调用后端 DELETE 做软删除
   if (typeof apiFetch === 'function') {
     apiFetch('/api/agents/' + empId, {
       method: 'DELETE'

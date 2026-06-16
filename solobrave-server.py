@@ -706,8 +706,6 @@ def _load_agents(include_archived=False):
     for a in agents:
         if _is_default_agent(a):
             continue
-        if not include_archived and (a.get('status') == 'archived' or a.get('archived')):
-            continue
         # 检测 apiKey 污染
         ak = a.get('apiKey', '')
         if _is_log_polluted(ak):
@@ -5004,7 +5002,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not agent:
                 self._send_json(404, {'error': '员工不存在'})
                 return
-            if agent.get('status') == 'archived' or agent.get('archived'):
+            # 已归档员工只有在请求中明确取消归档时才允许更新
+            is_unarchive = ('archived' in body and body.get('archived') is False) or ('status' in body and body.get('status') != 'archived')
+            if (agent.get('status') == 'archived' or agent.get('archived')) and not is_unarchive:
                 self._send_json(404, {'error': '员工不存在'})
                 return
 
