@@ -281,9 +281,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .app-main.knowledge-active { flex-direction: row; }
 #knowledgeMidList {
   display: none;
-  flex: 0 0 32%;
-  min-width: 260px;
-  max-width: 400px;
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
   background: #ffffff;
   border-right: 1px solid var(--separator);
   flex-direction: column;
@@ -291,15 +291,32 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 #knowledgeMidList.active { display: flex; }
 #knowledgeRight {
-  display: none;
-  flex: 1;
-  min-width: 0;
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 520px;
+  max-width: 100%;
   background: #ffffff;
-  border-right: 1px solid var(--separator);
+  box-shadow: -8px 0 40px rgba(0,0,0,0.12);
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+  z-index: 251;
+  display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-#knowledgeRight.active { display: flex; }
+#knowledgeRight.active { transform: translateX(0); }
+#knowledgeRightOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 250;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s;
+}
+#knowledgeRightOverlay.open { opacity: 1; visibility: visible; }
 
 /* Category sidebar */
 .knowledge-cat-sidebar { background: #ffffff; }
@@ -3810,6 +3827,8 @@ window.doLogin = function () {
     <div id="knowledgeEditStatus"></div>
   </div>
 </div>
+<!-- Knowledge Right Overlay -->
+<div class="knowledge-right-overlay" id="knowledgeRightOverlay" onclick="closeKnowledgeRight()"></div>
 
 <!-- 知识库编辑弹窗 -->
 <div class="knowledge-modal-overlay" id="knowledgeModalOverlay" onclick="closeKnowledgeModal(event)">
@@ -17722,7 +17741,9 @@ function openKnowledgePage() {
 function closeKnowledgePage() { switchModule('messages'); closeKnowledgeEditor(); _knowledgeInitialized = false; _knowledgeCurrentId = null; }
 function openKnowledgeEditor() {
   var right = document.getElementById('knowledgeRight');
+  var overlay = document.getElementById('knowledgeRightOverlay');
   if (right) right.classList.add('active');
+  if (overlay) overlay.classList.add('open');
   var viewPanel = document.getElementById('knowledgeViewPanel');
   var editPanel = document.getElementById('knowledgeEditPanel');
   if (viewPanel) viewPanel.classList.add('hidden');
@@ -17735,7 +17756,9 @@ function closeKnowledgeEditor() {
   if (viewPanel) viewPanel.classList.remove('hidden');
   if (!_knowledgeCurrentId) {
     var right = document.getElementById('knowledgeRight');
+    var overlay = document.getElementById('knowledgeRightOverlay');
     if (right) right.classList.remove('active');
+    if (overlay) overlay.classList.remove('open');
   } else {
     renderKnowledgeView(_knowledgeCurrentId);
   }
@@ -17743,7 +17766,13 @@ function closeKnowledgeEditor() {
 function closeKnowledgeRight() {
   _knowledgeCurrentId = null;
   var right = document.getElementById('knowledgeRight');
+  var overlay = document.getElementById('knowledgeRightOverlay');
   if (right) right.classList.remove('active');
+  if (overlay) overlay.classList.remove('open');
+  var viewPanel = document.getElementById('knowledgeViewPanel');
+  var editPanel = document.getElementById('knowledgeEditPanel');
+  if (viewPanel) viewPanel.classList.remove('hidden');
+  if (editPanel) editPanel.classList.add('hidden');
   document.querySelectorAll('.knowledge-mid-card').forEach(function(el) { el.classList.remove('active'); });
 }
 async function loadKnowledgePage(page) {
@@ -17916,7 +17945,9 @@ function selectKnowledgeItem(id) {
   if (!doc) return;
   renderKnowledgeView(doc);
   var right = document.getElementById('knowledgeRight');
+  var overlay = document.getElementById('knowledgeRightOverlay');
   if (right) right.classList.add('active');
+  if (overlay) overlay.classList.add('open');
   // Update active card
   document.querySelectorAll('.knowledge-mid-card').forEach(function(el) {
     el.classList.remove('active');
@@ -18209,9 +18240,7 @@ async function deleteKnowledgeFromEditor() {
   try {
     await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId), { method: 'DELETE' });
     showToast('✅ 已删除');
-    _knowledgeCurrentId = null;
-    var right = document.getElementById('knowledgeRight');
-    if (right) right.classList.remove('active');
+    closeKnowledgeRight();
     await loadKnowledgePage();
   } catch (e) {
     showToast('❌ 删除失败');
@@ -19278,8 +19307,10 @@ function switchModule(module) {
   // Manage knowledge three-column layout
   var appMain = document.querySelector('.app-main');
   var knowledgeMidList = document.getElementById('knowledgeMidList');
+  var knowledgeRightOverlay = document.getElementById('knowledgeRightOverlay');
   if (appMain) appMain.classList.toggle('knowledge-active', module === 'knowledge');
   if (knowledgeMidList) knowledgeMidList.classList.toggle('active', module === 'knowledge');
+  if (knowledgeRightOverlay) knowledgeRightOverlay.classList.remove('open');
 
   if (module === 'messages') {
     document.getElementById('chatArea').style.display = 'flex';
