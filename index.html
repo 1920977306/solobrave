@@ -15439,10 +15439,10 @@ function extractAndSaveMemory(empId, userMsg, aiReply, isGroupChat) {
     // 根据实际连接状态选择提取方式（不按 connectionType 硬编码）
     if (typeof openclaw !== 'undefined' && openclaw.connected) {
       console.log('[Memory] 使用 OpenClaw 提取:', emp.name);
-      _extractMemoryViaOpenClaw(empId, extractPrompt, allMemories);
+      _extractMemoryViaOpenClaw(empId, extractPrompt, allMemories, userMsg);
     } else if (emp.apiKey && emp.aiProvider) {
       console.log('[Memory] 使用 API 提取:', emp.name);
-      _extractMemoryViaAPI(empId, extractPrompt, allMemories);
+      _extractMemoryViaAPI(empId, extractPrompt, allMemories, userMsg);
     } else {
       // 无 AI 可用时，将用户原话作为兜底记忆写入，确保测试环境也能看到记忆记录
       console.warn('[Memory] 无可用提取方式，使用原话兜底:', emp.name);
@@ -15454,7 +15454,7 @@ function extractAndSaveMemory(empId, userMsg, aiReply, isGroupChat) {
 }
 
 // 通过 OpenClaw WebSocket 提取记忆
-function _extractMemoryViaOpenClaw(empId, extractPrompt, existing) {
+function _extractMemoryViaOpenClaw(empId, extractPrompt, existing, userMsg) {
   console.log('[Memory] _extractMemoryViaOpenClaw 开始:', empId);
   var emp = emps.find(function (e) { return e.id === empId; });
   if (!emp) {
@@ -15487,7 +15487,7 @@ function _extractMemoryViaOpenClaw(empId, extractPrompt, existing) {
       console.log('[Memory] OpenClaw 提取完成, phase:', data.data.phase, 'reply长度:', extractReply.length);
       if (extractTimeout) clearTimeout(extractTimeout);
       openclaw.off('agent', extractHandler);
-      _processExtractedMemory(empId, extractReply, existing);
+      _processExtractedMemory(empId, extractReply, existing, userMsg);
     }
   };
 
@@ -15498,14 +15498,10 @@ function _extractMemoryViaOpenClaw(empId, extractPrompt, existing) {
     console.log('[Memory] OpenClaw 提取超时, reply长度:', extractReply.length);
     openclaw.off('agent', extractHandler);
     if (extractReply) {
-      _processExtractedMemory(empId, extractReply, existing);
+      _processExtractedMemory(empId, extractReply, existing, userMsg);
     } else {
-      console.warn('[Memory] OpenClaw 提取超时无结果，尝试 fallback 到 API:', emp.name);
-      if (emp.apiKey && emp.aiProvider) {
-        _extractMemoryViaAPI(empId, extractPrompt, existing);
-      } else {
-        console.warn('[Memory] 无 API 配置，fallback 不可用:', emp.name);
-      }
+      console.warn('[Memory] OpenClaw 提取超时无结果，使用原话兜底:', emp.name);
+      _saveMemoryFallback(empId, userMsg, existing);
     }
   }, 30000);
 
@@ -15518,13 +15514,15 @@ function _extractMemoryViaOpenClaw(empId, extractPrompt, existing) {
     // 发送失败也尝试 fallback
     if (emp.apiKey && emp.aiProvider) {
       console.log('[Memory] OpenClaw 发送失败，fallback 到 API:', emp.name);
-      _extractMemoryViaAPI(empId, extractPrompt, existing);
+      _extractMemoryViaAPI(empId, extractPrompt, existing, userMsg);
+    } else {
+      _saveMemoryFallback(empId, userMsg, existing);
     }
   });
 }
 
 // 通过 API 直接提取记忆
-function _extractMemoryViaAPI(empId, extractPrompt, existing) {
+function _extractMemoryViaAPI(empId, extractPrompt, existing, userMsg) {
   console.log('[Memory] _extractMemoryViaAPI 开始:', empId);
   apiFetch('/api/chat/' + empId, {
     method: 'POST',
@@ -15536,9 +15534,13 @@ function _extractMemoryViaAPI(empId, extractPrompt, existing) {
   }).then(function (data) {
     var extracted = (data.aiMessage && data.aiMessage.content) || data.reply || '';
     console.log('[Memory] API 提取结果长度:', extracted.length, '前100字:', extracted ? extracted.substring(0, 100) : '(空)');
-    _processExtractedMemory(empId, extracted, existing);
+    _processExtractedMemory(empId, extracted, existing, userMsg);
   }).catch(function (e) {
     console.warn('[Memory] API 提取失败:', e, '员工:', empId);
+    // API 调用失败也兜底保存用户原话
+    if (userMsg) {
+      _saveMemoryFallback(empId, userMsg, existing);
+    }
   });
 }
 
@@ -15573,10 +15575,12 @@ function _saveMemoryFallback(empId, userMsg, existing) {
 }
 
 // 处理提取结果：拆分、去重、保存
-function _processExtractedMemory(empId, extracted, existing) {
+function _processExtractedMemory(empId, extracted, existing, userMsg) {
   console.log('[Memory] _processExtractedMemory 开始, extracted长度:', (extracted || '').length, '前100字:', (extracted || '').substring(0, 100));
+  // OpenClaw 返回"无"或空时，不走跳过逻辑，而是兜底保存用户原话，确保每次对话至少一条记录
   if (!extracted || extracted === '无' || extracted.length < 3) {
-    console.log('[Memory] 提取结果为空或"无", 跳过保存');
+    console.log('[Memory] 提取结果为空或"无", 使用原话兜底');
+    _saveMemoryFallback(empId, userMsg, existing);
     return;
   }
 
@@ -15665,7 +15669,9 @@ function _processExtractedMemory(empId, extracted, existing) {
     updateMemoryTabTitle(empId);
     console.log('[Memory] 共准备保存 ' + savedCount + ' 条新记忆');
   } else {
-    console.log('[Memory] 没有新记忆需要保存');
+    // 提取结果未解析出有效记忆时，兜底保存用户原话，确保每次对话至少一条记录
+    console.log('[Memory] 未解析出有效记忆，使用原话兜底');
+    _saveMemoryFallback(empId, userMsg, existing);
   }
 }
 
