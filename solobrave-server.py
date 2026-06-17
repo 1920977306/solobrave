@@ -2189,6 +2189,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_knowledge_version(parts[0], parts[2])
                 return
 
+        # Brand API
+        if path == '/api/brands':
+            self._handle_get_brands()
+            return
+
         # Product API
         if path == '/api/products':
             self._handle_get_products()
@@ -4194,14 +4199,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, team)
 
     def _handle_delete_team(self, team_id):
-        """DELETE /api/teams/:id — 删除小组（仅admin）"""
+        """DELETE /api/teams/:id — 删除小组（admin 或小组负责人）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
-            return
-        err, status = _require_admin(auth)
-        if err:
-            self._send_auth_error(err, status)
             return
         if not self._require_module_permission(auth, 'settings'): return
 
@@ -4211,20 +4212,31 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '小组不存在'})
             return
 
+        # 权限检查：admin 可删全部，leader 只能删自己负责的小组
+        if not auth.is_admin:
+            if not auth.is_leader or team.get('leaderId') != auth.user_info.get('userId'):
+                self._send_auth_error('权限不足', 403)
+                return
+
         # 检查是否有子组
         has_children = any(t.get('parentId') == team_id for t in teams)
         if has_children:
             self._send_json(403, {'error': '无法删除有子组的小组，请先删除子组'})
             return
 
-        # 解除成员关联
+        # 检查是否仍有成员
+        members = team.get('members', []) or []
+        if members:
+            self._send_json(403, {'error': f'小组仍有 {len(members)} 名成员，请先移除成员'})
+            return
+
+        # 解除 leader 关联
         users = _load_users()
-        for uid in team.get('members', []):
-            u = _find_user(users, 'id', uid)
+        leader_id = team.get('leaderId')
+        if leader_id:
+            u = _find_user(users, 'id', leader_id)
             if u:
                 u['teamIds'] = [tid for tid in u.get('teamIds', []) if tid != team_id]
-                if uid == team.get('leaderId'):
-                    u['subordinateIds'] = [sid for sid in u.get('subordinateIds', []) if sid not in team.get('members', [])]
 
         # 删除小组
         teams = [t for t in teams if t.get('id') != team_id]
@@ -5091,19 +5103,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not self._require_module_permission(auth, 'employees'): return
 
+        qs = parse_qs(urlparse(self.path).query)
+        permanent = qs.get('permanent', ['false'])[0].lower() in ('true', '1', 'yes')
+
         agents = _load_agents(include_archived=True)
         agent = None
-        for a in agents:
+        agent_idx = -1
+        for i, a in enumerate(agents):
             if a.get('id') == agent_id:
                 agent = a
+                agent_idx = i
                 break
 
         if not agent:
             self._send_json(404, {'error': '员工不存在'})
             return
-        if agent.get('status') == 'archived' or agent.get('archived'):
-            self._send_json(404, {'error': '员工不存在'})
-            return
+
+        is_archived = agent.get('status') == 'archived' or agent.get('archived')
 
         # 权限校验
         if not auth.is_admin:
@@ -5112,6 +5128,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if not (auth.is_leader and agent.get('createdBy') in _get_team_member_ids(auth)):
                     self._send_auth_error('权限不足', 403)
                     return
+
+        if permanent:
+            # 彻底删除：仅从 agents.json 移除（仅限已归档员工）
+            if not is_archived:
+                self._send_json(400, {'error': '只能彻底删除已归档员工'})
+                return
+            if agent_idx >= 0:
+                agents.pop(agent_idx)
+            _save_agents(agents)
+            self._send_json(200, {'message': f'Agent {agent.get("name", "")} 已彻底删除'})
+            return
+
+        # 非归档员工才能软删除；已归档员工走 ?permanent=true
+        if is_archived:
+            self._send_json(404, {'error': '员工不存在'})
+            return
 
         # 软删除：保留数据，标记为 archived
         agent['status'] = 'archived'
@@ -6786,6 +6818,30 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _save_products(self, data):
         """保留签名兼容；商品库已迁移到 SQLite，此函数不再执行文件写入"""
         pass
+
+    def _handle_get_brands(self):
+        """GET /api/brands — 获取品牌列表（基于 products 表 brand 字段聚合）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        conn = _db_conn()
+        try:
+            rows = conn.execute('''
+                SELECT brand, COUNT(*) as count
+                FROM products
+                WHERE status != ? AND brand IS NOT NULL AND brand != ''
+                GROUP BY brand
+                ORDER BY count DESC, brand ASC
+            ''', ('archived',)).fetchall()
+            brands = []
+            for r in rows:
+                name = r['brand'] or ''
+                brands.append({'name': name, 'count': r['count']})
+        finally:
+            conn.close()
+        self._send_json(200, {'brands': brands})
 
     def _handle_get_products(self):
         """GET /api/products — 获取商品列表（支持 query 筛选）"""

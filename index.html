@@ -1314,9 +1314,11 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   display: flex;
   flex-direction: column;
   height: 100%;
+  width: 100%;
   padding: 0;
   overflow: hidden;
 }
+.knowledge-editor.module-right-content { padding: 0; }
 .knowledge-editor-header {
   padding: 20px 24px 16px;
   border-bottom: 0.5px solid var(--separator);
@@ -3841,6 +3843,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .settings-user-actions button { padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; transition: all 0.15s; background: var(--bg-tertiary); color: var(--text-secondary); }
 .settings-user-actions button:hover { background: var(--accent); color: white; }
 .settings-user-actions button.danger:hover { background: #FF3B30; }
+.settings-member-row.archived { opacity: 0.5; }
+.settings-member-row.archived .settings-user-name { color: var(--text-secondary); }
+.settings-member-archived-tag { display: inline-block; margin-left: 8px; padding: 1px 6px; background: var(--text-tertiary); color: #fff; border-radius: 4px; font-size: 11px; font-weight: 500; line-height: 1.4; vertical-align: middle; }
+.settings-member-filter { display: flex; gap: 8px; margin-bottom: 12px; }
+.settings-member-filter button { padding: 6px 14px; border-radius: 8px; border: 0.5px solid var(--separator); background: #ffffff; color: var(--text-secondary); font-size: 13px; cursor: pointer; transition: all 0.15s; }
+.settings-member-filter button:hover { border-color: var(--accent); color: var(--accent); }
+.settings-member-filter button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 .settings-team-card { display: flex; align-items: center; gap: 12px; padding: 16px; background: #ffffff; border-radius: 12px; margin-bottom: 12px; border: 0.5px solid var(--separator); box-shadow: 0 1px 3px rgba(0,0,0,0.04); transition: all 0.15s; }
 .settings-team-card:last-child { margin-bottom: 0; }
@@ -19407,7 +19416,16 @@ async function saveKnowledgeFromEditor() {
 
 function editCurrentKnowledge() {
   if (!_knowledgeCurrentId) return;
+  var doc = _knowledgeData.docs.find(function (d) { return d.id === _knowledgeCurrentId; });
+  if (doc) renderKnowledgeView(doc);
+  _knowledgePreviewMode = false;
+  updateKnowledgeEditorView();
   openKnowledgeEditor();
+  var contentEl = document.getElementById('knowledgeEditContent');
+  if (contentEl) {
+    contentEl.focus();
+    contentEl.setSelectionRange(contentEl.value.length, contentEl.value.length);
+  }
 }
 
 async function deleteCurrentKnowledge() {
@@ -19415,7 +19433,7 @@ async function deleteCurrentKnowledge() {
     showToast('请先选择要删除的知识');
     return;
   }
-  if (!confirm('确定删除该知识？此操作不可恢复。')) return;
+  if (!confirm('确定删除该文档吗？此操作不可恢复')) return;
   try {
     await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId), { method: 'DELETE' });
     showToast('✅ 已删除');
@@ -19432,6 +19450,7 @@ async function moveCurrentKnowledge() {
   if (!_knowledgeCurrentId) return;
   var doc = _knowledgeData.docs.find(function (d) { return d.id === _knowledgeCurrentId; });
   if (!doc) return;
+  if (!confirm('确定要移动该文档吗？')) return;
   var targetScope = prompt('移动到：global（全局）、team（团队）、personal（个人）', doc.scope || 'global');
   if (!targetScope) return;
   targetScope = targetScope.trim();
@@ -21540,6 +21559,7 @@ function renderSettingsRight() {
   } else if (_settingsSelectedCategory === 'members') {
     if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="openWizard()" style="border-radius:8px;">➕ 添加成员</button>';
     html += '<div class="settings-card">';
+    html += '<div class="settings-member-filter" id="settingsMemberFilter"><button class="active" data-filter="all" onclick="setMemberFilter(\'all\')">全部</button><button data-filter="active" onclick="setMemberFilter(\'active\')">正常</button><button data-filter="archived" onclick="setMemberFilter(\'archived\')">已归档</button></div>';
     html += '<div class="settings-list-searchbar"><input type="text" id="memberSearchInput" class="form-input" placeholder="搜索成员名字..." oninput="filterSettingsMemberList()"></div>';
     html += '<div id="settingsMemberList"></div>';
     html += '</div>';
@@ -21558,34 +21578,61 @@ function toggleMidSidebar() {
   document.querySelector('.app-sidebar').classList.toggle('open');
 }
 
+var _settingsMemberFilter = 'all';
+function setMemberFilter(filter) {
+  _settingsMemberFilter = filter || 'all';
+  var tabs = document.querySelectorAll('#settingsMemberFilter button');
+  tabs.forEach(function (btn) {
+    btn.classList.toggle('active', btn.dataset.filter === _settingsMemberFilter);
+  });
+  renderSettingsMemberList();
+}
+
 function renderSettingsMemberList() {
   var container = document.getElementById('settingsMemberList');
   if (!container) return;
+  var filter = _settingsMemberFilter || 'all';
   var list = (emps || []).filter(function (e) {
-    return e && e.id && !_isDefaultEmp(e);
+    if (!e || !e.id || _isDefaultEmp(e)) return false;
+    var archived = isArchivedEmp(e);
+    if (filter === 'active') return !archived;
+    if (filter === 'archived') return archived;
+    return true;
   });
-  list.sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+  list.sort(function (a, b) {
+    var aArchived = isArchivedEmp(a) ? 1 : 0;
+    var bArchived = isArchivedEmp(b) ? 1 : 0;
+    if (aArchived !== bArchived) return aArchived - bArchived;
+    return (b.updatedAt || 0) - (a.updatedAt || 0);
+  });
   if (list.length === 0) {
-    container.innerHTML = '<div class="settings-empty">暂无成员，点击右上角添加</div>';
+    container.innerHTML = '<div class="settings-empty">' + (filter === 'archived' ? '暂无已归档成员' : filter === 'active' ? '暂无正常成员' : '暂无成员，点击右上角添加') + '</div>';
     return;
   }
   var html = '';
   list.forEach(function (emp) {
+    var archived = isArchivedEmp(emp);
     var name = escapeHtml(emp.name || emp.displayName || '未命名');
     var roleLabel = escapeHtml(getEmpRoleDisplay(emp) || 'AI员工');
     var provider = escapeHtml(emp.aiProvider || emp.apiProvider || '');
-    html += '<div class="settings-user-card settings-member-row" onclick="openEmpDetail(\'' + escapeAttr(emp.id || '') + '\')" style="cursor:pointer;">';
+    html += '<div class="settings-user-card settings-member-row' + (archived ? ' archived' : '') + '" data-archived="' + (archived ? '1' : '0') + '" onclick="openEmpDetail(\'' + escapeAttr(emp.id || '') + '\')" style="cursor:pointer;">';
     html += '<div class="settings-user-avatar" style="background:' + escapeAttr(emp.color || emp.bg || '#0a84ff') + ';">' + renderAvatar(emp, 40) + '</div>';
     html += '<div class="settings-user-info">';
-    html += '<div class="settings-user-name">' + name + '</div>';
+    html += '<div class="settings-user-name">' + name + (archived ? '<span class="settings-member-archived-tag">已归档</span>' : '') + '</div>';
     html += '<div class="settings-user-meta"><span>' + roleLabel + '</span>' + (provider ? '<span>·</span><span>' + provider + '</span>' : '') + '</div>';
     html += '</div>';
     html += '<div class="settings-user-actions">';
-    html += '<button onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(emp.id || '') + '\')">查看</button>';
+    if (archived) {
+      html += '<button onclick="event.stopPropagation();restoreSettingsMember(\'' + escapeAttr(emp.id || '') + '\')">恢复</button>';
+      html += '<button class="danger" onclick="event.stopPropagation();permanentlyDeleteSettingsMember(\'' + escapeAttr(emp.id || '') + '\')">彻底删除</button>';
+    } else {
+      html += '<button onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(emp.id || '') + '\')">查看</button>';
+    }
     html += '</div>';
     html += '</div>';
   });
   container.innerHTML = html;
+  filterSettingsMemberList();
 }
 
 function filterSettingsMemberList() {
@@ -21596,6 +21643,49 @@ function filterSettingsMemberList() {
     var text = row.textContent || '';
     row.style.display = text.toLowerCase().indexOf(keyword) >= 0 ? 'flex' : 'none';
   });
+}
+
+function restoreSettingsMember(empId) {
+  var emp = emps.find(function (e) { return e.id === empId; });
+  if (!emp) return;
+  unarchiveEmp(emp);
+  saveEmployees();
+  if (typeof syncEmpToServer === 'function') {
+    syncEmpToServer(emp).catch(function (e) {});
+  }
+  renderSettingsMemberList();
+  renderEmployeeList();
+  showToast('📂 已恢复 ' + emp.name);
+}
+
+function permanentlyDeleteSettingsMember(empId) {
+  var emp = emps.find(function (e) { return e.id === empId; });
+  if (!emp) return;
+  if (!confirm('确定要彻底删除 ' + (emp.name || '该成员') + '？此操作不可恢复。')) return;
+  function _removeLocal() {
+    var idx = emps.findIndex(function (e) { return e.id === empId; });
+    if (idx >= 0) emps.splice(idx, 1);
+    if (currentEmpId === empId && typeof closeEmpDetail === 'function') closeEmpDetail();
+    if (localStorage.getItem('sb_current_emp') === empId) {
+      localStorage.removeItem('sb_current_emp');
+    }
+    renderSettingsMemberList();
+    renderEmployeeList();
+    showToast('🗑️ 已彻底删除');
+  }
+  if (typeof apiFetch === 'function') {
+    apiFetch('/api/agents/' + empId + '?permanent=true', { method: 'DELETE' }).then(function (resp) {
+      if (resp && resp.ok) {
+        _removeLocal();
+      } else {
+        showToast('❌ 删除失败');
+      }
+    }).catch(function () {
+      showToast('❌ 删除失败');
+    });
+  } else {
+    _removeLocal();
+  }
 }
 
 
