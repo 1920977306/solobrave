@@ -9614,6 +9614,15 @@ def _induct_knowledge_for_agent(agent, owner_user_id=None):
 
 def main():
     global PORT, BIND
+    # Windows 控制台/日志文件默认 GBK 编码，含 emoji 的日志会导致 UnicodeEncodeError 崩溃
+    try:
+        import sys
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8')
+        if hasattr(sys.stderr, 'reconfigure'):
+            sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
     import argparse
     _default_port = PORT
     _default_bind = BIND

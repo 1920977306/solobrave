@@ -1012,8 +1012,12 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 /* Category sidebar */
 .knowledge-cat-sidebar { background: #ffffff; }
-.knowledge-cat-search {
+.knowledge-cat-search,
+.knowledge-cat-sidebar .knowledge-search,
+.knowledge-left-sidebar .knowledge-search {
   display: none !important;
+}
+.knowledge-cat-search {
   align-items: center;
   gap: 8px;
   background: #F5F5F5;
@@ -15440,7 +15444,9 @@ function extractAndSaveMemory(empId, userMsg, aiReply, isGroupChat) {
       console.log('[Memory] 使用 API 提取:', emp.name);
       _extractMemoryViaAPI(empId, extractPrompt, allMemories);
     } else {
-      console.warn('[Memory] 无可用提取方式:', emp.name);
+      // 无 AI 可用时，将用户原话作为兜底记忆写入，确保测试环境也能看到记忆记录
+      console.warn('[Memory] 无可用提取方式，使用原话兜底:', emp.name);
+      _saveMemoryFallback(empId, userMsg, allMemories);
     }
   }).catch(function (e) {
     console.warn('[Memory] 加载已有记忆失败:', e);
@@ -15533,6 +15539,36 @@ function _extractMemoryViaAPI(empId, extractPrompt, existing) {
     _processExtractedMemory(empId, extracted, existing);
   }).catch(function (e) {
     console.warn('[Memory] API 提取失败:', e, '员工:', empId);
+  });
+}
+
+// 兜底记忆保存：无 AI 可用时直接保存用户消息中的关键信息
+function _saveMemoryFallback(empId, userMsg, existing) {
+  if (!userMsg || userMsg.length < 3) return;
+  // 截取前 200 字作为记忆内容
+  var memValue = userMsg.trim().substring(0, 200);
+  if (memValue.length < 5) return;
+  var isDuplicate = existing.some(function (m) {
+    if (!m.value || m.value.length < 5) return false;
+    return m.value.indexOf(memValue) > -1 || memValue.indexOf(m.value) > -1;
+  });
+  if (isDuplicate) {
+    console.log('[Memory] 兜底记忆重复，跳过:', memValue.substring(0, 50));
+    return;
+  }
+  console.log('[Memory] 准备保存兜底记忆:', memValue.substring(0, 50));
+  apiFetch('/api/memory/' + empId, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      key: 'auto_extract',
+      value: memValue,
+      source: '自动记录（无AI配置）'
+    })
+  }).then(function (r) {
+    console.log('[Memory] ✅ 兜底记忆保存成功:', memValue.substring(0, 50), '状态:', r ? r.status : 'null');
+  }).catch(function (e) {
+    console.warn('[Memory] 兜底记忆保存失败:', e);
   });
 }
 
