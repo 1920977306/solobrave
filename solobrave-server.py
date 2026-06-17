@@ -1393,10 +1393,21 @@ def init_db():
                 audience TEXT DEFAULT '{}',
                 ai_analysis TEXT DEFAULT '{}',
                 videos TEXT DEFAULT '[]',
+                tags TEXT DEFAULT '[]',
+                selling_points TEXT DEFAULT '',
                 created_at INTEGER,
                 updated_at INTEGER
             )
         ''')
+        # 兼容旧表：新增 tags / selling_points 列
+        try:
+            conn.execute("ALTER TABLE products ADD COLUMN tags TEXT DEFAULT '[]'")
+        except Exception:
+            pass
+        try:
+            conn.execute("ALTER TABLE products ADD COLUMN selling_points TEXT DEFAULT ''")
+        except Exception:
+            pass
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)')
@@ -1436,7 +1447,8 @@ _PRODUCT_COLUMNS = [
     'category', 'sku_specs', 'stock', 'status', 'monthly_sales', 'monthly_gmv',
     'commission_rates', 'commission_amount', 'conversion_rate', 'avg_order_value',
     'influencer_count', 'video_count', 'live_count', 'channel_distribution',
-    'influencers', 'audience', 'ai_analysis', 'videos', 'created_at', 'updated_at'
+    'influencers', 'audience', 'ai_analysis', 'videos', 'tags', 'selling_points',
+    'created_at', 'updated_at'
 ]
 
 
@@ -1480,6 +1492,8 @@ def _product_row_to_dict(row):
         'audience': _json_col('audience', {}),
         'ai_analysis': _json_col('ai_analysis', {}),
         'videos': _json_col('videos', []),
+        'tags': _json_col('tags', []),
+        'selling_points': row['selling_points'] or '',
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
@@ -1488,7 +1502,8 @@ def _product_row_to_dict(row):
 
     # 兼容旧代码/匹配逻辑/RAG 格式化的字段
     product['description'] = product['subtitle']
-    product['tags'] = []
+    if not isinstance(product['tags'], list):
+        product['tags'] = []
     product['sku'] = ''
     if isinstance(product['sku_specs'], dict):
         product['attributes'] = product['sku_specs']
@@ -1505,7 +1520,6 @@ def _product_row_to_dict(row):
         )
     else:
         product['commission_rate'] = 0
-    product['selling_points'] = ''
     return product
 
 
@@ -1570,6 +1584,8 @@ def _dict_to_product_row(p):
         'audience': _dump(_get('audience', default={})),
         'ai_analysis': _dump(_get('ai_analysis', 'aiAnalysis', default={})),
         'videos': _dump(_get('videos', 'hot_videos', 'hotVideos', default=[])),
+        'tags': _dump(_get('tags', default=[])),
+        'selling_points': _get('selling_points', 'sellingPoints', default='') or '',
         'created_at': _get('created_at', 'createdAt'),
         'updated_at': _get('updated_at', 'updatedAt'),
     }
@@ -1712,11 +1728,60 @@ def _seed_coolchap_data(conn):
         ]
 
     seed_items = [
-        {'name': '马略卡草编渔夫鞋', 'subtitle': '地中海度假风草编渔夫鞋，软底舒适', 'price': 459, 'monthly_sales': 1850, 'rate': 12, 'category': '渔夫鞋'},
-        {'name': '地中海编织凉鞋', 'subtitle': '自由浪漫编织凉鞋，百搭实穿', 'price': 399, 'monthly_sales': 2600, 'rate': 10, 'category': '凉鞋'},
-        {'name': '软底舒适穆勒鞋', 'subtitle': '艺术小众穆勒鞋，一脚蹬慵懒风', 'price': 529, 'monthly_sales': 1420, 'rate': 8, 'category': '穆勒鞋'},
-        {'name': '自由浪漫厚底拖鞋', 'subtitle': '厚底增高拖鞋，海边度假必备', 'price': 359, 'monthly_sales': 3200, 'rate': 15, 'category': '拖鞋'},
-        {'name': '艺术小众乐福鞋', 'subtitle': '复古乐福鞋，舒适通勤与艺术感兼具', 'price': 689, 'monthly_sales': 980, 'rate': 6, 'category': '乐福鞋'},
+        {
+            'name': '嘭嘭爱心系列人字拖',
+            'subtitle': 'COOLCHAP 经典爱心造型人字拖，Q弹软底贴合足弓，地中海度假风轻松出行',
+            'price': 329,
+            'monthly_sales': 4200,
+            'rate': 12,
+            'tags': ['软底舒适', '地中海度假风', '爱心造型', '夏日必备'],
+            'selling_points': '嘭嘭爱心立体造型，EVA软底久走不累；地中海配色，度假与日常轻松切换。'
+        },
+        {
+            'name': '设计师款凉鞋',
+            'subtitle': 'COOLCHAP 设计师联名款凉鞋，简约线条搭配软垫鞋床，诠释自由浪漫',
+            'price': 599,
+            'monthly_sales': 1850,
+            'rate': 10,
+            'tags': ['设计师款', '软底舒适', '自由浪漫', '百搭实穿'],
+            'selling_points': '设计师操刀鞋型，脚床加厚软垫；可盐可甜，通勤度假两相宜。'
+        },
+        {
+            'name': '平底沙滩鞋',
+            'subtitle': 'COOLCHAP 平底沙滩鞋，轻盈透气防滑底，马略卡岛海滨灵感',
+            'price': 379,
+            'monthly_sales': 3100,
+            'rate': 11,
+            'tags': ['平底', '沙滩鞋', '地中海度假风', '透气防滑'],
+            'selling_points': '轻量化鞋身+防滑大底，海边漫步不累脚；编织透气鞋面，清爽一夏。'
+        },
+        {
+            'name': '铆钉装饰凉鞋',
+            'subtitle': 'COOLCHAP 铆钉装饰凉鞋，艺术小众设计，软底舒适与个性态度兼具',
+            'price': 469,
+            'monthly_sales': 2200,
+            'rate': 9,
+            'tags': ['铆钉', '艺术小众', '软底舒适', '个性穿搭'],
+            'selling_points': '手工感铆钉点缀，艺术小众不撞款；软弹鞋底平衡个性与舒适。'
+        },
+        {
+            'name': '厚底松糕拖鞋',
+            'subtitle': 'COOLCHAP 厚底松糕拖鞋，隐形增高拉长腿型，软底踩云感',
+            'price': 359,
+            'monthly_sales': 2800,
+            'rate': 13,
+            'tags': ['厚底', '松糕', '软底舒适', '百搭实穿'],
+            'selling_points': '4cm厚底自然增高，松糕底却轻量；软底踩云感，久站不累。'
+        },
+        {
+            'name': '蝴蝶结凉拖',
+            'subtitle': 'COOLCHAP 蝴蝶结凉拖，甜美蝴蝶结与软底舒适结合，地中海浪漫气息',
+            'price': 419,
+            'monthly_sales': 2600,
+            'rate': 10,
+            'tags': ['蝴蝶结', '甜美', '软底舒适', '地中海度假风'],
+            'selling_points': '立体蝴蝶结点缀，浪漫度假风；一体成型软底，轻盈回弹好打理。'
+        },
     ]
 
     for idx, item in enumerate(seed_items, 1):
@@ -1734,7 +1799,7 @@ def _seed_coolchap_data(conn):
             'price': price,
             'price_range': f'¥{price}',
             'brand': 'COOLCHAP',
-            'category': item['category'],
+            'category': '鞋靴/凉鞋',
             'sku_specs': json.dumps({'颜色': ['米白', '棕色', '黑色'], '尺码': ['35-40']}, ensure_ascii=False),
             'stock': 10000,
             'status': 'active',
@@ -1752,6 +1817,8 @@ def _seed_coolchap_data(conn):
             'audience': json.dumps(base_audience, ensure_ascii=False),
             'ai_analysis': json.dumps({}, ensure_ascii=False),
             'videos': json.dumps(make_videos(item['name']), ensure_ascii=False),
+            'tags': json.dumps(item.get('tags', []), ensure_ascii=False),
+            'selling_points': item.get('selling_points', ''),
             'created_at': now,
             'updated_at': now,
         }
