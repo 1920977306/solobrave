@@ -7804,13 +7804,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(status, {'error': err})
             return
 
-        # AI 调用前校验：员工状态 + systemPrompt 身份约束
-        ok, ai_err = _validate_agent_for_ai(agent)
-        if not ok:
-            code = 404 if ai_err == '员工不存在' else 400
-            self._send_json(code, {'error': ai_err})
-            return
-
         body = self._read_body()
         if not body:
             self._send_json(400, {'error': '无效的请求体'})
@@ -7885,6 +7878,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 当 skipAI=false 时，无论 connectionType 是什么，都调用 AI API
             # 这样 memory 提取等场景（_extractMemoryViaAPI）才能正常工作
             if not skip_ai:
+                # AI 调用前校验：员工状态 + systemPrompt 身份约束（仅实际调用 AI 时检查）
+                ok, ai_err = _validate_agent_for_ai(agent)
+                if not ok:
+                    code = 404 if ai_err == '员工不存在' else 400
+                    self._send_json(code, {'error': ai_err})
+                    return
+
                 content = body.get('content', '')
                 images = body.get('images', [])
                 if images:

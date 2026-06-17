@@ -16637,6 +16637,12 @@ async function finishWizard() {
   var statusEl = document.querySelector('.status-opt.selected');
   var status = statusEl ? statusEl.dataset.status : 'online';
   var sysPrompt = document.getElementById('wizSystemPrompt').value.trim();
+  // 强制注入层级关系约束：后端 AI 调用前校验要求 prompt 必须包含该关键字
+  if (!sysPrompt || sysPrompt.indexOf('管理员是你的老板') < 0) {
+    var _userName = currentUser && (currentUser.name || currentUser.displayName) || '用户';
+    var _prefix = sysPrompt ? sysPrompt + '\n\n' : '';
+    sysPrompt = _prefix + '【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- ' + _userName + ' 是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。';
+  }
   var apiKey = document.getElementById('wizApiKey').value.trim();
   var aiProvider = empSelectedAIProvider || 'kimi';
   var openclawName = document.getElementById('wizOpenclawName').value.trim() || 'main';
