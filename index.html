@@ -1318,7 +1318,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 0;
   overflow: hidden;
 }
-.knowledge-editor.module-right-content { padding: 0; }
+.knowledge-editor.module-right-content { padding: 0; overflow: hidden; }
 .knowledge-editor-header {
   padding: 20px 24px 16px;
   border-bottom: 0.5px solid var(--separator);
@@ -1389,28 +1389,34 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   overflow-y: auto;
   position: relative;
   min-height: 0;
+  background: #F5F5F7;
+  padding: 12px;
 }
 #knowledgeEditContent {
   width: 100%;
-  min-height: 300px;
+  min-height: 120px;
   height: 100%;
-  padding: 16px 24px;
+  padding: 16px 20px;
   font-size: 15px;
   line-height: 1.7;
   background: #ffffff;
-  border: none;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
   outline: none;
   resize: none;
   box-sizing: border-box;
+  display: block;
 }
 #knowledgeEditPreview {
   width: 100%;
-  min-height: 300px;
+  min-height: 120px;
   height: 100%;
-  padding: 16px 24px;
+  padding: 16px 20px;
   font-size: 15px;
   line-height: 1.7;
   background: #ffffff;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
   overflow-y: auto;
   box-sizing: border-box;
 }
@@ -1423,6 +1429,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 12px 24px;
   border-top: 0.5px solid var(--separator);
   flex-shrink: 0;
+  background: #ffffff;
 }
 .knowledge-editor-footer button {
   padding: 8px 18px;
@@ -1440,6 +1447,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 0 24px 8px;
   font-size: 12px;
   color: var(--text-tertiary);
+  flex-shrink: 0;
+  background: #ffffff;
 }
 .knowledge-editor.hidden { display: none; }
 
@@ -7855,7 +7864,10 @@ function toggleCategory(cat) {
 
 // 获取当前用户可见的员工列表（权限过滤）
 function isArchivedEmp(e) {
-  return e && (e.archived === true || e.status === 'archived');
+  if (!e) return false;
+  if (e.status === 'archived') return true;
+  if (e.archived === true || e.archived === 'true' || e.archived === 1 || e.archived === '1') return true;
+  return false;
 }
 
 function archiveEmp(emp) {
@@ -18207,30 +18219,57 @@ function showTeamMembersModal(teamId) {
 // 渲染小组当前成员
 function renderTeamMembers(team) {
   var list = document.getElementById('teamMembersList');
-  var agentIds = team && team.agentIds ? team.agentIds : [];
-  if (agentIds.length === 0) {
+  if (!list) return;
+  // 后端返回 members 为成员详情数组，memberIds 为原始 ID 数组，agentIds 为关联 AI 员工
+  var members = team && team.members ? team.members : [];
+  var memberIds = team && team.memberIds ? team.memberIds : [];
+  if (members.length === 0 && memberIds.length === 0) {
     list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-secondary);">暂无成员</div>';
     return;
   }
-  list.innerHTML = agentIds.map(function (agentId) {
-    var emp = emps.find(function (e) {
-      return e.id === agentId;
+  // 优先使用 members 详情，缺失的用 memberIds 兜底
+  var items = [];
+  if (members.length > 0) {
+    members.forEach(function (m) {
+      items.push({ id: m.id || m, name: m.displayName || m.username || m.name || '未知用户' });
     });
-    var name = emp ? emp.name || emp.displayName || '未知员工' : '未知员工(ID: ' + agentId + ')';
-    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px;background:var(--bg-secondary);border-radius:6px;margin-bottom:6px;">' + '<span>' + escapeHtml(name) + '</span>' + '<button onclick="removeTeamMember(\'' + escapeAttr(agentId) + '\')" style="padding:4px 8px;border-radius:4px;background:#FF3B30;color:white;border:none;cursor:pointer;font-size:11px;">移除</button>' + '</div>';
+  } else {
+    memberIds.forEach(function (id) {
+      items.push({ id: id, name: '用户(ID: ' + id + ')' });
+    });
+  }
+  list.innerHTML = items.map(function (item) {
+    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px;background:var(--bg-secondary);border-radius:6px;margin-bottom:6px;">' + '<span>' + escapeHtml(item.name) + '</span>' + '<button onclick="removeTeamMember(\'' + escapeAttr(item.id) + '\')" style="padding:4px 8px;border-radius:4px;background:#FF3B30;color:white;border:none;cursor:pointer;font-size:11px;">移除</button>' + '</div>';
   }).join('');
 }
 
 // 加载可添加的成员
 function loadAddableMembers(team) {
-  var currentIds = team && team.agentIds ? team.agentIds : [];
-  var addable = emps.filter(function (e) {
-    return currentIds.indexOf(e.id) < 0;
-  });
+  var currentIds = [];
+  if (team && team.members) {
+    team.members.forEach(function (m) {
+      currentIds.push(m.id || m);
+    });
+  } else if (team && team.memberIds) {
+    currentIds = team.memberIds.slice();
+  }
   var select = document.getElementById('addTeamMemberSelect');
-  select.innerHTML = '<option value="">-- 选择员工 --</option>' + addable.map(function (e) {
-    return '<option value="' + e.id + '">' + (e.name || e.displayName || '未知') + '</option>';
-  }).join('');
+  if (!select) return;
+
+  // 从后端拉取全部用户供选择
+  apiFetch('/api/users').then(function (res) {
+    if (res && res.ok) return res.json();
+    return [];
+  }).then(function (users) {
+    var addable = (users || []).filter(function (u) {
+      return currentIds.indexOf(u.id) < 0;
+    });
+    select.innerHTML = '<option value="">-- 选择用户 --</option>' + addable.map(function (u) {
+      return '<option value="' + escapeAttr(u.id) + '">' + escapeHtml(u.displayName || u.username || '未知') + '</option>';
+    }).join('');
+  }).catch(function () {
+    select.innerHTML = '<option value="">加载用户失败</option>';
+  });
 }
 
 // 添加小组成员
@@ -18924,7 +18963,8 @@ function closeKnowledgeEditor() {
     if (right) right.classList.remove('active');
     if (overlay) overlay.classList.remove('open');
   } else {
-    renderKnowledgeView(_knowledgeCurrentId);
+    var doc = _knowledgeData.docs.find(function(d) { return d.id === _knowledgeCurrentId; });
+    if (doc) renderKnowledgeView(doc);
   }
 }
 function closeKnowledgeRight() {
@@ -19176,6 +19216,16 @@ function updateKnowledgeEditorView() {
   var preview = document.getElementById('knowledgeEditPreview');
   if (!textarea || !preview) return;
   if (_knowledgePreviewMode) {
+    if (typeof marked === 'undefined') {
+      showToast('Markdown 渲染库未加载，已切换回纯文本编辑');
+      _knowledgePreviewMode = false;
+      document.querySelectorAll('.knowledge-editor-tab').forEach(function(t) {
+        t.classList.toggle('active', t.dataset.tab === 'edit');
+      });
+      textarea.classList.remove('hidden');
+      preview.classList.add('hidden');
+      return;
+    }
     textarea.classList.add('hidden');
     preview.classList.remove('hidden');
     preview.innerHTML = renderMarkdown(textarea.value);
@@ -19293,38 +19343,72 @@ async function moveCurrentKnowledge() {
   if (!_knowledgeCurrentId) return;
   var doc = _knowledgeData.docs.find(function (d) { return d.id === _knowledgeCurrentId; });
   if (!doc) return;
-  if (!confirm('确定要移动该文档吗？')) return;
-  var targetScope = prompt('移动到：global（全局）、team（团队）、personal（个人）', doc.scope || 'global');
-  if (!targetScope) return;
-  targetScope = targetScope.trim();
-  if (['global', 'team', 'personal'].indexOf(targetScope) === -1) {
-    showToast('无效的 scope');
-    return;
-  }
-  var teamId = '';
-  if (targetScope === 'team') {
-    var userTeamIds = (currentUser && currentUser.teamIds) || [];
-    if (userTeamIds.length === 0) {
-      showToast('你没有所属团队，无法移动到团队知识库');
-      return;
-    }
-    teamId = prompt('请输入团队 ID' + (userTeamIds.length === 1 ? '（默认：' + userTeamIds[0] + '）' : ''), userTeamIds[0] || '');
-    if (!teamId) return;
-  }
-  try {
-    var r = await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId) + '/move', {
-      method: 'POST',
-      body: JSON.stringify({ scope: targetScope, teamId: teamId })
+  var currentScope = doc.scope || 'global';
+  var userTeamIds = (currentUser && currentUser.teamIds) || [];
+  var teamOptionsHtml = '';
+  if (userTeamIds.length === 0) {
+    teamOptionsHtml = '<option value="">暂无可用团队</option>';
+  } else {
+    userTeamIds.forEach(function (tid) {
+      teamOptionsHtml += '<option value="' + escapeAttr(tid) + '">' + escapeHtml(tid) + '</option>';
     });
-    await r.json();
-    showToast('✅ 已移动');
-    await loadKnowledgePage();
-    var moved = _knowledgeData.docs.find(function (d) { return d.id === _knowledgeCurrentId; });
-    if (moved) renderKnowledgeView(moved);
-  } catch (e) {
-    showToast('❌ 移动失败');
-    console.warn('[KnowledgePage] 移动失败:', e);
   }
+  var dialogId = 'knowledgeMoveDialog' + Date.now();
+  var html = '<div id="' + dialogId + '" style="padding:8px 0;">'
+    + '<div style="font-size:14px;color:var(--text-secondary);margin-bottom:16px;">选择要移动到的目标知识库：</div>'
+    + '<label style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--separator);border-radius:8px;margin-bottom:10px;cursor:pointer;"><input type="radio" name="knowledgeMoveScope" value="global"' + (currentScope === 'global' ? ' checked' : '') + ' style="width:18px;height:18px;"><span style="font-size:14px;">全局知识库</span></label>'
+    + '<label style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--separator);border-radius:8px;margin-bottom:10px;cursor:pointer;"><input type="radio" name="knowledgeMoveScope" value="team"' + (currentScope === 'team' ? ' checked' : '') + ' style="width:18px;height:18px;"><span style="font-size:14px;">团队知识库</span></label>'
+    + '<div id="knowledgeMoveTeamWrap" style="margin:-4px 0 10px 28px;' + (currentScope === 'team' ? '' : 'display:none;') + '"><select id="knowledgeMoveTeamId" style="width:100%;padding:8px 10px;border:1px solid var(--separator);border-radius:6px;font-size:14px;background:var(--bg-primary);">' + teamOptionsHtml + '</select></div>'
+    + '<label style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--separator);border-radius:8px;margin-bottom:4px;cursor:pointer;"><input type="radio" name="knowledgeMoveScope" value="personal"' + (currentScope === 'personal' ? ' checked' : '') + ' style="width:18px;height:18px;"><span style="font-size:14px;">个人知识库</span></label>'
+    + '</div>';
+  showModal('移动文档', html);
+
+  // 绑定单选切换事件（动态生成的 DOM，需要在 showModal 之后）
+  setTimeout(function () {
+    var dialog = document.getElementById(dialogId);
+    if (!dialog) return;
+    var radios = dialog.querySelectorAll('input[name="knowledgeMoveScope"]');
+    var teamWrap = document.getElementById('knowledgeMoveTeamWrap');
+    radios.forEach(function (radio) {
+      radio.addEventListener('change', function () {
+        if (teamWrap) teamWrap.style.display = radio.value === 'team' && radio.checked ? 'block' : 'none';
+      });
+    });
+    // 替换确认/取消按钮为动态 modal 的底部按钮
+    var panel = dialog.closest('.modal-panel');
+    if (panel) {
+      var footer = document.createElement('div');
+      footer.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid var(--separator);';
+      footer.innerHTML = '<button onclick="closeModal()" style="padding:8px 18px;border-radius:8px;border:none;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;cursor:pointer;">取消</button><button id="knowledgeMoveConfirmBtn" style="padding:8px 18px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:14px;cursor:pointer;">确认移动</button>';
+      panel.appendChild(footer);
+      document.getElementById('knowledgeMoveConfirmBtn').addEventListener('click', async function () {
+        var selected = dialog.querySelector('input[name="knowledgeMoveScope"]:checked');
+        if (!selected) { showToast('请选择目标知识库'); return; }
+        var targetScope = selected.value;
+        var teamId = '';
+        if (targetScope === 'team') {
+          var teamSelect = document.getElementById('knowledgeMoveTeamId');
+          teamId = teamSelect ? teamSelect.value : '';
+          if (!teamId) { showToast('请选择团队'); return; }
+        }
+        closeModal();
+        try {
+          var r = await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId) + '/move', {
+            method: 'POST',
+            body: JSON.stringify({ scope: targetScope, teamId: teamId })
+          });
+          await r.json();
+          showToast('✅ 已移动');
+          await loadKnowledgePage();
+          var moved = _knowledgeData.docs.find(function (d) { return d.id === _knowledgeCurrentId; });
+          if (moved) renderKnowledgeView(moved);
+        } catch (e) {
+          showToast('❌ 移动失败');
+          console.warn('[KnowledgePage] 移动失败:', e);
+        }
+      });
+    }
+  }, 50);
 }
 
 // ========== 知识库编辑弹窗 ==========

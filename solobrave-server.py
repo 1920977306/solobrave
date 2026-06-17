@@ -4860,7 +4860,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'avatar': a.get('avatar', '🦞'),
                 'status': a.get('status', 'online'),
                 'msg': a.get('msg', ''),
-                'archived': a.get('archived', False),
+                'archived': bool(a.get('archived')) or a.get('status') == 'archived',
                 'permission': a.get('permission', 'dev'),
                 'visibility': a.get('visibility', 'creator'),
                 'createdBy': a.get('createdBy', ''),
