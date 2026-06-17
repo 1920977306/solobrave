@@ -552,7 +552,7 @@ def _default_permission_templates():
         'roleTemplates': [
             {'id': 'admin', 'name': '超级管理员', 'modules': superadmin_modules, 'knowledgeCategories': ['*']},
             {'id': 'leader', 'name': '管理员', 'modules': admin_modules, 'knowledgeCategories': ['*']},
-            {'id': 'employee', 'name': '普通用户', 'modules': user_modules, 'knowledgeCategories': []},
+            {'id': 'employee', 'name': '普通用户', 'modules': user_modules, 'knowledgeCategories': ['*']},
         ],
         'userOverrides': {}
     }
@@ -705,6 +705,9 @@ def _load_agents(include_archived=False):
     cleaned = []
     for a in agents:
         if _is_default_agent(a):
+            continue
+        # 默认过滤已归档/软删除的员工，避免删除后仍影响列表、权限和新员工创建
+        if not include_archived and (a.get('status') == 'archived' or a.get('archived')):
             continue
         # 检测 apiKey 污染
         ak = a.get('apiKey', '')
@@ -1253,7 +1256,8 @@ def build_all_embeddings(api_key=None, provider='openai', model=None, base_url=N
     print(f'  [Embedding] 批量构建完成', flush=True)
 
 
-def rag_retrieve(query, api_key, provider='openai', top_k_docs=3, top_k_products=3, model=None, base_url=None):
+def rag_retrieve(query, api_key, provider='openai', top_k_docs=3, top_k_products=3, model=None, base_url=None,
+                 requester_id=None, is_admin=False, team_ids=None):
     """RAG 检索：基于向量相似度返回相关知识库文档和产品"""
     if not query or not query.strip() or not api_key:
         return {'docs': [], 'products': [], 'context': ''}
@@ -1265,13 +1269,25 @@ def rag_retrieve(query, api_key, provider='openai', top_k_docs=3, top_k_products
 
     results = {'docs': [], 'products': [], 'context': ''}
 
-    # 2. 知识库文档检索（从 SQLite 读取带 embedding 的知识）
+    # 2. 知识库文档检索（从 SQLite 读取带 embedding 的知识，按 scope 做权限过滤）
     conn = _db_conn()
     doc_scores = []
     try:
-        rows = conn.execute(
-            'SELECT id, title, content, category, embedding, created_at, updated_at FROM knowledge WHERE embedding IS NOT NULL'
-        ).fetchall()
+        sql = '''
+            SELECT id, title, content, category, scope, emp_id, team_id, embedding, created_at, updated_at
+            FROM knowledge
+            WHERE embedding IS NOT NULL AND status = 'ok'
+        '''
+        params = []
+        if requester_id is not None and not is_admin:
+            sql += ''' AND (
+                scope IS NULL OR scope = 'global'
+                OR (scope = 'personal' AND emp_id = ?)
+                OR (scope = 'team' AND team_id IN ({}))
+            )'''.format(', '.join('?' for _ in (team_ids or [])))
+            params.append(requester_id)
+            params.extend(team_ids or [])
+        rows = conn.execute(sql, params).fetchall()
     finally:
         conn.close()
     for row in rows:
@@ -3678,8 +3694,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'error': 'leadAgentId 必须是成员之一'})
             return
 
+        groups = _load_groups()
+
+        # 幂等：前端若已提供 id 且已存在，则返回已有群组，避免重复创建
+        provided_id = body.get('id', '').strip()
+        if provided_id:
+            existing = _find_group(groups, 'id', provided_id)
+            if existing:
+                self._send_json(200, existing)
+                return
+
         new_group = {
-            'id': 'grp_' + uuid.uuid4().hex[:10],
+            'id': provided_id or 'grp_' + uuid.uuid4().hex[:10],
             'name': name,
             'avatar': body.get('avatar', '👥'),
             'members': valid_members,
@@ -3689,7 +3715,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'createdAt': datetime.now().isoformat()
         }
 
-        groups = _load_groups()
         groups.append(new_group)
         _save_groups(groups)
 
@@ -5209,6 +5234,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if agent_idx >= 0:
                 agents.pop(agent_idx)
             _save_agents(agents)
+            # 清理关联数据，避免残留影响后续同名/同 ID 新员工
+            self._cleanup_agent_data(agent_id)
             self._send_json(200, {'message': f'Agent {agent.get("name", "")} 已彻底删除'})
             return
 
@@ -5224,6 +5251,41 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _save_agents(agents)
 
         self._send_json(200, {'message': f'Agent {agent.get("name", "")} 已删除'})
+
+    def _cleanup_agent_data(self, agent_id):
+        """彻底删除员工时清理其聊天记录、记忆文件、归档文件等残留数据"""
+        # 清理聊天记录
+        chat_file = os.path.join(CHATS_DIR, f'{agent_id}.json')
+        if os.path.isfile(chat_file):
+            try:
+                os.remove(chat_file)
+            except OSError as e:
+                print(f'  [Cleanup] 删除聊天文件失败 {chat_file}: {e}', flush=True)
+
+        # 清理聊天摘要
+        summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
+        if os.path.isfile(summary_file):
+            try:
+                os.remove(summary_file)
+            except OSError as e:
+                print(f'  [Cleanup] 删除摘要文件失败 {summary_file}: {e}', flush=True)
+
+        # 清理 v3 记忆数据目录
+        try:
+            import shutil
+            mem_dir = os.path.join(ms3.MEMORY_V3_DIR, agent_id)
+            if os.path.isdir(mem_dir):
+                shutil.rmtree(mem_dir)
+        except Exception as e:
+            print(f'  [Cleanup] 清理记忆目录失败 {agent_id}: {e}', flush=True)
+
+        # 清理归档文件
+        archive_file = os.path.join(ARCHIVE_DIR, f'{agent_id}.json')
+        if os.path.isfile(archive_file):
+            try:
+                os.remove(archive_file)
+            except OSError as e:
+                print(f'  [Cleanup] 删除归档文件失败 {archive_file}: {e}', flush=True)
 
     # ═══════════════════════════════════════════════════
     # Dreaming API
@@ -6018,6 +6080,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # priority / tags 保留给前端展示
 
         print(f'  [MemoryV3] {emp_id} 保存 {pool} 记忆: {value[:50]}...', flush=True)
+
+        # 自动提取的记忆（auto/auto_extract）尝试触发知识归纳到个人知识库
+        if key in ('auto', 'auto_extract'):
+            try:
+                agent = _get_agent_by_id(emp_id) or {}
+                threading.Thread(
+                    target=_induct_knowledge_for_agent,
+                    args=(agent, auth.user_id),
+                    daemon=True
+                ).start()
+            except Exception as e:
+                print(f'  [MemoryV3] {emp_id} 自动归纳触发失败: {e}', flush=True)
+
         result = {
             'success': True,
             'data': mapped,
@@ -7981,7 +8056,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 # 记忆提取场景不需要加载历史记录，避免 token 超限和干扰
                 is_extract = '【记忆提取任务】' in content
                 allowed_cats = _allowed_knowledge_categories(auth)
-                api_reply = _call_ai_api(agent, user_payload, auth.user_info, include_history=not is_extract, allowed_knowledge_categories=allowed_cats)
+                api_reply = _call_ai_api(
+                    agent, user_payload, auth.user_info, include_history=not is_extract,
+                    allowed_knowledge_categories=allowed_cats,
+                    requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids
+                )
                 if api_reply:
                     ai_message = {
                         'id': 'msg_' + uuid.uuid4().hex[:8],
@@ -8197,7 +8276,8 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
         return None
 
 
-def _call_ai_api(agent, user_message, user_info=None, include_history=True, group_id=None, allowed_knowledge_categories=None):
+def _call_ai_api(agent, user_message, user_info=None, include_history=True, group_id=None,
+                 allowed_knowledge_categories=None, requester_id=None, is_admin=False, team_ids=None):
     """通过代理调用 AI API（带记忆和上下文注入）"""
     # AI 调用前校验：员工状态 + systemPrompt 身份约束
     ok, ai_err = _validate_agent_for_ai(agent)
@@ -8282,7 +8362,7 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                     user_text, agent_id, rag_api_key, rag_provider, rag_agent_config,
                     top_k_docs=2, allowed_categories=allowed_knowledge_categories,
                     model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
-                    requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids
+                    requester_id=requester_id, is_admin=is_admin, team_ids=team_ids
                 )
                 if rag_result.get('context'):
                     system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'

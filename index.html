@@ -9758,7 +9758,7 @@ async function sendGroupMessage(groupId, message, mentions, images) {
       fullMessage = groupMemoryContext + '\n\n' + fullMessage;
     }
 
-    var agentId = leadEmp ? leadEmp.openclawName || leadEmp.id : group.leadAgentId;
+    var agentId = leadEmp ? _resolveGroupAgentId(leadEmp) : group.leadAgentId;
     var sessionKey = 'agent:' + agentId + ':main';
 
     // 解析用户消息中的 @mentions（必须在用户原始消息 message 中匹配，不能在 fullMessage 中匹配，因为 fullMessage 的系统提示里包含了所有成员的 @名字）
@@ -10210,6 +10210,14 @@ async function initiateAgentDiscussion(groupId) {
   }
 }
 
+// 解析员工在群聊中的 OpenClaw agentId：新员工没有 openclawName 时兜底到 main，避免无响应
+function _resolveGroupAgentId(emp) {
+  if (!emp) return 'main';
+  if (emp.openclawName) return emp.openclawName;
+  if (typeof openclaw !== 'undefined' && openclaw.connected) return 'main';
+  return emp.id;
+}
+
 // 触发对群聊消息感兴趣的 AI 主动回复（不需要被 @）
 function triggerInterestedAgents(groupId, senderId, messageContent) {
   // 限制链深度，避免级联刷屏
@@ -10286,7 +10294,7 @@ async function checkAgentInterest(mid, groupId, senderId, messageContent) {
   var checkPrompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人发了消息：' + messageContent + '\n\n你看到这个消息，心里怎么想？跟你有关吗？有话想说吗？\n如果有关，回复 YES。\n如果完全没兴趣，回复 NO。\n只回复 YES 或 NO，别废话。';
   mentionTriggered = mentionTriggered || {};
   try {
-    var agentId = emp.openclawName || emp.id;
+    var agentId = _resolveGroupAgentId(emp);
     var sessionKey = 'agent:' + agentId + ':main';
     emp.status = 'thinking';
     renderEmployeeList();
@@ -10446,7 +10454,7 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     prompt = '【System Prompt】\n' + empSoul + '\n\n【User Message】\n' + prompt;
   }
 
-  var agentId = emp.openclawName || emp.id;
+  var agentId = _resolveGroupAgentId(emp);
   var sessionKey = 'agent:' + agentId + ':main';
 
   // 显示"正在输入"（仅当仍在该群聊时才插入 DOM，避免切换后串渲染）
@@ -10901,35 +10909,7 @@ async function createGroup() {
     closeGroupWizard();
     showToast('✅ 群组「' + name + '」创建成功！', 'success');
 
-    // 同步到后端
-    var token = localStorage.getItem('sb_auth_token');
-    if (token && token !== 'local_mode' && typeof apiFetch === 'function') {
-      apiFetch('/api/groups', {
-        method: 'POST',
-        body: JSON.stringify({
-          id: newGroup.id,
-          name: newGroup.name,
-          emoji: newGroup.emoji,
-          bg: newGroup.bg,
-          members: newGroup.members,
-          leadAgentId: newGroup.leadAgentId,
-          announcement: newGroup.announcement || '',
-          createdBy: newGroup.createdBy,
-          createdAt: newGroup.createdAt
-        })
-      }).then(function (res) {
-        if (res && res.ok) {
-          showToast('✅ 群组已同步到服务器');
-        } else {
-          showToast('✅ 群组已创建(本地)');
-        }
-      }).catch(function (err) {
-        console.warn('[Group] create sync failed:', err);
-        showToast('✅ 群组已创建(本地)');
-      });
-    }
-
-    // 自动打开群聊
+    // 自动打开群聊（saveGroups() 已通过 PUT /api/groups 批量同步，无需再 POST 创建）
     setTimeout(function () {
       openGroupChat(newGroup.id);
     }, 300);
@@ -15851,11 +15831,15 @@ function buildAgentToolsContext() {
     '   - 读取商品匹配缓存：get_product_matches，参数 {"productId":"prod_xxx"}\n' +
     '   - 读取达人匹配缓存：get_influencer_matches，参数 {"influencerId":"inf_xxx"}\n' +
     '   - 匹配维度：分类、标签、价格区间、粉丝数、互动率\n\n' +
+    '4. 项目组消息发送\n' +
+    '   - 向指定项目组发送消息：send_group_message，参数 {"groupId":"grp_xxx","message":"消息内容","mentions":["员工名字"]}\n' +
+    '   - mentions 为可选参数，填写需要 @ 的员工名称数组\n\n' +
     '当你需要执行以上操作时，请在回复末尾使用以下格式（用户看不到这段标记）：\n' +
     '[TOOL_CALL]{"action":"list_products"}[/TOOL_CALL]\n' +
     '[TOOL_CALL]{"action":"search_products","params":{"query":"口红"}}[/TOOL_CALL]\n' +
     '[TOOL_CALL]{"action":"get_product_detail","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"match_product","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
+    '或 [TOOL_CALL]{"action":"send_group_message","params":{"groupId":"grp_xxx","message":"请帮忙看下这个需求","mentions":["小明"]}}[/TOOL_CALL]\n' +
     '主大脑会自动执行并把结果展示给用户。\n' +
     '【注意】禁止编造不存在的商品或达人信息，所有数据以主大脑查询结果为准。';
 }
@@ -15991,6 +15975,18 @@ async function executeToolCall(call) {
             var prod = res.product || {};
             return '- ' + prod.name + ' (¥' + (prod.price || 0).toFixed(2) + ', 匹配度' + res.score + '分)';
           }).join('\n');
+      case 'send_group_message':
+        var groupId = call.params && call.params.groupId;
+        var message = call.params && call.params.message;
+        var mentions = call.params && call.params.mentions;
+        if (!groupId) return '【工具执行失败】缺少 groupId';
+        if (!message) return '【工具执行失败】缺少 message';
+        var group = groups.find(function (g) { return g.id === groupId; });
+        if (!group) return '【工具执行失败】未找到项目组: ' + groupId;
+        if (typeof sendGroupMessage !== 'function') return '【工具执行失败】群聊发送功能未就绪';
+        var mentionList = Array.isArray(mentions) ? mentions : [];
+        await sendGroupMessage(groupId, message, mentionList, []);
+        return '✅ 已向项目组「' + group.name + '」发送消息: ' + message + (mentionList.length > 0 ? '\n@了: ' + mentionList.join('、') : '');
       default:
         return '【工具执行失败】未知操作: ' + call.action;
     }

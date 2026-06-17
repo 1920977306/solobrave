@@ -1599,10 +1599,11 @@ def inject_memories(emp_id, system_prompt='', user_message='', api_key=None, pro
 
         if kb_count > 0 and emb_cfg['apiKey'] and user_message:
             kb_docs = ks.knowledge_search_semantic(
-                user_message, '', emb_cfg['apiKey'], emb_cfg['provider'], agent_config,
+                user_message, emp_id, emb_cfg['apiKey'], emb_cfg['provider'], agent_config,
                 limit=cfg['inject_knowledge_max'],
                 allowed_categories=allowed_knowledge_categories,
-                model=emb_cfg['model'], base_url=emb_cfg['baseUrl']
+                model=emb_cfg['model'], base_url=emb_cfg['baseUrl'],
+                requester_id=emp_id, is_admin=False, team_ids=None
             )
             for d in kb_docs:
                 # 注入内容取最相关的 chunk（如果有）
