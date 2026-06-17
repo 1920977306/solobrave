@@ -1637,9 +1637,15 @@ def _seed_coolchap_data(conn):
     now = int(time.time() * 1000)
     brand_info = {
         'name': 'COOLCHAP',
-        'category': '拖鞋',
+        'nameCn': '酷恰',
+        'origin': '西班牙马略卡岛',
+        'style': '地中海度假风',
+        'keywords': ['地中海度假风', '自由浪漫', '艺术小众', '软底舒适', '百搭实穿'],
+        'priceBand': '300-800元',
+        'icon': '👟',
+        'category': '鞋履',
         'store': 'COOLCHAP官方旗舰店',
-        'note': '示例品牌种子数据'
+        'note': '源自西班牙马略卡岛，主打地中海度假风与舒适实穿性'
     }
     base_channel = {
         'brand_info': brand_info,
@@ -1706,12 +1712,11 @@ def _seed_coolchap_data(conn):
         ]
 
     seed_items = [
-        {'name': '迪丽热巴同款拖鞋', 'subtitle': '明星同款舒适厚底拖鞋', 'price': 179, 'monthly_sales': 20200, 'rate': 5},
-        {'name': '嘭嘭爱心人字拖', 'subtitle': '爱心造型夏日人字拖', 'price': 129, 'monthly_sales': 8882, 'rate': 20},
-        {'name': '芙芮莎拖鞋', 'subtitle': '高端皮质时尚拖鞋', 'price': 519, 'monthly_sales': 2883, 'rate': 5},
-        {'name': '云朵厚底拖', 'subtitle': '软糯云朵厚底居家拖鞋', 'price': 199, 'monthly_sales': 5600, 'rate': 15},
-        {'name': '草莓熊联名拖', 'subtitle': '草莓熊联名可爱拖鞋', 'price': 159, 'monthly_sales': 4300, 'rate': 10},
-        {'name': '经典纯色一字拖', 'subtitle': '百搭经典纯色一字拖', 'price': 99, 'monthly_sales': 12500, 'rate': 8},
+        {'name': '马略卡草编渔夫鞋', 'subtitle': '地中海度假风草编渔夫鞋，软底舒适', 'price': 459, 'monthly_sales': 1850, 'rate': 12, 'category': '渔夫鞋'},
+        {'name': '地中海编织凉鞋', 'subtitle': '自由浪漫编织凉鞋，百搭实穿', 'price': 399, 'monthly_sales': 2600, 'rate': 10, 'category': '凉鞋'},
+        {'name': '软底舒适穆勒鞋', 'subtitle': '艺术小众穆勒鞋，一脚蹬慵懒风', 'price': 529, 'monthly_sales': 1420, 'rate': 8, 'category': '穆勒鞋'},
+        {'name': '自由浪漫厚底拖鞋', 'subtitle': '厚底增高拖鞋，海边度假必备', 'price': 359, 'monthly_sales': 3200, 'rate': 15, 'category': '拖鞋'},
+        {'name': '艺术小众乐福鞋', 'subtitle': '复古乐福鞋，舒适通勤与艺术感兼具', 'price': 689, 'monthly_sales': 980, 'rate': 6, 'category': '乐福鞋'},
     ]
 
     for idx, item in enumerate(seed_items, 1):
@@ -1729,8 +1734,8 @@ def _seed_coolchap_data(conn):
             'price': price,
             'price_range': f'¥{price}',
             'brand': 'COOLCHAP',
-            'category': '拖鞋',
-            'sku_specs': json.dumps({'颜色': ['米白', '黑色'], '尺码': ['36-40']}, ensure_ascii=False),
+            'category': item['category'],
+            'sku_specs': json.dumps({'颜色': ['米白', '棕色', '黑色'], '尺码': ['35-40']}, ensure_ascii=False),
             'stock': 10000,
             'status': 'active',
             'monthly_sales': monthly_sales,
@@ -6826,6 +6831,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'): return
+        # 品牌元数据（可扩展）
+        brand_meta = {
+            'COOLCHAP': {
+                'nameCn': '酷恰',
+                'origin': '西班牙马略卡岛',
+                'style': '地中海度假风',
+                'keywords': ['地中海度假风', '自由浪漫', '艺术小众', '软底舒适', '百搭实穿'],
+                'priceBand': '300-800元',
+                'icon': '👟'
+            }
+        }
         conn = _db_conn()
         try:
             rows = conn.execute('''
@@ -6838,7 +6854,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             brands = []
             for r in rows:
                 name = r['brand'] or ''
-                brands.append({'name': name, 'count': r['count']})
+                item = {'name': name, 'count': r['count']}
+                item.update(brand_meta.get(name, {}))
+                brands.append(item)
         finally:
             conn.close()
         self._send_json(200, {'brands': brands})

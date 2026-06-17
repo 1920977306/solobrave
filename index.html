@@ -1013,7 +1013,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* Category sidebar */
 .knowledge-cat-sidebar { background: #ffffff; }
 .knowledge-cat-search {
-  display: flex;
+  display: none !important;
   align-items: center;
   gap: 8px;
   background: #F5F5F5;
@@ -4420,8 +4420,8 @@ window.doLogin = function () {
   <div class="products-brand-icon active" data-brand="" onclick="selectProductBrand('')" title="全部品牌">
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
   </div>
-  <div class="products-brand-icon" data-brand="COOLCHAP" onclick="selectProductBrand('COOLCHAP')" title="COOLCHAP">
-    <div class="products-brand-letter">C</div>
+  <div class="products-brand-icon" data-brand="COOLCHAP" onclick="selectProductBrand('COOLCHAP')" title="COOLCHAP 酷恰 · 西班牙马略卡岛 · 地中海度假风">
+    <span style="font-size:20px;line-height:1;">👟</span>
   </div>
   <div class="products-cat-list" id="productsCatList"></div>
 </div>
@@ -4470,6 +4470,10 @@ window.doLogin = function () {
   <div class="knowledge-mid-header">
     <div class="knowledge-mid-title" id="knowledgeMidTitle">全部文档</div>
     <div class="knowledge-mid-count" id="knowledgeMidCount">共 0 条</div>
+    <div class="knowledge-mid-search">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" placeholder="搜索文档..." id="knowledgeMidSearch" oninput="onKnowledgeSearch(this.value)">
+    </div>
     <button class="knowledge-mid-new" onclick="createNewKnowledge()">+ 新建文档</button>
   </div>
   <div class="knowledge-mid-items" id="knowledgeMidItems"></div>
@@ -18992,8 +18996,8 @@ async function loadKnowledgePage(page) {
     var url = '/api/knowledge?limit=' + _knowledgePageSize + '&offset=' + offset;
     if (_knowledgeScope && _knowledgeScope !== 'all') url += '&scope=' + encodeURIComponent(_knowledgeScope);
     if (_knowledgeCurrentCat) url += '&category=' + encodeURIComponent(_knowledgeCurrentCat);
-    var searchInput = document.getElementById('globalSearchInput');
-    var kw = (searchInput && currentModule === 'knowledge' && _globalSearchScope === 'knowledge') ? searchInput.value.trim() : '';
+    var searchInput = document.getElementById('knowledgeMidSearch');
+    var kw = searchInput ? searchInput.value.trim() : '';
     if (kw) url += '&q=' + encodeURIComponent(kw);
     var r = await apiFetch(url);
     var data = await r.json();
@@ -19125,6 +19129,13 @@ function renderKnowledgePagination(total, page, pageSize) {
   html += '<span>' + page + ' / ' + totalPages + '</span>';
   html += '<button ' + (page >= totalPages ? 'disabled' : '') + ' onclick="loadKnowledgePage(' + (page + 1) + ')">→</button>';
   el.innerHTML = html;
+}
+function onKnowledgeSearch(value) {
+  clearTimeout(window._knowledgeSearchTimer);
+  window._knowledgeSearchTimer = setTimeout(function () {
+    _knowledgePage = 1;
+    loadKnowledgePage();
+  }, 250);
 }
 function selectKnowledgeItem(id) {
   _knowledgeCurrentId = id;
