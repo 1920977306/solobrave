@@ -8175,11 +8175,18 @@ function mergeGroupMembersToEmps() {
   });
   groups.forEach(function (g) {
     (g.members || []).forEach(function (m) {
-      if (typeof m === 'object' && m !== null && m.id && !seenIds[m.id]) {
-        // 只合并已存在于 /api/agents 的完整员工对象，避免已删除/无名的成员变成空白项
+      if (typeof m === 'object' && m !== null && m.id) {
         var existing = emps.find(function (e) { return e.id === m.id; });
-        if (existing && existing.name) {
-          return; // 已存在，无需重复添加
+        if (existing) {
+          // 如果本地员工缺少 openclawName/头像等字段，用项目组成员里的信息补全
+          if (!existing.openclawName && m.openclawName) {
+            existing.openclawName = m.openclawName;
+            console.log('[mergeGroupMembersToEmps] 补全 openclawName:', m.id, m.openclawName);
+          }
+          if (!existing.name && m.name) existing.name = m.name;
+          if (!existing.bg && m.bg) existing.bg = m.bg;
+          if (!existing.avatar && m.avatar) existing.avatar = m.avatar;
+          return;
         }
         if (!m.name) {
           console.warn('[mergeGroupMembersToEmps] 跳过无名成员:', m.id);
@@ -9167,8 +9174,10 @@ function groupCtxAction(action) {
               opt.classList.toggle('selected', opt.textContent === gwEmoji);
             });
           }
-          // Set members
-          gwMembers = (group.members || []).slice();
+          // Set members（统一转换为字符串 ID，避免和 wizard 里的字符串 empId 混用导致重复/删不掉）
+          gwMembers = (group.members || []).map(function (m) {
+            return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+          }).filter(function (id) { return id; });
           gwLead = group.leadAgentId || '';
           gwEditGroupId = groupId; // Mark as editing
           if (gwStep < 2) {
@@ -9194,7 +9203,9 @@ function groupCtxAction(action) {
           var nameInput = document.getElementById('gwName');
           if (nameInput) nameInput.value = group.name || '';
           gwEmoji = group.emoji || '🚀';
-          gwMembers = (group.members || []).slice();
+          gwMembers = (group.members || []).map(function (m) {
+            return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+          }).filter(function (id) { return id; });
           gwLead = group.leadAgentId || '';
           gwEditGroupId = groupId;
           gwStep = 2; // Jump to member selection step
@@ -9830,8 +9841,10 @@ async function sendGroupMessage(groupId, message, mentions, images) {
       fullMessage = groupMemoryContext + '\n\n' + fullMessage;
     }
 
+    if (leadEmp) await ensureAgentRegistered(leadEmp);
     var agentId = leadEmp ? _resolveGroupAgentId(leadEmp) : group.leadAgentId;
     var sessionKey = 'agent:' + agentId + ':main';
+    console.log('[sendGroupMessage] 群主消息 agentId=' + agentId + '，lead=' + (leadEmp && leadEmp.name || group.leadAgentId) + '，openclawName=' + (leadEmp && leadEmp.openclawName || '空'));
 
     // 解析用户消息中的 @mentions（必须在用户原始消息 message 中匹配，不能在 fullMessage 中匹配，因为 fullMessage 的系统提示里包含了所有成员的 @名字）
     var userMentions = [];
@@ -10177,8 +10190,10 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
   emp.status = 'thinking';
   renderEmployeeList();
   try {
-    var agentId = emp.openclawName || emp.id;
+    await ensureAgentRegistered(emp);
+    var agentId = _resolveGroupAgentId(emp);
     var sessionKey = 'agent:' + agentId + ':main';
+    console.log('[askAgentToReply] 将向 agentId=' + agentId + ' 发送消息，员工=' + emp.name + '(' + emp.id + ')，openclawName=' + (emp.openclawName || '空'));
     var res = await openclaw.sendChat(sessionKey, prompt);
     var reply = res.result && res.result.content ? res.result.content.trim() : '';
     emp.status = 'online';
@@ -10279,12 +10294,36 @@ async function initiateAgentDiscussion(groupId) {
   }
 }
 
-// 解析员工在群聊中的 OpenClaw agentId：新员工没有 openclawName 时兜底到 main，避免无响应
+// 解析员工在群聊中的 OpenClaw agentId：优先使用已注册的 openclawName，否则用 emp.id
+// 不再兜底到 'main'，因为 main 在 OpenClaw 中通常是保留/未配置 agent，会导致新员工无响应
 function _resolveGroupAgentId(emp) {
   if (!emp) return 'main';
-  if (emp.openclawName) return emp.openclawName;
-  if (typeof openclaw !== 'undefined' && openclaw.connected) return 'main';
-  return emp.id;
+  if (emp.openclawName && emp.openclawName !== 'main') return emp.openclawName;
+  return emp.id || 'main';
+}
+
+// 若员工尚未注册到 OpenClaw（openclawName 为空或为 main），自动尝试注册
+// 注册成功后会更新 emp.openclawName，失败则仍用 emp.id 兜底
+async function ensureAgentRegistered(emp) {
+  if (!emp) return;
+  if (emp._registering) {
+    try { await emp._registeringPromise; } catch (e) {}
+    return;
+  }
+  var needsRegister = !emp.openclawName || emp.openclawName === 'main';
+  // openclawName === emp.id 表示已用员工 ID 注册过，无需重复注册
+  if (needsRegister && typeof openclaw !== 'undefined' && openclaw.connected) {
+    emp._registering = true;
+    emp._registeringPromise = registerOpenClawAgent(emp);
+    try {
+      var reg = await emp._registeringPromise;
+      console.log('[ensureAgentRegistered] ' + emp.name + ' 注册结果:', reg && reg.success, reg && reg.error);
+    } catch (e) {
+      console.warn('[ensureAgentRegistered] ' + emp.name + ' 注册异常:', e);
+    } finally {
+      emp._registering = false;
+    }
+  }
 }
 
 // 触发对群聊消息感兴趣的 AI 主动回复（不需要被 @）
@@ -10513,8 +10552,11 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     prompt = '【System Prompt】\n' + empSoul + '\n\n【User Message】\n' + prompt;
   }
 
+  // 新员工/未注册 AI 自动尝试注册到 OpenClaw，确保有合法的 agentId
+  await ensureAgentRegistered(emp);
   var agentId = _resolveGroupAgentId(emp);
   var sessionKey = 'agent:' + agentId + ':main';
+  console.log('[triggerMentionedAgent] 将向 agentId=' + agentId + ' 发送消息，员工=' + emp.name + '(' + emp.id + ')，openclawName=' + (emp.openclawName || '空'));
 
   // 显示"正在输入"（仅当仍在该群聊时才插入 DOM，避免切换后串渲染）
   if (currentGroupId === groupId) {
@@ -13824,13 +13866,25 @@ function confirmAddMembers() {
       return mid === empId;
     });
     if (!exists) {
-      group.members.push({'id': empId, 'role': ''});
+      var addEmp = findEmpByIdAcrossGroups(empId);
+      var addMemberObj = {'id': empId, 'role': ''};
+      if (addEmp) {
+        addMemberObj.name = addEmp.name;
+        addMemberObj.avatar = addEmp.avatar;
+        addMemberObj.bg = addEmp.bg;
+        addMemberObj.role = getEmpRoleDisplay(addEmp);
+        addMemberObj.openclawName = addEmp.openclawName;
+        addMemberObj.createdBy = addEmp.createdBy;
+      }
+      group.members.push(addMemberObj);
       newMemberIds.push(empId);
       count++;
     }
   });
   if (count > 0) {
     saveGroups();
+    mergeGroupMembersToEmps();
+    console.log('[confirmAddMembers] 已添加', count, '个成员:', newMemberIds, '到群组', group.id);
     renderGroupDetailMembers(group);
     renderGroupItems();
 
@@ -13944,14 +13998,28 @@ function addGroupMember(empId) {
     return mid === empId;
   });
   if (!exists) {
-    group.members.push({'id': empId, 'role': ''});
+    // 把员工完整信息一并写入 group.members，避免后续跨库查找拿到只有 id 的存根
+    var emp = findEmpByIdAcrossGroups(empId);
+    var memberObj = {'id': empId, 'role': ''};
+    if (emp) {
+      memberObj.name = emp.name;
+      memberObj.avatar = emp.avatar;
+      memberObj.bg = emp.bg;
+      memberObj.role = getEmpRoleDisplay(emp);
+      memberObj.openclawName = emp.openclawName;
+      memberObj.createdBy = emp.createdBy;
+    }
+    group.members.push(memberObj);
     saveGroups();
+    // 确保新员工被合并到 emps，@提及和触发都能立即找到
+    mergeGroupMembersToEmps();
     renderGroupDetailMembers(group);
     renderGroupItems();
     // 刷新群聊头部成员数（如果当前打开的是该群聊）
     _refreshGroupMemberCount(group);
     closeModal();
     showToast('已添加成员');
+    console.log('[addGroupMember] 已添加成员:', empId, emp ? emp.name : 'unknown', '到群组', group.id);
   }
 }
 
@@ -16793,6 +16861,7 @@ async function finishWizard() {
 
   // 注册 OpenClaw Agent
   var regResult = await registerOpenClawAgent(newEmp);
+  console.log('[finishCreateEmployeeWizard] 新员工', newEmp.id, newEmp.name, 'openclawName=', newEmp.openclawName, '注册结果=', regResult);
 
   // 根据注册结果处理
   if (regResult.success) {

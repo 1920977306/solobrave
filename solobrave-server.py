@@ -3609,6 +3609,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             'bg': agent.get('bg', '#FF6B35'),
                             'role': agent.get('role', ''),
                             'createdBy': agent.get('createdBy', ''),
+                            'openclawName': agent.get('openclawName', ''),
                         })
                     elif isinstance(m, dict):
                         enriched.append(m)
@@ -3653,6 +3654,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     'bg': agent.get('bg', '#FF6B35'),
                     'role': agent.get('role', ''),
                     'createdBy': agent.get('createdBy', ''),
+                    'openclawName': agent.get('openclawName', ''),
                 })
             elif isinstance(m, dict):
                 enriched.append(m)
