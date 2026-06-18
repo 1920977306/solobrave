@@ -2229,7 +2229,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .msg-time { font-size: 11px; color: var(--text-secondary); padding: 8px 0; text-align: center; }
 .msg-status { color: var(--accent); font-size: 11px; }
 
-.mention { color: var(--accent); font-weight: 500; background: var(--accent-light); padding: 0 4px; border-radius: 3px; }
+.mention { color: var(--text-secondary); font-weight: 500; background: rgba(134, 144, 156, 0.14); padding: 0 4px; border-radius: 3px; }
 
 /* ========== 代码块样式 ========== */
 .code-block {
@@ -3528,7 +3528,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 /* 群聊消息中的 @提及高亮 */
 .mention-tag {
   display: inline-block; padding: 1px 6px; border-radius: 4px;
-  background: rgba(0,122,255,0.1); color: #007AFF; font-weight: 500;
+  background: rgba(134, 144, 156, 0.14); color: var(--text-secondary); font-weight: 500;
   font-size: 13px;
 }
 
@@ -6140,9 +6140,8 @@ async function sendMsg() {
     var mentionRegex = /@([^@\s]+)/g;
     var m;
     while ((m = mentionRegex.exec(text)) !== null) {
-      var mentionedEmp = emps.find(function (e) {
-        return e.name === m[1];
-      });
+      // 跨 emps + groups.members 查找被 @ 的成员
+      var mentionedEmp = findEmpByNameAcrossGroups(m[1]);
       if (mentionedEmp) mentions.push(mentionedEmp.id);
     }
     input.value = '';
@@ -7432,6 +7431,9 @@ async function loadEmployees() {
               console.warn('[loadEmployees] 跳过重复员工:', a.id, a.name);
             }
           });
+          // 重新合并项目组成员，防止 emps 被清空后丢失群内 AI 的 @提及匹配能力
+          mergeGroupMembersToEmps();
+
           // 不再存localStorage，避免不同用户数据混淆
 
           // 异步同步迁移后的头像到后端（避免下次刷新又被覆盖）
@@ -7459,6 +7461,8 @@ async function loadEmployees() {
   } else {
     console.log('[loadEmployees] 跳过后端加载, token=', token);
   }
+  // 后端加载失败或本地模式时，也尝试合并项目组成员
+  mergeGroupMembersToEmps();
 }
 
 // Tasks data with drag support
@@ -8181,6 +8185,26 @@ function mergeGroupMembersToEmps() {
     });
   });
 }
+
+// 按名字查找员工：优先在 emps 中找完整对象，找不到时在所有项目组成员中找基础信息
+function findEmpByNameAcrossGroups(name) {
+  if (!name) return null;
+  var inEmps = emps.find(function (e) {
+    return e && e.name === name;
+  });
+  if (inEmps) return inEmps;
+  for (var i = 0; i < groups.length; i++) {
+    var members = groups[i].members || [];
+    for (var j = 0; j < members.length; j++) {
+      var m = members[j];
+      if (m && typeof m === 'object' && m.name === name) {
+        return m;
+      }
+    }
+  }
+  return null;
+}
+
 async function saveGroups() {
   var token = localStorage.getItem('sb_auth_token');
   if (token && token !== 'local_mode' && typeof apiFetch === 'function') {
@@ -9788,9 +9812,8 @@ async function sendGroupMessage(groupId, message, mentions, images) {
     var um;
     while ((um = userMentionRegex.exec(message)) !== null) {
       var umName = um[1];
-      var umEmp = emps.find(function (e) {
-        return e.name === umName;
-      });
+      // 使用跨 emps + groups.members 的查找，避免非创建者因 emps 过滤而找不到被 @ 的成员
+      var umEmp = findEmpByNameAcrossGroups(umName);
       if (umEmp && umEmp.id !== group.leadAgentId) {
         userMentions.push(umEmp);
       }
@@ -9997,9 +10020,8 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
   var m;
   while ((m = mentionRegex.exec(replyText)) !== null) {
     var mentionedName = m[1];
-    var mentionedEmp = emps.find(function (e) {
-      return e.name === mentionedName;
-    });
+    // 跨 emps + groups.members 查找，确保群主/其他成员 @ 的 AI 也能被触发
+    var mentionedEmp = findEmpByNameAcrossGroups(mentionedName);
     var isGroupMember = mentionedEmp && groupMemberIds.indexOf(mentionedEmp.id) !== -1;
     if (isGroupMember && mentionedEmp.id !== senderId && !mentionTriggered[mentionedEmp.id]) {
       matches.push(mentionedEmp);

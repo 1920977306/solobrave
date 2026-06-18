@@ -569,12 +569,15 @@ def _load_permissions():
         data['roleTemplates'] = _default_permission_templates()['roleTemplates']
     if 'userOverrides' not in data or not isinstance(data['userOverrides'], dict):
         data['userOverrides'] = {}
-    # 补齐缺失模块键
+    # 补齐缺失模块键：优先使用默认模板中的值，保持向后兼容
+    # 例如 products 模块是新加入的，旧权限文件缺少该键，默认给 True 避免误拒
+    default_templates = {t['id']: t for t in _default_permission_templates()['roleTemplates']}
     for tmpl in data['roleTemplates']:
         modules = tmpl.get('modules', {})
+        default_modules = default_templates.get(tmpl.get('id'), {}).get('modules', {})
         for m in AVAILABLE_MODULES:
             if m not in modules:
-                modules[m] = False
+                modules[m] = bool(default_modules.get(m, False))
         tmpl['modules'] = modules
     return data
 
