@@ -2229,7 +2229,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .msg-time { font-size: 11px; color: var(--text-secondary); padding: 8px 0; text-align: center; }
 .msg-status { color: var(--accent); font-size: 11px; }
 
-.mention { color: var(--text-secondary); font-weight: 500; background: rgba(134, 144, 156, 0.14); padding: 0 4px; border-radius: 3px; }
+.mention { color: #007AFF; font-weight: 500; background: rgba(0, 122, 255, 0.1); padding: 0 4px; border-radius: 3px; }
+.msg.own .mention { color: #ffffff; background: rgba(255, 255, 255, 0.25); }
 
 /* ========== 代码块样式 ========== */
 .code-block {
@@ -3528,8 +3529,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 /* 群聊消息中的 @提及高亮 */
 .mention-tag {
   display: inline-block; padding: 1px 6px; border-radius: 4px;
-  background: rgba(134, 144, 156, 0.14); color: var(--text-secondary); font-weight: 500;
+  background: rgba(0, 122, 255, 0.1); color: #007AFF; font-weight: 500;
   font-size: 13px;
+}
+/* 自己发的消息里的 @提及用白色，避免在蓝色气泡上看不见 */
+.msg.own .mention-tag {
+  background: rgba(255, 255, 255, 0.25); color: #ffffff;
 }
 
 /* 创建群组向导 */
@@ -6137,7 +6142,8 @@ async function sendMsg() {
   // 群聊模式：不走个人聊天状态流，直接转发
   if (currentGroupId) {
     var mentions = [];
-    var mentionRegex = /@([^@\s]+)/g;
+    // @提及名字中不能包含中英文标点、括号、另一 @ 或空格
+    var mentionRegex = /@([^\s@,，.。！？;；:：、（）()\[\]【】{}<>"'&]{1,20})/g;
     var m;
     while ((m = mentionRegex.exec(text)) !== null) {
       // 跨 emps + groups.members 查找被 @ 的成员
@@ -8189,15 +8195,41 @@ function mergeGroupMembersToEmps() {
 // 按名字查找员工：优先在 emps 中找完整对象，找不到时在所有项目组成员中找基础信息
 function findEmpByNameAcrossGroups(name) {
   if (!name) return null;
+  // 去掉可能的角色后缀，如 "张三（设计师）" -> "张三"
+  var baseName = name.replace(/[\s]*[（(].*?[）)][\s]*$/g, '').trim();
+  var candidates = [name, baseName];
+  for (var c = 0; c < candidates.length; c++) {
+    var q = candidates[c];
+    if (!q) continue;
+    var inEmps = emps.find(function (e) {
+      return e && e.name === q;
+    });
+    if (inEmps) return inEmps;
+    for (var i = 0; i < groups.length; i++) {
+      var members = groups[i].members || [];
+      for (var j = 0; j < members.length; j++) {
+        var m = members[j];
+        if (m && typeof m === 'object' && m.name === q) {
+          return m;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// 按 ID 查找员工：优先在 emps 中找完整对象，找不到时在所有项目组成员中找基础信息
+function findEmpByIdAcrossGroups(id) {
+  if (!id) return null;
   var inEmps = emps.find(function (e) {
-    return e && e.name === name;
+    return e && e.id === id;
   });
   if (inEmps) return inEmps;
   for (var i = 0; i < groups.length; i++) {
     var members = groups[i].members || [];
     for (var j = 0; j < members.length; j++) {
       var m = members[j];
-      if (m && typeof m === 'object' && m.name === name) {
+      if (m && typeof m === 'object' && m.id === id) {
         return m;
       }
     }
@@ -9645,9 +9677,7 @@ function renderGroupMessages(groupId) {
       var isOwn = m.role === 'user';
       var senderEmp = null;
       if (!isOwn && m.senderId) {
-        senderEmp = emps.find(function (e) {
-          return e.id === m.senderId;
-        });
+        senderEmp = findEmpByIdAcrossGroups(m.senderId);
       }
 
       // 处理 @提及高亮：AI/assistant 消息走 Markdown 渲染，用户消息保持纯文本 + @高亮
@@ -9673,8 +9703,8 @@ function renderGroupMessages(groupId) {
 function formatGroupMessage(text) {
   if (!text) return '';
   var result = escapeHtml(text);
-  // 高亮 @提及
-  result = result.replace(/@([^@\s]+)/g, '<span class="mention-tag">@$1</span>');
+  // 高亮 @提及（名字中不能包含另一 @、空格、中英文标点及括号）
+  result = result.replace(/@([^\s@,，.。！？;；:：、（）()\[\]【】{}<>"'&]+)/g, '<span class="mention-tag">@$1</span>');
   // 处理换行
   result = result.replace(/\n/g, '<br>');
   return result;
@@ -9683,7 +9713,8 @@ function formatGroupMessage(text) {
 // 在已有 HTML 中安全地高亮 @提及（避免破坏标签属性）
 function highlightMentions(html) {
   if (!html) return '';
-  return html.replace(/@([^\s<>"'&]+)/g, '<span class="mention-tag">@$1</span>');
+  // 在已有 HTML 中高亮 @提及，避免破坏标签属性，同时排除中英文标点及括号
+  return html.replace(/@([^\s<>,，.。！？;；:：、（）()\[\]【】{}"'&]+)/g, '<span class="mention-tag">@$1</span>');
 }
 
 // 发送群聊消息
@@ -9731,6 +9762,7 @@ async function sendGroupMessage(groupId, message, mentions, images) {
   window._pollRound = 0;
   window._pollTriggered = {};
   mentionTriggered = {};
+  mentionChainDepth = 0;
 
   // 触发对消息感兴趣的 AI 主动回复（不需要被 @）
   triggerInterestedAgents(groupId, 'user', message);
@@ -9752,27 +9784,22 @@ async function sendGroupMessage(groupId, message, mentions, images) {
   var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
   if (ocOk && group.leadAgentId) {
     // 构建完整消息（包含群组上下文和 @提及）
-    var leadEmp = emps.find(function (e) {
-      return e.id === group.leadAgentId;
-    });
+    // 跨 emps + groups.members 查找群主，确保非创建者也能获取群主信息
+    var leadEmp = findEmpByIdAcrossGroups(group.leadAgentId);
     var leadEmpInfo = leadEmp ? leadEmp.name + '(' + getEmpRoleDisplay(leadEmp) + ')' : '群主';
     // 兼容 members 的两种格式：字符串数组 和 字典数组
     var _memberIds2 = (group.members || []).map(function (m) {
       return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
     }).filter(function (id) { return id; });
     var memberList = _memberIds2.map(function (mid) {
-      var e = emps.find(function (x) {
-        return x.id === mid;
-      });
+      var e = findEmpByIdAcrossGroups(mid);
       if (!e) return '';
       var _r = getEmpRoleDisplay(e);
       var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
       return e.name + '（' + (_r || '员工') + _skills + '）';
     }).filter(function (s) { return s; }).join('、');
     var memberMentions = _memberIds2.map(function (mid) {
-      var e = emps.find(function (x) {
-        return x.id === mid;
-      });
+      var e = findEmpByIdAcrossGroups(mid);
       var _r = getEmpRoleDisplay(e);
       return e ? (_r ? '@' + e.name + '（' + _r + '）' : '@' + e.name) : '';
     }).filter(function (s) { return s; }).join('、');
@@ -9808,7 +9835,8 @@ async function sendGroupMessage(groupId, message, mentions, images) {
 
     // 解析用户消息中的 @mentions（必须在用户原始消息 message 中匹配，不能在 fullMessage 中匹配，因为 fullMessage 的系统提示里包含了所有成员的 @名字）
     var userMentions = [];
-    var userMentionRegex = /@([^\s@,，。！？;；:：、\n]{1,20})/g;
+    // @提及名字中不能包含中英文标点、括号、另一 @ 或空格；允许 AI 用 "@名字" 纯格式
+    var userMentionRegex = /@([^\s@,，.。！？;；:：、（）()\[\]【】{}<>"'&]{1,20})/g;
     var um;
     while ((um = userMentionRegex.exec(message)) !== null) {
       var umName = um[1];
@@ -9844,7 +9872,7 @@ async function sendGroupMessage(groupId, message, mentions, images) {
           recentMsgs.forEach(function (m) {
             var sender = m.senderName;
             if (!sender && m.senderId) {
-              var _se = emps.find(function (e) { return e.id === m.senderId; });
+              var _se = findEmpByIdAcrossGroups(m.senderId);
               if (_se) sender = _se.name;
             }
             if (!sender) sender = m.senderType === 'user' ? '用户' : 'AI';
@@ -9875,7 +9903,7 @@ async function sendGroupMessage(groupId, message, mentions, images) {
       window._thinkingTimeouts = window._thinkingTimeouts || {};
       clearTimeout(window._thinkingTimeouts[group.leadAgentId]);
       window._thinkingTimeouts[group.leadAgentId] = setTimeout(function () {
-        var _gte = emps.find(function (e) { return e.id === group.leadAgentId; });
+        var _gte = findEmpByIdAcrossGroups(group.leadAgentId);
         if (_gte && _gte.status === 'thinking') {
           _gte.status = 'online';
           renderEmployeeList();
@@ -9902,7 +9930,7 @@ async function sendGroupMessage(groupId, message, mentions, images) {
           displayGroupAIReply(groupId, group.leadAgentId, reply);
           // 保存已在 displayGroupAIReply 中统一处理，此处不再重复存储
           notifyOfficeStatusChange(group.leadAgentId, 'online');
-          var _gse2 = emps.find(function (e) { return e.id === group.leadAgentId; });
+          var _gse2 = findEmpByIdAcrossGroups(group.leadAgentId);
           if (_gse2) {
             _gse2.status = 'online';
             renderEmployeeList();
@@ -9916,6 +9944,8 @@ async function sendGroupMessage(groupId, message, mentions, images) {
           parseAndTriggerMentions(reply, groupId, group.leadAgentId);
           // 群主回复后，也让其他感兴趣的 AI 自主参与
           triggerInterestedAgents(groupId, group.leadAgentId, reply);
+          // 轮询其他成员是否要补充回复
+          pollAgentsForReply(groupId, group.leadAgentId, reply);
         }
         var agentHandler = function (data) {
           if (!data) return;
@@ -9936,7 +9966,7 @@ async function sendGroupMessage(groupId, message, mentions, images) {
             // AI 开始思考 → 发送 thinking 状态
             if (data.data.phase === 'start' || data.data.phase === 'thinking') {
               notifyOfficeStatusChange(group.leadAgentId, 'thinking');
-              var _gse = emps.find(function (e) { return e.id === group.leadAgentId; });
+              var _gse = findEmpByIdAcrossGroups(group.leadAgentId);
               if (_gse) {
                 _gse.status = 'thinking';
                 renderEmployeeList();
@@ -10000,7 +10030,7 @@ async function sendGroupMessage(groupId, message, mentions, images) {
 
 // ===== AI互相@系统 =====
 var mentionChainDepth = 0;
-var MENTION_MAX_DEPTH = 5;
+var MENTION_MAX_DEPTH = 10;
 var mentionTriggered = {};
 function parseAndTriggerMentions(replyText, groupId, senderId) {
   if (mentionChainDepth >= MENTION_MAX_DEPTH) return;
@@ -10015,7 +10045,8 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
   }).filter(function (id) { return id; });
 
   // 匹配 @名字（中英文都支持），仅触发当前项目组成员
-  var mentionRegex = /@([^\s@,，。！？;；:：、\n]{1,20})/g;
+  // 名字中不能包含中英文标点、括号、另一 @ 或空格，防止 "@张三（设计师）" 被整个捕获
+  var mentionRegex = /@([^\s@,，.。！？;；:：、（）()\[\]【】{}<>"'&]{1,20})/g;
   var matches = [];
   var m;
   while ((m = mentionRegex.exec(replyText)) !== null) {
@@ -10026,21 +10057,28 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
     if (isGroupMember && mentionedEmp.id !== senderId && !mentionTriggered[mentionedEmp.id]) {
       matches.push(mentionedEmp);
       mentionTriggered[mentionedEmp.id] = true;
+      console.log('[parseAndTriggerMentions] 检测到 @' + mentionedName + ' -> ' + mentionedEmp.name + '(' + mentionedEmp.id + ')，将触发回复');
+    } else {
+      console.log('[parseAndTriggerMentions] 未触发 @' + mentionedName + ':', {
+        found: !!mentionedEmp,
+        isMember: mentionedEmp && groupMemberIds.indexOf(mentionedEmp.id) !== -1,
+        isSender: mentionedEmp && mentionedEmp.id === senderId,
+        alreadyTriggered: mentionedEmp && !!mentionTriggered[mentionedEmp.id]
+      });
     }
   }
 
   // 同时匹配纯文字中的成员名字（整词匹配），如果 AI 回复内容中提到了其他成员名字也要自动触发
   groupMemberIds.forEach(function (mid) {
     if (mid === senderId || mentionTriggered[mid]) return;
-    var emp = emps.find(function (e) {
-      return e.id === mid;
-    });
+    var emp = findEmpByIdAcrossGroups(mid);
     if (!emp || !emp.name) return;
     var escapedName = emp.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     var nameRegex = new RegExp('(?:^|[^\\w\\u4e00-\\u9fa5])' + escapedName + '(?:$|[^\\w\\u4e00-\\u9fa5])');
     if (nameRegex.test(replyText)) {
       matches.push(emp);
       mentionTriggered[mid] = true;
+      console.log('[parseAndTriggerMentions] 纯文字提到成员 ' + emp.name + '，将触发回复');
     }
   });
 
@@ -10073,14 +10111,12 @@ function pollAgentsForReply(groupId, senderId, messageContent) {
     return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
   }).filter(function (id) { return id; }).filter(function (mid) {
     if (mid === senderId) return false;
-    var e = emps.find(function (x) {
-      return x.id === mid;
-    });
+    var e = findEmpByIdAcrossGroups(mid);
     return e && !e.archived;
   });
   if (others.length === 0) return;
   console.log('[pollAgentsForReply] 轮询成员:', others.map(function (mid) {
-    var e = emps.find(function (x) { return x.id === mid; });
+    var e = findEmpByIdAcrossGroups(mid);
     return e ? e.name : mid;
   }).join(', '));
 
@@ -10094,9 +10130,7 @@ function pollAgentsForReply(groupId, senderId, messageContent) {
 
 // 让单个 AI 判断是否要回复群聊消息，直接回复内容或 SKIP
 async function askAgentToReply(mid, groupId, senderId, messageContent) {
-  var emp = emps.find(function (e) {
-    return e.id === mid;
-  });
+  var emp = findEmpByIdAcrossGroups(mid);
   if (!emp) return;
   // 防重：同一轮对话中不重复触发同一成员
   var pollKey = groupId + '_' + mid;
@@ -10123,9 +10157,7 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
   }).filter(function (id) { return id; }) : [];
   var memberProfiles = _memberIds4.map(function (mid2) {
-    var e = emps.find(function (x) {
-      return x.id === mid2;
-    });
+    var e = findEmpByIdAcrossGroups(mid2);
     if (!e) return '';
     var _r = getEmpRoleDisplay(e);
     var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
@@ -10182,9 +10214,7 @@ async function initiateAgentDiscussion(groupId) {
   }).filter(function (id) { return id; });
   // 随机选一个成员作为发起人
   var candidates = _memberIds3.filter(function (mid) {
-    var e = emps.find(function (x) {
-      return x.id === mid;
-    });
+    var e = findEmpByIdAcrossGroups(mid);
     return e && !e.archived && e.status !== 'thinking';
   });
   if (candidates.length === 0) {
@@ -10192,16 +10222,12 @@ async function initiateAgentDiscussion(groupId) {
     return;
   }
   var initiatorId = candidates[Math.floor(Math.random() * candidates.length)];
-  var initiator = emps.find(function (e) {
-    return e.id === initiatorId;
-  });
+  var initiator = findEmpByIdAcrossGroups(initiatorId);
   if (!initiator) return;
 
   var groupName = group.name;
   var memberProfiles = _memberIds3.map(function (mid) {
-    var e = emps.find(function (x) {
-      return x.id === mid;
-    });
+    var e = findEmpByIdAcrossGroups(mid);
     if (!e) return '';
     var _r = getEmpRoleDisplay(e);
     var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
@@ -10264,7 +10290,7 @@ function _resolveGroupAgentId(emp) {
 // 触发对群聊消息感兴趣的 AI 主动回复（不需要被 @）
 function triggerInterestedAgents(groupId, senderId, messageContent) {
   // 限制链深度，避免级联刷屏
-  if (mentionChainDepth >= 3) return;
+  if (mentionChainDepth >= MENTION_MAX_DEPTH) return;
   var group = groups.find(function (g) {
     return g.id === groupId;
   });
@@ -10277,14 +10303,12 @@ function triggerInterestedAgents(groupId, senderId, messageContent) {
     var candidates = _memberIds5.filter(function (mid) {
       if (mid === senderId) return false;
       if (mentionTriggered && mentionTriggered[mid]) return false;
-      var e = emps.find(function (x) {
-        return x.id === mid;
-      });
+      var e = findEmpByIdAcrossGroups(mid);
       return e && !e.archived && e.status !== 'thinking';
     });
     if (candidates.length === 0) return;
     console.log('[triggerInterestedAgents] 候选成员:', candidates.map(function (mid) {
-      var e = emps.find(function (x) { return x.id === mid; });
+      var e = findEmpByIdAcrossGroups(mid);
       return e ? e.name : mid;
     }).join(', '));
     // 随机打乱后遍历所有候选成员，不再限制只选 2 个
@@ -10305,9 +10329,7 @@ function triggerInterestedAgents(groupId, senderId, messageContent) {
 
 // 让单个 AI 判断群聊消息是否与其相关，相关则触发完整回复
 async function checkAgentInterest(mid, groupId, senderId, messageContent) {
-  var emp = emps.find(function (e) {
-    return e.id === mid;
-  });
+  var emp = findEmpByIdAcrossGroups(mid);
   if (!emp) return;
   // 如果该成员已被 pollAgentsForReply 轮询过，不再重复判断，避免并发冲突
   var pollKey = groupId + '_' + mid;
@@ -10326,9 +10348,7 @@ async function checkAgentInterest(mid, groupId, senderId, messageContent) {
     return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
   }).filter(function (id) { return id; }) : [];
   var memberProfiles = _memberIds6.map(function (mid) {
-    var e = emps.find(function (x) {
-      return x.id === mid;
-    });
+    var e = findEmpByIdAcrossGroups(mid);
     if (!e) return '';
     var _r = getEmpRoleDisplay(e);
     var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
@@ -10372,6 +10392,7 @@ function triggerUserMentions(userMentions, groupId, senderId, originalMessage) {
 }
 async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) {
   mentionChainDepth++;
+  console.log('[triggerMentionedAgent] 尝试触发 ' + (emp && emp.name || emp.id) + ' 回复，来源=' + fromId + '，depth=' + mentionChainDepth + '，source=' + source);
 
   // 如果该成员已被 pollAgentsForReply 轮询过，跳过避免重复触发
   var pollKey = groupId + '_' + emp.id;
@@ -10389,10 +10410,9 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   var group = groups.find(function (g) {
     return g.id === groupId;
   });
-  var fromEmp = emps.find(function (e) {
-    return e.id === fromId;
-  });
-  var fromName = fromEmp ? fromEmp.name : '用户';
+  // 跨 emps + groups.members 查找来源，确保 AI@AI 时能正确显示来源名字
+  var fromEmp = findEmpByIdAcrossGroups(fromId);
+  var fromName = fromEmp ? fromEmp.name : (fromId === 'user' ? '用户' : 'AI');
 
   // 获取项目组上下文
   var groupObj = groups.find(function (g) {
@@ -10404,18 +10424,14 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
   }).filter(function (id) { return id; }) : [];
   var memberList = _memberIds.map(function (mid) {
-    var e = emps.find(function (x) {
-      return x.id === mid;
-    });
+    var e = findEmpByIdAcrossGroups(mid);
     if (!e) return '';
     var _r = getEmpRoleDisplay(e);
     var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
     return e.name + '（' + (_r || '员工') + _skills + '）';
   }).filter(function (s) { return s; }).join('、');
   var memberMentions = _memberIds.map(function (mid) {
-    var e = emps.find(function (x) {
-      return x.id === mid;
-    });
+    var e = findEmpByIdAcrossGroups(mid);
     var _r = getEmpRoleDisplay(e);
     return e ? (_r ? '@' + e.name + '（' + _r + '）' : '@' + e.name) : '';
   }).filter(function (s) { return s; }).join('、');
@@ -10465,7 +10481,7 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
       recentMsgs2.forEach(function (m) {
         var sender2 = m.senderName;
         if (!sender2 && m.senderId) {
-          var _se2 = emps.find(function (e) { return e.id === m.senderId; });
+          var _se2 = findEmpByIdAcrossGroups(m.senderId);
           if (_se2) sender2 = _se2.name;
         }
         if (!sender2) sender2 = m.senderType === 'user' ? '用户' : 'AI';
@@ -10511,7 +10527,7 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   window._thinkingTimeouts = window._thinkingTimeouts || {};
   clearTimeout(window._thinkingTimeouts[emp.id]);
   window._thinkingTimeouts[emp.id] = setTimeout(function () {
-    var _mte = emps.find(function (e) { return e.id === emp.id; });
+    var _mte = findEmpByIdAcrossGroups(emp.id);
     if (_mte && _mte.status === 'thinking') {
       _mte.status = 'online';
       renderEmployeeList();
@@ -10537,7 +10553,7 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
       if (isError) reply = '⚠️ 响应出错';
       displayGroupAIReply(groupId, emp.id, reply);
       notifyOfficeStatusChange(emp.id, 'online');
-      var _mse2 = emps.find(function (e) { return e.id === emp.id; });
+      var _mse2 = findEmpByIdAcrossGroups(emp.id);
       if (_mse2) {
         _mse2.status = 'online';
         renderEmployeeList();
@@ -10552,6 +10568,8 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
       parseAndTriggerMentions(reply, groupId, emp.id);
       // AI 回复后，也让其他感兴趣的 AI 自主参与
       triggerInterestedAgents(groupId, emp.id, reply);
+      // 轮询其他成员是否要补充回复
+      pollAgentsForReply(groupId, emp.id, reply);
     }
     var agentHandler = function (data) {
       if (!data) return;
@@ -10573,7 +10591,7 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
         // AI 开始思考 → 发送 thinking 状态
         if (data.data.phase === 'start' || data.data.phase === 'thinking') {
           notifyOfficeStatusChange(emp.id, 'thinking');
-          var _mse = emps.find(function (e) { return e.id === emp.id; });
+          var _mse = findEmpByIdAcrossGroups(emp.id);
           if (_mse) {
             _mse.status = 'thinking';
             renderEmployeeList();
@@ -10601,7 +10619,7 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
         openclaw.off('agent', agentHandler);
       }
       notifyOfficeStatusChange(emp.id, 'online');
-      var _me = emps.find(function (e) { return e.id === emp.id; });
+      var _me = findEmpByIdAcrossGroups(emp.id);
       if (_me) {
         _me.status = 'online';
         renderEmployeeList();
@@ -10616,7 +10634,7 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     if (t) t.remove();
     if (typeof agentHandler === 'function') openclaw.off('agent', agentHandler);
     notifyOfficeStatusChange(emp.id, 'online');
-    var _me2 = emps.find(function (e) { return e.id === emp.id; });
+    var _me2 = findEmpByIdAcrossGroups(emp.id);
     if (_me2) {
       _me2.status = 'online';
       renderEmployeeList();
@@ -10641,9 +10659,7 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   window._groupReplyDedup[dedupKey] = Date.now();
 
   var area = document.getElementById('messagesArea');
-  var senderEmp = emps.find(function (e) {
-    return e.id === senderId;
-  });
+  var senderEmp = findEmpByIdAcrossGroups(senderId);
   var avatarHtml = senderEmp ? renderAvatar(senderEmp, 32) : '🤖';
   var senderName = senderEmp ? senderEmp.name : 'AI';
   var senderRole = senderEmp ? getEmpRoleDisplay(senderEmp) : '';
@@ -10733,13 +10749,7 @@ function displayGroupAIReply(groupId, senderId, replyText) {
     }
   }
 
-  // 解析回复中的 @提及 和纯文字成员名字，触发链式讨论
-  parseAndTriggerMentions(replyText, groupId, senderId);
-
-  // 群聊模式下，轮询其他 AI 成员判断是否回复
-  if (currentGroupId && currentGroupId === groupId) {
-    pollAgentsForReply(groupId, senderId, replyText);
-  }
+  // 注意：@提及触发统一在 _doHandle 中处理（已重置 mentionTriggered，避免重复/遗漏）
 }
 
 // ========== 创建群组向导 ==========
@@ -10890,9 +10900,7 @@ function renderGroupWizardStep3() {
     membersEl.textContent = memberNames;
   }
   if (leadEl) {
-    var leadEmp = emps.find(function (x) {
-      return x.id === gwLead;
-    });
+    var leadEmp = findEmpByIdAcrossGroups(gwLead);
     leadEl.textContent = leadEmp ? leadEmp.name : gwLead;
   }
 }
@@ -11111,9 +11119,7 @@ function _doSendUrgeMessage(urgeText) {
     showToast('⚠️ 请先进入一个群组');
     return;
   }
-  var leadEmp = emps.find(function (e) {
-    return e.id === group.leadAgentId;
-  });
+  var leadEmp = findEmpByIdAcrossGroups(group.leadAgentId);
   if (!leadEmp) {
     showToast('⚠️ 群组没有设置群主');
     return;
@@ -11130,14 +11136,10 @@ function _doSendUrgeMessage(urgeText) {
   var validMembers = group.members.map(function (m) {
     return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
   }).filter(function (id) { return id; }).filter(function (mid) {
-    return emps.some(function (e) {
-      return e.id === mid;
-    }) && mid !== group.leadAgentId;
+    return !!findEmpByIdAcrossGroups(mid) && mid !== group.leadAgentId;
   });
   validMembers.forEach(function (mid, idx) {
-    var emp = emps.find(function (e) {
-      return e.id === mid;
-    });
+    var emp = findEmpByIdAcrossGroups(mid);
     if (!emp) return;
     setTimeout(function () {
       triggerMentionedAgent(emp, group.id, group.leadAgentId, 'ai', fullMessage);
@@ -11155,9 +11157,7 @@ function urgeGroupMembers() {
     showToast('⚠️ 请先进入一个群组');
     return;
   }
-  var leadEmp = emps.find(function (e) {
-    return e.id === group.leadAgentId;
-  });
+  var leadEmp = findEmpByIdAcrossGroups(group.leadAgentId);
   if (!leadEmp) {
     showToast('⚠️ 群组没有设置群主');
     return;
@@ -11816,7 +11816,7 @@ function handleInput() {
     var md = document.getElementById('mentionDropdown');
     if (md) md.classList.remove('active');
     mentionMode = false;
-  } else if (/@([^@\s]*)$/.test(val)) {
+  } else if (/@([^\s@,，.。！？;；:：、（）()\[\]【】{}<>"'&]*)$/.test(val)) {
     showMentionDropdown();
     mentionMode = true;
   } else {
@@ -11908,7 +11908,7 @@ function showMentionDropdown() {
   // 提取当前 @ 后的搜索词
   var query = '';
   if (input && input.value) {
-    var m = input.value.match(/@([^@\s]*)$/);
+    var m = input.value.match(/@([^\s@,，.。！？;；:：、（）()\[\]【】{}<>"'&]*)$/);
     if (m) query = m[1].trim().toLowerCase();
   }
 
