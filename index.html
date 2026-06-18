@@ -6146,8 +6146,10 @@ async function sendMsg() {
       if (mentionedEmp) mentions.push(mentionedEmp.id);
     }
     input.value = '';
-    document.getElementById('mentionDropdown').style.display = 'none';
-    document.getElementById('slashMenu').style.display = 'none';
+    var md = document.getElementById('mentionDropdown');
+    if (md) md.classList.remove('active');
+    var sm = document.getElementById('slashMenu');
+    if (sm) sm.classList.remove('active');
     clearPendingImages();
     updateSendButtonState();
     sendGroupMessage(currentGroupId, text, mentions, pendingImages);
@@ -8327,6 +8329,8 @@ document.getElementById('msgInput').addEventListener('keydown', function (e) {
     document.getElementById('slashSearch').value = '';
     filterSlashCommands('');
     mentionMode = false;
+    var md = document.getElementById('mentionDropdown');
+    if (md) md.classList.remove('active');
     // 聚焦搜索框
     setTimeout(function () {
       return document.getElementById('slashSearch').focus();
@@ -8338,6 +8342,11 @@ document.getElementById('msgInput').addEventListener('keydown', function (e) {
       e.preventDefault();
       const sel = document.querySelector('#slashSections .slash-item.selected');
       if (sel) execCmd(sel.dataset.cmd);
+    } else if (mentionMode) {
+      e.preventDefault();
+      var items = document.querySelectorAll('#mentionDropdown .mention-item');
+      var sel = items[mentionIdx] || items[0];
+      if (sel && sel.dataset.id) pickMention(sel.dataset.id);
     } else {
       e.stopPropagation();
       sendMsg();
@@ -8350,6 +8359,14 @@ document.getElementById('msgInput').addEventListener('keydown', function (e) {
   if (e.key === 'ArrowUp') {
     e.preventDefault();
     if (slashActive) navigateSlash(-1);else if (mentionMode) selectMention(-1);
+  }
+  if (e.key === 'Escape') {
+    var md = document.getElementById('mentionDropdown');
+    if (md && md.classList.contains('active')) {
+      md.classList.remove('active');
+      mentionMode = false;
+      mentionIdx = 0;
+    }
   }
 });
 document.getElementById('msgInput').addEventListener('input', handleInput);
@@ -8403,10 +8420,14 @@ document.querySelectorAll('.drawer-tab').forEach(function (t) {
   });
 });
 document.addEventListener('click', function (e) {
-  if (!e.target.closest('.mention-dropdown')) (function () {
+  if (!e.target.closest('.mention-dropdown')) {
     var el = document.getElementById('mentionDropdown');
-    if (el) el.classList.remove('active');
-  })();
+    if (el && el.classList.contains('active')) {
+      el.classList.remove('active');
+      mentionMode = false;
+      mentionIdx = 0;
+    }
+  }
   if (!e.target.closest('.slash-menu')) document.getElementById('slashMenu').classList.remove('active');
   if (!e.target.closest('.chat-more-menu')) closeChatMoreMenu();
 });
@@ -11770,19 +11791,16 @@ function handleInput() {
     document.getElementById('slashMenu').classList.add('active');
     document.getElementById('slashSearch').value = val.slice(1);
     filterSlashCommands(val.slice(1));
+    var md = document.getElementById('mentionDropdown');
+    if (md) md.classList.remove('active');
     mentionMode = false;
-  } else if (val.includes('@')) {
-    (function () {
-      var el = document.getElementById('mentionDropdown');
-      if (el) el.classList.add('active');
-    })();
+  } else if (/@([^@\s]*)$/.test(val)) {
+    showMentionDropdown();
     mentionMode = true;
   } else {
     document.getElementById('slashMenu').classList.remove('active');
-    (function () {
-      var el = document.getElementById('mentionDropdown');
-      if (el) el.classList.remove('active');
-    })();
+    var md2 = document.getElementById('mentionDropdown');
+    if (md2) md2.classList.remove('active');
     mentionMode = false;
   }
 }
@@ -11846,22 +11864,31 @@ function navigateSlash(dir) {
 
 // Mention
 function showMention() {
-  var dd = document.getElementById('mentionDropdown');
-  if (dd) dd.style.display = 'block';
-  mentionMode = true;
   var input = document.getElementById('msgInput');
   if (input) {
     var trimmed = input.value.replace(/\s+$/, '');
     if (!trimmed.endsWith('@')) input.value += '@';
+    input.focus();
   }
-  if (input) input.focus();
+  showMentionDropdown();
+  mentionMode = true;
+  updateSendButtonState();
 }
 function showMentionDropdown() {
   var dd = document.getElementById('mentionDropdown');
   var list = document.getElementById('mentionList');
+  var input = document.getElementById('msgInput');
   if (!dd || !list) return;
-  dd.style.display = 'block';
+  dd.classList.add('active');
+  mentionIdx = 0;
   list.innerHTML = '';
+
+  // 提取当前 @ 后的搜索词
+  var query = '';
+  if (input && input.value) {
+    var m = input.value.match(/@([^@\s]*)$/);
+    if (m) query = m[1].trim().toLowerCase();
+  }
 
   // 群聊模式下，优先显示群组成员
   var mentionList = emps;
@@ -11882,34 +11909,44 @@ function showMentionDropdown() {
     }
   }
 
+  var hasItems = false;
+
   // "所有人" 选项
-  var allDiv = document.createElement('div');
-  allDiv.className = 'mention-item';
-  allDiv.style.cssText = 'padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;';
-  allDiv.innerHTML = '<span style="font-size:16px;">👥</span><span>所有人</span>';
-  allDiv.onclick = function () {
-    var input = document.getElementById('msgInput');
-    if (input) input.value = input.value.replace(/@+[^@\n]*$/, '') + '@所有人 ';
-    dd.style.display = 'none';
-    mentionMode = false;
-  };
-  list.appendChild(allDiv);
+  if (!query || '所有人'.toLowerCase().indexOf(query) > -1) {
+    var allDiv = document.createElement('div');
+    allDiv.className = 'mention-item';
+    allDiv.dataset.id = 'all';
+    allDiv.style.cssText = 'padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;';
+    allDiv.innerHTML = '<span style="font-size:16px;">👥</span><span>所有人</span>';
+    allDiv.onclick = function () {
+      pickMention('all');
+    };
+    list.appendChild(allDiv);
+    hasItems = true;
+  }
+
   // 员工列表
   mentionList.forEach(function (emp) {
     if (!emp || emp.archived) return;
+    var empName = emp.name || '';
+    var empPinyin = (emp.pinyin || '').toLowerCase();
+    if (query && empName.toLowerCase().indexOf(query) === -1 && empPinyin.indexOf(query) === -1) return;
     var item = document.createElement('div');
     item.className = 'mention-item';
+    item.dataset.id = emp.id;
     item.style.cssText = 'padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;';
     var roleText = getEmpRoleDisplay(emp);
-    item.innerHTML = '<span>' + escapeHtml(emp.name) + (roleText ? ' (' + escapeHtml(roleText) + ')' : '') + '</span>';
+    item.innerHTML = '<span>' + escapeHtml(empName) + (roleText ? ' (' + escapeHtml(roleText) + ')' : '') + '</span>';
     item.onclick = function () {
-      var input = document.getElementById('msgInput');
-      if (input) input.value = input.value.replace(/@+[^@\n]*$/, '') + '@' + emp.name + ' ';
-      dd.style.display = 'none';
-      mentionMode = false;
+      pickMention(emp.id);
     };
     list.appendChild(item);
+    hasItems = true;
   });
+
+  if (!hasItems) {
+    list.innerHTML = '<div style="padding:8px 12px;color:var(--text-tertiary);font-size:13px;">无匹配成员</div>';
+  }
 }
 function selectMention(dir) {
   var items = document.querySelectorAll('#mentionDropdown .mention-item');
@@ -11927,12 +11964,12 @@ function pickMention(id) {
   })();
   var input = document.getElementById('msgInput');
   if (input) input.value = input.value.replace(/@+[^@\n]*$/, '') + '@' + name + ' ';
-  (function () {
-    var el = document.getElementById('mentionDropdown');
-    if (el) el.classList.remove('active');
-  })();
+  var dd = document.getElementById('mentionDropdown');
+  if (dd) dd.classList.remove('active');
   mentionMode = false;
-  input.focus();
+  mentionIdx = 0;
+  updateSendButtonState();
+  if (input) input.focus();
 }
 
 // Slash Commands
