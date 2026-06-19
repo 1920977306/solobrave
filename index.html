@@ -10061,6 +10061,7 @@ var MENTION_MAX_DEPTH = 10;
 var mentionTriggered = {};
 function parseAndTriggerMentions(replyText, groupId, senderId) {
   if (mentionChainDepth >= MENTION_MAX_DEPTH) return;
+  if (!replyText || typeof replyText !== 'string') return;
 
   var group = groups.find(function (g) {
     return g.id === groupId;
@@ -10071,6 +10072,9 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
     return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
   }).filter(function (id) { return id; });
 
+  console.log('[parseAndTriggerMentions] 开始解析，senderId=' + senderId + '，群成员=[' + groupMemberIds.join(',') + ']，文本长度=' + replyText.length);
+  console.log('[parseAndTriggerMentions] 待解析文本:', replyText);
+
   // 匹配 @名字（中英文都支持），仅触发当前项目组成员
   // 名字中不能包含中英文标点、括号、另一 @ 或空格，防止 "@张三（设计师）" 被整个捕获
   var mentionRegex = /@([^\s@,，.。！？;；:：、（）()\[\]【】{}<>"'&]{1,20})/g;
@@ -10078,6 +10082,7 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
   var m;
   while ((m = mentionRegex.exec(replyText)) !== null) {
     var mentionedName = m[1];
+    console.log('[parseAndTriggerMentions] 正则匹配到 @' + mentionedName);
     // 跨 emps + groups.members 查找，并支持带后缀/语气词的 @，确保群主/其他成员 @ 的 AI 也能被触发
     var mentionedEmp = resolveMentionedName(mentionedName);
     var isGroupMember = mentionedEmp && groupMemberIds.indexOf(mentionedEmp.id) !== -1;
@@ -10088,6 +10093,8 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
     } else {
       console.log('[parseAndTriggerMentions] 未触发 @' + mentionedName + ':', {
         found: !!mentionedEmp,
+        resolvedName: mentionedEmp && mentionedEmp.name,
+        resolvedId: mentionedEmp && mentionedEmp.id,
         isMember: mentionedEmp && groupMemberIds.indexOf(mentionedEmp.id) !== -1,
         isSender: mentionedEmp && mentionedEmp.id === senderId,
         alreadyTriggered: mentionedEmp && !!mentionTriggered[mentionedEmp.id]
@@ -10109,6 +10116,7 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
     }
   });
 
+  console.log('[parseAndTriggerMentions] 解析完成，将触发 ' + matches.length + ' 人:', matches.map(function (e) { return e.name + '(' + e.id + ')'; }).join(', '));
   if (matches.length === 0) return;
   matches.forEach(function (emp, idx) {
     var delay = (idx + 1) * (2000 + Math.floor(Math.random() * 3000));
@@ -10191,7 +10199,7 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     return e.name + '（' + (_r || '员工') + _skills + '）';
   }).filter(function (s) { return s; }).join('、');
 
-  var prompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人说：' + messageContent + '\n\n你是这个团队的一员，有自己的专业判断和脾气。群里讨论时，你应该积极开口：\n- 可以赞同、反对、补充、吐槽或提问\n- 结合你的专业身份给出简短看法（1-3句话）\n- 觉得谁该看到这个话题，直接@他（用 @名字 格式）\n- 不用写报告，就像真的在群里随口回复\n\n除非这个话题完全不在你的专业范围且与你毫无关系，否则不要回复 SKIP。默认情况下请直接发表看法。\n如果你确实无话可说，只回复一个单词 SKIP。\n\n' + GROUP_CHAT_ACTION_BOUNDARY;
+  var prompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人说：' + messageContent + '\n\n你是这个团队的一员，有自己的专业判断和脾气。群里讨论时，你应该积极开口：\n- 可以赞同、反对、补充、吐槽或提问\n- 结合你的专业身份给出简短看法（1-3句话）\n- 觉得谁该看到这个话题，直接@他（用 @名字 格式，例如 @貂蝉、@萧何）\n- 不用写报告，就像真的在群里随口回复\n\n重要：只要这个话题与你的角色/团队/项目有一丝关系，你就必须发表看法，不允许回复 SKIP。默认请直接回复你的观点。\n只有当你完全无法理解这个话题、且它与你的工作毫无关联时，才允许只回复一个单词 SKIP。\n如果你决定参与，请直接说出你的观点，不要写"SKIP"、"跳过"、"略"、"不回复"等表示不参与的内容。\n\n' + GROUP_CHAT_ACTION_BOUNDARY;
 
   // 注入项目组公共记忆
   try {
@@ -10208,28 +10216,43 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     var agentId = _resolveGroupAgentId(emp);
     var sessionKey = 'agent:' + agentId + ':main';
     console.log('[askAgentToReply] 将向 agentId=' + agentId + ' 发送消息，员工=' + emp.name + '(' + emp.id + ')，openclawName=' + (emp.openclawName || '空'));
+    console.log('[askAgentToReply] 完整 prompt 开始 >>>\n' + prompt + '\n<<< 完整 prompt 结束');
     var res = await openclaw.sendChat(sessionKey, prompt);
     var reply = res.result && res.result.content ? res.result.content.trim() : '';
+    console.log('[askAgentToReply] ' + emp.name + ' 原始返回:', reply);
     emp.status = 'online';
     renderEmployeeList();
     // 回复 SKIP 则跳过：兼容 AI 返回 "SKIP。"、"SKIP\n" 等带标点的变体
     function _isSkipReply(r) {
       if (!r) return true;
       var cleaned = r.trim().replace(/^[\s【】\[\]()（）]+|[\s【】\[\]()（）]+$/g, '').replace(/[。，！？.!?;；:：、]+$/g, '').toUpperCase();
-      return cleaned === 'SKIP';
+      if (cleaned === 'SKIP') return true;
+      // 兼容中文_skip表达，但保持精确匹配，避免误伤正常回复
+      var skipPhrases = ['跳过', '略', '不回复', '不参与', '无话可说', '没有看法', '没意见', '不发表', '飘过'];
+      for (var i = 0; i < skipPhrases.length; i++) {
+        if (cleaned === skipPhrases[i]) return true;
+      }
+      return false;
     }
     if (_isSkipReply(reply)) {
       console.log('[askAgentToReply] ' + emp.name + ' 选择 SKIP，不显示回复');
+      // 若本轮只是 SKIP，解除 poll 锁定，让后续 @触发 仍有机会调用该成员
+      if (window._pollTriggered) delete window._pollTriggered[pollKey];
       return;
     }
     console.log('[askAgentToReply] ' + emp.name + ' 回复:', reply.substring(0, 50) + '...');
     // 显示回复并保存历史（保存已在 displayGroupAIReply 中统一处理）
     displayGroupAIReply(groupId, mid, reply);
     notifyOfficeChatMessage(mid, 'incoming');
+    // 轮询成员的回复如果@了别人，也应触发链式响应
+    mentionChainDepth = (mentionChainDepth || 0);
+    parseAndTriggerMentions(reply, groupId, mid);
   } catch (e) {
     emp.status = 'online';
     renderEmployeeList();
     console.warn('[askAgentToReply] ' + emp.name + ' 响应异常:', e);
+    // 异常时也解除锁定，避免成员被永久标记为已轮询
+    if (window._pollTriggered) delete window._pollTriggered[pollKey];
   }
 }
 
