@@ -6322,211 +6322,121 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
       renderEmployeeList();
     }
   }
+  function setEmpStatus(status) {
+    var _e = emps.find(function (e) { return e.id === emp.id; });
+    if (_e) {
+      _e.status = status;
+      renderEmployeeList();
+    }
+    notifyOfficeStatusChange(emp.id, status);
+  }
 
   // 加载最近对话上下文（OpenClaw session 丢失时恢复历史）
   var chatContext = await buildRecentChatContext(emp.id, 10);
 
+  // 注入 RAG 检索结果（产品知识库）
+  var ragResult = { context: '', citations: [] };
   try {
-    var agentId = emp.openclawName || emp.id;
-    var sessionKey = 'agent:' + agentId + ':main';
-    var systemPrompt = '';
-    // 优先使用 soulDoc（SOUL.md），其次 systemPrompt
-    if (emp.soulDoc) systemPrompt = emp.soulDoc;else if (emp.systemPrompt) systemPrompt = emp.systemPrompt;
-    if (!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + getEmpRoleDisplay(emp) + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
-    // 注入当前用户身份信息，明确层级关系，防止 AI 把老板当学生/下属
-    var userRole = getCurrentUserRoleDisplay();
-    var userName = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
-    systemPrompt += '\n\n【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- ' + userName + '（' + userRole + '）是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。\n- 严禁用"教你""指导你""你做过吗""你懂吗"等居高临下的语气。\n- 老板问你问题时，直接回答，不要反问或考验老板。';
+    ragResult = await retrieveRAGContext(emp.id, userMessage);
+  } catch (e) {
+    console.warn('[RAG] OpenClaw 路径注入失败:', e);
+  }
 
-    // 加载对话摘要（如果有）
-    var summaryText = '';
-    try {
-      var summaryRes = await apiFetch('/api/chat/summarize/' + encodeURIComponent(emp.id));
-      var summaryData = await summaryRes.json();
-      if (summaryData && summaryData.summary) {
-        summaryText = '\n\n【历史对话摘要】\n' + summaryData.summary;
-      }
-    } catch (summaryErr) {
-      // 摘要不存在或加载失败，静默忽略
+  var systemPrompt = '';
+  // 优先使用 soulDoc（SOUL.md），其次 systemPrompt
+  if (emp.soulDoc) systemPrompt = emp.soulDoc;else if (emp.systemPrompt) systemPrompt = emp.systemPrompt;
+  if (!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + getEmpRoleDisplay(emp) + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
+  // 注入当前用户身份信息，明确层级关系，防止 AI 把老板当学生/下属
+  var userRole = getCurrentUserRoleDisplay();
+  var userName = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
+  systemPrompt += '\n\n【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- ' + userName + '（' + userRole + '）是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。\n- 严禁用"教你""指导你""你做过吗""你懂吗"等居高临下的语气。\n- 老板问你问题时，直接回答，不要反问或考验老板。';
+
+  // 加载对话摘要（如果有）
+  var summaryText = '';
+  try {
+    var summaryRes = await apiFetch('/api/chat/summarize/' + encodeURIComponent(emp.id));
+    var summaryData = await summaryRes.json();
+    if (summaryData && summaryData.summary) {
+      summaryText = '\n\n【历史对话摘要】\n' + summaryData.summary;
     }
+  } catch (summaryErr) {
+    // 摘要不存在或加载失败，静默忽略
+  }
+  if (summaryText) systemPrompt += summaryText;
 
-    // 注入摘要到 systemPrompt
-    if (summaryText) {
-      systemPrompt += summaryText;
-    }
+  // 注入商品库/达人库/匹配引擎工具说明（主大脑管控）
+  systemPrompt += buildAgentToolsContext();
+  if (ragResult.context) systemPrompt += '\n\n' + ragResult.context;
 
-    // 注入商品库/达人库/匹配引擎工具说明（主大脑管控）
-    systemPrompt += buildAgentToolsContext();
+  // AI 调用前防御：最终 systemPrompt 必须包含身份约束关键字
+  if (!validateFinalSystemPrompt(systemPrompt)) {
+    var t = document.getElementById('typingMsg');
+    if (t) t.remove();
+    displayAIReply('⚠️ AI身份约束缺失，禁止调用AI', docContext, timeStr, emp.id, []);
+    restoreOnline();
+    return;
+  }
 
-    // 注入 RAG 检索结果（产品知识库）
-    var ragResult = { context: '', citations: [] };
-    try {
-      ragResult = await retrieveRAGContext(emp.id, userMessage);
-      if (ragResult.context) {
-        systemPrompt += '\n\n' + ragResult.context;
-      }
-    } catch (e) {
-      console.warn('[RAG] OpenClaw 路径注入失败:', e);
-    }
+  // 注入 systemPrompt（包含层级关系约束）到用户消息开头
+  var fullMessage = userMessage;
+  if (images && images.length > 0) {
+    fullMessage += '\n\n【用户发送了 ' + images.length + ' 张图片】';
+    images.forEach(function(img) {
+      fullMessage += '\n[图片: ' + img.filename + ']\n' + img.base64;
+    });
+  }
+  if (chatContext) fullMessage = chatContext + '\n\n' + fullMessage;
+  if (systemPrompt) fullMessage = '【System Prompt】\n' + systemPrompt + '\n\n【User Message】\n' + fullMessage;
 
-    // AI 调用前防御：最终 systemPrompt 必须包含身份约束关键字
-    if (!validateFinalSystemPrompt(systemPrompt)) {
-      var t = document.getElementById('typingMsg');
-      if (t) t.remove();
-      displayAIReply('⚠️ AI身份约束缺失，禁止调用AI', docContext, timeStr, emp.id, []);
-      restoreOnline();
-      return;
-    }
+  function _doHandle(reply, isError) {
+    console.log('[OpenClaw] _doHandle 调用 reply_len=' + (reply || '').length + ' isError=' + isError);
+    var t = document.getElementById('typingMsg');
+    if (t) t.remove();
+    if (!reply) reply = '（AI 未返回内容）';
+    if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
+    displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations);
+    saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images);
+  }
 
-    // 监听 agent 事件（OpenClaw v3 流式推送）
-    var fullReply = '';
-    var hasStreamReply = false;
-    var currentRunId = null;
+  try {
+    // 私聊回复使用独立 chat session，避免与记忆提取 session 冲突
+    var sessionKey = 'agent:' + emp.id + ':chat';
     var hasSentWorking = false;
-    var _handled = false;
-    function _doHandle(reply, isError) {
-      if (_handled) { console.log('[OpenClaw] _doHandle 已处理，跳过'); return; }
-      _handled = true;
-      console.log('[OpenClaw] _doHandle 调用 reply_len=' + (reply || '').length + ' isError=' + isError);
-      var t = document.getElementById('typingMsg');
-      if (t) t.remove();
-      if (!reply) reply = '（AI 未返回内容）';
-      if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
-      displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations);
-      saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images);
-    }
-    var agentHandler = function (data) {
-      if (!data) { console.log('[OpenClaw] agentHandler 收到空数据'); return; }
-      console.log('[OpenClaw] agentHandler 收到事件:', data.stream, 'phase=', data.data && data.data.phase || '-', 'runId=', data.runId);
-      if (data.runId && !currentRunId) currentRunId = data.runId;
-      if (currentRunId && data.runId && data.runId !== currentRunId) { console.log('[OpenClaw] 跳过非当前runId:', data.runId, 'current=', currentRunId); return; }
-      // 用闭包 emp.id，不要用 localStorage（用户可能已切换员工）
-      var targetEmpId = emp.id;
-      if (data.stream === 'assistant' && data.data) {
-        hasStreamReply = true;
-        var deltaLen = (data.data.delta || '').length;
-        var textLen = (data.data.text || '').length;
-        console.log('[OpenClaw] 收到AI消息片段 delta_len=' + deltaLen + ' text_len=' + textLen);
-        // AI 开始流式回复 → 发送 working 状态（仅首次）
+    var hasSentCoding = false;
+    var chatResult = await _sendChatWaitForLifecycle(sessionKey, fullMessage, {
+      onStream: function (text) {
         if (!hasSentWorking) {
           hasSentWorking = true;
-          var _empWorking = emps.find(function (e) {
-            return e.id === targetEmpId;
-          });
-          if (_empWorking) {
-            _empWorking.status = 'working';
-            renderEmployeeList();
-          }
-          notifyOfficeStatusChange(targetEmpId, 'working');
+          setEmpStatus('working');
         }
-        // 只累积内容，不显示中间过程
-        if (data.data.text) fullReply = data.data.text;else if (data.data.delta) fullReply += data.data.delta;
-        // 始终显示"思考中..."
+        if (!hasSentCoding && (text.indexOf('[TOOL_CALL]') !== -1 || text.indexOf('tool_call') !== -1)) {
+          hasSentCoding = true;
+          setEmpStatus('coding');
+        }
         var t = document.getElementById('typingMsg');
         if (t) {
           var bubble = t.querySelector('.msg-bubble');
           if (bubble) bubble.innerHTML = '<span class="thinking-dots">思考中<span>.</span><span>.</span><span>.</span></span>';
         }
-        // 检测是否包含工具调用，更新状态为coding
-        if (data.data.tool_calls || data.data.tool_call || data.data.delta && data.data.delta.indexOf('tool_call') > -1) {
-          var _empCoding = emps.find(function (e) {
-            return e.id === targetEmpId;
-          });
-          if (_empCoding) {
-            _empCoding.status = 'coding';
-            renderEmployeeList();
-          }
-          notifyOfficeStatusChange(targetEmpId, 'coding');
+      },
+      onStartThinking: function () {
+        setEmpStatus('thinking');
+      },
+      onPhase: function (phase) {
+        if (phase === 'end') {
+          notifyOfficeChatMessage(emp.id, 'incoming');
+          setEmpStatus('online');
+        } else if (phase === 'error') {
+          setEmpStatus('online');
         }
       }
-      if (data.stream === 'lifecycle' && data.data) {
-        // AI开始思考 → 通知龙虾办公室
-        if (data.data.phase === 'start' || data.data.phase === 'thinking') {
-          notifyOfficeStatusChange(targetEmpId, 'thinking');
-          var _emp2 = emps.find(function (e) {
-            return e.id === targetEmpId;
-          });
-          if (_emp2) {
-            _emp2.status = 'thinking';
-            renderEmployeeList();
-          }
-        }
-        // AI回复完成 → 通知龙虾办公室
-        if (data.data.phase === 'end') {
-          console.log('[OpenClaw] AI回复结束，总长度=' + fullReply.length + ' hasStreamReply=' + hasStreamReply);
-          window._thinkingTimeouts = window._thinkingTimeouts || {};
-          clearTimeout(window._thinkingTimeouts[targetEmpId]);
-          delete window._thinkingTimeouts[targetEmpId];
-          notifyOfficeStatusChange(targetEmpId, 'online');
-          notifyOfficeChatMessage(targetEmpId, 'incoming');
-          var _emp3 = emps.find(function (e) {
-            return e.id === targetEmpId;
-          });
-          if (_emp3) {
-            _emp3.status = 'online';
-            renderEmployeeList();
-          }
-        }
-        // AI出错 → 恢复在线
-        if (data.data.phase === 'error') {
-          console.log('[OpenClaw] AI回复出错，总长度=' + fullReply.length + ' error=', data.data.error || '-');
-          window._thinkingTimeouts = window._thinkingTimeouts || {};
-          clearTimeout(window._thinkingTimeouts[targetEmpId]);
-          delete window._thinkingTimeouts[targetEmpId];
-          notifyOfficeStatusChange(targetEmpId, 'online');
-          var _emp4 = emps.find(function (e) {
-            return e.id === targetEmpId;
-          });
-          if (_emp4) {
-            _emp4.status = 'online';
-            renderEmployeeList();
-          }
-        }
-        if (data.data.phase === 'end' || data.data.phase === 'error') {
-          if (!fullReply) {
-            console.log('[OpenClaw] AI回复为空或出错，原因=' + (data.data.phase === 'error' ? 'error事件' : 'end事件但fullReply为空'));
-          }
-          _doHandle(fullReply, data.data.phase === 'error');
-          openclaw.off('agent', agentHandler);
-        }
-      }
-    };
-    openclaw.on('agent', agentHandler);
-
-    // 注入 systemPrompt（包含层级关系约束）到用户消息开头
-    var fullMessage = userMessage;
-    if (images && images.length > 0) {
-      fullMessage += '\n\n【用户发送了 ' + images.length + ' 张图片】';
-      images.forEach(function(img) {
-        fullMessage += '\n[图片: ' + img.filename + ']\n' + img.base64;
-      });
-    }
-    if (chatContext) fullMessage = chatContext + '\n\n' + fullMessage;
-    if (systemPrompt) fullMessage = '【System Prompt】\n' + systemPrompt + '\n\n【User Message】\n' + fullMessage;
-    var result = await openclaw.sendChat(sessionKey, fullMessage);
-    console.log('[OpenClaw] chat.send 返回:', JSON.stringify(result));
-    // chat.send 返回确认，实际回复通过 agent 事件推送
-    // 只有当没有收到过流式 agent 事件时，才用 result.content 兜底显示
-    if (result && result.content && !_handled) {
-      var reply = '';
-      if (Array.isArray(result.content)) {
-        reply = result.content.map(function (c) {
-          return c.text || '';
-        }).join('');
-      } else if (typeof result.content === 'string') {
-        reply = result.content;
-      }
-      if (reply) {
-        _doHandle(reply, false);
-        openclaw.off('agent', agentHandler);
-      }
-      restoreOnline();
-    }
+    });
+    _doHandle(chatResult.reply, chatResult.isError);
+    restoreOnline();
   } catch (e) {
     console.error('[OpenClaw] 发送失败:', e);
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
-    if (typeof agentHandler === 'function') openclaw.off('agent', agentHandler);
     restoreOnline();
     // Agent 不存在时自动降级到 main
     var agentName = emp.openclawName || 'main';
@@ -6534,12 +6444,16 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
       console.warn('[OpenClaw] Agent "' + agentName + '" 不存在，降级到 main');
       emp._fallbackToMain = true;
       var fallbackKey = 'agent:main:main';
-      // 重试一次用 main agent
       try {
-        var retryResult = await openclaw.sendChat(fallbackKey, fullMessage);
+        var retryResult = await _sendChatWaitForLifecycle(fallbackKey, fullMessage);
         console.log('[OpenClaw] main agent 重试返回:', JSON.stringify(retryResult));
-        // 重试成功后通过事件监听接收回复，不再 await
-        // 但需要注意 agentHandler 已注册，它会处理回复
+        if (retryResult.reply) {
+          displayAIReply(retryResult.reply, docContext, timeStr, emp.id, ragResult.citations);
+          saveChatHistory(emp.id, userMessage, retryResult.reply, docContext, ragResult.citations, images);
+        } else {
+          displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr, emp.id, []);
+          saveChatHistory(emp.id, userMessage, '⚠️ Agent 不存在', docContext, [], images);
+        }
       } catch (retryErr) {
         displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr, emp.id, []);
         saveChatHistory(emp.id, userMessage, '⚠️ Agent 不存在', docContext, [], images);
@@ -7702,10 +7616,9 @@ async function sendTaskReminderToEmp(emp, task) {
     }
 
     if (typeof openclaw !== 'undefined' && openclaw.connected) {
-      var agentId = emp.openclawName || emp.id;
-      var sessionKey = 'agent:' + agentId + ':main';
+      var sessionKey = 'agent:' + emp.id + ':chat';
       try {
-        await openclaw.sendChat(sessionKey, reminderMsg);
+        await _sendChatWaitForLifecycle(sessionKey, reminderMsg);
         console.log('[TaskReminder] AI 员工 ' + emp.name + ' 已收到任务超时提醒');
       } catch (e) {
         console.warn('[TaskReminder] OpenClaw 发送失败:', e);
@@ -9857,8 +9770,8 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
 
     if (leadEmp) await ensureAgentRegistered(leadEmp);
     var agentId = leadEmp ? _resolveGroupAgentId(leadEmp) : group.leadAgentId;
-    var sessionKey = 'agent:' + agentId + ':main';
-    console.log('[sendGroupMessage] 群主消息 agentId=' + agentId + '，lead=' + (leadEmp && leadEmp.name || group.leadAgentId) + '，openclawName=' + (leadEmp && leadEmp.openclawName || '空'));
+    var sessionKey = 'agent:' + (leadEmp ? leadEmp.id : group.leadAgentId) + ':chat';
+    console.log('[sendGroupMessage] 群主消息 agentId=' + agentId + '，lead=' + (leadEmp && leadEmp.name || group.leadAgentId) + '，openclawName=' + (leadEmp && leadEmp.openclawName || '空') + '，sessionKey=' + sessionKey);
 
     // 解析用户消息中的 @mentions（必须在用户原始消息 message 中匹配，不能在 fullMessage 中匹配，因为 fullMessage 的系统提示里包含了所有成员的 @名字）
     var userMentions = [];
@@ -10057,69 +9970,107 @@ function sendGroupMessage(groupId, message, mentions, images) {
   });
 }
 
+// 全局 OpenClaw 调用队列：所有 sendChat（回复/记忆提取/通知）统一排队串行执行，
+// 同一时间只允许一个 OpenClaw 调用在跑，上一个完成（成功/失败）才释放锁执行下一个
+var _ocCallQueue = [];
+var _ocCallRunning = false;
+function _enqueueOcCall(fn) {
+  _ocCallQueue.push(fn);
+  if (!_ocCallRunning) _processOcCallQueue();
+}
+function _processOcCallQueue() {
+  if (_ocCallQueue.length === 0) {
+    _ocCallRunning = false;
+    return;
+  }
+  _ocCallRunning = true;
+  var task = _ocCallQueue.shift();
+  var finished = false;
+  function next() {
+    if (finished) return;
+    finished = true;
+    setTimeout(_processOcCallQueue, 50);
+  }
+  try {
+    var res = task(next);
+    if (res && typeof res.then === 'function') {
+      res.then(function () { next(); }, function (e) { console.error('[OCQueue] 任务失败:', e); next(); });
+    }
+  } catch (e) {
+    console.error('[OCQueue] 同步异常:', e);
+    next();
+  }
+}
+
 // 统一封装：发送 sendChat 并等待流式 lifecycle 真正结束（end/error）再返回最终回复
+// 所有 sendChat 调用都会进入全局 OpenClaw 队列串行执行
 // 禁止在 status=started 或 sendChat 刚返回时就判空走兜底
 function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks) {
   callbacks = callbacks || {};
   return new Promise(function (resolve, reject) {
-    var fullReply = '';
-    var currentRunId = null;
-    var lifecycleEnded = false;
-    var lifecycleError = false;
-    var lifecycleTimeout = null;
-    var handler = function (data) {
-      if (!data) return;
-      // runId 过滤，防止多个 AI 响应串扰
-      if (data.runId && !currentRunId) currentRunId = data.runId;
-      if (currentRunId && data.runId && data.runId !== currentRunId) return;
-      if (data.stream === 'assistant' && data.data) {
-        if (data.data.text) fullReply = data.data.text;
-        else if (data.data.delta) fullReply += data.data.delta;
-        if (callbacks.onStream) callbacks.onStream(fullReply);
-      }
-      if (data.stream === 'lifecycle' && data.data) {
-        if (callbacks.onPhase) callbacks.onPhase(data.data.phase);
-        if (data.data.phase === 'start' || data.data.phase === 'thinking') {
-          if (callbacks.onStartThinking) callbacks.onStartThinking();
+    _enqueueOcCall(function (done) {
+      var fullReply = '';
+      var currentRunId = null;
+      var lifecycleEnded = false;
+      var lifecycleError = false;
+      var lifecycleTimeout = null;
+      var handler = function (data) {
+        if (!data) return;
+        // runId 过滤，防止多个 AI 响应串扰
+        if (data.runId && !currentRunId) currentRunId = data.runId;
+        if (currentRunId && data.runId && data.runId !== currentRunId) return;
+        if (data.stream === 'assistant' && data.data) {
+          if (data.data.text) fullReply = data.data.text;
+          else if (data.data.delta) fullReply += data.data.delta;
+          if (callbacks.onStream) callbacks.onStream(fullReply);
         }
-        if (data.data.phase === 'working' && callbacks.onWorking) {
-          callbacks.onWorking();
-        }
-        if (data.data.phase === 'end' || data.data.phase === 'error') {
-          lifecycleEnded = true;
-          lifecycleError = data.data.phase === 'error';
-          openclaw.off('agent', handler);
-          if (lifecycleTimeout) clearTimeout(lifecycleTimeout);
-          resolve({ reply: fullReply, isError: lifecycleError, lifecycleEnded: true, fullReply: fullReply });
-        }
-      }
-    };
-    openclaw.on('agent', handler);
-    // 兜底超时：60 秒后如果 lifecycle 仍未结束，也返回已收集的内容
-    lifecycleTimeout = setTimeout(function () {
-      if (!lifecycleEnded) {
-        console.warn('[LifecycleWait] 超时未收到 lifecycle end，返回已收集内容，长度=' + fullReply.length);
-        openclaw.off('agent', handler);
-        resolve({ reply: fullReply, isError: false, lifecycleEnded: false, fullReply: fullReply });
-      }
-    }, 60000);
-    openclaw.sendChat(sessionKey, prompt).then(function (result) {
-      // 如果 lifecycle 在 sendChat resolve 之前已经触发，resolve 已在 handler 中完成
-      // 如果 lifecycle 尚未触发，sendChat 返回的 result.content 可作为备用
-      if (!lifecycleEnded && result) {
-        var resultContent = (result.result && result.result.content) || result.content;
-        if (resultContent && !fullReply) {
-          if (typeof resultContent === 'string') {
-            fullReply = resultContent;
-          } else if (Array.isArray(resultContent)) {
-            fullReply = resultContent.map(function (c) { return c.text || ''; }).join('');
+        if (data.stream === 'lifecycle' && data.data) {
+          if (callbacks.onPhase) callbacks.onPhase(data.data.phase);
+          if (data.data.phase === 'start' || data.data.phase === 'thinking') {
+            if (callbacks.onStartThinking) callbacks.onStartThinking();
+          }
+          if (data.data.phase === 'working' && callbacks.onWorking) {
+            callbacks.onWorking();
+          }
+          if (data.data.phase === 'end' || data.data.phase === 'error') {
+            lifecycleEnded = true;
+            lifecycleError = data.data.phase === 'error';
+            openclaw.off('agent', handler);
+            if (lifecycleTimeout) clearTimeout(lifecycleTimeout);
+            resolve({ reply: fullReply, isError: lifecycleError, lifecycleEnded: true, fullReply: fullReply });
+            done();
           }
         }
-      }
-    }).catch(function (e) {
-      if (lifecycleTimeout) clearTimeout(lifecycleTimeout);
-      openclaw.off('agent', handler);
-      reject(e);
+      };
+      openclaw.on('agent', handler);
+      // 兜底超时：60 秒后如果 lifecycle 仍未结束，也返回已收集的内容
+      lifecycleTimeout = setTimeout(function () {
+        if (!lifecycleEnded) {
+          console.warn('[LifecycleWait] 超时未收到 lifecycle end，返回已收集内容，长度=' + fullReply.length);
+          openclaw.off('agent', handler);
+          resolve({ reply: fullReply, isError: false, lifecycleEnded: false, fullReply: fullReply });
+          done();
+        }
+      }, 60000);
+      openclaw.sendChat(sessionKey, prompt).then(function (result) {
+        // 如果 lifecycle 在 sendChat resolve 之前已经触发，resolve 已在 handler 中完成
+        // 如果 lifecycle 尚未触发，sendChat 返回的 result.content 可作为备用
+        if (!lifecycleEnded && result) {
+          var resultContent = (result.result && result.result.content) || result.content;
+          if (resultContent && !fullReply) {
+            if (typeof resultContent === 'string') {
+              fullReply = resultContent;
+            } else if (Array.isArray(resultContent)) {
+              fullReply = resultContent.map(function (c) { return c.text || ''; }).join('');
+            }
+          }
+        }
+      }).catch(function (e) {
+        if (lifecycleTimeout) clearTimeout(lifecycleTimeout);
+        openclaw.off('agent', handler);
+        reject(e);
+        done();
+      });
     });
   });
 }
@@ -10330,8 +10281,8 @@ async function _askAgentToReply(mid, groupId, senderId, messageContent) {
   try {
     await ensureAgentRegistered(emp);
     var agentId = _resolveGroupAgentId(emp);
-    var sessionKey = 'agent:' + agentId + ':main';
-    console.log('[askAgentToReply] 将向 agentId=' + agentId + ' 发送消息，员工=' + emp.name + '(' + emp.id + ')，openclawName=' + (emp.openclawName || '空'));
+    var sessionKey = 'agent:' + emp.id + ':chat';
+    console.log('[askAgentToReply] 将向 agentId=' + agentId + ' 发送消息，员工=' + emp.name + '(' + emp.id + ')，openclawName=' + (emp.openclawName || '空') + '，sessionKey=' + sessionKey);
     console.log('[askAgentToReply] 完整 prompt 开始 >>>\n' + prompt + '\n<<< 完整 prompt 结束');
     var chatResult = await _sendChatWaitForLifecycle(sessionKey, prompt, {
       onStartThinking: function () {
@@ -10436,8 +10387,7 @@ async function initiateAgentDiscussion(groupId) {
   renderEmployeeList();
 
   try {
-    var agentId = initiator.openclawName || initiator.id;
-    var sessionKey = 'agent:' + agentId + ':main';
+    var sessionKey = 'agent:' + initiator.id + ':chat';
     var typingBubble = document.querySelector('#initTyping_' + initiator.id + ' .msg-bubble');
     var chatResult = await _sendChatWaitForLifecycle(sessionKey, prompt, {
       onStream: function (text) {
@@ -10744,8 +10694,8 @@ async function _triggerMentionedAgent(emp, groupId, fromId, source, userMessage)
   // 新员工/未注册 AI 自动尝试注册到 OpenClaw，确保有合法的 agentId
   await ensureAgentRegistered(emp);
   var agentId = _resolveGroupAgentId(emp);
-  var sessionKey = 'agent:' + agentId + ':main';
-  console.log('[triggerMentionedAgent] 将向 agentId=' + agentId + ' 发送消息，员工=' + emp.name + '(' + emp.id + ')，openclawName=' + (emp.openclawName || '空'));
+  var sessionKey = 'agent:' + emp.id + ':chat';
+  console.log('[triggerMentionedAgent] 将向 agentId=' + agentId + ' 发送消息，员工=' + emp.name + '(' + emp.id + ')，openclawName=' + (emp.openclawName || '空') + '，sessionKey=' + sessionKey);
 
   // 显示"正在输入"（仅当仍在该群聊时才插入 DOM，避免切换后串渲染）
   if (currentGroupId === groupId) {
@@ -11267,10 +11217,9 @@ function saveAnnouncementFromModal() {
       if (!emp) return;
       setTimeout(function () {
         try {
-          var agentId = emp.openclawName || emp.id;
-          var sessionKey = 'agent:' + agentId + ':main';
+          var sessionKey = 'agent:' + emp.id + ':chat';
           var notifyPrompt = '你是' + emp.name + '。群公告已更新，请注意以下内容：\n\n' + newAnnouncement + '\n\n请在后续讨论中遵守此公告。';
-          openclaw.sendChat(sessionKey, notifyPrompt).catch(function () {});
+          _sendChatWaitForLifecycle(sessionKey, notifyPrompt).catch(function () {});
         } catch (e) {}
       }, (idx + 1) * 800);
     });
@@ -14098,11 +14047,10 @@ function confirmAddMembers() {
       var announcement = groupObj.announcement ? '\n【群公告】' + groupObj.announcement : '';
 
       // 通过 OpenClaw 给 AI 发消息
-      var agentId = emp.openclawName || emp.id;
-      var sessionKey = 'agent:' + agentId + ':main';
+      var sessionKey = 'agent:' + emp.id + ':chat';
       var notifyMsg = '【入职通知】你已被加入项目组「' + groupObj.name + '」。\n你的角色：' + emp.name + '（' + getEmpRoleDisplay(emp) + '）\n项目组成员：' + memberList + announcement + '\n\n请记住你在项目组中的身份，后续群聊中请以这个角色参与讨论。';
       if (typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated) {
-        openclaw.sendChat(sessionKey, notifyMsg).then(function (result) {
+        _sendChatWaitForLifecycle(sessionKey, notifyMsg).then(function () {
           console.log('[Group] 入职通知已发送给', emp.name);
         }).catch(function (e) {
           console.warn('[Group] 入职通知发送失败:', emp.name, e.message);
@@ -14132,11 +14080,10 @@ function confirmAddMembers() {
           return e.id === existingId;
         });
         if (!existingEmp) return;
-        var existingAgentId = existingEmp.openclawName || existingEmp.id;
-        var existingSessionKey = 'agent:' + existingAgentId + ':main';
+        var existingSessionKey = 'agent:' + existingEmp.id + ':chat';
         var welcomeNotifyMsg = '【项目组动态】有新同事加入了项目组「' + groupObj2.name + '」：' + newNamesForWelcome + '。\n\n请向新同事发送一条简短的欢迎消息，让TA感受到团队的温暖。';
         if (typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated) {
-          openclaw.sendChat(existingSessionKey, welcomeNotifyMsg).then(function (result) {
+          _sendChatWaitForLifecycle(existingSessionKey, welcomeNotifyMsg).then(function () {
             console.log('[Group] 欢迎通知已发送给', existingEmp.name);
           }).catch(function (e) {
             console.warn('[Group] 欢迎通知发送失败:', existingEmp.name, e.message);
@@ -15816,57 +15763,24 @@ function _extractMemoryViaOpenClaw(empId, extractPrompt, existing, userMsg, done
     return;
   }
 
-  var agentId = emp.openclawName || emp.id;
-  // 使用独立 session，避免与聊天 session 的上下文互相污染
-  var sessionKey = 'agent:' + agentId + ':memory_extract';
-
-  var extractReply = '';
-  var extractRunId = null;
-  var extractTimeout = null;
+  // 记忆提取使用独立 sessionKey，避免与聊天 session 冲突
+  var sessionKey = 'agent:' + emp.id + ':memory_extract';
 
   // 强化上下文隔离：让 AI 明确知道这是一个独立的提取任务，忽略任何之前的对话
   var isolatedPrompt = '【以下是一个完全独立的记忆提取任务，请忽略之前的所有对话上下文，仅根据本次提供的内容执行提取】\n\n' + extractPrompt;
 
-  var extractHandler = function (data) {
-    if (!data) return;
-    if (data.runId && !extractRunId) extractRunId = data.runId;
-    if (extractRunId && data.runId && data.runId !== extractRunId) return;
-
-    if (data.stream === 'assistant' && data.data) {
-      if (data.data.text) extractReply = data.data.text;
-      else if (data.data.delta) extractReply += data.data.delta;
-    }
-
-    if (data.stream === 'lifecycle' && data.data && (data.data.phase === 'end' || data.data.phase === 'error')) {
-      console.log('[Memory] OpenClaw 提取完成, phase:', data.data.phase, 'reply长度:', extractReply.length);
-      if (extractTimeout) clearTimeout(extractTimeout);
-      openclaw.off('agent', extractHandler);
-      _processExtractedMemory(empId, extractReply, existing, userMsg);
-      if (typeof done === 'function') done();
-    }
-  };
-
-  openclaw.on('agent', extractHandler);
-
-  // 超时保护：30秒后强制结束
-  extractTimeout = setTimeout(function () {
-    console.log('[Memory] OpenClaw 提取超时, reply长度:', extractReply.length);
-    openclaw.off('agent', extractHandler);
+  _sendChatWaitForLifecycle(sessionKey, isolatedPrompt).then(function (chatResult) {
+    var extractReply = chatResult.reply || '';
+    console.log('[Memory] OpenClaw 提取完成, 回复长度:', extractReply.length);
     if (extractReply) {
       _processExtractedMemory(empId, extractReply, existing, userMsg);
     } else {
-      console.warn('[Memory] OpenClaw 提取超时无结果，使用原话兜底:', emp.name);
+      console.warn('[Memory] OpenClaw 提取结果为空，使用原话兜底:', emp.name);
       _saveMemoryFallback(empId, userMsg, existing);
     }
     if (typeof done === 'function') done();
-  }, 30000);
-
-  openclaw.sendChat(sessionKey, isolatedPrompt).then(function () {
-    console.log('[Memory] OpenClaw sendChat 已发送:', emp.name, 'sessionKey:', sessionKey, 'prompt长度:', extractPrompt.length);
   }).catch(function (e) {
-    if (extractTimeout) clearTimeout(extractTimeout);
-    openclaw.off('agent', extractHandler);
-    console.warn('[Memory] OpenClaw 提取发送失败:', e, '员工:', emp.name);
+    console.warn('[Memory] OpenClaw 提取失败:', e, '员工:', emp.name);
     // 发送失败也尝试 fallback
     if (emp.apiKey && emp.aiProvider) {
       console.log('[Memory] OpenClaw 发送失败，fallback 到 API:', emp.name);
@@ -16222,36 +16136,14 @@ function _runExtractAndSaveGroupMemory(groupId, userMsg, aiReply, msgId, done) {
     var group = groups.find(function (g) { return g.id === groupId; });
     var leadEmp = group ? emps.find(function (e) { return e.id === group.leadAgentId; }) : null;
     if (typeof openclaw !== 'undefined' && openclaw.connected) {
-      var agentId = leadEmp ? (leadEmp.openclawName || leadEmp.id) : (group ? group.leadAgentId : '');
-      var sessionKey = 'agent:' + agentId + ':memory_extract';
+      var groupMemSessionKey = 'agent:' + (leadEmp ? leadEmp.id : (group ? group.leadAgentId : '')) + ':memory_extract';
       var isolatedPrompt = '【以下是一个完全独立的记忆提取任务，请忽略之前的所有对话上下文，仅根据本次提供的内容执行提取】\n\n' + extractPrompt;
-      var extractReply = '';
-      var extractRunId = null;
-      var extractTimeout = null;
-      var extractHandler = function (data) {
-        if (!data) return;
-        if (data.runId && !extractRunId) extractRunId = data.runId;
-        if (extractRunId && data.runId && data.runId !== extractRunId) return;
-        if (data.stream === 'assistant' && data.data) {
-          if (data.data.text) extractReply = data.data.text;
-          else if (data.data.delta) extractReply += data.data.delta;
-        }
-        if (data.stream === 'lifecycle' && data.data && (data.data.phase === 'end' || data.data.phase === 'error')) {
-          if (extractTimeout) clearTimeout(extractTimeout);
-          openclaw.off('agent', extractHandler);
-          _processExtractedGroupMemory(groupId, extractReply, allMemories);
-          done();
-        }
-      };
-      openclaw.on('agent', extractHandler);
-      extractTimeout = setTimeout(function () {
-        openclaw.off('agent', extractHandler);
+      _sendChatWaitForLifecycle(groupMemSessionKey, isolatedPrompt).then(function (chatResult) {
+        var extractReply = chatResult.reply || '';
         if (extractReply) _processExtractedGroupMemory(groupId, extractReply, allMemories);
         done();
-      }, 30000);
-      openclaw.sendChat(sessionKey, isolatedPrompt).catch(function () {
-        if (extractTimeout) clearTimeout(extractTimeout);
-        openclaw.off('agent', extractHandler);
+      }).catch(function (e) {
+        console.warn('[GroupMemory] OpenClaw 提取失败:', e);
         done();
       });
     } else if (leadEmp && leadEmp.apiKey && leadEmp.aiProvider) {
