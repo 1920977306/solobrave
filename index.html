@@ -9946,6 +9946,20 @@ async function sendGroupMessage(groupId, message, mentions, images) {
         var _handled = false;
         var _lifecycleEnded = false;
         var _lifecycleError = false;
+        function _buildLeadFallbackReply(userMsg) {
+          var summary = (userMsg || '').trim();
+          if (summary.length > 30) summary = summary.substring(0, 30) + '...';
+          var others = (group.members || []).map(function (m) {
+            return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
+          }).filter(function (id) { return id && id !== group.leadAgentId; }).slice(0, 2).map(function (mid) {
+            var e = findEmpByIdAcrossGroups(mid);
+            return e ? '@' + e.name : '';
+          }).filter(function (s) { return s; }).join(' ');
+          if (summary && others) return '收到，关于「' + summary + '」这件事，' + others + ' 你们怎么看？';
+          if (summary) return '收到，关于「' + summary + '」，我来协调大家讨论。';
+          if (others) return '大家有什么想法？' + others;
+          return '我收到了，大家继续聊。';
+        }
         function _doHandle(reply, isError) {
           if (_handled) return;
           _handled = true;
@@ -9954,7 +9968,10 @@ async function sendGroupMessage(groupId, message, mentions, images) {
           delete window._thinkingTimeouts[group.leadAgentId];
           var t = document.getElementById('groupTypingMsg');
           if (t) t.remove();
-          if (!reply) reply = '（AI 未返回内容）';
+          if (!reply || (typeof reply === 'string' && reply.trim().length === 0)) {
+            console.warn('[sendGroupMessage] 群主 ' + leadEmp.name + ' 返回空回复，使用兜底回复继续链式讨论');
+            reply = _buildLeadFallbackReply(message);
+          }
           if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
           console.log('[sendGroupMessage] 群主最终回复长度=' + reply.length + '，是否错误=' + isError + '，传给parseAndTriggerMentions的文本前100字:', reply.substring(0, 100));
           displayGroupAIReply(groupId, group.leadAgentId, reply);
@@ -10028,6 +10045,9 @@ async function sendGroupMessage(groupId, message, mentions, images) {
           finalReply = fullReply;
         }
         console.log('[sendGroupMessage] sendChat返回，resultRawContent长度=' + resultContentLen + '，fullReply长度=' + fullReply.length + '，lifecycleEnded=' + _lifecycleEnded + '，lifecycleError=' + _lifecycleError + '，最终选用长度=' + finalReply.length);
+        if (!finalReply || (typeof finalReply === 'string' && finalReply.trim().length === 0)) {
+          console.warn('[sendGroupMessage] 群主回复为空，原始result对象:', JSON.stringify(result));
+        }
         _doHandle(finalReply, _lifecycleError);
         openclaw.off('agent', agentHandler);
         // 兜底恢复 online 状态
@@ -10668,6 +10688,12 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     var _handled = false;
     var _lifecycleEnded = false;
     var _lifecycleError = false;
+    function _buildMentionFallbackReply() {
+      var msgPreview = (userMessage || '').trim();
+      if (msgPreview.length > 25) msgPreview = msgPreview.substring(0, 25) + '...';
+      if (msgPreview) return '关于「' + msgPreview + '」，我没什么特别的补充，大家继续。';
+      return '我收到了，大家继续聊。';
+    }
     function _doHandle(reply, isError) {
       if (_handled) return;
       _handled = true;
@@ -10676,7 +10702,10 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
       delete window._thinkingTimeouts[emp.id];
       var t = document.getElementById('mentionTyping_' + emp.id);
       if (t) t.remove();
-      if (!reply) reply = '（收到，稍后回复）';
+      if (!reply || (typeof reply === 'string' && reply.trim().length === 0)) {
+        console.warn('[triggerMentionedAgent] ' + emp.name + ' 返回空回复，使用兜底回复继续链式讨论');
+        reply = _buildMentionFallbackReply();
+      }
       if (isError) reply = '⚠️ 响应出错';
       console.log('[triggerMentionedAgent] ' + emp.name + ' 最终回复长度=' + reply.length + '，是否错误=' + isError + '，传给parseAndTriggerMentions的文本前100字:', reply.substring(0, 100));
       displayGroupAIReply(groupId, emp.id, reply);
@@ -10751,6 +10780,9 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
       finalReply = fullReply;
     }
     console.log('[triggerMentionedAgent] ' + emp.name + ' sendChat返回，resultRawContent长度=' + resultContentLen + '，fullReply长度=' + fullReply.length + '，lifecycleEnded=' + _lifecycleEnded + '，lifecycleError=' + _lifecycleError + '，最终选用长度=' + finalReply.length);
+    if (!finalReply || (typeof finalReply === 'string' && finalReply.trim().length === 0)) {
+      console.warn('[triggerMentionedAgent] ' + emp.name + ' 回复为空，原始result对象:', JSON.stringify(result));
+    }
     _doHandle(finalReply, _lifecycleError);
     openclaw.off('agent', agentHandler);
     notifyOfficeStatusChange(emp.id, 'online');
@@ -15745,6 +15777,49 @@ function _extractMemoryViaAPI(empId, extractPrompt, existing, userMsg) {
       _saveMemoryFallback(empId, userMsg, existing);
     }
   });
+ }
+
+// 记忆去重辅助：会话级缓存 + 文本归一化
+window._recentlySavedMemoryValues = window._recentlySavedMemoryValues || {};
+function _normalizeMemoryValue(v) {
+  if (!v) return '';
+  return v.toLowerCase().replace(/[\s【】\[\]()（）.,，。！？!?;；:：、]/g, '').trim();
+}
+function _isMemoryDuplicate(memValue, existing) {
+  if (!memValue || memValue.length < 5) return true;
+  var normalized = _normalizeMemoryValue(memValue);
+  if (!normalized || normalized.length < 5) return true;
+  // 与会话级缓存比较（最近保存的500条）
+  if (window._recentlySavedMemoryValues[normalized]) return true;
+  // 与已有记忆比较
+  if (existing && existing.length > 0) {
+    var dup = existing.some(function (m) {
+      if (!m.value || m.value.length < 5) return false;
+      var mLower = m.value.toLowerCase();
+      var memLower = memValue.toLowerCase();
+      // 互相包含视为重复
+      if (mLower.indexOf(memLower) > -1 || memLower.indexOf(mLower) > -1) return true;
+      // 前30个字符相同视为重复
+      if (m.value.substring(0, 30) === memValue.substring(0, 30)) return true;
+      // 归一化后相同视为重复
+      if (_normalizeMemoryValue(m.value) === normalized) return true;
+      return false;
+    });
+    if (dup) return true;
+  }
+  return false;
+}
+function _markMemorySaved(memValue) {
+  if (!memValue) return;
+  var normalized = _normalizeMemoryValue(memValue);
+  if (normalized) window._recentlySavedMemoryValues[normalized] = true;
+  // 控制缓存大小，避免无限增长
+  var keys = Object.keys(window._recentlySavedMemoryValues);
+  if (keys.length > 500) {
+    keys.slice(0, keys.length - 500).forEach(function (k) {
+      delete window._recentlySavedMemoryValues[k];
+    });
+  }
 }
 
 // 兜底记忆保存：无 AI 可用时直接保存用户消息中的关键信息
@@ -15753,11 +15828,7 @@ function _saveMemoryFallback(empId, userMsg, existing) {
   // 截取前 200 字作为记忆内容
   var memValue = userMsg.trim().substring(0, 200);
   if (memValue.length < 5) return;
-  var isDuplicate = existing.some(function (m) {
-    if (!m.value || m.value.length < 5) return false;
-    return m.value.indexOf(memValue) > -1 || memValue.indexOf(m.value) > -1;
-  });
-  if (isDuplicate) {
+  if (_isMemoryDuplicate(memValue, existing)) {
     console.log('[Memory] 兜底记忆重复，跳过:', memValue.substring(0, 50));
     return;
   }
@@ -15772,6 +15843,7 @@ function _saveMemoryFallback(empId, userMsg, existing) {
     })
   }).then(function (r) {
     console.log('[Memory] ✅ 兜底记忆保存成功:', memValue.substring(0, 50), '状态:', r ? r.status : 'null');
+    _markMemorySaved(memValue);
   }).catch(function (e) {
     console.warn('[Memory] 兜底记忆保存失败:', e);
   });
@@ -15806,6 +15878,21 @@ function _processExtractedMemory(empId, extracted, existing, userMsg) {
   });
   console.log('[Memory] 解析出列表项记忆数量:', newMemories.length, '样本:', newMemories.slice(0, 3));
 
+  // 先对本次解析出的记忆内部去重
+  var uniqueNewMemories = [];
+  var seenNormalized = {};
+  newMemories.forEach(function (memValue) {
+    var norm = _normalizeMemoryValue(memValue);
+    if (norm && !seenNormalized[norm]) {
+      seenNormalized[norm] = true;
+      uniqueNewMemories.push(memValue);
+    } else {
+      console.log('[Memory] 本次解析内去重，跳过:', memValue.substring(0, 50));
+    }
+  });
+  newMemories = uniqueNewMemories;
+  console.log('[Memory] 本次解析去重后数量:', newMemories.length);
+
   // 如果没有列表项，尝试把整段作为一条记忆（清理提示词前缀和编号）
   if (newMemories.length === 0) {
     var cleanText = extracted
@@ -15831,19 +15918,7 @@ function _processExtractedMemory(empId, extracted, existing, userMsg) {
       return;
     }
 
-    // 去重检查：与已有记忆比较
-    var isDuplicate = existing.some(function (m) {
-      if (!m.value || m.value.length < 5) return false;
-      var mLower = m.value.toLowerCase();
-      var memLower = memValue.toLowerCase();
-      // 互相包含视为重复
-      if (mLower.indexOf(memLower) > -1 || memLower.indexOf(mLower) > -1) return true;
-      // 前20个字符相同视为重复
-      if (m.value.substring(0, 20) === memValue.substring(0, 20)) return true;
-      return false;
-    });
-
-    if (isDuplicate) {
+    if (_isMemoryDuplicate(memValue, existing)) {
       console.log('[Memory] 重复记忆, 跳过:', memValue.substring(0, 50));
       return;
     }
@@ -15859,6 +15934,7 @@ function _processExtractedMemory(empId, extracted, existing, userMsg) {
       })
     }).then(function (r) {
       console.log('[Memory] ✅ 保存记忆成功:', memValue.substring(0, 50), '状态:', r ? r.status : 'null');
+      _markMemorySaved(memValue);
       return r.json();
     }).then(function (saved) {
       console.log('[Memory] 后端返回记忆ID:', saved && saved.id, '员工:', empId);
@@ -15897,17 +15973,20 @@ function _processExtractedGroupMemory(groupId, extracted, existing) {
       newMemories.push(cleanText);
     }
   }
+  // 本次解析内部去重
+  var uniqueNewMemories = [];
+  var seenNormalized = {};
+  newMemories.forEach(function (memValue) {
+    var norm = _normalizeMemoryValue(memValue);
+    if (norm && !seenNormalized[norm]) {
+      seenNormalized[norm] = true;
+      uniqueNewMemories.push(memValue);
+    }
+  });
+  newMemories = uniqueNewMemories;
   newMemories.forEach(function (memValue) {
     if (memValue.length < 5) return;
-    var isDuplicate = existing.some(function (m) {
-      if (!m.value || m.value.length < 5) return false;
-      var mLower = m.value.toLowerCase();
-      var memLower = memValue.toLowerCase();
-      if (mLower.indexOf(memLower) > -1 || memLower.indexOf(mLower) > -1) return true;
-      if (m.value.substring(0, 20) === memValue.substring(0, 20)) return true;
-      return false;
-    });
-    if (isDuplicate) return;
+    if (_isMemoryDuplicate(memValue, existing)) return;
     apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/memory', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -15916,6 +15995,8 @@ function _processExtractedGroupMemory(groupId, extracted, existing) {
         value: memValue.substring(0, 500),
         source: '群聊自动提取'
       })
+    }).then(function () {
+      _markMemorySaved(memValue);
     }).catch(function (e) { console.warn('[GroupMemory] 保存项目组记忆失败:', e); });
   });
 }
