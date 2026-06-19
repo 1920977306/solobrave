@@ -6146,8 +6146,8 @@ async function sendMsg() {
     var mentionRegex = /@([^\s@,，.。！？;；:：、（）()\[\]【】{}<>"'&]{1,20})/g;
     var m;
     while ((m = mentionRegex.exec(text)) !== null) {
-      // 跨 emps + groups.members 查找被 @ 的成员
-      var mentionedEmp = findEmpByNameAcrossGroups(m[1]);
+      // 跨 emps + groups.members 查找被 @ 的成员，支持带后缀/语气词的 @
+      var mentionedEmp = resolveMentionedName(m[1]);
       if (mentionedEmp) mentions.push(mentionedEmp.id);
     }
     input.value = '';
@@ -8225,6 +8225,20 @@ function findEmpByNameAcrossGroups(name) {
   return null;
 }
 
+// 解析被 @ 的名字：先按完整候选查找，找不到时从末尾逐步截断，
+// 支持 "@萧何了""@萧何？""@萧何（运营）" 等带标点/语气词/角色后缀的情况
+function resolveMentionedName(nameCandidate) {
+  if (!nameCandidate) return null;
+  var name = nameCandidate.replace(/[\s]*[（(].*?[）)][\s]*$/g, '').trim();
+  // 逐步截断后缀（中文语气词、标点、冗余字符），直到找到员工或为空
+  while (name.length > 0) {
+    var emp = findEmpByNameAcrossGroups(name);
+    if (emp) return emp;
+    name = name.slice(0, -1).trim();
+  }
+  return null;
+}
+
 // 按 ID 查找员工：优先在 emps 中找完整对象，找不到时在所有项目组成员中找基础信息
 function findEmpByIdAcrossGroups(id) {
   if (!id) return null;
@@ -9853,8 +9867,8 @@ async function sendGroupMessage(groupId, message, mentions, images) {
     var um;
     while ((um = userMentionRegex.exec(message)) !== null) {
       var umName = um[1];
-      // 使用跨 emps + groups.members 的查找，避免非创建者因 emps 过滤而找不到被 @ 的成员
-      var umEmp = findEmpByNameAcrossGroups(umName);
+      // 使用跨 emps + groups.members 的查找，支持带后缀/语气词的 @
+      var umEmp = resolveMentionedName(umName);
       if (umEmp && umEmp.id !== group.leadAgentId) {
         userMentions.push(umEmp);
       }
@@ -10064,8 +10078,8 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
   var m;
   while ((m = mentionRegex.exec(replyText)) !== null) {
     var mentionedName = m[1];
-    // 跨 emps + groups.members 查找，确保群主/其他成员 @ 的 AI 也能被触发
-    var mentionedEmp = findEmpByNameAcrossGroups(mentionedName);
+    // 跨 emps + groups.members 查找，并支持带后缀/语气词的 @，确保群主/其他成员 @ 的 AI 也能被触发
+    var mentionedEmp = resolveMentionedName(mentionedName);
     var isGroupMember = mentionedEmp && groupMemberIds.indexOf(mentionedEmp.id) !== -1;
     if (isGroupMember && mentionedEmp.id !== senderId && !mentionTriggered[mentionedEmp.id]) {
       matches.push(mentionedEmp);
@@ -10177,7 +10191,7 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     return e.name + '（' + (_r || '员工') + _skills + '）';
   }).filter(function (s) { return s; }).join('、');
 
-  var prompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人说：' + messageContent + '\n\n你是这个团队的一员，有自己的专业判断和脾气。作为团队成员，你应该积极参与讨论，表达自己的观点和想法：\n- 可以赞同也可以反对\n- 觉得谁该看到这个话题，直接@他（用 @名字 格式）\n- 不用写报告，就像真的在群里看到消息随口回复一样\n\n只有当你完全没有任何想法时，才回复 SKIP。否则请直接发表你的看法。\n\n' + GROUP_CHAT_ACTION_BOUNDARY;
+  var prompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人说：' + messageContent + '\n\n你是这个团队的一员，有自己的专业判断和脾气。群里讨论时，你应该积极开口：\n- 可以赞同、反对、补充、吐槽或提问\n- 结合你的专业身份给出简短看法（1-3句话）\n- 觉得谁该看到这个话题，直接@他（用 @名字 格式）\n- 不用写报告，就像真的在群里随口回复\n\n除非这个话题完全不在你的专业范围且与你毫无关系，否则不要回复 SKIP。默认情况下请直接发表看法。\n如果你确实无话可说，只回复一个单词 SKIP。\n\n' + GROUP_CHAT_ACTION_BOUNDARY;
 
   // 注入项目组公共记忆
   try {
@@ -10198,8 +10212,13 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     var reply = res.result && res.result.content ? res.result.content.trim() : '';
     emp.status = 'online';
     renderEmployeeList();
-    // 回复 SKIP 则跳过（只判断完全等于 SKIP 的空内容，避免误过滤）
-    if (!reply || reply.toUpperCase() === 'SKIP') {
+    // 回复 SKIP 则跳过：兼容 AI 返回 "SKIP。"、"SKIP\n" 等带标点的变体
+    function _isSkipReply(r) {
+      if (!r) return true;
+      var cleaned = r.trim().replace(/^[\s【】\[\]()（）]+|[\s【】\[\]()（）]+$/g, '').replace(/[。，！？.!?;；:：、]+$/g, '').toUpperCase();
+      return cleaned === 'SKIP';
+    }
+    if (_isSkipReply(reply)) {
       console.log('[askAgentToReply] ' + emp.name + ' 选择 SKIP，不显示回复');
       return;
     }

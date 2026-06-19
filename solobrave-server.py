@@ -572,6 +572,11 @@ def _load_permissions():
     # 补齐缺失模块键：优先使用默认模板中的值，保持向后兼容
     # 例如 products 模块是新加入的，旧权限文件缺少该键，默认给 True 避免误拒
     default_templates = {t['id']: t for t in _default_permission_templates()['roleTemplates']}
+    # 如果默认角色模板被意外删除，补回默认模板，避免用户因找不到模板而被误拒
+    existing_ids = {t.get('id') for t in data['roleTemplates']}
+    for tmpl in _default_permission_templates()['roleTemplates']:
+        if tmpl['id'] not in existing_ids:
+            data['roleTemplates'].append(dict(tmpl))
     for tmpl in data['roleTemplates']:
         modules = tmpl.get('modules', {})
         default_modules = default_templates.get(tmpl.get('id'), {}).get('modules', {})
@@ -617,7 +622,10 @@ def _get_effective_permissions(user_or_auth):
 
     role = user.get('role', 'employee')
     template_id = user.get('roleTemplateId') or role
-    template = _get_role_template(permissions, template_id) or _get_role_template(permissions, role) or {}
+    template = (_get_role_template(permissions, template_id)
+                or _get_role_template(permissions, role)
+                or _get_role_template(permissions, 'employee')
+                or {})
 
     base_modules = dict(template.get('modules', {}))
     base_cats = list(template.get('knowledgeCategories', []))
