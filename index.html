@@ -9944,6 +9944,8 @@ async function sendGroupMessage(groupId, message, mentions, images) {
         var currentRunId = null;
         var hasSentWorking = false;
         var _handled = false;
+        var _lifecycleEnded = false;
+        var _lifecycleError = false;
         function _doHandle(reply, isError) {
           if (_handled) return;
           _handled = true;
@@ -9954,6 +9956,7 @@ async function sendGroupMessage(groupId, message, mentions, images) {
           if (t) t.remove();
           if (!reply) reply = '（AI 未返回内容）';
           if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
+          console.log('[sendGroupMessage] 群主最终回复长度=' + reply.length + '，是否错误=' + isError + '，传给parseAndTriggerMentions的文本前100字:', reply.substring(0, 100));
           displayGroupAIReply(groupId, group.leadAgentId, reply);
           // 保存已在 displayGroupAIReply 中统一处理，此处不再重复存储
           notifyOfficeStatusChange(group.leadAgentId, 'online');
@@ -10000,33 +10003,39 @@ async function sendGroupMessage(groupId, message, mentions, images) {
               }
             }
             if (data.data.phase === 'end' || data.data.phase === 'error') {
-              _doHandle(fullReply, data.data.phase === 'error');
+              // 不再直接调用 _doHandle，避免 lifecycle 先结束时 fullReply 不完整，导致 result.content 被忽略
+              _lifecycleEnded = true;
+              _lifecycleError = data.data.phase === 'error';
               openclaw.off('agent', agentHandler);
             }
           }
         };
         openclaw.on('agent', agentHandler);
         var result = await openclaw.sendChat(sessionKey, fullMessage);
-        if (result && result.content && !_handled) {
-          var reply = '';
-          if (Array.isArray(result.content)) {
-            reply = result.content.map(function (c) {
-              return c.text || '';
-            }).join('');
-          } else if (typeof result.content === 'string') {
-            reply = result.content;
+        // 统一在 sendChat 返回后选择最终回复：优先 result.content / result.result.content，回退到 fullReply
+        var finalReply = '';
+        var resultContentLen = 0;
+        var resultRawContent = (result && result.result && result.result.content) || (result && result.content);
+        if (resultRawContent) {
+          if (Array.isArray(resultRawContent)) {
+            finalReply = resultRawContent.map(function (c) { return c.text || ''; }).join('');
+          } else if (typeof resultRawContent === 'string') {
+            finalReply = resultRawContent;
           }
-          if (reply) {
-            _doHandle(reply, false);
-            openclaw.off('agent', agentHandler);
-          }
-          // 兜底恢复 online 状态（未收到 lifecycle end 时）
-          notifyOfficeStatusChange(group.leadAgentId, 'online');
-          var _gse3 = emps.find(function (e) { return e.id === group.leadAgentId; });
-          if (_gse3) {
-            _gse3.status = 'online';
-            renderEmployeeList();
-          }
+          resultContentLen = finalReply.length;
+        }
+        if (!finalReply && fullReply) {
+          finalReply = fullReply;
+        }
+        console.log('[sendGroupMessage] sendChat返回，resultRawContent长度=' + resultContentLen + '，fullReply长度=' + fullReply.length + '，lifecycleEnded=' + _lifecycleEnded + '，lifecycleError=' + _lifecycleError + '，最终选用长度=' + finalReply.length);
+        _doHandle(finalReply, _lifecycleError);
+        openclaw.off('agent', agentHandler);
+        // 兜底恢复 online 状态
+        notifyOfficeStatusChange(group.leadAgentId, 'online');
+        var _gse3 = emps.find(function (e) { return e.id === group.leadAgentId; });
+        if (_gse3) {
+          _gse3.status = 'online';
+          renderEmployeeList();
         }
       } catch (e) {
         console.error('[GroupChat] 发送失败:', e);
@@ -10072,7 +10081,7 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
     return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
   }).filter(function (id) { return id; });
 
-  console.log('[parseAndTriggerMentions] 开始解析，senderId=' + senderId + '，群成员=[' + groupMemberIds.join(',') + ']，文本长度=' + replyText.length);
+  console.log('[parseAndTriggerMentions] 开始解析，groupId=' + groupId + '，senderId=' + senderId + '，depth=' + mentionChainDepth + '/' + MENTION_MAX_DEPTH + '，群是否存在=' + !!group + '，群成员数=' + groupMemberIds.length + '，群成员=[' + groupMemberIds.join(',') + ']，mentionTriggeredKeys=[' + Object.keys(mentionTriggered || {}).join(',') + ']，文本长度=' + replyText.length);
   console.log('[parseAndTriggerMentions] 待解析文本:', replyText);
 
   // 匹配 @名字（中英文都支持），仅触发当前项目组成员
@@ -10091,14 +10100,17 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
       mentionTriggered[mentionedEmp.id] = true;
       console.log('[parseAndTriggerMentions] 检测到 @' + mentionedName + ' -> ' + mentionedEmp.name + '(' + mentionedEmp.id + ')，将触发回复');
     } else {
-      console.log('[parseAndTriggerMentions] 未触发 @' + mentionedName + ':', {
+      var detail = {
         found: !!mentionedEmp,
-        resolvedName: mentionedEmp && mentionedEmp.name,
-        resolvedId: mentionedEmp && mentionedEmp.id,
+        resolvedEmp: mentionedEmp ? { id: mentionedEmp.id, name: mentionedEmp.name, role: getEmpRoleDisplay(mentionedEmp), openclawName: mentionedEmp.openclawName || '' } : null,
         isMember: mentionedEmp && groupMemberIds.indexOf(mentionedEmp.id) !== -1,
         isSender: mentionedEmp && mentionedEmp.id === senderId,
-        alreadyTriggered: mentionedEmp && !!mentionTriggered[mentionedEmp.id]
-      });
+        alreadyTriggered: mentionedEmp && !!mentionTriggered[mentionedEmp.id],
+        senderId: senderId,
+        groupMemberIds: groupMemberIds,
+        mentionTriggeredKeys: Object.keys(mentionTriggered || {})
+      };
+      console.log('[parseAndTriggerMentions] 未触发 @' + mentionedName + ':', detail);
     }
   }
 
@@ -10199,7 +10211,12 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     return e.name + '（' + (_r || '员工') + _skills + '）';
   }).filter(function (s) { return s; }).join('、');
 
-  var prompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人说：' + messageContent + '\n\n你是这个团队的一员，有自己的专业判断和脾气。群里讨论时，你应该积极开口：\n- 可以赞同、反对、补充、吐槽或提问\n- 结合你的专业身份给出简短看法（1-3句话）\n- 觉得谁该看到这个话题，直接@他（用 @名字 格式，例如 @貂蝉、@萧何）\n- 不用写报告，就像真的在群里随口回复\n\n重要：只要这个话题与你的角色/团队/项目有一丝关系，你就必须发表看法，不允许回复 SKIP。默认请直接回复你的观点。\n只有当你完全无法理解这个话题、且它与你的工作毫无关联时，才允许只回复一个单词 SKIP。\n如果你决定参与，请直接说出你的观点，不要写"SKIP"、"跳过"、"略"、"不回复"等表示不参与的内容。\n\n' + GROUP_CHAT_ACTION_BOUNDARY;
+  var prompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人说：' + messageContent + '\n\n你是这个团队的一员，有自己的专业判断和脾气。群里讨论时，你应该积极开口：\n- 可以赞同、反对、补充、吐槽或提问\n- 结合你的专业身份给出简短看法（1-3句话）\n- 觉得谁该看到这个话题，直接@他（用 @名字 格式，例如 @貂蝉、@萧何）\n- 不用写报告，就像真的在群里随口回复\n\n重要：只要这个话题与你的角色/团队/项目有一丝关系，你就必须发表看法，不允许回复 SKIP。默认请直接回复你的观点。\n只有当你完全无法理解这个话题、且它与你的工作毫无关联时，才允许只回复一个单词 SKIP。\n如果你决定参与，请直接说出你的观点，不要写"SKIP"、"跳过"、"略"、"不回复"、"无"等表示不参与的内容。\n\n' + GROUP_CHAT_ACTION_BOUNDARY;
+  var isLead = group && group.leadAgentId === mid;
+  if (isLead) {
+    prompt = prompt.replace('你是这个团队的一员，有自己的专业判断和脾气。', '你是这个团队的群主/负责人，对群里的所有讨论都负有推动责任。');
+    prompt = prompt.replace('只要这个话题与你的角色/团队/项目有一丝关系，你就必须发表看法', '无论这个话题是否直接属于你，你都应该发表看法、总结或推动讨论');
+  }
 
   // 注入项目组公共记忆
   try {
@@ -10218,8 +10235,11 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     console.log('[askAgentToReply] 将向 agentId=' + agentId + ' 发送消息，员工=' + emp.name + '(' + emp.id + ')，openclawName=' + (emp.openclawName || '空'));
     console.log('[askAgentToReply] 完整 prompt 开始 >>>\n' + prompt + '\n<<< 完整 prompt 结束');
     var res = await openclaw.sendChat(sessionKey, prompt);
-    var reply = res.result && res.result.content ? res.result.content.trim() : '';
-    console.log('[askAgentToReply] ' + emp.name + ' 原始返回:', reply);
+    var rawContent = (res.result && res.result.content) || res.content;
+    var reply = '';
+    if (typeof rawContent === 'string') reply = rawContent.trim();
+    else if (Array.isArray(rawContent)) reply = rawContent.map(function (c) { return c.text || ''; }).join('').trim();
+    console.log('[askAgentToReply] ' + emp.name + ' 原始返回:', reply, '原始响应结构:', { hasResult: !!res.result, hasResultContent: !!(res.result && res.result.content), hasContent: !!res.content, rawType: typeof rawContent });
     emp.status = 'online';
     renderEmployeeList();
     // 回复 SKIP 则跳过：兼容 AI 返回 "SKIP。"、"SKIP\n" 等带标点的变体
@@ -10228,17 +10248,22 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
       var cleaned = r.trim().replace(/^[\s【】\[\]()（）]+|[\s【】\[\]()（）]+$/g, '').replace(/[。，！？.!?;；:：、]+$/g, '').toUpperCase();
       if (cleaned === 'SKIP') return true;
       // 兼容中文_skip表达，但保持精确匹配，避免误伤正常回复
-      var skipPhrases = ['跳过', '略', '不回复', '不参与', '无话可说', '没有看法', '没意见', '不发表', '飘过'];
+      var skipPhrases = ['跳过', '略', '不回复', '不参与', '无话可说', '没有看法', '没意见', '不发表', '飘过', '无'];
       for (var i = 0; i < skipPhrases.length; i++) {
         if (cleaned === skipPhrases[i]) return true;
       }
       return false;
     }
     if (_isSkipReply(reply)) {
-      console.log('[askAgentToReply] ' + emp.name + ' 选择 SKIP，不显示回复');
-      // 若本轮只是 SKIP，解除 poll 锁定，让后续 @触发 仍有机会调用该成员
-      if (window._pollTriggered) delete window._pollTriggered[pollKey];
-      return;
+      if (isLead) {
+        console.log('[askAgentToReply] ' + emp.name + '（群主）返回 SKIP/无，强制替换为群主兜底回复');
+        reply = '我先看看大家在聊什么。';
+      } else {
+        console.log('[askAgentToReply] ' + emp.name + ' 选择 SKIP，不显示回复');
+        // 若本轮只是 SKIP，解除 poll 锁定，让后续 @触发 仍有机会调用该成员
+        if (window._pollTriggered) delete window._pollTriggered[pollKey];
+        return;
+      }
     }
     console.log('[askAgentToReply] ' + emp.name + ' 回复:', reply.substring(0, 50) + '...');
     // 显示回复并保存历史（保存已在 displayGroupAIReply 中统一处理）
@@ -10306,7 +10331,10 @@ async function initiateAgentDiscussion(groupId) {
     var agentId = initiator.openclawName || initiator.id;
     var sessionKey = 'agent:' + agentId + ':main';
     var res = await openclaw.sendChat(sessionKey, prompt);
-    var reply = res.result && res.result.content ? res.result.content.trim() : '';
+    var rawContent = (res.result && res.result.content) || res.content;
+    var reply = '';
+    if (typeof rawContent === 'string') reply = rawContent.trim();
+    else if (Array.isArray(rawContent)) reply = rawContent.map(function (c) { return c.text || ''; }).join('').trim();
 
     var t = document.getElementById('initTyping_' + initiator.id);
     if (t) t.remove();
@@ -10435,7 +10463,12 @@ async function checkAgentInterest(mid, groupId, senderId, messageContent) {
     var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
     return e.name + '（' + (_r || '员工') + _skills + '）';
   }).filter(function (s) { return s; }).join('、');
+  var isLead = group && group.leadAgentId === mid;
   var checkPrompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人发了消息：' + messageContent + '\n\n你看到这个消息，心里怎么想？跟你有关吗？有话想说吗？\n如果有关，回复 YES。\n如果完全没兴趣，回复 NO。\n只回复 YES 或 NO，别废话。';
+  if (isLead) {
+    checkPrompt = checkPrompt.replace('如果完全没兴趣，回复 NO。', '你是群主/负责人，群里的讨论你都应该关心并参与。只要消息不是纯垃圾信息，就必须回复 YES。如果完全没兴趣，回复 NO。');
+  }
+  console.log('[checkAgentInterest] 判断 ' + emp.name + (isLead ? '（群主）' : '') + ' 是否对消息感兴趣');
   mentionTriggered = mentionTriggered || {};
   try {
     var agentId = _resolveGroupAgentId(emp);
@@ -10443,13 +10476,21 @@ async function checkAgentInterest(mid, groupId, senderId, messageContent) {
     emp.status = 'thinking';
     renderEmployeeList();
     var res = await openclaw.sendChat(sessionKey, checkPrompt);
-    var reply = res.result && res.result.content ? res.result.content.trim() : '';
+    var rawContent = (res.result && res.result.content) || res.content;
+    var reply = '';
+    if (typeof rawContent === 'string') reply = rawContent.trim();
+    else if (Array.isArray(rawContent)) reply = rawContent.map(function (c) { return c.text || ''; }).join('').trim();
     emp.status = 'online';
     renderEmployeeList();
     // 放宽判断：除 YES 外也接受 SURE/OK/想等明确表示愿意参与的词
     var upperReply = reply.toUpperCase();
     var isInterested = upperReply.indexOf('YES') >= 0 || upperReply.indexOf('SURE') >= 0 || upperReply.indexOf('OK') >= 0 || reply.indexOf('想') >= 0;
-    console.log('[checkAgentInterest] ' + emp.name + ' 回复:', reply, '是否感兴趣:', isInterested);
+    // 群主/负责人默认应该参与，除非明确说 NO
+    if (isLead && !isInterested) {
+      console.log('[checkAgentInterest] ' + emp.name + '（群主）兴趣判断未通过，但群主默认应参与，强制触发');
+      isInterested = true;
+    }
+    console.log('[checkAgentInterest] ' + emp.name + (isLead ? '（群主）' : '') + ' 回复:', reply, '是否感兴趣:', isInterested);
     if (isInterested) {
       mentionTriggered[mid] = true;
       triggerMentionedAgent(emp, groupId, senderId, 'auto', messageContent);
@@ -10625,6 +10666,8 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
     var currentRunId = null;
     var hasSentWorking = false;
     var _handled = false;
+    var _lifecycleEnded = false;
+    var _lifecycleError = false;
     function _doHandle(reply, isError) {
       if (_handled) return;
       _handled = true;
@@ -10635,6 +10678,7 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
       if (t) t.remove();
       if (!reply) reply = '（收到，稍后回复）';
       if (isError) reply = '⚠️ 响应出错';
+      console.log('[triggerMentionedAgent] ' + emp.name + ' 最终回复长度=' + reply.length + '，是否错误=' + isError + '，传给parseAndTriggerMentions的文本前100字:', reply.substring(0, 100));
       displayGroupAIReply(groupId, emp.id, reply);
       notifyOfficeStatusChange(emp.id, 'online');
       var _mse2 = findEmpByIdAcrossGroups(emp.id);
@@ -10682,32 +10726,38 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
           }
         }
         if (data.data.phase === 'end' || data.data.phase === 'error') {
-          _doHandle(fullReply, data.data.phase === 'error');
+          // 不再直接调用 _doHandle，避免 lifecycle 先结束时 fullReply 不完整，导致 result.content 被忽略
+          _lifecycleEnded = true;
+          _lifecycleError = data.data.phase === 'error';
           openclaw.off('agent', agentHandler);
         }
       }
     };
     openclaw.on('agent', agentHandler);
     var result = await openclaw.sendChat(sessionKey, prompt);
-    if (result && result.content && !_handled) {
-      var reply = '';
-      if (Array.isArray(result.content)) {
-        reply = result.content.map(function (c) {
-          return c.text || '';
-        }).join('');
-      } else if (typeof result.content === 'string') {
-        reply = result.content;
+    // 统一在 sendChat 返回后选择最终回复：优先 result.content / result.result.content，回退到 fullReply
+    var finalReply = '';
+    var resultContentLen = 0;
+    var resultRawContent = (result && result.result && result.result.content) || (result && result.content);
+    if (resultRawContent) {
+      if (Array.isArray(resultRawContent)) {
+        finalReply = resultRawContent.map(function (c) { return c.text || ''; }).join('');
+      } else if (typeof resultRawContent === 'string') {
+        finalReply = resultRawContent;
       }
-      if (reply) {
-        _doHandle(reply, false);
-        openclaw.off('agent', agentHandler);
-      }
-      notifyOfficeStatusChange(emp.id, 'online');
-      var _me = findEmpByIdAcrossGroups(emp.id);
-      if (_me) {
-        _me.status = 'online';
-        renderEmployeeList();
-      }
+      resultContentLen = finalReply.length;
+    }
+    if (!finalReply && fullReply) {
+      finalReply = fullReply;
+    }
+    console.log('[triggerMentionedAgent] ' + emp.name + ' sendChat返回，resultRawContent长度=' + resultContentLen + '，fullReply长度=' + fullReply.length + '，lifecycleEnded=' + _lifecycleEnded + '，lifecycleError=' + _lifecycleError + '，最终选用长度=' + finalReply.length);
+    _doHandle(finalReply, _lifecycleError);
+    openclaw.off('agent', agentHandler);
+    notifyOfficeStatusChange(emp.id, 'online');
+    var _me = findEmpByIdAcrossGroups(emp.id);
+    if (_me) {
+      _me.status = 'online';
+      renderEmployeeList();
     }
   } catch (e) {
     console.error('[MentionTrigger] 触发失败:', e);
@@ -10729,8 +10779,12 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
 
 // 在群聊中显示 AI 回复
 function displayGroupAIReply(groupId, senderId, replyText) {
+  console.log('[displayGroupAIReply] 被调用 groupId=' + groupId + ' senderId=' + senderId + ' 文本长度=' + (replyText || '').length + ' 文本前100字:', (replyText || '').substring(0, 100));
   // 如果用户已切换出群聊，不再往当前 DOM 追加消息，避免串渲染
-  if (currentGroupId !== groupId) return;
+  if (currentGroupId !== groupId) {
+    console.log('[displayGroupAIReply] 当前不在该群聊，跳过渲染 currentGroupId=' + currentGroupId);
+    return;
+  }
 
   // 最终防重：5 秒内同一个 AI 对同一内容不重复输出
   var dedupKey = groupId + '_' + senderId + '_' + (replyText || '').substring(0, 50);
