@@ -9830,7 +9830,7 @@ async function sendGroupMessage(groupId, message, mentions, images) {
     }).filter(function (s) { return s; }).join('、');
     var userRole3 = getCurrentUserRoleDisplay();
     var userName3 = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
-    var fullMessage = '你是' + leadEmpInfo + '，这个项目组的负责人。你的团队成员有：' + memberList + '。\n\n' + userName3 + '（' + userRole3 + '）是你的老板，在群里发了消息。\n\n你是团队的大脑，不是等指令的机器人。你看到消息后：\n- 有自己的判断：重要就多说，不重要就少说，甚至可以吐槽\n- 觉得谁该参与这个话题，直接@他（用 @名字 格式）\n- 可以跟成员争论、可以表达情绪、可以说"我觉得不对"\n- 不用写报告式回复，就像真的在群里说话一样\n\n';
+    var fullMessage = '你是' + leadEmpInfo + '，这个项目组的负责人。你的团队成员有：' + memberList + '。\n\n' + userName3 + '（' + userRole3 + '）是你的老板，在群里发了消息。\n\n你是团队的大脑，是这个群的群主。你必须带头发言，绝对不允许回复 SKIP，绝对不允许只回复一个字。你看到消息后：\n- 必须发表完整看法，至少一句话，不能空着\n- 有自己的判断：重要就多说，不重要就少说，甚至可以吐槽\n- 觉得谁该参与这个话题，直接@他（用 @名字 格式）\n- 可以跟成员争论、可以表达情绪、可以说"我觉得不对"\n- 不用写报告式回复，就像真的在群里说话一样\n\n';
     if (mentions && mentions.length > 0) {
       fullMessage += mentions.map(function (m) {
         return '@' + m;
@@ -9946,19 +9946,25 @@ async function sendGroupMessage(groupId, message, mentions, images) {
         var _handled = false;
         var _lifecycleEnded = false;
         var _lifecycleError = false;
+        function _isLeadSkipReply(r) {
+          if (!r) return true;
+          var cleaned = r.trim().replace(/^[\s【】\[\]()（）]+|[\s【】\[\]()（）]+$/g, '').replace(/[。，！？.!?;；:：、]+$/g, '').toUpperCase();
+          if (cleaned === 'SKIP' || cleaned === '跳过' || cleaned === '略' || cleaned === '无') return true;
+          return cleaned.length <= 5;
+        }
         function _buildLeadFallbackReply(userMsg) {
           var summary = (userMsg || '').trim();
-          if (summary.length > 30) summary = summary.substring(0, 30) + '...';
+          if (summary.length > 20) summary = summary.substring(0, 20) + '...';
           var others = (group.members || []).map(function (m) {
             return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
           }).filter(function (id) { return id && id !== group.leadAgentId; }).slice(0, 2).map(function (mid) {
             var e = findEmpByIdAcrossGroups(mid);
             return e ? '@' + e.name : '';
           }).filter(function (s) { return s; }).join(' ');
-          if (summary && others) return '收到，关于「' + summary + '」这件事，' + others + ' 你们怎么看？';
-          if (summary) return '收到，关于「' + summary + '」，我来协调大家讨论。';
-          if (others) return '大家有什么想法？' + others;
-          return '我收到了，大家继续聊。';
+          if (summary && others) return '大家聊聊「' + summary + '」这个话题？' + others;
+          if (summary) return '大家聊聊「' + summary + '」这个话题？';
+          if (others) return '大家聊聊这个话题？' + others;
+          return '大家聊聊这个话题？';
         }
         function _doHandle(reply, isError) {
           if (_handled) return;
@@ -9968,8 +9974,8 @@ async function sendGroupMessage(groupId, message, mentions, images) {
           delete window._thinkingTimeouts[group.leadAgentId];
           var t = document.getElementById('groupTypingMsg');
           if (t) t.remove();
-          if (!reply || (typeof reply === 'string' && reply.trim().length === 0)) {
-            console.warn('[sendGroupMessage] 群主 ' + leadEmp.name + ' 返回空回复，使用兜底回复继续链式讨论');
+          if (!reply || _isLeadSkipReply(reply)) {
+            console.warn('[sendGroupMessage] 群主 ' + leadEmp.name + ' 返回空/SKIP/过短回复，原始回复:', reply, '，强制使用兜底回复继续链式讨论');
             reply = _buildLeadFallbackReply(message);
           }
           if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
@@ -10259,7 +10265,14 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     var reply = '';
     if (typeof rawContent === 'string') reply = rawContent.trim();
     else if (Array.isArray(rawContent)) reply = rawContent.map(function (c) { return c.text || ''; }).join('').trim();
-    console.log('[askAgentToReply] ' + emp.name + ' 原始返回:', reply, '原始响应结构:', { hasResult: !!res.result, hasResultContent: !!(res.result && res.result.content), hasContent: !!res.content, rawType: typeof rawContent });
+    var resJson = '';
+    try {
+      resJson = JSON.stringify(res, null, 2);
+      if (resJson.length > 3000) resJson = resJson.substring(0, 3000) + '...';
+    } catch (e) {
+      resJson = 'JSON.stringify失败:' + e.message;
+    }
+    console.log('[askAgentToReply] ' + emp.name + ' 原始返回:', reply, '\n原始响应完整JSON:\n' + resJson);
     emp.status = 'online';
     renderEmployeeList();
     // 回复 SKIP 则跳过：兼容 AI 返回 "SKIP。"、"SKIP\n" 等带标点的变体
@@ -15785,6 +15798,46 @@ function _normalizeMemoryValue(v) {
   if (!v) return '';
   return v.toLowerCase().replace(/[\s【】\[\]()（）.,，。！？!?;；:：、]/g, '').trim();
 }
+function _memorySimilarity(a, b) {
+  if (!a || !b) return 0;
+  var na = _normalizeMemoryValue(a);
+  var nb = _normalizeMemoryValue(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  // 互相包含视为完全重复
+  if (na.indexOf(nb) > -1 || nb.indexOf(na) > -1) return 1;
+  // 字符双gram集合Jaccard
+  var getBigrams = function (s) {
+    var set = {};
+    for (var i = 0; i < s.length - 1; i++) {
+      set[s.substring(i, i + 2)] = true;
+    }
+    return set;
+  };
+  var ba = getBigrams(na);
+  var bb = getBigrams(nb);
+  var intersection = 0;
+  for (var k in ba) {
+    if (bb[k]) intersection++;
+  }
+  var union = 0;
+  for (var k in ba) union++;
+  for (var kk in bb) {
+    if (!ba[kk]) union++;
+  }
+  if (union === 0) return 0;
+  var jaccard = intersection / union;
+  // 双向包含度（处理一长一短的情况）
+  var charsA = {};
+  for (var i = 0; i < na.length; i++) charsA[na[i]] = true;
+  var interChars = 0;
+  for (var j = 0; j < nb.length; j++) {
+    if (charsA[nb[j]]) interChars++;
+  }
+  var containmentA = na.length > 0 ? interChars / na.length : 0;
+  var containmentB = nb.length > 0 ? interChars / nb.length : 0;
+  return Math.max(jaccard, containmentA, containmentB);
+}
 function _isMemoryDuplicate(memValue, existing) {
   if (!memValue || memValue.length < 5) return true;
   var normalized = _normalizeMemoryValue(memValue);
@@ -15803,6 +15856,8 @@ function _isMemoryDuplicate(memValue, existing) {
       if (m.value.substring(0, 30) === memValue.substring(0, 30)) return true;
       // 归一化后相同视为重复
       if (_normalizeMemoryValue(m.value) === normalized) return true;
+      // 内容相似度>=0.9视为重复
+      if (_memorySimilarity(m.value, memValue) >= 0.9) return true;
       return false;
     });
     if (dup) return true;
@@ -15845,6 +15900,10 @@ function _saveMemoryFallback(empId, userMsg, existing) {
     console.log('[Memory] ✅ 兜底记忆保存成功:', memValue.substring(0, 50), '状态:', r ? r.status : 'null');
     _markMemorySaved(memValue);
   }).catch(function (e) {
+    if (e && e.message && e.message.indexOf('409') > -1) {
+      console.log('[Memory] 兜底记忆 409 冲突，记忆已存在，静默跳过:', memValue.substring(0, 50));
+      return;
+    }
     console.warn('[Memory] 兜底记忆保存失败:', e);
   });
 }
@@ -15939,6 +15998,10 @@ function _processExtractedMemory(empId, extracted, existing, userMsg) {
     }).then(function (saved) {
       console.log('[Memory] 后端返回记忆ID:', saved && saved.id, '员工:', empId);
     }).catch(function (e) {
+      if (e && e.message && e.message.indexOf('409') > -1) {
+        console.log('[Memory] 409 冲突，记忆已存在，静默跳过:', memValue.substring(0, 50));
+        return;
+      }
       console.warn('[Memory] ❌ 保存记忆失败:', e);
     });
     savedCount++;
@@ -15997,7 +16060,13 @@ function _processExtractedGroupMemory(groupId, extracted, existing) {
       })
     }).then(function () {
       _markMemorySaved(memValue);
-    }).catch(function (e) { console.warn('[GroupMemory] 保存项目组记忆失败:', e); });
+    }).catch(function (e) {
+      if (e && e.message && e.message.indexOf('409') > -1) {
+        console.log('[GroupMemory] 409 冲突，记忆已存在，静默跳过:', memValue.substring(0, 50));
+        return;
+      }
+      console.warn('[GroupMemory] 保存项目组记忆失败:', e);
+    });
   });
 }
 
