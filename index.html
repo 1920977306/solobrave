@@ -5167,6 +5167,8 @@ window.doLogin = function () {
 <button class="memory-tab active" data-mtab="core" onclick="switchMemoryTab('core')">核心记忆</button>
 <button class="memory-tab" data-mtab="daily" onclick="switchMemoryTab('daily')">日常记录</button>
 <button class="memory-tab" data-mtab="archive" onclick="switchMemoryTab('archive')">归档</button>
+<!-- FIXME: 新增“记忆汇总”tab，展示每日归纳、项目归纳、知识库 -->
+<button class="memory-tab" data-mtab="summary" onclick="switchMemoryTab('summary')">记忆汇总</button>
 <button class="memory-tab" data-mtab="kb" onclick="switchMemoryTab('kb')">知识库</button>
 <button class="memory-tab" data-mtab="merge" onclick="switchMemoryTab('merge')">合并记录</button>
 </div>
@@ -9981,12 +9983,15 @@ function sendGroupMessage(groupId, message, mentions, images) {
   });
 }
 
-// 全局 OpenClaw 调用队列：所有 sendChat（回复/记忆提取/通知）统一排队串行执行，
+// FIXME: 全局 OpenClaw 调用队列增加优先级支持；归纳任务优先级 0 低于正常对话 1
+// 所有 sendChat（回复/记忆提取/通知/归纳）统一排队串行执行，
 // 同一时间只允许一个 OpenClaw 调用在跑，上一个完成（成功/失败）才释放锁执行下一个
 var _ocCallQueue = [];
 var _ocCallRunning = false;
-function _enqueueOcCall(fn) {
-  _ocCallQueue.push(fn);
+function _enqueueOcCall(fn, priority) {
+  priority = typeof priority === 'number' ? priority : 1;
+  _ocCallQueue.push({ fn: fn, priority: priority });
+  _ocCallQueue.sort(function (a, b) { return b.priority - a.priority; });
   if (!_ocCallRunning) _processOcCallQueue();
 }
 function _processOcCallQueue() {
@@ -9995,7 +10000,8 @@ function _processOcCallQueue() {
     return;
   }
   _ocCallRunning = true;
-  var task = _ocCallQueue.shift();
+  _ocCallQueue.sort(function (a, b) { return b.priority - a.priority; });
+  var task = _ocCallQueue.shift().fn;
   var finished = false;
   function next() {
     if (finished) return;
@@ -10013,11 +10019,13 @@ function _processOcCallQueue() {
   }
 }
 
-// 统一封装：发送 sendChat 并等待流式 lifecycle 真正结束（end/error）再返回最终回复
-// 所有 sendChat 调用都会进入全局 OpenClaw 队列串行执行
+// FIXME: 统一封装：发送 sendChat 并等待流式 lifecycle 真正结束（end/error）再返回最终回复
+// 所有 sendChat 调用都会进入全局 OpenClaw 队列串行执行；priority 越小优先级越低（归纳用 0）
 // 禁止在 status=started 或 sendChat 刚返回时就判空走兜底
-function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks) {
+function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
   callbacks = callbacks || {};
+  options = options || {};
+  var priority = typeof options.priority === 'number' ? options.priority : 1;
   return new Promise(function (resolve, reject) {
     _enqueueOcCall(function (done) {
       var fullReply = '';
@@ -10082,7 +10090,7 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks) {
         reject(e);
         done();
       });
-    });
+    }, priority);
   });
 }
 
@@ -12948,12 +12956,25 @@ function renderMemoryTab(empId) {
     var mergeHistoryPromise = typeof apiFetch === 'function' ?
       apiFetch('/api/memory/' + encodeURIComponent(empId) + '/merge-history').then(function (r) { return r.json(); }).catch(function () { return {merges: []}; }) :
       Promise.resolve({merges: []});
+    // FIXME: 加载记忆汇总（二级归纳 + 三级知识库）
+    var dailySummaryPromise = typeof apiFetch === 'function' ?
+      apiFetch('/api/memory/' + encodeURIComponent(empId) + '/daily-summary').then(function (r) { return r.json(); }).catch(function () { return {summaries: []}; }) :
+      Promise.resolve({summaries: []});
+    var projectSummaryPromise = typeof apiFetch === 'function' ?
+      apiFetch('/api/memory/' + encodeURIComponent(empId) + '/project-summary').then(function (r) { return r.json(); }).catch(function () { return {summaries: []}; }) :
+      Promise.resolve({summaries: []});
+    var agentKbPromise = typeof apiFetch === 'function' ?
+      apiFetch('/api/memory/' + encodeURIComponent(empId) + '/knowledge').then(function (r) { return r.json(); }).catch(function () { return {entries: []}; }) :
+      Promise.resolve({entries: []});
     Promise.all([
       apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) { return r.json(); }),
       kbPromise,
       candidatePromise,
       conflictsPromise,
-      mergeHistoryPromise
+      mergeHistoryPromise,
+      dailySummaryPromise,
+      projectSummaryPromise,
+      agentKbPromise
     ]).then(function (results) {
       var data = results[0];
       var kbResult = results[1] || {docs: []};
@@ -12964,6 +12985,12 @@ function renderMemoryTab(empId) {
       var conflictList = conflictsResult.conflicts || [];
       var mergeHistoryResult = results[4] || {merges: []};
       var mergeList = mergeHistoryResult.merges || [];
+      var dailySummaryResult = results[5] || {summaries: []};
+      var dailySummaries = dailySummaryResult.summaries || [];
+      var projectSummaryResult = results[6] || {summaries: []};
+      var projectSummaries = projectSummaryResult.summaries || [];
+      var agentKbResult = results[7] || {entries: []};
+      var agentKbEntries = agentKbResult.entries || [];
 
       // v2 分池格式：{core: [...], daily: [...], archive: [...]}
       var coreList = data.core || [];
@@ -12979,13 +13006,97 @@ function renderMemoryTab(empId) {
       var coreTab = document.querySelector('.memory-tab[data-mtab="core"]');
       var dailyTab = document.querySelector('.memory-tab[data-mtab="daily"]');
       var archiveTab = document.querySelector('.memory-tab[data-mtab="archive"]');
+      var summaryTab = document.querySelector('.memory-tab[data-mtab="summary"]');
       var kbTab = document.querySelector('.memory-tab[data-mtab="kb"]');
       var mergeTab = document.querySelector('.memory-tab[data-mtab="merge"]');
       if (coreTab) coreTab.textContent = '核心记忆 (' + coreCount + '/' + (data.config && data.config.core_max || 100) + ')';
       if (dailyTab) dailyTab.textContent = '日常记录 (' + dailyCount + '/' + (data.config && data.config.daily_max || 100) + ')';
       if (archiveTab) archiveTab.textContent = '归档 (' + archiveCount + ')';
+      // FIXME: 记忆汇总 tab 显示待生成 + 已完成数量
+      var summaryPendingCount = dailySummaries.concat(projectSummaries).filter(function (s) { return s.status === 'pending'; }).length;
+      if (summaryTab) summaryTab.textContent = '记忆汇总 (' + (dailySummaries.length + projectSummaries.length) + (summaryPendingCount ? ' · ' + summaryPendingCount + '待生成' : '') + ')';
       if (kbTab) kbTab.textContent = '知识库 (' + kbCount + ')';
       if (mergeTab) mergeTab.textContent = '合并记录 (' + mergeList.length + ')';
+
+      // FIXME: 记忆汇总模式：展示每日归纳、项目归纳、三级知识库
+      if (currentMemoryTab === 'summary') {
+        var summaryHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">';
+        summaryHtml += '<span style="font-size:12px;color:var(--text-secondary);">二级归纳 + 三级知识库沉淀</span>';
+        summaryHtml += '<div style="display:flex;gap:8px;">';
+        summaryHtml += '<button onclick="triggerMemorySummary(\'' + escapeAttr(empId) + '\', \'daily\')" style="padding:6px 12px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;">📝 归纳今日</button>';
+        summaryHtml += '<button onclick="var p=prompt(\'请输入项目名称/主题\'); if(p) triggerMemorySummary(\'' + escapeAttr(empId) + '\', \'project\', p);" style="padding:6px 12px;border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);border:none;font-size:12px;font-weight:600;cursor:pointer;">📁 项目归纳</button>';
+        summaryHtml += '</div></div>';
+
+        function renderSummaryCard(s, isKb) {
+          var card = '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:10px;">';
+          card += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+          var statusColor = s.status === 'pending' ? '#FF9500' : (s.status === 'active' ? '#34C759' : 'var(--accent)');
+          var statusLabel = s.status === 'pending' ? '待AI生成' : (s.status === 'active' ? '已完成' : (s.status || '未知'));
+          card += '<span style="font-size:13px;font-weight:600;color:var(--text-primary);">' + escapeHtml(s.title || '未命名') + '</span>';
+          card += '<span style="font-size:10px;color:#fff;background:' + statusColor + ';padding:2px 6px;border-radius:4px;">' + statusLabel + '</span>';
+          card += '</div>';
+          if (isKb) {
+            card += '<div style="font-size:12px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;margin-bottom:6px;">' + escapeHtml(s.content || '') + '</div>';
+            card += '<div style="font-size:11px;color:var(--text-secondary);">来源: ' + escapeHtml(s.source || '') + ' · 证据: ' + (s.evidenceCount || 0) + ' · ID: ' + escapeHtml(s.id || '') + '</div>';
+          } else {
+            var kp = (s.keyPoints || []);
+            if (kp.length) {
+              card += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">关键信息：</div>';
+              card += '<ul style="margin:0 0 8px 16px;padding:0;font-size:12px;line-height:1.6;color:var(--text-primary);">';
+              kp.slice(0, 5).forEach(function (p) { card += '<li>' + escapeHtml(p) + '</li>'; });
+              card += '</ul>';
+            }
+            var decisions = (s.decisions || []);
+            if (decisions.length) {
+              card += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">已确认决策：</div>';
+              decisions.slice(0, 5).forEach(function (d) { card += '<div style="font-size:12px;color:#34C759;margin-bottom:2px;">✓ ' + escapeHtml(d) + '</div>'; });
+            }
+            var pendingItems = (s.pending || []);
+            if (pendingItems.length) {
+              card += '<div style="font-size:12px;color:var(--text-secondary);margin:6px 0 4px;">待确认事项：</div>';
+              pendingItems.slice(0, 5).forEach(function (p) { card += '<div style="font-size:12px;color:#FF9500;margin-bottom:2px;">? ' + escapeHtml(p) + '</div>'; });
+            }
+            var actions = (s.actionItems || []);
+            if (actions.length) {
+              card += '<div style="font-size:12px;color:var(--text-secondary);margin:6px 0 4px;">Action Items：</div>';
+              actions.slice(0, 5).forEach(function (a) {
+                var text = typeof a === 'string' ? a : ((a.item || '') + (a.owner ? ' [' + a.owner + ']' : '') + (a.due ? ' 截止' + a.due : ''));
+                card += '<div style="font-size:12px;color:var(--accent);margin-bottom:2px;">▸ ' + escapeHtml(text) + '</div>';
+              });
+            }
+            card += '<div style="display:flex;gap:8px;margin-top:8px;">';
+            if (s.status === 'pending') {
+              card += '<button onclick="_generateSummaryWithAI(\'' + escapeAttr(empId) + '\', \'' + escapeAttr(s.id) + '\', \'' + escapeAttr(s.summaryType) + '\', ' + JSON.stringify(s).replace(/"/g, '&quot;') + ')" style="padding:4px 10px;border-radius:6px;background:var(--accent);color:#fff;border:none;font-size:11px;cursor:pointer;">生成归纳</button>';
+            }
+            card += '<span style="font-size:11px;color:var(--text-tertiary);align-self:center;">来源记忆 ' + (s.relatedMemIds || []).length + ' 条</span>';
+            card += '</div>';
+          }
+          card += '</div>';
+          return card;
+        }
+
+        summaryHtml += '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin:12px 0 8px;">📅 每日归纳</div>';
+        if (dailySummaries.length === 0) summaryHtml += '<div style="padding:12px;color:var(--text-tertiary);font-size:12px;">暂无每日归纳</div>';
+        dailySummaries.forEach(function (s) { summaryHtml += renderSummaryCard(s, false); });
+
+        summaryHtml += '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin:18px 0 8px;">📁 项目归纳</div>';
+        if (projectSummaries.length === 0) summaryHtml += '<div style="padding:12px;color:var(--text-tertiary);font-size:12px;">暂无项目归纳，当同一标签下记忆≥5条会自动创建</div>';
+        projectSummaries.forEach(function (s) { summaryHtml += renderSummaryCard(s, false); });
+
+        summaryHtml += '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin:18px 0 8px;">📚 三级知识库</div>';
+        if (agentKbEntries.length === 0) summaryHtml += '<div style="padding:12px;color:var(--text-tertiary);font-size:12px;">暂无沉淀知识点，决策/重复提及≥3次会自动激活</div>';
+        agentKbEntries.forEach(function (s) { summaryHtml += renderSummaryCard(s, true); });
+
+        contentEl.innerHTML = summaryHtml;
+
+        // FIXME: 自动使用低优先级 OpenClaw 队列填充 pending 归纳
+        fillPendingSummaries(empId, dailySummaries, projectSummaries);
+
+        if (headerEl) {
+          headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + (coreCount + dailyCount + kbCount) + ')</span>';
+        }
+        return;
+      }
 
       // 知识库模式：显示关联文档（后端持久化）
       if (currentMemoryTab === 'kb') {
@@ -13177,6 +13288,8 @@ function renderMemoryTab(empId) {
           html += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
           html += '</button>';
         }
+        // FIXME: 记忆项操作增加“存知识库”手动标记
+        html += '<button class="memory-action-btn" onclick="markMemoryToKnowledge(\'' + escapeAttr(empId) + '\', \'' + escapeAttr(m.id) + '\', ' + JSON.stringify(m.value || '').replace(/"/g, '&quot;') + ')" title="存知识库" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--accent);display:flex;align-items:center;justify-content:center;">📚</button>';
         html += '<button class="memory-action-btn" onclick="deleteMemory(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\')" title="删除" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--text-tertiary);display:flex;align-items:center;justify-content:center;">';
         html += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
         html += '</button>';
@@ -13278,6 +13391,197 @@ function renderMergeHistory(empId) {
     console.warn('[MergeHistory] 加载失败:', e);
   });
 }
+
+// FIXME: 记忆三级沉淀：前端辅助函数
+function _todayStr() {
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// FIXME: 构造归纳 prompt，要求 AI 输出指定 JSON 结构
+function _buildSummaryPrompt(type, title, memories) {
+  var lines = memories.map(function (m, idx) {
+    return (idx + 1) + '. [' + (m.id || '?') + '] ' + (m.value || m.content || '');
+  }).join('\n');
+  var base = '你是 SoloBrave 的记忆归纳助手。请基于以下原始记忆，生成一份结构化的中文归纳总结。\n\n';
+  base += '主题：' + (title || '') + '\n\n原始记忆：\n' + lines + '\n\n';
+  base += '请严格返回如下 JSON 对象（不要包含任何额外说明）：\n';
+  base += '{\n';
+  base += '  "title": "项目/主题名称",\n';
+  base += '  "status": "当前状态（如：进行中/已确认/待推进）",\n';
+  base += '  "keyPoints": ["关键信息摘要1", "关键信息摘要2", "关键信息摘要3"],\n';
+  base += '  "decisions": ["已确认决策1"],\n';
+  base += '  "pending": ["待确认事项1"],\n';
+  base += '  "actionItems": [{"item":"行动项","owner":"负责人","due":"时间"}]\n';
+  base += '}\n';
+  return base;
+}
+
+// FIXME: 使用低优先级 OpenClaw 队列生成归纳内容并保存到后端
+function _generateSummaryWithAI(empId, summaryId, type, existingSummary) {
+  if (!empId) return;
+  var key = 'summary_' + (summaryId || '');
+  if (window._summaryGenerating && window._summaryGenerating[key]) return;
+  window._summaryGenerating = window._summaryGenerating || {};
+  window._summaryGenerating[key] = true;
+
+  var dateStr = (existingSummary && existingSummary.date) ? existingSummary.date : _todayStr();
+  var projectName = (existingSummary && existingSummary.projectName) ? existingSummary.projectName : '';
+  var title = (existingSummary && existingSummary.title) ? existingSummary.title : '归纳';
+  var memIds = (existingSummary && existingSummary.relatedMemIds) || [];
+
+  // 拉取源记忆（按 ID 或按日期/关键词）
+  var fetchPromise;
+  if (memIds.length) {
+    fetchPromise = apiFetch('/api/memory/' + encodeURIComponent(empId) + '?limit=200').then(function (r) { return r.json(); });
+  } else if (type === 'daily') {
+    fetchPromise = apiFetch('/api/memory/' + encodeURIComponent(empId) + '?type=daily&limit=200').then(function (r) { return r.json(); });
+  } else {
+    fetchPromise = apiFetch('/api/memory/' + encodeURIComponent(empId) + '?keyword=' + encodeURIComponent(projectName || title) + '&limit=200').then(function (r) { return r.json(); });
+  }
+
+  fetchPromise.then(function (data) {
+    var all = [].concat(data.core || [], data.daily || []);
+    var memories = all;
+    if (memIds.length) {
+      var idSet = {};
+      memIds.forEach(function (id) { idSet[id] = true; });
+      memories = all.filter(function (m) { return idSet[m.id]; });
+    }
+    if (memories.length === 0) {
+      showToast('⚠️ 没有可用于归纳的源记忆');
+      delete window._summaryGenerating[key];
+      return;
+    }
+    var sessionKey = 'agent:' + empId + ':memory_summary';
+    var prompt = _buildSummaryPrompt(type, title, memories);
+    _sendChatWaitForLifecycle(sessionKey, prompt, {}, { priority: 0 }).then(function (res) {
+      var text = (res && res.reply) || '';
+      var parsed = null;
+      try {
+        var match = text.match(/\{[\s\S]*\}/);
+        parsed = JSON.parse(match ? match[0] : text);
+      } catch (e) {
+        console.warn('[SummaryAI] JSON 解析失败，使用原始文本:', e);
+      }
+      var summary = {
+        id: summaryId,
+        empId: empId,
+        summaryType: type,
+        title: parsed && parsed.title ? parsed.title : title,
+        date: type === 'daily' ? dateStr : undefined,
+        projectName: type === 'project' ? (projectName || title.replace('项目归纳：', '')) : undefined,
+        status: (parsed && parsed.status) ? parsed.status : '已完成',
+        keyPoints: (parsed && parsed.keyPoints) || [],
+        decisions: (parsed && parsed.decisions) || [],
+        pending: (parsed && parsed.pending) || [],
+        actionItems: (parsed && parsed.actionItems) || [],
+        relatedMemIds: memIds,
+        sourceMemIds: memIds
+      };
+      return apiFetch('/api/memory/' + encodeURIComponent(empId) + '/trigger-summary', {
+        method: 'POST',
+        body: JSON.stringify({ summary: summary })
+      });
+    }).then(function () {
+      showToast('✅ 归纳已生成');
+      renderMemoryTab(empId);
+    }).catch(function (e) {
+      console.error('[SummaryAI] 生成失败:', e);
+      showToast('⚠️ 归纳生成失败');
+    }).finally(function () {
+      delete window._summaryGenerating[key];
+    });
+  }).catch(function (e) {
+    console.error('[SummaryAI] 加载记忆失败:', e);
+    delete window._summaryGenerating[key];
+  });
+}
+
+// FIXME: 手动触发归纳（按钮入口）
+function triggerMemorySummary(empId, type, param) {
+  if (!empId) {
+    empId = getCurrentEmpId();
+  }
+  if (!empId) {
+    showToast('⚠️ 请先选择一个员工');
+    return;
+  }
+  var title, date, project;
+  if (type === 'daily') {
+    date = _todayStr();
+    title = date + ' 每日归纳';
+  } else {
+    project = param || prompt('请输入项目名称/主题');
+    if (!project) return;
+    title = '项目归纳：' + project;
+  }
+  var summary = {
+    empId: empId,
+    summaryType: type,
+    title: title,
+    date: date,
+    projectName: project,
+    status: 'pending',
+    relatedMemIds: [],
+    sourceMemIds: []
+  };
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/trigger-summary', {
+    method: 'POST',
+    body: JSON.stringify({ summary: summary })
+  }).then(function (r) { return r.json(); }).then(function (res) {
+    var sid = res.summaryId || summary.id;
+    _generateSummaryWithAI(empId, sid, type, summary);
+    renderMemoryTab(empId);
+  }).catch(function (e) {
+    console.error('[SummaryTrigger] 创建归纳失败:', e);
+    showToast('⚠️ 创建归纳失败');
+  });
+}
+
+// FIXME: 自动为所有 pending 归纳排队生成（低优先级）
+function fillPendingSummaries(empId, dailySummaries, projectSummaries) {
+  var pending = [].concat(dailySummaries, projectSummaries).filter(function (s) { return s.status === 'pending'; });
+  pending.forEach(function (s) {
+    _generateSummaryWithAI(empId, s.id, s.summaryType, s);
+  });
+}
+
+// FIXME: 手动把单条记忆标记为三级知识库
+function markMemoryToKnowledge(empId, memId, value) {
+  if (!empId || !value) return;
+  var title = value.slice(0, 40) + (value.length > 40 ? '...' : '');
+  apiFetch('/api/memory/' + encodeURIComponent(empId) + '/knowledge', {
+    method: 'POST',
+    body: JSON.stringify({ memId: memId, title: '知识点：' + title, content: value, source: 'manual', status: 'active' })
+  }).then(function (r) { return r.json(); }).then(function () {
+    showToast('✅ 已存入知识库');
+  }).catch(function (e) {
+    console.error('[MarkKnowledge] 失败:', e);
+    showToast('⚠️ 存入知识库失败');
+  });
+}
+
+// FIXME: 每日凌晨 3 点自动为当前员工触发每日归纳
+function _scheduleDailyMemorySummary() {
+  if (window._dailySummaryScheduled) return;
+  window._dailySummaryScheduled = true;
+  setInterval(function () {
+    var d = new Date();
+    if (d.getHours() === 3 && d.getMinutes() === 0) {
+      var last = localStorage.getItem('sb_daily_summary_date');
+      var today = _todayStr();
+      if (last !== today) {
+        var empId = localStorage.getItem('sb_current_emp');
+        if (empId) {
+          triggerMemorySummary(empId, 'daily');
+          localStorage.setItem('sb_daily_summary_date', today);
+        }
+      }
+    }
+  }, 60000);
+}
+_scheduleDailyMemorySummary();
 
 // 从记忆面板点击触发归纳
 function triggerSummarizeFromMemoryPanel() {

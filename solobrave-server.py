@@ -1438,6 +1438,51 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)')
+
+        # FIXME: 新增记忆三级沉淀表（二级归纳、三级知识库），保持原有 knowledge/products 表不变
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS memory_summary (
+                id TEXT PRIMARY KEY,
+                emp_id TEXT NOT NULL,
+                summary_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                date TEXT,
+                project_name TEXT,
+                status TEXT DEFAULT 'pending',
+                key_points TEXT DEFAULT '[]',
+                decisions TEXT DEFAULT '[]',
+                pending TEXT DEFAULT '[]',
+                action_items TEXT DEFAULT '[]',
+                related_mem_ids TEXT DEFAULT '[]',
+                source_mem_ids TEXT DEFAULT '[]',
+                created_at INTEGER,
+                updated_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_summary_emp ON memory_summary(emp_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_summary_type ON memory_summary(summary_type)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_summary_date ON memory_summary(date)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_summary_project ON memory_summary(project_name)')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS knowledge_base (
+                id TEXT PRIMARY KEY,
+                emp_id TEXT,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                source TEXT DEFAULT 'manual',
+                tags TEXT DEFAULT '[]',
+                evidence_count INTEGER DEFAULT 1,
+                related_mem_ids TEXT DEFAULT '[]',
+                status TEXT DEFAULT 'pending',
+                created_at INTEGER,
+                updated_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_base_emp ON knowledge_base(emp_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_base_status ON knowledge_base(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_base_title ON knowledge_base(title)')
+
         conn.commit()
 
         # 旧 JSON 数据迁移（幂等）
@@ -1669,6 +1714,333 @@ def _migrate_json_products_to_sqlite():
         print(f'  [Product] 旧 JSON 已备份: {bak_path}', flush=True)
     except Exception as e:
         print(f'  [Product] 备份旧 JSON 失败: {e}', flush=True)
+
+
+# FIXME: 记忆三级沉淀辅助函数（二级归纳 memory_summary、三级知识库 knowledge_base）
+def _parse_json_col(val, default=None):
+    """安全解析 SQLite JSON 列"""
+    if val is None:
+        return default
+    try:
+        return json.loads(val)
+    except Exception:
+        return default
+
+
+def _dump_json_col(val):
+    """Python 对象 -> SQLite JSON 文本"""
+    if val is None:
+        return '[]'
+    return json.dumps(val, ensure_ascii=False)
+
+
+def _memory_summary_row_to_dict(row):
+    """memory_summary 行 -> 前端兼容 dict"""
+    if not row:
+        return None
+    return {
+        'id': row['id'],
+        'empId': row['emp_id'],
+        'summaryType': row['summary_type'],
+        'title': row['title'],
+        'date': row['date'],
+        'projectName': row['project_name'],
+        'status': row['status'],
+        'keyPoints': _parse_json_col(row['key_points'], []),
+        'decisions': _parse_json_col(row['decisions'], []),
+        'pending': _parse_json_col(row['pending'], []),
+        'actionItems': _parse_json_col(row['action_items'], []),
+        'relatedMemIds': _parse_json_col(row['related_mem_ids'], []),
+        'sourceMemIds': _parse_json_col(row['source_mem_ids'], []),
+        'createdAt': row['created_at'],
+        'updatedAt': row['updated_at'],
+        'time': row['created_at'],
+    }
+
+
+def _knowledge_base_row_to_dict(row):
+    """knowledge_base 行 -> 前端兼容 dict"""
+    if not row:
+        return None
+    return {
+        'id': row['id'],
+        'empId': row['emp_id'],
+        'title': row['title'],
+        'content': row['content'],
+        'source': row['source'],
+        'tags': _parse_json_col(row['tags'], []),
+        'evidenceCount': row['evidence_count'],
+        'relatedMemIds': _parse_json_col(row['related_mem_ids'], []),
+        'status': row['status'],
+        'createdAt': row['created_at'],
+        'updatedAt': row['updated_at'],
+        'time': row['created_at'],
+    }
+
+
+# FIXME: 决策关键词触发二级归纳
+_DECISION_KEYWORDS = ['定了', '确认', '就这么办', 'deadline', '标准', '参数', '方案确定', '已确定', '决定', '拍板']
+
+
+def _contains_decision_keyword(text):
+    """判断文本是否包含决策关键词"""
+    if not text:
+        return False
+    text = str(text)
+    return any(k in text for k in _DECISION_KEYWORDS)
+
+
+def _load_memory_summaries(emp_id, summary_type=None, date=None, project_name=None, keyword=None, limit=50):
+    """查询 memory_summary 列表"""
+    conn = _db_conn()
+    try:
+        conds = ['emp_id = ?']
+        params = [emp_id]
+        if summary_type:
+            conds.append('summary_type = ?')
+            params.append(summary_type)
+        if date:
+            conds.append('date = ?')
+            params.append(date)
+        if project_name:
+            conds.append('project_name = ?')
+            params.append(project_name)
+        if keyword:
+            conds.append('(title LIKE ? OR project_name LIKE ?)')
+            params.append('%' + keyword + '%')
+            params.append('%' + keyword + '%')
+        sql = 'SELECT * FROM memory_summary WHERE ' + ' AND '.join(conds) + ' ORDER BY updated_at DESC LIMIT ?'
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        return [_memory_summary_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _save_memory_summary(summary):
+    """保存/更新 memory_summary（UPSERT）"""
+    conn = _db_conn()
+    try:
+        now = int(time.time() * 1000)
+        summary_id = summary.get('id') or ('sum_' + str(uuid.uuid4())[:8])
+        created_at = summary.get('createdAt') or summary.get('created_at') or now
+        updated_at = now
+        conn.execute('''
+            INSERT INTO memory_summary (id, emp_id, summary_type, title, date, project_name, status,
+                key_points, decisions, pending, action_items, related_mem_ids, source_mem_ids, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                title=excluded.title,
+                date=excluded.date,
+                project_name=excluded.project_name,
+                status=excluded.status,
+                key_points=excluded.key_points,
+                decisions=excluded.decisions,
+                pending=excluded.pending,
+                action_items=excluded.action_items,
+                related_mem_ids=excluded.related_mem_ids,
+                source_mem_ids=excluded.source_mem_ids,
+                updated_at=excluded.updated_at
+        ''', (
+            summary_id, summary.get('empId') or summary.get('emp_id'),
+            summary.get('summaryType') or summary.get('summary_type'),
+            summary.get('title', ''), summary.get('date'),
+            summary.get('projectName') or summary.get('project_name'),
+            summary.get('status', 'pending'),
+            _dump_json_col(summary.get('keyPoints') or summary.get('key_points')),
+            _dump_json_col(summary.get('decisions')),
+            _dump_json_col(summary.get('pending')),
+            _dump_json_col(summary.get('actionItems') or summary.get('action_items')),
+            _dump_json_col(summary.get('relatedMemIds') or summary.get('related_mem_ids')),
+            _dump_json_col(summary.get('sourceMemIds') or summary.get('source_mem_ids')),
+            created_at, updated_at
+        ))
+        conn.commit()
+        return summary_id
+    finally:
+        conn.close()
+
+
+def _load_knowledge_base(emp_id, keyword=None, status=None, limit=200):
+    """查询 knowledge_base 列表"""
+    conn = _db_conn()
+    try:
+        conds = ['(emp_id = ? OR emp_id IS NULL)']
+        params = [emp_id]
+        if status:
+            conds.append('status = ?')
+            params.append(status)
+        if keyword:
+            conds.append('(title LIKE ? OR content LIKE ?)')
+            params.append('%' + keyword + '%')
+            params.append('%' + keyword + '%')
+        sql = 'SELECT * FROM knowledge_base WHERE ' + ' AND '.join(conds) + ' ORDER BY updated_at DESC LIMIT ?'
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        return [_knowledge_base_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _upsert_knowledge_base(kb):
+    """插入或更新 knowledge_base；evidence_count>=3 或决策触发时标记 active"""
+    conn = _db_conn()
+    try:
+        now = int(time.time() * 1000)
+        kb_id = kb.get('id') or ('kb_' + str(uuid.uuid4())[:8])
+        # 按 id 更新
+        existing = conn.execute(
+            'SELECT evidence_count, related_mem_ids, status FROM knowledge_base WHERE id = ?', (kb_id,)
+        ).fetchone()
+        if existing:
+            old_ids = _parse_json_col(existing['related_mem_ids'], [])
+            new_ids = list(dict.fromkeys(old_ids + _parse_json_col(kb.get('relatedMemIds') or kb.get('related_mem_ids'), [])))
+            count = existing['evidence_count'] + int(kb.get('evidenceCount') or 1)
+            new_status = 'active' if count >= 3 or kb.get('status') == 'active' or existing['status'] == 'active' else existing['status']
+            conn.execute('''
+                UPDATE knowledge_base SET title=?, content=?, source=?, tags=?,
+                evidence_count=?, related_mem_ids=?, status=?, updated_at=?
+                WHERE id=?
+            ''', (
+                kb.get('title', ''), kb.get('content', ''), kb.get('source', 'manual'),
+                _dump_json_col(kb.get('tags')), count, _dump_json_col(new_ids), new_status, now, kb_id
+            ))
+            conn.commit()
+            return kb_id
+        # 按内容相似合并（简单子串匹配）
+        candidates = conn.execute(
+            'SELECT id, title, content, evidence_count, related_mem_ids, status FROM knowledge_base WHERE emp_id=? OR emp_id IS NULL',
+            (kb.get('empId') or kb.get('emp_id'),)
+        ).fetchall()
+        content = kb.get('content', '')
+        for cand in candidates:
+            if content and (content in cand['content'] or cand['content'] in content or content in cand['title']):
+                old_ids = _parse_json_col(cand['related_mem_ids'], [])
+                new_ids = list(dict.fromkeys(old_ids + _parse_json_col(kb.get('relatedMemIds') or kb.get('related_mem_ids'), [])))
+                count = cand['evidence_count'] + int(kb.get('evidenceCount') or 1)
+                new_status = 'active' if count >= 3 or kb.get('status') == 'active' or cand['status'] == 'active' else cand['status']
+                conn.execute(
+                    'UPDATE knowledge_base SET evidence_count=?, related_mem_ids=?, status=?, updated_at=? WHERE id=?',
+                    (count, _dump_json_col(new_ids), new_status, now, cand['id'])
+                )
+                conn.commit()
+                return cand['id']
+        created_at = kb.get('createdAt') or kb.get('created_at') or now
+        status = kb.get('status', 'pending')
+        if _contains_decision_keyword(content):
+            status = 'active'
+        conn.execute('''
+            INSERT INTO knowledge_base (id, emp_id, title, content, source, tags, evidence_count, related_mem_ids, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            kb_id, kb.get('empId') or kb.get('emp_id'), kb.get('title', ''), kb.get('content', ''),
+            kb.get('source', 'manual'), _dump_json_col(kb.get('tags')),
+            int(kb.get('evidenceCount') or 1),
+            _dump_json_col(kb.get('relatedMemIds') or kb.get('related_mem_ids')),
+            status, created_at, now
+        ))
+        conn.commit()
+        return kb_id
+    finally:
+        conn.close()
+
+
+def _auto_check_knowledge(emp_id, mem_id, value, tags=None):
+    """保存记忆时自动检查是否应沉淀到知识库（决策/重复>=3）"""
+    if not value:
+        return None
+    content = str(value)
+    # 决策触发：直接沉淀为 active
+    if _contains_decision_keyword(content):
+        title = content[:40] + ('...' if len(content) > 40 else '')
+        return _upsert_knowledge_base({
+            'empId': emp_id,
+            'title': '决策：' + title,
+            'content': content,
+            'source': 'auto_decision',
+            'tags': tags or [],
+            'relatedMemIds': [mem_id],
+            'status': 'active'
+        })
+    # 重复提及：创建 pending，evidence_count 由 upsert 累加
+    title = content[:40] + ('...' if len(content) > 40 else '')
+    return _upsert_knowledge_base({
+        'empId': emp_id,
+        'title': '知识点：' + title,
+        'content': content,
+        'source': 'auto_repeat',
+        'tags': tags or [],
+        'relatedMemIds': [mem_id],
+        'status': 'pending'
+    })
+
+
+def _count_memories_by_tag(emp_id, tag):
+    """统计某员工含指定标签的记忆数量及 ID 列表"""
+    data = ms3.load_memory(emp_id)
+    count = 0
+    ids = []
+    for m in data.get('core', []) + data.get('daily', []):
+        tags = m.get('tags') or []
+        if tag in tags:
+            count += 1
+            ids.append(m.get('id'))
+    return count, ids
+
+
+def _create_pending_summary(emp_id, summary_type, title, date=None, project_name=None, mem_ids=None):
+    """创建待 AI 生成的二级归纳记录；如已存在则复用"""
+    conn = _db_conn()
+    try:
+        existing = None
+        if summary_type == 'daily' and date:
+            existing = conn.execute(
+                'SELECT id FROM memory_summary WHERE emp_id=? AND summary_type=? AND date=?',
+                (emp_id, summary_type, date)
+            ).fetchone()
+        elif summary_type == 'project' and project_name:
+            existing = conn.execute(
+                'SELECT id FROM memory_summary WHERE emp_id=? AND summary_type=? AND project_name=?',
+                (emp_id, summary_type, project_name)
+            ).fetchone()
+        if existing:
+            return existing['id']
+        now = int(time.time() * 1000)
+        sid = 'sum_' + str(uuid.uuid4())[:8]
+        conn.execute('''
+            INSERT INTO memory_summary (id, emp_id, summary_type, title, date, project_name, status,
+                key_points, decisions, pending, action_items, related_mem_ids, source_mem_ids, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', '[]', '[]', '[]', '[]', ?, ?, ?, ?)
+        ''', (sid, emp_id, summary_type, title, date, project_name,
+              _dump_json_col(mem_ids or []), _dump_json_col(mem_ids or []), now, now))
+        conn.commit()
+        return sid
+    finally:
+        conn.close()
+
+
+def _auto_summarize_triggers(emp_id, memory):
+    """记忆保存后自动触发二级归纳 pending 记录：数量触发 / 决策触发"""
+    value = memory.get('value', '')
+    mem_id = memory.get('id')
+    tags = memory.get('tags') or []
+    triggered = []
+    # 数量触发：任一标签对应记忆>=5条
+    checked_tags = set()
+    for tag in tags:
+        if not tag or tag in checked_tags:
+            continue
+        checked_tags.add(tag)
+        count, ids = _count_memories_by_tag(emp_id, tag)
+        if count >= 5:
+            sid = _create_pending_summary(emp_id, 'project', '项目归纳：' + tag, project_name=tag, mem_ids=ids)
+            triggered.append({'type': 'count', 'tag': tag, 'summaryId': sid})
+    # 决策触发：当天每日归纳 pending
+    if _contains_decision_keyword(value):
+        today = datetime.now().strftime('%Y-%m-%d')
+        sid = _create_pending_summary(emp_id, 'daily', today + ' 每日归纳', date=today, mem_ids=[mem_id])
+        triggered.append({'type': 'decision', 'summaryId': sid})
+    return triggered
 
 
 def _seed_coolchap_data(conn):
@@ -2254,6 +2626,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'conflicts':
                 self._handle_get_conflicts(parts[0])
                 return
+            # FIXME: 记忆三级沉淀查询路由
+            if len(parts) == 2 and parts[1] == 'daily-summary':
+                self._handle_get_daily_summary(parts[0])
+                return
+            if len(parts) == 2 and parts[1] == 'project-summary':
+                self._handle_get_project_summary(parts[0])
+                return
+            if len(parts) == 2 and parts[1] == 'knowledge':
+                self._handle_get_agent_knowledge_base(parts[0])
+                return
 
         # Permissions API
         if path == '/api/permissions':
@@ -2601,6 +2983,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
             elif len(parts) == 4 and parts[2] == 'resolve-conflict':
                 self._handle_resolve_conflict(parts[0], parts[1])
+                return
+            # FIXME: 记忆三级沉淀写入路由
+            elif len(parts) == 2 and parts[1] == 'trigger-summary':
+                self._handle_trigger_summary(parts[0])
+                return
+            elif len(parts) == 2 and parts[1] == 'knowledge':
+                self._handle_post_agent_knowledge_base(parts[0])
                 return
 
         # Knowledge API
@@ -6094,6 +6483,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         print(f'  [MemoryV3] {emp_id} 保存 {pool} 记忆: {value[:50]}...', flush=True)
 
+        # FIXME: 三级知识库自动沉淀 + 二级归纳自动触发（数量/决策）
+        auto_triggers = []
+        if key in ('auto', 'auto_extract'):
+            try:
+                # 三级沉淀：决策关键词/重复提及自动入 knowledge_base
+                _auto_check_knowledge(emp_id, memory.get('id'), memory.get('value'), memory.get('tags'))
+                # 二级归纳：数量触发 / 决策触发 -> 创建 pending 记录，由前端 AI 生成正式内容
+                auto_triggers = _auto_summarize_triggers(emp_id, memory)
+            except Exception as e:
+                print(f'  [MemoryV3] {emp_id} 自动沉淀/归纳触发失败: {e}', flush=True)
+
         # 自动提取的记忆（auto/auto_extract）尝试触发知识归纳到个人知识库
         if key in ('auto', 'auto_extract'):
             try:
@@ -6113,6 +6513,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         }
         if warning:
             result['warning'] = warning
+        # FIXME: 返回自动触发标记，前端可据此立即刷新记忆汇总
+        if auto_triggers:
+            result['summaryTriggers'] = auto_triggers
         self._send_json(200, result)
 
     def _handle_delete_memory(self, emp_id, memory_id):
@@ -6489,6 +6892,140 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             print(f'  [ResolveConflict] failed: {e}', flush=True)
             self._send_json_error(500, f'Resolve failed: {str(e)}')
+
+    # FIXME: 记忆三级沉淀 API：二级归纳（daily/project） + 三级知识库查询/标记
+    def _handle_get_daily_summary(self, emp_id):
+        """GET /api/memory/{empId}/daily-summary?date=YYYY-MM-DD"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        agent, err, status = self._check_agent_access(auth, emp_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        date = qs.get('date', [''])[0]
+        keyword = qs.get('keyword', [''])[0]
+        try:
+            limit = max(1, min(200, int(qs.get('limit', ['50'])[0])))
+        except ValueError:
+            limit = 50
+        summaries = _load_memory_summaries(emp_id, summary_type='daily', date=date, keyword=keyword, limit=limit)
+        self._send_json(200, {'success': True, 'empId': emp_id, 'date': date, 'summaries': summaries})
+
+    def _handle_get_project_summary(self, emp_id):
+        """GET /api/memory/{empId}/project-summary?project=xxx"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        agent, err, status = self._check_agent_access(auth, emp_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        project = qs.get('project', [''])[0]
+        keyword = qs.get('keyword', [''])[0]
+        try:
+            limit = max(1, min(200, int(qs.get('limit', ['50'])[0])))
+        except ValueError:
+            limit = 50
+        summaries = _load_memory_summaries(emp_id, summary_type='project', project_name=project, keyword=keyword, limit=limit)
+        self._send_json(200, {'success': True, 'empId': emp_id, 'project': project, 'summaries': summaries})
+
+    def _handle_trigger_summary(self, emp_id):
+        """POST /api/memory/{empId}/trigger-summary — 手动触发/保存归纳结果"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin and auth.user_id != emp_id:
+            self._send_json_error('Permission denied', 403)
+            return
+        if not _check_agent_exists(emp_id):
+            self._send_json(404, {'error': 'Agent not found'})
+            return
+        body = self._read_body() or {}
+        summary = body.get('summary') or body
+        summary['empId'] = emp_id
+        try:
+            sid = _save_memory_summary(summary)
+        except Exception as e:
+            print(f'  [SummaryTrigger] save failed: {e}', flush=True)
+            self._send_json_error(500, f'Save summary failed: {str(e)}')
+            return
+        self._send_json(200, {'success': True, 'empId': emp_id, 'summaryId': sid})
+
+    def _handle_get_agent_knowledge_base(self, emp_id):
+        """GET /api/memory/{empId}/knowledge — 查询该员工三级知识库"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        agent, err, status = self._check_agent_access(auth, emp_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        keyword = qs.get('keyword', [''])[0]
+        status_filter = qs.get('status', [''])[0]
+        try:
+            limit = max(1, min(500, int(qs.get('limit', ['200'])[0])))
+        except ValueError:
+            limit = 200
+        entries = _load_knowledge_base(emp_id, keyword=keyword, status=status_filter, limit=limit)
+        self._send_json(200, {'success': True, 'empId': emp_id, 'entries': entries})
+
+    def _handle_post_agent_knowledge_base(self, emp_id):
+        """POST /api/memory/{empId}/knowledge — 手动标记记忆为知识库"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin and auth.user_id != emp_id:
+            self._send_json_error('Permission denied', 403)
+            return
+        body = self._read_body() or {}
+        mem_id = body.get('memId')
+        title = body.get('title')
+        content = body.get('content')
+        if not title or not content:
+            # 允许只传 memId，从记忆中取内容
+            if mem_id:
+                data = ms3.load_memory(emp_id)
+                found = None
+                for m in data.get('core', []) + data.get('daily', []):
+                    if m.get('id') == mem_id:
+                        found = m
+                        break
+                if found:
+                    content = found.get('value', '')
+                    title = found.get('value', '')[:40]
+                else:
+                    self._send_json_error(404, 'Memory not found')
+                    return
+            else:
+                self._send_json_error(400, 'Missing title/content or memId')
+                return
+        try:
+            kb_id = _upsert_knowledge_base({
+                'empId': emp_id,
+                'title': title,
+                'content': content,
+                'source': body.get('source', 'manual'),
+                'tags': body.get('tags', []),
+                'relatedMemIds': [mem_id] if mem_id else [],
+                'status': 'active'
+            })
+        except Exception as e:
+            print(f'  [KnowledgeBase] manual mark failed: {e}', flush=True)
+            self._send_json_error(500, f'Mark knowledge failed: {str(e)}')
+            return
+        self._send_json(200, {'success': True, 'empId': emp_id, 'knowledgeId': kb_id})
 
     # ═══════════════════════════════════════════════════
     # 知识库 API（后端持久化，替代 localStorage sb_docs）
@@ -9541,6 +10078,16 @@ def _run_daily_memory_jobs(startup=False):
             _generate_core_candidates_for_agent(agent)
             _induct_knowledge_for_agent(agent, owner_user_id=agent.get('createdBy') or '')  # 默认进入个人库
             _detect_conflicts_for_agent(agent)
+            # FIXME: 每日凌晨3点自动创建待生成的每日归纳记录（前端 AI 队列负责正式生成）
+            try:
+                today = datetime.now().strftime('%Y-%m-%d')
+                data = ms3.load_memory(emp_id)
+                cutoff = int(time.time() * 1000) - 24 * 3600 * 1000
+                recent_ids = [m.get('id') for m in data.get('daily', []) if m.get('createdAt', 0) >= cutoff]
+                if recent_ids:
+                    _create_pending_summary(emp_id, 'daily', today + ' 每日归纳', date=today, mem_ids=recent_ids)
+            except Exception as e:
+                print(f'  [DailyJob] {emp_id} 创建每日归纳 pending 失败: {e}', flush=True)
             processed += 1
         except Exception as e:
             print(f'  [DailyJob] agent {agent.get("id")} 处理失败: {e}', flush=True)
