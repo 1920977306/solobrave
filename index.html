@@ -10550,8 +10550,29 @@ function triggerInterestedAgents(groupId, senderId, messageContent) {
   }, 2000);
 }
 
+// 员工兴趣关键词配置（名字或角色命中即按对应关键词匹配）
+var _agentInterestKeywords = {
+  analyst: ['数据', '模型', '分析', 'roi', '转化', '统计', '指标', '测算', '校准', '公式', '受众', '人群画像', '转化率', '佣金比例', '达人配比', '选品'],
+  business: ['达人', '商务', '合作', '佣金', '坑位费', '对接', '洽谈', '清单', '筛选', '建联', '品牌方', '投放', '价格带']
+};
+function _matchAgentInterestKeywords(emp, text) {
+  var lowerText = (text || '').toLowerCase();
+  var name = (emp && emp.name) || '';
+  var role = getEmpRoleDisplay(emp) || '';
+  var label = (name + ' ' + role).toLowerCase();
+  var keywords = null;
+  if (label.indexOf('萧何') !== -1 || /分析|数据|分析师/.test(label)) {
+    keywords = _agentInterestKeywords.analyst;
+  } else if (label.indexOf('helen') !== -1 || /商务|bd|合作/.test(label)) {
+    keywords = _agentInterestKeywords.business;
+  }
+  if (!keywords) return false;
+  return keywords.some(function (kw) { return lowerText.indexOf(kw) !== -1; });
+}
+
 // 让单个 AI 判断群聊消息是否与其相关，相关则触发完整回复
-async function checkAgentInterest(mid, groupId, senderId, messageContent) {
+// 已重构为纯前端关键词匹配，不再调用 OpenClaw
+function checkAgentInterest(mid, groupId, senderId, messageContent) {
   var emp = findEmpByIdAcrossGroups(mid);
   if (!emp) return;
   // 如果该成员已被 pollAgentsForReply 轮询过，不再重复判断，避免并发冲突
@@ -10565,59 +10586,23 @@ async function checkAgentInterest(mid, groupId, senderId, messageContent) {
   var group = groups.find(function (g) {
     return g.id === groupId;
   });
-  var groupName = group ? group.name : '项目组';
-  // 兼容 members 的两种格式：字符串数组 和 字典数组
-  var _memberIds6 = group && group.members ? group.members.map(function (m) {
-    return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
-  }).filter(function (id) { return id; }) : [];
-  var memberProfiles = _memberIds6.map(function (mid) {
-    var e = findEmpByIdAcrossGroups(mid);
-    if (!e) return '';
-    var _r = getEmpRoleDisplay(e);
-    var _skills = e.skills && e.skills.length > 0 ? '，擅长：' + e.skills.map(function (s) { return s.name; }).join('、') : '';
-    return e.name + '（' + (_r || '员工') + _skills + '）';
-  }).filter(function (s) { return s; }).join('、');
   var isLead = group && group.leadAgentId === mid;
-  var checkPrompt = '你是' + emp.name + '（' + getEmpRoleDisplay(emp) + '），在「' + groupName + '」工作。\n\n你的同事有：' + memberProfiles + '\n\n群里有人发了消息：' + messageContent + '\n\n你看到这个消息，心里怎么想？跟你有关吗？有话想说吗？\n如果有关，回复 YES。\n如果完全没兴趣，回复 NO。\n只回复 YES 或 NO，别废话。';
-  if (isLead) {
-    checkPrompt = checkPrompt.replace('如果完全没兴趣，回复 NO。', '你是群主/负责人，群里的讨论你都应该关心并参与。只要消息不是纯垃圾信息，就必须回复 YES。如果完全没兴趣，回复 NO。');
-  }
   console.log('[checkAgentInterest] 判断 ' + emp.name + (isLead ? '（群主）' : '') + ' 是否对消息感兴趣');
+
   mentionTriggered = mentionTriggered || {};
-  try {
-    var agentId = _resolveGroupAgentId(emp);
-    var sessionKey = 'agent:' + agentId + ':main';
-    emp.status = 'thinking';
-    renderEmployeeList();
-    var chatResult = await _sendChatWaitForLifecycle(sessionKey, checkPrompt, {
-      onStartThinking: function () {
-        if (emp.status !== 'thinking') {
-          emp.status = 'thinking';
-          renderEmployeeList();
-        }
-      }
-    });
-    var reply = (chatResult.reply || '').trim();
-    console.log('[checkAgentInterest] ' + emp.name + ' lifecycle结束，回复=' + reply + '，是否错误=' + chatResult.isError);
-    emp.status = 'online';
-    renderEmployeeList();
-    // 放宽判断：除 YES 外也接受 SURE/OK/想等明确表示愿意参与的词
-    var upperReply = reply.toUpperCase();
-    var isInterested = upperReply.indexOf('YES') >= 0 || upperReply.indexOf('SURE') >= 0 || upperReply.indexOf('OK') >= 0 || reply.indexOf('想') >= 0;
-    // 群主/负责人默认应该参与，除非明确说 NO
-    if (isLead && !isInterested) {
-      console.log('[checkAgentInterest] ' + emp.name + '（群主）兴趣判断未通过，但群主默认应参与，强制触发');
-      isInterested = true;
-    }
-    console.log('[checkAgentInterest] ' + emp.name + (isLead ? '（群主）' : '') + ' 回复:', reply, '是否感兴趣:', isInterested);
-    if (isInterested) {
-      mentionTriggered[mid] = true;
-      triggerMentionedAgent(emp, groupId, senderId, 'auto', messageContent);
-    }
-  } catch (e) {
-    emp.status = 'online';
-    renderEmployeeList();
-    console.warn('[checkAgentInterest] ' + emp.name + ' 兴趣判断失败:', e);
+  var isInterested = false;
+  if (isLead) {
+    // 群主/负责人默认永远参与
+    isInterested = true;
+    console.log('[checkAgentInterest] ' + emp.name + '（群主）默认感兴趣');
+  } else {
+    isInterested = _matchAgentInterestKeywords(emp, messageContent);
+    console.log('[checkAgentInterest] ' + emp.name + ' 关键词匹配结果:', isInterested, '消息:', messageContent.substring(0, 80));
+  }
+
+  if (isInterested) {
+    mentionTriggered[mid] = true;
+    triggerMentionedAgent(emp, groupId, senderId, 'auto', messageContent);
   }
 }
 
@@ -15712,22 +15697,63 @@ function _markMemoryExtracted(key) {
   if (!key) return;
   _memoryExtractedKeys[key] = Date.now();
 }
+
+// 全局记忆提取队列：所有个人/群记忆提取统一排队，同一时间只执行一个，避免并发压垮 OpenClaw
+var _memoryExtractQueue = [];
+var _memoryExtractRunning = false;
+function _enqueueMemoryExtract(fn) {
+  _memoryExtractQueue.push(fn);
+  if (!_memoryExtractRunning) _processMemoryExtractQueue();
+}
+function _processMemoryExtractQueue() {
+  if (_memoryExtractQueue.length === 0) {
+    _memoryExtractRunning = false;
+    return;
+  }
+  _memoryExtractRunning = true;
+  var task = _memoryExtractQueue.shift();
+  var finished = false;
+  function done() {
+    if (finished) return;
+    finished = true;
+    // 微小间隔让事件循环喘息，再执行下一个
+    setTimeout(_processMemoryExtractQueue, 50);
+  }
+  try {
+    var res = task(done);
+    if (res && typeof res.then === 'function') {
+      res.then(function () { done(); }, function (e) { console.error('[MemoryQueue] 执行失败:', e); done(); });
+    }
+  } catch (e) {
+    console.error('[MemoryQueue] 同步异常:', e);
+    done();
+  }
+}
+
 function extractAndSaveMemory(empId, userMsg, aiReply, isGroupChat, msgId) {
+  _enqueueMemoryExtract(function (done) {
+    _runExtractAndSaveMemory(empId, userMsg, aiReply, isGroupChat, msgId, done);
+  });
+}
+function _runExtractAndSaveMemory(empId, userMsg, aiReply, isGroupChat, msgId, done) {
   var extractKey = (empId || '') + '_' + (msgId || ('priv_' + Date.now()));
   if (_isMemoryExtracted(extractKey)) {
     console.log('[Memory] extractAndSaveMemory 跳过，msgId 已提取过:', extractKey);
+    done();
     return;
   }
   _markMemoryExtracted(extractKey);
   console.log('[Memory] extractAndSaveMemory 被调用:', empId, 'userMsg长度:', (userMsg || '').length, 'aiReply长度:', (aiReply || '').length, 'isGroupChat:', isGroupChat, 'msgId:', msgId);
   if (typeof apiFetch !== 'function') {
     console.warn('[Memory] apiFetch 不可用，跳过提取');
+    done();
     return;
   }
 
   var emp = emps.find(function (e) { return e.id === empId; });
   if (!emp) {
     console.warn('[Memory] 找不到员工:', empId);
+    done();
     return;
   }
 
@@ -15764,26 +15790,29 @@ function extractAndSaveMemory(empId, userMsg, aiReply, isGroupChat, msgId) {
     // 根据实际连接状态选择提取方式（不按 connectionType 硬编码）
     if (typeof openclaw !== 'undefined' && openclaw.connected) {
       console.log('[Memory] 使用 OpenClaw 提取:', emp.name);
-      _extractMemoryViaOpenClaw(empId, extractPrompt, allMemories, userMsg);
+      _extractMemoryViaOpenClaw(empId, extractPrompt, allMemories, userMsg, done);
     } else if (emp.apiKey && emp.aiProvider) {
       console.log('[Memory] 使用 API 提取:', emp.name);
-      _extractMemoryViaAPI(empId, extractPrompt, allMemories, userMsg);
+      _extractMemoryViaAPI(empId, extractPrompt, allMemories, userMsg, done);
     } else {
       // 无 AI 可用时，将用户原话作为兜底记忆写入，确保测试环境也能看到记忆记录
       console.warn('[Memory] 无可用提取方式，使用原话兜底:', emp.name);
       _saveMemoryFallback(empId, userMsg, allMemories);
+      done();
     }
   }).catch(function (e) {
     console.warn('[Memory] 加载已有记忆失败:', e);
+    done();
   });
 }
 
 // 通过 OpenClaw WebSocket 提取记忆
-function _extractMemoryViaOpenClaw(empId, extractPrompt, existing, userMsg) {
+function _extractMemoryViaOpenClaw(empId, extractPrompt, existing, userMsg, done) {
   console.log('[Memory] _extractMemoryViaOpenClaw 开始:', empId);
   var emp = emps.find(function (e) { return e.id === empId; });
   if (!emp) {
     console.warn('[Memory] _extractMemoryViaOpenClaw 找不到员工:', empId);
+    if (typeof done === 'function') done();
     return;
   }
 
@@ -15813,6 +15842,7 @@ function _extractMemoryViaOpenClaw(empId, extractPrompt, existing, userMsg) {
       if (extractTimeout) clearTimeout(extractTimeout);
       openclaw.off('agent', extractHandler);
       _processExtractedMemory(empId, extractReply, existing, userMsg);
+      if (typeof done === 'function') done();
     }
   };
 
@@ -15828,6 +15858,7 @@ function _extractMemoryViaOpenClaw(empId, extractPrompt, existing, userMsg) {
       console.warn('[Memory] OpenClaw 提取超时无结果，使用原话兜底:', emp.name);
       _saveMemoryFallback(empId, userMsg, existing);
     }
+    if (typeof done === 'function') done();
   }, 30000);
 
   openclaw.sendChat(sessionKey, isolatedPrompt).then(function () {
@@ -15839,15 +15870,16 @@ function _extractMemoryViaOpenClaw(empId, extractPrompt, existing, userMsg) {
     // 发送失败也尝试 fallback
     if (emp.apiKey && emp.aiProvider) {
       console.log('[Memory] OpenClaw 发送失败，fallback 到 API:', emp.name);
-      _extractMemoryViaAPI(empId, extractPrompt, existing, userMsg);
+      _extractMemoryViaAPI(empId, extractPrompt, existing, userMsg, done);
     } else {
       _saveMemoryFallback(empId, userMsg, existing);
+      if (typeof done === 'function') done();
     }
   });
 }
 
 // 通过 API 直接提取记忆
-function _extractMemoryViaAPI(empId, extractPrompt, existing, userMsg) {
+function _extractMemoryViaAPI(empId, extractPrompt, existing, userMsg, done) {
   console.log('[Memory] _extractMemoryViaAPI 开始:', empId);
   apiFetch('/api/chat/' + empId, {
     method: 'POST',
@@ -15866,6 +15898,8 @@ function _extractMemoryViaAPI(empId, extractPrompt, existing, userMsg) {
     if (userMsg) {
       _saveMemoryFallback(empId, userMsg, existing);
     }
+  }).finally(function () {
+    if (typeof done === 'function') done();
   });
  }
 
@@ -16159,10 +16193,19 @@ function _processExtractedGroupMemory(groupId, extracted, existing) {
 }
 
 function extractAndSaveGroupMemory(groupId, userMsg, aiReply, msgId) {
-  if (!groupId) return;
+  _enqueueMemoryExtract(function (done) {
+    _runExtractAndSaveGroupMemory(groupId, userMsg, aiReply, msgId, done);
+  });
+}
+function _runExtractAndSaveGroupMemory(groupId, userMsg, aiReply, msgId, done) {
+  if (!groupId) {
+    done();
+    return;
+  }
   var extractKey = (groupId || '') + '_' + (msgId || ('group_' + Date.now()));
   if (_isMemoryExtracted(extractKey)) {
     console.log('[Memory] extractAndSaveGroupMemory 跳过，msgId 已提取过:', extractKey);
+    done();
     return;
   }
   _markMemoryExtracted(extractKey);
@@ -16197,16 +16240,19 @@ function extractAndSaveGroupMemory(groupId, userMsg, aiReply, msgId) {
           if (extractTimeout) clearTimeout(extractTimeout);
           openclaw.off('agent', extractHandler);
           _processExtractedGroupMemory(groupId, extractReply, allMemories);
+          done();
         }
       };
       openclaw.on('agent', extractHandler);
       extractTimeout = setTimeout(function () {
         openclaw.off('agent', extractHandler);
         if (extractReply) _processExtractedGroupMemory(groupId, extractReply, allMemories);
+        done();
       }, 30000);
       openclaw.sendChat(sessionKey, isolatedPrompt).catch(function () {
         if (extractTimeout) clearTimeout(extractTimeout);
         openclaw.off('agent', extractHandler);
+        done();
       });
     } else if (leadEmp && leadEmp.apiKey && leadEmp.aiProvider) {
       apiFetch('/api/chat/' + encodeURIComponent(leadEmp.id), {
@@ -16216,9 +16262,16 @@ function extractAndSaveGroupMemory(groupId, userMsg, aiReply, msgId) {
       }).then(function (r) { return r.json(); }).then(function (data) {
         var extracted = (data.aiMessage && data.aiMessage.content) || data.reply || '';
         _processExtractedGroupMemory(groupId, extracted, allMemories);
-      }).catch(function (e) { console.warn('[GroupMemory] API 提取失败:', e); });
+      }).catch(function (e) { console.warn('[GroupMemory] API 提取失败:', e); }).finally(function () {
+        done();
+      });
+    } else {
+      done();
     }
-  }).catch(function (e) { console.warn('[GroupMemory] 加载项目组记忆失败:', e); });
+  }).catch(function (e) {
+    console.warn('[GroupMemory] 加载项目组记忆失败:', e);
+    done();
+  });
 }
 
 async function loadGroupMemoryForPrompt(groupId) {
