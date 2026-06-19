@@ -9711,6 +9711,7 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
   window._pollTriggered = {};
   mentionTriggered = {};
   mentionChainDepth = 0;
+  _roundTriggeredEmps = {};
 
   // 触发对消息感兴趣的 AI 主动回复（不需要被 @）
   triggerInterestedAgents(groupId, 'user', message);
@@ -10128,6 +10129,19 @@ function _runWithGroupReplyLock(groupId, fn) {
     execute();
   }
 }
+
+// 本轮已触发员工的去重集合：key=groupId_empId，value=优先级数字
+// 优先级：0=@触发/用户触发，1=兴趣触发，2=轮询触发；高优先级可覆盖低优先级，同/低优先级跳过
+var _roundTriggeredEmps = {};
+function _isTriggeredThisRound(key, priority) {
+  var existing = _roundTriggeredEmps[key];
+  if (typeof existing === 'number' && existing <= priority) return true;
+  return false;
+}
+function _markTriggeredThisRound(key, priority) {
+  _roundTriggeredEmps[key] = priority;
+}
+
 function parseAndTriggerMentions(replyText, groupId, senderId) {
   if (mentionChainDepth >= MENTION_MAX_DEPTH) return;
   if (!replyText || typeof replyText !== 'string') return;
@@ -10258,6 +10272,12 @@ async function _askAgentToReply(mid, groupId, senderId, messageContent) {
     console.log('[askAgentToReply] ' + emp.name + ' 已被 checkAgentInterest 标记，跳过轮询');
     return;
   }
+  // 轮询触发优先级=2；如果本轮已有 @触发（0）或兴趣触发（1），则跳过
+  if (_isTriggeredThisRound(pollKey, 2)) {
+    console.log('[askAgentToReply] ' + emp.name + ' 本轮已被更高优先级触发，跳过轮询');
+    return;
+  }
+  _markTriggeredThisRound(pollKey, 2);
   window._pollTriggered = window._pollTriggered || {};
   window._pollTriggered[pollKey] = true;
 
@@ -10399,6 +10419,13 @@ async function initiateAgentDiscussion(groupId) {
   area.insertAdjacentHTML('beforeend', typingHtml);
   area.scrollTop = area.scrollHeight;
 
+  // AI 主动发起新一轮讨论，重置本轮触发记录
+  _roundTriggeredEmps = {};
+  mentionTriggered = {};
+  mentionChainDepth = 0;
+  window._pollRound = 0;
+  window._pollTriggered = {};
+
   initiator.status = 'thinking';
   renderEmployeeList();
 
@@ -10492,6 +10519,8 @@ function triggerInterestedAgents(groupId, senderId, messageContent) {
     var candidates = _memberIds5.filter(function (mid) {
       if (mid === senderId) return false;
       if (mentionTriggered && mentionTriggered[mid]) return false;
+      // 本轮已触发去重：兴趣触发优先级=1；已被 @触发（0）或同级兴趣触发跳过，轮询触发（2）可覆盖
+      if (_isTriggeredThisRound(groupId + '_' + mid, 1)) return false;
       var e = findEmpByIdAcrossGroups(mid);
       return e && !e.archived && e.status !== 'thinking';
     });
@@ -10567,6 +10596,11 @@ function checkAgentInterest(mid, groupId, senderId, messageContent) {
   }
 
   if (isInterested) {
+    // 兴趣触发优先级=1；如果本轮已有 @触发/用户触发（0）或更高/同级兴趣触发，则跳过
+    if (_isTriggeredThisRound(pollKey, 1)) {
+      console.log('[checkAgentInterest] ' + emp.name + ' 本轮已被更高优先级触发，跳过兴趣触发');
+      return;
+    }
     mentionTriggered[mid] = true;
     triggerMentionedAgent(emp, groupId, senderId, 'auto', messageContent);
   }
@@ -10593,6 +10627,15 @@ async function _triggerMentionedAgent(emp, groupId, fromId, source, userMessage)
     mentionChainDepth--;
     return;
   }
+
+  // 本轮已触发去重：@触发/用户触发=0，兴趣触发=1；高优先级可覆盖低优先级
+  var triggerPriority = (source === 'ai' || source === 'user') ? 0 : 1;
+  if (_isTriggeredThisRound(pollKey, triggerPriority)) {
+    console.log('[triggerMentionedAgent] ' + emp.name + ' 本轮已触发过（优先级≤' + triggerPriority + '），跳过重复触发');
+    mentionChainDepth--;
+    return;
+  }
+  _markTriggeredThisRound(pollKey, triggerPriority);
 
   // 立即标记该成员已触发，并同步到 poll 标记，防止并发路径重复调用
   mentionTriggered = mentionTriggered || {};
