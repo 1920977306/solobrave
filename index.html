@@ -9743,7 +9743,7 @@ function highlightMentions(html) {
 }
 
 // 发送群聊消息
-async function sendGroupMessage(groupId, message, mentions, images) {
+async function _sendGroupMessage(groupId, message, mentions, images) {
   var group = groups.find(function (g) {
     return g.id === groupId;
   });
@@ -9778,9 +9778,9 @@ async function sendGroupMessage(groupId, message, mentions, images) {
       return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
     }).filter(function (id) { return id; });
     _memberIds3.forEach(function (mid) {
-      extractAndSaveMemory(mid, message, '', true);
+      extractAndSaveMemory(mid, message, '', true, msgId);
     });
-    extractAndSaveGroupMemory(groupId, message, '');
+    extractAndSaveGroupMemory(groupId, message, '', msgId);
   }, 800);
 
   // 用户新消息，重置轮询计数器和触发标记，开始新一轮 AI 自主讨论
@@ -10089,11 +10089,55 @@ async function sendGroupMessage(groupId, message, mentions, images) {
     }, 800);
   }
 }
+function sendGroupMessage(groupId, message, mentions, images) {
+  _runWithGroupReplyLock(groupId, function () {
+    return _sendGroupMessage(groupId, message, mentions, images);
+  });
+}
 
 // ===== AI互相@系统 =====
 var mentionChainDepth = 0;
-var MENTION_MAX_DEPTH = 10;
+var MENTION_MAX_DEPTH = 5;
 var mentionTriggered = {};
+// 群聊回复串行锁：同一 groupId 同一时间只允许一个 AI 在回复，后面的排队
+var groupReplyLocks = {};
+function _runWithGroupReplyLock(groupId, fn) {
+  if (!groupId) {
+    fn();
+    return;
+  }
+  groupReplyLocks[groupId] = groupReplyLocks[groupId] || { locked: false, queue: [] };
+  var lock = groupReplyLocks[groupId];
+  var execute = function () {
+    lock.locked = true;
+    try {
+      var res = fn();
+      if (res && typeof res.then === 'function') {
+        res.then(function () {}, function (e) { console.error('[GroupLock] groupId=' + groupId + ' 执行出错:', e); }).finally(function () {
+          lock.locked = false;
+          if (lock.queue.length > 0) {
+            var next = lock.queue.shift();
+            next();
+          }
+        });
+        return;
+      }
+    } catch (e) {
+      console.error('[GroupLock] groupId=' + groupId + ' 执行出错:', e);
+    }
+    lock.locked = false;
+    if (lock.queue.length > 0) {
+      var next = lock.queue.shift();
+      next();
+    }
+  };
+  if (lock.locked) {
+    console.log('[GroupLock] groupId=' + groupId + ' 正在回复，排队等待，当前队列长度=' + lock.queue.length);
+    lock.queue.push(execute);
+  } else {
+    execute();
+  }
+}
 function parseAndTriggerMentions(replyText, groupId, senderId) {
   if (mentionChainDepth >= MENTION_MAX_DEPTH) return;
   if (!replyText || typeof replyText !== 'string') return;
@@ -10202,7 +10246,7 @@ function pollAgentsForReply(groupId, senderId, messageContent) {
 }
 
 // 让单个 AI 判断是否要回复群聊消息，直接回复内容或 SKIP
-async function askAgentToReply(mid, groupId, senderId, messageContent) {
+async function _askAgentToReply(mid, groupId, senderId, messageContent) {
   var emp = findEmpByIdAcrossGroups(mid);
   if (!emp) return;
   // 防重：同一轮对话中不重复触发同一成员
@@ -10312,6 +10356,11 @@ async function askAgentToReply(mid, groupId, senderId, messageContent) {
     // 异常时也解除锁定，避免成员被永久标记为已轮询
     if (window._pollTriggered) delete window._pollTriggered[pollKey];
   }
+}
+function askAgentToReply(mid, groupId, senderId, messageContent) {
+  _runWithGroupReplyLock(groupId, function () {
+    return _askAgentToReply(mid, groupId, senderId, messageContent);
+  });
 }
 
 // AI 主动发起群聊讨论（不需要用户参与）
@@ -10545,7 +10594,7 @@ function triggerUserMentions(userMentions, groupId, senderId, originalMessage) {
     }, delay);
   });
 }
-async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) {
+async function _triggerMentionedAgent(emp, groupId, fromId, source, userMessage) {
   mentionChainDepth++;
   console.log('[triggerMentionedAgent] 尝试触发 ' + (emp && emp.name || emp.id) + ' 回复，来源=' + fromId + '，depth=' + mentionChainDepth + '，source=' + source);
 
@@ -10821,6 +10870,12 @@ async function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) 
   }
   mentionChainDepth--;
 }
+// 串行锁包装 triggerMentionedAgent，确保同一 groupId 同一时间只有一个 AI 在链式触发中回复
+function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) {
+  _runWithGroupReplyLock(groupId, function () {
+    return _triggerMentionedAgent(emp, groupId, fromId, source, userMessage);
+  });
+}
 
 // 在群聊中显示 AI 回复
 function displayGroupAIReply(groupId, senderId, replyText) {
@@ -10913,8 +10968,8 @@ function displayGroupAIReply(groupId, senderId, replyText) {
 
   // 群聊 AI 回复触发记忆提取：发送 AI 的个人记忆 + 项目组公共记忆
   setTimeout(function () {
-    extractAndSaveMemory(senderId, '', replyText, true);
-    extractAndSaveGroupMemory(groupId, '', replyText);
+    extractAndSaveMemory(senderId, '', replyText, true, aiMsgId);
+    extractAndSaveGroupMemory(groupId, '', replyText, aiMsgId);
   }, 800);
 
   // 更新群组最后消息
@@ -15638,11 +15693,34 @@ function saveChatHistory(empId, userMsg, aiMsg, docContext, citations, images) {
 
   // 提取并保存记忆（延迟 800ms，避免与刚结束的 OpenClaw session 冲突）
   setTimeout(function () {
-    extractAndSaveMemory(empId, userMsg, aiMsg);
+    var privMsgId = 'priv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    extractAndSaveMemory(empId, userMsg, aiMsg, false, privMsgId);
   }, 800);
 }
-function extractAndSaveMemory(empId, userMsg, aiReply, isGroupChat) {
-  console.log('[Memory] extractAndSaveMemory 被调用:', empId, 'userMsg长度:', (userMsg || '').length, 'aiReply长度:', (aiReply || '').length, 'isGroupChat:', isGroupChat);
+// 记忆提取幂等集合：key 格式 empId_msgId 或 groupId_msgId，60分钟内重复提取直接跳过
+var _memoryExtractedKeys = {};
+function _isMemoryExtracted(key) {
+  if (!key) return false;
+  var ts = _memoryExtractedKeys[key];
+  if (!ts) return false;
+  if (Date.now() - ts > 60 * 60 * 1000) {
+    delete _memoryExtractedKeys[key];
+    return false;
+  }
+  return true;
+}
+function _markMemoryExtracted(key) {
+  if (!key) return;
+  _memoryExtractedKeys[key] = Date.now();
+}
+function extractAndSaveMemory(empId, userMsg, aiReply, isGroupChat, msgId) {
+  var extractKey = (empId || '') + '_' + (msgId || ('priv_' + Date.now()));
+  if (_isMemoryExtracted(extractKey)) {
+    console.log('[Memory] extractAndSaveMemory 跳过，msgId 已提取过:', extractKey);
+    return;
+  }
+  _markMemoryExtracted(extractKey);
+  console.log('[Memory] extractAndSaveMemory 被调用:', empId, 'userMsg长度:', (userMsg || '').length, 'aiReply长度:', (aiReply || '').length, 'isGroupChat:', isGroupChat, 'msgId:', msgId);
   if (typeof apiFetch !== 'function') {
     console.warn('[Memory] apiFetch 不可用，跳过提取');
     return;
@@ -15952,6 +16030,12 @@ function _processExtractedMemory(empId, extracted, existing, userMsg) {
   newMemories = uniqueNewMemories;
   console.log('[Memory] 本次解析去重后数量:', newMemories.length);
 
+  // 单条消息提取的记忆数量超过50条直接截断，只保留前50条，避免炸内存
+  if (newMemories.length > 50) {
+    console.warn('[Memory] 单条消息提取记忆超过50条，截断保留前50条，原始数量=' + newMemories.length);
+    newMemories = newMemories.slice(0, 50);
+  }
+
   // 如果没有列表项，尝试把整段作为一条记忆（清理提示词前缀和编号）
   if (newMemories.length === 0) {
     var cleanText = extracted
@@ -16047,6 +16131,11 @@ function _processExtractedGroupMemory(groupId, extracted, existing) {
     }
   });
   newMemories = uniqueNewMemories;
+  // 单条消息提取的群记忆数量超过50条直接截断，只保留前50条
+  if (newMemories.length > 50) {
+    console.warn('[GroupMemory] 单条消息提取记忆超过50条，截断保留前50条，原始数量=' + newMemories.length);
+    newMemories = newMemories.slice(0, 50);
+  }
   newMemories.forEach(function (memValue) {
     if (memValue.length < 5) return;
     if (_isMemoryDuplicate(memValue, existing)) return;
@@ -16070,8 +16159,14 @@ function _processExtractedGroupMemory(groupId, extracted, existing) {
   });
 }
 
-function extractAndSaveGroupMemory(groupId, userMsg, aiReply) {
+function extractAndSaveGroupMemory(groupId, userMsg, aiReply, msgId) {
   if (!groupId) return;
+  var extractKey = (groupId || '') + '_' + (msgId || ('group_' + Date.now()));
+  if (_isMemoryExtracted(extractKey)) {
+    console.log('[Memory] extractAndSaveGroupMemory 跳过，msgId 已提取过:', extractKey);
+    return;
+  }
+  _markMemoryExtracted(extractKey);
   apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/memory').then(function (r) { return r.json(); }).then(function (data) {
     if (!data) data = {};
     var allMemories = data.memories || [];
