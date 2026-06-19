@@ -8113,23 +8113,33 @@ function mergeGroupMembersToEmps() {
 }
 
 // 按名字查找员工：优先在 emps 中找完整对象，找不到时在所有项目组成员中找基础信息
+function _stripRoleSuffix(n) {
+  if (!n) return '';
+  return n.replace(/[\s]*[（(].*?[）)][\s]*$/g, '').trim();
+}
 function findEmpByNameAcrossGroups(name) {
   if (!name) return null;
   // 去掉可能的角色后缀，如 "张三（设计师）" -> "张三"
-  var baseName = name.replace(/[\s]*[（(].*?[）)][\s]*$/g, '').trim();
+  var baseName = _stripRoleSuffix(name);
   var candidates = [name, baseName];
   for (var c = 0; c < candidates.length; c++) {
     var q = candidates[c];
     if (!q) continue;
+    // 1. 精确匹配员工全名（如全名就是 q）
     var inEmps = emps.find(function (e) {
       return e && e.name === q;
+    });
+    if (inEmps) return inEmps;
+    // 2. 匹配去掉角色后缀后的纯名字（如员工全名"萧何（分析师）"，@的是"萧何"）
+    inEmps = emps.find(function (e) {
+      return e && _stripRoleSuffix(e.name) === q;
     });
     if (inEmps) return inEmps;
     for (var i = 0; i < groups.length; i++) {
       var members = groups[i].members || [];
       for (var j = 0; j < members.length; j++) {
         var m = members[j];
-        if (m && typeof m === 'object' && m.name === q) {
+        if (m && typeof m === 'object' && (m.name === q || _stripRoleSuffix(m.name) === q)) {
           return m;
         }
       }
@@ -10169,9 +10179,15 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
     if (mid === senderId || mentionTriggered[mid]) return;
     var emp = findEmpByIdAcrossGroups(mid);
     if (!emp || !emp.name) return;
-    var escapedName = emp.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    var nameRegex = new RegExp('(?:^|[^\\w\\u4e00-\\u9fa5])' + escapedName + '(?:$|[^\\w\\u4e00-\\u9fa5])');
-    if (nameRegex.test(replyText)) {
+    // 用去掉角色后缀的纯名字匹配（如"萧何（分析师）"按"萧何"匹配）
+    var baseName = _stripRoleSuffix(emp.name);
+    var namesToMatch = [emp.name, baseName].filter(function (n) { return n && n.length > 0; });
+    var matched = namesToMatch.some(function (name) {
+      var escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      var nameRegex = new RegExp('(?:^|[^\\w\\u4e00-\\u9fa5])' + escapedName + '(?:$|[^\\w\\u4e00-\\u9fa5])');
+      return nameRegex.test(replyText);
+    });
+    if (matched) {
       matches.push(emp);
       mentionTriggered[mid] = true;
       console.log('[parseAndTriggerMentions] 纯文字提到成员 ' + emp.name + '，将触发回复');
