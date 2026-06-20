@@ -506,11 +506,27 @@ class _BrainScheduler:
         if topic_id:
             self.request_induct(topic_id)
 
+    def _get_memory_row(self, mem_id):
+        """FIXME: 查询 memory 表单条记录，用于迁移幂等判断"""
+        try:
+            conn = _db_conn()
+            row = conn.execute(
+                "SELECT id, cleaned_at, topic_ids FROM memory WHERE id = ?",
+                (mem_id,)
+            ).fetchone()
+            conn.close()
+            if row:
+                return {'id': row['id'], 'cleaned_at': row['cleaned_at'], 'topic_ids': row['topic_ids']}
+        except Exception as e:
+            print(f'  [BrainScheduler] get_memory_row {mem_id} failed: {e}', flush=True)
+        return None
+
     def migrate_existing_memories(self):
         """FIXME: 兼容现有数据：从 v3 记忆目录 data/memory/ 迁移 daily 记忆到 memory 表并加入清洗队列"""
         print('  [BrainScheduler] migrating existing memories', flush=True)
         migrated = 0
         enqueued = 0
+        per_emp = {}  # FIXME: 记录每个员工的迁移数量
         # FIXME: v3 记忆目录是 data/memory/（ms3.MEMORY_V3_DIR 已被 main() 覆写为 MEMORY_DIR）
         memories_dir = MEMORY_DIR
         if not os.path.isdir(memories_dir):
@@ -518,10 +534,8 @@ class _BrainScheduler:
             return
         now = int(time.time() * 1000)
         for emp_id in os.listdir(memories_dir):
-            # FIXME: 排除非员工目录：groups、archive、模板 {empId} 等
-            if emp_id in ('groups', 'archive', 'consolidation_log.json'):
-                continue
-            if emp_id.startswith('{') or emp_id.endswith('}'):
+            # FIXME: 只处理员工目录：以 emp_ 开头，排除 groups/、archive/、{empId} 等
+            if not emp_id.startswith('emp_'):
                 continue
             try:
                 ms3._validate_emp_id(emp_id)
@@ -542,6 +556,12 @@ class _BrainScheduler:
                     mem_id = m.get('id')
                     if not mem_id:
                         continue
+                    # FIXME: 幂等：已存在的记忆不再重复插入/覆盖，只补字段
+                    existing = self._get_memory_row(mem_id)
+                    if existing:
+                        # 若已清洗或已归类，则保持现状，不再重置
+                        if existing.get('cleaned_at') or existing.get('topic_ids'):
+                            continue
                     # 初始化待清洗状态，不直接归类
                     m['is_filler'] = 0
                     m['is_duplicate'] = 0
@@ -550,12 +570,16 @@ class _BrainScheduler:
                     m.setdefault('createdAt', now)
                     ms3._sync_memory_to_db(m, emp_id, pool='daily')
                     migrated += 1
+                    per_emp[emp_id] = per_emp.get(emp_id, 0) + 1
                     # 加入清洗队列，由清洗流程自动完成去重+归类
                     self.request_clean(emp_id, mem_id)
                     enqueued += 1
                 # 把补齐后的 daily 写回文件，保证后续清洗流程读取一致
                 if data.get('daily'):
                     ms3.save_memory(emp_id, data)
+                # FIXME: 打印每个员工的迁移数量
+                if emp_id in per_emp:
+                    print(f'  [BrainScheduler] {emp_id} migrated {per_emp[emp_id]} memories', flush=True)
             except Exception as e:
                 print(f'  [BrainScheduler] migrate {emp_id} failed: {e}', flush=True)
         print(f'  [BrainScheduler] migrated {migrated} memories, enqueued {enqueued} clean tasks', flush=True)
