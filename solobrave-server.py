@@ -507,37 +507,44 @@ class _BrainScheduler:
             self.request_induct(topic_id)
 
     def migrate_existing_memories(self):
-        """FIXME: 兼容现有数据：启动时把已有记忆标记为已清洗但未归类，后台逐步消化"""
+        """FIXME: 兼容现有数据：把已有 daily 记忆导入 memory 表待清洗，后台逐步消化"""
         print('  [BrainScheduler] migrating existing memories', flush=True)
         migrated = 0
         enqueued = 0
-        memories_dir = os.path.join(DATA_DIR, 'memories')
+        # FIXME: 正确目录是 data/memory/，不是 data/memories/
+        memories_dir = MEMORY_DIR
         if not os.path.isdir(memories_dir):
+            print(f'  [BrainScheduler] memory dir not found: {memories_dir}', flush=True)
             return
-        now = int(time.time() * 1000)
         for emp_id in os.listdir(memories_dir):
+            # FIXME: 排除非员工目录：groups、archive、模板 {empId} 等
+            if emp_id in ('groups', 'archive', 'consolidation_log.json'):
+                continue
+            if emp_id.startswith('{') or emp_id.endswith('}'):
+                continue
             mem_path = os.path.join(memories_dir, emp_id, 'memory.json')
             if not os.path.isfile(mem_path):
                 continue
             try:
                 data = ms3.load_memory(emp_id)
-                for pool in ('core', 'daily'):
-                    for m in data.get(pool, []):
-                        mem_id = m.get('id')
-                        if not mem_id:
-                            continue
-                        # 同步到 DB，标记已清洗、未归类
-                        m.setdefault('cleaned_at', now)
-                        ms3._sync_memory_to_db(m, emp_id, pool=pool)
-                        migrated += 1
-                        # 未归类则加入分类队列
-                        if not (m.get('topicIds') or m.get('topic_ids')):
-                            self.request_classify(emp_id, mem_id)
-                            enqueued += 1
-                ms3.save_memory(emp_id, data)
+                # FIXME: 只迁移 daily 池旧记忆；core 视为已人工确认，不再进入清洗
+                for m in data.get('daily', []):
+                    mem_id = m.get('id')
+                    if not mem_id:
+                        continue
+                    # 初始化待清洗状态，不直接归类
+                    m.setdefault('is_filler', 0)
+                    m.setdefault('is_duplicate', 0)
+                    m['cleaned_at'] = 0
+                    m['topicIds'] = []
+                    ms3._sync_memory_to_db(m, emp_id, pool='daily')
+                    migrated += 1
+                    # 加入清洗队列，由清洗流程自动完成去重+归类
+                    self.request_clean(emp_id, mem_id)
+                    enqueued += 1
             except Exception as e:
                 print(f'  [BrainScheduler] migrate {emp_id} failed: {e}', flush=True)
-        print(f'  [BrainScheduler] migrated {migrated} memories, enqueued {enqueued} classify tasks', flush=True)
+        print(f'  [BrainScheduler] migrated {migrated} memories, enqueued {enqueued} clean tasks', flush=True)
 
     def _check_pending_topics(self):
         """FIXME: 只扫描 pending_induct=1 的主题"""
