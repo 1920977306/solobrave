@@ -238,6 +238,96 @@ MEMORY_CONFIG = {
 # 记忆归纳阈值（统一由 memory_service_v3.py 维护，便于后续调整）
 MEMORY_INDUCTION_THRESHOLDS = ms3.MEMORY_INDUCTION_THRESHOLDS
 
+# FIXME: 大脑知识中枢：后端 OpenClaw AI 调用队列（统一串行 + 重试）
+class _OpenClawTaskQueue:
+    """OpenClaw 任务队列：所有大脑 AI 调用统一走这里，priority=-1 最低优先级，失败重试 3 次"""
+
+    MAX_RETRIES = 3
+    RETRY_DELAY_BASE_S = 1
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._queue = []
+        self._events = {}
+        self._results = {}
+        self._thread = None
+        self._running = False
+
+    def start(self):
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._loop, daemon=True, name='OpenClawTaskQueue')
+        self._thread.start()
+        print('  [OpenClawQueue] started', flush=True)
+
+    def stop(self):
+        self._running = False
+
+    def submit(self, prompt, agent=None, system_prompt=None, priority=-1, max_retries=3):
+        """提交 AI 任务并阻塞等待结果；所有大脑调用 priority=-1"""
+        task_id = 'oc_' + uuid.uuid4().hex[:8]
+        event = threading.Event()
+        with self._lock:
+            self._events[task_id] = event
+            self._queue.append({
+                'id': task_id,
+                'prompt': prompt,
+                'agent': agent or {},
+                'system_prompt': system_prompt,
+                'priority': priority,
+                'max_retries': max_retries,
+                'retries': 0,
+                'created_at': time.time(),
+            })
+            self._queue.sort(key=lambda x: x['priority'], reverse=True)
+        # 等待结果，最多 120 秒
+        if not event.wait(timeout=OPENCLAW_TIMEOUT + 10):
+            return None
+        with self._lock:
+            return self._results.pop(task_id, None)
+
+    def _loop(self):
+        while self._running:
+            task = None
+            with self._lock:
+                if self._queue:
+                    task = self._queue.pop(0)
+            if task:
+                self._process(task)
+            else:
+                time.sleep(0.2)
+
+    def _process(self, task):
+        task_id = task['id']
+        try:
+            result = _call_ai_for_json(task['prompt'], task['agent'], system_prompt=task.get('system_prompt'))
+            if result is None and task['retries'] < task['max_retries']:
+                raise RuntimeError('AI returned None')
+            with self._lock:
+                self._results[task_id] = result
+                event = self._events.pop(task_id, None)
+            if event:
+                event.set()
+        except Exception as e:
+            task['retries'] += 1
+            print(f'  [OpenClawQueue] task {task_id} failed ({task["retries"]}/{task["max_retries"]}): {e}', flush=True)
+            if task['retries'] <= task['max_retries']:
+                delay = self.RETRY_DELAY_BASE_S * (2 ** (task['retries'] - 1))
+                time.sleep(delay)
+                with self._lock:
+                    self._queue.append(task)
+                    self._queue.sort(key=lambda x: x['priority'], reverse=True)
+            else:
+                with self._lock:
+                    self._results[task_id] = None
+                    event = self._events.pop(task_id, None)
+                if event:
+                    event.set()
+
+
+_openclaw_queue = _OpenClawTaskQueue()
+
 # FIXME: 大脑知识中枢全局调度器（单例，守护线程）
 class _BrainScheduler:
     """后台调度器：清洗窗口聚合、主题沉淀、全量巡检"""
@@ -262,10 +352,12 @@ class _BrainScheduler:
         self._today_processed = 0
         self._today_date = datetime.now().strftime('%Y-%m-%d')
 
-    # FIXME: 使用 solobrave-server 的 _call_ai_for_json 作为大脑 AI 调用
+    # FIXME: 大脑 AI 调用统一走后端 OpenClaw 队列，priority=-1 最低优先级
     def _brain_infer(self, prompt, agent=None):
         try:
-            return _call_ai_for_json(prompt, agent or self._default_agent())
+            return _openclaw_queue.submit(
+                prompt, agent=agent or self._default_agent(), priority=-1, max_retries=3
+            )
         except Exception as e:
             print(f'  [BrainScheduler] AI call failed: {e}', flush=True)
             return []
@@ -294,7 +386,18 @@ class _BrainScheduler:
             self._tasks.append({
                 'type': 'induct',
                 'run_at': int(time.time() * 1000),
-                'payload': {'topic_id': topic_id}
+                'payload': {'topic_id': topic_id},
+                'retries': 0
+            })
+
+    def request_classify(self, emp_id, mem_id):
+        """FIXME: 请求对单条记忆做主题归类"""
+        with self._lock:
+            self._tasks.append({
+                'type': 'classify',
+                'run_at': int(time.time() * 1000),
+                'payload': {'emp_id': emp_id, 'mem_id': mem_id},
+                'retries': 0
             })
 
     def start(self):
@@ -329,12 +432,13 @@ class _BrainScheduler:
             # 清洗窗口到期则生成任务
             for emp_id, batch in list(self._clean_batches.items()):
                 if now >= batch['run_at']:
-                    ready_tasks.append({'type': 'clean', 'payload': {'emp_id': emp_id, 'mem_ids': list(batch['mem_ids'])}})
+                    ready_tasks.append({'type': 'clean', 'payload': {'emp_id': emp_id, 'mem_ids': list(batch['mem_ids'])}, 'retries': 0})
                     del self._clean_batches[emp_id]
             # 取出到期任务
             remaining = []
             for t in self._tasks:
                 if t.get('run_at', 0) <= now:
+                    t.setdefault('retries', 0)
                     ready_tasks.append(t)
                 else:
                     remaining.append(t)
@@ -357,12 +461,26 @@ class _BrainScheduler:
             self._daily_inspect()
 
     def _execute_task(self, task):
-        typ = task.get('type')
-        payload = task.get('payload', {})
-        if typ == 'clean':
-            self._do_clean(payload['emp_id'], payload['mem_ids'])
-        elif typ == 'induct':
-            self._do_induct(payload['topic_id'])
+        """FIXME: 执行任务；失败时最多重试 3 次"""
+        try:
+            typ = task.get('type')
+            payload = task.get('payload', {})
+            if typ == 'clean':
+                self._do_clean(payload['emp_id'], payload['mem_ids'])
+            elif typ == 'induct':
+                self._do_induct(payload['topic_id'])
+            elif typ == 'classify':
+                self._do_classify(payload['emp_id'], payload['mem_id'])
+        except Exception as e:
+            task['retries'] = task.get('retries', 0) + 1
+            print(f'  [BrainScheduler] task failed ({task["retries"]}/3): {e}', flush=True)
+            if task['retries'] <= 3:
+                delay = 1000 * (2 ** (task['retries'] - 1))
+                task['run_at'] = int(time.time() * 1000) + delay
+                with self._lock:
+                    self._tasks.append(task)
+            else:
+                print(f'  [BrainScheduler] task dropped after 3 retries', flush=True)
 
     def _do_clean(self, emp_id, mem_ids):
         """FIXME: 批量清洗 + 自动主题归类"""
@@ -381,6 +499,45 @@ class _BrainScheduler:
         print(f'  [BrainScheduler] induct topic {topic_id}', flush=True)
         agent = self._default_agent()
         self._know_svc.induct_topic_to_knowledge(topic_id, agent=agent)
+
+    def _do_classify(self, emp_id, mem_id):
+        """FIXME: 对记忆做主题归类"""
+        topic_id = self._topic_svc.classify_memory_to_topic(mem_id, emp_id)
+        if topic_id:
+            self.request_induct(topic_id)
+
+    def migrate_existing_memories(self):
+        """FIXME: 兼容现有数据：启动时把已有记忆标记为已清洗但未归类，后台逐步消化"""
+        print('  [BrainScheduler] migrating existing memories', flush=True)
+        migrated = 0
+        enqueued = 0
+        memories_dir = os.path.join(DATA_DIR, 'memories')
+        if not os.path.isdir(memories_dir):
+            return
+        now = int(time.time() * 1000)
+        for emp_id in os.listdir(memories_dir):
+            mem_path = os.path.join(memories_dir, emp_id, 'memory.json')
+            if not os.path.isfile(mem_path):
+                continue
+            try:
+                data = ms3.load_memory(emp_id)
+                for pool in ('core', 'daily'):
+                    for m in data.get(pool, []):
+                        mem_id = m.get('id')
+                        if not mem_id:
+                            continue
+                        # 同步到 DB，标记已清洗、未归类
+                        m.setdefault('cleaned_at', now)
+                        ms3._sync_memory_to_db(m, emp_id, pool=pool)
+                        migrated += 1
+                        # 未归类则加入分类队列
+                        if not (m.get('topicIds') or m.get('topic_ids')):
+                            self.request_classify(emp_id, mem_id)
+                            enqueued += 1
+                ms3.save_memory(emp_id, data)
+            except Exception as e:
+                print(f'  [BrainScheduler] migrate {emp_id} failed: {e}', flush=True)
+        print(f'  [BrainScheduler] migrated {migrated} memories, enqueued {enqueued} classify tasks', flush=True)
 
     def _check_pending_topics(self):
         """FIXME: 只扫描 pending_induct=1 的主题"""
@@ -432,9 +589,10 @@ class _BrainScheduler:
             conn.close()
 
     def enqueue_all_pending(self):
-        """FIXME: 手动触发：把所有待清洗记忆和待沉淀主题加入队列"""
+        """FIXME: 手动触发：把所有待清洗/待归类记忆和待沉淀主题加入队列"""
         conn = _db_conn()
         enqueued_clean = 0
+        enqueued_classify = 0
         enqueued_induct = 0
         try:
             rows = conn.execute(
@@ -449,11 +607,24 @@ class _BrainScheduler:
                     self.request_clean(r['emp_id'], m['id'])
                 enqueued_clean += len(mems)
 
+            # 已清洗但未归类
+            rows2 = conn.execute(
+                "SELECT DISTINCT emp_id FROM memory WHERE status='active' AND cleaned_at>0 AND (topic_ids='[]' OR topic_ids IS NULL)"
+            ).fetchall()
+            for r in rows2:
+                mems = conn.execute(
+                    "SELECT id FROM memory WHERE status='active' AND cleaned_at>0 AND (topic_ids='[]' OR topic_ids IS NULL) AND emp_id=?",
+                    (r['emp_id'],)
+                ).fetchall()
+                for m in mems:
+                    self.request_classify(r['emp_id'], m['id'])
+                enqueued_classify += len(mems)
+
             topics = self._topic_svc.get_pending_induct_topics(min_memories=1)
             for t in topics:
                 self.request_induct(t['id'])
                 enqueued_induct += 1
-            return enqueued_clean, enqueued_induct
+            return enqueued_clean, enqueued_classify, enqueued_induct
         finally:
             conn.close()
 
@@ -7263,10 +7434,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         try:
-            enqueued_clean, enqueued_induct = _brain_scheduler.enqueue_all_pending()
+            enqueued_clean, enqueued_classify, enqueued_induct = _brain_scheduler.enqueue_all_pending()
             self._send_json(200, {
                 'success': True,
                 'enqueuedClean': enqueued_clean,
+                'enqueuedClassify': enqueued_classify,
                 'enqueuedInduct': enqueued_induct
             })
         except Exception as e:
@@ -10782,8 +10954,14 @@ def main():
     threading.Thread(target=_startup_memory_job, daemon=True).start()
     print('  [DailyJob] 启动补跑任务已调度（10 秒后执行）')
 
-    # FIXME: 大脑知识中枢：启动后台调度器
+    # FIXME: 大脑知识中枢：启动后台调度器与 OpenClaw 队列
+    _openclaw_queue.start()
     _brain_scheduler.start()
+    # FIXME: 兼容现有数据：启动 5 秒后后台迁移旧记忆
+    def _brain_migrate_job():
+        time.sleep(5)
+        _brain_scheduler.migrate_existing_memories()
+    threading.Thread(target=_brain_migrate_job, daemon=True).start()
 
     # Allow port reuse to avoid "Address already in use"
     class ReuseHTTPServer(http.server.ThreadingHTTPServer):

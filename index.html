@@ -13488,7 +13488,7 @@ function triggerBrainManual() {
     return;
   }
   apiFetch('/api/brain/trigger-manual', {method: 'POST'}).then(function (r) { return r.json(); }).then(function (data) {
-    showToast('⚡ 已加入 ' + (data.enqueuedClean || 0) + ' 条清洗 / ' + (data.enqueuedInduct || 0) + ' 条沉淀');
+    showToast('⚡ 清洗 ' + (data.enqueuedClean || 0) + ' / 归类 ' + (data.enqueuedClassify || 0) + ' / 沉淀 ' + (data.enqueuedInduct || 0));
     startBrainRefreshPolling();
   }).catch(function (e) {
     showToast('触发失败');

@@ -469,6 +469,9 @@ def _clean_and_deduplicate(mem_id, emp_id):
     mem, pool = get_memory(emp_id, mem_id)
     if not mem:
         return None
+    # FIXME: 幂等：每条记忆只清洗一次
+    if mem.get('cleaned_at'):
+        return mem
     now = int(time.time() * 1000)
     mem['is_filler'] = 1 if _is_filler(mem.get('value', '')) else 0
     if mem.get('is_filler'):
@@ -498,6 +501,17 @@ def get_uncleaned_memories(emp_id, limit=200):
     for pool in ('core', 'daily'):
         for m in data.get(pool, []):
             if not m.get('cleaned_at'):
+                result.append(m)
+    return result[:limit]
+
+
+def get_cleaned_unclassified_memories(emp_id, limit=200):
+    """FIXME: 大脑知识中枢新增：获取已清洗但未归类的记忆（兼容旧数据迁移）"""
+    data = load_memory(emp_id)
+    result = []
+    for pool in ('core', 'daily'):
+        for m in data.get(pool, []):
+            if m.get('cleaned_at') and not (m.get('topicIds') or m.get('topic_ids')):
                 result.append(m)
     return result[:limit]
 

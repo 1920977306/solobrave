@@ -196,9 +196,11 @@ class KnowledgeService:
                 "现有知识标题：" + know['title'] + "\n"
                 "现有知识内容：\n" + know['content'] + "\n\n"
                 "新增记忆：\n" + '\n'.join(new_lines) + "\n\n"
-                "请返回 JSON 对象：{title, content, key_points[]}。只输出 JSON，不要解释。"
+                "请返回 JSON 数组 [{title, content, key_points[]}]，只输出 JSON，不要解释。"
             )
             parsed = self.infer_fn(prompt, agent)
+            if isinstance(parsed, list) and parsed:
+                parsed = parsed[0]
             if not isinstance(parsed, dict):
                 return None
 
@@ -262,12 +264,14 @@ class KnowledgeService:
                 if sim < 0.3:  # 语义完全无关则跳过
                     continue
                 prompt = (
-                    "判断以下两条知识是否相互矛盾。如果矛盾返回 JSON {conflict:true, reason:""}; "
-                    "如果不矛盾返回 {conflict:false}。只输出 JSON。\n\n"
+                    "判断以下两条知识是否相互矛盾。返回 JSON 数组 [{conflict: true/false, reason: \"\"}]，"
+                    "只输出 JSON，不要解释。\n\n"
                     "知识 A：" + know['content'] + "\n\n"
                     "知识 B：" + c['content']
                 )
                 res = self.infer_fn(prompt, agent)
+                if isinstance(res, list) and res:
+                    res = res[0]
                 if isinstance(res, dict) and res.get('conflict'):
                     rel_id = _new_id('rel')
                     conn.execute('''
