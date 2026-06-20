@@ -349,6 +349,7 @@ class _BrainScheduler:
         self._know_svc = bks.KnowledgeService(infer_fn=self._brain_infer)
         self._last_induct_check = 0
         self._last_daily_inspect = 0
+        self._last_uncleaned_scan = 0  # FIXME: 大脑调度器定期巡检待清洗记忆
         self._today_processed = 0
         self._today_date = datetime.now().strftime('%Y-%m-%d')
 
@@ -421,7 +422,7 @@ class _BrainScheduler:
         if self._running:
             return
         self._running = True
-        # FIXME: 启动时先把数据库里未清洗的记忆加入队列，不能只等新记忆
+        # FIXME: 大脑调度器启动扫库：启动时先把数据库里未清洗的记忆加入队列，不能只等新记忆
         self._enqueue_uncleaned_memories()
         self._thread = threading.Thread(target=self._loop, daemon=True, name='BrainScheduler')
         self._thread.start()
@@ -444,6 +445,11 @@ class _BrainScheduler:
         if today != self._today_date:
             self._today_date = today
             self._today_processed = 0
+
+        # FIXME: 大脑调度器定期巡检待清洗记忆：每 60 秒扫库一次，防止旧待清洗记忆漏处理
+        if now - self._last_uncleaned_scan >= 60 * 1000:
+            self._enqueue_uncleaned_memories()
+            self._last_uncleaned_scan = now
 
         ready_tasks = []
         with self._lock:
@@ -7492,6 +7498,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_brain_trigger_manual(self):
         """POST /api/brain/trigger-manual — 手动触发全量处理"""
+        # FIXME: 修复大脑手动触发接口鉴权：确保和其他 /api/ 接口使用相同的登录态校验
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
