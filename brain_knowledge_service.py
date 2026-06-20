@@ -22,6 +22,9 @@ DB_PATH = os.path.join(os.path.dirname(__file__), 'data', 'solobrave.db')
 # FIXME: 冲突检测阈值（统一收口，方便后续调整）
 CONFLICT_TOP_K = 5
 
+# FIXME: 修复大脑知识沉淀时命令行参数过长的bug：单批归纳记忆上限
+INDUCT_BATCH_SIZE = 10
+
 
 def _db_conn():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -92,20 +95,76 @@ class KnowledgeService:
     # 主题 → 知识沉淀
     # ═══════════════════════════════════════════════════
 
+    def _build_induct_prompt(self, memories):
+        """FIXME: 把一组记忆整理成结构化知识的 prompt"""
+        mem_lines = [f'[{r["id"]}] {r["value"]}' for r in memories]
+        return (
+            "你是 SoloBrave 大脑知识中枢。请将以下同一主题的记忆整理成 1-3 条结构化知识。\n"
+            "要求：\n"
+            "1. 每条知识包含 title（标题）、content（Markdown 核心内容）、key_points（关键论点数组）、evidence_mem_ids（依据的记忆 id 数组）。\n"
+            "2. 不要编造记忆中没有的信息。\n"
+            "3. 严格返回 JSON 数组，不要解释。\n\n"
+            "记忆：\n" + '\n'.join(mem_lines)
+        )
+
+    def _build_merge_prompt(self, docs):
+        """FIXME: 合并多批中间知识文档为最终知识的 prompt"""
+        doc_lines = []
+        for i, d in enumerate(docs, 1):
+            evidence = d.get('evidence_mem_ids') or d.get('evidenceIds') or []
+            doc_lines.append(
+                f'中间文档{i}：\ntitle={d.get("title", "")}\n'
+                f'key_points={_dump_json(d.get("key_points", []) or d.get("keyPoints", []))}\n'
+                f'evidence_mem_ids={_dump_json(evidence)}\n'
+                f'content={d.get("content", "")}'
+            )
+        return (
+            "你是 SoloBrave 大脑知识中枢。以下是对同一主题多组记忆归纳出的中间知识文档，"
+            "请合并去重、保留核心信息，输出 1-3 条最终结构化知识。\n"
+            "要求：\n"
+            "1. 每条知识包含 title、content、key_points、evidence_mem_ids（所有合并源 evidence_mem_ids 的并集）。\n"
+            "2. 不要编造文档中没有的信息。\n"
+            "3. 严格返回 JSON 数组，不要解释。\n\n"
+            + '\n\n'.join(doc_lines)
+        )
+
+    def _parse_knowledge_docs(self, docs, fallback_evidence_ids):
+        """FIXME: 规范化 AI 返回的知识文档列表"""
+        if not isinstance(docs, list):
+            return []
+        result = []
+        for d in docs:
+            if not isinstance(d, dict):
+                continue
+            title = str(d.get('title', '')).strip()
+            content = str(d.get('content', '')).strip()
+            if not title or not content:
+                continue
+            evidence = d.get('evidence_mem_ids') or d.get('evidenceIds') or fallback_evidence_ids
+            if not isinstance(evidence, list):
+                evidence = list(evidence) if evidence else fallback_evidence_ids
+            result.append({
+                'title': title,
+                'content': content,
+                'key_points': d.get('key_points') or d.get('keyPoints') or [],
+                'evidence_mem_ids': evidence,
+            })
+        return result
+
     def induct_topic_to_knowledge(self, topic_id, agent=None):
-        """FIXME: 把主题下有效记忆归纳为 1-3 条结构化知识"""
+        """FIXME: 把主题下有效记忆归纳为 1-3 条结构化知识；记忆过多时先分批归纳再合并"""
         conn = _db_conn()
         try:
             topic = conn.execute('SELECT * FROM memory_topics WHERE id=?', (topic_id,)).fetchone()
             if not topic or topic['status'] != 'active':
                 return []
 
-            # FIXME: 修复大脑知识沉淀时命令行参数过长的bug：限制输入记忆数量和单条长度，避免 prompt 过长
+            # FIXME: 修复大脑知识沉淀时命令行参数过长的bug：限制单条记忆长度，避免 prompt 过长
             rows = conn.execute(
                 '''SELECT id, value, emp_id FROM memory
                    WHERE status='active' AND topic_ids LIKE ?
                    AND is_filler=0 AND is_duplicate=0
-                   ORDER BY created_at DESC LIMIT 20''',
+                   ORDER BY created_at DESC LIMIT 200''',
                 (f'%"{topic_id}"%',)
             ).fetchall()
             MAX_MEM_VALUE_LEN = 500
@@ -118,42 +177,48 @@ class KnowledgeService:
                 conn.commit()
                 return []
 
-            mem_lines = [f'[{r["id"]}] {r["value"]}' for r in rows]
-            evidence_ids = [r['id'] for r in rows]
-            emp_ids = list(dict.fromkeys([r['emp_id'] for r in rows if r['emp_id']]))
+            all_evidence_ids = [r['id'] for r in rows]
 
-            prompt = (
-                "你是 SoloBrave 大脑知识中枢。请将以下同一主题的记忆整理成 1-3 条结构化知识。\n"
-                "要求：\n"
-                "1. 每条知识包含 title（标题）、content（Markdown 核心内容）、key_points（关键论点数组）。\n"
-                "2. 不要编造记忆中没有的信息。\n"
-                "3. 严格返回 JSON 数组，不要解释。\n\n"
-                "记忆：\n" + '\n'.join(mem_lines)
-            )
-            docs = self.infer_fn(prompt, agent)
-            if not isinstance(docs, list):
+            # FIXME: 分批处理：每次只取 N 条记忆，先归纳成摘要，再把摘要合并成最终知识
+            if len(rows) <= INDUCT_BATCH_SIZE:
+                prompt = self._build_induct_prompt(rows)
+                intermediate_docs = self._parse_knowledge_docs(
+                    self.infer_fn(prompt, agent), all_evidence_ids
+                )
+            else:
+                chunks = [rows[i:i + INDUCT_BATCH_SIZE] for i in range(0, len(rows), INDUCT_BATCH_SIZE)]
+                intermediate_docs = []
+                for chunk in chunks:
+                    prompt = self._build_induct_prompt(chunk)
+                    chunk_docs = self._parse_knowledge_docs(
+                        self.infer_fn(prompt, agent), [r['id'] for r in chunk]
+                    )
+                    intermediate_docs.extend(chunk_docs)
+                # 中间文档过多时，再合并一次
+                if len(intermediate_docs) > INDUCT_BATCH_SIZE:
+                    merge_prompt = self._build_merge_prompt(intermediate_docs)
+                    intermediate_docs = self._parse_knowledge_docs(
+                        self.infer_fn(merge_prompt, agent), all_evidence_ids
+                    )
+
+            if not intermediate_docs:
+                conn.execute('UPDATE memory_topics SET pending_induct=0 WHERE id=?', (topic_id,))
+                conn.commit()
                 return []
 
             created_ids = []
             now = _now_ms()
-            for d in docs:
-                if not isinstance(d, dict):
-                    continue
-                title = str(d.get('title', '')).strip()
-                content = str(d.get('content', '')).strip()
-                if not title or not content:
-                    continue
-                key_points = d.get('key_points') or []
+            for d in intermediate_docs[:3]:
                 kid = _new_id('know')
-                confidence = _compute_confidence(len(evidence_ids))
+                confidence = _compute_confidence(len(d['evidence_mem_ids']))
                 conn.execute('''
                     INSERT INTO knowledge_base_new (id, title, content, key_points,
                                                     evidence_mem_ids, confidence,
                                                     topic_ids, created_at, updated_at, status)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
-                    kid, title, content, _dump_json(key_points),
-                    _dump_json(evidence_ids), confidence,
+                    kid, d['title'], d['content'], _dump_json(d['key_points']),
+                    _dump_json(d['evidence_mem_ids']), confidence,
                     _dump_json([topic_id]), now, now, 'active'
                 ))
                 created_ids.append(kid)
