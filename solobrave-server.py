@@ -9498,6 +9498,12 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
         full_prompt += system_prompt + '\n\n'
     full_prompt += prompt
 
+    # FIXME: 修复大脑知识沉淀时命令行参数过长的bug：兜底，prompt 超过一定长度自动截断并记录警告
+    MAX_PROMPT_LEN = 10000
+    if len(full_prompt) > MAX_PROMPT_LEN:
+        print(f'  [OpenClaw] WARNING: prompt too long ({len(full_prompt)}), truncating to {MAX_PROMPT_LEN}', flush=True)
+        full_prompt = full_prompt[:MAX_PROMPT_LEN]
+
     # FIXME: 修复大脑知识沉淀时命令行参数过长的bug：长 prompt 走 stdin，不走 --prompt 参数
     # 2. 构造 openclaw CLI 调用
     if len(full_prompt) > 6000:
