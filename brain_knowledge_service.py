@@ -24,6 +24,10 @@ CONFLICT_TOP_K = 5
 
 # FIXME: 修复大脑知识沉淀时命令行参数过长的bug：单批归纳记忆上限
 INDUCT_BATCH_SIZE = 10
+# FIXME: 主题下参与归纳的记忆总数上限（最新的 N 条），避免 prompt 过长
+MAX_TOPIC_MEMORIES = 20
+# FIXME: 归纳失败降级时的最少记忆条数
+MIN_TOPIC_MEMORIES = 5
 
 
 def _db_conn():
@@ -151,8 +155,43 @@ class KnowledgeService:
             })
         return result
 
+    def _run_induction_on_rows(self, rows, agent):
+        """FIXME: 对一组记忆执行归纳；超过单批上限时先分批再合并"""
+        evidence_ids = [r['id'] for r in rows]
+        if len(rows) <= INDUCT_BATCH_SIZE:
+            prompt = self._build_induct_prompt(rows)
+            return self._parse_knowledge_docs(
+                self.infer_fn(prompt, agent), evidence_ids
+            )
+
+        chunks = [rows[i:i + INDUCT_BATCH_SIZE] for i in range(0, len(rows), INDUCT_BATCH_SIZE)]
+        intermediate_docs = []
+        for chunk in chunks:
+            prompt = self._build_induct_prompt(chunk)
+            chunk_docs = self._parse_knowledge_docs(
+                self.infer_fn(prompt, agent), [r['id'] for r in chunk]
+            )
+            intermediate_docs.extend(chunk_docs)
+        # 中间文档过多时，再合并一次
+        if len(intermediate_docs) > INDUCT_BATCH_SIZE:
+            merge_prompt = self._build_merge_prompt(intermediate_docs)
+            intermediate_docs = self._parse_knowledge_docs(
+                self.infer_fn(merge_prompt, agent), evidence_ids
+            )
+        return intermediate_docs
+
+    def _degrade_rows(self, rows):
+        """FIXME: 归纳失败时降级：先全量，再减半，直到最少记忆条数"""
+        current = list(rows)
+        while len(current) >= MIN_TOPIC_MEMORIES:
+            yield current
+            if len(current) == MIN_TOPIC_MEMORIES:
+                break
+            next_len = max(MIN_TOPIC_MEMORIES, len(current) // 2)
+            current = current[:next_len]
+
     def induct_topic_to_knowledge(self, topic_id, agent=None):
-        """FIXME: 把主题下有效记忆归纳为 1-3 条结构化知识；记忆过多时先分批归纳再合并"""
+        """FIXME: 把主题下有效记忆归纳为 1-3 条结构化知识；记忆过多时先取最新N条、分批归纳、失败降级重试"""
         conn = _db_conn()
         try:
             topic = conn.execute('SELECT * FROM memory_topics WHERE id=?', (topic_id,)).fetchone()
@@ -177,29 +216,19 @@ class KnowledgeService:
                 conn.commit()
                 return []
 
-            all_evidence_ids = [r['id'] for r in rows]
+            # FIXME: 兜底：一个主题下记忆过多时，只取最新的 N 条参与归纳
+            if len(rows) > MAX_TOPIC_MEMORIES:
+                print(f'  [BrainKnowledge] topic {topic_id} has {len(rows)} memories, limit to newest {MAX_TOPIC_MEMORIES}', flush=True)
+                rows = rows[:MAX_TOPIC_MEMORIES]
 
-            # FIXME: 分批处理：每次只取 N 条记忆，先归纳成摘要，再把摘要合并成最终知识
-            if len(rows) <= INDUCT_BATCH_SIZE:
-                prompt = self._build_induct_prompt(rows)
-                intermediate_docs = self._parse_knowledge_docs(
-                    self.infer_fn(prompt, agent), all_evidence_ids
-                )
-            else:
-                chunks = [rows[i:i + INDUCT_BATCH_SIZE] for i in range(0, len(rows), INDUCT_BATCH_SIZE)]
-                intermediate_docs = []
-                for chunk in chunks:
-                    prompt = self._build_induct_prompt(chunk)
-                    chunk_docs = self._parse_knowledge_docs(
-                        self.infer_fn(prompt, agent), [r['id'] for r in chunk]
-                    )
-                    intermediate_docs.extend(chunk_docs)
-                # 中间文档过多时，再合并一次
-                if len(intermediate_docs) > INDUCT_BATCH_SIZE:
-                    merge_prompt = self._build_merge_prompt(intermediate_docs)
-                    intermediate_docs = self._parse_knowledge_docs(
-                        self.infer_fn(merge_prompt, agent), all_evidence_ids
-                    )
+            # FIXME: 失败重试与降级：全量失败时自动减少记忆条数重试，避免主题永远沉淀失败
+            intermediate_docs = []
+            for attempt_rows in self._degrade_rows(rows):
+                print(f'  [BrainKnowledge] induct topic {topic_id} with {len(attempt_rows)} memories', flush=True)
+                intermediate_docs = self._run_induction_on_rows(attempt_rows, agent)
+                if intermediate_docs:
+                    break
+                print(f'  [BrainKnowledge] induct topic {topic_id} failed with {len(attempt_rows)} memories, degrade', flush=True)
 
             if not intermediate_docs:
                 conn.execute('UPDATE memory_topics SET pending_induct=0 WHERE id=?', (topic_id,))
