@@ -22,6 +22,7 @@ import json
 import time
 import uuid
 import threading
+import sqlite3
 from collections import Counter
 
 import knowledge_service as ks
@@ -57,6 +58,16 @@ MEMORY_INDUCTION_THRESHOLDS = {
     # 手动触发知识库归纳：活跃记忆 ≥ N 条且未归纳记忆 ≥ N 条即可生成
     'knowledge_induction_min': 3,
 }
+
+# FIXME: 大脑知识中枢新增：记忆元数据数据库路径
+DB_PATH = os.path.join(os.path.dirname(__file__), 'data', 'solobrave.db')
+
+
+def _db_conn():
+    """创建 SQLite 连接（启用字典行）"""
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 def _ensure_dir(path):
     """确保目录存在"""
@@ -351,6 +362,146 @@ def save_memory(emp_id, data):
     _write_json(filepath, data)
 
 
+# FIXME: 大脑知识中枢新增：记忆元数据同步到 SQLite
+_FILLER_PATTERNS = {'你好', '在吗', '在？', '在么', '您好', 'hello', 'hi', '谢谢', '感谢', '辛苦了', '拜拜', '再见'}
+
+
+def _sync_memory_to_db(mem, emp_id, pool='daily', status='active'):
+    """把单条记忆的元数据 upsert 到 memory 表；失败不抛异常"""
+    try:
+        conn = _db_conn()
+        now = int(time.time() * 1000)
+        conn.execute('''
+            INSERT INTO memory (id, emp_id, value, pool, created_at, is_filler, is_duplicate,
+                                source_mem_id, cleaned_at, topic_ids, inducted_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                value=excluded.value,
+                pool=excluded.pool,
+                is_filler=excluded.is_filler,
+                is_duplicate=excluded.is_duplicate,
+                source_mem_id=excluded.source_mem_id,
+                cleaned_at=excluded.cleaned_at,
+                topic_ids=excluded.topic_ids,
+                inducted_at=excluded.inducted_at,
+                status=excluded.status
+        ''', (
+            mem.get('id'), emp_id, mem.get('value', ''), pool,
+            mem.get('createdAt') or now,
+            int(mem.get('is_filler', 0)),
+            int(mem.get('is_duplicate', 0)),
+            mem.get('source_mem_id') or None,
+            mem.get('cleaned_at', 0),
+            json.dumps(mem.get('topicIds', []) or mem.get('topic_ids', []) or []),
+            mem.get('inductedAt', 0),
+            status
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'  [MemorySyncDB] failed: {e}', flush=True)
+
+
+def _cosine_sim(a, b):
+    """计算两个 float 列表的余弦相似度"""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _is_filler(value):
+    """FIXME: 大脑知识中枢新增：判断是否为水话"""
+    if not value:
+        return True
+    text = str(value).strip()
+    if len(text) < 5:
+        return True
+    low = text.lower()
+    return any(p in text or p in low for p in _FILLER_PATTERNS)
+
+
+def _find_duplicate_in_window(emp_id, mem_id, value, window_days=30, threshold=0.85):
+    """FIXME: 大脑知识中枢新增：查找近 30 天内相似度≥阈值的重复记忆"""
+    try:
+        emb_cfg = ks.get_embedding_config(emp_id)
+        cur_emb = ks.get_embedding_cached(
+            str(value), emb_cfg['apiKey'], emb_cfg['provider'],
+            model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl')
+        )
+        if not cur_emb:
+            return None
+        cutoff = int(time.time() * 1000) - window_days * 24 * 3600 * 1000
+        conn = _db_conn()
+        rows = conn.execute(
+            '''SELECT id, value FROM memory
+               WHERE emp_id = ? AND id != ? AND created_at >= ?
+                     AND is_filler = 0 AND status = 'active'
+               ORDER BY created_at DESC LIMIT 200''',
+            (emp_id, mem_id, cutoff)
+        ).fetchall()
+        conn.close()
+        best_id = None
+        best_sim = 0.0
+        for row in rows:
+            cand_emb = ks.get_embedding_cached(
+                str(row['value']), emb_cfg['apiKey'], emb_cfg['provider'],
+                model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl')
+            )
+            if not cand_emb:
+                continue
+            sim = _cosine_sim(cur_emb, cand_emb)
+            if sim > best_sim:
+                best_sim = sim
+                best_id = row['id']
+        return best_id if best_id and best_sim >= threshold else None
+    except Exception as e:
+        print(f'  [FindDuplicate] failed: {e}', flush=True)
+        return None
+
+
+def _clean_and_deduplicate(mem_id, emp_id):
+    """FIXME: 大脑知识中枢新增：单条记忆清洗去重"""
+    mem, pool = get_memory(emp_id, mem_id)
+    if not mem:
+        return None
+    now = int(time.time() * 1000)
+    mem['is_filler'] = 1 if _is_filler(mem.get('value', '')) else 0
+    if mem.get('is_filler'):
+        mem['is_duplicate'] = 0
+        mem['source_mem_id'] = None
+    else:
+        dup_id = _find_duplicate_in_window(emp_id, mem_id, mem.get('value', ''))
+        mem['is_duplicate'] = 1 if dup_id else 0
+        mem['source_mem_id'] = dup_id if dup_id else None
+    mem['cleaned_at'] = now
+    data = load_memory(emp_id)
+    target = data.get(pool, [])
+    for i, m in enumerate(target):
+        if m.get('id') == mem_id:
+            target[i] = mem
+            break
+    data[pool] = target
+    save_memory(emp_id, data)
+    _sync_memory_to_db(mem, emp_id, pool=pool)
+    return mem
+
+
+def get_uncleaned_memories(emp_id, limit=200):
+    """FIXME: 大脑知识中枢新增：获取待清洗记忆列表"""
+    data = load_memory(emp_id)
+    result = []
+    for pool in ('core', 'daily'):
+        for m in data.get(pool, []):
+            if not m.get('cleaned_at'):
+                result.append(m)
+    return result[:limit]
+
+
 def load_archive(emp_id):
     """加载归档记忆"""
     filepath = _archive_file_path(emp_id)
@@ -471,6 +622,8 @@ def add_memory(emp_id, value, key='auto', source='user_input', context=None,
     target.append(memory)
     data[pool] = target
     save_memory(emp_id, data)
+    # FIXME: 大脑知识中枢新增：同步记忆元数据到 SQLite
+    _sync_memory_to_db(memory, emp_id, pool=pool)
     return memory
 
 
@@ -482,6 +635,29 @@ def get_memory(emp_id, mem_id):
             if m.get('id') == mem_id:
                 return m, pool
     return None, None
+
+
+def set_memory_topics(emp_id, mem_id, topic_ids):
+    """FIXME: 大脑知识中枢新增：设置记忆所属主题（JSON + DB）"""
+    data = load_memory(emp_id)
+    found = False
+    for pool in ('core', 'daily'):
+        for m in data.get(pool, []):
+            if m.get('id') == mem_id:
+                m['topicIds'] = list(topic_ids)
+                found = True
+                break
+        if found:
+            break
+    if found:
+        save_memory(emp_id, data)
+    try:
+        conn = _db_conn()
+        conn.execute('UPDATE memory SET topic_ids=? WHERE id=?', (json.dumps(list(topic_ids)), mem_id))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'  [SetMemoryTopics] failed: {e}', flush=True)
 
 
 def update_memory(emp_id, mem_id, updates, api_key=None, provider='openai',
@@ -578,9 +754,13 @@ def update_memory(emp_id, mem_id, updates, api_key=None, provider='openai',
             new_value=duplicate.get('value', ''),
             trigger='auto'
         )
+        # FIXME: 大脑知识中枢新增：合并后同步存活记忆元数据
+        _sync_memory_to_db(duplicate, emp_id, pool=current_pool)
         return duplicate
 
     save_memory(emp_id, data)
+    # FIXME: 大脑知识中枢新增：更新后同步记忆元数据
+    _sync_memory_to_db(found, emp_id, pool=current_pool)
     return found
 
 
@@ -597,6 +777,14 @@ def delete_memory(emp_id, mem_id):
 
     if removed:
         save_memory(emp_id, data)
+        # FIXME: 大脑知识中枢新增：标记删除/归档状态
+        try:
+            conn = _db_conn()
+            conn.execute("UPDATE memory SET status='archived' WHERE id=?", (mem_id,))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f'  [DeleteSync] failed: {e}', flush=True)
     else:
         # 尝试从归档中删除
         archive_data = load_archive(emp_id)
@@ -670,6 +858,8 @@ def archive_memory(emp_id, mem_id, reason='manual'):
     archive_data.setdefault('archived', []).append(archived_entry)
     save_archive(emp_id, archive_data)
     save_memory(emp_id, data)
+    # FIXME: 大脑知识中枢新增：归档后同步元数据状态
+    _sync_memory_to_db(archived_entry, emp_id, pool='archive', status='archived')
     return True
 
 
@@ -706,6 +896,8 @@ def restore_memory(emp_id, mem_id):
     data['daily'].append(restored)
     save_memory(emp_id, data)
     save_archive(emp_id, archive_data)
+    # FIXME: 大脑知识中枢新增：恢复后同步元数据
+    _sync_memory_to_db(restored, emp_id, pool='daily')
     return restored
 
 
@@ -773,6 +965,17 @@ def consolidate_memory(emp_id, source_ids, consolidated_value, key='core',
     data.setdefault('stats', {})['lastMemoryConsolidationAt'] = now
     save_memory(emp_id, data)
     save_archive(emp_id, archive_data)
+
+    # FIXME: 大脑知识中枢新增：同步新核心记忆，并把源记忆标记为归档
+    _sync_memory_to_db(new_mem, emp_id, pool='core')
+    try:
+        conn = _db_conn()
+        for sid in source_ids:
+            conn.execute("UPDATE memory SET status='archived' WHERE id=?", (sid,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'  [ConsolidateSync] archive source failed: {e}', flush=True)
 
     # 记录归纳日志
     log_consolidation(emp_id, 'merge', source_ids, new_mem['id'],

@@ -50,6 +50,10 @@ import memory_service_v3 as ms3
 # 知识库服务（分段向量化 + 全局公共，独立模块避免循环导入）
 import knowledge_service as ks
 
+# FIXME: 大脑知识中枢新增服务
+import topic_service as ts
+import brain_knowledge_service as bks
+
 # 按 agent_id 细分的聊天写入锁，防止读-修改-写竞争导致消息丢失
 _chat_write_locks = {}
 _chat_locks_mutex = threading.Lock()
@@ -233,6 +237,228 @@ MEMORY_CONFIG = {
 
 # 记忆归纳阈值（统一由 memory_service_v3.py 维护，便于后续调整）
 MEMORY_INDUCTION_THRESHOLDS = ms3.MEMORY_INDUCTION_THRESHOLDS
+
+# FIXME: 大脑知识中枢全局调度器（单例，守护线程）
+class _BrainScheduler:
+    """后台调度器：清洗窗口聚合、主题沉淀、全量巡检"""
+
+    # FIXME: 清洗窗口：同员工 30 秒内新增记忆合并为一次批量清洗
+    CLEAN_WINDOW_MS = 30 * 1000
+    INDUCT_INTERVAL_MS = 5 * 60 * 1000
+    INACTIVE_TOPIC_DAYS = 30
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._thread = None
+        self._running = False
+        # 员工级清洗窗口：emp_id -> {'mem_ids': set(), 'run_at': ms}
+        self._clean_batches = {}
+        # 一次性任务队列
+        self._tasks = []
+        self._topic_svc = ts.TopicService()
+        self._know_svc = bks.KnowledgeService(infer_fn=self._brain_infer)
+        self._last_induct_check = 0
+        self._last_daily_inspect = 0
+        self._today_processed = 0
+        self._today_date = datetime.now().strftime('%Y-%m-%d')
+
+    # FIXME: 使用 solobrave-server 的 _call_ai_for_json 作为大脑 AI 调用
+    def _brain_infer(self, prompt, agent=None):
+        try:
+            return _call_ai_for_json(prompt, agent or self._default_agent())
+        except Exception as e:
+            print(f'  [BrainScheduler] AI call failed: {e}', flush=True)
+            return []
+
+    def _default_agent(self):
+        """默认 agent：取任意一个可用 agent，否则返回空 dict"""
+        try:
+            agents = _load_agents().get('agents', [])
+            return agents[0] if agents else {}
+        except Exception:
+            return {}
+
+    def request_clean(self, emp_id, mem_id):
+        """FIXME: 请求延迟清洗；同员工落入 30 秒窗口"""
+        now = int(time.time() * 1000)
+        with self._lock:
+            batch = self._clean_batches.get(emp_id)
+            if batch is None:
+                batch = {'mem_ids': set(), 'run_at': now + self.CLEAN_WINDOW_MS}
+                self._clean_batches[emp_id] = batch
+            batch['mem_ids'].add(mem_id)
+
+    def request_induct(self, topic_id):
+        """FIXME: 请求立即沉淀某个主题"""
+        with self._lock:
+            self._tasks.append({
+                'type': 'induct',
+                'run_at': int(time.time() * 1000),
+                'payload': {'topic_id': topic_id}
+            })
+
+    def start(self):
+        """FIXME: 启动大脑调度器守护线程"""
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._loop, daemon=True, name='BrainScheduler')
+        self._thread.start()
+        print('  [BrainScheduler] started', flush=True)
+
+    def stop(self):
+        self._running = False
+
+    def _loop(self):
+        while self._running:
+            try:
+                self._tick()
+            except Exception as e:
+                print(f'  [BrainScheduler] tick error: {e}', flush=True)
+            time.sleep(1)
+
+    def _tick(self):
+        now = int(time.time() * 1000)
+        today = datetime.now().strftime('%Y-%m-%d')
+        if today != self._today_date:
+            self._today_date = today
+            self._today_processed = 0
+
+        ready_tasks = []
+        with self._lock:
+            # 清洗窗口到期则生成任务
+            for emp_id, batch in list(self._clean_batches.items()):
+                if now >= batch['run_at']:
+                    ready_tasks.append({'type': 'clean', 'payload': {'emp_id': emp_id, 'mem_ids': list(batch['mem_ids'])}})
+                    del self._clean_batches[emp_id]
+            # 取出到期任务
+            remaining = []
+            for t in self._tasks:
+                if t.get('run_at', 0) <= now:
+                    ready_tasks.append(t)
+                else:
+                    remaining.append(t)
+            self._tasks = remaining
+
+        for task in ready_tasks:
+            try:
+                self._execute_task(task)
+            except Exception as e:
+                print(f'  [BrainScheduler] task error: {e}', flush=True)
+
+        # 每 5 分钟巡检待沉淀主题
+        if now - self._last_induct_check >= self.INDUCT_INTERVAL_MS:
+            self._last_induct_check = now
+            self._check_pending_topics()
+
+        # 每日凌晨 3 点全量巡检
+        if datetime.now().hour == 3 and now - self._last_daily_inspect >= 24 * 3600 * 1000:
+            self._last_daily_inspect = now
+            self._daily_inspect()
+
+    def _execute_task(self, task):
+        typ = task.get('type')
+        payload = task.get('payload', {})
+        if typ == 'clean':
+            self._do_clean(payload['emp_id'], payload['mem_ids'])
+        elif typ == 'induct':
+            self._do_induct(payload['topic_id'])
+
+    def _do_clean(self, emp_id, mem_ids):
+        """FIXME: 批量清洗 + 自动主题归类"""
+        print(f'  [BrainScheduler] clean {len(mem_ids)} memories for {emp_id}', flush=True)
+        agent = self._default_agent()
+        for mem_id in mem_ids:
+            mem = ms3._clean_and_deduplicate(mem_id, emp_id)
+            if mem and not mem.get('is_filler') and not mem.get('is_duplicate'):
+                topic_id = self._topic_svc.classify_memory_to_topic(mem_id, emp_id)
+                if topic_id:
+                    self.request_induct(topic_id)
+            self._today_processed += 1
+
+    def _do_induct(self, topic_id):
+        """FIXME: 执行主题知识沉淀"""
+        print(f'  [BrainScheduler] induct topic {topic_id}', flush=True)
+        agent = self._default_agent()
+        self._know_svc.induct_topic_to_knowledge(topic_id, agent=agent)
+
+    def _check_pending_topics(self):
+        """FIXME: 只扫描 pending_induct=1 的主题"""
+        topics = self._topic_svc.get_pending_induct_topics(min_memories=3)
+        print(f'  [BrainScheduler] {len(topics)} pending topics', flush=True)
+        for t in topics:
+            self.request_induct(t['id'])
+
+    def _daily_inspect(self):
+        """FIXME: 每日全量巡检：归档不活跃主题、校验冲突"""
+        print('  [BrainScheduler] daily inspect', flush=True)
+        now = int(time.time() * 1000)
+        cutoff = now - self.INACTIVE_TOPIC_DAYS * 24 * 3600 * 1000
+        conn = _db_conn()
+        try:
+            # 归档长期未活跃主题
+            conn.execute("UPDATE memory_topics SET status='archived' WHERE status='active' AND last_active_at < ?", (cutoff,))
+            conn.commit()
+        finally:
+            conn.close()
+        # 对 active 知识做冲突检测
+        agent = self._default_agent()
+        for know in self._know_svc.get_all_active_knowledge(limit=200):
+            try:
+                self._know_svc.detect_conflicts(know['id'], agent=agent)
+            except Exception as e:
+                print(f'  [BrainScheduler] conflict check failed: {e}', flush=True)
+
+    def get_stats(self):
+        """FIXME: 返回大脑状态统计"""
+        conn = _db_conn()
+        try:
+            pending_clean = conn.execute(
+                "SELECT COUNT(*) FROM memory WHERE status='active' AND cleaned_at=0"
+            ).fetchone()[0]
+            topic_count = conn.execute(
+                "SELECT COUNT(*) FROM memory_topics WHERE status='active'"
+            ).fetchone()[0]
+            knowledge_count = conn.execute(
+                "SELECT COUNT(*) FROM knowledge_base_new WHERE status='active'"
+            ).fetchone()[0]
+            return {
+                'pending_clean': pending_clean,
+                'topic_count': topic_count,
+                'knowledge_count': knowledge_count,
+                'today_processed': self._today_processed,
+            }
+        finally:
+            conn.close()
+
+    def enqueue_all_pending(self):
+        """FIXME: 手动触发：把所有待清洗记忆和待沉淀主题加入队列"""
+        conn = _db_conn()
+        enqueued_clean = 0
+        enqueued_induct = 0
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT emp_id FROM memory WHERE status='active' AND cleaned_at=0"
+            ).fetchall()
+            for r in rows:
+                mems = conn.execute(
+                    "SELECT id FROM memory WHERE status='active' AND cleaned_at=0 AND emp_id=?",
+                    (r['emp_id'],)
+                ).fetchall()
+                for m in mems:
+                    self.request_clean(r['emp_id'], m['id'])
+                enqueued_clean += len(mems)
+
+            topics = self._topic_svc.get_pending_induct_topics(min_memories=1)
+            for t in topics:
+                self.request_induct(t['id'])
+                enqueued_induct += 1
+            return enqueued_clean, enqueued_induct
+        finally:
+            conn.close()
+
+
+_brain_scheduler = _BrainScheduler()
 
 # 进程级文件锁（跨平台替代 fcntl，Windows 兼容）
 _memory_file_locks = {}
@@ -1377,6 +1603,85 @@ def _db_conn():
     return conn
 
 
+def _init_brain_tables(conn):
+    """FIXME: 大脑知识中枢数据层初始化（memory/topics/knowledge_new/relations）"""
+    # 记忆元数据索引表
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS memory (
+            id TEXT PRIMARY KEY,
+            emp_id TEXT NOT NULL,
+            value TEXT,
+            pool TEXT DEFAULT 'daily',
+            created_at INTEGER,
+            is_filler BOOLEAN DEFAULT 0,
+            is_duplicate BOOLEAN DEFAULT 0,
+            source_mem_id TEXT,
+            cleaned_at INTEGER DEFAULT 0,
+            topic_ids TEXT DEFAULT '[]',
+            inducted_at INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'active'
+        )
+    ''')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_emp_cleaned ON memory(emp_id, cleaned_at)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_emp_filler ON memory(emp_id, is_filler)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_source ON memory(source_mem_id)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_topic ON memory(topic_ids)')
+
+    # 主题表
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS memory_topics (
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            key_words TEXT DEFAULT '[]',
+            emp_ids TEXT DEFAULT '[]',
+            mem_count INTEGER DEFAULT 0,
+            first_seen_at INTEGER,
+            last_active_at INTEGER,
+            status TEXT DEFAULT 'active',
+            pending_induct BOOLEAN DEFAULT 0,
+            center_embedding BLOB
+        )
+    ''')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_topics_status ON memory_topics(status)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_topics_pending ON memory_topics(pending_induct, status)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_topics_last_active ON memory_topics(last_active_at)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_topics_emp ON memory_topics(emp_ids)')
+
+    # 新版知识库表
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS knowledge_base_new (
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            content TEXT,
+            key_points TEXT DEFAULT '[]',
+            evidence_mem_ids TEXT DEFAULT '[]',
+            confidence REAL DEFAULT 0.5,
+            topic_ids TEXT DEFAULT '[]',
+            created_at INTEGER,
+            updated_at INTEGER,
+            status TEXT DEFAULT 'active'
+        )
+    ''')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_new_status ON knowledge_base_new(status)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_new_topics ON knowledge_base_new(topic_ids)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_new_updated ON knowledge_base_new(updated_at)')
+
+    # 知识关系表
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS knowledge_relations (
+            id TEXT PRIMARY KEY,
+            source_knowledge_id TEXT,
+            target_knowledge_id TEXT,
+            relation_type TEXT,
+            confidence REAL,
+            created_at INTEGER
+        )
+    ''')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_kr_source ON knowledge_relations(source_knowledge_id)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_kr_target ON knowledge_relations(target_knowledge_id)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_kr_type ON knowledge_relations(relation_type)')
+
+
 def init_db():
     """初始化数据库，创建 knowledge/products 表（启动时调用）"""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -1485,6 +1790,9 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_base_emp ON knowledge_base(emp_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_base_status ON knowledge_base(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_base_title ON knowledge_base(title)')
+
+        # FIXME: 大脑知识中枢新增表（保留旧表，不删数据）
+        _init_brain_tables(conn)
 
         conn.commit()
 
@@ -2618,6 +2926,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_user(user_id)
                 return
 
+        # FIXME: 大脑知识中枢 API
+        if path == '/api/brain/status':
+            self._handle_get_brain_status()
+            return
+        if path == '/api/brain/topics':
+            self._handle_get_brain_topics()
+            return
+        if path == '/api/brain/knowledge':
+            self._handle_get_brain_knowledge()
+            return
+
         # Memory API v2
         if path == '/api/memory/archived':
             self._handle_get_archived_memories()
@@ -2960,6 +3279,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if team_id:
                     self._handle_add_team_member(team_id)
                     return
+
+        # FIXME: 大脑知识中枢 API
+        if path == '/api/brain/trigger-manual':
+            self._handle_brain_trigger_manual()
+            return
+        if path.startswith('/api/brain/knowledge/') and path.endswith('/feedback'):
+            sub = path[len('/api/brain/knowledge/'):-len('/feedback')]
+            if sub and '/' not in sub:
+                self._handle_brain_knowledge_feedback(sub)
+                return
 
         # Memory API v2
         if path == '/api/memory/consolidate':
@@ -6497,6 +6826,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         print(f'  [MemoryV3] {emp_id} 保存 {pool} 记忆: {value[:50]}...', flush=True)
 
+        # FIXME: 大脑知识中枢新增：把记忆加入清洗窗口
+        try:
+            _brain_scheduler.request_clean(emp_id, memory.get('id'))
+        except Exception as e:
+            print(f'  [BrainScheduler] request_clean failed: {e}', flush=True)
+
         # FIXME: 三级知识库自动沉淀 + 二级归纳自动触发（数量/决策）
         auto_triggers = []
         if key in ('auto', 'auto_extract'):
@@ -6906,6 +7241,90 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             print(f'  [ResolveConflict] failed: {e}', flush=True)
             self._send_json_error(500, f'Resolve failed: {str(e)}')
+
+    # FIXME: 大脑知识中枢 API 处理器
+    def _handle_get_brain_status(self):
+        """GET /api/brain/status — 返回大脑处理状态"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        try:
+            stats = _brain_scheduler.get_stats()
+            self._send_json(200, {'success': True, **stats})
+        except Exception as e:
+            print(f'  [BrainAPI] status failed: {e}', flush=True)
+            self._send_json_error(500, f'Status failed: {str(e)}')
+
+    def _handle_brain_trigger_manual(self):
+        """POST /api/brain/trigger-manual — 手动触发全量处理"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        try:
+            enqueued_clean, enqueued_induct = _brain_scheduler.enqueue_all_pending()
+            self._send_json(200, {
+                'success': True,
+                'enqueuedClean': enqueued_clean,
+                'enqueuedInduct': enqueued_induct
+            })
+        except Exception as e:
+            print(f'  [BrainAPI] trigger failed: {e}', flush=True)
+            self._send_json_error(500, f'Trigger failed: {str(e)}')
+
+    def _handle_get_brain_topics(self):
+        """GET /api/brain/topics?empId=xxx — 获取员工的主题列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        emp_id = qs.get('empId', [''])[0]
+        if not emp_id:
+            self._send_json_error(400, 'Missing empId')
+            return
+        try:
+            topics = _brain_scheduler._topic_svc.get_emp_topics(emp_id, limit=100)
+            self._send_json(200, {'success': True, 'empId': emp_id, 'topics': topics})
+        except Exception as e:
+            print(f'  [BrainAPI] topics failed: {e}', flush=True)
+            self._send_json_error(500, f'Topics failed: {str(e)}')
+
+    def _handle_get_brain_knowledge(self):
+        """GET /api/brain/knowledge?topicId=xxx — 获取主题下的知识"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        topic_id = qs.get('topicId', [''])[0]
+        if not topic_id:
+            self._send_json_error(400, 'Missing topicId')
+            return
+        try:
+            knowledge = _brain_scheduler._know_svc.get_knowledge_by_topic(topic_id, limit=100)
+            self._send_json(200, {'success': True, 'topicId': topic_id, 'knowledge': knowledge})
+        except Exception as e:
+            print(f'  [BrainAPI] knowledge failed: {e}', flush=True)
+            self._send_json_error(500, f'Knowledge failed: {str(e)}')
+
+    def _handle_brain_knowledge_feedback(self, knowledge_id):
+        """POST /api/brain/knowledge/{kid}/feedback — 准确/有误反馈"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body() or {}
+        accurate = body.get('accurate', True)
+        try:
+            ok = _brain_scheduler._know_svc.feedback_knowledge(knowledge_id, accurate=accurate)
+            self._send_json(200, {'success': ok})
+        except Exception as e:
+            print(f'  [BrainAPI] feedback failed: {e}', flush=True)
+            self._send_json_error(500, f'Feedback failed: {str(e)}')
 
     # FIXME: 记忆三级沉淀 API：二级归纳（daily/project） + 三级知识库查询/标记
     def _handle_get_daily_summary(self, emp_id):
@@ -10363,6 +10782,9 @@ def main():
     threading.Thread(target=_startup_memory_job, daemon=True).start()
     print('  [DailyJob] 启动补跑任务已调度（10 秒后执行）')
 
+    # FIXME: 大脑知识中枢：启动后台调度器
+    _brain_scheduler.start()
+
     # Allow port reuse to avoid "Address already in use"
     class ReuseHTTPServer(http.server.ThreadingHTTPServer):
         allow_reuse_address = True
@@ -10395,6 +10817,7 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         print('\n\n  [STOP] 服务已停止')
+        _brain_scheduler.stop()
         server.server_close()
 
 

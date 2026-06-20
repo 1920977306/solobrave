@@ -5167,9 +5167,9 @@ window.doLogin = function () {
 <button class="memory-tab active" data-mtab="core" onclick="switchMemoryTab('core')">核心记忆</button>
 <button class="memory-tab" data-mtab="daily" onclick="switchMemoryTab('daily')">日常记录</button>
 <button class="memory-tab" data-mtab="archive" onclick="switchMemoryTab('archive')">归档</button>
-<!-- FIXME: 新增“记忆汇总”tab，展示每日归纳、项目归纳、知识库 -->
-<button class="memory-tab" data-mtab="summary" onclick="switchMemoryTab('summary')">记忆汇总</button>
-<button class="memory-tab" data-mtab="kb" onclick="switchMemoryTab('kb')">知识库</button>
+<!-- FIXME: 大脑知识中枢：原“记忆汇总”改为“知识库”，原全局知识库改为“文档库” -->
+<button class="memory-tab" data-mtab="summary" onclick="switchMemoryTab('summary')">知识库</button>
+<button class="memory-tab" data-mtab="kb" onclick="switchMemoryTab('kb')">文档库</button>
 <button class="memory-tab" data-mtab="merge" onclick="switchMemoryTab('merge')">合并记录</button>
 </div>
 <div class="memory-content" id="memoryContent"></div>
@@ -13018,87 +13018,13 @@ function renderMemoryTab(empId) {
       if (kbTab) kbTab.textContent = '知识库 (' + kbCount + ')';
       if (mergeTab) mergeTab.textContent = '合并记录 (' + mergeList.length + ')';
 
-      // FIXME: 记忆汇总模式：展示每日归纳、项目归纳、三级知识库
+      // FIXME: 大脑知识中枢：知识库 tab（原记忆汇总）
       if (currentMemoryTab === 'summary') {
-        var summaryHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">';
-        summaryHtml += '<span style="font-size:12px;color:var(--text-secondary);">二级归纳 + 三级知识库沉淀</span>';
-        summaryHtml += '<div style="display:flex;gap:8px;">';
-        summaryHtml += '<button onclick="triggerMemorySummary(\'' + escapeAttr(empId) + '\', \'daily\')" style="padding:6px 12px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;">📝 归纳今日</button>';
-        summaryHtml += '<button onclick="var p=prompt(\'请输入项目名称/主题\'); if(p) triggerMemorySummary(\'' + escapeAttr(empId) + '\', \'project\', p);" style="padding:6px 12px;border-radius:8px;background:var(--bg-tertiary);color:var(--text-primary);border:none;font-size:12px;font-weight:600;cursor:pointer;">📁 项目归纳</button>';
-        summaryHtml += '</div></div>';
-
-        function renderSummaryCard(s, isKb) {
-          var card = '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:10px;">';
-          card += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
-          var statusColor = s.status === 'pending' ? '#FF9500' : (s.status === 'active' ? '#34C759' : 'var(--accent)');
-          var statusLabel = s.status === 'pending' ? '待AI生成' : (s.status === 'active' ? '已完成' : (s.status || '未知'));
-          card += '<span style="font-size:13px;font-weight:600;color:var(--text-primary);">' + escapeHtml(s.title || '未命名') + '</span>';
-          card += '<span style="font-size:10px;color:#fff;background:' + statusColor + ';padding:2px 6px;border-radius:4px;">' + statusLabel + '</span>';
-          card += '</div>';
-          if (isKb) {
-            card += '<div style="font-size:12px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;margin-bottom:6px;">' + escapeHtml(s.content || '') + '</div>';
-            card += '<div style="font-size:11px;color:var(--text-secondary);">来源: ' + escapeHtml(s.source || '') + ' · 证据: ' + (s.evidenceCount || 0) + ' · ID: ' + escapeHtml(s.id || '') + '</div>';
-          } else {
-            var kp = (s.keyPoints || []);
-            if (kp.length) {
-              card += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">关键信息：</div>';
-              card += '<ul style="margin:0 0 8px 16px;padding:0;font-size:12px;line-height:1.6;color:var(--text-primary);">';
-              kp.slice(0, 5).forEach(function (p) { card += '<li>' + escapeHtml(p) + '</li>'; });
-              card += '</ul>';
-            }
-            var decisions = (s.decisions || []);
-            if (decisions.length) {
-              card += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">已确认决策：</div>';
-              decisions.slice(0, 5).forEach(function (d) { card += '<div style="font-size:12px;color:#34C759;margin-bottom:2px;">✓ ' + escapeHtml(d) + '</div>'; });
-            }
-            var pendingItems = (s.pending || []);
-            if (pendingItems.length) {
-              card += '<div style="font-size:12px;color:var(--text-secondary);margin:6px 0 4px;">待确认事项：</div>';
-              pendingItems.slice(0, 5).forEach(function (p) { card += '<div style="font-size:12px;color:#FF9500;margin-bottom:2px;">? ' + escapeHtml(p) + '</div>'; });
-            }
-            var actions = (s.actionItems || []);
-            if (actions.length) {
-              card += '<div style="font-size:12px;color:var(--text-secondary);margin:6px 0 4px;">Action Items：</div>';
-              actions.slice(0, 5).forEach(function (a) {
-                var text = typeof a === 'string' ? a : ((a.item || '') + (a.owner ? ' [' + a.owner + ']' : '') + (a.due ? ' 截止' + a.due : ''));
-                card += '<div style="font-size:12px;color:var(--accent);margin-bottom:2px;">▸ ' + escapeHtml(text) + '</div>';
-              });
-            }
-            card += '<div style="display:flex;gap:8px;margin-top:8px;">';
-            if (s.status === 'pending') {
-              card += '<button onclick="_generateSummaryWithAI(\'' + escapeAttr(empId) + '\', \'' + escapeAttr(s.id) + '\', \'' + escapeAttr(s.summaryType) + '\', ' + JSON.stringify(s).replace(/"/g, '&quot;') + ')" style="padding:4px 10px;border-radius:6px;background:var(--accent);color:#fff;border:none;font-size:11px;cursor:pointer;">生成归纳</button>';
-            }
-            card += '<span style="font-size:11px;color:var(--text-tertiary);align-self:center;">来源记忆 ' + (s.relatedMemIds || []).length + ' 条</span>';
-            card += '</div>';
-          }
-          card += '</div>';
-          return card;
-        }
-
-        summaryHtml += '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin:12px 0 8px;">📅 每日归纳</div>';
-        if (dailySummaries.length === 0) summaryHtml += '<div style="padding:12px;color:var(--text-tertiary);font-size:12px;">暂无每日归纳</div>';
-        dailySummaries.forEach(function (s) { summaryHtml += renderSummaryCard(s, false); });
-
-        summaryHtml += '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin:18px 0 8px;">📁 项目归纳</div>';
-        if (projectSummaries.length === 0) summaryHtml += '<div style="padding:12px;color:var(--text-tertiary);font-size:12px;">暂无项目归纳，当同一标签下记忆≥3条会自动创建</div>';
-        projectSummaries.forEach(function (s) { summaryHtml += renderSummaryCard(s, false); });
-
-        summaryHtml += '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin:18px 0 8px;">📚 三级知识库</div>';
-        if (agentKbEntries.length === 0) summaryHtml += '<div style="padding:12px;color:var(--text-tertiary);font-size:12px;">暂无沉淀知识点，决策/重复提及≥2次会自动激活</div>';
-        agentKbEntries.forEach(function (s) { summaryHtml += renderSummaryCard(s, true); });
-
-        contentEl.innerHTML = summaryHtml;
-
-        // FIXME: 自动使用低优先级 OpenClaw 队列填充 pending 归纳
-        fillPendingSummaries(empId, dailySummaries, projectSummaries);
-
-        if (headerEl) {
-          headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + (coreCount + dailyCount + kbCount) + ')</span>';
-        }
+        renderBrainKnowledgePanel(empId, contentEl, headerEl);
         return;
       }
 
-      // 知识库模式：显示关联文档（后端持久化）
+      // 文档库模式：显示全局公共知识文档（后端持久化）
       if (currentMemoryTab === 'kb') {
         var kbHeaderHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
         kbHeaderHtml += '<span style="font-size:12px;color:var(--text-secondary);">全局公共知识库（所有员工共享）</span>';
@@ -13391,6 +13317,206 @@ function renderMergeHistory(empId) {
     console.warn('[MergeHistory] 加载失败:', e);
   });
 }
+
+// FIXME: 大脑知识中枢：全局状态
+var currentBrainTopicId = null;
+var _brainRefreshTimer = null;
+
+// FIXME: 大脑知识中枢：渲染知识库 tab
+function renderBrainKnowledgePanel(empId, contentEl, headerEl) {
+  if (!contentEl) return;
+  contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">大脑加载中...</div>';
+
+  var statusPromise = apiFetch('/api/brain/status').then(function (r) { return r.json(); }).catch(function () { return {}; });
+  var topicsPromise = apiFetch('/api/brain/topics?empId=' + encodeURIComponent(empId)).then(function (r) { return r.json(); }).catch(function () { return {topics: []}; });
+  var memPromise = apiFetch('/api/memory/' + encodeURIComponent(empId) + '?limit=200').then(function (r) { return r.json(); }).catch(function () { return {core: [], daily: []}; });
+
+  Promise.all([statusPromise, topicsPromise, memPromise]).then(function (results) {
+    var status = results[0] || {};
+    var topics = (results[1].topics || []);
+    var memData = results[2] || {};
+    var allMemories = [].concat(memData.core || [], memData.daily || []);
+
+    // 顶部状态栏
+    var html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">';
+    html += '<div style="font-size:13px;color:var(--text-secondary);">';
+    html += '🧠 大脑运行中 · 待处理 ' + (status.pendingClean || 0) + ' 条 · 已沉淀 ' + (status.knowledgeCount || 0) + ' 条知识 · ' + (status.topicCount || 0) + ' 个主题';
+    html += '</div>';
+    html += '<button onclick="triggerBrainManual()" style="padding:6px 12px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;">⚡ 立即归纳</button>';
+    html += '</div>';
+
+    html += '<div style="display:flex;gap:12px;height:480px;">';
+    // 左侧主题列表
+    html += '<div style="width:260px;flex-shrink:0;overflow-y:auto;padding-right:4px;">';
+    if (topics.length === 0) {
+      html += '<div style="padding:16px;text-align:center;color:var(--text-tertiary);font-size:12px;">暂无主题，添加记忆后大脑会自动聚类</div>';
+    }
+    topics.forEach(function (t) {
+      var active = currentBrainTopicId === t.id;
+      var lastStr = t.lastActiveAt ? _timeAgo(t.lastActiveAt) : '-';
+      var summary = (t.keyWords || []).slice(0, 3).join(' · ') || '暂无摘要';
+      html += '<div onclick="selectBrainTopic(\'' + escapeAttr(t.id) + '\')" style="cursor:pointer;padding:10px;border-radius:10px;margin-bottom:8px;background:' + (active ? 'var(--accent-light)' : 'var(--bg-secondary)') + ';border:1px solid ' + (active ? 'var(--accent)' : 'transparent') + ';">';
+      html += '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:4px;">' + escapeHtml(t.title || '未命名主题') + '</div>';
+      html += '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">' + (t.memCount || 0) + ' 条记忆 · 最后活跃 ' + lastStr + '</div>';
+      html += '<div style="font-size:11px;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(summary) + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+
+    // 右侧知识条目
+    html += '<div id="brainKnowledgeRight" style="flex:1;overflow-y:auto;padding-left:12px;border-left:1px solid var(--bg-tertiary);">';
+    if (!currentBrainTopicId || topics.length === 0) {
+      html += '<div style="padding:40px 20px;text-align:center;color:var(--text-tertiary);font-size:13px;">点击左侧主题查看沉淀知识</div>';
+    } else {
+      html += '<div id="brainKnowledgeContent" style="padding:4px;"><div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div></div>';
+    }
+    html += '</div>';
+    html += '</div>';
+
+    contentEl.innerHTML = html;
+
+    if (headerEl) {
+      headerEl.innerHTML = '🧠 记忆 <span style="font-size:12px;font-weight:500;color:var(--text-tertiary);">(' + (memData.core ? memData.core.length : 0) + '/' + (memData.daily ? memData.daily.length : 0) + ')</span>';
+    }
+
+    if (currentBrainTopicId) {
+      loadBrainKnowledgeForTopic(empId, currentBrainTopicId, allMemories);
+    }
+  }).catch(function (e) {
+    contentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">大脑加载失败</div>';
+    console.warn('[Brain] load failed:', e);
+  });
+}
+
+function selectBrainTopic(topicId) {
+  currentBrainTopicId = topicId;
+  var empId = localStorage.getItem('sb_current_emp');
+  if (empId) renderMemoryTab(empId);
+}
+
+function loadBrainKnowledgeForTopic(empId, topicId, allMemories) {
+  var rightEl = document.getElementById('brainKnowledgeContent');
+  if (!rightEl) return;
+  apiFetch('/api/brain/knowledge?topicId=' + encodeURIComponent(topicId)).then(function (r) { return r.json(); }).then(function (data) {
+    var items = data.knowledge || [];
+    if (items.length === 0) {
+      rightEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);font-size:12px;">该主题尚未沉淀知识</div>';
+      return;
+    }
+    var html = '';
+    items.forEach(function (k) {
+      var evidenceIds = k.evidenceMemIds || [];
+      var confidence = Math.round((k.confidence || 0.5) * 100);
+      var evidenceCount = evidenceIds.length;
+      html += '<div class="memory-item" style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:10px;">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+      html += '<span style="font-size:14px;font-weight:600;color:var(--text-primary);">' + escapeHtml(k.title || '未命名') + '</span>';
+      html += '<span style="font-size:10px;color:#fff;background:var(--accent);padding:2px 8px;border-radius:4px;">可信度 ' + confidence + '%</span>';
+      html += '</div>';
+      html += '<div style="font-size:12px;line-height:1.6;color:var(--text-primary);white-space:pre-wrap;margin-bottom:8px;">' + escapeHtml(k.content || '') + '</div>';
+      var kp = k.keyPoints || [];
+      if (kp.length) {
+        html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">';
+        kp.slice(0, 6).forEach(function (p) {
+          html += '<span style="font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 8px;border-radius:4px;">' + escapeHtml(p) + '</span>';
+        });
+        html += '</div>';
+      }
+      html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">';
+      html += '<div style="flex:1;height:4px;background:var(--bg-tertiary);border-radius:2px;"><div style="width:' + confidence + '%;height:100%;background:var(--accent);border-radius:2px;"></div></div>';
+      html += '<span style="font-size:11px;color:var(--text-secondary);white-space:nowrap;">证据 ' + evidenceCount + ' 条</span>';
+      html += '</div>';
+      html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+      html += '<button onclick="toggleBrainEvidence(this, \'' + escapeAttr(k.id) + '\', ' + JSON.stringify(evidenceIds).replace(/"/g, '&quot;') + ')" style="padding:4px 10px;border-radius:6px;background:var(--bg-tertiary);color:var(--text-secondary);border:none;font-size:11px;cursor:pointer;">查看证据</button>';
+      html += '<button onclick="brainKnowledgeFeedback(\'' + escapeAttr(k.id) + '\', true)" style="padding:4px 10px;border-radius:6px;background:var(--bg-tertiary);color:#34C759;border:none;font-size:11px;cursor:pointer;">👍 准确</button>';
+      html += '<button onclick="brainKnowledgeFeedback(\'' + escapeAttr(k.id) + '\', false)" style="padding:4px 10px;border-radius:6px;background:var(--bg-tertiary);color:#FF3B30;border:none;font-size:11px;cursor:pointer;">👎 有误</button>';
+      html += '</div>';
+      html += '<div class="brain-evidence-box" data-kid="' + escapeAttr(k.id) + '" style="display:none;margin-top:10px;padding:10px;background:var(--bg-tertiary);border-radius:8px;"></div>';
+      html += '</div>';
+    });
+    rightEl.innerHTML = html;
+    rightEl.dataset.memories = JSON.stringify(allMemories || []);
+  }).catch(function (e) {
+    rightEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">知识加载失败</div>';
+    console.warn('[Brain] knowledge load failed:', e);
+  });
+}
+
+function toggleBrainEvidence(btn, knowledgeId, evidenceIds) {
+  var box = document.querySelector('.brain-evidence-box[data-kid="' + knowledgeId + '"]');
+  if (!box) return;
+  if (box.style.display === 'block') {
+    box.style.display = 'none';
+    btn.textContent = '查看证据';
+    return;
+  }
+  var rightEl = document.getElementById('brainKnowledgeContent');
+  var allMemories = [];
+  try { allMemories = JSON.parse(rightEl.dataset.memories || '[]'); } catch (e) {}
+  var idSet = {};
+  evidenceIds.forEach(function (id) { idSet[id] = true; });
+  var evidence = allMemories.filter(function (m) { return idSet[m.id]; });
+  var html = '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">原始证据记忆：</div>';
+  if (evidence.length === 0) {
+    html += '<div style="font-size:12px;color:var(--text-tertiary);">未找到对应记忆</div>';
+  } else {
+    evidence.forEach(function (m) {
+      html += '<div style="padding:6px 8px;background:var(--bg-secondary);border-radius:6px;margin-bottom:6px;font-size:12px;color:var(--text-primary);white-space:pre-wrap;">' + escapeHtml(m.value || '') + '</div>';
+    });
+  }
+  box.innerHTML = html;
+  box.style.display = 'block';
+  btn.textContent = '收起证据';
+}
+
+function brainKnowledgeFeedback(knowledgeId, accurate) {
+  apiFetch('/api/brain/knowledge/' + encodeURIComponent(knowledgeId) + '/feedback', {
+    method: 'POST',
+    body: JSON.stringify({accurate: accurate})
+  }).then(function (r) { return r.json(); }).then(function () {
+    showToast(accurate ? '✅ 已标记准确' : '⚠️ 已标记有误');
+  }).catch(function (e) {
+    showToast('反馈失败');
+    console.warn('[Brain] feedback failed:', e);
+  });
+}
+
+function triggerBrainManual() {
+  var empId = localStorage.getItem('sb_current_emp');
+  if (!empId) {
+    showToast('⚠️ 请先选择一个员工');
+    return;
+  }
+  apiFetch('/api/brain/trigger-manual', {method: 'POST'}).then(function (r) { return r.json(); }).then(function (data) {
+    showToast('⚡ 已加入 ' + (data.enqueuedClean || 0) + ' 条清洗 / ' + (data.enqueuedInduct || 0) + ' 条沉淀');
+    startBrainRefreshPolling();
+  }).catch(function (e) {
+    showToast('触发失败');
+    console.warn('[Brain] manual trigger failed:', e);
+  });
+}
+
+function startBrainRefreshPolling() {
+  if (_brainRefreshTimer) clearInterval(_brainRefreshTimer);
+  var count = 0;
+  _brainRefreshTimer = setInterval(function () {
+    var empId = localStorage.getItem('sb_current_emp');
+    if (empId && currentMemoryTab === 'summary') renderMemoryTab(empId);
+    count += 1;
+    if (count >= 12) {
+      clearInterval(_brainRefreshTimer);
+      _brainRefreshTimer = null;
+    }
+  }, 5000);
+}
+
+// FIXME: 大脑知识中枢：每 30 秒刷新一次状态
+setInterval(function () {
+  if (currentMemoryTab === 'summary') {
+    var empId = localStorage.getItem('sb_current_emp');
+    if (empId) renderMemoryTab(empId);
+  }
+}, 30000);
 
 // FIXME: 记忆三级沉淀：前端辅助函数
 function _todayStr() {
