@@ -9520,18 +9520,31 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
         args.extend(['--model', api_model])
 
     try:
-        result = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            timeout=OPENCLAW_TIMEOUT,
-            input=stdin_input
-        )
-        if result.returncode != 0:
-            print(f'  [OpenClaw] infer failed (code={result.returncode}): {result.stderr}', flush=True)
+        if stdin_input is not None:
+            # FIXME: 修复大脑知识沉淀时命令行参数过长的bug：长 prompt 通过 subprocess.Popen + stdin 写入
+            proc = subprocess.Popen(
+                args,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            stdout, stderr = proc.communicate(input=stdin_input, timeout=OPENCLAW_TIMEOUT)
+            returncode = proc.returncode
+        else:
+            result = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=OPENCLAW_TIMEOUT
+            )
+            stdout, stderr, returncode = result.stdout, result.stderr, result.returncode
+
+        if returncode != 0:
+            print(f'  [OpenClaw] infer failed (code={returncode}): {stderr}', flush=True)
             return None
         # 4. 解析返回 JSON，从 outputs[0].text 取 AI 回复
-        output = json.loads(result.stdout)
+        output = json.loads(stdout)
         content = output.get('outputs', [{}])[0].get('text', '')
         # 5. 提取 JSON 数组返回
         return _extract_json_array(content)
