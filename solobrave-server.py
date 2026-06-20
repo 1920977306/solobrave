@@ -424,6 +424,7 @@ class _BrainScheduler:
         self._running = True
         # FIXME: 大脑调度器启动扫库：启动时先把数据库里未清洗的记忆加入队列，不能只等新记忆
         self._enqueue_uncleaned_memories()
+        self._last_uncleaned_scan = int(time.time() * 1000)
         self._thread = threading.Thread(target=self._loop, daemon=True, name='BrainScheduler')
         self._thread.start()
         print('  [BrainScheduler] started', flush=True)
@@ -446,7 +447,7 @@ class _BrainScheduler:
             self._today_date = today
             self._today_processed = 0
 
-        # FIXME: 大脑调度器定期巡检待清洗记忆：每 60 秒扫库一次，防止旧待清洗记忆漏处理
+        # FIXME: 大脑调度器定期巡检待清洗记忆
         if now - self._last_uncleaned_scan >= 60 * 1000:
             self._enqueue_uncleaned_memories()
             self._last_uncleaned_scan = now
