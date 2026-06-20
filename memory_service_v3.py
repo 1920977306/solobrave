@@ -46,6 +46,18 @@ MEMORY_V3_CONFIG = {
     'dedup_threshold': 0.85,   # 智能去重相似度阈值
 }
 
+# 记忆归纳阈值（统一收口，方便后续调整）
+MEMORY_INDUCTION_THRESHOLDS = {
+    # 日常记录 ≥ N 条时，前端显示"建议归纳"横幅并可生成每日归纳
+    'daily_consolidate_min': 2,
+    # 同一项目/标签 ≥ N 条记忆时，自动创建项目归纳（pending）
+    'project_summary_min': 3,
+    # 知识库沉淀：重复提及 ≥ N 次即升级为 active
+    'knowledge_repeat_min': 2,
+    # 手动触发知识库归纳：活跃记忆 ≥ N 条且未归纳记忆 ≥ N 条即可生成
+    'knowledge_induction_min': 3,
+}
+
 def _ensure_dir(path):
     """确保目录存在"""
     os.makedirs(path, exist_ok=True)
@@ -291,19 +303,25 @@ def load_memory(emp_id):
         result['updatedAt'] = int(time.time() * 1000)
         _write_json(filepath, result)
 
-    # 更新 stats
+    # 更新 stats（保留已有自定义字段，如 lastMemoryConsolidationAt）
     stats = raw.get('stats', {}) if raw else {}
-    result['stats'] = {
+    result['stats'] = dict(stats)
+    result['stats'].update({
         'coreCount': len(result['core']),
         'dailyCount': len(result['daily']),
         'totalAccess': sum(m.get('accessCount', 0) for m in result['core']),
         'lastKnowledgeInductionAt': stats.get('lastKnowledgeInductionAt', 0)
-    }
+    })
     result['lastKnowledgeInductionAt'] = result['stats']['lastKnowledgeInductionAt']
 
-    # 归纳提醒：daily ≥ 15 条时建议触发归纳
-    if len(result['daily']) >= 15:
-        sorted_daily = sorted(result['daily'], key=lambda m: m.get('createdAt', 0))
+    # 归纳提醒：日常记录 ≥ 阈值 且 自上次归纳后仍有新记录 时才建议
+    daily_threshold = MEMORY_INDUCTION_THRESHOLDS['daily_consolidate_min']
+    last_consolidation_at = result['stats'].get('lastMemoryConsolidationAt', 0)
+    sorted_daily = sorted(
+        [m for m in result['daily'] if m.get('createdAt', 0) > last_consolidation_at],
+        key=lambda m: m.get('createdAt', 0)
+    )
+    if len(result['daily']) >= daily_threshold and sorted_daily:
         result['shouldConsolidate'] = True
         result['suggestedSourceIds'] = [m['id'] for m in sorted_daily[:5]]
     else:
@@ -751,6 +769,8 @@ def consolidate_memory(emp_id, source_ids, consolidated_value, key='core',
         archive_data.setdefault('archived', []).append(archive_entry)
 
     data['core'].append(new_mem)
+    # 记录本次建议归纳时间戳，用于刷新后判断是否已经归纳过
+    data.setdefault('stats', {})['lastMemoryConsolidationAt'] = now
     save_memory(emp_id, data)
     save_archive(emp_id, archive_data)
 

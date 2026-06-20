@@ -231,6 +231,9 @@ MEMORY_CONFIG = {
     'chat_store_max': 500,     # 聊天记录存储上限
 }
 
+# 记忆归纳阈值（统一由 memory_service_v3.py 维护，便于后续调整）
+MEMORY_INDUCTION_THRESHOLDS = ms3.MEMORY_INDUCTION_THRESHOLDS
+
 # 进程级文件锁（跨平台替代 fcntl，Windows 兼容）
 _memory_file_locks = {}
 _memory_locks_mutex = threading.Lock()
@@ -1883,7 +1886,7 @@ def _load_knowledge_base(emp_id, keyword=None, status=None, limit=200):
 
 
 def _upsert_knowledge_base(kb):
-    """插入或更新 knowledge_base；evidence_count>=3 或决策触发时标记 active"""
+    """插入或更新 knowledge_base；evidence_count>=阈值 或决策触发时标记 active"""
     conn = _db_conn()
     try:
         now = int(time.time() * 1000)
@@ -1896,7 +1899,8 @@ def _upsert_knowledge_base(kb):
             old_ids = _parse_json_col(existing['related_mem_ids'], [])
             new_ids = list(dict.fromkeys(old_ids + _parse_json_col(kb.get('relatedMemIds') or kb.get('related_mem_ids'), [])))
             count = existing['evidence_count'] + int(kb.get('evidenceCount') or 1)
-            new_status = 'active' if count >= 3 or kb.get('status') == 'active' or existing['status'] == 'active' else existing['status']
+            kb_min = MEMORY_INDUCTION_THRESHOLDS['knowledge_repeat_min']
+            new_status = 'active' if count >= kb_min or kb.get('status') == 'active' or existing['status'] == 'active' else existing['status']
             conn.execute('''
                 UPDATE knowledge_base SET title=?, content=?, source=?, tags=?,
                 evidence_count=?, related_mem_ids=?, status=?, updated_at=?
@@ -1913,12 +1917,13 @@ def _upsert_knowledge_base(kb):
             (kb.get('empId') or kb.get('emp_id'),)
         ).fetchall()
         content = kb.get('content', '')
+        kb_min = MEMORY_INDUCTION_THRESHOLDS['knowledge_repeat_min']
         for cand in candidates:
             if content and (content in cand['content'] or cand['content'] in content or content in cand['title']):
                 old_ids = _parse_json_col(cand['related_mem_ids'], [])
                 new_ids = list(dict.fromkeys(old_ids + _parse_json_col(kb.get('relatedMemIds') or kb.get('related_mem_ids'), [])))
                 count = cand['evidence_count'] + int(kb.get('evidenceCount') or 1)
-                new_status = 'active' if count >= 3 or kb.get('status') == 'active' or cand['status'] == 'active' else cand['status']
+                new_status = 'active' if count >= kb_min or kb.get('status') == 'active' or cand['status'] == 'active' else cand['status']
                 conn.execute(
                     'UPDATE knowledge_base SET evidence_count=?, related_mem_ids=?, status=?, updated_at=? WHERE id=?',
                     (count, _dump_json_col(new_ids), new_status, now, cand['id'])
@@ -1946,7 +1951,7 @@ def _upsert_knowledge_base(kb):
 
 
 def _auto_check_knowledge(emp_id, mem_id, value, tags=None):
-    """保存记忆时自动检查是否应沉淀到知识库（决策/重复>=3）"""
+    """保存记忆时自动检查是否应沉淀到知识库（决策直接 active；重复>=阈值）"""
     if not value:
         return None
     content = str(value)
@@ -2025,21 +2030,30 @@ def _auto_summarize_triggers(emp_id, memory):
     mem_id = memory.get('id')
     tags = memory.get('tags') or []
     triggered = []
-    # 数量触发：任一标签对应记忆>=5条
+    project_min = MEMORY_INDUCTION_THRESHOLDS['project_summary_min']
+    # 数量触发：任一标签对应记忆 >= 项目归纳阈值 条时自动创建项目归纳
     checked_tags = set()
     for tag in tags:
         if not tag or tag in checked_tags:
             continue
         checked_tags.add(tag)
         count, ids = _count_memories_by_tag(emp_id, tag)
-        if count >= 5:
+        if count >= project_min:
             sid = _create_pending_summary(emp_id, 'project', '项目归纳：' + tag, project_name=tag, mem_ids=ids)
             triggered.append({'type': 'count', 'tag': tag, 'summaryId': sid})
-    # 决策触发：当天每日归纳 pending
-    if _contains_decision_keyword(value):
-        today = datetime.now().strftime('%Y-%m-%d')
-        sid = _create_pending_summary(emp_id, 'daily', today + ' 每日归纳', date=today, mem_ids=[mem_id])
-        triggered.append({'type': 'decision', 'summaryId': sid})
+    # 每日归纳触发：当天日常记录 >= 每日归纳阈值 条 或 包含决策关键词
+    today = datetime.now().strftime('%Y-%m-%d')
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_ms = int(today_start.timestamp() * 1000)
+    daily_min = MEMORY_INDUCTION_THRESHOLDS['daily_consolidate_min']
+    data = ms3.load_memory(emp_id)
+    today_daily_ids = [
+        m.get('id') for m in data.get('daily', [])
+        if m.get('createdAt', 0) >= today_start_ms
+    ]
+    if len(today_daily_ids) >= daily_min or _contains_decision_keyword(value):
+        sid = _create_pending_summary(emp_id, 'daily', today + ' 每日归纳', date=today, mem_ids=today_daily_ids or [mem_id])
+        triggered.append({'type': 'daily', 'summaryId': sid})
     return triggered
 
 
@@ -10171,7 +10185,7 @@ def _generate_core_candidates_for_agent(agent):
 
 
 def _induct_knowledge_for_agent(agent, owner_user_id=None):
-    """为单个 agent 执行知识归纳：活跃记忆 >=15 且存在未归纳记忆时触发
+    """为单个 agent 执行知识归纳：活跃记忆 >= 阈值 且未归纳记忆 >= 阈值时触发
 
     返回 (created_count, reason)，reason 在 created_count == 0 时给出原因说明。
     owner_user_id 为知识所有者；未提供时尝试使用 agent.createdBy，否则回退到 global。
@@ -10181,12 +10195,13 @@ def _induct_knowledge_for_agent(agent, owner_user_id=None):
     data = ms3.load_memory(emp_id)
     core_count = len(data.get('core', []))
     daily_count = len(data.get('daily', []))
-    if core_count + daily_count < 15:
-        return 0, '活跃记忆总数不足 15 条，无法归纳'
+    min_memories = MEMORY_INDUCTION_THRESHOLDS['knowledge_induction_min']
+    if core_count + daily_count < min_memories:
+        return 0, f'活跃记忆总数不足 {min_memories} 条，无法归纳'
 
     uninducted = ms3.get_uninducted_active_memories(emp_id)
-    if len(uninducted) < 15:
-        return 0, f'未归纳记忆仅 {len(uninducted)} 条，不足 15 条，无法归纳'
+    if len(uninducted) < min_memories:
+        return 0, f'未归纳记忆仅 {len(uninducted)} 条，不足 {min_memories} 条，无法归纳'
 
     lines = []
     for m, pool in uninducted:

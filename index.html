@@ -5142,7 +5142,7 @@ window.doLogin = function () {
 <!-- 建议归纳提示条 -->
 <div id="memorySummarizeBanner" style="display:none;margin:8px 12px 0;padding:8px 12px;background:linear-gradient(135deg,#FFF3E0 0%,#FFE0B2 100%);border:1px solid #FFB74D;border-radius:10px;cursor:pointer;transition:all 0.2s;align-items:center;gap:8px;font-size:13px;color:#E65100;" onclick="triggerSummarizeFromMemoryPanel()">
 <span style="font-size:16px;">📝</span>
-<span style="flex:1;"><strong>建议归纳</strong>：对话记录已超过15条，点击生成摘要以节省上下文</span>
+<span style="flex:1;"><strong>建议归纳</strong>：日常记录已≥2条，点击生成摘要以节省上下文</span>
 <span style="font-size:12px;background:#E65100;color:#fff;padding:2px 8px;border-radius:6px;white-space:nowrap;">立即归纳</span>
 </div>
 <!-- 核心记忆候选提示条 -->
@@ -13080,11 +13080,11 @@ function renderMemoryTab(empId) {
         dailySummaries.forEach(function (s) { summaryHtml += renderSummaryCard(s, false); });
 
         summaryHtml += '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin:18px 0 8px;">📁 项目归纳</div>';
-        if (projectSummaries.length === 0) summaryHtml += '<div style="padding:12px;color:var(--text-tertiary);font-size:12px;">暂无项目归纳，当同一标签下记忆≥5条会自动创建</div>';
+        if (projectSummaries.length === 0) summaryHtml += '<div style="padding:12px;color:var(--text-tertiary);font-size:12px;">暂无项目归纳，当同一标签下记忆≥3条会自动创建</div>';
         projectSummaries.forEach(function (s) { summaryHtml += renderSummaryCard(s, false); });
 
         summaryHtml += '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin:18px 0 8px;">📚 三级知识库</div>';
-        if (agentKbEntries.length === 0) summaryHtml += '<div style="padding:12px;color:var(--text-tertiary);font-size:12px;">暂无沉淀知识点，决策/重复提及≥3次会自动激活</div>';
+        if (agentKbEntries.length === 0) summaryHtml += '<div style="padding:12px;color:var(--text-tertiary);font-size:12px;">暂无沉淀知识点，决策/重复提及≥2次会自动激活</div>';
         agentKbEntries.forEach(function (s) { summaryHtml += renderSummaryCard(s, true); });
 
         contentEl.innerHTML = summaryHtml;
@@ -13331,7 +13331,7 @@ function renderMemoryTab(empId) {
       var hasUninducted = coreList.concat(dailyList).some(function (m) { return !m.inductedAt; });
       if (inductBanner) {
         // 用户已在本页点击过归纳并看到结果，暂时抑制提示条，避免反复打扰
-        inductBanner.style.display = (!inductBannerSuppressed && coreCount + dailyCount >= 15 && hasUninducted) ? 'flex' : 'none';
+        inductBanner.style.display = (!inductBannerSuppressed && coreCount + dailyCount >= 3 && hasUninducted) ? 'flex' : 'none';
       }
 
       // 三期：记忆冲突提示条
@@ -13471,7 +13471,7 @@ function _generateSummaryWithAI(empId, summaryId, type, existingSummary) {
         title: parsed && parsed.title ? parsed.title : title,
         date: type === 'daily' ? dateStr : undefined,
         projectName: type === 'project' ? (projectName || title.replace('项目归纳：', '')) : undefined,
-        status: (parsed && parsed.status) ? parsed.status : '已完成',
+        status: 'active',  // 统一用 active 表示已生成，前端据此显示"已完成"
         keyPoints: (parsed && parsed.keyPoints) || [],
         decisions: (parsed && parsed.decisions) || [],
         pending: (parsed && parsed.pending) || [],
@@ -13574,7 +13574,13 @@ function _scheduleDailyMemorySummary() {
       if (last !== today) {
         var empId = localStorage.getItem('sb_current_emp');
         if (empId) {
-          triggerMemorySummary(empId, 'daily');
+          // 仅当日常记录 >=2 条时才自动触发每日归纳
+          apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) { return r.json(); }).then(function (data) {
+            var dailyCount = (data.daily || []).length;
+            if (dailyCount >= 2) {
+              triggerMemorySummary(empId, 'daily');
+            }
+          }).catch(function () {});
           localStorage.setItem('sb_daily_summary_date', today);
         }
       }
