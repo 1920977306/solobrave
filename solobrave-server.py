@@ -507,36 +507,56 @@ class _BrainScheduler:
             self.request_induct(topic_id)
 
     def migrate_existing_memories(self):
-        """FIXME: 兼容现有数据：把已有 daily 记忆导入 memory 表待清洗，后台逐步消化"""
+        """FIXME: 兼容现有数据：从 data/memories/ 迁移 daily 记忆到 memory 表并加入清洗队列"""
         print('  [BrainScheduler] migrating existing memories', flush=True)
         migrated = 0
         enqueued = 0
-        # FIXME: 正确目录是 data/memory/，不是 data/memories/
-        memories_dir = MEMORY_DIR
-        if not os.path.isdir(memories_dir):
-            print(f'  [BrainScheduler] memory dir not found: {memories_dir}', flush=True)
+        # FIXME: 源目录是旧的 data/memories/；active 目录是 data/memory/
+        legacy_dir = os.path.join(DATA_DIR, 'memories')
+        if not os.path.isdir(legacy_dir):
+            print(f'  [BrainScheduler] legacy memory dir not found: {legacy_dir}', flush=True)
             return
-        for emp_id in os.listdir(memories_dir):
+        now = int(time.time() * 1000)
+        for emp_id in os.listdir(legacy_dir):
             # FIXME: 排除非员工目录：groups、archive、模板 {empId} 等
             if emp_id in ('groups', 'archive', 'consolidation_log.json'):
                 continue
             if emp_id.startswith('{') or emp_id.endswith('}'):
                 continue
-            mem_path = os.path.join(memories_dir, emp_id, 'memory.json')
-            if not os.path.isfile(mem_path):
+            try:
+                ms3._validate_emp_id(emp_id)
+            except Exception as e:
+                print(f'  [BrainScheduler] skip invalid emp_id {emp_id}: {e}', flush=True)
+                continue
+            src_path = os.path.join(legacy_dir, emp_id, 'memory.json')
+            if not os.path.isfile(src_path):
                 continue
             try:
-                data = ms3.load_memory(emp_id)
-                # FIXME: 只迁移 daily 池旧记忆；core 视为已人工确认，不再进入清洗
+                # 直接从旧目录读取，避免 ms3.MEMORY_V3_DIR 已指向 data/memory/
+                data = ms3._read_json(src_path, None)
+                if not isinstance(data, dict):
+                    continue
+                data.setdefault('core', [])
+                data.setdefault('daily', [])
+                # 为缺失 id 的 daily 记忆补 id
+                for m in data.get('daily', []):
+                    if not m.get('id'):
+                        m['id'] = 'mem_' + uuid.uuid4().hex[:8]
+                # 同步一份到新的 active 目录，使后续清洗能读到文件
+                target_path = os.path.join(MEMORY_DIR, emp_id, 'memory.json')
+                if not os.path.isfile(target_path):
+                    ms3._write_json(target_path, data)
+                # 只迁移 daily 池旧记忆；core 视为已人工确认，不再进入清洗
                 for m in data.get('daily', []):
                     mem_id = m.get('id')
                     if not mem_id:
                         continue
                     # 初始化待清洗状态，不直接归类
-                    m.setdefault('is_filler', 0)
-                    m.setdefault('is_duplicate', 0)
+                    m['is_filler'] = 0
+                    m['is_duplicate'] = 0
                     m['cleaned_at'] = 0
                     m['topicIds'] = []
+                    m.setdefault('createdAt', now)
                     ms3._sync_memory_to_db(m, emp_id, pool='daily')
                     migrated += 1
                     # 加入清洗队列，由清洗流程自动完成去重+归类

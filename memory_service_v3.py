@@ -3,13 +3,13 @@
 """
 SoloBrave 记忆服务 v3
 ===================
-基于 data/memories/ 目录结构的记忆管理模块。
+基于 data/memory/ 目录结构的记忆管理模块。
 物理隔离活跃记忆与归档记忆，支持归纳日志、优先级、标签等增强字段。
 
 目录结构
 --------
-data/memories/
-├── {empId}/
+data/memory/
+├── <empId>/
 │   ├── memory.json        ← 活跃记忆（core + daily）
 │   └── archived.json      ← 归档记忆（过期/手动归档）
 └── consolidation_log.json ← 全局归纳日志
@@ -31,7 +31,7 @@ import knowledge_service as ks
 # 配置
 # ═══════════════════════════════════════════════════
 
-MEMORY_V3_DIR = os.path.join(os.path.dirname(__file__), 'data', 'memories')
+MEMORY_V3_DIR = os.path.join(os.path.dirname(__file__), 'data', 'memory')
 
 MEMORY_V3_CONFIG = {
     'core_max': 100,           # 核心记忆池上限
@@ -243,13 +243,23 @@ def _merge_duplicate_memory(target, source, merged_at=None):
 # 核心：加载 / 保存
 # ═══════════════════════════════════════════════════
 
+def _validate_emp_id(emp_id):
+    """FIXME: 防止模板变量或非法字符作为员工目录名"""
+    if not emp_id or not isinstance(emp_id, str):
+        raise ValueError(f'Invalid emp_id: {emp_id}')
+    if '{' in emp_id or '}' in emp_id or '..' in emp_id or '/' in emp_id or '\\' in emp_id:
+        raise ValueError(f'Invalid emp_id contains template/path chars: {emp_id}')
+
+
 def _memory_file_path(emp_id):
     """活跃记忆文件路径"""
+    _validate_emp_id(emp_id)
     return os.path.join(MEMORY_V3_DIR, emp_id, 'memory.json')
 
 
 def _archive_file_path(emp_id):
     """归档记忆文件路径"""
+    _validate_emp_id(emp_id)
     return os.path.join(MEMORY_V3_DIR, emp_id, 'archived.json')
 
 
