@@ -192,7 +192,7 @@ class TopicService:
         return topic_id
 
     def _add_mem_to_topic(self, conn, topic_id, emp_id, mem_id, mem_vec, old_count):
-        """FIXME: 把记忆加入已有主题并更新中心向量"""
+        """FIXME: 把记忆加入已有主题并更新中心向量；pending_induct 只在 0→1 时翻转"""
         new_count = old_count + 1
         old_center = _vec_from_bytes(
             conn.execute('SELECT center_embedding FROM memory_topics WHERE id=?', (topic_id,)).fetchone()['center_embedding']
@@ -203,17 +203,19 @@ class TopicService:
             new_center = mem_vec
 
         # 更新员工列表
-        row = conn.execute('SELECT emp_ids FROM memory_topics WHERE id=?', (topic_id,)).fetchone()
+        row = conn.execute('SELECT emp_ids, pending_induct FROM memory_topics WHERE id=?', (topic_id,)).fetchone()
         emp_ids = _parse_json(row['emp_ids'], [])
         if emp_id not in emp_ids:
             emp_ids.append(emp_id)
 
+        # FIXME: pending_induct 标记优化：只有从 0 变 1 时才置位，避免无意义写入和重复入队信号
+        pending_induct = 1 if not row['pending_induct'] else row['pending_induct']
         conn.execute('''
             UPDATE memory_topics
-            SET mem_count=?, last_active_at=?, emp_ids=?, pending_induct=1,
+            SET mem_count=?, last_active_at=?, emp_ids=?, pending_induct=?,
                 center_embedding=?
             WHERE id=?
-        ''', (new_count, _now_ms(), _dump_json(emp_ids), _vec_to_bytes(new_center), topic_id))
+        ''', (new_count, _now_ms(), _dump_json(emp_ids), pending_induct, _vec_to_bytes(new_center), topic_id))
         self._set_memory_topic(conn, mem_id, topic_id)
 
     def _set_memory_topic(self, conn, mem_id, topic_id):

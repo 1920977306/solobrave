@@ -345,6 +345,8 @@ class _BrainScheduler:
         self._clean_batches = {}
         # 一次性任务队列
         self._tasks = []
+        # FIXME: 归纳队列去重：记录已入队的待沉淀主题 id，防止同一主题重复入队
+        self._pending_induct_ids = set()
         self._topic_svc = ts.TopicService()
         self._know_svc = bks.KnowledgeService(infer_fn=self._brain_infer)
         self._last_induct_check = 0
@@ -382,8 +384,12 @@ class _BrainScheduler:
             batch['mem_ids'].add(mem_id)
 
     def request_induct(self, topic_id):
-        """FIXME: 请求立即沉淀某个主题"""
+        """FIXME: 请求沉淀某个主题；同一主题在队列中只保留一个任务"""
         with self._lock:
+            # FIXME: 归纳队列去重：同一个主题 id 只能有一个待执行的归纳任务
+            if topic_id in self._pending_induct_ids:
+                return
+            self._pending_induct_ids.add(topic_id)
             self._tasks.append({
                 'type': 'induct',
                 'run_at': int(time.time() * 1000),
@@ -487,13 +493,14 @@ class _BrainScheduler:
 
     def _execute_task(self, task):
         """FIXME: 执行任务；失败时最多重试 3 次"""
+        typ = task.get('type')
+        payload = task.get('payload', {})
+        topic_id = payload.get('topic_id') if typ == 'induct' else None
         try:
-            typ = task.get('type')
-            payload = task.get('payload', {})
             if typ == 'clean':
                 self._do_clean(payload['emp_id'], payload['mem_ids'])
             elif typ == 'induct':
-                self._do_induct(payload['topic_id'])
+                self._do_induct(topic_id)
             elif typ == 'classify':
                 self._do_classify(payload['emp_id'], payload['mem_id'])
         except Exception as e:
@@ -506,30 +513,48 @@ class _BrainScheduler:
                     self._tasks.append(task)
             else:
                 print(f'  [BrainScheduler] task dropped after 3 retries', flush=True)
+                # FIXME: 归纳队列去重：任务最终失败时释放主题 id，允许后续重新入队
+                if topic_id:
+                    with self._lock:
+                        self._pending_induct_ids.discard(topic_id)
+            return
+        # FIXME: 归纳队列去重：任务执行成功后释放主题 id
+        if topic_id:
+            with self._lock:
+                self._pending_induct_ids.discard(topic_id)
 
     def _do_clean(self, emp_id, mem_ids):
-        """FIXME: 批量清洗 + 自动主题归类"""
+        """FIXME: 批量清洗 + 自动主题归类；归类只置 pending_induct=1，不直接入队"""
         print(f'  [BrainScheduler] clean {len(mem_ids)} memories for {emp_id}', flush=True)
         agent = self._default_agent()
         for mem_id in mem_ids:
             mem = ms3._clean_and_deduplicate(mem_id, emp_id)
             if mem and not mem.get('is_filler') and not mem.get('is_duplicate'):
-                topic_id = self._topic_svc.classify_memory_to_topic(mem_id, emp_id)
-                if topic_id:
-                    self.request_induct(topic_id)
+                # FIXME: 记忆归类到主题时只置 pending_induct=1，由调度器巡检统一入队，避免重复入队
+                self._topic_svc.classify_memory_to_topic(mem_id, emp_id)
             self._today_processed += 1
 
     def _do_induct(self, topic_id):
         """FIXME: 执行主题知识沉淀"""
         print(f'  [BrainScheduler] induct topic {topic_id}', flush=True)
+        # FIXME: 归纳任务执行前再校验：若 pending_induct=0 说明已被处理过，直接跳过
+        conn = _db_conn()
+        try:
+            row = conn.execute(
+                'SELECT pending_induct FROM memory_topics WHERE id=?', (topic_id,)
+            ).fetchone()
+            if not row or not row['pending_induct']:
+                print(f'  [BrainScheduler] topic {topic_id} already inducted, skip', flush=True)
+                return
+        finally:
+            conn.close()
         agent = self._default_agent()
         self._know_svc.induct_topic_to_knowledge(topic_id, agent=agent)
 
     def _do_classify(self, emp_id, mem_id):
-        """FIXME: 对记忆做主题归类"""
-        topic_id = self._topic_svc.classify_memory_to_topic(mem_id, emp_id)
-        if topic_id:
-            self.request_induct(topic_id)
+        """FIXME: 对记忆做主题归类；归类只置 pending_induct=1，不直接入队"""
+        # FIXME: 记忆归类到主题时只置 pending_induct=1，由调度器巡检统一入队，避免重复入队
+        self._topic_svc.classify_memory_to_topic(mem_id, emp_id)
 
     def _get_memory_row(self, mem_id):
         """FIXME: 查询 memory 表单条记录，用于迁移幂等判断"""
