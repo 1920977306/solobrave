@@ -400,11 +400,29 @@ class _BrainScheduler:
                 'retries': 0
             })
 
+    def _enqueue_uncleaned_memories(self):
+        """FIXME: 启动时扫描所有 cleaned_at=0 的记忆并加入清洗队列"""
+        try:
+            conn = _db_conn()
+            rows = conn.execute(
+                "SELECT id, emp_id FROM memory WHERE cleaned_at = 0 AND status = 'active'"
+            ).fetchall()
+            conn.close()
+            count = 0
+            for row in rows:
+                self.request_clean(row['emp_id'], row['id'])
+                count += 1
+            print(f'  [BrainScheduler] enqueued {count} uncleaned memories at startup', flush=True)
+        except Exception as e:
+            print(f'  [BrainScheduler] enqueue uncleaned memories failed: {e}', flush=True)
+
     def start(self):
         """FIXME: 启动大脑调度器守护线程"""
         if self._running:
             return
         self._running = True
+        # FIXME: 启动时先把数据库里未清洗的记忆加入队列，不能只等新记忆
+        self._enqueue_uncleaned_memories()
         self._thread = threading.Thread(target=self._loop, daemon=True, name='BrainScheduler')
         self._thread.start()
         print('  [BrainScheduler] started', flush=True)
