@@ -9498,20 +9498,28 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
         full_prompt += system_prompt + '\n\n'
     full_prompt += prompt
 
+    # FIXME: 修复大脑知识沉淀时命令行参数过长的bug：长 prompt 走 stdin，不走 --prompt 参数
     # 2. 构造 openclaw CLI 调用
-    args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--prompt', full_prompt, '--json']
+    if len(full_prompt) > 6000:
+        # 长 prompt 通过 stdin 传入，避免 argv 长度限制（Windows ~8191，Unix ~128K）
+        args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--json']
+        stdin_input = full_prompt
+        print(f'  [OpenClaw] infer cmd (stdin, prompt_len={len(full_prompt)}): {" ".join(args)} ... --model {api_model if api_model else "(none)"}', flush=True)
+    else:
+        args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--prompt', full_prompt, '--json']
+        stdin_input = None
+        print(f'  [OpenClaw] infer cmd: {" ".join(args[:6])} ... --model {api_model if api_model else "(none)"}', flush=True)
     # 3. 有 apiModel 就加 --model 参数
     if api_model:
         args.extend(['--model', api_model])
-
-    print(f'  [OpenClaw] infer cmd: {" ".join(args[:6])} ... --model {api_model if api_model else "(none)"}', flush=True)
 
     try:
         result = subprocess.run(
             args,
             capture_output=True,
             text=True,
-            timeout=OPENCLAW_TIMEOUT
+            timeout=OPENCLAW_TIMEOUT,
+            input=stdin_input
         )
         if result.returncode != 0:
             print(f'  [OpenClaw] infer failed (code={result.returncode}): {result.stderr}', flush=True)

@@ -100,14 +100,19 @@ class KnowledgeService:
             if not topic or topic['status'] != 'active':
                 return []
 
-            # 取主题下有效记忆
+            # FIXME: 修复大脑知识沉淀时命令行参数过长的bug：限制输入记忆数量和单条长度，避免 prompt 过长
             rows = conn.execute(
                 '''SELECT id, value, emp_id FROM memory
                    WHERE status='active' AND topic_ids LIKE ?
                    AND is_filler=0 AND is_duplicate=0
-                   ORDER BY created_at DESC LIMIT 50''',
+                   ORDER BY created_at DESC LIMIT 20''',
                 (f'%"{topic_id}"%',)
             ).fetchall()
+            MAX_MEM_VALUE_LEN = 500
+            rows = [
+                {**dict(r), 'value': (r['value'] or '')[:MAX_MEM_VALUE_LEN]}
+                for r in rows
+            ]
             if not rows or len(rows) < 1:
                 conn.execute('UPDATE memory_topics SET pending_induct=0 WHERE id=?', (topic_id,))
                 conn.commit()
