@@ -13252,12 +13252,11 @@ function renderMemoryTab(empId) {
         if (candText) candText.textContent = '发现 ' + pendingCandidates.length + ' 条核心记忆候选，待你确认';
       }
 
-      // 二期：知识库自动归纳提示条（记忆总数 >=15 且存在未归纳记忆）
+      // 二期：知识库自动归纳提示条（使用后端计算的 shouldInductKnowledge）
       var inductBanner = document.getElementById('memoryInductBanner');
-      var hasUninducted = coreList.concat(dailyList).some(function (m) { return !m.inductedAt; });
       if (inductBanner) {
         // 用户已在本页点击过归纳并看到结果，暂时抑制提示条，避免反复打扰
-        inductBanner.style.display = (!inductBannerSuppressed && coreCount + dailyCount >= 3 && hasUninducted) ? 'flex' : 'none';
+        inductBanner.style.display = (!inductBannerSuppressed && data.shouldInductKnowledge) ? 'flex' : 'none';
       }
 
       // 三期：记忆冲突提示条

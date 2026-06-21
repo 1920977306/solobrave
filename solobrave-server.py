@@ -6784,11 +6784,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'config': {k: v for k, v in MEMORY_CONFIG.items() if k in ('core_max', 'daily_max', 'daily_ttl_days')},
             'shouldConsolidate': data.get('shouldConsolidate', False),
             'suggestedSourceIds': data.get('suggestedSourceIds', []),
-            # FIXME: 修复"知识库归纳"提示一直显示：后端根据上次尝试时间后的新增未归纳记忆计算是否应提示
-            'shouldInductKnowledge': len([
-                m for m in data.get('core', []) + data.get('daily', [])
-                if not m.get('inductedAt') and m.get('createdAt', 0) > data.get('lastKnowledgeInductionAttemptAt', 0)
-            ]) >= MEMORY_INDUCTION_THRESHOLDS['knowledge_induction_min']
+            # FIXME: 修复"知识库归纳"提示显示但点击后不足：前后端判断统一为"当前未归纳记忆 >= 阈值 且 上次尝试后有新增未归纳记忆"
+            'shouldInductKnowledge': (
+                len([m for m in data.get('core', []) + data.get('daily', []) if not m.get('inductedAt')])
+                >= MEMORY_INDUCTION_THRESHOLDS['knowledge_induction_min']
+            ) and (
+                data.get('lastKnowledgeInductionAttemptAt', 0) == 0
+                or any(
+                    not m.get('inductedAt') and m.get('createdAt', 0) > data.get('lastKnowledgeInductionAttemptAt', 0)
+                    for m in data.get('core', []) + data.get('daily', [])
+                )
+            )
         })
 
     def _handle_get_archived_memories(self):
