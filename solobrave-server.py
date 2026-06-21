@@ -7947,6 +7947,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         group_ids = body.get('groupIds') or body.get('group_ids') or body.get('groupId') or []
         if isinstance(group_ids, str):
             group_ids = [g.strip() for g in group_ids.split(',') if g.strip()]
+        if scope == 'group' and not group_ids:
+            self._send_json_error(400, 'Missing group_ids for scope=group')
+            return
         # 兼容旧前端传入 empId
         emp_id = body.get('empId') or ''
         if scope == 'personal' and not emp_id:
@@ -8040,6 +8043,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         new_group_ids = body.get('groupIds') or body.get('group_ids') or body.get('groupId') or []
         if isinstance(new_group_ids, str):
             new_group_ids = [g.strip() for g in new_group_ids.split(',') if g.strip()]
+        if new_scope == 'group' and not new_group_ids:
+            self._send_json_error(400, 'Missing group_ids for scope=group')
+            return
         # 允许更新 empId（旧前端兼容）
         new_emp_id = body.get('empId')
         if new_emp_id is not None:
@@ -8211,6 +8217,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         new_group_ids = body.get('groupIds') or body.get('group_ids') or body.get('groupId') or []
         if isinstance(new_group_ids, str):
             new_group_ids = [g.strip() for g in new_group_ids.split(',') if g.strip()]
+        if new_scope == 'group' and not new_group_ids:
+            self._send_json_error(400, 'Missing group_ids for scope=group')
+            return
         if new_scope not in ('global', 'team', 'personal', 'group'):
             self._send_json_error(400, 'Invalid scope')
             return
