@@ -1971,6 +1971,10 @@ def _init_brain_tables(conn):
     conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_new_status ON knowledge_base_new(status)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_new_topics ON knowledge_base_new(topic_ids)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_new_updated ON knowledge_base_new(updated_at)')
+    # 向后兼容：新增 scope / team_id / group_ids 字段，与 knowledge 表同步
+    _add_column_if_not_exists(conn, 'knowledge_base_new', 'scope', "TEXT DEFAULT 'global'")
+    _add_column_if_not_exists(conn, 'knowledge_base_new', 'team_id', "TEXT DEFAULT ''")
+    _add_column_if_not_exists(conn, 'knowledge_base_new', 'group_ids', "TEXT DEFAULT '[]'")
 
     # 知识关系表
     conn.execute('''
@@ -1986,6 +1990,15 @@ def _init_brain_tables(conn):
     conn.execute('CREATE INDEX IF NOT EXISTS idx_kr_source ON knowledge_relations(source_knowledge_id)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_kr_target ON knowledge_relations(target_knowledge_id)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_kr_type ON knowledge_relations(relation_type)')
+
+
+def _add_column_if_not_exists(conn, table, column, def_type):
+    """如果表不存在某列，则添加该列（用于向后兼容升级）"""
+    try:
+        conn.execute(f'ALTER TABLE {table} ADD COLUMN {column} {def_type}')
+    except sqlite3.OperationalError as e:
+        if 'duplicate column name' not in str(e).lower():
+            raise
 
 
 def init_db():

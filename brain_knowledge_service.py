@@ -279,12 +279,14 @@ class KnowledgeService:
                 conn.execute('''
                     INSERT INTO knowledge_base_new (id, title, content, key_points,
                                                     evidence_mem_ids, confidence,
-                                                    topic_ids, created_at, updated_at, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                    topic_ids, scope, team_id, group_ids,
+                                                    created_at, updated_at, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     kid, d['title'], d['content'], _dump_json(d['key_points']),
                     _dump_json(d['evidence_mem_ids']), confidence,
-                    _dump_json([topic_id]), now, now, 'active'
+                    _dump_json([topic_id]), topic_scope, '', topic_group_ids_json,
+                    now, now, 'active'
                 ))
                 # FIXME: 项目组维度改造：大脑归纳知识按参与者项目组隔离，同时写入 knowledge 表
                 conn.execute('''
