@@ -1445,6 +1445,8 @@ class AuthResult:
         self.is_leader = False   # 是否是 leader
         self.team_ids = []       # 所属小组 ID 列表
         self.managed_team_ids = []  # 管理的小组 ID 列表
+        self.group_ids = []      # 所属项目组 ID 列表
+        self.managed_group_ids = []  # 管理的项目组 ID 列表
 
     @property
     def is_authenticated(self):
@@ -1477,6 +1479,23 @@ class AuthResult:
                     # 兼容：leaderId未设置时，把team_ids当作managed_team_ids
                     if not self.managed_team_ids and self.team_ids:
                         self.managed_team_ids = list(self.team_ids)
+                # 填充 group_ids 和 managed_group_ids（通过用户创建的 AI 员工匹配群组成员）
+                if self.user_info:
+                    uid = self.user_info.get('userId')
+                    agents = _load_agents()
+                    my_agent_ids = {a.get('id') for a in agents if a.get('createdBy') == uid}
+                    groups = _load_groups()
+                    for g in groups:
+                        gid = g.get('id')
+                        if not gid:
+                            continue
+                        if g.get('createdBy') == uid:
+                            self.managed_group_ids.append(gid)
+                        for m in g.get('members', []):
+                            mid = m if isinstance(m, str) else m.get('id')
+                            if mid in my_agent_ids:
+                                self.group_ids.append(gid)
+                                break
         return self.user_record
 
 
@@ -1763,8 +1782,8 @@ def build_all_embeddings(api_key=None, provider='openai', model=None, base_url=N
 
 
 def rag_retrieve(query, api_key, provider='openai', top_k_docs=3, top_k_products=3, model=None, base_url=None,
-                 requester_id=None, is_admin=False, team_ids=None):
-    """RAG 检索：基于向量相似度返回相关知识库文档和产品"""
+                 requester_id=None, is_admin=False, team_ids=None, group_ids=None):
+    """RAG 检索：基于向量相似度返回相关知识库文档和产品（支持 group 隔离）"""
     if not query or not query.strip() or not api_key:
         return {'docs': [], 'products': [], 'context': ''}
 
@@ -1780,19 +1799,24 @@ def rag_retrieve(query, api_key, provider='openai', top_k_docs=3, top_k_products
     doc_scores = []
     try:
         sql = '''
-            SELECT id, title, content, category, scope, emp_id, team_id, embedding, created_at, updated_at
+            SELECT id, title, content, category, scope, emp_id, team_id, group_ids, embedding, created_at, updated_at
             FROM knowledge
             WHERE embedding IS NOT NULL AND status = 'ok'
         '''
         params = []
         if requester_id is not None and not is_admin:
-            sql += ''' AND (
-                scope IS NULL OR scope = 'global'
-                OR (scope = 'personal' AND emp_id = ?)
-                OR (scope = 'team' AND team_id IN ({}))
-            )'''.format(', '.join('?' for _ in (team_ids or [])))
+            clauses = [
+                "scope IS NULL OR scope = 'global'",
+                "(scope = 'personal' AND emp_id = ?)"
+            ]
             params.append(requester_id)
-            params.extend(team_ids or [])
+            if team_ids:
+                clauses.append("(scope = 'team' AND team_id IN ({}))".format(', '.join('?' for _ in team_ids)))
+                params.extend(team_ids)
+            if group_ids:
+                clauses.append("(scope = 'group' AND EXISTS (SELECT 1 FROM json_each(group_ids) WHERE value IN ({})))".format(', '.join('?' for _ in group_ids)))
+                params.extend(group_ids)
+            sql += ' AND (' + ' OR '.join(clauses) + ')'
         rows = conn.execute(sql, params).fetchall()
     finally:
         conn.close()
@@ -4938,7 +4962,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     allowed_categories=allowed_cats,
                     user_id=auth.user_id,
                     is_admin=auth.is_admin,
-                    user_team_ids=auth.team_ids
+                    user_team_ids=auth.team_ids,
+                    user_group_ids=auth.group_ids
                 )
                 docs = res.get('docs', []) or []
                 matched = []
@@ -6746,7 +6771,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     offset=offset, limit=limit, category=None,
                     keyword=keyword if keyword else None,
                     user_id=auth.user_id, is_admin=auth.is_admin,
-                    user_team_ids=auth.team_ids
+                    user_team_ids=auth.team_ids,
+                    user_group_ids=auth.group_ids
                 )
                 kb_docs = kb_result.get('docs', [])
             except Exception as e:
@@ -7790,6 +7816,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         keyword = qs.get('q', [''])[0] or None
         scope = qs.get('scope', [''])[0] or None
         team_id = qs.get('teamId', [''])[0] or None
+        group_id = qs.get('groupId', [''])[0] or None
+        group_ids_param = qs.get('groupIds', [''])[0] or ''
         target_emp_id = qs.get('empId', [''])[0] or None  # 兼容旧参数
 
         allowed_cats = _allowed_knowledge_categories(auth)
@@ -7798,11 +7826,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'docs': [], 'total': 0, 'offset': offset, 'limit': limit})
             return
 
+        # 解析并校验项目组过滤参数
+        requested_group_ids = []
+        if group_id:
+            requested_group_ids.append(group_id)
+        if group_ids_param:
+            requested_group_ids.extend([g.strip() for g in group_ids_param.split(',') if g.strip()])
+        if auth.is_admin:
+            effective_group_ids = requested_group_ids or auth.group_ids
+        else:
+            allowed = set(auth.group_ids)
+            effective_group_ids = [g for g in requested_group_ids if g in allowed] if requested_group_ids else list(allowed)
+
         result = ks.knowledge_list(
             offset=offset, limit=limit, category=category, keyword=keyword,
             allowed_categories=allowed_cats,
             scope=scope, team_id=team_id, user_id=auth.user_id,
             is_admin=auth.is_admin, user_team_ids=auth.team_ids,
+            user_group_ids=effective_group_ids,
             emp_id=target_emp_id
         )
         self._send_json(200, result)
@@ -7819,7 +7860,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Knowledge not found')
             return
         # 权限检查
-        if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids):
+        if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids, user_group_ids=auth.group_ids):
             self._send_auth_error('Permission denied', 403)
             return
         if not _can_access_knowledge_category(auth, doc.get('category', '')):
@@ -7862,7 +7903,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 query, target_emp_id, api_key, provider, agent_config,
                 limit, allowed_categories=allowed_cats,
                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
-                requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids
+                requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
+                group_ids=auth.group_ids
             )
             self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
         except Exception as e:
@@ -7885,13 +7927,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         scope = body.get('scope', 'global')
         team_id = body.get('teamId') or ''
+        group_ids = body.get('groupIds') or body.get('groupId') or []
+        if isinstance(group_ids, str):
+            group_ids = [g.strip() for g in group_ids.split(',') if g.strip()]
         # 兼容旧前端传入 empId
         emp_id = body.get('empId') or ''
         if scope == 'personal' and not emp_id:
             emp_id = auth.user_id
         if not ks.can_create_knowledge(scope, auth.user_id, is_admin=auth.is_admin,
                                        team_id=team_id, user_team_ids=auth.team_ids,
-                                       managed_team_ids=auth.managed_team_ids):
+                                       managed_team_ids=auth.managed_team_ids,
+                                       group_ids=group_ids, user_group_ids=auth.group_ids,
+                                       managed_group_ids=auth.managed_group_ids):
             self._send_auth_error('Permission denied', 403)
             return
         category = body.get('category', '')
@@ -7921,6 +7968,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 base_url=emb_cfg.get('baseUrl'),
                 scope=scope,
                 team_id=team_id,
+                group_ids=group_ids,
             )
             self._send_json(200, doc)
         except Exception as e:
@@ -7944,7 +7992,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin, managed_team_ids=auth.managed_team_ids):
+        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+                                     managed_team_ids=auth.managed_team_ids,
+                                     managed_group_ids=auth.managed_group_ids):
             self._send_auth_error('Permission denied', 403)
             return
         # 分类权限：必须对原文档分类有权限，且不能修改到无权限的分类
@@ -7968,6 +8018,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # 兼容旧前端：name 字段映射为 title
         title = body.get('title') or body.get('name')
+        new_scope = body.get('scope')
+        new_team_id = body.get('teamId')
+        new_group_ids = body.get('groupIds') or body.get('groupId') or []
+        if isinstance(new_group_ids, str):
+            new_group_ids = [g.strip() for g in new_group_ids.split(',') if g.strip()]
+        # 允许更新 empId（旧前端兼容）
+        new_emp_id = body.get('empId')
+        if new_emp_id is not None:
+            emp_id = new_emp_id
         try:
             updated = ks.knowledge_update(
                 kid=doc_id,
@@ -7981,6 +8040,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 created_by=auth.user_id,
                 model=emb_cfg.get('model'),
                 base_url=emb_cfg.get('baseUrl'),
+                scope=new_scope,
+                team_id=new_team_id,
+                group_ids=new_group_ids,
             )
             self._send_json(200, updated)
         except Exception as e:
@@ -7999,7 +8061,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin, managed_team_ids=auth.managed_team_ids):
+        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+                                     managed_team_ids=auth.managed_team_ids,
+                                     managed_group_ids=auth.managed_group_ids):
             self._send_auth_error('Permission denied', 403)
             return
         deleted = ks.knowledge_delete(doc_id)
@@ -8062,7 +8126,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin, managed_team_ids=auth.managed_team_ids):
+        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+                                     managed_team_ids=auth.managed_team_ids,
+                                     managed_group_ids=auth.managed_group_ids):
             self._send_auth_error('Permission denied', 403)
             return
         if not _can_access_knowledge_category(auth, doc.get('category', '')):
@@ -8117,23 +8183,30 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Knowledge not found')
             return
         # 原知识编辑权限
-        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin, managed_team_ids=auth.managed_team_ids):
+        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+                                     managed_team_ids=auth.managed_team_ids,
+                                     managed_group_ids=auth.managed_group_ids):
             self._send_auth_error('Permission denied', 403)
             return
         body = self._read_body() or {}
         new_scope = body.get('scope')
         new_team_id = body.get('teamId') or ''
-        if new_scope not in ('global', 'team', 'personal'):
+        new_group_ids = body.get('groupIds') or body.get('groupId') or []
+        if isinstance(new_group_ids, str):
+            new_group_ids = [g.strip() for g in new_group_ids.split(',') if g.strip()]
+        if new_scope not in ('global', 'team', 'personal', 'group'):
             self._send_json_error(400, 'Invalid scope')
             return
         # 目标 scope 创建权限
         if not ks.can_create_knowledge(new_scope, auth.user_id, is_admin=auth.is_admin,
                                        team_id=new_team_id, user_team_ids=auth.team_ids,
-                                       managed_team_ids=auth.managed_team_ids):
+                                       managed_team_ids=auth.managed_team_ids,
+                                       group_ids=new_group_ids, user_group_ids=auth.group_ids,
+                                       managed_group_ids=auth.managed_group_ids):
             self._send_auth_error('Permission denied for target scope', 403)
             return
         try:
-            moved = ks.knowledge_move(doc_id, new_scope, new_team_id, moved_by=auth.user_id)
+            moved = ks.knowledge_move(doc_id, new_scope, new_team_id, group_ids=new_group_ids, moved_by=auth.user_id)
             self._send_json(200, {'success': True, 'knowledge': moved})
         except Exception as e:
             print(f'  [KnowledgeMove] failed: {e}', flush=True)
@@ -8179,7 +8252,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 query, emp_id, api_key, provider, agent_config,
                 top_k_docs=top_k, allowed_categories=allowed_cats,
                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
-                requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids
+                requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
+                group_ids=auth.group_ids
             )
             # 同时检索产品库（所有员工共享，从 SQLite 读取）
             conn = _db_conn()
@@ -9342,7 +9416,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 api_reply = _call_ai_api(
                     agent, user_payload, auth.user_info, include_history=not is_extract,
                     allowed_knowledge_categories=allowed_cats,
-                    requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids
+                    requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
+                    group_ids=auth.group_ids
                 )
                 if api_reply:
                     ai_message = {
@@ -9572,7 +9647,8 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
 
 
 def _call_ai_api(agent, user_message, user_info=None, include_history=True, group_id=None,
-                 allowed_knowledge_categories=None, requester_id=None, is_admin=False, team_ids=None):
+                 allowed_knowledge_categories=None, requester_id=None, is_admin=False, team_ids=None,
+                 group_ids=None):
     """通过代理调用 AI API（带记忆和上下文注入）"""
     # AI 调用前校验：员工状态 + systemPrompt 身份约束
     ok, ai_err = _validate_agent_for_ai(agent)
@@ -9657,7 +9733,8 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                     user_text, agent_id, rag_api_key, rag_provider, rag_agent_config,
                     top_k_docs=2, allowed_categories=allowed_knowledge_categories,
                     model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
-                    requester_id=requester_id, is_admin=is_admin, team_ids=team_ids
+                    requester_id=requester_id, is_admin=is_admin, team_ids=team_ids,
+                    group_ids=group_ids
                 )
                 if rag_result.get('context'):
                     system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'

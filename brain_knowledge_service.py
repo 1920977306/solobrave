@@ -60,6 +60,36 @@ def _dump_json(obj):
     return json.dumps(obj, ensure_ascii=False)
 
 
+def _load_groups():
+    """FIXME: 读取项目组/群组配置"""
+    path = os.path.join(os.path.dirname(__file__), 'data', 'groups.json')
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _get_group_ids_for_emp_ids(emp_ids):
+    """FIXME: 根据员工 ID 列表，返回其所在的项目组 ID 列表"""
+    if not emp_ids:
+        return []
+    target = set(emp_ids)
+    groups = _load_groups()
+    result = []
+    for g in groups:
+        gid = g.get('id')
+        if not gid:
+            continue
+        for m in g.get('members', []):
+            mid = m if isinstance(m, str) else m.get('id')
+            if mid in target:
+                result.append(gid)
+                break
+    return result
+
+
 def _vec_from_bytes(blob):
     if not blob:
         return None
@@ -238,6 +268,11 @@ class KnowledgeService:
 
             created_ids = []
             now = _now_ms()
+            # FIXME: 项目组维度改造：根据主题参与者所在项目组决定知识归属
+            topic_emp_ids = list({r.get('emp_id') for r in rows if r.get('emp_id')})
+            topic_group_ids = _get_group_ids_for_emp_ids(topic_emp_ids)
+            topic_scope = 'group' if topic_group_ids else 'global'
+            topic_group_ids_json = _dump_json(topic_group_ids)
             for d in intermediate_docs[:3]:
                 kid = _new_id('know')
                 confidence = _compute_confidence(len(d['evidence_mem_ids']))
@@ -251,11 +286,11 @@ class KnowledgeService:
                     _dump_json(d['evidence_mem_ids']), confidence,
                     _dump_json([topic_id]), now, now, 'active'
                 ))
-                # FIXME: 修复知识库页面不显示大脑生成的知识：大脑知识全局共享，同时写入 knowledge 表供全局知识库 tab 读取
+                # FIXME: 项目组维度改造：大脑归纳知识按参与者项目组隔离，同时写入 knowledge 表
                 conn.execute('''
-                    INSERT INTO knowledge (id, emp_id, title, content, category, scope, status, chunk_count, embedding, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (kid, None, d['title'], d['content'], 'brain', 'global', 'ok', 0, '', now, now))
+                    INSERT INTO knowledge (id, emp_id, title, content, category, scope, team_id, group_ids, status, chunk_count, embedding, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (kid, None, d['title'], d['content'], 'brain', topic_scope, '', topic_group_ids_json, 'ok', 0, '', now, now))
                 created_ids.append(kid)
 
             # FIXME: 修复"建议归纳"和"归纳到知识库"总是出现：归纳成功后更新该主题下所有记忆的 inducted_at
