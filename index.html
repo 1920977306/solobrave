@@ -1352,6 +1352,33 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: var(--text-primary);
   outline: none;
 }
+.knowledge-edit-groups {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 0.5px solid var(--separator);
+  background: var(--bg-secondary);
+  font-size: 13px;
+}
+.knowledge-edit-groups-title {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+}
+.knowledge-edit-group-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 14px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+.knowledge-edit-group-item input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
 .knowledge-editor-toolbar {
   display: flex;
   align-items: center;
@@ -1506,8 +1533,28 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: var(--accent);
 }
 .knowledge-view-scope.scope-global { background: #E8F5E9; color: #2E7D32; }
-.knowledge-view-scope.scope-team { background: #E3F2FD; color: #1565C0; }
+.knowledge-view-scope.scope-group { background: #E3F2FD; color: #1565C0; }
 .knowledge-view-scope.scope-personal { background: #FFF3E0; color: #EF6C00; }
+.knowledge-view-group-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: #E3F2FD;
+  color: #1565C0;
+  margin-right: 6px;
+}
+.knowledge-mid-card-group-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: #E3F2FD;
+  color: #1565C0;
+  margin-left: 6px;
+}
 .knowledge-view-body {
   flex: 1;
   overflow-y: auto;
@@ -4417,7 +4464,7 @@ window.doLogin = function () {
   <div class="knowledge-scope-tabs" id="knowledgeScopeTabs">
     <button class="knowledge-scope-tab active" data-scope="all" onclick="selectKnowledgeScope('all')">全部</button>
     <button class="knowledge-scope-tab" data-scope="global" onclick="selectKnowledgeScope('global')">全局</button>
-    <button class="knowledge-scope-tab" data-scope="team" onclick="selectKnowledgeScope('team')">团队</button>
+    <button class="knowledge-scope-tab" data-scope="group" onclick="selectKnowledgeScope('group')">项目组</button>
     <button class="knowledge-scope-tab" data-scope="personal" onclick="selectKnowledgeScope('personal')">个人</button>
   </div>
   <div class="knowledge-cat-list" id="knowledgeMidCategory"></div>
@@ -4505,6 +4552,7 @@ window.doLogin = function () {
     <div class="knowledge-view-meta">
       <span class="knowledge-view-tag" id="knowledgeViewCategory">未分类</span>
       <span class="knowledge-view-scope" id="knowledgeViewScope">全局</span>
+      <span id="knowledgeViewGroups"></span>
       <span class="knowledge-view-time" id="knowledgeViewTime">-</span>
     </div>
     <div class="knowledge-view-body" id="knowledgeViewBody">
@@ -4517,6 +4565,7 @@ window.doLogin = function () {
     <div class="knowledge-editor-header">
       <input type="text" id="knowledgeEditTitle" placeholder="知识标题">
       <select id="knowledgeEditCategory"><option value="">选择分类</option></select>
+      <div id="knowledgeEditGroups" class="knowledge-edit-groups" style="display:none;"></div>
     </div>
     <div class="knowledge-editor-toolbar">
       <div class="knowledge-editor-tabs">
@@ -19888,10 +19937,61 @@ var _knowledgePage = 1;
 var _knowledgePageSize = 20;
 var _knowledgeInitialized = false;
 
-var _knowledgeScopeNames = { all: '全部文档', global: '全局知识库', team: '团队知识库', personal: '个人知识库' };
+var _knowledgeScopeNames = { all: '全部文档', global: '全局知识库', group: '项目组知识库', personal: '个人知识库' };
+
+function _getCurrentUserAgentIds() {
+  if (!currentUser) return [];
+  var uid = currentUser.userId || currentUser.id;
+  return emps.filter(function(e) { return e.createdBy === uid; }).map(function(e) { return e.id; });
+}
+
+function _getCurrentUserGroups() {
+  var myAgentIds = _getCurrentUserAgentIds();
+  var map = {};
+  groups.forEach(function(g) {
+    (g.members || []).forEach(function(m) {
+      var mid = (typeof m === 'object' && m !== null) ? m.id : m;
+      if (myAgentIds.indexOf(mid) >= 0) {
+        map[g.id] = g;
+      }
+    });
+  });
+  return Object.keys(map).map(function(id) { return map[id]; });
+}
+
+function _getGroupName(groupId) {
+  var g = groups.find(function(x) { return x.id === groupId; });
+  return g ? (g.name || groupId) : groupId;
+}
+
+function renderKnowledgeGroupSelector(containerId, selectedIds) {
+  var container = document.getElementById(containerId);
+  if (!container) return;
+  var userGroups = _getCurrentUserGroups();
+  if (userGroups.length === 0) {
+    container.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+  selectedIds = selectedIds || [];
+  var html = '<div class="knowledge-edit-groups-title">所属项目组（可多选）</div>';
+  userGroups.forEach(function(g) {
+    var checked = selectedIds.indexOf(g.id) >= 0 ? ' checked' : '';
+    html += '<label class="knowledge-edit-group-item"><input type="checkbox" value="' + escapeAttr(g.id) + '"' + checked + '> ' + escapeHtml(g.name || g.id) + '</label>';
+  });
+  container.innerHTML = html;
+  container.style.display = 'block';
+}
+
+function getSelectedKnowledgeGroupIds(containerId) {
+  var container = document.getElementById(containerId);
+  if (!container) return [];
+  return Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map(function(cb) { return cb.value; });
+}
 
 function openKnowledgePage() {
   switchModule('knowledge');
+  loadGroups();
 }
 function closeKnowledgePage() { switchModule('messages'); closeKnowledgeEditor(); _knowledgeInitialized = false; _knowledgeCurrentId = null; }
 function openKnowledgeEditor() {
@@ -19934,6 +20034,7 @@ function closeKnowledgeRight() {
 async function loadKnowledgePage(page) {
   if (page) _knowledgePage = page;
   try {
+    await loadGroups();
     var offset = (_knowledgePage - 1) * _knowledgePageSize;
     var url = '/api/knowledge?limit=' + _knowledgePageSize + '&offset=' + offset;
     if (_knowledgeScope && _knowledgeScope !== 'all') url += '&scope=' + encodeURIComponent(_knowledgeScope);
@@ -20039,8 +20140,8 @@ function renderKnowledgeList(docs) {
     el.innerHTML = '<div class="knowledge-mid-empty"><div class="knowledge-mid-empty-icon">📖</div><div class="knowledge-mid-empty-text">暂无知识文档</div><button class="knowledge-mid-empty-btn" onclick="createNewKnowledge()">手动添加</button></div>';
     return;
   }
-  var scopeClassMap = { global: 'scope-global', team: 'scope-team', personal: 'scope-personal' };
-  var scopeNameMap = { global: '全局', team: '团队', personal: '个人' };
+  var scopeClassMap = { global: 'scope-global', group: 'scope-group', personal: 'scope-personal' };
+  var scopeNameMap = { global: '全局', group: '项目组', personal: '个人' };
   var html = '';
   docs.forEach(function(d) {
     var isActive = d.id === _knowledgeCurrentId;
@@ -20053,6 +20154,12 @@ function renderKnowledgeList(docs) {
     html += '<div class="knowledge-mid-card-body">' + escapeHtml(preview) + (preview.length >= 100 ? '...' : '') + '</div>';
     html += '<div class="knowledge-mid-card-meta">';
     html += '<span class="knowledge-view-scope ' + (scopeClassMap[scope] || 'scope-global') + '">' + (scopeNameMap[scope] || '全局') + '</span>';
+    if (scope === 'group' && d.groupIds && d.groupIds.length > 0) {
+      d.groupIds.slice(0, 3).forEach(function(gid) {
+        html += '<span class="knowledge-mid-card-group-label">' + escapeHtml(_getGroupName(gid)) + '</span>';
+      });
+      if (d.groupIds.length > 3) html += '<span class="knowledge-mid-card-group-label">+' + (d.groupIds.length - 3) + '</span>';
+    }
     html += '<span>' + formatDate(d.updatedAt) + '</span>';
     html += '</div>';
     html += '</div>';
@@ -20113,15 +20220,31 @@ function renderKnowledgeView(doc, skipPanelToggle) {
   if (titleEl) titleEl.textContent = doc.title || doc.name || '未命名';
   if (catEl) catEl.textContent = doc.category || '未分类';
 
-  var scopeClassMap = { global: 'scope-global', team: 'scope-team', personal: 'scope-personal' };
-  var scopeNameMap = { global: '全局', team: '团队', personal: '个人' };
+  var scopeClassMap = { global: 'scope-global', group: 'scope-group', personal: 'scope-personal' };
+  var scopeNameMap = { global: '全局', group: '项目组', personal: '个人' };
   var scope = doc.scope || 'global';
   if (scopeEl) {
     scopeEl.textContent = scopeNameMap[scope] || '全局';
     scopeEl.className = 'knowledge-view-scope ' + (scopeClassMap[scope] || 'scope-global');
   }
+  // 显示所属项目组标签
+  var groupsEl = document.getElementById('knowledgeViewGroups');
+  if (groupsEl) {
+    var gids = doc.groupIds || [];
+    if (scope === 'group' && gids.length > 0) {
+      groupsEl.innerHTML = gids.map(function(gid) { return '<span class="knowledge-view-group-label">' + escapeHtml(_getGroupName(gid)) + '</span>'; }).join('');
+    } else {
+      groupsEl.innerHTML = '';
+    }
+  }
   if (timeEl) timeEl.textContent = '更新于 ' + formatDate(doc.updatedAt);
   if (bodyEl) bodyEl.innerHTML = renderMarkdown(doc.content || '');
+  // 编辑模式下同步项目组选择器（仅 group 知识）
+  if (scope === 'group') {
+    renderKnowledgeGroupSelector('knowledgeEditGroups', doc.groupIds || []);
+  } else {
+    renderKnowledgeGroupSelector('knowledgeEditGroups', []);
+  }
 
   // 同步编辑表单
   var editTitle = document.getElementById('knowledgeEditTitle');
@@ -20152,6 +20275,13 @@ function createNewKnowledge() {
   _knowledgePreviewMode = false;
   updateKnowledgeEditorView();
   openKnowledgeEditor();
+  // 项目组 tab 下新建时，默认选中第一个项目组
+  if (_knowledgeScope === 'group') {
+    var userGroups = _getCurrentUserGroups();
+    renderKnowledgeGroupSelector('knowledgeEditGroups', userGroups.length > 0 ? [userGroups[0].id] : []);
+  } else {
+    renderKnowledgeGroupSelector('knowledgeEditGroups', []);
+  }
   if (titleEl) {
     try { titleEl.focus(); } catch (e) {}
   }
@@ -20239,8 +20369,14 @@ async function saveKnowledgeFromEditor() {
       // 新建时默认使用当前选中的 scope
       var createScope = (_knowledgeScope && _knowledgeScope !== 'all') ? _knowledgeScope : 'global';
       body.scope = createScope;
-      if (createScope === 'team' && currentUser && currentUser.teamIds && currentUser.teamIds.length > 0) {
-        body.teamId = currentUser.teamIds[0];
+      if (createScope === 'group') {
+        var selectedGroupIds = getSelectedKnowledgeGroupIds('knowledgeEditGroups');
+        if (selectedGroupIds.length === 0) {
+          showToast('请选择至少一个项目组');
+          statusEl.textContent = '';
+          return;
+        }
+        body.groupIds = selectedGroupIds;
       }
       if (createScope === 'personal') {
         body.empId = currentUser ? currentUser.userId || currentUser.id : '';
@@ -20303,37 +20439,37 @@ async function moveCurrentKnowledge() {
   var doc = _knowledgeData.docs.find(function (d) { return d.id === _knowledgeCurrentId; });
   if (!doc) return;
   var currentScope = doc.scope || 'global';
-  var userTeamIds = (currentUser && currentUser.teamIds) || [];
-  var teamOptionsHtml = '';
-  if (userTeamIds.length === 0) {
-    teamOptionsHtml = '<option value="">暂无可用团队</option>';
+  var userGroups = _getCurrentUserGroups();
+  var currentGroupIds = doc.groupIds || [];
+  var groupCheckboxesHtml = '';
+  if (userGroups.length === 0) {
+    groupCheckboxesHtml = '<div style="font-size:13px;color:var(--text-tertiary);padding:8px 0;">暂无可用项目组</div>';
   } else {
-    userTeamIds.forEach(function (tid) {
-      teamOptionsHtml += '<option value="' + escapeAttr(tid) + '">' + escapeHtml(tid) + '</option>';
+    userGroups.forEach(function (g) {
+      var checked = currentGroupIds.indexOf(g.id) >= 0 ? ' checked' : '';
+      groupCheckboxesHtml += '<label style="display:flex;align-items:center;gap:8px;padding:8px 0;cursor:pointer;font-size:14px;color:var(--text-primary);"><input type="checkbox" name="knowledgeMoveGroupIds" value="' + escapeAttr(g.id) + '"' + checked + ' style="width:16px;height:16px;"> ' + escapeHtml(g.name || g.id) + '</label>';
     });
   }
   var dialogId = 'knowledgeMoveDialog' + Date.now();
   var html = '<div id="' + dialogId + '" style="padding:8px 0;">'
     + '<div style="font-size:14px;color:var(--text-secondary);margin-bottom:16px;">选择要移动到的目标知识库：</div>'
     + '<label style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--separator);border-radius:8px;margin-bottom:10px;cursor:pointer;"><input type="radio" name="knowledgeMoveScope" value="global"' + (currentScope === 'global' ? ' checked' : '') + ' style="width:18px;height:18px;"><span style="font-size:14px;">全局知识库</span></label>'
-    + '<label style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--separator);border-radius:8px;margin-bottom:10px;cursor:pointer;"><input type="radio" name="knowledgeMoveScope" value="team"' + (currentScope === 'team' ? ' checked' : '') + ' style="width:18px;height:18px;"><span style="font-size:14px;">团队知识库</span></label>'
-    + '<div id="knowledgeMoveTeamWrap" style="margin:-4px 0 10px 28px;' + (currentScope === 'team' ? '' : 'display:none;') + '"><select id="knowledgeMoveTeamId" style="width:100%;padding:8px 10px;border:1px solid var(--separator);border-radius:6px;font-size:14px;background:var(--bg-primary);">' + teamOptionsHtml + '</select></div>'
+    + '<label style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--separator);border-radius:8px;margin-bottom:10px;cursor:pointer;"><input type="radio" name="knowledgeMoveScope" value="group"' + (currentScope === 'group' ? ' checked' : '') + ' style="width:18px;height:18px;"><span style="font-size:14px;">项目组知识库</span></label>'
+    + '<div id="knowledgeMoveGroupWrap" style="margin:-4px 0 10px 28px;' + (currentScope === 'group' ? '' : 'display:none;') + '">' + groupCheckboxesHtml + '</div>'
     + '<label style="display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--separator);border-radius:8px;margin-bottom:4px;cursor:pointer;"><input type="radio" name="knowledgeMoveScope" value="personal"' + (currentScope === 'personal' ? ' checked' : '') + ' style="width:18px;height:18px;"><span style="font-size:14px;">个人知识库</span></label>'
     + '</div>';
   showModal('移动文档', html);
 
-  // 绑定单选切换事件（动态生成的 DOM，需要在 showModal 之后）
   setTimeout(function () {
     var dialog = document.getElementById(dialogId);
     if (!dialog) return;
     var radios = dialog.querySelectorAll('input[name="knowledgeMoveScope"]');
-    var teamWrap = document.getElementById('knowledgeMoveTeamWrap');
+    var groupWrap = document.getElementById('knowledgeMoveGroupWrap');
     radios.forEach(function (radio) {
       radio.addEventListener('change', function () {
-        if (teamWrap) teamWrap.style.display = radio.value === 'team' && radio.checked ? 'block' : 'none';
+        if (groupWrap) groupWrap.style.display = radio.value === 'group' && radio.checked ? 'block' : 'none';
       });
     });
-    // 替换确认/取消按钮为动态 modal 的底部按钮
     var panel = dialog.closest('.modal-panel');
     if (panel) {
       var footer = document.createElement('div');
@@ -20344,17 +20480,16 @@ async function moveCurrentKnowledge() {
         var selected = dialog.querySelector('input[name="knowledgeMoveScope"]:checked');
         if (!selected) { showToast('请选择目标知识库'); return; }
         var targetScope = selected.value;
-        var teamId = '';
-        if (targetScope === 'team') {
-          var teamSelect = document.getElementById('knowledgeMoveTeamId');
-          teamId = teamSelect ? teamSelect.value : '';
-          if (!teamId) { showToast('请选择团队'); return; }
+        var groupIds = [];
+        if (targetScope === 'group') {
+          groupIds = Array.from(dialog.querySelectorAll('input[name="knowledgeMoveGroupIds"]:checked')).map(function(cb) { return cb.value; });
+          if (groupIds.length === 0) { showToast('请至少选择一个项目组'); return; }
         }
         closeModal();
         try {
           var r = await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId) + '/move', {
             method: 'POST',
-            body: JSON.stringify({ scope: targetScope, teamId: teamId })
+            body: JSON.stringify({ scope: targetScope, groupIds: groupIds })
           });
           await r.json();
           showToast('✅ 已移动');
@@ -21544,7 +21679,7 @@ function switchModule(module) {
         right.classList.add('active');
       }
     }
-    if (module === 'knowledge') loadKnowledgePage();
+    if (module === 'knowledge') { loadGroups(); loadKnowledgePage(); }
     else if (module === 'products') { loadProducts(); renderProductCategories(); }
     else if (module === 'influencers') loadInfluencers();
     else if (module === 'settings') renderSettingsMid();
