@@ -410,6 +410,8 @@ def init_db():
         _add_column_if_not_exists(conn, 'knowledge', 'chunk_count', "INTEGER DEFAULT 0")
         _add_column_if_not_exists(conn, 'knowledge', 'scope', "TEXT DEFAULT 'global'")
         _add_column_if_not_exists(conn, 'knowledge', 'team_id', "TEXT DEFAULT ''")
+        # FIXME: 项目组维度改造：新增 group_ids 字段（JSON 数组字符串，支持一条知识属于多个项目组）
+        _add_column_if_not_exists(conn, 'knowledge', 'group_ids', "TEXT DEFAULT '[]'")
 
         # 创建索引
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_emp ON knowledge(emp_id)')
@@ -470,6 +472,8 @@ def init_db():
                 UNIQUE(knowledge_id, version)
             )
         ''')
+        # FIXME: 项目组维度改造：给历史版本表也添加 group_ids
+        _add_column_if_not_exists(conn, 'knowledge_versions', 'group_ids', "TEXT DEFAULT '[]'")
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_versions_kid ON knowledge_versions(knowledge_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_versions_created ON knowledge_versions(created_at)')
 
@@ -491,6 +495,17 @@ def _add_column_if_not_exists(conn, table, column, def_type):
 # CRUD
 # ═══════════════════════════════════════════════════
 
+def _parse_group_ids(val):
+    """FIXME: 项目组维度改造：安全解析 group_ids JSON 数组"""
+    if not val:
+        return []
+    try:
+        parsed = json.loads(val)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+
 def _knowledge_row_to_dict(row):
     """将 sqlite3.Row 转为前端兼容 dict"""
     if not row:
@@ -504,6 +519,8 @@ def _knowledge_row_to_dict(row):
         'category': row['category'] or '',
         'scope': row['scope'] or 'global',
         'teamId': row['team_id'] or '',
+        # FIXME: 项目组维度改造：返回 groupIds 数组
+        'groupIds': _parse_group_ids(row['group_ids']),
         'status': row['status'] or 'ok',
         'chunkCount': row['chunk_count'] or 0,
         'createdAt': row['created_at'],
@@ -514,12 +531,12 @@ def _knowledge_row_to_dict(row):
 
 
 def knowledge_create(title, content, category, emp_id, api_key=None, provider='openai', agent_config=None, model=None, base_url=None,
-                     scope='global', team_id=''):
+                     scope='global', team_id='', group_ids=None):
     """
     创建知识条目，自动分段 + 向量化。
     优先使用全局 embedding 配置（通过 get_embedding_config），不再依赖传入的 api_key/provider。
     如果全局未配置 api_key，只保存数据不生成向量（status='pending'）。
-    emp_id 留空表示全局公共知识库；scope 支持 global / team / personal。
+    emp_id 留空表示全局公共知识库；scope 支持 global / team / personal / group。
     """
     kid = _gen_id('kb')
     now = _now_ms()
@@ -527,6 +544,13 @@ def knowledge_create(title, content, category, emp_id, api_key=None, provider='o
     actual_emp_id = emp_id or ''
     actual_scope = scope or 'global'
     actual_team_id = team_id or ''
+    # FIXME: 项目组维度改造：统一 group_ids 为 JSON 字符串
+    if group_ids is None:
+        actual_group_ids = '[]'
+    elif isinstance(group_ids, str):
+        actual_group_ids = group_ids
+    else:
+        actual_group_ids = json.dumps(group_ids, ensure_ascii=False)
 
     # 使用全局 embedding 配置（不再依赖传入的 api_key/provider）
     emb_cfg = get_embedding_config(emp_id or None)
@@ -541,10 +565,11 @@ def knowledge_create(title, content, category, emp_id, api_key=None, provider='o
 
     conn = _db_conn()
     try:
+        # FIXME: 项目组维度改造：插入时包含 group_ids
         conn.execute('''
-            INSERT INTO knowledge (id, emp_id, title, content, category, scope, team_id, status, chunk_count, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)
-        ''', (kid, actual_emp_id, title, content, category or '', actual_scope, actual_team_id, now, now))
+            INSERT INTO knowledge (id, emp_id, title, content, category, scope, team_id, group_ids, status, chunk_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)
+        ''', (kid, actual_emp_id, title, content, category or '', actual_scope, actual_team_id, actual_group_ids, now, now))
         conn.commit()
     finally:
         conn.close()
@@ -601,13 +626,14 @@ def _save_knowledge_version(kid, created_by=None):
             (kid,)
         ).fetchone()[0]
         vid = _gen_id('kbv')
+        # FIXME: 项目组维度改造：历史版本也保存 group_ids
         conn.execute('''
             INSERT INTO knowledge_versions (id, knowledge_id, version, title, content, category,
-                                            emp_id, scope, team_id, status, chunk_count, created_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            emp_id, scope, team_id, group_ids, status, chunk_count, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             vid, kid, next_version, row['title'], row['content'], row['category'] or '',
-            row['emp_id'] or '', row['scope'] or 'global', row['team_id'] or '',
+            row['emp_id'] or '', row['scope'] or 'global', row['team_id'] or '', row['group_ids'] or '[]',
             row['status'] or 'ok', row['chunk_count'] or 0,
             created_by or '', _now_ms()
         ))
@@ -619,7 +645,7 @@ def _save_knowledge_version(kid, created_by=None):
 
 def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
                      api_key=None, provider='openai', agent_config=None, created_by=None,
-                     model=None, base_url=None, scope=None, team_id=None):
+                     model=None, base_url=None, scope=None, team_id=None, group_ids=None):
     """更新知识条目，内容变更时先保存历史版本，再重新分段+向量化；使用全局 embedding 配置"""
     conn = _db_conn()
     try:
@@ -645,6 +671,12 @@ def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
             updates['scope'] = scope
         if team_id is not None:
             updates['team_id'] = team_id
+        # FIXME: 项目组维度改造：支持更新 group_ids
+        if group_ids is not None:
+            if isinstance(group_ids, str):
+                updates['group_ids'] = group_ids
+            else:
+                updates['group_ids'] = json.dumps(group_ids, ensure_ascii=False)
         updates['updated_at'] = _now_ms()
 
         if not updates:
@@ -726,6 +758,8 @@ def _knowledge_version_row_to_dict(row):
         'empId': row['emp_id'] or '',
         'scope': row['scope'] or 'global',
         'teamId': row['team_id'] or '',
+        # FIXME: 项目组维度改造：历史版本返回 groupIds
+        'groupIds': _parse_group_ids(row['group_ids']),
         'status': row['status'] or 'ok',
         'chunkCount': row['chunk_count'] or 0,
         'createdBy': row['created_by'] or '',
@@ -803,14 +837,24 @@ def knowledge_get_by_id(kid):
         conn.close()
 
 
+def _group_ids_where_clause(user_group_ids):
+    """FIXME: 项目组维度改造：生成 group_ids JSON 数组的交集过滤条件"""
+    if not user_group_ids:
+        return None, []
+    placeholders = ', '.join('?' for _ in user_group_ids)
+    return f"EXISTS (SELECT 1 FROM json_each(group_ids) WHERE value IN ({placeholders}))", list(user_group_ids)
+
+
 def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_categories=None,
                    scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None,
-                   emp_id=None):
+                   emp_id=None, user_group_ids=None):
     """
-    知识列表（支持分页、分类筛选、关键词搜索、三层隔离）。
-    scope: all/global/team/personal；None 默认按可读权限返回全部。
+    知识列表（支持分页、分类筛选、关键词搜索、四层隔离：global/team/personal/group）。
+    scope: all/global/team/personal/group；None 默认按可读权限返回全部。
     emp_id 为旧参数：空字符串等价于 global，非空等价于 personal(user_id=emp_id)。
     """
+    if user_group_ids is None:
+        user_group_ids = []
     conn = _db_conn()
     try:
         where = ['status = ?']
@@ -824,7 +868,7 @@ def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_cate
                 scope = 'personal'
                 user_id = emp_id
 
-        # 三层隔离过滤
+        # 四层隔离过滤（global / team / personal / group）
         if scope == 'global':
             where.append("(scope IS NULL OR scope = 'global')")
         elif scope == 'personal':
@@ -843,8 +887,18 @@ def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_cate
                 params.extend(user_team_ids)
             elif not is_admin:
                 where.append('1 = 0')
+        elif scope == 'group':
+            # FIXME: 项目组维度改造：scope='group' 时过滤 group_ids 与用户所属项目组有交集的知识
+            where.append("scope = 'group'")
+            if not is_admin:
+                group_clause, group_params = _group_ids_where_clause(user_group_ids)
+                if group_clause:
+                    where.append(group_clause)
+                    params.extend(group_params)
+                else:
+                    where.append('1 = 0')
         else:
-            # 默认：按可读权限返回（global + 自己的 personal + 所在 team）
+            # 默认：按可读权限返回（global + 自己的 personal + 所在 team + 所在 group）
             if not is_admin:
                 readable = ["(scope IS NULL OR scope = 'global')"]
                 if user_id:
@@ -854,6 +908,10 @@ def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_cate
                     placeholders = ', '.join('?' for _ in user_team_ids)
                     readable.append(f"(scope = 'team' AND team_id IN ({placeholders}))")
                     params.extend(user_team_ids)
+                group_clause, group_params = _group_ids_where_clause(user_group_ids)
+                if group_clause:
+                    readable.append(f"(scope = 'group' AND {group_clause})")
+                    params.extend(group_params)
                 where.append('(' + ' OR '.join(readable) + ')')
 
         if category:
@@ -971,13 +1029,15 @@ def _rechunk_and_vectorize(kid, emp_id, content, api_key, provider,
 # ═══════════════════════════════════════════════════
 
 def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=None, top_k_docs=3, allowed_categories=None,
-                 model=None, base_url=None, requester_id=None, is_admin=False, team_ids=None):
+                 model=None, base_url=None, requester_id=None, is_admin=False, team_ids=None, group_ids=None):
     """
     RAG 检索：在 knowledge_chunks 中搜索，返回关联的原始文档。
-    支持三层隔离：global 全员可读，personal 仅自己，team 仅团队成员可读。
+    支持四层隔离：global 全员可读，personal 仅自己，team 仅团队成员可读，group 仅项目组成员可读。
     使用全局 embedding 配置，不再依赖传入的 api_key/provider。
     整个函数被 try-catch 保护，出错时降级返回空结果，避免拖垮主流程。
     """
+    if group_ids is None:
+        group_ids = []
     try:
         if isinstance(query, list):
             text_parts = [item.get('text', '') for item in query if isinstance(item, dict) and item.get('type') == 'text']
@@ -1004,7 +1064,7 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
         cats_hash = ''
         if allowed_categories is not None:
             cats_hash = hashlib.md5(json.dumps(allowed_categories, sort_keys=True).encode()).hexdigest()[:8]
-        scope_hash = hashlib.md5(f'{requester_id}:{is_admin}:{sorted(team_ids or [])}'.encode()).hexdigest()[:8]
+        scope_hash = hashlib.md5(f'{requester_id}:{is_admin}:{sorted(team_ids or [])}:{sorted(group_ids or [])}'.encode()).hexdigest()[:8]
         cache_key = _rag_cache_key(emp_id, query_hash, top_k_docs, embedding_model + ':' + cats_hash + ':' + scope_hash)
         cached = _rag_cache_get(cache_key, ttl=300)
         if cached is not None:
@@ -1017,7 +1077,7 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
         where_clauses = ["k.status = 'ok'", "c.embedding_model = ?", "c.embedding IS NOT NULL"]
         sql_params = [embedding_model]
 
-        # 三层隔离过滤（未提供 requester_id 时不限制，保持兼容）
+        # 四层隔离过滤（未提供 requester_id 时不限制，保持兼容）
         if requester_id is not None and not is_admin:
             readable = ["(k.scope IS NULL OR k.scope = 'global')"]
             readable.append("(k.scope = 'personal' AND k.emp_id = ?)")
@@ -1026,6 +1086,11 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
                 placeholders = ', '.join('?' for _ in team_ids)
                 readable.append(f"(k.scope = 'team' AND k.team_id IN ({placeholders}))")
                 sql_params.extend(team_ids)
+            # FIXME: 项目组维度改造：RAG 检索支持 group 权限
+            if group_ids:
+                placeholders = ', '.join('?' for _ in group_ids)
+                readable.append(f"(k.scope = 'group' AND EXISTS (SELECT 1 FROM json_each(k.group_ids) WHERE value IN ({placeholders})))")
+                sql_params.extend(group_ids)
             where_clauses.append('(' + ' OR '.join(readable) + ')')
 
         if allowed_categories is not None and '*' not in allowed_categories:
@@ -1117,8 +1182,10 @@ def format_rag_context(docs):
 # Fallback：关键词搜索
 # ═══════════════════════════════════════════════════
 
-def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is_admin=False, team_ids=None):
-    """API 失败时的关键词搜索 fallback（LIKE）；带三层隔离"""
+def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is_admin=False, team_ids=None, group_ids=None):
+    """API 失败时的关键词搜索 fallback（LIKE）；带四层隔离"""
+    if group_ids is None:
+        group_ids = []
     if isinstance(query, list):
         text_parts = [item.get('text', '') for item in query if isinstance(item, dict) and item.get('type') == 'text']
         query = ''.join(text_parts)
@@ -1137,6 +1204,11 @@ def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is
                 placeholders = ', '.join('?' for _ in team_ids)
                 readable.append(f"(scope = 'team' AND team_id IN ({placeholders}))")
                 params.extend(team_ids)
+            # FIXME: 项目组维度改造：fallback 关键词搜索支持 group 权限
+            if group_ids:
+                placeholders = ', '.join('?' for _ in group_ids)
+                readable.append(f"(scope = 'group' AND EXISTS (SELECT 1 FROM json_each(group_ids) WHERE value IN ({placeholders})))")
+                params.extend(group_ids)
             where.append('(' + ' OR '.join(readable) + ')')
         sql = '''
             SELECT id, title, content, category, scope, team_id, emp_id, created_at, updated_at
@@ -1158,22 +1230,24 @@ def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is
 
 def knowledge_search_semantic(query, emp_id, api_key=None, provider='openai', agent_config=None, limit=3, allowed_categories=None,
                               model=None, base_url=None,
-                              requester_id=None, is_admin=False, team_ids=None):
+                              requester_id=None, is_admin=False, team_ids=None, group_ids=None):
     """
     语义检索，带 fallback；使用全局 embedding 配置，不再依赖传入的 api_key/provider。
     供 MS3 inject_memories 和 API 搜索使用。
     """
+    if group_ids is None:
+        group_ids = []
     try:
         # 使用全局 embedding 配置
         emb_cfg = get_embedding_config(emp_id or None)
         result = rag_retrieve(query, emp_id, emb_cfg['apiKey'], emb_cfg['provider'], agent_config,
                               top_k_docs=limit, allowed_categories=allowed_categories,
                               model=emb_cfg['model'], base_url=emb_cfg['baseUrl'],
-                              requester_id=requester_id, is_admin=is_admin, team_ids=team_ids)
+                              requester_id=requester_id, is_admin=is_admin, team_ids=team_ids, group_ids=group_ids)
         return result.get('docs', [])
     except Exception as e:
         print(f'  [KnowledgeSearch] semantic failed, fallback to keyword: {e}', flush=True)
-        return knowledge_search_fallback(query, emp_id, limit, requester_id=requester_id, is_admin=is_admin, team_ids=team_ids)
+        return knowledge_search_fallback(query, emp_id, limit, requester_id=requester_id, is_admin=is_admin, team_ids=team_ids, group_ids=group_ids)
 
 
 # ═══════════════════════════════════════════════════
@@ -1194,7 +1268,14 @@ def _doc_scope(doc):
     return (doc.get('scope') or 'global') if doc else 'global'
 
 
-def can_read_knowledge(doc, user_id, is_admin=False, user_team_ids=None):
+def _has_any(items_a, items_b):
+    """FIXME: 项目组维度改造：判断两个列表是否有交集"""
+    if not items_a or not items_b:
+        return False
+    return bool(set(items_a) & set(items_b))
+
+
+def can_read_knowledge(doc, user_id, is_admin=False, user_team_ids=None, user_group_ids=None):
     """判断用户是否可读某条知识"""
     scope = _doc_scope(doc)
     if scope == 'global':
@@ -1204,10 +1285,13 @@ def can_read_knowledge(doc, user_id, is_admin=False, user_team_ids=None):
     if scope == 'team':
         team_id = doc.get('teamId')
         return is_admin or (user_team_ids and team_id in user_team_ids)
+    if scope == 'group':
+        # FIXME: 项目组维度改造：group 知识与用户所属项目组有交集即可读
+        return is_admin or _has_any(doc.get('groupIds') or [], user_group_ids)
     return False
 
 
-def can_edit_knowledge(doc, user_id, is_admin=False, managed_team_ids=None):
+def can_edit_knowledge(doc, user_id, is_admin=False, managed_team_ids=None, managed_group_ids=None):
     """判断用户是否可编辑/删除/移动某条知识"""
     scope = _doc_scope(doc)
     if scope == 'global':
@@ -1217,10 +1301,14 @@ def can_edit_knowledge(doc, user_id, is_admin=False, managed_team_ids=None):
     if scope == 'team':
         team_id = doc.get('teamId')
         return is_admin or (managed_team_ids and team_id in managed_team_ids)
+    if scope == 'group':
+        # FIXME: 项目组维度改造：管理员或管理的项目组有交集即可编辑
+        return is_admin or _has_any(doc.get('groupIds') or [], managed_group_ids)
     return False
 
 
-def can_create_knowledge(scope, user_id, is_admin=False, team_id=None, user_team_ids=None, managed_team_ids=None):
+def can_create_knowledge(scope, user_id, is_admin=False, team_id=None, user_team_ids=None, managed_team_ids=None,
+                         group_ids=None, user_group_ids=None, managed_group_ids=None):
     """判断用户是否可在指定 scope 下新建知识"""
     if scope == 'global':
         return is_admin
@@ -1235,23 +1323,39 @@ def can_create_knowledge(scope, user_id, is_admin=False, team_id=None, user_team
         if user_team_ids and team_id in user_team_ids:
             return True
         return False
+    if scope == 'group':
+        # FIXME: 项目组维度改造：管理员或目标 group_ids 与用户管理的项目组有交集即可创建
+        if is_admin:
+            return True
+        if managed_group_ids and _has_any(group_ids or [], managed_group_ids):
+            return True
+        if user_group_ids and _has_any(group_ids or [], user_group_ids):
+            return True
+        return False
     return False
 
 
-def knowledge_move(kid, scope, team_id='', moved_by=''):
-    """移动知识到指定 scope/team，并保存历史版本"""
+def knowledge_move(kid, scope, team_id='', group_ids=None, moved_by=''):
+    """移动知识到指定 scope/team/group_ids，并保存历史版本"""
     doc = knowledge_get_by_id(kid)
     if not doc:
         return None
     actual_scope = scope or 'global'
     actual_team_id = team_id or ''
+    # FIXME: 项目组维度改造：移动时支持设置 group_ids
+    if group_ids is None:
+        actual_group_ids = '[]'
+    elif isinstance(group_ids, str):
+        actual_group_ids = group_ids
+    else:
+        actual_group_ids = json.dumps(group_ids, ensure_ascii=False)
     _save_knowledge_version(kid, created_by=moved_by)
     conn = _db_conn()
     try:
         now = _now_ms()
         conn.execute(
-            'UPDATE knowledge SET scope=?, team_id=?, updated_at=? WHERE id=?',
-            (actual_scope, actual_team_id, now, kid)
+            'UPDATE knowledge SET scope=?, team_id=?, group_ids=?, updated_at=? WHERE id=?',
+            (actual_scope, actual_team_id, actual_group_ids, now, kid)
         )
         conn.commit()
     finally:
