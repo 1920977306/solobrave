@@ -6924,6 +6924,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 tags=body.get('tags', [])
             )
         except RuntimeError as e:
+            # FIXME: 修复建议归纳失败后一直显示：失败后也更新 lastMemoryConsolidationAt 冷却提示
+            ms3.set_last_memory_consolidation_at(emp_id)
             self._send_json(409, {'success': False, 'error': str(e)})
             return
 

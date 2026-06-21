@@ -1190,6 +1190,14 @@ def set_last_knowledge_induction_attempt_at(emp_id, timestamp=None):
     print(f'  [MemoryV3] set_last_knowledge_induction_attempt_at: emp_id={emp_id} ts={now}', flush=True)
 
 
+# FIXME: 修复建议归纳失败后一直显示：提供统一入口更新 lastMemoryConsolidationAt
+def set_last_memory_consolidation_at(emp_id, timestamp=None):
+    """更新上次日常合并时间戳（无论成功失败都更新，用于失败后冷却提示）"""
+    data = load_memory(emp_id)
+    data.setdefault('stats', {})['lastMemoryConsolidationAt'] = timestamp or int(time.time() * 1000)
+    save_memory(emp_id, data)
+
+
 def archive_inducted_memories(emp_id):
     """归档所有已归纳的活跃记忆，返回归档的 ID 列表"""
     data = load_memory(emp_id)
