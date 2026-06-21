@@ -15,6 +15,7 @@ from collections import Counter
 
 import numpy as np
 import knowledge_service as ks
+import memory_service_v3 as ms3
 
 # FIXME: 复用项目数据库路径
 DB_PATH = os.path.join(os.path.dirname(__file__), 'data', 'solobrave.db')
@@ -267,6 +268,23 @@ class KnowledgeService:
                 UPDATE memory_topics SET pending_induct=0, last_active_at=? WHERE id=?
             ''', (now, topic_id))
             conn.commit()
+
+            # FIXME: 修复大脑归纳后未调用旧系统标记逻辑：按 emp_id 分组调用 ms3 标记已归纳并更新上次归纳时间
+            try:
+                mem_rows = conn.execute(
+                    'SELECT id, emp_id FROM memory WHERE topic_ids LIKE ?',
+                    (f'%{topic_id}%',)
+                ).fetchall()
+                emp_to_mems = {}
+                for r in mem_rows:
+                    emp_to_mems.setdefault(r['emp_id'], []).append(r['id'])
+                for emp_id, mem_ids in emp_to_mems.items():
+                    if emp_id and mem_ids:
+                        ms3.mark_memories_inducted(emp_id, mem_ids)
+                        ms3.set_last_knowledge_induction_at(emp_id)
+            except Exception as e:
+                print(f'  [BrainKnowledge] mark memories inducted failed: {e}', flush=True)
+
             return created_ids
         except Exception as e:
             print(f'  [BrainKnowledge] induct failed: {e}', flush=True)
