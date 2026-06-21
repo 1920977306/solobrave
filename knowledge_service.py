@@ -1292,7 +1292,7 @@ def can_read_knowledge(doc, user_id, is_admin=False, user_team_ids=None, user_gr
 
 
 def can_edit_knowledge(doc, user_id, is_admin=False, managed_team_ids=None, managed_group_ids=None):
-    """判断用户是否可编辑/删除/移动某条知识"""
+    """判断用户是否可编辑/移动某条知识（group 维度仅群主/管理员可编辑）"""
     scope = _doc_scope(doc)
     if scope == 'global':
         return is_admin
@@ -1304,6 +1304,22 @@ def can_edit_knowledge(doc, user_id, is_admin=False, managed_team_ids=None, mana
     if scope == 'group':
         # FIXME: 项目组维度改造：管理员或管理的项目组有交集即可编辑
         return is_admin or _has_any(doc.get('groupIds') or [], managed_group_ids)
+    return False
+
+
+def can_delete_knowledge(doc, user_id, is_admin=False, managed_team_ids=None, managed_group_ids=None, user_group_ids=None):
+    """判断用户是否可删除某条知识（group 维度项目组成员或管理员可删除）"""
+    scope = _doc_scope(doc)
+    if scope == 'global':
+        return is_admin
+    if scope == 'personal':
+        return is_admin or doc.get('empId') == user_id
+    if scope == 'team':
+        team_id = doc.get('teamId')
+        return is_admin or (managed_team_ids and team_id in managed_team_ids)
+    if scope == 'group':
+        # FIXME: 项目组维度改造：管理员、群主或项目组成员均可删除
+        return is_admin or _has_any(doc.get('groupIds') or [], managed_group_ids) or _has_any(doc.get('groupIds') or [], user_group_ids)
     return False
 
 

@@ -8096,9 +8096,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
-                                     managed_team_ids=auth.managed_team_ids,
-                                     managed_group_ids=auth.managed_group_ids):
+        if not ks.can_delete_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+                                       managed_team_ids=auth.managed_team_ids,
+                                       managed_group_ids=auth.managed_group_ids,
+                                       user_group_ids=auth.group_ids):
             self._send_auth_error('Permission denied', 403)
             return
         deleted = ks.knowledge_delete(doc_id)
