@@ -9498,47 +9498,32 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
         full_prompt += system_prompt + '\n\n'
     full_prompt += prompt
 
-    # FIXME: 修复大脑知识沉淀时命令行参数过长的bug：兜底，prompt 超过一定长度自动截断并记录警告
+    # FIXME: 修复_openclaw调用方式：brain_knowledge_service 已限制单主题最多20条、单条最多500字符，
+    # 总 prompt 长度约 10000-15000 字符，远小于 ARG_MAX，统一走 --prompt 参数
+    # FIXME: 修复_openclaw调用方式：兜底，prompt 超过一定长度自动截断并记录警告
     MAX_PROMPT_LEN = 10000
     if len(full_prompt) > MAX_PROMPT_LEN:
         print(f'  [OpenClaw] WARNING: prompt too long ({len(full_prompt)}), truncating to {MAX_PROMPT_LEN}', flush=True)
         full_prompt = full_prompt[:MAX_PROMPT_LEN]
 
-    # FIXME: 修复大脑知识沉淀时命令行参数过长的bug：长 prompt 走 stdin，不走 --prompt 参数
+    # FIXME: 修复_openclaw调用方式：openclaw infer model run 必须用 --prompt 参数，不能走 stdin
     # 2. 构造 openclaw CLI 调用
-    if len(full_prompt) > 6000:
-        # 长 prompt 通过 stdin 传入，避免 argv 长度限制（Windows ~8191，Unix ~128K）
-        args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--json']
-        stdin_input = full_prompt
-        print(f'  [OpenClaw] infer cmd (stdin, prompt_len={len(full_prompt)}): {" ".join(args)} ... --model {api_model if api_model else "(none)"}', flush=True)
-    else:
-        args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--prompt', full_prompt, '--json']
-        stdin_input = None
-        print(f'  [OpenClaw] infer cmd: {" ".join(args[:6])} ... --model {api_model if api_model else "(none)"}', flush=True)
+    args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--prompt', full_prompt, '--json']
+    print(f'  [OpenClaw] infer cmd: {" ".join(args[:6])} ... --model {api_model if api_model else "(none)"}', flush=True)
+
     # 3. 有 apiModel 就加 --model 参数
     if api_model:
         args.extend(['--model', api_model])
 
     try:
-        if stdin_input is not None:
-            # FIXME: 修复大脑知识沉淀时命令行参数过长的bug：长 prompt 通过 subprocess.Popen + stdin 写入
-            proc = subprocess.Popen(
-                args,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            stdout, stderr = proc.communicate(input=stdin_input, timeout=OPENCLAW_TIMEOUT)
-            returncode = proc.returncode
-        else:
-            result = subprocess.run(
-                args,
-                capture_output=True,
-                text=True,
-                timeout=OPENCLAW_TIMEOUT
-            )
-            stdout, stderr, returncode = result.stdout, result.stderr, result.returncode
+        # FIXME: 修复_openclaw调用方式：使用 subprocess.run + --prompt 参数，确保正确传递
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=OPENCLAW_TIMEOUT
+        )
+        stdout, stderr, returncode = result.stdout, result.stderr, result.returncode
 
         if returncode != 0:
             print(f'  [OpenClaw] infer failed (code={returncode}): {stderr}', flush=True)
