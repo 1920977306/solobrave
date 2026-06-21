@@ -334,6 +334,7 @@ def load_memory(emp_id):
         'lastKnowledgeInductionAt': stats.get('lastKnowledgeInductionAt', 0)
     })
     result['lastKnowledgeInductionAt'] = result['stats']['lastKnowledgeInductionAt']
+    result['lastKnowledgeInductionAttemptAt'] = result['stats'].get('lastKnowledgeInductionAttemptAt', 0)
 
     # 归纳提醒：日常记录 ≥ 阈值 且 自上次归纳后仍有新记录 时才建议
     daily_threshold = MEMORY_INDUCTION_THRESHOLDS['daily_consolidate_min']
@@ -367,7 +368,9 @@ def save_memory(emp_id, data):
         'coreCount': len(data.get('core', [])),
         'dailyCount': len(data.get('daily', [])),
         'totalAccess': sum(m.get('accessCount', 0) for m in data.get('core', [])),
-        'lastKnowledgeInductionAt': old_stats.get('lastKnowledgeInductionAt', 0)
+        'lastKnowledgeInductionAt': old_stats.get('lastKnowledgeInductionAt', 0),
+        'lastMemoryConsolidationAt': old_stats.get('lastMemoryConsolidationAt', 0),
+        'lastKnowledgeInductionAttemptAt': old_stats.get('lastKnowledgeInductionAttemptAt', 0),
     }
     _write_json(filepath, data)
 
@@ -1173,6 +1176,14 @@ def set_last_knowledge_induction_at(emp_id, timestamp=None):
     """更新上次知识归纳时间戳"""
     data = load_memory(emp_id)
     data.setdefault('stats', {})['lastKnowledgeInductionAt'] = timestamp or int(time.time() * 1000)
+    save_memory(emp_id, data)
+
+
+# FIXME: 修复"知识库归纳"提示一直显示：记录上次尝试归纳时间戳，用于失败后冷却
+def set_last_knowledge_induction_attempt_at(emp_id, timestamp=None):
+    """更新上次尝试知识归纳的时间戳（无论成功失败都更新）"""
+    data = load_memory(emp_id)
+    data.setdefault('stats', {})['lastKnowledgeInductionAttemptAt'] = timestamp or int(time.time() * 1000)
     save_memory(emp_id, data)
 
 
