@@ -1309,6 +1309,34 @@ def _find_group(groups, key, value):
     return None
 
 
+def _get_user_group_ids(user_id):
+    """根据 user_id 返回该用户（通过其创建的 AI 员工）所属的项目组 ID 列表"""
+    if not user_id:
+        return []
+    agents = _load_agents()
+    my_agent_ids = {a.get('id') for a in agents if a.get('createdBy') == user_id}
+    groups = _load_groups()
+    result = []
+    for g in groups:
+        gid = g.get('id')
+        if not gid:
+            continue
+        for m in g.get('members', []):
+            mid = m if isinstance(m, str) else m.get('id')
+            if mid in my_agent_ids:
+                result.append(gid)
+                break
+    return result
+
+
+def _get_user_managed_group_ids(user_id):
+    """根据 user_id 返回该用户创建/管理的项目组 ID 列表"""
+    if not user_id:
+        return []
+    groups = _load_groups()
+    return [g.get('id') for g in groups if g.get('createdBy') == user_id and g.get('id')]
+
+
 # ─── 小组管理 ─────────────────────────────────────────
 
 def _load_teams():
@@ -1482,20 +1510,8 @@ class AuthResult:
                 # 填充 group_ids 和 managed_group_ids（通过用户创建的 AI 员工匹配群组成员）
                 if self.user_info:
                     uid = self.user_info.get('userId')
-                    agents = _load_agents()
-                    my_agent_ids = {a.get('id') for a in agents if a.get('createdBy') == uid}
-                    groups = _load_groups()
-                    for g in groups:
-                        gid = g.get('id')
-                        if not gid:
-                            continue
-                        if g.get('createdBy') == uid:
-                            self.managed_group_ids.append(gid)
-                        for m in g.get('members', []):
-                            mid = m if isinstance(m, str) else m.get('id')
-                            if mid in my_agent_ids:
-                                self.group_ids.append(gid)
-                                break
+                    self.group_ids = _get_user_group_ids(uid)
+                    self.managed_group_ids = _get_user_managed_group_ids(uid)
         return self.user_record
 
 
