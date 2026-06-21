@@ -254,7 +254,7 @@ class KnowledgeService:
                 conn.execute('''
                     INSERT INTO knowledge (id, emp_id, title, content, category, scope, status, chunk_count, embedding, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (kid, None, d['title'], d['content'], 'brain', 'global', 'active', 0, '', now, now))
+                ''', (kid, None, d['title'], d['content'], 'brain', 'global', 'ok', 0, '', now, now))
                 created_ids.append(kid)
 
             # FIXME: 修复"建议归纳"和"归纳到知识库"总是出现：归纳成功后更新该主题下所有记忆的 inducted_at
