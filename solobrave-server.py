@@ -6794,7 +6794,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     not m.get('inductedAt') and m.get('createdAt', 0) > data.get('lastKnowledgeInductionAttemptAt', 0)
                     for m in data.get('core', []) + data.get('daily', [])
                 )
-            )
+            ),
+            # FIXME: 调试字段：帮助排查 shouldInductKnowledge 显示异常
+            '_debug': {
+                'uninductedCount': len([m for m in data.get('core', []) + data.get('daily', []) if not m.get('inductedAt')]),
+                'lastKnowledgeInductionAttemptAt': data.get('lastKnowledgeInductionAttemptAt', 0),
+            }
         })
 
     def _handle_get_archived_memories(self):

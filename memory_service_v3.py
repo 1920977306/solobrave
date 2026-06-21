@@ -1183,8 +1183,11 @@ def set_last_knowledge_induction_at(emp_id, timestamp=None):
 def set_last_knowledge_induction_attempt_at(emp_id, timestamp=None):
     """更新上次尝试知识归纳的时间戳（无论成功失败都更新）"""
     data = load_memory(emp_id)
-    data.setdefault('stats', {})['lastKnowledgeInductionAttemptAt'] = timestamp or int(time.time() * 1000)
+    now = timestamp or int(time.time() * 1000)
+    data.setdefault('stats', {})['lastKnowledgeInductionAttemptAt'] = now
     save_memory(emp_id, data)
+    # FIXME: 调试日志：确认 lastKnowledgeInductionAttemptAt 写入
+    print(f'  [MemoryV3] set_last_knowledge_induction_attempt_at: emp_id={emp_id} ts={now}', flush=True)
 
 
 def archive_inducted_memories(emp_id):
