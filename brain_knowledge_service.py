@@ -268,8 +268,8 @@ class KnowledgeService:
 
             created_ids = []
             now = _now_ms()
-            # FIXME: 项目组维度改造：根据主题参与者所在项目组决定知识归属
-            topic_emp_ids = list({r.get('emp_id') for r in rows if r.get('emp_id')})
+            # FIXME: 项目组维度改造：根据主题关联的所有员工反查项目组
+            topic_emp_ids = _parse_json(topic['emp_ids'], [])
             topic_group_ids = _get_group_ids_for_emp_ids(topic_emp_ids)
             topic_scope = 'group' if topic_group_ids else 'global'
             topic_group_ids_json = _dump_json(topic_group_ids)
