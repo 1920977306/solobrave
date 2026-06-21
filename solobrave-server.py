@@ -6784,16 +6784,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'config': {k: v for k, v in MEMORY_CONFIG.items() if k in ('core_max', 'daily_max', 'daily_ttl_days')},
             'shouldConsolidate': data.get('shouldConsolidate', False),
             'suggestedSourceIds': data.get('suggestedSourceIds', []),
-            # FIXME: 修复"知识库归纳"提示显示但点击后不足：前后端判断统一为"当前未归纳记忆 >= 阈值 且 上次尝试后有新增未归纳记忆"
+            # FIXME: 修复知识库归纳提示判断逻辑混乱：统一用"未归纳总数 >= 阈值 + 冷却期"模型
             'shouldInductKnowledge': (
                 len([m for m in data.get('core', []) + data.get('daily', []) if not m.get('inductedAt')])
                 >= MEMORY_INDUCTION_THRESHOLDS['knowledge_induction_min']
             ) and (
                 data.get('lastKnowledgeInductionAttemptAt', 0) == 0
-                or any(
-                    not m.get('inductedAt') and m.get('createdAt', 0) > data.get('lastKnowledgeInductionAttemptAt', 0)
-                    for m in data.get('core', []) + data.get('daily', [])
-                )
+                or (int(time.time() * 1000) - data.get('lastKnowledgeInductionAttemptAt', 0) > 3600 * 1000)
             ),
             # FIXME: 调试字段：帮助排查 shouldInductKnowledge 显示异常
             '_debug': {
