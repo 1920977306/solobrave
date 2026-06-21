@@ -250,6 +250,11 @@ class KnowledgeService:
                     _dump_json(d['evidence_mem_ids']), confidence,
                     _dump_json([topic_id]), now, now, 'active'
                 ))
+                # FIXME: 修复知识库页面不显示大脑生成的知识：大脑知识全局共享，同时写入 knowledge 表供全局知识库 tab 读取
+                conn.execute('''
+                    INSERT INTO knowledge (id, title, content, category, embedding, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (kid, d['title'], d['content'], 'brain', None, now, now))
                 created_ids.append(kid)
 
             # 清空待沉淀标记
