@@ -7818,7 +7818,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _write_json(filepath, data)
 
     def _handle_get_knowledge(self):
-        """GET /api/knowledge — 获取知识库列表（支持分页、分类、关键词、scope 三层隔离）"""
+        """GET /api/knowledge — 获取知识库列表（支持分页、分类、关键词、scope 四层隔离：all/global/team/personal/group）
+        项目组维度支持 scope=group，以及 groupId / groupIds 过滤参数。"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
