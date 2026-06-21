@@ -2038,6 +2038,8 @@ def consolidate_memories(emp_id, source_mem_ids, new_value, new_key='core',
                 remaining.append(m)
         data[pool] = remaining
 
+    # FIXME: 修复"建议归纳"提示合并后仍显示：更新上次日常合并时间戳
+    data.setdefault('stats', {})['lastMemoryConsolidationAt'] = now
     save_memory(emp_id, data)
     save_archive(emp_id, archive_data)
 
