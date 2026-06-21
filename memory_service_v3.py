@@ -593,7 +593,7 @@ def add_memory(emp_id, value, key='auto', source='user_input', context=None,
     if len(value) > cfg['store_value_max']:
         raise ValueError(f'Value exceeds max length {cfg["store_value_max"]}')
 
-    pool = 'daily' if key in ('auto', 'auto_extract') else 'core'
+    pool = 'daily' if key in ('auto', 'auto_extract', 'daily') else 'core'
     pool_max = cfg['daily_max'] if pool == 'daily' else cfg['core_max']
 
     data = load_memory(emp_id)
@@ -720,7 +720,7 @@ def update_memory(emp_id, mem_id, updates, api_key=None, provider='openai',
     current_pool = old_pool
     new_key = updates.get('key')
     if new_key:
-        new_pool = 'daily' if new_key in ('auto', 'auto_extract') else 'core'
+        new_pool = 'daily' if new_key in ('auto', 'auto_extract', 'daily') else 'core'
         if new_pool != old_pool:
             target = data.get(new_pool, [])
             pool_max = cfg['daily_max'] if new_pool == 'daily' else cfg['core_max']
