@@ -6889,6 +6889,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         consolidated_value = body.get('consolidatedValue', '')
+        # FIXME: 修复建议归纳分页导致源记忆不足：后端未收到 consolidatedValue 时自动生成
+        if not consolidated_value:
+            try:
+                mem_data = ms3.load_memory(emp_id)
+                source_memories = [
+                    m for m in mem_data.get('daily', [])
+                    if m.get('id') in source_ids
+                ]
+                if len(source_memories) < 2:
+                    self._send_json_error(400, '源记忆不足')
+                    return
+                consolidated_value = '\n'.join('• ' + (m.get('value', '') or '') for m in source_memories)
+            except Exception as e:
+                print(f'  [MemoryV3] auto-generate consolidatedValue failed: {e}', flush=True)
+                self._send_json_error(500, '生成归纳内容失败')
+                return
+
         if len(consolidated_value) < 1:
             self._send_json_error(400, 'consolidatedValue cannot be empty')
             return
