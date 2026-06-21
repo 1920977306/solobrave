@@ -7944,7 +7944,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         scope = body.get('scope', 'global')
         team_id = body.get('teamId') or ''
-        group_ids = body.get('groupIds') or body.get('groupId') or []
+        group_ids = body.get('groupIds') or body.get('group_ids') or body.get('groupId') or []
         if isinstance(group_ids, str):
             group_ids = [g.strip() for g in group_ids.split(',') if g.strip()]
         # 兼容旧前端传入 empId
@@ -8037,7 +8037,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         title = body.get('title') or body.get('name')
         new_scope = body.get('scope')
         new_team_id = body.get('teamId')
-        new_group_ids = body.get('groupIds') or body.get('groupId') or []
+        new_group_ids = body.get('groupIds') or body.get('group_ids') or body.get('groupId') or []
         if isinstance(new_group_ids, str):
             new_group_ids = [g.strip() for g in new_group_ids.split(',') if g.strip()]
         # 允许更新 empId（旧前端兼容）
@@ -8208,7 +8208,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         body = self._read_body() or {}
         new_scope = body.get('scope')
         new_team_id = body.get('teamId') or ''
-        new_group_ids = body.get('groupIds') or body.get('groupId') or []
+        new_group_ids = body.get('groupIds') or body.get('group_ids') or body.get('groupId') or []
         if isinstance(new_group_ids, str):
             new_group_ids = [g.strip() for g in new_group_ids.split(',') if g.strip()]
         if new_scope not in ('global', 'team', 'personal', 'group'):
