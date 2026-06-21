@@ -252,10 +252,15 @@ class KnowledgeService:
                 ))
                 # FIXME: 修复知识库页面不显示大脑生成的知识：大脑知识全局共享，同时写入 knowledge 表供全局知识库 tab 读取
                 conn.execute('''
-                    INSERT INTO knowledge (id, title, content, category, embedding, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (kid, d['title'], d['content'], 'brain', None, now, now))
+                    INSERT INTO knowledge (id, emp_id, title, content, category, scope, status, chunk_count, embedding, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (kid, None, d['title'], d['content'], 'brain', 'global', 'active', 0, '', now, now))
                 created_ids.append(kid)
+
+            # FIXME: 修复"建议归纳"和"归纳到知识库"总是出现：归纳成功后更新该主题下所有记忆的 inducted_at
+            conn.execute('''
+                UPDATE memory SET inducted_at=? WHERE topic_ids LIKE ?
+            ''', (now, f'%"{topic_id}"%'))
 
             # 清空待沉淀标记
             conn.execute('''
