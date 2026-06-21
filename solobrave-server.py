@@ -8050,6 +8050,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         new_emp_id = body.get('empId')
         if new_emp_id is not None:
             emp_id = new_emp_id
+        # 变更 scope / teamId / group_ids 时，校验目标权限
+        target_scope = new_scope if new_scope is not None else doc.get('scope') or 'global'
+        target_team_id = new_team_id if new_team_id is not None else doc.get('teamId') or ''
+        target_group_ids = new_group_ids if (new_group_ids or new_scope == 'group') else (doc.get('groupIds') or [])
+        if new_scope is not None or new_team_id is not None or new_group_ids:
+            if not ks.can_create_knowledge(target_scope, auth.user_id, is_admin=auth.is_admin,
+                                           team_id=target_team_id, user_team_ids=auth.team_ids,
+                                           managed_team_ids=auth.managed_team_ids,
+                                           group_ids=target_group_ids, user_group_ids=auth.group_ids,
+                                           managed_group_ids=auth.managed_group_ids):
+                self._send_auth_error('Permission denied for target scope', 403)
+                return
         try:
             updated = ks.knowledge_update(
                 kid=doc_id,
