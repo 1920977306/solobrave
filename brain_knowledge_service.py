@@ -72,12 +72,12 @@ def _load_groups():
 
 
 def _get_group_ids_for_emp_ids(emp_ids):
-    """FIXME: 根据员工 ID 列表，返回其所在的项目组 ID 列表"""
+    """FIXME: 根据员工 ID 列表，返回其所在的项目组 ID 列表（去重、排序）"""
     if not emp_ids:
         return []
     target = set(emp_ids)
     groups = _load_groups()
-    result = []
+    result = set()
     for g in groups:
         gid = g.get('id')
         if not gid:
@@ -85,9 +85,9 @@ def _get_group_ids_for_emp_ids(emp_ids):
         for m in g.get('members', []):
             mid = m if isinstance(m, str) else m.get('id')
             if mid in target:
-                result.append(gid)
+                result.add(gid)
                 break
-    return result
+    return sorted(result)
 
 
 def _vec_from_bytes(blob):
