@@ -13748,11 +13748,8 @@ function triggerSummarizeFromMemoryPanel() {
       if (m) sourceMemories.push(m);
     });
 
-    if (sourceMemories.length < 2) {
-      throw new Error('源记忆不足');
-    }
-
     // 生成 consolidatedValue：拼接源记忆内容
+    // FIXME: 修复建议归纳分页导致源记忆不足：如果分页导致前端找不到完整源记忆，consolidatedValue 留空让后端自动生成
     var consolidatedValue = sourceMemories.map(function (m) {
       return '• ' + (m.value || '');
     }).join('\n');
