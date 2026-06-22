@@ -325,26 +325,27 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .app-main.products-active { flex-direction: row; }
 #productsMidList {
   display: none;
-  flex: 1;
-  min-width: 0;
+  width: 280px;
+  flex-shrink: 0;
   background: #ffffff;
   border-right: 1px solid var(--separator);
   flex-direction: column;
   overflow: hidden;
 }
 #productsMidList.active { display: flex; }
+#productsRight { flex: 1; }
 .app-main.influencers-active { flex-direction: row; }
 #influencersMid {
   display: none;
-  flex: 1;
-  min-width: 0;
-  max-width: 420px;
+  width: 280px;
+  flex-shrink: 0;
   background: #ffffff;
   border-right: 1px solid var(--separator);
   flex-direction: column;
   overflow: hidden;
 }
 #influencersMid.active { display: flex; }
+#influencersRight { flex: 1; }
 .app-main.settings-active { flex-direction: row; }
 
 /* Products Left Sidebar - brand/category nav (deprecated, kept hidden for compat) */
@@ -22496,6 +22497,8 @@ function switchModule(module) {
   if (employeeList) employeeList.style.display = 'none';
   if (projectList) projectList.style.display = 'none';
   if (appMain) appMain.classList.add(module + '-active');
+  var appSidebar = document.querySelector('.app-sidebar');
+  if (appSidebar) appSidebar.style.display = (module === 'products' || module === 'influencers') ? 'none' : 'flex';
 
   var moduleMidMap = {
     knowledge: ['knowledgeMid', 'knowledgeMidList'],
