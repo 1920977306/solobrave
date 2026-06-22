@@ -1968,13 +1968,13 @@ def _init_brain_tables(conn):
             status TEXT DEFAULT 'active'
         )
     ''')
-    conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_new_status ON knowledge_base_new(status)')
-    conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_new_topics ON knowledge_base_new(topic_ids)')
-    conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_new_updated ON knowledge_base_new(updated_at)')
-    # 向后兼容：新增 scope / team_id / group_ids 字段，与 knowledge 表同步
+    # 向后兼容：新增 scope / team_id / group_ids 字段，与 knowledge 表同步（必须在 CREATE INDEX 之前）
     _add_column_if_not_exists(conn, 'knowledge_base_new', 'scope', "TEXT DEFAULT 'global'")
     _add_column_if_not_exists(conn, 'knowledge_base_new', 'team_id', "TEXT DEFAULT ''")
     _add_column_if_not_exists(conn, 'knowledge_base_new', 'group_ids', "TEXT DEFAULT '[]'")
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_new_status ON knowledge_base_new(status)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_new_topics ON knowledge_base_new(topic_ids)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_new_updated ON knowledge_base_new(updated_at)')
 
     # 知识关系表
     conn.execute('''
@@ -2055,17 +2055,14 @@ def init_db():
                 updated_at INTEGER
             )
         ''')
-        # 兼容旧表：新增 tags / selling_points / brand_id / talent_count 列
-        for col_sql in (
-            "ALTER TABLE products ADD COLUMN tags TEXT DEFAULT '[]'",
-            "ALTER TABLE products ADD COLUMN selling_points TEXT DEFAULT ''",
-            "ALTER TABLE products ADD COLUMN brand_id TEXT DEFAULT ''",
-            "ALTER TABLE products ADD COLUMN talent_count INTEGER DEFAULT 0",
-        ):
-            try:
-                conn.execute(col_sql)
-            except Exception:
-                pass
+        # 兼容旧表：补充 products 可能缺失的新列（必须在 CREATE INDEX 之前）
+        for _prod_col, _prod_dtype in [
+            ('tags', "TEXT DEFAULT '[]'"),
+            ('selling_points', "TEXT DEFAULT ''"),
+            ('brand_id', "TEXT DEFAULT ''"),
+            ('talent_count', 'INTEGER DEFAULT 0'),
+        ]:
+            _add_column_if_not_exists(conn, 'products', _prod_col, _prod_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_brand_id ON products(brand_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)')
