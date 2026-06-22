@@ -324,6 +324,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
    ======================================== */
 .app-main.products-active { flex-direction: row; }
 #productsMidList {
+  display: none;
   flex: 1;
   min-width: 0;
   background: #ffffff;
@@ -331,8 +332,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-direction: column;
   overflow: hidden;
 }
+#productsMidList.active { display: flex; }
 .app-main.influencers-active { flex-direction: row; }
 #influencersMid {
+  display: none;
   flex: 1;
   min-width: 0;
   max-width: 420px;
@@ -341,6 +344,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-direction: column;
   overflow: hidden;
 }
+#influencersMid.active { display: flex; }
 .app-main.settings-active { flex-direction: row; }
 
 /* Products Left Sidebar - brand/category nav (deprecated, kept hidden for compat) */
@@ -22446,73 +22450,80 @@ function switchModule(module) {
   currentModule = module;
 
   // Update left nav active state
-  document.querySelectorAll('.nav-item').forEach(function(el) {
-    el.classList.remove('active');
-  });
-  var navId = 'nav' + module.charAt(0).toUpperCase() + module.slice(1);
-  var navEl = document.getElementById(navId);
+  document.querySelectorAll('.nav-item').forEach(function(el) { el.classList.remove('active'); });
+  var navEl = document.getElementById('nav' + module.charAt(0).toUpperCase() + module.slice(1));
   if (navEl) navEl.classList.add('active');
-
-  // Hide all module mid/right containers
-  ['knowledgeMid', 'knowledgeMidList', 'productsMidList', 'influencersMid', 'settingsMid'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) el.classList.remove('active');
-  });
-  ['knowledgeRight', 'productsRight', 'influencersRight', 'settingsRight'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) el.classList.remove('active');
-  });
-  ['knowledgeRightOverlay', 'productsRightOverlay'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) el.classList.remove('open');
-  });
-
-  // Reset mid sidebar content
-  var employeeList = document.getElementById('employeeList');
-  var projectList = document.getElementById('projectList');
 
   // Reset global search state
   resetGlobalSearch(module);
 
-  // Manage three-column layout classes
-  var appMain = document.querySelector('.app-main');
+  // Registry of all module-scoped containers
+  var allMids = ['knowledgeMid', 'knowledgeMidList', 'productsMidList', 'influencersMid', 'settingsMid'];
+  var allRights = ['knowledgeRight', 'productsRight', 'influencersRight', 'settingsRight'];
+
+  // 1. Hide every module container first (strict mutual exclusion)
+  allMids.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
+  allRights.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
   var knowledgeRightOverlay = document.getElementById('knowledgeRightOverlay');
-  if (appMain) {
-    appMain.classList.remove('knowledge-active', 'products-active', 'influencers-active', 'settings-active');
-    if (module !== 'messages') appMain.classList.add(module + '-active');
-  }
   if (knowledgeRightOverlay) knowledgeRightOverlay.classList.remove('open');
 
-  // Manage products / influencers mid lists
-  var productsMidList = document.getElementById('productsMidList');
-  if (productsMidList) productsMidList.classList.toggle('active', module === 'products');
-  var knowledgeMidList = document.getElementById('knowledgeMidList');
-  if (knowledgeMidList) knowledgeMidList.classList.toggle('active', module === 'knowledge');
+  // 2. Layout root reset
+  var appMain = document.querySelector('.app-main');
+  if (appMain) {
+    appMain.classList.remove('knowledge-active', 'products-active', 'influencers-active', 'settings-active');
+  }
 
+  // 3. Messages module: sidebar employee list + chat area (original two-column layout)
+  var employeeList = document.getElementById('employeeList');
+  var projectList = document.getElementById('projectList');
+  var chatArea = document.getElementById('chatArea');
   if (module === 'messages') {
-    document.getElementById('chatArea').style.display = 'flex';
+    if (chatArea) chatArea.style.display = 'flex';
     if (employeeList) employeeList.style.display = 'block';
     if (projectList) projectList.style.display = 'none';
     renderEmployeeList();
-  } else {
-    document.getElementById('chatArea').style.display = 'none';
-    if (employeeList) employeeList.style.display = 'none';
-    if (projectList) projectList.style.display = 'none';
-    var mid = document.getElementById(module + 'Mid');
-    var right = document.getElementById(module + 'Right');
-    if (mid) mid.classList.add('active');
-    if (right) {
-      if (module === 'knowledge') {
-        right.classList.remove('active');
-      } else {
-        right.classList.add('active');
-      }
-    }
-    if (module === 'knowledge') { loadGroups(); loadKnowledgePage(); }
-    else if (module === 'products') { loadProductBrands(); loadProducts(); }
-    else if (module === 'influencers') loadTalents();
-    else if (module === 'settings') renderSettingsMid();
+    return;
   }
+
+  // 4. Other modules: hide chat/employee lists, set three-column layout, then show only current module
+  if (chatArea) chatArea.style.display = 'none';
+  if (employeeList) employeeList.style.display = 'none';
+  if (projectList) projectList.style.display = 'none';
+  if (appMain) appMain.classList.add(module + '-active');
+
+  var moduleMidMap = {
+    knowledge: ['knowledgeMid', 'knowledgeMidList'],
+    products: ['productsMidList'],
+    influencers: ['influencersMid'],
+    settings: ['settingsMid']
+  };
+  var moduleRightMap = {
+    products: 'productsRight',
+    influencers: 'influencersRight',
+    settings: 'settingsRight'
+    // knowledge right is a drawer opened by document selection, not shown by default
+  };
+
+  (moduleMidMap[module] || []).forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.add('active');
+  });
+  var rightId = moduleRightMap[module];
+  if (rightId) {
+    var rightEl = document.getElementById(rightId);
+    if (rightEl) rightEl.classList.add('active');
+  }
+
+  if (module === 'knowledge') { loadGroups(); loadKnowledgePage(); }
+  else if (module === 'products') { loadProductBrands(); loadProducts(); }
+  else if (module === 'influencers') loadTalents();
+  else if (module === 'settings') renderSettingsMid();
 }
 
 function getDefaultGlobalSearchScope(module) {
