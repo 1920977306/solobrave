@@ -2089,6 +2089,8 @@ def init_db():
                 updated_at INTEGER
             )
         ''')
+        # 兼容旧表：新增 brands.group_id
+        _add_column_if_not_exists(conn, 'brands', 'group_id', "TEXT DEFAULT ''")
         conn.execute('CREATE INDEX IF NOT EXISTS idx_brands_status ON brands(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_brands_group ON brands(group_id)')
 
@@ -2135,6 +2137,22 @@ def init_db():
                 updated_at INTEGER
             )
         ''')
+        # 兼容旧表：补充 talents 可能缺失的新列
+        for _talent_col, _talent_dtype in [
+            ('avatar', "TEXT DEFAULT ''"), ('douyin_id', "TEXT DEFAULT ''"), ('level', "TEXT DEFAULT ''"),
+            ('followers', 'INTEGER DEFAULT 0'), ('talent_type', "TEXT DEFAULT ''"), ('location', "TEXT DEFAULT ''"),
+            ('agency', "TEXT DEFAULT ''"), ('tags', "TEXT DEFAULT '[]'"), ('bio', "TEXT DEFAULT ''"),
+            ('contact', "TEXT DEFAULT ''"), ('cooperation_status', "TEXT DEFAULT 'available'"),
+            ('commission_requirement', 'REAL DEFAULT 0'), ('fulfillment_score', 'REAL DEFAULT 0'),
+            ('rating_score', 'REAL DEFAULT 0'), ('total_gmv', 'REAL DEFAULT 0'), ('total_products', 'INTEGER DEFAULT 0'),
+            ('total_shops', 'INTEGER DEFAULT 0'), ('live_ratio', 'REAL DEFAULT 0'), ('video_ratio', 'REAL DEFAULT 0'),
+            ('avg_live_gmv', 'REAL DEFAULT 0'), ('live_gpm', 'REAL DEFAULT 0'), ('video_gpm', 'REAL DEFAULT 0'),
+            ('fan_gender', "TEXT DEFAULT '{}'"), ('fan_age', "TEXT DEFAULT '{}'"), ('fan_region', "TEXT DEFAULT '{}'"),
+            ('fan_crowd', "TEXT DEFAULT ''"), ('fan_price_range', "TEXT DEFAULT ''"), ('fan_category', "TEXT DEFAULT ''"),
+            ('ai_tags', "TEXT DEFAULT '[]'"), ('ai_rating', "TEXT DEFAULT ''"), ('ai_summary', "TEXT DEFAULT ''"),
+            ('ai_reason', "TEXT DEFAULT ''"), ('group_id', "TEXT DEFAULT ''"), ('status', "TEXT DEFAULT 'active'"),
+        ]:
+            _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_cooperation ON talents(cooperation_status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_category ON talents(fan_category)')
