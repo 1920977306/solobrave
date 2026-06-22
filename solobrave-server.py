@@ -9452,6 +9452,33 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             sql += " ORDER BY updated_at DESC"
             rows = conn.execute(sql, params).fetchall()
             brands = [_brand_row_to_dict(r) for r in rows]
+            # Fallback：brands 表为空时，从 products 表聚合生成品牌列表，兼容旧数据
+            if not brands:
+                agg_rows = conn.execute('''
+                    SELECT brand, COUNT(*) as count
+                    FROM products
+                    WHERE status != ? AND brand IS NOT NULL AND brand != ''
+                    GROUP BY brand
+                    ORDER BY count DESC, brand ASC
+                ''', ('archived',)).fetchall()
+                now = int(time.time() * 1000)
+                brands = [{
+                    'id': '',
+                    'name': r['brand'] or '',
+                    'logo': '',
+                    'shop_score': 0,
+                    'shop_type': '',
+                    'main_category': '',
+                    'total_products': r['count'],
+                    'total_talents': 0,
+                    'avg_commission': 0,
+                    'group_id': '',
+                    'status': 'active',
+                    'created_at': now,
+                    'updated_at': now,
+                    'createdAt': now,
+                    'updatedAt': now,
+                } for r in agg_rows]
         finally:
             conn.close()
         self._send_json(200, {'brands': brands, 'total': len(brands)})

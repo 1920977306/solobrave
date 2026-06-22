@@ -324,18 +324,15 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
    ======================================== */
 .app-main.products-active { flex-direction: row; }
 #productsMidList {
-  display: none;
   flex: 1;
   min-width: 0;
-  max-width: 100%;
   background: #ffffff;
   border-right: 1px solid var(--separator);
   flex-direction: column;
   overflow: hidden;
 }
-#productsMidList.active { display: flex; }
 
-/* Products Left Sidebar - brand/category nav */
+/* Products Left Sidebar - brand/category nav (deprecated, kept hidden for compat) */
 .products-left-sidebar {
   width: 100%;
   height: 100%;
@@ -493,7 +490,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .products-mid-header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
   padding: 12px 16px;
   border-bottom: 0.5px solid var(--separator);
   flex-shrink: 0;
@@ -704,21 +702,12 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 /* Products Right Drawer */
 .products-right {
-  position: fixed;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 560px;
+  width: 100%;
   max-width: 100%;
   background: #ffffff;
-  box-shadow: -8px 0 40px rgba(0,0,0,0.12);
-  transform: translateX(100%);
-  transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
-  z-index: 251;
   flex-direction: column;
   overflow: hidden;
 }
-.products-right.active { transform: translateX(0); }
 .products-right-content {
   flex: 1;
   overflow-y: auto;
@@ -727,16 +716,59 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-direction: column;
   gap: 16px;
 }
-.products-right-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: 250;
-  opacity: 0;
-  visibility: hidden;
-  transition: all 0.3s;
+.products-right-overlay { display: none; }
+
+/* Segmented Control */
+.segmented-control {
+  display: flex;
+  align-items: center;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 3px;
+  flex-shrink: 0;
 }
-.products-right-overlay.open { opacity: 1; visibility: visible; }
+.segmented-item {
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.segmented-item:hover { color: var(--text-primary); }
+.segmented-item.active {
+  background: #ffffff;
+  color: var(--accent);
+  font-weight: 500;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+/* Unified empty state */
+.products-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: var(--text-tertiary);
+  gap: 12px;
+  flex: 1;
+}
+.products-empty-icon { font-size: 48px; }
+.products-empty-text { font-size: 14px; }
+.products-empty-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 13px;
+  cursor: pointer;
+}
 
 /* AI Analysis Card */
 .products-ai-card {
@@ -1156,6 +1188,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .talents-mid-header {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 12px 14px;
   border-bottom: 0.5px solid var(--separator);
@@ -1205,6 +1238,24 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-shrink: 0;
 }
 .talents-mid-new:hover { background: var(--accent-hover); }
+.talents-mid-btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 0.5px solid var(--separator);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.talents-mid-btn:hover { background: var(--hover-bg); }
+.talents-mid-btn.secondary {
+  background: linear-gradient(135deg, #f5f7ff 0%, #ffffff 100%);
+  border-color: rgba(10,132,255,0.2);
+  color: var(--accent);
+}
+.talents-mid-btn.secondary:hover { background: var(--accent-light); }
 .talents-mid-items {
   flex: 1;
   overflow-y: auto;
@@ -4993,34 +5044,30 @@ window.doLogin = function () {
 </div>
 
 <!-- Products Left Sidebar -->
-<div class="module-mid products-left-sidebar" id="productsLeftSidebar">
-  <div class="products-brand-header">
-    <div class="products-brand-title">品牌列表</div>
-    <button class="products-brand-new" onclick="createNewBrand()" title="新建品牌">+</button>
+<!-- Products Middle List -->
+<div class="module-mid products-mid-list" id="productsMidList">
+  <div class="products-mid-header">
+    <div class="products-mid-title" id="productsMidTitle">全部商品</div>
+    <div class="products-mid-count" id="productsMidCount">共 0 条</div>
+    <div class="products-mid-search">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" placeholder="搜索商品..." id="productsMidSearch" oninput="onProductSearch(this.value)">
+    </div>
+    <select class="products-mid-filter" id="productsMidBrand" onchange="selectProductBrand(this.value)" title="品牌筛选">
+      <option value="">全部品牌</option>
+    </select>
+    <div class="segmented-control" id="productsStatusFilter">
+      <button class="segmented-item active" data-status="" onclick="selectProductStatus('')">全部</button>
+      <button class="segmented-item" data-status="active" onclick="selectProductStatus('active')">在售</button>
+      <button class="segmented-item" data-status="out_of_stock" onclick="selectProductStatus('out_of_stock')">缺货</button>
+    </div>
+    <button class="products-mid-new" onclick="createNewProduct()">+ 录入商品</button>
   </div>
-  <div class="products-brand-list" id="productsBrandList"></div>
+  <div class="products-mid-items" id="productsMidItems"></div>
+  <div class="products-mid-pagination" id="productsMidPagination"></div>
 </div>
 
 <!-- Talents Left Sidebar -->
-<div class="module-mid talents-left-sidebar" id="talentsLeftSidebar">
-  <div class="talents-filter-section">
-    <div class="talents-filter-title">合作状态</div>
-    <div class="talents-filter-list" id="talentsCooperationFilter">
-      <div class="talents-filter-item active" data-cooperation="" onclick="selectTalentCooperation('')">全部</div>
-      <div class="talents-filter-item" data-cooperation="following" onclick="selectTalentCooperation('following')">关注</div>
-      <div class="talents-filter-item" data-cooperation="cooperating" onclick="selectTalentCooperation('cooperating')">已合作</div>
-      <div class="talents-filter-item" data-cooperation="communicating" onclick="selectTalentCooperation('communicating')">沟通中</div>
-      <div class="talents-filter-item" data-cooperation="blacklist" onclick="selectTalentCooperation('blacklist')">黑名单</div>
-    </div>
-  </div>
-  <div class="talents-filter-section">
-    <div class="talents-filter-title">主营类目</div>
-    <div class="talents-filter-list" id="talentsCategoryFilter">
-      <div class="talents-filter-item active" data-category="" onclick="selectTalentCategory('')">全部</div>
-    </div>
-  </div>
-</div>
-
 <!-- Talents Mid -->
 <div class="module-mid talents-mid" id="influencersMid">
   <div class="talents-mid-header">
@@ -5030,6 +5077,14 @@ window.doLogin = function () {
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       <input type="text" placeholder="搜索达人昵称、抖音号..." id="talentsMidSearch" oninput="onTalentSearch(this.value)">
     </div>
+    <div class="segmented-control" id="talentsCooperationFilter">
+      <button class="segmented-item active" data-cooperation="" onclick="selectTalentCooperation('')">全部</button>
+      <button class="segmented-item" data-cooperation="following" onclick="selectTalentCooperation('following')">关注</button>
+      <button class="segmented-item" data-cooperation="cooperating" onclick="selectTalentCooperation('cooperating')">已合作</button>
+      <button class="segmented-item" data-cooperation="communicating" onclick="selectTalentCooperation('communicating')">沟通中</button>
+      <button class="segmented-item" data-cooperation="blacklist" onclick="selectTalentCooperation('blacklist')">黑名单</button>
+    </div>
+    <button class="talents-mid-btn secondary" onclick="recommendTalentsAI()">✨ AI推荐达人</button>
     <button class="talents-mid-new" onclick="createNewTalent()">+ 录入达人</button>
   </div>
   <div class="talents-mid-items" id="talentsMidItems"></div>
@@ -5162,27 +5217,21 @@ window.doLogin = function () {
   </div>
 </div>
 
-<!-- Products Middle List -->
-<div class="products-mid-list" id="productsMidList">
-  <div class="products-mid-header">
-    <div class="products-mid-title" id="productsMidTitle">全部商品</div>
-    <div class="products-mid-count" id="productsMidCount">共 0 条</div>
-    <select class="products-mid-filter" id="productsMidCategory" onchange="selectProductCategory(this.value)" title="类目筛选">
-      <option value="">全部分类</option>
-    </select>
-    <div class="products-mid-search">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-      <input type="text" placeholder="搜索商品..." id="productsMidSearch" oninput="onProductSearch(this.value)">
-    </div>
-    <button class="products-mid-new" onclick="createNewProduct()">+ 录入商品</button>
-  </div>
-  <div class="products-mid-items" id="productsMidItems"></div>
-  <div class="products-mid-pagination" id="productsMidPagination"></div>
-</div>
-
 <!-- Products Right -->
 <div class="module-right products-right" id="productsRight">
-  <div class="products-right-content" id="productsRightContent">
+  <div class="module-right-header">
+    <div class="module-right-title" id="productsRightTitle">商品详情</div>
+    <div class="module-right-actions" id="productsRightActions">
+      <button class="module-action-btn" onclick="editCurrentProduct()">编辑</button>
+      <button class="module-action-btn danger" onclick="deleteCurrentProduct()">删除</button>
+    </div>
+  </div>
+  <div class="module-right-content products-right-content" id="productsRightContent">
+    <div class="products-empty" id="productsEmptyState">
+      <div class="products-empty-icon">📦</div>
+      <div class="products-empty-text">选择左侧商品查看详情，或点击 + 新建</div>
+      <button class="products-empty-btn" onclick="createNewProduct()">+ 录入商品</button>
+    </div>
     <!-- AI Analysis Card at top -->
     <div class="products-ai-card" id="productsAICard">
       <div class="products-ai-header">
@@ -5196,7 +5245,7 @@ window.doLogin = function () {
       <div class="products-ai-body" id="productsAIBody"></div>
     </div>
     <!-- Tabs -->
-    <div class="products-tabs">
+    <div class="products-tabs" id="productsTabs">
       <button class="products-tab active" data-tab="detail" onclick="switchProductTab('detail')">基本信息</button>
       <button class="products-tab" data-tab="sales" onclick="switchProductTab('sales')">带货数据</button>
       <button class="products-tab" data-tab="influencers" onclick="switchProductTab('influencers')">带货达人</button>
@@ -5252,7 +5301,11 @@ window.doLogin = function () {
     </div>
   </div>
   <div class="module-right-content talents-right-content" id="talentsRightContent">
-    <div class="talents-tabs">
+    <div class="products-empty" id="talentsEmptyState">
+      <div class="products-empty-icon">👤</div>
+      <div class="products-empty-text">选择左侧达人查看详情</div>
+    </div>
+    <div class="talents-tabs" id="talentsTabs">
       <button class="talents-tab active" data-tab="overview" onclick="switchTalentTab('overview')">概览</button>
       <button class="talents-tab" data-tab="sales" onclick="switchTalentTab('sales')">带货数据</button>
       <button class="talents-tab" data-tab="fans" onclick="switchTalentTab('fans')">粉丝画像</button>
@@ -20053,9 +20106,8 @@ function checkQuota() {
 // ========== 商品库 ==========
 var _productData = { products: [], total: 0 };
 var _productBrandData = { brands: [], total: 0 };
-var _productCurrentBrandId = '';
 var _productCurrentBrandName = '';
-var _productCurrentCategory = '';
+var _productCurrentStatus = '';
 var _productCurrentId = null;
 var _productPage = 1;
 var _productPageSize = 20;
@@ -20066,19 +20118,40 @@ function closeProductLibrary() { switchModule('messages'); closeProductRight(); 
 
 function closeProductRight() {
   _productCurrentId = null;
-  var right = document.getElementById('productsRight');
-  var overlay = document.getElementById('productsRightOverlay');
-  if (right) right.classList.remove('active');
-  if (overlay) overlay.classList.remove('open');
   document.querySelectorAll('.products-mid-card').forEach(function(el) { el.classList.remove('active'); });
+  showProductEmptyState();
+}
+
+function showProductEmptyState() {
+  var empty = document.getElementById('productsEmptyState');
+  var ai = document.getElementById('productsAICard');
+  var tabs = document.getElementById('productsTabs');
+  var panels = document.getElementById('productsTabPanels');
+  if (empty) empty.style.display = 'flex';
+  if (ai) ai.style.display = 'none';
+  if (tabs) tabs.style.display = 'none';
+  if (panels) panels.style.display = 'none';
+  var title = document.getElementById('productsRightTitle');
+  if (title) title.textContent = '商品详情';
+}
+
+function hideProductEmptyState() {
+  var empty = document.getElementById('productsEmptyState');
+  var ai = document.getElementById('productsAICard');
+  var tabs = document.getElementById('productsTabs');
+  var panels = document.getElementById('productsTabPanels');
+  if (empty) empty.style.display = 'none';
+  if (ai) ai.style.display = 'block';
+  if (tabs) tabs.style.display = 'flex';
+  if (panels) panels.style.display = 'block';
 }
 
 function loadProducts(page) {
   if (page) _productPage = page;
   var offset = (_productPage - 1) * _productPageSize;
   var qs = ['limit=' + _productPageSize, 'offset=' + offset];
-  if (_productCurrentBrandId) qs.push('brand=' + encodeURIComponent(_productCurrentBrandName));
-  if (_productCurrentCategory) qs.push('category=' + encodeURIComponent(_productCurrentCategory));
+  if (_productCurrentBrandName) qs.push('brand=' + encodeURIComponent(_productCurrentBrandName));
+  if (_productCurrentStatus) qs.push('status=' + encodeURIComponent(_productCurrentStatus));
   var kw = document.getElementById('productsMidSearch') ? document.getElementById('productsMidSearch').value.trim() : '';
   if (kw) qs.push('q=' + encodeURIComponent(kw));
   var url = '/api/products?' + qs.join('&');
@@ -20089,22 +20162,49 @@ function loadProducts(page) {
     _productData.total = data.total || 0;
     renderProductList(_productData.products);
     renderProductPagination(_productData.total, _productPage, _productPageSize);
-    renderProductCategories();
+    renderProductBrandOptions();
+    if (!_productCurrentId) showProductEmptyState();
   }).catch(function(e){
     if (itemsEl) itemsEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
   });
 }
 
 function loadProductBrands() {
-  var el = document.getElementById('productsBrandList');
-  if (el) el.innerHTML = '<div class="products-loading" style="padding:20px;">加载品牌...</div>';
+  var sel = document.getElementById('productsMidBrand');
+  if (sel) sel.disabled = true;
   apiFetch('/api/brands').then(function(r){return r.json();}).then(function(data){
     _productBrandData.brands = data.brands || [];
     _productBrandData.total = data.total || 0;
-    renderProductBrands(_productBrandData.brands);
+    renderProductBrandOptions();
+    if (sel) sel.disabled = false;
   }).catch(function(e){
-    if (el) el.innerHTML = '<div class="products-empty-text" style="padding:20px;">品牌加载失败</div>';
+    if (sel) sel.disabled = false;
   });
+}
+
+function renderProductBrandOptions() {
+  var sel = document.getElementById('productsMidBrand');
+  if (!sel) return;
+  var currentVal = sel.value;
+  var html = '<option value="">全部品牌</option>';
+  _productBrandData.brands.forEach(function(b){
+    html += '<option value="' + escapeAttr(b.name) + '">' + escapeHtml(b.name) + '</option>';
+  });
+  sel.innerHTML = html;
+  if (currentVal) sel.value = currentVal;
+}
+
+function selectProductBrand(brandName) {
+  _productCurrentBrandName = brandName || '';
+  _productPage = 1;
+  loadProducts();
+}
+
+function selectProductStatus(status) {
+  _productCurrentStatus = status || '';
+  _productPage = 1;
+  document.querySelectorAll('#productsStatusFilter .segmented-item').forEach(function(el){ el.classList.toggle('active', el.dataset.status === _productCurrentStatus); });
+  loadProducts();
 }
 
 function onProductSearch(value) {
@@ -20125,17 +20225,13 @@ function renderProductList(products) {
   var html = '';
   products.forEach(function(p){
     var isActive = p.id === _productCurrentId;
-    var rates = p.commission_rates || {};
-    var firstRate = rates[Object.keys(rates)[0]] || p.commission_rate || 0;
     var placeholder = getProductPlaceholder(p);
     html += '<div class="products-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(p.id) + '" onclick="selectProductItem(\'' + escapeAttr(p.id).replace(/'/g,"\\'") + '\')">';
     html += placeholder;
     html += '<div class="products-mid-card-info">';
     html += '<div class="products-mid-card-title">' + escapeHtml(p.name) + '</div>';
-    html += '<div class="products-mid-card-subtitle">' + escapeHtml(p.subtitle || '') + '</div>';
     html += '<div class="products-mid-card-metrics">';
     html += '<span class="products-mid-card-price">¥' + (p.price || 0).toFixed(2) + '</span>';
-    html += '<span class="products-mid-card-commission">佣金 ' + firstRate + '%</span>';
     html += '<span class="products-mid-card-sales">月销 ' + formatNumber(p.monthly_sales || 0) + '</span>';
     html += '<span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status) + '</span>';
     html += '</div></div></div>';
@@ -20174,10 +20270,6 @@ function selectProductItem(id) {
   if (!p) return;
   apiFetch('/api/products/' + encodeURIComponent(id)).then(function(r){return r.json();}).then(function(product){
     renderProductDetail(product);
-    var right = document.getElementById('productsRight');
-    var overlay = document.getElementById('productsRightOverlay');
-    if (right) right.classList.add('active');
-    if (overlay) overlay.classList.add('open');
     document.querySelectorAll('.products-mid-card').forEach(function(el){el.classList.remove('active');});
     var activeEl = document.querySelector('.products-mid-card[data-id="' + escapeAttr(id) + '"]');
     if (activeEl) activeEl.classList.add('active');
@@ -20185,6 +20277,9 @@ function selectProductItem(id) {
 }
 
 function renderProductDetail(p) {
+  hideProductEmptyState();
+  var title = document.getElementById('productsRightTitle');
+  if (title) title.textContent = p.name || '商品详情';
   // AI card
   var ai = p.ai_analysis || {};
   var scoreEl = document.getElementById('productsAIScore');
@@ -20467,55 +20562,6 @@ function deleteCurrentProduct() {
   apiFetch('/api/products/' + encodeURIComponent(_productCurrentId), {method:'DELETE'}).then(function(){ showToast('✅ 已删除'); closeProductRight(); loadProducts(); }).catch(function(){ showToast('❌ 删除失败'); });
 }
 
-function selectProductBrand(brandId, brandName) {
-  _productCurrentBrandId = brandId || '';
-  _productCurrentBrandName = brandName || '';
-  _productPage = 1;
-  document.querySelectorAll('.products-brand-item').forEach(function(el){ el.classList.toggle('active', el.dataset.brandId === _productCurrentBrandId); });
-  var titleEl = document.getElementById('productsMidTitle');
-  if (titleEl) titleEl.textContent = _productCurrentBrandName || '全部商品';
-  loadProducts();
-  renderProductCategories();
-}
-
-function selectProductCategory(cat) {
-  _productCurrentCategory = cat;
-  _productPage = 1;
-  loadProducts();
-  renderProductCategories();
-}
-
-function renderProductBrands(brands) {
-  var el = document.getElementById('productsBrandList');
-  if (!el) return;
-  var html = '<div class="products-brand-item' + (!_productCurrentBrandId ? ' active' : '') + '" data-brand-id="" onclick="selectProductBrand(\'\',\'\')">';
-  html += '<div class="products-brand-logo"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/></svg></div>';
-  html += '<div class="products-brand-info"><div class="products-brand-name">全部品牌</div><div class="products-brand-meta">显示所有商品</div></div></div>';
-  brands.forEach(function(b){
-    var isActive = _productCurrentBrandId === b.id;
-    var logo = b.logo ? '<img src="' + escapeAttr(b.logo) + '" style="width:100%;height:100%;object-fit:cover;border-radius:10px;">' : '<span>' + (b.name ? b.name.charAt(0) : '品') + '</span>';
-    html += '<div class="products-brand-item' + (isActive ? ' active' : '') + '" data-brand-id="' + escapeAttr(b.id) + '" onclick="selectProductBrand(\'' + escapeAttr(b.id).replace(/'/g,"\\'") + '\',\'' + escapeAttr(b.name).replace(/'/g,"\\'") + '\')">';
-    html += '<div class="products-brand-logo">' + logo + '</div>';
-    html += '<div class="products-brand-info"><div class="products-brand-name">' + escapeHtml(b.name) + '</div>';
-    html += '<div class="products-brand-meta">评分 <span class="products-brand-score">' + (b.shop_score || '-') + '</span> · 商品 ' + (b.total_products || 0) + '</div></div>';
-    html += '</div>';
-  });
-  el.innerHTML = html;
-}
-
-function renderProductCategories() {
-  var el = document.getElementById('productsMidCategory');
-  if (!el) return;
-  var cats = {};
-  _productData.products.forEach(function(p){ var c = p.category || '未分类'; cats[c] = (cats[c]||0)+1; });
-  var currentVal = el.value;
-  var html = '<option value="">全部分类</option>';
-  Object.keys(cats).forEach(function(c){ html += '<option value="' + escapeAttr(c) + '">' + escapeHtml(c) + ' (' + cats[c] + ')</option>'; });
-  el.innerHTML = html;
-  if (currentVal && cats[currentVal]) el.value = currentVal;
-  else if (_productCurrentCategory && cats[_productCurrentCategory]) el.value = _productCurrentCategory;
-}
-
 // ========== 达人库 ==========
 var _talentData = { talents: [], total: 0 };
 var _talentCurrentId = null;
@@ -20546,7 +20592,7 @@ function loadTalents(page) {
     _talentData.total = data.total || 0;
     renderTalentList(_talentData.talents);
     renderTalentPagination(_talentData.total, _talentPage, _talentPageSize);
-    updateTalentCategoryFilter(data.talents || []);
+    if (!_talentCurrentId) showTalentEmptyState();
   }).catch(function(e){
     if (itemsEl) itemsEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
   });
@@ -20564,26 +20610,12 @@ function onTalentSearch(val) {
 function selectTalentCooperation(status) {
   _talentCooperation = status;
   _talentPage = 1;
-  document.querySelectorAll('#talentsCooperationFilter .talents-filter-item').forEach(function(el){ el.classList.toggle('active', el.dataset.cooperation === status); });
+  document.querySelectorAll('#talentsCooperationFilter .segmented-item').forEach(function(el){ el.classList.toggle('active', el.dataset.cooperation === status); });
   loadTalents();
 }
 
-function selectTalentCategory(cat) {
-  _talentCategory = cat;
-  _talentPage = 1;
-  document.querySelectorAll('#talentsCategoryFilter .talents-filter-item').forEach(function(el){ el.classList.toggle('active', el.dataset.category === cat); });
-  loadTalents();
-}
-
-function updateTalentCategoryFilter(talents) {
-  var cats = {};
-  talents.forEach(function(t){ var c = t.fan_category || t.category || '未分类'; cats[c] = (cats[c]||0)+1; });
-  _talentAllCategories = Object.keys(cats);
-  var el = document.getElementById('talentsCategoryFilter');
-  if (!el) return;
-  var html = '<div class="talents-filter-item' + (!_talentCategory ? ' active' : '') + '" data-category="" onclick="selectTalentCategory(\'\')">全部</div>';
-  Object.keys(cats).forEach(function(c){ html += '<div class="talents-filter-item' + (_talentCategory === c ? ' active' : '') + '" data-category="' + escapeAttr(c) + '" onclick="selectTalentCategory(\'' + escapeAttr(c).replace(/'/g,"\\'") + '\')">' + escapeHtml(c) + ' <span style="font-size:11px;color:var(--text-secondary);">' + cats[c] + '</span></div>'; });
-  el.innerHTML = html;
+function recommendTalentsAI() {
+  showToast('✨ AI 推荐达人功能开发中');
 }
 
 function renderTalentList(talents) {
@@ -20655,6 +20687,7 @@ function selectTalentItem(id) {
 }
 
 function renderTalentDetail(t) {
+  hideTalentEmptyState();
   _currentTalent = t;
   var titleEl = document.getElementById('talentsRightTitle');
   if (titleEl) titleEl.textContent = t.name || '达人详情';
@@ -20667,6 +20700,26 @@ function renderTalentDetail(t) {
   renderTalentPanelFans(t);
   renderTalentPanelProducts(t);
   renderTalentPanelRecords(t);
+}
+
+function showTalentEmptyState() {
+  var empty = document.getElementById('talentsEmptyState');
+  var tabs = document.getElementById('talentsTabs');
+  var panels = document.getElementById('talentsTabPanels');
+  if (empty) empty.style.display = 'flex';
+  if (tabs) tabs.style.display = 'none';
+  if (panels) panels.style.display = 'none';
+  var title = document.getElementById('talentsRightTitle');
+  if (title) title.textContent = '达人详情';
+}
+
+function hideTalentEmptyState() {
+  var empty = document.getElementById('talentsEmptyState');
+  var tabs = document.getElementById('talentsTabs');
+  var panels = document.getElementById('talentsTabPanels');
+  if (empty) empty.style.display = 'none';
+  if (tabs) tabs.style.display = 'flex';
+  if (panels) panels.style.display = 'block';
 }
 
 function switchTalentTab(tab) {
@@ -20896,7 +20949,7 @@ function editCurrentTalent() {
 function deleteCurrentTalent() {
   if (!_talentCurrentId) { showToast('请选择达人'); return; }
   if (!confirm('确定删除此达人？')) return;
-  apiFetch('/api/talents/' + encodeURIComponent(_talentCurrentId), {method:'DELETE'}).then(function(){ showToast('✅ 已删除'); _talentCurrentId = null; loadTalents(); }).catch(function(){ showToast('❌ 删除失败'); });
+  apiFetch('/api/talents/' + encodeURIComponent(_talentCurrentId), {method:'DELETE'}).then(function(){ showToast('✅ 已删除'); _talentCurrentId = null; showTalentEmptyState(); loadTalents(); }).catch(function(){ showToast('❌ 删除失败'); });
 }
 
 var _currentTalent = null;
@@ -22327,13 +22380,8 @@ function switchModule(module) {
   if (knowledgeRightOverlay) knowledgeRightOverlay.classList.remove('open');
 
   // Manage products three-column layout
-  var productsLeftSidebar = document.getElementById('productsLeftSidebar');
   var productsMidList = document.getElementById('productsMidList');
-  var productsRightOverlay = document.getElementById('productsRightOverlay');
-  if (appMain) appMain.classList.toggle('products-active', module === 'products');
-  if (productsLeftSidebar) productsLeftSidebar.classList.toggle('active', module === 'products');
   if (productsMidList) productsMidList.classList.toggle('active', module === 'products');
-  if (productsRightOverlay) productsRightOverlay.classList.remove('open');
 
   if (module === 'messages') {
     document.getElementById('chatArea').style.display = 'flex';
@@ -22348,16 +22396,11 @@ function switchModule(module) {
     var right = document.getElementById(module + 'Right');
     if (mid) mid.classList.add('active');
     if (right) {
-      if (module === 'knowledge' || module === 'products') {
+      if (module === 'knowledge') {
         right.classList.remove('active');
       } else {
         right.classList.add('active');
       }
-    }
-    // 达人库需要显示左侧筛选栏
-    if (module === 'influencers') {
-      var tl = document.getElementById('talentsLeftSidebar');
-      if (tl) tl.classList.add('active');
     }
     if (module === 'knowledge') { loadGroups(); loadKnowledgePage(); }
     else if (module === 'products') { loadProductBrands(); loadProducts(); }
