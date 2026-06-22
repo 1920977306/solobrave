@@ -4555,6 +4555,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .product-modal-title { font-size: 17px; font-weight: 600; }
 .product-modal-close { width: 28px; height: 28px; border-radius: 50%; border: none; background: transparent; cursor: pointer; font-size: 16px; color: var(--text-secondary); }
 .product-modal-body { padding: 16px 20px; flex: 1; overflow-y: auto; }
+.product-modal-field { margin-bottom: 14px; }
+.product-modal-field label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.product-modal-field.required label { color: var(--text-primary); }
+.product-modal-field.required label::after { content: ' *'; color: #FF3B30; }
+.product-modal-field input, .product-modal-field select, .product-modal-field textarea { width: 100%; padding: 8px 12px; border-radius: 8px; border: 0.5px solid var(--separator); font-size: 14px; background: var(--bg-primary); box-sizing: border-box; }
+.product-modal-field textarea { resize: vertical; min-height: 72px; }
+.product-modal-tip { background: var(--accent-light); color: var(--accent); padding: 10px 12px; border-radius: 8px; font-size: 12px; margin-bottom: 14px; line-height: 1.5; }
+.product-modal-section { margin-bottom: 18px; }
+.product-modal-section:last-child { margin-bottom: 0; }
+.product-modal-section-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 0.5px solid var(--separator); }
 .product-form-row { margin-bottom: 14px; }
 .product-form-row label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
 .product-form-row input, .product-form-row select, .product-form-row textarea { width: 100%; padding: 8px 12px; border-radius: 8px; border: 0.5px solid var(--separator); font-size: 14px; background: var(--bg-primary); box-sizing: border-box; }
@@ -5184,10 +5194,6 @@ window.doLogin = function () {
 <div class="module-right products-right" id="productsRight">
   <div class="module-right-header">
     <div class="module-right-title" id="productsRightTitle">商品详情</div>
-    <div class="module-right-actions" id="productsRightActions">
-      <button class="module-action-btn" onclick="editCurrentProduct()">编辑</button>
-      <button class="module-action-btn danger" onclick="deleteCurrentProduct()">删除</button>
-    </div>
   </div>
   <div class="module-right-content products-right-content" id="productsRightContent">
     <div class="products-empty" id="productsEmptyState">
@@ -5234,17 +5240,17 @@ window.doLogin = function () {
     </div>
     <div class="product-modal-body">
       <input type="hidden" id="productEditId">
-      <div class="product-modal-field"><label>商品名称 *</label><input type="text" id="productName" placeholder="输入商品名称"></div>
-      <div class="product-modal-field"><label>副标题</label><input type="text" id="productSubtitle" placeholder="输入副标题"></div>
+      <div class="product-modal-field required"><label>商品名称</label><input type="text" id="productName" placeholder="输入商品名称"></div>
       <input type="hidden" id="productBrandId">
       <div class="product-modal-field"><label>品牌</label><select id="productBrandSelect" onchange="onProductBrandChange(this.value)"><option value="">选择品牌</option></select></div>
       <div class="product-modal-field"><label>类目</label><input type="text" id="productCategory" value="拖鞋"></div>
-      <div class="product-modal-field"><label>价格 *</label><input type="number" id="productPrice" placeholder="0.00"></div>
+      <div class="product-modal-field required"><label>价格</label><input type="number" id="productPrice" placeholder="0.00"></div>
       <div class="product-modal-field"><label>库存</label><input type="number" id="productStock" value="0"></div>
-      <div class="product-modal-field"><label>SKU 规格</label><textarea id="productSkuSpecs" placeholder='{"颜色":["米白"],"尺码":["36-40"]}'></textarea></div>
       <div class="product-modal-field"><label>状态</label>
         <select id="productStatus"><option value="active">在售</option><option value="inactive">停售</option><option value="out_of_stock">缺货</option></select>
       </div>
+      <div class="product-modal-field"><label>描述</label><textarea id="productDescription" placeholder="输入商品描述"></textarea></div>
+      <div class="product-modal-field"><label>SKU 规格</label><textarea id="productSkuSpecs" placeholder='{"颜色":["米白"],"尺码":["36-40"]}'></textarea></div>
     </div>
     <div class="product-modal-footer">
       <button class="product-modal-btn cancel" onclick="closeProductModal()">取消</button>
@@ -5262,20 +5268,37 @@ window.doLogin = function () {
     </div>
     <div class="product-modal-body">
       <input type="hidden" id="talentEditId">
-      <div class="product-modal-field"><label>达人昵称 *</label><input type="text" id="talentName" placeholder="输入达人昵称"></div>
-      <div class="product-modal-field"><label>抖音号</label><input type="text" id="talentDouyinId" placeholder="输入抖音号"></div>
-      <div class="product-modal-field"><label>粉丝量</label><input type="number" id="talentFollowers" placeholder="0"></div>
-      <div class="product-modal-field"><label>主营类目</label><input type="text" id="talentCategory" placeholder="鞋靴/凉鞋"></div>
-      <div class="product-modal-field"><label>合作状态</label>
-        <select id="talentCooperationStatus">
-          <option value="available">可合作</option>
-          <option value="following">关注</option>
-          <option value="communicating">沟通中</option>
-          <option value="cooperating">已合作</option>
-          <option value="blacklist">黑名单</option>
-        </select>
+      <div class="product-modal-tip">ℹ️ 达人信息更新可能存在延迟，请以抖音后台实际数据为准。</div>
+      <div class="product-modal-section">
+        <div class="product-modal-section-title">达人信息</div>
+        <div class="product-modal-field required"><label>达人昵称</label><input type="text" id="talentName" placeholder="输入达人昵称"></div>
+        <div class="product-modal-field required"><label>抖音号</label><input type="text" id="talentDouyinId" placeholder="输入抖音号"></div>
+        <div class="product-modal-field"><label>粉丝量</label><input type="number" id="talentFollowers" placeholder="0"></div>
+        <div class="product-modal-field"><label>主营类目</label><input type="text" id="talentCategory" placeholder="鞋靴/凉鞋"></div>
+        <div class="product-modal-field"><label>达人简介</label><textarea id="talentBio" placeholder="输入达人简介"></textarea></div>
       </div>
-      <div class="product-modal-field"><label>达人简介</label><textarea id="talentBio" placeholder="输入达人简介"></textarea></div>
+      <div class="product-modal-section">
+        <div class="product-modal-section-title">联系人信息</div>
+        <div class="product-modal-field"><label>联系人姓名</label><input type="text" id="talentContactName" placeholder="输入联系人姓名"></div>
+        <div class="product-modal-field"><label>手机号</label><input type="tel" id="talentContactPhone" placeholder="输入手机号"></div>
+        <div class="product-modal-field"><label>微信号</label><input type="text" id="talentContactWechat" placeholder="输入微信号"></div>
+        <div class="product-modal-field"><label>邮箱</label><input type="email" id="talentContactEmail" placeholder="输入邮箱"></div>
+      </div>
+      <div class="product-modal-section">
+        <div class="product-modal-section-title">跟进信息</div>
+        <div class="product-modal-field required"><label>合作状态</label>
+          <select id="talentCooperationStatus">
+            <option value="available">可合作</option>
+            <option value="following">关注</option>
+            <option value="communicating">沟通中</option>
+            <option value="cooperating">已合作</option>
+            <option value="blacklist">黑名单</option>
+          </select>
+        </div>
+        <div class="product-modal-field"><label>跟进人</label><input type="text" id="talentFollowUpBy" placeholder="输入跟进人"></div>
+        <div class="product-modal-field"><label>下次跟进时间</label><input type="datetime-local" id="talentNextFollowUpAt"></div>
+        <div class="product-modal-field"><label>跟进备注</label><textarea id="talentFollowUpNote" placeholder="输入跟进备注"></textarea></div>
+      </div>
     </div>
     <div class="product-modal-footer">
       <button class="product-modal-btn cancel" onclick="closeTalentModal()">取消</button>
@@ -5286,7 +5309,7 @@ window.doLogin = function () {
 
 <!-- Talents Right -->
 <div class="module-right talents-right" id="influencersRight">
-  <div class="module-right-header">
+  <div class="module-right-header" id="talentsRightHeader">
     <div class="module-right-title" id="talentsRightTitle">达人详情</div>
     <div class="module-right-actions" id="talentsRightActions">
       <button class="module-action-btn primary" onclick="analyzeTalentAI()" id="talentsAIBtn">AI 分析</button>
@@ -5355,7 +5378,7 @@ window.doLogin = function () {
     <div class="talents-mid-count" id="talentsMidCount">共 0 条</div>
     <div class="talents-mid-search">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-      <input type="text" placeholder="搜索达人昵称、抖音号..." id="talentsMidSearch" oninput="onTalentSearch(this.value)">
+      <input type="text" placeholder="搜索达人昵称/关键词..." id="talentsMidSearch" oninput="onTalentSearch(this.value)">
     </div>
     <div class="segmented-control" id="talentsCooperationFilter">
       <button class="segmented-item active" data-cooperation="" onclick="selectTalentCooperation('')">全部</button>
@@ -20280,6 +20303,9 @@ function renderProductList(products) {
 }
 
 function getProductPlaceholder(p) {
+  if (p.main_image) {
+    return '<img class="products-mid-card-image" src="' + escapeAttr(p.main_image) + '" alt="' + escapeAttr(p.name) + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';"><div class="products-mid-card-placeholder" style="display:none;">' + escapeHtml((p.name || '?').charAt(0)) + '</div>';
+  }
   var brandColors = {'COOLCHAP':'#FF6B35'};
   var color = brandColors[p.brand] || '#165DFF';
   var ch = (p.name || '?').charAt(0);
@@ -20365,10 +20391,10 @@ function renderProductPanelDetail(p) {
   html += '<div class="products-detail-item"><div class="products-detail-label">库存</div><div class="products-detail-value">' + (p.stock || 0) + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">状态</div><div class="products-detail-value">' + (statusMap[p.status] || p.status || '-') + '</div></div>';
   html += '</div></div>';
-  if (p.subtitle || p.description) {
+  if (p.description || p.subtitle) {
     html += '<div class="products-panel-section">';
     html += '<div class="products-panel-title">商品描述</div>';
-    html += '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">' + escapeHtml(p.subtitle || p.description || '-') + '</div>';
+    html += '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">' + escapeHtml(p.description || p.subtitle || '-') + '</div>';
     html += '</div>';
   }
   if (p.sku_specs && Object.keys(p.sku_specs).length > 0) {
@@ -20389,9 +20415,9 @@ function renderProductPanelDetail(p) {
     p.tags.forEach(function(tag){ html += '<span class="products-tag">' + escapeHtml(tag) + '</span>'; });
     html += '</div></div>';
   }
-  html += '<div style="display:flex;gap:10px;padding:0 4px;">';
-  html += '<button class="product-modal-save" onclick="editCurrentProduct()" style="flex:1;padding:10px 16px;">编辑商品</button>';
-  html += '<button class="product-modal-cancel" onclick="deleteCurrentProduct()" style="flex:1;padding:10px 16px;color:#FF3B30;">删除商品</button>';
+  html += '<div style="display:flex;gap:10px;padding:0 4px;margin-top:8px;">';
+  html += '<button class="product-modal-btn save" onclick="editCurrentProduct()" style="flex:1;padding:10px 16px;">编辑商品</button>';
+  html += '<button class="product-modal-btn cancel" onclick="deleteCurrentProduct()" style="flex:1;padding:10px 16px;color:#FF3B30;">删除商品</button>';
   html += '</div>';
   el.innerHTML = html;
 }
@@ -20539,7 +20565,7 @@ function onProductBrandChange(brandName) {
 function createNewProduct() {
   document.getElementById('productEditId').value = '';
   document.getElementById('productName').value = '';
-  document.getElementById('productSubtitle').value = '';
+  document.getElementById('productDescription').value = '';
   renderProductBrandOptions();
   document.getElementById('productBrandSelect').value = _productCurrentBrandName || '';
   document.getElementById('productCategory').value = '拖鞋';
@@ -20556,7 +20582,7 @@ function editCurrentProduct() {
   apiFetch('/api/products/' + encodeURIComponent(_productCurrentId)).then(function(r){return r.json();}).then(function(p){
     document.getElementById('productEditId').value = p.id;
     document.getElementById('productName').value = p.name || '';
-    document.getElementById('productSubtitle').value = p.subtitle || '';
+    document.getElementById('productDescription').value = p.description || p.subtitle || '';
     renderProductBrandOptions();
     document.getElementById('productBrandSelect').value = p.brand || '';
     document.getElementById('productCategory').value = p.category || '';
@@ -20580,7 +20606,7 @@ function saveProduct() {
   var b = _productBrandData.brands.find(function(x){ return x.id === brandId; });
   var body = {
     name: document.getElementById('productName').value.trim(),
-    subtitle: document.getElementById('productSubtitle').value.trim(),
+    description: document.getElementById('productDescription').value.trim(),
     brand_id: brandId,
     brand: b ? b.name : '',
     category: document.getElementById('productCategory').value.trim(),
@@ -20745,20 +20771,22 @@ function showTalentEmptyState() {
   var empty = document.getElementById('talentsEmptyState');
   var tabs = document.getElementById('talentsTabs');
   var panels = document.getElementById('talentsTabPanels');
+  var header = document.getElementById('talentsRightHeader');
   if (empty) empty.style.display = 'flex';
   if (tabs) tabs.style.display = 'none';
   if (panels) panels.style.display = 'none';
-  var title = document.getElementById('talentsRightTitle');
-  if (title) title.textContent = '达人详情';
+  if (header) header.style.display = 'none';
 }
 
 function hideTalentEmptyState() {
   var empty = document.getElementById('talentsEmptyState');
   var tabs = document.getElementById('talentsTabs');
   var panels = document.getElementById('talentsTabPanels');
+  var header = document.getElementById('talentsRightHeader');
   if (empty) empty.style.display = 'none';
   if (tabs) tabs.style.display = 'flex';
   if (panels) panels.style.display = 'block';
+  if (header) header.style.display = 'flex';
 }
 
 function switchTalentTab(tab) {
@@ -20951,8 +20979,15 @@ function createNewTalent() {
   document.getElementById('talentDouyinId').value = '';
   document.getElementById('talentFollowers').value = '0';
   document.getElementById('talentCategory').value = '鞋靴/凉鞋';
-  document.getElementById('talentCooperationStatus').value = 'available';
   document.getElementById('talentBio').value = '';
+  document.getElementById('talentContactName').value = '';
+  document.getElementById('talentContactPhone').value = '';
+  document.getElementById('talentContactWechat').value = '';
+  document.getElementById('talentContactEmail').value = '';
+  document.getElementById('talentCooperationStatus').value = 'available';
+  document.getElementById('talentFollowUpBy').value = '';
+  document.getElementById('talentNextFollowUpAt').value = '';
+  document.getElementById('talentFollowUpNote').value = '';
   document.getElementById('talentModalTitle').textContent = '录入达人';
   document.getElementById('talentModalOverlay').classList.add('active');
 }
@@ -20965,8 +21000,15 @@ function editCurrentTalent() {
     document.getElementById('talentDouyinId').value = t.douyin_id || '';
     document.getElementById('talentFollowers').value = t.followers || 0;
     document.getElementById('talentCategory').value = t.fan_category || '';
-    document.getElementById('talentCooperationStatus').value = t.cooperation_status || 'available';
     document.getElementById('talentBio').value = t.bio || '';
+    document.getElementById('talentContactName').value = t.contact_name || '';
+    document.getElementById('talentContactPhone').value = t.contact_phone || '';
+    document.getElementById('talentContactWechat').value = t.contact_wechat || '';
+    document.getElementById('talentContactEmail').value = t.contact_email || '';
+    document.getElementById('talentCooperationStatus').value = t.cooperation_status || 'available';
+    document.getElementById('talentFollowUpBy').value = t.follow_up_by || '';
+    document.getElementById('talentNextFollowUpAt').value = t.next_follow_up_at ? new Date(t.next_follow_up_at).toISOString().slice(0,16) : '';
+    document.getElementById('talentFollowUpNote').value = t.follow_up_note || '';
     document.getElementById('talentModalTitle').textContent = '编辑达人';
     document.getElementById('talentModalOverlay').classList.add('active');
   });
@@ -20977,14 +21019,25 @@ function closeTalentModal(e) { if (e && e.target !== e.currentTarget) return; do
 function saveTalent() {
   var id = document.getElementById('talentEditId').value;
   var name = document.getElementById('talentName').value.trim();
+  var douyinId = document.getElementById('talentDouyinId').value.trim();
   if (!name) { showToast('请输入达人昵称'); return; }
+  if (!douyinId) { showToast('请输入抖音号'); return; }
+  var nextFollowUpVal = document.getElementById('talentNextFollowUpAt').value;
+  var nextFollowUpAt = nextFollowUpVal ? new Date(nextFollowUpVal).getTime() : 0;
   var body = {
     name: name,
-    douyin_id: document.getElementById('talentDouyinId').value.trim(),
+    douyin_id: douyinId,
     followers: parseInt(document.getElementById('talentFollowers').value || '0') || 0,
     fan_category: document.getElementById('talentCategory').value.trim(),
+    bio: document.getElementById('talentBio').value.trim(),
+    contact_name: document.getElementById('talentContactName').value.trim(),
+    contact_phone: document.getElementById('talentContactPhone').value.trim(),
+    contact_wechat: document.getElementById('talentContactWechat').value.trim(),
+    contact_email: document.getElementById('talentContactEmail').value.trim(),
     cooperation_status: document.getElementById('talentCooperationStatus').value,
-    bio: document.getElementById('talentBio').value.trim()
+    follow_up_by: document.getElementById('talentFollowUpBy').value.trim(),
+    next_follow_up_at: nextFollowUpAt,
+    follow_up_note: document.getElementById('talentFollowUpNote').value.trim()
   };
   var url = id ? '/api/talents/' + encodeURIComponent(id) : '/api/talents';
   var method = id ? 'PUT' : 'POST';
