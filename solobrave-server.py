@@ -2029,6 +2029,7 @@ def init_db():
                 price REAL DEFAULT 0,
                 price_range TEXT DEFAULT '',
                 brand TEXT DEFAULT '',
+                brand_id TEXT DEFAULT '',
                 category TEXT DEFAULT '',
                 sku_specs TEXT DEFAULT '{}',
                 stock INTEGER DEFAULT 0,
@@ -2040,6 +2041,7 @@ def init_db():
                 conversion_rate REAL DEFAULT 0,
                 avg_order_value REAL DEFAULT 0,
                 influencer_count INTEGER DEFAULT 0,
+                talent_count INTEGER DEFAULT 0,
                 video_count INTEGER DEFAULT 0,
                 live_count INTEGER DEFAULT 0,
                 channel_distribution TEXT DEFAULT '{}',
@@ -2053,18 +2055,110 @@ def init_db():
                 updated_at INTEGER
             )
         ''')
-        # 兼容旧表：新增 tags / selling_points 列
-        try:
-            conn.execute("ALTER TABLE products ADD COLUMN tags TEXT DEFAULT '[]'")
-        except Exception:
-            pass
-        try:
-            conn.execute("ALTER TABLE products ADD COLUMN selling_points TEXT DEFAULT ''")
-        except Exception:
-            pass
+        # 兼容旧表：新增 tags / selling_points / brand_id / talent_count 列
+        for col_sql in (
+            "ALTER TABLE products ADD COLUMN tags TEXT DEFAULT '[]'",
+            "ALTER TABLE products ADD COLUMN selling_points TEXT DEFAULT ''",
+            "ALTER TABLE products ADD COLUMN brand_id TEXT DEFAULT ''",
+            "ALTER TABLE products ADD COLUMN talent_count INTEGER DEFAULT 0",
+        ):
+            try:
+                conn.execute(col_sql)
+            except Exception:
+                pass
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_products_brand_id ON products(brand_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)')
+
+        # 品牌库
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS brands (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                logo TEXT DEFAULT '',
+                shop_score REAL DEFAULT 0,
+                shop_type TEXT DEFAULT '',
+                main_category TEXT DEFAULT '',
+                total_products INTEGER DEFAULT 0,
+                total_talents INTEGER DEFAULT 0,
+                avg_commission REAL DEFAULT 0,
+                group_id TEXT DEFAULT '',
+                status TEXT DEFAULT 'active',
+                created_at INTEGER,
+                updated_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_brands_status ON brands(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_brands_group ON brands(group_id)')
+
+        # 达人库
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS talents (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                avatar TEXT DEFAULT '',
+                douyin_id TEXT DEFAULT '',
+                level TEXT DEFAULT '',
+                followers INTEGER DEFAULT 0,
+                talent_type TEXT DEFAULT '',
+                location TEXT DEFAULT '',
+                agency TEXT DEFAULT '',
+                tags TEXT DEFAULT '[]',
+                bio TEXT DEFAULT '',
+                contact TEXT DEFAULT '',
+                cooperation_status TEXT DEFAULT 'available',
+                commission_requirement REAL DEFAULT 0,
+                fulfillment_score REAL DEFAULT 0,
+                rating_score REAL DEFAULT 0,
+                total_gmv REAL DEFAULT 0,
+                total_products INTEGER DEFAULT 0,
+                total_shops INTEGER DEFAULT 0,
+                live_ratio REAL DEFAULT 0,
+                video_ratio REAL DEFAULT 0,
+                avg_live_gmv REAL DEFAULT 0,
+                live_gpm REAL DEFAULT 0,
+                video_gpm REAL DEFAULT 0,
+                fan_gender TEXT DEFAULT '{}',
+                fan_age TEXT DEFAULT '{}',
+                fan_region TEXT DEFAULT '{}',
+                fan_crowd TEXT DEFAULT '',
+                fan_price_range TEXT DEFAULT '',
+                fan_category TEXT DEFAULT '',
+                ai_tags TEXT DEFAULT '[]',
+                ai_rating TEXT DEFAULT '',
+                ai_summary TEXT DEFAULT '',
+                ai_reason TEXT DEFAULT '',
+                group_id TEXT DEFAULT '',
+                status TEXT DEFAULT 'active',
+                created_at INTEGER,
+                updated_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_cooperation ON talents(cooperation_status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_category ON talents(fan_category)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_group ON talents(group_id)')
+
+        # 商品-达人匹配关系
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS product_talent_match (
+                id TEXT PRIMARY KEY,
+                product_id TEXT NOT NULL,
+                talent_id TEXT NOT NULL,
+                match_score REAL DEFAULT 0,
+                match_reason TEXT DEFAULT '',
+                sales_volume INTEGER DEFAULT 0,
+                conversion_rate REAL DEFAULT 0,
+                is_ai_recommended INTEGER DEFAULT 0,
+                created_at INTEGER,
+                updated_at INTEGER,
+                UNIQUE(product_id, talent_id)
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_ptm_product ON product_talent_match(product_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_ptm_talent ON product_talent_match(talent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_ptm_score ON product_talent_match(match_score)')
 
         # FIXME: 新增记忆三级沉淀表（二级归纳、三级知识库），保持原有 knowledge/products 表不变
         conn.execute('''
@@ -2145,10 +2239,10 @@ def _knowledge_row_to_dict(row):
 # ─── 商品库 SQLite 辅助函数 ─────────────────────────────
 
 _PRODUCT_COLUMNS = [
-    'id', 'name', 'subtitle', 'main_image', 'price', 'price_range', 'brand',
+    'id', 'name', 'subtitle', 'main_image', 'price', 'price_range', 'brand', 'brand_id',
     'category', 'sku_specs', 'stock', 'status', 'monthly_sales', 'monthly_gmv',
     'commission_rates', 'commission_amount', 'conversion_rate', 'avg_order_value',
-    'influencer_count', 'video_count', 'live_count', 'channel_distribution',
+    'influencer_count', 'talent_count', 'video_count', 'live_count', 'channel_distribution',
     'influencers', 'audience', 'ai_analysis', 'videos', 'tags', 'selling_points',
     'created_at', 'updated_at'
 ]
@@ -2176,6 +2270,7 @@ def _product_row_to_dict(row):
         'price': row['price'] if row['price'] is not None else 0,
         'price_range': row['price_range'] or '',
         'brand': row['brand'] or '',
+        'brand_id': row['brand_id'] or '',
         'category': row['category'] or '',
         'sku_specs': _json_col('sku_specs', {}),
         'stock': row['stock'] if row['stock'] is not None else 0,
@@ -2187,6 +2282,7 @@ def _product_row_to_dict(row):
         'conversion_rate': row['conversion_rate'] if row['conversion_rate'] is not None else 0,
         'avg_order_value': row['avg_order_value'] if row['avg_order_value'] is not None else 0,
         'influencer_count': row['influencer_count'] if row['influencer_count'] is not None else 0,
+        'talent_count': row['talent_count'] if row['talent_count'] is not None else 0,
         'video_count': row['video_count'] if row['video_count'] is not None else 0,
         'live_count': row['live_count'] if row['live_count'] is not None else 0,
         'channel_distribution': _json_col('channel_distribution', {}),
@@ -2268,6 +2364,7 @@ def _dict_to_product_row(p):
         'price': float(_get('price', default=0) or 0),
         'price_range': _get('price_range', 'priceRange') or '',
         'brand': _get('brand', default='') or '',
+        'brand_id': _get('brand_id', 'brandId', default='') or '',
         'category': _get('category', default='') or '',
         'sku_specs': _dump(sku_specs),
         'stock': int(_get('stock', default=0) or 0),
@@ -2279,6 +2376,7 @@ def _dict_to_product_row(p):
         'conversion_rate': float(_get('conversion_rate', 'conversionRate', default=0) or 0),
         'avg_order_value': float(_get('avg_order_value', 'avgOrderValue', default=0) or 0),
         'influencer_count': int(_get('influencer_count', 'influencerCount', default=0) or 0),
+        'talent_count': int(_get('talent_count', 'talentCount', default=0) or 0),
         'video_count': int(_get('video_count', 'videoCount', default=0) or 0),
         'live_count': int(_get('live_count', 'liveCount', default=0) or 0),
         'channel_distribution': _dump(_get('channel_distribution', 'channelDistribution', default={})),
@@ -2291,6 +2389,221 @@ def _dict_to_product_row(p):
         'created_at': _get('created_at', 'createdAt'),
         'updated_at': _get('updated_at', 'updatedAt'),
     }
+
+
+# ─── 品牌库 / 达人库 SQLite 辅助函数 ─────────────────────────────
+
+_BRAND_COLUMNS = [
+    'id', 'name', 'logo', 'shop_score', 'shop_type', 'main_category',
+    'total_products', 'total_talents', 'avg_commission', 'group_id', 'status',
+    'created_at', 'updated_at'
+]
+
+_TALENT_COLUMNS = [
+    'id', 'name', 'avatar', 'douyin_id', 'level', 'followers', 'talent_type',
+    'location', 'agency', 'tags', 'bio', 'contact', 'cooperation_status',
+    'commission_requirement', 'fulfillment_score', 'rating_score', 'total_gmv',
+    'total_products', 'total_shops', 'live_ratio', 'video_ratio', 'avg_live_gmv',
+    'live_gpm', 'video_gpm', 'fan_gender', 'fan_age', 'fan_region', 'fan_crowd',
+    'fan_price_range', 'fan_category', 'ai_tags', 'ai_rating', 'ai_summary',
+    'ai_reason', 'group_id', 'status', 'created_at', 'updated_at'
+]
+
+_PTM_COLUMNS = [
+    'id', 'product_id', 'talent_id', 'match_score', 'match_reason', 'sales_volume',
+    'conversion_rate', 'is_ai_recommended', 'created_at', 'updated_at'
+]
+
+
+def _brand_row_to_dict(row):
+    if not row:
+        return None
+    return {
+        'id': row['id'],
+        'name': row['name'] or '',
+        'logo': row['logo'] or '',
+        'shop_score': row['shop_score'] if row['shop_score'] is not None else 0,
+        'shop_type': row['shop_type'] or '',
+        'main_category': row['main_category'] or '',
+        'total_products': row['total_products'] if row['total_products'] is not None else 0,
+        'total_talents': row['total_talents'] if row['total_talents'] is not None else 0,
+        'avg_commission': row['avg_commission'] if row['avg_commission'] is not None else 0,
+        'group_id': row['group_id'] or '',
+        'status': row['status'] or 'active',
+        'created_at': row['created_at'],
+        'updated_at': row['updated_at'],
+        'createdAt': row['created_at'],
+        'updatedAt': row['updated_at'],
+    }
+
+
+def _talent_row_to_dict(row):
+    if not row:
+        return None
+    def _json_col(col, default=None):
+        val = row[col]
+        if val is None:
+            return default
+        try:
+            return json.loads(val)
+        except Exception:
+            return default
+    return {
+        'id': row['id'],
+        'name': row['name'] or '',
+        'avatar': row['avatar'] or '',
+        'douyin_id': row['douyin_id'] or '',
+        'level': row['level'] or '',
+        'followers': row['followers'] if row['followers'] is not None else 0,
+        'talent_type': row['talent_type'] or '',
+        'location': row['location'] or '',
+        'agency': row['agency'] or '',
+        'tags': _json_col('tags', []),
+        'bio': row['bio'] or '',
+        'contact': row['contact'] or '',
+        'cooperation_status': row['cooperation_status'] or 'available',
+        'commission_requirement': row['commission_requirement'] if row['commission_requirement'] is not None else 0,
+        'fulfillment_score': row['fulfillment_score'] if row['fulfillment_score'] is not None else 0,
+        'rating_score': row['rating_score'] if row['rating_score'] is not None else 0,
+        'total_gmv': row['total_gmv'] if row['total_gmv'] is not None else 0,
+        'total_products': row['total_products'] if row['total_products'] is not None else 0,
+        'total_shops': row['total_shops'] if row['total_shops'] is not None else 0,
+        'live_ratio': row['live_ratio'] if row['live_ratio'] is not None else 0,
+        'video_ratio': row['video_ratio'] if row['video_ratio'] is not None else 0,
+        'avg_live_gmv': row['avg_live_gmv'] if row['avg_live_gmv'] is not None else 0,
+        'live_gpm': row['live_gpm'] if row['live_gpm'] is not None else 0,
+        'video_gpm': row['video_gpm'] if row['video_gpm'] is not None else 0,
+        'fan_gender': _json_col('fan_gender', {}),
+        'fan_age': _json_col('fan_age', {}),
+        'fan_region': _json_col('fan_region', {}),
+        'fan_crowd': row['fan_crowd'] or '',
+        'fan_price_range': row['fan_price_range'] or '',
+        'fan_category': row['fan_category'] or '',
+        'ai_tags': _json_col('ai_tags', []),
+        'ai_rating': row['ai_rating'] or '',
+        'ai_summary': row['ai_summary'] or '',
+        'ai_reason': row['ai_reason'] or '',
+        'group_id': row['group_id'] or '',
+        'status': row['status'] or 'active',
+        'created_at': row['created_at'],
+        'updated_at': row['updated_at'],
+        'createdAt': row['created_at'],
+        'updatedAt': row['updated_at'],
+    }
+
+
+def _dict_to_brand_row(b):
+    now = int(time.time() * 1000)
+    return {
+        'id': b.get('id') or ('brand_' + str(now) + '_' + uuid.uuid4().hex[:6]),
+        'name': b.get('name') or '',
+        'logo': b.get('logo') or '',
+        'shop_score': float(b.get('shop_score', 0) or 0),
+        'shop_type': b.get('shop_type') or '',
+        'main_category': b.get('main_category') or '',
+        'total_products': int(b.get('total_products', 0) or 0),
+        'total_talents': int(b.get('total_talents', 0) or 0),
+        'avg_commission': float(b.get('avg_commission', 0) or 0),
+        'group_id': b.get('group_id') or '',
+        'status': b.get('status') or 'active',
+        'created_at': b.get('created_at') or b.get('createdAt') or now,
+        'updated_at': now,
+    }
+
+
+def _dict_to_talent_row(t):
+    def _dump(val):
+        if val is None:
+            return '{}'
+        return json.dumps(val, ensure_ascii=False)
+    now = int(time.time() * 1000)
+    return {
+        'id': t.get('id') or ('tal_' + str(now) + '_' + uuid.uuid4().hex[:6]),
+        'name': t.get('name') or '',
+        'avatar': t.get('avatar') or '',
+        'douyin_id': t.get('douyin_id') or t.get('douyinId') or '',
+        'level': t.get('level') or '',
+        'followers': int(t.get('followers', 0) or 0),
+        'talent_type': t.get('talent_type') or t.get('talentType') or '',
+        'location': t.get('location') or '',
+        'agency': t.get('agency') or '',
+        'tags': _dump(t.get('tags', [])),
+        'bio': t.get('bio') or '',
+        'contact': t.get('contact') or '',
+        'cooperation_status': t.get('cooperation_status') or t.get('cooperationStatus') or 'available',
+        'commission_requirement': float(t.get('commission_requirement', 0) or 0),
+        'fulfillment_score': float(t.get('fulfillment_score', 0) or 0),
+        'rating_score': float(t.get('rating_score', 0) or 0),
+        'total_gmv': float(t.get('total_gmv', 0) or 0),
+        'total_products': int(t.get('total_products', 0) or 0),
+        'total_shops': int(t.get('total_shops', 0) or 0),
+        'live_ratio': float(t.get('live_ratio', 0) or 0),
+        'video_ratio': float(t.get('video_ratio', 0) or 0),
+        'avg_live_gmv': float(t.get('avg_live_gmv', 0) or 0),
+        'live_gpm': float(t.get('live_gpm', 0) or 0),
+        'video_gpm': float(t.get('video_gpm', 0) or 0),
+        'fan_gender': _dump(t.get('fan_gender', t.get('fanGender', {}))),
+        'fan_age': _dump(t.get('fan_age', t.get('fanAge', {}))),
+        'fan_region': _dump(t.get('fan_region', t.get('fanRegion', {}))),
+        'fan_crowd': t.get('fan_crowd') or t.get('fanCrowd') or '',
+        'fan_price_range': t.get('fan_price_range') or t.get('fanPriceRange') or '',
+        'fan_category': t.get('fan_category') or t.get('fanCategory') or '',
+        'ai_tags': _dump(t.get('ai_tags', t.get('aiTags', []))),
+        'ai_rating': t.get('ai_rating') or t.get('aiRating') or '',
+        'ai_summary': t.get('ai_summary') or t.get('aiSummary') or '',
+        'ai_reason': t.get('ai_reason') or t.get('aiReason') or '',
+        'group_id': t.get('group_id') or t.get('groupId') or '',
+        'status': t.get('status') or 'active',
+        'created_at': t.get('created_at') or t.get('createdAt') or now,
+        'updated_at': now,
+    }
+
+
+def _sync_product_brand(conn, product):
+    """根据 brand_id 或 brand 名称双向同步"""
+    brand_id = product.get('brand_id') or ''
+    brand_name = product.get('brand') or ''
+    if brand_id and not brand_name:
+        row = conn.execute('SELECT name FROM brands WHERE id = ?', (brand_id,)).fetchone()
+        if row:
+            product['brand'] = row['name']
+    elif brand_name and not brand_id:
+        row = conn.execute('SELECT id FROM brands WHERE name = ?', (brand_name,)).fetchone()
+        if row:
+            product['brand_id'] = row['id']
+
+
+def _update_brand_product_stats(conn, brand_id):
+    """同步品牌的商品数/达人数/平均佣金"""
+    if not brand_id:
+        return
+    total_products = conn.execute(
+        "SELECT COUNT(*) FROM products WHERE brand_id = ? AND status != 'archived'", (brand_id,)
+    ).fetchone()[0]
+    avg_comm = conn.execute(
+        "SELECT AVG(commission_amount) FROM products WHERE brand_id = ? AND status != 'archived'", (brand_id,)
+    ).fetchone()[0] or 0
+    total_talents = conn.execute(
+        "SELECT COUNT(DISTINCT talent_id) FROM product_talent_match WHERE product_id IN (SELECT id FROM products WHERE brand_id = ?)",
+        (brand_id,)
+    ).fetchone()[0]
+    conn.execute(
+        "UPDATE brands SET total_products = ?, total_talents = ?, avg_commission = ?, updated_at = ? WHERE id = ?",
+        (total_products, total_talents, round(avg_comm, 2), int(time.time() * 1000), brand_id)
+    )
+
+
+def _update_product_talent_count(conn, product_id):
+    """同步商品的带货达人数"""
+    if not product_id:
+        return
+    count = conn.execute(
+        "SELECT COUNT(DISTINCT talent_id) FROM product_talent_match WHERE product_id = ?", (product_id,)
+    ).fetchone()[0]
+    conn.execute(
+        "UPDATE products SET talent_count = ?, updated_at = ? WHERE id = ?",
+        (count, int(time.time() * 1000), product_id)
+    )
 
 
 def _migrate_json_products_to_sqlite():
@@ -2685,12 +2998,20 @@ def _auto_summarize_triggers(emp_id, memory):
 
 
 def _seed_coolchap_data(conn):
-    """当不存在 COOLCHAP 品牌商品时，写入 COOLCHAP 品牌示例数据"""
+    """当不存在 COOLCHAP 品牌商品时，写入 COOLCHAP 品牌示例数据（含品牌、达人、商品、匹配关系）"""
     count = conn.execute("SELECT COUNT(*) FROM products WHERE brand = 'COOLCHAP'").fetchone()[0]
     if count > 0:
         return
 
     now = int(time.time() * 1000)
+
+    # 创建品牌
+    brand_id = 'brand_coolchap_' + uuid.uuid4().hex[:6]
+    conn.execute(
+        f"INSERT INTO brands ({', '.join(_BRAND_COLUMNS)}) VALUES ({', '.join('?' * len(_BRAND_COLUMNS))})",
+        (brand_id, 'COOLCHAP', '', 4.8, '官方旗舰店', '鞋靴', 0, 0, 10.5, '', 'active', now, now)
+    )
+
     brand_info = {
         'name': 'COOLCHAP',
         'nameCn': '酷恰',
@@ -2718,47 +3039,150 @@ def _seed_coolchap_data(conn):
         'occupation': {'精致妈妈': 31.45, '都市白领': 24.18, 'Z世代': 18.62, '小镇青年': 14.75, '其他': 11.0},
         'interests': {'时尚穿搭': 45.2, '美妆护肤': 22.1, '家居生活': 15.3, '亲子育儿': 10.4, '其他': 7.0}
     }
+    base_talents = [
+        {
+            'id': 'tal_lumama',
+            'name': '璐妈妈',
+            'avatar': '',
+            'douyin_id': 'lumama520',
+            'level': 'L4',
+            'followers': 528000,
+            'talent_type': '达人号',
+            'location': '杭州',
+            'agency': '星耀文化',
+            'tags': ['精致妈妈', '时尚穿搭', '亲子'],
+            'bio': '专注品质穿搭与好物分享的精致妈妈',
+            'contact': '微信 lumama520',
+            'cooperation_status': 'cooperating',
+            'commission_requirement': 15,
+            'fulfillment_score': 4.7,
+            'rating_score': 4.8,
+            'total_gmv': 1884560,
+            'total_products': 86,
+            'total_shops': 12,
+            'live_ratio': 35,
+            'video_ratio': 65,
+            'avg_live_gmv': 12500,
+            'live_gpm': 850,
+            'video_gpm': 420,
+            'fan_gender': {'女': 92, '男': 8},
+            'fan_age': {'31-35': 38, '26-30': 28, '36-40': 18, '18-25': 10, '41+': 6},
+            'fan_region': {'浙江': 12, '江苏': 9, '广东': 8, '四川': 7, '山东': 6},
+            'fan_crowd': '精致妈妈',
+            'fan_price_range': '300-600',
+            'fan_category': '鞋靴/凉鞋',
+        },
+        {
+            'id': 'tal_dapeishi_w',
+            'name': '搭配师W',
+            'avatar': '',
+            'douyin_id': 'dapeishi_w',
+            'level': 'L3',
+            'followers': 123000,
+            'talent_type': '达人号',
+            'location': '上海',
+            'agency': '独立',
+            'tags': ['时尚穿搭', '设计师款', '小众'],
+            'bio': '用搭配表达态度，发掘小众设计师好物',
+            'contact': '微信 dapeishi_w',
+            'cooperation_status': 'available',
+            'commission_requirement': 12,
+            'fulfillment_score': 4.5,
+            'rating_score': 4.6,
+            'total_gmv': 520000,
+            'total_products': 45,
+            'total_shops': 8,
+            'live_ratio': 20,
+            'video_ratio': 80,
+            'avg_live_gmv': 6800,
+            'live_gpm': 720,
+            'video_gpm': 380,
+            'fan_gender': {'女': 88, '男': 12},
+            'fan_age': {'26-30': 35, '18-25': 30, '31-35': 20, '36-40': 10, '41+': 5},
+            'fan_region': {'上海': 14, '广东': 10, '浙江': 9, '北京': 8, '江苏': 7},
+            'fan_crowd': '都市白领',
+            'fan_price_range': '400-800',
+            'fan_category': '鞋靴/凉鞋',
+        },
+        {
+            'id': 'tal_chaoxie',
+            'name': '潮鞋研究所',
+            'avatar': '',
+            'douyin_id': 'chaoxie_lab',
+            'level': 'L5',
+            'followers': 891000,
+            'talent_type': '达人号',
+            'location': '广州',
+            'agency': '鞋履MCN',
+            'tags': ['潮鞋', '测评', '运动'],
+            'bio': '专业测评百双潮鞋，帮你避坑选好鞋',
+            'contact': '商务 chaoxie@mcn.com',
+            'cooperation_status': 'available',
+            'commission_requirement': 8,
+            'fulfillment_score': 4.8,
+            'rating_score': 4.7,
+            'total_gmv': 3200000,
+            'total_products': 120,
+            'total_shops': 25,
+            'live_ratio': 40,
+            'video_ratio': 60,
+            'avg_live_gmv': 22000,
+            'live_gpm': 950,
+            'video_gpm': 510,
+            'fan_gender': {'男': 55, '女': 45},
+            'fan_age': {'18-25': 32, '26-30': 30, '31-35': 20, '36-40': 12, '41+': 6},
+            'fan_region': {'广东': 13, '四川': 9, '浙江': 8, '江苏': 7, '河南': 6},
+            'fan_crowd': 'Z世代',
+            'fan_price_range': '200-500',
+            'fan_category': '鞋靴/凉鞋',
+        },
+        {
+            'id': 'tal_xiaomei',
+            'name': '小美穿搭日记',
+            'avatar': '',
+            'douyin_id': 'xiaomei_riji',
+            'level': 'L3',
+            'followers': 245000,
+            'talent_type': '达人号',
+            'location': '成都',
+            'agency': '小美工作室',
+            'tags': ['甜美', '度假风', '日常穿搭'],
+            'bio': '分享甜美度假风穿搭，做你的衣橱闺蜜',
+            'contact': '微信 xiaomei_riji',
+            'cooperation_status': 'communicating',
+            'commission_requirement': 10,
+            'fulfillment_score': 4.6,
+            'rating_score': 4.7,
+            'total_gmv': 890000,
+            'total_products': 62,
+            'total_shops': 10,
+            'live_ratio': 25,
+            'video_ratio': 75,
+            'avg_live_gmv': 9200,
+            'live_gpm': 680,
+            'video_gpm': 360,
+            'fan_gender': {'女': 95, '男': 5},
+            'fan_age': {'18-25': 38, '26-30': 32, '31-35': 18, '36-40': 8, '41+': 4},
+            'fan_region': {'四川': 11, '广东': 9, '浙江': 8, '江苏': 7, '湖南': 6},
+            'fan_crowd': 'Z世代',
+            'fan_price_range': '300-600',
+            'fan_category': '鞋靴/凉鞋',
+        }
+    ]
+
+    # 兼容旧字段
     base_influencers = [
         {
-            'id': 'inf_lumama',
-            'name': '璐妈妈',
-            'followerCount': 528000,
-            'sales': 1324,
-            'settlementAmount': 188456,
-            'conversionRate': 3.2,
-            'commissionRate': 20,
-            'source': '抖音精选联盟'
-        },
-        {
-            'id': 'inf_dapeishi_w',
-            'name': '搭配师W',
-            'followerCount': 123000,
-            'sales': 568,
-            'settlementAmount': 80952,
-            'conversionRate': 2.8,
-            'commissionRate': 15,
-            'source': '手动录入'
-        },
-        {
-            'id': 'inf_chaoxie',
-            'name': '潮鞋研究所',
-            'followerCount': 891000,
-            'sales': 2103,
-            'settlementAmount': 299784,
-            'conversionRate': 4.1,
-            'commissionRate': 5,
-            'source': '抖音精选联盟'
-        },
-        {
-            'id': 'inf_xiaomei',
-            'name': '小美穿搭日记',
-            'followerCount': 245000,
-            'sales': 892,
-            'settlementAmount': 127312,
-            'conversionRate': 3.5,
-            'commissionRate': 10,
-            'source': '手动录入'
+            'id': t['id'],
+            'name': t['name'],
+            'followerCount': t['followers'],
+            'sales': [1324, 568, 2103, 892][i],
+            'settlementAmount': [188456, 80952, 299784, 127312][i],
+            'conversionRate': [3.2, 2.8, 4.1, 3.5][i],
+            'commissionRate': [20, 15, 5, 10][i],
+            'source': '抖音精选联盟' if i % 2 == 0 else '手动录入'
         }
+        for i, t in enumerate(base_talents)
     ]
 
     def make_videos(product_name):
@@ -2824,8 +3248,10 @@ def _seed_coolchap_data(conn):
         },
     ]
 
+    product_ids = []
     for idx, item in enumerate(seed_items, 1):
         pid = f'prod_coolchap_{idx}_{uuid.uuid4().hex[:6]}'
+        product_ids.append(pid)
         price = item['price']
         monthly_sales = item['monthly_sales']
         rate = item['rate']
@@ -2839,6 +3265,7 @@ def _seed_coolchap_data(conn):
             'price': price,
             'price_range': f'¥{price}',
             'brand': 'COOLCHAP',
+            'brand_id': brand_id,
             'category': '鞋靴/凉鞋',
             'sku_specs': json.dumps({'颜色': ['米白', '棕色', '黑色'], '尺码': ['35-40']}, ensure_ascii=False),
             'stock': 10000,
@@ -2850,6 +3277,7 @@ def _seed_coolchap_data(conn):
             'conversion_rate': 3.5,
             'avg_order_value': price,
             'influencer_count': len(base_influencers),
+            'talent_count': len(base_talents),
             'video_count': 2,
             'live_count': 1,
             'channel_distribution': json.dumps(base_channel, ensure_ascii=False),
@@ -2866,8 +3294,34 @@ def _seed_coolchap_data(conn):
             f"INSERT INTO products ({', '.join(_PRODUCT_COLUMNS)}) VALUES ({', '.join('?' * len(_PRODUCT_COLUMNS))})",
             tuple(row[c] for c in _PRODUCT_COLUMNS)
         )
+
+    # 写入示例达人
+    for t in base_talents:
+        t['group_id'] = brand_id
+        row = _dict_to_talent_row(t)
+        row['created_at'] = now
+        row['updated_at'] = now
+        conn.execute(
+            f"INSERT INTO talents ({', '.join(_TALENT_COLUMNS)}) VALUES ({', '.join('?' * len(_TALENT_COLUMNS))})",
+            tuple(row[c] for c in _TALENT_COLUMNS)
+        )
+
+    # 写入商品-达人匹配关系
+    sales_list = [1324, 568, 2103, 892]
+    for pid in product_ids:
+        for i, t in enumerate(base_talents):
+            ptm_id = 'ptm_' + str(now) + '_' + uuid.uuid4().hex[:6]
+            score, reasons = (88, ['类目一致', '价格带匹配', '粉丝画像契合']) if i % 2 == 0 else (72, ['类目一致', '价格带基本匹配'])
+            conn.execute(
+                f"INSERT INTO product_talent_match ({', '.join(_PTM_COLUMNS)}) VALUES ({', '.join('?' * len(_PTM_COLUMNS))})",
+                (ptm_id, pid, t['id'], score, '；'.join(reasons), sales_list[i], [3.2, 2.8, 4.1, 3.5][i], 1 if score >= 75 else 0, now, now)
+            )
+
+    _update_brand_product_stats(conn, brand_id)
+    for pid in product_ids:
+        _update_product_talent_count(conn, pid)
     conn.commit()
-    print(f'  [Product] 已写入 COOLCHAP 示例数据 {len(seed_items)} 条', flush=True)
+    print(f'  [Product] 已写入 COOLCHAP 示例数据 {len(seed_items)} 条商品 / {len(base_talents)} 条达人', flush=True)
 
 
 def knowledge_create(title, content, category='', embedding=None, api_key=None, provider='openai', model=None, base_url=None):
@@ -3326,6 +3780,27 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/brands':
             self._handle_get_brands()
             return
+        if path.startswith('/api/brands/'):
+            brand_id = path[len('/api/brands/'):]
+            if brand_id:
+                self._handle_get_brand(brand_id)
+            return
+
+        # Talent API
+        if path == '/api/talents':
+            self._handle_get_talents()
+            return
+        if path.startswith('/api/talents/'):
+            rest = path[len('/api/talents/'):]
+            if rest:
+                if '/' in rest:
+                    parts = rest.split('/')
+                    talent_id = parts[0]
+                    if parts[1] == 'products':
+                        self._handle_get_talent_products(talent_id)
+                        return
+                self._handle_get_talent(rest)
+            return
 
         # Product API
         if path == '/api/products':
@@ -3344,10 +3819,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     if parts[1] == 'matches':
                         self._handle_get_product_matches(product_id)
                         return
+                    if parts[1] == 'talents':
+                        self._handle_get_product_talents(product_id)
+                        return
                 self._handle_get_product(rest)
                 return
 
-        # Influencer API
+        # Influencer API (legacy JSON)
         if path == '/api/influencers':
             self._handle_get_influencers()
             return
@@ -3668,6 +4146,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_knowledge_move(parts[0])
                 return
 
+        # Brand API
+        if path == '/api/brands':
+            self._handle_post_brand()
+            return
+
+        # Talent API
+        if path == '/api/talents':
+            self._handle_post_talent()
+            return
+        if path.startswith('/api/talents/'):
+            sub = path[len('/api/talents/'):]
+            parts = sub.split('/')
+            if len(parts) == 2 and parts[1] == 'analyze':
+                self._handle_analyze_talent_ai(parts[0])
+                return
+            if len(parts) == 2 and parts[1] == 'match-products':
+                self._handle_match_talent_products(parts[0])
+                return
+
         # Product API
         if path == '/api/products':
             self._handle_post_product()
@@ -3681,8 +4178,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'analyze':
                 self._handle_analyze_product_ai(parts[0])
                 return
+            if len(parts) == 2 and parts[1] == 'match-talents':
+                self._handle_match_product_talents(parts[0])
+                return
 
-        # Influencer API
+        # Influencer API (legacy JSON)
         if path == '/api/influencers':
             self._handle_post_influencer()
             return
@@ -3799,6 +4299,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_put_knowledge(doc_id)
                 return
 
+        # Brand API
+        if path.startswith('/api/brands/'):
+            brand_id = path[len('/api/brands/'):]
+            if brand_id:
+                self._handle_put_brand(brand_id)
+                return
+
+        # Talent API
+        if path.startswith('/api/talents/'):
+            talent_id = path[len('/api/talents/'):]
+            if talent_id:
+                self._handle_put_talent(talent_id)
+                return
+
         # Product API
         if path.startswith('/api/products/'):
             product_id = path[len('/api/products/'):]
@@ -3806,7 +4320,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_put_product(product_id)
                 return
 
-        # Influencer API
+        # Influencer API (legacy JSON)
         if path.startswith('/api/influencers/'):
             inf_id = path[len('/api/influencers/'):]
             if inf_id:
@@ -3897,6 +4411,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_delete_knowledge(doc_id)
                 return
 
+        # Brand API
+        if path.startswith('/api/brands/'):
+            brand_id = path[len('/api/brands/'):]
+            if brand_id:
+                self._handle_delete_brand(brand_id)
+                return
+
+        # Talent API
+        if path.startswith('/api/talents/'):
+            talent_id = path[len('/api/talents/'):]
+            if talent_id:
+                self._handle_delete_talent(talent_id)
+                return
+
         # Product API
         if path.startswith('/api/products/'):
             product_id = path[len('/api/products/'):]
@@ -3904,7 +4432,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_delete_product(product_id)
                 return
 
-        # Influencer API
+        # Influencer API (legacy JSON)
         if path.startswith('/api/influencers/'):
             inf_id = path[len('/api/influencers/'):]
             if inf_id:
@@ -8632,11 +9160,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         row['updated_at'] = row['updated_at'] or now_ts
         conn = _db_conn()
         try:
+            _sync_product_brand(conn, row)
             conn.execute(
                 f"INSERT INTO products ({', '.join(_PRODUCT_COLUMNS)}) VALUES ({', '.join('?' * len(_PRODUCT_COLUMNS))})",
                 tuple(row[c] for c in _PRODUCT_COLUMNS)
             )
             conn.commit()
+            if row.get('brand_id'):
+                _update_brand_product_stats(conn, row['brand_id'])
+                conn.commit()
             row_out = conn.execute('SELECT * FROM products WHERE id = ?', (row['id'],)).fetchone()
             product_out = _product_row_to_dict(row_out)
         finally:
@@ -8682,10 +9214,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         row['updated_at'] = now_ts
         conn = _db_conn()
         try:
+            old_brand_id = existing.get('brand_id')
+            _sync_product_brand(conn, row)
             conn.execute(
                 f"UPDATE products SET {', '.join(f'{c} = ?' for c in _PRODUCT_COLUMNS)} WHERE id = ?",
                 tuple(row[c] for c in _PRODUCT_COLUMNS) + (product_id,)
             )
+            conn.commit()
+            for bid in {b for b in [old_brand_id, row.get('brand_id')] if b}:
+                _update_brand_product_stats(conn, bid)
             conn.commit()
             row_out = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
             product_out = _product_row_to_dict(row_out)
@@ -8874,7 +9411,267 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'id': product_id, 'ai_analysis': analysis})
 
     # ═══════════════════════════════════════════════════
-    # 达人库 API
+    # 品牌库 API
+    # ═══════════════════════════════════════════════════
+
+    def _handle_get_brands(self):
+        """GET /api/brands — 获取品牌列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        query = parse_qs(urlparse(self.path).query)
+        status = query.get('status', ['active'])[0]
+        q = query.get('q', [''])[0].lower()
+        conn = _db_conn()
+        try:
+            sql = "SELECT * FROM brands WHERE 1=1"
+            params = []
+            if status:
+                sql += " AND status = ?"
+                params.append(status)
+            if q:
+                sql += " AND (LOWER(name) LIKE ? OR LOWER(main_category) LIKE ?)"
+                params.extend([f'%{q}%', f'%{q}%'])
+            sql += " ORDER BY updated_at DESC"
+            rows = conn.execute(sql, params).fetchall()
+            brands = [_brand_row_to_dict(r) for r in rows]
+        finally:
+            conn.close()
+        self._send_json(200, {'brands': brands, 'total': len(brands)})
+
+    def _handle_get_brand(self, brand_id):
+        """GET /api/brands/:id — 获取单个品牌"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM brands WHERE id = ?', (brand_id,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            self._send_json_error(404, 'Brand not found')
+            return
+        self._send_json(200, _brand_row_to_dict(row))
+
+    def _handle_post_brand(self):
+        """POST /api/brands — 创建品牌"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        body = self._read_body()
+        if not body or not body.get('name'):
+            self._send_json_error(400, 'Missing name')
+            return
+        row = _dict_to_brand_row(body)
+        conn = _db_conn()
+        try:
+            conn.execute(
+                f"INSERT INTO brands ({', '.join(_BRAND_COLUMNS)}) VALUES ({', '.join('?' * len(_BRAND_COLUMNS))})",
+                tuple(row[c] for c in _BRAND_COLUMNS)
+            )
+            conn.commit()
+            row_out = conn.execute('SELECT * FROM brands WHERE id = ?', (row['id'],)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(200, _brand_row_to_dict(row_out))
+
+    def _handle_put_brand(self, brand_id):
+        """PUT /api/brands/:id — 更新品牌"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM brands WHERE id = ?', (brand_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Brand not found')
+                return
+            existing = _brand_row_to_dict(row)
+            existing.update(body)
+            existing['id'] = brand_id
+            existing['updated_at'] = int(time.time() * 1000)
+            row = _dict_to_brand_row(existing)
+            conn.execute(
+                f"UPDATE brands SET {', '.join(f'{c} = ?' for c in _BRAND_COLUMNS)} WHERE id = ?",
+                tuple(row[c] for c in _BRAND_COLUMNS) + (brand_id,)
+            )
+            conn.commit()
+            row_out = conn.execute('SELECT * FROM brands WHERE id = ?', (brand_id,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(200, _brand_row_to_dict(row_out))
+
+    def _handle_delete_brand(self, brand_id):
+        """DELETE /api/brands/:id — 删除品牌"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        conn = _db_conn()
+        try:
+            cur = conn.execute('DELETE FROM brands WHERE id = ?', (brand_id,))
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'deleted': cur.rowcount > 0, 'id': brand_id})
+
+    # ═══════════════════════════════════════════════════
+    # 达人库 API (SQLite)
+    # ═══════════════════════════════════════════════════
+
+    def _handle_get_talents(self):
+        """GET /api/talents — 获取达人列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        query = parse_qs(urlparse(self.path).query)
+        q = query.get('q', [''])[0].lower()
+        cooperation = query.get('cooperation', [''])[0]
+        category = query.get('category', [''])[0]
+        status = query.get('status', ['active'])[0]
+        offset = int(query.get('offset', ['0'])[0])
+        limit = int(query.get('limit', ['50'])[0])
+        conn = _db_conn()
+        try:
+            sql = "SELECT * FROM talents WHERE 1=1"
+            params = []
+            if status:
+                sql += " AND status = ?"
+                params.append(status)
+            if cooperation:
+                sql += " AND cooperation_status = ?"
+                params.append(cooperation)
+            if category:
+                sql += " AND fan_category = ?"
+                params.append(category)
+            if q:
+                sql += " AND (LOWER(name) LIKE ? OR LOWER(douyin_id) LIKE ? OR LOWER(bio) LIKE ?)"
+                params.extend([f'%{q}%', f'%{q}%', f'%{q}%'])
+            sql += " ORDER BY followers DESC"
+            rows = conn.execute(sql, params).fetchall()
+            total = len(rows)
+            talents = [_talent_row_to_dict(r) for r in rows[offset:offset + limit]]
+        finally:
+            conn.close()
+        self._send_json(200, {'talents': talents, 'total': total, 'offset': offset, 'limit': limit})
+
+    def _handle_get_talent(self, talent_id):
+        """GET /api/talents/:id — 获取达人详情"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            self._send_json_error(404, 'Talent not found')
+            return
+        self._send_json(200, _talent_row_to_dict(row))
+
+    def _handle_post_talent(self):
+        """POST /api/talents — 录入达人"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        body = self._read_body()
+        if not body or not body.get('name'):
+            self._send_json_error(400, 'Missing name')
+            return
+        row = _dict_to_talent_row(body)
+        conn = _db_conn()
+        try:
+            conn.execute(
+                f"INSERT INTO talents ({', '.join(_TALENT_COLUMNS)}) VALUES ({', '.join('?' * len(_TALENT_COLUMNS))})",
+                tuple(row[c] for c in _TALENT_COLUMNS)
+            )
+            conn.commit()
+            if row.get('group_id'):
+                _update_brand_product_stats(conn, row['group_id'])
+                conn.commit()
+            row_out = conn.execute('SELECT * FROM talents WHERE id = ?', (row['id'],)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(200, _talent_row_to_dict(row_out))
+
+    def _handle_put_talent(self, talent_id):
+        """PUT /api/talents/:id — 更新达人"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Talent not found')
+                return
+            existing = _talent_row_to_dict(row)
+            existing.update(body)
+            existing['id'] = talent_id
+            existing['updated_at'] = int(time.time() * 1000)
+            row = _dict_to_talent_row(existing)
+            conn.execute(
+                f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_COLUMNS)} WHERE id = ?",
+                tuple(row[c] for c in _TALENT_COLUMNS) + (talent_id,)
+            )
+            conn.commit()
+            if row.get('group_id'):
+                _update_brand_product_stats(conn, row['group_id'])
+                conn.commit()
+            row_out = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(200, _talent_row_to_dict(row_out))
+
+    def _handle_delete_talent(self, talent_id):
+        """DELETE /api/talents/:id — 删除达人"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        conn = _db_conn()
+        try:
+            talent = conn.execute('SELECT group_id FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            cur = conn.execute('DELETE FROM talents WHERE id = ?', (talent_id,))
+            conn.execute('DELETE FROM product_talent_match WHERE talent_id = ?', (talent_id,))
+            conn.commit()
+            if talent and talent['group_id']:
+                _update_brand_product_stats(conn, talent['group_id'])
+                conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'deleted': cur.rowcount > 0, 'id': talent_id})
+
+    # ═══════════════════════════════════════════════════
+    # 达人库 API (旧 JSON 兼容)
     # ═══════════════════════════════════════════════════
 
     def _load_influencers(self):
@@ -9322,6 +10119,398 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'results': results[:limit],
             'total': len(results)
         })
+
+    # ═══════════════════════════════════════════════════
+    # 品牌达人匹配 API (V2)
+    # ═══════════════════════════════════════════════════
+
+    def _calculate_match_score_v2(self, product, talent):
+        """基于规则的匹配打分：类目40 + 价格带30 + 粉丝画像20 + 佣金10 = 100"""
+        score = 0
+        reasons = []
+
+        # 1. 类目匹配 (40分)
+        p_cat = (product.get('category') or '').strip()
+        t_cat = (talent.get('fan_category') or talent.get('category') or '').strip()
+        if p_cat and t_cat:
+            if p_cat == t_cat:
+                score += 40
+                reasons.append('类目高度一致')
+            elif p_cat in t_cat or t_cat in p_cat:
+                score += 25
+                reasons.append('类目相关')
+            else:
+                p_tags = set(t.lower() for t in (product.get('tags') or []))
+                t_tags = set(t.lower() for t in (talent.get('tags') or []))
+                common = p_tags & t_tags
+                if common:
+                    score += min(len(common) * 8, 24)
+                    reasons.append(f'标签匹配 {len(common)} 个')
+                else:
+                    reasons.append('类目关联度低')
+        else:
+            reasons.append('缺少类目信息')
+
+        # 2. 价格带匹配 (30分)
+        pr = product.get('priceRange') or product.get('price_range') or ''
+        if not pr and product.get('price') is not None:
+            pr = str(product.get('price'))
+        p_min, p_max, p_avg = self._parse_price_range(pr)
+        t_pr = talent.get('fan_price_range') or talent.get('priceRange') or ''
+        if not t_pr and talent.get('cooperationPrice') is not None:
+            t_pr = str(talent.get('cooperationPrice'))
+        t_min, t_max, t_avg = self._parse_price_range(t_pr)
+        if p_min <= t_avg <= p_max or t_min <= p_avg <= t_max:
+            score += 30
+            reasons.append('价格带完全契合')
+        elif p_min * 0.5 <= t_avg <= p_max * 1.5 or t_min * 0.5 <= p_avg <= t_max * 1.5:
+            score += 18
+            reasons.append('价格带基本匹配')
+        else:
+            reasons.append('价格带偏差较大')
+
+        # 3. 粉丝画像匹配 (20分)
+        p_aud = product.get('audience') or {}
+        t_gender = talent.get('fan_gender') or {}
+        t_age = talent.get('fan_age') or {}
+        t_region = talent.get('fan_region') or {}
+        fan_score = 0
+        if isinstance(p_aud, dict):
+            p_gender = p_aud.get('gender') or {}
+            p_age = p_aud.get('age') or {}
+            p_region = p_aud.get('region') or {}
+            if p_gender and t_gender:
+                common_gender = set(p_gender.keys()) & set(t_gender.keys())
+                if common_gender:
+                    fan_score += 8
+                    reasons.append('性别画像匹配')
+            if p_age and t_age:
+                common_age = set(p_age.keys()) & set(t_age.keys())
+                if common_age:
+                    fan_score += 7
+                    reasons.append('年龄画像匹配')
+            if p_region and t_region:
+                common_region = set(p_region.keys()) & set(t_region.keys())
+                if common_region:
+                    fan_score += 5
+                    reasons.append('地域画像匹配')
+        score += min(fan_score, 20)
+        if fan_score == 0:
+            reasons.append('粉丝画像数据不足')
+
+        # 4. 佣金吸引力 (10分)
+        rates = product.get('commission_rates') or {}
+        if isinstance(rates, dict) and rates:
+            max_rate = max((v for v in rates.values() if isinstance(v, (int, float))), default=0)
+        else:
+            max_rate = float(product.get('commission_rate') or 0)
+        t_comm = float(talent.get('commission_requirement') or 0)
+        if max_rate >= t_comm:
+            score += 10
+            reasons.append('佣金有吸引力')
+        elif max_rate >= t_comm * 0.7:
+            score += 5
+            reasons.append('佣金基本达标')
+        else:
+            reasons.append('佣金偏低')
+
+        return min(100, score), reasons
+
+    def _handle_get_product_talents(self, product_id):
+        """GET /api/products/:id/talents — 带该商品的Top达人排名"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        query = parse_qs(urlparse(self.path).query)
+        limit = int(query.get('limit', ['20'])[0])
+        conn = _db_conn()
+        try:
+            rows = conn.execute('''
+                SELECT t.*, ptm.match_score, ptm.match_reason, ptm.sales_volume, ptm.conversion_rate, ptm.is_ai_recommended
+                FROM talents t
+                JOIN product_talent_match ptm ON t.id = ptm.talent_id
+                WHERE ptm.product_id = ? AND t.status = 'active'
+                ORDER BY ptm.sales_volume DESC, ptm.match_score DESC
+                LIMIT ?
+            ''', (product_id, limit)).fetchall()
+            talents = []
+            for r in rows:
+                t = _talent_row_to_dict(r)
+                t['sales_volume'] = r['sales_volume'] or 0
+                t['conversion_rate'] = r['conversion_rate'] or 0
+                t['match_score'] = r['match_score'] or 0
+                t['is_ai_recommended'] = bool(r['is_ai_recommended'])
+                talents.append(t)
+        finally:
+            conn.close()
+        self._send_json(200, {'product_id': product_id, 'talents': talents, 'total': len(talents)})
+
+    def _handle_get_talent_products(self, talent_id):
+        """GET /api/talents/:id/products — 达人匹配商品列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        query = parse_qs(urlparse(self.path).query)
+        limit = int(query.get('limit', ['20'])[0])
+        conn = _db_conn()
+        try:
+            rows = conn.execute('''
+                SELECT p.*, ptm.match_score, ptm.match_reason, ptm.sales_volume, ptm.conversion_rate, ptm.is_ai_recommended
+                FROM products p
+                JOIN product_talent_match ptm ON p.id = ptm.product_id
+                WHERE ptm.talent_id = ? AND p.status = 'active'
+                ORDER BY ptm.match_score DESC, ptm.sales_volume DESC
+                LIMIT ?
+            ''', (talent_id, limit)).fetchall()
+            products = []
+            for r in rows:
+                p = _product_row_to_dict(r)
+                p['match_score'] = r['match_score'] or 0
+                p['match_reason'] = r['match_reason'] or ''
+                p['sales_volume'] = r['sales_volume'] or 0
+                p['conversion_rate'] = r['conversion_rate'] or 0
+                p['is_ai_recommended'] = bool(r['is_ai_recommended'])
+                products.append(p)
+        finally:
+            conn.close()
+        self._send_json(200, {'talent_id': talent_id, 'products': products, 'total': len(products)})
+
+    def _handle_match_product_talents(self, product_id):
+        """POST /api/products/:id/match-talents — AI匹配推荐达人"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        body = self._read_body() or {}
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
+            product = _product_row_to_dict(row)
+        finally:
+            conn.close()
+        if not product:
+            self._send_json_error(404, 'Product not found')
+            return
+        limit = int(body.get('limit', 20))
+        min_score = float(body.get('minScore', 0))
+        conn = _db_conn()
+        try:
+            talent_rows = conn.execute("SELECT * FROM talents WHERE status = 'active'").fetchall()
+        finally:
+            conn.close()
+        results = []
+        for r in talent_rows:
+            talent = _talent_row_to_dict(r)
+            score, reasons = self._calculate_match_score_v2(product, talent)
+            if score < min_score:
+                continue
+            results.append({
+                'talent': talent,
+                'score': round(score, 1),
+                'matchPercent': score,
+                'reasons': reasons,
+                'is_ai_recommended': score >= 75
+            })
+        results.sort(key=lambda x: x['score'], reverse=True)
+        # 缓存推荐结果到 product_talent_match（幂等更新）
+        now = int(time.time() * 1000)
+        conn = _db_conn()
+        try:
+            for r in results[:limit]:
+                t = r['talent']
+                conn.execute('''
+                    INSERT INTO product_talent_match (id, product_id, talent_id, match_score, match_reason, is_ai_recommended, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(product_id, talent_id) DO UPDATE SET
+                        match_score = excluded.match_score,
+                        match_reason = excluded.match_reason,
+                        is_ai_recommended = excluded.is_ai_recommended,
+                        updated_at = excluded.updated_at
+                ''', (
+                    'ptm_' + str(now) + '_' + uuid.uuid4().hex[:6],
+                    product_id, t['id'], r['score'], '；'.join(r['reasons'][:3]),
+                    1 if r['is_ai_recommended'] else 0, now, now
+                ))
+            conn.commit()
+            _update_product_talent_count(conn, product_id)
+            if product.get('brand_id'):
+                _update_brand_product_stats(conn, product.get('brand_id'))
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {
+            'product_id': product_id,
+            'matches': results[:limit],
+            'total': len(results)
+        })
+
+    def _handle_match_talent_products(self, talent_id):
+        """POST /api/talents/:id/match-products — AI匹配推荐商品"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        body = self._read_body() or {}
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            talent = _talent_row_to_dict(row)
+        finally:
+            conn.close()
+        if not talent:
+            self._send_json_error(404, 'Talent not found')
+            return
+        limit = int(body.get('limit', 20))
+        min_score = float(body.get('minScore', 0))
+        conn = _db_conn()
+        try:
+            product_rows = conn.execute("SELECT * FROM products WHERE status = 'active'").fetchall()
+        finally:
+            conn.close()
+        results = []
+        for r in product_rows:
+            product = _product_row_to_dict(r)
+            score, reasons = self._calculate_match_score_v2(product, talent)
+            if score < min_score:
+                continue
+            results.append({
+                'product': product,
+                'score': round(score, 1),
+                'matchPercent': score,
+                'reasons': reasons,
+                'is_ai_recommended': score >= 75
+            })
+        results.sort(key=lambda x: x['score'], reverse=True)
+        # 缓存推荐结果到 product_talent_match
+        now = int(time.time() * 1000)
+        conn = _db_conn()
+        try:
+            for r in results[:limit]:
+                p = r['product']
+                conn.execute('''
+                    INSERT INTO product_talent_match (id, product_id, talent_id, match_score, match_reason, is_ai_recommended, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(product_id, talent_id) DO UPDATE SET
+                        match_score = excluded.match_score,
+                        match_reason = excluded.match_reason,
+                        is_ai_recommended = excluded.is_ai_recommended,
+                        updated_at = excluded.updated_at
+                ''', (
+                    'ptm_' + str(now) + '_' + uuid.uuid4().hex[:6],
+                    p['id'], talent_id, r['score'], '；'.join(r['reasons'][:3]),
+                    1 if r['is_ai_recommended'] else 0, now, now
+                ))
+                _update_product_talent_count(conn, p['id'])
+                if p.get('brand_id'):
+                    _update_brand_product_stats(conn, p.get('brand_id'))
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {
+            'talent_id': talent_id,
+            'matches': results[:limit],
+            'total': len(results)
+        })
+
+    def _handle_analyze_talent_ai(self, talent_id):
+        """POST /api/talents/:id/analyze — 调用 AI 生成达人分析"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            talent = _talent_row_to_dict(row)
+        finally:
+            conn.close()
+        if not talent:
+            self._send_json_error(404, 'Talent not found')
+            return
+
+        cfg = get_embedding_config()
+        api_key = cfg['apiKey']
+        if not api_key:
+            self._send_json_error(503, 'AI service not configured: missing API key')
+            return
+
+        api_provider = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
+        api_model = cfg['model'] or _resolve_ai_model(api_provider, '')
+        base_url = cfg['baseUrl'] or _resolve_ai_base_url(api_provider, '')
+
+        prompt = (
+            f"请为以下抖音达人做综合分析，只返回 JSON，不要返回其他内容。\n"
+            f"JSON 格式：{{\"rating\":\"S/A/B/C之一\", \"tags\":[\"标签1\",\"标签2\",...], \"suitable_products\":\"适合商品类型描述\", \"cooperation_advice\":\"合作建议\", \"risk_warnings\":\"风险提示\"}}\n\n"
+            f"达人昵称：{talent.get('name', '')}\n"
+            f"等级：{talent.get('level', '')}\n"
+            f"粉丝量：{talent.get('followers', 0)}\n"
+            f"达人类型：{talent.get('talent_type', '')}\n"
+            f"主营类目：{talent.get('fan_category', '')}\n"
+            f"粉丝价格带：{talent.get('fan_price_range', '')}\n"
+            f"粉丝画像（性别）：{json.dumps(talent.get('fan_gender', {}), ensure_ascii=False)}\n"
+            f"粉丝画像（年龄）：{json.dumps(talent.get('fan_age', {}), ensure_ascii=False)}\n"
+            f"带货数据：总GMV {talent.get('total_gmv', 0)}，总商品数 {talent.get('total_products', 0)}，直播GMV {talent.get('avg_live_gmv', 0)}\n"
+            f"标签：{json.dumps(talent.get('tags', []), ensure_ascii=False)}\n"
+            f"简介：{talent.get('bio', '')}\n"
+        )
+        messages = [
+            {'role': 'system', 'content': '你是电商达人分析助手，擅长根据达人数据给出结构化分析。'},
+            {'role': 'user', 'content': prompt}
+        ]
+        content = _call_chat_completion(api_provider, api_key, api_model, base_url, messages)
+        if not content:
+            self._send_json_error(503, 'AI analysis failed or returned empty response')
+            return
+
+        cleaned = content.strip()
+        if cleaned.startswith('```'):
+            cleaned = cleaned.split('```', 2)[-1].strip()
+            if cleaned.lower().startswith('json'):
+                cleaned = cleaned[4:].strip()
+        try:
+            analysis = json.loads(cleaned)
+        except Exception:
+            start = cleaned.find('{')
+            end = cleaned.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                try:
+                    analysis = json.loads(cleaned[start:end + 1])
+                except Exception:
+                    self._send_json_error(500, 'AI response is not valid JSON')
+                    return
+            else:
+                self._send_json_error(500, 'AI response is not valid JSON')
+                return
+
+        if not isinstance(analysis, dict):
+            self._send_json_error(500, 'AI response is not a JSON object')
+            return
+
+        now_ts = int(time.time() * 1000)
+        conn = _db_conn()
+        try:
+            conn.execute(
+                '''UPDATE talents SET ai_rating = ?, ai_tags = ?, ai_summary = ?, ai_reason = ?, updated_at = ? WHERE id = ?''',
+                (
+                    analysis.get('rating', ''),
+                    json.dumps(analysis.get('tags', []), ensure_ascii=False),
+                    analysis.get('suitable_products', ''),
+                    json.dumps(analysis, ensure_ascii=False),
+                    now_ts, talent_id
+                )
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'id': talent_id, 'ai_analysis': analysis})
 
     def _handle_get_chat(self, agent_id):
         """GET /api/chat/:agentId?type=personal|group"""

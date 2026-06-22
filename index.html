@@ -406,6 +406,88 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .products-cat-item.active span { background: rgba(10,132,255,0.12); color: var(--accent); }
 
+/* Products Brand List */
+.products-brand-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 8px;
+  flex-shrink: 0;
+}
+.products-brand-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.products-brand-new {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.products-brand-new:hover { background: var(--accent-hover); }
+.products-brand-list {
+  width: 100%;
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 10px 12px;
+}
+.products-brand-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  margin: 3px 0;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 0.5px solid transparent;
+}
+.products-brand-item:hover { background: var(--hover-bg); }
+.products-brand-item.active {
+  background: var(--accent-light);
+  border-color: rgba(10,132,255,0.2);
+}
+.products-brand-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #f5f7fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.products-brand-item.active .products-brand-logo { background: #fff; }
+.products-brand-info { flex: 1; min-width: 0; }
+.products-brand-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.products-brand-meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.products-brand-score {
+  font-size: 12px;
+  font-weight: 600;
+  color: #FF6B35;
+}
+
 /* Products Middle List */
 .products-mid-list { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 .products-mid-header {
@@ -462,6 +544,16 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-shrink: 0;
 }
 .products-mid-new:hover { background: var(--accent-hover); }
+.products-mid-filter {
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 0.5px solid var(--separator);
+  background: var(--bg-primary);
+  font-size: 13px;
+  color: var(--text-primary);
+  flex-shrink: 0;
+  max-width: 120px;
+}
 .products-mid-items {
   flex: 1;
   overflow-y: auto;
@@ -1009,6 +1101,436 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 #productModalOverlay .product-modal-cancel:hover { background: var(--hover-bg); }
 #productModalOverlay .product-modal-save { background: var(--accent); color: #ffffff; }
 #productModalOverlay .product-modal-save:hover { background: var(--accent-hover); }
+
+/* ========================================
+   TALENTS LIBRARY - Feishu Cloud Docs
+   ======================================== */
+.talents-left-sidebar {
+  width: 100%;
+  height: 100%;
+  background: #ffffff;
+  border-right: 1px solid var(--separator);
+  flex-direction: column;
+  padding: 12px 0;
+  overflow: hidden;
+}
+.talents-filter-section {
+  padding: 0 12px 12px;
+  border-bottom: 0.5px solid var(--separator);
+  margin-bottom: 8px;
+}
+.talents-filter-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 8px 4px;
+}
+.talents-filter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.talents-filter-item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.talents-filter-item:hover { background: var(--hover-bg); }
+.talents-filter-item.active {
+  background: var(--accent-light);
+  color: var(--accent);
+  font-weight: 500;
+}
+.talents-mid {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: #ffffff;
+}
+.talents-mid-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 0.5px solid var(--separator);
+  flex-shrink: 0;
+}
+.talents-mid-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+.talents-mid-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.talents-mid-search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  border: 0.5px solid var(--separator);
+}
+.talents-mid-search svg { color: var(--text-tertiary); flex-shrink: 0; width: 16px; height: 16px; }
+.talents-mid-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.talents-mid-new {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.talents-mid-new:hover { background: var(--accent-hover); }
+.talents-mid-items {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px 28px;
+}
+.talents-mid-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  border: 0.5px solid var(--separator);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.talents-mid-card:hover { border-color: var(--accent); box-shadow: 0 4px 12px rgba(10,132,255,0.08); }
+.talents-mid-card.active {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+.talents-mid-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #f5f7fa;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: #ffffff;
+}
+.talents-mid-info { flex: 1; min-width: 0; }
+.talents-mid-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.talents-mid-level {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.talents-mid-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.talents-mid-tags {
+  display: flex;
+  gap: 4px;
+  margin-top: 5px;
+  flex-wrap: wrap;
+}
+.talents-mid-tag {
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--accent-light);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.talents-mid-score {
+  text-align: right;
+  flex-shrink: 0;
+}
+.talents-mid-score-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.talents-mid-score-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.talents-status-tag {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.talents-status-following { background: rgba(10,132,255,0.10); color: var(--accent); }
+.talents-status-cooperating { background: rgba(52,199,89,0.12); color: #34C759; }
+.talents-status-communicating { background: rgba(245,158,11,0.12); color: #d97706; }
+.talents-status-available { background: rgba(134,144,156,0.10); color: #86909c; }
+.talents-status-blacklist { background: rgba(107,114,128,0.10); color: #4b5563; }
+.talents-mid-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-top: 0.5px solid var(--separator);
+  flex-shrink: 0;
+}
+.talents-mid-pagination button {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0.5px solid var(--separator);
+  cursor: pointer;
+}
+.talents-mid-pagination button:hover { background: var(--hover-bg); }
+.talents-mid-pagination button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.talents-mid-pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+.talents-right-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0;
+}
+.talents-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  margin: 14px 14px 0;
+  flex-shrink: 0;
+}
+.talents-tab {
+  flex: 1;
+  padding: 8px 4px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+.talents-tab:hover { color: var(--text-primary); }
+.talents-tab.active { background: #ffffff; color: var(--accent); font-weight: 500; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.talents-tab-panels { flex: 1; min-height: 0; overflow-y: auto; padding: 0 14px 28px; }
+.talents-tab-panel { display: none; }
+.talents-tab-panel.active { display: block; }
+.talents-panel-section {
+  background: #ffffff;
+  border: 0.5px solid var(--separator);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.talents-panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+.talents-overview-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.talents-overview-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.talents-overview-info { flex: 1; min-width: 0; }
+.talents-overview-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.talents-overview-meta {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.talents-overview-rating {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0a84ff, #0070e0);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.talents-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.talents-metric-card {
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+}
+.talents-metric-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.talents-metric-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 3px;
+}
+.talents-ai-card {
+  background: linear-gradient(135deg, #f5f7ff 0%, #ffffff 100%);
+  border: 0.5px solid rgba(10,132,255,0.15);
+  border-radius: 12px;
+  padding: 14px;
+}
+.talents-ai-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.talents-ai-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.talents-product-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 0.5px solid var(--separator);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  background: #ffffff;
+}
+.talents-product-placeholder {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  background: #f5f7fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  flex-shrink: 0;
+}
+.talents-product-info { flex: 1; min-width: 0; }
+.talents-product-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.talents-product-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.talents-product-score {
+  text-align: right;
+  flex-shrink: 0;
+}
+.talents-product-score-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.talents-record-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 0.5px solid var(--separator);
+}
+.talents-record-item:last-child { border-bottom: none; }
+.talents-record-date {
+  width: 56px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.talents-record-body { flex: 1; }
+.talents-record-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.talents-record-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
 
 /* Category sidebar */
 .knowledge-cat-sidebar { background: #ffffff; }
@@ -4473,27 +4995,46 @@ window.doLogin = function () {
 
 <!-- Products Left Sidebar -->
 <div class="module-mid products-left-sidebar" id="productsLeftSidebar">
-  <div class="products-brand-icon active" data-brand="" onclick="selectProductBrand('')" title="全部品牌">
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+  <div class="products-brand-header">
+    <div class="products-brand-title">品牌列表</div>
+    <button class="products-brand-new" onclick="createNewBrand()" title="新建品牌">+</button>
   </div>
-  <div class="products-brand-icon" data-brand="COOLCHAP" onclick="selectProductBrand('COOLCHAP')" title="COOLCHAP 酷恰 · 西班牙马略卡岛 · 地中海度假风">
-    <span style="font-size:20px;line-height:1;">👟</span>
-  </div>
-  <div class="products-cat-list" id="productsCatList"></div>
+  <div class="products-brand-list" id="productsBrandList"></div>
 </div>
 
-<!-- Influencers Mid -->
-<div class="module-mid" id="influencersMid">
-  <div class="sidebar-search">
-    <svg class="sidebar-search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-    <input type="text" placeholder="搜索达人..." id="influencersMidSearch" oninput="onModuleSearch(this.value)">
+<!-- Talents Left Sidebar -->
+<div class="module-mid talents-left-sidebar" id="talentsLeftSidebar">
+  <div class="talents-filter-section">
+    <div class="talents-filter-title">合作状态</div>
+    <div class="talents-filter-list" id="talentsCooperationFilter">
+      <div class="talents-filter-item active" data-cooperation="" onclick="selectTalentCooperation('')">全部</div>
+      <div class="talents-filter-item" data-cooperation="following" onclick="selectTalentCooperation('following')">关注</div>
+      <div class="talents-filter-item" data-cooperation="cooperating" onclick="selectTalentCooperation('cooperating')">已合作</div>
+      <div class="talents-filter-item" data-cooperation="communicating" onclick="selectTalentCooperation('communicating')">沟通中</div>
+      <div class="talents-filter-item" data-cooperation="blacklist" onclick="selectTalentCooperation('blacklist')">黑名单</div>
+    </div>
   </div>
-  <div class="module-filter-row">
-    <select id="influencersMidPlatform" onchange="searchInfluencers()"><option value="">全部平台</option><option value="抖音">抖音</option><option value="小红书">小红书</option><option value="快手">快手</option><option value="B站">B站</option><option value="微博">微博</option><option value="视频号">视频号</option><option value="Instagram">Instagram</option><option value="YouTube">YouTube</option></select>
-    <select id="influencersMidCategory" onchange="searchInfluencers()"><option value="">全部领域</option><option value="美妆护肤">美妆护肤</option><option value="时尚穿搭">时尚穿搭</option><option value="美食探店">美食探店</option><option value="旅行户外">旅行户外</option><option value="数码科技">数码科技</option><option value="母婴育儿">母婴育儿</option><option value="家居生活">家居生活</option><option value="健身运动">健身运动</option><option value="知识科普">知识科普</option><option value="娱乐搞笑">娱乐搞笑</option><option value="未分类">未分类</option></select>
+  <div class="talents-filter-section">
+    <div class="talents-filter-title">主营类目</div>
+    <div class="talents-filter-list" id="talentsCategoryFilter">
+      <div class="talents-filter-item active" data-category="" onclick="selectTalentCategory('')">全部</div>
+    </div>
   </div>
-  <div class="section-title">达人列表</div>
-  <div class="module-mid-list" id="influencersMidList"></div>
+</div>
+
+<!-- Talents Mid -->
+<div class="module-mid talents-mid" id="influencersMid">
+  <div class="talents-mid-header">
+    <div class="talents-mid-title" id="talentsMidTitle">达人库</div>
+    <div class="talents-mid-count" id="talentsMidCount">共 0 条</div>
+    <div class="talents-mid-search">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" placeholder="搜索达人昵称、抖音号..." id="talentsMidSearch" oninput="onTalentSearch(this.value)">
+    </div>
+    <button class="talents-mid-new" onclick="createNewTalent()">+ 录入达人</button>
+  </div>
+  <div class="talents-mid-items" id="talentsMidItems"></div>
+  <div class="talents-mid-pagination" id="talentsMidPagination"></div>
 </div>
 
 <!-- Settings Mid -->
@@ -4627,6 +5168,9 @@ window.doLogin = function () {
   <div class="products-mid-header">
     <div class="products-mid-title" id="productsMidTitle">全部商品</div>
     <div class="products-mid-count" id="productsMidCount">共 0 条</div>
+    <select class="products-mid-filter" id="productsMidCategory" onchange="selectProductCategory(this.value)" title="类目筛选">
+      <option value="">全部分类</option>
+    </select>
     <div class="products-mid-search">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       <input type="text" placeholder="搜索商品..." id="productsMidSearch" oninput="onProductSearch(this.value)">
@@ -4654,9 +5198,9 @@ window.doLogin = function () {
     </div>
     <!-- Tabs -->
     <div class="products-tabs">
-      <button class="products-tab active" data-tab="detail" onclick="switchProductTab('detail')">商品详情</button>
+      <button class="products-tab active" data-tab="detail" onclick="switchProductTab('detail')">基本信息</button>
       <button class="products-tab" data-tab="sales" onclick="switchProductTab('sales')">带货数据</button>
-      <button class="products-tab" data-tab="influencers" onclick="switchProductTab('influencers')">达人合作</button>
+      <button class="products-tab" data-tab="influencers" onclick="switchProductTab('influencers')">带货达人</button>
       <button class="products-tab" data-tab="audience" onclick="switchProductTab('audience')">受众画像</button>
     </div>
     <div class="products-tab-panels" id="productsTabPanels">
@@ -4681,7 +5225,8 @@ window.doLogin = function () {
       <input type="hidden" id="productEditId">
       <div class="product-modal-field"><label>商品名称 *</label><input type="text" id="productName" placeholder="输入商品名称"></div>
       <div class="product-modal-field"><label>副标题</label><input type="text" id="productSubtitle" placeholder="输入副标题"></div>
-      <div class="product-modal-field"><label>品牌</label><input type="text" id="productBrand" value="COOLCHAP"></div>
+      <input type="hidden" id="productBrandId">
+      <div class="product-modal-field"><label>品牌</label><select id="productBrandSelect" onchange="onProductBrandChange(this.value)"><option value="">选择品牌</option></select></div>
       <div class="product-modal-field"><label>类目</label><input type="text" id="productCategory" value="拖鞋"></div>
       <div class="product-modal-field"><label>价格 *</label><input type="number" id="productPrice" placeholder="0.00"></div>
       <div class="product-modal-field"><label>库存</label><input type="number" id="productStock" value="0"></div>
@@ -4697,18 +5242,32 @@ window.doLogin = function () {
   </div>
 </div>
 
-<!-- Influencers Right -->
-<div class="module-right" id="influencersRight">
+<!-- Talents Right -->
+<div class="module-right talents-right" id="influencersRight">
   <div class="module-right-header">
-    <div class="module-right-title" id="influencersRightTitle">达人详情</div>
-    <div class="module-right-actions" id="influencersRightActions">
-      <button class="module-action-btn" onclick="createNewInfluencer()">新建</button>
-      <button class="module-action-btn" onclick="editInfluencerFromRight()">编辑</button>
-      <button class="module-action-btn primary" onclick="saveInfluencerFromRight()">保存</button>
-      <button class="module-action-btn danger" onclick="deleteInfluencerFromRight()">删除</button>
+    <div class="module-right-title" id="talentsRightTitle">达人详情</div>
+    <div class="module-right-actions" id="talentsRightActions">
+      <button class="module-action-btn primary" onclick="analyzeTalentAI()" id="talentsAIBtn">AI 分析</button>
+      <button class="module-action-btn" onclick="editCurrentTalent()">编辑</button>
+      <button class="module-action-btn danger" onclick="deleteCurrentTalent()">删除</button>
     </div>
   </div>
-  <div class="module-right-content" id="influencersRightContent"></div>
+  <div class="module-right-content talents-right-content" id="talentsRightContent">
+    <div class="talents-tabs">
+      <button class="talents-tab active" data-tab="overview" onclick="switchTalentTab('overview')">概览</button>
+      <button class="talents-tab" data-tab="sales" onclick="switchTalentTab('sales')">带货数据</button>
+      <button class="talents-tab" data-tab="fans" onclick="switchTalentTab('fans')">粉丝画像</button>
+      <button class="talents-tab" data-tab="products" onclick="switchTalentTab('products')">匹配商品</button>
+      <button class="talents-tab" data-tab="records" onclick="switchTalentTab('records')">合作记录</button>
+    </div>
+    <div class="talents-tab-panels" id="talentsTabPanels">
+      <div class="talents-tab-panel active" data-panel="overview" id="talentsPanelOverview"></div>
+      <div class="talents-tab-panel" data-panel="sales" id="talentsPanelSales"></div>
+      <div class="talents-tab-panel" data-panel="fans" id="talentsPanelFans"></div>
+      <div class="talents-tab-panel" data-panel="products" id="talentsPanelProducts"></div>
+      <div class="talents-tab-panel" data-panel="records" id="talentsPanelRecords"></div>
+    </div>
+  </div>
 </div>
 
 <!-- Settings Right -->
@@ -19494,7 +20053,9 @@ function checkQuota() {
 
 // ========== 商品库 ==========
 var _productData = { products: [], total: 0 };
-var _productCurrentBrand = '';
+var _productBrandData = { brands: [], total: 0 };
+var _productCurrentBrandId = '';
+var _productCurrentBrandName = '';
 var _productCurrentCategory = '';
 var _productCurrentId = null;
 var _productPage = 1;
@@ -19517,7 +20078,7 @@ function loadProducts(page) {
   if (page) _productPage = page;
   var offset = (_productPage - 1) * _productPageSize;
   var qs = ['limit=' + _productPageSize, 'offset=' + offset];
-  if (_productCurrentBrand) qs.push('brand=' + encodeURIComponent(_productCurrentBrand));
+  if (_productCurrentBrandId) qs.push('brand=' + encodeURIComponent(_productCurrentBrandName));
   if (_productCurrentCategory) qs.push('category=' + encodeURIComponent(_productCurrentCategory));
   var kw = document.getElementById('productsMidSearch') ? document.getElementById('productsMidSearch').value.trim() : '';
   if (kw) qs.push('q=' + encodeURIComponent(kw));
@@ -19532,6 +20093,18 @@ function loadProducts(page) {
     renderProductCategories();
   }).catch(function(e){
     if (itemsEl) itemsEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
+  });
+}
+
+function loadProductBrands() {
+  var el = document.getElementById('productsBrandList');
+  if (el) el.innerHTML = '<div class="products-loading" style="padding:20px;">加载品牌...</div>';
+  apiFetch('/api/brands').then(function(r){return r.json();}).then(function(data){
+    _productBrandData.brands = data.brands || [];
+    _productBrandData.total = data.total || 0;
+    renderProductBrands(_productBrandData.brands);
+  }).catch(function(e){
+    if (el) el.innerHTML = '<div class="products-empty-text" style="padding:20px;">品牌加载失败</div>';
   });
 }
 
@@ -19731,46 +20304,38 @@ function renderProductPanelSales(p) {
 function renderProductPanelInfluencers(p) {
   var el = document.getElementById('productsPanelInfluencers');
   if (!el) return;
-  var influencers = p.influencers || [];
-  if (influencers.length === 0) {
-    el.innerHTML = '<div class="products-empty"><div class="products-empty-text">暂无达人数据</div></div>';
-    return;
-  }
-  var html = '<div class="products-panel-section">';
-  html += '<div class="products-panel-title">合作达人 (' + influencers.length + ')</div>';
-  influencers.forEach(function(inf){
-    var avatar = inf.avatar ? '<img class="products-influencer-avatar" src="' + escapeAttr(inf.avatar) + '" alt="">' : '<div class="products-influencer-avatar-placeholder">' + escapeHtml((inf.name || '?').charAt(0)) + '</div>';
-    html += '<div class="products-influencer-card">';
-    html += avatar;
-    html += '<div class="products-influencer-info">';
-    html += '<div class="products-influencer-name">' + escapeHtml(inf.name || '-') + '</div>';
-    html += '<div class="products-influencer-meta">粉丝 ' + formatNumber(inf.followerCount || inf.followers || 0) + ' · 销量 ' + formatNumber(inf.sales || 0) + '</div>';
-    html += '</div>';
-    html += '<div class="products-influencer-metrics">';
-    html += '<div>GMV ¥' + formatNumber(inf.settlementAmount || inf.gmv || 0) + '</div>';
-    html += '<div>转化 ' + (inf.conversion_rate || inf.conversionRate || 0).toFixed(2) + '%</div>';
-    html += '<div>佣金 ' + (inf.commission_rate || inf.commissionRate || 0) + '%</div>';
-    html += '<div><span class="products-source-badge">' + escapeHtml(inf.source || '-') + '</span></div>';
-    html += '</div></div>';
-    if (inf.videos && inf.videos.length > 0) {
-      html += '<div class="products-video-list" style="margin:-4px 0 10px 56px;">';
-      inf.videos.forEach(function(v){
-        html += '<div class="products-video-item">' + (v.title ? '<div style="font-weight:500;margin-bottom:4px;">' + escapeHtml(v.title) + '</div>' : '') + (v.url ? '<a href="' + escapeAttr(v.url) + '" target="_blank">' + escapeHtml(v.url) + '</a>' : '') + '</div>';
-      });
-      html += '</div>';
+  el.innerHTML = '<div class="products-loading">加载带货达人...</div>';
+  apiFetch('/api/products/' + encodeURIComponent(p.id) + '/talents?limit=20').then(function(r){return r.json();}).then(function(data){
+    var talents = data.talents || [];
+    if (talents.length === 0) {
+      el.innerHTML = '<div class="products-empty"><div class="products-empty-text">暂无带货达人数据，点击右上角 AI 分析可智能匹配</div></div>';
+      return;
     }
-  });
-  html += '</div>';
-  if (p.videos && p.videos.length > 0) {
-    html += '<div class="products-panel-section">';
-    html += '<div class="products-panel-title">相关视频 (' + p.videos.length + ')</div>';
-    html += '<div class="products-video-list">';
-    p.videos.forEach(function(v){
-      html += '<div class="products-video-item">' + (v.title ? '<div style="font-weight:500;margin-bottom:4px;">' + escapeHtml(v.title) + '</div>' : '') + (v.url ? '<a href="' + escapeAttr(v.url) + '" target="_blank">' + escapeHtml(v.url) + '</a>' : '') + '</div>';
+    var html = '<div class="products-panel-section">';
+    html += '<div class="products-panel-title">带货达人排名 (' + talents.length + ')</div>';
+    talents.forEach(function(t, idx){
+      var avatar = t.avatar ? '<img class="products-influencer-avatar" src="' + escapeAttr(t.avatar) + '" alt="">' : '<div class="products-influencer-avatar-placeholder">' + escapeHtml((t.name || '?').charAt(0)) + '</div>';
+      html += '<div class="products-influencer-card">';
+      html += '<div style="width:22px;text-align:center;font-size:12px;font-weight:700;color:var(--text-secondary);flex-shrink:0;">' + (idx + 1) + '</div>';
+      html += avatar;
+      html += '<div class="products-influencer-info">';
+      html += '<div class="products-influencer-name">' + escapeHtml(t.name || '-') + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + (t.level || '') + '</span></div>';
+      html += '<div class="products-influencer-meta">粉丝 ' + formatNumber(t.followers || 0) + ' · ' + (t.fan_category || '未分类') + '</div>';
+      html += '</div>';
+      html += '<div class="products-influencer-metrics">';
+      html += '<div style="font-weight:600;color:var(--accent);">销量 ' + formatNumber(t.sales_volume || 0) + '</div>';
+      html += '<div>转化 ' + (t.conversion_rate || 0).toFixed(2) + '%</div>';
+      html += '<div>匹配 ' + (t.match_score || 0).toFixed(0) + '分</div>';
+      if (t.is_ai_recommended) {
+        html += '<div><span class="products-source-badge">AI推荐</span></div>';
+      }
+      html += '</div></div>';
     });
-    html += '</div></div>';
-  }
-  el.innerHTML = html;
+    html += '</div>';
+    el.innerHTML = html;
+  }).catch(function(e){
+    el.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
+  });
 }
 
 function renderProductPanelAudience(p) {
@@ -19822,11 +20387,28 @@ function analyzeProductAI() {
   });
 }
 
+function renderProductBrandOptions(selectedId) {
+  var sel = document.getElementById('productBrandSelect');
+  if (!sel) return;
+  var html = '<option value="">选择品牌</option>';
+  _productBrandData.brands.forEach(function(b){
+    html += '<option value="' + escapeAttr(b.id) + '"' + (b.id === selectedId ? ' selected' : '') + '>' + escapeHtml(b.name) + '</option>';
+  });
+  sel.innerHTML = html;
+}
+
+function onProductBrandChange(brandId) {
+  document.getElementById('productBrandId').value = brandId || '';
+  var b = _productBrandData.brands.find(function(x){ return x.id === brandId; });
+  if (b) document.getElementById('productBrandId').dataset.name = b.name;
+}
+
 function createNewProduct() {
   document.getElementById('productEditId').value = '';
   document.getElementById('productName').value = '';
   document.getElementById('productSubtitle').value = '';
-  document.getElementById('productBrand').value = _productCurrentBrand || 'COOLCHAP';
+  document.getElementById('productBrandId').value = _productCurrentBrandId || '';
+  renderProductBrandOptions(_productCurrentBrandId);
   document.getElementById('productCategory').value = _productCurrentCategory || '拖鞋';
   document.getElementById('productPrice').value = '';
   document.getElementById('productStock').value = '0';
@@ -19842,7 +20424,8 @@ function editCurrentProduct() {
     document.getElementById('productEditId').value = p.id;
     document.getElementById('productName').value = p.name || '';
     document.getElementById('productSubtitle').value = p.subtitle || '';
-    document.getElementById('productBrand').value = p.brand || '';
+    document.getElementById('productBrandId').value = p.brand_id || '';
+    renderProductBrandOptions(p.brand_id);
     document.getElementById('productCategory').value = p.category || '';
     document.getElementById('productPrice').value = p.price || '';
     document.getElementById('productStock').value = p.stock || 0;
@@ -19860,10 +20443,13 @@ function saveProduct() {
   var skuSpecsRaw = document.getElementById('productSkuSpecs').value.trim();
   var skuSpecs = {};
   if (skuSpecsRaw) { try { skuSpecs = JSON.parse(skuSpecsRaw); } catch(e){ showToast('SKU 规格格式错误'); return; } }
+  var brandId = document.getElementById('productBrandSelect').value;
+  var b = _productBrandData.brands.find(function(x){ return x.id === brandId; });
   var body = {
     name: document.getElementById('productName').value.trim(),
     subtitle: document.getElementById('productSubtitle').value.trim(),
-    brand: document.getElementById('productBrand').value.trim(),
+    brand_id: brandId,
+    brand: b ? b.name : '',
     category: document.getElementById('productCategory').value.trim(),
     price: parseFloat(document.getElementById('productPrice').value) || 0,
     stock: parseInt(document.getElementById('productStock').value) || 0,
@@ -19882,10 +20468,13 @@ function deleteCurrentProduct() {
   apiFetch('/api/products/' + encodeURIComponent(_productCurrentId), {method:'DELETE'}).then(function(){ showToast('✅ 已删除'); closeProductRight(); loadProducts(); }).catch(function(){ showToast('❌ 删除失败'); });
 }
 
-function selectProductBrand(brand) {
-  _productCurrentBrand = brand;
+function selectProductBrand(brandId, brandName) {
+  _productCurrentBrandId = brandId || '';
+  _productCurrentBrandName = brandName || '';
   _productPage = 1;
-  document.querySelectorAll('.products-brand-icon').forEach(function(el){ el.classList.toggle('active', el.dataset.brand === brand); });
+  document.querySelectorAll('.products-brand-item').forEach(function(el){ el.classList.toggle('active', el.dataset.brandId === _productCurrentBrandId); });
+  var titleEl = document.getElementById('productsMidTitle');
+  if (titleEl) titleEl.textContent = _productCurrentBrandName || '全部商品';
   loadProducts();
   renderProductCategories();
 }
@@ -19897,35 +20486,421 @@ function selectProductCategory(cat) {
   renderProductCategories();
 }
 
-function renderProductCategories() {
-  var el = document.getElementById('productsCatList');
+function renderProductBrands(brands) {
+  var el = document.getElementById('productsBrandList');
   if (!el) return;
-  var cats = {};
-  _productData.products.forEach(function(p){ var c = p.category || '未分类'; cats[c] = (cats[c]||0)+1; });
-  var html = '<div class="products-cat-item' + (!_productCurrentCategory ? ' active' : '') + '" onclick="selectProductCategory(\'\')">全部分类</div>';
-  Object.keys(cats).forEach(function(c){ html += '<div class="products-cat-item' + (_productCurrentCategory === c ? ' active' : '') + '" onclick="selectProductCategory(\'' + escapeAttr(c).replace(/'/g,"\\'") + '\')">' + escapeHtml(c) + ' <span>' + cats[c] + '</span></div>'; });
+  var html = '<div class="products-brand-item' + (!_productCurrentBrandId ? ' active' : '') + '" data-brand-id="" onclick="selectProductBrand(\'\',\'\')">';
+  html += '<div class="products-brand-logo"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/></svg></div>';
+  html += '<div class="products-brand-info"><div class="products-brand-name">全部品牌</div><div class="products-brand-meta">显示所有商品</div></div></div>';
+  brands.forEach(function(b){
+    var isActive = _productCurrentBrandId === b.id;
+    var logo = b.logo ? '<img src="' + escapeAttr(b.logo) + '" style="width:100%;height:100%;object-fit:cover;border-radius:10px;">' : '<span>' + (b.name ? b.name.charAt(0) : '品') + '</span>';
+    html += '<div class="products-brand-item' + (isActive ? ' active' : '') + '" data-brand-id="' + escapeAttr(b.id) + '" onclick="selectProductBrand(\'' + escapeAttr(b.id).replace(/'/g,"\\'") + '\',\'' + escapeAttr(b.name).replace(/'/g,"\\'") + '\')">';
+    html += '<div class="products-brand-logo">' + logo + '</div>';
+    html += '<div class="products-brand-info"><div class="products-brand-name">' + escapeHtml(b.name) + '</div>';
+    html += '<div class="products-brand-meta">评分 <span class="products-brand-score">' + (b.shop_score || '-') + '</span> · 商品 ' + (b.total_products || 0) + '</div></div>';
+    html += '</div>';
+  });
   el.innerHTML = html;
 }
 
+function renderProductCategories() {
+  var el = document.getElementById('productsMidCategory');
+  if (!el) return;
+  var cats = {};
+  _productData.products.forEach(function(p){ var c = p.category || '未分类'; cats[c] = (cats[c]||0)+1; });
+  var currentVal = el.value;
+  var html = '<option value="">全部分类</option>';
+  Object.keys(cats).forEach(function(c){ html += '<option value="' + escapeAttr(c) + '">' + escapeHtml(c) + ' (' + cats[c] + ')</option>'; });
+  el.innerHTML = html;
+  if (currentVal && cats[currentVal]) el.value = currentVal;
+  else if (_productCurrentCategory && cats[_productCurrentCategory]) el.value = _productCurrentCategory;
+}
+
 // ========== 达人库 ==========
-var _influencerSearchTimer = null;
+var _talentData = { talents: [], total: 0 };
+var _talentCurrentId = null;
+var _talentCooperation = '';
+var _talentCategory = '';
+var _talentSearchKw = '';
+var _talentPage = 1;
+var _talentPageSize = 20;
+var _talentTab = 'overview';
+var _talentSearchTimer = null;
+var _talentAllCategories = [];
+
 function openInfluencerLibrary() { switchModule('influencers'); }
 function closeInfluencerLibrary() { switchModule('messages'); }
-function loadInfluencers() {
-  var listEl = document.getElementById('influencersMidList');
-  if (!listEl) return;
-  listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
-  apiFetch('/api/influencers').then(function (r) { return r.json(); }).then(function (data) {
-    renderInfluencerList(data.influencers || []);
-  }).catch(function (e) {
-    if (listEl) listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
-    console.warn('[Influencer] 加载失败:', e);
+
+function loadTalents(page) {
+  if (page) _talentPage = page;
+  var offset = (_talentPage - 1) * _talentPageSize;
+  var qs = ['limit=' + _talentPageSize, 'offset=' + offset];
+  if (_talentCooperation) qs.push('cooperation=' + encodeURIComponent(_talentCooperation));
+  if (_talentCategory) qs.push('category=' + encodeURIComponent(_talentCategory));
+  if (_talentSearchKw) qs.push('q=' + encodeURIComponent(_talentSearchKw));
+  var url = '/api/talents?' + qs.join('&');
+  var itemsEl = document.getElementById('talentsMidItems');
+  if (itemsEl) itemsEl.innerHTML = '<div class="products-loading">加载中...</div>';
+  apiFetch(url).then(function(r){return r.json();}).then(function(data){
+    _talentData.talents = data.talents || [];
+    _talentData.total = data.total || 0;
+    renderTalentList(_talentData.talents);
+    renderTalentPagination(_talentData.total, _talentPage, _talentPageSize);
+    updateTalentCategoryFilter(data.talents || []);
+  }).catch(function(e){
+    if (itemsEl) itemsEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
   });
 }
-function searchInfluencersDebounced(val) {
-  if (_influencerSearchTimer) clearTimeout(_influencerSearchTimer);
-  _influencerSearchTimer = setTimeout(function () { searchInfluencers(); }, 300);
+
+function onTalentSearch(val) {
+  clearTimeout(_talentSearchTimer);
+  _talentSearchTimer = setTimeout(function(){
+    _talentSearchKw = val;
+    _talentPage = 1;
+    loadTalents();
+  }, 250);
 }
+
+function selectTalentCooperation(status) {
+  _talentCooperation = status;
+  _talentPage = 1;
+  document.querySelectorAll('#talentsCooperationFilter .talents-filter-item').forEach(function(el){ el.classList.toggle('active', el.dataset.cooperation === status); });
+  loadTalents();
+}
+
+function selectTalentCategory(cat) {
+  _talentCategory = cat;
+  _talentPage = 1;
+  document.querySelectorAll('#talentsCategoryFilter .talents-filter-item').forEach(function(el){ el.classList.toggle('active', el.dataset.category === cat); });
+  loadTalents();
+}
+
+function updateTalentCategoryFilter(talents) {
+  var cats = {};
+  talents.forEach(function(t){ var c = t.fan_category || t.category || '未分类'; cats[c] = (cats[c]||0)+1; });
+  _talentAllCategories = Object.keys(cats);
+  var el = document.getElementById('talentsCategoryFilter');
+  if (!el) return;
+  var html = '<div class="talents-filter-item' + (!_talentCategory ? ' active' : '') + '" data-category="" onclick="selectTalentCategory(\'\')">全部</div>';
+  Object.keys(cats).forEach(function(c){ html += '<div class="talents-filter-item' + (_talentCategory === c ? ' active' : '') + '" data-category="' + escapeAttr(c) + '" onclick="selectTalentCategory(\'' + escapeAttr(c).replace(/'/g,"\\'") + '\')">' + escapeHtml(c) + ' <span style="font-size:11px;color:var(--text-secondary);">' + cats[c] + '</span></div>'; });
+  el.innerHTML = html;
+}
+
+function renderTalentList(talents) {
+  var el = document.getElementById('talentsMidItems');
+  var countEl = document.getElementById('talentsMidCount');
+  if (countEl) countEl.textContent = '共 ' + (_talentData.total || 0) + ' 条';
+  if (!el) return;
+  if (!talents || talents.length === 0) {
+    el.innerHTML = '<div class="products-empty"><div class="products-empty-icon">🎙️</div><div class="products-empty-text">暂无达人</div><button class="products-empty-btn" onclick="createNewTalent()">录入达人</button></div>';
+    return;
+  }
+  var statusMap = {
+    following: { label: '关注', cls: 'talents-status-following' },
+    cooperating: { label: '已合作', cls: 'talents-status-cooperating' },
+    communicating: { label: '沟通中', cls: 'talents-status-communicating' },
+    available: { label: '可合作', cls: 'talents-status-available' },
+    blacklist: { label: '黑名单', cls: 'talents-status-blacklist' }
+  };
+  var html = '';
+  talents.forEach(function(t){
+    var st = statusMap[t.cooperation_status] || statusMap['available'];
+    var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:18px;">' + (t.name || '?').charAt(0) + '</span>';
+    var tags = (t.ai_tags || t.tags || []).slice(0, 2);
+    var aiScore = t.ai_rating ? (['S','A','B','C'].indexOf(t.ai_rating) >= 0 ? (4 - ['S','A','B','C'].indexOf(t.ai_rating)) * 25 : 0) : 0;
+    html += '<div class="talents-mid-card' + (_talentCurrentId === t.id ? ' active' : '') + '" data-id="' + escapeAttr(t.id) + '" onclick="selectTalentItem(\'' + escapeAttr(t.id).replace(/'/g,"\\'") + '\')">';
+    html += '<div class="talents-mid-avatar" style="background:' + (t.avatar ? '#f5f7fa' : 'var(--accent)') + ';">' + avatar + '</div>';
+    html += '<div class="talents-mid-info">';
+    html += '<div class="talents-mid-name">' + escapeHtml(t.name) + ' <span class="talents-status-tag ' + st.cls + '">' + st.label + '</span></div>';
+    html += '<div class="talents-mid-meta">' + (t.level || '-') + ' · 粉丝 ' + formatNumber(t.followers || 0) + ' · ' + (t.fan_category || t.category || '未分类') + '</div>';
+    if (tags.length) {
+      html += '<div class="talents-mid-tags">' + tags.map(function(tag){ return '<span class="talents-mid-tag">' + escapeHtml(tag) + '</span>'; }).join('') + '</div>';
+    }
+    html += '</div>';
+    html += '<div class="talents-mid-score">';
+    html += '<div class="talents-mid-score-value">' + (aiScore || '-') + '</div>';
+    html += '<div class="talents-mid-score-label">AI推荐</div>';
+    html += '</div>';
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function renderTalentPagination(total, page, pageSize) {
+  var el = document.getElementById('talentsMidPagination');
+  if (!el) return;
+  var totalPages = Math.ceil(total / pageSize) || 1;
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  var html = '';
+  html += '<button onclick="loadTalents(' + (page - 1) + ')" ' + (page <= 1 ? 'disabled' : '') + '>上一页</button>';
+  for (var i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) {
+      html += '<button class="' + (i === page ? 'active' : '') + '" onclick="loadTalents(' + i + ')">' + i + '</button>';
+    } else if (i === page - 2 || i === page + 2) {
+      html += '<span style="color:#86909c;font-size:13px;">...</span>';
+    }
+  }
+  html += '<button onclick="loadTalents(' + (page + 1) + ')" ' + (page >= totalPages ? 'disabled' : '') + '>下一页</button>';
+  el.innerHTML = html;
+}
+
+function selectTalentItem(id) {
+  _talentCurrentId = id;
+  apiFetch('/api/talents/' + encodeURIComponent(id)).then(function(r){return r.json();}).then(function(t){
+    renderTalentDetail(t);
+    document.querySelectorAll('.talents-mid-card').forEach(function(el){ el.classList.remove('active'); });
+    var activeEl = document.querySelector('.talents-mid-card[data-id="' + escapeAttr(id) + '"]');
+    if (activeEl) activeEl.classList.add('active');
+  }).catch(function(e){ showToast('加载失败'); });
+}
+
+function renderTalentDetail(t) {
+  _currentTalent = t;
+  var titleEl = document.getElementById('talentsRightTitle');
+  if (titleEl) titleEl.textContent = t.name || '达人详情';
+  // Reset tab
+  _talentTab = 'overview';
+  document.querySelectorAll('.talents-tab').forEach(function(tab){ tab.classList.toggle('active', tab.dataset.tab === 'overview'); });
+  document.querySelectorAll('.talents-tab-panel').forEach(function(p){ p.classList.toggle('active', p.dataset.panel === 'overview'); });
+  renderTalentPanelOverview(t);
+  renderTalentPanelSales(t);
+  renderTalentPanelFans(t);
+  renderTalentPanelProducts(t);
+  renderTalentPanelRecords(t);
+}
+
+function switchTalentTab(tab) {
+  _talentTab = tab;
+  document.querySelectorAll('.talents-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.tab === tab); });
+  document.querySelectorAll('.talents-tab-panel').forEach(function(p){ p.classList.toggle('active', p.dataset.panel === tab); });
+}
+
+function renderTalentPanelOverview(t) {
+  var el = document.getElementById('talentsPanelOverview');
+  if (!el) return;
+  var statusMap = {
+    following: { label: '关注', cls: 'talents-status-following' },
+    cooperating: { label: '已合作', cls: 'talents-status-cooperating' },
+    communicating: { label: '沟通中', cls: 'talents-status-communicating' },
+    available: { label: '可合作', cls: 'talents-status-available' },
+    blacklist: { label: '黑名单', cls: 'talents-status-blacklist' }
+  };
+  var st = statusMap[t.cooperation_status] || statusMap['available'];
+  var ai = t.ai_reason ? (function(){ try { return JSON.parse(t.ai_reason); } catch(e){ return {}; } })() : {};
+  var tags = t.ai_tags || t.tags || [];
+  var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:28px;">' + (t.name || '?').charAt(0) + '</span>';
+  var html = '';
+  html += '<div class="talents-panel-section">';
+  html += '<div class="talents-overview-header">';
+  html += '<div class="talents-overview-avatar" style="background:' + (t.avatar ? '#f5f7fa' : 'var(--accent)') + ';">' + avatar + '</div>';
+  html += '<div class="talents-overview-info">';
+  html += '<div class="talents-overview-name">' + escapeHtml(t.name || '-') + ' <span class="talents-status-tag ' + st.cls + '">' + st.label + '</span></div>';
+  html += '<div class="talents-overview-meta">' + (t.level || '-') + ' · 抖音号 ' + escapeHtml(t.douyin_id || '-') + ' · ' + (t.location || '-') + '</div>';
+  if (t.bio) html += '<div class="talents-overview-meta" style="margin-top:6px;">' + escapeHtml(t.bio) + '</div>';
+  html += '</div>';
+  html += '<div class="talents-overview-rating">' + (t.ai_rating || '-') + '</div>';
+  html += '</div></div>';
+
+  html += '<div class="talents-panel-section">';
+  html += '<div class="talents-panel-title">核心数据</div>';
+  html += '<div class="talents-metric-grid">';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + formatNumber(t.followers || 0) + '</div><div class="talents-metric-label">粉丝量</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.total_gmv || 0) + '</div><div class="talents-metric-label">总GMV</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.total_products || 0) + '</div><div class="talents-metric-label">带货商品</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.total_shops || 0) + '</div><div class="talents-metric-label">合作店铺</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.fulfillment_score || 0).toFixed(1) + '</div><div class="talents-metric-label">履约分</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.rating_score || 0).toFixed(1) + '</div><div class="talents-metric-label">口碑分</div></div>';
+  html += '</div></div>';
+
+  if (tags.length) {
+    html += '<div class="talents-panel-section">';
+    html += '<div class="talents-panel-title">AI 特点标签</div>';
+    html += '<div class="products-tag-list">' + tags.map(function(tag){ return '<span class="products-tag">' + escapeHtml(tag) + '</span>'; }).join('') + '</div>';
+    html += '</div>';
+  }
+
+  html += '<div class="talents-ai-card">';
+  html += '<div class="talents-ai-title">🤖 AI 综合评价</div>';
+  html += '<div class="talents-ai-text">' + (ai.suitable_products || t.ai_summary || '点击右上角「AI 分析」生成达人综合评估。') + '</div>';
+  if (ai.cooperation_advice) html += '<div class="talents-ai-title" style="margin-top:10px;">合作建议</div><div class="talents-ai-text">' + escapeHtml(ai.cooperation_advice) + '</div>';
+  if (ai.risk_warnings) html += '<div class="talents-ai-title" style="margin-top:10px;">风险提示</div><div class="talents-ai-text">' + escapeHtml(ai.risk_warnings) + '</div>';
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function renderTalentPanelSales(t) {
+  var el = document.getElementById('talentsPanelSales');
+  if (!el) return;
+  var html = '<div class="talents-panel-section">';
+  html += '<div class="talents-panel-title">直播数据</div>';
+  html += '<div class="talents-metric-grid">';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.live_ratio || 0) + '%</div><div class="talents-metric-label">直播占比</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.avg_live_gmv || 0) + '</div><div class="talents-metric-label">场均直播GMV</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + (t.live_gpm || 0).toFixed(0) + '</div><div class="talents-metric-label">直播GPM</div></div>';
+  html += '</div></div>';
+  html += '<div class="talents-panel-section">';
+  html += '<div class="talents-panel-title">视频数据</div>';
+  html += '<div class="talents-metric-grid">';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.video_ratio || 0) + '%</div><div class="talents-metric-label">视频占比</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + (t.video_gpm || 0).toFixed(0) + '</div><div class="talents-metric-label">视频GPM</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + (t.commission_requirement || 0).toFixed(0) + '</div><div class="talents-metric-label">佣金要求(%)</div></div>';
+  html += '</div></div>';
+  el.innerHTML = html;
+}
+
+function renderTalentPanelFans(t) {
+  var el = document.getElementById('talentsPanelFans');
+  if (!el) return;
+  var html = '';
+  function renderDist(title, obj) {
+    if (!obj || Object.keys(obj).length === 0) return '';
+    var total = Object.values(obj).reduce(function(a,b){return a + (parseFloat(b)||0);}, 0);
+    var section = '<div class="talents-panel-section"><div class="talents-panel-title">' + title + '</div>';
+    Object.keys(obj).forEach(function(k){
+      var v = parseFloat(obj[k]) || 0;
+      var pct = total ? (v / total * 100) : 0;
+      section += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(k) + '</span><span>' + pct.toFixed(1) + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(pct, 100) + '%"></div></div></div>';
+    });
+    section += '</div>';
+    return section;
+  }
+  html += renderDist('性别分布', t.fan_gender);
+  html += renderDist('年龄分布', t.fan_age);
+  html += renderDist('地域分布', t.fan_region);
+  if (t.fan_crowd || t.fan_price_range || t.fan_category) {
+    html += '<div class="talents-panel-section"><div class="talents-panel-title">人群偏好</div>';
+    html += '<div class="products-detail-grid">';
+    html += '<div class="products-detail-item"><div class="products-detail-label">人群画像</div><div class="products-detail-value">' + escapeHtml(t.fan_crowd || '-') + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">价格带</div><div class="products-detail-value">' + escapeHtml(t.fan_price_range || '-') + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + escapeHtml(t.fan_category || '-') + '</div></div>';
+    html += '</div></div>';
+  }
+  if (!html) html = '<div class="products-empty"><div class="products-empty-text">暂无粉丝画像数据</div></div>';
+  el.innerHTML = html;
+}
+
+function renderTalentPanelProducts(t) {
+  var el = document.getElementById('talentsPanelProducts');
+  if (!el) return;
+  el.innerHTML = '<div class="products-loading">加载匹配商品...</div>';
+  apiFetch('/api/talents/' + encodeURIComponent(t.id) + '/products?limit=20').then(function(r){return r.json();}).then(function(data){
+    var products = data.products || [];
+    if (products.length === 0) {
+      el.innerHTML = '<div class="products-empty"><div class="products-empty-text">暂无匹配商品，点击右上角 AI 分析可智能推荐</div></div>';
+      return;
+    }
+    var html = '<div class="talents-panel-section"><div class="talents-panel-title">AI 推荐可合作商品 (' + products.length + ')</div>';
+    products.forEach(function(p){
+      var placeholder = getProductPlaceholder(p);
+      html += '<div class="talents-product-card">';
+      html += '<div class="talents-product-placeholder" style="background:' + (p.brand === 'COOLCHAP' ? '#FF6B35' : '#165DFF') + ';">' + (p.name || '?').charAt(0) + '</div>';
+      html += '<div class="talents-product-info">';
+      html += '<div class="talents-product-name">' + escapeHtml(p.name || '-') + '</div>';
+      html += '<div class="talents-product-meta">' + escapeHtml(p.brand || '-') + ' · ' + escapeHtml(p.category || '未分类') + ' · ¥' + (p.price || 0).toFixed(2) + '</div>';
+      html += '<div class="talents-product-meta" style="margin-top:4px;color:var(--text-secondary);">' + escapeHtml(p.match_reason || '') + '</div>';
+      html += '</div>';
+      html += '<div class="talents-product-score">';
+      html += '<div class="talents-product-score-value">' + (p.match_score || 0).toFixed(0) + '</div>';
+      html += '<div class="talents-mid-score-label">匹配分</div>';
+      html += '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  }).catch(function(e){
+    el.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
+  });
+}
+
+function renderTalentPanelRecords(t) {
+  var el = document.getElementById('talentsPanelRecords');
+  if (!el) return;
+  // 一期简单展示占位合作记录
+  var records = [
+    { date: '2024-06', title: '【' + (t.name || '-') + '】带货合作沟通', note: '沟通佣金与排期，待确认' },
+    { date: '2024-05', title: '历史合作商品：示例商品A', note: '直播带货，GMV ¥12,500' }
+  ];
+  var html = '<div class="talents-panel-section"><div class="talents-panel-title">合作记录</div>';
+  records.forEach(function(rec){
+    html += '<div class="talents-record-item">';
+    html += '<div class="talents-record-date">' + escapeHtml(rec.date) + '</div>';
+    html += '<div class="talents-record-body">';
+    html += '<div class="talents-record-title">' + escapeHtml(rec.title) + '</div>';
+    html += '<div class="talents-record-note">' + escapeHtml(rec.note) + '</div>';
+    html += '</div></div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function analyzeTalentAI() {
+  if (!_talentCurrentId) return;
+  var btn = document.getElementById('talentsAIBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '分析中...'; }
+  apiFetch('/api/talents/' + encodeURIComponent(_talentCurrentId) + '/analyze', {method:'POST'}).then(function(r){return r.json();}).then(function(data){
+    var t = _talentData.talents.find(function(x){return x.id === _talentCurrentId;});
+    if (t) {
+      t.ai_rating = data.ai_analysis.rating || '';
+      t.ai_tags = data.ai_analysis.tags || [];
+      t.ai_summary = data.ai_analysis.suitable_products || '';
+      t.ai_reason = JSON.stringify(data.ai_analysis);
+    }
+    if (_currentTalent) _currentTalent = Object.assign(_currentTalent, t);
+    renderTalentDetail(t || _currentTalent);
+    showToast('✅ AI 分析完成');
+  }).catch(function(e){ showToast('❌ 分析失败'); }).finally(function(){
+    if (btn) { btn.disabled = false; btn.textContent = 'AI 分析'; }
+  });
+}
+
+function createNewTalent() {
+  // 简化一期：使用 prompt 录入关键字段
+  var name = prompt('请输入达人昵称');
+  if (!name) return;
+  var douyinId = prompt('请输入抖音号') || '';
+  var followers = parseInt(prompt('请输入粉丝量') || '0') || 0;
+  var category = prompt('请输入主营类目') || '鞋靴/凉鞋';
+  var body = {
+    name: name,
+    douyin_id: douyinId,
+    followers: followers,
+    fan_category: category,
+    cooperation_status: 'available'
+  };
+  apiFetch('/api/talents', {method:'POST', body:JSON.stringify(body)}).then(function(){ showToast('✅ 达人已录入'); loadTalents(); }).catch(function(){ showToast('❌ 录入失败'); });
+}
+
+function editCurrentTalent() {
+  if (!_talentCurrentId) return;
+  apiFetch('/api/talents/' + encodeURIComponent(_talentCurrentId)).then(function(r){return r.json();}).then(function(t){
+    var name = prompt('达人昵称', t.name || '');
+    if (name === null) return;
+    var douyinId = prompt('抖音号', t.douyin_id || '');
+    if (douyinId === null) return;
+    var followers = parseInt(prompt('粉丝量', String(t.followers || 0)) || '0') || 0;
+    var category = prompt('主营类目', t.fan_category || '');
+    if (category === null) return;
+    var status = prompt('合作状态(following/cooperating/communicating/available/blacklist)', t.cooperation_status || 'available');
+    if (status === null) return;
+    var body = {
+      name: name,
+      douyin_id: douyinId,
+      followers: followers,
+      fan_category: category,
+      cooperation_status: status
+    };
+    apiFetch('/api/talents/' + encodeURIComponent(_talentCurrentId), {method:'PUT', body:JSON.stringify(body)}).then(function(){ showToast('✅ 已更新'); loadTalents(); selectTalentItem(_talentCurrentId); }).catch(function(){ showToast('❌ 更新失败'); });
+  });
+}
+
+function deleteCurrentTalent() {
+  if (!_talentCurrentId) { showToast('请选择达人'); return; }
+  if (!confirm('确定删除此达人？')) return;
+  apiFetch('/api/talents/' + encodeURIComponent(_talentCurrentId), {method:'DELETE'}).then(function(){ showToast('✅ 已删除'); _talentCurrentId = null; loadTalents(); }).catch(function(){ showToast('❌ 删除失败'); });
+}
+
+var _currentTalent = null;
 
 // ========== Knowledge Page ==========
 var _knowledgeData = { docs: [], categories: [], total: 0 };
@@ -20578,312 +21553,13 @@ async function deleteKnowledgeFromEditor() {
     console.warn('[KnowledgePage] 删除失败:', e);
   }
 }
-function searchInfluencers() {
-  var searchInput = document.getElementById('influencersMidSearch');
-  var platformInput = document.getElementById('influencersMidPlatform');
-  var catInput = document.getElementById('influencersMidCategory');
-  var kw = searchInput ? searchInput.value.trim() : '';
-  var platform = platformInput ? platformInput.value : '';
-  var cat = catInput ? catInput.value : '';
-  var qs = [];
-  if (kw) qs.push('q=' + encodeURIComponent(kw));
-  if (platform) qs.push('platform=' + encodeURIComponent(platform));
-  if (cat) qs.push('category=' + encodeURIComponent(cat));
-  var url = '/api/influencers' + (qs.length ? '?' + qs.join('&') : '');
-  var listEl = document.getElementById('influencersMidList');
-  if (listEl) listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索中...</div>';
-  apiFetch(url).then(function (r) { return r.json(); }).then(function (data) {
-    renderInfluencerList(data.influencers || []);
-  }).catch(function (e) {
-    if (listEl) listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索失败</div>';
-  });
-}
-function renderInfluencerList(influencers) {
-  var listEl = document.getElementById('influencersMidList');
-  if (!listEl) return;
-  if (influencers.length === 0) {
-    listEl.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">暂无达人，点击右上角"录入达人"添加</div>';
-    return;
-  }
-  var html = '';
-  influencers.forEach(function (i) {
-    var statusMap = {available: '可合作', cooperating: '合作中', resting: '休整中', blacklist: '黑名单'};
-    var statusLabel = statusMap[i.status] || (i.status || '未知');
-    var platformIcon = {抖音: '🎵', 小红书: '📕', 快手: '⚡', B站: '📺', 微博: '🌐', 视频号: '📱', Instagram: '📷', YouTube: '▶️'}[i.platform] || '🎙️';
-    var followerText = i.followerCount >= 10000 ? (i.followerCount / 10000).toFixed(1) + 'w' : (i.followerCount || 0);
-    var avatarHtml = i.avatar ? '<img src="' + escapeHtml(i.avatar) + '" style="width:100%;height:100%;object-fit:cover;">' : '<span style="font-size:22px;">' + platformIcon + '</span>';
-    html += '<div class="list-item" onclick="openInfluencerDetail(\'' + escapeAttr(i.id) + '\')">';
-    html += '<div class="emp-avatar" style="background:var(--bg-tertiary);">' + avatarHtml + '</div>';
-    html += '<div class="emp-info">';
-    html += '<div class="emp-name">' + escapeHtml(i.name) + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + statusLabel + '</span></div>';
-    html += '<div class="emp-preview">粉丝: ' + followerText + ' · 类目: ' + escapeHtml(i.category || '未分类') + '</div>';
-    html += '</div>';
-    html += '</div>';
-  });
-  listEl.innerHTML = html;
-}
-function showInfluencerForm(inf) {
-  var titleEl = document.getElementById('influencersRightTitle');
-  if (titleEl) titleEl.textContent = inf ? '编辑达人' : '录入达人';
-  var contentEl = document.getElementById('influencersRightContent');
-  if (!contentEl) return;
-  var html = '<input type="hidden" id="influencerEditId" value="' + (inf ? escapeAttr(inf.id) : '') + '">';
-  html += '<div class="module-form-row" style="text-align:center;"><div id="influencerAvatarPreview" class="influencer-avatar-lg" style="display:inline-flex;font-size:32px;">🎙️</div></div>';
-  html += '<div class="module-form-row"><label>头像链接</label><input type="text" id="influencerAvatar" placeholder="输入头像图片URL，留空使用平台默认" value="' + (inf ? escapeAttr(inf.avatar || '') : '') + '" oninput="updateInfluencerAvatarPreview(this.value)"></div>';
-  html += '<div class="module-form-row"><label>达人名称 *</label><input type="text" id="influencerName" placeholder="输入达人名称" value="' + (inf ? escapeAttr(inf.name || '') : '') + '"></div>';
-  html += '<div class="module-form-row"><label>平台</label><select id="influencerPlatform" onchange="updateInfluencerAvatarPreview(document.getElementById(\'influencerAvatar\').value)">' + renderOptions(['抖音','小红书','快手','B站','微博','视频号','Instagram','YouTube'], inf ? inf.platform : '抖音') + '</select></div>';
-  html += '<div class="module-form-row"><label>账号ID</label><input type="text" id="influencerAccountId" placeholder="如：zhangsan123" value="' + (inf ? escapeAttr(inf.accountId || '') : '') + '"></div>';
-  html += '<div class="module-form-row"><label>领域分类</label><select id="influencerCategory">' + renderOptions(['未分类','美妆护肤','时尚穿搭','美食探店','旅行户外','数码科技','母婴育儿','家居生活','健身运动','知识科普','娱乐搞笑'], inf ? inf.category : '未分类') + '</select></div>';
-  html += '<div class="module-form-row"><label>合作状态</label><select id="influencerStatus">' + renderOptions([{v:'available',l:'可合作'},{v:'cooperating',l:'合作中'},{v:'resting',l:'休整中'},{v:'blacklist',l:'黑名单'}], inf ? inf.status : 'available') + '</select></div>';
-  html += '<div class="module-form-row"><label>粉丝数</label><input type="number" id="influencerFollowers" placeholder="0" value="' + (inf ? (inf.followerCount || 0) : '') + '"></div>';
-  html += '<div class="module-form-row"><label>互动率 (%)</label><input type="number" id="influencerEngagement" placeholder="0.0" step="0.1" value="' + (inf ? (inf.engagementRate || 0) : '') + '"></div>';
-  html += '<div class="module-form-row"><label>合作报价</label><input type="number" id="influencerPrice" placeholder="0.00" step="0.01" value="' + (inf ? (inf.cooperationPrice || 0) : '') + '"></div>';
-  html += '<div class="module-form-row"><label>报价单位</label><select id="influencerPriceUnit">' + renderOptions(['元/条','元/篇','元/小时','元/场','元/月'], inf ? inf.priceUnit : '元/条') + '</select></div>';
-  html += '<div class="module-form-row"><label>平均播放量</label><input type="number" id="influencerAvgViews" placeholder="0" value="' + (inf ? (inf.avgViews || 0) : '') + '"></div>';
-  html += '<div class="module-form-row"><label>内容风格</label><input type="text" id="influencerStyle" placeholder="如：短视频+直播" value="' + (inf ? escapeAttr(inf.contentStyle || '') : '') + '"></div>';
-  html += '<div class="module-form-row"><label>标签（逗号分隔）</label><input type="text" id="influencerTags" placeholder="如：种草, 测评, 教程" value="' + (inf ? escapeAttr((inf.tags || []).join(', ')) : '') + '"></div>';
-  html += '<div class="module-form-row"><label>联系方式</label><input type="text" id="influencerContact" placeholder="如：微信 zhangsan123" value="' + (inf ? escapeAttr(inf.contact || '') : '') + '"></div>';
-  html += '<div class="module-form-row"><label>达人简介</label><textarea id="influencerBio" rows="2" placeholder="输入达人简介...">' + (inf ? escapeHtml(inf.bio || '') : '') + '</textarea></div>';
-  html += '<div class="module-form-row"><label>备注</label><textarea id="influencerNotes" rows="2" placeholder="合作备注...">' + (inf ? escapeHtml(inf.notes || '') : '') + '</textarea></div>';
-  contentEl.innerHTML = html;
-  updateInfluencerAvatarPreview(inf ? inf.avatar : '');
-  var right = document.getElementById('influencersRight');
-  if (right) right.classList.add('active');
-  var actions = document.getElementById('influencersRightActions');
-  if (actions) actions.innerHTML = '<button class="module-action-btn primary" onclick="saveInfluencerFromRight()">保存</button><button class="module-action-btn danger" onclick="closeInfluencerForm()">取消</button>';
-}
-function renderOptions(opts, selected) {
-  return opts.map(function(o) {
-    var v = typeof o === 'string' ? o : o.v;
-    var l = typeof o === 'string' ? o : o.l;
-    return '<option value="' + escapeAttr(v) + '"' + (selected === v ? ' selected' : '') + '>' + escapeHtml(l) + '</option>';
-  }).join('');
-}
-function closeInfluencerForm() {
-  var right = document.getElementById('influencersRight');
-  if (right) right.classList.remove('active');
-}
-function updateInfluencerAvatarPreview(url) {
-  var el = document.getElementById('influencerAvatarPreview');
-  if (!el) return;
-  if (url && url.trim()) {
-    el.innerHTML = '<img src="' + escapeHtml(url.trim()) + '" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML=\'<span style=\\\'font-size:32px;\\\'>🎙️</span>\'">';
-  } else {
-    var platform = document.getElementById('influencerPlatform');
-    var platformVal = platform ? platform.value : '抖音';
-    var icon = {抖音: '🎵', 小红书: '📕', 快手: '⚡', B站: '📺', 微博: '🌐', 视频号: '📱', Instagram: '📷', YouTube: '▶️'}[platformVal] || '🎙️';
-    el.innerHTML = '<span style="font-size:32px;">' + icon + '</span>';
-  }
-}
-function saveInfluencer() {
-  var id = document.getElementById('influencerEditId').value;
-  var body = {
-    name: document.getElementById('influencerName').value.trim(),
-    avatar: document.getElementById('influencerAvatar').value.trim(),
-    platform: document.getElementById('influencerPlatform').value,
-    accountId: document.getElementById('influencerAccountId').value.trim(),
-    category: document.getElementById('influencerCategory').value,
-    followerCount: parseInt(document.getElementById('influencerFollowers').value) || 0,
-    cooperationPrice: parseFloat(document.getElementById('influencerPrice').value) || 0,
-    priceUnit: document.getElementById('influencerPriceUnit').value,
-    engagementRate: parseFloat(document.getElementById('influencerEngagement').value) || 0,
-    avgViews: parseInt(document.getElementById('influencerAvgViews').value) || 0,
-    tags: document.getElementById('influencerTags').value.split(',').map(function (t) { return t.trim(); }).filter(function (t) { return t; }),
-    contentStyle: document.getElementById('influencerStyle').value.trim(),
-    contact: document.getElementById('influencerContact').value.trim(),
-    bio: document.getElementById('influencerBio').value.trim(),
-    notes: document.getElementById('influencerNotes').value.trim(),
-    status: document.getElementById('influencerStatus').value
-  };
-  if (!body.name) {
-    showToast('⚠️ 请输入达人名称');
-    return;
-  }
-  var url = '/api/influencers' + (id ? '/' + encodeURIComponent(id) : '');
-  var method = id ? 'PUT' : 'POST';
-  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function (r) {
-    return r.json();
-  }).then(function () {
-    showToast('✅ 达人已保存');
-    closeInfluencerForm();
-    searchInfluencers();
-  }).catch(function (e) {
-    showToast('❌ 保存失败');
-    console.warn('[Influencer] 保存失败:', e);
-  });
-}
-function editInfluencer(infId) {
-  apiFetch('/api/influencers/' + encodeURIComponent(infId)).then(function (r) { return r.json(); }).then(function (i) {
-    if (i && i.id) showInfluencerForm(i);
-  }).catch(function (e) {
-    showToast('❌ 加载失败');
-    console.warn('[Influencer] 编辑加载失败:', e);
-  });
-}
-function openInfluencerDetail(infId) {
-  apiFetch('/api/influencers/' + encodeURIComponent(infId)).then(function (r) { return r.json(); }).then(function (i) {
-    if (!i || !i.id) {
-      showToast('❌ 达人不存在');
-      return;
-    }
-    var statusMap = {available: {label: '可合作', bg: 'rgba(34,197,94,0.12)', color: '#16a34a'}, cooperating: {label: '合作中', bg: 'rgba(59,130,246,0.12)', color: '#2563eb'}, resting: {label: '休整中', bg: 'rgba(245,158,11,0.12)', color: '#d97706'}, blacklist: {label: '黑名单', bg: 'rgba(107,114,128,0.12)', color: '#4b5563'}};
-    var st = statusMap[i.status] || {label: i.status || '未知', bg: 'var(--bg-tertiary)', color: 'var(--text-secondary)'};
-    var platformIcon = {抖音: '🎵', 小红书: '📕', 快手: '⚡', B站: '📺', 微博: '🌐', 视频号: '📱', Instagram: '📷', YouTube: '▶️'}[i.platform] || '🎙️';
-    var followerText = i.followerCount >= 10000 ? (i.followerCount / 10000).toFixed(1) + 'w' : (i.followerCount || 0);
-    var tagsHtml = (i.tags || []).map(function (t) { return '<span class="product-tag">' + escapeHtml(t) + '</span>'; }).join('');
-    var avatarHtml = i.avatar ? '<img src="' + escapeHtml(i.avatar) + '" style="width:100%;height:100%;object-fit:cover;">' : '<span style="font-size:28px;">' + platformIcon + '</span>';
-
-    var html = '';
-    // 头部：头像 + 名称 + 状态
-    html += '<div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">';
-    html += '<div class="influencer-avatar-lg">' + avatarHtml + '</div>';
-    html += '<div style="flex:1;min-width:0;">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">';
-    html += '<div style="font-size:18px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(i.name) + '</div>';
-    html += '<span class="influencer-status-tag" style="background:' + st.bg + ';color:' + st.color + ';">' + st.label + '</span>';
-    html += '</div>';
-    html += '<div style="font-size:13px;color:var(--text-secondary);margin-top:5px;">' + escapeHtml(i.platform || '-') + ' · ' + escapeHtml(i.accountId || '-') + '</div>';
-    html += '</div>';
-    html += '</div>';
-
-    // 数据指标
-    html += '<div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;margin-bottom:16px;">';
-    html += '<div class="influencer-metric"><div class="influencer-metric-label">粉丝数</div><div class="influencer-metric-value">' + followerText + '</div></div>';
-    html += '<div class="influencer-metric"><div class="influencer-metric-label">互动率</div><div class="influencer-metric-value">' + (i.engagementRate || 0) + '%</div></div>';
-    html += '<div class="influencer-metric"><div class="influencer-metric-label">平均播放</div><div class="influencer-metric-value">' + ((i.avgViews >= 10000) ? (i.avgViews/10000).toFixed(1)+'w' : (i.avgViews || 0)) + '</div></div>';
-    html += '</div>';
-
-    // 详细字段
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-bottom:14px;font-size:13px;">';
-    html += '<div><span style="color:var(--text-secondary);">类目：</span>' + escapeHtml(i.category || '未分类') + '</div>';
-    html += '<div><span style="color:var(--text-secondary);">内容风格：</span>' + escapeHtml(i.contentStyle || '-') + '</div>';
-    html += '<div><span style="color:var(--text-secondary);">合作报价：</span><span style="font-weight:600;color:var(--success);">¥' + (i.cooperationPrice || 0).toFixed(0) + '</span><span style="color:var(--text-secondary);"> / ' + escapeHtml(i.priceUnit || '元') + '</span></div>';
-    html += '<div><span style="color:var(--text-secondary);">联系方式：</span>' + escapeHtml(i.contact || '-') + '</div>';
-    html += '<div style="grid-column:1/-1;"><span style="color:var(--text-secondary);">标签：</span>' + (tagsHtml || '<span style="color:var(--text-secondary);">-</span>') + '</div>';
-    html += '</div>';
-
-    if (i.bio) {
-      html += '<div class="influencer-section"><div class="influencer-section-title">达人简介</div><div style="color:var(--text-primary);font-size:13px;white-space:pre-wrap;">' + escapeHtml(i.bio) + '</div></div>';
-    }
-    if (i.notes) {
-      html += '<div class="influencer-section"><div class="influencer-section-title">合作备注</div><div style="color:var(--text-primary);font-size:13px;white-space:pre-wrap;">' + escapeHtml(i.notes) + '</div></div>';
-    }
-
-    // 匹配商品按钮
-    html += '<div style="margin:16px 0;text-align:center;">';
-    html += '<button onclick="matchInfluencerToProduct(\'' + escapeAttr(i.id) + '\');" style="padding:10px 28px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.12);">🔍 智能匹配商品</button>';
-    html += '</div>';
-
-    // 热卖视频区域（占位，异步加载）
-    html += '<div id="influencerHotVideosSection" style="margin-top:16px;padding-top:16px;border-top:0.5px solid var(--separator);">';
-    html += '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:10px;">关联商品与热卖视频</div>';
-    html += '<div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:20px;">正在加载...</div>';
-    html += '</div>';
-
-    var titleEl = document.getElementById('influencersRightTitle');
-    if (titleEl) titleEl.textContent = i.name;
-    var contentEl = document.getElementById('influencersRightContent');
-    if (contentEl) contentEl.innerHTML = html;
-    var actions = document.getElementById('influencersRightActions');
-    if (actions) actions.innerHTML = '<button class="module-action-btn" onclick="matchInfluencerToProduct(\'' + escapeAttr(i.id) + '\')">匹配商品</button><button class="module-action-btn" onclick="editInfluencer(\'' + escapeAttr(i.id) + '\')">编辑</button><button class="module-action-btn danger" onclick="deleteInfluencer(\'' + escapeAttr(i.id) + '\')">删除</button>';
-    var right = document.getElementById('influencersRight');
-    if (right) right.classList.add('active');
-
-    // 异步加载关联商品与热卖视频
-    loadInfluencerHotVideos(infId);
-  }).catch(function (e) {
-    showToast('❌ 加载详情失败');
-    console.warn('[Influencer] 详情加载失败:', e);
-  });
-}
-
-function loadInfluencerHotVideos(infId) {
-  apiFetch('/api/match/influencer-to-product', {method: 'POST', body: JSON.stringify({influencerId: infId, limit: 10})})
-    .then(function (r) { return r.json(); })
-    .then(function (data) {
-      var results = data.results || [];
-      var sectionEl = document.getElementById('influencerHotVideosSection');
-      if (!sectionEl) return;
-      var html = '';
-      html += '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:10px;">关联商品与热卖视频</div>';
-      if (results.length === 0) {
-        html += '<div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:16px;">暂无关联商品</div>';
-      } else {
-        results.forEach(function (res) {
-          var product = res.product;
-          var videos = product.hot_videos || [];
-          var videoInfos = product.hot_videos_info || {};
-          html += '<div style="margin-bottom:12px;padding:12px;border-radius:10px;background:var(--bg-tertiary);border:0.5px solid var(--separator);">';
-          html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
-          html += '<div style="font-weight:600;font-size:13px;">' + escapeHtml(product.name) + '</div>';
-          html += '<div style="font-size:12px;color:var(--text-secondary);">匹配度 ' + res.score + '分</div>';
-          html += '</div>';
-          if (videos.length > 0) {
-            videos.forEach(function (url) {
-              var info = videoInfos[url];
-              if (info && info.success && info.video_info) {
-                var vi = info.video_info;
-                html += '<div style="display:flex;gap:10px;align-items:center;padding:8px;border-radius:8px;background:var(--bg-primary);margin-bottom:6px;">';
-                html += '<div style="width:64px;height:48px;border-radius:6px;overflow:hidden;background:var(--bg-tertiary);flex-shrink:0;">';
-                if (vi.cover_url) {
-                  html += '<img src="' + escapeHtml(vi.cover_url) + '" style="width:100%;height:100%;object-fit:cover;">';
-                }
-                html += '</div>';
-                html += '<div style="flex:1;min-width:0;">';
-                html += '<div style="font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(vi.title || '无标题') + '</div>';
-                html += '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">' + escapeHtml(vi.author || '') + ' · ' + (vi.duration ? vi.duration + '秒' : '') + ' · ' + (vi.stats && vi.stats.play_count ? '播放 ' + vi.stats.play_count : '') + '</div>';
-                html += '</div>';
-                html += '</div>';
-              } else {
-                html += '<div style="font-size:12px;color:var(--text-secondary);padding:6px 0;">' + escapeHtml(url.substring(0, 60)) + (url.length > 60 ? '...' : '') + '</div>';
-              }
-            });
-          } else {
-            html += '<div style="font-size:12px;color:var(--text-secondary);padding:4px 0;">暂无热卖视频</div>';
-          }
-          html += '</div>';
-        });
-      }
-      sectionEl.innerHTML = html;
-    })
-    .catch(function (e) {
-      var sectionEl = document.getElementById('influencerHotVideosSection');
-      if (sectionEl) {
-        sectionEl.innerHTML = '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:10px;">关联商品与热卖视频</div><div style="color:var(--text-secondary);font-size:13px;text-align:center;padding:16px;">加载失败</div>';
-      }
-      console.warn('[Influencer] 热卖视频加载失败:', e);
-    });
-}
-function closeInfluencerDetail() {
-  var right = document.getElementById('influencersRight');
-  if (right) right.classList.remove('active');
-}
-function editInfluencerFromRight() {
-  var id = document.getElementById('influencerEditId');
-  if (id && id.value) editInfluencer(id.value);
-}
-function saveInfluencerFromRight() {
-  saveInfluencer();
-}
-function deleteInfluencerFromRight() {
-  var idEl = document.getElementById('influencerEditId');
-  if (idEl && idEl.value) {
-    if (confirm('确定删除此达人？')) deleteInfluencer(idEl.value);
-  } else {
-    closeInfluencerForm();
-  }
-}
-function createNewInfluencer() {
-  showInfluencerForm(null);
-}
+// (旧达人库表单函数已移除，兼容别名指向新达人库)
+function searchInfluencers() { loadTalents(1); }
+function renderInfluencerList() {}
+function createNewInfluencer() { createNewTalent(); }
 function deleteInfluencer(infId) {
-  if (!confirm('确定删除此达人？')) return;
-  apiFetch('/api/influencers/' + encodeURIComponent(infId), {method: 'DELETE'}).then(function () {
-    showToast('✅ 达人已删除');
-    searchInfluencers();
-  }).catch(function (e) {
-    showToast('❌ 删除失败');
-  });
+  _talentCurrentId = infId;
+  deleteCurrentTalent();
 }
 
 // ========== 智能匹配引擎 ==========
@@ -21623,7 +22299,7 @@ function switchModule(module) {
   if (navEl) navEl.classList.add('active');
 
   // Hide all module mid/right containers
-  ['knowledgeMid', 'productsLeftSidebar', 'influencersMid', 'settingsMid'].forEach(function(id) {
+  ['knowledgeMid', 'productsLeftSidebar', 'talentsLeftSidebar', 'influencersMid', 'settingsMid'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.classList.remove('active');
   });
@@ -21679,9 +22355,14 @@ function switchModule(module) {
         right.classList.add('active');
       }
     }
+    // 达人库需要显示左侧筛选栏
+    if (module === 'influencers') {
+      var tl = document.getElementById('talentsLeftSidebar');
+      if (tl) tl.classList.add('active');
+    }
     if (module === 'knowledge') { loadGroups(); loadKnowledgePage(); }
-    else if (module === 'products') { loadProducts(); renderProductCategories(); }
-    else if (module === 'influencers') loadInfluencers();
+    else if (module === 'products') { loadProductBrands(); loadProducts(); }
+    else if (module === 'influencers') loadTalents();
     else if (module === 'settings') renderSettingsMid();
   }
 }
