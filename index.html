@@ -505,15 +505,15 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .products-mid-list { flex-direction: column; height: 100%; overflow: hidden; }
 .products-mid-header {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
   padding: 12px 16px;
   border-bottom: 0.5px solid var(--separator);
   flex-shrink: 0;
 }
 .products-mid-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
   flex-shrink: 0;
@@ -535,6 +535,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border: 0.5px solid var(--separator);
   transition: border-color 0.15s, background 0.15s;
 }
+.products-mid-search-full {
+  flex: 1 1 100%;
+  min-width: 0;
+}
 .products-mid-search:focus-within {
   background: #ffffff;
   border-color: var(--accent);
@@ -550,6 +554,25 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: var(--text-primary);
 }
 .products-mid-search input::placeholder { color: var(--text-tertiary); }
+.products-filter-row {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr 1fr auto;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.products-filter-row .products-mid-filter,
+.products-filter-row .segmented-control,
+.products-filter-row .products-mid-new {
+  min-width: 0;
+}
+.products-filter-row .segmented-control {
+  justify-content: center;
+}
+.products-filter-row .products-mid-new {
+  justify-self: end;
+}
 .products-mid-new {
   padding: 8px 14px;
   border-radius: var(--radius-md);
@@ -571,7 +594,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 13px;
   color: var(--text-primary);
   flex-shrink: 0;
-  max-width: 140px;
+  max-width: 160px;
   outline: none;
   transition: border-color 0.15s, background 0.15s;
 }
@@ -580,14 +603,14 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .products-mid-items {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 16px 28px;
+  padding: 8px 16px 28px;
 }
 .products-mid-card {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   background: #ffffff;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
@@ -595,6 +618,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   cursor: pointer;
   transition: all 0.18s ease;
   min-height: 80px;
+}
+.products-mid-card + .products-mid-card {
+  border-top: 0.5px solid var(--separator);
+  margin-top: 12px;
 }
 .products-mid-card:hover {
   background: #fafbfc;
@@ -1291,8 +1318,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .talents-mid-header {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
   padding: 12px 14px;
   border-bottom: 0.5px solid var(--separator);
@@ -1321,6 +1348,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border: 0.5px solid var(--separator);
   transition: border-color 0.15s, background 0.15s;
 }
+.talents-mid-search-full {
+  flex: 1 1 100%;
+  min-width: 0;
+}
 .talents-mid-search:focus-within {
   background: #ffffff;
   border-color: var(--accent);
@@ -1334,6 +1365,27 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   outline: none;
   font-size: 14px;
   color: var(--text-primary);
+}
+.talents-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0,0,0,0.12) transparent;
+  -ms-overflow-style: none;
+}
+.talents-filter-row::-webkit-scrollbar { height: 4px; }
+.talents-filter-row::-webkit-scrollbar-track { background: transparent; }
+.talents-filter-row::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 2px; }
+.talents-filter-row .segmented-control {
+  flex-shrink: 0;
+}
+.talents-filter-row .talents-mid-btn,
+.talents-filter-row .talents-mid-new {
+  flex-shrink: 0;
 }
 .talents-mid-new {
   padding: 8px 14px;
@@ -5514,19 +5566,28 @@ window.doLogin = function () {
   <div class="products-mid-header">
     <div class="products-mid-title" id="productsMidTitle">全部商品</div>
     <div class="products-mid-count" id="productsMidCount">共 0 条</div>
-    <div class="products-mid-search">
+    <div class="products-mid-search products-mid-search-full">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       <input type="text" placeholder="搜索商品..." id="productsMidSearch" oninput="onProductSearch(this.value)">
     </div>
-    <select class="products-mid-filter" id="productsMidBrand" onchange="selectProductBrand(this.value)" title="品牌筛选">
-      <option value="">全部品牌</option>
-    </select>
-    <div class="segmented-control" id="productsStatusFilter">
-      <button class="segmented-item active" data-status="" onclick="selectProductStatus('')">全部</button>
-      <button class="segmented-item" data-status="active" onclick="selectProductStatus('active')">在售</button>
-      <button class="segmented-item" data-status="out_of_stock" onclick="selectProductStatus('out_of_stock')">缺货</button>
+    <div class="products-filter-row">
+      <select class="products-mid-filter" id="productsMidBrand" onchange="selectProductBrand(this.value)" title="品牌筛选">
+        <option value="">全部品牌</option>
+      </select>
+      <div class="segmented-control" id="productsStatusFilter">
+        <button class="segmented-item active" data-status="" onclick="selectProductStatus('')">全部</button>
+        <button class="segmented-item" data-status="active" onclick="selectProductStatus('active')">在售</button>
+        <button class="segmented-item" data-status="out_of_stock" onclick="selectProductStatus('out_of_stock')">缺货</button>
+      </div>
+      <select class="products-mid-filter" id="productsMidSort" onchange="selectProductSort(this.value)" title="排序">
+        <option value="">默认排序</option>
+        <option value="price_asc">价格从低到高</option>
+        <option value="price_desc">价格从高到低</option>
+        <option value="sales_desc">月销从高到低</option>
+        <option value="commission_desc">佣金率从高到低</option>
+      </select>
+      <button class="products-mid-new" onclick="createNewProduct()">+ 录入商品</button>
     </div>
-    <button class="products-mid-new" onclick="createNewProduct()">+ 录入商品</button>
   </div>
   <div class="products-mid-items" id="productsMidItems"></div>
   <div class="products-mid-pagination" id="productsMidPagination"></div>
@@ -5537,19 +5598,21 @@ window.doLogin = function () {
   <div class="talents-mid-header">
     <div class="talents-mid-title" id="talentsMidTitle">达人库</div>
     <div class="talents-mid-count" id="talentsMidCount">共 0 条</div>
-    <div class="talents-mid-search">
+    <div class="talents-mid-search talents-mid-search-full">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       <input type="text" placeholder="搜索达人昵称/关键词..." id="talentsMidSearch" oninput="onTalentSearch(this.value)">
     </div>
-    <div class="segmented-control" id="talentsCooperationFilter">
-      <button class="segmented-item active" data-cooperation="" onclick="selectTalentCooperation('')">全部</button>
-      <button class="segmented-item" data-cooperation="following" onclick="selectTalentCooperation('following')">关注</button>
-      <button class="segmented-item" data-cooperation="cooperating" onclick="selectTalentCooperation('cooperating')">已合作</button>
-      <button class="segmented-item" data-cooperation="communicating" onclick="selectTalentCooperation('communicating')">沟通中</button>
-      <button class="segmented-item" data-cooperation="blacklist" onclick="selectTalentCooperation('blacklist')">黑名单</button>
+    <div class="talents-filter-row">
+      <div class="segmented-control" id="talentsCooperationFilter">
+        <button class="segmented-item active" data-cooperation="" onclick="selectTalentCooperation('')">全部</button>
+        <button class="segmented-item" data-cooperation="following" onclick="selectTalentCooperation('following')">关注</button>
+        <button class="segmented-item" data-cooperation="cooperating" onclick="selectTalentCooperation('cooperating')">已合作</button>
+        <button class="segmented-item" data-cooperation="communicating" onclick="selectTalentCooperation('communicating')">沟通中</button>
+        <button class="segmented-item" data-cooperation="blacklist" onclick="selectTalentCooperation('blacklist')">黑名单</button>
+      </div>
+      <button class="talents-mid-btn secondary" onclick="recommendTalentsAI()">✨ AI推荐达人</button>
+      <button class="talents-mid-new" onclick="createNewTalent()">+ 录入达人</button>
     </div>
-    <button class="talents-mid-btn secondary" onclick="recommendTalentsAI()">✨ AI推荐达人</button>
-    <button class="talents-mid-new" onclick="createNewTalent()">+ 录入达人</button>
   </div>
   <div class="talents-mid-items" id="talentsMidItems"></div>
   <div class="talents-mid-pagination" id="talentsMidPagination"></div>
@@ -20332,6 +20395,7 @@ var _productData = { products: [], total: 0 };
 var _productBrandData = { brands: [], total: 0 };
 var _productCurrentBrandName = '';
 var _productCurrentStatus = '';
+var _productCurrentSort = '';
 var _productCurrentId = null;
 var _productPage = 1;
 var _productPageSize = 20;
@@ -20376,13 +20440,14 @@ function loadProducts(page) {
   var qs = ['limit=' + _productPageSize, 'offset=' + offset];
   if (_productCurrentBrandName) qs.push('brand=' + encodeURIComponent(_productCurrentBrandName));
   if (_productCurrentStatus) qs.push('status=' + encodeURIComponent(_productCurrentStatus));
+  if (_productCurrentSort) qs.push('sort=' + encodeURIComponent(_productCurrentSort));
   var kw = document.getElementById('productsMidSearch') ? document.getElementById('productsMidSearch').value.trim() : '';
   if (kw) qs.push('q=' + encodeURIComponent(kw));
   var url = '/api/products?' + qs.join('&');
   var itemsEl = document.getElementById('productsMidItems');
   if (itemsEl) itemsEl.innerHTML = '<div class="products-loading">加载中...</div>';
   apiFetch(url).then(function(r){return r.json();}).then(function(data){
-    _productData.products = data.products || [];
+    _productData.products = sortProductsLocally(data.products || [], _productCurrentSort);
     _productData.total = data.total || 0;
     renderProductList(_productData.products);
     renderProductPagination(_productData.total, _productPage, _productPageSize);
@@ -20391,6 +20456,34 @@ function loadProducts(page) {
   }).catch(function(e){
     if (itemsEl) itemsEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
   });
+}
+
+function sortProductsLocally(products, sort) {
+  if (!sort || !products || !products.length) return products;
+  var list = products.slice();
+  switch (sort) {
+    case 'price_asc':
+      list.sort(function(a,b){ return (a.price || 0) - (b.price || 0); });
+      break;
+    case 'price_desc':
+      list.sort(function(a,b){ return (b.price || 0) - (a.price || 0); });
+      break;
+    case 'sales_desc':
+      list.sort(function(a,b){ return (b.monthly_sales || 0) - (a.monthly_sales || 0); });
+      break;
+    case 'commission_desc':
+      list.sort(function(a,b){ return (b.commission_rate || 0) - (a.commission_rate || 0); });
+      break;
+  }
+  return list;
+}
+
+function selectProductSort(sort) {
+  _productCurrentSort = sort || '';
+  _productPage = 1;
+  var sel = document.getElementById('productsMidSort');
+  if (sel) sel.value = _productCurrentSort;
+  loadProducts();
 }
 
 function loadProductBrands() {
