@@ -232,6 +232,29 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   overflow: visible;
   transition: transform 0.3s ease;
   z-index: 10;
+  position: relative;
+}
+
+/* Sidebar resizer */
+.sidebar-resizer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 100;
+  transition: background 0.15s;
+}
+.sidebar-resizer:hover,
+.sidebar-resizer.dragging {
+  background: var(--accent);
+}
+#knowledgeMidList,
+#productsMidList,
+#influencersMid {
+  position: relative;
 }
 
 /* Right Content Area */
@@ -2826,6 +2849,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 @media (max-width: 768px) {
   .mid-toggle-btn {
     display: flex !important;
+  }
+  .sidebar-resizer {
+    display: none;
   }
   .app-sidebar {
     position: fixed;
@@ -7699,6 +7725,9 @@ document.addEventListener('DOMContentLoaded', function () {
   checkUrlParams();
   // 同步本地知识文档到后端（一次性迁移）
   syncLocalStorageDocsToBackend();
+  // 初始化侧边栏拖拽调整
+  initSidebarResizers();
+  applySidebarWidth(getSidebarWidth());
   // 默认切换到消息模块（Feishu三栏布局）
   setTimeout(function() { switchModule('messages'); }, 100);
 
@@ -22711,6 +22740,79 @@ function getChannelConfig() {
   return JSON.parse(localStorage.getItem('sb_channel_config') || '{}');
 }
 
+// ========== 侧边栏宽度拖拽调整 ==========
+var _SIDEBAR_WIDTH_KEY = 'sidebarWidth';
+var _MIN_SIDEBAR_WIDTH = 240;
+var _MAX_SIDEBAR_WIDTH = 600;
+var _DEFAULT_SIDEBAR_WIDTH = 280;
+
+function getSidebarWidth() {
+  var saved = localStorage.getItem(_SIDEBAR_WIDTH_KEY);
+  var w = saved ? parseInt(saved, 10) : _DEFAULT_SIDEBAR_WIDTH;
+  if (isNaN(w) || w < _MIN_SIDEBAR_WIDTH) w = _MIN_SIDEBAR_WIDTH;
+  if (w > _MAX_SIDEBAR_WIDTH) w = _MAX_SIDEBAR_WIDTH;
+  return w;
+}
+
+function getAllSidebars() {
+  return [
+    document.querySelector('.app-sidebar'),
+    document.getElementById('knowledgeMidList'),
+    document.getElementById('productsMidList'),
+    document.getElementById('influencersMid')
+  ].filter(Boolean);
+}
+
+function applySidebarWidth(width) {
+  width = Math.max(_MIN_SIDEBAR_WIDTH, Math.min(_MAX_SIDEBAR_WIDTH, width));
+  getAllSidebars().forEach(function(sb) {
+    sb.style.width = width + 'px';
+    if (sb.id === 'knowledgeMidList') {
+      sb.style.flex = '0 0 auto';
+    }
+  });
+}
+
+function initSidebarResizers() {
+  getAllSidebars().forEach(function(sb) {
+    if (sb.querySelector('.sidebar-resizer')) return;
+    sb.style.position = 'relative';
+    var resizer = document.createElement('div');
+    resizer.className = 'sidebar-resizer';
+    resizer.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      startSidebarResize(e, sb);
+    });
+    sb.appendChild(resizer);
+  });
+}
+
+function startSidebarResize(e, sb) {
+  var startX = e.clientX;
+  var startWidth = sb.offsetWidth;
+  var resizer = sb.querySelector('.sidebar-resizer');
+  if (resizer) resizer.classList.add('dragging');
+  document.body.style.userSelect = 'none';
+  document.body.style.cursor = 'col-resize';
+
+  function onMouseMove(ev) {
+    var newWidth = startWidth + (ev.clientX - startX);
+    applySidebarWidth(newWidth);
+  }
+
+  function onMouseUp(ev) {
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    if (resizer) resizer.classList.remove('dragging');
+    localStorage.setItem(_SIDEBAR_WIDTH_KEY, String(sb.offsetWidth));
+  }
+
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup', onMouseUp);
+}
+
 // ========== Feishu Three-Column Module Switching ==========
 var currentModule = 'messages';
 var _globalSearchScope = 'all';
@@ -22765,6 +22867,7 @@ function switchModule(module) {
     if (employeeList) employeeList.style.display = 'block';
     if (projectList) projectList.style.display = 'none';
     renderEmployeeList();
+    applySidebarWidth(getSidebarWidth());
     return;
   }
 
@@ -22803,6 +22906,7 @@ function switchModule(module) {
   else if (module === 'products') { loadProductBrands(); loadProducts(); }
   else if (module === 'influencers') loadTalents();
   else if (module === 'settings') renderSettingsMid();
+  applySidebarWidth(getSidebarWidth());
 }
 
 function getDefaultGlobalSearchScope(module) {
