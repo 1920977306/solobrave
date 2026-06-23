@@ -2086,8 +2086,21 @@ def init_db():
                 updated_at INTEGER
             )
         ''')
-        # 兼容旧表：新增 brands.group_id
-        _add_column_if_not_exists(conn, 'brands', 'group_id', "TEXT DEFAULT ''")
+        # 兼容旧表：确保 brands 所有列都存在
+        for _brand_col, _brand_dtype in [
+            ('logo', "TEXT DEFAULT ''"),
+            ('shop_score', 'REAL DEFAULT 0'),
+            ('shop_type', "TEXT DEFAULT ''"),
+            ('main_category', "TEXT DEFAULT ''"),
+            ('total_products', 'INTEGER DEFAULT 0'),
+            ('total_talents', 'INTEGER DEFAULT 0'),
+            ('avg_commission', 'REAL DEFAULT 0'),
+            ('group_id', "TEXT DEFAULT ''"),
+            ('status', "TEXT DEFAULT 'active'"),
+            ('created_at', 'INTEGER'),
+            ('updated_at', 'INTEGER'),
+        ]:
+            _add_column_if_not_exists(conn, 'brands', _brand_col, _brand_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_brands_status ON brands(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_brands_group ON brands(group_id)')
 
@@ -2445,22 +2458,23 @@ _PTM_COLUMNS = [
 def _brand_row_to_dict(row):
     if not row:
         return None
+    d = dict(row)
     return {
-        'id': row['id'],
-        'name': row['name'] or '',
-        'logo': row['logo'] or '',
-        'shop_score': row['shop_score'] if row['shop_score'] is not None else 0,
-        'shop_type': row['shop_type'] or '',
-        'main_category': row['main_category'] or '',
-        'total_products': row['total_products'] if row['total_products'] is not None else 0,
-        'total_talents': row['total_talents'] if row['total_talents'] is not None else 0,
-        'avg_commission': row['avg_commission'] if row['avg_commission'] is not None else 0,
-        'group_id': row['group_id'] or '',
-        'status': row['status'] or 'active',
-        'created_at': row['created_at'],
-        'updated_at': row['updated_at'],
-        'createdAt': row['created_at'],
-        'updatedAt': row['updated_at'],
+        'id': d.get('id') or '',
+        'name': d.get('name') or '',
+        'logo': d.get('logo') or '',
+        'shop_score': d.get('shop_score') if d.get('shop_score') is not None else 0,
+        'shop_type': d.get('shop_type') or '',
+        'main_category': d.get('main_category') or '',
+        'total_products': d.get('total_products') if d.get('total_products') is not None else 0,
+        'total_talents': d.get('total_talents') if d.get('total_talents') is not None else 0,
+        'avg_commission': d.get('avg_commission') if d.get('avg_commission') is not None else 0,
+        'group_id': d.get('group_id') or '',
+        'status': d.get('status') or 'active',
+        'created_at': d.get('created_at') or 0,
+        'updated_at': d.get('updated_at') or 0,
+        'createdAt': d.get('created_at') or 0,
+        'updatedAt': d.get('updated_at') or 0,
     }
 
 
@@ -9432,6 +9446,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         q = query.get('q', [''])[0].lower()
         conn = _db_conn()
         try:
+            # 自动修复 brands 表结构（兼容旧 DB）
+            for _brand_col, _brand_dtype in [
+                ('logo', "TEXT DEFAULT ''"),
+                ('shop_score', 'REAL DEFAULT 0'),
+                ('shop_type', "TEXT DEFAULT ''"),
+                ('main_category', "TEXT DEFAULT ''"),
+                ('total_products', 'INTEGER DEFAULT 0'),
+                ('total_talents', 'INTEGER DEFAULT 0'),
+                ('avg_commission', 'REAL DEFAULT 0'),
+                ('group_id', "TEXT DEFAULT ''"),
+                ('status', "TEXT DEFAULT 'active'"),
+                ('created_at', 'INTEGER'),
+                ('updated_at', 'INTEGER'),
+            ]:
+                _add_column_if_not_exists(conn, 'brands', _brand_col, _brand_dtype)
+
             sql = "SELECT * FROM brands WHERE 1=1"
             params = []
             if status:
@@ -9441,7 +9471,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 sql += " AND (LOWER(name) LIKE ? OR LOWER(main_category) LIKE ?)"
                 params.extend([f'%{q}%', f'%{q}%'])
             sql += " ORDER BY updated_at DESC"
+            print(f'[DEBUG] GET /api/brands SQL: {sql} params={params}', flush=True)
             rows = conn.execute(sql, params).fetchall()
+            print(f'[DEBUG] GET /api/brands rows={len(rows)}', flush=True)
             brands = [_brand_row_to_dict(r) for r in rows]
             # Fallback：brands 表为空时，从 products 表聚合生成品牌列表，兼容旧数据
             if not brands:

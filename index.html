@@ -325,7 +325,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .app-main.products-active { flex-direction: row; }
 #productsMidList {
   display: none;
-  width: 280px;
+  width: 340px;
   flex-shrink: 0;
   background: #ffffff;
   border-right: 1px solid var(--separator);
@@ -338,7 +338,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .app-main.influencers-active { flex-direction: row; }
 #influencersMid {
   display: none;
-  width: 280px;
+  width: 340px;
   flex-shrink: 0;
   background: #ffffff;
   border-right: 1px solid var(--separator);
@@ -557,8 +557,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .products-mid-search input::placeholder { color: var(--text-tertiary); }
 .products-filter-row {
-  display: grid;
-  grid-template-columns: 1fr 1.5fr 1fr auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   flex: 1 1 100%;
@@ -569,11 +569,22 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .products-filter-row .products-mid-new {
   min-width: 0;
 }
+.products-filter-row #productsMidBrand {
+  flex: 0 0 120px;
+  min-width: 120px;
+}
+.products-filter-row #productsMidSort {
+  flex: 0 0 140px;
+  min-width: 140px;
+}
 .products-filter-row .segmented-control {
+  flex: 1 1 auto;
   justify-content: center;
+  min-width: 180px;
 }
 .products-filter-row .products-mid-new {
-  justify-self: end;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .products-mid-new {
   padding: 8px 14px;
