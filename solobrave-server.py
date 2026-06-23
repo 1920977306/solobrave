@@ -2111,6 +2111,11 @@ def init_db():
                 name TEXT NOT NULL,
                 avatar TEXT DEFAULT '',
                 douyin_id TEXT DEFAULT '',
+                real_name TEXT DEFAULT '',
+                wechat TEXT DEFAULT '',
+                phone TEXT DEFAULT '',
+                email TEXT DEFAULT '',
+                city TEXT DEFAULT '',
                 level TEXT DEFAULT '',
                 followers INTEGER DEFAULT 0,
                 talent_type TEXT DEFAULT '',
@@ -2132,7 +2137,9 @@ def init_db():
                 rating_score REAL DEFAULT 0,
                 total_gmv REAL DEFAULT 0,
                 total_products INTEGER DEFAULT 0,
+                product_count INTEGER DEFAULT 0,
                 total_shops INTEGER DEFAULT 0,
+                average_price REAL DEFAULT 0,
                 live_ratio REAL DEFAULT 0,
                 video_ratio REAL DEFAULT 0,
                 avg_live_gmv REAL DEFAULT 0,
@@ -2144,10 +2151,14 @@ def init_db():
                 fan_crowd TEXT DEFAULT '',
                 fan_price_range TEXT DEFAULT '',
                 fan_category TEXT DEFAULT '',
+                category TEXT DEFAULT '',
+                fans_profile TEXT DEFAULT '{}',
                 ai_tags TEXT DEFAULT '[]',
                 ai_rating TEXT DEFAULT '',
                 ai_summary TEXT DEFAULT '',
+                ai_analysis TEXT DEFAULT '',
                 ai_reason TEXT DEFAULT '',
+                risk_rating TEXT DEFAULT '',
                 group_id TEXT DEFAULT '',
                 status TEXT DEFAULT 'active',
                 created_at INTEGER,
@@ -2156,7 +2167,9 @@ def init_db():
         ''')
         # 兼容旧表：补充 talents 可能缺失的新列
         for _talent_col, _talent_dtype in [
-            ('avatar', "TEXT DEFAULT ''"), ('douyin_id', "TEXT DEFAULT ''"), ('level', "TEXT DEFAULT ''"),
+            ('avatar', "TEXT DEFAULT ''"), ('douyin_id', "TEXT DEFAULT ''"), ('real_name', "TEXT DEFAULT ''"),
+            ('wechat', "TEXT DEFAULT ''"), ('phone', "TEXT DEFAULT ''"), ('email', "TEXT DEFAULT ''"),
+            ('city', "TEXT DEFAULT ''"), ('level', "TEXT DEFAULT ''"),
             ('followers', 'INTEGER DEFAULT 0'), ('talent_type', "TEXT DEFAULT ''"), ('location', "TEXT DEFAULT ''"),
             ('agency', "TEXT DEFAULT ''"), ('tags', "TEXT DEFAULT '[]'"), ('bio', "TEXT DEFAULT ''"),
             ('contact', "TEXT DEFAULT ''"),
@@ -2165,17 +2178,21 @@ def init_db():
             ('follow_up_by', "TEXT DEFAULT ''"), ('next_follow_up_at', 'INTEGER DEFAULT 0'), ('follow_up_note', "TEXT DEFAULT ''"),
             ('commission_requirement', 'REAL DEFAULT 0'), ('fulfillment_score', 'REAL DEFAULT 0'),
             ('rating_score', 'REAL DEFAULT 0'), ('total_gmv', 'REAL DEFAULT 0'), ('total_products', 'INTEGER DEFAULT 0'),
-            ('total_shops', 'INTEGER DEFAULT 0'), ('live_ratio', 'REAL DEFAULT 0'), ('video_ratio', 'REAL DEFAULT 0'),
+            ('product_count', 'INTEGER DEFAULT 0'), ('total_shops', 'INTEGER DEFAULT 0'), ('average_price', 'REAL DEFAULT 0'),
+            ('live_ratio', 'REAL DEFAULT 0'), ('video_ratio', 'REAL DEFAULT 0'),
             ('avg_live_gmv', 'REAL DEFAULT 0'), ('live_gpm', 'REAL DEFAULT 0'), ('video_gpm', 'REAL DEFAULT 0'),
             ('fan_gender', "TEXT DEFAULT '{}'"), ('fan_age', "TEXT DEFAULT '{}'"), ('fan_region', "TEXT DEFAULT '{}'"),
             ('fan_crowd', "TEXT DEFAULT ''"), ('fan_price_range', "TEXT DEFAULT ''"), ('fan_category', "TEXT DEFAULT ''"),
+            ('category', "TEXT DEFAULT ''"), ('fans_profile', "TEXT DEFAULT '{}'"),
             ('ai_tags', "TEXT DEFAULT '[]'"), ('ai_rating', "TEXT DEFAULT ''"), ('ai_summary', "TEXT DEFAULT ''"),
-            ('ai_reason', "TEXT DEFAULT ''"), ('group_id', "TEXT DEFAULT ''"), ('status', "TEXT DEFAULT 'active'"),
+            ('ai_analysis', "TEXT DEFAULT ''"), ('ai_reason', "TEXT DEFAULT ''"), ('risk_rating', "TEXT DEFAULT ''"),
+            ('group_id', "TEXT DEFAULT ''"), ('status', "TEXT DEFAULT 'active'"),
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_cooperation ON talents(cooperation_status)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_category ON talents(fan_category)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_category ON talents(category)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_fan_category ON talents(fan_category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_group ON talents(group_id)')
 
         # 商品-达人匹配关系
@@ -2197,6 +2214,24 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_ptm_product ON product_talent_match(product_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_ptm_talent ON product_talent_match(talent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_ptm_score ON product_talent_match(match_score)')
+
+        # 达人 CRM 跟进记录
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS talent_follow_ups (
+                id TEXT PRIMARY KEY,
+                talent_id TEXT NOT NULL,
+                follow_up_by TEXT DEFAULT '',
+                follow_up_at INTEGER DEFAULT 0,
+                next_follow_up_at INTEGER DEFAULT 0,
+                content TEXT DEFAULT '',
+                result TEXT DEFAULT '',
+                status TEXT DEFAULT 'completed',
+                created_at INTEGER,
+                updated_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tfu_talent_id ON talent_follow_ups(talent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tfu_follow_up_at ON talent_follow_ups(follow_up_at)')
 
         # FIXME: 新增记忆三级沉淀表（二级归纳、三级知识库），保持原有 knowledge/products 表不变
         conn.execute('''
@@ -2438,15 +2473,21 @@ _BRAND_COLUMNS = [
 ]
 
 _TALENT_COLUMNS = [
-    'id', 'name', 'avatar', 'douyin_id', 'level', 'followers', 'talent_type',
-    'location', 'agency', 'tags', 'bio', 'contact', 'contact_name', 'contact_phone',
-    'contact_wechat', 'contact_email', 'cooperation_status', 'follow_up_by',
-    'next_follow_up_at', 'follow_up_note',
-    'commission_requirement', 'fulfillment_score', 'rating_score', 'total_gmv',
-    'total_products', 'total_shops', 'live_ratio', 'video_ratio', 'avg_live_gmv',
-    'live_gpm', 'video_gpm', 'fan_gender', 'fan_age', 'fan_region', 'fan_crowd',
-    'fan_price_range', 'fan_category', 'ai_tags', 'ai_rating', 'ai_summary',
-    'ai_reason', 'group_id', 'status', 'created_at', 'updated_at'
+    'id', 'name', 'avatar', 'douyin_id', 'real_name', 'wechat', 'phone', 'email',
+    'city', 'level', 'followers', 'talent_type', 'location', 'agency', 'tags',
+    'bio', 'contact', 'contact_name', 'contact_phone', 'contact_wechat',
+    'contact_email', 'cooperation_status', 'follow_up_by', 'next_follow_up_at',
+    'follow_up_note', 'commission_requirement', 'fulfillment_score', 'rating_score',
+    'total_gmv', 'total_products', 'product_count', 'total_shops', 'average_price',
+    'live_ratio', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_gpm',
+    'fan_gender', 'fan_age', 'fan_region', 'fan_crowd', 'fan_price_range',
+    'fan_category', 'category', 'fans_profile', 'ai_tags', 'ai_rating', 'ai_summary',
+    'ai_analysis', 'ai_reason', 'risk_rating', 'group_id', 'status', 'created_at', 'updated_at'
+]
+
+_FOLLOW_UP_COLUMNS = [
+    'id', 'talent_id', 'follow_up_by', 'follow_up_at', 'next_follow_up_at',
+    'content', 'result', 'status', 'created_at', 'updated_at'
 ]
 
 _PTM_COLUMNS = [
@@ -2494,6 +2535,11 @@ def _talent_row_to_dict(row):
         'name': row['name'] or '',
         'avatar': row['avatar'] or '',
         'douyin_id': row['douyin_id'] or '',
+        'real_name': row['real_name'] or '',
+        'wechat': row['wechat'] or row['contact_wechat'] or '',
+        'phone': row['phone'] or row['contact_phone'] or '',
+        'email': row['email'] or row['contact_email'] or '',
+        'city': row['city'] or '',
         'level': row['level'] or '',
         'followers': row['followers'] if row['followers'] is not None else 0,
         'talent_type': row['talent_type'] or '',
@@ -2515,7 +2561,9 @@ def _talent_row_to_dict(row):
         'rating_score': row['rating_score'] if row['rating_score'] is not None else 0,
         'total_gmv': row['total_gmv'] if row['total_gmv'] is not None else 0,
         'total_products': row['total_products'] if row['total_products'] is not None else 0,
+        'product_count': row['product_count'] if row['product_count'] is not None else (row['total_products'] if row['total_products'] is not None else 0),
         'total_shops': row['total_shops'] if row['total_shops'] is not None else 0,
+        'average_price': row['average_price'] if row['average_price'] is not None else 0,
         'live_ratio': row['live_ratio'] if row['live_ratio'] is not None else 0,
         'video_ratio': row['video_ratio'] if row['video_ratio'] is not None else 0,
         'avg_live_gmv': row['avg_live_gmv'] if row['avg_live_gmv'] is not None else 0,
@@ -2527,16 +2575,55 @@ def _talent_row_to_dict(row):
         'fan_crowd': row['fan_crowd'] or '',
         'fan_price_range': row['fan_price_range'] or '',
         'fan_category': row['fan_category'] or '',
+        'category': row['category'] or row['fan_category'] or '',
+        'fans_profile': _json_col('fans_profile', {}),
         'ai_tags': _json_col('ai_tags', []),
         'ai_rating': row['ai_rating'] or '',
         'ai_summary': row['ai_summary'] or '',
+        'ai_analysis': row['ai_analysis'] or row['ai_summary'] or '',
         'ai_reason': row['ai_reason'] or '',
+        'risk_rating': row['risk_rating'] or '',
         'group_id': row['group_id'] or '',
         'status': row['status'] or 'active',
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
         'updatedAt': row['updated_at'],
+    }
+
+
+def _follow_up_row_to_dict(row):
+    if not row:
+        return None
+    return {
+        'id': row['id'],
+        'talent_id': row['talent_id'] or '',
+        'follow_up_by': row['follow_up_by'] or '',
+        'follow_up_at': row['follow_up_at'] if row['follow_up_at'] is not None else 0,
+        'next_follow_up_at': row['next_follow_up_at'] if row['next_follow_up_at'] is not None else 0,
+        'content': row['content'] or '',
+        'result': row['result'] or '',
+        'status': row['status'] or 'completed',
+        'created_at': row['created_at'],
+        'updated_at': row['updated_at'],
+        'createdAt': row['created_at'],
+        'updatedAt': row['updated_at'],
+    }
+
+
+def _dict_to_follow_up_row(f):
+    now = int(time.time() * 1000)
+    return {
+        'id': f.get('id') or ('tfu_' + str(now) + '_' + uuid.uuid4().hex[:6]),
+        'talent_id': f.get('talent_id') or '',
+        'follow_up_by': f.get('follow_up_by') or f.get('followUpBy') or '',
+        'follow_up_at': int(f.get('follow_up_at', f.get('followUpAt', now)) or now),
+        'next_follow_up_at': int(f.get('next_follow_up_at', f.get('nextFollowUpAt', 0)) or 0),
+        'content': f.get('content') or '',
+        'result': f.get('result') or '',
+        'status': f.get('status') or 'completed',
+        'created_at': f.get('created_at') or f.get('createdAt') or now,
+        'updated_at': now,
     }
 
 
@@ -2570,6 +2657,11 @@ def _dict_to_talent_row(t):
         'name': t.get('name') or '',
         'avatar': t.get('avatar') or '',
         'douyin_id': t.get('douyin_id') or t.get('douyinId') or '',
+        'real_name': t.get('real_name') or t.get('realName') or '',
+        'wechat': t.get('wechat') or t.get('contact_wechat') or t.get('contactWechat') or '',
+        'phone': t.get('phone') or t.get('contact_phone') or t.get('contactPhone') or '',
+        'email': t.get('email') or t.get('contact_email') or t.get('contactEmail') or '',
+        'city': t.get('city') or '',
         'level': t.get('level') or '',
         'followers': int(t.get('followers', 0) or 0),
         'talent_type': t.get('talent_type') or t.get('talentType') or '',
@@ -2591,7 +2683,9 @@ def _dict_to_talent_row(t):
         'rating_score': float(t.get('rating_score', 0) or 0),
         'total_gmv': float(t.get('total_gmv', 0) or 0),
         'total_products': int(t.get('total_products', 0) or 0),
+        'product_count': int(t.get('product_count', t.get('total_products', 0)) or 0),
         'total_shops': int(t.get('total_shops', 0) or 0),
+        'average_price': float(t.get('average_price', 0) or 0),
         'live_ratio': float(t.get('live_ratio', 0) or 0),
         'video_ratio': float(t.get('video_ratio', 0) or 0),
         'avg_live_gmv': float(t.get('avg_live_gmv', 0) or 0),
@@ -2603,10 +2697,14 @@ def _dict_to_talent_row(t):
         'fan_crowd': t.get('fan_crowd') or t.get('fanCrowd') or '',
         'fan_price_range': t.get('fan_price_range') or t.get('fanPriceRange') or '',
         'fan_category': t.get('fan_category') or t.get('fanCategory') or '',
+        'category': t.get('category') or t.get('fan_category') or t.get('fanCategory') or '',
+        'fans_profile': _dump(t.get('fans_profile', t.get('fansProfile', {}))),
         'ai_tags': _dump(t.get('ai_tags', t.get('aiTags', []))),
         'ai_rating': t.get('ai_rating') or t.get('aiRating') or '',
         'ai_summary': t.get('ai_summary') or t.get('aiSummary') or '',
+        'ai_analysis': t.get('ai_analysis') or t.get('aiAnalysis') or t.get('ai_summary') or t.get('aiSummary') or '',
         'ai_reason': t.get('ai_reason') or t.get('aiReason') or '',
+        'risk_rating': t.get('risk_rating') or t.get('riskRating') or '',
         'group_id': t.get('group_id') or t.get('groupId') or '',
         'status': t.get('status') or 'active',
         'created_at': t.get('created_at') or t.get('createdAt') or now,
@@ -3856,6 +3954,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     if parts[1] == 'products':
                         self._handle_get_talent_products(talent_id)
                         return
+                    if parts[1] == 'follow-ups' and len(parts) == 2:
+                        self._handle_get_talent_follow_ups(talent_id)
+                        return
                 self._handle_get_talent(rest)
             return
 
@@ -4221,6 +4322,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'match-products':
                 self._handle_match_talent_products(parts[0])
                 return
+            if len(parts) == 2 and parts[1] == 'follow-ups':
+                self._handle_post_talent_follow_up(parts[0])
+                return
 
         # Product API
         if path == '/api/products':
@@ -4365,9 +4469,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Talent API
         if path.startswith('/api/talents/'):
-            talent_id = path[len('/api/talents/'):]
-            if talent_id:
-                self._handle_put_talent(talent_id)
+            sub = path[len('/api/talents/'):]
+            if sub:
+                if '/' in sub:
+                    parts = sub.split('/')
+                    if len(parts) == 3 and parts[1] == 'follow-ups':
+                        self._handle_put_talent_follow_up(parts[0], parts[2])
+                        return
+                self._handle_put_talent(sub)
                 return
 
         # Product API
@@ -4477,9 +4586,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Talent API
         if path.startswith('/api/talents/'):
-            talent_id = path[len('/api/talents/'):]
-            if talent_id:
-                self._handle_delete_talent(talent_id)
+            sub = path[len('/api/talents/'):]
+            if sub:
+                if '/' in sub:
+                    parts = sub.split('/')
+                    if len(parts) == 3 and parts[1] == 'follow-ups':
+                        self._handle_delete_talent_follow_up(parts[0], parts[2])
+                        return
+                self._handle_delete_talent(sub)
                 return
 
         # Product API
@@ -9739,6 +9853,120 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         self._send_json(200, {'deleted': cur.rowcount > 0, 'id': talent_id})
+
+    def _handle_get_talent_follow_ups(self, talent_id):
+        """GET /api/talents/:id/follow-ups — 获取跟进记录列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        conn = _db_conn()
+        try:
+            exists = conn.execute('SELECT 1 FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            if not exists:
+                self._send_json_error(404, 'Talent not found')
+                return
+            rows = conn.execute(
+                'SELECT * FROM talent_follow_ups WHERE talent_id = ? ORDER BY follow_up_at DESC',
+                (talent_id,)
+            ).fetchall()
+            follow_ups = [_follow_up_row_to_dict(r) for r in rows]
+        finally:
+            conn.close()
+        self._send_json(200, {'follow_ups': follow_ups})
+
+    def _handle_post_talent_follow_up(self, talent_id):
+        """POST /api/talents/:id/follow-ups — 新增跟进记录"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        conn = _db_conn()
+        try:
+            exists = conn.execute('SELECT 1 FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            if not exists:
+                self._send_json_error(404, 'Talent not found')
+                return
+            body['talent_id'] = talent_id
+            row = _dict_to_follow_up_row(body)
+            conn.execute(
+                f"INSERT INTO talent_follow_ups ({', '.join(_FOLLOW_UP_COLUMNS)}) VALUES ({', '.join('?' * len(_FOLLOW_UP_COLUMNS))})",
+                tuple(row[c] for c in _FOLLOW_UP_COLUMNS)
+            )
+            conn.commit()
+            # 同步达人最近跟进人与下次跟进时间
+            conn.execute(
+                'UPDATE talents SET follow_up_by = ?, next_follow_up_at = ?, updated_at = ? WHERE id = ?',
+                (row['follow_up_by'], row['next_follow_up_at'], row['updated_at'], talent_id)
+            )
+            conn.commit()
+            row_out = conn.execute('SELECT * FROM talent_follow_ups WHERE id = ?', (row['id'],)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(200, _follow_up_row_to_dict(row_out))
+
+    def _handle_put_talent_follow_up(self, talent_id, follow_up_id):
+        """PUT /api/talents/:id/follow-ups/:follow_up_id — 更新跟进记录"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute(
+                'SELECT * FROM talent_follow_ups WHERE id = ? AND talent_id = ?', (follow_up_id, talent_id)
+            ).fetchone()
+            if not row:
+                self._send_json_error(404, 'Follow-up not found')
+                return
+            existing = _follow_up_row_to_dict(row)
+            existing.update(body)
+            existing['id'] = follow_up_id
+            existing['talent_id'] = talent_id
+            existing['updated_at'] = int(time.time() * 1000)
+            row = _dict_to_follow_up_row(existing)
+            conn.execute(
+                f"UPDATE talent_follow_ups SET {', '.join(f'{c} = ?' for c in _FOLLOW_UP_COLUMNS)} WHERE id = ?",
+                tuple(row[c] for c in _FOLLOW_UP_COLUMNS) + (follow_up_id,)
+            )
+            conn.commit()
+            conn.execute(
+                'UPDATE talents SET follow_up_by = ?, next_follow_up_at = ?, updated_at = ? WHERE id = ?',
+                (row['follow_up_by'], row['next_follow_up_at'], row['updated_at'], talent_id)
+            )
+            conn.commit()
+            row_out = conn.execute('SELECT * FROM talent_follow_ups WHERE id = ?', (follow_up_id,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(200, _follow_up_row_to_dict(row_out))
+
+    def _handle_delete_talent_follow_up(self, talent_id, follow_up_id):
+        """DELETE /api/talents/:id/follow-ups/:follow_up_id — 删除跟进记录"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        conn = _db_conn()
+        try:
+            cur = conn.execute(
+                'DELETE FROM talent_follow_ups WHERE id = ? AND talent_id = ?', (follow_up_id, talent_id)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'deleted': cur.rowcount > 0, 'id': follow_up_id})
 
     # ═══════════════════════════════════════════════════
     # 达人库 API (旧 JSON 兼容)

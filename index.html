@@ -1877,6 +1877,271 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   margin-top: 2px;
 }
 
+/* 达人详情页增强样式 */
+.talents-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.talents-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+}
+.talents-info-item.full-width { grid-column: 1 / -1; }
+.talents-info-item label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.talents-info-item .value {
+  font-size: 13px;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+.talents-info-item .value.empty { color: #c9cdd4; }
+.talents-overview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.talents-overview-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(10,132,255,0.08);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+}
+.talents-status-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+.talents-status-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 110px;
+  background: #ffffff;
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+  padding: 4px;
+  z-index: 50;
+  display: none;
+}
+.talents-status-dropdown-menu.active { display: block; }
+.talents-status-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+.talents-status-dropdown-item:hover { background: var(--hover-bg); }
+.talents-status-tag.clickable {
+  cursor: pointer;
+  user-select: none;
+}
+.talents-status-tag.clickable:hover { opacity: 0.85; }
+.talents-mid-status {
+  cursor: pointer;
+  user-select: none;
+}
+.talents-mid-status:hover { opacity: 0.85; }
+
+/* 带货数据图表 */
+.talents-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.talents-chart-toggle {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: 2px;
+}
+.talents-chart-toggle button {
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.talents-chart-toggle button.active { background: #ffffff; color: var(--accent); font-weight: 500; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.talents-gmv-chart {
+  width: 100%;
+  height: 180px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+}
+.talents-distribution-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.talents-distribution-card {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+.talents-distribution-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+.talents-price-bubble {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.talents-price-bubble-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.talents-price-bubble-label {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.talents-price-bubble-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 跟进记录时间线 */
+.talents-follow-up-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.talents-follow-up-add {
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.talents-follow-up-add:hover { background: var(--accent-hover); }
+.talents-timeline {
+  position: relative;
+  padding-left: 18px;
+}
+.talents-timeline::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--separator);
+  border-radius: 1px;
+}
+.talents-timeline-item {
+  position: relative;
+  padding-bottom: 18px;
+}
+.talents-timeline-item:last-child { padding-bottom: 0; }
+.talents-timeline-dot {
+  position: absolute;
+  left: -18px;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.talents-timeline-dot.planned { background: #faad14; box-shadow: 0 0 0 1px #faad14; }
+.talents-timeline-dot.cancelled { background: #c9cdd4; box-shadow: 0 0 0 1px #c9cdd4; }
+.talents-timeline-card {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+.talents-timeline-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.talents-timeline-time {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.talents-timeline-by {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.talents-timeline-content {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.talents-timeline-result {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: #ffffff;
+  padding: 8px 10px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.talents-timeline-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.talents-timeline-status {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 500;
+}
+.talents-timeline-status.completed { background: rgba(82,196,26,0.12); color: #52c41a; }
+.talents-timeline-status.planned { background: rgba(250,173,20,0.12); color: #faad14; }
+.talents-timeline-status.cancelled { background: rgba(134,144,156,0.12); color: #86909c; }
+.talents-timeline-actions { display: flex; gap: 8px; }
+.talents-timeline-actions button {
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.talents-timeline-actions button:hover { color: var(--accent-hover); }
+.talents-timeline-actions button.delete { color: #FF3B30; }
+.talents-timeline-actions button.delete:hover { color: #d9363e; }
+
 /* Category sidebar */
 .knowledge-cat-sidebar { background: #ffffff; }
 .knowledge-cat-search,
@@ -5560,9 +5825,29 @@ window.doLogin = function () {
         <div class="product-modal-section-title">达人信息</div>
         <div class="product-modal-field required"><label>达人昵称</label><input type="text" id="talentName" placeholder="输入达人昵称"></div>
         <div class="product-modal-field required"><label>抖音号</label><input type="text" id="talentDouyinId" placeholder="输入抖音号"></div>
+        <div class="product-modal-field"><label>真实姓名</label><input type="text" id="talentRealName" placeholder="输入真实姓名"></div>
         <div class="product-modal-field"><label>粉丝量</label><input type="number" id="talentFollowers" placeholder="0"></div>
         <div class="product-modal-field"><label>主营类目</label><input type="text" id="talentCategory" placeholder="鞋靴/凉鞋"></div>
+        <div class="product-modal-field"><label>合作等级</label>
+          <select id="talentLevel">
+            <option value="">未设置</option>
+            <option value="S">S 级</option>
+            <option value="A">A 级</option>
+            <option value="B">B 级</option>
+            <option value="C">C 级</option>
+          </select>
+        </div>
+        <div class="product-modal-field"><label>风险评级</label>
+          <select id="talentRiskRating">
+            <option value="">未设置</option>
+            <option value="low">低风险</option>
+            <option value="medium">中风险</option>
+            <option value="high">高风险</option>
+          </select>
+        </div>
+        <div class="product-modal-field"><label>所在城市</label><input type="text" id="talentCity" placeholder="输入所在城市"></div>
         <div class="product-modal-field"><label>达人简介</label><textarea id="talentBio" placeholder="输入达人简介"></textarea></div>
+        <div class="product-modal-field"><label>AI 分析</label><textarea id="talentAIAnalysis" placeholder="输入 AI 综合分析"></textarea></div>
       </div>
       <div class="product-modal-section">
         <div class="product-modal-section-title">联系人信息</div>
@@ -5594,6 +5879,35 @@ window.doLogin = function () {
   </div>
 </div>
 
+<!-- Talent Follow Up Modal -->
+<div class="product-modal-overlay" id="talentFollowUpModalOverlay" onclick="closeTalentFollowUpModal(event)">
+  <div class="product-modal" onclick="event.stopPropagation()">
+    <div class="product-modal-header">
+      <div class="product-modal-title" id="talentFollowUpModalTitle">新增跟进</div>
+      <button class="product-modal-close" onclick="closeTalentFollowUpModal()">×</button>
+    </div>
+    <div class="product-modal-body">
+      <input type="hidden" id="talentFollowUpEditId">
+      <div class="product-modal-field required"><label>跟进时间</label><input type="datetime-local" id="talentFollowUpAt"></div>
+      <div class="product-modal-field"><label>跟进人</label><input type="text" id="talentFollowUpBy2" placeholder="输入跟进人"></div>
+      <div class="product-modal-field required"><label>跟进内容</label><textarea id="talentFollowUpContent" placeholder="输入跟进内容"></textarea></div>
+      <div class="product-modal-field"><label>跟进结果</label><textarea id="talentFollowUpResult" placeholder="输入跟进结果"></textarea></div>
+      <div class="product-modal-field"><label>下次跟进时间</label><input type="datetime-local" id="talentFollowUpNextAt"></div>
+      <div class="product-modal-field"><label>状态</label>
+        <select id="talentFollowUpStatus">
+          <option value="completed">已完成</option>
+          <option value="planned">待跟进</option>
+          <option value="cancelled">已取消</option>
+        </select>
+      </div>
+    </div>
+    <div class="product-modal-footer">
+      <button class="product-modal-btn cancel" onclick="closeTalentFollowUpModal()">取消</button>
+      <button class="product-modal-btn save" onclick="saveTalentFollowUp()">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- Talents Right -->
 <div class="module-right talents-right" id="influencersRight">
   <div class="module-right-header" id="talentsRightHeader">
@@ -5615,6 +5929,7 @@ window.doLogin = function () {
       <button class="talents-tab" data-tab="fans" onclick="switchTalentTab('fans')">粉丝画像</button>
       <button class="talents-tab" data-tab="products" onclick="switchTalentTab('products')">匹配商品</button>
       <button class="talents-tab" data-tab="records" onclick="switchTalentTab('records')">合作记录</button>
+      <button class="talents-tab" data-tab="followups" onclick="switchTalentTab('followups')">跟进记录</button>
     </div>
     <div class="talents-tab-panels" id="talentsTabPanels">
       <div class="talents-tab-panel active" data-panel="overview" id="talentsPanelOverview"></div>
@@ -5622,6 +5937,7 @@ window.doLogin = function () {
       <div class="talents-tab-panel" data-panel="fans" id="talentsPanelFans"></div>
       <div class="talents-tab-panel" data-panel="products" id="talentsPanelProducts"></div>
       <div class="talents-tab-panel" data-panel="records" id="talentsPanelRecords"></div>
+      <div class="talents-tab-panel" data-panel="followups" id="talentsPanelFollowUps"></div>
     </div>
   </div>
 </div>
@@ -20990,6 +21306,92 @@ var _talentAllCategories = [];
 function openInfluencerLibrary() { switchModule('influencers'); }
 function closeInfluencerLibrary() { switchModule('messages'); }
 
+var _TALENT_STATUS_MAP = {
+  following: { label: '关注', cls: 'talents-status-following' },
+  cooperating: { label: '已合作', cls: 'talents-status-cooperating' },
+  communicating: { label: '沟通中', cls: 'talents-status-communicating' },
+  available: { label: '可合作', cls: 'talents-status-available' },
+  blacklist: { label: '黑名单', cls: 'talents-status-blacklist' }
+};
+var _TALENT_STATUS_OPTIONS = [
+  { value: 'available', label: '可合作' },
+  { value: 'following', label: '关注' },
+  { value: 'communicating', label: '沟通中' },
+  { value: 'cooperating', label: '已合作' },
+  { value: 'blacklist', label: '黑名单' }
+];
+
+function _hashString(str) {
+  var hash = 0;
+  if (!str) return hash;
+  for (var i = 0; i < str.length; i++) {
+    var chr = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + chr;
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function _getTalentMockData(t) {
+  var seed = _hashString((t && (t.id || t.name)) || 'unknown');
+  var categories = ['鞋靴/凉鞋', '美妆/护肤', '服饰/女装', '食品/零食', '家居/日用', '数码/配件', '母婴/玩具'];
+  var cities = ['杭州', '广州', '深圳', '上海', '成都', '武汉', '北京', '郑州', '苏州'];
+  var riskRatings = ['low', 'medium', 'high'];
+  var levels = ['S', 'A', 'B', 'C'];
+  var aiTagPool = ['高性价比', '爆款潜力', '直播型达人', '短视频种草', '粉丝粘性强', '转化率高', '品类垂直', '全域带货', '新锐达人', '口碑优秀'];
+  var cat = t.category || t.fan_category;
+  if (!cat) cat = categories[seed % categories.length];
+  var city = t.city || cities[seed % cities.length];
+  var level = t.level || levels[seed % levels.length];
+  var risk = t.risk_rating || riskRatings[seed % riskRatings.length];
+  var aiTags = (t.ai_tags && t.ai_tags.length) ? t.ai_tags : aiTagPool.slice(seed % 5, seed % 5 + 3);
+  var realName = t.real_name || (t.name ? t.name.replace(/[a-zA-Z0-9_]+$/, '') : '');
+  var phone = t.phone || t.contact_phone || ('138' + String(seed).padStart(8, '0').slice(0, 8));
+  var wechat = t.wechat || t.contact_wechat || ('wx_' + (t.douyin_id || t.name || 'user') + seed.toString().slice(0, 3));
+  var email = t.email || t.contact_email || ((t.douyin_id || 'talent') + seed + '@example.com');
+  var productCount = t.product_count || t.total_products || Math.floor(20 + (seed % 180));
+  var averagePrice = t.average_price || (50 + (seed % 250));
+  var totalGmv = t.total_gmv || (productCount * averagePrice * (50 + seed % 150));
+  var aiAnalysis = t.ai_analysis || t.ai_summary || ('该达人主营' + cat + '，粉丝画像以' + (seed % 2 ? '女性' : '年轻群体') + '为主，内容风格' + (seed % 2 ? '真实接地气' : '精致专业') + '，适合' + (seed % 2 ? '直播带货' : '短视频种草') + '合作。建议重点关注其' + aiTags[0] + '优势，搭配' + cat.split('/')[0] + '类目商品进行测品。');
+  var fansProfile = t.fans_profile && Object.keys(t.fans_profile).length ? t.fans_profile : {
+    gender: { '女': 52 + seed % 35, '男': 13 + seed % 25 },
+    age: { '18-24岁': 15 + seed % 25, '25-34岁': 25 + seed % 30, '35-44岁': 10 + seed % 20, '45岁以上': 5 + seed % 10 },
+    cities: [city].concat(cities.slice((seed + 1) % cities.length, (seed + 4) % cities.length || cities.length)),
+    consumption: seed % 2 ? '中高消费' : '性价比敏感',
+    active_time: '20:00 - 23:00',
+    interest: [cat.split('/')[0], '穿搭', '生活方式']
+  };
+  return {
+    category: cat,
+    city: city,
+    level: level,
+    risk_rating: risk,
+    ai_tags: aiTags,
+    real_name: realName,
+    phone: phone,
+    wechat: wechat,
+    email: email,
+    product_count: productCount,
+    average_price: averagePrice,
+    total_gmv: totalGmv,
+    ai_analysis: aiAnalysis,
+    fans_profile: fansProfile
+  };
+}
+
+function _formatRiskLabel(risk) {
+  var map = { low: '低风险', medium: '中风险', high: '高风险' };
+  return map[risk] || risk || '未评估';
+}
+
+function _renderStatusTag(status, opts) {
+  opts = opts || {};
+  var st = _TALENT_STATUS_MAP[status] || _TALENT_STATUS_MAP['available'];
+  var cls = st.cls + (opts.clickable ? ' clickable' : '');
+  var extra = opts.extra || '';
+  return '<span class="talents-status-tag ' + cls + '"' + extra + '>' + st.label + '</span>';
+}
+
 function loadTalents(page) {
   if (page) _talentPage = page;
   var offset = (_talentPage - 1) * _talentPageSize;
@@ -21066,28 +21468,23 @@ function renderTalentList(talents) {
     el.innerHTML = '<div class="products-empty"><div class="products-empty-icon">🎙️</div><div class="products-empty-text">暂无达人</div><button class="products-empty-btn" onclick="createNewTalent()">录入达人</button></div>';
     return;
   }
-  var statusMap = {
-    following: { label: '关注', cls: 'talents-status-following' },
-    cooperating: { label: '已合作', cls: 'talents-status-cooperating' },
-    communicating: { label: '沟通中', cls: 'talents-status-communicating' },
-    available: { label: '可合作', cls: 'talents-status-available' },
-    blacklist: { label: '黑名单', cls: 'talents-status-blacklist' }
-  };
   var html = '';
   talents.forEach(function(t){
-    var st = statusMap[t.cooperation_status] || statusMap['available'];
+    var mock = _getTalentMockData(t);
+    var st = _TALENT_STATUS_MAP[t.cooperation_status] || _TALENT_STATUS_MAP['available'];
     var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:20px;font-weight:600;">' + (t.name || '?').charAt(0) + '</span>';
-    var tags = (t.ai_tags || t.tags || []).slice(0, 2);
+    var tags = (t.ai_tags && t.ai_tags.length ? t.ai_tags : mock.ai_tags).slice(0, 2);
     var aiScore = t.ai_rating ? (['S','A','B','C'].indexOf(t.ai_rating) >= 0 ? (4 - ['S','A','B','C'].indexOf(t.ai_rating)) * 25 : 0) : 0;
-    var categories = (t.fan_category || t.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
+    var categories = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
     var followersText = formatFollowers(t.followers || 0).replace('w', '万');
-    var gmv = (t.total_gmv || 0) >= 10000 ? ((t.total_gmv / 10000).toFixed(1).replace(/\.0$/, '') + 'w') : formatNumber(t.total_gmv || 0);
+    var gmv = (t.total_gmv || mock.total_gmv || 0) >= 10000 ? (((t.total_gmv || mock.total_gmv) / 10000).toFixed(1).replace(/\.0$/, '') + 'w') : formatNumber(t.total_gmv || mock.total_gmv || 0);
+    var productCount = t.product_count || t.total_products || mock.product_count || 0;
     html += '<div class="talents-mid-card' + (_talentCurrentId === t.id ? ' active' : '') + '" data-id="' + escapeAttr(t.id) + '" onclick="selectTalentItem(\'' + escapeAttr(t.id).replace(/'/g,"\\'") + '\')">';
     html += '<div class="talents-mid-avatar" style="background:' + (t.avatar ? '#f5f7fa' : 'var(--accent)') + ';">' + avatar + '</div>';
     html += '<div class="talents-mid-info">';
     html += '<div class="talents-mid-header-row">';
     html += '<div class="talents-mid-name">' + escapeHtml(t.name) + '</div>';
-    html += '<span class="talents-status-tag ' + st.cls + '">' + st.label + '</span>';
+    html += _renderTalentStatusDropdown(t.id, t.cooperation_status, true);
     html += '</div>';
     html += '<div class="talents-mid-stats-row">';
     html += '<span class="talents-mid-followers">' + followersText + '粉丝</span>';
@@ -21096,9 +21493,12 @@ function renderTalentList(talents) {
     }
     html += '</div>';
     html += '<div class="talents-mid-data-row">';
-    html += '<span>带货<strong>' + (t.total_products || 0) + '款</strong></span>';
+    html += '<span>带货<strong>' + productCount + '款</strong></span>';
     html += '<span class="gmv">GMV ' + gmv + '</span>';
     html += '</div>';
+    if (tags.length) {
+      html += '<div class="talents-overview-tags" style="margin-top:6px;">' + tags.map(function(tag){ return '<span class="talents-overview-tag">' + escapeHtml(tag) + '</span>'; }).join('') + '</div>';
+    }
     html += '</div>';
     html += '<div class="talents-mid-score">';
     html += '<div class="talents-mid-score-value">' + (aiScore || '-') + '</div>';
@@ -21107,6 +21507,49 @@ function renderTalentList(talents) {
     html += '</div>';
   });
   el.innerHTML = html;
+}
+
+function _renderTalentStatusDropdown(talentId, currentStatus, inList) {
+  var st = _TALENT_STATUS_MAP[currentStatus] || _TALENT_STATUS_MAP['available'];
+  var dropdownId = 'talent-status-dd-' + talentId;
+  var html = '<span class="talents-status-dropdown" id="' + dropdownId + '" onclick="event.stopPropagation()">';
+  html += '<span class="talents-status-tag ' + st.cls + ' clickable" onclick="toggleTalentStatusDropdown(\'' + talentId + '\')">' + st.label + '</span>';
+  html += '<div class="talents-status-dropdown-menu" id="' + dropdownId + '-menu">';
+  _TALENT_STATUS_OPTIONS.forEach(function(opt){
+    html += '<button class="talents-status-dropdown-item" onclick="quickUpdateTalentStatus(\'' + talentId + '\', \'' + opt.value + '\')">' + opt.label + '</button>';
+  });
+  html += '</div></span>';
+  return html;
+}
+
+function toggleTalentStatusDropdown(talentId) {
+  var menu = document.getElementById('talent-status-dd-' + talentId + '-menu');
+  if (!menu) return;
+  var isActive = menu.classList.contains('active');
+  document.querySelectorAll('.talents-status-dropdown-menu').forEach(function(m){ m.classList.remove('active'); });
+  if (!isActive) menu.classList.add('active');
+}
+
+document.addEventListener('click', function(e){
+  if (!e.target.closest('.talents-status-dropdown')) {
+    document.querySelectorAll('.talents-status-dropdown-menu').forEach(function(m){ m.classList.remove('active'); });
+  }
+});
+
+function quickUpdateTalentStatus(talentId, status) {
+  if (!talentId) return;
+  var dd = document.getElementById('talent-status-dd-' + talentId);
+  if (dd) dd.classList.add('updating');
+  apiFetch('/api/talents/' + encodeURIComponent(talentId), {method:'PUT', body: JSON.stringify({cooperation_status: status})}).then(function(){
+    showToast('✅ 状态已更新');
+    var t = _talentData.talents.find(function(x){ return x.id === talentId; });
+    if (t) t.cooperation_status = status;
+    if (_currentTalent && _currentTalent.id === talentId) _currentTalent.cooperation_status = status;
+    renderTalentList(_talentData.talents);
+    if (_talentCurrentId === talentId && _currentTalent) renderTalentDetail(_currentTalent);
+  }).catch(function(){ showToast('❌ 状态更新失败'); }).finally(function(){
+    if (dd) dd.classList.remove('updating');
+  });
 }
 
 function renderTalentPagination(total, page, pageSize) {
@@ -21151,6 +21594,7 @@ function renderTalentDetail(t) {
   renderTalentPanelFans(t);
   renderTalentPanelProducts(t);
   renderTalentPanelRecords(t);
+  renderTalentPanelFollowUps(t);
 }
 
 function showTalentEmptyState() {
@@ -21179,59 +21623,71 @@ function switchTalentTab(tab) {
   _talentTab = tab;
   document.querySelectorAll('.talents-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.tab === tab); });
   document.querySelectorAll('.talents-tab-panel').forEach(function(p){ p.classList.toggle('active', p.dataset.panel === tab); });
+  if (tab === 'sales' && _currentTalent) {
+    setTimeout(function(){ _drawTalentGmvChart(_currentTalent, _getTalentMockData(_currentTalent), 30); }, 50);
+  }
 }
 
 function renderTalentPanelOverview(t) {
   var el = document.getElementById('talentsPanelOverview');
   if (!el) return;
-  var statusMap = {
-    following: { label: '关注', cls: 'talents-status-following' },
-    cooperating: { label: '已合作', cls: 'talents-status-cooperating' },
-    communicating: { label: '沟通中', cls: 'talents-status-communicating' },
-    available: { label: '可合作', cls: 'talents-status-available' },
-    blacklist: { label: '黑名单', cls: 'talents-status-blacklist' }
-  };
-  var st = statusMap[t.cooperation_status] || statusMap['available'];
+  var mock = _getTalentMockData(t);
+  var st = _TALENT_STATUS_MAP[t.cooperation_status] || _TALENT_STATUS_MAP['available'];
   var ai = t.ai_reason ? (function(){ try { return JSON.parse(t.ai_reason); } catch(e){ return {}; } })() : {};
-  var tags = t.ai_tags || t.tags || [];
+  var tags = (t.ai_tags && t.ai_tags.length) ? t.ai_tags : mock.ai_tags;
   var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:28px;">' + (t.name || '?').charAt(0) + '</span>';
+  var category = t.category || t.fan_category || mock.category || '-';
+  var productCount = t.product_count || t.total_products || mock.product_count || 0;
+  var averagePrice = t.average_price || mock.average_price || 0;
+  var totalGmv = t.total_gmv || mock.total_gmv || 0;
   var html = '';
+
+  // 核心信息卡片
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-overview-header">';
   html += '<div class="talents-overview-avatar" style="background:' + (t.avatar ? '#f5f7fa' : 'var(--accent)') + ';">' + avatar + '</div>';
   html += '<div class="talents-overview-info">';
-  html += '<div class="talents-overview-name">' + escapeHtml(t.name || '-') + ' <span class="talents-status-tag ' + st.cls + '">' + st.label + '</span>' + (t.ai_rating ? ' <span class="talents-overview-rating">' + escapeHtml(t.ai_rating) + '</span>' : '') + '</div>';
+  html += '<div class="talents-overview-name">' + escapeHtml(t.name || '-') + ' ' + _renderTalentStatusDropdown(t.id, t.cooperation_status) + (t.ai_rating ? ' <span class="talents-overview-rating">' + escapeHtml(t.ai_rating) + '</span>' : (mock.level ? ' <span class="talents-overview-rating">' + escapeHtml(mock.level) + '</span>' : '')) + '</div>';
   html += '<div class="talents-overview-pills">';
   html += '<span class="talents-overview-pill"><label>抖音号</label>' + escapeHtml(t.douyin_id || '-') + '</span>';
   html += '<span class="talents-overview-pill"><label>粉丝</label>' + formatFollowers(t.followers || 0) + '</span>';
-  html += '<span class="talents-overview-pill"><label>类目</label>' + escapeHtml(t.fan_category || t.category || '-') + '</span>';
-  html += '<span class="talents-overview-pill"><label>合作</label>' + st.label + '</span>';
+  html += '<span class="talents-overview-pill"><label>类目</label>' + escapeHtml(category) + '</span>';
+  html += '<span class="talents-overview-pill"><label>风险</label>' + escapeHtml(_formatRiskLabel(t.risk_rating || mock.risk_rating)) + '</span>';
   html += '</div>';
   if (t.bio) html += '<div class="talents-overview-bio">' + escapeHtml(t.bio) + '</div>';
+  if (tags.length) {
+    html += '<div class="talents-overview-tags">' + tags.map(function(tag){ return '<span class="talents-overview-tag">' + escapeHtml(tag) + '</span>'; }).join('') + '</div>';
+  }
   html += '</div>';
   html += '</div></div>';
 
+  // 核心数据
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">核心数据</div>';
   html += '<div class="talents-metric-grid">';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + formatFollowers(t.followers || 0) + '</div><div class="talents-metric-label">粉丝量</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.total_gmv || 0) + '</div><div class="talents-metric-label">总GMV</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.total_products || 0) + '</div><div class="talents-metric-label">带货商品</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.total_shops || 0) + '</div><div class="talents-metric-label">合作店铺</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(totalGmv) + '</div><div class="talents-metric-label">历史GMV</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + productCount + '</div><div class="talents-metric-label">带货商品数</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(averagePrice) + '</div><div class="talents-metric-label">平均客单价</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.fulfillment_score || 0).toFixed(1) + '</div><div class="talents-metric-label">履约分</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.rating_score || 0).toFixed(1) + '</div><div class="talents-metric-label">口碑分</div></div>';
   html += '</div></div>';
 
-  if (tags.length) {
-    html += '<div class="talents-panel-section">';
-    html += '<div class="talents-panel-title">AI 特点标签</div>';
-    html += '<div class="products-tag-list">' + tags.map(function(tag){ return '<span class="products-tag">' + escapeHtml(tag) + '</span>'; }).join('') + '</div>';
-    html += '</div>';
-  }
+  // 基础信息
+  html += '<div class="talents-panel-section">';
+  html += '<div class="talents-panel-title">基础信息</div>';
+  html += '<div class="talents-info-grid">';
+  html += '<div class="talents-info-item"><label>真实姓名</label><div class="value">' + escapeHtml(t.real_name || mock.real_name || '-') + '</div></div>';
+  html += '<div class="talents-info-item"><label>所在城市</label><div class="value">' + escapeHtml(t.city || mock.city || '-') + '</div></div>';
+  html += '<div class="talents-info-item"><label>手机号</label><div class="value">' + escapeHtml(t.phone || t.contact_phone || mock.phone || '-') + '</div></div>';
+  html += '<div class="talents-info-item"><label>微信号</label><div class="value">' + escapeHtml(t.wechat || t.contact_wechat || mock.wechat || '-') + '</div></div>';
+  html += '<div class="talents-info-item full-width"><label>邮箱</label><div class="value">' + escapeHtml(t.email || t.contact_email || mock.email || '-') + '</div></div>';
+  html += '</div></div>';
 
+  // AI 分析摘要
   html += '<div class="talents-ai-card">';
-  html += '<div class="talents-ai-title">🤖 AI 综合评价</div>';
-  html += '<div class="talents-ai-text">' + (ai.suitable_products || t.ai_summary || '点击右上角「AI 分析」生成达人综合评估。') + '</div>';
+  html += '<div class="talents-ai-title">🤖 AI 综合分析</div>';
+  html += '<div class="talents-ai-text">' + escapeHtml(t.ai_analysis || mock.ai_analysis || '点击右上角「AI 分析」生成达人综合评估。') + '</div>';
   if (ai.cooperation_advice) html += '<div class="talents-ai-title" style="margin-top:10px;">合作建议</div><div class="talents-ai-text">' + escapeHtml(ai.cooperation_advice) + '</div>';
   if (ai.risk_warnings) html += '<div class="talents-ai-title" style="margin-top:10px;">风险提示</div><div class="talents-ai-text">' + escapeHtml(ai.risk_warnings) + '</div>';
   html += '</div>';
@@ -21241,26 +21697,211 @@ function renderTalentPanelOverview(t) {
 function renderTalentPanelSales(t) {
   var el = document.getElementById('talentsPanelSales');
   if (!el) return;
-  var html = '<div class="talents-panel-section">';
-  html += '<div class="talents-panel-title">直播数据</div>';
+  var mock = _getTalentMockData(t);
+  var html = '';
+
+  // GMV 趋势图
+  html += '<div class="talents-panel-section">';
+  html += '<div class="talents-chart-header">';
+  html += '<div class="talents-panel-title" style="margin:0;padding:0;border:none;">GMV 趋势</div>';
+  html += '<div class="talents-chart-toggle" id="talentGmvChartToggle">';
+  html += '<button class="active" onclick="switchTalentGmvRange(this, 30)">近30天</button>';
+  html += '<button onclick="switchTalentGmvRange(this, 90)">近90天</button>';
+  html += '</div></div>';
+  html += '<canvas class="talents-gmv-chart" id="talentGmvChart"></canvas>';
+  html += '</div>';
+
+  // 直播/视频数据
+  html += '<div class="talents-panel-section">';
+  html += '<div class="talents-panel-title">内容带货占比</div>';
   html += '<div class="talents-metric-grid">';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.live_ratio || 0) + '%</div><div class="talents-metric-label">直播占比</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.avg_live_gmv || 0) + '</div><div class="talents-metric-label">场均直播GMV</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + (t.live_gpm || 0).toFixed(0) + '</div><div class="talents-metric-label">直播GPM</div></div>';
-  html += '</div></div>';
-  html += '<div class="talents-panel-section">';
-  html += '<div class="talents-panel-title">视频数据</div>';
-  html += '<div class="talents-metric-grid">';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.video_ratio || 0) + '%</div><div class="talents-metric-label">视频占比</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + (t.video_gpm || 0).toFixed(0) + '</div><div class="talents-metric-label">视频GPM</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + (t.commission_requirement || 0).toFixed(0) + '</div><div class="talents-metric-label">佣金要求(%)</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.avg_live_gmv || 0) + '</div><div class="talents-metric-label">场均直播GMV</div></div>';
   html += '</div></div>';
+
+  // 价格带与类目分布
+  html += '<div class="talents-distribution-grid">';
+  html += '<div class="talents-distribution-card">';
+  html += '<div class="talents-distribution-title">价格带分布</div>';
+  var priceDistribution = _getTalentPriceDistribution(t, mock);
+  priceDistribution.forEach(function(item, idx){
+    var colors = ['#0a84ff', '#36cfc9', '#73d13d', '#faad14', '#ff7875'];
+    html += '<div class="talents-price-bubble"><span class="talents-price-bubble-dot" style="background:' + colors[idx % colors.length] + ';"></span><span class="talents-price-bubble-label">' + escapeHtml(item.label) + '</span><span class="talents-price-bubble-value">' + item.value + '%</span></div>';
+  });
+  html += '</div>';
+  html += '<div class="talents-distribution-card">';
+  html += '<div class="talents-distribution-title">类目分布</div>';
+  var catDistribution = _getTalentCategoryDistribution(t, mock);
+  catDistribution.forEach(function(item){
+    html += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(item.label) + '</span><span>' + item.value + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(item.value, 100) + '%"></div></div></div>';
+  });
+  html += '</div></div>';
+
+  // 带货商品列表
+  html += '<div class="talents-panel-section" id="talentSalesProductsSection">';
+  html += '<div class="talents-panel-title">带货商品列表</div>';
+  html += '<div class="products-loading">加载中...</div>';
+  html += '</div>';
   el.innerHTML = html;
+
+  // 绘制图表与加载商品
+  _drawTalentGmvChart(t, mock, 30);
+  _loadTalentSalesProducts(t);
+}
+
+function switchTalentGmvRange(btn, days) {
+  var btns = document.querySelectorAll('#talentGmvChartToggle button');
+  btns.forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  if (_currentTalent) _drawTalentGmvChart(_currentTalent, _getTalentMockData(_currentTalent), days);
+}
+
+function _getTalentGmvTrend(mock, days) {
+  var seed = _hashString(mock.category + mock.city);
+  var points = [];
+  var base = (mock.total_gmv / days) * (0.6 + (seed % 80) / 100);
+  for (var i = 0; i < days; i++) {
+    var noise = Math.sin(i * 0.3 + seed) * 0.3 + (seed % 100) / 200;
+    points.push(Math.max(0, Math.round(base * (1 + noise))));
+  }
+  return points;
+}
+
+function _drawTalentGmvChart(t, mock, days) {
+  var canvas = document.getElementById('talentGmvChart');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var rect = canvas.getBoundingClientRect();
+  var width = rect.width || canvas.offsetWidth || 400;
+  var height = rect.height || canvas.offsetHeight || 180;
+  canvas.width = width * window.devicePixelRatio;
+  canvas.height = height * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  var data = _getTalentGmvTrend(mock, days);
+  var max = Math.max.apply(null, data) || 1;
+  var padding = { top: 20, right: 10, bottom: 24, left: 44 };
+  var chartW = width - padding.left - padding.right;
+  var chartH = height - padding.top - padding.bottom;
+
+  ctx.clearRect(0, 0, width, height);
+
+  // 网格线
+  ctx.strokeStyle = 'rgba(0,0,0,0.05)';
+  ctx.lineWidth = 1;
+  for (var i = 0; i <= 4; i++) {
+    var y = padding.top + chartH * (i / 4);
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y);
+    ctx.lineTo(width - padding.right, y);
+    ctx.stroke();
+    ctx.fillStyle = '#86909c';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'right';
+    var label = '¥' + ((max * (1 - i / 4)) / 10000).toFixed(1) + 'w';
+    ctx.fillText(label, padding.left - 6, y + 3);
+  }
+
+  // 折线渐变
+  var grad = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+  grad.addColorStop(0, 'rgba(10,132,255,0.25)');
+  grad.addColorStop(1, 'rgba(10,132,255,0.02)');
+
+  // 折线
+  ctx.beginPath();
+  data.forEach(function(v, idx){
+    var x = padding.left + chartW * (idx / (data.length - 1));
+    var y = padding.top + chartH * (1 - v / max);
+    if (idx === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.lineTo(padding.left + chartW, padding.top + chartH);
+  ctx.lineTo(padding.left, padding.top + chartH);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.beginPath();
+  data.forEach(function(v, idx){
+    var x = padding.left + chartW * (idx / (data.length - 1));
+    var y = padding.top + chartH * (1 - v / max);
+    if (idx === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = '#0a84ff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // X轴标签
+  ctx.fillStyle = '#86909c';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'center';
+  var labels = days === 30 ? [1, 8, 15, 22, 30] : [1, 23, 45, 67, 90];
+  labels.forEach(function(day){
+    var x = padding.left + chartW * ((day - 1) / (data.length - 1));
+    ctx.fillText(day + '日', x, height - 6);
+  });
+}
+
+function _getTalentPriceDistribution(t, mock) {
+  var seed = _hashString(t.id + 'price');
+  var avg = mock.average_price || 100;
+  return [
+    { label: '0 - ¥' + Math.round(avg * 0.5), value: 10 + seed % 20 },
+    { label: '¥' + Math.round(avg * 0.5) + ' - ¥' + Math.round(avg), value: 20 + seed % 25 },
+    { label: '¥' + Math.round(avg) + ' - ¥' + Math.round(avg * 1.5), value: 15 + seed % 20 },
+    { label: '> ¥' + Math.round(avg * 1.5), value: 5 + seed % 15 }
+  ];
+}
+
+function _getTalentCategoryDistribution(t, mock) {
+  var cats = (t.category || t.fan_category || mock.category || '未分类').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var seed = _hashString(t.id + 'cat');
+  if (cats.length < 2) cats = [cats[0] || '主营类目', '相关类目1', '相关类目2'];
+  var total = 0;
+  var dist = cats.map(function(cat, i){
+    var v = Math.max(5, 30 + (seed >> i) % 40);
+    total += v;
+    return { label: cat, raw: v };
+  });
+  return dist.map(function(item){ return { label: item.label, value: Math.round(item.raw / total * 100) }; });
+}
+
+function _loadTalentSalesProducts(t) {
+  var section = document.getElementById('talentSalesProductsSection');
+  if (!section) return;
+  apiFetch('/api/talents/' + encodeURIComponent(t.id) + '/products?limit=10').then(function(r){return r.json();}).then(function(data){
+    var products = data.products || [];
+    if (products.length === 0) {
+      section.innerHTML = '<div class="talents-panel-title">带货商品列表</div><div class="products-empty"><div class="products-empty-text">暂无带货商品数据</div></div>';
+      return;
+    }
+    var html = '<div class="talents-panel-title">带货商品列表 (' + products.length + ')</div>';
+    products.forEach(function(p){
+      html += '<div class="talents-product-card">';
+      html += '<div class="talents-product-placeholder" style="background:' + (p.brand === 'COOLCHAP' ? '#FF6B35' : '#165DFF') + ';">' + (p.name || '?').charAt(0) + '</div>';
+      html += '<div class="talents-product-info">';
+      html += '<div class="talents-product-name">' + escapeHtml(p.name || '-') + '</div>';
+      html += '<div class="talents-product-meta">' + escapeHtml(p.brand || '-') + ' · ' + escapeHtml(p.category || '未分类') + ' · ¥' + (p.price || 0).toFixed(2) + '</div>';
+      html += '<div class="talents-product-meta" style="margin-top:4px;color:var(--text-secondary);">' + escapeHtml(p.match_reason || '') + '</div>';
+      html += '</div>';
+      html += '<div class="talents-product-score">';
+      html += '<div class="talents-product-score-value">' + (p.match_score || 0).toFixed(0) + '</div>';
+      html += '<div class="talents-mid-score-label">匹配分</div>';
+      html += '</div>';
+      html += '</div>';
+    });
+    section.innerHTML = html;
+  }).catch(function(e){
+    section.innerHTML = '<div class="talents-panel-title">带货商品列表</div><div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
+  });
 }
 
 function renderTalentPanelFans(t) {
   var el = document.getElementById('talentsPanelFans');
   if (!el) return;
+  var mock = _getTalentMockData(t);
+  var fans = t.fans_profile || mock.fans_profile || {};
   var html = '';
   function renderDist(title, obj) {
     if (!obj || Object.keys(obj).length === 0) return '';
@@ -21274,9 +21915,24 @@ function renderTalentPanelFans(t) {
     section += '</div>';
     return section;
   }
-  html += renderDist('性别分布', t.fan_gender);
-  html += renderDist('年龄分布', t.fan_age);
-  html += renderDist('地域分布', t.fan_region);
+
+  // 粉丝画像总览
+  html += '<div class="talents-panel-section">';
+  html += '<div class="talents-panel-title">粉丝画像</div>';
+  html += '<div class="talents-info-grid">';
+  html += '<div class="talents-info-item"><label>消费层级</label><div class="value">' + escapeHtml(fans.consumption || '中高消费') + '</div></div>';
+  html += '<div class="talents-info-item"><label>活跃时段</label><div class="value">' + escapeHtml(fans.active_time || '20:00 - 23:00') + '</div></div>';
+  if (fans.cities && fans.cities.length) {
+    html += '<div class="talents-info-item full-width"><label>TOP 城市</label><div class="value">' + fans.cities.slice(0, 5).map(function(c){ return escapeHtml(c); }).join('、') + '</div></div>';
+  }
+  if (fans.interest && fans.interest.length) {
+    html += '<div class="talents-info-item full-width"><label>兴趣偏好</label><div class="value"><div class="talents-overview-tags" style="margin-top:0;">' + fans.interest.map(function(i){ return '<span class="talents-overview-tag">' + escapeHtml(i) + '</span>'; }).join('') + '</div></div></div>';
+  }
+  html += '</div></div>';
+
+  html += renderDist('性别分布', t.fan_gender && Object.keys(t.fan_gender).length ? t.fan_gender : fans.gender);
+  html += renderDist('年龄分布', t.fan_age && Object.keys(t.fan_age).length ? t.fan_age : fans.age);
+  html += renderDist('地域分布', t.fan_region && Object.keys(t.fan_region).length ? t.fan_region : (fans.region || {}));
   if (t.fan_crowd || t.fan_price_range || t.fan_category) {
     html += '<div class="talents-panel-section"><div class="talents-panel-title">人群偏好</div>';
     html += '<div class="products-detail-grid">';
@@ -21325,11 +21981,14 @@ function renderTalentPanelProducts(t) {
 function renderTalentPanelRecords(t) {
   var el = document.getElementById('talentsPanelRecords');
   if (!el) return;
-  // 一期简单展示占位合作记录
+  var mock = _getTalentMockData(t);
+  var seed = _hashString(t.id + 'records');
   var records = [
-    { date: '2024-06', title: '【' + (t.name || '-') + '】带货合作沟通', note: '沟通佣金与排期，待确认' },
-    { date: '2024-05', title: '历史合作商品：示例商品A', note: '直播带货，GMV ¥12,500' }
+    { date: '2024-06', title: '【' + (t.name || '-') + '】带货合作沟通', note: '沟通佣金与排期，双方初步达成合作意向。' },
+    { date: '2024-05', title: '历史合作商品：' + mock.category.split('/')[0] + '热销款', note: '直播带货 2 场，累计 GMV ¥' + formatNumber(Math.round(mock.total_gmv * 0.15)) + '。' },
+    { date: '2024-03', title: '样品寄送与试用反馈', note: '达人收到样品，反馈产品质量良好，适合粉丝群体。' }
   ];
+  if (seed % 2 === 0) records.push({ date: '2024-01', title: '首次建联', note: '通过抖音私信建立联系，发送品牌介绍与货盘表。' });
   var html = '<div class="talents-panel-section"><div class="talents-panel-title">合作记录</div>';
   records.forEach(function(rec){
     html += '<div class="talents-record-item">';
@@ -21341,6 +22000,146 @@ function renderTalentPanelRecords(t) {
   });
   html += '</div>';
   el.innerHTML = html;
+}
+
+function renderTalentPanelFollowUps(t) {
+  var el = document.getElementById('talentsPanelFollowUps');
+  if (!el) return;
+  el.innerHTML = '<div class="talents-panel-section"><div class="talents-follow-up-header"><div class="talents-panel-title" style="margin:0;padding:0;border:none;">跟进记录</div><button class="talents-follow-up-add" onclick="createNewTalentFollowUp()">+ 新增跟进</button></div><div class="products-loading">加载中...</div></div>';
+  apiFetch('/api/talents/' + encodeURIComponent(t.id) + '/follow-ups').then(function(r){return r.json();}).then(function(data){
+    var followUps = data.follow_ups || [];
+    if (followUps.length === 0) {
+      followUps = _getMockTalentFollowUps(t);
+    }
+    _currentTalentFollowUps = followUps;
+    el.innerHTML = _renderTalentFollowUpsHTML(t, followUps);
+  }).catch(function(e){
+    el.innerHTML = '<div class="talents-panel-section"><div class="talents-follow-up-header"><div class="talents-panel-title" style="margin:0;padding:0;border:none;">跟进记录</div><button class="talents-follow-up-add" onclick="createNewTalentFollowUp()">+ 新增跟进</button></div><div class="products-empty"><div class="products-empty-text">加载失败</div></div></div>';
+  });
+}
+
+function _getMockTalentFollowUps(t) {
+  var seed = _hashString(t.id + 'followups');
+  var names = ['张经理', '李运营', '王商务', '赵达人'];
+  var contents = ['电话沟通合作意向，达人表示对凉鞋类目感兴趣。', '发送货盘表与佣金政策，等待达人反馈。', '确认首场直播排期，沟通样品寄送地址。', '跟进达人短视频种草进度，提醒挂车链接。'];
+  var results = ['达成初步意向', '待反馈', '已确认排期', '持续跟进中'];
+  var now = Date.now();
+  var list = [];
+  for (var i = 0; i < 3; i++) {
+    list.push({
+      id: 'mock_' + i,
+      talent_id: t.id,
+      follow_up_at: now - (i + 1) * 7 * 24 * 60 * 60 * 1000,
+      next_follow_up_at: i === 0 ? now + 3 * 24 * 60 * 60 * 1000 : 0,
+      follow_up_by: names[(seed + i) % names.length],
+      content: contents[(seed + i) % contents.length],
+      result: results[(seed + i) % results.length],
+      status: 'completed',
+      is_mock: true
+    });
+  }
+  return list;
+}
+
+function _renderTalentFollowUpsHTML(t, followUps) {
+  var html = '<div class="talents-panel-section">';
+  html += '<div class="talents-follow-up-header">';
+  html += '<div class="talents-panel-title" style="margin:0;padding:0;border:none;">跟进记录 (' + followUps.length + ')</div>';
+  html += '<button class="talents-follow-up-add" onclick="createNewTalentFollowUp()">+ 新增跟进</button>';
+  html += '</div>';
+  html += '<div class="talents-timeline">';
+  followUps.forEach(function(fu){
+    var statusClass = fu.status || 'completed';
+    var statusLabel = { completed: '已完成', planned: '待跟进', cancelled: '已取消' }[statusClass] || '已完成';
+    var time = fu.follow_up_at ? new Date(fu.follow_up_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
+    var nextTime = fu.next_follow_up_at ? ('下次：' + new Date(fu.next_follow_up_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })) : '';
+    html += '<div class="talents-timeline-item">';
+    html += '<div class="talents-timeline-dot ' + statusClass + '"></div>';
+    html += '<div class="talents-timeline-card">';
+    html += '<div class="talents-timeline-meta">';
+    html += '<div class="talents-timeline-time">' + escapeHtml(time) + '</div>';
+    html += '<div class="talents-timeline-by">' + escapeHtml(fu.follow_up_by || '未指定') + '</div>';
+    html += '</div>';
+    if (fu.content) html += '<div class="talents-timeline-content">' + escapeHtml(fu.content) + '</div>';
+    if (fu.result) html += '<div class="talents-timeline-result">结果：' + escapeHtml(fu.result) + '</div>';
+    html += '<div class="talents-timeline-footer">';
+    html += '<span class="talents-timeline-status ' + statusClass + '">' + statusLabel + '</span>';
+    html += '<div class="talents-timeline-actions">';
+    if (nextTime) html += '<span style="font-size:11px;color:var(--text-secondary);">' + escapeHtml(nextTime) + '</span>';
+    if (!fu.is_mock) {
+      html += '<button onclick="editTalentFollowUp(\'' + escapeAttr(fu.id).replace(/'/g,"\\'") + '\')">编辑</button>';
+      html += '<button class="delete" onclick="deleteTalentFollowUp(\'' + escapeAttr(fu.id).replace(/'/g,"\\'") + '\')">删除</button>';
+    }
+    html += '</div></div>';
+    html += '</div></div>';
+  });
+  html += '</div></div>';
+  return html;
+}
+
+var _currentTalentFollowUps = [];
+
+function createNewTalentFollowUp() {
+  if (!_talentCurrentId) return;
+  document.getElementById('talentFollowUpEditId').value = '';
+  document.getElementById('talentFollowUpAt').value = new Date().toISOString().slice(0, 16);
+  document.getElementById('talentFollowUpBy2').value = (currentUser && currentUser.name) || '';
+  document.getElementById('talentFollowUpContent').value = '';
+  document.getElementById('talentFollowUpResult').value = '';
+  document.getElementById('talentFollowUpNextAt').value = '';
+  document.getElementById('talentFollowUpStatus').value = 'completed';
+  document.getElementById('talentFollowUpModalTitle').textContent = '新增跟进';
+  document.getElementById('talentFollowUpModalOverlay').classList.add('active');
+}
+
+function editTalentFollowUp(followUpId) {
+  if (!_talentCurrentId) return;
+  var fu = (_currentTalentFollowUps || []).find(function(x){ return x.id === followUpId; });
+  if (!fu) return;
+  document.getElementById('talentFollowUpEditId').value = fu.id;
+  document.getElementById('talentFollowUpAt').value = fu.follow_up_at ? new Date(fu.follow_up_at).toISOString().slice(0, 16) : '';
+  document.getElementById('talentFollowUpBy2').value = fu.follow_up_by || '';
+  document.getElementById('talentFollowUpContent').value = fu.content || '';
+  document.getElementById('talentFollowUpResult').value = fu.result || '';
+  document.getElementById('talentFollowUpNextAt').value = fu.next_follow_up_at ? new Date(fu.next_follow_up_at).toISOString().slice(0, 16) : '';
+  document.getElementById('talentFollowUpStatus').value = fu.status || 'completed';
+  document.getElementById('talentFollowUpModalTitle').textContent = '编辑跟进';
+  document.getElementById('talentFollowUpModalOverlay').classList.add('active');
+}
+
+function closeTalentFollowUpModal(e) { if (e && e.target !== e.currentTarget) return; document.getElementById('talentFollowUpModalOverlay').classList.remove('active'); }
+
+function saveTalentFollowUp() {
+  if (!_talentCurrentId) return;
+  var id = document.getElementById('talentFollowUpEditId').value;
+  var followUpAtVal = document.getElementById('talentFollowUpAt').value;
+  var nextFollowUpAtVal = document.getElementById('talentFollowUpNextAt').value;
+  if (!followUpAtVal) { showToast('请选择跟进时间'); return; }
+  var body = {
+    follow_up_at: new Date(followUpAtVal).getTime(),
+    next_follow_up_at: nextFollowUpAtVal ? new Date(nextFollowUpAtVal).getTime() : 0,
+    follow_up_by: document.getElementById('talentFollowUpBy2').value.trim(),
+    content: document.getElementById('talentFollowUpContent').value.trim(),
+    result: document.getElementById('talentFollowUpResult').value.trim(),
+    status: document.getElementById('talentFollowUpStatus').value
+  };
+  var url = id ? '/api/talents/' + encodeURIComponent(_talentCurrentId) + '/follow-ups/' + encodeURIComponent(id) : '/api/talents/' + encodeURIComponent(_talentCurrentId) + '/follow-ups';
+  var method = id ? 'PUT' : 'POST';
+  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(r){return r.json();}).then(function(){
+    showToast(id ? '✅ 已更新' : '✅ 跟进已记录');
+    closeTalentFollowUpModal();
+    if (_currentTalent) renderTalentPanelFollowUps(_currentTalent);
+    if (_talentCurrentId) loadTalents();
+  }).catch(function(){ showToast('❌ 保存失败'); });
+}
+
+function deleteTalentFollowUp(followUpId) {
+  if (!_talentCurrentId) return;
+  if (!confirm('确定删除此跟进记录？')) return;
+  apiFetch('/api/talents/' + encodeURIComponent(_talentCurrentId) + '/follow-ups/' + encodeURIComponent(followUpId), {method:'DELETE'}).then(function(){
+    showToast('✅ 已删除');
+    if (_currentTalent) renderTalentPanelFollowUps(_currentTalent);
+  }).catch(function(){ showToast('❌ 删除失败'); });
 }
 
 function analyzeTalentAI() {
@@ -21367,9 +22166,14 @@ function createNewTalent() {
   document.getElementById('talentEditId').value = '';
   document.getElementById('talentName').value = '';
   document.getElementById('talentDouyinId').value = '';
+  document.getElementById('talentRealName').value = '';
   document.getElementById('talentFollowers').value = '0';
   document.getElementById('talentCategory').value = '鞋靴/凉鞋';
+  document.getElementById('talentLevel').value = '';
+  document.getElementById('talentRiskRating').value = '';
+  document.getElementById('talentCity').value = '';
   document.getElementById('talentBio').value = '';
+  document.getElementById('talentAIAnalysis').value = '';
   document.getElementById('talentContactName').value = '';
   document.getElementById('talentContactPhone').value = '';
   document.getElementById('talentContactWechat').value = '';
@@ -21388,13 +22192,18 @@ function editCurrentTalent() {
     document.getElementById('talentEditId').value = t.id;
     document.getElementById('talentName').value = t.name || '';
     document.getElementById('talentDouyinId').value = t.douyin_id || '';
+    document.getElementById('talentRealName').value = t.real_name || '';
     document.getElementById('talentFollowers').value = t.followers || 0;
-    document.getElementById('talentCategory').value = t.fan_category || '';
+    document.getElementById('talentCategory').value = t.category || t.fan_category || '';
+    document.getElementById('talentLevel').value = t.level || '';
+    document.getElementById('talentRiskRating').value = t.risk_rating || '';
+    document.getElementById('talentCity').value = t.city || '';
     document.getElementById('talentBio').value = t.bio || '';
+    document.getElementById('talentAIAnalysis').value = t.ai_analysis || t.ai_summary || '';
     document.getElementById('talentContactName').value = t.contact_name || '';
-    document.getElementById('talentContactPhone').value = t.contact_phone || '';
-    document.getElementById('talentContactWechat').value = t.contact_wechat || '';
-    document.getElementById('talentContactEmail').value = t.contact_email || '';
+    document.getElementById('talentContactPhone').value = t.phone || t.contact_phone || '';
+    document.getElementById('talentContactWechat').value = t.wechat || t.contact_wechat || '';
+    document.getElementById('talentContactEmail').value = t.email || t.contact_email || '';
     document.getElementById('talentCooperationStatus').value = t.cooperation_status || 'available';
     document.getElementById('talentFollowUpBy').value = t.follow_up_by || '';
     document.getElementById('talentNextFollowUpAt').value = t.next_follow_up_at ? new Date(t.next_follow_up_at).toISOString().slice(0,16) : '';
@@ -21417,13 +22226,22 @@ function saveTalent() {
   var body = {
     name: name,
     douyin_id: douyinId,
+    real_name: document.getElementById('talentRealName').value.trim(),
     followers: parseInt(document.getElementById('talentFollowers').value || '0') || 0,
+    category: document.getElementById('talentCategory').value.trim(),
     fan_category: document.getElementById('talentCategory').value.trim(),
+    level: document.getElementById('talentLevel').value.trim(),
+    risk_rating: document.getElementById('talentRiskRating').value.trim(),
+    city: document.getElementById('talentCity').value.trim(),
     bio: document.getElementById('talentBio').value.trim(),
+    ai_analysis: document.getElementById('talentAIAnalysis').value.trim(),
     contact_name: document.getElementById('talentContactName').value.trim(),
     contact_phone: document.getElementById('talentContactPhone').value.trim(),
+    phone: document.getElementById('talentContactPhone').value.trim(),
     contact_wechat: document.getElementById('talentContactWechat').value.trim(),
+    wechat: document.getElementById('talentContactWechat').value.trim(),
     contact_email: document.getElementById('talentContactEmail').value.trim(),
+    email: document.getElementById('talentContactEmail').value.trim(),
     cooperation_status: document.getElementById('talentCooperationStatus').value,
     follow_up_by: document.getElementById('talentFollowUpBy').value.trim(),
     next_follow_up_at: nextFollowUpAt,
