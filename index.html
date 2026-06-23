@@ -331,9 +331,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-right: 1px solid var(--separator);
   flex-direction: column;
   overflow: hidden;
+  order: 1;
 }
 #productsMidList.active { display: flex; }
-#productsRight { flex: 1; }
+#productsRight { flex: 1; order: 2; }
 .app-main.influencers-active { flex-direction: row; }
 #influencersMid {
   display: none;
@@ -343,9 +344,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-right: 1px solid var(--separator);
   flex-direction: column;
   overflow: hidden;
+  order: 1;
 }
 #influencersMid.active { display: flex; }
-#influencersRight { flex: 1; }
+#influencersRight { flex: 1; order: 2; }
 .app-main.settings-active { flex-direction: row; }
 
 /* Products Left Sidebar - brand/category nav (deprecated, kept hidden for compat) */
@@ -594,12 +596,16 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 13px;
   color: var(--text-primary);
   flex-shrink: 0;
-  max-width: 160px;
+  min-width: 0;
+  width: 100%;
   outline: none;
   transition: border-color 0.15s, background 0.15s;
 }
 .products-mid-filter:hover { background: var(--bg-tertiary); }
 .products-mid-filter:focus { border-color: var(--accent); background: #ffffff; }
+#productsMidSort {
+  min-width: 130px;
+}
 .products-mid-items {
   flex: 1;
   overflow-y: auto;
@@ -22741,8 +22747,10 @@ function switchModule(module) {
   var employeeList = document.getElementById('employeeList');
   var projectList = document.getElementById('projectList');
   var chatArea = document.getElementById('chatArea');
+  var appSidebar = document.querySelector('.app-sidebar');
   if (module === 'messages') {
     if (chatArea) chatArea.style.display = 'flex';
+    if (appSidebar) appSidebar.style.display = 'flex';
     if (employeeList) employeeList.style.display = 'block';
     if (projectList) projectList.style.display = 'none';
     renderEmployeeList();

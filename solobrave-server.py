@@ -3818,13 +3818,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
         # Brand API
-        if path == '/api/brands':
+        if path == '/api/brands' or path == '/api/brands/':
             self._handle_get_brands()
             return
         if path.startswith('/api/brands/'):
             brand_id = path[len('/api/brands/'):]
             if brand_id:
                 self._handle_get_brand(brand_id)
+            else:
+                self._handle_get_brands()
             return
 
         # Talent API
@@ -8944,43 +8946,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         """保留签名兼容；商品库已迁移到 SQLite，此函数不再执行文件写入"""
         pass
 
-    def _handle_get_brands(self):
-        """GET /api/brands — 获取品牌列表（基于 products 表 brand 字段聚合）"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not self._require_module_permission(auth, 'products'): return
-        # 品牌元数据（可扩展）
-        brand_meta = {
-            'COOLCHAP': {
-                'nameCn': '酷恰',
-                'origin': '西班牙马略卡岛',
-                'style': '地中海度假风',
-                'keywords': ['地中海度假风', '自由浪漫', '艺术小众', '软底舒适', '百搭实穿'],
-                'priceBand': '300-800元',
-                'icon': '👟'
-            }
-        }
-        conn = _db_conn()
-        try:
-            rows = conn.execute('''
-                SELECT brand, COUNT(*) as count
-                FROM products
-                WHERE status != ? AND brand IS NOT NULL AND brand != ''
-                GROUP BY brand
-                ORDER BY count DESC, brand ASC
-            ''', ('archived',)).fetchall()
-            brands = []
-            for r in rows:
-                name = r['brand'] or ''
-                item = {'name': name, 'count': r['count']}
-                item.update(brand_meta.get(name, {}))
-                brands.append(item)
-        finally:
-            conn.close()
-        self._send_json(200, {'brands': brands})
-
     def _handle_get_products(self):
         """GET /api/products — 获取商品列表（支持 query 筛选）"""
         auth = _authenticate(self.headers)
@@ -9505,9 +9470,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     'createdAt': now,
                     'updatedAt': now,
                 } for r in agg_rows]
+            self._send_json(200, {'brands': brands, 'total': len(brands)})
+        except Exception as e:
+            print(f'[ERROR] GET /api/brands failed: {e}', flush=True)
+            import traceback
+            traceback.print_exc()
+            self._send_json(500, {'error': f'获取品牌列表失败: {str(e)}'})
         finally:
             conn.close()
-        self._send_json(200, {'brands': brands, 'total': len(brands)})
 
     def _handle_get_brand(self, brand_id):
         """GET /api/brands/:id — 获取单个品牌"""
