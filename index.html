@@ -264,7 +264,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .module-right-header { height: 48px; padding: 0 16px; border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; justify-content: space-between; background: #fff; flex-shrink: 0; }
 .module-right-title { font-size: 15px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .module-right-actions { display: flex; gap: 8px; align-items: center; }
-.module-action-btn { padding: 6px 12px; border-radius: 6px; border: none; font-size: 13px; cursor: pointer; transition: all 0.15s; background: var(--bg-secondary); color: var(--text-primary); }
+.module-action-btn { padding: 6px 14px; border-radius: 8px; border: none; font-size: 13px; cursor: pointer; transition: all 0.15s; background: var(--bg-secondary); color: var(--text-primary); }
 .module-action-btn:hover { background: var(--bg-tertiary); }
 .module-action-btn.primary { background: var(--accent); color: #fff; }
 .module-action-btn.primary:hover { background: var(--accent-hover); }
@@ -531,8 +531,13 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 8px;
   padding: 8px 12px;
   background: var(--bg-tertiary);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 0.5px solid var(--separator);
+  transition: border-color 0.15s, background 0.15s;
+}
+.products-mid-search:focus-within {
+  background: #ffffff;
+  border-color: var(--accent);
 }
 .products-mid-search svg { color: var(--text-tertiary); flex-shrink: 0; width: 16px; height: 16px; }
 .products-mid-search input {
@@ -546,28 +551,32 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .products-mid-search input::placeholder { color: var(--text-tertiary); }
 .products-mid-new {
-  padding: 6px 14px;
-  border-radius: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
   border: none;
   background: var(--accent);
   color: #ffffff;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: all 0.15s;
   flex-shrink: 0;
 }
 .products-mid-new:hover { background: var(--accent-hover); }
 .products-mid-filter {
-  padding: 6px 8px;
-  border-radius: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
   border: 0.5px solid var(--separator);
   background: var(--bg-primary);
   font-size: 13px;
   color: var(--text-primary);
   flex-shrink: 0;
-  max-width: 120px;
+  max-width: 140px;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
 }
+.products-mid-filter:hover { background: var(--bg-tertiary); }
+.products-mid-filter:focus { border-color: var(--accent); background: #ffffff; }
 .products-mid-items {
   flex: 1;
   overflow-y: auto;
@@ -580,17 +589,23 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 12px;
   margin-bottom: 10px;
   background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
   border: 0.5px solid var(--separator);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.18s ease;
   min-height: 80px;
 }
-.products-mid-card:hover { border-color: var(--accent); box-shadow: 0 4px 12px rgba(10,132,255,0.08); }
+.products-mid-card:hover {
+  background: #fafbfc;
+  border-color: rgba(0,0,0,0.08);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
 .products-mid-card.active {
   border-color: var(--accent);
   background: var(--accent-light);
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 2px 8px rgba(10,132,255,0.08);
 }
 .products-mid-card-image {
   width: 60px;
@@ -636,33 +651,54 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .products-mid-card-metrics {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 5px;
   font-size: 12px;
 }
+.products-mid-card-price-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .products-mid-card-price {
-  font-weight: 600;
-  color: var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
 }
 .products-mid-card-commission {
   color: #FF6B35;
   background: rgba(255,107,53,0.08);
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
 }
-.products-mid-card-sales { color: var(--text-secondary); }
+.products-mid-card-sales-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.products-mid-card-sales {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
 .products-status-active,
 .products-status-inactive,
 .products-status-out_of_stock {
-  padding: 1px 6px;
-  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
+  line-height: 1.35;
+  border: 0.5px solid transparent;
 }
-.products-status-active { background: rgba(52,199,89,0.10); color: #34C759; }
-.products-status-inactive { background: rgba(134,144,156,0.10); color: #86909c; }
-.products-status-out_of_stock { background: rgba(255,59,48,0.10); color: #FF3B30; }
+.products-status-active { background: rgba(39,174,96,0.10); color: #27ae60; border-color: rgba(39,174,96,0.18); }
+.products-status-inactive { background: rgba(134,144,156,0.10); color: #86909c; border-color: rgba(134,144,156,0.16); }
+.products-status-out_of_stock { background: rgba(134,144,156,0.10); color: #86909c; border-color: rgba(134,144,156,0.16); }
 .products-mid-pagination {
   display: flex;
   align-items: center;
@@ -673,10 +709,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-shrink: 0;
 }
 .products-mid-pagination button {
-  min-width: 28px;
-  height: 28px;
-  padding: 0 8px;
-  border-radius: 6px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   color: var(--text-primary);
   background: transparent;
@@ -707,13 +743,16 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .products-empty-text { font-size: 14px; }
 .products-empty-btn {
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: none;
   background: var(--accent);
   color: #ffffff;
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
+  transition: background 0.15s;
 }
+.products-empty-btn:hover { background: var(--accent-hover); }
 .products-loading { padding: 40px; text-align: center; color: var(--text-tertiary); }
 
 /* Products Right Drawer */
@@ -739,14 +778,14 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   display: flex;
   align-items: center;
   background: var(--bg-tertiary);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 3px;
   gap: 3px;
   flex-shrink: 0;
 }
 .segmented-item {
-  padding: 5px 10px;
-  border-radius: 8px;
+  padding: 6px 11px;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   font-size: 12px;
@@ -790,7 +829,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .products-ai-card {
   background: linear-gradient(135deg, #f5f7ff 0%, #ffffff 100%);
   border: 0.5px solid rgba(10,132,255,0.15);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 16px;
   box-shadow: 0 2px 8px rgba(10,132,255,0.06);
 }
@@ -867,13 +906,13 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 4px;
   padding: 4px;
   background: var(--bg-tertiary);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   flex-shrink: 0;
 }
 .products-tab {
   flex: 1;
   padding: 8px 4px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   font-size: 13px;
@@ -892,20 +931,55 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .products-panel-section {
   background: #ffffff;
   border: 0.5px solid var(--separator);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 16px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
+}
+.products-panel-section + .products-panel-section {
+  border-top: 0.5px solid var(--separator);
 }
 .products-panel-title {
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+  padding-bottom: 10px;
   margin-bottom: 12px;
+  border-bottom: 0.5px solid var(--separator);
+}
+.products-panel-title::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--accent);
 }
 .products-detail-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+  gap: 14px 16px;
+}
+.products-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.products-detail-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.products-detail-value {
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.products-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px 16px;
 }
 .products-detail-item {
   display: flex;
@@ -975,9 +1049,16 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 12px;
   padding: 12px;
   border: 0.5px solid var(--separator);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   margin-bottom: 10px;
   background: #ffffff;
+  transition: all 0.15s;
+  cursor: pointer;
+}
+.products-influencer-card:hover {
+  background: var(--hover-bg);
+  border-color: rgba(0,0,0,0.08);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 .products-influencer-avatar {
   width: 44px;
@@ -1049,10 +1130,11 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .products-tag {
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: 12px;
   background: var(--bg-tertiary);
   color: var(--text-secondary);
+  font-weight: 500;
 }
 
 /* Product Edit Modal - scoped to #productModalOverlay to avoid conflicting with legacy modals */
@@ -1118,17 +1200,22 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 #productModalOverlay .product-modal-field select,
 #productModalOverlay .product-modal-field textarea {
   width: 100%;
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
   border: 0.5px solid var(--separator);
   font-size: 14px;
   background: var(--bg-primary);
   box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
 }
+#productModalOverlay .product-modal-field input:hover,
+#productModalOverlay .product-modal-field select:hover,
+#productModalOverlay .product-modal-field textarea:hover { background: var(--bg-tertiary); }
 #productModalOverlay .product-modal-field textarea { min-height: 80px; resize: vertical; }
 #productModalOverlay .product-modal-field input:focus,
 #productModalOverlay .product-modal-field select:focus,
-#productModalOverlay .product-modal-field textarea:focus { border-color: var(--accent); }
+#productModalOverlay .product-modal-field textarea:focus { border-color: var(--accent); background: #ffffff; }
 #productModalOverlay .product-modal-footer {
   display: flex;
   justify-content: flex-end;
@@ -1139,9 +1226,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 #productModalOverlay .product-modal-cancel,
 #productModalOverlay .product-modal-save {
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: none;
   font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -1227,10 +1315,15 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
+  padding: 8px 12px;
   background: var(--bg-tertiary);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 0.5px solid var(--separator);
+  transition: border-color 0.15s, background 0.15s;
+}
+.talents-mid-search:focus-within {
+  background: #ffffff;
+  border-color: var(--accent);
 }
 .talents-mid-search svg { color: var(--text-tertiary); flex-shrink: 0; width: 16px; height: 16px; }
 .talents-mid-search input {
@@ -1243,35 +1336,37 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: var(--text-primary);
 }
 .talents-mid-new {
-  padding: 6px 12px;
-  border-radius: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
   border: none;
   background: var(--accent);
   color: #ffffff;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+  transition: all 0.15s;
   flex-shrink: 0;
 }
 .talents-mid-new:hover { background: var(--accent-hover); }
 .talents-mid-btn {
-  padding: 6px 12px;
-  border-radius: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
   border: 0.5px solid var(--separator);
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+  transition: all 0.15s;
   flex-shrink: 0;
 }
 .talents-mid-btn:hover { background: var(--hover-bg); }
 .talents-mid-btn.secondary {
-  background: linear-gradient(135deg, #f5f7ff 0%, #ffffff 100%);
+  background: var(--accent-light);
   border-color: rgba(10,132,255,0.2);
   color: var(--accent);
 }
-.talents-mid-btn.secondary:hover { background: var(--accent-light); }
+.talents-mid-btn.secondary:hover { background: rgba(10,132,255,0.12); }
 .talents-mid-items {
   flex: 1;
   overflow-y: auto;
@@ -1284,20 +1379,26 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 12px;
   margin-bottom: 10px;
   background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
   border: 0.5px solid var(--separator);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.18s ease;
 }
-.talents-mid-card:hover { border-color: var(--accent); box-shadow: 0 4px 12px rgba(10,132,255,0.08); }
+.talents-mid-card:hover {
+  background: #fafbfc;
+  border-color: rgba(0,0,0,0.08);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
 .talents-mid-card.active {
   border-color: var(--accent);
   background: var(--accent-light);
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 2px 8px rgba(10,132,255,0.08);
 }
 .talents-mid-avatar {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   object-fit: cover;
   background: #f5f7fa;
@@ -1305,7 +1406,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 600;
   color: #ffffff;
 }
@@ -1347,8 +1448,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 11px;
   color: var(--accent);
   background: var(--accent-light);
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  font-weight: 500;
 }
 .talents-mid-score {
   text-align: right;
@@ -1364,17 +1466,20 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: var(--text-secondary);
 }
 .talents-status-tag {
-  display: inline-block;
-  padding: 2px 7px;
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
+  line-height: 1.35;
+  border: 0.5px solid transparent;
 }
-.talents-status-following { background: rgba(10,132,255,0.10); color: var(--accent); }
-.talents-status-cooperating { background: rgba(52,199,89,0.12); color: #34C759; }
-.talents-status-communicating { background: rgba(245,158,11,0.12); color: #d97706; }
-.talents-status-available { background: rgba(134,144,156,0.10); color: #86909c; }
-.talents-status-blacklist { background: rgba(107,114,128,0.10); color: #4b5563; }
+.talents-status-following { background: rgba(10,132,255,0.10); color: var(--accent); border-color: rgba(10,132,255,0.16); }
+.talents-status-cooperating { background: rgba(39,174,96,0.10); color: #27ae60; border-color: rgba(39,174,96,0.18); }
+.talents-status-communicating { background: rgba(245,158,11,0.10); color: #d97706; border-color: rgba(245,158,11,0.18); }
+.talents-status-available { background: rgba(134,144,156,0.10); color: #86909c; border-color: rgba(134,144,156,0.16); }
+.talents-status-blacklist { background: rgba(107,114,128,0.10); color: #4b5563; border-color: rgba(107,114,128,0.16); }
 .talents-mid-pagination {
   display: flex;
   align-items: center;
@@ -1385,15 +1490,16 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-shrink: 0;
 }
 .talents-mid-pagination button {
-  min-width: 28px;
-  height: 28px;
-  padding: 0 8px;
-  border-radius: 6px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   color: var(--text-primary);
   background: transparent;
   border: 0.5px solid var(--separator);
   cursor: pointer;
+  transition: all 0.15s;
 }
 .talents-mid-pagination button:hover { background: var(--hover-bg); }
 .talents-mid-pagination button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -1409,14 +1515,14 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 4px;
   padding: 4px;
   background: var(--bg-tertiary);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   margin: 14px 14px 0;
   flex-shrink: 0;
 }
 .talents-tab {
   flex: 1;
   padding: 8px 4px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   font-size: 13px;
@@ -1433,61 +1539,101 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .talents-panel-section {
   background: #ffffff;
   border: 0.5px solid var(--separator);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 14px;
   margin-bottom: 12px;
 }
+.talents-panel-section + .talents-panel-section {
+  border-top: 0.5px solid var(--separator);
+}
 .talents-panel-title {
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+  padding-bottom: 10px;
   margin-bottom: 12px;
+  border-bottom: 0.5px solid var(--separator);
+}
+.talents-panel-title::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--accent);
 }
 .talents-overview-header {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 14px;
+  align-items: flex-start;
+  gap: 12px;
 }
 .talents-overview-avatar {
-  width: 64px;
-  height: 64px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   background: var(--accent);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
   flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 .talents-overview-info { flex: 1; min-width: 0; }
 .talents-overview-name {
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 600;
   color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: 8px;
+  line-height: 1.3;
 }
-.talents-overview-meta {
+.talents-overview-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.talents-overview-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+.talents-overview-pill label {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+.talents-overview-bio {
   font-size: 13px;
   color: var(--text-secondary);
-  margin-top: 4px;
+  line-height: 1.5;
+  margin-top: 8px;
 }
 .talents-overview-rating {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #0a84ff, #0070e0);
-  color: #fff;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, #0a84ff, #0070e0);
+  color: #fff;
+  font-size: 12px;
   font-weight: 700;
   flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(10,132,255,0.25);
 }
 .talents-metric-grid {
   display: grid;
@@ -1496,10 +1642,12 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .talents-metric-card {
   background: var(--bg-tertiary);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 12px;
   text-align: center;
+  transition: background 0.15s;
 }
+.talents-metric-card:hover { background: var(--hover-bg); }
 .talents-metric-value {
   font-size: 16px;
   font-weight: 700;
@@ -1509,11 +1657,12 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 11px;
   color: var(--text-secondary);
   margin-top: 3px;
+  font-weight: 500;
 }
 .talents-ai-card {
   background: linear-gradient(135deg, #f5f7ff 0%, #ffffff 100%);
   border: 0.5px solid rgba(10,132,255,0.15);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 14px;
 }
 .talents-ai-title {
@@ -1533,9 +1682,16 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 12px;
   padding: 12px;
   border: 0.5px solid var(--separator);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   margin-bottom: 10px;
   background: #ffffff;
+  transition: all 0.15s;
+  cursor: pointer;
+}
+.talents-product-card:hover {
+  background: var(--hover-bg);
+  border-color: rgba(0,0,0,0.08);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 .talents-product-placeholder {
   width: 48px;
@@ -20298,11 +20454,15 @@ function renderProductList(products) {
     html += placeholder;
     html += '<div class="products-mid-card-info">';
     html += '<div class="products-mid-card-title">' + escapeHtml(p.name) + '</div>';
+    html += '<div class="products-mid-card-subtitle">' + escapeHtml(p.brand || '-') + ' · ' + escapeHtml(p.category || '-') + '</div>';
     html += '<div class="products-mid-card-metrics">';
+    html += '<div class="products-mid-card-price-row">';
     html += '<span class="products-mid-card-price">¥' + (p.price || 0).toFixed(2) + '</span>';
+    html += '</div>';
+    html += '<div class="products-mid-card-sales-row">';
     html += '<span class="products-mid-card-sales">月销 ' + formatNumber(p.monthly_sales || 0) + '</span>';
     html += '<span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status) + '</span>';
-    html += '</div></div></div>';
+    html += '</div></div></div></div>';
   });
   el.innerHTML = html;
 }
@@ -20394,7 +20554,7 @@ function renderProductPanelDetail(p) {
   html += '<div class="products-detail-item"><div class="products-detail-label">类目</div><div class="products-detail-value">' + escapeHtml(p.category || '-') + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">价格</div><div class="products-detail-value">¥' + (p.price || 0).toFixed(2) + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">库存</div><div class="products-detail-value">' + (p.stock || 0) + '</div></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">状态</div><div class="products-detail-value">' + (statusMap[p.status] || p.status || '-') + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">状态</div><div class="products-detail-value"><span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status || '-') + '</span></div></div>';
   html += '</div></div>';
   if (p.description || p.subtitle) {
     html += '<div class="products-panel-section">';
@@ -20707,14 +20867,14 @@ function renderTalentList(talents) {
   var html = '';
   talents.forEach(function(t){
     var st = statusMap[t.cooperation_status] || statusMap['available'];
-    var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:18px;">' + (t.name || '?').charAt(0) + '</span>';
+    var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:20px;font-weight:600;">' + (t.name || '?').charAt(0) + '</span>';
     var tags = (t.ai_tags || t.tags || []).slice(0, 2);
     var aiScore = t.ai_rating ? (['S','A','B','C'].indexOf(t.ai_rating) >= 0 ? (4 - ['S','A','B','C'].indexOf(t.ai_rating)) * 25 : 0) : 0;
     html += '<div class="talents-mid-card' + (_talentCurrentId === t.id ? ' active' : '') + '" data-id="' + escapeAttr(t.id) + '" onclick="selectTalentItem(\'' + escapeAttr(t.id).replace(/'/g,"\\'") + '\')">';
     html += '<div class="talents-mid-avatar" style="background:' + (t.avatar ? '#f5f7fa' : 'var(--accent)') + ';">' + avatar + '</div>';
     html += '<div class="talents-mid-info">';
     html += '<div class="talents-mid-name">' + escapeHtml(t.name) + ' <span class="talents-status-tag ' + st.cls + '">' + st.label + '</span></div>';
-    html += '<div class="talents-mid-meta">' + (t.level || '-') + ' · 粉丝 ' + formatNumber(t.followers || 0) + ' · ' + (t.fan_category || t.category || '未分类') + '</div>';
+    html += '<div class="talents-mid-meta">' + (t.level || '-') + ' · 粉丝 ' + formatFollowers(t.followers || 0) + ' · ' + (t.fan_category || t.category || '未分类') + '</div>';
     if (tags.length) {
       html += '<div class="talents-mid-tags">' + tags.map(function(tag){ return '<span class="talents-mid-tag">' + escapeHtml(tag) + '</span>'; }).join('') + '</div>';
     }
@@ -20819,17 +20979,21 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-overview-header">';
   html += '<div class="talents-overview-avatar" style="background:' + (t.avatar ? '#f5f7fa' : 'var(--accent)') + ';">' + avatar + '</div>';
   html += '<div class="talents-overview-info">';
-  html += '<div class="talents-overview-name">' + escapeHtml(t.name || '-') + ' <span class="talents-status-tag ' + st.cls + '">' + st.label + '</span></div>';
-  html += '<div class="talents-overview-meta">' + (t.level || '-') + ' · 抖音号 ' + escapeHtml(t.douyin_id || '-') + ' · ' + (t.location || '-') + '</div>';
-  if (t.bio) html += '<div class="talents-overview-meta" style="margin-top:6px;">' + escapeHtml(t.bio) + '</div>';
+  html += '<div class="talents-overview-name">' + escapeHtml(t.name || '-') + ' <span class="talents-status-tag ' + st.cls + '">' + st.label + '</span>' + (t.ai_rating ? ' <span class="talents-overview-rating">' + escapeHtml(t.ai_rating) + '</span>' : '') + '</div>';
+  html += '<div class="talents-overview-pills">';
+  html += '<span class="talents-overview-pill"><label>抖音号</label>' + escapeHtml(t.douyin_id || '-') + '</span>';
+  html += '<span class="talents-overview-pill"><label>粉丝</label>' + formatFollowers(t.followers || 0) + '</span>';
+  html += '<span class="talents-overview-pill"><label>类目</label>' + escapeHtml(t.fan_category || t.category || '-') + '</span>';
+  html += '<span class="talents-overview-pill"><label>合作</label>' + st.label + '</span>';
   html += '</div>';
-  html += '<div class="talents-overview-rating">' + (t.ai_rating || '-') + '</div>';
+  if (t.bio) html += '<div class="talents-overview-bio">' + escapeHtml(t.bio) + '</div>';
+  html += '</div>';
   html += '</div></div>';
 
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">核心数据</div>';
   html += '<div class="talents-metric-grid">';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + formatNumber(t.followers || 0) + '</div><div class="talents-metric-label">粉丝量</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + formatFollowers(t.followers || 0) + '</div><div class="talents-metric-label">粉丝量</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.total_gmv || 0) + '</div><div class="talents-metric-label">总GMV</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.total_products || 0) + '</div><div class="talents-metric-label">带货商品</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.total_shops || 0) + '</div><div class="talents-metric-label">合作店铺</div></div>';
@@ -22812,6 +22976,14 @@ function showUserProfile() {
 
 function formatNumber(n) {
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+function formatFollowers(n) {
+  var num = parseFloat(n) || 0;
+  if (num >= 10000) {
+    var w = (num / 10000).toFixed(1).replace(/\.0$/, '');
+    return w + 'w';
+  }
+  return formatNumber(num);
 }
 
 // ========== 算力统计 ==========
