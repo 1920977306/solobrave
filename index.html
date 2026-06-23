@@ -699,7 +699,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 .products-mid-card-title {
   font-size: 15px;
@@ -719,24 +719,25 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .products-mid-card-metrics {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   font-size: 12px;
 }
 .products-mid-card-price-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .products-mid-card-price {
   font-size: 16px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--accent);
   letter-spacing: -0.2px;
 }
 .products-mid-card-commission {
   color: #FF6B35;
   background: rgba(255,107,53,0.08);
-  padding: 2px 7px;
+  padding: 2px 8px;
   border-radius: var(--radius-full);
   font-size: 11px;
   font-weight: 600;
@@ -744,12 +745,18 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .products-mid-card-sales-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .products-mid-card-sales {
   font-size: 12px;
   color: var(--text-secondary);
   font-weight: 500;
+}
+.products-mid-card-influencers {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
 }
 .products-status-active,
 .products-status-inactive,
@@ -1466,7 +1473,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .talents-mid-card {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   padding: 12px;
   margin-bottom: 10px;
@@ -1501,8 +1508,20 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 22px;
   font-weight: 600;
   color: #ffffff;
+  margin-top: 2px;
 }
-.talents-mid-info { flex: 1; min-width: 0; }
+.talents-mid-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.talents-mid-header-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .talents-mid-name {
   font-size: 14px;
   font-weight: 600;
@@ -1510,43 +1529,55 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.talents-mid-stats-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-.talents-mid-level {
-  font-size: 11px;
-  color: var(--text-secondary);
-  font-weight: 500;
-  background: var(--bg-tertiary);
-  padding: 1px 5px;
-  border-radius: 4px;
-}
-.talents-mid-meta {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 3px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.talents-mid-tags {
-  display: flex;
-  gap: 4px;
-  margin-top: 5px;
+  gap: 8px;
   flex-wrap: wrap;
 }
-.talents-mid-tag {
-  font-size: 11px;
+.talents-mid-followers {
+  font-size: 15px;
+  font-weight: 700;
   color: var(--accent);
-  background: var(--accent-light);
+}
+.talents-mid-categories {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.talents-mid-category-tag {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
   padding: 2px 7px;
   border-radius: var(--radius-full);
   font-weight: 500;
 }
+.talents-mid-data-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.talents-mid-data-row strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.talents-mid-data-row .gmv {
+  color: #FF6B35;
+  font-weight: 600;
+}
 .talents-mid-score {
   text-align: right;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
 }
 .talents-mid-score-value {
   font-size: 16px;
@@ -5628,6 +5659,7 @@ window.doLogin = function () {
         <option value="price_desc">价格从高到低</option>
         <option value="sales_desc">月销从高到低</option>
         <option value="commission_desc">佣金率从高到低</option>
+        <option value="influencer_count_desc">带货达人从多到少</option>
       </select>
       <button class="products-mid-new" onclick="createNewProduct()">+ 录入商品</button>
     </div>
@@ -5653,6 +5685,12 @@ window.doLogin = function () {
         <button class="segmented-item" data-cooperation="communicating" onclick="selectTalentCooperation('communicating')">沟通中</button>
         <button class="segmented-item" data-cooperation="blacklist" onclick="selectTalentCooperation('blacklist')">黑名单</button>
       </div>
+      <select class="products-mid-filter" id="talentsMidSort" onchange="selectTalentSort(this.value)" title="排序">
+        <option value="">默认排序</option>
+        <option value="followers_desc">粉丝数从高到低</option>
+        <option value="products_desc">推广商品从多到少</option>
+        <option value="gmv_desc">预估销售额从高到低</option>
+      </select>
       <button class="talents-mid-btn secondary" onclick="recommendTalentsAI()">✨ AI推荐达人</button>
       <button class="talents-mid-new" onclick="createNewTalent()">+ 录入达人</button>
     </div>
@@ -20520,6 +20558,9 @@ function sortProductsLocally(products, sort) {
     case 'commission_desc':
       list.sort(function(a,b){ return (b.commission_rate || 0) - (a.commission_rate || 0); });
       break;
+    case 'influencer_count_desc':
+      list.sort(function(a,b){ return (b.influencer_count || 0) - (a.influencer_count || 0); });
+      break;
   }
   return list;
 }
@@ -20597,9 +20638,11 @@ function renderProductList(products) {
     html += '<div class="products-mid-card-metrics">';
     html += '<div class="products-mid-card-price-row">';
     html += '<span class="products-mid-card-price">¥' + (p.price || 0).toFixed(2) + '</span>';
+    html += '<span class="products-mid-card-commission">佣金' + (p.commission_rate || 0).toFixed(0) + '%</span>';
     html += '</div>';
     html += '<div class="products-mid-card-sales-row">';
     html += '<span class="products-mid-card-sales">月销 ' + formatNumber(p.monthly_sales || 0) + '</span>';
+    html += '<span class="products-mid-card-influencers">' + (p.influencer_count || 0) + '位达人带货</span>';
     html += '<span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status) + '</span>';
     html += '</div></div></div></div>';
   });
@@ -20937,6 +20980,7 @@ var _talentCurrentId = null;
 var _talentCooperation = '';
 var _talentCategory = '';
 var _talentSearchKw = '';
+var _talentCurrentSort = '';
 var _talentPage = 1;
 var _talentPageSize = 20;
 var _talentTab = 'overview';
@@ -20953,11 +20997,12 @@ function loadTalents(page) {
   if (_talentCooperation) qs.push('cooperation=' + encodeURIComponent(_talentCooperation));
   if (_talentCategory) qs.push('category=' + encodeURIComponent(_talentCategory));
   if (_talentSearchKw) qs.push('q=' + encodeURIComponent(_talentSearchKw));
+  if (_talentCurrentSort) qs.push('sort=' + encodeURIComponent(_talentCurrentSort));
   var url = '/api/talents?' + qs.join('&');
   var itemsEl = document.getElementById('talentsMidItems');
   if (itemsEl) itemsEl.innerHTML = '<div class="products-loading">加载中...</div>';
   apiFetch(url).then(function(r){return r.json();}).then(function(data){
-    _talentData.talents = data.talents || [];
+    _talentData.talents = sortTalentsLocally(data.talents || [], _talentCurrentSort);
     _talentData.total = data.total || 0;
     renderTalentList(_talentData.talents);
     renderTalentPagination(_talentData.total, _talentPage, _talentPageSize);
@@ -20965,6 +21010,31 @@ function loadTalents(page) {
   }).catch(function(e){
     if (itemsEl) itemsEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
   });
+}
+
+function sortTalentsLocally(talents, sort) {
+  if (!sort || !talents || !talents.length) return talents;
+  var list = talents.slice();
+  switch (sort) {
+    case 'followers_desc':
+      list.sort(function(a,b){ return (b.followers || 0) - (a.followers || 0); });
+      break;
+    case 'products_desc':
+      list.sort(function(a,b){ return (b.total_products || 0) - (a.total_products || 0); });
+      break;
+    case 'gmv_desc':
+      list.sort(function(a,b){ return (b.total_gmv || 0) - (a.total_gmv || 0); });
+      break;
+  }
+  return list;
+}
+
+function selectTalentSort(sort) {
+  _talentCurrentSort = sort || '';
+  _talentPage = 1;
+  var sel = document.getElementById('talentsMidSort');
+  if (sel) sel.value = _talentCurrentSort;
+  loadTalents();
 }
 
 function onTalentSearch(val) {
@@ -21009,14 +21079,26 @@ function renderTalentList(talents) {
     var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:20px;font-weight:600;">' + (t.name || '?').charAt(0) + '</span>';
     var tags = (t.ai_tags || t.tags || []).slice(0, 2);
     var aiScore = t.ai_rating ? (['S','A','B','C'].indexOf(t.ai_rating) >= 0 ? (4 - ['S','A','B','C'].indexOf(t.ai_rating)) * 25 : 0) : 0;
+    var categories = (t.fan_category || t.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
+    var followersText = formatFollowers(t.followers || 0).replace('w', '万');
+    var gmv = (t.total_gmv || 0) >= 10000 ? ((t.total_gmv / 10000).toFixed(1).replace(/\.0$/, '') + 'w') : formatNumber(t.total_gmv || 0);
     html += '<div class="talents-mid-card' + (_talentCurrentId === t.id ? ' active' : '') + '" data-id="' + escapeAttr(t.id) + '" onclick="selectTalentItem(\'' + escapeAttr(t.id).replace(/'/g,"\\'") + '\')">';
     html += '<div class="talents-mid-avatar" style="background:' + (t.avatar ? '#f5f7fa' : 'var(--accent)') + ';">' + avatar + '</div>';
     html += '<div class="talents-mid-info">';
-    html += '<div class="talents-mid-name">' + escapeHtml(t.name) + ' <span class="talents-status-tag ' + st.cls + '">' + st.label + '</span></div>';
-    html += '<div class="talents-mid-meta">' + (t.level || '-') + ' · 粉丝 ' + formatFollowers(t.followers || 0) + ' · ' + (t.fan_category || t.category || '未分类') + '</div>';
-    if (tags.length) {
-      html += '<div class="talents-mid-tags">' + tags.map(function(tag){ return '<span class="talents-mid-tag">' + escapeHtml(tag) + '</span>'; }).join('') + '</div>';
+    html += '<div class="talents-mid-header-row">';
+    html += '<div class="talents-mid-name">' + escapeHtml(t.name) + '</div>';
+    html += '<span class="talents-status-tag ' + st.cls + '">' + st.label + '</span>';
+    html += '</div>';
+    html += '<div class="talents-mid-stats-row">';
+    html += '<span class="talents-mid-followers">' + followersText + '粉丝</span>';
+    if (categories.length) {
+      html += '<div class="talents-mid-categories">' + categories.map(function(cat){ return '<span class="talents-mid-category-tag">' + escapeHtml(cat) + '</span>'; }).join('') + '</div>';
     }
+    html += '</div>';
+    html += '<div class="talents-mid-data-row">';
+    html += '<span>带货<strong>' + (t.total_products || 0) + '款</strong></span>';
+    html += '<span class="gmv">GMV ' + gmv + '</span>';
+    html += '</div>';
     html += '</div>';
     html += '<div class="talents-mid-score">';
     html += '<div class="talents-mid-score-value">' + (aiScore || '-') + '</div>';
