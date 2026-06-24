@@ -18366,6 +18366,16 @@ async function executeToolCall(call) {
         };
         var r = await apiFetch('/api/talents', { method: 'POST', body: JSON.stringify(talentBody) });
         var t = await r.json();
+        if (t.duplicate) {
+          return '⚠️ 该达人已存在，无需重复录入\n' +
+            '昵称：' + (t.name || '-') + '\n' +
+            '抖音号：' + (t.douyin_id || '-') + '\n' +
+            '粉丝数：' + (t.followers >= 10000 ? (t.followers / 10000).toFixed(1) + 'w' : (t.followers || 0)) + '\n' +
+            '主营类目：' + (t.category || t.fan_category || '未分类') + '\n' +
+            '合作等级：' + (t.level || '未设置') + '\n' +
+            '合作状态：' + (t.cooperation_status || 'available') + '\n' +
+            'ID：' + (t.id || '-');
+        }
         return '✅ 达人录入成功\n' +
           '昵称：' + (t.name || '-') + '\n' +
           '抖音号：' + (t.douyin_id || '-') + '\n' +
@@ -18412,6 +18422,16 @@ async function executeToolCall(call) {
         };
         var pr = await apiFetch('/api/products', { method: 'POST', body: JSON.stringify(productBody) });
         var p = await pr.json();
+        if (p.duplicate) {
+          return '⚠️ 该商品已存在，无需重复录入\n' +
+            '名称：' + (p.name || '-') + '\n' +
+            '价格：¥' + (p.price || 0).toFixed(2) + '\n' +
+            '库存：' + (p.stock || 0) + '\n' +
+            '分类：' + (p.category || '未分类') + '\n' +
+            '品牌：' + (p.brand || '-') + '\n' +
+            'SKU：' + (p.sku || '-') + '\n' +
+            'ID：' + (p.id || '-');
+        }
         // 刷新左侧商品库列表
         if (typeof loadProducts === 'function') loadProducts();
         var commissionRate = 0;

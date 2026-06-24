@@ -9590,7 +9590,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'influencer_id': inf_id, 'matches': results[:limit], 'total': len(results), 'source': 'live'})
 
     def _handle_post_product(self):
-        """POST /api/products — 录入商品"""
+        """POST /api/products — 录入商品（带 SKU / name+brand 去重）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -9600,6 +9600,44 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not body or 'name' not in body:
             self._send_json_error(400, 'Missing name')
             return
+
+        name = str(body.get('name', '')).strip()
+        brand = str(body.get('brand') or '').strip()
+        sku_specs = body.get('sku_specs') or body.get('skuSpecs') or {}
+        if isinstance(sku_specs, str):
+            try: sku_specs = json.loads(sku_specs)
+            except Exception: sku_specs = {}
+        sku = str(body.get('sku') or body.get('SKU') or sku_specs.get('SKU') or '').strip()
+
+        # 去重检查：优先按 SKU，其次按 name + brand
+        conn = _db_conn()
+        existing = None
+        try:
+            if sku:
+                try:
+                    existing = conn.execute(
+                        "SELECT * FROM products WHERE json_extract(sku_specs, '$.SKU') = ? LIMIT 1",
+                        (sku,)
+                    ).fetchone()
+                except Exception:
+                    # 若 SQLite 不支持 json_extract，降级为 LIKE 匹配
+                    existing = conn.execute(
+                        "SELECT * FROM products WHERE sku_specs LIKE ? LIMIT 1",
+                        (f'%"SKU": "{sku}"%',)
+                    ).fetchone()
+            if not existing and name and brand:
+                existing = conn.execute(
+                    "SELECT * FROM products WHERE LOWER(name) = LOWER(?) AND LOWER(brand) = LOWER(?) LIMIT 1",
+                    (name, brand)
+                ).fetchone()
+            if existing:
+                result = _product_row_to_dict(existing)
+                result['duplicate'] = True
+                self._send_json(200, result)
+                return
+        finally:
+            conn.close()
+
         now_ts = int(time.time() * 1000)
         product = dict(body)
         product.setdefault('id', f'prod_{now_ts}_{uuid.uuid4().hex[:6]}')
@@ -10095,7 +10133,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, _talent_row_to_dict(row))
 
     def _handle_post_talent(self):
-        """POST /api/talents — 录入达人"""
+        """POST /api/talents — 录入达人（带 douyin_id/联系方式去重）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -10105,6 +10143,42 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not body or not body.get('name'):
             self._send_json_error(400, 'Missing name')
             return
+
+        name = str(body.get('name', '')).strip()
+        douyin_id = str(body.get('douyin_id') or body.get('douyinId') or '').strip()
+        phone = str(body.get('phone') or body.get('contactPhone') or '').strip()
+        wechat = str(body.get('wechat') or body.get('contactWechat') or '').strip()
+
+        # 去重检查：优先按抖音号，其次按 name + (phone 或 wechat)
+        conn = _db_conn()
+        existing = None
+        try:
+            if douyin_id:
+                existing = conn.execute(
+                    "SELECT * FROM talents WHERE LOWER(douyin_id) = LOWER(?) LIMIT 1",
+                    (douyin_id,)
+                ).fetchone()
+            if not existing and name and (phone or wechat):
+                conditions = []
+                params = [name]
+                if phone:
+                    conditions.append("LOWER(phone) = LOWER(?)")
+                    params.append(phone)
+                if wechat:
+                    conditions.append("LOWER(wechat) = LOWER(?)")
+                    params.append(wechat)
+                existing = conn.execute(
+                    f"SELECT * FROM talents WHERE LOWER(name) = LOWER(?) AND ({' OR '.join(conditions)}) LIMIT 1",
+                    params
+                ).fetchone()
+            if existing:
+                result = _talent_row_to_dict(existing)
+                result['duplicate'] = True
+                self._send_json(200, result)
+                return
+        finally:
+            conn.close()
+
         row = _dict_to_talent_row(body)
         conn = _db_conn()
         try:
