@@ -18082,7 +18082,8 @@ function buildAgentToolsContext() {
     '   - 录入新达人、编辑达人信息也可人工在UI操作\n' +
     '   - 每个达人有：名称、平台、账号、粉丝数、分类、报价、互动率、标签\n' +
     '   - 当用户想录入达人时，你必须主动从对话中提取上述字段；必填字段只有 name（达人昵称）。如果缺少必填字段或字段值不确定，请一次性列出需要补充的信息，向用户确认后再调用 add_talent。\n' +
-    '   - 创建成功后，向用户确认并展示达人昵称、抖音号、粉丝数、类目、合作状态等关键信息。\n\n' +
+    '   - 创建成功后，向用户确认并展示达人昵称、抖音号、粉丝数、类目、合作状态等关键信息。\n' +
+    '   - 如果系统返回“该达人（抖音号XXX）已存在，是否需要更新信息？”，请询问用户是否更新。若用户确认更新，请在后续调用 add_talent 时传入 id 字段（即系统返回的达人 ID）和需要修改的字段，调用 PUT 接口更新达人信息；若用户取消，则不再调用。\n\n' +
     '3. 匹配引擎 (/api/match)\n' +
     '   - 为指定商品智能匹配达人：match_product，参数 {"productId":"prod_xxx"}\n' +
     '   - 为指定达人智能匹配商品：match_influencer，参数 {"influencerId":"inf_xxx"}\n' +
@@ -18364,8 +18365,26 @@ async function executeToolCall(call) {
           follow_up_note: params.follow_up_note || params.followUpNote || '',
           created_by: getCurrentEmpId() || ''
         };
-        var r = await apiFetch('/api/talents', { method: 'POST', body: JSON.stringify(talentBody) });
+        var talentId = params.id || params.talentId || '';
+        var r;
+        if (talentId) {
+          // 用户确认更新：调用 PUT /api/talents/:id
+          r = await apiFetch('/api/talents/' + encodeURIComponent(talentId), { method: 'PUT', body: JSON.stringify(talentBody) });
+        } else {
+          r = await apiFetch('/api/talents', { method: 'POST', body: JSON.stringify(talentBody) });
+        }
         var t = await r.json();
+        if (t.duplicate && t.can_update) {
+          return '⚠️ ' + (t.message || ('该达人（抖音号' + (t.douyin_id || '-') + '）已存在，是否需要更新信息？')) + '\n' +
+            '如需更新，请告诉我需要修改的内容；如需取消，请直接回复“取消”。\n' +
+            '昵称：' + (t.name || '-') + '\n' +
+            '抖音号：' + (t.douyin_id || '-') + '\n' +
+            '粉丝数：' + (t.followers >= 10000 ? (t.followers / 10000).toFixed(1) + 'w' : (t.followers || 0)) + '\n' +
+            '主营类目：' + (t.category || t.fan_category || '未分类') + '\n' +
+            '合作等级：' + (t.level || '未设置') + '\n' +
+            '合作状态：' + (t.cooperation_status || 'available') + '\n' +
+            'ID：' + (t.id || '-');
+        }
         if (t.duplicate) {
           return '⚠️ 该达人已存在，无需重复录入\n' +
             '昵称：' + (t.name || '-') + '\n' +
@@ -18374,6 +18393,19 @@ async function executeToolCall(call) {
             '主营类目：' + (t.category || t.fan_category || '未分类') + '\n' +
             '合作等级：' + (t.level || '未设置') + '\n' +
             '合作状态：' + (t.cooperation_status || 'available') + '\n' +
+            'ID：' + (t.id || '-');
+        }
+        if (talentId) {
+          return '✅ 达人信息更新成功\n' +
+            '昵称：' + (t.name || '-') + '\n' +
+            '抖音号：' + (t.douyin_id || '-') + '\n' +
+            '粉丝数：' + (t.followers >= 10000 ? (t.followers / 10000).toFixed(1) + 'w' : (t.followers || 0)) + '\n' +
+            '主营类目：' + (t.category || t.fan_category || '未分类') + '\n' +
+            '合作等级：' + (t.level || '未设置') + '\n' +
+            '风险评级：' + (t.risk_rating || '未设置') + '\n' +
+            '合作状态：' + (t.cooperation_status || 'available') + '\n' +
+            '城市：' + (t.city || '-') + '\n' +
+            '联系方式：' + ([t.phone, t.wechat, t.email].filter(Boolean).join(' / ') || '-') + '\n' +
             'ID：' + (t.id || '-');
         }
         return '✅ 达人录入成功\n' +

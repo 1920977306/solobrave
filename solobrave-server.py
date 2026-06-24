@@ -10152,12 +10152,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 去重检查：优先按抖音号，其次按 name + (phone 或 wechat)
         conn = _db_conn()
         existing = None
+        dup_by_douyin = False
         try:
             if douyin_id:
                 existing = conn.execute(
                     "SELECT * FROM talents WHERE LOWER(douyin_id) = LOWER(?) LIMIT 1",
                     (douyin_id,)
                 ).fetchone()
+                if existing:
+                    dup_by_douyin = True
             if not existing and name and (phone or wechat):
                 conditions = []
                 params = [name]
@@ -10174,6 +10177,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if existing:
                 result = _talent_row_to_dict(existing)
                 result['duplicate'] = True
+                if dup_by_douyin:
+                    result['can_update'] = True
+                    result['message'] = f"该达人（抖音号{douyin_id}）已存在，是否需要更新信息？"
                 self._send_json(200, result)
                 return
         finally:
