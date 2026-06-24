@@ -6356,7 +6356,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     api_key=chat_emb_cfg['apiKey'],
                     provider=chat_emb_cfg['provider'],
                     model=chat_emb_cfg['model'],
-                    base_url=chat_emb_cfg['baseUrl']
+                    base_url=chat_emb_cfg['baseUrl'],
+                    sender_id=sender_id if sender_type == 'agent' else None
                 )
                 print(f'  [GroupMemory] group_{group_id} 群聊消息已保存到项目组公共记忆', flush=True)
             except Exception as e:
@@ -6375,7 +6376,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         api_key=sender_cfg['apiKey'] or chat_emb_cfg['apiKey'],
                         provider=sender_cfg['provider'] or chat_emb_cfg['provider'],
                         model=sender_cfg['model'] or chat_emb_cfg['model'],
-                        base_url=sender_cfg['baseUrl'] or chat_emb_cfg['baseUrl']
+                        base_url=sender_cfg['baseUrl'] or chat_emb_cfg['baseUrl'],
+                        sender_id=sender_id
                     )
                     print(f'  [GroupMemory] {sender_id} (AI) 群聊消息已保存到 daily 记忆', flush=True)
                 except Exception as e:
@@ -6404,7 +6406,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         api_key=member_cfg['apiKey'] or chat_emb_cfg['apiKey'],
                         provider=member_cfg['provider'] or chat_emb_cfg['provider'],
                         model=member_cfg['model'] or chat_emb_cfg['model'],
-                        base_url=member_cfg['baseUrl'] or chat_emb_cfg['baseUrl']
+                        base_url=member_cfg['baseUrl'] or chat_emb_cfg['baseUrl'],
+                        sender_id=sender_id
                     )
                     print(f'  [GroupMemory] {mid} 群聊上下文已保存到 daily 记忆', flush=True)
                 except Exception as e:
@@ -7044,6 +7047,97 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             print(f'  [Cleanup] 清理记忆目录失败 {agent_id}: {e}', flush=True)
 
+        # 清理其他 AI 员工个人记忆中来自该员工的项目组上下文
+        try:
+            for other_id in os.listdir(ms3.MEMORY_V3_DIR):
+                other_dir = os.path.join(ms3.MEMORY_V3_DIR, other_id)
+                if not os.path.isdir(other_dir) or other_id == agent_id or other_id == 'groups':
+                    continue
+                for mem_file in ('memory.json', 'archived.json'):
+                    fp = os.path.join(other_dir, mem_file)
+                    if not os.path.isfile(fp):
+                        continue
+                    try:
+                        with open(fp, 'r', encoding='utf-8') as f:
+                            mem_data = json.load(f)
+                        changed = False
+                        for pool in ('core', 'daily'):
+                            original = mem_data.get(pool, [])
+                            if not isinstance(original, list):
+                                continue
+                            filtered = []
+                            for m in original:
+                                sender = m.get('senderId')
+                                if isinstance(sender, list):
+                                    if agent_id in sender:
+                                        sender = [s for s in sender if s != agent_id]
+                                        if not sender:
+                                            m = None
+                                        else:
+                                            m['senderId'] = sender
+                                elif sender == agent_id:
+                                    m = None
+                                if m is not None:
+                                    filtered.append(m)
+                            if len(filtered) < len(original):
+                                mem_data[pool] = filtered
+                                changed = True
+                        if changed:
+                            mem_data['updatedAt'] = int(time.time() * 1000)
+                            with open(fp, 'w', encoding='utf-8') as f:
+                                json.dump(mem_data, f, ensure_ascii=False, indent=2)
+                            print(f'  [Cleanup] 从 {other_id}/{mem_file} 移除该 AI 员工的群聊上下文', flush=True)
+                    except Exception as e:
+                        print(f'  [Cleanup] 清理 {other_id} 记忆失败: {e}', flush=True)
+        except Exception as e:
+            print(f'  [Cleanup] 扫描其他 AI 记忆失败: {e}', flush=True)
+
+        # 清理项目组公共记忆中该 AI 员工的发言记录（活跃 + 归档）
+        try:
+            import glob as _glob
+            group_dir = os.path.join(ms3.MEMORY_V3_DIR, 'groups')
+            if os.path.isdir(group_dir):
+                # 活跃记忆
+                for group_mem_file in _glob.glob(os.path.join(group_dir, 'group_*.json')):
+                    try:
+                        with open(group_mem_file, 'r', encoding='utf-8') as f:
+                            gm_data = json.load(f)
+                        changed = False
+                        for pool in ('core', 'daily'):
+                            original = gm_data.get(pool, [])
+                            if not isinstance(original, list):
+                                continue
+                            filtered = [m for m in original if m.get('senderId') != agent_id]
+                            if len(filtered) < len(original):
+                                gm_data[pool] = filtered
+                                changed = True
+                        if changed:
+                            gm_data['updatedAt'] = int(time.time() * 1000)
+                            with open(group_mem_file, 'w', encoding='utf-8') as f:
+                                json.dump(gm_data, f, ensure_ascii=False, indent=2)
+                            print(f'  [Cleanup] 从 {os.path.basename(group_mem_file)} 移除该 AI 员工的项目组记忆', flush=True)
+                    except Exception as e:
+                        print(f'  [Cleanup] 清理项目组记忆失败 {group_mem_file}: {e}', flush=True)
+                # 归档记忆
+                for group_arc_file in _glob.glob(os.path.join(group_dir, 'group_*_archived.json')):
+                    try:
+                        with open(group_arc_file, 'r', encoding='utf-8') as f:
+                            ga_data = json.load(f)
+                        archived = ga_data.get('archived', [])
+                        if not isinstance(archived, list):
+                            continue
+                        filtered = [m for m in archived if m.get('senderId') != agent_id]
+                        if len(filtered) < len(archived):
+                            ga_data['archived'] = filtered
+                            ga_data['updatedAt'] = int(time.time() * 1000)
+                            with open(group_arc_file, 'w', encoding='utf-8') as f:
+                                json.dump(ga_data, f, ensure_ascii=False, indent=2)
+                            print(f'  [Cleanup] 从 {os.path.basename(group_arc_file)} 移除该 AI 员工的项目组归档记忆', flush=True)
+                    except Exception as e:
+                        print(f'  [Cleanup] 清理项目组归档记忆失败 {group_arc_file}: {e}', flush=True)
+        except Exception as e:
+            print(f'  [Cleanup] 扫描项目组记忆失败: {e}', flush=True)
+
         # 清理归档文件
         archive_file = os.path.join(ARCHIVE_DIR, f'{agent_id}.json')
         if os.path.isfile(archive_file):
@@ -7051,6 +7145,35 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 os.remove(archive_file)
             except OSError as e:
                 print(f'  [Cleanup] 删除归档文件失败 {archive_file}: {e}', flush=True)
+
+        # 清理群聊归档（L3 overflow）中该 AI 员工发送的消息
+        try:
+            import glob as _glob
+            for group_arc_file in _glob.glob(os.path.join(ARCHIVE_DIR, 'group_*.json')):
+                try:
+                    with open(group_arc_file, 'r', encoding='utf-8') as f:
+                        ga_data = json.load(f)
+                    changed = False
+                    # memories 中可能保存原始消息对象
+                    memories = ga_data.get('memories', [])
+                    if isinstance(memories, list):
+                        filtered_mem = [
+                            m for m in memories
+                            if not (m.get('senderType') == 'agent' and m.get('senderId') == agent_id)
+                        ]
+                        if len(filtered_mem) < len(memories):
+                            ga_data['memories'] = filtered_mem
+                            changed = True
+                    # summaries 是文本摘要，无法精确识别发送者，保留
+                    if changed:
+                        ga_data['updatedAt'] = int(time.time() * 1000)
+                        with open(group_arc_file, 'w', encoding='utf-8') as f:
+                            json.dump(ga_data, f, ensure_ascii=False, indent=2)
+                        print(f'  [Cleanup] 从 {os.path.basename(group_arc_file)} 归档移除该 AI 消息', flush=True)
+                except Exception as e:
+                    print(f'  [Cleanup] 清理群聊归档失败 {group_arc_file}: {e}', flush=True)
+        except Exception as e:
+            print(f'  [Cleanup] 扫描群聊归档失败: {e}', flush=True)
 
         # 清理群聊中该 AI 员工发送的消息
         try:

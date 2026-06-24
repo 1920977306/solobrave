@@ -606,12 +606,13 @@ def _filter_expired(daily_list):
 
 def add_memory(emp_id, value, key='auto', source='user_input', context=None,
                priority=None, tags=None, api_key=None, provider='openai',
-               model=None, base_url=None):
+               model=None, base_url=None, sender_id=None):
     """
     添加记忆
     key='auto' 或 'auto_extract' → daily 池
     其他值 → core 池
     同一池内若存在语义重复记忆，将自动合并；使用全局 embedding 配置做去重。
+    sender_id: 可选，标记该记忆内容的原始发送者（用于群聊等场景下删除员工时级联清理）
     """
     cfg = MEMORY_V3_CONFIG
     if len(value) > cfg['store_value_max']:
@@ -634,6 +635,7 @@ def add_memory(emp_id, value, key='auto', source='user_input', context=None,
         'key': key,
         'value': value,
         'source': source,
+        'senderId': sender_id,
         'createdAt': now,
     }
 
@@ -656,6 +658,18 @@ def add_memory(emp_id, value, key='auto', source='user_input', context=None,
     )
     if duplicate:
         new_value = memory.get('value', '')
+        # 合并时保留 senderId；若新旧 senderId 不同则收集为列表，便于后续按员工清理
+        dup_sender = duplicate.get('senderId')
+        new_sender = memory.get('senderId')
+        if new_sender and dup_sender != new_sender:
+            if isinstance(dup_sender, list):
+                if new_sender not in dup_sender:
+                    dup_sender.append(new_sender)
+                    duplicate['senderId'] = dup_sender
+            elif dup_sender:
+                duplicate['senderId'] = [dup_sender, new_sender]
+            else:
+                duplicate['senderId'] = new_sender
         _merge_duplicate_memory(duplicate, memory, merged_at=now)
         data[pool] = target
         save_memory(emp_id, data)
@@ -1709,7 +1723,8 @@ def save_group_archive(group_id, data):
 
 
 def add_group_memory(group_id, value, key='daily', source='group_chat', context=None,
-                     api_key=None, provider='openai', model=None, base_url=None):
+                     api_key=None, provider='openai', model=None, base_url=None,
+                     sender_id=None):
     """添加项目组公共记忆；key='auto'/'auto_extract'/'daily' 入 daily，其他入 core；使用全局 embedding 配置做去重"""
     cfg = MEMORY_V3_CONFIG
     if len(value) > cfg['store_value_max']:
@@ -1730,6 +1745,7 @@ def add_group_memory(group_id, value, key='daily', source='group_chat', context=
         'key': key,
         'value': value,
         'source': source,
+        'senderId': sender_id,
         'createdAt': now,
     }
     if pool == 'core':
