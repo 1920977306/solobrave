@@ -23,6 +23,7 @@ import time
 import uuid
 import threading
 import sqlite3
+import hashlib
 from collections import Counter
 
 import knowledge_service as ks
@@ -814,12 +815,15 @@ def update_memory(emp_id, mem_id, updates, api_key=None, provider='openai',
 def delete_memory(emp_id, mem_id):
     """彻底删除记忆：从活跃池、归档池、SQLite memory 表中物理删除，并清理二级归纳/三级知识库中的引用。"""
     data = load_memory(emp_id)
+    deleted_mem = None
     removed = False
 
     for pool in ('core', 'daily'):
-        original = len(data.get(pool, []))
-        data[pool] = [m for m in data.get(pool, []) if m.get('id') != mem_id]
-        if len(data[pool]) < original:
+        original = data.get(pool, [])
+        kept = [m for m in original if m.get('id') != mem_id]
+        if len(kept) < len(original):
+            deleted_mem = next((m for m in original if m.get('id') == mem_id), None)
+            data[pool] = kept
             removed = True
 
     if removed:
@@ -827,22 +831,50 @@ def delete_memory(emp_id, mem_id):
     else:
         # 尝试从归档中删除
         archive_data = load_archive(emp_id)
-        original = len(archive_data.get('archived', []))
-        archive_data['archived'] = [m for m in archive_data.get('archived', []) if m.get('id') != mem_id]
-        if len(archive_data.get('archived', [])) < original:
+        original = archive_data.get('archived', [])
+        kept = [m for m in original if m.get('id') != mem_id]
+        if len(kept) < len(original):
+            deleted_mem = next((m for m in original if m.get('id') == mem_id), None)
+            archive_data['archived'] = kept
             save_archive(emp_id, archive_data)
             removed = True
 
     if not removed:
         return False
 
-    # 物理删除数据库记录并清理沉淀数据
+    # 核心删除：memory 表 + embedding 缓存（必须成功）
     try:
         conn = _db_conn()
         # 1. 彻底删除 memory 表记录（不再只是标记 archived）
         conn.execute("DELETE FROM memory WHERE id=? AND emp_id=?", (mem_id, emp_id))
 
-        # 2. 清理 memory_summary 中对该记忆的引用
+        # 2. 清理该记忆 value 对应的 embedding 缓存，避免向量库残留
+        if deleted_mem:
+            value = deleted_mem.get('value', '')
+            if value:
+                content_hash = hashlib.md5(str(value).encode('utf-8')).hexdigest()
+                conn.execute("DELETE FROM embedding_cache WHERE content_hash=?", (content_hash,))
+
+        conn.commit()
+        conn.close()
+        print(f'  [MemoryV3] {emp_id} 彻底删除记忆: {mem_id}', flush=True)
+    except Exception as e:
+        print(f'  [DeleteSync] core delete failed: {e}', flush=True)
+        return False
+
+    # 沉淀数据清理：各步骤独立容错，避免单表缺失导致整体失败
+    _cleanup_memory_summary_on_delete(emp_id, mem_id)
+    _cleanup_knowledge_base_on_delete(emp_id, mem_id)
+    _cleanup_knowledge_base_new_on_delete(emp_id, mem_id)
+    _cleanup_memory_topics_on_delete(emp_id, mem_id)
+
+    return True
+
+
+def _cleanup_memory_summary_on_delete(emp_id, mem_id):
+    """删除记忆后清理 memory_summary 引用"""
+    try:
+        conn = _db_conn()
         rows = conn.execute(
             "SELECT id, related_mem_ids, source_mem_ids FROM memory_summary WHERE emp_id=? AND (related_mem_ids LIKE ? OR source_mem_ids LIKE ?)",
             (emp_id, f'%"{mem_id}"%', f'%"{mem_id}"%')
@@ -854,15 +886,22 @@ def delete_memory(emp_id, mem_id):
             related = [x for x in related if x != mem_id]
             sources = [x for x in sources if x != mem_id]
             if not related and not sources:
-                # 没有关联记忆则彻底删除归纳记录，避免空壳污染 AI 分析
                 conn.execute("DELETE FROM memory_summary WHERE id=?", (sid,))
             else:
                 conn.execute(
                     "UPDATE memory_summary SET related_mem_ids=?, source_mem_ids=?, updated_at=? WHERE id=?",
                     (_dump_json_col(related), _dump_json_col(sources), int(time.time() * 1000), sid)
                 )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'  [DeleteSync] memory_summary cleanup failed: {e}', flush=True)
 
-        # 3. 清理 knowledge_base 中对该记忆的引用
+
+def _cleanup_knowledge_base_on_delete(emp_id, mem_id):
+    """删除记忆后清理 knowledge_base 引用"""
+    try:
+        conn = _db_conn()
         kb_rows = conn.execute(
             "SELECT id, related_mem_ids, evidence_count FROM knowledge_base WHERE emp_id=? AND related_mem_ids LIKE ?",
             (emp_id, f'%"{mem_id}"%')
@@ -873,7 +912,6 @@ def delete_memory(emp_id, mem_id):
             related = [x for x in related if x != mem_id]
             new_count = max(0, (row['evidence_count'] or 0) - 1)
             if not related or new_count <= 0:
-                # 证据数为 0 时彻底删除知识记录
                 conn.execute("DELETE FROM knowledge_base WHERE id=?", (kid,))
             else:
                 new_status = 'pending' if new_count < MEMORY_INDUCTION_THRESHOLDS.get('knowledge_repeat_min', 2) else 'active'
@@ -881,8 +919,16 @@ def delete_memory(emp_id, mem_id):
                     "UPDATE knowledge_base SET related_mem_ids=?, evidence_count=?, status=?, updated_at=? WHERE id=?",
                     (_dump_json_col(related), new_count, new_status, int(time.time() * 1000), kid)
                 )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'  [DeleteSync] knowledge_base cleanup failed: {e}', flush=True)
 
-        # 4. 清理 knowledge_base_new 中对该记忆的引用
+
+def _cleanup_knowledge_base_new_on_delete(emp_id, mem_id):
+    """删除记忆后清理 knowledge_base_new 引用"""
+    try:
+        conn = _db_conn()
         kb_new_rows = conn.execute(
             "SELECT id, evidence_mem_ids FROM knowledge_base_new WHERE (emp_id=? OR emp_id IS NULL) AND evidence_mem_ids LIKE ?",
             (emp_id, f'%"{mem_id}"%')
@@ -892,22 +938,28 @@ def delete_memory(emp_id, mem_id):
             evidence = _parse_json_col(row['evidence_mem_ids'], [])
             evidence = [x for x in evidence if x != mem_id]
             if not evidence:
-                # 没有依据记忆则彻底删除新知识库记录
                 conn.execute("DELETE FROM knowledge_base_new WHERE id=?", (kid,))
             else:
                 conn.execute(
                     "UPDATE knowledge_base_new SET evidence_mem_ids=?, updated_at=? WHERE id=?",
                     (_dump_json_col(evidence), int(time.time() * 1000), kid)
                 )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'  [DeleteSync] knowledge_base_new cleanup failed: {e}', flush=True)
 
-        # 5. 清理 memory_topics 中对该记忆的引用
+
+def _cleanup_memory_topics_on_delete(emp_id, mem_id):
+    """删除记忆后清理 memory_topics 引用"""
+    try:
+        conn = _db_conn()
         topic_rows = conn.execute(
             "SELECT id, emp_ids, mem_count FROM memory_topics WHERE status='active' AND emp_ids LIKE ?",
             (f'%"{emp_id}"%',)
         ).fetchall()
         for row in topic_rows:
             tid = row['id']
-            # 检查该主题下是否还有该员工的其他活跃记忆
             remaining = conn.execute(
                 "SELECT COUNT(*) AS cnt FROM memory WHERE emp_id=? AND status='active' AND topic_ids LIKE ?",
                 (emp_id, f'%"{tid}"%')
@@ -917,21 +969,16 @@ def delete_memory(emp_id, mem_id):
                 emp_ids = [x for x in emp_ids if x != emp_id]
             new_count = max(0, remaining)
             if not emp_ids or new_count <= 0:
-                # 主题下已无任何员工/记忆，彻底删除主题，避免空壳污染
                 conn.execute("DELETE FROM memory_topics WHERE id=?", (tid,))
             else:
                 conn.execute(
                     "UPDATE memory_topics SET emp_ids=?, mem_count=?, updated_at=? WHERE id=?",
                     (_dump_json_col(emp_ids), new_count, int(time.time() * 1000), tid)
                 )
-
         conn.commit()
         conn.close()
-        print(f'  [MemoryV3] {emp_id} 彻底删除记忆并清理沉淀: {mem_id}', flush=True)
     except Exception as e:
-        print(f'  [DeleteSync] failed: {e}', flush=True)
-
-    return True
+        print(f'  [DeleteSync] memory_topics cleanup failed: {e}', flush=True)
 
 
 def promote_memory(emp_id, mem_id):
