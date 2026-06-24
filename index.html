@@ -18356,7 +18356,8 @@ async function executeToolCall(call) {
           cooperation_status: params.cooperation_status || params.cooperationStatus || 'available',
           contact_name: params.contact_name || params.contactName || '',
           follow_up_by: params.follow_up_by || params.followUpBy || '',
-          follow_up_note: params.follow_up_note || params.followUpNote || ''
+          follow_up_note: params.follow_up_note || params.followUpNote || '',
+          created_by: getCurrentEmpId() || ''
         };
         var r = await apiFetch('/api/talents', { method: 'POST', body: JSON.stringify(talentBody) });
         var t = await r.json();

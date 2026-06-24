@@ -2052,6 +2052,7 @@ def init_db():
                 videos TEXT DEFAULT '[]',
                 tags TEXT DEFAULT '[]',
                 selling_points TEXT DEFAULT '',
+                created_by TEXT DEFAULT '',
                 created_at INTEGER,
                 updated_at INTEGER
             )
@@ -2062,6 +2063,7 @@ def init_db():
             ('selling_points', "TEXT DEFAULT ''"),
             ('brand_id', "TEXT DEFAULT ''"),
             ('talent_count', 'INTEGER DEFAULT 0'),
+            ('created_by', "TEXT DEFAULT ''"),
         ]:
             _add_column_if_not_exists(conn, 'products', _prod_col, _prod_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)')
@@ -2162,6 +2164,7 @@ def init_db():
                 risk_rating TEXT DEFAULT '',
                 group_id TEXT DEFAULT '',
                 status TEXT DEFAULT 'active',
+                created_by TEXT DEFAULT '',
                 created_at INTEGER,
                 updated_at INTEGER
             )
@@ -2188,10 +2191,12 @@ def init_db():
             ('ai_tags', "TEXT DEFAULT '[]'"), ('ai_rating', "TEXT DEFAULT ''"), ('ai_summary', "TEXT DEFAULT ''"),
             ('ai_analysis', "TEXT DEFAULT ''"), ('ai_reason', "TEXT DEFAULT ''"), ('risk_rating', "TEXT DEFAULT ''"),
             ('group_id', "TEXT DEFAULT ''"), ('status', "TEXT DEFAULT 'active'"),
+            ('created_by', "TEXT DEFAULT ''"),
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_cooperation ON talents(cooperation_status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_created_by ON talents(created_by)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_category ON talents(category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_fan_category ON talents(fan_category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_group ON talents(group_id)')
@@ -2318,7 +2323,7 @@ _PRODUCT_COLUMNS = [
     'commission_rates', 'commission_amount', 'conversion_rate', 'avg_order_value',
     'influencer_count', 'talent_count', 'video_count', 'live_count', 'channel_distribution',
     'influencers', 'audience', 'ai_analysis', 'videos', 'tags', 'selling_points',
-    'created_at', 'updated_at'
+    'created_by', 'created_at', 'updated_at'
 ]
 
 
@@ -2460,6 +2465,7 @@ def _dict_to_product_row(p):
         'videos': _dump(_get('videos', 'hot_videos', 'hotVideos', default=[])),
         'tags': _dump(_get('tags', default=[])),
         'selling_points': _get('selling_points', 'sellingPoints', default='') or '',
+        'created_by': _get('created_by', 'createdBy', default='') or '',
         'created_at': _get('created_at', 'createdAt'),
         'updated_at': _get('updated_at', 'updatedAt'),
     }
@@ -2483,7 +2489,7 @@ _TALENT_COLUMNS = [
     'live_ratio', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_gpm',
     'fan_gender', 'fan_age', 'fan_region', 'fan_crowd', 'fan_price_range',
     'fan_category', 'category', 'fans_profile', 'ai_tags', 'ai_rating', 'ai_summary',
-    'ai_analysis', 'ai_reason', 'risk_rating', 'group_id', 'status', 'created_at', 'updated_at'
+    'ai_analysis', 'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by', 'created_at', 'updated_at'
 ]
 
 _FOLLOW_UP_COLUMNS = [
@@ -2708,6 +2714,7 @@ def _dict_to_talent_row(t):
         'risk_rating': t.get('risk_rating') or t.get('riskRating') or '',
         'group_id': t.get('group_id') or t.get('groupId') or '',
         'status': t.get('status') or 'active',
+        'created_by': t.get('created_by') or t.get('createdBy') or '',
         'created_at': t.get('created_at') or t.get('createdAt') or now,
         'updated_at': now,
     }
@@ -7311,7 +7318,44 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 6) 最后删除记忆主表（级联后的根数据）
             conn.execute("DELETE FROM memory WHERE emp_id=?", (agent_id,))
 
+            # 7) 硬删除该 AI 员工通过工具创建的业务实体
+            # 7.1) 达人及其关联数据
+            talent_ids = [r['id'] for r in conn.execute(
+                "SELECT id FROM talents WHERE created_by=?", (agent_id,)
+            ).fetchall()]
+            if talent_ids:
+                placeholders = ','.join('?' * len(talent_ids))
+                conn.execute(f"DELETE FROM talent_follow_ups WHERE talent_id IN ({placeholders})", tuple(talent_ids))
+                conn.execute(f"DELETE FROM product_talent_match WHERE talent_id IN ({placeholders})", tuple(talent_ids))
+                conn.execute(f"DELETE FROM talents WHERE id IN ({placeholders})", tuple(talent_ids))
+                print(f'  [Cleanup] 已硬删除 {agent_id} 创建的 {len(talent_ids)} 个达人及关联跟进/匹配记录', flush=True)
+
+            # 7.2) 商品及其关联匹配数据
+            product_ids = [r['id'] for r in conn.execute(
+                "SELECT id, brand_id FROM products WHERE created_by=?", (agent_id,)
+            ).fetchall()]
+            affected_brand_ids = set()
+            if product_ids:
+                for row in conn.execute(
+                    "SELECT DISTINCT brand_id FROM products WHERE created_by=? AND brand_id != ''",
+                    (agent_id,)
+                ).fetchall():
+                    affected_brand_ids.add(row['brand_id'])
+                placeholders = ','.join('?' * len(product_ids))
+                conn.execute(f"DELETE FROM product_talent_match WHERE product_id IN ({placeholders})", tuple(product_ids))
+                conn.execute(f"DELETE FROM products WHERE id IN ({placeholders})", tuple(product_ids))
+                print(f'  [Cleanup] 已硬删除 {agent_id} 创建的 {len(product_ids)} 个商品及关联匹配记录', flush=True)
+
             conn.commit()
+
+            # 7.3) 更新受影响品牌的统计
+            try:
+                for brand_id in affected_brand_ids:
+                    _update_brand_product_stats(conn, brand_id)
+                conn.commit()
+            except Exception as e:
+                print(f'  [Cleanup] 更新品牌统计失败: {e}', flush=True)
+
             conn.close()
             print(f'  [Cleanup] 已清理 {agent_id} 的数据库级联数据', flush=True)
         except Exception as e:
