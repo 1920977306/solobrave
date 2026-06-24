@@ -18412,6 +18412,8 @@ async function executeToolCall(call) {
         };
         var pr = await apiFetch('/api/products', { method: 'POST', body: JSON.stringify(productBody) });
         var p = await pr.json();
+        // 刷新左侧商品库列表
+        if (typeof loadProducts === 'function') loadProducts();
         var commissionRate = 0;
         if (typeof p.commission_rates === 'object' && p.commission_rates) {
           var rates = Object.values(p.commission_rates).filter(function(v) { return typeof v === 'number'; });
