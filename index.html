@@ -18074,8 +18074,11 @@ function buildAgentToolsContext() {
     '   - 查询达人列表：list_influencers\n' +
     '   - 按关键词搜索达人：search_influencers，参数 {"query":"关键词"}\n' +
     '   - 查看单个达人详情：get_influencer_detail，参数 {"influencerId":"inf_xxx"}\n' +
-    '   - 录入新达人、编辑达人信息（需人工在UI操作）\n' +
-    '   - 每个达人有：名称、平台、账号、粉丝数、分类、报价、互动率、标签\n\n' +
+    '   - 录入新达人：add_talent（对接 POST /api/talents 创建接口），参数 {"name":"昵称","douyin_id":"抖音号","followers":10000,"category":"鞋靴/凉鞋","level":"S","risk_rating":"low","city":"杭州","bio":"简介","phone":"13800138000","wechat":"wxid","email":"a@b.com","cooperation_status":"available","contact_name":"联系人","follow_up_by":"跟进人","follow_up_note":"备注"}\n' +
+    '   - 录入新达人、编辑达人信息也可人工在UI操作\n' +
+    '   - 每个达人有：名称、平台、账号、粉丝数、分类、报价、互动率、标签\n' +
+    '   - 当用户想录入达人时，你必须主动从对话中提取上述字段；必填字段只有 name（达人昵称）。如果缺少必填字段或字段值不确定，请一次性列出需要补充的信息，向用户确认后再调用 add_talent。\n' +
+    '   - 创建成功后，向用户确认并展示达人昵称、抖音号、粉丝数、类目、合作状态等关键信息。\n\n' +
     '3. 匹配引擎 (/api/match)\n' +
     '   - 为指定商品智能匹配达人：match_product，参数 {"productId":"prod_xxx"}\n' +
     '   - 为指定达人智能匹配商品：match_influencer，参数 {"influencerId":"inf_xxx"}\n' +
@@ -18090,6 +18093,7 @@ function buildAgentToolsContext() {
     '[TOOL_CALL]{"action":"search_products","params":{"query":"口红"}}[/TOOL_CALL]\n' +
     '[TOOL_CALL]{"action":"get_product_detail","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"match_product","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
+    '或 [TOOL_CALL]{"action":"add_talent","params":{"name":"李佳琦","douyin_id":"lijiaqi","followers":45000000,"category":"美妆护肤","level":"S","risk_rating":"low","cooperation_status":"available"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"send_group_message","params":{"groupId":"grp_xxx","message":"请帮忙看下这个需求","mentions":["小明"]}}[/TOOL_CALL]\n' +
     '主大脑会自动执行并把结果展示给用户。\n' +
     '【注意】禁止编造不存在的商品或达人信息，所有数据以主大脑查询结果为准。';
@@ -18238,6 +18242,41 @@ async function executeToolCall(call) {
         var mentionList = Array.isArray(mentions) ? mentions : [];
         await sendGroupMessage(groupId, message, mentionList, []);
         return '✅ 已向项目组「' + group.name + '」发送消息: ' + message + (mentionList.length > 0 ? '\n@了: ' + mentionList.join('、') : '');
+      case 'add_talent':
+        var params = call.params || {};
+        var talentName = params.name && String(params.name).trim();
+        if (!talentName) return '【工具执行失败】缺少 name（达人昵称），请向用户确认后再调用';
+        var talentBody = {
+          name: talentName,
+          douyin_id: params.douyin_id || params.douyinId || '',
+          real_name: params.real_name || params.realName || '',
+          followers: parseInt(params.followers, 10) || 0,
+          category: params.category || params.fan_category || params.fanCategory || '',
+          level: params.level || '',
+          risk_rating: params.risk_rating || params.riskRating || '',
+          city: params.city || '',
+          bio: params.bio || '',
+          phone: params.phone || params.contact_phone || params.contactPhone || '',
+          wechat: params.wechat || params.contact_wechat || params.contactWechat || '',
+          email: params.email || params.contact_email || params.contactEmail || '',
+          cooperation_status: params.cooperation_status || params.cooperationStatus || 'available',
+          contact_name: params.contact_name || params.contactName || '',
+          follow_up_by: params.follow_up_by || params.followUpBy || '',
+          follow_up_note: params.follow_up_note || params.followUpNote || ''
+        };
+        var r = await apiFetch('/api/talents', { method: 'POST', body: JSON.stringify(talentBody) });
+        var t = await r.json();
+        return '✅ 达人录入成功\n' +
+          '昵称：' + (t.name || '-') + '\n' +
+          '抖音号：' + (t.douyin_id || '-') + '\n' +
+          '粉丝数：' + (t.followers >= 10000 ? (t.followers / 10000).toFixed(1) + 'w' : (t.followers || 0)) + '\n' +
+          '主营类目：' + (t.category || t.fan_category || '未分类') + '\n' +
+          '合作等级：' + (t.level || '未设置') + '\n' +
+          '风险评级：' + (t.risk_rating || '未设置') + '\n' +
+          '合作状态：' + (t.cooperation_status || 'available') + '\n' +
+          '城市：' + (t.city || '-') + '\n' +
+          '联系方式：' + ([t.phone, t.wechat, t.email].filter(Boolean).join(' / ') || '-') + '\n' +
+          'ID：' + (t.id || '-');
       default:
         return '【工具执行失败】未知操作: ' + call.action;
     }
