@@ -882,6 +882,49 @@ def delete_memory(emp_id, mem_id):
                     (_dump_json_col(related), new_count, new_status, int(time.time() * 1000), kid)
                 )
 
+        # 4. 清理 knowledge_base_new 中对该记忆的引用
+        kb_new_rows = conn.execute(
+            "SELECT id, evidence_mem_ids FROM knowledge_base_new WHERE (emp_id=? OR emp_id IS NULL) AND evidence_mem_ids LIKE ?",
+            (emp_id, f'%"{mem_id}"%')
+        ).fetchall()
+        for row in kb_new_rows:
+            kid = row['id']
+            evidence = _parse_json_col(row['evidence_mem_ids'], [])
+            evidence = [x for x in evidence if x != mem_id]
+            if not evidence:
+                # 没有依据记忆则彻底删除新知识库记录
+                conn.execute("DELETE FROM knowledge_base_new WHERE id=?", (kid,))
+            else:
+                conn.execute(
+                    "UPDATE knowledge_base_new SET evidence_mem_ids=?, updated_at=? WHERE id=?",
+                    (_dump_json_col(evidence), int(time.time() * 1000), kid)
+                )
+
+        # 5. 清理 memory_topics 中对该记忆的引用
+        topic_rows = conn.execute(
+            "SELECT id, emp_ids, mem_count FROM memory_topics WHERE status='active' AND emp_ids LIKE ?",
+            (f'%"{emp_id}"%',)
+        ).fetchall()
+        for row in topic_rows:
+            tid = row['id']
+            # 检查该主题下是否还有该员工的其他活跃记忆
+            remaining = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM memory WHERE emp_id=? AND status='active' AND topic_ids LIKE ?",
+                (emp_id, f'%"{tid}"%')
+            ).fetchone()['cnt']
+            emp_ids = _parse_json_col(row['emp_ids'], [])
+            if remaining == 0:
+                emp_ids = [x for x in emp_ids if x != emp_id]
+            new_count = max(0, remaining)
+            if not emp_ids or new_count <= 0:
+                # 主题下已无任何员工/记忆，彻底删除主题，避免空壳污染
+                conn.execute("DELETE FROM memory_topics WHERE id=?", (tid,))
+            else:
+                conn.execute(
+                    "UPDATE memory_topics SET emp_ids=?, mem_count=?, updated_at=? WHERE id=?",
+                    (_dump_json_col(emp_ids), new_count, int(time.time() * 1000), tid)
+                )
+
         conn.commit()
         conn.close()
         print(f'  [MemoryV3] {emp_id} 彻底删除记忆并清理沉淀: {mem_id}', flush=True)
