@@ -561,7 +561,7 @@ class _BrainScheduler:
         try:
             conn = _db_conn()
             row = conn.execute(
-                "SELECT id, cleaned_at, topic_ids FROM memory WHERE id = ?",
+                "SELECT id, cleaned_at, topic_ids FROM memory WHERE id = ? AND status='active'",
                 (mem_id,)
             ).fetchone()
             conn.close()
@@ -1932,6 +1932,7 @@ def _init_brain_tables(conn):
     conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_emp_filler ON memory(emp_id, is_filler)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_source ON memory(source_mem_id)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_topic ON memory(topic_ids)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_memory_status ON memory(status)')
 
     # 主题表
     conn.execute('''
@@ -2887,10 +2888,10 @@ def _contains_decision_keyword(text):
 
 
 def _load_memory_summaries(emp_id, summary_type=None, date=None, project_name=None, keyword=None, limit=50):
-    """查询 memory_summary 列表"""
+    """查询 memory_summary 列表（默认只返回 active，避免已删除/归档数据污染 AI 分析）"""
     conn = _db_conn()
     try:
-        conds = ['emp_id = ?']
+        conds = ['emp_id = ?', "status = 'active'"]
         params = [emp_id]
         if summary_type:
             conds.append('summary_type = ?')
@@ -2958,10 +2959,10 @@ def _save_memory_summary(summary):
 
 
 def _load_knowledge_base(emp_id, keyword=None, status=None, limit=200):
-    """查询 knowledge_base 列表"""
+    """查询 knowledge_base 列表（默认只返回 active，避免已删除/归档数据污染 AI 分析）"""
     conn = _db_conn()
     try:
-        conds = ['(emp_id = ? OR emp_id IS NULL)']
+        conds = ['(emp_id = ? OR emp_id IS NULL)', "status = 'active'"]
         params = [emp_id]
         if status:
             conds.append('status = ?')
@@ -3006,7 +3007,7 @@ def _upsert_knowledge_base(kb):
             return kb_id
         # 按内容相似合并（简单子串匹配）
         candidates = conn.execute(
-            'SELECT id, title, content, evidence_count, related_mem_ids, status FROM knowledge_base WHERE emp_id=? OR emp_id IS NULL',
+            "SELECT id, title, content, evidence_count, related_mem_ids, status FROM knowledge_base WHERE (emp_id=? OR emp_id IS NULL) AND status='active'",
             (kb.get('empId') or kb.get('emp_id'),)
         ).fetchall()
         content = kb.get('content', '')
@@ -3093,12 +3094,12 @@ def _create_pending_summary(emp_id, summary_type, title, date=None, project_name
         existing = None
         if summary_type == 'daily' and date:
             existing = conn.execute(
-                'SELECT id FROM memory_summary WHERE emp_id=? AND summary_type=? AND date=?',
+                "SELECT id FROM memory_summary WHERE emp_id=? AND summary_type=? AND date=? AND status='active'",
                 (emp_id, summary_type, date)
             ).fetchone()
         elif summary_type == 'project' and project_name:
             existing = conn.execute(
-                'SELECT id FROM memory_summary WHERE emp_id=? AND summary_type=? AND project_name=?',
+                "SELECT id FROM memory_summary WHERE emp_id=? AND summary_type=? AND project_name=? AND status='active'",
                 (emp_id, summary_type, project_name)
             ).fetchone()
         if existing:

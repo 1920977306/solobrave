@@ -74,6 +74,26 @@ def _ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
 
+def _parse_json_col(value, default=None):
+    """解析数据库存储的 JSON 列"""
+    if default is None:
+        default = []
+    if not value:
+        return default
+    try:
+        return json.loads(value)
+    except Exception:
+        return default
+
+
+def _dump_json_col(value):
+    """将值序列化为数据库存储的 JSON 列"""
+    try:
+        return json.dumps(value if value is not None else [], ensure_ascii=False)
+    except Exception:
+        return json.dumps([])
+
+
 def _lock_file(f):
     """跨平台文件锁：Windows 用 msvcrt.locking，Unix 用 fcntl.flock"""
     if os.name == 'nt':  # Windows
@@ -792,7 +812,7 @@ def update_memory(emp_id, mem_id, updates, api_key=None, provider='openai',
 
 
 def delete_memory(emp_id, mem_id):
-    """删除记忆（从活跃池和归档池中查找并删除）"""
+    """彻底删除记忆：从活跃池、归档池、SQLite memory 表中物理删除，并清理二级归纳/三级知识库中的引用。"""
     data = load_memory(emp_id)
     removed = False
 
@@ -804,24 +824,71 @@ def delete_memory(emp_id, mem_id):
 
     if removed:
         save_memory(emp_id, data)
-        # FIXME: 大脑知识中枢新增：标记删除/归档状态
-        try:
-            conn = _db_conn()
-            conn.execute("UPDATE memory SET status='archived' WHERE id=?", (mem_id,))
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f'  [DeleteSync] failed: {e}', flush=True)
     else:
         # 尝试从归档中删除
         archive_data = load_archive(emp_id)
         original = len(archive_data.get('archived', []))
         archive_data['archived'] = [m for m in archive_data.get('archived', []) if m.get('id') != mem_id]
-        if len(archive_data['archived']) < original:
+        if len(archive_data.get('archived', [])) < original:
             save_archive(emp_id, archive_data)
             removed = True
 
-    return removed
+    if not removed:
+        return False
+
+    # 物理删除数据库记录并清理沉淀数据
+    try:
+        conn = _db_conn()
+        # 1. 彻底删除 memory 表记录（不再只是标记 archived）
+        conn.execute("DELETE FROM memory WHERE id=? AND emp_id=?", (mem_id, emp_id))
+
+        # 2. 清理 memory_summary 中对该记忆的引用
+        rows = conn.execute(
+            "SELECT id, related_mem_ids, source_mem_ids FROM memory_summary WHERE emp_id=? AND (related_mem_ids LIKE ? OR source_mem_ids LIKE ?)",
+            (emp_id, f'%"{mem_id}"%', f'%"{mem_id}"%')
+        ).fetchall()
+        for row in rows:
+            sid = row['id']
+            related = _parse_json_col(row['related_mem_ids'], [])
+            sources = _parse_json_col(row['source_mem_ids'], [])
+            related = [x for x in related if x != mem_id]
+            sources = [x for x in sources if x != mem_id]
+            if not related and not sources:
+                # 没有关联记忆则彻底删除归纳记录，避免空壳污染 AI 分析
+                conn.execute("DELETE FROM memory_summary WHERE id=?", (sid,))
+            else:
+                conn.execute(
+                    "UPDATE memory_summary SET related_mem_ids=?, source_mem_ids=?, updated_at=? WHERE id=?",
+                    (_dump_json_col(related), _dump_json_col(sources), int(time.time() * 1000), sid)
+                )
+
+        # 3. 清理 knowledge_base 中对该记忆的引用
+        kb_rows = conn.execute(
+            "SELECT id, related_mem_ids, evidence_count FROM knowledge_base WHERE emp_id=? AND related_mem_ids LIKE ?",
+            (emp_id, f'%"{mem_id}"%')
+        ).fetchall()
+        for row in kb_rows:
+            kid = row['id']
+            related = _parse_json_col(row['related_mem_ids'], [])
+            related = [x for x in related if x != mem_id]
+            new_count = max(0, (row['evidence_count'] or 0) - 1)
+            if not related or new_count <= 0:
+                # 证据数为 0 时彻底删除知识记录
+                conn.execute("DELETE FROM knowledge_base WHERE id=?", (kid,))
+            else:
+                new_status = 'pending' if new_count < MEMORY_INDUCTION_THRESHOLDS.get('knowledge_repeat_min', 2) else 'active'
+                conn.execute(
+                    "UPDATE knowledge_base SET related_mem_ids=?, evidence_count=?, status=?, updated_at=? WHERE id=?",
+                    (_dump_json_col(related), new_count, new_status, int(time.time() * 1000), kid)
+                )
+
+        conn.commit()
+        conn.close()
+        print(f'  [MemoryV3] {emp_id} 彻底删除记忆并清理沉淀: {mem_id}', flush=True)
+    except Exception as e:
+        print(f'  [DeleteSync] failed: {e}', flush=True)
+
+    return True
 
 
 def promote_memory(emp_id, mem_id):
