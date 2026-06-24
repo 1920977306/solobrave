@@ -9590,7 +9590,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'influencer_id': inf_id, 'matches': results[:limit], 'total': len(results), 'source': 'live'})
 
     def _handle_post_product(self):
-        """POST /api/products — 录入商品（带 SKU / name+brand 去重）"""
+        """POST /api/products — 录入商品（仅当 name+brand 完全一致时算重复）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -9603,46 +9603,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         name = str(body.get('name', '')).strip()
         brand = str(body.get('brand') or '').strip()
-        sku_specs = body.get('sku_specs') or body.get('skuSpecs') or {}
-        if isinstance(sku_specs, str):
-            try: sku_specs = json.loads(sku_specs)
-            except Exception: sku_specs = {}
-        sku = str(body.get('sku') or body.get('SKU') or sku_specs.get('SKU') or '').strip()
 
-        # 去重检查：优先按 SKU，其次按 name + brand
+        # 去重检查：仅当名称和品牌均非空且完全一致时才算重复
         conn = _db_conn()
         existing = None
-        dup_by = None
         try:
-            if sku:
-                try:
-                    existing = conn.execute(
-                        "SELECT * FROM products WHERE json_extract(sku_specs, '$.SKU') = ? LIMIT 1",
-                        (sku,)
-                    ).fetchone()
-                except Exception:
-                    # 若 SQLite 不支持 json_extract，降级为 LIKE 匹配
-                    existing = conn.execute(
-                        "SELECT * FROM products WHERE sku_specs LIKE ? LIMIT 1",
-                        (f'%"SKU": "{sku}"%',)
-                    ).fetchone()
-                if existing:
-                    dup_by = 'sku'
-            if not existing and name and brand:
+            if name and brand:
                 existing = conn.execute(
                     "SELECT * FROM products WHERE LOWER(name) = LOWER(?) AND LOWER(brand) = LOWER(?) LIMIT 1",
                     (name, brand)
                 ).fetchone()
-                if existing:
-                    dup_by = 'name_brand'
             if existing:
                 result = _product_row_to_dict(existing)
                 result['duplicate'] = True
                 result['can_update'] = True
-                if dup_by == 'sku':
-                    result['message'] = f"该商品（SKU {sku}）已存在，是否需要更新信息？"
-                elif dup_by == 'name_brand':
-                    result['message'] = f"该商品（名称：{name}，品牌：{brand}）已存在，是否需要更新信息？"
+                result['message'] = f"该商品（名称：{name}，品牌：{brand}）已存在，是否需要更新信息？"
                 self._send_json(200, result)
                 return
         finally:
@@ -10143,7 +10118,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, _talent_row_to_dict(row))
 
     def _handle_post_talent(self):
-        """POST /api/talents — 录入达人（带 douyin_id/联系方式去重）"""
+        """POST /api/talents — 录入达人（仅当 douyin_id 完全一致时算重复）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -10156,40 +10131,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         name = str(body.get('name', '')).strip()
         douyin_id = str(body.get('douyin_id') or body.get('douyinId') or '').strip()
-        phone = str(body.get('phone') or body.get('contactPhone') or '').strip()
-        wechat = str(body.get('wechat') or body.get('contactWechat') or '').strip()
 
-        # 去重检查：优先按抖音号，其次按 name + (phone 或 wechat)
+        # 去重检查：仅当抖音号非空且完全一致时才算重复
         conn = _db_conn()
         existing = None
-        dup_by_douyin = False
         try:
             if douyin_id:
                 existing = conn.execute(
                     "SELECT * FROM talents WHERE LOWER(douyin_id) = LOWER(?) LIMIT 1",
                     (douyin_id,)
                 ).fetchone()
-                if existing:
-                    dup_by_douyin = True
-            if not existing and name and (phone or wechat):
-                conditions = []
-                params = [name]
-                if phone:
-                    conditions.append("LOWER(phone) = LOWER(?)")
-                    params.append(phone)
-                if wechat:
-                    conditions.append("LOWER(wechat) = LOWER(?)")
-                    params.append(wechat)
-                existing = conn.execute(
-                    f"SELECT * FROM talents WHERE LOWER(name) = LOWER(?) AND ({' OR '.join(conditions)}) LIMIT 1",
-                    params
-                ).fetchone()
             if existing:
                 result = _talent_row_to_dict(existing)
                 result['duplicate'] = True
-                if dup_by_douyin:
-                    result['can_update'] = True
-                    result['message'] = f"该达人（抖音号{douyin_id}）已存在，是否需要更新信息？"
+                result['can_update'] = True
+                result['message'] = f"该达人（抖音号{douyin_id}）已存在，是否需要更新信息？"
                 self._send_json(200, result)
                 return
         finally:
