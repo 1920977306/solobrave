@@ -12258,7 +12258,7 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   });
   // 解析并移除工具调用标记
   var toolCalls = parseToolCalls(replyText);
-  var cleanText = replyText.replace(/\[TOOL_CALL\][\s\S]*?\[\/TOOL_CALL\]/g, '').trim();
+  var cleanText = stripToolCallsFromText(replyText);
   var bubbleContent = highlightMentions(formatMessageContent(cleanText));
 
   // DOM 去重：检查最近 3 条消息是否已有相同 sender + content，防止竞态导致重复渲染
@@ -18100,15 +18100,109 @@ function buildAgentToolsContext() {
 }
 
 function parseToolCalls(text) {
-  var regex = /\[TOOL_CALL\]([\s\S]*?)\[\/TOOL_CALL\]/g;
+  if (!text || typeof text !== 'string') return [];
   var calls = [];
+  var seenKeys = {};
+  function addCall(obj) {
+    if (!obj || typeof obj.action !== 'string') return;
+    var key = obj.action + '|' + JSON.stringify(obj.params || {});
+    if (seenKeys[key]) return;
+    seenKeys[key] = true;
+    calls.push(obj);
+  }
+
+  // 1. 标准格式：[TOOL_CALL]{...}[/TOOL_CALL]
+  var regex = /\[TOOL_CALL\]([\s\S]*?)\[\/TOOL_CALL\]/g;
   var m;
   while ((m = regex.exec(text)) !== null) {
-    try {
-      calls.push(JSON.parse(m[1].trim()));
-    } catch (e) {}
+    var parsed = _tryParseToolCallJson(_cleanToolCallJson(m[1]));
+    if (parsed) addCall(parsed);
   }
+
+  // 2. Markdown 代码块内包含工具调用标记
+  var blockRegex = /```(?:json)?\s*\[TOOL_CALL\]([\s\S]*?)\[\/TOOL_CALL\]\s*```/gi;
+  while ((m = blockRegex.exec(text)) !== null) {
+    var parsed = _tryParseToolCallJson(_cleanToolCallJson(m[1]));
+    if (parsed) addCall(parsed);
+  }
+
+  // 3. Markdown 代码块内直接是工具调用 JSON
+  var jsonBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/g;
+  while ((m = jsonBlockRegex.exec(text)) !== null) {
+    var parsed = _tryParseToolCallJson(_cleanToolCallJson(m[1]));
+    if (parsed) addCall(parsed);
+  }
+
+  // 4. 文本中裸露出 action 字段的 JSON 对象（容错最后一层，使用栈匹配嵌套大括号）
+  if (calls.length === 0) {
+    _extractJsonObjects(text).forEach(function(jsonStr) {
+      if (jsonStr.indexOf('"action"') !== -1) {
+        var parsed = _tryParseToolCallJson(jsonStr);
+        if (parsed) addCall(parsed);
+      }
+    });
+  }
+
   return calls;
+}
+
+function _extractJsonObjects(text) {
+  var objects = [];
+  for (var i = 0; i < text.length; i++) {
+    if (text.charAt(i) !== '{') continue;
+    var depth = 1;
+    var j = i + 1;
+    while (j < text.length && depth > 0) {
+      var c = text.charAt(j);
+      if (c === '{' || c === '[') depth++;
+      else if (c === '}' || c === ']') depth--;
+      else if (c === '"' || c === "'") {
+        var quote = c;
+        j++;
+        while (j < text.length && text.charAt(j) !== quote) {
+          if (text.charAt(j) === '\\' && j + 1 < text.length) j++;
+          j++;
+        }
+      }
+      j++;
+    }
+    if (depth === 0) objects.push(text.slice(i, j));
+  }
+  return objects;
+}
+
+function _cleanToolCallJson(raw) {
+  if (!raw) return '';
+  return raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+}
+
+function _tryParseToolCallJson(text) {
+  try {
+    var obj = JSON.parse(text);
+    if (obj && typeof obj.action === 'string') return obj;
+  } catch (e) {}
+  return null;
+}
+
+function stripToolCallsFromText(text) {
+  if (!text || typeof text !== 'string') return '';
+  var cleaned = text;
+  // 1. 代码块包裹的标准工具调用
+  cleaned = cleaned.replace(/```(?:json)?\s*\[TOOL_CALL\][\s\S]*?\[\/TOOL_CALL\]\s*```/gi, '');
+  // 2. 标准工具调用标记
+  cleaned = cleaned.replace(/\[TOOL_CALL\][\s\S]*?\[\/TOOL_CALL\]/g, '');
+  // 3. 代码块包裹的纯工具 JSON（代码块内若解析为工具调用则整段移除）
+  cleaned = cleaned.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, function(match, content) {
+    var parsed = _tryParseToolCallJson(_cleanToolCallJson(content));
+    return parsed ? '' : match;
+  });
+  // 4. 独立的工具调用 JSON 对象（使用栈匹配嵌套大括号）
+  _extractJsonObjects(cleaned).forEach(function(jsonStr) {
+    if (_tryParseToolCallJson(jsonStr)) {
+      cleaned = cleaned.split(jsonStr).join('');
+    }
+  });
+  return cleaned.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function toggleCitationPanel(panelId) {
@@ -18467,7 +18561,7 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
   }
   // 解析并移除工具调用标记
   var toolCalls = parseToolCalls(replyText);
-  var cleanText = replyText.replace(/\[TOOL_CALL\][\s\S]*?\[\/TOOL_CALL\]/g, '').trim();
+  var cleanText = stripToolCallsFromText(replyText);
 
   var bubble = formatMessageContent(cleanText);
   if (hasDocs && cleanText && cleanText.indexOf('📚') === -1) {
