@@ -7018,7 +7018,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'message': f'Agent {agent.get("name", "")} 已删除'})
 
     def _cleanup_agent_data(self, agent_id):
-        """彻底删除员工时清理其聊天记录、记忆文件、归档文件等残留数据"""
+        """彻底删除员工时清理其聊天记录、记忆文件、归档文件、数据库沉淀及缓存等残留数据"""
         # 清理聊天记录
         chat_file = os.path.join(CHATS_DIR, f'{agent_id}.json')
         if os.path.isfile(chat_file):
@@ -7051,6 +7051,160 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 os.remove(archive_file)
             except OSError as e:
                 print(f'  [Cleanup] 删除归档文件失败 {archive_file}: {e}', flush=True)
+
+        # 清理群聊中该 AI 员工发送的消息
+        try:
+            import glob as _glob
+            for group_chat_file in _glob.glob(os.path.join(CHATS_DIR, 'group_*.json')):
+                try:
+                    with open(group_chat_file, 'r', encoding='utf-8') as f:
+                        gc_data = json.load(f)
+                    if not isinstance(gc_data, list):
+                        continue
+                    original_len = len(gc_data)
+                    filtered = [
+                        m for m in gc_data
+                        if not (
+                            m.get('senderType') == 'agent' and
+                            m.get('senderId') == agent_id
+                        )
+                    ]
+                    if len(filtered) < original_len:
+                        with open(group_chat_file, 'w', encoding='utf-8') as f:
+                            json.dump(filtered, f, ensure_ascii=False, indent=2)
+                        print(f'  [Cleanup] 从 {os.path.basename(group_chat_file)} 移除 {original_len - len(filtered)} 条该 AI 消息', flush=True)
+                except Exception as e:
+                    print(f'  [Cleanup] 清理群聊文件失败 {group_chat_file}: {e}', flush=True)
+        except Exception as e:
+            print(f'  [Cleanup] 扫描群聊文件失败: {e}', flush=True)
+
+        # 清理数据库中的员工级联数据（记忆、沉淀、知识库、向量缓存等）
+        try:
+            conn = _db_conn()
+
+            # 1) 收集该员工所有 memory id 与 value hash，用于后续级联清理
+            mem_rows = conn.execute(
+                "SELECT id, value FROM memory WHERE emp_id=?", (agent_id,)
+            ).fetchall()
+            mem_ids = [r['id'] for r in mem_rows]
+            content_hashes = set()
+            for r in mem_rows:
+                v = r['value'] or ''
+                if v:
+                    content_hashes.add(hashlib.md5(str(v).encode('utf-8')).hexdigest())
+
+            # 2) 清理 embedding_cache（按该员工记忆 value 的 hash）
+            if content_hashes:
+                placeholders = ','.join('?' * len(content_hashes))
+                conn.execute(
+                    f"DELETE FROM embedding_cache WHERE content_hash IN ({placeholders})",
+                    tuple(content_hashes)
+                )
+
+            # 3) 清理二级归纳、三级知识库引用
+            if mem_ids:
+                mem_id_set = set(mem_ids)
+                # memory_summary：删除所有 evidence 全部来自该员工的归纳；否则移除引用
+                summary_rows = conn.execute(
+                    "SELECT id, related_mem_ids, source_mem_ids FROM memory_summary WHERE emp_id=?",
+                    (agent_id,)
+                ).fetchall()
+                for row in summary_rows:
+                    sid = row['id']
+                    related = json.loads(row['related_mem_ids'] or '[]')
+                    sources = json.loads(row['source_mem_ids'] or '[]')
+                    related = [x for x in related if x not in mem_ids]
+                    sources = [x for x in sources if x not in mem_ids]
+                    if not related and not sources:
+                        conn.execute("DELETE FROM memory_summary WHERE id=?", (sid,))
+                    else:
+                        conn.execute(
+                            "UPDATE memory_summary SET related_mem_ids=?, source_mem_ids=?, updated_at=? WHERE id=?",
+                            (json.dumps(related, ensure_ascii=False), json.dumps(sources, ensure_ascii=False), int(time.time() * 1000), sid)
+                        )
+
+                # knowledge_base：删除所有 evidence 全部来自该员工的条目；否则移除引用
+                kb_rows = conn.execute(
+                    f"SELECT id, related_mem_ids FROM knowledge_base WHERE emp_id=?",
+                    (agent_id,)
+                ).fetchall()
+                for row in kb_rows:
+                    kid = row['id']
+                    related = json.loads(row['related_mem_ids'] or '[]')
+                    related = [x for x in related if x not in mem_id_set]
+                    if not related:
+                        conn.execute("DELETE FROM knowledge_base WHERE id=?", (kid,))
+                    else:
+                        conn.execute(
+                            "UPDATE knowledge_base SET related_mem_ids=?, updated_at=? WHERE id=?",
+                            (json.dumps(related, ensure_ascii=False), int(time.time() * 1000), kid)
+                        )
+
+                # knowledge_base_new：按 evidence_mem_ids 中包含的 memory id 清理
+                kb_new_rows = conn.execute(
+                    "SELECT id, evidence_mem_ids FROM knowledge_base_new"
+                ).fetchall()
+                for row in kb_new_rows:
+                    kid = row['id']
+                    evidence = json.loads(row['evidence_mem_ids'] or '[]')
+                    new_evidence = [x for x in evidence if x not in mem_id_set]
+                    if len(new_evidence) < len(evidence):
+                        if not new_evidence:
+                            conn.execute("DELETE FROM knowledge_base_new WHERE id=?", (kid,))
+                        else:
+                            conn.execute(
+                                "UPDATE knowledge_base_new SET evidence_mem_ids=?, updated_at=? WHERE id=?",
+                                (json.dumps(new_evidence, ensure_ascii=False), int(time.time() * 1000), kid)
+                            )
+
+            # 4) 清理 memory_topics：从 emp_ids 中移除该员工；若为空则删除 topic
+            topic_rows = conn.execute(
+                "SELECT id, emp_ids, mem_count FROM memory_topics WHERE emp_ids LIKE ?",
+                (f'%"{agent_id}"%',)
+            ).fetchall()
+            for row in topic_rows:
+                tid = row['id']
+                emp_ids = json.loads(row['emp_ids'] or '[]')
+                if agent_id in emp_ids:
+                    emp_ids.remove(agent_id)
+                if not emp_ids:
+                    conn.execute("DELETE FROM memory_topics WHERE id=?", (tid,))
+                else:
+                    # 重新统计该 topic 下剩余活跃记忆数
+                    remaining = conn.execute(
+                        "SELECT COUNT(*) AS cnt FROM memory WHERE status='active' AND topic_ids LIKE ?",
+                        (f'%"{tid}"%',)
+                    ).fetchone()['cnt']
+                    conn.execute(
+                        "UPDATE memory_topics SET emp_ids=?, mem_count=? WHERE id=?",
+                        (json.dumps(emp_ids, ensure_ascii=False), max(0, remaining), tid)
+                    )
+
+            # 5) 删除员工个人知识库文档、分块、版本
+            conn.execute("DELETE FROM knowledge WHERE emp_id=?", (agent_id,))
+            conn.execute("DELETE FROM knowledge_chunks WHERE emp_id=?", (agent_id,))
+            conn.execute("DELETE FROM knowledge_versions WHERE emp_id=?", (agent_id,))
+
+            # 6) 最后删除记忆主表（级联后的根数据）
+            conn.execute("DELETE FROM memory WHERE emp_id=?", (agent_id,))
+
+            conn.commit()
+            conn.close()
+            print(f'  [Cleanup] 已清理 {agent_id} 的数据库级联数据', flush=True)
+        except Exception as e:
+            print(f'  [Cleanup] 数据库级联清理失败 {agent_id}: {e}', flush=True)
+
+        # 清理 RAG 内存缓存中该员工的查询结果
+        try:
+            rag_cache = getattr(ks, '_rag_cache', None)
+            if rag_cache is not None:
+                keys_to_remove = [k for k in rag_cache.keys() if k.startswith(f"rag:{agent_id}:")]
+                for k in keys_to_remove:
+                    rag_cache.pop(k, None)
+                if keys_to_remove:
+                    print(f'  [Cleanup] 已清理 {agent_id} 的 RAG 内存缓存 {len(keys_to_remove)} 条', flush=True)
+        except Exception as e:
+            print(f'  [Cleanup] RAG 缓存清理失败 {agent_id}: {e}', flush=True)
 
     # ═══════════════════════════════════════════════════
     # Dreaming API
