@@ -18068,7 +18068,7 @@ function buildAgentToolsContext() {
     '   - 查询商品列表：list_products\n' +
     '   - 按关键词搜索商品：search_products，参数 {"query":"关键词"}\n' +
     '   - 查看单个商品详情：get_product_detail，参数 {"productId":"prod_xxx"}\n' +
-    '   - 录入新商品：add_product（对接 POST /api/products 创建接口），参数 {"name":"商品名称","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"品牌名","sku":"SKU001","tags":["标签1","标签2"],"selling_points":"核心卖点","commission_rate":20,"main_image":"图片URL","subtitle":"副标题/描述"}\n' +
+    '   - 录入新商品：add_product（对接 POST /api/products 创建接口），参数 {"name":"商品名称","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"品牌名","sku_specs":{"SKU":"SKU001","尺码":"37-40"},"tags":["标签1","标签2"],"selling_points":"核心卖点","commission_rate":20,"main_image":"图片URL","subtitle":"副标题/描述"}\n' +
     '   - 编辑商品信息需人工在UI操作\n' +
     '   - 每个商品有：名称、SKU、分类、价格、库存、品牌、标签、状态、卖点、佣金率\n' +
     '   - 当用户想录入商品时，你必须主动从对话中提取上述字段；必填字段只有 name（商品名称）。如果缺少必填字段或字段值不确定，请一次性列出需要补充的信息，向用户确认后再调用 add_product。\n' +
@@ -18097,7 +18097,7 @@ function buildAgentToolsContext() {
     '[TOOL_CALL]{"action":"get_product_detail","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"match_product","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"add_talent","params":{"name":"李佳琦","douyin_id":"lijiaqi","followers":45000000,"category":"美妆护肤","level":"S","risk_rating":"low","cooperation_status":"available"}}[/TOOL_CALL]\n' +
-    '或 [TOOL_CALL]{"action":"add_product","params":{"name":"2024新款厚底凉鞋","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"COOLCHAP","sku":"SKU2024001","commission_rate":20}}[/TOOL_CALL]\n' +
+    '或 [TOOL_CALL]{"action":"add_product","params":{"name":"2024新款厚底凉鞋","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"COOLCHAP","sku_specs":{"SKU":"SKU2024001"},"commission_rate":20}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"send_group_message","params":{"groupId":"grp_xxx","message":"请帮忙看下这个需求","mentions":["小明"]}}[/TOOL_CALL]\n' +
     '主大脑会自动执行并把结果展示给用户。\n' +
     '【注意】禁止编造不存在的商品或达人信息，所有数据以主大脑查询结果为准。';
@@ -18384,13 +18384,24 @@ async function executeToolCall(call) {
         if (typeof tags === 'string') {
           tags = tags.split(/[,，]/).map(function(s) { return s.trim(); }).filter(Boolean);
         }
+        // 支持 sku_specs（对象/JSON字符串）或 sku（字符串）两种形式
+        var skuSpecs = pparams.sku_specs || pparams.skuSpecs || {};
+        if (typeof skuSpecs === 'string') {
+          try { skuSpecs = JSON.parse(skuSpecs); } catch (e) { skuSpecs = {}; }
+        }
+        if (!skuSpecs || typeof skuSpecs !== 'object' || Array.isArray(skuSpecs)) {
+          skuSpecs = {};
+        }
+        if (!skuSpecs.SKU && (pparams.sku || pparams.SKU)) {
+          skuSpecs.SKU = pparams.sku || pparams.SKU;
+        }
         var productBody = {
           name: productName,
           price: parseFloat(pparams.price) || 0,
           stock: parseInt(pparams.stock, 10) || 0,
           category: pparams.category || '',
           brand: pparams.brand || '',
-          sku: pparams.sku || pparams.SKU || '',
+          sku_specs: skuSpecs,
           tags: Array.isArray(tags) ? tags : [],
           selling_points: pparams.selling_points || pparams.sellingPoints || '',
           commission_rate: parseFloat(pparams.commission_rate || pparams.commissionRate || 0) || 0,
