@@ -18421,6 +18421,10 @@ async function executeToolCall(call) {
         } else if (typeof p.commission_rate === 'number') {
           commissionRate = p.commission_rate;
         }
+        var sellingPoints = p.selling_points || '-';
+        if (sellingPoints !== '-' && sellingPoints.length > 100) {
+          sellingPoints = sellingPoints.slice(0, 100) + '...';
+        }
         return '✅ 商品录入成功\n' +
           '名称：' + (p.name || '-') + '\n' +
           '价格：¥' + (p.price || 0).toFixed(2) + '\n' +
@@ -18429,7 +18433,7 @@ async function executeToolCall(call) {
           '品牌：' + (p.brand || '-') + '\n' +
           'SKU：' + (p.sku || '-') + '\n' +
           '佣金率：' + commissionRate + '%\n' +
-          '卖点：' + (p.selling_points || '-') + '\n' +
+          '卖点：' + sellingPoints + '\n' +
           'ID：' + (p.id || '-');
       default:
         return '【工具执行失败】未知操作: ' + call.action;
