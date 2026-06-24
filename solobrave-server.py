@@ -9612,6 +9612,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 去重检查：优先按 SKU，其次按 name + brand
         conn = _db_conn()
         existing = None
+        dup_by = None
         try:
             if sku:
                 try:
@@ -9625,14 +9626,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         "SELECT * FROM products WHERE sku_specs LIKE ? LIMIT 1",
                         (f'%"SKU": "{sku}"%',)
                     ).fetchone()
+                if existing:
+                    dup_by = 'sku'
             if not existing and name and brand:
                 existing = conn.execute(
                     "SELECT * FROM products WHERE LOWER(name) = LOWER(?) AND LOWER(brand) = LOWER(?) LIMIT 1",
                     (name, brand)
                 ).fetchone()
+                if existing:
+                    dup_by = 'name_brand'
             if existing:
                 result = _product_row_to_dict(existing)
                 result['duplicate'] = True
+                result['can_update'] = True
+                if dup_by == 'sku':
+                    result['message'] = f"该商品（SKU {sku}）已存在，是否需要更新信息？"
+                elif dup_by == 'name_brand':
+                    result['message'] = f"该商品（名称：{name}，品牌：{brand}）已存在，是否需要更新信息？"
                 self._send_json(200, result)
                 return
         finally:

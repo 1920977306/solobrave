@@ -18073,7 +18073,8 @@ function buildAgentToolsContext() {
     '   - 每个商品有：名称、SKU、分类、价格、库存、品牌、标签、状态、卖点、佣金率\n' +
     '   - 当用户想录入商品时，你必须主动从对话中提取上述字段。必填字段只有 name（商品名称）。\n' +
     '   - 重要字段包括：price（价格）、category（分类）、brand（品牌）、stock（库存）、commission_rate（佣金率）、selling_points（卖点）、sku_specs（SKU规格）。当这些重要字段中有任何一项缺失或不确定时，你必须一次性列出所有缺失的重要字段，向用户确认后再调用 add_product；切勿在未确认的情况下编造或假设。\n' +
-    '   - 创建成功后，向用户确认并展示商品名称、价格、库存、分类、品牌、SKU、佣金率等关键信息。\n\n' +
+    '   - 创建成功后，向用户确认并展示商品名称、价格、库存、分类、品牌、SKU、佣金率等关键信息。\n' +
+    '   - 如果系统返回“该商品（名称：XXX，品牌：XXX）已存在，是否需要更新信息？”或“该商品（SKU XXX）已存在，是否需要更新信息？”，请询问用户是否更新。若用户确认更新，请在后续调用 add_product 时传入 id 字段（即系统返回的商品 ID）和需要修改的字段，调用 PUT 接口更新商品信息；若用户取消，则不再调用。\n\n' +
     '2. 达人库 (/api/influencers)\n' +
     '   - 查询达人列表：list_influencers\n' +
     '   - 按关键词搜索达人：search_influencers，参数 {"query":"关键词"}\n' +
@@ -18452,8 +18453,26 @@ async function executeToolCall(call) {
           subtitle: pparams.subtitle || pparams.description || '',
           created_by: getCurrentEmpId() || ''
         };
-        var pr = await apiFetch('/api/products', { method: 'POST', body: JSON.stringify(productBody) });
+        var productId = pparams.id || pparams.productId || '';
+        var pr;
+        if (productId) {
+          // 用户确认更新：调用 PUT /api/products/:id
+          pr = await apiFetch('/api/products/' + encodeURIComponent(productId), { method: 'PUT', body: JSON.stringify(productBody) });
+        } else {
+          pr = await apiFetch('/api/products', { method: 'POST', body: JSON.stringify(productBody) });
+        }
         var p = await pr.json();
+        if (p.duplicate && p.can_update) {
+          return '⚠️ ' + (p.message || '该商品已存在，是否需要更新信息？') + '\n' +
+            '如需更新，请告诉我需要修改的内容；如需取消，请直接回复“取消”。\n' +
+            '名称：' + (p.name || '-') + '\n' +
+            '价格：¥' + (p.price || 0).toFixed(2) + '\n' +
+            '库存：' + (p.stock || 0) + '\n' +
+            '分类：' + (p.category || '未分类') + '\n' +
+            '品牌：' + (p.brand || '-') + '\n' +
+            'SKU：' + (p.sku || '-') + '\n' +
+            'ID：' + (p.id || '-');
+        }
         if (p.duplicate) {
           return '⚠️ 该商品已存在，无需重复录入\n' +
             '名称：' + (p.name || '-') + '\n' +
@@ -18477,7 +18496,7 @@ async function executeToolCall(call) {
         if (sellingPoints !== '-' && sellingPoints.length > 100) {
           sellingPoints = sellingPoints.slice(0, 100) + '...';
         }
-        return '✅ 商品录入成功\n' +
+        var productResultLines =
           '名称：' + (p.name || '-') + '\n' +
           '价格：¥' + (p.price || 0).toFixed(2) + '\n' +
           '库存：' + (p.stock || 0) + '\n' +
@@ -18487,6 +18506,10 @@ async function executeToolCall(call) {
           '佣金率：' + commissionRate + '%\n' +
           '卖点：' + sellingPoints + '\n' +
           'ID：' + (p.id || '-');
+        if (productId) {
+          return '✅ 商品信息更新成功\n' + productResultLines;
+        }
+        return '✅ 商品录入成功\n' + productResultLines;
       default:
         return '【工具执行失败】未知操作: ' + call.action;
     }
