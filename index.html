@@ -18068,8 +18068,11 @@ function buildAgentToolsContext() {
     '   - 查询商品列表：list_products\n' +
     '   - 按关键词搜索商品：search_products，参数 {"query":"关键词"}\n' +
     '   - 查看单个商品详情：get_product_detail，参数 {"productId":"prod_xxx"}\n' +
-    '   - 录入新商品、编辑商品信息（需人工在UI操作）\n' +
-    '   - 每个商品有：名称、SKU、分类、价格、库存、标签、状态\n\n' +
+    '   - 录入新商品：add_product（对接 POST /api/products 创建接口），参数 {"name":"商品名称","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"品牌名","sku":"SKU001","tags":["标签1","标签2"],"selling_points":"核心卖点","commission_rate":20,"main_image":"图片URL","subtitle":"副标题/描述"}\n' +
+    '   - 编辑商品信息需人工在UI操作\n' +
+    '   - 每个商品有：名称、SKU、分类、价格、库存、品牌、标签、状态、卖点、佣金率\n' +
+    '   - 当用户想录入商品时，你必须主动从对话中提取上述字段；必填字段只有 name（商品名称）。如果缺少必填字段或字段值不确定，请一次性列出需要补充的信息，向用户确认后再调用 add_product。\n' +
+    '   - 创建成功后，向用户确认并展示商品名称、价格、库存、分类、品牌、SKU、佣金率等关键信息。\n\n' +
     '2. 达人库 (/api/influencers)\n' +
     '   - 查询达人列表：list_influencers\n' +
     '   - 按关键词搜索达人：search_influencers，参数 {"query":"关键词"}\n' +
@@ -18094,6 +18097,7 @@ function buildAgentToolsContext() {
     '[TOOL_CALL]{"action":"get_product_detail","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"match_product","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"add_talent","params":{"name":"李佳琦","douyin_id":"lijiaqi","followers":45000000,"category":"美妆护肤","level":"S","risk_rating":"low","cooperation_status":"available"}}[/TOOL_CALL]\n' +
+    '或 [TOOL_CALL]{"action":"add_product","params":{"name":"2024新款厚底凉鞋","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"COOLCHAP","sku":"SKU2024001","commission_rate":20}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"send_group_message","params":{"groupId":"grp_xxx","message":"请帮忙看下这个需求","mentions":["小明"]}}[/TOOL_CALL]\n' +
     '主大脑会自动执行并把结果展示给用户。\n' +
     '【注意】禁止编造不存在的商品或达人信息，所有数据以主大脑查询结果为准。';
@@ -18372,6 +18376,47 @@ async function executeToolCall(call) {
           '城市：' + (t.city || '-') + '\n' +
           '联系方式：' + ([t.phone, t.wechat, t.email].filter(Boolean).join(' / ') || '-') + '\n' +
           'ID：' + (t.id || '-');
+      case 'add_product':
+        var pparams = call.params || {};
+        var productName = pparams.name && String(pparams.name).trim();
+        if (!productName) return '【工具执行失败】缺少 name（商品名称），请向用户确认后再调用';
+        var tags = pparams.tags || [];
+        if (typeof tags === 'string') {
+          tags = tags.split(/[,，]/).map(function(s) { return s.trim(); }).filter(Boolean);
+        }
+        var productBody = {
+          name: productName,
+          price: parseFloat(pparams.price) || 0,
+          stock: parseInt(pparams.stock, 10) || 0,
+          category: pparams.category || '',
+          brand: pparams.brand || '',
+          sku: pparams.sku || pparams.SKU || '',
+          tags: Array.isArray(tags) ? tags : [],
+          selling_points: pparams.selling_points || pparams.sellingPoints || '',
+          commission_rate: parseFloat(pparams.commission_rate || pparams.commissionRate || 0) || 0,
+          main_image: pparams.main_image || pparams.mainImage || '',
+          subtitle: pparams.subtitle || pparams.description || '',
+          created_by: getCurrentEmpId() || ''
+        };
+        var pr = await apiFetch('/api/products', { method: 'POST', body: JSON.stringify(productBody) });
+        var p = await pr.json();
+        var commissionRate = 0;
+        if (typeof p.commission_rates === 'object' && p.commission_rates) {
+          var rates = Object.values(p.commission_rates).filter(function(v) { return typeof v === 'number'; });
+          if (rates.length) commissionRate = rates[0];
+        } else if (typeof p.commission_rate === 'number') {
+          commissionRate = p.commission_rate;
+        }
+        return '✅ 商品录入成功\n' +
+          '名称：' + (p.name || '-') + '\n' +
+          '价格：¥' + (p.price || 0).toFixed(2) + '\n' +
+          '库存：' + (p.stock || 0) + '\n' +
+          '分类：' + (p.category || '未分类') + '\n' +
+          '品牌：' + (p.brand || '-') + '\n' +
+          'SKU：' + (p.sku || '-') + '\n' +
+          '佣金率：' + commissionRate + '%\n' +
+          '卖点：' + (p.selling_points || '-') + '\n' +
+          'ID：' + (p.id || '-');
       default:
         return '【工具执行失败】未知操作: ' + call.action;
     }

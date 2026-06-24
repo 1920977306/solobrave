@@ -1,6 +1,6 @@
 # 抖音解析模块回归测试报告
 
-**测试时间**: 2026-06-24 13:58:17
+**测试时间**: 2026-06-24 14:10:57
 **测试链接**: `https://v.douyin.com/jV_u-PVtvEI/`
 **视频ID**: 7645153121840539506
 
@@ -8,11 +8,11 @@
 
 | 结果 | 数量 |
 |------|------|
-| PASS | 33 |
-| FAIL | 0 |
+| PASS | 31 |
+| FAIL | 1 |
 | SKIP | 0 |
 
-**结论: 全部通过**
+**结论: 有失败项，需修复**
 
 ## 1-解析模块
 
@@ -44,8 +44,7 @@
 | url字段 → HTTP 200 | PASS PASS | - |
 | 返回含video_info | PASS PASS | - |
 | 返回含transcribed | PASS PASS | - |
-| text字段(含链接) → HTTP 200 | PASS PASS | - |
-| text提取video_id=7645153121840539506 | PASS PASS | - |
+| text字段 | FAIL FAIL | code=422 |
 | text无链接 → HTTP 400 | PASS PASS | code=400 |
 | error含"未检测到" | PASS PASS | - |
 ## 4-错误场景
