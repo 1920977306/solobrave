@@ -1852,6 +1852,145 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-weight: 700;
   color: var(--accent);
 }
+
+/* AI 智能匹配推荐 */
+.ai-match-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ai-match-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ai-match-sort {
+  padding: 6px 10px;
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  outline: none;
+}
+.ai-match-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ai-match-btn:hover:not(:disabled) { background: var(--accent-hover); }
+.ai-match-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.ai-match-body { min-height: 120px; }
+.ai-match-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  margin-bottom: 10px;
+  background: #ffffff;
+  transition: all 0.15s;
+}
+.ai-match-card:hover {
+  background: var(--hover-bg);
+  border-color: rgba(0,0,0,0.08);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+.ai-match-card-left { flex-shrink: 0; }
+.ai-match-card-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+}
+.ai-match-card-main { flex: 1; min-width: 0; }
+.ai-match-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-match-card-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.ai-match-card-tags {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.ai-match-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(22, 93, 255, 0.08);
+  color: var(--accent);
+  font-size: 11px;
+}
+.ai-match-card-reason {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.ai-match-card-right {
+  text-align: center;
+  flex-shrink: 0;
+  min-width: 60px;
+}
+.ai-match-score {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+}
+.ai-match-score span {
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 1px;
+}
+.ai-match-score-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(22, 93, 255, 0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 .talents-record-item {
   display: flex;
   gap: 12px;
@@ -18088,6 +18227,8 @@ function buildAgentToolsContext() {
     '3. 匹配引擎 (/api/match)\n' +
     '   - 为指定商品智能匹配达人：match_product，参数 {"productId":"prod_xxx"}\n' +
     '   - 为指定达人智能匹配商品：match_influencer，参数 {"influencerId":"inf_xxx"}\n' +
+    '   - 一句话智能匹配：match_talent_product，参数 {"direction":"talent-to-product", "talentId":"tal_xxx"} 或 {"direction":"product-to-talent", "productId":"prod_xxx"}\n' +
+    '   - 当用户问“这个达人适合带什么货”时，调用 direction="talent-to-product"；当用户问“这个商品找谁带”时，调用 direction="product-to-talent"\n' +
     '   - 读取商品匹配缓存：get_product_matches，参数 {"productId":"prod_xxx"}\n' +
     '   - 读取达人匹配缓存：get_influencer_matches，参数 {"influencerId":"inf_xxx"}\n' +
     '   - 匹配维度：分类、标签、价格区间、粉丝数、互动率\n\n' +
@@ -18099,6 +18240,7 @@ function buildAgentToolsContext() {
     '[TOOL_CALL]{"action":"search_products","params":{"query":"口红"}}[/TOOL_CALL]\n' +
     '[TOOL_CALL]{"action":"get_product_detail","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"match_product","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
+    '或 [TOOL_CALL]{"action":"match_talent_product","params":{"direction":"talent-to-product","talentId":"tal_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"add_talent","params":{"name":"李佳琦","douyin_id":"lijiaqi","followers":45000000,"category":"美妆护肤","level":"S","risk_rating":"low","cooperation_status":"available"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"add_product","params":{"name":"2024新款厚底凉鞋","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"COOLCHAP","sku_specs":{"SKU":"SKU2024001"},"commission_rate":20}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"send_group_message","params":{"groupId":"grp_xxx","message":"请帮忙看下这个需求","mentions":["小明"]}}[/TOOL_CALL]\n' +
@@ -18311,6 +18453,45 @@ async function executeToolCall(call) {
           data.results.slice(0, 5).map(function(res) {
             return '- ' + res.product.name + ' (匹配度' + res.score + '分' + (res.reasons && res.reasons.length ? '，' + res.reasons.slice(0, 3).join('、') : '') + ')';
           }).join('\n');
+      case 'match_talent_product':
+        var mp = call.params || {};
+        var direction = mp.direction;
+        if (!direction || (direction !== 'talent-to-product' && direction !== 'product-to-talent')) {
+          return '【工具执行失败】缺少 direction，应为 talent-to-product 或 product-to-talent';
+        }
+        var matchBody = { direction: direction, limit: 10, agentId: getCurrentEmpId() || '' };
+        var title = '';
+        if (direction === 'talent-to-product') {
+          if (!mp.talentId) return '【工具执行失败】direction 为 talent-to-product 时缺少 talentId';
+          matchBody.talentId = mp.talentId;
+        } else {
+          if (!mp.productId) return '【工具执行失败】direction 为 product-to-talent 时缺少 productId';
+          matchBody.productId = mp.productId;
+        }
+        var r = await apiFetch('/api/ai-match', {
+          method: 'POST',
+          body: JSON.stringify(matchBody)
+        });
+        var data = await r.json();
+        if (direction === 'talent-to-product') {
+          var talent = data.talent || {};
+          var matches = (data.matches || []).slice(0, 10);
+          if (matches.length === 0) return '暂未找到适合「' + (talent.name || '该达人') + '」带货的商品。';
+          return '🎯 为达人「' + (talent.name || '-') + '」推荐以下商品：\n' +
+            matches.map(function(m, idx) {
+              var p = m.product || {};
+              return (idx + 1) + '. ' + p.name + '（' + (p.brand || '-') + '，¥' + (p.price || 0).toFixed(2) + '，佣金率' + (p.commission_rate || 0) + '%，匹配度' + (m.matchPercent || 0).toFixed(0) + '%）\n   💡 ' + (m.aiReason || (m.reasons && m.reasons[0]) || '综合匹配度较高');
+            }).join('\n');
+        } else {
+          var product = data.product || {};
+          var matches = (data.matches || []).slice(0, 10);
+          if (matches.length === 0) return '暂未找到适合带货「' + (product.name || '该商品') + '」的达人。';
+          return '🎯 为商品「' + (product.name || '-') + '」推荐以下达人：\n' +
+            matches.map(function(m, idx) {
+              var t = m.talent || {};
+              return (idx + 1) + '. ' + t.name + '（粉丝' + formatNumber(t.followers || 0) + '，' + (t.fan_category || t.category || '未分类') + '，匹配度' + (m.matchPercent || 0).toFixed(0) + '%）\n   💡 ' + (m.aiReason || (m.reasons && m.reasons[0]) || '综合匹配度较高');
+            }).join('\n');
+        }
       case 'get_product_matches':
         var pid = call.params && call.params.productId;
         if (!pid) return '【工具执行失败】缺少 productId';
@@ -21400,38 +21581,92 @@ function renderProductPanelSales(p) {
 function renderProductPanelInfluencers(p) {
   var el = document.getElementById('productsPanelInfluencers');
   if (!el) return;
-  el.innerHTML = '<div class="products-loading">加载带货达人...</div>';
-  apiFetch('/api/products/' + encodeURIComponent(p.id) + '/talents?limit=20').then(function(r){return r.json();}).then(function(data){
-    var talents = data.talents || [];
-    if (talents.length === 0) {
-      el.innerHTML = '<div class="products-empty"><div class="products-empty-text">暂无带货达人数据，点击右上角 AI 分析可智能匹配</div></div>';
-      return;
-    }
-    var html = '<div class="products-panel-section">';
-    html += '<div class="products-panel-title">带货达人排名 (' + talents.length + ')</div>';
-    talents.forEach(function(t, idx){
-      var avatar = t.avatar ? '<img class="products-influencer-avatar" src="' + escapeAttr(t.avatar) + '" alt="">' : '<div class="products-influencer-avatar-placeholder">' + escapeHtml((t.name || '?').charAt(0)) + '</div>';
-      html += '<div class="products-influencer-card">';
-      html += '<div style="width:22px;text-align:center;font-size:12px;font-weight:700;color:var(--text-secondary);flex-shrink:0;">' + (idx + 1) + '</div>';
-      html += avatar;
-      html += '<div class="products-influencer-info">';
-      html += '<div class="products-influencer-name">' + escapeHtml(t.name || '-') + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + (t.level || '') + '</span></div>';
-      html += '<div class="products-influencer-meta">粉丝 ' + formatNumber(t.followers || 0) + ' · ' + (t.fan_category || '未分类') + '</div>';
-      html += '</div>';
-      html += '<div class="products-influencer-metrics">';
-      html += '<div style="font-weight:600;color:var(--accent);">销量 ' + formatNumber(t.sales_volume || 0) + '</div>';
-      html += '<div>转化 ' + (t.conversion_rate || 0).toFixed(2) + '%</div>';
-      html += '<div>匹配 ' + (t.match_score || 0).toFixed(0) + '分</div>';
-      if (t.is_ai_recommended) {
-        html += '<div><span class="products-source-badge">AI推荐</span></div>';
-      }
-      html += '</div></div>';
-    });
-    html += '</div>';
-    el.innerHTML = html;
+  _currentProductMatchTalents = { product: p, matches: [], sortBy: 'score' };
+  var html = '<div class="products-panel-section">';
+  html += '<div class="ai-match-header">';
+  html += '<div class="products-panel-title" style="margin:0;padding:0;border:none;">AI 推荐可合作达人</div>';
+  html += '<div class="ai-match-actions">';
+  html += '<select class="ai-match-sort" id="productTalentSort" onchange="onProductTalentSortChange(this.value)">';
+  html += '<option value="score">按匹配度</option>';
+  html += '<option value="followers">按粉丝数</option>';
+  html += '<option value="gmv">按历史GMV</option>';
+  html += '</select>';
+  html += '<button class="ai-match-btn" id="btnMatchProductTalents" onclick="runProductTalentMatch(\'' + escapeAttr(p.id) + '\')">AI 匹配达人</button>';
+  html += '</div></div>';
+  html += '<div id="productTalentMatchBody" class="ai-match-body">';
+  html += '<div class="products-empty"><div class="products-empty-text">点击上方「AI 匹配达人」按钮，为该商品智能推荐最合适的达人</div></div>';
+  html += '</div></div>';
+  el.innerHTML = html;
+}
+
+function onProductTalentSortChange(sortBy) {
+  _currentProductMatchTalents.sortBy = sortBy;
+  _renderProductTalentMatches();
+}
+
+function runProductTalentMatch(productId) {
+  var btn = document.getElementById('btnMatchProductTalents');
+  if (btn) { btn.disabled = true; btn.textContent = '匹配中...'; }
+  var body = document.getElementById('productTalentMatchBody');
+  if (body) body.innerHTML = '<div class="products-loading"><div class="spinner"></div>AI 正在分析匹配...</div>';
+  apiFetch('/api/products/' + encodeURIComponent(productId) + '/match-talents', {
+    method: 'POST',
+    body: JSON.stringify({ limit: 10, agentId: getCurrentEmpId() || '' })
+  }).then(function(r){ return r.json(); }).then(function(data){
+    _currentProductMatchTalents.matches = data.matches || [];
+    _renderProductTalentMatches();
+    if (btn) { btn.disabled = false; btn.textContent = '重新匹配'; }
   }).catch(function(e){
-    el.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
+    console.error(e);
+    if (body) body.innerHTML = '<div class="products-empty"><div class="products-empty-text">AI 匹配失败，请重试</div></div>';
+    if (btn) { btn.disabled = false; btn.textContent = 'AI 匹配达人'; }
   });
+}
+
+function _renderProductTalentMatches() {
+  var body = document.getElementById('productTalentMatchBody');
+  if (!body) return;
+  var matches = (_currentProductMatchTalents.matches || []).slice();
+  var sortBy = _currentProductMatchTalents.sortBy || 'score';
+  matches.sort(function(a, b){
+    if (sortBy === 'followers') {
+      var fa = a.talent && a.talent.followers ? a.talent.followers : 0;
+      var fb = b.talent && b.talent.followers ? b.talent.followers : 0;
+      return fb - fa;
+    }
+    if (sortBy === 'gmv') {
+      var ga = a.talent && a.talent.total_gmv ? a.talent.total_gmv : 0;
+      var gb = b.talent && b.talent.total_gmv ? b.talent.total_gmv : 0;
+      return gb - ga;
+    }
+    return (b.score || 0) - (a.score || 0);
+  });
+  if (matches.length === 0) {
+    body.innerHTML = '<div class="products-empty"><div class="products-empty-text">暂无匹配达人</div></div>';
+    return;
+  }
+  var html = '';
+  matches.forEach(function(m){
+    var t = m.talent || {};
+    var reason = m.aiReason || (m.reasons && m.reasons[0]) || '';
+    var avatar = t.avatar ? '<img class="ai-match-card-avatar" src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:8px;" alt="">' : '<div class="ai-match-card-avatar" style="background:var(--accent);">' + escapeHtml((t.name || '?').charAt(0)) + '</div>';
+    html += '<div class="ai-match-card">';
+    html += '<div class="ai-match-card-left">' + avatar + '</div>';
+    html += '<div class="ai-match-card-main">';
+    html += '<div class="ai-match-card-title">' + escapeHtml(t.name || '-') + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + (t.level || '') + '</span></div>';
+    html += '<div class="ai-match-card-meta">粉丝 ' + formatNumber(t.followers || 0) + ' · ' + escapeHtml(t.fan_category || t.category || '未分类') + '</div>';
+    html += '<div class="ai-match-card-tags">';
+    html += '<span class="ai-match-tag">历史GMV ¥' + formatNumber(t.total_gmv || 0) + '</span>';
+    html += '</div>';
+    html += '<div class="ai-match-card-reason">' + escapeHtml(reason) + '</div>';
+    html += '</div>';
+    html += '<div class="ai-match-card-right">';
+    html += '<div class="ai-match-score">' + (m.matchPercent || 0).toFixed(0) + '<span>%</span></div>';
+    html += '<div class="ai-match-score-label">匹配度</div>';
+    html += '</div>';
+    html += '</div>';
+  });
+  body.innerHTML = html;
 }
 
 function renderProductPanelAudience(p) {
@@ -22221,34 +22456,94 @@ function renderTalentPanelFans(t) {
 function renderTalentPanelProducts(t) {
   var el = document.getElementById('talentsPanelProducts');
   if (!el) return;
-  el.innerHTML = '<div class="products-loading">加载匹配商品...</div>';
-  apiFetch('/api/talents/' + encodeURIComponent(t.id) + '/products?limit=20').then(function(r){return r.json();}).then(function(data){
-    var products = data.products || [];
-    if (products.length === 0) {
-      el.innerHTML = '<div class="products-empty"><div class="products-empty-text">暂无匹配商品，点击右上角 AI 分析可智能推荐</div></div>';
-      return;
-    }
-    var html = '<div class="talents-panel-section"><div class="talents-panel-title">AI 推荐可合作商品 (' + products.length + ')</div>';
-    products.forEach(function(p){
-      var placeholder = getProductPlaceholder(p);
-      html += '<div class="talents-product-card">';
-      html += '<div class="talents-product-placeholder" style="background:' + (p.brand === 'COOLCHAP' ? '#FF6B35' : '#165DFF') + ';">' + (p.name || '?').charAt(0) + '</div>';
-      html += '<div class="talents-product-info">';
-      html += '<div class="talents-product-name">' + escapeHtml(p.name || '-') + '</div>';
-      html += '<div class="talents-product-meta">' + escapeHtml(p.brand || '-') + ' · ' + escapeHtml(p.category || '未分类') + ' · ¥' + (p.price || 0).toFixed(2) + '</div>';
-      html += '<div class="talents-product-meta" style="margin-top:4px;color:var(--text-secondary);">' + escapeHtml(p.match_reason || '') + '</div>';
-      html += '</div>';
-      html += '<div class="talents-product-score">';
-      html += '<div class="talents-product-score-value">' + (p.match_score || 0).toFixed(0) + '</div>';
-      html += '<div class="talents-mid-score-label">匹配分</div>';
-      html += '</div>';
-      html += '</div>';
-    });
-    html += '</div>';
-    el.innerHTML = html;
+  _currentTalentMatchProducts = { talent: t, matches: [], sortBy: 'score' };
+  var html = '<div class="talents-panel-section">';
+  html += '<div class="ai-match-header">';
+  html += '<div class="talents-panel-title" style="margin:0;padding:0;border:none;">AI 推荐可合作商品</div>';
+  html += '<div class="ai-match-actions">';
+  html += '<select class="ai-match-sort" id="talentProductSort" onchange="onTalentProductSortChange(this.value)">';
+  html += '<option value="score">按匹配度</option>';
+  html += '<option value="commission">按佣金率</option>';
+  html += '<option value="price">按价格</option>';
+  html += '</select>';
+  html += '<button class="ai-match-btn" id="btnMatchTalentProducts" onclick="runTalentProductMatch(\'' + escapeAttr(t.id) + '\')">AI 匹配商品</button>';
+  html += '</div></div>';
+  html += '<div id="talentProductMatchBody" class="ai-match-body">';
+  html += '<div class="products-empty"><div class="products-empty-text">点击上方「AI 匹配商品」按钮，为该达人智能推荐最合适的商品</div></div>';
+  html += '</div></div>';
+  el.innerHTML = html;
+}
+
+function onTalentProductSortChange(sortBy) {
+  _currentTalentMatchProducts.sortBy = sortBy;
+  _renderTalentProductMatches();
+}
+
+function runTalentProductMatch(talentId) {
+  var btn = document.getElementById('btnMatchTalentProducts');
+  if (btn) { btn.disabled = true; btn.textContent = '匹配中...'; }
+  var body = document.getElementById('talentProductMatchBody');
+  if (body) body.innerHTML = '<div class="products-loading"><div class="spinner"></div>AI 正在分析匹配...</div>';
+  apiFetch('/api/talents/' + encodeURIComponent(talentId) + '/match-products', {
+    method: 'POST',
+    body: JSON.stringify({ limit: 10, agentId: getCurrentEmpId() || '' })
+  }).then(function(r){ return r.json(); }).then(function(data){
+    _currentTalentMatchProducts.matches = data.matches || [];
+    _renderTalentProductMatches();
+    if (btn) { btn.disabled = false; btn.textContent = '重新匹配'; }
   }).catch(function(e){
-    el.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
+    console.error(e);
+    if (body) body.innerHTML = '<div class="products-empty"><div class="products-empty-text">AI 匹配失败，请重试</div></div>';
+    if (btn) { btn.disabled = false; btn.textContent = 'AI 匹配商品'; }
   });
+}
+
+function _renderTalentProductMatches() {
+  var body = document.getElementById('talentProductMatchBody');
+  if (!body) return;
+  var matches = (_currentTalentMatchProducts.matches || []).slice();
+  var sortBy = _currentTalentMatchProducts.sortBy || 'score';
+  matches.sort(function(a, b){
+    if (sortBy === 'commission') {
+      var ca = a.product && a.product.commission_rate ? a.product.commission_rate : 0;
+      var cb = b.product && b.product.commission_rate ? b.product.commission_rate : 0;
+      return cb - ca;
+    }
+    if (sortBy === 'price') {
+      var pa = a.product && a.product.price ? a.product.price : 0;
+      var pb = b.product && b.product.price ? b.product.price : 0;
+      return pb - pa;
+    }
+    return (b.score || 0) - (a.score || 0);
+  });
+  if (matches.length === 0) {
+    body.innerHTML = '<div class="products-empty"><div class="products-empty-text">暂无匹配商品</div></div>';
+    return;
+  }
+  var html = '';
+  matches.forEach(function(m){
+    var p = m.product || {};
+    var reason = m.aiReason || (m.reasons && m.reasons[0]) || '';
+    html += '<div class="ai-match-card">';
+    html += '<div class="ai-match-card-left">';
+    html += '<div class="ai-match-card-avatar" style="background:' + (p.brand === 'COOLCHAP' ? '#FF6B35' : '#165DFF') + ';">' + (p.name || '?').charAt(0) + '</div>';
+    html += '</div>';
+    html += '<div class="ai-match-card-main">';
+    html += '<div class="ai-match-card-title">' + escapeHtml(p.name || '-') + '</div>';
+    html += '<div class="ai-match-card-meta">' + escapeHtml(p.brand || '-') + ' · ' + escapeHtml(p.category || '未分类') + ' · ¥' + (p.price || 0).toFixed(2) + '</div>';
+    html += '<div class="ai-match-card-tags">';
+    html += '<span class="ai-match-tag">佣金率 ' + (p.commission_rate || 0) + '%</span>';
+    html += '<span class="ai-match-tag">库存 ' + (p.stock || 0) + '</span>';
+    html += '</div>';
+    html += '<div class="ai-match-card-reason">' + escapeHtml(reason) + '</div>';
+    html += '</div>';
+    html += '<div class="ai-match-card-right">';
+    html += '<div class="ai-match-score">' + (m.matchPercent || 0).toFixed(0) + '<span>%</span></div>';
+    html += '<div class="ai-match-score-label">匹配度</div>';
+    html += '</div>';
+    html += '</div>';
+  });
+  body.innerHTML = html;
 }
 
 function renderTalentPanelRecords(t) {
@@ -22537,6 +22832,8 @@ function deleteCurrentTalent() {
 }
 
 var _currentTalent = null;
+var _currentTalentMatchProducts = { talent: null, matches: [], sortBy: 'score' };
+var _currentProductMatchTalents = { product: null, matches: [], sortBy: 'score' };
 
 // ========== Knowledge Page ==========
 var _knowledgeData = { docs: [], categories: [], total: 0 };

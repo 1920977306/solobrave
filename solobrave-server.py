@@ -4366,6 +4366,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/match/influencer-to-product':
             self._handle_match_influencer_to_product()
             return
+        if path == '/api/ai-match':
+            self._handle_ai_match()
+            return
 
         # Chat API
         if path.startswith('/api/chat/'):
@@ -10882,6 +10885,92 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         return min(100, score), reasons
 
+    def _ai_match_candidates(self, source, candidates, target_type, agent, limit=10):
+        """
+        使用 OpenClaw/AI 对候选列表进行语义打分。
+        source: 达人或商品 dict
+        candidates: 候选列表（dict 列表）
+        target_type: 'products' 或 'talents'
+        agent: 当前 AI 员工配置 dict
+        返回: {candidate_id: {'ai_score': float, 'ai_reason': str}}
+        """
+        if not candidates or not agent:
+            return {}
+
+        source_label = '达人' if target_type == 'products' else '商品'
+        target_label = '商品' if target_type == 'products' else '达人'
+
+        # 格式化 source 信息
+        if target_type == 'products':
+            source_text = (
+                f"昵称：{source.get('name', '-')}\n"
+                f"抖音号：{source.get('douyin_id', '-')}"
+                f"主营类目：{source.get('category') or source.get('fan_category', '-')}\n"
+                f"粉丝数：{source.get('followers', 0)}\n"
+                f"合作等级：{source.get('level', '-')}\n"
+                f"简介：{(source.get('bio') or '')[:200]}\n"
+                f"标签：{', '.join(source.get('tags') or [])}"
+            )
+        else:
+            source_text = (
+                f"名称：{source.get('name', '-')}\n"
+                f"品牌：{source.get('brand', '-')}\n"
+                f"类目：{source.get('category', '-')}\n"
+                f"价格：{source.get('price', 0)}\n"
+                f"卖点：{(source.get('selling_points') or '')[:200]}\n"
+                f"佣金率：{source.get('commission_rate', 0)}%\n"
+                f"标签：{', '.join(source.get('tags') or [])}"
+            )
+
+        # 格式化候选列表，控制长度
+        candidate_lines = []
+        for idx, c in enumerate(candidates[:30], 1):
+            if target_type == 'products':
+                line = (
+                    f"{idx}. ID:{c.get('id')} 名称:{c.get('name', '-')} "
+                    f"品牌:{c.get('brand', '-')} 类目:{c.get('category', '-')} "
+                    f"价格:{c.get('price', 0)} 卖点:{(c.get('selling_points') or '')[:80]} "
+                    f"佣金率:{c.get('commission_rate', 0)}%"
+                )
+            else:
+                line = (
+                    f"{idx}. ID:{c.get('id')} 昵称:{c.get('name', '-')} "
+                    f"抖音号:{c.get('douyin_id', '-')} 类目:{c.get('category') or c.get('fan_category', '-')} "
+                    f"粉丝数:{c.get('followers', 0)} 等级:{c.get('level', '-')} "
+                    f"简介:{(c.get('bio') or '')[:80]}"
+                )
+            candidate_lines.append(line)
+        candidates_text = '\n'.join(candidate_lines)
+
+        system_prompt = '你是一位资深电商选品与达人匹配专家，擅长根据商品和达人的多维信息做出精准匹配判断。'
+        prompt = (
+            f"请根据以下{source_label}信息，从候选{target_label}列表中挑选最匹配的 Top {limit}，"
+            f"并给出匹配度分数（0-100）和一句不超过30字的推荐理由。\n\n"
+            f"{source_label}信息：\n{source_text}\n\n"
+            f"候选{target_label}列表（共{len(candidate_lines)}个）：\n{candidates_text}\n\n"
+            f"要求：\n"
+            f"1. 分数要体现匹配程度，100分为最匹配\n"
+            f"2. 推荐理由要具体，说明为什么匹配\n"
+            f"3. 只返回 JSON 数组，不要任何额外说明，格式如下：\n"
+            f'[{{"id": "候选ID", "matchScore": 85, "reason": "推荐理由"}}]'
+        )
+
+        try:
+            ai_result = _call_ai_for_json(prompt, agent, system_prompt=system_prompt)
+            if not ai_result or not isinstance(ai_result, list):
+                return {}
+            scores = {}
+            for item in ai_result:
+                if isinstance(item, dict) and item.get('id'):
+                    scores[item['id']] = {
+                        'ai_score': max(0, min(100, float(item.get('matchScore', 0)))),
+                        'ai_reason': str(item.get('reason', '')).strip()[:100]
+                    }
+            return scores
+        except Exception as e:
+            print(f'  [AI Match] scoring failed: {e}', flush=True)
+            return {}
+
     def _handle_get_product_talents(self, product_id):
         """GET /api/products/:id/talents — 带该商品的Top达人排名"""
         auth = _authenticate(self.headers)
@@ -10946,7 +11035,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'talent_id': talent_id, 'products': products, 'total': len(products)})
 
     def _handle_match_product_talents(self, product_id):
-        """POST /api/products/:id/match-talents — AI匹配推荐达人"""
+        """POST /api/products/:id/match-talents — AI语义匹配推荐达人"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -10964,26 +11053,80 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         limit = int(body.get('limit', 20))
         min_score = float(body.get('minScore', 0))
+        top_n_for_ai = int(body.get('aiCandidates', 30))
+
+        # 加载当前 AI 员工配置（用于调用 OpenClaw）
+        agent_id = body.get('agentId') or auth.user_id
+        agent = None
+        agents_data = _load_agents()
+        agents = agents_data.get('agents', []) if isinstance(agents_data, dict) else agents_data
+        for a in agents:
+            if a.get('id') == agent_id:
+                agent = a
+                break
+        if not agent and agents:
+            agent = agents[0]
+
         conn = _db_conn()
         try:
             talent_rows = conn.execute("SELECT * FROM talents WHERE status = 'active'").fetchall()
         finally:
             conn.close()
-        results = []
+
+        # 阶段1：规则初筛
+        rule_results = []
         for r in talent_rows:
             talent = _talent_row_to_dict(r)
-            score, reasons = self._calculate_match_score_v2(product, talent)
-            if score < min_score:
+            rule_score, rule_reasons = self._calculate_match_score_v2(product, talent)
+            if rule_score < min_score:
                 continue
+            rule_results.append({
+                'talent': talent,
+                'rule_score': rule_score,
+                'rule_reasons': rule_reasons
+            })
+        rule_results.sort(key=lambda x: x['rule_score'], reverse=True)
+
+        # 阶段2：AI 语义打分（对前 N 个候选）
+        ai_candidates = rule_results[:top_n_for_ai]
+        ai_scores = {}
+        if agent and ai_candidates:
+            ai_scores = self._ai_match_candidates(
+                product, [r['talent'] for r in ai_candidates], 'talents', agent, limit=min(limit, 10)
+            )
+
+        # 阶段3：合并规则分与 AI 分，生成最终结果
+        results = []
+        for r in rule_results:
+            talent = r['talent']
+            rule_score = r['rule_score']
+            rule_reasons = r['rule_reasons']
+            ai_info = ai_scores.get(talent['id'], {})
+            ai_score = ai_info.get('ai_score', 0)
+            ai_reason = ai_info.get('ai_reason', '')
+
+            if ai_score > 0:
+                # 40% 规则 + 60% AI
+                final_score = round(rule_score * 0.4 + ai_score * 0.6, 1)
+                final_reasons = ([ai_reason] if ai_reason else []) + rule_reasons[:2]
+            else:
+                final_score = round(rule_score, 1)
+                final_reasons = rule_reasons
+
             results.append({
                 'talent': talent,
-                'score': round(score, 1),
-                'matchPercent': score,
-                'reasons': reasons,
-                'is_ai_recommended': score >= 75
+                'score': final_score,
+                'matchPercent': final_score,
+                'ruleScore': rule_score,
+                'aiScore': ai_score,
+                'reasons': final_reasons,
+                'aiReason': ai_reason,
+                'is_ai_recommended': final_score >= 75
             })
+
         results.sort(key=lambda x: x['score'], reverse=True)
-        # 缓存推荐结果到 product_talent_match（幂等更新）
+
+        # 阶段4：缓存推荐结果到 product_talent_match（幂等更新）
         now = int(time.time() * 1000)
         conn = _db_conn()
         try:
@@ -11012,11 +11155,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {
             'product_id': product_id,
             'matches': results[:limit],
-            'total': len(results)
+            'total': len(results),
+            'ai_scored': len(ai_scores)
         })
 
     def _handle_match_talent_products(self, talent_id):
-        """POST /api/talents/:id/match-products — AI匹配推荐商品"""
+        """POST /api/talents/:id/match-products — AI语义匹配推荐商品"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -11034,26 +11178,79 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         limit = int(body.get('limit', 20))
         min_score = float(body.get('minScore', 0))
+        top_n_for_ai = int(body.get('aiCandidates', 30))
+
+        # 加载当前 AI 员工配置（用于调用 OpenClaw）
+        agent_id = body.get('agentId') or auth.user_id
+        agent = None
+        agents_data = _load_agents()
+        agents = agents_data.get('agents', []) if isinstance(agents_data, dict) else agents_data
+        for a in agents:
+            if a.get('id') == agent_id:
+                agent = a
+                break
+        if not agent and agents:
+            agent = agents[0]
+
         conn = _db_conn()
         try:
             product_rows = conn.execute("SELECT * FROM products WHERE status = 'active'").fetchall()
         finally:
             conn.close()
-        results = []
+
+        # 阶段1：规则初筛
+        rule_results = []
         for r in product_rows:
             product = _product_row_to_dict(r)
-            score, reasons = self._calculate_match_score_v2(product, talent)
-            if score < min_score:
+            rule_score, rule_reasons = self._calculate_match_score_v2(product, talent)
+            if rule_score < min_score:
                 continue
+            rule_results.append({
+                'product': product,
+                'rule_score': rule_score,
+                'rule_reasons': rule_reasons
+            })
+        rule_results.sort(key=lambda x: x['rule_score'], reverse=True)
+
+        # 阶段2：AI 语义打分（对前 N 个候选）
+        ai_candidates = rule_results[:top_n_for_ai]
+        ai_scores = {}
+        if agent and ai_candidates:
+            ai_scores = self._ai_match_candidates(
+                talent, [r['product'] for r in ai_candidates], 'products', agent, limit=min(limit, 10)
+            )
+
+        # 阶段3：合并规则分与 AI 分，生成最终结果
+        results = []
+        for r in rule_results:
+            product = r['product']
+            rule_score = r['rule_score']
+            rule_reasons = r['rule_reasons']
+            ai_info = ai_scores.get(product['id'], {})
+            ai_score = ai_info.get('ai_score', 0)
+            ai_reason = ai_info.get('ai_reason', '')
+
+            if ai_score > 0:
+                final_score = round(rule_score * 0.4 + ai_score * 0.6, 1)
+                final_reasons = ([ai_reason] if ai_reason else []) + rule_reasons[:2]
+            else:
+                final_score = round(rule_score, 1)
+                final_reasons = rule_reasons
+
             results.append({
                 'product': product,
-                'score': round(score, 1),
-                'matchPercent': score,
-                'reasons': reasons,
-                'is_ai_recommended': score >= 75
+                'score': final_score,
+                'matchPercent': final_score,
+                'ruleScore': rule_score,
+                'aiScore': ai_score,
+                'reasons': final_reasons,
+                'aiReason': ai_reason,
+                'is_ai_recommended': final_score >= 75
             })
+
         results.sort(key=lambda x: x['score'], reverse=True)
-        # 缓存推荐结果到 product_talent_match
+
+        # 阶段4：缓存推荐结果到 product_talent_match
         now = int(time.time() * 1000)
         conn = _db_conn()
         try:
@@ -11081,8 +11278,46 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {
             'talent_id': talent_id,
             'matches': results[:limit],
-            'total': len(results)
+            'total': len(results),
+            'ai_scored': len(ai_scores)
         })
+
+    def _handle_ai_match(self):
+        """POST /api/ai-match — 统一 AI 匹配入口（talent→product 或 product→talent）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body() or {}
+        direction = body.get('direction')
+        if direction not in ('talent-to-product', 'product-to-talent'):
+            self._send_json_error(400, 'Missing or invalid direction')
+            return
+
+        # 复用已有 handler，但把 body 透传（包含 agentId / limit 等参数）
+        # 这里通过设置 self 的临时属性来传递 body，然后调用对应 handler
+        # 由于 handler 内部调用 self._read_body() 会再次读取，需要构造一个可重复读取的 body
+        self._ai_match_body = body
+        original_read_body = self._read_body
+        def _wrapped_read_body():
+            return self._ai_match_body
+        self._read_body = _wrapped_read_body
+        try:
+            if direction == 'talent-to-product':
+                talent_id = body.get('talentId')
+                if not talent_id:
+                    self._send_json_error(400, 'Missing talentId')
+                    return
+                self._handle_match_talent_products(talent_id)
+            else:
+                product_id = body.get('productId')
+                if not product_id:
+                    self._send_json_error(400, 'Missing productId')
+                    return
+                self._handle_match_product_talents(product_id)
+        finally:
+            self._read_body = original_read_body
+            self._ai_match_body = None
 
     def _handle_analyze_talent_ai(self, talent_id):
         """POST /api/talents/:id/analyze — 调用 AI 生成达人分析"""
