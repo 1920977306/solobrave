@@ -7812,6 +7812,30 @@ function extractKeywords(text) {
   return keywords.slice(0, 8);
 }
 
+// 创建流式 AI 回复占位气泡（纯文本，避免半拉标签错乱）
+function createStreamingBubble(emp, timeStr) {
+  var area = document.getElementById('messagesArea');
+  if (!area) return null;
+  var t = document.getElementById('typingMsg');
+  if (t) t.remove();
+  // 防御性校验：员工已切换则不渲染
+  if (localStorage.getItem('sb_current_emp') !== emp.id) {
+    console.warn('[createStreamingBubble] 员工已切换，跳过流式气泡创建:', emp.id);
+    return null;
+  }
+  var wrap = document.createElement('div');
+  wrap.className = 'msg streaming-msg';
+  wrap.id = 'streamingMsg';
+  wrap.innerHTML = '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' +
+    '<div class="msg-content">' +
+      '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp)) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' +
+      '<div class="msg-bubble" id="streamingBubble" style="white-space:pre-wrap;"></div>' +
+    '</div>';
+  area.appendChild(wrap);
+  area.scrollTop = area.scrollHeight;
+  return wrap.querySelector('#streamingBubble');
+}
+
 // 通过 OpenClaw WS 发送消息
 async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
   images = images || [];
@@ -7877,6 +7901,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
   if (!validateFinalSystemPrompt(systemPrompt)) {
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
+    var s = document.getElementById('streamingMsg');
+    if (s) s.remove();
     displayAIReply('⚠️ AI身份约束缺失，禁止调用AI', docContext, timeStr, emp.id, []);
     restoreOnline();
     return;
@@ -7893,10 +7919,16 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
   if (chatContext) fullMessage = chatContext + '\n\n' + fullMessage;
   if (systemPrompt) fullMessage = '【System Prompt】\n' + systemPrompt + '\n\n【User Message】\n' + fullMessage;
 
-  function _doHandle(reply, isError) {
-    console.log('[OpenClaw] _doHandle 调用 reply_len=' + (reply || '').length + ' isError=' + isError);
+  function cleanupTyping() {
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
+    var s = document.getElementById('streamingMsg');
+    if (s) s.remove();
+  }
+
+  function _doHandle(reply, isError) {
+    console.log('[OpenClaw] _doHandle 调用 reply_len=' + (reply || '').length + ' isError=' + isError);
+    cleanupTyping();
     if (!reply) reply = '（AI 未返回内容）';
     if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
     displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations);
@@ -7908,6 +7940,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
     var sessionKey = 'agent:' + emp.id + ':chat';
     var hasSentWorking = false;
     var hasSentCoding = false;
+    // 发送消息后先创建空气泡占位
+    var streamingBubble = createStreamingBubble(emp, timeStr);
     var chatResult = await _sendChatWaitForLifecycle(sessionKey, fullMessage, {
       onStream: function (text) {
         if (!hasSentWorking) {
@@ -7918,10 +7952,11 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
           hasSentCoding = true;
           setEmpStatus('coding');
         }
-        var t = document.getElementById('typingMsg');
-        if (t) {
-          var bubble = t.querySelector('.msg-bubble');
-          if (bubble) bubble.innerHTML = '<span class="thinking-dots">思考中<span>.</span><span>.</span><span>.</span></span>';
+        // 实时将流式文本用 innerText 更新到气泡中（纯文本，避免半拉标签）
+        if (streamingBubble) {
+          streamingBubble.innerText = text || '';
+          var area = document.getElementById('messagesArea');
+          if (area) area.scrollTop = area.scrollHeight;
         }
       },
       onStartThinking: function () {
@@ -7940,8 +7975,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
     restoreOnline();
   } catch (e) {
     console.error('[OpenClaw] 发送失败:', e);
-    var t = document.getElementById('typingMsg');
-    if (t) t.remove();
+    cleanupTyping();
     restoreOnline();
     // Agent 不存在时自动降级到 main，但 sessionKey 仍按员工隔离，避免多个员工共用 agent:main:main 导致上下文串扰
     var agentName = emp.openclawName || 'main';
