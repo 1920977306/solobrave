@@ -7744,9 +7744,10 @@ async function sendMsg() {
   const docContext = await getDocContextForChat();
 
   // 路由策略：
-  // 1. 图片消息必须使用支持 vision 的 API 直连（OpenClaw chat.send 只传字符串，无法识别图片）
-  // 2. 员工显式配置了非 openclaw 的 aiProvider + apiKey 时，优先 API 直连（避免 OpenClaw 网关/模型慢）
-  // 3. 否则走 OpenClaw；OpenClaw 未连接再降级 API
+  // 1. 优先走 OpenClaw 网关（支持纯文本和多模态图片）
+  // 2. 员工显式配置了非 openclaw 的 aiProvider + apiKey 且无图片时，优先 API 直连（更快）
+  // 3. OpenClaw 未连接时降级 API 直连
+  // 4. 都没有时用 OpenClaw main agent 兜底
   var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
   var hasImages = pendingImages.length > 0;
   var hasDirectApi = !!(emp.apiKey && emp.aiProvider && emp.aiProvider !== 'openclaw');
@@ -7762,20 +7763,43 @@ async function sendMsg() {
   });
   window._lastUserMessageHadImages = hasImages;
 
-  if (hasImages && !hasDirectApi) {
-    // OpenClaw 当前不支持图片，提前提示并停止
-    typing.remove();
-    showToast('⛔ 图片消息需要员工配置 API 直连（如 OpenAI/Kimi）', 'warning');
-    return;
+  // 图片前置处理：有图片且有 API Key 时，先转成文字描述再发给 OpenClaw
+  if (hasImages && hasDirectApi) {
+    console.log('[Chat] 检测到图片，正在识别图片内容...');
+    // 更新状态显示
+    var typingBubble = document.querySelector('#typingMsg .msg-bubble');
+    if (typingBubble) {
+      typingBubble.innerHTML = '🖼️ 正在识别图片...';
+    }
+    var imageDescriptions = [];
+    for (var i = 0; i < pendingImages.length; i++) {
+      var img = pendingImages[i];
+      var desc = await describeImage(img.base64, emp.apiKey);
+      if (desc) {
+        imageDescriptions.push('图片' + (i+1) + '内容：' + desc);
+      }
+    }
+    if (imageDescriptions.length > 0) {
+      text = text + '\n\n【' + imageDescriptions.length + '张图片内容】\n' + imageDescriptions.join('\n\n');
+      console.log('[Chat] 图片识别完成，已转为文字描述');
+    }
+    // 识别完成，改回思考状态
+    if (typingBubble) {
+      typingBubble.innerHTML = '<span class="thinking-dots">思考中<span>.</span><span>.</span><span>.</span></span>';
+    }
+    // 图片已经转成文字了，清空图片列表
+    pendingImages = [];
+    hasImages = false;
+  } else if (hasImages && !hasDirectApi) {
+    console.log('[Chat] 有图片但未配置 API Key，无法识别图片内容');
   }
 
-  if (hasImages || hasDirectApi) {
-    console.log('[Chat] 使用 API 直连发送');
-    sendViaAPI(emp, text, docContext, timeStr, pendingImages);
-  } else if (ocOk) {
+  if (ocOk) {
+    // 所有消息统一走 OpenClaw 主干道（图片已提前转成文字描述）
     console.log('[Chat] 使用 OpenClaw WS 发送');
     sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages);
   } else if (emp.apiKey && emp.aiProvider) {
+    // OpenClaw 不可用时降级到 API 直连
     console.log('[Chat] OpenClaw 未连接，降级到 API 直连');
     sendViaAPI(emp, text, docContext, timeStr, pendingImages);
   } else {
@@ -7810,6 +7834,133 @@ function extractKeywords(text) {
     }
   }
   return keywords.slice(0, 8);
+}
+
+// OpenClaw 多模态探测工具
+async function probeOpenClawMultimodal() {
+  // 等待连接建立
+  if (!window.openclaw) {
+    console.log('[Probe] 等待 OpenClaw 初始化...');
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  if (!window.openclaw) {
+    console.log('[Probe] OpenClaw 未初始化');
+    return;
+  }
+  
+  // 如果未连接，尝试连接
+  if (!window.openclaw.connected) {
+    console.log('[Probe] 尝试连接 OpenClaw...');
+    try {
+      await window.openclaw.connect();
+    } catch (e) {
+      console.log('[Probe] 连接失败，可能在 mock 模式下继续:', e.message);
+    }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  
+  console.log('[Probe] 开始探测 OpenClaw 多模态支持...');
+  console.log('[Probe] connected:', window.openclaw.connected, 'authenticated:', window.openclaw.authenticated, 'mockMode:', window.openclaw.mockMode);
+  
+  // 测试不同的 method（从前端 JS 中发现的候选）
+  const methodsToTest = [
+    'chat.send',
+    'chat.sendMessage', 
+    'chat.sendImage',
+    'chat.sendMedia',
+    'chat.multimodal',
+    'chat.composer.attach',
+    'chat.composer.start',
+    'chat.run',
+    'chat.gateway',
+    'chat.command',
+    'messages.send',
+    'sessions.sendMessage',
+    'chat.runControls.sendMessage'
+  ];
+  
+  // 测试不同的参数名（针对 chat.send）
+  const paramNamesToTest = [
+    'image', 'images', 'files', 'file', 
+    'attachments', 'media', 'mediaUrls',
+    'content', 'messages', 'input', 'parts',
+    'image_url', 'imageUrls'
+  ];
+  
+  const testImageBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const testSessionKey = 'probe-test-session';
+  
+  // 先测试 method 是否存在
+  for (const method of methodsToTest) {
+    try {
+      const result = await window.openclaw.send(method, {
+        sessionKey: testSessionKey,
+        message: 'test'
+      });
+      console.log(`[Probe] ✅ ${method} 可用:`, result);
+    } catch (e) {
+      const errMsg = e.message || String(e);
+      if (errMsg.includes('unexpected property') || errMsg.includes('must have') || errMsg.includes('must be')) {
+        console.log(`[Probe] ✅ ${method} 存在但参数不对: ${errMsg}`);
+      } else {
+        console.log(`[Probe] ❌ ${method} 不可用: ${errMsg}`);
+      }
+    }
+  }
+  
+  // 测试 chat.send 的不同参数名
+  console.log('[Probe] 测试 chat.send 的不同图片参数名...');
+  for (const paramName of paramNamesToTest) {
+    try {
+      const params = {
+        sessionKey: testSessionKey,
+        message: 'hi'
+      };
+      // 尝试不同的参数结构
+      if (paramName === 'content' || paramName === 'messages') {
+        params[paramName] = [{ role: 'user', content: 'hi' }];
+      } else if (paramName === 'parts') {
+        params[paramName] = [{ text: 'hi' }];
+      } else if (paramName === 'input') {
+        params[paramName] = [{ type: 'input_text', text: 'hi' }];
+      } else {
+        params[paramName] = [testImageBase64];
+      }
+      
+      const result = await window.openclaw.send('chat.send', params);
+      console.log(`[Probe] ✅ chat.send + ${paramName} 成功:`, result);
+    } catch (e) {
+      const errMsg = e.message || String(e);
+      if (errMsg.includes('unexpected property') || errMsg.includes('must have') || errMsg.includes('must be')) {
+        console.log(`[Probe] ❌ chat.send + ${paramName} 不支持: ${errMsg}`);
+      } else {
+        console.log(`[Probe] ⚠️ chat.send + ${paramName} 其他错误: ${errMsg}`);
+      }
+    }
+  }
+  
+  // 测试嵌套参数结构
+  console.log('[Probe] 测试嵌套参数结构...');
+  const nestedTests = [
+    { name: 'options.images', params: { sessionKey: testSessionKey, message: 'hi', options: { images: [testImageBase64] } } },
+    { name: 'options.files', params: { sessionKey: testSessionKey, message: 'hi', options: { files: [testImageBase64] } } },
+    { name: 'meta.images', params: { sessionKey: testSessionKey, message: 'hi', meta: { images: [testImageBase64] } } },
+    { name: 'extra.images', params: { sessionKey: testSessionKey, message: 'hi', extra: { images: [testImageBase64] } } },
+    { name: 'attachments (objects)', params: { sessionKey: testSessionKey, message: 'hi', attachments: [{ type: 'image', url: testImageBase64 }] } },
+    { name: 'message as object (with content array)', params: { sessionKey: testSessionKey, message: { content: [{ type: 'text', text: 'hi' }] } } },
+  ];
+  
+  for (const test of nestedTests) {
+    try {
+      const result = await window.openclaw.send('chat.send', test.params);
+      console.log(`[Probe] ✅ ${test.name} 成功:`, result);
+    } catch (e) {
+      const errMsg = e.message || String(e);
+      console.log(`[Probe] ❌ ${test.name}: ${errMsg}`);
+    }
+  }
+  
+  console.log('[Probe] 探测完成');
 }
 
 // 通过 OpenClaw WS 发送消息
@@ -7882,17 +8033,14 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
     return;
   }
 
-  // 注入 systemPrompt（包含层级关系约束）到用户消息开头
-  var fullMessage = userMessage;
-  if (images && images.length > 0) {
-    fullMessage += '\n\n【用户发送了 ' + images.length + ' 张图片】';
-    images.forEach(function(img) {
-      fullMessage += '\n[图片: ' + img.filename + ']\n' + img.base64;
-    });
-  }
-  if (chatContext) fullMessage = chatContext + '\n\n' + fullMessage;
-  if (systemPrompt) fullMessage = '【System Prompt】\n' + systemPrompt + '\n\n【User Message】\n' + fullMessage;
-
+  // 构建消息内容（systemPrompt + 历史上下文 + 用户消息）
+  // 图片通过 attachments 参数单独传递，不在 message 字符串中
+  var textParts = [];
+  if (systemPrompt) textParts.push('【System Prompt】\n' + systemPrompt);
+  if (chatContext) textParts.push(chatContext);
+  textParts.push('【User Message】\n' + userMessage);
+  var fullMessage = textParts.join('\n\n');
+  
   function _doHandle(reply, isError) {
     console.log('[OpenClaw] _doHandle 调用 reply_len=' + (reply || '').length + ' isError=' + isError);
     var t = document.getElementById('typingMsg');
@@ -7908,6 +8056,22 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
     var sessionKey = 'agent:' + emp.id + ':chat';
     var hasSentWorking = false;
     var hasSentCoding = false;
+    var lifecycleOptions = {};
+    
+    // 有图片时通过 attachments 参数传递（OpenClaw WebSocket 原生支持）
+    if (images && images.length > 0) {
+      lifecycleOptions.images = images;
+    }
+    
+    // 更新打字状态气泡文字
+    function _updateTypingText(html) {
+      var t = document.getElementById('typingMsg');
+      if (t) {
+        var bubble = t.querySelector('.msg-bubble');
+        if (bubble) bubble.innerHTML = html;
+      }
+    }
+    
     var chatResult = await _sendChatWaitForLifecycle(sessionKey, fullMessage, {
       onStream: function (text) {
         if (!hasSentWorking) {
@@ -7917,15 +8081,16 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
         if (!hasSentCoding && (text.indexOf('[TOOL_CALL]') !== -1 || text.indexOf('tool_call') !== -1)) {
           hasSentCoding = true;
           setEmpStatus('coding');
-        }
-        var t = document.getElementById('typingMsg');
-        if (t) {
-          var bubble = t.querySelector('.msg-bubble');
-          if (bubble) bubble.innerHTML = '<span class="thinking-dots">思考中<span>.</span><span>.</span><span>.</span></span>';
+          _updateTypingText('🛠️ 正在调用工具<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>');
         }
       },
       onStartThinking: function () {
         setEmpStatus('thinking');
+        _updateTypingText('<span class="thinking-dots">思考中<span>.</span><span>.</span><span>.</span></span>');
+      },
+      onWorking: function () {
+        setEmpStatus('working');
+        _updateTypingText('🛠️ 正在调用工具<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>');
       },
       onPhase: function (phase) {
         if (phase === 'end') {
@@ -7935,7 +8100,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
           setEmpStatus('online');
         }
       }
-    });
+    }, lifecycleOptions);
+    
     _doHandle(chatResult.reply, chatResult.isError);
     restoreOnline();
   } catch (e) {
@@ -8175,9 +8341,9 @@ const API_PROVIDERS = {
   kimi: {
     name: 'Kimi',
     icon: '🌙',
-    baseUrl: 'https://api.moonshot.cn/v1',
-    models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
-    defaultModel: 'moonshot-v1-8k',
+    baseUrl: 'https://api.kimi.com/coding/v1',
+    models: ['kimi-for-coding'],
+    defaultModel: 'kimi-for-coding',
     keyPlaceholder: 'sk-...'
   },
   deepseek: {
@@ -11578,7 +11744,16 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
           done();
         }
       }, lifecycleWaitMs);
-      openclaw.sendChat(sessionKey, prompt).then(function (result) {
+      // 构建 sendChat 的额外参数（如 images、files 等）
+      var sendExtraParams = {};
+      if (options.images && options.images.length > 0) {
+        // 使用 attachments 参数传递图片（OpenClaw 网关标准参数）
+        // 格式：对象数组，带 type 和 url，确保模型识别为图片输入
+        sendExtraParams.attachments = options.images.map(function(img) {
+          return { type: "image", url: img.base64 || img.url || img };
+        });
+      }
+      openclaw.sendChat(sessionKey, prompt, sendExtraParams).then(function (result) {
         // 如果 lifecycle 在 sendChat resolve 之前已经触发，resolve 已在 handler 中完成
         // 如果 lifecycle 尚未触发，sendChat 返回的 result.content 可作为备用
         if (!lifecycleEnded && result) {
@@ -17259,7 +17434,7 @@ async function callRealAI(userMessage, context) {
       body: JSON.stringify({
         model: AI_CONFIG.model || 'gpt-4o',
         messages: messages,
-        temperature: 0.8
+        temperature: 1.0
       })
     });
     if (!res.ok) {
@@ -17280,6 +17455,43 @@ async function callRealAI(userMessage, context) {
       return '⚠️ 网络错误，可能遇到 CORS 限制\n\n解决方案：\n1. 安装 "Allow CORS" 浏览器扩展\n2. 或使用 Chrome 启动参数：\n   --disable-web-security --user-data-dir';
     }
     return '⚠️ AI 调用失败: ' + error.message;
+  }
+}
+
+// ========== 图片转文字描述（前置处理） ==========
+async function describeImage(imageBase64, apiKey) {
+  try {
+    var endpoint = 'https://api.kimi.com/coding/v1/chat/completions';
+    var res = await apiFetch('/api/proxy', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-AI-API-Key': apiKey,
+        'X-Target-URL': endpoint
+      },
+      body: JSON.stringify({
+        model: 'kimi-for-coding',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: '请详细描述这张图片的全部内容，包括所有可见的文字、物品、颜色、布局、数字、价格等信息。如果是商品图片，请提取商品名称、品牌、价格、规格、库存、卖点等关键信息。尽量完整详细。' },
+              { type: 'image_url', image_url: { url: imageBase64 } }
+            ]
+          }
+        ],
+        temperature: 1.0,
+        max_tokens: 2000
+      })
+    });
+    var data = await res.json();
+    if (data && data.choices && data.choices[0] && data.choices[0].message) {
+      return data.choices[0].message.content || '';
+    }
+    return '';
+  } catch (e) {
+    console.warn('[Image] 图片识别失败:', e);
+    return '';
   }
 }
 
@@ -17406,7 +17618,7 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
     body: JSON.stringify({
       model: model,
       messages: messages,
-      temperature: 0.8,
+      temperature: 1.0,
       max_tokens: 2000
     })
   }).then(function (res) {

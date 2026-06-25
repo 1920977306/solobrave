@@ -499,12 +499,15 @@ class OpenClawClient {
   }
 
   // 发送聊天消息
-  async sendChat(sessionKey, message) {
-    return this.send('chat.send', {
+  async sendChat(sessionKey, message, options = {}) {
+    const params = {
       sessionKey,
       message: message,
       idempotencyKey: Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 8)
-    });
+    };
+    // 合并额外参数（如 images、files 等）
+    Object.assign(params, options);
+    return this.send('chat.send', params);
   }
 
 
