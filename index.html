@@ -7284,6 +7284,8 @@ function hasModulePermission(module) {
   if (isAdmin()) return true;
   var perms = currentUser.permissions;
   if (!perms || !perms.modules) return true; // 未配置权限时默认放行（兼容旧数据）
+  // 后端未下发的模块默认放行，避免新增模块后旧权限数据误拒
+  if (!(module in perms.modules)) return true;
   return !!perms.modules[module];
 }
 
@@ -7741,22 +7743,39 @@ async function sendMsg() {
   // 获取文档上下文
   const docContext = await getDocContextForChat();
 
-  // OpenClaw WS → API 直连降级
+  // 路由策略：
+  // 1. 图片消息必须使用支持 vision 的 API 直连（OpenClaw chat.send 只传字符串，无法识别图片）
+  // 2. 员工显式配置了非 openclaw 的 aiProvider + apiKey 时，优先 API 直连（避免 OpenClaw 网关/模型慢）
+  // 3. 否则走 OpenClaw；OpenClaw 未连接再降级 API
   var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
+  var hasImages = pendingImages.length > 0;
+  var hasDirectApi = !!(emp.apiKey && emp.aiProvider && emp.aiProvider !== 'openclaw');
   console.log('[Chat] 发送消息:', {
     empId: emp.id,
     empName: emp.name,
     openclawName: emp.openclawName,
     apiProvider: emp.apiProvider,
     aiProvider: emp.aiProvider,
+    hasImages: hasImages,
+    hasDirectApi: hasDirectApi,
     ocOk: ocOk
   });
-  window._lastUserMessageHadImages = pendingImages.length > 0;
-  if (ocOk) {
+  window._lastUserMessageHadImages = hasImages;
+
+  if (hasImages && !hasDirectApi) {
+    // OpenClaw 当前不支持图片，提前提示并停止
+    typing.remove();
+    showToast('⛔ 图片消息需要员工配置 API 直连（如 OpenAI/Kimi）', 'warning');
+    return;
+  }
+
+  if (hasImages || hasDirectApi) {
+    console.log('[Chat] 使用 API 直连发送');
+    sendViaAPI(emp, text, docContext, timeStr, pendingImages);
+  } else if (ocOk) {
     console.log('[Chat] 使用 OpenClaw WS 发送');
     sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages);
   } else if (emp.apiKey && emp.aiProvider) {
-    // Gateway 未连接，降级到 API 直连
     console.log('[Chat] OpenClaw 未连接，降级到 API 直连');
     sendViaAPI(emp, text, docContext, timeStr, pendingImages);
   } else {
@@ -11513,6 +11532,7 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
   callbacks = callbacks || {};
   options = options || {};
   var priority = typeof options.priority === 'number' ? options.priority : 1;
+  var lifecycleWaitMs = typeof options.timeout === 'number' ? options.timeout : 30000;
   return new Promise(function (resolve, reject) {
     _enqueueOcCall(function (done) {
       var fullReply = '';
@@ -11549,15 +11569,15 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
         }
       };
       openclaw.on('agent', handler);
-      // 兜底超时：60 秒后如果 lifecycle 仍未结束，也返回已收集的内容
+      // 兜底超时：默认 30 秒 lifecycle 仍未结束，返回已收集内容，避免无限等待
       lifecycleTimeout = setTimeout(function () {
         if (!lifecycleEnded) {
-          console.warn('[LifecycleWait] 超时未收到 lifecycle end，返回已收集内容，长度=' + fullReply.length);
+          console.warn('[LifecycleWait] 超时未收到 lifecycle end（' + lifecycleWaitMs + 'ms），返回已收集内容，长度=' + fullReply.length);
           openclaw.off('agent', handler);
           resolve({ reply: fullReply, isError: false, lifecycleEnded: false, fullReply: fullReply });
           done();
         }
-      }, 60000);
+      }, lifecycleWaitMs);
       openclaw.sendChat(sessionKey, prompt).then(function (result) {
         // 如果 lifecycle 在 sendChat resolve 之前已经触发，resolve 已在 handler 中完成
         // 如果 lifecycle 尚未触发，sendChat 返回的 result.content 可作为备用
