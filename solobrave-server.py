@@ -9860,30 +9860,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(503, 'AI analysis failed or returned empty response')
             return
 
-        # 解析 JSON（兼容 markdown 代码块）
-        cleaned = content.strip()
-        if cleaned.startswith('```'):
-            cleaned = cleaned.split('```', 2)[-1].strip()
-            if cleaned.lower().startswith('json'):
-                cleaned = cleaned[4:].strip()
-        try:
-            analysis = json.loads(cleaned)
-        except Exception:
-            # 尝试从文本中提取第一个 JSON 对象
-            start = cleaned.find('{')
-            end = cleaned.rfind('}')
-            if start != -1 and end != -1 and end > start:
-                try:
-                    analysis = json.loads(cleaned[start:end + 1])
-                except Exception:
-                    self._send_json_error(500, 'AI response is not valid JSON')
-                    return
-            else:
-                self._send_json_error(500, 'AI response is not valid JSON')
-                return
-
+        # 解析 JSON（兼容 markdown 代码块、冗余文本）
+        analysis = _extract_json_object(content)
         if not isinstance(analysis, dict):
-            self._send_json_error(500, 'AI response is not a JSON object')
+            print(f'  [Analyze] product_analyze AI response is not a valid JSON object: {content[:1000]}', flush=True)
+            self._send_json_error(503, 'AI response is not valid JSON')
             return
 
         now_ts = int(time.time() * 1000)
@@ -11372,28 +11353,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(503, 'AI analysis failed or returned empty response')
             return
 
-        cleaned = content.strip()
-        if cleaned.startswith('```'):
-            cleaned = cleaned.split('```', 2)[-1].strip()
-            if cleaned.lower().startswith('json'):
-                cleaned = cleaned[4:].strip()
-        try:
-            analysis = json.loads(cleaned)
-        except Exception:
-            start = cleaned.find('{')
-            end = cleaned.rfind('}')
-            if start != -1 and end != -1 and end > start:
-                try:
-                    analysis = json.loads(cleaned[start:end + 1])
-                except Exception:
-                    self._send_json_error(500, 'AI response is not valid JSON')
-                    return
-            else:
-                self._send_json_error(500, 'AI response is not valid JSON')
-                return
-
+        # 解析 JSON（兼容 markdown 代码块、冗余文本）
+        analysis = _extract_json_object(content)
         if not isinstance(analysis, dict):
-            self._send_json_error(500, 'AI response is not a JSON object')
+            print(f'  [Analyze] talent_analyze AI response is not a valid JSON object: {content[:1000]}', flush=True)
+            self._send_json_error(503, 'AI response is not valid JSON')
             return
 
         now_ts = int(time.time() * 1000)
@@ -11686,7 +11650,10 @@ def _extract_text_from_openclaw_output(obj):
             if text:
                 return text
     if isinstance(obj, dict):
-        # 常见字段：旧 infer 用 outputs[].text；新 agent 可能用 content/text/message/result
+        # 旧 infer 命令常用 outputs[0].text
+        if 'outputs' in obj:
+            return _extract_text_from_openclaw_output(obj['outputs'])
+        # 常见字段：新 agent 可能用 content/text/message/result
         for key in ('text', 'content', 'message', 'result', 'output', 'response', 'reply', 'answer'):
             val = obj.get(key)
             if isinstance(val, str) and val.strip():
@@ -11837,16 +11804,23 @@ def _call_ai_analysis(messages, cfg=None, context=''):
     return None
 
 
+def _strip_markdown_json_fence(text):
+    """去掉 ```json ... ``` 或 ``` ... ``` 围栏，返回内部内容"""
+    cleaned = text.strip()
+    if cleaned.startswith('```'):
+        parts = cleaned.split('```', 2)
+        if len(parts) >= 3:
+            cleaned = parts[1].strip()
+            if cleaned.lower().startswith('json'):
+                cleaned = cleaned[4:].strip()
+    return cleaned
+
+
 def _extract_json_array(text):
     """从 AI 返回文本中提取第一个 JSON 数组；失败返回 []"""
     if not text:
         return []
-    cleaned = text.strip()
-    # 去掉 markdown 代码块标记
-    if cleaned.startswith('```'):
-        cleaned = cleaned.split('```', 2)[-1].strip()
-        if cleaned.lower().startswith('json'):
-            cleaned = cleaned[4:].strip()
+    cleaned = _strip_markdown_json_fence(text)
     # 找第一个 '[' 和匹配的最后一个 ']'
     start = cleaned.find('[')
     end = cleaned.rfind(']')
@@ -11861,6 +11835,58 @@ def _extract_json_array(text):
     except Exception:
         pass
     return []
+
+
+def _extract_json_object(text):
+    """从 AI 返回文本中提取第一个 JSON 对象；失败返回 None
+
+    兼容 markdown 代码块、前后冗余文本、嵌套花括号等情况。
+    """
+    if not text:
+        return None
+    cleaned = _strip_markdown_json_fence(text)
+    # 先尝试整段解析
+    try:
+        obj = json.loads(cleaned)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+    # 按花括号深度寻找第一个平衡的 JSON 对象
+    start = cleaned.find('{')
+    while start != -1:
+        depth = 0
+        in_str = False
+        esc = False
+        end = -1
+        for i in range(start, len(cleaned)):
+            c = cleaned[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == '\\':
+                    esc = True
+                elif c == '"':
+                    in_str = False
+            else:
+                if c == '"':
+                    in_str = True
+                elif c == '{':
+                    depth += 1
+                elif c == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+        if end > start:
+            try:
+                obj = json.loads(cleaned[start:end + 1])
+                if isinstance(obj, dict):
+                    return obj
+            except Exception:
+                pass
+        start = cleaned.find('{', start + 1)
+    return None
 
 
 def _generate_mock_knowledge_docs(prompt, agent):
