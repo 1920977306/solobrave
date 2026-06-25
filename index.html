@@ -7924,12 +7924,12 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
     restoreOnline();
-    // Agent 不存在时自动降级到 main
+    // Agent 不存在时自动降级到 main，但 sessionKey 仍按员工隔离，避免多个员工共用 agent:main:main 导致上下文串扰
     var agentName = emp.openclawName || 'main';
     if (agentName !== 'main' && e.message && e.message.includes('no longer exists')) {
-      console.warn('[OpenClaw] Agent "' + agentName + '" 不存在，降级到 main');
+      console.warn('[OpenClaw] Agent "' + agentName + '" 不存在，降级到 main（员工隔离 session）');
       emp._fallbackToMain = true;
-      var fallbackKey = 'agent:main:main';
+      var fallbackKey = 'agent:main:chat-' + emp.id;
       try {
         var retryResult = await _sendChatWaitForLifecycle(fallbackKey, fullMessage);
         console.log('[OpenClaw] main agent 重试返回:', JSON.stringify(retryResult));
@@ -13944,12 +13944,30 @@ function filterModels(q) {
   });
 }
 
+// 重置指定员工在 OpenClaw 网关侧的所有可能 session（主 session + main 降级隔离 session）
+function _resetEmpOpenClawSessions(empId) {
+  if (typeof openclaw === 'undefined' || !openclaw.connected || !openclaw.authenticated) return;
+  var keys = [
+    'agent:' + empId + ':chat',
+    'agent:main:chat-' + empId
+  ];
+  keys.forEach(function (sessionKey) {
+    openclaw.resetSession(sessionKey).then(function (res) {
+      console.log('[resetContext] OpenClaw session reset ok:', sessionKey, res);
+    }).catch(function (e) {
+      console.warn('[resetContext] OpenClaw session reset failed:', sessionKey, e);
+    });
+  });
+}
+
 // 斜杠命令实现
 function resetContext() {
   var empId = localStorage.getItem('sb_current_emp');
   var groupId = currentGroupId;
-  if (empId) {
-    // 清空后端记录
+  if (empId && !groupId) {
+    // 1. 重置 OpenClaw 网关侧 session（真正清空 AI 侧上下文）
+    _resetEmpOpenClawSessions(empId);
+    // 2. 清空后端本地聊天记录
     if (typeof apiFetch === 'function') {
       apiFetch('/api/chat/' + encodeURIComponent(empId), {
         method: 'DELETE'
@@ -19931,11 +19949,8 @@ function closeResetModal() {
 }
 function doReset() {
   closeResetModal();
-  document.getElementById('messagesArea').innerHTML = '<div class="time-separator"><span>今天 ' + new Date().toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit'
-  }) + '</span></div>';
-  showToast('🔄 上下文已重置');
+  // 统一调用 resetContext，真正清空后端聊天记录 + OpenClaw session
+  resetContext();
 }</script>
 
  -->

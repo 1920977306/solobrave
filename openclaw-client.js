@@ -513,6 +513,11 @@ class OpenClawClient {
     return this.send('chat.abort', { sessionKey });
   }
 
+  // 重置指定 session（清空 OpenClaw 网关侧上下文）
+  async resetSession(sessionKey) {
+    return this.send('sessions.reset', { key: sessionKey });
+  }
+
   // 获取模型列表
   async listModels() {
     return this.send('models.list', {});
