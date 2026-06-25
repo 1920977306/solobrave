@@ -22,6 +22,7 @@ import subprocess
 import ssl
 import sys
 import threading
+import traceback
 import urllib.request
 import urllib.error
 import hashlib
@@ -72,9 +73,19 @@ PROXY_TIMEOUT = 60  # 秒
 ALLOWED_HTTP_METHODS = {'GET', 'HEAD', 'POST', 'OPTIONS', 'DELETE'}
 ALLOWED_DOMAINS = []  # 域名白名单，留空不限制
 
-# OpenClaw CLI 路径
-OPENCLAW_CLI = '/opt/homebrew/bin/openclaw'
+# OpenClaw CLI 路径（支持环境变量 / PATH 探测 / mac 默认回退）
+def _detect_openclaw_cli():
+    env_cli = os.environ.get('OPENCLAW_CLI', '').strip()
+    if env_cli and os.path.isfile(env_cli):
+        return env_cli
+    which_cli = shutil.which('openclaw')
+    if which_cli:
+        return which_cli
+    return '/opt/homebrew/bin/openclaw'
+
+OPENCLAW_CLI = _detect_openclaw_cli()
 OPENCLAW_TIMEOUT = 120
+OPENCLAW_DEFAULT_AGENT = os.environ.get('OPENCLAW_DEFAULT_AGENT', '').strip() or 'main'
 
 # 数据存储目录（项目内 data/ 目录，支持 --data 覆盖）
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
@@ -1380,7 +1391,7 @@ def _run_openclaw(args, cwd=None, input_data=None):
     env = os.environ.copy()
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True,
+            cmd, capture_output=True, text=True, encoding='utf-8', errors='replace',
             timeout=OPENCLAW_TIMEOUT, cwd=cwd, env=env, input=input_data
         )
         return True, result.stdout, result.stderr, result.returncode
@@ -9822,15 +9833,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         cfg = get_embedding_config()
-        api_key = cfg['apiKey']
-        if not api_key:
-            self._send_json_error(503, 'AI service not configured: missing API key')
-            return
-
         # 优先使用 kimicode；未配置时回退到全局 embedding provider
-        api_provider = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
-        api_model = cfg['model'] or _resolve_ai_model(api_provider, '')
-        base_url = cfg['baseUrl'] or _resolve_ai_base_url(api_provider, '')
+        cfg['provider'] = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
+        cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
+        cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
 
         prompt = (
             f"请为以下商品做选品分析，只返回 JSON，不要返回其他内容。\n"
@@ -9849,7 +9855,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             {'role': 'system', 'content': '你是电商选品分析助手，擅长根据商品数据给出结构化分析。'},
             {'role': 'user', 'content': prompt}
         ]
-        content = _call_chat_completion(api_provider, api_key, api_model, base_url, messages)
+        content = _call_ai_analysis(messages, cfg=cfg, context='product_analyze')
         if not content:
             self._send_json_error(503, 'AI analysis failed or returned empty response')
             return
@@ -11338,14 +11344,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         cfg = get_embedding_config()
-        api_key = cfg['apiKey']
-        if not api_key:
-            self._send_json_error(503, 'AI service not configured: missing API key')
-            return
-
-        api_provider = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
-        api_model = cfg['model'] or _resolve_ai_model(api_provider, '')
-        base_url = cfg['baseUrl'] or _resolve_ai_base_url(api_provider, '')
+        cfg['provider'] = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
+        cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
+        cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
 
         prompt = (
             f"请为以下抖音达人做综合分析，只返回 JSON，不要返回其他内容。\n"
@@ -11366,7 +11367,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             {'role': 'system', 'content': '你是电商达人分析助手，擅长根据达人数据给出结构化分析。'},
             {'role': 'user', 'content': prompt}
         ]
-        content = _call_chat_completion(api_provider, api_key, api_model, base_url, messages)
+        content = _call_ai_analysis(messages, cfg=cfg, context='talent_analyze')
         if not content:
             self._send_json_error(503, 'AI analysis failed or returned empty response')
             return
@@ -11650,20 +11651,189 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
         'Content-Length': str(len(req_body))
     }
 
+    masked_key = f'{api_key[:4]}...' if api_key and len(api_key) > 4 else '(none)'
+    print(f'  [API] chat completion request: provider={api_provider} model={resolved_model} url={target_url} key={masked_key}', flush=True)
     try:
         req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
         ctx = ssl.create_default_context()
         resp = urllib.request.urlopen(req, timeout=timeout, context=ctx)
-        resp_data = json.loads(resp.read().decode('utf-8'))
+        status = resp.status
+        raw = resp.read().decode('utf-8', errors='replace')
+        print(f'  [API] chat completion response: HTTP {status}', flush=True)
+        resp_data = json.loads(raw)
         if resp_data.get('choices') and resp_data['choices'][0].get('message'):
             return resp_data['choices'][0]['message'].get('content', '')
+        print(f'  [API] chat completion unexpected format: {raw[:500]}', flush=True)
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8', errors='replace')
         print(f'  ❌ AI API call failed: HTTP {e.code} {e.reason}', flush=True)
-        print(f'      Provider: {api_provider}, URL: {target_url}', flush=True)
+        print(f'      Provider: {api_provider}, Model: {resolved_model}, URL: {target_url}', flush=True)
+        print(f'      Request body preview: {req_body[:500].decode("utf-8", errors="replace")}', flush=True)
         print(f'      Response: {error_body}', flush=True)
     except Exception as e:
         print(f'  ❌ AI API call failed: {e}', flush=True)
+        traceback.print_exc()
+    return None
+
+
+def _extract_text_from_openclaw_output(obj):
+    """从 OpenClaw JSON 输出中尽量提取文本回复；支持新旧多种格式"""
+    if isinstance(obj, str):
+        return obj if obj.strip() else None
+    if isinstance(obj, list):
+        for item in obj:
+            text = _extract_text_from_openclaw_output(item)
+            if text:
+                return text
+    if isinstance(obj, dict):
+        # 常见字段：旧 infer 用 outputs[].text；新 agent 可能用 content/text/message/result
+        for key in ('text', 'content', 'message', 'result', 'output', 'response', 'reply', 'answer'):
+            val = obj.get(key)
+            if isinstance(val, str) and val.strip():
+                return val
+            if isinstance(val, (dict, list)):
+                text = _extract_text_from_openclaw_output(val)
+                if text:
+                    return text
+        # 兼容 chat/completions 风格
+        if 'choices' in obj:
+            return _extract_text_from_openclaw_output(obj['choices'])
+    return None
+
+
+def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLAW_TIMEOUT):
+    """调用 OpenClaw CLI 并返回原始文本内容；失败返回 None
+
+    兼容两种 CLI 形态：
+      - 新版：openclaw agent --message <prompt> --json
+      - 旧版：openclaw infer model run --prompt <prompt> --json
+    """
+    if not os.path.isfile(OPENCLAW_CLI):
+        print(f'  [OpenClaw] CLI not found at {OPENCLAW_CLI}', flush=True)
+        return None
+
+    full_prompt = ''
+    if system_prompt:
+        full_prompt += system_prompt + '\n\n'
+    full_prompt += prompt
+
+    # 与大脑知识中枢保持一致：过长 prompt 截断
+    MAX_PROMPT_LEN = 10000
+    if len(full_prompt) > MAX_PROMPT_LEN:
+        print(f'  [OpenClaw] WARNING: prompt too long ({len(full_prompt)}), truncating to {MAX_PROMPT_LEN}', flush=True)
+        full_prompt = full_prompt[:MAX_PROMPT_LEN]
+
+    # 新版 CLI：openclaw agent --message ... --json（项目环境更可能可用）
+    # 旧版 CLI：openclaw infer model run --prompt ... --json（代码历史写法，保留兼容）
+    variants = []
+    # 使用默认 OpenClaw agent 执行一次 agent turn；--timeout 避免无限等待
+    agent_args = [OPENCLAW_CLI, 'agent', '--agent', OPENCLAW_DEFAULT_AGENT, '--message', full_prompt, '--json', '--timeout', str(timeout)]
+    variants.append(('agent', agent_args))
+    infer_args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--prompt', full_prompt, '--json']
+    if model:
+        infer_args.extend(['--model', model])
+    variants.append(('infer', infer_args))
+
+    for name, args in variants:
+        print(f'  [OpenClaw] {name} cmd: {" ".join(args)}', flush=True)
+        try:
+            result = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=timeout
+            )
+            stdout, stderr, returncode = result.stdout, result.stderr, result.returncode
+            if returncode != 0:
+                print(f'  [OpenClaw] {name} failed (code={returncode}):', flush=True)
+                print(f'      stderr: {stderr}', flush=True)
+                print(f'      stdout: {stdout}', flush=True)
+                # 如果当前命令不存在，继续尝试旧命令；否则直接返回 None
+                if 'unknown command' in (stderr or '').lower():
+                    continue
+                return None
+            try:
+                output = json.loads(stdout)
+            except Exception:
+                print(f'  [OpenClaw] {name} output is not JSON: {stdout[:500]}', flush=True)
+                continue
+            content = _extract_text_from_openclaw_output(output)
+            if content:
+                print(f'  [OpenClaw] {name} success, content length={len(content)}', flush=True)
+                return content
+            print(f'  [OpenClaw] {name} returned empty/unrecognized content: {stdout[:500]}', flush=True)
+        except subprocess.TimeoutExpired as e:
+            print(f'  [OpenClaw] {name} timed out after {timeout}s (gateway offline?): {e}', flush=True)
+            return None
+        except Exception as e:
+            print(f'  [OpenClaw] {name} _call_openclaw_infer failed: {e}', flush=True)
+            traceback.print_exc()
+            return None
+    return None
+
+
+def _call_ai_analysis(messages, cfg=None, context=''):
+    """统一后端 AI 分析调用：优先 OpenClaw，其次 API 直连；失败返回 None
+
+    注意：cfg 通常来自 embedding 配置，其中的 model 是 Embedding 模型，不能用于聊天/分析。
+    因此分析任务使用 provider 对应的聊天默认模型（除非 cfg 显式传入了 apiModel）。
+    """
+    cfg = cfg or {}
+    provider = cfg.get('provider', '') or 'kimicode'
+    # 分析任务使用聊天模型；cfg['model'] 是 Embedding 模型，必须忽略
+    chat_model = _resolve_ai_model(provider, cfg.get('apiModel', ''))
+    api_key = cfg.get('apiKey', '')
+    base_url = cfg.get('baseUrl', '') or _resolve_ai_base_url(provider, '')
+
+    # 若全局/embedding 未配置 API Key，尝试使用第一个有 API Key 的员工作为兜底
+    if not api_key:
+        for agent in (_load_agents() or []):
+            agent_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
+            agent_key = (agent.get('apiKey', '') or '').strip()
+            if agent_provider and agent_key:
+                provider = agent_provider
+                api_key = agent_key
+                base_url = agent.get('customEndpoint', '') or _resolve_ai_base_url(provider, '')
+                chat_model = agent.get('apiModel', '') or _resolve_ai_model(provider, '')
+                print(f'  [AI] fallback to agent {agent.get("id")} AI config for {context}', flush=True)
+                break
+
+    system_parts = []
+    user_parts = []
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        role = m.get('role')
+        content = m.get('content', '')
+        if role == 'system':
+            system_parts.append(content)
+        elif role == 'user':
+            user_parts.append(content)
+    full_prompt = '\n\n'.join(user_parts).strip()
+    system_prompt = '\n\n'.join(system_parts).strip()
+
+    masked_key = f'{api_key[:4]}...' if api_key and len(api_key) > 4 else '(none)'
+    print(f'  [AI] start analysis context={context} provider={provider} chat_model={chat_model} key={masked_key} openclaw={OPENCLAW_CLI}', flush=True)
+
+    # 1. 优先 OpenClaw（项目主推的 AI 网关）
+    if os.path.isfile(OPENCLAW_CLI):
+        content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=30)
+        if content:
+            return content
+        print(f'  [AI] OpenClaw failed for {context}, will try direct API fallback', flush=True)
+    else:
+        print(f'  [AI] OpenClaw CLI not available for {context}, skip to direct API', flush=True)
+
+    # 2. 兜底：API 直连（需配置 API Key）
+    if api_key:
+        content = _call_chat_completion(provider, api_key, chat_model, base_url, messages)
+        if content:
+            return content
+    else:
+        print(f'  [AI] no API key configured for {context}, skip direct API fallback', flush=True)
+
     return None
 
 
@@ -11755,37 +11925,11 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
         print(f'  [OpenClaw] WARNING: prompt too long ({len(full_prompt)}), truncating to {MAX_PROMPT_LEN}', flush=True)
         full_prompt = full_prompt[:MAX_PROMPT_LEN]
 
-    # FIXME: 修复_openclaw调用方式：openclaw infer model run 必须用 --prompt 参数，不能走 stdin
-    # 2. 构造 openclaw CLI 调用
-    args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--prompt', full_prompt, '--json']
-    print(f'  [OpenClaw] infer cmd: {" ".join(args[:6])} ... --model {api_model if api_model else "(none)"}', flush=True)
-
-    # 3. 有 apiModel 就加 --model 参数
-    if api_model:
-        args.extend(['--model', api_model])
-
-    try:
-        # FIXME: 修复_openclaw调用方式：使用 subprocess.run + --prompt 参数，确保正确传递
-        result = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            timeout=OPENCLAW_TIMEOUT
-        )
-        stdout, stderr, returncode = result.stdout, result.stderr, result.returncode
-
-        if returncode != 0:
-            print(f'  [OpenClaw] infer failed (code={returncode}): {stderr}', flush=True)
-            return None
-        # 4. 解析返回 JSON，从 outputs[0].text 取 AI 回复
-        output = json.loads(stdout)
-        content = output.get('outputs', [{}])[0].get('text', '')
-        # 5. 提取 JSON 数组返回
-        return _extract_json_array(content)
-    except Exception as e:
-        # 6. 出错打印错误返回 None
-        print(f'  [OpenClaw] _call_ai_for_json failed: {e}', flush=True)
+    # 调用 OpenClaw CLI 并提取 JSON 数组
+    content = _call_openclaw_infer(full_prompt, model=api_model)
+    if content is None:
         return None
+    return _extract_json_array(content)
 
 
 def _call_ai_api(agent, user_message, user_info=None, include_history=True, group_id=None,
