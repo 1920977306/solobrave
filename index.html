@@ -7629,6 +7629,7 @@ async function sendMsg() {
 
   // 群聊模式：不走个人聊天状态流，直接转发
   if (currentGroupId) {
+    window._toolMentionDepth = 0;
     var mentions = [];
     // @提及名字中不能包含中英文标点、括号、另一 @ 或空格
     var mentionRegex = /@([^\s@,，.。！？;；:：、（）()\[\]【】{}<>"'&]{1,20})/g;
@@ -7643,6 +7644,7 @@ async function sendMsg() {
     if (md) md.classList.remove('active');
     var sm = document.getElementById('slashMenu');
     if (sm) sm.classList.remove('active');
+    window._lastUserImages = pendingImages.slice();
     clearPendingImages();
     updateSendButtonState();
     sendGroupMessage(currentGroupId, text, mentions, pendingImages);
@@ -7727,6 +7729,8 @@ async function sendMsg() {
   var imagesHtml = buildChatImagesHtml(pendingImages);
   userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + formatMessageContent(text || '') + '</div>' + imagesHtml + '</div>';
   area.appendChild(userMsg);
+  // 保留当前用户消息的图片，供 describe_image 工具使用
+  window._lastUserImages = pendingImages.slice();
   input.value = '';
   clearPendingImages();
   updateSendButtonState();
@@ -7742,6 +7746,9 @@ async function sendMsg() {
 
   // 获取文档上下文
   const docContext = await getDocContextForChat();
+
+  // 每次新的用户消息重置工具@深度计数
+  window._toolMentionDepth = 0;
 
   // 路由策略：
   // 1. 图片消息必须使用支持 vision 的 API 直连（OpenClaw chat.send 只传字符串，无法识别图片）
@@ -7767,6 +7774,21 @@ async function sendMsg() {
     typing.remove();
     showToast('⛔ 图片消息需要员工配置 API 直连（如 OpenAI/Kimi）', 'warning');
     return;
+  }
+
+  // 商品图批量识别录入：当用户发送多张图片且符合商品录入意图时，先逐张识别并展示确认卡片
+  if (hasImages && hasDirectApi && shouldTriggerBatchProductRecognition(text, pendingImages.length)) {
+    try {
+      var extractedProducts = await extractProductsFromImages(emp, pendingImages);
+      if (extractedProducts.length > 0) {
+        typing.remove();
+        renderPendingProductsCard(emp, extractedProducts, { docContext: docContext, timeStr: timeStr, sourceText: text });
+        restoreOnline();
+        return;
+      }
+    } catch (e) {
+      console.warn('[BatchProduct] 批量识别异常:', e);
+    }
   }
 
   if (hasImages || hasDirectApi) {
@@ -7829,7 +7851,7 @@ function createStreamingBubble(emp, timeStr) {
   wrap.innerHTML = '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' +
     '<div class="msg-content">' +
       '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp)) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' +
-      '<div class="msg-bubble" id="streamingBubble" style="white-space:pre-wrap;"></div>' +
+      '<div class="msg-bubble" id="streamingBubble" style="white-space:pre-wrap;"><span id="streamingText" style="white-space:pre-wrap;"></span><div id="streamingToolCards" class="tool-call-cards"></div></div>' +
     '</div>';
   area.appendChild(wrap);
   area.scrollTop = area.scrollHeight;
@@ -7952,9 +7974,22 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
           hasSentCoding = true;
           setEmpStatus('coding');
         }
-        // 实时将流式文本用 innerText 更新到气泡中（纯文本，避免半拉标签）
+        // 实时将流式文本更新到气泡中，并可视化工具调用
         if (streamingBubble) {
-          streamingBubble.innerText = text || '';
+          var streamingText = streamingBubble.querySelector('#streamingText');
+          if (streamingText) streamingText.textContent = stripToolCallsFromText(text || '');
+          if (text && (text.indexOf('[TOOL_CALL]') !== -1 || text.indexOf('tool_call') !== -1)) {
+            var streamingToolCards = streamingBubble.querySelector('#streamingToolCards');
+            if (streamingToolCards) {
+              var calls = parseToolCalls(text);
+              calls.forEach(function(call) {
+                var key = _toolCallKeyAttr(call);
+                if (!streamingToolCards.querySelector('[data-tool-key="' + key + '"]')) {
+                  streamingToolCards.appendChild(createToolCallCard(call, { status: 'running' }));
+                }
+              });
+            }
+          }
           var area = document.getElementById('messagesArea');
           if (area) area.scrollTop = area.scrollHeight;
         }
@@ -8239,6 +8274,25 @@ const API_PROVIDERS = {
     keyPlaceholder: '自定义 API Key'
   }
 };
+
+// 商品图识别 Prompt：要求模型输出结构化 JSON
+var PRODUCT_IMAGE_RECOGNITION_PROMPT = '你是一名电商商品信息识别助手。请仔细观察用户上传的商品图片，并以严格 JSON 格式输出商品信息，不要输出任何额外文字（包括 markdown 代码块标记）。\n' +
+  '字段说明：\n' +
+  '- name: 商品名称（必填，字符串）\n' +
+  '- price: 价格（数字，识别不到填 0）\n' +
+  '- category: 商品分类（如 鞋靴/凉鞋；识别不到填空字符串）\n' +
+  '- brand: 品牌名（识别不到填空字符串）\n' +
+  '- stock: 库存数量（数字，识别不到填 0）\n' +
+  '- commission_rate: 佣金率百分比（数字，识别不到填 0）\n' +
+  '- selling_points: 核心卖点文本（识别不到填空字符串）\n' +
+  '- sku_specs: SKU 规格对象，例如 {"SKU":"SKU001","尺码":"37-40"}，无规格时填 {}\n' +
+  '- tags: 标签数组（如 ["凉鞋","厚底"]；无标签填 []）\n' +
+  '- subtitle: 副标题/描述（识别不到填空字符串）\n' +
+  '- main_image: 商品主图 URL（图片中无法获取则留空）\n' +
+  '- is_product: 布尔值，图片是否为可录入商品\n' +
+  '- note: 若无法识别或不是商品，在此说明原因\n' +
+  '输出示例：\n' +
+  '{"name":"2024新款厚底凉鞋","price":199,"category":"鞋靴/凉鞋","brand":"COOLCHAP","stock":1000,"commission_rate":20,"selling_points":"厚底增高、舒适透气、百搭休闲","sku_specs":{"SKU":"SKU2024001"},"tags":["凉鞋","厚底"],"subtitle":"2024新款厚底凉鞋，时尚百搭","main_image":"","is_product":true,"note":""}';
 
 // State
 let currentTab = 'employees';
@@ -12480,6 +12534,9 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   // 如果有工具调用，主大脑自动执行并展示结果
   if (toolCalls.length > 0) {
     (async function() {
+      toolCalls.forEach(function(call) {
+        call._context = { docContext: '', timeStr: timeStr, empId: senderId, groupId: groupId };
+      });
       for (var i = 0; i < toolCalls.length; i++) {
         var result = await executeToolCall(toolCalls[i]);
         var toolTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
@@ -17492,6 +17549,257 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
   });
 }
 
+// 调用支持 vision 的 API 识别单张图片，返回解析后的 JSON（失败返回带 error 字段的对象）
+async function describeImage(emp, base64, prompt) {
+  if (!emp || !emp.apiKey || !emp.aiProvider || emp.aiProvider === 'openclaw') {
+    return { error: '员工未配置 API 直连（OpenClaw 不支持图片识别）' };
+  }
+  var provider = API_PROVIDERS[emp.aiProvider];
+  if (!provider) return { error: '未知的 AI 供应商: ' + emp.aiProvider };
+  var model = emp.apiModel || provider.defaultModel;
+  var baseUrl = provider.baseUrl;
+  if (emp.aiProvider === 'custom') {
+    baseUrl = emp.customEndpoint || '';
+    model = emp.apiModel || 'custom-model';
+  }
+  var endpoint = baseUrl + '/chat/completions';
+  var messages = [
+    { role: 'system', content: prompt || PRODUCT_IMAGE_RECOGNITION_PROMPT },
+    { role: 'user', content: [
+      { type: 'text', text: '请识别这张图片中的商品，并按要求的 JSON 格式输出。' },
+      { type: 'image_url', image_url: { url: base64 } }
+    ] }
+  ];
+  try {
+    var res = await apiFetch('/api/proxy', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': authToken && authToken !== 'local_mode' ? 'Bearer ' + authToken : '',
+        'X-AI-API-Key': emp.apiKey,
+        'X-Target-URL': endpoint
+      },
+      body: JSON.stringify({ model: model, messages: messages, temperature: 0.2, max_tokens: 1500 })
+    });
+    if (!res.ok) return { error: '图片识别请求失败，状态码 ' + (res.status || 'unknown') };
+    var data = await res.json();
+    var content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '';
+    var jsonStr = content;
+    var codeMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (codeMatch) jsonStr = codeMatch[1];
+    jsonStr = jsonStr.trim();
+    if (!jsonStr) return { error: '模型未返回有效 JSON 内容' };
+    var obj = JSON.parse(jsonStr);
+    return obj;
+  } catch (e) {
+    return { error: '图片识别异常: ' + (e.message || String(e)) };
+  }
+}
+
+// 逐张识别多张商品图，汇总为待录入商品数组
+async function extractProductsFromImages(emp, images) {
+  var products = [];
+  if (!images || images.length === 0) return products;
+  for (var i = 0; i < images.length; i++) {
+    var img = images[i];
+    var result = await describeImage(emp, img.base64, PRODUCT_IMAGE_RECOGNITION_PROMPT);
+    if (result && result.error) {
+      console.warn('[extractProductsFromImages] 图片 ' + i + ' 识别失败:', result.error);
+      continue;
+    }
+    if (result && result.is_product !== false && result.name) {
+      result._imageIndex = i;
+      result._sourceBase64 = img.base64;
+      products.push(result);
+    } else {
+      console.warn('[extractProductsFromImages] 图片 ' + i + ' 未识别为商品:', result && result.note);
+    }
+  }
+  return products;
+}
+
+// 判断用户消息是否触发商品图批量识别
+function shouldTriggerBatchProductRecognition(text, imagesCount) {
+  if (!imagesCount || imagesCount === 0) return false;
+  if (!text || !text.trim()) return true;
+  var t = text.trim();
+  var keywords = ['录入', '添加', '新增', '入库', '商品', '产品', '识图', '识别', '导入', '批量'];
+  for (var i = 0; i < keywords.length; i++) {
+    if (t.indexOf(keywords[i]) !== -1) return true;
+  }
+  return false;
+}
+
+// 渲染待录入商品列表卡片
+function renderPendingProductsCard(emp, products, context) {
+  context = context || {};
+  var area = document.getElementById('messagesArea');
+  if (!area || !products || products.length === 0) return null;
+  var cardId = 'bpp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+  var timeStr = context.timeStr || new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  var rowsHtml = products.map(function(p, idx) {
+    var specs = p.sku_specs && typeof p.sku_specs === 'object' ? JSON.stringify(p.sku_specs) : (p.sku_specs || '-');
+    var tags = Array.isArray(p.tags) ? p.tags.join('、') : (p.tags || '-');
+    var thumb = p._sourceBase64 || p.main_image || '';
+    return '<div class="pending-product-item" data-idx="' + idx + '">' +
+      (thumb ? '<img src="' + thumb + '" class="pending-product-thumb">' : '') +
+      '<div class="pending-product-info">' +
+        '<div class="pending-product-name">' + escapeHtml(p.name || '未命名') + '</div>' +
+        '<div class="pending-product-meta">' +
+          '<span>¥' + (parseFloat(p.price) || 0).toFixed(2) + '</span>' +
+          '<span>' + escapeHtml(p.category || '未分类') + '</span>' +
+          '<span>库存 ' + (parseInt(p.stock, 10) || 0) + '</span>' +
+          '<span>佣金 ' + (parseFloat(p.commission_rate) || 0) + '%</span>' +
+        '</div>' +
+        '<div class="pending-product-meta">品牌：' + escapeHtml(p.brand || '-') + ' · SKU：' + escapeHtml(specs) + '</div>' +
+        '<div class="pending-product-meta">标签：' + escapeHtml(tags) + '</div>' +
+        '<div class="pending-product-selling">' + escapeHtml(p.selling_points || '-') + '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  var html = '<div class="msg" id="' + cardId + '">' +
+    '<div class="msg-avatar" style="font-size:22px;">🛒</div>' +
+    '<div class="msg-content">' +
+      '<div class="msg-sender"><span class="msg-sender-name">商品识别助手</span><span class="msg-sender-role">系统</span><span class="msg-sender-time">' + timeStr + '</span></div>' +
+      '<div class="msg-bubble pending-products-bubble">' +
+        '<div class="pending-products-title">识别到 ' + products.length + ' 个待录入商品，请确认</div>' +
+        '<div class="pending-products-list">' + rowsHtml + '</div>' +
+        '<div class="pending-products-actions">' +
+          '<button class="pending-product-btn confirm" onclick="confirmBatchAddProducts(\'' + cardId + '\', \'' + (emp ? emp.id : '') + '\')">✅ 确认录入</button>' +
+          '<button class="pending-product-btn cancel" onclick="cancelBatchAddProducts(\'' + cardId + '\')">取消</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+  area.insertAdjacentHTML('beforeend', html);
+  area.scrollTop = area.scrollHeight;
+  window._pendingProductCards = window._pendingProductCards || {};
+  window._pendingProductCards[cardId] = { emp: emp, products: products, context: context };
+  return cardId;
+}
+
+// 用户确认后批量调用 add_product 入库
+async function confirmBatchAddProducts(cardId, empId) {
+  var cache = window._pendingProductCards && window._pendingProductCards[cardId];
+  if (!cache) return;
+  var emp = cache.emp || emps.find(function(e) { return e.id === empId; });
+  var products = cache.products || [];
+  var card = document.getElementById(cardId);
+  if (card) {
+    var actions = card.querySelector('.pending-products-actions');
+    if (actions) actions.innerHTML = '<span class="pending-product-loading">⏳ 正在批量入库...</span>';
+  }
+  var results = [];
+  for (var i = 0; i < products.length; i++) {
+    var p = products[i];
+    var params = {
+      name: p.name,
+      price: parseFloat(p.price) || 0,
+      stock: parseInt(p.stock, 10) || 0,
+      category: p.category || '',
+      brand: p.brand || '',
+      commission_rate: parseFloat(p.commission_rate) || 0,
+      selling_points: p.selling_points || '',
+      sku_specs: p.sku_specs || {},
+      tags: Array.isArray(p.tags) ? p.tags : [],
+      subtitle: p.subtitle || '',
+      main_image: p.main_image || p._sourceBase64 || ''
+    };
+    var result = await executeToolCall({ action: 'add_product', params: params });
+    results.push({ name: p.name, result: result });
+  }
+  if (card) {
+    var list = card.querySelector('.pending-products-list');
+    var title = card.querySelector('.pending-products-title');
+    if (title) title.textContent = '批量录入结果（' + products.length + ' 个）';
+    if (list) {
+      list.innerHTML = results.map(function(r) {
+        var isError = r.result && r.result.indexOf('【工具执行失败】') !== -1;
+        var icon = isError ? '❌' : '✅';
+        return '<div class="pending-product-result ' + (isError ? 'error' : 'success') + '">' + icon + ' ' + escapeHtml(r.name) + '：' + escapeHtml(_summarizeToolResult(r.result)) + '</div>';
+      }).join('');
+    }
+    var actions = card.querySelector('.pending-products-actions');
+    if (actions) actions.innerHTML = '<button class="pending-product-btn cancel" onclick="this.closest(\'.msg\').remove()">关闭</button>';
+  }
+  delete window._pendingProductCards[cardId];
+}
+
+// 取消批量录入卡片
+function cancelBatchAddProducts(cardId) {
+  var card = document.getElementById(cardId);
+  if (card) card.remove();
+  if (window._pendingProductCards) delete window._pendingProductCards[cardId];
+}
+
+// 内部调用目标员工的 OpenClaw 接口并返回回复文本（不渲染到 DOM，不保存历史）
+async function fetchEmployeeReplyOpenClaw(emp, task) {
+  if (typeof openclaw === 'undefined' || !openclaw.connected) {
+    throw new Error('OpenClaw 未连接');
+  }
+  await ensureAgentRegistered(emp);
+  var sessionKey = 'agent:' + emp.id + ':chat';
+  var systemPrompt = emp.soulDoc || emp.systemPrompt || '';
+  if (!systemPrompt) {
+    systemPrompt = '你是 ' + emp.name + '，一个 ' + getEmpRoleDisplay(emp) + '。请用第一人称回复，保持角色一致性。';
+  }
+  systemPrompt += '\n\n【同事协作】你正在被同事@求助，请直接针对任务给出结论或方案。除非任务明确要求，否则不要再次@其他人，避免循环协作。';
+  var fullMessage = '【System Prompt】\n' + systemPrompt + '\n\n【User Message】\n' + (task || '请协助处理这个任务。');
+  var chatResult = await _sendChatWaitForLifecycle(sessionKey, fullMessage);
+  return chatResult.reply || '（同事未返回内容）';
+}
+
+// 内部调用目标员工的 API 直连接口并返回回复文本（不渲染到 DOM，不保存历史）
+async function fetchEmployeeReplyAPI(emp, task) {
+  var providerId = emp.aiProvider || 'kimi';
+  var provider = API_PROVIDERS[providerId];
+  if (!provider) throw new Error('未知的 AI 供应商: ' + providerId);
+  var apiKey = emp.apiKey;
+  if (!apiKey) throw new Error('员工未配置 API Key');
+  var model = emp.apiModel || provider.defaultModel;
+  var baseUrl = provider.baseUrl;
+  if (providerId === 'custom') {
+    baseUrl = emp.customEndpoint || '';
+    model = emp.apiModel || 'custom-model';
+  }
+  var endpoint = baseUrl + '/chat/completions';
+  var systemPrompt = emp.soulDoc || emp.systemPrompt || '';
+  if (!systemPrompt) {
+    systemPrompt = '你是 ' + emp.name + '，一个 ' + getEmpRoleDisplay(emp) + '。请用第一人称回复，保持角色一致性。';
+  }
+  systemPrompt += '\n\n【同事协作】你正在被同事@求助，请直接针对任务给出结论或方案。除非任务明确要求，否则不要再次@其他人，避免循环协作。';
+  var messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: task || '请协助处理这个任务。' }
+  ];
+  var res = await apiFetch('/api/proxy', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': authToken && authToken !== 'local_mode' ? 'Bearer ' + authToken : '',
+      'X-AI-API-Key': apiKey,
+      'X-Target-URL': endpoint
+    },
+    body: JSON.stringify({ model: model, messages: messages, temperature: 0.7, max_tokens: 1500 })
+  });
+  if (!res.ok) throw new Error('API 请求失败: ' + res.status);
+  var data = await res.json();
+  var reply = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '';
+  return reply || '（同事未返回内容）';
+}
+
+// 根据目标员工配置自动选择 OpenClaw 或 API 直连，获取同事回复
+async function fetchEmployeeReply(emp, task) {
+  var hasDirectApi = !!(emp.apiKey && emp.aiProvider && emp.aiProvider !== 'openclaw');
+  if (hasDirectApi) {
+    return fetchEmployeeReplyAPI(emp, task);
+  }
+  if (typeof openclaw !== 'undefined' && openclaw.connected) {
+    return fetchEmployeeReplyOpenClaw(emp, task);
+  }
+  throw new Error('目标员工既未配置 API 直连，OpenClaw 也未连接');
+}
+
 // 获取当前对话的员工信息
 function getCurrentEmployeeInfo() {
   const empId = localStorage.getItem('sb_current_emp');
@@ -18280,6 +18588,8 @@ function buildAgentToolsContext() {
     '   - 按关键词搜索商品：search_products，参数 {"query":"关键词"}\n' +
     '   - 查看单个商品详情：get_product_detail，参数 {"productId":"prod_xxx"}\n' +
     '   - 录入新商品：add_product（对接 POST /api/products 创建接口），参数 {"name":"商品名称","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"品牌名","sku_specs":{"SKU":"SKU001","尺码":"37-40"},"tags":["标签1","标签2"],"selling_points":"核心卖点","commission_rate":20,"main_image":"图片URL","subtitle":"副标题/描述"}\n' +
+    '   - 批量录入商品：batch_add_products，参数 {"products":[{"name":"商品1",...},{"name":"商品2",...}]}，适合用户一次提供多个商品信息或发送多张商品图时汇总录入。系统会展示待录入列表卡片，等用户确认后再逐条调用 add_product 入库。\n' +
+    '   - 识别商品图片并提取结构化信息：describe_image，参数 {"imageIndex":0}（imageIndex 为当前用户消息中图片的 0-based 索引）。主大脑会调用 vision 模型返回 JSON 格式商品信息，包含 name、price、category、brand、stock、commission_rate、selling_points、sku_specs、tags、subtitle、main_image、is_product、note 等字段。\n' +
     '   - 编辑商品信息需人工在UI操作\n' +
     '   - 每个商品有：名称、SKU、分类、价格、库存、品牌、标签、状态、卖点、佣金率\n' +
     '   - 当用户想录入商品时，你必须主动从对话中提取上述字段。必填字段只有 name（商品名称）。\n' +
@@ -18307,15 +18617,20 @@ function buildAgentToolsContext() {
     '4. 项目组消息发送\n' +
     '   - 向指定项目组发送消息：send_group_message，参数 {"groupId":"grp_xxx","message":"消息内容","mentions":["员工名字"]}\n' +
     '   - mentions 为可选参数，填写需要 @ 的员工名称数组\n\n' +
+    '5. AI 员工协作\n' +
+    '   - 当你需要请其他 AI 员工协助处理某个任务时，可调用 mention_colleague，参数 {"colleagueId":"同事员工ID","task":"需要同事处理的具体任务描述"}。主大脑会把任务转发给该同事，获取其回复后返回给你继续处理。注意：协作调用最多支持 3 层，避免无限循环。\n\n' +
     '当你需要执行以上操作时，请在回复末尾使用以下格式（用户看不到这段标记）：\n' +
     '[TOOL_CALL]{"action":"list_products"}[/TOOL_CALL]\n' +
     '[TOOL_CALL]{"action":"search_products","params":{"query":"口红"}}[/TOOL_CALL]\n' +
     '[TOOL_CALL]{"action":"get_product_detail","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
+    '[TOOL_CALL]{"action":"add_product","params":{"name":"2024新款厚底凉鞋","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"COOLCHAP","sku_specs":{"SKU":"SKU2024001"},"commission_rate":20}}[/TOOL_CALL]\n' +
+    '[TOOL_CALL]{"action":"batch_add_products","params":{"products":[{"name":"商品1","price":99,"stock":100,"category":"分类","brand":"品牌","commission_rate":10},{"name":"商品2","price":199,"stock":200}]}}[/TOOL_CALL]\n' +
+    '[TOOL_CALL]{"action":"describe_image","params":{"imageIndex":0}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"match_product","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"match_talent_product","params":{"direction":"talent-to-product","talentId":"tal_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"add_talent","params":{"name":"李佳琦","douyin_id":"lijiaqi","followers":45000000,"category":"美妆护肤","level":"S","risk_rating":"low","cooperation_status":"available"}}[/TOOL_CALL]\n' +
-    '或 [TOOL_CALL]{"action":"add_product","params":{"name":"2024新款厚底凉鞋","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"COOLCHAP","sku_specs":{"SKU":"SKU2024001"},"commission_rate":20}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"send_group_message","params":{"groupId":"grp_xxx","message":"请帮忙看下这个需求","mentions":["小明"]}}[/TOOL_CALL]\n' +
+    '或 [TOOL_CALL]{"action":"mention_colleague","params":{"colleagueId":"emp_xxx","task":"请帮忙分析这个商品适合哪些达人带货"}}[/TOOL_CALL]\n' +
     '主大脑会自动执行并把结果展示给用户。\n' +
     '【注意】禁止编造不存在的商品或达人信息，所有数据以主大脑查询结果为准。';
 }
@@ -18424,6 +18739,77 @@ function stripToolCallsFromText(text) {
     }
   });
   return cleaned.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function _toolCallKey(call) {
+  return call.action + '|' + JSON.stringify(call.params || {});
+}
+function _toolCallKeyAttr(call) {
+  return _toolCallKey(call).replace(/[^a-zA-Z0-9_-]/g, '-');
+}
+function _renderToolCallParams(params) {
+  if (!params || Object.keys(params).length === 0) {
+    return '<div class="tool-call-row"><div class="tool-call-label">参数</div><div>-</div></div>';
+  }
+  var html = '';
+  Object.keys(params).forEach(function(k) {
+    var v = params[k];
+    var display = (typeof v === 'object') ? JSON.stringify(v) : String(v);
+    if (display.length > 300) display = display.slice(0, 300) + '...';
+    html += '<div class="tool-call-row"><div class="tool-call-label">' + escapeHtml(k) + '</div><div>' + escapeHtml(display) + '</div></div>';
+  });
+  return html;
+}
+function _summarizeToolResult(result) {
+  if (!result) return '无返回';
+  var line = result.split('\n')[0] || result;
+  if (line.length > 100) line = line.slice(0, 100) + '...';
+  return line;
+}
+function createToolCallCard(call, opts) {
+  opts = opts || {};
+  var key = _toolCallKeyAttr(call);
+  var card = document.createElement('div');
+  card.className = 'tool-call-card' + (opts.expanded ? ' expanded' : '');
+  card.setAttribute('data-tool-key', key);
+  card.id = 'tc_' + key + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+  var statusClass = opts.status || 'running';
+  var header = document.createElement('div');
+  header.className = 'tool-call-card-header';
+  header.innerHTML = '<span class="tool-call-status ' + statusClass + '"></span>' +
+    '<span class="tool-call-name">' + escapeHtml(call.action) + '</span>' +
+    '<span class="tool-call-summary"></span>' +
+    '<span class="tool-call-toggle">▼</span>';
+  header.onclick = function() { card.classList.toggle('expanded'); };
+  var body = document.createElement('div');
+  body.className = 'tool-call-card-body';
+  body.innerHTML = _renderToolCallParams(call.params);
+  if (opts.result) {
+    body.innerHTML += '<div class="tool-call-row" style="margin-top:8px;"><div class="tool-call-label">结果摘要</div><div class="tool-call-summary-text">' + escapeHtml(_summarizeToolResult(opts.result)) + '</div></div>';
+    header.querySelector('.tool-call-summary').textContent = _summarizeToolResult(opts.result);
+  }
+  card.appendChild(header);
+  card.appendChild(body);
+  return card;
+}
+function updateToolCallCard(card, status, result) {
+  var statusEl = card.querySelector('.tool-call-status');
+  if (statusEl) statusEl.className = 'tool-call-status ' + (status || 'done');
+  var summaryEl = card.querySelector('.tool-call-summary');
+  if (summaryEl && result) summaryEl.textContent = _summarizeToolResult(result);
+  var body = card.querySelector('.tool-call-card-body');
+  if (body && result) {
+    var existing = body.querySelector('.tool-call-result-row');
+    if (!existing) {
+      var row = document.createElement('div');
+      row.className = 'tool-call-row tool-call-result-row';
+      row.style.marginTop = '8px';
+      row.innerHTML = '<div class="tool-call-label">结果</div><div style="white-space:pre-wrap;">' + escapeHtml(result) + '</div>';
+      body.appendChild(row);
+    } else {
+      existing.querySelector('div:last-child').textContent = result;
+    }
+  }
 }
 
 function toggleCitationPanel(panelId) {
@@ -18763,6 +19149,60 @@ async function executeToolCall(call) {
           return '✅ 商品信息更新成功\n' + productResultLines;
         }
         return '✅ 商品录入成功\n' + productResultLines;
+      case 'describe_image':
+        var imageIndex = call.params && typeof call.params.imageIndex === 'number' ? call.params.imageIndex : 0;
+        var lastImages = window._lastUserImages || [];
+        if (!lastImages.length) return '【工具执行失败】当前消息没有图片';
+        if (imageIndex < 0 || imageIndex >= lastImages.length) return '【工具执行失败】图片索引越界：' + imageIndex;
+        var visionEmp = getCurrentEmployeeInfo();
+        var visionResult = await describeImage(visionEmp, lastImages[imageIndex].base64, PRODUCT_IMAGE_RECOGNITION_PROMPT);
+        if (visionResult && visionResult.error) return '【工具执行失败】' + visionResult.error;
+        return '【图片识别结果】\n' + JSON.stringify(visionResult, null, 2);
+      case 'batch_add_products':
+        var batchProducts = call.params && call.params.products;
+        if (!Array.isArray(batchProducts) || batchProducts.length === 0) {
+          return '【工具执行失败】缺少 products 数组';
+        }
+        var batchCtx = call._context || {};
+        var batchEmp = getCurrentEmployeeInfo();
+        renderPendingProductsCard(batchEmp, batchProducts, { docContext: batchCtx.docContext, timeStr: batchCtx.timeStr, sourceText: 'AI 批量录入' });
+        return '🛒 已生成待录入商品列表（共 ' + batchProducts.length + ' 个），等待用户确认后批量入库。';
+      case 'mention_colleague':
+        var colleagueId = call.params && call.params.colleagueId;
+        var colleagueTask = call.params && call.params.task;
+        if (!colleagueId) return '【工具执行失败】缺少 colleagueId';
+        if (!colleagueTask) return '【工具执行失败】缺少 task';
+        var colleagueEmp = emps.find(function(e) { return e.id === colleagueId || e.name === colleagueId; });
+        if (!colleagueEmp) return '【工具执行失败】未找到同事: ' + colleagueId;
+        window._toolMentionDepth = (window._toolMentionDepth || 0) + 1;
+        if (window._toolMentionDepth > 3) {
+          window._toolMentionDepth--;
+          return '【工具执行失败】@同事调用层级超过 3 层，已停止协作以避免循环';
+        }
+        var mentionArea = document.getElementById('messagesArea');
+        var mentionStatusId = 'mstat_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+        var mentionCtx = call._context || {};
+        if (mentionArea && mentionCtx.timeStr) {
+          var mentionStatusHtml = '<div class="msg mention-status-msg" id="' + mentionStatusId + '"><div class="msg-avatar" style="font-size:20px;">💬</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">协作状态</span><span class="msg-sender-role">系统</span><span class="msg-sender-time">' + mentionCtx.timeStr + '</span></div><div class="msg-bubble mention-status-bubble"><span class="mention-colleague">@' + escapeHtml(colleagueEmp.name) + '</span> 正在处理...</div></div></div>';
+          mentionArea.insertAdjacentHTML('beforeend', mentionStatusHtml);
+          mentionArea.scrollTop = mentionArea.scrollHeight;
+        }
+        try {
+          var colleagueReply = await fetchEmployeeReply(colleagueEmp, colleagueTask);
+          // 把同事回复返回给原 AI 继续处理
+          var originalEmp = getCurrentEmployeeInfo();
+          var continuationTask = '【同事协作结果】你之前请 @' + colleagueEmp.name + '（' + colleagueEmp.id + '）协助处理以下任务：\n' + colleagueTask + '\n\n该同事回复：\n' + colleagueReply + '\n\n请结合同事回复，继续完成原任务并给出最终结论。';
+          var continuedReply = originalEmp ? await fetchEmployeeReply(originalEmp, continuationTask) : '（未找到原 AI 员工，无法继续处理）';
+          var ms = document.getElementById(mentionStatusId);
+          if (ms) ms.remove();
+          return '【同事@回复】' + colleagueEmp.name + '：\n' + colleagueReply + '\n\n【继续处理】\n' + continuedReply;
+        } catch (mentionErr) {
+          var ms2 = document.getElementById(mentionStatusId);
+          if (ms2) ms2.remove();
+          return '【工具执行失败】@' + colleagueEmp.name + ' 失败: ' + (mentionErr.message || String(mentionErr));
+        } finally {
+          window._toolMentionDepth--;
+        }
       default:
         return '【工具执行失败】未知操作: ' + call.action;
     }
@@ -18993,11 +19433,52 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
     }, 500);
   }
 
-  // 如果有工具调用，主大脑自动执行并展示结果（仅在群聊中展示，单聊静默执行）
+  // 如果有工具调用，在当前消息底部渲染可折叠的工具调用记录，并异步执行
   if (toolCalls.length > 0) {
     (async function() {
+      toolCalls.forEach(function(call) {
+        call._context = { docContext: docContext, timeStr: timeStr, empId: emp.id, groupId: currentGroupId };
+      });
+      var lastMsg = area.lastElementChild;
+      var contentEl = lastMsg ? lastMsg.querySelector('.msg-content') : null;
+      var recordsContainer = null;
+      var recordsPanel = null;
+      var recordsBar = null;
+      var cards = {};
+      if (contentEl) {
+        recordsContainer = document.createElement('div');
+        recordsContainer.className = 'tool-call-records';
+        var recordsId = 'tcr_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+        recordsBar = document.createElement('div');
+        recordsBar.className = 'tool-call-records-bar';
+        recordsBar.innerHTML = '<span>🛠️ 工具调用记录 (' + toolCalls.length + ')</span><span class="tool-call-toggle">▼</span>';
+        recordsPanel = document.createElement('div');
+        recordsPanel.className = 'tool-call-records-panel';
+        recordsPanel.id = recordsId;
+        recordsBar.onclick = function() {
+          recordsBar.classList.toggle('open');
+          recordsPanel.classList.toggle('expanded');
+        };
+        toolCalls.forEach(function(call) {
+          var key = _toolCallKey(call);
+          var card = createToolCallCard(call, { status: 'running' });
+          cards[key] = card;
+          recordsPanel.appendChild(card);
+        });
+        recordsContainer.appendChild(recordsBar);
+        recordsContainer.appendChild(recordsPanel);
+        contentEl.appendChild(recordsContainer);
+        area.scrollTop = area.scrollHeight;
+      }
       for (var i = 0; i < toolCalls.length; i++) {
-        var result = await executeToolCall(toolCalls[i]);
+        var call = toolCalls[i];
+        var result = await executeToolCall(call);
+        var key = _toolCallKey(call);
+        var card = cards[key];
+        if (card) {
+          var status = result && result.indexOf('【工具执行失败】') !== -1 ? 'error' : 'done';
+          updateToolCallCard(card, status, result);
+        }
         if (currentGroupId) {
           var toolTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
           var toolHtml = '<div class="msg">\n';
@@ -19622,6 +20103,65 @@ async function finishWizard() {
 /* AI 文档提示 */
 .ai-doc-hint{background:rgba(255,107,53,0.1);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;color:var(--accent);margin-top:8px;display:flex;align-items:center;gap:6px}
 .ai-doc-hint::before{content:'📚'}
+
+/* ========================================
+   Tool Call 可视化卡片
+   ======================================== */
+.tool-call-cards { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.tool-call-cards:empty { margin-top: 0; }
+.tool-call-card { border: 1px solid var(--separator); border-radius: var(--radius-md); background: var(--bg-primary); overflow: hidden; font-size: 12px; }
+.tool-call-card-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-secondary); cursor: pointer; user-select: none; transition: background 0.15s; }
+.tool-call-card-header:hover { background: var(--bg-tertiary); }
+.tool-call-status { width: 8px; height: 8px; border-radius: 50%; background: var(--text-tertiary); flex-shrink: 0; }
+.tool-call-status.running { background: #FF9500; animation: tool-call-pulse 1.2s infinite; }
+.tool-call-status.done { background: #34C759; }
+.tool-call-status.error { background: #FF3B30; }
+@keyframes tool-call-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.tool-call-name { font-weight: 600; color: var(--text-primary); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-call-summary { color: var(--accent); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.tool-call-toggle { font-size: 10px; color: var(--text-tertiary); transition: transform 0.2s; }
+.tool-call-card.expanded .tool-call-toggle { transform: rotate(180deg); }
+.tool-call-card-body { display: none; padding: 10px 12px; border-top: 1px solid var(--separator); color: var(--text-secondary); white-space: pre-wrap; line-height: 1.5; }
+.tool-call-card.expanded .tool-call-card-body { display: block; }
+.tool-call-row { margin-bottom: 6px; }
+.tool-call-row:last-child { margin-bottom: 0; }
+.tool-call-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 2px; }
+.tool-call-records { margin-top: 8px; }
+.tool-call-records-bar { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-size: 12px; color: var(--text-secondary); cursor: pointer; user-select: none; transition: background 0.15s; }
+.tool-call-records-bar:hover { background: var(--bg-secondary); }
+.tool-call-records-bar.open .tool-call-toggle { transform: rotate(180deg); }
+.tool-call-records-panel { display: none; margin-top: 6px; }
+.tool-call-records-panel.expanded { display: block; }
+
+/* ========================================
+   批量商品识别录入卡片
+   ======================================== */
+.pending-products-bubble { background: var(--bg-secondary) !important; }
+.pending-products-title { font-weight: 600; font-size: 14px; margin-bottom: 10px; color: var(--text-primary); }
+.pending-products-list { display: flex; flex-direction: column; gap: 10px; }
+.pending-product-item { display: flex; gap: 10px; padding: 10px; background: var(--bg-primary); border: 1px solid var(--separator); border-radius: var(--radius-md); }
+.pending-product-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: var(--radius-sm); flex-shrink: 0; }
+.pending-product-info { flex: 1; min-width: 0; }
+.pending-product-name { font-weight: 600; font-size: 13px; color: var(--text-primary); margin-bottom: 4px; }
+.pending-product-meta { font-size: 11px; color: var(--text-secondary); margin-bottom: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
+.pending-product-selling { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pending-products-actions { display: flex; gap: 8px; margin-top: 12px; }
+.pending-product-btn { padding: 6px 12px; border: none; border-radius: var(--radius-sm); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+.pending-product-btn.confirm { background: var(--accent); color: #fff; }
+.pending-product-btn.confirm:hover { filter: brightness(1.05); }
+.pending-product-btn.cancel { background: var(--bg-tertiary); color: var(--text-secondary); }
+.pending-product-btn.cancel:hover { background: var(--bg-secondary); }
+.pending-product-loading { font-size: 12px; color: var(--text-secondary); }
+.pending-product-result { font-size: 12px; padding: 6px 10px; border-radius: var(--radius-sm); margin-bottom: 6px; }
+.pending-product-result.success { background: rgba(52, 199, 89, 0.1); color: #34C759; }
+.pending-product-result.error { background: rgba(255, 59, 48, 0.1); color: #FF3B30; }
+
+/* ========================================
+   AI 员工协作 @ 状态
+   ======================================== */
+.mention-status-msg { max-width: 85%; }
+.mention-status-bubble { background: rgba(0, 122, 255, 0.08) !important; color: #007AFF !important; border: 1px solid rgba(0, 122, 255, 0.2); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.mention-colleague { color: #007AFF; font-weight: 600; background: rgba(0, 122, 255, 0.12); padding: 0 5px; border-radius: 4px; }
 
 /* 文档分享卡片 */
 .doc-share-card{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-secondary);border-radius:var(--radius-md);cursor:pointer;transition:background 0.2s}
