@@ -8411,7 +8411,7 @@ async function syncEmpToServer(emp) {
   try {
     // 运行时状态（status/msg/lastActive/tokens/tokenStats）不应持久化到后端
     var syncData = Object.assign({}, emp);
-    delete syncData.status;
+    
     delete syncData.msg;
     delete syncData.lastActive;
     delete syncData.tokens;
