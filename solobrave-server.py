@@ -2484,6 +2484,65 @@ def _dict_to_product_row(p):
     }
 
 
+def _product_similarity_score(a, b):
+    """计算两个商品 dict 的相似度分数（0-100），用于模糊重复检测"""
+    import difflib
+    score = 0.0
+    name_a = str(a.get('name') or '').strip().lower()
+    name_b = str(b.get('name') or '').strip().lower()
+    if name_a and name_b:
+        # 名称完全匹配权重高
+        if name_a == name_b:
+            score += 50
+        else:
+            # 互相包含
+            if name_a in name_b or name_b in name_a:
+                score += 35
+            else:
+                # 序列相似度
+                ratio = difflib.SequenceMatcher(None, name_a, name_b).ratio()
+                score += ratio * 30
+    brand_a = str(a.get('brand') or '').strip().lower()
+    brand_b = str(b.get('brand') or '').strip().lower()
+    if brand_a and brand_b:
+        if brand_a == brand_b:
+            score += 20
+        elif brand_a in brand_b or brand_b in brand_a:
+            score += 12
+    cat_a = str(a.get('category') or '').strip().lower()
+    cat_b = str(b.get('category') or '').strip().lower()
+    if cat_a and cat_b:
+        if cat_a == cat_b:
+            score += 15
+        elif cat_a in cat_b or cat_b in cat_a:
+            score += 8
+    price_a = float(a.get('price') or 0)
+    price_b = float(b.get('price') or 0)
+    if price_a > 0 and price_b > 0:
+        max_price = max(price_a, price_b)
+        if max_price > 0 and abs(price_a - price_b) / max_price <= 0.1:
+            score += 15
+    return min(score, 100)
+
+
+def _find_duplicate_products(conn, candidate, threshold=60, limit=5):
+    """从数据库中查找与 candidate 疑似重复的商品，返回 [(score, product_dict), ...]"""
+    rows = conn.execute(
+        "SELECT * FROM products WHERE status != 'archived' ORDER BY updated_at DESC"
+    ).fetchall()
+    results = []
+    for row in rows:
+        p = _product_row_to_dict(row)
+        # 跳过自身（按 id）
+        if candidate.get('id') and p.get('id') == candidate.get('id'):
+            continue
+        score = _product_similarity_score(candidate, p)
+        if score >= threshold:
+            results.append((score, p))
+    results.sort(key=lambda x: x[0], reverse=True)
+    return results[:limit]
+
+
 # ─── 品牌库 / 达人库 SQLite 辅助函数 ─────────────────────────────
 
 _BRAND_COLUMNS = [
@@ -4340,12 +4399,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'analyze':
                 self._handle_analyze_talent_ai(parts[0])
                 return
+            if len(parts) == 2 and parts[1] == 'analyze-hit':
+                self._handle_analyze_hit_talent(parts[0])
+                return
             if len(parts) == 2 and parts[1] == 'match-products':
                 self._handle_match_talent_products(parts[0])
                 return
             if len(parts) == 2 and parts[1] == 'follow-ups':
                 self._handle_post_talent_follow_up(parts[0])
                 return
+        if path == '/api/talents/similar':
+            self._handle_find_similar_talents()
+            return
 
         # Product API
         if path == '/api/products':
@@ -4353,6 +4418,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/products/search':
             self._handle_search_products()
+            return
+        if path == '/api/products/check-duplicate':
+            self._handle_check_duplicate_product()
+            return
+        if path == '/api/products/extract':
+            self._handle_extract_product()
             return
         if path.startswith('/api/products/'):
             sub = path[len('/api/products/'):]
@@ -4505,9 +4576,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Product API
         if path.startswith('/api/products/'):
-            product_id = path[len('/api/products/'):]
-            if product_id:
-                self._handle_put_product(product_id)
+            sub = path[len('/api/products/'):]
+            if sub:
+                if '/' in sub:
+                    parts = sub.split('/')
+                    if len(parts) == 2 and parts[1] == 'ai-analysis':
+                        self._handle_update_product_ai_analysis(parts[0])
+                        return
+                self._handle_put_product(sub)
                 return
 
         # Influencer API (legacy JSON)
@@ -9606,7 +9682,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'influencer_id': inf_id, 'matches': results[:limit], 'total': len(results), 'source': 'live'})
 
     def _handle_post_product(self):
-        """POST /api/products — 录入商品（仅当 name+brand 完全一致时算重复）"""
+        """POST /api/products — 录入商品（支持模糊重复检测）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -9619,21 +9695,47 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         name = str(body.get('name', '')).strip()
         brand = str(body.get('brand') or '').strip()
+        category = str(body.get('category') or '').strip()
+        price = float(body.get('price') or 0)
 
-        # 去重检查：仅当名称和品牌均非空且完全一致时才算重复
+        # 去重检查：先精确匹配，再模糊匹配
         conn = _db_conn()
-        existing = None
         try:
+            # 强重复：name + brand 完全一致
             if name and brand:
                 existing = conn.execute(
                     "SELECT * FROM products WHERE LOWER(name) = LOWER(?) AND LOWER(brand) = LOWER(?) LIMIT 1",
                     (name, brand)
                 ).fetchone()
-            if existing:
-                result = _product_row_to_dict(existing)
-                result['duplicate'] = True
-                result['can_update'] = True
-                result['message'] = f"该商品（名称：{name}，品牌：{brand}）已存在，是否需要更新信息？"
+                if existing:
+                    result = _product_row_to_dict(existing)
+                    result['duplicate'] = True
+                    result['can_update'] = True
+                    result['message'] = f"该商品（名称：{name}，品牌：{brand}）已存在，是否需要更新信息？"
+                    self._send_json(200, result)
+                    return
+
+            # 模糊重复：名称/品牌/类目/价格相似
+            candidate = {'name': name, 'brand': brand, 'category': category, 'price': price}
+            duplicates = _find_duplicate_products(conn, candidate, threshold=60, limit=5)
+            if duplicates:
+                result = {
+                    'duplicate': True,
+                    'suspected': True,
+                    'can_update': False,
+                    'message': f"商品库里好像有 {len(duplicates)} 个相似商品，确认是同一个吗？",
+                    'candidates': [
+                        {
+                            'id': p.get('id'),
+                            'name': p.get('name'),
+                            'brand': p.get('brand'),
+                            'category': p.get('category'),
+                            'price': p.get('price'),
+                            'similarity': round(score, 1)
+                        }
+                        for score, p in duplicates
+                    ]
+                }
                 self._send_json(200, result)
                 return
         finally:
@@ -9880,6 +9982,157 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         self._send_json(200, {'id': product_id, 'ai_analysis': analysis})
+
+    def _handle_check_duplicate_product(self):
+        """POST /api/products/check-duplicate — 检查疑似重复商品"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        name = str(body.get('name', '')).strip()
+        if not name:
+            self._send_json_error(400, 'Missing name')
+            return
+        candidate = {
+            'name': name,
+            'brand': str(body.get('brand') or '').strip(),
+            'category': str(body.get('category') or '').strip(),
+            'price': float(body.get('price') or 0),
+        }
+        conn = _db_conn()
+        try:
+            duplicates = _find_duplicate_products(conn, candidate, threshold=55, limit=5)
+        finally:
+            conn.close()
+        self._send_json(200, {
+            'suspected': len(duplicates) > 0,
+            'candidates': [
+                {
+                    'id': p.get('id'),
+                    'name': p.get('name'),
+                    'brand': p.get('brand'),
+                    'category': p.get('category'),
+                    'price': p.get('price'),
+                    'similarity': round(score, 1)
+                }
+                for score, p in duplicates
+            ]
+        })
+
+    def _handle_extract_product(self):
+        """POST /api/products/extract — 从文本/链接提取商品结构化信息"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        text = str(body.get('text') or '').strip()
+        url = str(body.get('url') or '').strip()
+        if not text and not url:
+            self._send_json_error(400, 'Missing text or url')
+            return
+
+        # 尝试抓取链接文本
+        fetched_text = ''
+        if url:
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    html = resp.read().decode('utf-8', errors='replace')
+                    # 简单去标签
+                    fetched_text = _re.sub(r'<[^>]+>', ' ', html)
+                    fetched_text = _re.sub(r'\s+', ' ', fetched_text).strip()[:4000]
+            except Exception as e:
+                print(f'  [Extract] fetch url failed: {e}', flush=True)
+
+        combined = text
+        if fetched_text:
+            combined += '\n\n【链接页面内容】\n' + fetched_text
+        if url and not fetched_text:
+            combined += '\n\n链接：' + url
+
+        prompt = (
+            "你是一名电商商品信息提取助手。请从以下商品描述/链接内容中提取结构化商品信息，"
+            "只返回 JSON，不要返回其他内容。\n"
+            "JSON 字段：\n"
+            "- name: 商品名称（必填，字符串）\n"
+            "- price: 价格（数字，识别不到填 0）\n"
+            "- price_range: 价格区间字符串（如 ¥89-129，识别不到填空字符串）\n"
+            "- category: 商品分类（如 鞋靴/凉鞋；识别不到填空字符串）\n"
+            "- brand: 品牌名（识别不到填空字符串）\n"
+            "- stock: 库存数量（数字，识别不到填 0）\n"
+            "- commission_rate: 佣金率百分比（数字，识别不到填 0）\n"
+            "- selling_points: 核心卖点文本（识别不到填空字符串）\n"
+            "- sku_specs: SKU 规格对象，例如 {\"SKU\":\"SKU001\",\"尺码\":\"37-40\"}，无规格时填 {}\n"
+            "- tags: 标签数组（如 [\"凉鞋\",\"厚底\"]；无标签填 []）\n"
+            "- subtitle: 副标题/描述（识别不到填空字符串）\n"
+            "- main_image: 商品主图 URL（识别不到填空字符串）\n"
+            "- uncertain_fields: 无法确定或缺失的重要字段名称数组，例如 [\"price\",\"stock\"]\n\n"
+            f"内容：\n{combined}\n"
+        )
+        messages = [
+            {'role': 'system', 'content': '你是电商商品信息提取助手，擅长从文本和链接中抽取结构化商品数据。'},
+            {'role': 'user', 'content': prompt}
+        ]
+        cfg = get_embedding_config()
+        cfg['provider'] = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
+        cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
+        cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
+        content = _call_ai_analysis(messages, cfg=cfg, context='product_extract')
+        if not content:
+            self._send_json_error(503, 'AI extraction failed or returned empty response')
+            return
+        extracted = _extract_json_object(content)
+        if not isinstance(extracted, dict):
+            print(f'  [Extract] product_extract AI response is not a valid JSON object: {content[:1000]}', flush=True)
+            self._send_json_error(503, 'AI response is not valid JSON')
+            return
+        # 规范化字段
+        if 'uncertain_fields' not in extracted or not isinstance(extracted['uncertain_fields'], list):
+            extracted['uncertain_fields'] = []
+        self._send_json(200, extracted)
+
+    def _handle_update_product_ai_analysis(self, product_id):
+        """PUT /api/products/:id/ai-analysis — 更新商品 AI 分析结果"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        body = self._read_body()
+        if not body or 'ai_analysis' not in body:
+            self._send_json_error(400, 'Missing ai_analysis')
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Product not found')
+                return
+            ai_analysis = body['ai_analysis']
+            if not isinstance(ai_analysis, dict):
+                self._send_json_error(400, 'ai_analysis must be an object')
+                return
+            now_ts = int(time.time() * 1000)
+            conn.execute(
+                'UPDATE products SET ai_analysis = ?, updated_at = ? WHERE id = ?',
+                (json.dumps(ai_analysis, ensure_ascii=False), now_ts, product_id)
+            )
+            conn.commit()
+            row_out = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
+            product_out = _product_row_to_dict(row_out)
+        finally:
+            conn.close()
+        self._send_json(200, product_out)
 
     # ═══════════════════════════════════════════════════
     # 品牌库 API
@@ -11379,6 +11632,241 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         self._send_json(200, {'id': talent_id, 'ai_analysis': analysis})
+
+    def _handle_analyze_hit_talent(self, talent_id):
+        """POST /api/talents/:id/analyze-hit — 分析达人为什么能卖爆"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            talent = _talent_row_to_dict(row)
+        finally:
+            conn.close()
+        if not talent:
+            self._send_json_error(404, 'Talent not found')
+            return
+
+        body = self._read_body() or {}
+        user_data = {
+            'fan_screenshot': body.get('fan_screenshot', ''),
+            'conversion_rate': body.get('conversion_rate'),
+            'gmv': body.get('gmv'),
+            'sample_videos': body.get('sample_videos', []),
+            'extra_notes': body.get('extra_notes', '')
+        }
+        has_data = any([
+            user_data['fan_screenshot'],
+            user_data['conversion_rate'] is not None,
+            user_data['gmv'] is not None,
+            user_data['sample_videos'],
+            user_data['extra_notes']
+        ])
+
+        cfg = get_embedding_config()
+        cfg['provider'] = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
+        cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
+        cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
+
+        prompt = (
+            f"请分析以下抖音达人为什么能把商品卖爆，只返回 JSON，不要返回其他内容。\n"
+            f"JSON 格式：{{\n"
+            f"  \"persona_style\": \"人设风格分析\",\n"
+            f"  \"content_format\": \"内容形式分析\",\n"
+            f"  \"selling_script\": \"带货话术分析\",\n"
+            f"  \"price_strategy\": \"价格策略分析\",\n"
+            f"  \"fan_profile\": \"粉丝画像分析\",\n"
+            f"  \"why_hit\": \"综合结论：为什么能卖爆\"\n"
+            f"}}\n\n"
+            f"达人昵称：{talent.get('name', '')}\n"
+            f"等级：{talent.get('level', '')}\n"
+            f"粉丝量：{talent.get('followers', 0)}\n"
+            f"达人类型：{talent.get('talent_type', '')}\n"
+            f"主营类目：{talent.get('fan_category', '')}\n"
+            f"粉丝价格带：{talent.get('fan_price_range', '')}\n"
+            f"粉丝画像（性别）：{json.dumps(talent.get('fan_gender', {}), ensure_ascii=False)}\n"
+            f"粉丝画像（年龄）：{json.dumps(talent.get('fan_age', {}), ensure_ascii=False)}\n"
+            f"带货数据：总GMV {talent.get('total_gmv', 0)}，总商品数 {talent.get('total_products', 0)}，平均价格 {talent.get('average_price', 0)}\n"
+            f"标签：{json.dumps(talent.get('tags', []), ensure_ascii=False)}\n"
+            f"简介：{talent.get('bio', '')}\n"
+        )
+        if has_data:
+            prompt += f"\n用户补充数据：\n{json.dumps(user_data, ensure_ascii=False)}\n"
+        else:
+            prompt += (
+                "\n注意：当前用户未提供达人后台截图、粉丝画像、转化率、GMV 等关键数据，"
+                "请在 why_hit 中说明\"数据不足，结论仅供参考\"，并简要说明还需要哪些数据才能更准确。"
+            )
+
+        messages = [
+            {'role': 'system', 'content': '你是电商达人运营分析专家，擅长从人设、内容、话术、价格、粉丝画像五个维度拆解爆款原因。'},
+            {'role': 'user', 'content': prompt}
+        ]
+        content = _call_ai_analysis(messages, cfg=cfg, context='talent_hit_analyze')
+        if not content:
+            self._send_json_error(503, 'AI analysis failed or returned empty response')
+            return
+
+        analysis = _extract_json_object(content)
+        if not isinstance(analysis, dict):
+            print(f'  [Analyze] talent_hit_analyze AI response is not a valid JSON object: {content[:1000]}', flush=True)
+            self._send_json_error(503, 'AI response is not valid JSON')
+            return
+
+        now_ts = int(time.time() * 1000)
+        conn = _db_conn()
+        try:
+            existing_ai = talent.get('ai_analysis') or {}
+            if isinstance(existing_ai, str):
+                try:
+                    existing_ai = json.loads(existing_ai)
+                except Exception:
+                    existing_ai = {}
+            existing_ai['hit_analysis'] = analysis
+            conn.execute(
+                'UPDATE talents SET ai_analysis = ?, updated_at = ? WHERE id = ?',
+                (json.dumps(existing_ai, ensure_ascii=False), now_ts, talent_id)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'id': talent_id, 'hit_analysis': analysis, 'has_user_data': has_data})
+
+    def _handle_find_similar_talents(self):
+        """POST /api/talents/similar — 基于爆款达人特征找相似达人"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        body = self._read_body() or {}
+        talent_id = body.get('talent_id') or body.get('talentId')
+        features = body.get('features') or {}
+        limit = int(body.get('limit', 10))
+
+        conn = _db_conn()
+        try:
+            source_talent = None
+            if talent_id:
+                row = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
+                source_talent = _talent_row_to_dict(row)
+            rows = conn.execute(
+                "SELECT * FROM talents WHERE status != 'archived' ORDER BY followers DESC"
+            ).fetchall()
+            talents = [_talent_row_to_dict(r) for r in rows]
+        finally:
+            conn.close()
+
+        if not source_talent and not features:
+            self._send_json_error(400, 'Missing talent_id or features')
+            return
+
+        if source_talent:
+            features = {
+                'category': source_talent.get('fan_category') or source_talent.get('category', ''),
+                'tags': source_talent.get('tags', []),
+                'followers': source_talent.get('followers', 0),
+                'price_range': source_talent.get('fan_price_range', ''),
+                'talent_type': source_talent.get('talent_type', ''),
+            }
+
+        # 规则匹配
+        results = []
+        for t in talents:
+            if talent_id and t.get('id') == talent_id:
+                continue
+            score = 0.0
+            reasons = []
+            source_cat = features.get('category', '')
+            target_cat = t.get('fan_category') or t.get('category', '')
+            if source_cat and target_cat:
+                if source_cat == target_cat:
+                    score += 30
+                    reasons.append('主营类目一致')
+                elif source_cat in target_cat or target_cat in source_cat:
+                    score += 15
+                    reasons.append('主营类目相近')
+            source_tags = set(str(x).lower() for x in (features.get('tags') or []))
+            target_tags = set(str(x).lower() for x in (t.get('tags') or []))
+            tag_overlap = source_tags & target_tags
+            if tag_overlap:
+                score += len(tag_overlap) * 8
+                reasons.append(f"标签重叠：{', '.join(list(tag_overlap)[:3])}")
+            src_followers = int(features.get('followers') or 0)
+            tgt_followers = int(t.get('followers') or 0)
+            if src_followers > 0 and tgt_followers > 0:
+                ratio = min(src_followers, tgt_followers) / max(src_followers, tgt_followers)
+                if ratio >= 0.5:
+                    score += 15
+                    reasons.append('粉丝量级相近')
+                elif ratio >= 0.2:
+                    score += 8
+                    reasons.append('粉丝量级可对标')
+            src_type = str(features.get('talent_type', '')).lower()
+            tgt_type = str(t.get('talent_type', '')).lower()
+            if src_type and tgt_type and src_type == tgt_type:
+                score += 10
+                reasons.append('达人类型一致')
+            if score > 0:
+                results.append({
+                    'talent_id': t.get('id'),
+                    'talent': t,
+                    'score': min(score, 100),
+                    'matchPercent': min(score, 100),
+                    'reasons': reasons
+                })
+
+        results.sort(key=lambda x: x['score'], reverse=True)
+
+        # 若候选充足且显式要求，调用 AI 生成更精细推荐理由
+        if results and body.get('ai_reason', False):
+            cfg = get_embedding_config()
+            cfg['provider'] = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
+            cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
+            cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
+            top_candidates = results[:min(limit, 10)]
+            prompt = (
+                f"请根据以下爆款达人特征，为每个候选达人生成一句话推荐理由（突出为什么相似/可替代），"
+                f"只返回 JSON 数组，不要返回其他内容。\n\n"
+                f"爆款达人特征：\n{json.dumps(features, ensure_ascii=False)}\n\n"
+                f"候选达人：\n"
+            )
+            for idx, r in enumerate(top_candidates, 1):
+                t = r['talent']
+                prompt += (
+                    f"{idx}. {t.get('name')} | 粉丝 {t.get('followers')} | "
+                    f"类目 {t.get('fan_category') or t.get('category', '-')} | "
+                    f"标签 {', '.join(str(x) for x in (t.get('tags') or [])[:5])}\n"
+                )
+            prompt += (
+                "\n输出格式：[{\"talent_id\":\"tal_xxx\",\"ai_reason\":\"推荐理由\"},...]"
+            )
+            messages = [
+                {'role': 'system', 'content': '你是电商达人匹配专家，擅长基于特征找相似达人并给出精准推荐理由。'},
+                {'role': 'user', 'content': prompt}
+            ]
+            content = _call_ai_analysis(messages, cfg=cfg, context='similar_talents')
+            if content:
+                try:
+                    ai_reasons = _extract_json_array(content)
+                    reason_map = {item.get('talent_id'): item.get('ai_reason') for item in ai_reasons if isinstance(item, dict)}
+                    for r in results:
+                        if r['talent_id'] in reason_map and reason_map[r['talent_id']]:
+                            r['aiReason'] = reason_map[r['talent_id']]
+                            r['reasons'] = [r['aiReason']] + r['reasons'][:2]
+                except Exception as e:
+                    print(f'  [Similar] AI reason parse failed: {e}', flush=True)
+
+        self._send_json(200, {
+            'source_talent_id': talent_id,
+            'features': features,
+            'matches': results[:limit],
+            'total': len(results)
+        })
 
     def _handle_get_chat(self, agent_id):
         """GET /api/chat/:agentId?type=personal|group"""
