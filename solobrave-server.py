@@ -35,6 +35,8 @@ import mimetypes
 import shutil
 import math
 import sqlite3
+import platform
+import signal
 try:
     import fcntl
 except ImportError:
@@ -3821,6 +3823,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     # ─── JSON 响应 ─────────────────────────────────────
     def _send_json(self, code, data):
+        # 统一错误返回格式：{code, message, data}
+        if code >= 400 and isinstance(data, dict) and 'error' in data:
+            err = data['error']
+            if isinstance(err, dict):
+                message = err.get('message') or str(err)
+            else:
+                message = str(err)
+            data = {'code': code, 'message': message, 'data': None}
         self.send_response(code)
         self._add_cors_headers()
         self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -3828,7 +3838,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
 
     def _send_json_error(self, code, message):
-        self._send_json(code, {'error': {'message': message, 'type': 'proxy_error', 'code': code}})
+        self._send_json(code, {'error': message})
 
     def _send_auth_error(self, message, status=401):
         self._send_json(status, {'error': message})
@@ -9959,7 +9969,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             {'role': 'system', 'content': '你是电商选品分析助手，擅长根据商品数据给出结构化分析。'},
             {'role': 'user', 'content': prompt}
         ]
-        content = _call_ai_analysis(messages, cfg=cfg, context='product_analyze')
+        try:
+            content = _call_ai_analysis(messages, cfg=cfg, context='product_analyze')
+        except _AIAnalysisTimeoutError:
+            self._send_json(504, {'error': '分析超时，请重试'})
+            return
         if not content:
             self._send_json_error(503, 'AI analysis failed or returned empty response')
             return
@@ -10087,7 +10101,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         cfg['provider'] = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
         cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
         cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
-        content = _call_ai_analysis(messages, cfg=cfg, context='product_extract')
+        try:
+            content = _call_ai_analysis(messages, cfg=cfg, context='product_extract')
+        except _AIAnalysisTimeoutError:
+            self._send_json(504, {'error': '分析超时，请重试'})
+            return
         if not content:
             self._send_json_error(503, 'AI extraction failed or returned empty response')
             return
@@ -11603,7 +11621,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             {'role': 'system', 'content': '你是电商达人分析助手，擅长根据达人数据给出结构化分析。'},
             {'role': 'user', 'content': prompt}
         ]
-        content = _call_ai_analysis(messages, cfg=cfg, context='talent_analyze')
+        try:
+            content = _call_ai_analysis(messages, cfg=cfg, context='talent_analyze')
+        except _AIAnalysisTimeoutError:
+            self._send_json(504, {'error': '分析超时，请重试'})
+            return
         if not content:
             self._send_json_error(503, 'AI analysis failed or returned empty response')
             return
@@ -11618,12 +11640,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         now_ts = int(time.time() * 1000)
         conn = _db_conn()
         try:
+            # 同时把综合结论写入 ai_analysis，便于详情页直接展示
+            ai_analysis_text = analysis.get('suitable_products', '') or analysis.get('cooperation_advice', '')
             conn.execute(
-                '''UPDATE talents SET ai_rating = ?, ai_tags = ?, ai_summary = ?, ai_reason = ?, updated_at = ? WHERE id = ?''',
+                '''UPDATE talents SET ai_rating = ?, ai_tags = ?, ai_summary = ?, ai_analysis = ?, ai_reason = ?, updated_at = ? WHERE id = ?''',
                 (
                     analysis.get('rating', ''),
                     json.dumps(analysis.get('tags', []), ensure_ascii=False),
                     analysis.get('suitable_products', ''),
+                    ai_analysis_text,
                     json.dumps(analysis, ensure_ascii=False),
                     now_ts, talent_id
                 )
@@ -11706,7 +11731,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             {'role': 'system', 'content': '你是电商达人运营分析专家，擅长从人设、内容、话术、价格、粉丝画像五个维度拆解爆款原因。'},
             {'role': 'user', 'content': prompt}
         ]
-        content = _call_ai_analysis(messages, cfg=cfg, context='talent_hit_analyze')
+        try:
+            content = _call_ai_analysis(messages, cfg=cfg, context='talent_hit_analyze')
+        except _AIAnalysisTimeoutError:
+            self._send_json(504, {'error': '分析超时，请重试'})
+            return
         if not content:
             self._send_json_error(503, 'AI analysis failed or returned empty response')
             return
@@ -11849,7 +11878,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 {'role': 'system', 'content': '你是电商达人匹配专家，擅长基于特征找相似达人并给出精准推荐理由。'},
                 {'role': 'user', 'content': prompt}
             ]
-            content = _call_ai_analysis(messages, cfg=cfg, context='similar_talents')
+            try:
+                content = _call_ai_analysis(messages, cfg=cfg, context='similar_talents')
+            except _AIAnalysisTimeoutError:
+                print('  [Similar] AI reason generation timed out, falling back to rule-based reasons', flush=True)
+                content = None
             if content:
                 try:
                     ai_reasons = _extract_json_array(content)
@@ -12158,12 +12191,34 @@ def _extract_text_from_openclaw_output(obj):
     return None
 
 
-def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLAW_TIMEOUT):
+class _AIAnalysisTimeoutError(Exception):
+    """AI 分析调用超时异常，用于区分普通失败与超时"""
+    pass
+
+
+def _kill_process_tree(pid):
+    """跨平台尝试终止进程及其子进程（主要用于 Windows .CMD 包装器超时场景）。"""
+    try:
+        if platform.system() == 'Windows':
+            subprocess.run([r'C:\Windows\System32\taskkill.exe', '/T', '/F', '/PID', str(pid)],
+                           capture_output=True, text=True, errors='replace')
+        else:
+            # Unix: 先终止子进程，再终止自身
+            subprocess.run(['pkill', '-P', str(pid)], capture_output=True, text=True, errors='replace')
+            os.kill(pid, signal.SIGTERM)
+    except Exception as e:
+        print(f'  [KillTree] failed to kill process tree {pid}: {e}', flush=True)
+
+
+def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLAW_TIMEOUT, raise_on_timeout=False):
     """调用 OpenClaw CLI 并返回原始文本内容；失败返回 None
 
     兼容两种 CLI 形态：
       - 新版：openclaw agent --message <prompt> --json
       - 旧版：openclaw infer model run --prompt <prompt> --json
+
+    当 raise_on_timeout=True 时，子进程超时抛出 _AIAnalysisTimeoutError，
+    便于上层返回友好的超时提示。
     """
     if not os.path.isfile(OPENCLAW_CLI):
         print(f'  [OpenClaw] CLI not found at {OPENCLAW_CLI}', flush=True)
@@ -12193,16 +12248,30 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
 
     for name, args in variants:
         print(f'  [OpenClaw] {name} cmd: {" ".join(args)}', flush=True)
+        proc = None
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 args,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 encoding='utf-8',
-                errors='replace',
-                timeout=timeout
+                errors='replace'
             )
-            stdout, stderr, returncode = result.stdout, result.stderr, result.returncode
+            try:
+                stdout, stderr = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                print(f'  [OpenClaw] {name} timed out after {timeout}s (gateway offline?), killing process tree', flush=True)
+                if proc:
+                    _kill_process_tree(proc.pid)
+                    try:
+                        proc.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                if raise_on_timeout:
+                    raise _AIAnalysisTimeoutError(f'OpenClaw {name} timed out after {timeout}s')
+                return None
+            returncode = proc.returncode
             if returncode != 0:
                 print(f'  [OpenClaw] {name} failed (code={returncode}):', flush=True)
                 print(f'      stderr: {stderr}', flush=True)
@@ -12221,12 +12290,13 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
                 print(f'  [OpenClaw] {name} success, content length={len(content)}', flush=True)
                 return content
             print(f'  [OpenClaw] {name} returned empty/unrecognized content: {stdout[:500]}', flush=True)
-        except subprocess.TimeoutExpired as e:
-            print(f'  [OpenClaw] {name} timed out after {timeout}s (gateway offline?): {e}', flush=True)
-            return None
+        except _AIAnalysisTimeoutError:
+            raise
         except Exception as e:
             print(f'  [OpenClaw] {name} _call_openclaw_infer failed: {e}', flush=True)
             traceback.print_exc()
+            if proc:
+                _kill_process_tree(proc.pid)
             return None
     return None
 
@@ -12275,8 +12345,10 @@ def _call_ai_analysis(messages, cfg=None, context=''):
     print(f'  [AI] start analysis context={context} provider={provider} chat_model={chat_model} key={masked_key} openclaw={OPENCLAW_CLI}', flush=True)
 
     # 1. 优先 OpenClaw（项目主推的 AI 网关）
+    # 分析类接口统一使用 60s 超时，并在超时后抛出 _AIAnalysisTimeoutError，
+    # 由上层接口返回 {error: '分析超时，请重试'}，避免前端长时间无响应。
     if os.path.isfile(OPENCLAW_CLI):
-        content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=30)
+        content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=60, raise_on_timeout=True)
         if content:
             return content
         print(f'  [AI] OpenClaw failed for {context}, will try direct API fallback', flush=True)

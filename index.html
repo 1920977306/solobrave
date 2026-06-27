@@ -3801,8 +3801,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   cursor: pointer;
   align-self: flex-end;
 }
-.send-btn-v2:not(:disabled) { background: #007AFF; }
-.send-btn-v2:not(:disabled):hover { background: #0066CC; transform: scale(1.05); }
+.send-btn-v2:not(:disabled),
+.send-btn-v2.active { background: #007AFF; box-shadow: 0 0 0 2px rgba(0,122,255,0.25); }
+.send-btn-v2:not(:disabled):hover,
+.send-btn-v2.active:hover { background: #0066CC; transform: scale(1.05); }
 .send-btn-v2 svg { width: 18px; height: 18px; }
 .input-hint { display: none; }
 .token-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -5324,7 +5326,7 @@ window.doLogin = function () {
         location.reload();
       } else {
         if (errorDiv) {
-          errorDiv.textContent = data.error || '登录失败';
+          errorDiv.textContent = data.message || data.error || '登录失败';
           errorDiv.style.display = 'block';
         }
         if (btn) btn.disabled = false;
@@ -7047,11 +7049,27 @@ async function apiFetch(url, options = {}) {
       return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (!resp.ok) {
-      throw new Error('HTTP ' + resp.status + ' ' + resp.statusText);
+      var errMsg = '请求失败 (' + resp.status + ')';
+      try {
+        var errData = await resp.clone().json();
+        if (errData && errData.message) {
+          errMsg = errData.message;
+        } else if (errData && errData.error) {
+          if (typeof errData.error === 'string') errMsg = errData.error;
+          else if (errData.error && errData.error.message) errMsg = errData.error.message;
+        }
+      } catch (parseErr) {}
+      if (!options.silent) {
+        showToast('❌ ' + errMsg, 'error');
+      }
+      throw new Error(errMsg);
     }
     return resp;
   } catch (e) {
     console.error('API 请求失败:', e);
+    if (!options.silent && e && e.message && e.message.indexOf('HTTP') < 0 && e.message.indexOf('请求失败') < 0) {
+      showToast('❌ 网络错误：' + e.message, 'error');
+    }
     throw e;
   }
 }
@@ -7236,7 +7254,7 @@ async function _fullLogin() {
       showMainApp();
       showToast('✅ 登录成功，欢迎 ' + (currentUser.displayName || currentUser.name || currentUser.username));
     } else {
-      errorDiv.textContent = data.error || '登录失败，请检查用户名和密码';
+      errorDiv.textContent = data.message || data.error || '登录失败，请检查用户名和密码';
       errorDiv.style.display = 'block';
     }
   } catch (e) {
@@ -7608,7 +7626,9 @@ function updateSendButtonState() {
   var input = document.getElementById('msgInput');
   var sendBtn = document.getElementById('sendBtn');
   if (!input || !sendBtn) return;
-  sendBtn.disabled = !input.value.trim() && (!window._pendingImages || window._pendingImages.length === 0);
+  var hasContent = !!(input.value.trim() || (window._pendingImages && window._pendingImages.length > 0));
+  sendBtn.disabled = !hasContent;
+  sendBtn.classList.toggle('active', hasContent);
 }
 function buildChatImagesHtml(images) {
   if (!images || images.length === 0) return '';
@@ -7809,7 +7829,16 @@ async function sendMsg() {
   // 商品图批量识别录入：当用户发送多张图片且符合商品录入意图时，先逐张识别并展示确认卡片
   if (hasImages && hasDirectApi && shouldTriggerBatchProductRecognition(text, pendingImages.length)) {
     try {
-      var extractedProducts = await extractProductsFromImages(emp, pendingImages);
+      var extractedResult = await extractProductsFromImages(emp, pendingImages);
+      var extractedProducts = extractedResult.products || [];
+      var extractErrors = extractedResult.errors || [];
+      // 全部识别失败时，给出明确错误提示并移除加载状态，避免卡住
+      if (extractedProducts.length === 0 && extractErrors.length > 0) {
+        typing.remove();
+        displayAIReply('⚠️ 图片识别失败，请重试', docContext, timeStr, emp.id, []);
+        restoreOnline();
+        return;
+      }
       if (extractedProducts.length > 0) {
         typing.remove();
         renderPendingProductsCard(emp, extractedProducts, { docContext: docContext, timeStr: timeStr, sourceText: text });
@@ -7818,6 +7847,10 @@ async function sendMsg() {
       }
     } catch (e) {
       console.warn('[BatchProduct] 批量识别异常:', e);
+      typing.remove();
+      displayAIReply('⚠️ 图片识别失败，请重试', docContext, timeStr, emp.id, []);
+      restoreOnline();
+      return;
     }
   }
 
@@ -10003,8 +10036,26 @@ document.getElementById('msgInput').addEventListener('input', handleInput);
   var wrap = input && input.closest('.input-wrap-v2');
   if (wrap) {
     wrap.addEventListener('paste', function (e) {
-      if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
-        handleImageFiles(e.clipboardData.files);
+      var cd = e.clipboardData;
+      if (!cd) return;
+      // 优先使用 files
+      if (cd.files && cd.files.length > 0) {
+        handleImageFiles(cd.files);
+        return;
+      }
+      // 某些系统/浏览器粘贴的图片在 items 中，需要转成 Blob 处理
+      if (cd.items && cd.items.length > 0) {
+        var imageItems = [];
+        for (var i = 0; i < cd.items.length; i++) {
+          var item = cd.items[i];
+          if (item.type && item.type.startsWith('image/')) {
+            var blob = item.getAsFile();
+            if (blob) imageItems.push(blob);
+          }
+        }
+        if (imageItems.length > 0) {
+          handleImageFiles(imageItems);
+        }
       }
     });
     wrap.addEventListener('dragover', function (e) {
@@ -12568,13 +12619,16 @@ function displayGroupAIReply(groupId, senderId, replyText) {
       toolCalls.forEach(function(call) {
         call._context = { docContext: '', timeStr: timeStr, empId: senderId, groupId: groupId };
       });
+      var runningId = showToolRunningIndicator(toolCalls);
       for (var i = 0; i < toolCalls.length; i++) {
+        updateToolRunningIndicator(runningId, '正在调用工具：' + toolCalls[i].action + '（' + (i + 1) + '/' + toolCalls.length + '）');
         var result = await executeToolCall(toolCalls[i]);
         var toolTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
         var toolHtml = '<div class="msg"><div class="msg-avatar" style="font-size:20px;">🧠</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">主大脑</span><span class="msg-sender-role">系统</span><span class="msg-sender-time">' + toolTime + '</span></div><div class="msg-bubble" style="background:var(--accent-light);color:var(--accent);font-size:13px;white-space:pre-wrap;">' + escapeHtml(result) + '</div></div></div>';
         area.insertAdjacentHTML('beforeend', toolHtml);
         area.scrollTop = area.scrollHeight;
       }
+      removeToolRunningIndicator(runningId);
     })();
   }
 
@@ -13674,7 +13728,9 @@ function handleInput() {
   const val = document.getElementById('msgInput').value;
   const sendBtn = document.getElementById('sendBtn');
   if (sendBtn) {
-    sendBtn.disabled = !val.trim() && (!window._pendingImages || window._pendingImages.length === 0);
+    var hasContent = !!(val.trim() || (window._pendingImages && window._pendingImages.length > 0));
+    sendBtn.disabled = !hasContent;
+    sendBtn.classList.toggle('active', hasContent);
   }
   if (val.startsWith('/')) {
     document.getElementById('slashMenu').classList.add('active');
@@ -15834,7 +15890,7 @@ function installOpenClawSkill(slug) {
       showToast('✅ ' + slug + ' 安装成功');
       loadOpenClawSkills();
     } else {
-      showToast('❌ 安装失败: ' + (data.error || '未知错误'));
+      showToast('❌ 安装失败: ' + ((data && (data.message || data.error)) || '未知错误'));
     }
   }).catch(function (e) {
     showToast('❌ 安装失败');
@@ -15858,7 +15914,7 @@ function removeOpenClawSkill(slug) {
       showToast('✅ ' + slug + ' 已卸载');
       loadOpenClawSkills();
     } else {
-      showToast('❌ 卸载失败: ' + (data.error || '未知错误'));
+      showToast('❌ 卸载失败: ' + ((data && (data.message || data.error)) || '未知错误'));
     }
   }).catch(function (e) {
     showToast('❌ 卸载失败');
@@ -17631,14 +17687,17 @@ async function describeImage(emp, base64, prompt) {
 }
 
 // 逐张识别多张商品图，汇总为待录入商品数组
+// 返回 { products: 识别成功的商品数组, errors: 每张图片的错误信息数组 }
 async function extractProductsFromImages(emp, images) {
   var products = [];
-  if (!images || images.length === 0) return products;
+  var errors = [];
+  if (!images || images.length === 0) return { products: products, errors: errors };
   for (var i = 0; i < images.length; i++) {
     var img = images[i];
     var result = await describeImage(emp, img.base64, PRODUCT_IMAGE_RECOGNITION_PROMPT);
     if (result && result.error) {
       console.warn('[extractProductsFromImages] 图片 ' + i + ' 识别失败:', result.error);
+      errors.push({ index: i, error: result.error });
       continue;
     }
     if (result && result.is_product !== false && result.name) {
@@ -17649,7 +17708,7 @@ async function extractProductsFromImages(emp, images) {
       console.warn('[extractProductsFromImages] 图片 ' + i + ' 未识别为商品:', result && result.note);
     }
   }
-  return products;
+  return { products: products, errors: errors };
 }
 
 // 判断用户消息是否触发商品图批量识别
@@ -17688,6 +17747,9 @@ function renderPendingProductsCard(emp, products, context) {
         '<div class="pending-product-meta">品牌：' + escapeHtml(p.brand || '-') + ' · SKU：' + escapeHtml(specs) + '</div>' +
         '<div class="pending-product-meta">标签：' + escapeHtml(tags) + '</div>' +
         '<div class="pending-product-selling">' + escapeHtml(p.selling_points || '-') + '</div>' +
+        '<div class="pending-product-actions" style="margin-top:6px;">' +
+          '<button class="pending-product-btn primary" onclick="oneClickAddProduct(\'' + cardId + '\', ' + idx + ')">一键录入商品库</button>' +
+        '</div>' +
       '</div>' +
     '</div>';
   }).join('');
@@ -17764,6 +17826,14 @@ function cancelBatchAddProducts(cardId) {
   var card = document.getElementById(cardId);
   if (card) card.remove();
   if (window._pendingProductCards) delete window._pendingProductCards[cardId];
+}
+
+// 图片识别后一键录入单条商品到表单
+function oneClickAddProduct(cardId, idx) {
+  var cache = window._pendingProductCards && window._pendingProductCards[cardId];
+  if (!cache || !cache.products || idx < 0 || idx >= cache.products.length) return;
+  var p = cache.products[idx];
+  openProductFormWithData(p);
 }
 
 // 内部调用目标员工的 OpenClaw 接口并返回回复文本（不渲染到 DOM，不保存历史）
@@ -17850,7 +17920,7 @@ function getCurrentEmployeeInfo() {
 
 function isEmployeeNotFoundError(res, data) {
   if (!res || !data) return false;
-  return res.status === 404 && data.error === '员工不存在';
+  return res.status === 404 && (data.message === '员工不存在' || data.error === '员工不存在');
 }
 
 function closeCurrentChatAsDeleted() {
@@ -17907,7 +17977,7 @@ async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, i
     if (resp.status === 404) {
       try {
         var errData = await resp.clone().json();
-        if (errData && errData.error === '员工不存在') {
+        if (errData && (errData.message === '员工不存在' || errData.error === '员工不存在')) {
           closeCurrentChatAsDeleted();
           return;
         }
@@ -17965,7 +18035,7 @@ function loadChatFromServer(id, type, callback) {
   apiFetch('/api/chat/' + encodeURIComponent(id) + '?type=' + encodeURIComponent(chatType)).then(function (res) {
     if (res.status === 404) {
       return res.json().then(function (data) {
-        if (data && data.error === '员工不存在') {
+        if (data && (data.message === '员工不存在' || data.error === '员工不存在')) {
           closeCurrentChatAsDeleted();
         }
         return [];
@@ -18885,6 +18955,38 @@ function updateToolCallCard(card, status, result) {
   }
 }
 
+// 在聊天流中显示「正在调用工具」的临时状态消息，工具返回后更新或移除
+function showToolRunningIndicator(toolCalls) {
+  var area = document.getElementById('messagesArea');
+  if (!area || !toolCalls || !toolCalls.length) return null;
+  var id = 'tool_running_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+  var names = toolCalls.map(function(c) { return c.action; }).join('、');
+  var html = '<div class="msg" id="' + id + '">' +
+    '<div class="msg-avatar" style="font-size:20px;">🛠️</div>' +
+    '<div class="msg-content">' +
+      '<div class="msg-sender"><span class="msg-sender-name">主大脑</span><span class="msg-sender-role">系统</span></div>' +
+      '<div class="msg-bubble" style="background:var(--accent-light);color:var(--accent);font-size:13px;">正在调用工具：' + escapeHtml(names) + '</div>' +
+    '</div>' +
+  '</div>';
+  area.insertAdjacentHTML('beforeend', html);
+  area.scrollTop = area.scrollHeight;
+  return id;
+}
+
+function updateToolRunningIndicator(id, text) {
+  if (!id) return;
+  var el = document.getElementById(id);
+  if (!el) return;
+  var bubble = el.querySelector('.msg-bubble');
+  if (bubble) bubble.textContent = text;
+}
+
+function removeToolRunningIndicator(id) {
+  if (!id) return;
+  var el = document.getElementById(id);
+  if (el) el.remove();
+}
+
 function toggleCitationPanel(panelId) {
   var panel = document.getElementById(panelId);
   if (!panel) return;
@@ -19235,7 +19337,7 @@ async function executeToolCall(call) {
         if (imageIndex < 0 || imageIndex >= lastImages.length) return '【工具执行失败】图片索引越界：' + imageIndex;
         var visionEmp = getCurrentEmployeeInfo();
         var visionResult = await describeImage(visionEmp, lastImages[imageIndex].base64, PRODUCT_IMAGE_RECOGNITION_PROMPT);
-        if (visionResult && visionResult.error) return '【工具执行失败】' + visionResult.error;
+        if (visionResult && visionResult.error) return '⚠️ 图片识别失败，请重试（' + visionResult.error + '）';
         return '【图片识别结果】\n' + JSON.stringify(visionResult, null, 2);
       case 'batch_add_products':
         var batchProducts = call.params && call.params.products;
@@ -19256,7 +19358,7 @@ async function executeToolCall(call) {
         }
         var extractRes = await apiFetch('/api/products/extract', { method: 'POST', body: JSON.stringify(extractBody) });
         var extractData = await extractRes.json();
-        if (extractData.error) return '【工具执行失败】' + extractData.error;
+        if (extractData.error || extractData.message) return '【工具执行失败】' + (extractData.message || extractData.error);
         var uncertain = (extractData.uncertain_fields || []).join('、') || '无';
         return '【商品信息提取结果】\n' + JSON.stringify(extractData, null, 2) + '\n\n未确定字段：' + uncertain;
       case 'check_duplicate_product':
@@ -19291,7 +19393,7 @@ async function executeToolCall(call) {
         if (hitParams.extra_notes) hitBody.extra_notes = hitParams.extra_notes;
         var hitRes = await apiFetch('/api/talents/' + encodeURIComponent(hitTalentId) + '/analyze-hit', { method: 'POST', body: JSON.stringify(hitBody) });
         var hitData = await hitRes.json();
-        if (hitData.error) return '【工具执行失败】' + hitData.error;
+        if (hitData.error || hitData.message) return '【工具执行失败】' + (hitData.message || hitData.error);
         var hitAnalysis = hitData.hit_analysis || {};
         return '【爆款达人分析】\n' +
           '人设风格：' + (hitAnalysis.persona_style || '-') + '\n' +
@@ -19309,7 +19411,7 @@ async function executeToolCall(call) {
         if (!simBody.talent_id && !simBody.features) return '【工具执行失败】缺少 talentId 或 features';
         var simRes = await apiFetch('/api/talents/similar', { method: 'POST', body: JSON.stringify(simBody) });
         var simData = await simRes.json();
-        if (simData.error) return '【工具执行失败】' + simData.error;
+        if (simData.error || simData.message) return '【工具执行失败】' + (simData.message || simData.error);
         var simMatches = (simData.matches || []).slice(0, 10);
         if (simMatches.length === 0) return '暂未找到相似达人。';
         var simLines = simMatches.map(function(m, idx) {
@@ -19325,7 +19427,7 @@ async function executeToolCall(call) {
         if (!upaAnalysis || typeof upaAnalysis !== 'object') return '【工具执行失败】缺少 ai_analysis 对象';
         var upaRes = await apiFetch('/api/products/' + encodeURIComponent(upaProductId) + '/ai-analysis', { method: 'PUT', body: JSON.stringify({ ai_analysis: upaAnalysis }) });
         var upaData = await upaRes.json();
-        if (upaData.error) return '【工具执行失败】' + upaData.error;
+        if (upaData.error || upaData.message) return '【工具执行失败】' + (upaData.message || upaData.error);
         if (typeof loadProducts === 'function') loadProducts();
         return '✅ 已更新商品「' + (upaData.name || upaProductId) + '」的 AI 分析结果。';
       case 'mention_colleague':
@@ -19631,8 +19733,10 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
         contentEl.appendChild(recordsContainer);
         area.scrollTop = area.scrollHeight;
       }
+      var runningId = showToolRunningIndicator(toolCalls);
       for (var i = 0; i < toolCalls.length; i++) {
         var call = toolCalls[i];
+        updateToolRunningIndicator(runningId, '正在调用工具：' + call.action + '（' + (i + 1) + '/' + toolCalls.length + '）');
         var result = await executeToolCall(call);
         var key = _toolCallKey(call);
         var card = cards[key];
@@ -19652,6 +19756,7 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
           area.scrollTop = area.scrollHeight;
         }
       }
+      removeToolRunningIndicator(runningId);
     })();
   }
 }
@@ -20214,7 +20319,7 @@ async function finishWizard() {
       }).then(function (r) {
         return r.json();
       }).then(function (data) {
-        if (data.success) console.log('[Wizard] 技能安装成功:', slug);else console.warn('[Wizard] 技能安装失败:', slug, data.error);
+        if (data.success) console.log('[Wizard] 技能安装成功:', slug);else console.warn('[Wizard] 技能安装失败:', slug, data.message || data.error);
       }).catch(function (e) {
         console.warn('[Wizard] 技能安装失败:', slug, e);
       });
@@ -20312,6 +20417,8 @@ async function finishWizard() {
 .pending-product-btn.confirm:hover { filter: brightness(1.05); }
 .pending-product-btn.cancel { background: var(--bg-tertiary); color: var(--text-secondary); }
 .pending-product-btn.cancel:hover { background: var(--bg-secondary); }
+.pending-product-btn.primary { background: var(--accent); color: #fff; }
+.pending-product-btn.primary:hover { filter: brightness(1.05); }
 .pending-product-loading { font-size: 12px; color: var(--text-secondary); }
 .pending-product-result { font-size: 12px; padding: 6px 10px; border-radius: var(--radius-sm); margin-bottom: 6px; }
 .pending-product-result.success { background: rgba(52, 199, 89, 0.1); color: #34C759; }
@@ -21314,7 +21421,8 @@ function createUser() {
       return res ? res.json() : null;
     }
   }).then(function (data) {
-    if (data && data.error) showToast('⚠️ ' + data.error);
+    var _errMsg = data && (data.message || data.error);
+    if (_errMsg) showToast('⚠️ ' + _errMsg);
   }).catch(function () {
     showToast('⚠️ 后端不可用，无法创建用户');
   });
@@ -21513,7 +21621,8 @@ function createTeam() {
       return res ? res.json() : null;
     }
   }).then(function (data) {
-    if (data && data.error) showToast('⚠️ ' + data.error);
+    var _errMsg = data && (data.message || data.error);
+    if (_errMsg) showToast('⚠️ ' + _errMsg);
   }).catch(function () {
     showToast('⚠️ 后端不可用');
   });
@@ -21603,7 +21712,8 @@ function saveTeamEdit() {
       return res ? res.json() : null;
     }
   }).then(function (data) {
-    if (data && data.error) showToast('⚠️ ' + data.error);
+    var _errMsg = data && (data.message || data.error);
+    if (_errMsg) showToast('⚠️ ' + _errMsg);
   }).catch(function () {
     showToast('⚠️ 后端不可用');
   });
@@ -21640,7 +21750,8 @@ function deleteTeam() {
       return res ? res.json() : null;
     }
   }).then(function (data) {
-    if (data && data.error) showToast('⚠️ ' + data.error);
+    var _errMsg = data && (data.message || data.error);
+    if (_errMsg) showToast('⚠️ ' + _errMsg);
   }).catch(function () {
     showToast('⚠️ 后端不可用');
   });
@@ -21675,7 +21786,8 @@ function deleteTeamById(teamId) {
       return res ? res.json() : null;
     }
   }).then(function (data) {
-    if (data && data.error) showToast('⚠️ ' + data.error);
+    var _errMsg = data && (data.message || data.error);
+    if (_errMsg) showToast('⚠️ ' + _errMsg);
   }).catch(function () {
     showToast('⚠️ 后端不可用');
   });
@@ -21817,7 +21929,8 @@ function addTeamMember() {
       return res ? res.json() : null;
     }
   }).then(function (data) {
-    if (data && data.error) showToast('⚠️ ' + data.error);
+    var _errMsg = data && (data.message || data.error);
+    if (_errMsg) showToast('⚠️ ' + _errMsg);
   }).catch(function () {
     showToast('⚠️ 添加成员失败，请检查网络');
   });
@@ -21837,7 +21950,8 @@ function removeTeamMember(agentId) {
       return res ? res.json() : null;
     }
   }).then(function (data) {
-    if (data && data.error) showToast('⚠️ ' + data.error);
+    var _errMsg = data && (data.message || data.error);
+    if (_errMsg) showToast('⚠️ ' + _errMsg);
   }).catch(function () {
     showToast('⚠️ 移除成员失败，请检查网络');
   });
@@ -21864,7 +21978,8 @@ function deleteUser(userId) {
       return res ? res.json() : null;
     }
   }).then(function (data) {
-    if (data && data.error) showToast('⚠️ ' + data.error);
+    var _errMsg = data && (data.message || data.error);
+    if (_errMsg) showToast('⚠️ ' + _errMsg);
   }).catch(function () {
     showToast('⚠️ 后端不可用，无法删除用户');
   });
@@ -21970,7 +22085,8 @@ function saveUserEdit() {
       return res ? res.json() : null;
     }
   }).then(function (data) {
-    if (data && data.error) showToast('⚠️ ' + data.error);
+    var _errMsg = data && (data.message || data.error);
+    if (_errMsg) showToast('⚠️ ' + _errMsg);
   }).catch(function () {
     showToast('⚠️ 后端不可用，无法更新用户');
     closeUserEditModal();
@@ -22230,6 +22346,10 @@ function selectProductItem(id) {
 }
 
 function renderProductDetail(p) {
+  if (!p || typeof p !== 'object') {
+    showProductEmptyState();
+    return;
+  }
   hideProductEmptyState();
   var title = document.getElementById('productsRightTitle');
   if (title) title.textContent = p.name || '商品详情';
@@ -22478,12 +22598,23 @@ function analyzeProductAI() {
   if (!_productCurrentId) return;
   var btn = document.getElementById('productsAIBtn');
   if (btn) { btn.disabled = true; btn.textContent = '分析中...'; }
-  apiFetch('/api/products/' + encodeURIComponent(_productCurrentId) + '/analyze', {method:'POST'}).then(function(r){return r.json();}).then(function(data){
+  apiFetch('/api/products/' + encodeURIComponent(_productCurrentId) + '/analyze', {method:'POST'}).then(function(r){
+    return r.json().then(function(data){ return {ok: r.ok, data: data}; });
+  }).then(function(res){
+    if (!res.ok || res.data.error || res.data.message) {
+      var errMsg = res.data.error || res.data.message;
+      if (errMsg && typeof errMsg === 'object') errMsg = errMsg.message || JSON.stringify(errMsg);
+      showToast('❌ ' + (errMsg || '分析失败'), 'error');
+      return;
+    }
     var p = _productData.products.find(function(x){return x.id === _productCurrentId;});
-    if (p) p.ai_analysis = data.ai_analysis;
-    renderProductDetail(p || data);
-    showToast('✅ AI 分析完成');
-  }).catch(function(e){ showToast('❌ 分析失败'); }).finally(function(){
+    if (p) p.ai_analysis = res.data.ai_analysis;
+    renderProductDetail(p || res.data);
+    showToast('✅ AI 分析完成', 'success');
+  }).catch(function(e){
+    console.error('[analyzeProductAI]', e);
+    showToast('❌ 分析失败，请检查网络后重试', 'error');
+  }).finally(function(){
     if (btn) { btn.disabled = false; btn.textContent = 'AI 分析'; }
   });
 }
@@ -22572,34 +22703,44 @@ function createNewProduct() {
 function editCurrentProduct() {
   if (!_productCurrentId) { showToast('请选择商品'); return; }
   apiFetch('/api/products/' + encodeURIComponent(_productCurrentId)).then(function(r){return r.json();}).then(function(p){
-    document.getElementById('productEditId').value = p.id;
-    _setProductModalField('productName', p.name || '');
-    _setProductModalField('productDescription', p.description || p.subtitle || '');
-    renderProductBrandOptions();
-    _setProductModalField('productBrandSelect', p.brand || '');
-    _setProductModalField('productCategory', p.category || '');
-    _setProductModalField('productPrice', p.price == null ? '' : p.price);
-    _setProductModalField('productPriceRange', p.price_range || '');
-    _setProductModalField('productStock', p.stock || 0);
-    _setProductModalField('productMonthlySales', p.monthly_sales || 0);
-    _setProductModalField('productMonthlyGmv', p.monthly_gmv || 0);
-    _setProductModalField('productAvgOrderValue', p.avg_order_value || 0);
-    _setProductModalField('productConversionRate', p.conversion_rate || 0);
-    _setProductModalJson('productCommissionRates', p.commission_rates);
-    _setProductModalField('productCommissionAmount', p.commission_amount || 0);
-    _setProductModalField('productMainImage', p.main_image || '');
-    _setProductModalField('productSellingPoints', p.selling_points || '');
-    _setProductModalField('productTags', (p.tags || []).join('、'));
-    _setProductModalJson('productSkuSpecs', p.sku_specs);
-    _setProductModalField('productStatus', p.status || 'active');
-    _setProductModalJson('productAudience', p.audience);
-    _setProductModalJson('productChannelDistribution', p.channel_distribution);
-    _setProductModalJson('productInfluencers', p.influencers);
-    _setProductModalJson('productAiAnalysis', p.ai_analysis);
-    _updateProductMainImagePreview();
-    document.getElementById('productModalTitle').textContent = '编辑商品';
-    document.getElementById('productModalOverlay').classList.add('active');
+    _fillProductModal(p, '编辑商品');
   });
+}
+
+// 用商品数据填充录入/编辑表单并打开弹窗（用于图片识别后的一键录入）
+function _fillProductModal(p, title) {
+  document.getElementById('productEditId').value = p.id || '';
+  _setProductModalField('productName', p.name || '');
+  _setProductModalField('productDescription', p.description || p.subtitle || '');
+  renderProductBrandOptions();
+  _setProductModalField('productBrandSelect', p.brand || '');
+  _setProductModalField('productCategory', p.category || '');
+  _setProductModalField('productPrice', p.price == null ? '' : p.price);
+  _setProductModalField('productPriceRange', p.price_range || '');
+  _setProductModalField('productStock', p.stock || 0);
+  _setProductModalField('productMonthlySales', p.monthly_sales || 0);
+  _setProductModalField('productMonthlyGmv', p.monthly_gmv || 0);
+  _setProductModalField('productAvgOrderValue', p.avg_order_value || 0);
+  _setProductModalField('productConversionRate', p.conversion_rate || 0);
+  _setProductModalJson('productCommissionRates', p.commission_rates);
+  _setProductModalField('productCommissionAmount', p.commission_amount || 0);
+  _setProductModalField('productMainImage', p.main_image || p._sourceBase64 || '');
+  _setProductModalField('productSellingPoints', p.selling_points || '');
+  _setProductModalField('productTags', (p.tags || []).join('、'));
+  _setProductModalJson('productSkuSpecs', p.sku_specs);
+  _setProductModalField('productStatus', p.status || 'active');
+  _setProductModalJson('productAudience', p.audience);
+  _setProductModalJson('productChannelDistribution', p.channel_distribution);
+  _setProductModalJson('productInfluencers', p.influencers);
+  _setProductModalJson('productAiAnalysis', p.ai_analysis);
+  _updateProductMainImagePreview();
+  document.getElementById('productModalTitle').textContent = title || (p.id ? '编辑商品' : '录入商品');
+  document.getElementById('productModalOverlay').classList.add('active');
+}
+
+function openProductFormWithData(p) {
+  if (!p) return;
+  _fillProductModal(p, '录入商品');
 }
 
 function closeProductModal(e) { if (e && e.target !== e.currentTarget) return; document.getElementById('productModalOverlay').classList.remove('active'); }
@@ -22944,6 +23085,10 @@ function selectTalentItem(id) {
 }
 
 function renderTalentDetail(t) {
+  if (!t || typeof t !== 'object') {
+    showTalentEmptyState();
+    return;
+  }
   hideTalentEmptyState();
   _currentTalent = t;
   var titleEl = document.getElementById('talentsRightTitle');
@@ -23569,18 +23714,31 @@ function analyzeTalentAI() {
   if (!_talentCurrentId) return;
   var btn = document.getElementById('talentsAIBtn');
   if (btn) { btn.disabled = true; btn.textContent = '分析中...'; }
-  apiFetch('/api/talents/' + encodeURIComponent(_talentCurrentId) + '/analyze', {method:'POST'}).then(function(r){return r.json();}).then(function(data){
+  apiFetch('/api/talents/' + encodeURIComponent(_talentCurrentId) + '/analyze', {method:'POST'}).then(function(r){
+    return r.json().then(function(data){ return {ok: r.ok, data: data}; });
+  }).then(function(res){
+    if (!res.ok || res.data.error || res.data.message) {
+      var errMsg = res.data.error || res.data.message;
+      if (errMsg && typeof errMsg === 'object') errMsg = errMsg.message || JSON.stringify(errMsg);
+      showToast('❌ ' + (errMsg || '分析失败'), 'error');
+      return;
+    }
+    var analysis = res.data.ai_analysis || {};
     var t = _talentData.talents.find(function(x){return x.id === _talentCurrentId;});
     if (t) {
-      t.ai_rating = data.ai_analysis.rating || '';
-      t.ai_tags = data.ai_analysis.tags || [];
-      t.ai_summary = data.ai_analysis.suitable_products || '';
-      t.ai_reason = JSON.stringify(data.ai_analysis);
+      t.ai_rating = analysis.rating || '';
+      t.ai_tags = analysis.tags || [];
+      t.ai_summary = analysis.suitable_products || '';
+      t.ai_analysis = analysis.suitable_products || analysis.cooperation_advice || '';
+      t.ai_reason = JSON.stringify(analysis);
     }
     if (_currentTalent) _currentTalent = Object.assign(_currentTalent, t);
     renderTalentDetail(t || _currentTalent);
-    showToast('✅ AI 分析完成');
-  }).catch(function(e){ showToast('❌ 分析失败'); }).finally(function(){
+    showToast('✅ AI 分析完成', 'success');
+  }).catch(function(e){
+    console.error('[analyzeTalentAI]', e);
+    showToast('❌ 分析失败，请检查网络后重试', 'error');
+  }).finally(function(){
     if (btn) { btn.disabled = false; btn.textContent = 'AI 分析'; }
   });
 }
