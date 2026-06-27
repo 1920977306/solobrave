@@ -6801,7 +6801,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not self._require_module_permission(auth, 'employees'): return
 
-        agents = _load_agents()
+        agents = _load_agents(include_archived=True)
         uid = auth.user_info['userId']
 
         # 调试日志：打印 uid 和所有 agent 的 createdBy，排查过滤问题
