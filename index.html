@@ -17678,18 +17678,30 @@ async function describeImage(emp, base64, prompt) {
         'X-AI-API-Key': emp.apiKey,
         'X-Target-URL': endpoint
       },
-      body: JSON.stringify({ model: model, messages: messages, temperature: emp.aiProvider === 'kimicode' ? 1 : 0.2, max_tokens: 1500 })
+      body: JSON.stringify({ model: model, messages: messages, temperature: emp.aiProvider === 'kimicode' ? 1 : 0.2, max_tokens: 1500, response_format: { type: 'json_object' } })
     });
     if (!res.ok) return { error: '图片识别请求失败，状态码 ' + (res.status || 'unknown') };
     var data = await res.json();
-    var content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '';
+    var message = data && data.choices && data.choices[0] && data.choices[0].message || {};
+    var content = message.content || '';
+    var reasoning = message.reasoning_content || '';
     var jsonStr = content;
     var codeMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (codeMatch) jsonStr = codeMatch[1];
     jsonStr = jsonStr.trim();
-    if (!jsonStr) return { error: '模型未返回有效 JSON 内容' };
-    var obj = JSON.parse(jsonStr);
-    return obj;
+    // 若 content 为空但有 reasoning_content，尝试从 reasoning_content 中提取 JSON 块
+    if (!jsonStr && reasoning) {
+      var reasoningCodeMatch = reasoning.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      jsonStr = reasoningCodeMatch ? reasoningCodeMatch[1].trim() : reasoning.trim();
+    }
+    if (!jsonStr) return { error: '模型未返回有效 JSON 内容（content/reasoning 均为空）' };
+    try {
+      var obj = JSON.parse(jsonStr);
+      return obj;
+    } catch (parseErr) {
+      console.warn('[describeImage] JSON 解析失败，原始内容:', jsonStr);
+      return { error: '模型返回内容不是有效 JSON: ' + (parseErr.message || String(parseErr)) };
+    }
   } catch (e) {
     return { error: '图片识别异常: ' + (e.message || String(e)) };
   }
