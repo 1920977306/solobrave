@@ -17693,6 +17693,13 @@ async function describeImage(emp, base64, prompt) {
       { type: 'image_url', image_url: { url: base64 } }
     ] }
   ];
+  var bodyObj = { model: model, messages: messages, max_tokens: 1500 };
+  if (emp.aiProvider === 'kimicode') {
+    bodyObj.temperature = 0.6;
+    bodyObj.thinking = { type: 'disabled' };
+  } else {
+    bodyObj.temperature = 0.2;
+  }
   try {
     var res = await apiFetch('/api/proxy', {
       method: 'POST',
@@ -17702,7 +17709,7 @@ async function describeImage(emp, base64, prompt) {
         'X-AI-API-Key': emp.apiKey,
         'X-Target-URL': endpoint
       },
-      body: JSON.stringify({ model: model, messages: messages, temperature: emp.aiProvider === 'kimicode' ? 1 : 0.2, max_tokens: 1500 })
+      body: JSON.stringify(bodyObj)
     });
     if (!res.ok) return { error: '图片识别请求失败，状态码 ' + (res.status || 'unknown') };
     var data = await res.json();
