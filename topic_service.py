@@ -27,10 +27,12 @@ TOPIC_MERGE_SIM_THRESHOLD = 0.75
 TOPIC_MERGE_OVERLAP_THRESHOLD = 0.30
 
 
-def _db_conn():
-    """创建 SQLite 连接（字典行）"""
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+def _db_conn(timeout=30):
+    """创建 SQLite 连接（字典行）；启用 WAL 与 busy timeout 降低 database locked 概率"""
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=timeout)
     conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA journal_mode=WAL;')
+    conn.execute(f'PRAGMA busy_timeout={timeout * 1000};')
     return conn
 
 

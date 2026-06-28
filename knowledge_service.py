@@ -109,10 +109,12 @@ def get_embedding_config(emp_id=None):
     }
 
 
-def _db_conn():
-    """获取 SQLite 数据库连接"""
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+def _db_conn(timeout=30):
+    """获取 SQLite 数据库连接；启用 WAL 与 busy timeout 降低 database locked 概率"""
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=timeout)
     conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA journal_mode=WAL;')
+    conn.execute(f'PRAGMA busy_timeout={timeout * 1000};')
     return conn
 
 
@@ -992,26 +994,39 @@ def _save_chunks_without_embedding(kid, emp_id, content, chunk_size, overlap):
 
 
 def _vectorize_chunks(kid, emp_id, api_key, provider, embedding_model, base_url=None):
-    """为已存在的 chunks 生成 embedding，并记录模型名"""
+    """为已存在的 chunks 生成 embedding，并记录模型名。
+    调用 Embedding API 期间不持有数据库连接，避免长时间占用写锁。"""
     import struct
+    # 1. 读取待向量化的 chunks，立即释放读锁
     conn = _db_conn()
     try:
         rows = conn.execute(
             'SELECT id, chunk_index, content FROM knowledge_chunks WHERE knowledge_id = ? AND embedding IS NULL',
             (kid,)
         ).fetchall()
-        for row in rows:
-            emb = get_embedding_cached(row['content'], api_key, provider, embedding_model, base_url=base_url)
-            if emb is None:
-                raise RuntimeError(f'chunk {row["chunk_index"]} embedding failed')
-            emb_bytes = struct.pack(f'{len(emb)}f', *emb)
-            conn.execute(
-                'UPDATE knowledge_chunks SET embedding = ?, embedding_model = ? WHERE id = ?',
-                (emb_bytes, embedding_model, row['id'])
-            )
-        conn.commit()
     finally:
         conn.close()
+
+    # 2. 调用 Embedding API（此阶段不持有数据库锁）
+    updates = []
+    for row in rows:
+        emb = get_embedding_cached(row['content'], api_key, provider, embedding_model, base_url=base_url)
+        if emb is None:
+            raise RuntimeError(f'chunk {row["chunk_index"]} embedding failed')
+        emb_bytes = struct.pack(f'{len(emb)}f', *emb)
+        updates.append((emb_bytes, embedding_model, row['id']))
+
+    # 3. 批量写入 embedding，缩短写锁持有时间
+    if updates:
+        conn = _db_conn()
+        try:
+            conn.executemany(
+                'UPDATE knowledge_chunks SET embedding = ?, embedding_model = ? WHERE id = ?',
+                updates
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
 
 def _rechunk_and_vectorize(kid, emp_id, content, api_key, provider,
