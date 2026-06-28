@@ -17648,6 +17648,50 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
   });
 }
 
+// 从可能包含思考过程/说明文字的文本中提取 JSON 对象
+function _extractJsonFromText(text) {
+  if (!text) return null;
+  text = text.trim();
+  // 1. 直接解析
+  try { return JSON.parse(text); } catch (e) {}
+  // 2. 提取 markdown 代码块
+  var codeMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (codeMatch) {
+    try { return JSON.parse(codeMatch[1].trim()); } catch (e) {}
+  }
+  // 3. 从文本中提取第一个完整的 {...} 对象（支持嵌套）
+  var start = text.indexOf('{');
+  if (start !== -1) {
+    var depth = 0;
+    for (var i = start; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      else if (text[i] === '}') {
+        depth--;
+        if (depth === 0) {
+          try { return JSON.parse(text.slice(start, i + 1)); } catch (e) {}
+          break;
+        }
+      }
+    }
+  }
+  // 4. 尝试提取 [...] 数组
+  var arrStart = text.indexOf('[');
+  if (arrStart !== -1) {
+    var arrDepth = 0;
+    for (var j = arrStart; j < text.length; j++) {
+      if (text[j] === '[') arrDepth++;
+      else if (text[j] === ']') {
+        arrDepth--;
+        if (arrDepth === 0) {
+          try { return JSON.parse(text.slice(arrStart, j + 1)); } catch (e) {}
+          break;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 // 调用支持 vision 的 API 识别单张图片，返回解析后的 JSON（失败返回带 error 字段的对象）
 async function describeImage(emp, base64, prompt) {
   if (!emp || !emp.apiKey || !emp.aiProvider || emp.aiProvider === 'openclaw') {
@@ -17685,23 +17729,14 @@ async function describeImage(emp, base64, prompt) {
     var message = data && data.choices && data.choices[0] && data.choices[0].message || {};
     var content = message.content || '';
     var reasoning = message.reasoning_content || '';
-    var jsonStr = content;
-    var codeMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (codeMatch) jsonStr = codeMatch[1];
-    jsonStr = jsonStr.trim();
-    // 若 content 为空但有 reasoning_content，尝试从 reasoning_content 中提取 JSON 块
-    if (!jsonStr && reasoning) {
-      var reasoningCodeMatch = reasoning.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-      jsonStr = reasoningCodeMatch ? reasoningCodeMatch[1].trim() : reasoning.trim();
+    // 从可能包含思考过程的文本中提取 JSON
+    var obj = _extractJsonFromText(content);
+    if (!obj && reasoning) obj = _extractJsonFromText(reasoning);
+    if (!obj) {
+      console.warn('[describeImage] 未能从模型返回中提取 JSON，content:', content, 'reasoning:', reasoning);
+      return { error: '模型未返回有效 JSON 内容' };
     }
-    if (!jsonStr) return { error: '模型未返回有效 JSON 内容（content/reasoning 均为空）' };
-    try {
-      var obj = JSON.parse(jsonStr);
-      return obj;
-    } catch (parseErr) {
-      console.warn('[describeImage] JSON 解析失败，原始内容:', jsonStr);
-      return { error: '模型返回内容不是有效 JSON: ' + (parseErr.message || String(parseErr)) };
-    }
+    return obj;
   } catch (e) {
     return { error: '图片识别异常: ' + (e.message || String(e)) };
   }
