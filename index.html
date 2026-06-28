@@ -17659,35 +17659,15 @@ function _extractJsonFromText(text) {
   if (codeMatch) {
     try { return JSON.parse(codeMatch[1].trim()); } catch (e) {}
   }
-  // 3. 从文本中提取第一个完整的 {...} 对象（支持嵌套）
-  var start = text.indexOf('{');
-  if (start !== -1) {
-    var depth = 0;
-    for (var i = start; i < text.length; i++) {
-      if (text[i] === '{') depth++;
-      else if (text[i] === '}') {
-        depth--;
-        if (depth === 0) {
-          try { return JSON.parse(text.slice(start, i + 1)); } catch (e) {}
-          break;
-        }
-      }
-    }
+  // 3. 用正则从第一个 { 匹配到最后一个 }，提取完整 JSON 对象
+  var objMatch = text.match(/(\{[\s\S]*\})/);
+  if (objMatch) {
+    try { return JSON.parse(objMatch[1]); } catch (e) {}
   }
   // 4. 尝试提取 [...] 数组
-  var arrStart = text.indexOf('[');
-  if (arrStart !== -1) {
-    var arrDepth = 0;
-    for (var j = arrStart; j < text.length; j++) {
-      if (text[j] === '[') arrDepth++;
-      else if (text[j] === ']') {
-        arrDepth--;
-        if (arrDepth === 0) {
-          try { return JSON.parse(text.slice(arrStart, j + 1)); } catch (e) {}
-          break;
-        }
-      }
-    }
+  var arrMatch = text.match(/(\[[\s\S]*\])/);
+  if (arrMatch) {
+    try { return JSON.parse(arrMatch[1]); } catch (e) {}
   }
   return null;
 }
@@ -17722,7 +17702,7 @@ async function describeImage(emp, base64, prompt) {
         'X-AI-API-Key': emp.apiKey,
         'X-Target-URL': endpoint
       },
-      body: JSON.stringify({ model: model, messages: messages, temperature: emp.aiProvider === 'kimicode' ? 1 : 0.2, max_tokens: 1500, response_format: { type: 'json_object' } })
+      body: JSON.stringify({ model: model, messages: messages, temperature: emp.aiProvider === 'kimicode' ? 1 : 0.2, max_tokens: 1500 })
     });
     if (!res.ok) return { error: '图片识别请求失败，状态码 ' + (res.status || 'unknown') };
     var data = await res.json();
