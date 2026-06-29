@@ -2554,6 +2554,70 @@ def _dict_to_product_row(p):
     }
 
 
+def _split_search_tokens(text):
+    """将搜索词拆分为 tokens：中文逐字，英文/数字按空格或整体保留"""
+    import re
+    text = str(text or '').strip().lower()
+    if not text:
+        return []
+    tokens = []
+    # 把连续中文字符拆成单字，非中文按空白分割
+    parts = re.split(r'(\s+)', text)
+    for part in parts:
+        if not part.strip():
+            continue
+        # 判断是否全是 CJK 统一表意文字
+        if re.match(r'^[\u4e00-\u9fff]+$', part):
+            tokens.extend(list(part))
+        else:
+            tokens.append(part)
+    return tokens
+
+
+def _product_search_score(product, query):
+    """计算商品与搜索 query 的匹配分（0-100）"""
+    import difflib
+    q = str(query or '').strip().lower()
+    if not q:
+        return 0
+    name = str(product.get('name') or '').strip().lower()
+    brand = str(product.get('brand') or '').strip().lower()
+    category = str(product.get('category') or '').strip().lower()
+    subtitle = str(product.get('subtitle') or '').strip().lower()
+    selling_points = str(product.get('selling_points') or '').strip().lower()
+    brand_background = str(product.get('brand_background') or '').strip().lower()
+    tags = ' '.join(str(t) for t in (product.get('tags') or [])).lower()
+    sku_specs = str(product.get('sku_specs') or {}).lower()
+
+    # 完全匹配或精确子串优先
+    if q == name:
+        return 100
+    if q in name:
+        return 95
+    if q == brand or q == category:
+        return 85
+
+    # token 级匹配
+    tokens = _split_search_tokens(q)
+    if not tokens:
+        return 0
+    full_text = ' '.join([name, brand, category, subtitle, selling_points, brand_background, tags, sku_specs])
+    token_hits = sum(1 for t in tokens if t in full_text)
+    if token_hits == 0:
+        # 兜底：字符串相似度
+        return difflib.SequenceMatcher(None, q, name).ratio() * 40
+
+    score = (token_hits / len(tokens)) * 70
+    # 名称命中有额外加成
+    name_hits = sum(1 for t in tokens if t in name)
+    score += name_hits * 8
+    # brand/category 命中加成
+    brand_hits = sum(1 for t in tokens if t in brand)
+    cat_hits = sum(1 for t in tokens if t in category)
+    score += brand_hits * 3 + cat_hits * 2
+    return min(score, 98)
+
+
 def _product_similarity_score(a, b):
     """计算两个商品 dict 的相似度分数（0-100），用于模糊重复检测"""
     import difflib
@@ -9587,13 +9651,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             status = query['status'][0]
             products = [p for p in products if p.get('status') == status]
         if query.get('q'):
-            kw = query['q'][0].lower()
-            products = [p for p in products if kw in (p.get('id') or '').lower()
-                        or kw in (p.get('name') or '').lower()
-                        or kw in (p.get('description') or '').lower()
-                        or kw in (p.get('brand') or '').lower()
-                        or kw in (p.get('category') or '').lower()
-                        or any(kw in t.lower() for t in (p.get('tags') or []))]
+            kw = query['q'][0]
+            scored = [(_product_search_score(p, kw), p) for p in products]
+            scored = [(s, p) for s, p in scored if s > 0]
+            scored.sort(key=lambda x: x[0], reverse=True)
+            products = [p for _, p in scored]
         # 分页
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
@@ -10147,14 +10209,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             "只返回 JSON，不要返回其他内容。\n"
             "JSON 字段：\n"
             "- name: 商品名称（必填，字符串）\n"
-            "- price: 价格（数字，识别不到填 0）\n"
+            "- price: 实际售价/直播价（数字，识别不到填 0）\n"
+            "- original_price: 吊牌价/划线价（数字，识别不到填 0）\n"
             "- price_range: 价格区间字符串（如 ¥89-129，识别不到填空字符串）\n"
             "- category: 商品分类（如 鞋靴/凉鞋；识别不到填空字符串）\n"
             "- brand: 品牌名（识别不到填空字符串）\n"
+            "- brand_background: 品牌背景/实力描述（识别不到填空字符串）\n"
             "- stock: 库存数量（数字，识别不到填 0）\n"
+            "- spot_stock: 现货库存（数字，识别不到填 0）\n"
+            "- pre_stock: 预售库存（数字，识别不到填 0）\n"
+            "- spot_delivery_days: 现货发货时效文本（如 24小时内、1-2天；识别不到填空字符串）\n"
+            "- pre_delivery_days: 预售发货时效文本（如 7天内、15天；识别不到填空字符串）\n"
+            "- shipping_company: 快递公司（如 中通/韵达；识别不到填空字符串）\n"
+            "- has_shipping_insurance: 是否赠送运费险（布尔值，识别不到填 false）\n"
+            "- no_shipping_areas: 不发货地区文本（如 新疆、西藏；识别不到填空字符串）\n"
             "- commission_rate: 佣金率百分比（数字，识别不到填 0）\n"
-            "- selling_points: 核心卖点文本（识别不到填空字符串）\n"
-            "- sku_specs: SKU 规格对象，例如 {\"SKU\":\"SKU001\",\"尺码\":\"37-40\"}，无规格时填 {}\n"
+            "- selling_points: 完整核心卖点文本（识别不到填空字符串）\n"
+            "- sku_specs: SKU 规格对象，必须包含颜色/尺码/款式，例如 {\"SKU\":\"SKU001\",\"颜色\":\"黑/白/粉\",\"尺码\":\"37-40\"}，无规格时填 {}\n"
             "- tags: 标签数组（如 [\"凉鞋\",\"厚底\"]；无标签填 []）\n"
             "- subtitle: 副标题/描述（识别不到填空字符串）\n"
             "- main_image: 商品主图 URL（识别不到填空字符串）\n"
