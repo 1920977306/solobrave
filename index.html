@@ -8018,7 +8018,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
     cleanupTyping();
     if (!reply) reply = '（AI 未返回内容）';
     if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
-    displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations);
+    displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations, userMessage, 0, [], images);
     saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images);
   }
 
@@ -8087,7 +8087,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
         var retryResult = await _sendChatWaitForLifecycle(fallbackKey, fullMessage);
         console.log('[OpenClaw] main agent 重试返回:', JSON.stringify(retryResult));
         if (retryResult.reply) {
-          displayAIReply(retryResult.reply, docContext, timeStr, emp.id, ragResult.citations);
+          displayAIReply(retryResult.reply, docContext, timeStr, emp.id, ragResult.citations, userMessage, 0, [], images);
           saveChatHistory(emp.id, userMessage, retryResult.reply, docContext, ragResult.citations, images);
         } else {
           displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr, emp.id, []);
@@ -17471,42 +17471,33 @@ async function callRealAI(userMessage, context) {
 }
 
 // ========== API 直连发送 ==========
-async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
+function _restoreEmpOnline(emp) {
+  if (!emp) return;
+  window._thinkingTimeouts = window._thinkingTimeouts || {};
+  clearTimeout(window._thinkingTimeouts[emp.id]);
+  delete window._thinkingTimeouts[emp.id];
+  notifyOfficeStatusChange(emp.id, 'online');
+  var _e = emps.find(function (e) { return e.id === emp.id; });
+  if (_e) {
+    _e.status = 'online';
+    renderEmployeeList();
+  }
+}
+
+// 构建 AI 聊天请求的消息数组（供普通发送和工具闭环复用）
+async function buildAIChatMessages(emp, userMessage, docContext, images) {
   images = images || [];
   var providerId = emp.aiProvider || 'kimi';
   var provider = API_PROVIDERS[providerId];
-
-  // 统一恢复员工在线状态
-  function restoreOnline() {
-    window._thinkingTimeouts = window._thinkingTimeouts || {};
-    clearTimeout(window._thinkingTimeouts[emp.id]);
-    delete window._thinkingTimeouts[emp.id];
-    notifyOfficeStatusChange(emp.id, 'online');
-    var _e = emps.find(function (e) { return e.id === emp.id; });
-    if (_e) {
-      _e.status = 'online';
-      renderEmployeeList();
-    }
-  }
-
-  if (!provider) {
-    var t = document.getElementById('typingMsg');
-    if (t) t.remove();
-    displayAIReply('⚠️ AI 供应商配置错误', docContext, timeStr, emp.id, []);
-    restoreOnline();
-    return;
-  }
+  if (!provider) return null;
   var apiKey = emp.apiKey;
   var baseUrl = provider.baseUrl;
   var model = emp.apiModel || provider.defaultModel;
-
-  // 自定义供应商处理
   if (providerId === 'custom') {
     baseUrl = emp.customEndpoint || '';
     model = emp.apiModel || 'custom-model';
   }
 
-  // ==== 加载上下文、摘要（记忆已由后端统一注入）====
   var chatContext = '';
   var summaryText = '';
   try {
@@ -17520,92 +17511,112 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
     }
   } catch (e) {}
 
-  // 构建请求
   var systemPrompt = '';
-  if (emp.soulDoc) systemPrompt = emp.soulDoc;else if (emp.systemPrompt) systemPrompt = emp.systemPrompt;
+  if (emp.soulDoc) systemPrompt = emp.soulDoc;
+  else if (emp.systemPrompt) systemPrompt = emp.systemPrompt;
   if (!systemPrompt) systemPrompt = '你是 ' + emp.name + '，一个 ' + getEmpRoleDisplay(emp) + '。请用第一人称回复，保持角色一致性。不要编造不存在的任务、数据或提醒信息，只基于用户实际提供的内容回复。';
-  // 注入当前用户身份信息，明确层级关系，防止 AI 把老板当学生/下属
   var userRole2 = getCurrentUserRoleDisplay();
   var userName2 = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
   systemPrompt += '\n\n【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- ' + userName2 + '（' + userRole2 + '）是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。\n- 严禁用"教你""指导你""你做过吗""你懂吗"等居高临下的语气。\n- 老板问你问题时，直接回答，不要反问或考验老板。';
   if (docContext) systemPrompt += '\n\n【相关文档】\n' + docContext;
-  if (summaryText) {
-    systemPrompt += summaryText;
-  }
+  if (summaryText) systemPrompt += summaryText;
 
-  // 注入商品库/达人库/匹配引擎工具说明（主大脑管控）
   systemPrompt += buildAgentToolsContext();
-
-  // 注入子龙工作流约束（仅对 emp_zilong）
   systemPrompt += buildZilongWorkflowPrompt(emp, userMessage, images);
 
-  // 注入 RAG 检索结果（产品知识库）
   var ragResult2 = { context: '', citations: [] };
   try {
     ragResult2 = await retrieveRAGContext(emp.id, userMessage);
-    if (ragResult2.context) {
-      systemPrompt += '\n\n' + ragResult2.context;
-    }
+    if (ragResult2.context) systemPrompt += '\n\n' + ragResult2.context;
   } catch (e) {
     console.warn('[RAG] API 路径注入失败:', e);
   }
 
-  // AI 调用前防御：最终 systemPrompt 必须包含身份约束关键字
   if (!validateFinalSystemPrompt(systemPrompt)) {
-    var t = document.getElementById('typingMsg');
-    if (t) t.remove();
-    displayAIReply('⚠️ AI身份约束缺失，禁止调用AI', docContext, timeStr, emp.id, []);
-    restoreOnline();
-    return;
+    return { error: 'AI身份约束缺失，禁止调用AI' };
   }
 
-  var messages = [{
-    role: 'system',
-    content: systemPrompt
-  }];
-  if (chatContext) {
-    messages.push({ role: 'system', content: chatContext });
-  }
+  var messages = [{ role: 'system', content: systemPrompt }];
+  if (chatContext) messages.push({ role: 'system', content: chatContext });
   if (images && images.length > 0) {
-    var userContent = [{type: 'text', text: userMessage}];
+    var userContent = [{ type: 'text', text: userMessage }];
     images.forEach(function(img) {
-      userContent.push({type: 'image_url', image_url: {url: img.base64}});
+      userContent.push({ type: 'image_url', image_url: { url: img.base64 } });
     });
-    messages.push({role: 'user', content: userContent});
+    messages.push({ role: 'user', content: userContent });
   } else {
-    messages.push({
-      role: 'user',
-      content: userMessage
-    });
+    messages.push({ role: 'user', content: userMessage });
   }
-  var endpoint = baseUrl + '/chat/completions';
 
-  // 智谱 API 路径不同
-  if (providerId === 'zhipu') {
-    endpoint = baseUrl + '/chat/completions';
-  }
-  console.log('[API] 发送请求 -> /api/proxy endpoint=' + endpoint + ' model=' + model + ' messages=' + messages.length);
-  apiFetch('/api/proxy', {
+  var endpoint = baseUrl + '/chat/completions';
+  if (providerId === 'zhipu') endpoint = baseUrl + '/chat/completions';
+
+  return {
+    providerId: providerId,
+    provider: provider,
+    apiKey: apiKey,
+    baseUrl: baseUrl,
+    model: model,
+    endpoint: endpoint,
+    messages: messages,
+    citations: ragResult2.citations
+  };
+}
+
+// 保存一条单独的 assistant 消息到后端历史（用于工具闭环的后续回复）
+function saveAssistantReplyHistory(empId, aiMsg, citations) {
+  if (!empId) return;
+  citations = citations || [];
+  var body = {
+    role: 'assistant',
+    content: aiMsg || '',
+    skipAI: true,
+    empId: empId
+  };
+  if (citations.length > 0) body.citations = citations;
+  apiFetch('/api/chat/' + encodeURIComponent(empId), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': authToken && authToken !== 'local_mode' ? 'Bearer ' + authToken : '',
-      'X-AI-API-Key': apiKey,
-      'X-Target-URL': endpoint
-    },
-    body: JSON.stringify({
-      model: model,
-      messages: messages,
-      temperature: 0.8,
-      max_tokens: 2000
-    })
-  }).then(function (res) {
-    console.log('[API] /api/proxy 响应 status=' + (res ? res.status : 'null') + ' ok=' + (res ? res.ok : 'null'));
+    body: JSON.stringify(body)
+  }).catch(function (e) {
+    console.warn('[saveAssistantReplyHistory] 保存失败:', e);
+  });
+}
+
+// 底层 AI 消息发送与响应处理（普通发送和工具闭环复用）
+async function _sendChatMessages(emp, messages, ctx, docContext, timeStr, images, originalUserMessage, depth, executedKeys) {
+  depth = depth || 0;
+  executedKeys = executedKeys || [];
+  var provider = ctx.provider;
+  var providerId = ctx.providerId;
+  var apiKey = ctx.apiKey;
+  var endpoint = ctx.endpoint;
+  var model = ctx.model;
+
+  var bodyObj = { model: model, messages: messages, max_tokens: 2000 };
+  if (providerId === 'kimicode') {
+    bodyObj.temperature = 0.6;
+    bodyObj.thinking = { type: 'disabled' };
+  } else {
+    bodyObj.temperature = 0.8;
+  }
+
+  console.log('[API] 发送请求 -> /api/proxy endpoint=' + endpoint + ' model=' + model + ' messages=' + messages.length + ' depth=' + depth);
+  try {
+    var res = await apiFetch('/api/proxy', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': authToken && authToken !== 'local_mode' ? 'Bearer ' + authToken : '',
+        'X-AI-API-Key': apiKey,
+        'X-Target-URL': endpoint
+      },
+      body: JSON.stringify(bodyObj)
+    });
+    console.log('[API] /api/proxy 响应 status=' + (res ? res.status : 'null') + ' ok=' + (res ? res.ok : 'null') + ' depth=' + depth);
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
     if (!res || !res.ok) {
       var status = res ? res.status : 0;
-      console.log('[API] /api/proxy 请求失败 status=' + status);
       if (status === 401) {
         displayAIReply('⚠️ API Key 无效，请检查 ' + (provider ? provider.name : 'AI供应商') + ' 的 API Key 是否正确', docContext, timeStr, emp.id, []);
       } else if (status === 429) {
@@ -17613,39 +17624,86 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
       } else {
         displayAIReply('⚠️ ' + provider.name + ' API 错误 (' + status + ')', docContext, timeStr, emp.id, []);
       }
-      restoreOnline();
+      _restoreEmpOnline(emp);
       return;
     }
-    return res.json();
-  }).then(function (data) {
+    var data = await res.json();
     if (data && data.choices && data.choices[0] && data.choices[0].message) {
-      var reply = data.choices[0].message.content || '';
-      console.log('[API] AI回复 content_len=' + reply.length);
-      displayAIReply(reply, docContext, timeStr, emp.id, ragResult2.citations);
-      saveChatHistory(emp.id, userMessage, reply, docContext, ragResult2.citations, images);
+      var reply = _extractMessageContent(data.choices[0].message);
+      console.log('[API] AI回复 content_len=' + reply.length + ' depth=' + depth);
+      displayAIReply(reply, docContext, timeStr, emp.id, ctx.citations, originalUserMessage, depth, executedKeys, images);
+      if (depth === 0) saveChatHistory(emp.id, originalUserMessage, reply, docContext, ctx.citations, images);
+      else saveAssistantReplyHistory(emp.id, reply, ctx.citations);
     } else if (data) {
       console.log('[API] 返回格式异常 data=', JSON.stringify(data).substring(0, 200));
       displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr, emp.id, []);
     }
-    restoreOnline();
-  }).catch(function (error) {
+    _restoreEmpOnline(emp);
+  } catch (error) {
     console.log('[API] /api/proxy 异常:', error.message || error);
-    var t = document.getElementById('typingMsg');
-    if (t) t.remove();
+    var t2 = document.getElementById('typingMsg');
+    if (t2) t2.remove();
     if (error.message && (error.message.indexOf('Failed to fetch') >= 0 || error.message.indexOf('NetworkError') >= 0 || error.message.indexOf('CORS') >= 0)) {
       displayAIReply('⚠️ 网络/CORS 错误\n\n浏览器直接调用 API 会遇到 CORS 限制。\n当前使用模拟回复，后续可通过后端代理解决。', docContext, timeStr, emp.id, []);
-      // CORS 错误时 fallback 到 mock
       setTimeout(function () {
         var simReplies = ['收到，我来处理一下。', '好的，马上开始。', '明白了，让我看看...'];
         var simReply = simReplies[Math.floor(Math.random() * simReplies.length)];
         displayAIReply(simReply, docContext, timeStr, emp.id, []);
-        saveChatHistory(emp.id, userMessage, simReply, docContext, [], images);
+        saveChatHistory(emp.id, originalUserMessage, simReply, docContext, [], images);
       }, 500);
     } else {
       displayAIReply('⚠️ API 调用失败: ' + error.message, docContext, timeStr, emp.id, []);
     }
-    restoreOnline();
+    _restoreEmpOnline(emp);
+  }
+}
+
+// 工具执行后自动继续调用 AI（私聊闭环）
+async function continueToolLoopPrivate(emp, originalUserMessage, rawAssistantReply, toolResults, docContext, timeStr, images, depth, executedKeys) {
+  if (depth >= MAX_TOOL_DEPTH) {
+    console.warn('[continueToolLoopPrivate] 达到最大工具轮次:', depth);
+    displayAIReply('⚠️ 已达到最大工具调用轮次，请手动继续。', docContext, timeStr, emp.id, []);
+    _restoreEmpOnline(emp);
+    return;
+  }
+  if (!emp || !emp.apiKey || emp.aiProvider === 'openclaw') {
+    console.log('[continueToolLoopPrivate] 员工未配置 API 直连，停止自动闭环');
+    return;
+  }
+  var ctx = await buildAIChatMessages(emp, originalUserMessage, docContext, images);
+  if (!ctx || ctx.error) {
+    displayAIReply('⚠️ ' + (ctx && ctx.error || '构建 AI 上下文失败'), docContext, timeStr, emp.id, []);
+    _restoreEmpOnline(emp);
+    return;
+  }
+  var toolResultsText = toolResults.map(function(item) {
+    return _formatToolResult(item.call, item.result);
+  }).join('\n\n');
+  var messages = ctx.messages.slice();
+  messages.push({ role: 'assistant', content: rawAssistantReply });
+  messages.push({
+    role: 'user',
+    content: '以下工具已执行完毕，请基于结果继续操作。如果任务已完成，请直接输出结论，不要再调用工具。\n\n' + toolResultsText
   });
+  await _sendChatMessages(emp, messages, ctx, docContext, timeStr, images, originalUserMessage, depth, executedKeys);
+}
+
+async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
+  images = images || [];
+  var ctx = await buildAIChatMessages(emp, userMessage, docContext, images);
+  if (!ctx) {
+    document.getElementById('typingMsg') && document.getElementById('typingMsg').remove();
+    displayAIReply('⚠️ AI 供应商配置错误', docContext, timeStr, emp.id, []);
+    _restoreEmpOnline(emp);
+    return;
+  }
+  if (ctx.error) {
+    document.getElementById('typingMsg') && document.getElementById('typingMsg').remove();
+    displayAIReply('⚠️ ' + ctx.error, docContext, timeStr, emp.id, []);
+    _restoreEmpOnline(emp);
+    return;
+  }
+  await _sendChatMessages(emp, ctx.messages, ctx, docContext, timeStr, images, userMessage, 0, []);
 }
 
 // 从可能包含思考过程/说明文字的文本中提取 JSON 对象
@@ -17670,6 +17728,12 @@ function _extractJsonFromText(text) {
     try { return JSON.parse(arrMatch[1]); } catch (e) {}
   }
   return null;
+}
+
+// 从 API 返回的 message 中提取内容；优先 content，兜底 reasoning_content
+function _extractMessageContent(message) {
+  if (!message) return '';
+  return message.content || message.reasoning_content || '';
 }
 
 // 调用支持 vision 的 API 识别单张图片，返回解析后的 JSON（失败返回带 error 字段的对象）
@@ -17715,13 +17779,11 @@ async function describeImage(emp, base64, prompt) {
     if (!res.ok) return { error: '图片识别请求失败，状态码 ' + (res.status || 'unknown') };
     var data = await res.json();
     var message = data && data.choices && data.choices[0] && data.choices[0].message || {};
-    var content = message.content || '';
-    var reasoning = message.reasoning_content || '';
+    var rawText = _extractMessageContent(message);
     // 从可能包含思考过程的文本中提取 JSON
-    var obj = _extractJsonFromText(content);
-    if (!obj && reasoning) obj = _extractJsonFromText(reasoning);
+    var obj = _extractJsonFromText(rawText);
     if (!obj) {
-      console.warn('[describeImage] 未能从模型返回中提取 JSON，content:', content, 'reasoning:', reasoning);
+      console.warn('[describeImage] 未能从模型返回中提取 JSON，rawText:', rawText);
       return { error: '模型未返回有效 JSON 内容' };
     }
     return obj;
@@ -17924,6 +17986,13 @@ async function fetchEmployeeReplyAPI(emp, task) {
     { role: 'system', content: systemPrompt },
     { role: 'user', content: task || '请协助处理这个任务。' }
   ];
+  var bodyObj = { model: model, messages: messages, max_tokens: 1500 };
+  if (providerId === 'kimicode') {
+    bodyObj.temperature = 0.6;
+    bodyObj.thinking = { type: 'disabled' };
+  } else {
+    bodyObj.temperature = 0.7;
+  }
   var res = await apiFetch('/api/proxy', {
     method: 'POST',
     headers: {
@@ -17932,11 +18001,12 @@ async function fetchEmployeeReplyAPI(emp, task) {
       'X-AI-API-Key': apiKey,
       'X-Target-URL': endpoint
     },
-    body: JSON.stringify({ model: model, messages: messages, temperature: 0.7, max_tokens: 1500 })
+    body: JSON.stringify(bodyObj)
   });
   if (!res.ok) throw new Error('API 请求失败: ' + res.status);
   var data = await res.json();
-  var reply = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '';
+  var message = data && data.choices && data.choices[0] && data.choices[0].message || {};
+  var reply = _extractMessageContent(message);
   return reply || '（同事未返回内容）';
 }
 
@@ -18137,6 +18207,22 @@ function saveChatHistory(empId, userMsg, aiMsg, docContext, citations, images) {
     var privMsgId = 'priv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     extractAndSaveMemory(empId, userMsg, aiMsg, false, privMsgId);
   }, 800);
+}
+
+// 把工具执行结果作为 user 消息保存到后端聊天历史
+function saveToolResultHistory(empId, toolResultText) {
+  if (!empId || !toolResultText) return;
+  apiFetch('/api/chat/' + encodeURIComponent(empId), {
+    method: 'POST',
+    body: JSON.stringify({
+      role: 'user',
+      content: toolResultText,
+      skipAI: true,
+      empId: empId
+    })
+  }).catch(function (e) {
+    console.warn('[saveToolResultHistory] 保存失败:', e);
+  });
 }
 // 记忆提取幂等集合：key 格式 empId_msgId 或 groupId_msgId，60分钟内重复提取直接跳过
 var _memoryExtractedKeys = {};
@@ -18739,7 +18825,7 @@ function buildAgentToolsContext() {
     '   - 查询商品列表：list_products\n' +
     '   - 按关键词搜索商品：search_products，参数 {"query":"关键词"}\n' +
     '   - 查看单个商品详情：get_product_detail，参数 {"productId":"prod_xxx"}\n' +
-    '   - 录入新商品：add_product（对接 POST /api/products 创建接口），参数 {"name":"商品名称","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"品牌名","sku_specs":{"SKU":"SKU001","尺码":"37-40"},"tags":["标签1","标签2"],"selling_points":"核心卖点","commission_rate":20,"main_image":"图片URL","subtitle":"副标题/描述"}\n' +
+    '   - 录入/更新商品：add_product。若 check_duplicate_product 确认不重复，则不带 id 调用以新建（POST /api/products）；若系统已返回存在某商品 id，则必须传入 id 字段调用 add_product 以更新（PUT /api/products/:id）。参数 {"name":"商品名称","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"品牌名","sku_specs":{"SKU":"SKU001","尺码":"37-40"},"tags":["标签1","标签2"],"selling_points":"核心卖点","commission_rate":20,"main_image":"图片URL","subtitle":"副标题/描述"}\n' +
     '   - 批量录入商品：batch_add_products，参数 {"products":[{"name":"商品1",...},{"name":"商品2",...}]}，适合用户一次提供多个商品信息或发送多张商品图时汇总录入。系统会展示待录入列表卡片，等用户确认后再逐条调用 add_product 入库。\n' +
     '   - 识别商品图片并提取结构化信息：describe_image，参数 {"imageIndex":0}（imageIndex 为当前用户消息中图片的 0-based 索引）。主大脑会调用 vision 模型返回 JSON 格式商品信息，包含 name、price、category、brand、stock、commission_rate、selling_points、sku_specs、tags、subtitle、main_image、is_product、note、uncertain_fields 等字段。\n' +
     '   - 从文本/链接提取商品信息：extract_product_info，参数 {"text":"商品描述","url":"可选链接"}，返回结构化商品 JSON（含 uncertain_fields 未确定字段）。\n' +
@@ -18751,7 +18837,7 @@ function buildAgentToolsContext() {
     '   - 重要字段包括：price（价格）、category（分类）、brand（品牌）、stock（库存）、commission_rate（佣金率）、selling_points（卖点）、sku_specs（SKU规格）。当这些重要字段中有任何一项缺失或不确定时，你必须一次性列出所有缺失的重要字段，向用户确认后再调用 add_product；切勿在未确认的情况下编造或假设。\n' +
     '   - 当用户发送商品截图/链接/描述时，工作流是：extract_product_info / describe_image → check_duplicate_product → 缺失字段一次性问用户 → add_product。\n' +
     '   - 创建成功后，向用户确认并展示商品名称、价格、库存、分类、品牌、SKU、佣金率等关键信息。\n' +
-    '   - 如果系统返回“该商品（名称：XXX，品牌：XXX）已存在，是否需要更新信息？”，请询问用户是否更新。若用户确认更新，请在后续调用 add_product 时传入 id 字段（即系统返回的商品 ID）和需要修改的字段，调用 PUT 接口更新商品信息；若用户取消，则不再调用。\n' +
+    '   - 录入商品前必须先调用 check_duplicate_product 查重。若返回已存在或 suspected=true，禁止不带 id 调用 add_product 新建；必须先询问用户确认。若用户确认是同一商品，调用 add_product 时传入系统返回的商品 id 字段与需要修改的字段进行更新；绝对不允许重复创建。只有 check_duplicate_product 明确返回未发现重复时，才允许不带 id 调用 add_product 新建。\n' +
     '   - 如果系统返回疑似重复列表（suspected=true），你必须询问用户“商品库里好像有相似商品，确认是同一个吗？”，等待用户明确确认后再继续；不要自己判断。\n\n' +
     '2. 达人库 (/api/influencers / /api/talents)\n' +
     '   - 查询达人列表：list_influencers\n' +
@@ -18785,6 +18871,7 @@ function buildAgentToolsContext() {
     '[TOOL_CALL]{"action":"extract_product_info","params":{"text":"商品描述"}}[/TOOL_CALL]\n' +
     '[TOOL_CALL]{"action":"check_duplicate_product","params":{"name":"商品名","brand":"品牌","category":"类目","price":199}}[/TOOL_CALL]\n' +
     '[TOOL_CALL]{"action":"add_product","params":{"name":"2024新款厚底凉鞋","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"COOLCHAP","sku_specs":{"SKU":"SKU2024001"},"commission_rate":20}}[/TOOL_CALL]\n' +
+    '[TOOL_CALL]{"action":"add_product","params":{"id":"prod_xxx","name":"2024新款厚底凉鞋","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"COOLCHAP","sku_specs":{"SKU":"SKU2024001"},"commission_rate":20}}[/TOOL_CALL]（id 存在时用于更新，禁止重复创建）\n' +
     '[TOOL_CALL]{"action":"batch_add_products","params":{"products":[{"name":"商品1","price":99,"stock":100,"category":"分类","brand":"品牌","commission_rate":10},{"name":"商品2","price":199,"stock":200}]}}[/TOOL_CALL]\n' +
     '[TOOL_CALL]{"action":"describe_image","params":{"imageIndex":0}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"match_product","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
@@ -18926,6 +19013,14 @@ function stripToolCallsFromText(text) {
     }
   });
   return cleaned.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// 工具调用自动闭环的最大递归深度
+var MAX_TOOL_DEPTH = 3;
+
+// 把工具执行结果格式化为给模型继续阅读的内容
+function _formatToolResult(call, result) {
+  return '[TOOL_RESULT] action=' + (call.action || 'unknown') + ' params=' + JSON.stringify(call.params || {}) + '\n' + (result || '无返回') + '[/TOOL_RESULT]';
 }
 
 function _toolCallKey(call) {
@@ -19658,8 +19753,11 @@ function rollbackKnowledgeVersion(docId, version) {
   });
 }
 
-function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations) {
+function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations, originalUserMessage, depth, executedKeys, images) {
   citations = citations || [];
+  depth = depth || 0;
+  executedKeys = executedKeys || [];
+  images = images || [];
   var area = document.getElementById('messagesArea');
   // 防御性校验：如果指定了 expectedEmpId，必须匹配当前员工才渲染，防止切换后串渲染
   if (expectedEmpId && localStorage.getItem('sb_current_emp') !== expectedEmpId) {
@@ -19778,11 +19876,19 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
         area.scrollTop = area.scrollHeight;
       }
       var runningId = showToolRunningIndicator(toolCalls);
+      var toolResults = [];
+      var loopExecutedKeys = executedKeys.slice();
       for (var i = 0; i < toolCalls.length; i++) {
         var call = toolCalls[i];
         updateToolRunningIndicator(runningId, '正在调用工具：' + call.action + '（' + (i + 1) + '/' + toolCalls.length + '）');
-        var result = await executeToolCall(call);
         var key = _toolCallKey(call);
+        var result;
+        if (loopExecutedKeys.indexOf(key) !== -1) {
+          result = '【工具已执行过】该工具与之前调用参数完全相同，已跳过执行。请基于之前的结果继续，不要重复调用。';
+        } else {
+          result = await executeToolCall(call);
+          loopExecutedKeys.push(key);
+        }
         var card = cards[key];
         if (card) {
           var status = result && result.indexOf('【工具执行失败】') !== -1 ? 'error' : 'done';
@@ -19799,8 +19905,22 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
           area.insertAdjacentHTML('beforeend', toolHtml);
           area.scrollTop = area.scrollHeight;
         }
+        toolResults.push({ call: call, result: result });
       }
       removeToolRunningIndicator(runningId);
+
+      // 私聊：把工具结果加入历史并自动继续调用 AI
+      if (!currentGroupId && originalUserMessage && emp && emp.apiKey && emp.aiProvider !== 'openclaw') {
+        var resultText = toolResults.map(function(item) {
+          return _formatToolResult(item.call, item.result);
+        }).join('\n\n');
+        saveToolResultHistory(emp.id, resultText);
+        if (depth < MAX_TOOL_DEPTH) {
+          await continueToolLoopPrivate(emp, originalUserMessage, replyText, toolResults, docContext, timeStr, images, depth + 1, loopExecutedKeys);
+        } else {
+          console.warn('[displayAIReply] 达到最大工具闭环深度:', depth);
+        }
+      }
     })();
   }
 }

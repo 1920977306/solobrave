@@ -9972,7 +9972,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             content = _call_ai_analysis(messages, cfg=cfg, context='product_analyze')
         except _AIAnalysisTimeoutError:
-            self._send_json(504, {'error': '分析超时，请重试'})
+            self._send_json_error(503, 'AI 分析超时或失败，请稍后重试')
             return
         if not content:
             self._send_json_error(503, 'AI analysis failed or returned empty response')
@@ -10104,7 +10104,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             content = _call_ai_analysis(messages, cfg=cfg, context='product_extract')
         except _AIAnalysisTimeoutError:
-            self._send_json(504, {'error': '分析超时，请重试'})
+            self._send_json_error(503, 'AI 分析超时或失败，请稍后重试')
             return
         if not content:
             self._send_json_error(503, 'AI extraction failed or returned empty response')
@@ -11624,7 +11624,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             content = _call_ai_analysis(messages, cfg=cfg, context='talent_analyze')
         except _AIAnalysisTimeoutError:
-            self._send_json(504, {'error': '分析超时，请重试'})
+            self._send_json_error(503, 'AI 分析超时或失败，请稍后重试')
             return
         if not content:
             self._send_json_error(503, 'AI analysis failed or returned empty response')
@@ -11734,7 +11734,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             content = _call_ai_analysis(messages, cfg=cfg, context='talent_hit_analyze')
         except _AIAnalysisTimeoutError:
-            self._send_json(504, {'error': '分析超时，请重试'})
+            self._send_json_error(503, 'AI 分析超时或失败，请稍后重试')
             return
         if not content:
             self._send_json_error(503, 'AI analysis failed or returned empty response')
@@ -12124,13 +12124,16 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
     target_url = base_url + '/chat/completions'
     resolved_model = _resolve_ai_model(api_provider, api_model or '')
 
-    req_body = json.dumps({
+    req_body_obj = {
         'model': resolved_model,
         'messages': messages,
-        'temperature': 0.8,
+        'temperature': 0.6 if api_provider == 'kimicode' else 0.8,
         'max_tokens': 2000,
         'stream': False
-    }).encode('utf-8')
+    }
+    if api_provider == 'kimicode':
+        req_body_obj['thinking'] = {'type': 'disabled'}
+    req_body = json.dumps(req_body_obj).encode('utf-8')
 
     headers = {
         'Content-Type': 'application/json',
@@ -12149,7 +12152,8 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
         print(f'  [API] chat completion response: HTTP {status}', flush=True)
         resp_data = json.loads(raw)
         if resp_data.get('choices') and resp_data['choices'][0].get('message'):
-            return resp_data['choices'][0]['message'].get('content', '')
+            message = resp_data['choices'][0]['message']
+            return message.get('content') or message.get('reasoning_content') or ''
         print(f'  [API] chat completion unexpected format: {raw[:500]}', flush=True)
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8', errors='replace')
@@ -12345,13 +12349,16 @@ def _call_ai_analysis(messages, cfg=None, context=''):
     print(f'  [AI] start analysis context={context} provider={provider} chat_model={chat_model} key={masked_key} openclaw={OPENCLAW_CLI}', flush=True)
 
     # 1. 优先 OpenClaw（项目主推的 AI 网关）
-    # 分析类接口统一使用 60s 超时，并在超时后抛出 _AIAnalysisTimeoutError，
-    # 由上层接口返回 {error: '分析超时，请重试'}，避免前端长时间无响应。
+    # 分析类接口统一使用 60s 超时；超时后不再抛出 _AIAnalysisTimeoutError，
+    # 而是降级到 API 直连兜底，避免前端收到 504。
     if os.path.isfile(OPENCLAW_CLI):
-        content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=60, raise_on_timeout=True)
-        if content:
-            return content
-        print(f'  [AI] OpenClaw failed for {context}, will try direct API fallback', flush=True)
+        try:
+            content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=60, raise_on_timeout=True)
+            if content:
+                return content
+            print(f'  [AI] OpenClaw failed for {context}, will try direct API fallback', flush=True)
+        except _AIAnalysisTimeoutError as e:
+            print(f'  [AI] OpenClaw timeout for {context}: {e}, will try direct API fallback', flush=True)
     else:
         print(f'  [AI] OpenClaw CLI not available for {context}, skip to direct API', flush=True)
 
