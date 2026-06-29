@@ -2069,6 +2069,7 @@ def init_db():
         conn.execute('''
             CREATE TABLE IF NOT EXISTS products (
                 id TEXT PRIMARY KEY,
+                external_id TEXT DEFAULT '',
                 name TEXT NOT NULL,
                 subtitle TEXT DEFAULT '',
                 main_image TEXT DEFAULT '',
@@ -2127,6 +2128,7 @@ def init_db():
             ('has_shipping_insurance', 'INTEGER DEFAULT 0'),
             ('no_shipping_areas', "TEXT DEFAULT ''"),
             ('brand_background', "TEXT DEFAULT ''"),
+            ('external_id', "TEXT DEFAULT ''"),
         ]:
             _add_column_if_not_exists(conn, 'products', _prod_col, _prod_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)')
@@ -2381,7 +2383,7 @@ def _knowledge_row_to_dict(row):
 # ─── 商品库 SQLite 辅助函数 ─────────────────────────────
 
 _PRODUCT_COLUMNS = [
-    'id', 'name', 'subtitle', 'main_image', 'price', 'original_price', 'price_range', 'brand', 'brand_id',
+    'id', 'external_id', 'name', 'subtitle', 'main_image', 'price', 'original_price', 'price_range', 'brand', 'brand_id',
     'category', 'sku_specs', 'stock', 'spot_stock', 'pre_stock', 'status', 'monthly_sales', 'monthly_gmv',
     'commission_rates', 'commission_amount', 'conversion_rate', 'avg_order_value',
     'influencer_count', 'talent_count', 'video_count', 'live_count', 'channel_distribution',
@@ -2408,6 +2410,7 @@ def _product_row_to_dict(row):
 
     product = {
         'id': row['id'],
+        'external_id': row['external_id'] or '',
         'name': row['name'] or '',
         'subtitle': row['subtitle'] or '',
         'main_image': row['main_image'] or '',
@@ -2511,6 +2514,7 @@ def _dict_to_product_row(p):
 
     return {
         'id': p.get('id'),
+        'external_id': _get('external_id', 'externalId', default='') or '',
         'name': p.get('name'),
         'subtitle': _get('subtitle', 'description') or '',
         'main_image': main_image or '',
@@ -2657,6 +2661,41 @@ def _product_similarity_score(a, b):
         if max_price > 0 and abs(price_a - price_b) / max_price <= 0.1:
             score += 15
     return min(score, 100)
+
+
+def _extract_external_id_from_url(url, fetched_text=''):
+    """从电商链接（抖音/淘宝/天猫等）中解析外部平台商品 ID"""
+    import urllib.request
+    if not url:
+        return ''
+    resolved_url = url
+    # 对短链接尝试跟随重定向，获取真实长链接
+    if 'v.douyin.com' in url or 'b23.tv' in url or 't.cn' in url:
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}, method='HEAD')
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                resolved_url = resp.geturl() or url
+        except Exception:
+            pass
+    combined = ' '.join([resolved_url, str(fetched_text or '')])
+    patterns = [
+        r'[?&]modal_id=(\d+)',
+        r'[?&]goods_id=(\d+)',
+        r'[?&]item_id=(\d+)',
+        r'[?&]product_id=(\d+)',
+        r'[?&]poi_id=(\d+)',
+        r'douyin\.com/(?:video|note)/(\d+)',
+        r'haohuo\.jinritemai\.com/.*?[?&]id=(\d+)',
+        r'jinritemai\.com/.*?[?&]id=(\d+)',
+        r'taobao\.com/.*[?&]id=(\d+)',
+        r'tmall\.com/.*[?&]id=(\d+)',
+        r'[?&]id=(\d{10,})',
+    ]
+    for pat in patterns:
+        m = _re.search(pat, combined, _re.IGNORECASE)
+        if m:
+            return m.group(1)
+    return ''
 
 
 def _find_duplicate_products(conn, candidate, threshold=60, limit=5):
@@ -10139,17 +10178,40 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing body')
             return
         name = str(body.get('name', '')).strip()
-        if not name:
-            self._send_json_error(400, 'Missing name')
+        external_id = str(body.get('external_id') or body.get('externalId') or '').strip()
+        if not name and not external_id:
+            self._send_json_error(400, 'Missing name or external_id')
             return
-        candidate = {
-            'name': name,
-            'brand': str(body.get('brand') or '').strip(),
-            'category': str(body.get('category') or '').strip(),
-            'price': float(body.get('price') or 0),
-        }
         conn = _db_conn()
         try:
+            # 优先级 1：external_id 精确匹配
+            if external_id:
+                row = conn.execute(
+                    "SELECT * FROM products WHERE external_id = ? AND status != ? LIMIT 1",
+                    (external_id, 'archived')
+                ).fetchone()
+                if row:
+                    p = _product_row_to_dict(row)
+                    self._send_json(200, {
+                        'suspected': True,
+                        'candidates': [{
+                            'id': p.get('id'),
+                            'external_id': p.get('external_id'),
+                            'name': p.get('name'),
+                            'brand': p.get('brand'),
+                            'category': p.get('category'),
+                            'price': p.get('price'),
+                            'similarity': 100
+                        }]
+                    })
+                    return
+            # 优先级 2：name/brand/category/price 模糊查重
+            candidate = {
+                'name': name,
+                'brand': str(body.get('brand') or '').strip(),
+                'category': str(body.get('category') or '').strip(),
+                'price': float(body.get('price') or 0),
+            }
             duplicates = _find_duplicate_products(conn, candidate, threshold=55, limit=5)
         finally:
             conn.close()
@@ -10158,6 +10220,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'candidates': [
                 {
                     'id': p.get('id'),
+                    'external_id': p.get('external_id'),
                     'name': p.get('name'),
                     'brand': p.get('brand'),
                     'category': p.get('category'),
@@ -10185,18 +10248,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, 'Missing text or url')
             return
 
-        # 尝试抓取链接文本
+        # 尝试抓取链接文本，并解析外部平台商品 ID
         fetched_text = ''
+        parsed_external_id = ''
         if url:
             try:
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req, timeout=10) as resp:
+                    resolved_url = resp.geturl() or url
                     html = resp.read().decode('utf-8', errors='replace')
                     # 简单去标签
                     fetched_text = _re.sub(r'<[^>]+>', ' ', html)
                     fetched_text = _re.sub(r'\s+', ' ', fetched_text).strip()[:4000]
+                    parsed_external_id = _extract_external_id_from_url(resolved_url, fetched_text)
             except Exception as e:
                 print(f'  [Extract] fetch url failed: {e}', flush=True)
+                parsed_external_id = _extract_external_id_from_url(url, '')
 
         combined = text
         if fetched_text:
@@ -10229,6 +10296,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             "- tags: 标签数组（如 [\"凉鞋\",\"厚底\"]；无标签填 []）\n"
             "- subtitle: 副标题/描述（识别不到填空字符串）\n"
             "- main_image: 商品主图 URL（识别不到填空字符串）\n"
+            "- external_id: 外部平台商品 ID，例如抖音 modal_id/goods_id、淘宝 item_id 等（识别不到填空字符串）\n"
             "- uncertain_fields: 无法确定或缺失的重要字段名称数组，例如 [\"price\",\"stock\"]\n\n"
             f"内容：\n{combined}\n"
         )
@@ -10256,6 +10324,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 规范化字段
         if 'uncertain_fields' not in extracted or not isinstance(extracted['uncertain_fields'], list):
             extracted['uncertain_fields'] = []
+        # 如果模型没识别出 external_id，但链接解析到了，则补录
+        if not extracted.get('external_id') and parsed_external_id:
+            extracted['external_id'] = parsed_external_id
         self._send_json(200, extracted)
 
     def _handle_update_product_ai_analysis(self, product_id):
