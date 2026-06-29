@@ -7049,6 +7049,12 @@ async function apiFetch(url, options = {}) {
       console.warn('[apiFetch] 403 Forbidden, skipping:', url);
       return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
+    if (resp.status === 404) {
+      console.warn('[apiFetch] 404 Not Found:', url);
+      if (options.silent) {
+        return null;
+      }
+    }
     if (!resp.ok) {
       var errMsg = '请求失败 (' + resp.status + ')';
       try {
@@ -8018,7 +8024,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
     cleanupTyping();
     if (!reply) reply = '（AI 未返回内容）';
     if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
-    displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations, userMessage, 0, [], images);
+    displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations, userMessage, 0, [], images, true);
     saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images);
   }
 
@@ -8087,7 +8093,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
         var retryResult = await _sendChatWaitForLifecycle(fallbackKey, fullMessage);
         console.log('[OpenClaw] main agent 重试返回:', JSON.stringify(retryResult));
         if (retryResult.reply) {
-          displayAIReply(retryResult.reply, docContext, timeStr, emp.id, ragResult.citations, userMessage, 0, [], images);
+          displayAIReply(retryResult.reply, docContext, timeStr, emp.id, ragResult.citations, userMessage, 0, [], images, true);
           saveChatHistory(emp.id, userMessage, retryResult.reply, docContext, ragResult.citations, images);
         } else {
           displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr, emp.id, []);
@@ -13242,9 +13248,12 @@ function renderMsgs(type) {
     // 直接清空重绘，不保留任何 DOM 残留消息（避免切换员工时串聊）
     // sendMsg 已同步写入 localStorage，renderMsgs 加载时要么从后端取（含用户消息），
     // 要么回退 localStorage（也含用户消息），无需额外保留 DOM 中的消息。
-    // 防御性过滤：只渲染 role 为 user/assistant 且不含 groupId 的个人消息
+    // 防御性过滤：只渲染 role 为 user/assistant 且不含 groupId 的个人消息；
+    // 过滤掉作为工具结果持久化的 user 占位消息（工具结果已在 assistant 的工具记录中展示）
     var filtered = history.filter(function (m) {
-      return (m.role === 'user' || m.role === 'assistant') && !m.groupId;
+      if (m.groupId) return false;
+      if (m.role === 'user' && m.content && String(m.content).indexOf('[TOOL_RESULT]') === 0) return false;
+      return m.role === 'user' || m.role === 'assistant';
     });
     var typingMsg = document.getElementById('typingMsg');
     area.innerHTML = '<div class="time-separator"><span>今天</span></div>' + filtered.map(function (m) {
@@ -13254,7 +13263,13 @@ function renderMsgs(type) {
         minute: '2-digit'
       });
       var imagesHtml2 = own ? buildChatImagesHtml(m.images) : '';
-      return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + formatMessageContent(m.content) + '</div>' + imagesHtml2 + '</div></div>';
+      var content = m.content || '';
+      var toolRecordsHtml = '';
+      if (!own && m.toolRecords && m.toolRecords.length > 0) {
+        content = stripToolCallsFromText(content);
+        toolRecordsHtml = _renderToolRecordsHtml(m.toolRecords);
+      }
+      return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + formatMessageContent(content) + '</div>' + toolRecordsHtml + imagesHtml2 + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
     if (typingMsg) {
       area.appendChild(typingMsg);
@@ -17578,9 +17593,10 @@ async function buildAIChatMessages(emp, userMessage, docContext, images) {
 }
 
 // 保存一条单独的 assistant 消息到后端历史（用于工具闭环的后续回复）
-function saveAssistantReplyHistory(empId, aiMsg, citations) {
+function saveAssistantReplyHistory(empId, aiMsg, citations, toolRecords) {
   if (!empId) return;
   citations = citations || [];
+  toolRecords = toolRecords || [];
   var body = {
     role: 'assistant',
     content: aiMsg || '',
@@ -17588,11 +17604,49 @@ function saveAssistantReplyHistory(empId, aiMsg, citations) {
     empId: empId
   };
   if (citations.length > 0) body.citations = citations;
+  if (toolRecords.length > 0) body.toolRecords = toolRecords;
   apiFetch('/api/chat/' + encodeURIComponent(empId), {
     method: 'POST',
     body: JSON.stringify(body)
   }).catch(function (e) {
     console.warn('[saveAssistantReplyHistory] 保存失败:', e);
+  });
+}
+
+// 保存文档上下文为 system 消息
+function saveSystemDocHistory(empId, docContext) {
+  if (!empId || !docContext) return;
+  apiFetch('/api/chat/' + encodeURIComponent(empId), {
+    method: 'POST',
+    body: JSON.stringify({
+      role: 'system',
+      content: '[文档]' + docContext,
+      skipAI: true,
+      empId: empId
+    })
+  }).catch(function (e) {
+    console.warn('[saveSystemDocHistory] 保存失败:', e);
+  });
+}
+
+// 保存一条单独的 user 消息到后端历史
+function saveUserMessageHistory(empId, userMsg, citations, images) {
+  if (!empId) return;
+  citations = citations || [];
+  images = images || [];
+  var body = {
+    role: 'user',
+    content: userMsg || '',
+    skipAI: true,
+    empId: empId
+  };
+  if (citations.length > 0) body.citations = citations;
+  if (images.length > 0) body.images = images;
+  apiFetch('/api/chat/' + encodeURIComponent(empId), {
+    method: 'POST',
+    body: JSON.stringify(body)
+  }).catch(function (e) {
+    console.warn('[saveUserMessageHistory] 保存失败:', e);
   });
 }
 
@@ -17615,6 +17669,13 @@ async function _sendChatMessages(emp, messages, ctx, docContext, timeStr, images
   }
 
   console.log('[API] 发送请求 -> /api/proxy endpoint=' + endpoint + ' model=' + model + ' messages=' + messages.length + ' depth=' + depth);
+
+  // 先保存用户消息；工具结果在 displayAIReply 里已单独保存
+  if (depth === 0 && originalUserMessage) {
+    if (docContext && docContext.length > 0) saveSystemDocHistory(emp.id, docContext);
+    saveUserMessageHistory(emp.id, originalUserMessage, ctx.citations, images);
+  }
+
   try {
     var res = await apiFetch('/api/proxy', {
       method: 'POST',
@@ -17645,9 +17706,12 @@ async function _sendChatMessages(emp, messages, ctx, docContext, timeStr, images
     if (data && data.choices && data.choices[0] && data.choices[0].message) {
       var reply = _extractMessageContent(data.choices[0].message);
       console.log('[API] AI回复 content_len=' + reply.length + ' depth=' + depth);
+      var hasToolCalls = parseToolCalls(reply).length > 0;
+      // 有工具调用时，由 displayAIReply 执行完工具后再统一保存 assistant 消息（含 toolRecords）
+      if (!hasToolCalls) {
+        saveAssistantReplyHistory(emp.id, reply, ctx.citations, []);
+      }
       displayAIReply(reply, docContext, timeStr, emp.id, ctx.citations, originalUserMessage, depth, executedKeys, images);
-      if (depth === 0) saveChatHistory(emp.id, originalUserMessage, reply, docContext, ctx.citations, images);
-      else saveAssistantReplyHistory(emp.id, reply, ctx.citations);
     } else if (data) {
       console.log('[API] 返回格式异常 data=', JSON.stringify(data).substring(0, 200));
       displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr, emp.id, []);
@@ -17700,7 +17764,7 @@ async function continueToolLoopPrivate(emp, originalUserMessage, rawAssistantRep
   });
   var continuationHint = '';
   if (hasExtractTool) {
-    continuationHint = '注意：商品信息已提取，下一步你必须先调用 check_duplicate_product 查重，严禁直接调用 add_product。\n\n';
+    continuationHint = '注意：商品信息已提取，下一步你必须先调用 check_duplicate_product 查重，严禁直接调用 add_product。若查重确认无重复，且 price/category/brand/stock 均已识别到具体值，请直接调用 add_product 自动录入，不要等待用户确认；只有核心字段缺失时才询问用户。\n\n';
   }
   messages.push({
     role: 'user',
@@ -18089,10 +18153,11 @@ function validateFinalSystemPrompt(systemPrompt) {
 
 // 保存聊天历史
 // ===== 聊天记录后端同步 =====
-async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, images) {
+async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, images, toolRecords) {
   if (typeof apiFetch !== 'function') return;
   citations = citations || [];
   images = images || [];
+  toolRecords = toolRecords || [];
   var baseUrl = '/api/chat/' + encodeURIComponent(projId);
 
   try {
@@ -18142,6 +18207,9 @@ async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, i
     };
     if (citations.length > 0) {
       assistantBody.citations = citations;
+    }
+    if (toolRecords && toolRecords.length > 0) {
+      assistantBody.toolRecords = toolRecords;
     }
     resp = await apiFetch(baseUrl, {
       method: 'POST',
@@ -18213,15 +18281,16 @@ function clearChatOnServer(id, type) {
     method: 'DELETE'
   }).catch(function (e) {});
 }
-function saveChatHistory(empId, userMsg, aiMsg, docContext, citations, images) {
+function saveChatHistory(empId, userMsg, aiMsg, docContext, citations, images, toolRecords) {
   if (!empId) {
     console.warn('[saveChatHistory] empId 为空，跳过保存');
     return;
   }
   citations = citations || [];
   images = images || [];
+  toolRecords = toolRecords || [];
   // 同步到后端
-  saveChatToServer(empId, userMsg, aiMsg, docContext, citations, images);
+  saveChatToServer(empId, userMsg, aiMsg, docContext, citations, images, toolRecords);
 
   // 提取并保存记忆（延迟 800ms，避免与刚结束的 OpenClaw session 冲突）
   setTimeout(function () {
@@ -18855,8 +18924,9 @@ function buildAgentToolsContext() {
     '   - 编辑商品信息需人工在UI操作\n' +
     '   - 每个商品有：名称、SKU、分类、价格、库存、品牌、标签、状态、卖点、佣金率\n' +
     '   - 当用户想录入商品时，你必须主动从对话中提取上述字段。必填字段只有 name（商品名称）。\n' +
-    '   - 重要字段包括：price（价格）、category（分类）、brand（品牌）、stock（库存）、commission_rate（佣金率）、selling_points（卖点）、sku_specs（SKU规格）。当这些重要字段中有任何一项缺失或不确定时，你可以先基于已有信息调用 add_product 录入，并在回复中向用户确认缺失字段；也可以一次性列出缺失字段询问用户后再录入。无论哪种方式，录入前都必须先查重。\n' +
-    '   - 当用户发送商品截图/链接/描述时，工作流是：extract_product_info / describe_image → check_duplicate_product → 缺失字段一次性问用户（或先录入再问） → add_product。\n' +
+    '   - 重要字段包括：price（价格）、category（分类）、brand（品牌）、stock（库存）、commission_rate（佣金率）、selling_points（卖点）、sku_specs（SKU规格）。\n' +
+    '   - 全自动录入规则：当 name 已确定，且 price、category、brand、stock 这 4 个核心字段全部能从图片/文本中识别到具体值（不为 0 或空字符串）时，你应在 check_duplicate_product 确认无重复后直接调用 add_product 录入，无需等待用户确认。只有核心字段缺失或不确定时，才一次性列出缺失字段询问用户，或先录入已有信息并在回复中补充询问缺失项。无论哪种方式，录入前都必须先查重。\n' +
+    '   - 当用户发送商品截图/链接/描述时，工作流是：extract_product_info / describe_image → check_duplicate_product → （核心字段齐全则直接 add_product，否则询问缺失项） → 完成录入。\n' +
     '   - 当 describe_image 或 extract_product_info 返回结果后，你的下一步动作必须是调用 check_duplicate_product 进行查重，禁止直接调用 add_product。\n' +
     '   - 创建成功后，向用户确认并展示商品名称、价格、库存、分类、品牌、SKU、佣金率等关键信息。\n' +
     '   - 录入商品前必须先调用 check_duplicate_product 查重。若返回已存在或 suspected=true，禁止不带 id 调用 add_product 新建；必须先询问用户确认。若用户确认是同一商品，调用 add_product 时传入系统返回的商品 id 字段与需要修改的字段进行更新；绝对不允许重复创建。只有 check_duplicate_product 明确返回未发现重复时，才允许不带 id 调用 add_product 新建。\n' +
@@ -19070,6 +19140,31 @@ function _summarizeToolResult(result) {
   if (line.length > 100) line = line.slice(0, 100) + '...';
   return line;
 }
+function _renderToolRecordsHtml(toolRecords) {
+  if (!toolRecords || !toolRecords.length) return '';
+  var html = '<div class="tool-call-records">';
+  html += '<div class="tool-call-records-bar" onclick="this.classList.toggle(\'open\');this.nextElementSibling.classList.toggle(\'expanded\')"><span>🛠️ 工具调用记录 (' + toolRecords.length + ')</span><span class="tool-call-toggle">▼</span></div>';
+  html += '<div class="tool-call-records-panel">';
+  toolRecords.forEach(function(rec) {
+    var call = { action: rec.action, params: rec.params };
+    var key = _toolCallKeyAttr(call);
+    var statusClass = rec.result && String(rec.result).indexOf('【工具执行失败】') !== -1 ? 'error' : 'done';
+    html += '<div class="tool-call-card" data-tool-key="' + escapeAttr(key) + '">';
+    html += '<div class="tool-call-card-header" onclick="this.closest(\'.tool-call-card\').classList.toggle(\'expanded\')">';
+    html += '<span class="tool-call-status ' + statusClass + '"></span>';
+    html += '<span class="tool-call-name">' + escapeHtml(rec.action) + '</span>';
+    html += '<span class="tool-call-summary">' + escapeHtml(_summarizeToolResult(rec.result)) + '</span>';
+    html += '<span class="tool-call-toggle">▼</span></div>';
+    html += '<div class="tool-call-card-body">' + _renderToolCallParams(rec.params);
+    if (rec.result) {
+      html += '<div class="tool-call-row tool-call-result-row" style="margin-top:8px;"><div class="tool-call-label">结果</div><div style="white-space:pre-wrap;">' + escapeHtml(rec.result) + '</div></div>';
+    }
+    html += '</div></div>';
+  });
+  html += '</div></div>';
+  return html;
+}
+
 function createToolCallCard(call, opts) {
   opts = opts || {};
   var key = _toolCallKeyAttr(call);
@@ -19775,11 +19870,12 @@ function rollbackKnowledgeVersion(docId, version) {
   });
 }
 
-function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations, originalUserMessage, depth, executedKeys, images) {
+function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations, originalUserMessage, depth, executedKeys, images, skipSave) {
   citations = citations || [];
   depth = depth || 0;
   executedKeys = executedKeys || [];
   images = images || [];
+  skipSave = skipSave || false;
   var area = document.getElementById('messagesArea');
   // 防御性校验：如果指定了 expectedEmpId，必须匹配当前员工才渲染，防止切换后串渲染
   if (expectedEmpId && localStorage.getItem('sb_current_emp') !== expectedEmpId) {
@@ -19820,6 +19916,7 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
   }
   // 解析并移除工具调用标记
   var toolCalls = parseToolCalls(replyText);
+  var hasToolCalls = toolCalls.length > 0;
   var cleanText = stripToolCallsFromText(replyText);
 
   var bubble = formatMessageContent(cleanText);
@@ -19932,18 +20029,31 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
       removeToolRunningIndicator(runningId);
 
       // 私聊：把工具结果加入历史并自动继续调用 AI
-      if (!currentGroupId && originalUserMessage && emp && emp.apiKey && emp.aiProvider !== 'openclaw') {
-        var resultText = toolResults.map(function(item) {
-          return _formatToolResult(item.call, item.result);
-        }).join('\n\n');
-        saveToolResultHistory(emp.id, resultText);
-        if (depth < MAX_TOOL_DEPTH) {
-          await continueToolLoopPrivate(emp, originalUserMessage, replyText, toolResults, docContext, timeStr, images, depth + 1, loopExecutedKeys);
-        } else {
-          console.warn('[displayAIReply] 达到最大工具闭环深度:', depth);
+      if (!currentGroupId) {
+        if (!skipSave) {
+          var recordsToSave = toolResults.map(function(item) {
+            return { action: item.call.action, params: item.call.params, result: item.result };
+          });
+          saveAssistantReplyHistory(emp.id, replyText, citations, recordsToSave);
+        }
+        if (originalUserMessage && emp && emp.apiKey && emp.aiProvider !== 'openclaw') {
+          var resultText = toolResults.map(function(item) {
+            return _formatToolResult(item.call, item.result);
+          }).join('\n\n');
+          saveToolResultHistory(emp.id, resultText);
+          if (depth < MAX_TOOL_DEPTH) {
+            await continueToolLoopPrivate(emp, originalUserMessage, replyText, toolResults, docContext, timeStr, images, depth + 1, loopExecutedKeys);
+          } else {
+            console.warn('[displayAIReply] 达到最大工具闭环深度:', depth);
+          }
         }
       }
     })();
+  }
+
+  // 没有工具调用时，单独保存 assistant 消息
+  if (!currentGroupId && !hasToolCalls && !skipSave && emp && emp.id) {
+    saveAssistantReplyHistory(emp.id, replyText, citations, []);
   }
 }
 
@@ -22524,12 +22634,16 @@ function selectProductItem(id) {
   _productCurrentId = id;
   var p = _productData.products.find(function(x){return x.id === id;});
   if (!p) return;
-  apiFetch('/api/products/' + encodeURIComponent(id)).then(function(r){return r.json();}).then(function(product){
+  apiFetch('/api/products/' + encodeURIComponent(id), { silent: true }).then(function(r){
+    if (!r) { showProductEmptyState(); return null; }
+    return r.json();
+  }).then(function(product){
+    if (!product) return;
     renderProductDetail(product);
     document.querySelectorAll('.products-mid-card').forEach(function(el){el.classList.remove('active');});
     var activeEl = document.querySelector('.products-mid-card[data-id="' + escapeAttr(id) + '"]');
     if (activeEl) activeEl.classList.add('active');
-  }).catch(function(e){ showToast('加载失败'); });
+  }).catch(function(e){ console.warn('[selectProductItem] 加载失败:', e); showProductEmptyState(); });
 }
 
 function renderProductDetail(p) {
@@ -22688,8 +22802,12 @@ function runProductTalentMatch(productId) {
   if (body) body.innerHTML = '<div class="products-loading"><div class="spinner"></div>AI 正在分析匹配...</div>';
   apiFetch('/api/products/' + encodeURIComponent(productId) + '/match-talents', {
     method: 'POST',
+    silent: true,
     body: JSON.stringify({ limit: 10, agentId: getCurrentEmpId() || '' })
-  }).then(function(r){ return r.json(); }).then(function(data){
+  }).then(function(r){
+    if (!r) throw new Error('商品不存在');
+    return r.json();
+  }).then(function(data){
     _currentProductMatchTalents.matches = data.matches || [];
     _renderProductTalentMatches();
     if (btn) { btn.disabled = false; btn.textContent = '重新匹配'; }
@@ -22785,9 +22903,11 @@ function analyzeProductAI() {
   if (!_productCurrentId) return;
   var btn = document.getElementById('productsAIBtn');
   if (btn) { btn.disabled = true; btn.textContent = '分析中...'; }
-  apiFetch('/api/products/' + encodeURIComponent(_productCurrentId) + '/analyze', {method:'POST'}).then(function(r){
+  apiFetch('/api/products/' + encodeURIComponent(_productCurrentId) + '/analyze', {method:'POST', silent: true}).then(function(r){
+    if (!r) { showToast('商品不存在或已被删除'); return {ok: false, data: {}}; }
     return r.json().then(function(data){ return {ok: r.ok, data: data}; });
   }).then(function(res){
+    if (!res.ok && !res.data.error && !res.data.message) return;
     if (!res.ok || res.data.error || res.data.message) {
       var errMsg = res.data.error || res.data.message;
       if (errMsg && typeof errMsg === 'object') errMsg = errMsg.message || JSON.stringify(errMsg);
@@ -22889,9 +23009,13 @@ function createNewProduct() {
 
 function editCurrentProduct() {
   if (!_productCurrentId) { showToast('请选择商品'); return; }
-  apiFetch('/api/products/' + encodeURIComponent(_productCurrentId)).then(function(r){return r.json();}).then(function(p){
+  apiFetch('/api/products/' + encodeURIComponent(_productCurrentId), { silent: true }).then(function(r){
+    if (!r) { showToast('商品不存在或已被删除'); return null; }
+    return r.json();
+  }).then(function(p){
+    if (!p) return;
     _fillProductModal(p, '编辑商品');
-  });
+  }).catch(function(e){ console.warn('[editCurrentProduct] 加载失败:', e); });
 }
 
 // 用商品数据填充录入/编辑表单并打开弹窗（用于图片识别后的一键录入）

@@ -1497,7 +1497,16 @@ class AuthResult:
 
     @property
     def is_admin(self):
-        return self.user_info and self.user_info.get('role') == 'admin'
+        if not self.user_info:
+            return False
+        if self.user_info.get('role') == 'admin':
+            return True
+        record = self.user_record or {}
+        if record.get('role') == 'admin':
+            return True
+        if record.get('roleTemplateId') == 'admin':
+            return True
+        return False
 
     @property
     def user_id(self):
@@ -1513,8 +1522,12 @@ class AuthResult:
             self.user_record = _find_user(users, 'id', self.user_info['userId'])
             # 填充 team_ids 和 managed_team_ids
             if self.user_record:
+                # 以数据库实时角色为准，避免 token 中角色过期
+                live_role = self.user_record.get('role') or self.user_info.get('role')
+                if live_role:
+                    self.user_info['role'] = live_role
                 self.team_ids = self.user_record.get('teamIds', [])
-                self.is_leader = self.user_record.get('role') == 'leader'
+                self.is_leader = live_role == 'leader'
                 # leader 查找自己管理的小组
                 if self.is_leader:
                     teams = _load_teams()
@@ -1543,6 +1556,23 @@ def _authenticate(headers):
     result = AuthResult(user_info=user_info)
     result.load_user_record()
     return result
+
+
+def _get_team_member_ids(auth):
+    """返回当前 leader/admin 可管理的用户 ID 列表（用于员工更新/删除权限判断）"""
+    if auth.is_admin:
+        users = _load_users()
+        return [u.get('id') for u in users if u.get('id')]
+    if not auth.is_leader or not auth.managed_team_ids:
+        return []
+    member_ids = set()
+    teams = _load_teams()
+    for t in teams:
+        if t.get('id') in auth.managed_team_ids:
+            for uid in t.get('memberIds', []):
+                if uid:
+                    member_ids.add(uid)
+    return list(member_ids)
 
 
 def _can_access_team(auth, team_id):
@@ -12017,6 +12047,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _citations = body.get('citations')
         if _citations:
             msg['citations'] = _citations
+        # 保留工具调用记录（用于刷新后重新渲染工具卡片）
+        _tool_records = body.get('toolRecords')
+        if _tool_records:
+            msg['toolRecords'] = _tool_records
         # 保留图片信息（多模态）
         images = body.get('images', [])
         if images:
