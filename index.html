@@ -1226,10 +1226,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 #productModalOverlay.active { display: flex; }
 #productModalOverlay .product-modal {
   width: 100%;
-  max-width: 480px;
+  max-width: 520px;
   max-height: 90vh;
   background: #ffffff;
-  border-radius: 16px;
+  border-radius: 12px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.2);
   display: flex;
   flex-direction: column;
@@ -5244,7 +5244,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .product-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(20px); z-index: 400; display: none; align-items: center; justify-content: center; }
 .product-modal-overlay.active { display: flex; }
 .product-modal-panel { width: 88%; max-width: 480px; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
-.product-modal { width: 100%; max-width: 480px; max-height: 90vh; background: #ffffff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
+.product-modal { width: 100%; max-width: 520px; max-height: 90vh; background: #ffffff; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
 .product-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 0.5px solid var(--separator); }
 .product-modal-title { font-size: 17px; font-weight: 600; }
 .product-modal-close { width: 28px; height: 28px; border-radius: 50%; border: none; background: transparent; cursor: pointer; font-size: 16px; color: var(--text-secondary); }
@@ -5266,8 +5266,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .product-modal-btn { flex: 1; padding: 14px 0; border: none; background: transparent; font-size: 16px; cursor: pointer; transition: all 0.15s; }
 /* 两列表单布局 */
 .product-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
-.product-form-grid .product-form-row { margin-bottom: 12px; }
-.product-form-grid .product-form-row.full { grid-column: 1 / -1; }
+.product-form-grid .product-form-row,
+.product-form-grid .product-modal-field { margin-bottom: 12px; }
+.product-form-grid .product-form-row.full,
+.product-form-grid .product-modal-field.full { grid-column: 1 / -1; }
+.product-modal-checkbox { display: flex; align-items: center; margin-top: 4px; }
+.product-modal-checkbox input[type="checkbox"] { width: auto; margin-right: 8px; }
 .product-form-section { grid-column: 1 / -1; font-size: 12px; font-weight: 600; color: var(--text-primary); margin: 6px 0 2px; padding-bottom: 4px; border-bottom: 0.5px solid var(--separator); text-transform: uppercase; letter-spacing: 0.5px; }
 .product-modal-btn + .product-modal-btn { border-left: 0.5px solid var(--separator); }
 .product-modal-btn.save { color: var(--accent); font-weight: 600; }
@@ -5946,7 +5950,8 @@ window.doLogin = function () {
       </div>
       <div class="product-modal-section">
         <div class="product-modal-section-title">价格与销售</div>
-        <div class="product-modal-field required"><label>价格</label><input type="number" step="0.01" id="productPrice" placeholder="0.00"></div>
+        <div class="product-modal-field required"><label>直播价/实际售价</label><input type="number" step="0.01" id="productPrice" placeholder="0.00"></div>
+        <div class="product-modal-field"><label>原价/吊牌价</label><input type="number" step="0.01" id="productOriginalPrice" placeholder="0.00"></div>
         <div class="product-modal-field"><label>价格区间</label><input type="text" id="productPriceRange" placeholder="如 ¥89-129"></div>
         <div class="product-modal-field"><label>库存</label><input type="number" id="productStock" value="0"></div>
         <div class="product-modal-field"><label>月销量</label><input type="number" id="productMonthlySales" value="0"></div>
@@ -5955,16 +5960,32 @@ window.doLogin = function () {
         <div class="product-modal-field"><label>转化率 (%)</label><input type="number" step="0.01" id="productConversionRate" value="0"></div>
       </div>
       <div class="product-modal-section">
+        <div class="product-modal-section-title">库存与物流</div>
+        <div class="product-form-grid">
+          <div class="product-modal-field"><label>现货库存</label><input type="number" id="productSpotStock" value="0"></div>
+          <div class="product-modal-field"><label>预售库存</label><input type="number" id="productPreStock" value="0"></div>
+          <div class="product-modal-field"><label>现货时效</label><input type="text" id="productSpotDeliveryDays" placeholder="如 24小时内"></div>
+          <div class="product-modal-field"><label>预售时效</label><input type="text" id="productPreDeliveryDays" placeholder="如 7天内"></div>
+          <div class="product-modal-field"><label>快递公司</label><input type="text" id="productShippingCompany" placeholder="如 中通/韵达"></div>
+          <div class="product-modal-field"><label>不发货地区</label><input type="text" id="productNoShippingAreas" placeholder="如 新疆、西藏"></div>
+        </div>
+        <div class="product-modal-field product-modal-checkbox">
+          <label><input type="checkbox" id="productHasShippingInsurance"> 含运费险</label>
+        </div>
+      </div>
+      <div class="product-modal-section">
         <div class="product-modal-section-title">佣金</div>
         <div class="product-modal-field"><label>佣金率 JSON</label><textarea id="productCommissionRates" placeholder='{"default":20,"直播":25}'></textarea></div>
         <div class="product-modal-field"><label>佣金金额</label><input type="number" step="0.01" id="productCommissionAmount" value="0"></div>
       </div>
       <div class="product-modal-section">
         <div class="product-modal-section-title">商品信息</div>
+        <div class="product-modal-field"><label>external_id（外部平台商品 ID）</label><input type="text" id="productExternalId" placeholder="如抖音 modal_id / goods_id"></div>
         <div class="product-modal-field"><label>主图 URL</label><input type="text" id="productMainImage" placeholder="https://..." oninput="_updateProductMainImagePreview()"></div>
         <div class="product-modal-field"><label>主图预览</label><img id="productMainImagePreview" src="" style="max-width:100%;max-height:120px;border-radius:8px;display:none;"></div>
         <div class="product-modal-field"><label>描述</label><textarea id="productDescription" placeholder="输入商品描述"></textarea></div>
         <div class="product-modal-field"><label>卖点</label><textarea id="productSellingPoints" placeholder="输入核心卖点，用逗号或换行分隔"></textarea></div>
+        <div class="product-modal-field"><label>品牌背景/实力</label><textarea id="productBrandBackground" placeholder="输入品牌背景、实力描述"></textarea></div>
         <div class="product-modal-field"><label>标签（逗号分隔）</label><input type="text" id="productTags" placeholder="凉鞋,厚底,女鞋"></div>
         <div class="product-modal-field"><label>SKU 规格 JSON</label><textarea id="productSkuSpecs" placeholder='{"颜色":["米白"],"尺码":["36-40"]}'></textarea></div>
       </div>
@@ -5998,8 +6019,13 @@ window.doLogin = function () {
         <div class="product-modal-field required"><label>达人昵称</label><input type="text" id="talentName" placeholder="输入达人昵称"></div>
         <div class="product-modal-field required"><label>抖音号</label><input type="text" id="talentDouyinId" placeholder="输入抖音号"></div>
         <div class="product-modal-field"><label>真实姓名</label><input type="text" id="talentRealName" placeholder="输入真实姓名"></div>
+        <div class="product-modal-field"><label>头像 URL</label><input type="text" id="talentAvatar" placeholder="https://..."></div>
+        <div class="product-modal-field"><label>达人类型</label><input type="text" id="talentType" placeholder="如 主播/达人店"></div>
+        <div class="product-modal-field"><label>所在地</label><input type="text" id="talentLocation" placeholder="输入详细所在地"></div>
+        <div class="product-modal-field"><label>所属机构</label><input type="text" id="talentAgency" placeholder="输入 MCN/机构"></div>
         <div class="product-modal-field"><label>粉丝量</label><input type="number" id="talentFollowers" placeholder="0"></div>
         <div class="product-modal-field"><label>主营类目</label><input type="text" id="talentCategory" placeholder="鞋靴/凉鞋"></div>
+        <div class="product-modal-field"><label>粉丝类目</label><input type="text" id="talentFanCategory" placeholder="鞋靴/凉鞋"></div>
         <div class="product-modal-field"><label>合作等级</label>
           <select id="talentLevel">
             <option value="">未设置</option>
@@ -6019,7 +6045,51 @@ window.doLogin = function () {
         </div>
         <div class="product-modal-field"><label>所在城市</label><input type="text" id="talentCity" placeholder="输入所在城市"></div>
         <div class="product-modal-field"><label>达人简介</label><textarea id="talentBio" placeholder="输入达人简介"></textarea></div>
-        <div class="product-modal-field"><label>AI 分析</label><textarea id="talentAIAnalysis" placeholder="输入 AI 综合分析"></textarea></div>
+        <div class="product-modal-field"><label>状态</label>
+          <select id="talentStatus">
+            <option value="active">正常</option>
+            <option value="inactive">停用</option>
+            <option value="archived">归档</option>
+          </select>
+        </div>
+        <div class="product-modal-field"><label>分组 ID</label><input type="text" id="talentGroupId" placeholder="grp_xxx"></div>
+      </div>
+      <div class="product-modal-section">
+        <div class="product-modal-section-title">数据指标</div>
+        <div class="product-form-grid">
+          <div class="product-modal-field"><label>佣金要求 (%)</label><input type="number" step="0.01" id="talentCommissionRequirement" placeholder="0"></div>
+          <div class="product-modal-field"><label>履约分</label><input type="number" step="0.01" id="talentFulfillmentScore" placeholder="0"></div>
+          <div class="product-modal-field"><label>口碑分</label><input type="number" step="0.01" id="talentRatingScore" placeholder="0"></div>
+          <div class="product-modal-field"><label>总 GMV</label><input type="number" step="0.01" id="talentTotalGmv" placeholder="0"></div>
+          <div class="product-modal-field"><label>总商品数</label><input type="number" id="talentTotalProducts" placeholder="0"></div>
+          <div class="product-modal-field"><label>当前商品数</label><input type="number" id="talentProductCount" placeholder="0"></div>
+          <div class="product-modal-field"><label>总店铺数</label><input type="number" id="talentTotalShops" placeholder="0"></div>
+          <div class="product-modal-field"><label>平均客单价</label><input type="number" step="0.01" id="talentAveragePrice" placeholder="0"></div>
+          <div class="product-modal-field"><label>直播占比 (%)</label><input type="number" step="0.01" id="talentLiveRatio" placeholder="0"></div>
+          <div class="product-modal-field"><label>视频占比 (%)</label><input type="number" step="0.01" id="talentVideoRatio" placeholder="0"></div>
+          <div class="product-modal-field"><label>场均直播 GMV</label><input type="number" step="0.01" id="talentAvgLiveGmv" placeholder="0"></div>
+          <div class="product-modal-field"><label>直播 GPM</label><input type="number" step="0.01" id="talentLiveGpm" placeholder="0"></div>
+          <div class="product-modal-field"><label>视频 GPM</label><input type="number" step="0.01" id="talentVideoGpm" placeholder="0"></div>
+        </div>
+      </div>
+      <div class="product-modal-section">
+        <div class="product-modal-section-title">粉丝画像</div>
+        <div class="product-form-grid">
+          <div class="product-modal-field"><label>人群描述</label><input type="text" id="talentFanCrowd" placeholder="如 年轻女性"></div>
+          <div class="product-modal-field"><label>消费价位</label><input type="text" id="talentFanPriceRange" placeholder="如 50-100"></div>
+        </div>
+        <div class="product-modal-field"><label>性别分布 JSON</label><textarea id="talentFanGender" placeholder='{"女":70,"男":30}'></textarea></div>
+        <div class="product-modal-field"><label>年龄分布 JSON</label><textarea id="talentFanAge" placeholder='{"18-24":30,"25-34":50}'></textarea></div>
+        <div class="product-modal-field"><label>地域分布 JSON</label><textarea id="talentFanRegion" placeholder='{"广东":20,"浙江":15}'></textarea></div>
+        <div class="product-modal-field"><label>粉丝画像 JSON</label><textarea id="talentFansProfile" placeholder='{"interest":["穿搭"],"device":"mobile"}'></textarea></div>
+      </div>
+      <div class="product-modal-section">
+        <div class="product-modal-section-title">AI 分析</div>
+        <div class="product-modal-field"><label>AI 评分</label><input type="text" id="talentAIRating" placeholder="如 S"></div>
+        <div class="product-modal-field"><label>AI 总结</label><textarea id="talentAISummary" placeholder="输入 AI 总结"></textarea></div>
+        <div class="product-modal-field"><label>AI 推荐理由</label><textarea id="talentAIReason" placeholder="输入 AI 推荐理由"></textarea></div>
+        <div class="product-modal-field"><label>AI 标签 JSON</label><textarea id="talentAITags" placeholder='["带货强","女鞋"]'></textarea></div>
+        <div class="product-modal-field"><label>AI 分析 JSON</label><textarea id="talentAIAnalysis" placeholder='{"suitable_products":"..."}'></textarea></div>
       </div>
       <div class="product-modal-section">
         <div class="product-modal-section-title">联系人信息</div>
@@ -7833,29 +7903,23 @@ async function sendMsg() {
     return;
   }
 
-  // 商品图批量识别录入：当用户发送多张图片且符合商品录入意图时，先逐张识别并展示确认卡片
-  if (hasImages && hasDirectApi && shouldTriggerBatchProductRecognition(text, pendingImages.length)) {
+  // 批量商品自动录入：≥2张商品图 或 ≥2个抖音商品链接 时自动进入批量模式
+  var douyinLinks = detectDouyinProductLinks(text);
+  var isBatchImageMode = hasImages && pendingImages.length >= 2 && hasDirectApi;
+  var isBatchLinkMode = douyinLinks.length >= 2 && hasDirectApi;
+  if ((isBatchImageMode || isBatchLinkMode) && !currentGroupId) {
     try {
-      var extractedResult = await extractProductsFromImages(emp, pendingImages);
-      var extractedProducts = extractedResult.products || [];
-      var extractErrors = extractedResult.errors || [];
-      // 全部识别失败时，给出明确错误提示并移除加载状态，避免卡住
-      if (extractedProducts.length === 0 && extractErrors.length > 0) {
-        typing.remove();
-        displayAIReply('⚠️ 图片识别失败，请重试', docContext, timeStr, emp.id, []);
-        restoreOnline();
-        return;
-      }
-      if (extractedProducts.length > 0) {
-        typing.remove();
-        renderPendingProductsCard(emp, extractedProducts, { docContext: docContext, timeStr: timeStr, sourceText: text });
-        restoreOnline();
-        return;
-      }
-    } catch (e) {
-      console.warn('[BatchProduct] 批量识别异常:', e);
+      var batchItems = isBatchImageMode
+        ? pendingImages.map(function(img) { return { type: 'image', data: img }; })
+        : douyinLinks.map(function(url) { return { type: 'link', url: url }; });
       typing.remove();
-      displayAIReply('⚠️ 图片识别失败，请重试', docContext, timeStr, emp.id, []);
+      var batchCardId = renderBatchProgressCard(emp, batchItems, { docContext: docContext, timeStr: timeStr, sourceText: text });
+      processBatchProductEntries(emp, batchItems, batchCardId, docContext, timeStr, restoreOnline);
+      return;
+    } catch (e) {
+      console.warn('[BatchEntry] 批量模式初始化异常:', e);
+      typing.remove();
+      displayAIReply('⚠️ 批量录入初始化失败：' + (e.message || String(e)), docContext, timeStr, emp.id, []);
       restoreOnline();
       return;
     }
@@ -17718,9 +17782,7 @@ async function _sendChatMessages(emp, messages, ctx, docContext, timeStr, images
       console.log('[API] AI回复 content_len=' + reply.length + ' depth=' + depth);
       var hasToolCalls = parseToolCalls(reply).length > 0;
       // 有工具调用时，由 displayAIReply 执行完工具后再统一保存 assistant 消息（含 toolRecords）
-      if (!hasToolCalls) {
-        saveAssistantReplyHistory(emp.id, reply, ctx.citations, []);
-      }
+      // 无工具调用时 assistant 消息由 displayAIReply 末尾统一保存
       displayAIReply(reply, docContext, timeStr, emp.id, ctx.citations, originalUserMessage, depth, executedKeys, images);
     } else if (data) {
       console.log('[API] 返回格式异常 data=', JSON.stringify(data).substring(0, 200));
@@ -17924,6 +17986,33 @@ function shouldTriggerBatchProductRecognition(text, imagesCount) {
   return false;
 }
 
+// 检测文本中的抖音/抖店商品链接，返回去重后的 URL 数组
+function detectDouyinProductLinks(text) {
+  if (!text || typeof text !== 'string') return [];
+  var urls = [];
+  var pushUrl = function(url) {
+    url = url.replace(/[，。！？、；：""''（）【】\[\]{}]/g, '');
+    if (urls.indexOf(url) === -1) urls.push(url);
+  };
+  var patterns = [
+    /https?:\/\/v\.douyin\.com\/[a-zA-Z0-9_-]+/gi,
+    /https?:\/\/www\.douyin\.com\/video\/\d+/gi,
+    /https?:\/\/web\.cast\.douyin\.com\/\S+/gi,
+    /https?:\/\/haohuo\.jinritemai\.com\/[^\s\)\]\}\，。！？、；：""''（）【】]*/gi,
+    /https?:\/\/(?:www\.)?jinritemai\.com\/[^\s\)\]\}\，。！？、；：""''（）【】]*/gi,
+    /https?:\/\/fxg\.jinritemai\.com\/[^\s\)\]\}\，。！？、；：""''（）【】]*/gi,
+    /https?:\/\/buyin\.jinritemai\.com\/[^\s\)\]\}\，。！？、；：""''（）【】]*/gi,
+    /https?:\/\/(?:www\.)?douyin\.com\/[^\s\)\]\}\，。！？、；：""''（）【】]*/gi
+  ];
+  patterns.forEach(function(regex) {
+    var m;
+    while ((m = regex.exec(text)) !== null) {
+      pushUrl(m[0]);
+    }
+  });
+  return urls;
+}
+
 // 渲染待录入商品列表卡片
 function renderPendingProductsCard(emp, products, context) {
   context = context || {};
@@ -18045,6 +18134,323 @@ function oneClickAddProduct(cardId, idx) {
   if (!cache || !cache.products || idx < 0 || idx >= cache.products.length) return;
   var p = cache.products[idx];
   openProductFormWithData(p);
+}
+
+// ===== 批量商品自动录入（≥2张图 或 ≥2个抖音链接） =====
+
+// 渲染批量录入进度卡片
+function renderBatchProgressCard(emp, items, context) {
+  context = context || {};
+  var area = document.getElementById('messagesArea');
+  if (!area || !items || items.length === 0) return null;
+  var cardId = 'bpe_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+  var timeStr = context.timeStr || new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  var rowsHtml = items.map(function(item, idx) {
+    var thumb = item.type === 'image' ? (item.data && item.data.base64) : '';
+    var label = item.type === 'image' ? ('商品图 ' + (idx + 1)) : escapeHtml(truncateText(item.url, 48));
+    return '<div class="batch-progress-item" data-idx="' + idx + '">' +
+      (thumb ? '<img src="' + thumb + '" class="batch-progress-thumb" alt="">' : '<div class="batch-progress-thumb batch-progress-linkicon">🔗</div>') +
+      '<div class="batch-progress-info">' +
+        '<div class="batch-progress-name">' + label + '</div>' +
+        '<div class="batch-progress-status pending">⏳ 等待处理</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  var html = '<div class="msg" id="' + cardId + '">' +
+    '<div class="msg-avatar" style="font-size:22px;">🛒</div>' +
+    '<div class="msg-content">' +
+      '<div class="msg-sender"><span class="msg-sender-name">商品识别助手</span><span class="msg-sender-role">系统</span><span class="msg-sender-time">' + timeStr + '</span></div>' +
+      '<div class="msg-bubble batch-progress-bubble">' +
+        '<div class="batch-progress-header">' +
+          '<span class="batch-progress-title">正在批量录入商品</span>' +
+          '<span class="batch-progress-counter" id="' + cardId + '_counter">0 / ' + items.length + '</span>' +
+        '</div>' +
+        '<div class="batch-progress-barwrap"><div class="batch-progress-bar" id="' + cardId + '_bar" style="width:0%"></div></div>' +
+        '<div class="batch-progress-list" id="' + cardId + '_list">' + rowsHtml + '</div>' +
+        '<div class="batch-progress-summary" id="' + cardId + '_summary" style="display:none;"></div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+  area.insertAdjacentHTML('beforeend', html);
+  area.scrollTop = area.scrollHeight;
+  return cardId;
+}
+
+// 更新批量录入进度卡片
+function updateBatchProgressCard(cardId, current, total, status, itemIndex, detail) {
+  var card = document.getElementById(cardId);
+  if (!card) return;
+  var counter = document.getElementById(cardId + '_counter');
+  var bar = document.getElementById(cardId + '_bar');
+  if (counter) counter.textContent = current + ' / ' + total;
+  if (bar) bar.style.width = Math.round((current / total) * 100) + '%';
+
+  if (itemIndex >= 0 && itemIndex < total) {
+    var itemEl = card.querySelector('.batch-progress-item[data-idx="' + itemIndex + '"]');
+    if (itemEl) {
+      var statusEl = itemEl.querySelector('.batch-progress-status');
+      if (statusEl) {
+        statusEl.className = 'batch-progress-status ' + (status || 'pending');
+        if (status === 'processing') {
+          statusEl.textContent = '⏳ 处理中...';
+        } else if (status === 'success') {
+          var pName = detail && detail.product && (detail.product.name || detail.product.product_name) ? escapeHtml(detail.product.name || detail.product.product_name) : '商品';
+          statusEl.textContent = '✅ 录入成功：' + pName;
+        } else if (status === 'duplicate') {
+          var dName = detail && detail.product && (detail.product.name || detail.product.product_name) ? escapeHtml(detail.product.name || detail.product.product_name) : '商品';
+          statusEl.textContent = '🔵 重复：' + dName;
+        } else if (status === 'failed') {
+          var errText = (detail && detail.error) ? detail.error : '处理异常';
+          statusEl.textContent = '❌ 失败：' + escapeHtml(truncateText(errText, 48));
+        }
+      }
+    }
+  }
+
+  if (status === 'summary' && detail && detail.results) {
+    var r = detail.results;
+    var summary = document.getElementById(cardId + '_summary');
+    var list = document.getElementById(cardId + '_list');
+    var headerTitle = card.querySelector('.batch-progress-title');
+    if (headerTitle) headerTitle.textContent = '批量录入完成';
+    if (summary) {
+      summary.style.display = 'block';
+      summary.innerHTML =
+        '<div class="batch-summary-row"><span class="batch-summary-label">处理结果</span></div>' +
+        '<div class="batch-summary-stats">' +
+          '<span class="batch-stat success">✅ 成功 ' + r.success + '</span>' +
+          '<span class="batch-stat duplicate">🔵 重复 ' + r.duplicate + '</span>' +
+          '<span class="batch-stat failed">❌ 失败 ' + r.failed + '</span>' +
+        '</div>';
+    }
+    if (list) list.style.opacity = '0.85';
+  }
+
+  var area = document.getElementById('messagesArea');
+  if (area) area.scrollTop = area.scrollHeight;
+}
+
+// 截断文本辅助函数
+function truncateText(str, maxLen) {
+  if (!str) return '';
+  str = String(str);
+  if (str.length <= maxLen) return str;
+  return str.slice(0, maxLen - 1) + '…';
+}
+
+// 批量处理入口：逐个提取、查重、录入
+async function processBatchProductEntries(emp, items, cardId, docContext, timeStr, onComplete) {
+  var results = { success: 0, duplicate: 0, failed: 0 };
+  var total = items.length;
+
+  for (var i = 0; i < total; i++) {
+    // 用户切换员工后停止更新当前卡片
+    if (localStorage.getItem('sb_current_emp') !== emp.id) {
+      console.warn('[BatchEntry] 员工已切换，停止批量录入:', emp.id);
+      break;
+    }
+
+    updateBatchProgressCard(cardId, i + 1, total, 'processing', i, null);
+    var item = items[i];
+    var product = null;
+    var extractError = null;
+
+    try {
+      if (item.type === 'image') {
+        var imgResult = await describeImage(emp, item.data.base64, PRODUCT_IMAGE_RECOGNITION_PROMPT);
+        if (imgResult && imgResult.error) {
+          extractError = imgResult.error;
+        } else if (!imgResult || !imgResult.name) {
+          extractError = '未能识别商品名称';
+        } else {
+          product = imgResult;
+          product._sourceBase64 = item.data.base64;
+        }
+      } else {
+        var extractRes = await apiFetch('/api/products/extract', { method: 'POST', body: JSON.stringify({ url: item.url }) });
+        var extractData = await extractRes.json();
+        if (extractData.error || extractData.message) {
+          extractError = extractData.message || extractData.error;
+        } else if (!extractData.name) {
+          extractError = '未能提取商品名称';
+        } else {
+          product = extractData;
+          product._sourceUrl = item.url;
+        }
+      }
+
+      if (extractError || !product) {
+        results.failed++;
+        updateBatchProgressCard(cardId, i + 1, total, 'failed', i, { error: extractError || '提取失败' });
+        continue;
+      }
+
+      var entryResult = await runSingleProductEntryWorkflow(emp, product, docContext, timeStr);
+      if (entryResult.status === 'success') {
+        results.success++;
+      } else if (entryResult.status === 'duplicate') {
+        results.duplicate++;
+      } else {
+        results.failed++;
+      }
+      updateBatchProgressCard(cardId, i + 1, total, entryResult.status, i, entryResult);
+    } catch (e) {
+      console.warn('[BatchEntry] 处理第 ' + (i + 1) + ' 个商品异常:', e);
+      results.failed++;
+      updateBatchProgressCard(cardId, i + 1, total, 'failed', i, { error: e.message || String(e) });
+    }
+  }
+
+  updateBatchProgressCard(cardId, total, total, 'summary', -1, { results: results });
+
+  // 保存批量录入汇总到聊天历史
+  if (emp && emp.id) {
+    var summaryText = '批量商品录入完成：成功 ' + results.success + ' 个，重复 ' + results.duplicate + ' 个，失败 ' + results.failed + ' 个。';
+    saveAssistantReplyHistory(emp.id, summaryText, [], []);
+  }
+
+  if (typeof onComplete === 'function') {
+    try { onComplete(); } catch (e) { console.warn('[BatchEntry] onComplete 异常:', e); }
+  }
+}
+
+// 复用单商品录入流程：对一张已识别的商品，调用 AI 完成查重→录入闭环
+async function runSingleProductEntryWorkflow(emp, product, docContext, timeStr) {
+  var ctx = await buildAIChatMessages(emp, '请完成以下已识别商品的查重与自动录入', docContext, []);
+  if (!ctx || ctx.error) {
+    return { status: 'failed', error: (ctx && ctx.error) || '构建 AI 上下文失败', product: product };
+  }
+
+  var messages = ctx.messages.slice();
+  messages.push({
+    role: 'user',
+    content: '【商品信息已提取】以下是识别结果（JSON）：\n' + JSON.stringify(product, null, 2) + '\n\n请继续完成录入流程，严格遵循以下规则：\n1. 必须先调用 check_duplicate_product 查重；\n2. 若 check_duplicate_product 返回未发现重复，且 name/price/category/brand/stock 核心字段齐全（不为 0 或空字符串），请直接调用 add_product 自动录入，不要等待用户确认；\n3. 若 check_duplicate_product 返回 suspected=true 或系统提示商品已存在，禁止调用 add_product，直接返回重复状态即可；\n4. 若核心字段缺失导致无法录入，返回失败并说明缺失字段。\n注意：不要再次调用 describe_image 或 extract_product_info，商品信息已经提供。'
+  });
+
+  var depth = 0;
+  var executedKeys = [];
+  var finalStatus = null;
+  var finalResult = null;
+  var toolRecords = [];
+
+  while (depth < MAX_TOOL_DEPTH) {
+    var reply = await _callAIForBatchEntry(emp, messages, ctx);
+    if (!reply) {
+      return { status: 'failed', error: 'AI 未返回内容', product: product };
+    }
+
+    var toolCalls = parseToolCalls(reply);
+    if (toolCalls.length === 0) {
+      // AI 未调用工具，直接给出结论；按文本判断状态
+      var text = reply.toLowerCase();
+      if (text.indexOf('重复') !== -1 || text.indexOf('已存在') !== -1 || text.indexOf('suspected') !== -1) {
+        finalStatus = 'duplicate';
+      } else if (text.indexOf('成功') !== -1 || text.indexOf('录入') !== -1) {
+        finalStatus = 'success';
+      } else {
+        finalStatus = 'failed';
+      }
+      finalResult = { message: reply, product: product };
+      break;
+    }
+
+    var toolResults = [];
+    for (var i = 0; i < toolCalls.length; i++) {
+      var call = toolCalls[i];
+      // 拦截重复提取工具，避免闭环中再次识别/提取
+      if (call.action === 'describe_image') {
+        toolResults.push({ call: call, result: '【工具已跳过】商品图片信息已在前置步骤提取，请直接基于已提供的 JSON 继续查重与录入。' });
+        toolRecords.push({ action: call.action, params: call.params, result: toolResults[toolResults.length - 1].result });
+        continue;
+      }
+      if (call.action === 'extract_product_info') {
+        toolResults.push({ call: call, result: '【工具已跳过】商品信息已从前置链接提取，请直接基于已提供的 JSON 继续查重与录入。' });
+        toolRecords.push({ action: call.action, params: call.params, result: toolResults[toolResults.length - 1].result });
+        continue;
+      }
+
+      var key = _toolCallKey(call);
+      var result;
+      if (executedKeys.indexOf(key) !== -1) {
+        result = '【工具已执行过】该工具与之前调用参数完全相同，已跳过执行。请基于之前的结果继续，不要重复调用。';
+      } else {
+        result = await executeToolCall(call);
+        executedKeys.push(key);
+      }
+      toolResults.push({ call: call, result: result });
+      toolRecords.push({ action: call.action, params: call.params, result: result });
+
+      // 根据工具结果判断终态
+      if (call.action === 'add_product') {
+        if (result.indexOf('✅ 商品录入成功') !== -1 || result.indexOf('✅ 商品信息更新成功') !== -1) {
+          finalStatus = 'success';
+          finalResult = { message: result, product: product };
+        } else if (result.indexOf('⚠️ 该商品已存在') !== -1 || result.indexOf('⚠️ 发现疑似重复商品') !== -1 || result.indexOf('【工具执行失败】') !== -1) {
+          finalStatus = result.indexOf('【工具执行失败】') !== -1 ? 'failed' : 'duplicate';
+          finalResult = { message: result, product: product };
+        }
+      } else if (call.action === 'check_duplicate_product') {
+        if (result.indexOf('⚠️ 发现疑似重复商品') !== -1) {
+          finalStatus = 'duplicate';
+          finalResult = { message: result, product: product };
+        }
+      }
+    }
+
+    if (finalStatus === 'success' || finalStatus === 'duplicate' || finalStatus === 'failed') {
+      break;
+    }
+
+    messages.push({ role: 'assistant', content: reply });
+    var resultText = toolResults.map(function(item) {
+      return _formatToolResult(item.call, item.result);
+    }).join('\n\n');
+    messages.push({
+      role: 'user',
+      content: '工具执行结果如下，请继续完成录入。如果已完成，请直接输出结论，不要再调用工具。\n\n' + resultText
+    });
+    depth++;
+  }
+
+  if (!finalStatus) {
+    finalStatus = 'failed';
+    finalResult = { error: '处理未完成，未能在最大轮次内结束', product: product };
+  }
+  return Object.assign({ status: finalStatus, toolRecords: toolRecords }, finalResult);
+}
+
+// 批量录入内部调用 AI（复用员工 API 配置）
+async function _callAIForBatchEntry(emp, messages, ctx) {
+  var bodyObj = { model: ctx.model, messages: messages, max_tokens: 2000 };
+  if (ctx.providerId === 'kimicode') {
+    bodyObj.temperature = 0.6;
+    bodyObj.thinking = { type: 'disabled' };
+  } else {
+    bodyObj.temperature = 0.7;
+  }
+
+  try {
+    var res = await apiFetch('/api/proxy', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': authToken && authToken !== 'local_mode' ? 'Bearer ' + authToken : '',
+        'X-AI-API-Key': ctx.apiKey,
+        'X-Target-URL': ctx.endpoint
+      },
+      body: JSON.stringify(bodyObj)
+    });
+    if (!res.ok) {
+      console.warn('[BatchEntry] AI 请求失败:', res.status);
+      return null;
+    }
+    var data = await res.json();
+    var message = data && data.choices && data.choices[0] && data.choices[0].message || {};
+    return _extractMessageContent(message);
+  } catch (e) {
+    console.warn('[BatchEntry] AI 请求异常:', e);
+    return null;
+  }
 }
 
 // 内部调用目标员工的 OpenClaw 接口并返回回复文本（不渲染到 DOM，不保存历史）
@@ -20754,6 +21160,133 @@ async function finishWizard() {
 .pending-product-result.success { background: rgba(52, 199, 89, 0.1); color: #34C759; }
 .pending-product-result.error { background: rgba(255, 59, 48, 0.1); color: #FF3B30; }
 
+/* ===== 批量商品录入进度卡片（Apple 卡片风格） ===== */
+.batch-progress-bubble {
+  background: var(--bg-secondary) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  max-width: 520px;
+}
+.batch-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.batch-progress-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+.batch-progress-counter {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-light);
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+.batch-progress-barwrap {
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.batch-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.batch-progress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.batch-progress-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--separator);
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+.batch-progress-item:hover {
+  border-color: rgba(10, 132, 255, 0.25);
+  box-shadow: 0 2px 8px rgba(10, 132, 255, 0.06);
+}
+.batch-progress-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 10px;
+  flex-shrink: 0;
+  background: var(--bg-tertiary);
+}
+.batch-progress-linkicon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  background: var(--accent-light);
+}
+.batch-progress-info {
+  flex: 1;
+  min-width: 0;
+}
+.batch-progress-name {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.batch-progress-status {
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.batch-progress-status.pending { color: var(--text-tertiary); }
+.batch-progress-status.processing { color: var(--accent); }
+.batch-progress-status.success { color: #34C759; }
+.batch-progress-status.duplicate { color: #007AFF; }
+.batch-progress-status.failed { color: #FF3B30; }
+.batch-progress-summary {
+  margin-top: 4px;
+  padding: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--separator);
+  border-radius: 12px;
+}
+.batch-summary-row {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.batch-summary-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.batch-stat {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 12px;
+}
+.batch-stat.success { background: rgba(52, 199, 89, 0.1); color: #34C759; }
+.batch-stat.duplicate { background: rgba(0, 122, 255, 0.1); color: #007AFF; }
+.batch-stat.failed { background: rgba(255, 59, 48, 0.1); color: #FF3B30; }
+
 /* ========================================
    AI 员工协作 @ 状态
    ======================================== */
@@ -23019,16 +23552,26 @@ function createNewProduct() {
   _setProductModalField('productBrandSelect', _productCurrentBrandName || '');
   _setProductModalField('productCategory', '拖鞋');
   _setProductModalField('productPrice', '');
+  _setProductModalField('productOriginalPrice', '');
   _setProductModalField('productPriceRange', '');
   _setProductModalField('productStock', '0');
+  _setProductModalField('productSpotStock', '0');
+  _setProductModalField('productPreStock', '0');
+  _setProductModalField('productSpotDeliveryDays', '');
+  _setProductModalField('productPreDeliveryDays', '');
+  _setProductModalField('productShippingCompany', '');
+  document.getElementById('productHasShippingInsurance').checked = false;
+  _setProductModalField('productNoShippingAreas', '');
   _setProductModalField('productMonthlySales', '0');
   _setProductModalField('productMonthlyGmv', '0');
   _setProductModalField('productAvgOrderValue', '0');
   _setProductModalField('productConversionRate', '0');
   _setProductModalField('productCommissionRates', '');
   _setProductModalField('productCommissionAmount', '0');
+  _setProductModalField('productExternalId', '');
   _setProductModalField('productMainImage', '');
   _setProductModalField('productSellingPoints', '');
+  _setProductModalField('productBrandBackground', '');
   _setProductModalField('productTags', '');
   _setProductModalField('productSkuSpecs', '');
   _setProductModalField('productStatus', 'active');
@@ -23061,16 +23604,26 @@ function _fillProductModal(p, title) {
   _setProductModalField('productBrandSelect', p.brand || '');
   _setProductModalField('productCategory', p.category || '');
   _setProductModalField('productPrice', p.price == null ? '' : p.price);
+  _setProductModalField('productOriginalPrice', p.original_price == null ? '' : p.original_price);
   _setProductModalField('productPriceRange', p.price_range || '');
   _setProductModalField('productStock', p.stock || 0);
+  _setProductModalField('productSpotStock', p.spot_stock || 0);
+  _setProductModalField('productPreStock', p.pre_stock || 0);
+  _setProductModalField('productSpotDeliveryDays', p.spot_delivery_days || '');
+  _setProductModalField('productPreDeliveryDays', p.pre_delivery_days || '');
+  _setProductModalField('productShippingCompany', p.shipping_company || '');
+  document.getElementById('productHasShippingInsurance').checked = !!p.has_shipping_insurance;
+  _setProductModalField('productNoShippingAreas', p.no_shipping_areas || '');
   _setProductModalField('productMonthlySales', p.monthly_sales || 0);
   _setProductModalField('productMonthlyGmv', p.monthly_gmv || 0);
   _setProductModalField('productAvgOrderValue', p.avg_order_value || 0);
   _setProductModalField('productConversionRate', p.conversion_rate || 0);
   _setProductModalJson('productCommissionRates', p.commission_rates);
   _setProductModalField('productCommissionAmount', p.commission_amount || 0);
+  _setProductModalField('productExternalId', p.external_id || '');
   _setProductModalField('productMainImage', p.main_image || p._sourceBase64 || '');
   _setProductModalField('productSellingPoints', p.selling_points || '');
+  _setProductModalField('productBrandBackground', p.brand_background || '');
   _setProductModalField('productTags', (p.tags || []).join('、'));
   _setProductModalJson('productSkuSpecs', p.sku_specs);
   _setProductModalField('productStatus', p.status || 'active');
@@ -23109,16 +23662,26 @@ function saveProduct() {
     brand: b ? b.name : '',
     category: document.getElementById('productCategory').value.trim(),
     price: parseFloat(document.getElementById('productPrice').value) || 0,
+    original_price: parseFloat(document.getElementById('productOriginalPrice').value) || 0,
     price_range: document.getElementById('productPriceRange').value.trim(),
     stock: parseInt(document.getElementById('productStock').value) || 0,
+    spot_stock: parseInt(document.getElementById('productSpotStock').value) || 0,
+    pre_stock: parseInt(document.getElementById('productPreStock').value) || 0,
+    spot_delivery_days: document.getElementById('productSpotDeliveryDays').value.trim(),
+    pre_delivery_days: document.getElementById('productPreDeliveryDays').value.trim(),
+    shipping_company: document.getElementById('productShippingCompany').value.trim(),
+    has_shipping_insurance: document.getElementById('productHasShippingInsurance').checked,
+    no_shipping_areas: document.getElementById('productNoShippingAreas').value.trim(),
     monthly_sales: parseInt(document.getElementById('productMonthlySales').value) || 0,
     monthly_gmv: parseFloat(document.getElementById('productMonthlyGmv').value) || 0,
     avg_order_value: parseFloat(document.getElementById('productAvgOrderValue').value) || 0,
     conversion_rate: parseFloat(document.getElementById('productConversionRate').value) || 0,
     commission_rates: commissionRates,
     commission_amount: parseFloat(document.getElementById('productCommissionAmount').value) || 0,
+    external_id: document.getElementById('productExternalId').value.trim(),
     main_image: document.getElementById('productMainImage').value.trim(),
     selling_points: document.getElementById('productSellingPoints').value.trim(),
+    brand_background: document.getElementById('productBrandBackground').value.trim(),
     tags: tags,
     sku_specs: skuSpecs,
     status: document.getElementById('productStatus').value,
@@ -23130,7 +23693,14 @@ function saveProduct() {
   if (!body.name) { showToast('请输入商品名称'); return; }
   var url = '/api/products' + (id ? '/' + encodeURIComponent(id) : '');
   var method = id ? 'PUT' : 'POST';
-  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(){ showToast('✅ 已保存'); closeProductModal(); loadProducts(); }).catch(function(){ showToast('❌ 保存失败'); });
+  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(r){ return r.json(); }).then(function(product){
+    showToast('✅ 已保存');
+    closeProductModal();
+    loadProducts();
+    if (_productCurrentId && product && product.id === _productCurrentId) {
+      renderProductDetail(product);
+    }
+  }).catch(function(){ showToast('❌ 保存失败'); });
 }
 
 function deleteCurrentProduct() {
@@ -24093,12 +24663,42 @@ function createNewTalent() {
   document.getElementById('talentName').value = '';
   document.getElementById('talentDouyinId').value = '';
   document.getElementById('talentRealName').value = '';
+  document.getElementById('talentAvatar').value = '';
+  document.getElementById('talentType').value = '';
+  document.getElementById('talentLocation').value = '';
+  document.getElementById('talentAgency').value = '';
   document.getElementById('talentFollowers').value = '0';
   document.getElementById('talentCategory').value = '鞋靴/凉鞋';
+  document.getElementById('talentFanCategory').value = '鞋靴/凉鞋';
   document.getElementById('talentLevel').value = '';
   document.getElementById('talentRiskRating').value = '';
   document.getElementById('talentCity').value = '';
   document.getElementById('talentBio').value = '';
+  document.getElementById('talentStatus').value = 'active';
+  document.getElementById('talentGroupId').value = '';
+  document.getElementById('talentCommissionRequirement').value = '0';
+  document.getElementById('talentFulfillmentScore').value = '0';
+  document.getElementById('talentRatingScore').value = '0';
+  document.getElementById('talentTotalGmv').value = '0';
+  document.getElementById('talentTotalProducts').value = '0';
+  document.getElementById('talentProductCount').value = '0';
+  document.getElementById('talentTotalShops').value = '0';
+  document.getElementById('talentAveragePrice').value = '0';
+  document.getElementById('talentLiveRatio').value = '0';
+  document.getElementById('talentVideoRatio').value = '0';
+  document.getElementById('talentAvgLiveGmv').value = '0';
+  document.getElementById('talentLiveGpm').value = '0';
+  document.getElementById('talentVideoGpm').value = '0';
+  document.getElementById('talentFanCrowd').value = '';
+  document.getElementById('talentFanPriceRange').value = '';
+  _setProductModalJson('talentFanGender', {});
+  _setProductModalJson('talentFanAge', {});
+  _setProductModalJson('talentFanRegion', {});
+  _setProductModalJson('talentFansProfile', {});
+  document.getElementById('talentAIRating').value = '';
+  document.getElementById('talentAISummary').value = '';
+  document.getElementById('talentAIReason').value = '';
+  _setProductModalJson('talentAITags', []);
   document.getElementById('talentAIAnalysis').value = '';
   document.getElementById('talentContactName').value = '';
   document.getElementById('talentContactPhone').value = '';
@@ -24119,13 +24719,43 @@ function editCurrentTalent() {
     document.getElementById('talentName').value = t.name || '';
     document.getElementById('talentDouyinId').value = t.douyin_id || '';
     document.getElementById('talentRealName').value = t.real_name || '';
+    document.getElementById('talentAvatar').value = t.avatar || '';
+    document.getElementById('talentType').value = t.talent_type || '';
+    document.getElementById('talentLocation').value = t.location || '';
+    document.getElementById('talentAgency').value = t.agency || '';
     document.getElementById('talentFollowers').value = t.followers || 0;
-    document.getElementById('talentCategory').value = t.category || t.fan_category || '';
+    document.getElementById('talentCategory').value = t.category || '';
+    document.getElementById('talentFanCategory').value = t.fan_category || '';
     document.getElementById('talentLevel').value = t.level || '';
     document.getElementById('talentRiskRating').value = t.risk_rating || '';
     document.getElementById('talentCity').value = t.city || '';
     document.getElementById('talentBio').value = t.bio || '';
-    document.getElementById('talentAIAnalysis').value = t.ai_analysis || t.ai_summary || '';
+    document.getElementById('talentStatus').value = t.status || 'active';
+    document.getElementById('talentGroupId').value = t.group_id || '';
+    document.getElementById('talentCommissionRequirement').value = t.commission_requirement || 0;
+    document.getElementById('talentFulfillmentScore').value = t.fulfillment_score || 0;
+    document.getElementById('talentRatingScore').value = t.rating_score || 0;
+    document.getElementById('talentTotalGmv').value = t.total_gmv || 0;
+    document.getElementById('talentTotalProducts').value = t.total_products || 0;
+    document.getElementById('talentProductCount').value = t.product_count || 0;
+    document.getElementById('talentTotalShops').value = t.total_shops || 0;
+    document.getElementById('talentAveragePrice').value = t.average_price || 0;
+    document.getElementById('talentLiveRatio').value = t.live_ratio || 0;
+    document.getElementById('talentVideoRatio').value = t.video_ratio || 0;
+    document.getElementById('talentAvgLiveGmv').value = t.avg_live_gmv || 0;
+    document.getElementById('talentLiveGpm').value = t.live_gpm || 0;
+    document.getElementById('talentVideoGpm').value = t.video_gpm || 0;
+    document.getElementById('talentFanCrowd').value = t.fan_crowd || '';
+    document.getElementById('talentFanPriceRange').value = t.fan_price_range || '';
+    _setProductModalJson('talentFanGender', t.fan_gender);
+    _setProductModalJson('talentFanAge', t.fan_age);
+    _setProductModalJson('talentFanRegion', t.fan_region);
+    _setProductModalJson('talentFansProfile', t.fans_profile);
+    document.getElementById('talentAIRating').value = t.ai_rating || '';
+    document.getElementById('talentAISummary').value = t.ai_summary || '';
+    document.getElementById('talentAIReason').value = t.ai_reason || '';
+    _setProductModalJson('talentAITags', t.ai_tags);
+    document.getElementById('talentAIAnalysis').value = typeof t.ai_analysis === 'object' ? JSON.stringify(t.ai_analysis, null, 2) : (t.ai_analysis || '');
     document.getElementById('talentContactName').value = t.contact_name || '';
     document.getElementById('talentContactPhone').value = t.phone || t.contact_phone || '';
     document.getElementById('talentContactWechat').value = t.wechat || t.contact_wechat || '';
@@ -24149,18 +24779,53 @@ function saveTalent() {
   if (!douyinId) { showToast('请输入抖音号'); return; }
   var nextFollowUpVal = document.getElementById('talentNextFollowUpAt').value;
   var nextFollowUpAt = nextFollowUpVal ? new Date(nextFollowUpVal).getTime() : 0;
+  var fanGender = _safeJsonParse(document.getElementById('talentFanGender').value, {}, '性别分布');
+  var fanAge = _safeJsonParse(document.getElementById('talentFanAge').value, {}, '年龄分布');
+  var fanRegion = _safeJsonParse(document.getElementById('talentFanRegion').value, {}, '地域分布');
+  var fansProfile = _safeJsonParse(document.getElementById('talentFansProfile').value, {}, '粉丝画像');
+  var aiTags = _safeJsonParse(document.getElementById('talentAITags').value, [], 'AI 标签');
+  var aiAnalysis = document.getElementById('talentAIAnalysis').value.trim();
   var body = {
     name: name,
     douyin_id: douyinId,
     real_name: document.getElementById('talentRealName').value.trim(),
+    avatar: document.getElementById('talentAvatar').value.trim(),
+    talent_type: document.getElementById('talentType').value.trim(),
+    location: document.getElementById('talentLocation').value.trim(),
+    agency: document.getElementById('talentAgency').value.trim(),
     followers: parseInt(document.getElementById('talentFollowers').value || '0') || 0,
     category: document.getElementById('talentCategory').value.trim(),
-    fan_category: document.getElementById('talentCategory').value.trim(),
+    fan_category: document.getElementById('talentFanCategory').value.trim(),
     level: document.getElementById('talentLevel').value.trim(),
     risk_rating: document.getElementById('talentRiskRating').value.trim(),
     city: document.getElementById('talentCity').value.trim(),
     bio: document.getElementById('talentBio').value.trim(),
-    ai_analysis: document.getElementById('talentAIAnalysis').value.trim(),
+    status: document.getElementById('talentStatus').value,
+    group_id: document.getElementById('talentGroupId').value.trim(),
+    commission_requirement: parseFloat(document.getElementById('talentCommissionRequirement').value || '0') || 0,
+    fulfillment_score: parseFloat(document.getElementById('talentFulfillmentScore').value || '0') || 0,
+    rating_score: parseFloat(document.getElementById('talentRatingScore').value || '0') || 0,
+    total_gmv: parseFloat(document.getElementById('talentTotalGmv').value || '0') || 0,
+    total_products: parseInt(document.getElementById('talentTotalProducts').value || '0') || 0,
+    product_count: parseInt(document.getElementById('talentProductCount').value || '0') || 0,
+    total_shops: parseInt(document.getElementById('talentTotalShops').value || '0') || 0,
+    average_price: parseFloat(document.getElementById('talentAveragePrice').value || '0') || 0,
+    live_ratio: parseFloat(document.getElementById('talentLiveRatio').value || '0') || 0,
+    video_ratio: parseFloat(document.getElementById('talentVideoRatio').value || '0') || 0,
+    avg_live_gmv: parseFloat(document.getElementById('talentAvgLiveGmv').value || '0') || 0,
+    live_gpm: parseFloat(document.getElementById('talentLiveGpm').value || '0') || 0,
+    video_gpm: parseFloat(document.getElementById('talentVideoGpm').value || '0') || 0,
+    fan_crowd: document.getElementById('talentFanCrowd').value.trim(),
+    fan_price_range: document.getElementById('talentFanPriceRange').value.trim(),
+    fan_gender: fanGender,
+    fan_age: fanAge,
+    fan_region: fanRegion,
+    fans_profile: fansProfile,
+    ai_rating: document.getElementById('talentAIRating').value.trim(),
+    ai_summary: document.getElementById('talentAISummary').value.trim(),
+    ai_reason: document.getElementById('talentAIReason').value.trim(),
+    ai_tags: aiTags,
+    ai_analysis: aiAnalysis,
     contact_name: document.getElementById('talentContactName').value.trim(),
     contact_phone: document.getElementById('talentContactPhone').value.trim(),
     phone: document.getElementById('talentContactPhone').value.trim(),
@@ -24175,11 +24840,11 @@ function saveTalent() {
   };
   var url = id ? '/api/talents/' + encodeURIComponent(id) : '/api/talents';
   var method = id ? 'PUT' : 'POST';
-  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(){
+  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(r){ return r.json(); }).then(function(t){
     showToast(id ? '✅ 已更新' : '✅ 达人已录入');
     closeTalentModal();
     loadTalents();
-    if (id && _talentCurrentId === id) selectTalentItem(id);
+    if (id && _talentCurrentId === id && t) renderTalentDetail(t);
   }).catch(function(){ showToast('❌ 保存失败'); });
 }
 

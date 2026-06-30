@@ -1780,6 +1780,29 @@ def build_entity_text(entity_type, entity):
         if entity.get('sku'):
             parts.append(f"SKU: {entity['sku']}")
         return '\n'.join(parts)
+    elif entity_type == 'talent':
+        parts = [entity.get('name', '')]
+        if entity.get('category'):
+            parts.append(f"类目: {entity['category']}")
+        if entity.get('tags'):
+            tags = entity['tags']
+            if isinstance(tags, list):
+                parts.append(f"标签: {', '.join(str(t) for t in tags)}")
+        if entity.get('city'):
+            parts.append(f"城市: {entity['city']}")
+        if entity.get('level'):
+            parts.append(f"等级: {entity['level']}")
+        if entity.get('bio'):
+            parts.append(f"简介: {entity['bio']}")
+        if entity.get('ai_summary'):
+            parts.append(f"AI总结: {entity['ai_summary']}")
+        if entity.get('ai_tags'):
+            ai_tags = entity['ai_tags']
+            if isinstance(ai_tags, list):
+                parts.append(f"AI标签: {', '.join(str(t) for t in ai_tags)}")
+        if entity.get('fan_category'):
+            parts.append(f"粉丝类目: {entity['fan_category']}")
+        return '\n'.join(parts)
     return ''
 
 
@@ -10004,6 +10027,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             product_out = _product_row_to_dict(row_out)
         finally:
             conn.close()
+
+        # 同步刷新商品向量索引（非阻塞，失败仅记录日志）
+        try:
+            emb_cfg = get_embedding_config()
+            if emb_cfg and emb_cfg.get('apiKey'):
+                ensure_embedding('product', product_out, emb_cfg['apiKey'], emb_cfg.get('provider', 'openai'),
+                                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
+                print(f'  [Product] 已刷新商品向量索引: {product_id}', flush=True)
+        except Exception as emb_e:
+            print(f'  [Product] 刷新商品向量索引失败（不影响更新）: {product_id}, {emb_e}', flush=True)
+
         print(f'  [Product] 更新商品: {product_out["name"]} ({product_id})', flush=True)
         self._send_json(200, product_out)
 
@@ -10658,6 +10692,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(404, 'Talent not found')
                 return
             existing = _talent_row_to_dict(row)
+
+            # 若修改抖音号，检查是否与其他达人冲突
+            new_douyin_id = str(body.get('douyin_id') or body.get('douyinId') or existing.get('douyin_id') or '').strip()
+            old_douyin_id = str(existing.get('douyin_id') or '').strip()
+            if new_douyin_id and new_douyin_id.lower() != old_douyin_id.lower():
+                dup = conn.execute(
+                    "SELECT id FROM talents WHERE LOWER(douyin_id) = LOWER(?) AND id != ? LIMIT 1",
+                    (new_douyin_id, talent_id)
+                ).fetchone()
+                if dup:
+                    self._send_json_error(409, f'抖音号 {new_douyin_id} 已被其他达人使用')
+                    return
+
             existing.update(body)
             existing['id'] = talent_id
             existing['updated_at'] = int(time.time() * 1000)
@@ -10673,7 +10720,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             row_out = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
         finally:
             conn.close()
-        self._send_json(200, _talent_row_to_dict(row_out))
+        talent_out = _talent_row_to_dict(row_out)
+
+        # 同步刷新达人向量索引（非阻塞，失败仅记录日志）
+        try:
+            emb_cfg = get_embedding_config()
+            if emb_cfg and emb_cfg.get('apiKey'):
+                ensure_embedding('talent', talent_out, emb_cfg['apiKey'], emb_cfg.get('provider', 'openai'),
+                                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
+                print(f'  [Talent] 已刷新达人向量索引: {talent_id}', flush=True)
+        except Exception as emb_e:
+            print(f'  [Talent] 刷新达人向量索引失败（不影响更新）: {talent_id}, {emb_e}', flush=True)
+
+        self._send_json(200, talent_out)
 
     def _handle_delete_talent(self, talent_id):
         """DELETE /api/talents/:id — 删除达人"""
