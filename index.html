@@ -1211,6 +1211,82 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-weight: 500;
 }
 
+/* ===== Tag Selector / Filter ===== */
+.tag-selector { position: relative; }
+.tag-selector-box {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  min-height: 38px; padding: 6px 8px;
+  background: var(--bg-primary); border: 0.5px solid var(--separator); border-radius: 12px;
+  cursor: text; transition: border-color 0.2s;
+}
+.tag-selector-box:focus-within { border-color: var(--accent); }
+.tag-selector-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: var(--radius-full);
+  font-size: 12px; font-weight: 500; color: #fff;
+  max-width: 140px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.tag-selector-chip span { overflow: hidden; text-overflow: ellipsis; }
+.tag-selector-chip .remove {
+  width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; cursor: pointer; font-size: 11px; line-height: 1;
+  background: rgba(255,255,255,0.2);
+}
+.tag-selector-chip .remove:hover { background: rgba(255,255,255,0.35); }
+.tag-selector-input {
+  flex: 1; min-width: 80px; border: none; outline: none; background: transparent;
+  font-size: 13px; color: var(--text-primary); padding: 4px 2px;
+}
+.tag-selector-dropdown {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 10;
+  margin-top: 4px; max-height: 180px; overflow-y: auto;
+  background: var(--bg-primary); border: 0.5px solid var(--separator); border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1); display: none;
+}
+.tag-selector-dropdown.open { display: block; }
+.tag-selector-option {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; font-size: 13px; cursor: pointer;
+}
+.tag-selector-option:hover { background: var(--bg-secondary); }
+.tag-selector-option-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.tag-selector-empty { padding: 10px 12px; font-size: 12px; color: var(--text-tertiary); }
+.tag-filter-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tag-filter-dropdown {
+  position: relative; display: inline-block;
+}
+.tag-filter-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border: 0.5px solid var(--separator); border-radius: var(--radius-full);
+  background: var(--bg-primary); font-size: 12px; color: var(--text-secondary); cursor: pointer;
+}
+.tag-filter-toggle.active { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+.tag-filter-menu {
+  position: absolute; top: 100%; left: 0; margin-top: 6px; min-width: 160px; max-width: 240px; max-height: 240px; overflow-y: auto;
+  background: var(--bg-primary); border: 0.5px solid var(--separator); border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1); display: none; z-index: 20;
+}
+.tag-filter-menu.open { display: block; }
+.tag-filter-item {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer;
+}
+.tag-filter-item:hover { background: var(--bg-secondary); }
+.tag-filter-item input { width: auto; margin: 0; }
+.tag-filter-item .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+.products-filter-row .products-tag-filter,
+.talents-filter-row .talents-tag-filter {
+  flex: 1 1 160px;
+  min-width: 160px;
+  max-width: 240px;
+}
+.products-filter-row .tag-selector-box,
+.talents-filter-row .tag-selector-box {
+  min-height: 34px;
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+}
+
 /* Product Edit Modal - scoped to #productModalOverlay to avoid conflicting with legacy modals */
 #productModalOverlay {
   position: fixed;
@@ -3962,6 +4038,13 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .color-picker { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 .color-option { width: 32px; height: 32px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; }
 .color-option:hover { transform: scale(1.15); border-color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+.emp-avatar-url-field { display: flex; flex-direction: column; gap: 8px; }
+.emp-avatar-url-field input { width: 100%; padding: 9px 12px; border: 0.5px solid var(--separator); border-radius: var(--radius-sm); font-size: 13px; background: var(--bg-primary); box-sizing: border-box; outline: none; }
+.emp-avatar-url-field input:focus { border-color: var(--accent); }
+.emp-avatar-url-preview { width: 48px; height: 48px; border-radius: 50%; overflow: hidden; background: var(--bg-secondary); display: none; }
+.emp-avatar-url-preview img { width: 100%; height: 100%; object-fit: cover; }
+.emp-avatar-url-preview.visible { display: block; }
+.emp-avatar-url-tip { font-size: 11px; color: var(--text-tertiary); line-height: 1.4; }
 
 /* Skills Tab */
 .skills-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
@@ -6017,7 +6100,10 @@ window.doLogin = function () {
         <div class="product-modal-field"><label>描述</label><textarea id="productDescription" placeholder="输入商品描述"></textarea></div>
         <div class="product-modal-field"><label>卖点</label><textarea id="productSellingPoints" placeholder="输入核心卖点，用逗号或换行分隔"></textarea></div>
         <div class="product-modal-field"><label>品牌背景/实力</label><textarea id="productBrandBackground" placeholder="输入品牌背景、实力描述"></textarea></div>
-        <div class="product-modal-field"><label>标签（逗号分隔）</label><input type="text" id="productTags" placeholder="凉鞋,厚底,女鞋"></div>
+        <div class="product-modal-field">
+          <label>标签</label>
+          <div id="productTagSelector"></div>
+        </div>
         <div class="product-modal-field json-editor-field">
           <div class="json-editor-header"><label>SKU 规格</label><button type="button" class="json-advanced-toggle" data-advanced-for="productSkuSpecs" onclick="toggleJsonAdvanced('productSkuSpecs')">高级 ▾</button></div>
           <div id="productSkuSpecsEditor" class="json-editor-box"></div>
@@ -6075,6 +6161,10 @@ window.doLogin = function () {
         <div class="product-modal-field"><label>所在地</label><input type="text" id="talentLocation" placeholder="输入详细所在地"></div>
         <div class="product-modal-field"><label>所属机构</label><input type="text" id="talentAgency" placeholder="输入 MCN/机构"></div>
         <div class="product-modal-field"><label>粉丝量</label><input type="number" id="talentFollowers" placeholder="0"></div>
+        <div class="product-modal-field">
+          <label>标签</label>
+          <div id="talentTagSelector"></div>
+        </div>
         <div class="product-modal-field"><label>主营类目</label><input type="text" id="talentCategory" placeholder="鞋靴/凉鞋"></div>
         <div class="product-modal-field"><label>粉丝类目</label><input type="text" id="talentFanCategory" placeholder="鞋靴/凉鞋"></div>
         <div class="product-modal-field"><label>合作等级</label>
@@ -6286,6 +6376,7 @@ window.doLogin = function () {
         <button class="segmented-item" data-status="active" onclick="selectProductStatus('active')">在售</button>
         <button class="segmented-item" data-status="out_of_stock" onclick="selectProductStatus('out_of_stock')">缺货</button>
       </div>
+      <div id="productsTagFilter" class="products-tag-filter"></div>
       <select class="products-mid-filter" id="productsMidSort" onchange="selectProductSort(this.value)" title="排序">
         <option value="">默认排序</option>
         <option value="price_asc">价格从低到高</option>
@@ -6318,6 +6409,7 @@ window.doLogin = function () {
         <button class="segmented-item" data-cooperation="communicating" onclick="selectTalentCooperation('communicating')">沟通中</button>
         <button class="segmented-item" data-cooperation="blacklist" onclick="selectTalentCooperation('blacklist')">黑名单</button>
       </div>
+      <div id="talentsTagFilter" class="talents-tag-filter"></div>
       <select class="products-mid-filter" id="talentsMidSort" onchange="selectTalentSort(this.value)" title="排序">
         <option value="">默认排序</option>
         <option value="followers_desc">粉丝数从高到低</option>
@@ -6713,6 +6805,14 @@ window.doLogin = function () {
 <div class="emp-doc-section">
 <div class="emp-doc-title">选择头像</div>
 <div class="avatar-grid" id="avatarGrid"></div>
+</div>
+<div class="emp-doc-section">
+<div class="emp-doc-title">自定义头像 URL</div>
+<div class="emp-avatar-url-field">
+<input type="text" id="empAvatarUrlInput" placeholder="https://example.com/avatar.png 或 data:image..." oninput="onEmpAvatarUrlInput(this.value)">
+<div class="emp-avatar-url-preview" id="empAvatarUrlPreview"></div>
+<div class="emp-avatar-url-tip">填写 URL 后保存将优先使用自定义头像；留空则使用上方预设头像。</div>
+</div>
 </div>
 <div class="emp-doc-section">
 <div class="emp-doc-title">自定义颜色</div>
@@ -14590,11 +14690,18 @@ function openEmpDetail(empId) {
   var avatarGrid = document.getElementById('avatarGrid');
   if (avatarGrid && typeof AVATAR_PRESETS !== 'undefined') {
     var avatarHtml = '';
+    var isUrlAvatar = typeof emp.avatar === 'string' && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('http') === 0 || emp.avatar.indexOf('avatars/') === 0);
     for (var i = 0; i < AVATAR_PRESETS.length; i++) {
-      var isSelected = i === (emp.avatar || 0) ? ' selected' : '';
+      var isSelected = !isUrlAvatar && i === (emp.avatar || 0) ? ' selected' : '';
       avatarHtml += '<div class="avatar-option' + isSelected + '" data-avatar="' + i + '" onclick="selectAvatar(this)"><img src="' + AVATAR_PRESETS[i] + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;"></div>';
     }
     avatarGrid.innerHTML = avatarHtml;
+  }
+  var urlInput = document.getElementById('empAvatarUrlInput');
+  if (urlInput) {
+    var urlAvatar = typeof emp.avatar === 'string' && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('http') === 0 || emp.avatar.indexOf('avatars/') === 0) ? emp.avatar : '';
+    urlInput.value = urlAvatar;
+    onEmpAvatarUrlInput(urlAvatar);
   }
   // 确保overlay在body下
   var overlay = document.getElementById('empDetailOverlay');
@@ -16717,6 +16824,11 @@ function selectAvatar(el) {
   });
   el.classList.add('selected');
   selectedAvatar = parseInt(el.dataset.avatar);
+  var urlInput = document.getElementById('empAvatarUrlInput');
+  if (urlInput) {
+    urlInput.value = '';
+    onEmpAvatarUrlInput('');
+  }
 }
 function selectColor(color) {
   document.querySelectorAll('.color-option').forEach(function (c) {
@@ -16725,13 +16837,30 @@ function selectColor(color) {
   event.target.style.boxShadow = '0 0 0 2px white, 0 2px 8px rgba(0,0,0,0.3)';
   selectedColor = color;
 }
+function onEmpAvatarUrlInput(value) {
+  var preview = document.getElementById('empAvatarUrlPreview');
+  if (!preview) return;
+  if (value && (value.indexOf('data:image') === 0 || value.indexOf('http') === 0 || value.indexOf('avatars/') === 0)) {
+    preview.innerHTML = '<img src="' + escapeAttr(value) + '" onerror="this.style.display=\'none\'">';
+    preview.classList.add('visible');
+  } else {
+    preview.innerHTML = '';
+    preview.classList.remove('visible');
+  }
+}
 function saveEmpAvatar() {
   if (!currentEmpId) return;
   const emp = emps.find(function (e) {
     return e.id === currentEmpId;
   });
   if (emp) {
-    if (typeof selectedAvatar === 'number') emp.avatar = selectedAvatar;
+    var urlInput = document.getElementById('empAvatarUrlInput');
+    var urlAvatar = urlInput ? urlInput.value.trim() : '';
+    if (urlAvatar && (urlAvatar.indexOf('data:image') === 0 || urlAvatar.indexOf('http') === 0 || urlAvatar.indexOf('avatars/') === 0)) {
+      emp.avatar = urlAvatar;
+    } else if (typeof selectedAvatar === 'number') {
+      emp.avatar = selectedAvatar;
+    }
     if (selectedColor) {
       emp.color = selectedColor;
       emp.bg = selectedColor;
@@ -23114,12 +23243,15 @@ function hideProductEmptyState() {
 }
 
 function loadProducts(page) {
+  _initProductTagFilter();
   if (page) _productPage = page;
   var offset = (_productPage - 1) * _productPageSize;
   var qs = ['limit=' + _productPageSize, 'offset=' + offset];
   if (_productCurrentBrandName) qs.push('brand=' + encodeURIComponent(_productCurrentBrandName));
   if (_productCurrentStatus) qs.push('status=' + encodeURIComponent(_productCurrentStatus));
   if (_productCurrentSort) qs.push('sort=' + encodeURIComponent(_productCurrentSort));
+  var tagIds = _productTagFilter ? _productTagFilter.getTagObjects().map(function(t){ return t.id; }).filter(Boolean).join(',') : '';
+  if (tagIds) qs.push('tags=' + encodeURIComponent(tagIds));
   var kw = document.getElementById('productsMidSearch') ? document.getElementById('productsMidSearch').value.trim() : '';
   if (kw) qs.push('q=' + encodeURIComponent(kw));
   var url = '/api/products?' + qs.join('&');
@@ -23358,11 +23490,17 @@ function renderProductPanelDetail(p) {
     });
     html += '</tbody></table></div>';
   }
-  if (p.tags && p.tags.length) {
+  var productTags = p.tag_list || (p.tags || []).map(function(name){ return { name: name }; });
+  if (productTags && productTags.length) {
     html += '<div class="products-panel-section">';
     html += '<div class="products-panel-title">标签</div>';
     html += '<div class="products-tag-list">';
-    p.tags.forEach(function(tag){ html += '<span class="products-tag">' + escapeHtml(tag) + '</span>'; });
+    productTags.forEach(function(tag){
+      var name = tag.name || tag;
+      var color = tag.color || '';
+      var style = color ? 'background:' + escapeAttr(color) + ';color:#fff;' : '';
+      html += '<span class="products-tag"' + (style ? ' style="' + style + '"' : '') + '>' + escapeHtml(name) + '</span>';
+    });
     html += '</div></div>';
   }
   html += '<div style="display:flex;gap:10px;padding:0 4px;margin-top:8px;">';
@@ -23898,6 +24036,43 @@ function toggleJsonAdvanced(textareaId) {
 
 var _productEditors = {};
 var _talentEditors = {};
+var productTagSelector, talentTagSelector;
+
+function _initProductTagSelector() {
+  if (!productTagSelector) {
+    productTagSelector = new TagSelector('productTagSelector', { type: 'product', placeholder: '搜索或输入标签，回车添加' });
+  }
+}
+
+function _initTalentTagSelector() {
+  if (!talentTagSelector) {
+    talentTagSelector = new TagSelector('talentTagSelector', { type: 'talent', placeholder: '搜索或输入标签，回车添加' });
+  }
+}
+
+var _productTagFilter, _talentTagFilter;
+
+function _initProductTagFilter() {
+  if (!_productTagFilter) {
+    _productTagFilter = new TagSelector('productsTagFilter', {
+      type: 'product',
+      placeholder: '按标签筛选',
+      allowCreate: false,
+      onChange: function() { _productPage = 1; loadProducts(); }
+    });
+  }
+}
+
+function _initTalentTagFilter() {
+  if (!_talentTagFilter) {
+    _talentTagFilter = new TagSelector('talentsTagFilter', {
+      type: 'talent',
+      placeholder: '按标签筛选',
+      allowCreate: false,
+      onChange: function() { _talentPage = 1; loadTalents(); }
+    });
+  }
+}
 
 function _initProductJsonEditors() {
   if (_productEditors.commissionRates) return;
@@ -23919,6 +24094,202 @@ function _initTalentJsonEditors() {
   _talentEditors.aiAnalysis = new JsonEditor('talentAIAnalysisEditor', 'talentAIAnalysis', {defaultValue: {}});
 }
 
+/* ===== 通用标签选择器 ===== */
+function TagSelector(containerId, options) {
+  options = options || {};
+  this.container = document.getElementById(containerId);
+  if (!this.container) return;
+  this.type = options.type || 'common';
+  this.placeholder = options.placeholder || '搜索或输入标签，按回车/逗号添加';
+  this.allowCreate = options.allowCreate !== false;
+  this.selectedTags = []; // {id, name, color}
+  this.allTags = [];      // 候选标签
+  this.dropdownOpen = false;
+  this.onChange = options.onChange || function(){};
+  this.init();
+}
+
+TagSelector.prototype.init = function() {
+  var self = this;
+  this.container.classList.add('tag-selector');
+  this.container.innerHTML =
+    '<div class="tag-selector-box" tabindex="0">' +
+      '<input type="text" class="tag-selector-input" placeholder="' + escapeAttr(this.placeholder) + '">' +
+    '</div>' +
+    '<div class="tag-selector-dropdown"></div>';
+  this.box = this.container.querySelector('.tag-selector-box');
+  this.input = this.container.querySelector('.tag-selector-input');
+  this.dropdown = this.container.querySelector('.tag-selector-dropdown');
+
+  this.box.addEventListener('click', function(e) {
+    if (e.target !== self.input) self.input.focus();
+  });
+  this.input.addEventListener('focus', function() { self._loadCandidates(); self._renderDropdown(); });
+  this.input.addEventListener('input', function() { self._renderDropdown(); });
+  this.input.addEventListener('keydown', function(e) { self._onInputKeydown(e); });
+  document.addEventListener('click', function(e) {
+    if (!self.container.contains(e.target)) self._closeDropdown();
+  });
+};
+
+TagSelector.prototype._loadCandidates = function() {
+  var self = this;
+  if (self._loading) return;
+  self._loading = true;
+  apiFetch('/api/tags?type=' + encodeURIComponent(self.type)).then(function(r){ return r.json(); }).then(function(data){
+    self.allTags = (data && data.tags) || [];
+    self._loading = false;
+    self._renderDropdown();
+  }).catch(function(){
+    self._loading = false;
+  });
+};
+
+TagSelector.prototype._closeDropdown = function() {
+  this.dropdownOpen = false;
+  this.dropdown.classList.remove('open');
+};
+
+TagSelector.prototype._openDropdown = function() {
+  this.dropdownOpen = true;
+  this.dropdown.classList.add('open');
+};
+
+TagSelector.prototype._filterCandidates = function() {
+  var self = this;
+  var kw = (this.input.value || '').trim().toLowerCase();
+  var selectedIds = self.selectedTags.map(function(t){ return t.id; });
+  return this.allTags.filter(function(t){
+    if (selectedIds.indexOf(t.id) !== -1) return false;
+    if (!kw) return true;
+    return (t.name || '').toLowerCase().indexOf(kw) !== -1;
+  });
+};
+
+TagSelector.prototype._renderDropdown = function() {
+  var self = this;
+  var kw = (this.input.value || '').trim();
+  var candidates = this._filterCandidates();
+  var html = '';
+  if (candidates.length) {
+    candidates.forEach(function(t){
+      var color = t.color || '#0a84ff';
+      html += '<div class="tag-selector-option" data-id="' + escapeAttr(t.id) + '">' +
+                '<span class="tag-selector-option-dot" style="background:' + escapeAttr(color) + '"></span>' +
+                '<span>' + escapeHtml(t.name) + '</span>' +
+              '</div>';
+    });
+  }
+  if (self.allowCreate && kw && !self.allTags.some(function(t){ return (t.name || '').toLowerCase() === kw.toLowerCase(); })) {
+    html += '<div class="tag-selector-option tag-selector-create" data-name="' + escapeAttr(kw) + '">' +
+              '<span class="tag-selector-option-dot" style="background:#0a84ff"></span>' +
+              '<span>新建标签 “' + escapeHtml(kw) + '”</span>' +
+            '</div>';
+  }
+  if (!html) {
+    html = '<div class="tag-selector-empty">暂无匹配标签</div>';
+  }
+  this.dropdown.innerHTML = html;
+  this.dropdown.querySelectorAll('.tag-selector-option').forEach(function(el){
+    el.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var id = el.getAttribute('data-id');
+      var name = el.getAttribute('data-name');
+      if (id) {
+        var tag = self.allTags.find(function(t){ return t.id === id; });
+        if (tag) self._addTag(tag);
+      } else if (name) {
+        self._createTag(name);
+      }
+    });
+  });
+  this._openDropdown();
+};
+
+TagSelector.prototype._onInputKeydown = function(e) {
+  var self = this;
+  var val = (this.input.value || '').trim();
+  if (e.key === 'Enter' || e.key === ',' || e.key === '、') {
+    e.preventDefault();
+    if (!val) return;
+    var existing = self.allTags.find(function(t){ return (t.name || '').toLowerCase() === val.toLowerCase(); });
+    if (existing) {
+      self._addTag(existing);
+    } else if (self.allowCreate) {
+      self._createTag(val);
+    }
+  } else if (e.key === 'Backspace' && !val && self.selectedTags.length) {
+    self.removeTag(self.selectedTags.length - 1);
+  }
+};
+
+TagSelector.prototype._createTag = function(name) {
+  var self = this;
+  var body = { name: name, type: self.type, color: '#0a84ff' };
+  apiFetch('/api/tags', { method: 'POST', body: JSON.stringify(body) }).then(function(r){ return r.json(); }).then(function(tag){
+    if (tag && tag.id) {
+      self.allTags.push(tag);
+      self._addTag(tag);
+    }
+  }).catch(function(){
+    showToast('标签创建失败');
+  });
+};
+
+TagSelector.prototype._addTag = function(tag) {
+  if (!tag || !tag.id) return;
+  if (this.selectedTags.some(function(t){ return t.id === tag.id; })) return;
+  this.selectedTags.push({ id: tag.id, name: tag.name, color: tag.color || '#0a84ff' });
+  this.input.value = '';
+  this._renderChips();
+  this._renderDropdown();
+  this.onChange(this.getTags());
+};
+
+TagSelector.prototype.removeTag = function(idx) {
+  if (idx < 0 || idx >= this.selectedTags.length) return;
+  this.selectedTags.splice(idx, 1);
+  this._renderChips();
+  this._renderDropdown();
+  this.onChange(this.getTags());
+};
+
+TagSelector.prototype._renderChips = function() {
+  var self = this;
+  // 保留 input
+  var input = this.input;
+  this.box.innerHTML = '';
+  this.selectedTags.forEach(function(tag, idx){
+    var chip = document.createElement('div');
+    chip.className = 'tag-selector-chip';
+    chip.style.background = tag.color || '#0a84ff';
+    chip.innerHTML = '<span>' + escapeHtml(tag.name) + '</span><span class="remove">×</span>';
+    chip.querySelector('.remove').addEventListener('click', function(e){ e.stopPropagation(); self.removeTag(idx); });
+    self.box.appendChild(chip);
+  });
+  this.box.appendChild(input);
+  input.focus();
+};
+
+TagSelector.prototype.setTags = function(tags) {
+  var self = this;
+  if (!Array.isArray(tags)) tags = [];
+  this.selectedTags = tags.map(function(t){
+    if (typeof t === 'string') return { id: '', name: t, color: '#0a84ff' };
+    return { id: t.id || '', name: t.name || '', color: t.color || '#0a84ff' };
+  });
+  this._renderChips();
+  this._loadCandidates();
+};
+
+TagSelector.prototype.getTags = function() {
+  return this.selectedTags.map(function(t){ return t.name; });
+};
+
+TagSelector.prototype.getTagObjects = function() {
+  return this.selectedTags.slice();
+};
+
 function _updateProductMainImagePreview() {
   var url = document.getElementById('productMainImage').value.trim();
   var img = document.getElementById('productMainImagePreview');
@@ -23934,6 +24305,7 @@ function _updateProductMainImagePreview() {
 
 function createNewProduct() {
   _initProductJsonEditors();
+  _initProductTagSelector();
   document.getElementById('productEditId').value = '';
   _setProductModalField('productName', '');
   _setProductModalField('productDescription', '');
@@ -23960,8 +24332,8 @@ function createNewProduct() {
   _setProductModalField('productMainImage', '');
   _setProductModalField('productSellingPoints', '');
   _setProductModalField('productBrandBackground', '');
-  _setProductModalField('productTags', '');
   _setProductModalField('productStatus', 'active');
+  productTagSelector.setTags([]);
   _productEditors.commissionRates.setValue({});
   _productEditors.skuSpecs.setValue({});
   _productEditors.audience.setValue({});
@@ -23987,6 +24359,7 @@ function editCurrentProduct() {
 // 用商品数据填充录入/编辑表单并打开弹窗（用于图片识别后的一键录入）
 function _fillProductModal(p, title) {
   _initProductJsonEditors();
+  _initProductTagSelector();
   document.getElementById('productEditId').value = p.id || '';
   _setProductModalField('productName', p.name || '');
   _setProductModalField('productDescription', p.description || p.subtitle || '');
@@ -24013,8 +24386,8 @@ function _fillProductModal(p, title) {
   _setProductModalField('productMainImage', p.main_image || p._sourceBase64 || '');
   _setProductModalField('productSellingPoints', p.selling_points || '');
   _setProductModalField('productBrandBackground', p.brand_background || '');
-  _setProductModalField('productTags', (p.tags || []).join('、'));
   _setProductModalField('productStatus', p.status || 'active');
+  productTagSelector.setTags(p.tag_list || p.tags || []);
   _productEditors.commissionRates.setValue(p.commission_rates || {});
   _productEditors.skuSpecs.setValue(p.sku_specs || {});
   _productEditors.audience.setValue(p.audience || {});
@@ -24043,8 +24416,7 @@ function saveProduct() {
   var aiAnalysis = _safeJsonParse(document.getElementById('productAiAnalysis').value, {}, 'AI 分析');
   var brandId = document.getElementById('productBrandSelect').value;
   var b = _productBrandData.brands.find(function(x){ return x.name === brandId; });
-  var tagsRaw = document.getElementById('productTags').value.trim();
-  var tags = tagsRaw ? tagsRaw.split(/[,，、]/).map(function(s){ return s.trim(); }).filter(Boolean) : [];
+  var tags = productTagSelector ? productTagSelector.getTags() : [];
   var body = {
     name: document.getElementById('productName').value.trim(),
     description: document.getElementById('productDescription').value.trim(),
@@ -24202,6 +24574,7 @@ function _renderStatusTag(status, opts) {
 }
 
 function loadTalents(page) {
+  _initTalentTagFilter();
   if (page) _talentPage = page;
   var offset = (_talentPage - 1) * _talentPageSize;
   var qs = ['limit=' + _talentPageSize, 'offset=' + offset];
@@ -24209,6 +24582,8 @@ function loadTalents(page) {
   if (_talentCategory) qs.push('category=' + encodeURIComponent(_talentCategory));
   if (_talentSearchKw) qs.push('q=' + encodeURIComponent(_talentSearchKw));
   if (_talentCurrentSort) qs.push('sort=' + encodeURIComponent(_talentCurrentSort));
+  var tagIds = _talentTagFilter ? _talentTagFilter.getTagObjects().map(function(t){ return t.id; }).filter(Boolean).join(',') : '';
+  if (tagIds) qs.push('tags=' + encodeURIComponent(tagIds));
   var url = '/api/talents?' + qs.join('&');
   var itemsEl = document.getElementById('talentsMidItems');
   if (itemsEl) itemsEl.innerHTML = '<div class="products-loading">加载中...</div>';
@@ -24473,6 +24848,21 @@ function renderTalentPanelOverview(t) {
   }
   html += '</div>';
   html += '</div></div>';
+
+  // 标签
+  var talentTags = t.tag_list || [];
+  if (talentTags.length) {
+    html += '<div class="talents-panel-section">';
+    html += '<div class="talents-panel-title">标签</div>';
+    html += '<div class="products-tag-list">';
+    talentTags.forEach(function(tag){
+      var name = tag.name || tag;
+      var color = tag.color || '';
+      var style = color ? 'background:' + escapeAttr(color) + ';color:#fff;' : '';
+      html += '<span class="products-tag"' + (style ? ' style="' + style + '"' : '') + '>' + escapeHtml(name) + '</span>';
+    });
+    html += '</div></div>';
+  }
 
   // 核心数据
   html += '<div class="talents-panel-section">';
@@ -25050,6 +25440,7 @@ function analyzeTalentAI() {
 
 function createNewTalent() {
   _initTalentJsonEditors();
+  _initTalentTagSelector();
   document.getElementById('talentEditId').value = '';
   document.getElementById('talentName').value = '';
   document.getElementById('talentDouyinId').value = '';
@@ -25082,6 +25473,7 @@ function createNewTalent() {
   document.getElementById('talentVideoGpm').value = '0';
   document.getElementById('talentFanCrowd').value = '';
   document.getElementById('talentFanPriceRange').value = '';
+  talentTagSelector.setTags([]);
   _talentEditors.fanGender.setValue({});
   _talentEditors.fanAge.setValue({});
   _talentEditors.fanRegion.setValue({});
@@ -25107,6 +25499,7 @@ function editCurrentTalent() {
   if (!_talentCurrentId) { showToast('请选择达人'); return; }
   apiFetch('/api/talents/' + encodeURIComponent(_talentCurrentId)).then(function(r){return r.json();}).then(function(t){
     _initTalentJsonEditors();
+    _initTalentTagSelector();
     document.getElementById('talentEditId').value = t.id;
     document.getElementById('talentName').value = t.name || '';
     document.getElementById('talentDouyinId').value = t.douyin_id || '';
@@ -25139,6 +25532,7 @@ function editCurrentTalent() {
     document.getElementById('talentVideoGpm').value = t.video_gpm || 0;
     document.getElementById('talentFanCrowd').value = t.fan_crowd || '';
     document.getElementById('talentFanPriceRange').value = t.fan_price_range || '';
+    talentTagSelector.setTags(t.tag_list || []);
     _talentEditors.fanGender.setValue(t.fan_gender || {});
     _talentEditors.fanAge.setValue(t.fan_age || {});
     _talentEditors.fanRegion.setValue(t.fan_region || {});
@@ -25221,6 +25615,7 @@ function saveTalent() {
     ai_summary: document.getElementById('talentAISummary').value.trim(),
     ai_reason: document.getElementById('talentAIReason').value.trim(),
     ai_tags: aiTags,
+    tags: talentTagSelector ? talentTagSelector.getTags() : [],
     ai_analysis: aiAnalysis,
     contact_name: document.getElementById('talentContactName').value.trim(),
     contact_phone: document.getElementById('talentContactPhone').value.trim(),

@@ -1971,9 +1971,11 @@ def format_rag_context(docs, products):
 # ═══════════════════════════════════════════════════
 
 def _db_conn():
-    """获取 SQLite 数据库连接（线程安全）"""
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    """获取 SQLite 数据库连接（线程安全，启用 WAL）"""
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA journal_mode=WAL;')
+    conn.execute('PRAGMA busy_timeout=30000;')
     return conn
 
 
@@ -2327,6 +2329,45 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tfu_talent_id ON talent_follow_ups(talent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tfu_follow_up_at ON talent_follow_ups(follow_up_at)')
 
+        # 标签体系
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS tags (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                category TEXT DEFAULT '',
+                color TEXT DEFAULT '#0a84ff',
+                type TEXT DEFAULT 'common',
+                status TEXT DEFAULT 'active',
+                created_at INTEGER,
+                updated_at INTEGER,
+                UNIQUE(name, type)
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tags_type_status ON tags(type, status)')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS product_tags (
+                id TEXT PRIMARY KEY,
+                product_id TEXT NOT NULL,
+                tag_id TEXT NOT NULL,
+                created_at INTEGER,
+                UNIQUE(product_id, tag_id)
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_product_tags_product_id ON product_tags(product_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_product_tags_tag_id ON product_tags(tag_id)')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS talent_tags (
+                id TEXT PRIMARY KEY,
+                talent_id TEXT NOT NULL,
+                tag_id TEXT NOT NULL,
+                created_at INTEGER,
+                UNIQUE(talent_id, tag_id)
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_talent_tags_talent_id ON talent_tags(talent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_talent_tags_tag_id ON talent_tags(tag_id)')
+
         # FIXME: 新增记忆三级沉淀表（二级归纳、三级知识库），保持原有 knowledge/products 表不变
         conn.execute('''
             CREATE TABLE IF NOT EXISTS memory_summary (
@@ -2378,6 +2419,7 @@ def init_db():
 
         # 旧 JSON 数据迁移（幂等）
         _migrate_json_products_to_sqlite()
+        _migrate_json_tags_to_tables()
 
         # 空表时写入 COOLCHAP 示例数据
         _seed_coolchap_data(conn)
@@ -3033,6 +3075,141 @@ def _update_product_talent_count(conn, product_id):
         "UPDATE products SET talent_count = ?, updated_at = ? WHERE id = ?",
         (count, int(time.time() * 1000), product_id)
     )
+
+
+def _tag_row_to_dict(row):
+    if not row:
+        return None
+    return {
+        'id': row['id'],
+        'name': row['name'] or '',
+        'category': row['category'] or '',
+        'color': row['color'] or '#0a84ff',
+        'type': row['type'] or 'common',
+        'status': row['status'] or 'active',
+        'created_at': row['created_at'],
+        'updated_at': row['updated_at'],
+    }
+
+
+def _sync_entity_tags(conn, entity_type, entity_id, tag_names):
+    """同步商品/达人与标签的关联；tag_names 为字符串数组，返回 [{id,name,color,category}]"""
+    if not entity_id:
+        return []
+    now = int(time.time() * 1000)
+    assoc_table = 'product_tags' if entity_type == 'product' else 'talent_tags'
+    entity_col = 'product_id' if entity_type == 'product' else 'talent_id'
+    tag_type = entity_type
+
+    names = []
+    if isinstance(tag_names, list):
+        for n in tag_names:
+            if isinstance(n, str) and n.strip():
+                names.append(n.strip())
+            elif isinstance(n, dict) and n.get('name'):
+                names.append(str(n['name']).strip())
+    names = list(dict.fromkeys(names))
+
+    tag_list = []
+    tag_ids = []
+    for name in names:
+        row = conn.execute('SELECT id FROM tags WHERE name = ? AND type = ?', (name, tag_type)).fetchone()
+        if row:
+            tag_id = row['id']
+        else:
+            tag_id = 'tag_' + str(now) + '_' + uuid.uuid4().hex[:6]
+            conn.execute(
+                'INSERT INTO tags (id, name, type, color, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                (tag_id, name, tag_type, '#0a84ff', 'active', now, now)
+            )
+        tag_ids.append(tag_id)
+        tag_row = conn.execute('SELECT * FROM tags WHERE id = ?', (tag_id,)).fetchone()
+        if tag_row:
+            tag_list.append(_tag_row_to_dict(tag_row))
+
+    conn.execute(f'DELETE FROM {assoc_table} WHERE {entity_col} = ?', (entity_id,))
+    for tag_id in tag_ids:
+        assoc_id = ('pt_' if entity_type == 'product' else 'tt_') + str(now) + '_' + uuid.uuid4().hex[:6]
+        conn.execute(
+            f'INSERT INTO {assoc_table} (id, {entity_col}, tag_id, created_at) VALUES (?, ?, ?, ?)',
+            (assoc_id, entity_id, tag_id, now)
+        )
+    return tag_list
+
+
+def _get_entity_tags(conn, entity_type, entity_id):
+    """获取商品/达人的标签列表"""
+    if not entity_id:
+        return []
+    assoc_table = 'product_tags' if entity_type == 'product' else 'talent_tags'
+    entity_col = 'product_id' if entity_type == 'product' else 'talent_id'
+    rows = conn.execute(
+        f'''SELECT t.* FROM tags t
+            JOIN {assoc_table} at ON at.tag_id = t.id
+            WHERE at.{entity_col} = ? AND t.status = 'active'
+            ORDER BY t.name''',
+        (entity_id,)
+    ).fetchall()
+    return [_tag_row_to_dict(r) for r in rows]
+
+
+def _migrate_json_tags_to_tables():
+    """将 products.tags / talents.tags JSON 字段迁移到 tags 关联表（幂等）"""
+    conn = _db_conn()
+    try:
+        now = int(time.time() * 1000)
+        # 商品标签
+        rows = conn.execute("SELECT id, tags FROM products WHERE tags IS NOT NULL AND tags != '' AND tags != '[]'").fetchall()
+        for row in rows:
+            product_id = row['id']
+            try:
+                tag_names = json.loads(row['tags'] or '[]')
+            except Exception:
+                continue
+            if not isinstance(tag_names, list):
+                continue
+            for name in tag_names:
+                if not isinstance(name, str) or not name.strip():
+                    continue
+                tag = conn.execute('SELECT id FROM tags WHERE name = ? AND type = ?', (name.strip(), 'product')).fetchone()
+                if not tag:
+                    tag_id = 'tag_' + str(now) + '_' + uuid.uuid4().hex[:6]
+                    conn.execute('INSERT INTO tags (id, name, type, color, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                                 (tag_id, name.strip(), 'product', '#0a84ff', 'active', now, now))
+                else:
+                    tag_id = tag['id']
+                if not conn.execute('SELECT 1 FROM product_tags WHERE product_id = ? AND tag_id = ?', (product_id, tag_id)).fetchone():
+                    conn.execute('INSERT INTO product_tags (id, product_id, tag_id, created_at) VALUES (?, ?, ?, ?)',
+                                 ('pt_' + str(now) + '_' + uuid.uuid4().hex[:6], product_id, tag_id, now))
+        # 达人标签
+        rows = conn.execute("SELECT id, tags FROM talents WHERE tags IS NOT NULL AND tags != '' AND tags != '[]'").fetchall()
+        for row in rows:
+            talent_id = row['id']
+            try:
+                tag_names = json.loads(row['tags'] or '[]')
+            except Exception:
+                continue
+            if not isinstance(tag_names, list):
+                continue
+            for name in tag_names:
+                if not isinstance(name, str) or not name.strip():
+                    continue
+                tag = conn.execute('SELECT id FROM tags WHERE name = ? AND type = ?', (name.strip(), 'talent')).fetchone()
+                if not tag:
+                    tag_id = 'tag_' + str(now) + '_' + uuid.uuid4().hex[:6]
+                    conn.execute('INSERT INTO tags (id, name, type, color, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                                 (tag_id, name.strip(), 'talent', '#0a84ff', 'active', now, now))
+                else:
+                    tag_id = tag['id']
+                if not conn.execute('SELECT 1 FROM talent_tags WHERE talent_id = ? AND tag_id = ?', (talent_id, tag_id)).fetchone():
+                    conn.execute('INSERT INTO talent_tags (id, talent_id, tag_id, created_at) VALUES (?, ?, ?, ?)',
+                                 ('tt_' + str(now) + '_' + uuid.uuid4().hex[:6], talent_id, tag_id, now))
+        conn.commit()
+        print('  [Tag] JSON 标签迁移完成', flush=True)
+    except Exception as e:
+        print(f'  [Tag] JSON 标签迁移失败: {e}', flush=True)
+    finally:
+        conn.close()
 
 
 def _migrate_json_products_to_sqlite():
@@ -4225,6 +4402,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_brands()
             return
 
+        # Tags API
+        if path == '/api/tags':
+            self._handle_get_tags()
+            return
+        if path.startswith('/api/tags/'):
+            tag_id = path[len('/api/tags/'):]
+            if tag_id:
+                self._handle_get_tag(tag_id)
+            else:
+                self._handle_get_tags()
+            return
+
         # Talent API
         if path == '/api/talents':
             self._handle_get_talents()
@@ -4593,6 +4782,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_post_brand()
             return
 
+        # Tags API
+        if path == '/api/tags':
+            self._handle_post_tag()
+            return
+
         # Talent API
         if path == '/api/talents':
             self._handle_post_talent()
@@ -4766,6 +4960,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_put_brand(brand_id)
                 return
 
+        # Tags API
+        if path.startswith('/api/tags/'):
+            tag_id = path[len('/api/tags/'):]
+            if tag_id:
+                self._handle_put_tag(tag_id)
+                return
+
         # Talent API
         if path.startswith('/api/talents/'):
             sub = path[len('/api/talents/'):]
@@ -4886,6 +5087,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             brand_id = path[len('/api/brands/'):]
             if brand_id:
                 self._handle_delete_brand(brand_id)
+                return
+
+        # Tags API
+        if path.startswith('/api/tags/'):
+            tag_id = path[len('/api/tags/'):]
+            if tag_id:
+                self._handle_delete_tag(tag_id)
                 return
 
         # Talent API
@@ -9684,6 +9892,26 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             rows = conn.execute('SELECT * FROM products ORDER BY updated_at DESC').fetchall()
             products = [_product_row_to_dict(r) for r in rows]
+            # 加载标签
+            if products:
+                pids = [p['id'] for p in products]
+                placeholders = ','.join('?' for _ in pids)
+                tag_rows = conn.execute(
+                    f'''SELECT pt.product_id, t.id, t.name, t.category, t.color, t.type, t.status
+                        FROM product_tags pt
+                        JOIN tags t ON t.id = pt.tag_id
+                        WHERE pt.product_id IN ({placeholders}) AND t.status = 'active'
+                        ORDER BY t.name''',
+                    pids
+                ).fetchall()
+                tag_map = {}
+                for r in tag_rows:
+                    tag_map.setdefault(r['product_id'], []).append({
+                        'id': r['id'], 'name': r['name'], 'category': r['category'],
+                        'color': r['color'], 'type': r['type'], 'status': r['status']
+                    })
+                for p in products:
+                    p['tag_list'] = tag_map.get(p['id'], [])
             return {'products': products, 'total': len(products), 'version': '1.0'}
         finally:
             conn.close()
@@ -9712,6 +9940,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if query.get('status'):
             status = query['status'][0]
             products = [p for p in products if p.get('status') == status]
+        if query.get('tags'):
+            tag_ids = set(t for t in query['tags'][0].split(',') if t.strip())
+            if tag_ids:
+                products = [p for p in products if any(t.get('id') in tag_ids for t in p.get('tag_list', []))]
         if query.get('q'):
             kw = query['q'][0]
             scored = [(_product_search_score(p, kw), p) for p in products]
@@ -9736,6 +9968,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             row = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
             product = _product_row_to_dict(row)
+            if product:
+                product['tag_list'] = _get_entity_tags(conn, 'product', product_id)
         finally:
             conn.close()
         if not product:
@@ -9968,8 +10202,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if row.get('brand_id'):
                 _update_brand_product_stats(conn, row['brand_id'])
                 conn.commit()
+            # 同步标签关联
+            tag_names = body.get('tags') or []
+            _sync_entity_tags(conn, 'product', row['id'], tag_names)
+            conn.commit()
             row_out = conn.execute('SELECT * FROM products WHERE id = ?', (row['id'],)).fetchone()
             product_out = _product_row_to_dict(row_out)
+            product_out['tag_list'] = _get_entity_tags(conn, 'product', row['id'])
         finally:
             conn.close()
         print(f'  [Product] 录入商品: {product_out["name"]} ({product_out["id"]})', flush=True)
@@ -10023,8 +10262,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             for bid in {b for b in [old_brand_id, row.get('brand_id')] if b}:
                 _update_brand_product_stats(conn, bid)
             conn.commit()
+            # 同步标签关联
+            tag_names = body.get('tags')
+            if tag_names is not None:
+                _sync_entity_tags(conn, 'product', product_id, tag_names)
+                conn.commit()
             row_out = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
             product_out = _product_row_to_dict(row_out)
+            product_out['tag_list'] = _get_entity_tags(conn, 'product', product_id)
         finally:
             conn.close()
 
@@ -10051,6 +10296,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         conn = _db_conn()
         try:
             cur = conn.execute('DELETE FROM products WHERE id = ?', (product_id,))
+            conn.execute('DELETE FROM product_tags WHERE product_id = ?', (product_id,))
             conn.commit()
             deleted = cur.rowcount > 0
         finally:
@@ -10566,6 +10812,144 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'deleted': cur.rowcount > 0, 'id': brand_id})
 
     # ═══════════════════════════════════════════════════
+    # 标签体系 API
+    # ═══════════════════════════════════════════════════
+
+    def _handle_get_tags(self):
+        """GET /api/tags — 标签列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (self._require_module_permission(auth, 'products') or self._require_module_permission(auth, 'influencers')):
+            return
+        query = parse_qs(urlparse(self.path).query)
+        tag_type = query.get('type', [''])[0].strip()
+        conn = _db_conn()
+        try:
+            sql = "SELECT * FROM tags WHERE status = 'active'"
+            params = []
+            if tag_type:
+                sql += " AND (type = ? OR type = 'common')"
+                params.append(tag_type)
+            sql += " ORDER BY name"
+            rows = conn.execute(sql, params).fetchall()
+            tags = [_tag_row_to_dict(r) for r in rows]
+        finally:
+            conn.close()
+        self._send_json(200, {'tags': tags, 'total': len(tags)})
+
+    def _handle_get_tag(self, tag_id):
+        """GET /api/tags/:id — 单个标签"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (self._require_module_permission(auth, 'products') or self._require_module_permission(auth, 'influencers')):
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM tags WHERE id = ?', (tag_id,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            self._send_json_error(404, 'Tag not found')
+            return
+        self._send_json(200, _tag_row_to_dict(row))
+
+    def _handle_post_tag(self):
+        """POST /api/tags — 创建标签"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (self._require_module_permission(auth, 'products') or self._require_module_permission(auth, 'influencers')):
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        name = str(body.get('name') or '').strip()
+        if not name:
+            self._send_json_error(400, '标签名称不能为空')
+            return
+        tag_type = str(body.get('type') or 'common').strip() or 'common'
+        category = str(body.get('category') or '').strip()
+        color = str(body.get('color') or '#0a84ff').strip() or '#0a84ff'
+        now = int(time.time() * 1000)
+        tag_id = 'tag_' + str(now) + '_' + uuid.uuid4().hex[:6]
+        conn = _db_conn()
+        try:
+            existing = conn.execute('SELECT id FROM tags WHERE name = ? AND type = ?', (name, tag_type)).fetchone()
+            if existing:
+                self._send_json_error(409, '同名标签已存在')
+                return
+            conn.execute(
+                'INSERT INTO tags (id, name, category, color, type, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                (tag_id, name, category, color, tag_type, 'active', now, now)
+            )
+            conn.commit()
+            row = conn.execute('SELECT * FROM tags WHERE id = ?', (tag_id,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(201, _tag_row_to_dict(row))
+
+    def _handle_put_tag(self, tag_id):
+        """PUT /api/tags/:id — 更新标签"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (self._require_module_permission(auth, 'products') or self._require_module_permission(auth, 'influencers')):
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM tags WHERE id = ?', (tag_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Tag not found')
+                return
+            name = str(body.get('name', row['name'])).strip() or row['name']
+            tag_type = str(body.get('type', row['type'])).strip() or row['type']
+            category = str(body.get('category', row['category'])).strip()
+            color = str(body.get('color', row['color'])).strip() or row['color']
+            status = str(body.get('status', row['status'])).strip() or row['status']
+            dup = conn.execute('SELECT id FROM tags WHERE name = ? AND type = ? AND id != ?', (name, tag_type, tag_id)).fetchone()
+            if dup:
+                self._send_json_error(409, '同名标签已存在')
+                return
+            now = int(time.time() * 1000)
+            conn.execute(
+                'UPDATE tags SET name = ?, category = ?, color = ?, type = ?, status = ?, updated_at = ? WHERE id = ?',
+                (name, category, color, tag_type, status, now, tag_id)
+            )
+            conn.commit()
+            row = conn.execute('SELECT * FROM tags WHERE id = ?', (tag_id,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(200, _tag_row_to_dict(row))
+
+    def _handle_delete_tag(self, tag_id):
+        """DELETE /api/tags/:id — 软删除标签"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not (self._require_module_permission(auth, 'products') or self._require_module_permission(auth, 'influencers')):
+            return
+        conn = _db_conn()
+        try:
+            now = int(time.time() * 1000)
+            conn.execute("UPDATE tags SET status = 'inactive', updated_at = ? WHERE id = ?", (now, tag_id))
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'deleted': True, 'id': tag_id})
+
+    # ═══════════════════════════════════════════════════
     # 达人库 API (SQLite)
     # ═══════════════════════════════════════════════════
 
@@ -10581,6 +10965,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         cooperation = query.get('cooperation', [''])[0]
         category = query.get('category', [''])[0]
         status = query.get('status', ['active'])[0]
+        tag_ids = set(t for t in query.get('tags', [''])[0].split(',') if t.strip())
         offset = int(query.get('offset', ['0'])[0])
         limit = int(query.get('limit', ['50'])[0])
         conn = _db_conn()
@@ -10601,8 +10986,31 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 params.extend([f'%{q}%', f'%{q}%', f'%{q}%'])
             sql += " ORDER BY followers DESC"
             rows = conn.execute(sql, params).fetchall()
-            total = len(rows)
-            talents = [_talent_row_to_dict(r) for r in rows[offset:offset + limit]]
+            talents = [_talent_row_to_dict(r) for r in rows]
+            # 加载标签并筛选
+            if talents:
+                tids = [t['id'] for t in talents]
+                placeholders = ','.join('?' for _ in tids)
+                tag_rows = conn.execute(
+                    f'''SELECT tt.talent_id, t.id, t.name, t.category, t.color, t.type, t.status
+                        FROM talent_tags tt
+                        JOIN tags t ON t.id = tt.tag_id
+                        WHERE tt.talent_id IN ({placeholders}) AND t.status = 'active'
+                        ORDER BY t.name''',
+                    tids
+                ).fetchall()
+                tag_map = {}
+                for r in tag_rows:
+                    tag_map.setdefault(r['talent_id'], []).append({
+                        'id': r['id'], 'name': r['name'], 'category': r['category'],
+                        'color': r['color'], 'type': r['type'], 'status': r['status']
+                    })
+                for t in talents:
+                    t['tag_list'] = tag_map.get(t['id'], [])
+                if tag_ids:
+                    talents = [t for t in talents if any(tag.get('id') in tag_ids for tag in t.get('tag_list', []))]
+            total = len(talents)
+            talents = talents[offset:offset + limit]
         finally:
             conn.close()
         self._send_json(200, {'talents': talents, 'total': total, 'offset': offset, 'limit': limit})
@@ -10617,12 +11025,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         conn = _db_conn()
         try:
             row = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            talent = _talent_row_to_dict(row) if row else None
+            if talent:
+                talent['tag_list'] = _get_entity_tags(conn, 'talent', talent_id)
         finally:
             conn.close()
-        if not row:
+        if not talent:
             self._send_json_error(404, 'Talent not found')
             return
-        self._send_json(200, _talent_row_to_dict(row))
+        self._send_json(200, talent)
 
     def _handle_post_talent(self):
         """POST /api/talents — 录入达人（仅当 douyin_id 完全一致时算重复）"""
@@ -10669,10 +11080,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if row.get('group_id'):
                 _update_brand_product_stats(conn, row['group_id'])
                 conn.commit()
+            # 同步标签关联
+            tag_names = body.get('tags') or []
+            _sync_entity_tags(conn, 'talent', row['id'], tag_names)
+            conn.commit()
             row_out = conn.execute('SELECT * FROM talents WHERE id = ?', (row['id'],)).fetchone()
         finally:
             conn.close()
-        self._send_json(200, _talent_row_to_dict(row_out))
+        talent_out = _talent_row_to_dict(row_out)
+        talent_out['tag_list'] = _get_entity_tags(_db_conn(), 'talent', row['id'])
+        self._send_json(200, talent_out)
 
     def _handle_put_talent(self, talent_id):
         """PUT /api/talents/:id — 更新达人"""
@@ -10717,10 +11134,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if row.get('group_id'):
                 _update_brand_product_stats(conn, row['group_id'])
                 conn.commit()
+            # 同步标签关联
+            tag_names = body.get('tags')
+            if tag_names is not None:
+                _sync_entity_tags(conn, 'talent', talent_id, tag_names)
+                conn.commit()
             row_out = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
         finally:
             conn.close()
         talent_out = _talent_row_to_dict(row_out)
+        talent_out['tag_list'] = _get_entity_tags(_db_conn(), 'talent', talent_id)
 
         # 同步刷新达人向量索引（非阻塞，失败仅记录日志）
         try:
@@ -10746,6 +11169,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             talent = conn.execute('SELECT group_id FROM talents WHERE id = ?', (talent_id,)).fetchone()
             cur = conn.execute('DELETE FROM talents WHERE id = ?', (talent_id,))
             conn.execute('DELETE FROM product_talent_match WHERE talent_id = ?', (talent_id,))
+            conn.execute('DELETE FROM talent_tags WHERE talent_id = ?', (talent_id,))
             conn.commit()
             if talent and talent['group_id']:
                 _update_brand_product_stats(conn, talent['group_id'])
