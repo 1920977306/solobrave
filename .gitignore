@@ -6,3 +6,10 @@ test_*.py
 check_*.py
 *.docx
 data/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
