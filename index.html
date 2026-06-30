@@ -5278,6 +5278,33 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .product-modal-btn.save:hover { background: var(--accent-light); }
 .product-modal-btn.cancel { color: var(--text-secondary); }
 .product-modal-btn.cancel:hover { background: var(--bg-secondary); }
+
+/* ===== JSON 可视化编辑器（Apple 风格） ===== */
+.json-editor-field { margin-bottom: 14px; }
+.json-editor-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.json-editor-header label { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.json-advanced-toggle { font-size: 12px; color: var(--accent); background: transparent; border: none; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.json-advanced-toggle:hover { background: var(--accent-light); }
+.json-editor-box { background: var(--bg-secondary); border: 0.5px solid var(--separator); border-radius: 12px; padding: 12px; }
+.json-node { margin: 2px 0; }
+.json-row { display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--bg-primary); border-radius: 10px; margin-bottom: 6px; border: 0.5px solid transparent; transition: border-color 0.2s, box-shadow 0.2s; }
+.json-row:hover { border-color: rgba(10,132,255,0.2); box-shadow: 0 2px 6px rgba(10,132,255,0.04); }
+.json-key-input { width: 110px; flex-shrink: 0; border: 0.5px solid var(--separator); border-radius: 8px; padding: 5px 8px; font-size: 13px; background: var(--bg-primary); outline: none; }
+.json-key-input:focus { border-color: var(--accent); }
+.json-value-container { flex: 1; min-width: 0; }
+.json-primitive-wrapper { display: flex; align-items: center; gap: 8px; }
+.json-type-select { width: 78px; border: 0.5px solid var(--separator); border-radius: 8px; padding: 5px 8px; font-size: 12px; background: var(--bg-primary); outline: none; }
+.json-primitive-input { flex: 1; border: 0.5px solid var(--separator); border-radius: 8px; padding: 5px 8px; font-size: 13px; background: var(--bg-primary); outline: none; }
+.json-primitive-input:focus { border-color: var(--accent); }
+.json-add-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--accent); background: var(--accent-light); border: none; border-radius: 8px; padding: 5px 10px; cursor: pointer; margin-top: 4px; }
+.json-add-btn:hover { background: rgba(10,132,255,0.16); }
+.json-del-btn { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 16px; line-height: 1; color: #ff3b30; background: rgba(255,59,48,0.08); border: none; border-radius: 6px; cursor: pointer; flex-shrink: 0; }
+.json-del-btn:hover { background: rgba(255,59,48,0.14); }
+.json-nested { padding-left: 10px; border-left: 2px solid var(--separator); margin-left: 2px; padding-top: 4px; padding-bottom: 4px; }
+.json-raw-textarea { width: 100%; min-height: 120px; border: 0.5px solid var(--separator); border-radius: 12px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; background: var(--bg-primary); box-sizing: border-box; outline: none; resize: vertical; }
+.json-raw-textarea:focus { border-color: var(--accent); }
+.json-raw-textarea.hidden { display: none; }
+
 .chat-image-preview-bar { display: flex; gap: 8px; margin-bottom: 8px; padding: 4px; }
 .chat-image-preview-item { position: relative; width: 80px; height: 80px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-color, #E5E5EA); }
 .chat-image-preview-item img { width: 100%; height: 100%; object-fit: cover; }
@@ -5975,7 +6002,11 @@ window.doLogin = function () {
       </div>
       <div class="product-modal-section">
         <div class="product-modal-section-title">佣金</div>
-        <div class="product-modal-field"><label>佣金率 JSON</label><textarea id="productCommissionRates" placeholder='{"default":20,"直播":25}'></textarea></div>
+        <div class="product-modal-field json-editor-field">
+          <div class="json-editor-header"><label>佣金率</label><button type="button" class="json-advanced-toggle" data-advanced-for="productCommissionRates" onclick="toggleJsonAdvanced('productCommissionRates')">高级 ▾</button></div>
+          <div id="productCommissionRatesEditor" class="json-editor-box"></div>
+          <textarea id="productCommissionRates" class="json-raw-textarea hidden" placeholder='{"default":20,"直播":25}'></textarea>
+        </div>
         <div class="product-modal-field"><label>佣金金额</label><input type="number" step="0.01" id="productCommissionAmount" value="0"></div>
       </div>
       <div class="product-modal-section">
@@ -5987,14 +6018,34 @@ window.doLogin = function () {
         <div class="product-modal-field"><label>卖点</label><textarea id="productSellingPoints" placeholder="输入核心卖点，用逗号或换行分隔"></textarea></div>
         <div class="product-modal-field"><label>品牌背景/实力</label><textarea id="productBrandBackground" placeholder="输入品牌背景、实力描述"></textarea></div>
         <div class="product-modal-field"><label>标签（逗号分隔）</label><input type="text" id="productTags" placeholder="凉鞋,厚底,女鞋"></div>
-        <div class="product-modal-field"><label>SKU 规格 JSON</label><textarea id="productSkuSpecs" placeholder='{"颜色":["米白"],"尺码":["36-40"]}'></textarea></div>
+        <div class="product-modal-field json-editor-field">
+          <div class="json-editor-header"><label>SKU 规格</label><button type="button" class="json-advanced-toggle" data-advanced-for="productSkuSpecs" onclick="toggleJsonAdvanced('productSkuSpecs')">高级 ▾</button></div>
+          <div id="productSkuSpecsEditor" class="json-editor-box"></div>
+          <textarea id="productSkuSpecs" class="json-raw-textarea hidden" placeholder='{"颜色":["米白"],"尺码":["36-40"]}'></textarea>
+        </div>
       </div>
       <div class="product-modal-section">
         <div class="product-modal-section-title">数据高级</div>
-        <div class="product-modal-field"><label>受众画像 JSON</label><textarea id="productAudience" placeholder='{"gender":{"女":70},"age":{"18-24":30}}'></textarea></div>
-        <div class="product-modal-field"><label>渠道分布 JSON</label><textarea id="productChannelDistribution" placeholder='{"直播":60,"短视频":30,"商城":10}'></textarea></div>
-        <div class="product-modal-field"><label>带货达人 JSON</label><textarea id="productInfluencers" placeholder='[{"id":"tal_xxx","name":"达人名"}]'></textarea></div>
-        <div class="product-modal-field"><label>AI 分析 JSON</label><textarea id="productAiAnalysis" placeholder='{"ai_score":4,"competition_analysis":"...","selection_advice":"..."}'></textarea></div>
+        <div class="product-modal-field json-editor-field">
+          <div class="json-editor-header"><label>受众画像</label><button type="button" class="json-advanced-toggle" data-advanced-for="productAudience" onclick="toggleJsonAdvanced('productAudience')">高级 ▾</button></div>
+          <div id="productAudienceEditor" class="json-editor-box"></div>
+          <textarea id="productAudience" class="json-raw-textarea hidden" placeholder='{"gender":{"女":70},"age":{"18-24":30}}'></textarea>
+        </div>
+        <div class="product-modal-field json-editor-field">
+          <div class="json-editor-header"><label>渠道分布</label><button type="button" class="json-advanced-toggle" data-advanced-for="productChannelDistribution" onclick="toggleJsonAdvanced('productChannelDistribution')">高级 ▾</button></div>
+          <div id="productChannelDistributionEditor" class="json-editor-box"></div>
+          <textarea id="productChannelDistribution" class="json-raw-textarea hidden" placeholder='{"直播":60,"短视频":30,"商城":10}'></textarea>
+        </div>
+        <div class="product-modal-field json-editor-field">
+          <div class="json-editor-header"><label>带货达人</label><button type="button" class="json-advanced-toggle" data-advanced-for="productInfluencers" onclick="toggleJsonAdvanced('productInfluencers')">高级 ▾</button></div>
+          <div id="productInfluencersEditor" class="json-editor-box"></div>
+          <textarea id="productInfluencers" class="json-raw-textarea hidden" placeholder='[{"id":"tal_xxx","name":"达人名"}]'></textarea>
+        </div>
+        <div class="product-modal-field json-editor-field">
+          <div class="json-editor-header"><label>AI 分析</label><button type="button" class="json-advanced-toggle" data-advanced-for="productAiAnalysis" onclick="toggleJsonAdvanced('productAiAnalysis')">高级 ▾</button></div>
+          <div id="productAiAnalysisEditor" class="json-editor-box"></div>
+          <textarea id="productAiAnalysis" class="json-raw-textarea hidden" placeholder='{"ai_score":4,"competition_analysis":"...","selection_advice":"..."}'></textarea>
+        </div>
       </div>
     </div>
     <div class="product-modal-footer">
@@ -6078,18 +6129,42 @@ window.doLogin = function () {
           <div class="product-modal-field"><label>人群描述</label><input type="text" id="talentFanCrowd" placeholder="如 年轻女性"></div>
           <div class="product-modal-field"><label>消费价位</label><input type="text" id="talentFanPriceRange" placeholder="如 50-100"></div>
         </div>
-        <div class="product-modal-field"><label>性别分布 JSON</label><textarea id="talentFanGender" placeholder='{"女":70,"男":30}'></textarea></div>
-        <div class="product-modal-field"><label>年龄分布 JSON</label><textarea id="talentFanAge" placeholder='{"18-24":30,"25-34":50}'></textarea></div>
-        <div class="product-modal-field"><label>地域分布 JSON</label><textarea id="talentFanRegion" placeholder='{"广东":20,"浙江":15}'></textarea></div>
-        <div class="product-modal-field"><label>粉丝画像 JSON</label><textarea id="talentFansProfile" placeholder='{"interest":["穿搭"],"device":"mobile"}'></textarea></div>
+        <div class="product-modal-field json-editor-field">
+          <div class="json-editor-header"><label>性别分布</label><button type="button" class="json-advanced-toggle" data-advanced-for="talentFanGender" onclick="toggleJsonAdvanced('talentFanGender')">高级 ▾</button></div>
+          <div id="talentFanGenderEditor" class="json-editor-box"></div>
+          <textarea id="talentFanGender" class="json-raw-textarea hidden" placeholder='{"女":70,"男":30}'></textarea>
+        </div>
+        <div class="product-modal-field json-editor-field">
+          <div class="json-editor-header"><label>年龄分布</label><button type="button" class="json-advanced-toggle" data-advanced-for="talentFanAge" onclick="toggleJsonAdvanced('talentFanAge')">高级 ▾</button></div>
+          <div id="talentFanAgeEditor" class="json-editor-box"></div>
+          <textarea id="talentFanAge" class="json-raw-textarea hidden" placeholder='{"18-24":30,"25-34":50}'></textarea>
+        </div>
+        <div class="product-modal-field json-editor-field">
+          <div class="json-editor-header"><label>地域分布</label><button type="button" class="json-advanced-toggle" data-advanced-for="talentFanRegion" onclick="toggleJsonAdvanced('talentFanRegion')">高级 ▾</button></div>
+          <div id="talentFanRegionEditor" class="json-editor-box"></div>
+          <textarea id="talentFanRegion" class="json-raw-textarea hidden" placeholder='{"广东":20,"浙江":15}'></textarea>
+        </div>
+        <div class="product-modal-field json-editor-field">
+          <div class="json-editor-header"><label>粉丝画像</label><button type="button" class="json-advanced-toggle" data-advanced-for="talentFansProfile" onclick="toggleJsonAdvanced('talentFansProfile')">高级 ▾</button></div>
+          <div id="talentFansProfileEditor" class="json-editor-box"></div>
+          <textarea id="talentFansProfile" class="json-raw-textarea hidden" placeholder='{"interest":["穿搭"],"device":"mobile"}'></textarea>
+        </div>
       </div>
       <div class="product-modal-section">
         <div class="product-modal-section-title">AI 分析</div>
         <div class="product-modal-field"><label>AI 评分</label><input type="text" id="talentAIRating" placeholder="如 S"></div>
         <div class="product-modal-field"><label>AI 总结</label><textarea id="talentAISummary" placeholder="输入 AI 总结"></textarea></div>
         <div class="product-modal-field"><label>AI 推荐理由</label><textarea id="talentAIReason" placeholder="输入 AI 推荐理由"></textarea></div>
-        <div class="product-modal-field"><label>AI 标签 JSON</label><textarea id="talentAITags" placeholder='["带货强","女鞋"]'></textarea></div>
-        <div class="product-modal-field"><label>AI 分析 JSON</label><textarea id="talentAIAnalysis" placeholder='{"suitable_products":"..."}'></textarea></div>
+        <div class="product-modal-field json-editor-field">
+          <div class="json-editor-header"><label>AI 标签</label><button type="button" class="json-advanced-toggle" data-advanced-for="talentAITags" onclick="toggleJsonAdvanced('talentAITags')">高级 ▾</button></div>
+          <div id="talentAITagsEditor" class="json-editor-box"></div>
+          <textarea id="talentAITags" class="json-raw-textarea hidden" placeholder='["带货强","女鞋"]'></textarea>
+        </div>
+        <div class="product-modal-field json-editor-field">
+          <div class="json-editor-header"><label>AI 分析</label><button type="button" class="json-advanced-toggle" data-advanced-for="talentAIAnalysis" onclick="toggleJsonAdvanced('talentAIAnalysis')">高级 ▾</button></div>
+          <div id="talentAIAnalysisEditor" class="json-editor-box"></div>
+          <textarea id="talentAIAnalysis" class="json-raw-textarea hidden" placeholder='{"suitable_products":"..."}'></textarea>
+        </div>
       </div>
       <div class="product-modal-section">
         <div class="product-modal-section-title">联系人信息</div>
@@ -23531,6 +23606,319 @@ function _setProductModalJson(id, obj) {
   el.value = obj && Object.keys(obj).length ? JSON.stringify(obj, null, 2) : '';
 }
 
+/* ===== 通用递归 JSON 可视化编辑器 ===== */
+function JsonEditor(containerId, textareaId, options) {
+  options = options || {};
+  this.containerId = containerId;
+  this.textareaId = textareaId;
+  this.options = options;
+  this.defaultValue = options.defaultValue !== undefined ? options.defaultValue : {};
+  this.arrayItemSchema = options.arrayItemSchema;
+  this.newFieldDefault = options.newFieldDefault !== undefined ? options.newFieldDefault : '';
+  this.container = document.getElementById(containerId);
+  this.textarea = document.getElementById(textareaId);
+  if (this.textarea) this.textarea._jsonEditor = this;
+  this.init();
+}
+
+JsonEditor.prototype.init = function() {
+  if (!this.container) return;
+  this.container.classList.add('json-editor-box');
+  this.render();
+  if (this.textarea) {
+    var self = this;
+    this.textarea.addEventListener('change', function() { self.render(); });
+  }
+};
+
+JsonEditor.prototype.setValue = function(val) {
+  if (val === undefined || val === null) val = this.defaultValue;
+  this.render(val);
+  if (this.textarea) {
+    this.textarea.classList.add('hidden');
+    if (this.container) this.container.classList.remove('hidden');
+    var toggleBtn = document.querySelector('[data-advanced-for="' + this.textareaId + '"]');
+    if (toggleBtn) toggleBtn.textContent = '高级 ▾';
+  }
+};
+
+JsonEditor.prototype.getValue = function() {
+  if (!this.container || !this.container.firstChild) return this.defaultValue;
+  return this.readValue(this.container.firstChild);
+};
+
+JsonEditor.prototype.render = function(val) {
+  if (!this.container) return;
+  if (val === undefined) val = this.readTextarea();
+  this.container.innerHTML = '';
+  var node = this.renderNode(val, []);
+  this.container.appendChild(node);
+  this.syncToTextarea();
+};
+
+JsonEditor.prototype.readTextarea = function() {
+  if (!this.textarea) return this.defaultValue;
+  var text = (this.textarea.value || '').trim();
+  if (!text) return this.defaultValue;
+  try { return JSON.parse(text); } catch(e) { return this.defaultValue; }
+};
+
+JsonEditor.prototype.syncToTextarea = function() {
+  if (!this.textarea) return;
+  this.textarea.value = JSON.stringify(this.getValue(), null, 2);
+};
+
+JsonEditor.prototype.getType = function(val) {
+  if (val === null) return 'null';
+  if (Array.isArray(val)) return 'array';
+  return typeof val;
+};
+
+JsonEditor.prototype.readValue = function(node) {
+  if (!node) return null;
+  if (node.classList.contains('json-node-object')) {
+    var result = {};
+    var pairs = node.querySelector(':scope > .json-object-pairs');
+    if (!pairs) return result;
+    var rows = pairs.children;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var keyInput = row.querySelector('.json-key-input');
+      var valContainer = row.querySelector('.json-value-container');
+      if (!keyInput || !valContainer || !valContainer.firstChild) continue;
+      var key = keyInput.value.trim();
+      if (!key) continue;
+      result[key] = this.readValue(valContainer.firstChild);
+    }
+    return result;
+  }
+  if (node.classList.contains('json-node-array')) {
+    var result = [];
+    var items = node.querySelector(':scope > .json-array-items');
+    if (!items) return result;
+    var rows = items.children;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var valContainer = row.querySelector('.json-value-container');
+      if (!valContainer || !valContainer.firstChild) continue;
+      result.push(this.readValue(valContainer.firstChild));
+    }
+    return result;
+  }
+  var type = node.getAttribute('data-type');
+  var input = node.querySelector('.json-primitive-input');
+  var v = input ? input.value : '';
+  if (type === 'number') return parseFloat(v) || 0;
+  if (type === 'boolean') return v === 'true';
+  if (type === 'null') return null;
+  return v;
+};
+
+JsonEditor.prototype.renderNode = function(val, path) {
+  var type = this.getType(val);
+  var node = document.createElement('div');
+  node.className = 'json-node json-node-' + type;
+  if (path.length > 0 && (type === 'object' || type === 'array')) node.classList.add('json-nested');
+  node.setAttribute('data-type', type);
+  node.setAttribute('data-path', path.join('.'));
+  if (type === 'object') this.renderObject(node, val || {}, path);
+  else if (type === 'array') this.renderArray(node, val || [], path);
+  else this.renderPrimitive(node, val, type, path);
+  return node;
+};
+
+JsonEditor.prototype.renderObject = function(node, obj, path) {
+  var self = this;
+  var pairs = document.createElement('div');
+  pairs.className = 'json-object-pairs';
+  Object.keys(obj).forEach(function(key) {
+    pairs.appendChild(self.renderObjectRow(key, obj[key], path.concat(key)));
+  });
+  node.appendChild(pairs);
+  var addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'json-add-btn';
+  addBtn.textContent = '+ 添加字段';
+  addBtn.onclick = function() {
+    var baseKey = '新字段';
+    var newKey = baseKey;
+    var counter = 1;
+    while (pairs.querySelector('[data-key="' + newKey + '"]')) {
+      counter++;
+      newKey = baseKey + counter;
+    }
+    pairs.appendChild(self.renderObjectRow(newKey, self.newFieldDefault, path.concat(newKey)));
+    self.syncToTextarea();
+  };
+  node.appendChild(addBtn);
+};
+
+JsonEditor.prototype.renderObjectRow = function(key, val, path) {
+  var self = this;
+  var row = document.createElement('div');
+  row.className = 'json-row json-object-row';
+  row.setAttribute('data-key', key);
+  var keyInput = document.createElement('input');
+  keyInput.type = 'text';
+  keyInput.className = 'json-key-input';
+  keyInput.value = key;
+  keyInput.placeholder = '字段名';
+  keyInput.oninput = function() { self.syncToTextarea(); };
+  var valContainer = document.createElement('div');
+  valContainer.className = 'json-value-container';
+  valContainer.appendChild(this.renderNode(val, path));
+  var delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.className = 'json-del-btn';
+  delBtn.textContent = '×';
+  delBtn.onclick = function() { row.remove(); self.syncToTextarea(); };
+  row.appendChild(keyInput);
+  row.appendChild(valContainer);
+  row.appendChild(delBtn);
+  return row;
+};
+
+JsonEditor.prototype.renderArray = function(node, arr, path) {
+  var self = this;
+  var items = document.createElement('div');
+  items.className = 'json-array-items';
+  arr.forEach(function(item, idx) {
+    items.appendChild(self.renderArrayItem(item, path.concat(idx)));
+  });
+  node.appendChild(items);
+  var addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'json-add-btn';
+  addBtn.textContent = '+ 添加项';
+  addBtn.onclick = function() {
+    var newVal = self.arrayItemSchema ? JSON.parse(JSON.stringify(self.arrayItemSchema)) : '';
+    items.appendChild(self.renderArrayItem(newVal, path.concat(items.children.length)));
+    self.syncToTextarea();
+  };
+  node.appendChild(addBtn);
+};
+
+JsonEditor.prototype.renderArrayItem = function(val, path) {
+  var self = this;
+  var row = document.createElement('div');
+  row.className = 'json-row json-array-row';
+  var valContainer = document.createElement('div');
+  valContainer.className = 'json-value-container';
+  valContainer.appendChild(this.renderNode(val, path));
+  var delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.className = 'json-del-btn';
+  delBtn.textContent = '×';
+  delBtn.onclick = function() { row.remove(); self.syncToTextarea(); };
+  row.appendChild(valContainer);
+  row.appendChild(delBtn);
+  return row;
+};
+
+JsonEditor.prototype.renderPrimitive = function(node, val, type, path) {
+  var self = this;
+  var wrapper = document.createElement('div');
+  wrapper.className = 'json-primitive-wrapper';
+  var typeSelect = document.createElement('select');
+  typeSelect.className = 'json-type-select';
+  ['string','number','boolean','null'].forEach(function(t) {
+    var opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = t;
+    if (t === type) opt.selected = true;
+    typeSelect.appendChild(opt);
+  });
+  var inputWrap = document.createElement('span');
+  inputWrap.className = 'json-primitive-input-wrap';
+  this.fillPrimitiveInput(inputWrap, val, type);
+  typeSelect.onchange = function() {
+    var newType = typeSelect.value;
+    var newVal = '';
+    if (newType === 'number') newVal = 0;
+    if (newType === 'boolean') newVal = false;
+    if (newType === 'null') newVal = null;
+    var newNode = self.renderNode(newVal, path);
+    node.parentNode.replaceChild(newNode, node);
+    self.syncToTextarea();
+  };
+  wrapper.appendChild(typeSelect);
+  wrapper.appendChild(inputWrap);
+  node.appendChild(wrapper);
+};
+
+JsonEditor.prototype.fillPrimitiveInput = function(container, val, type) {
+  container.innerHTML = '';
+  var self = this;
+  var input;
+  if (type === 'boolean') {
+    input = document.createElement('select');
+    input.className = 'json-primitive-input';
+    [['true','true'],['false','false']].forEach(function(o) {
+      var opt = document.createElement('option');
+      opt.value = o[0];
+      opt.textContent = o[1];
+      if ((!!val).toString() === o[0]) opt.selected = true;
+      input.appendChild(opt);
+    });
+  } else if (type === 'null') {
+    input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'json-primitive-input';
+    input.value = 'null';
+    input.disabled = true;
+  } else {
+    input = document.createElement('input');
+    input.type = type === 'number' ? 'number' : 'text';
+    input.className = 'json-primitive-input';
+    input.value = type === 'number' ? (val === undefined || val === null ? 0 : val) : (val === undefined || val === null ? '' : val);
+  }
+  input.oninput = function() { self.syncToTextarea(); };
+  input.onchange = function() { self.syncToTextarea(); };
+  container.appendChild(input);
+};
+
+function toggleJsonAdvanced(textareaId) {
+  var textarea = document.getElementById(textareaId);
+  var editorBox = document.getElementById(textareaId + 'Editor');
+  var toggleBtn = document.querySelector('[data-advanced-for="' + textareaId + '"]');
+  if (!textarea || !editorBox) return;
+  var editor = textarea._jsonEditor;
+  if (textarea.classList.contains('hidden')) {
+    textarea.classList.remove('hidden');
+    editorBox.classList.add('hidden');
+    if (editor) editor.syncToTextarea();
+    if (toggleBtn) toggleBtn.textContent = '高级 ▾';
+  } else {
+    textarea.classList.add('hidden');
+    editorBox.classList.remove('hidden');
+    if (editor) editor.render();
+    if (toggleBtn) toggleBtn.textContent = '高级 ▴';
+  }
+}
+
+var _productEditors = {};
+var _talentEditors = {};
+
+function _initProductJsonEditors() {
+  if (_productEditors.commissionRates) return;
+  _productEditors.commissionRates = new JsonEditor('productCommissionRatesEditor', 'productCommissionRates', {defaultValue: {}, newFieldDefault: 0});
+  _productEditors.skuSpecs = new JsonEditor('productSkuSpecsEditor', 'productSkuSpecs', {defaultValue: {}, newFieldDefault: ['']});
+  _productEditors.audience = new JsonEditor('productAudienceEditor', 'productAudience', {defaultValue: {}});
+  _productEditors.channelDistribution = new JsonEditor('productChannelDistributionEditor', 'productChannelDistribution', {defaultValue: {}, newFieldDefault: 0});
+  _productEditors.influencers = new JsonEditor('productInfluencersEditor', 'productInfluencers', {defaultValue: [], arrayItemSchema: {id:'', name:'', commission_rate:0}});
+  _productEditors.aiAnalysis = new JsonEditor('productAiAnalysisEditor', 'productAiAnalysis', {defaultValue: {}});
+}
+
+function _initTalentJsonEditors() {
+  if (_talentEditors.fanGender) return;
+  _talentEditors.fanGender = new JsonEditor('talentFanGenderEditor', 'talentFanGender', {defaultValue: {}, newFieldDefault: 0});
+  _talentEditors.fanAge = new JsonEditor('talentFanAgeEditor', 'talentFanAge', {defaultValue: {}, newFieldDefault: 0});
+  _talentEditors.fanRegion = new JsonEditor('talentFanRegionEditor', 'talentFanRegion', {defaultValue: {}, newFieldDefault: 0});
+  _talentEditors.fansProfile = new JsonEditor('talentFansProfileEditor', 'talentFansProfile', {defaultValue: {}});
+  _talentEditors.aiTags = new JsonEditor('talentAITagsEditor', 'talentAITags', {defaultValue: [], arrayItemSchema: ''});
+  _talentEditors.aiAnalysis = new JsonEditor('talentAIAnalysisEditor', 'talentAIAnalysis', {defaultValue: {}});
+}
+
 function _updateProductMainImagePreview() {
   var url = document.getElementById('productMainImage').value.trim();
   var img = document.getElementById('productMainImagePreview');
@@ -23545,6 +23933,7 @@ function _updateProductMainImagePreview() {
 }
 
 function createNewProduct() {
+  _initProductJsonEditors();
   document.getElementById('productEditId').value = '';
   _setProductModalField('productName', '');
   _setProductModalField('productDescription', '');
@@ -23566,19 +23955,19 @@ function createNewProduct() {
   _setProductModalField('productMonthlyGmv', '0');
   _setProductModalField('productAvgOrderValue', '0');
   _setProductModalField('productConversionRate', '0');
-  _setProductModalField('productCommissionRates', '');
   _setProductModalField('productCommissionAmount', '0');
   _setProductModalField('productExternalId', '');
   _setProductModalField('productMainImage', '');
   _setProductModalField('productSellingPoints', '');
   _setProductModalField('productBrandBackground', '');
   _setProductModalField('productTags', '');
-  _setProductModalField('productSkuSpecs', '');
   _setProductModalField('productStatus', 'active');
-  _setProductModalJson('productAudience', {});
-  _setProductModalJson('productChannelDistribution', {});
-  _setProductModalJson('productInfluencers', []);
-  _setProductModalJson('productAiAnalysis', {});
+  _productEditors.commissionRates.setValue({});
+  _productEditors.skuSpecs.setValue({});
+  _productEditors.audience.setValue({});
+  _productEditors.channelDistribution.setValue({});
+  _productEditors.influencers.setValue([]);
+  _productEditors.aiAnalysis.setValue({});
   _updateProductMainImagePreview();
   document.getElementById('productModalTitle').textContent = '录入商品';
   document.getElementById('productModalOverlay').classList.add('active');
@@ -23597,6 +23986,7 @@ function editCurrentProduct() {
 
 // 用商品数据填充录入/编辑表单并打开弹窗（用于图片识别后的一键录入）
 function _fillProductModal(p, title) {
+  _initProductJsonEditors();
   document.getElementById('productEditId').value = p.id || '';
   _setProductModalField('productName', p.name || '');
   _setProductModalField('productDescription', p.description || p.subtitle || '');
@@ -23618,19 +24008,19 @@ function _fillProductModal(p, title) {
   _setProductModalField('productMonthlyGmv', p.monthly_gmv || 0);
   _setProductModalField('productAvgOrderValue', p.avg_order_value || 0);
   _setProductModalField('productConversionRate', p.conversion_rate || 0);
-  _setProductModalJson('productCommissionRates', p.commission_rates);
   _setProductModalField('productCommissionAmount', p.commission_amount || 0);
   _setProductModalField('productExternalId', p.external_id || '');
   _setProductModalField('productMainImage', p.main_image || p._sourceBase64 || '');
   _setProductModalField('productSellingPoints', p.selling_points || '');
   _setProductModalField('productBrandBackground', p.brand_background || '');
   _setProductModalField('productTags', (p.tags || []).join('、'));
-  _setProductModalJson('productSkuSpecs', p.sku_specs);
   _setProductModalField('productStatus', p.status || 'active');
-  _setProductModalJson('productAudience', p.audience);
-  _setProductModalJson('productChannelDistribution', p.channel_distribution);
-  _setProductModalJson('productInfluencers', p.influencers);
-  _setProductModalJson('productAiAnalysis', p.ai_analysis);
+  _productEditors.commissionRates.setValue(p.commission_rates || {});
+  _productEditors.skuSpecs.setValue(p.sku_specs || {});
+  _productEditors.audience.setValue(p.audience || {});
+  _productEditors.channelDistribution.setValue(p.channel_distribution || {});
+  _productEditors.influencers.setValue(p.influencers || []);
+  _productEditors.aiAnalysis.setValue(p.ai_analysis || {});
   _updateProductMainImagePreview();
   document.getElementById('productModalTitle').textContent = title || (p.id ? '编辑商品' : '录入商品');
   document.getElementById('productModalOverlay').classList.add('active');
@@ -24659,6 +25049,7 @@ function analyzeTalentAI() {
 }
 
 function createNewTalent() {
+  _initTalentJsonEditors();
   document.getElementById('talentEditId').value = '';
   document.getElementById('talentName').value = '';
   document.getElementById('talentDouyinId').value = '';
@@ -24691,15 +25082,15 @@ function createNewTalent() {
   document.getElementById('talentVideoGpm').value = '0';
   document.getElementById('talentFanCrowd').value = '';
   document.getElementById('talentFanPriceRange').value = '';
-  _setProductModalJson('talentFanGender', {});
-  _setProductModalJson('talentFanAge', {});
-  _setProductModalJson('talentFanRegion', {});
-  _setProductModalJson('talentFansProfile', {});
+  _talentEditors.fanGender.setValue({});
+  _talentEditors.fanAge.setValue({});
+  _talentEditors.fanRegion.setValue({});
+  _talentEditors.fansProfile.setValue({});
   document.getElementById('talentAIRating').value = '';
   document.getElementById('talentAISummary').value = '';
   document.getElementById('talentAIReason').value = '';
-  _setProductModalJson('talentAITags', []);
-  document.getElementById('talentAIAnalysis').value = '';
+  _talentEditors.aiTags.setValue([]);
+  _talentEditors.aiAnalysis.setValue({});
   document.getElementById('talentContactName').value = '';
   document.getElementById('talentContactPhone').value = '';
   document.getElementById('talentContactWechat').value = '';
@@ -24715,6 +25106,7 @@ function createNewTalent() {
 function editCurrentTalent() {
   if (!_talentCurrentId) { showToast('请选择达人'); return; }
   apiFetch('/api/talents/' + encodeURIComponent(_talentCurrentId)).then(function(r){return r.json();}).then(function(t){
+    _initTalentJsonEditors();
     document.getElementById('talentEditId').value = t.id;
     document.getElementById('talentName').value = t.name || '';
     document.getElementById('talentDouyinId').value = t.douyin_id || '';
@@ -24747,15 +25139,19 @@ function editCurrentTalent() {
     document.getElementById('talentVideoGpm').value = t.video_gpm || 0;
     document.getElementById('talentFanCrowd').value = t.fan_crowd || '';
     document.getElementById('talentFanPriceRange').value = t.fan_price_range || '';
-    _setProductModalJson('talentFanGender', t.fan_gender);
-    _setProductModalJson('talentFanAge', t.fan_age);
-    _setProductModalJson('talentFanRegion', t.fan_region);
-    _setProductModalJson('talentFansProfile', t.fans_profile);
+    _talentEditors.fanGender.setValue(t.fan_gender || {});
+    _talentEditors.fanAge.setValue(t.fan_age || {});
+    _talentEditors.fanRegion.setValue(t.fan_region || {});
+    _talentEditors.fansProfile.setValue(t.fans_profile || {});
     document.getElementById('talentAIRating').value = t.ai_rating || '';
     document.getElementById('talentAISummary').value = t.ai_summary || '';
     document.getElementById('talentAIReason').value = t.ai_reason || '';
-    _setProductModalJson('talentAITags', t.ai_tags);
-    document.getElementById('talentAIAnalysis').value = typeof t.ai_analysis === 'object' ? JSON.stringify(t.ai_analysis, null, 2) : (t.ai_analysis || '');
+    _talentEditors.aiTags.setValue(t.ai_tags || []);
+    var aiAnalysisVal = t.ai_analysis || '';
+    if (typeof aiAnalysisVal === 'string' && aiAnalysisVal.trim()) {
+      try { aiAnalysisVal = JSON.parse(aiAnalysisVal); } catch(e) {}
+    }
+    _talentEditors.aiAnalysis.setValue(aiAnalysisVal || {});
     document.getElementById('talentContactName').value = t.contact_name || '';
     document.getElementById('talentContactPhone').value = t.phone || t.contact_phone || '';
     document.getElementById('talentContactWechat').value = t.wechat || t.contact_wechat || '';
