@@ -9246,7 +9246,7 @@ async function loadEmployees() {
           var needsSync = [];
           for (var mi = 0; mi < data.length; mi++) {
             var av = data[mi].avatar;
-            if (av !== undefined && av !== null && typeof av !== 'number' && !(typeof av === 'string' && (av.indexOf('data:') === 0 || av.indexOf('.png') > 0 || av.indexOf('.jpg') > 0 || av.indexOf('.jpeg') > 0 || av.indexOf('.svg') > 0 || av.indexOf('.webp') > 0 || av.indexOf('http') === 0))) {
+            if (av !== undefined && av !== null && typeof av !== 'number' && !(typeof av === 'string' && (_isImageAvatarUrl(av) || /\.(png|jpg|jpeg|svg|webp)$/i.test(av)))) {
               var hh = 0,
                 nn = data[mi].name || data[mi].id || '';
               for (var cc = 0; cc < nn.length; cc++) {
@@ -10417,6 +10417,9 @@ function renderArchivedList() {
   list.innerHTML = html;
   bindListEvents();
 }
+function _isImageAvatarUrl(url) {
+  return typeof url === 'string' && /^(https?:\/\/|data:image\/|avatars\/)/.test(url);
+}
 function renderAvatar(emp, size) {
   size = size || 36;
   // 1. Number index -> use AVATAR_PRESETS
@@ -10424,7 +10427,7 @@ function renderAvatar(emp, size) {
     return '<img src="' + escapeAttr(AVATAR_PRESETS[emp.avatar]) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
   }
   // 2. Image path or data URL
-  if (emp.avatar && typeof emp.avatar === 'string' && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0 || emp.avatar.indexOf('avatars/') === 0)) {
+  if (emp.avatar && _isImageAvatarUrl(emp.avatar)) {
     return '<img src="' + escapeAttr(emp.avatar) + '" style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;object-fit:cover;">';
   }
   // 3. Letter/emoji string or any unknown -> use name hash to pick a preset avatar
@@ -11379,7 +11382,7 @@ function openChat(id) {
     if (chatHeaderSub) chatHeaderSub.textContent = '在线 · ' + getEmpRoleDisplay(emp);
     if (chatHeaderAvatar) {
       chatHeaderAvatar.innerHTML = renderAvatar(emp, 36);
-      var _isImg = typeof emp.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[emp.avatar] || emp.avatar && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0);
+      var _isImg = typeof emp.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[emp.avatar] || _isImageAvatarUrl(emp.avatar);
       chatHeaderAvatar.style.background = _isImg ? 'transparent' : 'linear-gradient(135deg,' + emp.bg + ',' + emp.bg + 'dd)';
     }
     var item = document.querySelector('.list-item[data-id="' + id + '"]');
@@ -14690,7 +14693,7 @@ function openEmpDetail(empId) {
   var avatarGrid = document.getElementById('avatarGrid');
   if (avatarGrid && typeof AVATAR_PRESETS !== 'undefined') {
     var avatarHtml = '';
-    var isUrlAvatar = typeof emp.avatar === 'string' && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('http') === 0 || emp.avatar.indexOf('avatars/') === 0);
+    var isUrlAvatar = _isImageAvatarUrl(emp.avatar);
     for (var i = 0; i < AVATAR_PRESETS.length; i++) {
       var isSelected = !isUrlAvatar && i === (emp.avatar || 0) ? ' selected' : '';
       avatarHtml += '<div class="avatar-option' + isSelected + '" data-avatar="' + i + '" onclick="selectAvatar(this)"><img src="' + AVATAR_PRESETS[i] + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;"></div>';
@@ -14699,7 +14702,7 @@ function openEmpDetail(empId) {
   }
   var urlInput = document.getElementById('empAvatarUrlInput');
   if (urlInput) {
-    var urlAvatar = typeof emp.avatar === 'string' && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('http') === 0 || emp.avatar.indexOf('avatars/') === 0) ? emp.avatar : '';
+    var urlAvatar = _isImageAvatarUrl(emp.avatar) ? emp.avatar : '';
     urlInput.value = urlAvatar;
     onEmpAvatarUrlInput(urlAvatar);
   }
@@ -16840,8 +16843,8 @@ function selectColor(color) {
 function onEmpAvatarUrlInput(value) {
   var preview = document.getElementById('empAvatarUrlPreview');
   if (!preview) return;
-  if (value && (value.indexOf('data:image') === 0 || value.indexOf('http') === 0 || value.indexOf('avatars/') === 0)) {
-    preview.innerHTML = '<img src="' + escapeAttr(value) + '" onerror="this.style.display=\'none\'">';
+  if (value && _isImageAvatarUrl(value)) {
+    preview.innerHTML = '<img src="' + escapeAttr(value) + '" onerror="this.parentElement.classList.remove(\'visible\');this.style.display=\'none\'">';
     preview.classList.add('visible');
   } else {
     preview.innerHTML = '';
@@ -16856,7 +16859,7 @@ function saveEmpAvatar() {
   if (emp) {
     var urlInput = document.getElementById('empAvatarUrlInput');
     var urlAvatar = urlInput ? urlInput.value.trim() : '';
-    if (urlAvatar && (urlAvatar.indexOf('data:image') === 0 || urlAvatar.indexOf('http') === 0 || urlAvatar.indexOf('avatars/') === 0)) {
+    if (urlAvatar && _isImageAvatarUrl(urlAvatar)) {
       emp.avatar = urlAvatar;
     } else if (typeof selectedAvatar === 'number') {
       emp.avatar = selectedAvatar;
@@ -16866,14 +16869,18 @@ function saveEmpAvatar() {
       emp.bg = selectedColor;
     }
     saveEmployees();
+    if (typeof syncEmpToServer === 'function') {
+      syncEmpToServer(emp).catch(function () {});
+    }
     document.getElementById('empDetailAvatar').innerHTML = renderAvatar(emp, 80);
-    document.getElementById('empDetailAvatar').style.background = `linear-gradient(135deg,${emp.color},${emp.color}dd)`;
+    var _detailIsImg = typeof emp.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[emp.avatar] || _isImageAvatarUrl(emp.avatar);
+    document.getElementById('empDetailAvatar').style.background = _detailIsImg ? 'transparent' : `linear-gradient(135deg,${emp.color},${emp.color}dd)`;
     renderEmployeeList();
     // Also update chat header avatar if this emp is currently in chat
     var _chatAvatar = document.querySelector('.chat-header-v2 .avatar') || document.querySelector('.chat-header .avatar');
     if (_chatAvatar && currentEmpId === localStorage.getItem('sb_current_emp')) {
       _chatAvatar.innerHTML = renderAvatar(emp, 36);
-      var _isImg = typeof emp.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[emp.avatar] || emp.avatar && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0);
+      var _isImg = typeof emp.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[emp.avatar] || _isImageAvatarUrl(emp.avatar);
       _chatAvatar.style.background = _isImg ? 'transparent' : 'linear-gradient(135deg,' + emp.bg + ',' + emp.bg + 'dd)';
     }
     showToast('✅ 头像已保存');
@@ -20874,7 +20881,7 @@ function updateWizConfirm() {
   document.getElementById('wizCName').textContent = name;
   document.getElementById('wizCRole').textContent = role;
   var avatarPreview = document.getElementById('wizCAvatar');
-  if (avatar && (avatar.indexOf('data:image') === 0 || avatar.indexOf('.png') > 0 || avatar.indexOf('.jpg') > 0 || avatar.indexOf('.jpeg') > 0)) {
+  if (avatar && (_isImageAvatarUrl(avatar) || (typeof avatar === 'string' && /\.(png|jpg|jpeg|webp|svg)$/i.test(avatar)))) {
     avatarPreview.innerHTML = '<img src="' + avatar + '" style="width:24px;height:24px;border-radius:50%;object-fit:cover;">';
   } else {
     avatarPreview.textContent = '🦞';
@@ -27352,7 +27359,7 @@ function renderGlobalSearchItem(type, item, q) {
   var count = '';
   var action = '';
   if (type === 'employees') {
-    var isImg = typeof item.avatar === 'number' || (typeof item.avatar === 'string' && (item.avatar.indexOf('data:image') === 0 || item.avatar.indexOf('.png') > 0 || item.avatar.indexOf('.jpg') > 0));
+    var isImg = typeof item.avatar === 'number' || _isImageAvatarUrl(item.avatar) || (typeof item.avatar === 'string' && /\.(png|jpg|jpeg|webp|svg)$/i.test(item.avatar));
     var avatarContent = '';
     if (typeof item.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[item.avatar]) {
       avatarContent = '<img src="' + escapeAttr(AVATAR_PRESETS[item.avatar]) + '" alt="">';
