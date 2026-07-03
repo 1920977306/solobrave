@@ -8054,8 +8054,9 @@ async function sendMsg() {
 
   // 路由策略：
   // 1. 图片消息必须使用支持 vision 的 API 直连（OpenClaw chat.send 只传字符串，无法识别图片）
-  // 2. 员工显式配置了非 openclaw 的 aiProvider + apiKey 时，优先 API 直连（避免 OpenClaw 网关/模型慢）
-  // 3. 否则走 OpenClaw；OpenClaw 未连接再降级 API
+  // 2. OpenClaw 已连接时优先走 OpenClaw WS
+  // 3. OpenClaw 不可用时，若员工配置了非 openclaw 的 aiProvider + apiKey，则降级 API 直连
+  // 4. 无任何配置时尝试 OpenClaw main 兜底，否则提示未连接
   var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
   var hasImages = pendingImages.length > 0;
   var hasDirectApi = !!(emp.apiKey && emp.aiProvider && emp.aiProvider !== 'openclaw');
@@ -8100,14 +8101,15 @@ async function sendMsg() {
     }
   }
 
-  if (hasImages || hasDirectApi) {
-    console.log('[Chat] 使用 API 直连发送');
+  if (hasImages) {
+    // 必须处理图片时降级到 API 直连
+    console.log('[Chat] 图片消息，使用 API 直连发送');
     sendViaAPI(emp, text, docContext, timeStr, pendingImages);
   } else if (ocOk) {
-    console.log('[Chat] 使用 OpenClaw WS 发送');
+    console.log('[Chat] OpenClaw 已连接，优先使用 WS 发送');
     sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages);
-  } else if (emp.apiKey && emp.aiProvider) {
-    console.log('[Chat] OpenClaw 未连接，降级到 API 直连');
+  } else if (hasDirectApi) {
+    console.log('[Chat] OpenClaw 不可用，降级到 API 直连');
     sendViaAPI(emp, text, docContext, timeStr, pendingImages);
   } else {
     // 即使没有配置AI，也用 OpenClaw main agent 兜底
