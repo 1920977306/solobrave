@@ -24415,6 +24415,66 @@ function openProductFormWithData(p) {
 
 function closeProductModal(e) { if (e && e.target !== e.currentTarget) return; document.getElementById('productModalOverlay').classList.remove('active'); }
 
+/* ===== AI 推荐标签（商品/达人保存前） ===== */
+function _aiRecommendTags(type, data) {
+  return apiFetch('/api/ai/recommend-tags', {
+    method: 'POST',
+    body: JSON.stringify({ type: type, data: data })
+  }).then(function(r){ return r.json(); });
+}
+
+function _showRecommendTagsDialog(recommendedTags, currentTags) {
+  return new Promise(function(resolve){
+    if (!recommendedTags || !recommendedTags.length) {
+      resolve(currentTags);
+      return;
+    }
+    var html = '<div id="aiTagRecommendationList" style="max-height:300px;overflow:auto;margin-bottom:12px;">';
+    recommendedTags.forEach(function(tag){
+      html += '<label style="display:block;padding:6px 0;cursor:pointer;">' +
+                '<input type="checkbox" class="ai-rec-tag-checkbox" value="' + escapeAttr(tag.name) + '" checked style="margin-right:8px;">' +
+                escapeHtml(tag.name) + ' <span style="color:#999;font-size:12px;">(' + Math.round((tag.score || 0) * 100) + '%)</span>' +
+              '</label>';
+    });
+    html += '</div>' +
+            '<div style="text-align:right;">' +
+              '<button class="product-modal-btn cancel" onclick="_closeAiRecommendTagsDialog(false)">取消</button>' +
+              '<button class="product-modal-btn save" onclick="_closeAiRecommendTagsDialog(true)">确认并保存</button>' +
+            '</div>';
+    showModal('AI 推荐标签', html);
+    window._aiRecommendTagsResolve = resolve;
+    window._aiRecommendTagsCurrentTags = currentTags || [];
+  });
+}
+
+function _closeAiRecommendTagsDialog(confirm) {
+  var resolve = window._aiRecommendTagsResolve;
+  var currentTags = window._aiRecommendTagsCurrentTags || [];
+  closeModal('dynamicModal');
+  if (!resolve) return;
+  if (!confirm) {
+    resolve(null);
+    window._aiRecommendTagsResolve = null;
+    return;
+  }
+  var checked = [];
+  document.querySelectorAll('#aiTagRecommendationList .ai-rec-tag-checkbox:checked').forEach(function(cb){
+    checked.push(cb.value);
+  });
+  var set = {};
+  currentTags.forEach(function(n){ if (n) set[n] = true; });
+  checked.forEach(function(n){ if (n) set[n] = true; });
+  resolve(Object.keys(set));
+  window._aiRecommendTagsResolve = null;
+}
+
+function _setSaveButtonBusy(overlayId, busy) {
+  var btn = document.querySelector('#' + overlayId + ' .product-modal-footer .product-modal-btn.save');
+  if (!btn) return;
+  btn.disabled = busy;
+  btn.textContent = busy ? 'AI 推荐中...' : '保存';
+}
+
 function saveProduct() {
   var id = document.getElementById('productEditId').value;
   var skuSpecs = _safeJsonParse(document.getElementById('productSkuSpecs').value, {}, 'SKU 规格');
@@ -24462,6 +24522,24 @@ function saveProduct() {
     ai_analysis: aiAnalysis
   };
   if (!body.name) { showToast('请输入商品名称'); return; }
+
+  _setSaveButtonBusy('productModalOverlay', true);
+  _aiRecommendTags('product', body)
+    .then(function(resp){ return _showRecommendTagsDialog((resp && resp.tags) || [], body.tags); })
+    .then(function(finalTags){
+      _setSaveButtonBusy('productModalOverlay', false);
+      if (finalTags === null) return; // 用户取消
+      body.tags = finalTags;
+      _submitSaveProduct(body, id);
+    }).catch(function(err){
+      console.error('[AI Recommend Tags] product error:', err);
+      _setSaveButtonBusy('productModalOverlay', false);
+      showToast('AI 推荐失败，继续保存');
+      _submitSaveProduct(body, id);
+    });
+}
+
+function _submitSaveProduct(body, id) {
   var url = '/api/products' + (id ? '/' + encodeURIComponent(id) : '');
   var method = id ? 'PUT' : 'POST';
   apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(r){ return r.json(); }).then(function(product){
@@ -25638,6 +25716,24 @@ function saveTalent() {
     next_follow_up_at: nextFollowUpAt,
     follow_up_note: document.getElementById('talentFollowUpNote').value.trim()
   };
+
+  _setSaveButtonBusy('talentModalOverlay', true);
+  _aiRecommendTags('talent', body)
+    .then(function(resp){ return _showRecommendTagsDialog((resp && resp.tags) || [], body.tags); })
+    .then(function(finalTags){
+      _setSaveButtonBusy('talentModalOverlay', false);
+      if (finalTags === null) return; // 用户取消
+      body.tags = finalTags;
+      _submitSaveTalent(body, id);
+    }).catch(function(err){
+      console.error('[AI Recommend Tags] talent error:', err);
+      _setSaveButtonBusy('talentModalOverlay', false);
+      showToast('AI 推荐失败，继续保存');
+      _submitSaveTalent(body, id);
+    });
+}
+
+function _submitSaveTalent(body, id) {
   var url = id ? '/api/talents/' + encodeURIComponent(id) : '/api/talents';
   var method = id ? 'PUT' : 'POST';
   apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(r){ return r.json(); }).then(function(t){

@@ -4787,6 +4787,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_post_tag()
             return
 
+        # AI 标签推荐
+        if path == '/api/ai/recommend-tags':
+            self._handle_ai_recommend_tags()
+            return
+
         # Talent API
         if path == '/api/talents':
             self._handle_post_talent()
@@ -10445,6 +10450,118 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         self._send_json(200, {'id': product_id, 'ai_analysis': analysis})
+
+    def _handle_ai_recommend_tags(self):
+        """POST /api/ai/recommend-tags — 调用 OpenClaw 从现有标签库推荐匹配标签"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+
+        entity_type = str(body.get('type') or '').strip().lower()
+        data = body.get('data') or {}
+        if entity_type not in ('product', 'talent'):
+            self._send_json_error(400, 'type 必须是 product 或 talent')
+            return
+        if not isinstance(data, dict):
+            self._send_json_error(400, 'data 必须是对象')
+            return
+
+        module = 'products' if entity_type == 'product' else 'influencers'
+        if not self._require_module_permission(auth, module):
+            return
+
+        # 加载候选标签（包含通用标签）
+        conn = _db_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM tags WHERE status = 'active' AND (type = ? OR type = 'common') ORDER BY name",
+                (entity_type,)
+            ).fetchall()
+            all_tags = [_tag_row_to_dict(r) for r in rows]
+        finally:
+            conn.close()
+
+        if not all_tags:
+            self._send_json(200, {'tags': []})
+            return
+
+        # 控制 prompt 长度，最多取 300 个候选标签
+        MAX_CANDIDATES = 300
+        candidate_tags = all_tags[:MAX_CANDIDATES]
+        candidate_names = [t['name'] for t in candidate_tags]
+
+        # 构建推荐 prompt
+        prompt = (
+            f"请根据以下{'商品' if entity_type == 'product' else '达人'}数据，从候选标签列表中推荐最相关的标签。\n"
+            f"只返回 JSON 数组，不要返回其他内容。\n"
+            f"JSON 数组中每个元素为对象，必须包含字段：\"name\"（标签名，必须从候选标签中选取）、\"score\"（0.0-1.0 的匹配分数）。\n"
+            f"最多推荐 10 个标签，按相关性从高到低排序。\n\n"
+            f"候选标签：{json.dumps(candidate_names, ensure_ascii=False)}\n\n"
+            f"输入数据：{json.dumps(data, ensure_ascii=False)}\n"
+        )
+        messages = [
+            {'role': 'system', 'content': '你是电商标签匹配助手，擅长根据商品或达人数据从候选标签中挑选最相关的标签。'},
+            {'role': 'user', 'content': prompt}
+        ]
+
+        cfg = get_embedding_config()
+        cfg['provider'] = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
+        cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
+        cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
+
+        try:
+            content = _call_ai_analysis(messages, cfg=cfg, context='recommend_tags')
+        except _AIAnalysisTimeoutError:
+            self._send_json_error(503, 'AI 推荐超时或失败，请稍后重试')
+            return
+        if not content:
+            self._send_json_error(503, 'AI 推荐失败或返回空响应')
+            return
+
+        raw_recs = _extract_json_array(content)
+        if not isinstance(raw_recs, list):
+            print(f'  [RecommendTags] AI response is not a valid JSON array: {content[:1000]}', flush=True)
+            self._send_json_error(503, 'AI 响应格式不正确')
+            return
+
+        # 将推荐结果映射到现有标签库，并补齐 id/score
+        name_to_tag = {}
+        for t in all_tags:
+            name_to_tag[t['name']] = t
+            name_to_tag.setdefault((t['name'] or '').lower(), t)
+
+        result = []
+        seen = set()
+        for rec in raw_recs:
+            if isinstance(rec, str):
+                rec_name = rec.strip()
+                rec_score = 0.9
+            elif isinstance(rec, dict) and rec.get('name'):
+                rec_name = str(rec.get('name')).strip()
+                rec_score = float(rec.get('score', 0.9))
+            else:
+                continue
+            if not rec_name:
+                continue
+            tag = name_to_tag.get(rec_name) or name_to_tag.get(rec_name.lower())
+            if not tag:
+                continue
+            if tag['id'] in seen:
+                continue
+            seen.add(tag['id'])
+            score = max(0.0, min(1.0, rec_score))
+            result.append({'id': tag['id'], 'name': tag['name'], 'score': round(score, 2)})
+
+        # 按分数降序，最多返回 10 个
+        result.sort(key=lambda x: x['score'], reverse=True)
+        result = result[:10]
+        self._send_json(200, {'tags': result})
 
     def _handle_check_duplicate_product(self):
         """POST /api/products/check-duplicate — 检查疑似重复商品"""
