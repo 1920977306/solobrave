@@ -674,6 +674,60 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   background: var(--accent-light);
   box-shadow: 0 0 0 1px var(--accent) inset, 0 2px 8px rgba(10,132,255,0.08);
 }
+.products-mid-card { position: relative; }
+.products-mid-checkbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+.products-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 0.5px solid var(--separator);
+  background: #fff;
+}
+.products-batch-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.products-batch-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex: 1;
+}
+.products-batch-actions { display: flex; gap: 8px; }
+.products-batch-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 0.5px solid var(--separator);
+  background: #fff;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.products-batch-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.talents-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 0.5px solid var(--separator);
+  background: #fff;
+}
 .products-mid-card-image {
   width: 60px;
   height: 60px;
@@ -1617,6 +1671,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border: 0.5px solid var(--separator);
   cursor: pointer;
   transition: all 0.18s ease;
+  position: relative;
 }
 .talents-mid-card:hover {
   background: #fafbfc;
@@ -6445,6 +6500,14 @@ window.doLogin = function () {
       </select>
       <button class="products-mid-new" onclick="createNewProduct()">+ 录入商品</button>
     </div>
+    <div class="products-batch-bar" id="productsBatchBar">
+      <label class="products-batch-check"><input type="checkbox" id="productsSelectAll" onchange="toggleSelectAllProducts(this.checked)"> 全选</label>
+      <span class="products-batch-count" id="productsBatchCount">已选 0 项</span>
+      <div class="products-batch-actions">
+        <button class="products-batch-btn" onclick="showBatchProductTagModal()">批量标签</button>
+        <button class="products-batch-btn" onclick="showExportProductModal()">导出</button>
+      </div>
+    </div>
   </div>
   <div class="products-mid-items" id="productsMidItems"></div>
   <div class="products-mid-pagination" id="productsMidPagination"></div>
@@ -6476,6 +6539,15 @@ window.doLogin = function () {
       </select>
       <button class="talents-mid-btn secondary" onclick="recommendTalentsAI()">✨ AI推荐达人</button>
       <button class="talents-mid-new" onclick="createNewTalent()">+ 录入达人</button>
+    </div>
+    <div class="talents-batch-bar" id="talentsBatchBar">
+      <label class="products-batch-check"><input type="checkbox" id="talentsSelectAll" onchange="toggleSelectAllTalents(this.checked)"> 全选</label>
+      <span class="products-batch-count" id="talentsBatchCount">已选 0 项</span>
+      <div class="products-batch-actions">
+        <button class="products-batch-btn" onclick="showBatchTalentMessageModal()">批量发消息</button>
+        <button class="products-batch-btn" onclick="showBatchTalentTagModal()">批量标签</button>
+        <button class="products-batch-btn" onclick="showExportTalentModal()">导出</button>
+      </div>
     </div>
   </div>
   <div class="talents-mid-items" id="talentsMidItems"></div>
@@ -23267,6 +23339,7 @@ function checkQuota() {
 
 // ========== 商品库 ==========
 var _productData = { products: [], total: 0 };
+var _productSelectedIds = [];
 var _productBrandData = { brands: [], total: 0 };
 var _productCurrentBrandName = '';
 var _productCurrentStatus = '';
@@ -23410,6 +23483,43 @@ function onProductSearch(value) {
   window._productSearchTimer = setTimeout(function(){ _productPage = 1; loadProducts(); }, 250);
 }
 
+/* ===== 商品批量操作 ===== */
+function toggleProductSelection(id, checked) {
+  var idx = _productSelectedIds.indexOf(id);
+  if (checked && idx === -1) _productSelectedIds.push(id);
+  if (!checked && idx !== -1) _productSelectedIds.splice(idx, 1);
+  _updateProductBatchBar();
+}
+function toggleSelectAllProducts(checked) {
+  if (checked) {
+    _productSelectedIds = _productData.products.map(function(p){ return p.id; });
+  } else {
+    _productSelectedIds = [];
+  }
+  renderProductList(_productData.products);
+  _updateProductBatchBar();
+}
+function _updateProductBatchBar() {
+  var countEl = document.getElementById('productsBatchCount');
+  var checkEl = document.getElementById('productsSelectAll');
+  if (countEl) countEl.textContent = '已选 ' + _productSelectedIds.length + ' 项';
+  if (checkEl) checkEl.checked = _productSelectedIds.length > 0 && _productData.products.length > 0 && _productSelectedIds.length === _productData.products.length;
+}
+
+function showBatchProductTagModal() {
+  if (!_productSelectedIds.length) { showToast('请先选择商品'); return; }
+  _showBatchTagModal('product', _productSelectedIds.slice(), function(){
+    _productSelectedIds = [];
+    renderProductList(_productData.products);
+    loadProducts();
+  });
+}
+
+function showExportProductModal() {
+  var scope = _productSelectedIds.length ? 'selected' : 'all';
+  _showExportModal('product', scope, _productSelectedIds.slice());
+}
+
 function renderProductList(products) {
   var el = document.getElementById('productsMidItems');
   var countEl = document.getElementById('productsMidCount');
@@ -23423,8 +23533,10 @@ function renderProductList(products) {
   var html = '';
   products.forEach(function(p){
     var isActive = p.id === _productCurrentId;
+    var isSelected = _productSelectedIds.indexOf(p.id) !== -1;
     var placeholder = getProductPlaceholder(p);
     html += '<div class="products-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(p.id) + '" onclick="selectProductItem(\'' + escapeAttr(p.id).replace(/'/g,"\\'") + '\')">';
+    html += '<input type="checkbox" class="products-mid-checkbox" data-id="' + escapeAttr(p.id) + '"' + (isSelected ? ' checked' : '') + ' onclick="event.stopPropagation();toggleProductSelection(\'' + escapeAttr(p.id).replace(/'/g,"\\'") + '\', this.checked)">';
     html += placeholder;
     html += '<div class="products-mid-card-info">';
     html += '<div class="products-mid-card-title">' + escapeHtml(p.name) + '</div>';
@@ -23441,6 +23553,7 @@ function renderProductList(products) {
     html += '</div></div></div></div>';
   });
   el.innerHTML = html;
+  _updateProductBatchBar();
 }
 
 function getProductPlaceholder(p) {
@@ -24663,6 +24776,7 @@ function deleteCurrentProduct() {
 
 // ========== 达人库 ==========
 var _talentData = { talents: [], total: 0 };
+var _talentSelectedIds = [];
 var _talentCurrentId = null;
 var _talentCooperation = '';
 var _talentCategory = '';
@@ -24833,6 +24947,49 @@ function recommendTalentsAI() {
   showToast('✨ AI 推荐达人功能开发中');
 }
 
+/* ===== 达人批量操作 ===== */
+function toggleTalentSelection(id, checked) {
+  var idx = _talentSelectedIds.indexOf(id);
+  if (checked && idx === -1) _talentSelectedIds.push(id);
+  if (!checked && idx !== -1) _talentSelectedIds.splice(idx, 1);
+  _updateTalentBatchBar();
+}
+function toggleSelectAllTalents(checked) {
+  if (checked) {
+    _talentSelectedIds = _talentData.talents.map(function(t){ return t.id; });
+  } else {
+    _talentSelectedIds = [];
+  }
+  renderTalentList(_talentData.talents);
+  _updateTalentBatchBar();
+}
+function _updateTalentBatchBar() {
+  var countEl = document.getElementById('talentsBatchCount');
+  var checkEl = document.getElementById('talentsSelectAll');
+  if (countEl) countEl.textContent = '已选 ' + _talentSelectedIds.length + ' 项';
+  if (checkEl) checkEl.checked = _talentSelectedIds.length > 0 && _talentData.talents.length > 0 && _talentSelectedIds.length === _talentData.talents.length;
+}
+
+function showBatchTalentMessageModal() {
+  if (!_talentSelectedIds.length) { showToast('请先选择达人'); return; }
+  _showBatchSendMessageModal(_talentSelectedIds.slice(), function(){
+    _talentSelectedIds = [];
+    renderTalentList(_talentData.talents);
+  });
+}
+function showBatchTalentTagModal() {
+  if (!_talentSelectedIds.length) { showToast('请先选择达人'); return; }
+  _showBatchTagModal('talent', _talentSelectedIds.slice(), function(){
+    _talentSelectedIds = [];
+    renderTalentList(_talentData.talents);
+    loadTalents();
+  });
+}
+function showExportTalentModal() {
+  var scope = _talentSelectedIds.length ? 'selected' : 'all';
+  _showExportModal('talent', scope, _talentSelectedIds.slice());
+}
+
 function renderTalentList(talents) {
   var el = document.getElementById('talentsMidItems');
   var countEl = document.getElementById('talentsMidCount');
@@ -24853,7 +25010,9 @@ function renderTalentList(talents) {
     var followersText = formatFollowers(t.followers || 0).replace('w', '万');
     var gmv = (t.total_gmv || mock.total_gmv || 0) >= 10000 ? (((t.total_gmv || mock.total_gmv) / 10000).toFixed(1).replace(/\.0$/, '') + 'w') : formatNumber(t.total_gmv || mock.total_gmv || 0);
     var productCount = t.product_count || t.total_products || mock.product_count || 0;
+    var isSelected = _talentSelectedIds.indexOf(t.id) !== -1;
     html += '<div class="talents-mid-card' + (_talentCurrentId === t.id ? ' active' : '') + '" data-id="' + escapeAttr(t.id) + '" onclick="selectTalentItem(\'' + escapeAttr(t.id).replace(/'/g,"\\'") + '\')">';
+    html += '<input type="checkbox" class="products-mid-checkbox" data-id="' + escapeAttr(t.id) + '"' + (isSelected ? ' checked' : '') + ' onclick="event.stopPropagation();toggleTalentSelection(\'' + escapeAttr(t.id).replace(/'/g,"\\'") + '\', this.checked)">';
     html += '<div class="talents-mid-avatar" style="background:' + (t.avatar ? '#f5f7fa' : 'var(--accent)') + ';">' + avatar + '</div>';
     html += '<div class="talents-mid-info">';
     html += '<div class="talents-mid-header-row">';
@@ -24881,6 +25040,7 @@ function renderTalentList(talents) {
     html += '</div>';
   });
   el.innerHTML = html;
+  _updateTalentBatchBar();
 }
 
 function _renderTalentStatusDropdown(talentId, currentStatus, inList) {
@@ -25863,6 +26023,113 @@ function deleteCurrentTalent() {
 var _currentTalent = null;
 var _currentTalentMatchProducts = { talent: null, matches: [], sortBy: 'score' };
 var _currentProductMatchTalents = { product: null, matches: [], sortBy: 'score' };
+
+/* ===== 批量操作通用弹窗 ===== */
+var _batchTagSelector = null;
+
+function _showBatchTagModal(type, ids, onDone) {
+  var actionHtml = '<div style="margin-bottom:12px;">' +
+    '<label style="margin-right:16px;font-size:13px;"><input type="radio" name="batchTagAction" value="add" checked> 添加标签</label>' +
+    '<label style="font-size:13px;"><input type="radio" name="batchTagAction" value="remove"> 移除标签</label>' +
+    '</div>' +
+    '<div id="batchTagSelector"></div>';
+  showModal('批量修改标签', actionHtml);
+  _batchTagSelector = new TagSelector('batchTagSelector', { type: type, placeholder: '搜索或输入标签', allowCreate: true });
+  // 替换确认按钮
+  var panel = document.querySelector('#dynamicModal .modal-panel');
+  var footer = document.createElement('div');
+  footer.style.cssText = 'text-align:right;margin-top:16px;';
+  footer.innerHTML = '<button class="product-modal-btn cancel" onclick="closeModal(\'dynamicModal\')">取消</button> ' +
+                     '<button class="product-modal-btn save" id="batchTagConfirmBtn">确认</button>';
+  panel.querySelector('div > div:last-child').appendChild(footer);
+  document.getElementById('batchTagConfirmBtn').addEventListener('click', function(){
+    var tagIds = _batchTagSelector.getTagObjects().map(function(t){ return t.id; }).filter(Boolean);
+    if (!tagIds.length) { showToast('请选择标签'); return; }
+    var action = document.querySelector('input[name="batchTagAction"]:checked');
+    action = action ? action.value : 'add';
+    var btn = document.getElementById('batchTagConfirmBtn');
+    btn.disabled = true; btn.textContent = '处理中...';
+    apiFetch('/api/batch/update-tags', {
+      method: 'POST',
+      body: JSON.stringify({ type: type, ids: ids, action: action, tagIds: tagIds })
+    }).then(function(r){ return r.json(); }).then(function(res){
+      closeModal('dynamicModal');
+      showToast('✅ 已更新 ' + (res.updated || 0) + ' 项');
+      if (onDone) onDone();
+    }).catch(function(){
+      showToast('❌ 批量更新失败');
+      btn.disabled = false; btn.textContent = '确认';
+    });
+  });
+}
+
+function _showBatchSendMessageModal(ids, onDone) {
+  var html = '<div style="margin-bottom:10px;font-size:12px;color:var(--text-secondary);">支持变量：{达人名称}、{抖音号}</div>' +
+    '<div class="product-modal-field"><label>消息内容</label><textarea id="batchMessageText" rows="5" placeholder="输入要批量发送的消息..."></textarea></div>';
+  showModal('批量发消息', html);
+  var panel = document.querySelector('#dynamicModal .modal-panel');
+  var footer = document.createElement('div');
+  footer.style.cssText = 'text-align:right;margin-top:16px;';
+  footer.innerHTML = '<button class="product-modal-btn cancel" onclick="closeModal(\'dynamicModal\')">取消</button> ' +
+                     '<button class="product-modal-btn save" id="batchSendConfirmBtn">发送</button>';
+  panel.querySelector('div > div:last-child').appendChild(footer);
+  document.getElementById('batchSendConfirmBtn').addEventListener('click', function(){
+    var message = document.getElementById('batchMessageText').value.trim();
+    if (!message) { showToast('请输入消息内容'); return; }
+    var btn = document.getElementById('batchSendConfirmBtn');
+    btn.disabled = true; btn.textContent = '发送中...';
+    apiFetch('/api/batch/send-messages', {
+      method: 'POST',
+      body: JSON.stringify({ talentIds: ids, message: message })
+    }).then(function(r){ return r.json(); }).then(function(res){
+      closeModal('dynamicModal');
+      showToast('✅ 已发送 ' + (res.sent ? res.sent.length : 0) + ' 条');
+      if (onDone) onDone();
+    }).catch(function(){
+      showToast('❌ 批量发送失败');
+      btn.disabled = false; btn.textContent = '发送';
+    });
+  });
+}
+
+function _showExportModal(type, scope, ids) {
+  var html = '<div style="margin-bottom:12px;font-size:13px;">' +
+    '<label style="margin-right:16px;"><input type="radio" name="exportScope" value="selected" ' + (scope === 'selected' ? 'checked' : '') + '> 导出选中项 (' + ids.length + ')</label>' +
+    '<label><input type="radio" name="exportScope" value="all" ' + (scope === 'all' ? 'checked' : '') + '> 导出全部</label>' +
+    '</div>' +
+    '<div style="font-size:12px;color:var(--text-secondary);">导出为 CSV 格式</div>';
+  showModal('导出数据', html);
+  var panel = document.querySelector('#dynamicModal .modal-panel');
+  var footer = document.createElement('div');
+  footer.style.cssText = 'text-align:right;margin-top:16px;';
+  footer.innerHTML = '<button class="product-modal-btn cancel" onclick="closeModal(\'dynamicModal\')">取消</button> ' +
+                     '<button class="product-modal-btn save" id="exportConfirmBtn">导出</button>';
+  panel.querySelector('div > div:last-child').appendChild(footer);
+  document.getElementById('exportConfirmBtn').addEventListener('click', function(){
+    var selectedScope = document.querySelector('input[name="exportScope"]:checked');
+    selectedScope = selectedScope ? selectedScope.value : scope;
+    var url = '/api/export?type=' + encodeURIComponent(type);
+    if (selectedScope === 'selected' && ids.length) {
+      url += '&ids=' + encodeURIComponent(ids.join(','));
+    }
+    closeModal('dynamicModal');
+    apiFetch(url).then(function(r){ return r.text(); }).then(function(csvText){
+      var filename = (type === 'product' ? 'products' : 'talents') + '_export.csv';
+      _downloadTextAsFile(csvText, filename, 'text/csv;charset=utf-8;');
+    }).catch(function(){ showToast('❌ 导出失败'); });
+  });
+}
+
+function _downloadTextAsFile(text, filename, mimeType) {
+  var blob = new Blob([text], { type: mimeType || 'text/plain;charset=utf-8;' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
 
 // ========== Knowledge Page ==========
 var _knowledgeData = { docs: [], categories: [], total: 0 };

@@ -37,6 +37,8 @@ import math
 import sqlite3
 import platform
 import signal
+import csv
+import io
 try:
     import fcntl
 except ImportError:
@@ -4214,6 +4216,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _send_auth_error(self, message, status=401):
         self._send_json(status, {'error': message})
 
+    def _send_csv(self, filename, rows):
+        """发送 CSV 文件下载响应"""
+        if not rows:
+            self._send_json_error(400, '无数据可导出')
+            return
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+        body = output.getvalue().encode('utf-8-sig')
+        self.send_response(200)
+        self._add_cors_headers()
+        self.send_header('Content-Type', 'text/csv; charset=utf-8')
+        self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     # ─── 读取请求体 ────────────────────────────────────
     def _read_body(self):
         content_length = int(self.headers.get('Content-Length', 0))
@@ -4563,6 +4583,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(405, 'POST only')
             return
 
+        # Batch export
+        if path == '/api/export':
+            self._handle_export_csv()
+            return
+
         # Static files
         super().do_GET()
 
@@ -4795,6 +4820,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # AI 统一数据分析
         if path == '/api/ai/analyze':
             self._handle_ai_analyze()
+            return
+
+        # Batch operations
+        if path == '/api/batch/send-messages':
+            self._handle_batch_send_messages()
+            return
+        if path == '/api/batch/update-tags':
+            self._handle_batch_update_tags()
             return
 
         # Talent API
@@ -10705,6 +10738,214 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             }
         }
         self._send_json(200, result)
+
+    def _handle_batch_send_messages(self):
+        """POST /api/batch/send-messages — 批量给达人发消息（以跟进记录形式落地）"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'):
+            return
+
+        body = self._read_body() or {}
+        talent_ids = body.get('talentIds') or body.get('talent_ids') or []
+        template = str(body.get('template') or '').strip()
+        message = str(body.get('message') or '').strip()
+        if not isinstance(talent_ids, list) or not talent_ids:
+            self._send_json_error(400, 'talentIds 不能为空')
+            return
+        if not template and not message:
+            self._send_json_error(400, 'template 或 message 至少填一个')
+            return
+
+        # 去重并过滤空 id
+        talent_ids = list(dict.fromkeys([str(tid).strip() for tid in talent_ids if str(tid).strip()]))
+        conn = _db_conn()
+        now = int(time.time() * 1000)
+        sent = []
+        failed = []
+        try:
+            for tid in talent_ids:
+                row = conn.execute('SELECT id, name, douyin_id FROM talents WHERE id = ?', (tid,)).fetchone()
+                if not row:
+                    failed.append({'id': tid, 'reason': '达人不存在'})
+                    continue
+                talent = {'id': row['id'], 'name': row['name'] or '', 'douyin_id': row['douyin_id'] or ''}
+                content = template or message
+                content = content.replace('{达人名称}', talent['name']).replace('{抖音号}', talent['douyin_id'])
+                if not content:
+                    failed.append({'id': tid, 'reason': '消息内容为空'})
+                    continue
+                fu_id = 'tfu_' + str(now) + '_' + uuid.uuid4().hex[:6]
+                conn.execute(
+                    f"INSERT INTO talent_follow_ups ({', '.join(_FOLLOW_UP_COLUMNS)}) VALUES ({', '.join('?' * len(_FOLLOW_UP_COLUMNS))})",
+                    (fu_id, tid, auth.user_info.get('userId', ''), now, 0, content, 'batch-sent', 'completed', now, now)
+                )
+                conn.execute(
+                    'UPDATE talents SET follow_up_by = ?, next_follow_up_at = ?, updated_at = ? WHERE id = ?',
+                    (auth.user_info.get('userId', ''), 0, now, tid)
+                )
+                sent.append({'id': tid, 'content': content})
+                now += 1
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'sent': sent, 'failed': failed, 'total': len(talent_ids)})
+
+    def _handle_batch_update_tags(self):
+        """POST /api/batch/update-tags — 批量添加/移除商品或达人标签"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body() or {}
+        entity_type = str(body.get('type') or '').strip().lower()
+        ids = body.get('ids') or []
+        action = str(body.get('action') or '').strip().lower()
+        tag_ids = body.get('tagIds') or body.get('tag_ids') or []
+        if entity_type not in ('product', 'talent'):
+            self._send_json_error(400, 'type 必须是 product 或 talent')
+            return
+        if not isinstance(ids, list) or not ids:
+            self._send_json_error(400, 'ids 不能为空')
+            return
+        if action not in ('add', 'remove'):
+            self._send_json_error(400, 'action 必须是 add 或 remove')
+            return
+        if not isinstance(tag_ids, list) or not tag_ids:
+            self._send_json_error(400, 'tagIds 不能为空')
+            return
+
+        module = 'products' if entity_type == 'product' else 'influencers'
+        if not self._require_module_permission(auth, module):
+            return
+
+        ids = list(dict.fromkeys([str(i).strip() for i in ids if str(i).strip()]))
+        tag_ids = list(dict.fromkeys([str(t).strip() for t in tag_ids if str(t).strip()]))
+
+        conn = _db_conn()
+        now = int(time.time() * 1000)
+        assoc_table = 'product_tags' if entity_type == 'product' else 'talent_tags'
+        entity_col = 'product_id' if entity_type == 'product' else 'talent_id'
+        updated = 0
+        skipped = 0
+        try:
+            # 校验标签是否存在
+            valid_tag_ids = set()
+            tag_rows = conn.execute('SELECT id FROM tags WHERE status = ? AND id IN ({})'.format(','.join('?' * len(tag_ids))), (['active'] + tag_ids)).fetchall()
+            valid_tag_ids = {r['id'] for r in tag_rows}
+            if not valid_tag_ids:
+                self._send_json_error(400, '指定的标签不存在或已删除')
+                return
+
+            for eid in ids:
+                row = conn.execute(f'SELECT id FROM {entity_type}s WHERE id = ?', (eid,)).fetchone()
+                if not row:
+                    skipped += 1
+                    continue
+                # 当前关联标签
+                cur_rows = conn.execute(
+                    f'SELECT tag_id FROM {assoc_table} WHERE {entity_col} = ?',
+                    (eid,)
+                ).fetchall()
+                current_ids = {r['tag_id'] for r in cur_rows}
+                if action == 'add':
+                    new_ids = valid_tag_ids - current_ids
+                    for tag_id in new_ids:
+                        assoc_id = ('pt_' if entity_type == 'product' else 'tt_') + str(now) + '_' + uuid.uuid4().hex[:6]
+                        conn.execute(
+                            f'INSERT INTO {assoc_table} (id, {entity_col}, tag_id, created_at) VALUES (?, ?, ?, ?)',
+                            (assoc_id, eid, tag_id, now)
+                        )
+                        now += 1
+                    if new_ids:
+                        updated += 1
+                    else:
+                        skipped += 1
+                else:
+                    to_remove = current_ids & valid_tag_ids
+                    if to_remove:
+                        placeholders = ','.join('?' * len(to_remove))
+                        conn.execute(
+                            f'DELETE FROM {assoc_table} WHERE {entity_col} = ? AND tag_id IN ({placeholders})',
+                            (eid,) + tuple(to_remove)
+                        )
+                        updated += 1
+                    else:
+                        skipped += 1
+            # 批量更新实体的 updated_at
+            if updated:
+                placeholders = ','.join('?' * len(ids))
+                conn.execute(f'UPDATE {entity_type}s SET updated_at = ? WHERE id IN ({placeholders})', (now,) + tuple(ids))
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'updated': updated, 'skipped': skipped, 'action': action, 'type': entity_type})
+
+    def _handle_export_csv(self):
+        """GET /api/export?type=product|talent&ids=逗号分隔 — 导出 CSV"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        query = parse_qs(urlparse(self.path).query)
+        entity_type = str(query.get('type', [''])[0]).strip().lower()
+        if entity_type not in ('product', 'talent'):
+            self._send_json_error(400, 'type 必须是 product 或 talent')
+            return
+        module = 'products' if entity_type == 'product' else 'influencers'
+        if not self._require_module_permission(auth, module):
+            return
+
+        ids_param = query.get('ids', [''])[0].strip()
+        ids = [x.strip() for x in ids_param.split(',') if x.strip()] if ids_param else []
+        conn = _db_conn()
+        try:
+            if entity_type == 'product':
+                if ids:
+                    placeholders = ','.join('?' * len(ids))
+                    rows = conn.execute(f'SELECT * FROM products WHERE id IN ({placeholders}) ORDER BY name', tuple(ids)).fetchall()
+                else:
+                    rows = conn.execute("SELECT * FROM products WHERE status != 'archived' ORDER BY name").fetchall()
+                entities = [_product_row_to_dict(r) for r in rows]
+                for p in entities:
+                    p['tags'] = ', '.join([t['name'] for t in _get_entity_tags(conn, 'product', p['id'])])
+                fieldnames = ['id', 'name', 'brand', 'category', 'price', 'status', 'monthly_sales', 'monthly_gmv', 'conversion_rate', 'avg_order_value', 'tags']
+                filename = 'products_export.csv'
+            else:
+                if ids:
+                    placeholders = ','.join('?' * len(ids))
+                    rows = conn.execute(f'SELECT * FROM talents WHERE id IN ({placeholders}) ORDER BY name', tuple(ids)).fetchall()
+                else:
+                    rows = conn.execute("SELECT * FROM talents WHERE status != 'archived' ORDER BY name").fetchall()
+                entities = [_talent_row_to_dict(r) for r in rows]
+                for t in entities:
+                    t['tags'] = ', '.join([tag['name'] for tag in _get_entity_tags(conn, 'talent', t['id'])])
+                fieldnames = ['id', 'name', 'douyin_id', 'followers', 'category', 'cooperation_status', 'phone', 'wechat', 'email', 'total_gmv', 'product_count', 'tags']
+                filename = 'talents_export.csv'
+            # 补充 category 兼容字段
+            for t in entities:
+                if not t.get('category') and t.get('fan_category'):
+                    t['category'] = t['fan_category']
+                if not t.get('product_count') and t.get('total_products'):
+                    t['product_count'] = t['total_products']
+            rows_out = []
+            for e in entities:
+                row = {}
+                for fn in fieldnames:
+                    val = e.get(fn, '')
+                    if val is None:
+                        val = ''
+                    elif isinstance(val, (dict, list)):
+                        val = json.dumps(val, ensure_ascii=False)
+                    row[fn] = val
+                rows_out.append(row)
+        finally:
+            conn.close()
+        self._send_csv(filename, rows_out)
 
     def _handle_check_duplicate_product(self):
         """POST /api/products/check-duplicate — 检查疑似重复商品"""
