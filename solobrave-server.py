@@ -4792,6 +4792,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_ai_recommend_tags()
             return
 
+        # AI 统一数据分析
+        if path == '/api/ai/analyze':
+            self._handle_ai_analyze()
+            return
+
         # Talent API
         if path == '/api/talents':
             self._handle_post_talent()
@@ -10562,6 +10567,144 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         result.sort(key=lambda x: x['score'], reverse=True)
         result = result[:10]
         self._send_json(200, {'tags': result})
+
+    def _handle_ai_analyze(self):
+        """POST /api/ai/analyze — 统一 AI 数据分析，生成摘要/趋势/建议报告"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        body = self._read_body() or {}
+        entity_type = str(body.get('type') or '').strip().lower()
+        entity_id = str(body.get('id') or '').strip()
+        period = str(body.get('period') or '30d').strip().lower()
+        if entity_type not in ('product', 'talent') or not entity_id:
+            self._send_json_error(400, 'type 必须是 product 或 talent，且 id 不能为空')
+            return
+        if period not in ('7d', '30d', '90d'):
+            period = '30d'
+
+        module = 'products' if entity_type == 'product' else 'influencers'
+        if not self._require_module_permission(auth, module):
+            return
+
+        conn = _db_conn()
+        try:
+            if entity_type == 'product':
+                row = conn.execute('SELECT * FROM products WHERE id = ?', (entity_id,)).fetchone()
+                entity = _product_row_to_dict(row)
+            else:
+                row = conn.execute('SELECT * FROM talents WHERE id = ?', (entity_id,)).fetchone()
+                entity = _talent_row_to_dict(row)
+        finally:
+            conn.close()
+
+        if not entity:
+            self._send_json_error(404, f'{entity_type.capitalize()} not found')
+            return
+
+        cfg = get_embedding_config()
+        cfg['provider'] = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
+        cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
+        cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
+
+        if entity_type == 'product':
+            prompt = (
+                f"请对以下商品进行数据智能分析，分析周期为最近 {period}。\n"
+                f"只返回 JSON，不要返回其他内容。\n"
+                f"JSON 格式：{{\"summary\": \"一段整体摘要\", \"trends\": [{{\"label\": \"日期/维度\", \"value\": 数字, \"metric\": \"指标名\"}}], \"suggestions\": [\"建议1\", \"建议2\"]}}\n"
+                f"trends 请根据商品数据生成 5-7 个趋势点（可模拟日期分布），suggestions 给出 3-5 条可落地的优化建议。\n\n"
+                f"商品名称：{entity.get('name', '')}\n"
+                f"品牌：{entity.get('brand', '')}\n"
+                f"类目：{entity.get('category', '')}\n"
+                f"价格：¥{entity.get('price', 0)}\n"
+                f"月销量：{entity.get('monthly_sales', 0)}\n"
+                f"月 GMV：¥{entity.get('monthly_gmv', 0)}\n"
+                f"转化率：{entity.get('conversion_rate', 0)}%\n"
+                f"平均客单价：¥{entity.get('avg_order_value', 0)}\n"
+                f"佣金策略：{json.dumps(entity.get('commission_rates', {}), ensure_ascii=False)}\n"
+                f"受众画像：{json.dumps(entity.get('audience', {}), ensure_ascii=False)}\n"
+                f"渠道分布：{json.dumps(entity.get('channel_distribution', {}), ensure_ascii=False)}\n"
+                f"状态：{entity.get('status', '')}\n"
+            )
+        else:
+            prompt = (
+                f"请对以下抖音达人进行数据智能分析，分析周期为最近 {period}。\n"
+                f"只返回 JSON，不要返回其他内容。\n"
+                f"JSON 格式：{{\"summary\": \"一段整体摘要\", \"trends\": [{{\"label\": \"日期/维度\", \"value\": 数字, \"metric\": \"指标名\"}}], \"suggestions\": [\"建议1\", \"建议2\"]}}\n"
+                f"trends 请根据达人数据生成 5-7 个趋势点（可模拟日期分布），suggestions 给出 3-5 条可落地的优化建议。\n\n"
+                f"达人昵称：{entity.get('name', '')}\n"
+                f"等级：{entity.get('level', '')}\n"
+                f"粉丝量：{entity.get('followers', 0)}\n"
+                f"达人类型：{entity.get('talent_type', '')}\n"
+                f"主营类目：{entity.get('category', '') or entity.get('fan_category', '')}\n"
+                f"总 GMV：¥{entity.get('total_gmv', 0)}\n"
+                f"带货商品数：{entity.get('product_count', entity.get('total_products', 0))}\n"
+                f"平均客单价：¥{entity.get('average_price', 0)}\n"
+                f"直播占比：{entity.get('live_ratio', 0)}%\n"
+                f"视频占比：{entity.get('video_ratio', 0)}%\n"
+                f"场均直播 GMV：¥{entity.get('avg_live_gmv', 0)}\n"
+                f"履约分：{entity.get('fulfillment_score', 0)}\n"
+                f"口碑分：{entity.get('rating_score', 0)}\n"
+                f"粉丝性别分布：{json.dumps(entity.get('fan_gender', {}), ensure_ascii=False)}\n"
+                f"粉丝年龄分布：{json.dumps(entity.get('fan_age', {}), ensure_ascii=False)}\n"
+                f"简介：{entity.get('bio', '')}\n"
+            )
+
+        messages = [
+            {'role': 'system', 'content': '你是电商数据分析助手，擅长根据商品/达人数据生成结构化分析报告。'},
+            {'role': 'user', 'content': prompt}
+        ]
+
+        try:
+            content = _call_ai_analysis(messages, cfg=cfg, context='ai_analyze')
+        except _AIAnalysisTimeoutError:
+            self._send_json_error(503, 'AI 分析超时或失败，请稍后重试')
+            return
+        if not content:
+            self._send_json_error(503, 'AI 分析失败或返回空响应')
+            return
+
+        report = _extract_json_object(content)
+        if not isinstance(report, dict):
+            print(f'  [AI Analyze] response is not a valid JSON object: {content[:1000]}', flush=True)
+            self._send_json_error(503, 'AI 响应格式不正确')
+            return
+
+        # 规范化输出字段
+        summary = str(report.get('summary') or '').strip()
+        raw_trends = report.get('trends')
+        trends = []
+        if isinstance(raw_trends, list):
+            for item in raw_trends:
+                if isinstance(item, dict):
+                    trends.append({
+                        'label': str(item.get('label') or '').strip(),
+                        'value': float(item.get('value') or 0),
+                        'metric': str(item.get('metric') or '').strip()
+                    })
+                elif isinstance(item, (int, float)):
+                    trends.append({'label': '', 'value': float(item), 'metric': ''})
+        raw_suggestions = report.get('suggestions')
+        suggestions = []
+        if isinstance(raw_suggestions, list):
+            for s in raw_suggestions:
+                suggestions.append(str(s).strip())
+        elif isinstance(raw_suggestions, str):
+            suggestions = [raw_suggestions.strip()]
+
+        result = {
+            'id': entity_id,
+            'type': entity_type,
+            'period': period,
+            'report': {
+                'summary': summary,
+                'trends': trends,
+                'suggestions': suggestions
+            }
+        }
+        self._send_json(200, result)
 
     def _handle_check_duplicate_product(self):
         """POST /api/products/check-duplicate — 检查疑似重复商品"""
