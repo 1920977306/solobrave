@@ -2168,6 +2168,99 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: var(--text-secondary);
   margin-top: 4px;
 }
+.ai-match-invite-btn {
+  margin-top: 8px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ai-match-invite-btn:hover { background: var(--accent-hover); }
+.ai-match-invite-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.invite-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  z-index: 500;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.invite-modal-overlay.active { display: flex; }
+.invite-modal {
+  width: 420px;
+  max-width: 90vw;
+  background: #ffffff;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  overflow: hidden;
+}
+.invite-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 0.5px solid var(--separator);
+}
+.invite-modal-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+.invite-modal-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 18px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.invite-modal-close:hover { background: var(--hover-bg); }
+.invite-modal-body { padding: 20px; }
+.invite-modal-body label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.invite-modal-body textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 10px 12px;
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.invite-modal-body textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.invite-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 0.5px solid var(--separator);
+}
+.invite-modal-btn {
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+}
+.invite-modal-btn.cancel { background: var(--bg-tertiary); color: var(--text-primary); }
+.invite-modal-btn.cancel:hover { background: var(--hover-bg); }
+.invite-modal-btn.confirm { background: var(--accent); color: #ffffff; }
+.invite-modal-btn.confirm:hover { background: var(--accent-hover); }
 .spinner {
   display: inline-block;
   width: 20px;
@@ -6138,7 +6231,7 @@ window.doLogin = function () {
     <div class="products-tabs" id="productsTabs">
       <button class="products-tab active" data-tab="detail" onclick="switchProductTab('detail')">基本信息</button>
       <button class="products-tab" data-tab="sales" onclick="switchProductTab('sales')">带货数据</button>
-      <button class="products-tab" data-tab="influencers" onclick="switchProductTab('influencers')">带货达人</button>
+      <button class="products-tab" data-tab="influencers" onclick="switchProductTab('influencers')">推荐达人</button>
       <button class="products-tab" data-tab="audience" onclick="switchProductTab('audience')">受众画像</button>
     </div>
     <div class="products-tab-panels" id="productsTabPanels">
@@ -6447,7 +6540,7 @@ window.doLogin = function () {
       <button class="talents-tab active" data-tab="overview" onclick="switchTalentTab('overview')">概览</button>
       <button class="talents-tab" data-tab="sales" onclick="switchTalentTab('sales')">带货数据</button>
       <button class="talents-tab" data-tab="fans" onclick="switchTalentTab('fans')">粉丝画像</button>
-      <button class="talents-tab" data-tab="products" onclick="switchTalentTab('products')">匹配商品</button>
+      <button class="talents-tab" data-tab="products" onclick="switchTalentTab('products')">推荐商品</button>
       <button class="talents-tab" data-tab="records" onclick="switchTalentTab('records')">合作记录</button>
       <button class="talents-tab" data-tab="followups" onclick="switchTalentTab('followups')">跟进记录</button>
     </div>
@@ -23779,17 +23872,17 @@ function renderProductPanelInfluencers(p) {
   _currentProductMatchTalents = { product: p, matches: [], sortBy: 'score' };
   var html = '<div class="products-panel-section">';
   html += '<div class="ai-match-header">';
-  html += '<div class="products-panel-title" style="margin:0;padding:0;border:none;">AI 推荐可合作达人</div>';
+  html += '<div class="products-panel-title" style="margin:0;padding:0;border:none;">推荐达人</div>';
   html += '<div class="ai-match-actions">';
   html += '<select class="ai-match-sort" id="productTalentSort" onchange="onProductTalentSortChange(this.value)">';
   html += '<option value="score">按匹配度</option>';
   html += '<option value="followers">按粉丝数</option>';
   html += '<option value="gmv">按历史GMV</option>';
   html += '</select>';
-  html += '<button class="ai-match-btn" id="btnMatchProductTalents" onclick="runProductTalentMatch(\'' + escapeAttr(p.id) + '\')">AI 匹配达人</button>';
+  html += '<button class="ai-match-btn" id="btnMatchProductTalents" onclick="runProductTalentMatch(\'' + escapeAttr(p.id) + '\')">获取推荐</button>';
   html += '</div></div>';
   html += '<div id="productTalentMatchBody" class="ai-match-body">';
-  html += '<div class="products-empty"><div class="products-empty-text">点击上方「AI 匹配达人」按钮，为该商品智能推荐最合适的达人</div></div>';
+  html += '<div class="products-empty"><div class="products-empty-text">点击上方「获取推荐」按钮，为该商品智能推荐最合适的达人</div></div>';
   html += '</div></div>';
   el.innerHTML = html;
 }
@@ -23801,24 +23894,24 @@ function onProductTalentSortChange(sortBy) {
 
 function runProductTalentMatch(productId) {
   var btn = document.getElementById('btnMatchProductTalents');
-  if (btn) { btn.disabled = true; btn.textContent = '匹配中...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '推荐中...'; }
   var body = document.getElementById('productTalentMatchBody');
-  if (body) body.innerHTML = '<div class="products-loading"><div class="spinner"></div>AI 正在分析匹配...</div>';
-  apiFetch('/api/products/' + encodeURIComponent(productId) + '/match-talents', {
+  if (body) body.innerHTML = '<div class="products-loading"><div class="spinner"></div>正在分析匹配...</div>';
+  apiFetch('/api/matching/recommend', {
     method: 'POST',
     silent: true,
-    body: JSON.stringify({ limit: 10, agentId: getCurrentEmpId() || '' })
+    body: JSON.stringify({ type: 'product', id: productId, limit: 10, agentId: getCurrentEmpId() || '' })
   }).then(function(r){
-    if (!r) throw new Error('商品不存在');
+    if (!r) throw new Error('推荐请求失败');
     return r.json();
   }).then(function(data){
-    _currentProductMatchTalents.matches = data.matches || [];
+    _currentProductMatchTalents.matches = data.recommendations || [];
     _renderProductTalentMatches();
-    if (btn) { btn.disabled = false; btn.textContent = '重新匹配'; }
+    if (btn) { btn.disabled = false; btn.textContent = '重新推荐'; }
   }).catch(function(e){
     console.error(e);
-    if (body) body.innerHTML = '<div class="products-empty"><div class="products-empty-text">AI 匹配失败，请重试</div></div>';
-    if (btn) { btn.disabled = false; btn.textContent = 'AI 匹配达人'; }
+    if (body) body.innerHTML = '<div class="products-empty"><div class="products-empty-text">推荐失败，请重试</div></div>';
+    if (btn) { btn.disabled = false; btn.textContent = '获取推荐'; }
   });
 }
 
@@ -23826,46 +23919,99 @@ function _renderProductTalentMatches() {
   var body = document.getElementById('productTalentMatchBody');
   if (!body) return;
   var matches = (_currentProductMatchTalents.matches || []).slice();
+  var product = (_currentProductMatchTalents.product || {});
   var sortBy = _currentProductMatchTalents.sortBy || 'score';
   matches.sort(function(a, b){
     if (sortBy === 'followers') {
-      var fa = a.talent && a.talent.followers ? a.talent.followers : 0;
-      var fb = b.talent && b.talent.followers ? b.talent.followers : 0;
-      return fb - fa;
+      return (b.followers || 0) - (a.followers || 0);
     }
     if (sortBy === 'gmv') {
-      var ga = a.talent && a.talent.total_gmv ? a.talent.total_gmv : 0;
-      var gb = b.talent && b.talent.total_gmv ? b.talent.total_gmv : 0;
-      return gb - ga;
+      return (b.total_gmv || 0) - (a.total_gmv || 0);
     }
     return (b.score || 0) - (a.score || 0);
   });
   if (matches.length === 0) {
-    body.innerHTML = '<div class="products-empty"><div class="products-empty-text">暂无匹配达人</div></div>';
+    body.innerHTML = '<div class="products-empty"><div class="products-empty-text">暂无推荐达人</div></div>';
     return;
   }
   var html = '';
   matches.forEach(function(m){
-    var t = m.talent || {};
-    var reason = m.aiReason || (m.reasons && m.reasons[0]) || '';
-    var avatar = t.avatar ? '<img class="ai-match-card-avatar" src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:8px;" alt="">' : '<div class="ai-match-card-avatar" style="background:var(--accent);">' + escapeHtml((t.name || '?').charAt(0)) + '</div>';
+    var scorePct = Math.round((m.score || 0) * 100);
+    var avatar = m.avatar ? '<img class="ai-match-card-avatar" src="' + escapeAttr(m.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:8px;" alt="">' : '<div class="ai-match-card-avatar" style="background:var(--accent);">' + escapeHtml((m.name || '?').charAt(0)) + '</div>';
     html += '<div class="ai-match-card">';
     html += '<div class="ai-match-card-left">' + avatar + '</div>';
     html += '<div class="ai-match-card-main">';
-    html += '<div class="ai-match-card-title">' + escapeHtml(t.name || '-') + ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + (t.level || '') + '</span></div>';
-    html += '<div class="ai-match-card-meta">粉丝 ' + formatNumber(t.followers || 0) + ' · ' + escapeHtml(t.fan_category || t.category || '未分类') + '</div>';
+    html += '<div class="ai-match-card-title">' + escapeHtml(m.name || '-') + '</div>';
+    html += '<div class="ai-match-card-meta">粉丝 ' + formatNumber(m.followers || 0) + ' · ' + escapeHtml(m.category || '未分类') + '</div>';
     html += '<div class="ai-match-card-tags">';
-    html += '<span class="ai-match-tag">历史GMV ¥' + formatNumber(t.total_gmv || 0) + '</span>';
+    html += '<span class="ai-match-tag">历史GMV ¥' + formatNumber(m.total_gmv || 0) + '</span>';
     html += '</div>';
-    html += '<div class="ai-match-card-reason">' + escapeHtml(reason) + '</div>';
+    html += '<div class="ai-match-card-reason">' + escapeHtml(m.reason || '') + '</div>';
     html += '</div>';
     html += '<div class="ai-match-card-right">';
-    html += '<div class="ai-match-score">' + (m.matchPercent || 0).toFixed(0) + '<span>%</span></div>';
+    html += '<div class="ai-match-score">' + scorePct + '<span>%</span></div>';
     html += '<div class="ai-match-score-label">匹配度</div>';
+    html += '<button class="ai-match-invite-btn" onclick="showInviteDialog(\'talent\',\'' + escapeAttr(m.id) + '\',\'' + escapeAttr(m.name || '') + '\',\'' + escapeAttr(product.name || '') + '\')">发起合作</button>';
     html += '</div>';
     html += '</div>';
   });
   body.innerHTML = html;
+ }
+
+function showInviteDialog(targetType, targetId, targetName, productName) {
+  // 关闭旧弹窗
+  var old = document.getElementById('inviteModalOverlay');
+  if (old) old.remove();
+
+  var defaultMsg = '您好，我们对您与「' + (productName || '') + '」的合作非常感兴趣，期待进一步沟通合作细节。';
+  var overlay = document.createElement('div');
+  overlay.id = 'inviteModalOverlay';
+  overlay.className = 'invite-modal-overlay active';
+  overlay.onclick = function(){ overlay.remove(); };
+  overlay.innerHTML =
+    '<div class="invite-modal" onclick="event.stopPropagation()">' +
+      '<div class="invite-modal-header">' +
+        '<div class="invite-modal-title">向 ' + escapeHtml(targetName || '') + ' 发起合作邀请</div>' +
+        '<button class="invite-modal-close" onclick="document.getElementById(\'inviteModalOverlay\').remove()">×</button>' +
+      '</div>' +
+      '<div class="invite-modal-body">' +
+        '<label>邀请文案</label>' +
+        '<textarea id="inviteModalText">' + escapeHtml(defaultMsg) + '</textarea>' +
+      '</div>' +
+      '<div class="invite-modal-footer">' +
+        '<button class="invite-modal-btn cancel" onclick="document.getElementById(\'inviteModalOverlay\').remove()">取消</button>' +
+        '<button class="invite-modal-btn confirm" id="inviteModalConfirm">确认发送</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  var confirmBtn = document.getElementById('inviteModalConfirm');
+  confirmBtn.onclick = function(){
+    var text = document.getElementById('inviteModalText').value.trim();
+    if (!text) {
+      showToast('邀请文案不能为空', 'warning');
+      return;
+    }
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = '发送中...';
+    apiFetch('/api/batch/send-messages', {
+      method: 'POST',
+      body: JSON.stringify({ talentIds: [targetId], message: text })
+    }).then(function(r){ return r.json(); }).then(function(data){
+      document.getElementById('inviteModalOverlay').remove();
+      if (data.sent && data.sent.length > 0) {
+        showToast('✅ 合作邀请已发送');
+      } else {
+        var reason = (data.failed && data.failed[0] && data.failed[0].reason) || '发送失败';
+        showToast('❌ ' + reason, 'error');
+      }
+    }).catch(function(e){
+      console.error(e);
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = '确认发送';
+      showToast('❌ 发送失败，请重试', 'error');
+    });
+  };
 }
 
 function renderProductPanelAudience(p) {
@@ -25516,17 +25662,17 @@ function renderTalentPanelProducts(t) {
   _currentTalentMatchProducts = { talent: t, matches: [], sortBy: 'score' };
   var html = '<div class="talents-panel-section">';
   html += '<div class="ai-match-header">';
-  html += '<div class="talents-panel-title" style="margin:0;padding:0;border:none;">AI 推荐可合作商品</div>';
+  html += '<div class="talents-panel-title" style="margin:0;padding:0;border:none;">推荐商品</div>';
   html += '<div class="ai-match-actions">';
   html += '<select class="ai-match-sort" id="talentProductSort" onchange="onTalentProductSortChange(this.value)">';
   html += '<option value="score">按匹配度</option>';
   html += '<option value="commission">按佣金率</option>';
   html += '<option value="price">按价格</option>';
   html += '</select>';
-  html += '<button class="ai-match-btn" id="btnMatchTalentProducts" onclick="runTalentProductMatch(\'' + escapeAttr(t.id) + '\')">AI 匹配商品</button>';
+  html += '<button class="ai-match-btn" id="btnMatchTalentProducts" onclick="runTalentProductMatch(\'' + escapeAttr(t.id) + '\')">获取推荐</button>';
   html += '</div></div>';
   html += '<div id="talentProductMatchBody" class="ai-match-body">';
-  html += '<div class="products-empty"><div class="products-empty-text">点击上方「AI 匹配商品」按钮，为该达人智能推荐最合适的商品</div></div>';
+  html += '<div class="products-empty"><div class="products-empty-text">点击上方「获取推荐」按钮，为该达人智能推荐最合适的商品</div></div>';
   html += '</div></div>';
   el.innerHTML = html;
 }
@@ -25538,20 +25684,20 @@ function onTalentProductSortChange(sortBy) {
 
 function runTalentProductMatch(talentId) {
   var btn = document.getElementById('btnMatchTalentProducts');
-  if (btn) { btn.disabled = true; btn.textContent = '匹配中...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '推荐中...'; }
   var body = document.getElementById('talentProductMatchBody');
-  if (body) body.innerHTML = '<div class="products-loading"><div class="spinner"></div>AI 正在分析匹配...</div>';
-  apiFetch('/api/talents/' + encodeURIComponent(talentId) + '/match-products', {
+  if (body) body.innerHTML = '<div class="products-loading"><div class="spinner"></div>正在分析匹配...</div>';
+  apiFetch('/api/matching/recommend', {
     method: 'POST',
-    body: JSON.stringify({ limit: 10, agentId: getCurrentEmpId() || '' })
+    body: JSON.stringify({ type: 'talent', id: talentId, limit: 10, agentId: getCurrentEmpId() || '' })
   }).then(function(r){ return r.json(); }).then(function(data){
-    _currentTalentMatchProducts.matches = data.matches || [];
+    _currentTalentMatchProducts.matches = data.recommendations || [];
     _renderTalentProductMatches();
-    if (btn) { btn.disabled = false; btn.textContent = '重新匹配'; }
+    if (btn) { btn.disabled = false; btn.textContent = '重新推荐'; }
   }).catch(function(e){
     console.error(e);
-    if (body) body.innerHTML = '<div class="products-empty"><div class="products-empty-text">AI 匹配失败，请重试</div></div>';
-    if (btn) { btn.disabled = false; btn.textContent = 'AI 匹配商品'; }
+    if (body) body.innerHTML = '<div class="products-empty"><div class="products-empty-text">推荐失败，请重试</div></div>';
+    if (btn) { btn.disabled = false; btn.textContent = '获取推荐'; }
   });
 }
 
@@ -25559,44 +25705,42 @@ function _renderTalentProductMatches() {
   var body = document.getElementById('talentProductMatchBody');
   if (!body) return;
   var matches = (_currentTalentMatchProducts.matches || []).slice();
+  var talent = (_currentTalentMatchProducts.talent || {});
   var sortBy = _currentTalentMatchProducts.sortBy || 'score';
   matches.sort(function(a, b){
     if (sortBy === 'commission') {
-      var ca = a.product && a.product.commission_rate ? a.product.commission_rate : 0;
-      var cb = b.product && b.product.commission_rate ? b.product.commission_rate : 0;
-      return cb - ca;
+      return (b.commission_rate || 0) - (a.commission_rate || 0);
     }
     if (sortBy === 'price') {
-      var pa = a.product && a.product.price ? a.product.price : 0;
-      var pb = b.product && b.product.price ? b.product.price : 0;
-      return pb - pa;
+      return (b.price || 0) - (a.price || 0);
     }
     return (b.score || 0) - (a.score || 0);
   });
   if (matches.length === 0) {
-    body.innerHTML = '<div class="products-empty"><div class="products-empty-text">暂无匹配商品</div></div>';
+    body.innerHTML = '<div class="products-empty"><div class="products-empty-text">暂无推荐商品</div></div>';
     return;
   }
   var html = '';
   matches.forEach(function(m){
-    var p = m.product || {};
-    var reason = m.aiReason || (m.reasons && m.reasons[0]) || '';
+    var scorePct = Math.round((m.score || 0) * 100);
+    var brandColor = (m.brand === 'COOLCHAP') ? '#FF6B35' : '#165DFF';
     html += '<div class="ai-match-card">';
     html += '<div class="ai-match-card-left">';
-    html += '<div class="ai-match-card-avatar" style="background:' + (p.brand === 'COOLCHAP' ? '#FF6B35' : '#165DFF') + ';">' + (p.name || '?').charAt(0) + '</div>';
+    html += '<div class="ai-match-card-avatar" style="background:' + brandColor + ';">' + escapeHtml((m.name || '?').charAt(0)) + '</div>';
     html += '</div>';
     html += '<div class="ai-match-card-main">';
-    html += '<div class="ai-match-card-title">' + escapeHtml(p.name || '-') + '</div>';
-    html += '<div class="ai-match-card-meta">' + escapeHtml(p.brand || '-') + ' · ' + escapeHtml(p.category || '未分类') + ' · ¥' + (p.price || 0).toFixed(2) + '</div>';
+    html += '<div class="ai-match-card-title">' + escapeHtml(m.name || '-') + '</div>';
+    html += '<div class="ai-match-card-meta">' + escapeHtml(m.brand || '-') + ' · ' + escapeHtml(m.category || '未分类') + ' · ¥' + (m.price || 0).toFixed(2) + '</div>';
     html += '<div class="ai-match-card-tags">';
-    html += '<span class="ai-match-tag">佣金率 ' + (p.commission_rate || 0) + '%</span>';
-    html += '<span class="ai-match-tag">库存 ' + (p.stock || 0) + '</span>';
+    html += '<span class="ai-match-tag">佣金率 ' + (m.commission_rate || 0) + '%</span>';
+    html += '<span class="ai-match-tag">库存 ' + (m.stock || 0) + '</span>';
     html += '</div>';
-    html += '<div class="ai-match-card-reason">' + escapeHtml(reason) + '</div>';
+    html += '<div class="ai-match-card-reason">' + escapeHtml(m.reason || '') + '</div>';
     html += '</div>';
     html += '<div class="ai-match-card-right">';
-    html += '<div class="ai-match-score">' + (m.matchPercent || 0).toFixed(0) + '<span>%</span></div>';
+    html += '<div class="ai-match-score">' + scorePct + '<span>%</span></div>';
     html += '<div class="ai-match-score-label">匹配度</div>';
+    html += '<button class="ai-match-invite-btn" onclick="showInviteDialog(\'talent\',\'' + escapeAttr(talent.id || '') + '\',\'' + escapeAttr(talent.name || '') + '\',\'' + escapeAttr(m.name || '') + '\')">发起合作</button>';
     html += '</div>';
     html += '</div>';
   });

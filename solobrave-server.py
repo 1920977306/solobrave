@@ -4894,6 +4894,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/ai-match':
             self._handle_ai_match()
             return
+        if path == '/api/matching/recommend':
+            self._handle_matching_recommend()
+            return
 
         # Chat API
         if path.startswith('/api/chat/'):
@@ -12772,6 +12775,145 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             self._read_body = original_read_body
             self._ai_match_body = None
+
+    def _handle_matching_recommend(self):
+        """POST /api/matching/recommend — 统一双向推荐接口
+        请求体: {type: 'product'|'talent', id: '...', limit: 10, aiCandidates: 30, minScore: 0, agentId: '...'}
+        返回: {type, id, recommendations: [{id, name, score(0-1), reason}], total, source}
+        """
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body() or {}
+        rec_type = str(body.get('type') or '').strip().lower()
+        entity_id = str(body.get('id') or '').strip()
+        limit = max(1, int(body.get('limit', 10)))
+        ai_candidates = max(1, int(body.get('aiCandidates', 30)))
+        min_score = float(body.get('minScore', 0))
+
+        if rec_type not in ('product', 'talent'):
+            self._send_json_error(400, 'type 必须是 product 或 talent')
+            return
+        if not entity_id:
+            self._send_json_error(400, 'id 不能为空')
+            return
+
+        module = 'products' if rec_type == 'product' else 'influencers'
+        if not self._require_module_permission(auth, module):
+            return
+
+        # 加载当前 AI 员工配置（用于调用 OpenClaw）
+        agent_id = body.get('agentId') or auth.user_id
+        agent = None
+        agents_data = _load_agents()
+        agents = agents_data.get('agents', []) if isinstance(agents_data, dict) else agents_data
+        for a in agents:
+            if a.get('id') == agent_id:
+                agent = a
+                break
+        if not agent and agents:
+            agent = agents[0]
+
+        conn = _db_conn()
+        try:
+            if rec_type == 'product':
+                row = conn.execute('SELECT * FROM products WHERE id = ?', (entity_id,)).fetchone()
+                source = _product_row_to_dict(row)
+                if source:
+                    source['tag_list'] = _get_entity_tags(conn, 'product', entity_id)
+                candidate_rows = conn.execute("SELECT * FROM talents WHERE status = 'active'").fetchall()
+            else:
+                row = conn.execute('SELECT * FROM talents WHERE id = ?', (entity_id,)).fetchone()
+                source = _talent_row_to_dict(row)
+                if source:
+                    source['tag_list'] = _get_entity_tags(conn, 'talent', entity_id)
+                candidate_rows = conn.execute("SELECT * FROM products WHERE status = 'active'").fetchall()
+        finally:
+            conn.close()
+
+        if not source:
+            self._send_json_error(404, 'Entity not found')
+            return
+
+        # 阶段1：规则初筛打分
+        rule_results = []
+        for r in candidate_rows:
+            if rec_type == 'product':
+                candidate = _talent_row_to_dict(r)
+                rule_score, rule_reasons = self._calculate_match_score_v2(source, candidate)
+            else:
+                candidate = _product_row_to_dict(r)
+                rule_score, rule_reasons = self._calculate_match_score_v2(candidate, source)
+            if rule_score < min_score:
+                continue
+            rule_results.append({
+                'candidate': candidate,
+                'rule_score': rule_score,
+                'rule_reasons': rule_reasons
+            })
+        rule_results.sort(key=lambda x: x['rule_score'], reverse=True)
+
+        # 阶段2：AI 语义打分（仅对前 N 个候选）
+        ai_scores = {}
+        ai_input = rule_results[:ai_candidates]
+        if agent and ai_input:
+            target_type = 'talents' if rec_type == 'product' else 'products'
+            try:
+                ai_scores = self._ai_match_candidates(
+                    source, [r['candidate'] for r in ai_input], target_type, agent, limit=min(limit, 10)
+                )
+            except Exception as e:
+                print(f'  [MatchingRecommend] AI scoring failed: {e}', flush=True)
+                ai_scores = {}
+
+        # 阶段3：融合规则分与 AI 分，生成最终推荐列表
+        recommendations = []
+        for r in rule_results:
+            candidate = r['candidate']
+            rule_score = r['rule_score']
+            rule_reasons = r['rule_reasons']
+            ai_info = ai_scores.get(candidate['id'], {})
+            ai_score = ai_info.get('ai_score', 0)
+            ai_reason = ai_info.get('ai_reason', '')
+
+            if ai_score > 0:
+                final_score_100 = round(rule_score * 0.4 + ai_score * 0.6, 1)
+                reason = ai_reason if ai_reason else '；'.join(rule_reasons[:2])
+            else:
+                final_score_100 = round(rule_score, 1)
+                reason = '；'.join(rule_reasons[:2])
+
+            rec = {
+                'id': candidate['id'],
+                'name': candidate.get('name', ''),
+                'score': max(0.0, min(1.0, round(final_score_100 / 100.0, 2))),
+                'reason': reason,
+                'rule_score': rule_score,
+                'ai_score': ai_score
+            }
+            if rec_type == 'product':
+                rec['avatar'] = candidate.get('avatar', '')
+                rec['followers'] = candidate.get('followers', 0)
+                rec['category'] = candidate.get('fan_category') or candidate.get('category', '')
+                rec['total_gmv'] = candidate.get('total_gmv', 0)
+            else:
+                rec['brand'] = candidate.get('brand', '')
+                rec['category'] = candidate.get('category', '')
+                rec['price'] = candidate.get('price', 0)
+                rec['commission_rate'] = candidate.get('commission_rate', 0)
+                rec['stock'] = candidate.get('stock', 0)
+            recommendations.append(rec)
+
+        recommendations.sort(key=lambda x: x['score'], reverse=True)
+
+        self._send_json(200, {
+            'type': rec_type,
+            'id': entity_id,
+            'recommendations': recommendations[:limit],
+            'total': len(recommendations),
+            'source': 'live'
+        })
 
     def _handle_analyze_talent_ai(self, talent_id):
         """POST /api/talents/:id/analyze — 调用 AI 生成达人分析"""
