@@ -4834,6 +4834,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/talents':
             self._handle_post_talent()
             return
+        if path == '/api/talents/parse':
+            self._handle_parse_talent()
+            return
         if path.startswith('/api/talents/'):
             sub = path[len('/api/talents/'):]
             parts = sub.split('/')
@@ -11570,6 +11573,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 result['message'] = f"该达人（抖音号{douyin_id}）已存在，是否需要更新信息？"
                 self._send_json(200, result)
                 return
+            # 昵称去重兜底：抖音号未命中时，再按名称不区分大小写检查
+            name = str(body.get('name') or '').strip()
+            if not existing and name:
+                existing = conn.execute(
+                    "SELECT * FROM talents WHERE LOWER(name) = LOWER(?) LIMIT 1",
+                    (name,)
+                ).fetchone()
+            if existing:
+                result = _talent_row_to_dict(existing)
+                result['duplicate'] = True
+                result['can_update'] = True
+                result['message'] = f"该达人（名称：{result.get('name')}，抖音号：{result.get('douyin_id') or '无'}）已存在，是否需要更新信息？"
+                self._send_json(200, result)
+                return
         finally:
             conn.close()
 
@@ -11594,6 +11611,189 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         talent_out = _talent_row_to_dict(row_out)
         talent_out['tag_list'] = _get_entity_tags(_db_conn(), 'talent', row['id'])
         self._send_json(200, talent_out)
+
+    def _handle_parse_talent(self):
+        """POST /api/talents/parse — AI 解析达人资料
+        请求体: {source: 'text'|'image'|'link', data: {...}}
+        返回: {success, source, talent: {...}, raw, error}
+        AI 调用优先 OpenClaw，降级 API 直连（复用 _call_ai_analysis）。
+        """
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'):
+            return
+
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, '无效的请求体')
+            return
+
+        source = str(body.get('source') or '').strip().lower()
+        data = body.get('data') or {}
+        if source not in ('text', 'image', 'link'):
+            self._send_json_error(400, "source 必须是 'text'|'image'|'link'")
+            return
+
+        # 构建用户内容
+        user_content = []
+        link_url = ''
+        if source == 'text':
+            text = str(data.get('text') or '').strip()
+            if not text:
+                self._send_json_error(400, 'text 内容不能为空')
+                return
+            user_content.append({'type': 'text', 'text': text})
+        elif source == 'link':
+            link_url = str(data.get('url') or '').strip()
+            if not link_url:
+                self._send_json_error(400, 'url 不能为空')
+                return
+            link_text = link_url
+            # 尝试抓取抖音达人主页补充文本上下文
+            if 'douyin.com/user/' in link_url or 'douyin.com' in link_url:
+                try:
+                    html, err = _fetch_douyin_page(link_url)
+                    if html:
+                        # 简单提取标题和 meta 描述
+                        title_match = re.search(r'<title>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+                        desc_match = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\'](.*?)["\']', html, re.IGNORECASE | re.DOTALL)
+                        page_parts = []
+                        if title_match:
+                            page_parts.append('页面标题：' + re.sub(r'\s+', ' ', title_match.group(1)).strip())
+                        if desc_match:
+                            page_parts.append('页面描述：' + re.sub(r'\s+', ' ', desc_match.group(1)).strip())
+                        if page_parts:
+                            link_text = link_url + '\n\n' + '\n'.join(page_parts)
+                except Exception as e:
+                    print(f'  [TalentParse] 抓取链接失败: {e}', flush=True)
+            user_content.append({'type': 'text', 'text': link_text})
+        elif source == 'image':
+            base64_img = str(data.get('base64') or '').strip()
+            image_url = str(data.get('imageUrl') or '').strip()
+            if not base64_img and not image_url:
+                self._send_json_error(400, 'image 源需要 base64 或 imageUrl')
+                return
+            user_content.append({'type': 'text', 'text': '请从以下图片中提取达人资料信息。'})
+            if base64_img:
+                if not base64_img.startswith('data:'):
+                    base64_img = 'data:image/jpeg;base64,' + base64_img
+                user_content.append({'type': 'image_url', 'image_url': {'url': base64_img}})
+            elif image_url:
+                user_content.append({'type': 'image_url', 'image_url': {'url': image_url}})
+
+        system_prompt = (
+            '你是一名电商达人信息提取助手。请从用户提供的文本/链接/图片中提取达人资料，'
+            '并以纯 JSON 对象返回（不要 markdown 代码块，不要多余说明）。\n'
+            '必须包含的字段：\n'
+            '{\n'
+            '  "name": "达人昵称（必填，若缺失返回空字符串）",\n'
+            '  "douyin_id": "抖音号",\n'
+            '  "followers": 12345,\n'
+            '  "category": "主营类目，如 鞋靴/凉鞋",\n'
+            '  "phone": "手机号",\n'
+            '  "wechat": "微信号",\n'
+            '  "email": "邮箱",\n'
+            '  "bio": "简介",\n'
+            '  "level": "等级，如 S/A/B",\n'
+            '  "city": "城市",\n'
+            '  "contact_name": "联系人姓名",\n'
+            '  "risk_rating": "风险评级 low/medium/high",\n'
+            '  "cooperation_status": "合作状态 available/cooperating/unavailable"\n'
+            '}\n'
+            '对于无法确定的字段，返回空字符串或 0；followers 必须是整数。'
+        )
+
+        messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_content}
+        ]
+
+        # 获取分析配置：优先使用 embedding 配置中的 apiKey/apiModel，否则取第一个有 key 的员工
+        cfg = {}
+        emb_cfg = get_embedding_config()
+        if emb_cfg and emb_cfg.get('apiKey'):
+            cfg = emb_cfg
+        else:
+            for agent in (_load_agents() or []):
+                key = (agent.get('apiKey') or '').strip()
+                if key:
+                    cfg = {
+                        'provider': agent.get('aiProvider') or agent.get('apiProvider') or 'kimicode',
+                        'apiKey': key,
+                        'apiModel': agent.get('apiModel', ''),
+                        'baseUrl': agent.get('customEndpoint', '')
+                    }
+                    break
+
+        raw_reply = None
+        try:
+            # 解析接口使用较短超时，避免前端长时间等待
+            raw_reply = _call_ai_analysis(messages, cfg, context='talent_parse', timeout=15)
+        except Exception as e:
+            print(f'  [TalentParse] AI 调用异常: {e}', flush=True)
+            traceback.print_exc()
+
+        if not raw_reply:
+            self._send_json(200, {
+                'success': False,
+                'source': source,
+                'talent': None,
+                'error': 'AI 解析失败，请检查 AI 配置或稍后重试',
+                'raw': ''
+            })
+            return
+
+        parsed = _extract_json_object(raw_reply)
+        if not parsed or not isinstance(parsed, dict):
+            self._send_json(200, {
+                'success': False,
+                'source': source,
+                'talent': None,
+                'error': 'AI 返回格式无法解析为 JSON',
+                'raw': raw_reply[:500]
+            })
+            return
+
+        # 字段清洗
+        def _safe_int(val):
+            s = str(val).strip().lower()
+            if not s:
+                return 0
+            s = s.replace(',', '').replace('，', '')
+            multiplier = 1
+            if '万' in s or 'w' in s:
+                multiplier = 10000
+                s = s.replace('万', '').replace('w', '').strip()
+            try:
+                return int(float(s) * multiplier)
+            except Exception:
+                return 0
+
+        talent = {
+            'name': str(parsed.get('name') or '').strip()[:100],
+            'douyin_id': str(parsed.get('douyin_id') or parsed.get('douyinId') or '').strip()[:100],
+            'followers': _safe_int(parsed.get('followers') or parsed.get('followerCount') or 0),
+            'category': str(parsed.get('category') or parsed.get('fan_category') or '').strip()[:100],
+            'phone': str(parsed.get('phone') or parsed.get('contact_phone') or '').strip()[:50],
+            'wechat': str(parsed.get('wechat') or parsed.get('contact_wechat') or '').strip()[:50],
+            'email': str(parsed.get('email') or parsed.get('contact_email') or '').strip()[:100],
+            'bio': str(parsed.get('bio') or '').strip()[:2000],
+            'level': str(parsed.get('level') or '').strip()[:20],
+            'city': str(parsed.get('city') or '').strip()[:50],
+            'contact_name': str(parsed.get('contact_name') or parsed.get('contactName') or '').strip()[:100],
+            'risk_rating': str(parsed.get('risk_rating') or parsed.get('riskRating') or 'low').strip()[:20],
+            'cooperation_status': str(parsed.get('cooperation_status') or parsed.get('cooperationStatus') or 'available').strip()[:30],
+            'follow_up_note': str(parsed.get('follow_up_note') or parsed.get('followUpNote') or '').strip()[:1000],
+        }
+
+        self._send_json(200, {
+            'success': True,
+            'source': source,
+            'talent': talent,
+            'raw': raw_reply[:500]
+        })
 
     def _handle_put_talent(self, talent_id):
         """PUT /api/talents/:id — 更新达人"""
@@ -13645,11 +13845,31 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
     return None
 
 
-def _call_ai_analysis(messages, cfg=None, context=''):
+def _flatten_multimodal_content(content):
+    """将多模态 content 列表转为文本表示（用于 OpenClaw 等仅支持文本的通道）。"""
+    if not isinstance(content, list):
+        return str(content) if content is not None else ''
+    parts = []
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        ptype = part.get('type')
+        if ptype == 'text':
+            parts.append(part.get('text', ''))
+        elif ptype == 'image_url':
+            parts.append('[图片]')
+    return '\n'.join(parts)
+
+
+def _call_ai_analysis(messages, cfg=None, context='', timeout=60):
     """统一后端 AI 分析调用：优先 OpenClaw，其次 API 直连；失败返回 None
 
     注意：cfg 通常来自 embedding 配置，其中的 model 是 Embedding 模型，不能用于聊天/分析。
     因此分析任务使用 provider 对应的聊天默认模型（除非 cfg 显式传入了 apiModel）。
+    支持多模态 messages（content 为 list），OpenClaw 通道会自动扁平化为文本，
+    API 直连通道会保留原始 multimodal 结构传给 vision 模型。
+
+    timeout: OpenClaw 调用超时（秒），默认 60s。
     """
     cfg = cfg or {}
     provider = cfg.get('provider', '') or 'kimicode'
@@ -13673,16 +13893,27 @@ def _call_ai_analysis(messages, cfg=None, context=''):
 
     system_parts = []
     user_parts = []
+    user_parts_text = []
+    has_multimodal = False
     for m in messages:
         if not isinstance(m, dict):
             continue
         role = m.get('role')
         content = m.get('content', '')
         if role == 'system':
-            system_parts.append(content)
+            if isinstance(content, list):
+                system_parts.append(_flatten_multimodal_content(content))
+            else:
+                system_parts.append(content)
         elif role == 'user':
-            user_parts.append(content)
-    full_prompt = '\n\n'.join(user_parts).strip()
+            if isinstance(content, list):
+                has_multimodal = True
+                user_parts.append(content)
+                user_parts_text.append(_flatten_multimodal_content(content))
+            else:
+                user_parts.append(content)
+                user_parts_text.append(content)
+    full_prompt = '\n\n'.join(user_parts_text).strip()
     system_prompt = '\n\n'.join(system_parts).strip()
 
     masked_key = f'{api_key[:4]}...' if api_key and len(api_key) > 4 else '(none)'
@@ -13693,7 +13924,7 @@ def _call_ai_analysis(messages, cfg=None, context=''):
     # 而是降级到 API 直连兜底，避免前端收到 504。
     if os.path.isfile(OPENCLAW_CLI):
         try:
-            content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=60, raise_on_timeout=True)
+            content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=timeout, raise_on_timeout=True)
             if content:
                 return content
             print(f'  [AI] OpenClaw failed for {context}, will try direct API fallback', flush=True)
@@ -13704,7 +13935,12 @@ def _call_ai_analysis(messages, cfg=None, context=''):
 
     # 2. 兜底：API 直连（需配置 API Key）
     if api_key:
-        content = _call_chat_completion(provider, api_key, chat_model, base_url, messages)
+        # 保留原始 messages，便于 API 直连通道使用多模态/vision 能力
+        direct_messages = list(messages)
+        # 若使用了扁平化的 system_prompt 且原始 messages 无 system 消息，则前置追加
+        if system_prompt and not any(m.get('role') == 'system' for m in direct_messages):
+            direct_messages = [{'role': 'system', 'content': system_prompt}] + direct_messages
+        content = _call_chat_completion(provider, api_key, chat_model, base_url, direct_messages)
         if content:
             return content
     else:

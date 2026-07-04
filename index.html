@@ -8202,6 +8202,7 @@ async function sendMsg() {
   notifyOfficeChatMessage(_curEmpId, 'outgoing');
   // 标记员工为思考中
   notifyOfficeStatusChange(_curEmpId, 'thinking');
+
   if (_curEmp) {
     _curEmp.status = 'thinking';
     renderEmployeeList();
@@ -8302,8 +8303,23 @@ async function sendMsg() {
     return;
   }
 
+  function detectTalentEntryIntent(text, pendingImages) {
+    if (!text && (!pendingImages || pendingImages.length === 0)) return false;
+    var keywords = ['录入达人','添加达人','这个达人','保存达人','达人信息','存一下这个达人','达人资料','新增达人','录入这个达人','登记达人'];
+    var lower = (text || '').toLowerCase();
+    for (var i = 0; i < keywords.length; i++) {
+      if (lower.indexOf(keywords[i]) !== -1) return true;
+    }
+    if (/douyin\.com\/user\//i.test(text || '')) return true;
+    return false;
+  }
+
   // 批量商品自动录入：≥2张商品图 或 ≥2个抖音商品链接 时自动进入批量模式
   var douyinLinks = detectDouyinProductLinks(text);
+  if (detectTalentEntryIntent(text, pendingImages)) {
+    sendViaAPI(emp, text, docContext, timeStr, pendingImages);
+    return;
+  }
   var isBatchImageMode = hasImages && pendingImages.length >= 2 && hasDirectApi;
   var isBatchLinkMode = douyinLinks.length >= 2 && hasDirectApi;
   if ((isBatchImageMode || isBatchLinkMode) && !currentGroupId) {
@@ -13094,6 +13110,9 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   // 解析并移除工具调用标记
   var toolCalls = parseToolCalls(replyText);
   var cleanText = stripToolCallsFromText(replyText);
+  // 解析并移除达人录入卡片标记
+  var talentCards = extractTalentEntryCards(replyText);
+  cleanText = stripTalentEntryCardMarkers(cleanText);
   var bubbleContent = highlightMentions(formatMessageContent(cleanText));
 
   // DOM 去重：检查最近 3 条消息是否已有相同 sender + content，防止竞态导致重复渲染
@@ -13118,6 +13137,18 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   var html = '<div class="msg"><div class="msg-avatar"><div class="avatar small" style="' + senderBg + '">' + avatarHtml + '</div></div>' + '<div class="msg-content">' + '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(senderName) + '</span><span class="msg-sender-role">' + escapeHtml(senderRole) + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' + '<div class="msg-bubble">' + bubbleContent + '</div>' + '</div></div>';
   area.insertAdjacentHTML('beforeend', html);
   area.scrollTop = area.scrollHeight;
+
+  // 渲染 AI 回复中附带的达人录入卡片
+  if (talentCards && talentCards.length > 0) {
+    talentCards.forEach(function(cardTalent) {
+      renderTalentEntryCard('ai', cardTalent, {
+        emp: senderEmp,
+        docContext: '',
+        timeStr: timeStr,
+        rawImages: []
+      });
+    });
+  }
 
   // 如果有工具调用，主大脑自动执行并展示结果
   if (toolCalls.length > 0) {
@@ -18449,6 +18480,116 @@ function detectDouyinProductLinks(text) {
   return urls;
 }
 
+function renderTalentEntryCard(source, talent, context) {
+  context = context || {};
+  var area = document.getElementById('messagesArea');
+  if (!area) return null;
+  var cardId = 'tec_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+  var timeStr = context.timeStr || new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+  function fieldRow(label, key, type, placeholder) {
+    type = type || 'text';
+    var val = talent[key];
+    if (val === undefined || val === null) val = '';
+    var inputHtml = type === 'textarea'
+      ? '<textarea class="tec-input" id="' + cardId + '_' + key + '" placeholder="' + escapeAttr(placeholder || '') + '">' + escapeHtml(String(val)) + '</textarea>'
+      : '<input class="tec-input" type="' + type + '" id="' + cardId + '_' + key + '" value="' + escapeAttr(String(val)) + '" placeholder="' + escapeAttr(placeholder || '') + '">';
+    return '<div class="tec-field"><label>' + escapeHtml(label) + '</label>' + inputHtml + '</div>';
+  }
+
+  var html = '<div class="msg" id="' + cardId + '">' +
+    '<div class="msg-avatar" style="font-size:20px;">🧑‍💼</div>' +
+    '<div class="msg-content">' +
+      '<div class="msg-sender"><span class="msg-sender-name">AI 员工</span><span class="msg-sender-role">达人录入</span><span class="msg-sender-time">' + timeStr + '</span></div>' +
+      '<div class="msg-bubble talent-entry-card">' +
+        '<div class="tec-header">' +
+          '<span class="tec-title">达人录入确认</span>' +
+          '<span class="tec-source">来源：' + (source === 'link' ? '链接' : source === 'image' ? '图片' : source === 'ai' ? 'AI' : '文本') + '</span>' +
+        '</div>' +
+        '<div class="tec-form">' +
+          fieldRow('达人昵称 *', 'name', 'text', '必填') +
+          fieldRow('抖音号', 'douyin_id', 'text') +
+          fieldRow('粉丝数', 'followers', 'number') +
+          fieldRow('主营类目', 'category', 'text') +
+          fieldRow('手机号', 'phone', 'text') +
+          fieldRow('微信号', 'wechat', 'text') +
+          fieldRow('邮箱', 'email', 'email') +
+          fieldRow('等级', 'level', 'text') +
+          fieldRow('城市', 'city', 'text') +
+          fieldRow('联系人', 'contact_name', 'text') +
+          fieldRow('风险评级', 'risk_rating', 'text') +
+          fieldRow('合作状态', 'cooperation_status', 'text') +
+          fieldRow('简介', 'bio', 'textarea') +
+          fieldRow('备注', 'follow_up_note', 'textarea') +
+        '</div>' +
+        '<div class="tec-actions">' +
+          '<button class="tec-btn cancel" onclick="cancelTalentEntryCard(\'' + cardId + '\')">取消</button>' +
+          '<button class="tec-btn confirm" id="' + cardId + '_confirm" onclick="confirmTalentEntryCard(\'' + cardId + '\')">确认录入</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+  area.insertAdjacentHTML('beforeend', html);
+  area.scrollTop = area.scrollHeight;
+  return cardId;
+}
+
+function _readTalentEntryCard(cardId) {
+  var keys = ['name','douyin_id','followers','category','phone','wechat','email','bio','level','city','contact_name','risk_rating','cooperation_status','follow_up_note'];
+  var body = {};
+  keys.forEach(function(k){
+    var el = document.getElementById(cardId + '_' + k);
+    body[k] = el ? el.value.trim() : '';
+  });
+  body.followers = parseInt(body.followers, 10) || 0;
+  body.cooperation_status = body.cooperation_status || 'available';
+  body.risk_rating = body.risk_rating || 'low';
+  body.created_by = getCurrentEmpId() || '';
+  return body;
+}
+
+function confirmTalentEntryCard(cardId) {
+  var body = _readTalentEntryCard(cardId);
+  if (!body.name) {
+    showToast('达人昵称不能为空', 'warning');
+    return;
+  }
+  var btn = document.getElementById(cardId + '_confirm');
+  if (btn) { btn.disabled = true; btn.textContent = '录入中...'; }
+  apiFetch('/api/talents', {
+    method: 'POST',
+    body: JSON.stringify(body)
+  }).then(function(r){ return r.json(); }).then(function(data){
+    var card = document.getElementById(cardId);
+    if (data.duplicate && data.can_update) {
+      // 重复时展示提示并恢复按钮，允许用户修改后继续
+      if (btn) { btn.disabled = false; btn.textContent = '确认录入'; }
+      showToast('该达人已存在，请修改后重试或手动更新', 'warning');
+    } else if (data.id) {
+      if (card) {
+        var bubble = card.querySelector('.talent-entry-card');
+        if (bubble) {
+          bubble.innerHTML = '<div class="tec-success">✅ 已录入达人：' + escapeHtml(data.name || body.name) + '</div>';
+        }
+      }
+      showToast('✅ 达人录入成功');
+      if (typeof loadTalents === 'function') loadTalents();
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = '确认录入'; }
+      showToast('❌ 录入失败：' + (data.message || '未知错误'), 'error');
+    }
+  }).catch(function(e){
+    console.error(e);
+    if (btn) { btn.disabled = false; btn.textContent = '确认录入'; }
+    showToast('❌ 录入失败，请重试', 'error');
+  });
+}
+
+function cancelTalentEntryCard(cardId) {
+  var card = document.getElementById(cardId);
+  if (card) card.remove();
+}
+
 // 渲染待录入商品列表卡片
 function renderPendingProductsCard(emp, products, context) {
   context = context || {};
@@ -19806,7 +19947,9 @@ function buildAgentToolsContext() {
     '   - 每个达人有：名称、平台、账号、粉丝数、分类、报价、互动率、标签\n' +
     '   - 当用户想录入达人时，你必须主动从对话中提取上述字段；必填字段只有 name（达人昵称）。如果缺少必填字段或字段值不确定，请一次性列出需要补充的信息，向用户确认后再调用 add_talent。\n' +
     '   - 创建成功后，向用户确认并展示达人昵称、抖音号、粉丝数、类目、合作状态等关键信息。\n' +
-    '   - 如果系统返回“该达人（抖音号XXX）已存在，是否需要更新信息？”，请询问用户是否更新。若用户确认更新，请在后续调用 add_talent 时传入 id 字段（即系统返回的达人 ID）和需要修改的字段，调用 PUT 接口更新达人信息；若用户取消，则不再调用。\n\n' +
+    '   - 在调用 add_talent 创建新达人前，必须先调用 search_influencers 查询达人库是否已存在同名或同抖音号的达人。如果搜索结果中已存在（name 或 douyin_id 匹配），请在 add_talent 的 params 中传入该达人的 id 字段（即 search_influencers 返回的 id）和需要修改的字段，使用 PUT 方式更新；更新完成后在最终回复中明确告知用户“该达人已存在，已更新信息”。只有当 search_influencers 确认不存在时才使用 POST 创建新达人。\n' +
+    '   - 如果系统返回“该达人（抖音号XXX）已存在，是否需要更新信息？”，请直接使用 id 字段调用 add_talent 进行 PUT 更新，并在回复中告知用户“该达人已存在，已更新信息”；若用户明确取消，则不再调用。\n' +
+    '   - 另一种录入方式：如果你已经整理好达人结构化信息，但希望由用户在 UI 上确认后再保存，请在回复中（除工具调用外）插入标记 [达人录入卡片]{JSON对象}[/达人录入卡片]，JSON 字段与 add_talent 参数一致。前端会自动渲染可编辑确认卡片。\n\n' +
     '3. 匹配引擎 (/api/match)\n' +
     '   - 为指定商品智能匹配达人：match_product，参数 {"productId":"prod_xxx"}\n' +
     '   - 为指定达人智能匹配商品：match_influencer，参数 {"influencerId":"inf_xxx"}\n' +
@@ -19969,6 +20112,30 @@ function stripToolCallsFromText(text) {
     }
   });
   return cleaned.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function extractTalentEntryCards(text) {
+  if (!text || typeof text !== 'string') return [];
+  var regex = /\[达人录入卡片\]([\s\S]*?)\[\/达人录入卡片\]/g;
+  var cards = [];
+  var m;
+  while ((m = regex.exec(text)) !== null) {
+    try {
+      var json = m[1].trim();
+      var parsed = JSON.parse(json);
+      if (parsed && typeof parsed === 'object') {
+        cards.push(parsed);
+      }
+    } catch (e) {
+      console.warn('[TalentEntryCard] 解析 AI 回复中的达人卡片失败:', e);
+    }
+  }
+  return cards;
+}
+
+function stripTalentEntryCardMarkers(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text.replace(/\[达人录入卡片\][\s\S]*?\[\/达人录入卡片\]/g, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 // 工具调用自动闭环的最大递归深度
@@ -20796,6 +20963,9 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
   var toolCalls = parseToolCalls(replyText);
   var hasToolCalls = toolCalls.length > 0;
   var cleanText = stripToolCallsFromText(replyText);
+  // 解析并移除达人录入卡片标记
+  var talentCards = extractTalentEntryCards(replyText);
+  cleanText = stripTalentEntryCardMarkers(cleanText);
 
   var bubble = formatMessageContent(cleanText);
   if (hasDocs && cleanText && cleanText.indexOf('📚') === -1) {
@@ -20821,6 +20991,18 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
   html += '</div></div>';
   area.insertAdjacentHTML('beforeend', html);
   area.scrollTop = area.scrollHeight;
+
+  // 渲染 AI 回复中附带的达人录入卡片
+  if (talentCards && talentCards.length > 0) {
+    talentCards.forEach(function(cardTalent) {
+      renderTalentEntryCard('ai', cardTalent, {
+        emp: emp,
+        docContext: docContext,
+        timeStr: timeStr,
+        rawImages: images || []
+      });
+    });
+  }
 
   window._lastAIReplyText = cleanText;
   if (window._lastUserMessageHadImages) {
@@ -21595,6 +21777,30 @@ async function finishWizard() {
 .pending-product-result { font-size: 12px; padding: 6px 10px; border-radius: var(--radius-sm); margin-bottom: 6px; }
 .pending-product-result.success { background: rgba(52, 199, 89, 0.1); color: #34C759; }
 .pending-product-result.error { background: rgba(255, 59, 48, 0.1); color: #FF3B30; }
+
+/* ===== 达人录入确认卡片 ===== */
+.talent-entry-card { background: var(--bg-secondary) !important; border-radius: 12px !important; padding: 14px 16px !important; max-width: 520px; }
+.tec-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.tec-title { font-weight: 600; font-size: 15px; color: var(--text-primary); }
+.tec-source { font-size: 11px; color: var(--text-secondary); background: var(--bg-tertiary); padding: 2px 8px; border-radius: 10px; }
+.tec-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tec-field { display: flex; flex-direction: column; gap: 4px; }
+.tec-field label { font-size: 12px; color: var(--text-secondary); }
+.tec-input { padding: 7px 10px; border: 0.5px solid var(--separator); border-radius: var(--radius-md); background: var(--bg-primary); color: var(--text-primary); font-size: 13px; box-sizing: border-box; }
+.tec-input:focus { outline: none; border-color: var(--accent); }
+.tec-field textarea.tec-input { min-height: 54px; resize: vertical; }
+.tec-field:nth-child(11),
+.tec-field:nth-child(12),
+.tec-field:nth-child(13),
+.tec-field:nth-child(14) { grid-column: 1 / -1; }
+.tec-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.tec-btn { padding: 7px 16px; border: none; border-radius: var(--radius-md); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+.tec-btn.confirm { background: var(--accent); color: #fff; }
+.tec-btn.confirm:hover { filter: brightness(1.05); }
+.tec-btn.confirm:disabled { opacity: 0.6; cursor: not-allowed; }
+.tec-btn.cancel { background: var(--bg-tertiary); color: var(--text-secondary); }
+.tec-btn.cancel:hover { background: var(--bg-secondary); }
+.tec-success { font-size: 14px; color: #34C759; font-weight: 500; text-align: center; padding: 10px 0; }
 
 /* ===== 批量商品录入进度卡片（Apple 卡片风格） ===== */
 .batch-progress-bubble {
