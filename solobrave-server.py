@@ -2240,6 +2240,12 @@ def init_db():
                 avg_live_gmv REAL DEFAULT 0,
                 live_gpm REAL DEFAULT 0,
                 video_gpm REAL DEFAULT 0,
+                content_tags TEXT DEFAULT '[]',
+                associated_company TEXT DEFAULT '',
+                historical_days INTEGER DEFAULT 0,
+                recent_7d_gmv REAL DEFAULT 0,
+                video_total_play INTEGER DEFAULT 0,
+                video_count INTEGER DEFAULT 0,
                 fan_gender TEXT DEFAULT '{}',
                 fan_age TEXT DEFAULT '{}',
                 fan_region TEXT DEFAULT '{}',
@@ -2277,6 +2283,9 @@ def init_db():
             ('product_count', 'INTEGER DEFAULT 0'), ('total_shops', 'INTEGER DEFAULT 0'), ('average_price', 'REAL DEFAULT 0'),
             ('live_ratio', 'REAL DEFAULT 0'), ('video_ratio', 'REAL DEFAULT 0'),
             ('avg_live_gmv', 'REAL DEFAULT 0'), ('live_gpm', 'REAL DEFAULT 0'), ('video_gpm', 'REAL DEFAULT 0'),
+            ('content_tags', "TEXT DEFAULT '[]'"), ('associated_company', "TEXT DEFAULT ''"),
+            ('historical_days', 'INTEGER DEFAULT 0'), ('recent_7d_gmv', 'REAL DEFAULT 0'),
+            ('video_total_play', 'INTEGER DEFAULT 0'), ('video_count', 'INTEGER DEFAULT 0'),
             ('fan_gender', "TEXT DEFAULT '{}'"), ('fan_age', "TEXT DEFAULT '{}'"), ('fan_region', "TEXT DEFAULT '{}'"),
             ('fan_crowd', "TEXT DEFAULT ''"), ('fan_price_range', "TEXT DEFAULT ''"), ('fan_category', "TEXT DEFAULT ''"),
             ('category', "TEXT DEFAULT ''"), ('fans_profile', "TEXT DEFAULT '{}'"),
@@ -2801,7 +2810,9 @@ _TALENT_COLUMNS = [
     'live_ratio', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_gpm',
     'fan_gender', 'fan_age', 'fan_region', 'fan_crowd', 'fan_price_range',
     'fan_category', 'category', 'fans_profile', 'ai_tags', 'ai_rating', 'ai_summary',
-    'ai_analysis', 'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by', 'created_at', 'updated_at'
+    'ai_analysis', 'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by', 'created_at', 'updated_at',
+    'content_tags', 'associated_company', 'historical_days', 'recent_7d_gmv',
+    'video_total_play', 'video_count'
 ]
 
 _FOLLOW_UP_COLUMNS = [
@@ -2909,6 +2920,12 @@ def _talent_row_to_dict(row):
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
         'updatedAt': row['updated_at'],
+        'content_tags': row['content_tags'] or '',
+        'associated_company': row['associated_company'] or '',
+        'historical_days': row['historical_days'] if row['historical_days'] is not None else 0,
+        'recent_7d_gmv': row['recent_7d_gmv'] if row['recent_7d_gmv'] is not None else 0,
+        'video_total_play': row['video_total_play'] if row['video_total_play'] is not None else 0,
+        'video_count': row['video_count'] if row['video_count'] is not None else 0,
     }
 
 
@@ -2967,10 +2984,48 @@ def _dict_to_brand_row(b):
 
 
 def _dict_to_talent_row(t):
-    def _dump(val):
+    def _jsonify(val, default=None):
         if val is None:
-            return '{}'
+            return json.dumps(default if default is not None else {})
+        if isinstance(val, str):
+            s = val.strip()
+            if s:
+                try:
+                    return json.dumps(json.loads(s), ensure_ascii=False)
+                except Exception:
+                    return json.dumps(s, ensure_ascii=False)
+            return json.dumps(default if default is not None else {})
         return json.dumps(val, ensure_ascii=False)
+
+    def _parse_amount(val):
+        if isinstance(val, (int, float)):
+            return float(val)
+        if val is None:
+            return 0.0
+        s = str(val).strip()
+        if not s:
+            return 0.0
+        s_clean = s.replace(',', '').replace('，', '')
+        unit = 1.0
+        if '亿' in s_clean:
+            unit = 1e8
+            s_clean = s_clean.replace('亿', '')
+        elif '万' in s_clean or 'w' in s_clean.lower():
+            unit = 1e4
+            s_clean = s_clean.replace('万', '').replace('w', '').replace('W', '')
+        nums = re.findall(r'[-+]?\d+\.?\d*', s_clean)
+        vals = []
+        for n in nums:
+            try:
+                vals.append(float(n) * unit)
+            except Exception:
+                pass
+        if len(vals) == 2:
+            return sum(vals) / 2.0
+        if len(vals) == 1:
+            return vals[0]
+        return 0.0
+
     now = int(time.time() * 1000)
     return {
         'id': t.get('id') or ('tal_' + str(now) + '_' + uuid.uuid4().hex[:6]),
@@ -2987,7 +3042,7 @@ def _dict_to_talent_row(t):
         'talent_type': t.get('talent_type') or t.get('talentType') or '',
         'location': t.get('location') or '',
         'agency': t.get('agency') or '',
-        'tags': _dump(t.get('tags', [])),
+        'tags': _jsonify(t.get('tags', []), []),
         'bio': t.get('bio') or '',
         'contact': t.get('contact') or '',
         'contact_name': t.get('contact_name') or t.get('contactName') or '',
@@ -3001,7 +3056,7 @@ def _dict_to_talent_row(t):
         'commission_requirement': float(t.get('commission_requirement', 0) or 0),
         'fulfillment_score': float(t.get('fulfillment_score', 0) or 0),
         'rating_score': float(t.get('rating_score', 0) or 0),
-        'total_gmv': float(t.get('total_gmv', 0) or 0),
+        'total_gmv': _parse_amount(t.get('total_gmv', 0)),
         'total_products': int(t.get('total_products', 0) or 0),
         'product_count': int(t.get('product_count', t.get('total_products', 0)) or 0),
         'total_shops': int(t.get('total_shops', 0) or 0),
@@ -3011,15 +3066,15 @@ def _dict_to_talent_row(t):
         'avg_live_gmv': float(t.get('avg_live_gmv', 0) or 0),
         'live_gpm': float(t.get('live_gpm', 0) or 0),
         'video_gpm': float(t.get('video_gpm', 0) or 0),
-        'fan_gender': _dump(t.get('fan_gender', t.get('fanGender', {}))),
-        'fan_age': _dump(t.get('fan_age', t.get('fanAge', {}))),
-        'fan_region': _dump(t.get('fan_region', t.get('fanRegion', {}))),
+        'fan_gender': _jsonify(t.get('fan_gender', t.get('fanGender', {})), {}),
+        'fan_age': _jsonify(t.get('fan_age', t.get('fanAge', {})), {}),
+        'fan_region': _jsonify(t.get('fan_region', t.get('fanRegion', {})), {}),
         'fan_crowd': t.get('fan_crowd') or t.get('fanCrowd') or '',
         'fan_price_range': t.get('fan_price_range') or t.get('fanPriceRange') or '',
         'fan_category': t.get('fan_category') or t.get('fanCategory') or '',
         'category': t.get('category') or t.get('fan_category') or t.get('fanCategory') or '',
-        'fans_profile': _dump(t.get('fans_profile', t.get('fansProfile', {}))),
-        'ai_tags': _dump(t.get('ai_tags', t.get('aiTags', []))),
+        'fans_profile': _jsonify(t.get('fans_profile', t.get('fansProfile', {})), {}),
+        'ai_tags': _jsonify(t.get('ai_tags', t.get('aiTags', [])), []),
         'ai_rating': t.get('ai_rating') or t.get('aiRating') or '',
         'ai_summary': t.get('ai_summary') or t.get('aiSummary') or '',
         'ai_analysis': t.get('ai_analysis') or t.get('aiAnalysis') or t.get('raw_analysis') or t.get('rawAnalysis') or t.get('ai_summary') or t.get('aiSummary') or '',
@@ -3030,6 +3085,12 @@ def _dict_to_talent_row(t):
         'created_by': t.get('created_by') or t.get('createdBy') or '',
         'created_at': t.get('created_at') or t.get('createdAt') or now,
         'updated_at': now,
+        'content_tags': _jsonify(t.get('content_tags', t.get('contentTags', [])), []),
+        'associated_company': t.get('associated_company') or t.get('associatedCompany') or '',
+        'historical_days': int(t.get('historical_days', t.get('historicalDays', 0)) or 0),
+        'recent_7d_gmv': _parse_amount(t.get('recent_7d_gmv', t.get('recent7dGmv', 0))),
+        'video_total_play': int(t.get('video_total_play', t.get('videoTotalPlay', 0)) or 0),
+        'video_count': int(t.get('video_count', t.get('videoCount', 0)) or 0),
     }
 
 

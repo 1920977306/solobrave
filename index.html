@@ -25627,10 +25627,14 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-metric-grid">';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + formatFollowers(t.followers || 0) + '</div><div class="talents-metric-label">粉丝量</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(totalGmv) + '</div><div class="talents-metric-label">历史GMV</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.recent_7d_gmv || 0) + '</div><div class="talents-metric-label">近7天结算</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + productCount + '</div><div class="talents-metric-label">带货商品数</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.video_count || 0) + '</div><div class="talents-metric-label">带货视频数</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.video_gpm || 0) + '</div><div class="talents-metric-label">视频GPM</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(averagePrice) + '</div><div class="talents-metric-label">平均客单价</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.rating_score || 0).toFixed(1) + '</div><div class="talents-metric-label">带货评分</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.fulfillment_score || 0).toFixed(1) + '</div><div class="talents-metric-label">履约分</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.rating_score || 0).toFixed(1) + '</div><div class="talents-metric-label">口碑分</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + escapeHtml(t.ai_rating || t.level || '-') + '</div><div class="talents-metric-label">合作评级</div></div>';
   html += '</div></div>';
 
   // 基础信息
@@ -25642,6 +25646,12 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-info-item"><label>手机号</label><div class="value">' + escapeHtml(t.phone || t.contact_phone || mock.phone || '-') + '</div></div>';
   html += '<div class="talents-info-item"><label>微信号</label><div class="value">' + escapeHtml(t.wechat || t.contact_wechat || mock.wechat || '-') + '</div></div>';
   html += '<div class="talents-info-item full-width"><label>邮箱</label><div class="value">' + escapeHtml(t.email || t.contact_email || mock.email || '-') + '</div></div>';
+  if (t.associated_company) html += '<div class="talents-info-item full-width"><label>关联企业</label><div class="value">' + escapeHtml(t.associated_company) + '</div></div>';
+  if (t.content_tags) {
+    var contentTags = t.content_tags;
+    if (typeof contentTags === 'string') { try { contentTags = JSON.parse(contentTags); } catch(e){} }
+    html += '<div class="talents-info-item full-width"><label>内容标签</label><div class="value">' + (Array.isArray(contentTags) ? contentTags.join('、') : escapeHtml(String(contentTags))) + '</div></div>';
+  }
   html += '</div></div>';
 
   // AI 分析摘要
@@ -25682,6 +25692,18 @@ function renderTalentPanelSales(t) {
   html += '</div></div>';
   html += '<canvas class="talents-gmv-chart" id="talentGmvChart"></canvas>';
   html += '</div>';
+
+  // 核心带货指标
+  html += '<div class="talents-panel-section">';
+  html += '<div class="talents-panel-title">核心带货指标</div>';
+  html += '<div class="talents-metric-grid">';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.recent_7d_gmv || 0) + '</div><div class="talents-metric-label">近7天结算</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.video_count || 0) + '</div><div class="talents-metric-label">带货视频数</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + formatNumber(t.video_total_play || 0) + '</div><div class="talents-metric-label">视频总播放量</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.video_gpm || 0) + '</div><div class="talents-metric-label">视频GPM</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.historical_days || 0) + '</div><div class="talents-metric-label">历史带货天数</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.total_products || 0) + '</div><div class="talents-metric-label">带货商品数</div></div>';
+  html += '</div></div>';
 
   // 直播/视频数据
   html += '<div class="talents-panel-section">';
@@ -25872,11 +25894,15 @@ function _loadTalentSalesProducts(t) {
 function renderTalentPanelFans(t) {
   var el = document.getElementById('talentsPanelFans');
   if (!el) return;
-  var mock = _getTalentMockData(t);
-  var fans = t.fans_profile || mock.fans_profile || {};
+  var gender = t.fan_gender || {};
+  var age = t.fan_age || {};
+  var region = t.fan_region || {};
+  var crowd = t.fan_crowd || '';
+  var priceRange = t.fan_price_range || '';
+  var categoryPref = t.fan_category || '';
   var html = '';
   function renderDist(title, obj) {
-    if (!obj || Object.keys(obj).length === 0) return '';
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj) || Object.keys(obj).length === 0) return '';
     var total = Object.values(obj).reduce(function(a,b){return a + (parseFloat(b)||0);}, 0);
     var section = '<div class="talents-panel-section"><div class="talents-panel-title">' + title + '</div>';
     Object.keys(obj).forEach(function(k){
@@ -25888,33 +25914,160 @@ function renderTalentPanelFans(t) {
     return section;
   }
 
-  // 粉丝画像总览
+  // 粉丝画像概览（从数据库字段读取，不再硬编码）
   html += '<div class="talents-panel-section">';
-  html += '<div class="talents-panel-title">粉丝画像</div>';
+  html += '<div class="talents-panel-title">粉丝画像概览</div>';
   html += '<div class="talents-info-grid">';
-  html += '<div class="talents-info-item"><label>消费层级</label><div class="value">' + escapeHtml(fans.consumption || '中高消费') + '</div></div>';
-  html += '<div class="talents-info-item"><label>活跃时段</label><div class="value">' + escapeHtml(fans.active_time || '20:00 - 23:00') + '</div></div>';
-  if (fans.cities && fans.cities.length) {
-    html += '<div class="talents-info-item full-width"><label>TOP 城市</label><div class="value">' + fans.cities.slice(0, 5).map(function(c){ return escapeHtml(c); }).join('、') + '</div></div>';
+  if (t.content_tags) {
+    var contentTags = t.content_tags;
+    if (typeof contentTags === 'string') { try { contentTags = JSON.parse(contentTags); } catch(e){} }
+    html += '<div class="talents-info-item full-width"><label>内容标签</label><div class="value">' + (Array.isArray(contentTags) ? contentTags.join('、') : escapeHtml(String(contentTags))) + '</div></div>';
   }
-  if (fans.interest && fans.interest.length) {
-    html += '<div class="talents-info-item full-width"><label>兴趣偏好</label><div class="value"><div class="talents-overview-tags" style="margin-top:0;">' + fans.interest.map(function(i){ return '<span class="talents-overview-tag">' + escapeHtml(i) + '</span>'; }).join('') + '</div></div></div>';
+  if (t.associated_company) {
+    html += '<div class="talents-info-item"><label>关联企业</label><div class="value">' + escapeHtml(t.associated_company) + '</div></div>';
+  }
+  if (crowd) {
+    html += '<div class="talents-info-item"><label>人群类型</label><div class="value">' + escapeHtml(String(crowd)) + '</div></div>';
+  }
+  if (priceRange) {
+    html += '<div class="talents-info-item"><label>客单价偏好</label><div class="value">' + escapeHtml(String(priceRange)) + '</div></div>';
+  }
+  if (categoryPref) {
+    html += '<div class="talents-info-item"><label>品类偏好</label><div class="value">' + escapeHtml(String(categoryPref)) + '</div></div>';
   }
   html += '</div></div>';
 
-  html += renderDist('性别分布', t.fan_gender && Object.keys(t.fan_gender).length ? t.fan_gender : fans.gender);
-  html += renderDist('年龄分布', t.fan_age && Object.keys(t.fan_age).length ? t.fan_age : fans.age);
-  html += renderDist('地域分布', t.fan_region && Object.keys(t.fan_region).length ? t.fan_region : (fans.region || {}));
-  if (t.fan_crowd || t.fan_price_range || t.fan_category) {
-    html += '<div class="talents-panel-section"><div class="talents-panel-title">人群偏好</div>';
-    html += '<div class="products-detail-grid">';
-    html += '<div class="products-detail-item"><div class="products-detail-label">人群画像</div><div class="products-detail-value">' + escapeHtml(t.fan_crowd || '-') + '</div></div>';
-    html += '<div class="products-detail-item"><div class="products-detail-label">价格带</div><div class="products-detail-value">' + escapeHtml(t.fan_price_range || '-') + '</div></div>';
-    html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + escapeHtml(t.fan_category || '-') + '</div></div>';
+  // 性别分布饼图
+  if (Object.keys(gender).length) {
+    html += '<div class="talents-panel-section">';
+    html += '<div class="talents-panel-title">性别分布</div>';
+    html += '<div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">';
+    html += '<canvas id="talentFanGenderChart" width="180" height="180" style="max-width:180px;"></canvas>';
+    html += '<div id="talentFanGenderLegend"></div>';
     html += '</div></div>';
   }
+
+  // 年龄分布条形图
+  if (Object.keys(age).length) {
+    html += '<div class="talents-panel-section">';
+    html += '<div class="talents-panel-title">年龄分布</div>';
+    html += '<canvas id="talentFanAgeChart" width="420" height="200" style="max-width:100%;"></canvas>';
+    html += '</div>';
+  }
+
+  // 城市分布
+  html += renderDist('城市分布', region);
+  // 品类偏好占比
+  html += renderDist('品类偏好占比', typeof categoryPref === 'object' ? categoryPref : null);
+  // 客单价偏好分布
+  html += renderDist('客单价偏好分布', typeof priceRange === 'object' ? priceRange : null);
+  // 人群类型占比
+  html += renderDist('人群类型占比', typeof crowd === 'object' ? crowd : null);
+
   if (!html) html = '<div class="products-empty"><div class="products-empty-text">暂无粉丝画像数据</div></div>';
   el.innerHTML = html;
+
+  if (Object.keys(gender).length) {
+    _drawTalentFanGenderPie('talentFanGenderChart', gender);
+  }
+  if (Object.keys(age).length) {
+    _drawTalentFanAgeBar('talentFanAgeChart', age);
+  }
+}
+
+function _drawTalentFanGenderPie(canvasId, data) {
+  var canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var dpr = window.devicePixelRatio || 1;
+  var size = 180;
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.style.width = size + 'px';
+  canvas.style.height = size + 'px';
+  ctx.scale(dpr, dpr);
+  var colors = ['#0a84ff', '#ff6b9d', '#36cfc9', '#faad14'];
+  var total = Object.values(data).reduce(function(a, b){ return a + (parseFloat(b) || 0); }, 0);
+  var cx = size / 2, cy = size / 2, radius = size / 2 - 8;
+  var start = -Math.PI / 2;
+  var legendHtml = '';
+  var idx = 0;
+  Object.keys(data).forEach(function(k){
+    var v = parseFloat(data[k]) || 0;
+    var pct = total ? (v / total) : 0;
+    var angle = pct * Math.PI * 2;
+    var color = colors[idx % colors.length];
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, radius, start, start + angle);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    start += angle;
+    legendHtml += '<div style="display:flex;align-items:center;gap:6px;margin:4px 0;font-size:13px;"><span style="width:12px;height:12px;border-radius:50%;background:' + color + ';"></span><span>' + escapeHtml(k) + ' ' + ((pct * 100).toFixed(1)) + '%</span></div>';
+    idx++;
+  });
+  // 中心留白做成甜甜圈效果
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 0.55, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  var legendEl = document.getElementById('talentFanGenderLegend');
+  if (legendEl) legendEl.innerHTML = legendHtml;
+}
+
+function _drawTalentFanAgeBar(canvasId, data) {
+  var canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var dpr = window.devicePixelRatio || 1;
+  var width = 420, height = 200;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  canvas.style.width = width + 'px';
+  canvas.style.height = height + 'px';
+  ctx.scale(dpr, dpr);
+  var labels = Object.keys(data);
+  var values = labels.map(function(k){ return parseFloat(data[k]) || 0; });
+  var max = Math.max.apply(null, values) || 1;
+  var colors = ['#0a84ff', '#36cfc9', '#73d13d', '#faad14', '#ff7875', '#9254de'];
+  var padding = { top: 20, right: 20, bottom: 40, left: 48 };
+  var chartW = width - padding.left - padding.right;
+  var chartH = height - padding.top - padding.bottom;
+  var barW = labels.length ? (chartW / labels.length * 0.6) : 0;
+  var gap = labels.length ? (chartW / labels.length * 0.4) : 0;
+  ctx.clearRect(0, 0, width, height);
+  // 网格线
+  ctx.strokeStyle = 'rgba(0,0,0,0.05)';
+  ctx.lineWidth = 1;
+  for (var i = 0; i <= 4; i++) {
+    var y = padding.top + chartH * (i / 4);
+    ctx.beginPath();
+    ctx.moveTo(padding.left, y);
+    ctx.lineTo(width - padding.right, y);
+    ctx.stroke();
+  }
+  labels.forEach(function(label, i){
+    var v = values[i];
+    var h = (v / max) * chartH;
+    var x = padding.left + gap / 2 + i * (barW + gap);
+    var y = padding.top + chartH - h;
+    var color = colors[i % colors.length];
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, barW, h);
+    // 数值
+    ctx.fillStyle = '#333';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(v.toFixed ? (Number.isInteger(v) ? v : v.toFixed(1)) : v, x + barW / 2, y - 6);
+    // 标签
+    ctx.save();
+    ctx.translate(x + barW / 2, padding.top + chartH + 14);
+    ctx.rotate(-Math.PI / 6);
+    ctx.textAlign = 'right';
+    ctx.fillText(label, 0, 0);
+    ctx.restore();
+  });
 }
 
 function renderTalentPanelProducts(t) {
