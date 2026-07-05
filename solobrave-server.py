@@ -2900,6 +2900,7 @@ def _talent_row_to_dict(row):
         'ai_rating': row['ai_rating'] or '',
         'ai_summary': row['ai_summary'] or '',
         'ai_analysis': row['ai_analysis'] or row['ai_summary'] or '',
+        'raw_analysis': row['ai_analysis'] or row['ai_summary'] or '',
         'ai_reason': row['ai_reason'] or '',
         'risk_rating': row['risk_rating'] or '',
         'group_id': row['group_id'] or '',
@@ -3021,7 +3022,7 @@ def _dict_to_talent_row(t):
         'ai_tags': _dump(t.get('ai_tags', t.get('aiTags', []))),
         'ai_rating': t.get('ai_rating') or t.get('aiRating') or '',
         'ai_summary': t.get('ai_summary') or t.get('aiSummary') or '',
-        'ai_analysis': t.get('ai_analysis') or t.get('aiAnalysis') or t.get('ai_summary') or t.get('aiSummary') or '',
+        'ai_analysis': t.get('ai_analysis') or t.get('aiAnalysis') or t.get('raw_analysis') or t.get('rawAnalysis') or t.get('ai_summary') or t.get('aiSummary') or '',
         'ai_reason': t.get('ai_reason') or t.get('aiReason') or '',
         'risk_rating': t.get('risk_rating') or t.get('riskRating') or '',
         'group_id': t.get('group_id') or t.get('groupId') or '',
@@ -11748,7 +11749,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             })
             return
 
-        # 字段清洗
+        # 字段清洗与新旧格式映射
         def _safe_int(val):
             s = str(val).strip().lower()
             if not s:
@@ -11763,26 +11764,188 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             except Exception:
                 return 0
 
+        def _safe_float(val):
+            if isinstance(val, (int, float)):
+                return float(val)
+            if val is None:
+                return 0.0
+            s = str(val).strip()
+            if not s:
+                return 0.0
+            s = s.replace(',', '').replace('，', '').replace('%', '')
+            multiplier = 1.0
+            if '亿' in s:
+                multiplier = 1e8
+                s = s.replace('亿', '')
+            elif '万' in s or 'w' in s.lower():
+                multiplier = 1e4
+                s = s.replace('万', '').replace('w', '').replace('W', '')
+            m = re.search(r'[-+]?\d+\.?\d*', s)
+            if not m:
+                return 0.0
+            try:
+                return float(m.group()) * multiplier
+            except Exception:
+                return 0.0
+
+        def _parse_ratio(text):
+            text = str(text) if text else ''
+            nums = re.findall(r'[-+]?\d+\.?\d*%?', text)
+            vals = []
+            for n in nums:
+                v = float(n.rstrip('%'))
+                vals.append(v)
+            if len(vals) >= 2:
+                return vals[0], vals[1]
+            if len(vals) == 1:
+                return vals[0], max(0.0, 100.0 - vals[0])
+            return 0.0, 0.0
+
+        def _cat(data, *names):
+            if not isinstance(data, dict):
+                return None
+            for n in names:
+                if n in data:
+                    return data[n]
+            norm = {re.sub(r'[【】\s]', '', str(k)): v for k, v in data.items() if isinstance(k, str)}
+            for n in names:
+                key = re.sub(r'[【】\s]', '', n)
+                if key in norm:
+                    return norm[key]
+            return None
+
+        def _resolve(candidates, key, default=None):
+            for c in candidates:
+                if isinstance(c, dict) and key in c:
+                    return c[key]
+                if isinstance(c, list) and c and isinstance(c[0], dict) and key in c[0]:
+                    return c[0][key]
+            return default
+
+        base = _cat(parsed, '【达人基础信息】', '达人基础信息')
+        core = _cat(parsed, '【核心带货数据含统计时间】', '核心带货数据含统计时间', '核心带货数据')
+        rating = _cat(parsed, '【带货评分5分制】', '带货评分5分制', '带货评分')
+        fans = _cat(parsed, '【粉丝画像每张截图分别提取】', '粉丝画像每张截图分别提取', '粉丝画像')
+
+        name = str(_resolve([base], '昵称') or parsed.get('name') or '').strip()[:100]
+        douyin_id = str(_resolve([base], '抖音号') or parsed.get('douyin_id') or parsed.get('douyinId') or '').strip()[:100]
+        city = str(_resolve([base], '城市') or parsed.get('city') or '').strip()[:50]
+        followers = _safe_int(_resolve([base], '粉丝数') or parsed.get('followers') or parsed.get('followerCount') or 0)
+        level = str(_resolve([base], '等级') or parsed.get('level') or '').strip()[:20]
+        bio = str(_resolve([base], '简介完整原文', '简介') or parsed.get('bio') or '').strip()[:2000]
+        category = str(_resolve([base], '内容标签') or parsed.get('category') or parsed.get('fan_category') or '').strip()[:100]
+        cooperation_status = str(_resolve([base], '合作邀约状态') or parsed.get('cooperation_status') or parsed.get('cooperationStatus') or 'available').strip()[:30]
+        agency = str(_resolve([base], '签约机构') or parsed.get('agency') or '').strip()[:100]
+
+        # 旧格式中的联系方式字段（新截图 prompt 未要求，保留兼容）
+        phone = str(parsed.get('phone') or parsed.get('contact_phone') or '').strip()[:50]
+        wechat = str(parsed.get('wechat') or parsed.get('contact_wechat') or '').strip()[:50]
+        email = str(parsed.get('email') or parsed.get('contact_email') or '').strip()[:100]
+        contact_name = str(parsed.get('contact_name') or parsed.get('contactName') or '').strip()[:100]
+        risk_rating = str(parsed.get('risk_rating') or parsed.get('riskRating') or 'low').strip()[:20]
+        follow_up_note = str(parsed.get('follow_up_note') or parsed.get('followUpNote') or '').strip()[:1000]
+
+        total_gmv = _safe_float(_resolve([core], '结算总额') or parsed.get('total_gmv') or 0)
+        total_products = _safe_int(_resolve([core], '带货商品数') or parsed.get('total_products') or parsed.get('product_count') or 0)
+        average_price = _safe_float(_resolve([core], '平均件单价') or parsed.get('average_price') or 0)
+        video_gpm = _safe_float(_resolve([core], '视频GPM') or parsed.get('video_gpm') or 0)
+        video_ratio, live_ratio = _parse_ratio(_resolve([core], '带货形式视频百分比和直播百分比') or parsed.get('video_ratio') or parsed.get('live_ratio') or '')
+
+        rating_score = _safe_float(_resolve([rating], '带货评分') or parsed.get('rating_score') or 0)
+        ai_rating = str(_resolve([rating], '评级高中低') or parsed.get('ai_rating') or '').strip()[:20]
+        ai_reason = str(_resolve([rating], '合作态度标签') or parsed.get('ai_reason') or '').strip()[:500]
+
+        fan_gender = _resolve([fans], '性别分布') or parsed.get('fan_gender') or parsed.get('fanGender') or {}
+        fan_age = _resolve([fans], '年龄分布') or parsed.get('fan_age') or parsed.get('fanAge') or {}
+        fan_region = _resolve([fans], '城市分布') or parsed.get('fan_region') or parsed.get('fanRegion') or {}
+        fan_crowd = str(_resolve([fans], '人群标签') or parsed.get('fan_crowd') or '').strip()[:100]
+        fan_price_range = str(_resolve([fans], '客单价偏好') or parsed.get('fan_price_range') or '').strip()[:100]
+        fan_category = str(_resolve([fans], '品类偏好') or parsed.get('fan_category') or parsed.get('category') or '').strip()[:100]
+        fans_profile = fans if fans is not None else (parsed.get('fans_profile') or parsed.get('fansProfile') or {})
+
+        raw_analysis = json.dumps(parsed, ensure_ascii=False)
+
         talent = {
-            'name': str(parsed.get('name') or '').strip()[:100],
-            'douyin_id': str(parsed.get('douyin_id') or parsed.get('douyinId') or '').strip()[:100],
-            'followers': _safe_int(parsed.get('followers') or parsed.get('followerCount') or 0),
-            'category': str(parsed.get('category') or parsed.get('fan_category') or '').strip()[:100],
-            'phone': str(parsed.get('phone') or parsed.get('contact_phone') or '').strip()[:50],
-            'wechat': str(parsed.get('wechat') or parsed.get('contact_wechat') or '').strip()[:50],
-            'email': str(parsed.get('email') or parsed.get('contact_email') or '').strip()[:100],
-            'bio': str(parsed.get('bio') or '').strip()[:2000],
-            'level': str(parsed.get('level') or '').strip()[:20],
-            'city': str(parsed.get('city') or '').strip()[:50],
-            'contact_name': str(parsed.get('contact_name') or parsed.get('contactName') or '').strip()[:100],
-            'risk_rating': str(parsed.get('risk_rating') or parsed.get('riskRating') or 'low').strip()[:20],
-            'cooperation_status': str(parsed.get('cooperation_status') or parsed.get('cooperationStatus') or 'available').strip()[:30],
-            'follow_up_note': str(parsed.get('follow_up_note') or parsed.get('followUpNote') or '').strip()[:1000],
+            'name': name or '未命名达人',
+            'douyin_id': douyin_id,
+            'followers': followers,
+            'category': category,
+            'phone': phone,
+            'wechat': wechat,
+            'email': email,
+            'bio': bio,
+            'level': level,
+            'city': city,
+            'contact_name': contact_name,
+            'risk_rating': risk_rating,
+            'cooperation_status': cooperation_status,
+            'follow_up_note': follow_up_note,
+            'agency': agency,
+            'total_gmv': total_gmv,
+            'total_products': total_products,
+            'average_price': average_price,
+            'video_gpm': video_gpm,
+            'video_ratio': video_ratio,
+            'live_ratio': live_ratio,
+            'rating_score': rating_score,
+            'ai_rating': ai_rating,
+            'ai_reason': ai_reason,
+            'fan_gender': fan_gender,
+            'fan_age': fan_age,
+            'fan_region': fan_region,
+            'fan_crowd': fan_crowd,
+            'fan_price_range': fan_price_range,
+            'fan_category': fan_category,
+            'fans_profile': fans_profile,
+            'raw_analysis': raw_analysis,
+            'group_id': str(body.get('group_id') or body.get('groupId') or '').strip(),
+            'created_by': auth.user_id or '',
+            'status': 'active',
         }
+
+        # 保存到达人库：douyin_id 已存在则更新，否则新建
+        talent_id = None
+        conn = _db_conn()
+        try:
+            existing = None
+            if douyin_id:
+                existing = conn.execute(
+                    'SELECT * FROM talents WHERE LOWER(douyin_id) = LOWER(?) LIMIT 1',
+                    (douyin_id,)
+                ).fetchone()
+            if existing:
+                existing_dict = _talent_row_to_dict(existing)
+                # 确保新的 raw_analysis 能覆盖旧 ai_analysis
+                existing_dict.pop('ai_analysis', None)
+                existing_dict.pop('aiAnalysis', None)
+                existing_dict.update(talent)
+                existing_dict['id'] = existing['id']
+                existing_dict['updated_at'] = int(time.time() * 1000)
+                row = _dict_to_talent_row(existing_dict)
+                conn.execute(
+                    f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_COLUMNS)} WHERE id = ?",
+                    tuple(row[c] for c in _TALENT_COLUMNS) + (existing['id'],)
+                )
+                conn.commit()
+                talent_id = existing['id']
+            else:
+                row = _dict_to_talent_row(talent)
+                conn.execute(
+                    f"INSERT INTO talents ({', '.join(_TALENT_COLUMNS)}) VALUES ({', '.join('?' * len(_TALENT_COLUMNS))})",
+                    tuple(row[c] for c in _TALENT_COLUMNS)
+                )
+                conn.commit()
+                talent_id = row['id']
+                if row.get('group_id'):
+                    _update_brand_product_stats(conn, row['group_id'])
+                    conn.commit()
+        finally:
+            conn.close()
 
         self._send_json(200, {
             'success': True,
             'source': source,
+            'talent_id': talent_id,
             'talent': talent,
             'raw': raw_reply[:500]
         })
