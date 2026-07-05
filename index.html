@@ -19936,18 +19936,20 @@ function buildAgentToolsContext() {
     '   - 创建成功后，向用户确认并展示商品名称、价格、库存、分类、品牌、SKU、佣金率等关键信息。\n' +
     '   - 录入商品前必须先调用 check_duplicate_product 查重。若返回已存在或 suspected=true，禁止不带 id 调用 add_product 新建；必须先询问用户确认。若用户确认是同一商品，调用 add_product 时传入系统返回的商品 id 字段与需要修改的字段进行更新；绝对不允许重复创建。只有 check_duplicate_product 明确返回未发现重复时，才允许不带 id 调用 add_product 新建。\n' +
     '   - 如果系统返回疑似重复列表（suspected=true），你必须询问用户“商品库里好像有相似商品，确认是同一个吗？”，等待用户明确确认后再继续；不要自己判断。\n\n' +
-    '2. 达人库 (/api/influencers / /api/talents)\n' +
-    '   - 查询达人列表：list_influencers\n' +
-    '   - 按关键词搜索达人：search_influencers，参数 {"query":"关键词"}\n' +
-    '   - 查看单个达人详情：get_influencer_detail，参数 {"influencerId":"inf_xxx"}\n' +
-    '   - 录入新达人：add_talent（对接 POST /api/talents 创建接口），参数 {"name":"昵称","douyin_id":"抖音号","followers":10000,"category":"鞋靴/凉鞋","level":"S","risk_rating":"low","city":"杭州","bio":"简介","phone":"13800138000","wechat":"wxid","email":"a@b.com","cooperation_status":"available","contact_name":"联系人","follow_up_by":"跟进人","follow_up_note":"备注"}\n' +
+    '2. 达人库（重要：add_talent 写入 /api/talents 即 talents 表；查询 talents 表数据必须用 get_talent_detail / search_talents，不要用 get_influencer_detail / search_influencers，那是查 influencers 旧表的）\n' +
+    '   - 查询旧 influencers 表列表：list_influencers\n' +
+    '   - 按关键词搜索旧 influencers 表：search_influencers，参数 {"query":"关键词"}\n' +
+    '   - 查看旧 influencers 表单个达人详情：get_influencer_detail，参数 {"influencerId":"inf_xxx"}\n' +
+    '   - 按关键词搜索 talents 表：search_talents，参数 {"query":"关键词"}，返回 talents 表达人列表（含 name、douyin_id、followers、category、id）。\n' +
+    '   - 查看 talents 表单个达人详情：get_talent_detail，参数 {"talentId":"tal_xxx"} 或 {"id":"tal_xxx"}，返回 talents 表完整字段（name、douyin_id、followers、city、level、bio、category、total_gmv、rating_score、fan_gender、fan_age、raw_analysis 等）。\n' +
+    '   - 录入新达人：add_talent（对接 POST /api/talents 创建接口，写入 talents 表），参数 {"name":"昵称","douyin_id":"抖音号","followers":10000,"category":"鞋靴/凉鞋","level":"S","risk_rating":"low","city":"杭州","bio":"简介","phone":"13800138000","wechat":"wxid","email":"a@b.com","cooperation_status":"available","contact_name":"联系人","follow_up_by":"跟进人","follow_up_note":"备注","agency":"签约机构","total_gmv":123456,"rating_score":4.5,"fan_gender":{"男":40,"女":60},"fan_age":{"18-24":30},"raw_analysis":"{...}"}\n' +
     '   - 分析爆款达人：analyze_hit_talent，参数 {"talentId":"tal_xxx","fan_screenshot":"可选","conversion_rate":3.5,"gmv":100000,"sample_videos":["url1"],"extra_notes":"补充"}。当用户提到某个达人卖得好时调用，数据不足时先向用户索要达人后台截图、粉丝画像、转化率等。\n' +
     '   - 寻找相似达人：find_similar_talents，参数 {"talentId":"tal_xxx"} 或 {"features":{"category":"鞋靴/凉鞋","tags":["穿搭"],"followers":100000}}，返回匹配度与推荐理由。可与用户讨论匹配策略后迭代。\n' +
     '   - 录入新达人、编辑达人信息也可人工在UI操作\n' +
-    '   - 每个达人有：名称、平台、账号、粉丝数、分类、报价、互动率、标签\n' +
+    '   - 每个 talents 表达人有：name、douyin_id、followers、city、level、bio、category、total_gmv、rating_score、fan_gender、fan_age、raw_analysis 等字段。\n' +
     '   - 当用户想录入达人时，你必须主动从对话中提取上述字段；必填字段只有 name（达人昵称）。如果缺少必填字段或字段值不确定，请一次性列出需要补充的信息，向用户确认后再调用 add_talent。\n' +
-    '   - 创建成功后，向用户确认并展示达人昵称、抖音号、粉丝数、类目、合作状态等关键信息。\n' +
-    '   - 在调用 add_talent 创建新达人前，必须先调用 search_influencers 查询达人库是否已存在同名或同抖音号的达人。如果搜索结果中已存在（name 或 douyin_id 匹配），请在 add_talent 的 params 中传入该达人的 id 字段（即 search_influencers 返回的 id）和需要修改的字段，使用 PUT 方式更新；更新完成后在最终回复中明确告知用户“该达人已存在，已更新信息”。只有当 search_influencers 确认不存在时才使用 POST 创建新达人。\n' +
+    '   - 创建成功后，向用户确认并展示达人昵称、抖音号、粉丝数、类目、合作状态、带货结算总额、带货评分等关键信息。\n' +
+    '   - 在调用 add_talent 创建新达人前，必须先调用 search_talents 查询 talents 表是否已存在同名或同抖音号的达人。如果搜索结果中已存在（name 或 douyin_id 匹配），请在 add_talent 的 params 中传入该达人的 id 字段（即 search_talents 返回的 id）和需要修改的字段，使用 PUT 方式更新；更新完成后在最终回复中明确告知用户“该达人已存在，已更新信息”。只有当 search_talents 确认不存在时才使用 POST 创建新达人。\n' +
     '   - 如果系统返回“该达人（抖音号XXX）已存在，是否需要更新信息？”，请直接使用 id 字段调用 add_talent 进行 PUT 更新，并在回复中告知用户“该达人已存在，已更新信息”；若用户明确取消，则不再调用。\n' +
     '   - 另一种录入方式：如果你已经整理好达人结构化信息，但希望由用户在 UI 上确认后再保存，请在回复中（除工具调用外）插入标记 [达人录入卡片]{JSON对象}[/达人录入卡片]，JSON 字段与 add_talent 参数一致。前端会自动渲染可编辑确认卡片。\n\n' +
     '3. 匹配引擎 (/api/match)\n' +
@@ -19975,6 +19977,8 @@ function buildAgentToolsContext() {
     '[TOOL_CALL]{"action":"describe_image","params":{"imageIndex":0}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"match_product","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"match_talent_product","params":{"direction":"talent-to-product","talentId":"tal_xxx"}}[/TOOL_CALL]\n' +
+    '或 [TOOL_CALL]{"action":"search_talents","params":{"query":"鞋靴 凉鞋"}}[/TOOL_CALL]\n' +
+    '或 [TOOL_CALL]{"action":"get_talent_detail","params":{"talentId":"tal_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"analyze_hit_talent","params":{"talentId":"tal_xxx","conversion_rate":3.5,"gmv":100000}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"find_similar_talents","params":{"talentId":"tal_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"add_talent","params":{"name":"李佳琦","douyin_id":"lijiaqi","followers":45000000,"category":"美妆护肤","level":"S","risk_rating":"low","cooperation_status":"available"}}[/TOOL_CALL]\n' +
@@ -20322,6 +20326,15 @@ async function executeToolCall(call) {
           data.influencers.slice(0, 10).map(function(i) {
             return '- ' + i.name + ' (' + (i.platform || '-') + ', 粉丝' + (i.followerCount >= 10000 ? (i.followerCount/10000).toFixed(1)+'w' : (i.followerCount || 0)) + ', 报价¥' + (i.cooperationPrice || 0).toFixed(0) + ')';
           }).join('\n');
+      case 'search_talents':
+        var q = call.params && call.params.query;
+        if (!q) return '【工具执行失败】缺少 query';
+        var r = await apiFetch('/api/talents?q=' + encodeURIComponent(q) + '&limit=20');
+        var data = await r.json();
+        return '📇 搜索 talents 表「' + q + '」找到 ' + (data.total || data.talents.length) + ' 个结果：\n' +
+          data.talents.slice(0, 10).map(function(t) {
+            return '- ' + (t.name || '未命名') + ' (' + (t.douyin_id || '无抖音号') + ', 粉丝' + formatNumber(t.followers || 0) + ', ' + (t.category || '未分类') + ', ID:' + (t.id || '-') + ')';
+          }).join('\n');
       case 'get_product_detail':
         var pid = call.params && (call.params.productId || call.params.id);
         if (!pid) return '【工具执行失败】缺少 productId 或 id';
@@ -20350,6 +20363,27 @@ async function executeToolCall(call) {
           '互动率：' + (i.engagementRate || 0) + '%\n' +
           '标签：' + ((i.tags || []).join('、') || '-') + '\n' +
           '简介：' + ((i.bio || '').slice(0, 200) || '-');
+      case 'get_talent_detail':
+        var tid = call.params && (call.params.talentId || call.params.id);
+        if (!tid) return '【工具执行失败】缺少 talentId';
+        var r = await apiFetch('/api/talents/' + encodeURIComponent(tid));
+        var t = await r.json();
+        return '📇 talents 表达人详情：\n' +
+          '名称：' + (t.name || '未命名') + '\n' +
+          '抖音号：' + (t.douyin_id || '-') + '\n' +
+          'ID：' + (t.id || '-') + '\n' +
+          '粉丝：' + formatNumber(t.followers || 0) + '\n' +
+          '城市：' + (t.city || '-') + '\n' +
+          '等级：' + (t.level || '-') + '\n' +
+          '主营类目：' + (t.category || t.fan_category || '未分类') + '\n' +
+          '带货结算总额：' + (t.total_gmv || 0) + '\n' +
+          '带货评分：' + (t.rating_score || 0) + '\n' +
+          '合作状态：' + (t.cooperation_status || 'available') + '\n' +
+          '机构/企业：' + (t.agency || '-') + '\n' +
+          '简介：' + ((t.bio || '').slice(0, 300) || '-') + '\n' +
+          '粉丝性别：' + (t.fan_gender ? JSON.stringify(t.fan_gender) : '-') + '\n' +
+          '粉丝年龄：' + (t.fan_age ? JSON.stringify(t.fan_age) : '-') + '\n' +
+          'raw_analysis：' + ((t.raw_analysis || t.ai_analysis || '').slice(0, 500) || '-');
       case 'match_product':
         var pid = call.params && call.params.productId;
         if (!pid) return '【工具执行失败】缺少 productId';
@@ -20449,6 +20483,8 @@ async function executeToolCall(call) {
         var params = call.params || {};
         var talentName = params.name && String(params.name).trim();
         if (!talentName) return '【工具执行失败】缺少 name（达人昵称），请向用户确认后再调用';
+        var rawAnalysis = params.raw_analysis || params.rawAnalysis || '';
+        if (typeof rawAnalysis === 'object') rawAnalysis = JSON.stringify(rawAnalysis);
         var talentBody = {
           name: talentName,
           douyin_id: params.douyin_id || params.douyinId || '',
@@ -20466,6 +20502,12 @@ async function executeToolCall(call) {
           contact_name: params.contact_name || params.contactName || '',
           follow_up_by: params.follow_up_by || params.followUpBy || '',
           follow_up_note: params.follow_up_note || params.followUpNote || '',
+          agency: params.agency || '',
+          total_gmv: parseFloat(params.total_gmv || params.totalGmv || 0) || 0,
+          rating_score: parseFloat(params.rating_score || params.ratingScore || 0) || 0,
+          fan_gender: params.fan_gender || params.fanGender || {},
+          fan_age: params.fan_age || params.fanAge || {},
+          raw_analysis: rawAnalysis,
           created_by: getCurrentEmpId() || ''
         };
         var talentId = params.id || params.talentId || '';
@@ -20502,26 +20544,38 @@ async function executeToolCall(call) {
           return '✅ 达人信息更新成功\n' +
             '昵称：' + (t.name || '-') + '\n' +
             '抖音号：' + (t.douyin_id || '-') + '\n' +
-            '粉丝数：' + (t.followers >= 10000 ? (t.followers / 10000).toFixed(1) + 'w' : (t.followers || 0)) + '\n' +
+            'ID：' + (t.id || '-') + '\n' +
+            '粉丝数：' + formatNumber(t.followers || 0) + '\n' +
+            '城市：' + (t.city || '-') + '\n' +
+            '等级：' + (t.level || '未设置') + '\n' +
             '主营类目：' + (t.category || t.fan_category || '未分类') + '\n' +
-            '合作等级：' + (t.level || '未设置') + '\n' +
+            '带货结算总额：' + (t.total_gmv || 0) + '\n' +
+            '带货评分：' + (t.rating_score || 0) + '\n' +
             '风险评级：' + (t.risk_rating || '未设置') + '\n' +
             '合作状态：' + (t.cooperation_status || 'available') + '\n' +
-            '城市：' + (t.city || '-') + '\n' +
+            '机构/企业：' + (t.agency || '-') + '\n' +
             '联系方式：' + ([t.phone, t.wechat, t.email].filter(Boolean).join(' / ') || '-') + '\n' +
-            'ID：' + (t.id || '-');
+            '简介：' + ((t.bio || '').slice(0, 200) || '-') + '\n' +
+            'raw_analysis：' + ((t.raw_analysis || t.ai_analysis || '').slice(0, 300) || '-') + '\n' +
+            '数据已写入 talents 表，可通过 get_talent_detail / search_talents 查询。';
         }
         return '✅ 达人录入成功\n' +
           '昵称：' + (t.name || '-') + '\n' +
           '抖音号：' + (t.douyin_id || '-') + '\n' +
-          '粉丝数：' + (t.followers >= 10000 ? (t.followers / 10000).toFixed(1) + 'w' : (t.followers || 0)) + '\n' +
+          'ID：' + (t.id || '-') + '\n' +
+          '粉丝数：' + formatNumber(t.followers || 0) + '\n' +
+          '城市：' + (t.city || '-') + '\n' +
+          '等级：' + (t.level || '未设置') + '\n' +
           '主营类目：' + (t.category || t.fan_category || '未分类') + '\n' +
-          '合作等级：' + (t.level || '未设置') + '\n' +
+          '带货结算总额：' + (t.total_gmv || 0) + '\n' +
+          '带货评分：' + (t.rating_score || 0) + '\n' +
           '风险评级：' + (t.risk_rating || '未设置') + '\n' +
           '合作状态：' + (t.cooperation_status || 'available') + '\n' +
-          '城市：' + (t.city || '-') + '\n' +
+          '机构/企业：' + (t.agency || '-') + '\n' +
           '联系方式：' + ([t.phone, t.wechat, t.email].filter(Boolean).join(' / ') || '-') + '\n' +
-          'ID：' + (t.id || '-');
+          '简介：' + ((t.bio || '').slice(0, 200) || '-') + '\n' +
+          'raw_analysis：' + ((t.raw_analysis || t.ai_analysis || '').slice(0, 300) || '-') + '\n' +
+          '数据已写入 talents 表，可通过 get_talent_detail / search_talents 查询。';
       case 'add_product':
         var pparams = call.params || {};
         var productName = pparams.name && String(pparams.name).trim();
