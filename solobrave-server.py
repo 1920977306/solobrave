@@ -2997,6 +2997,55 @@ def _dict_to_talent_row(t):
             return json.dumps(default if default is not None else {})
         return json.dumps(val, ensure_ascii=False)
 
+    def _parse_distribution_text(val):
+        """把"女性89%"这类文本解析成 {\"女性\": 89} 的 JSON 对象"""
+        if val is None:
+            return '{}'
+        if isinstance(val, (dict, list)):
+            return json.dumps(val, ensure_ascii=False)
+        s = str(val).strip()
+        if not s:
+            return '{}'
+        # 先尝试按 JSON 解析
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, (dict, list)):
+                return json.dumps(parsed, ensure_ascii=False)
+        except Exception:
+            pass
+        result = {}
+        # 匹配 "标签百分比%"，支持中文、数字、字母、横线、斜杠等
+        for label, num in re.findall(r'(.+?)(\d+(?:\.\d+)?)\s*%', s):
+            label = label.strip(' ,、:：；;()（）')
+            if label:
+                try:
+                    result[label] = float(num)
+                except Exception:
+                    pass
+        if result:
+            return json.dumps(result, ensure_ascii=False)
+        # 解析失败时存成 {"_raw": 原始文本}，保持 JSON 对象形态
+        return json.dumps({'_raw': s}, ensure_ascii=False)
+
+    def _parse_tags(val):
+        if val is None:
+            return '[]'
+        if isinstance(val, list):
+            return json.dumps(val, ensure_ascii=False)
+        if isinstance(val, str):
+            s = val.strip()
+            if not s:
+                return '[]'
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    return json.dumps(parsed, ensure_ascii=False)
+            except Exception:
+                pass
+            parts = [p.strip() for p in re.split(r'[,，、\s]+', s) if p.strip()]
+            return json.dumps(parts, ensure_ascii=False)
+        return json.dumps([], ensure_ascii=False)
+
     def _parse_amount(val):
         if isinstance(val, (int, float)):
             return float(val)
@@ -3066,12 +3115,12 @@ def _dict_to_talent_row(t):
         'avg_live_gmv': float(t.get('avg_live_gmv', 0) or 0),
         'live_gpm': float(t.get('live_gpm', 0) or 0),
         'video_gpm': float(t.get('video_gpm', 0) or 0),
-        'fan_gender': _jsonify(t.get('fan_gender', t.get('fanGender', {})), {}),
-        'fan_age': _jsonify(t.get('fan_age', t.get('fanAge', {})), {}),
-        'fan_region': _jsonify(t.get('fan_region', t.get('fanRegion', {})), {}),
-        'fan_crowd': t.get('fan_crowd') or t.get('fanCrowd') or '',
-        'fan_price_range': t.get('fan_price_range') or t.get('fanPriceRange') or '',
-        'fan_category': t.get('fan_category') or t.get('fanCategory') or '',
+        'fan_gender': _parse_distribution_text(t.get('fan_gender', t.get('fanGender', {}))),
+        'fan_age': _parse_distribution_text(t.get('fan_age', t.get('fanAge', {}))),
+        'fan_region': _parse_distribution_text(t.get('fan_region', t.get('fanRegion', {}))),
+        'fan_crowd': _parse_distribution_text(t.get('fan_crowd', t.get('fanCrowd', {}))),
+        'fan_price_range': _parse_distribution_text(t.get('fan_price_range', t.get('fanPriceRange', {}))),
+        'fan_category': _parse_distribution_text(t.get('fan_category', t.get('fanCategory', {}))),
         'category': t.get('category') or t.get('fan_category') or t.get('fanCategory') or '',
         'fans_profile': _jsonify(t.get('fans_profile', t.get('fansProfile', {})), {}),
         'ai_tags': _jsonify(t.get('ai_tags', t.get('aiTags', [])), []),
@@ -3085,7 +3134,7 @@ def _dict_to_talent_row(t):
         'created_by': t.get('created_by') or t.get('createdBy') or '',
         'created_at': t.get('created_at') or t.get('createdAt') or now,
         'updated_at': now,
-        'content_tags': _jsonify(t.get('content_tags', t.get('contentTags', [])), []),
+        'content_tags': _parse_tags(t.get('content_tags', t.get('contentTags', []))),
         'associated_company': t.get('associated_company') or t.get('associatedCompany') or '',
         'historical_days': int(t.get('historical_days', t.get('historicalDays', 0)) or 0),
         'recent_7d_gmv': _parse_amount(t.get('recent_7d_gmv', t.get('recent7dGmv', 0))),

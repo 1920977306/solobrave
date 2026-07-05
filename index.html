@@ -19942,7 +19942,7 @@ function buildAgentToolsContext() {
     '   - 查看旧 influencers 表单个达人详情：get_influencer_detail，参数 {"influencerId":"inf_xxx"}\n' +
     '   - 按关键词搜索 talents 表：search_talents，参数 {"query":"关键词"}，返回 talents 表达人列表（含 name、douyin_id、followers、category、id）。\n' +
     '   - 查看 talents 表单个达人详情：get_talent_detail，参数 {"talentId":"tal_xxx"} 或 {"id":"tal_xxx"}，返回 talents 表完整字段（name、douyin_id、followers、city、level、bio、category、total_gmv、rating_score、fan_gender、fan_age、raw_analysis 等）。\n' +
-    '   - 录入新达人：add_talent（对接 POST /api/talents 创建接口，写入 talents 表），参数 {"name":"昵称","douyin_id":"抖音号","followers":10000,"category":"鞋靴/凉鞋","level":"S","risk_rating":"low","city":"杭州","bio":"简介","phone":"13800138000","wechat":"wxid","email":"a@b.com","cooperation_status":"available","contact_name":"联系人","follow_up_by":"跟进人","follow_up_note":"备注","agency":"签约机构","total_gmv":123456,"rating_score":4.5,"fan_gender":{"男":40,"女":60},"fan_age":{"18-24":30},"raw_analysis":"{...}"}\n' +
+    '   - 录入/更新达人：add_talent（对接 POST /api/talents 创建或 PUT /api/talents/:id 更新，写入 talents 表），创建时必填 name，更新时必填 id。可选字段：{"douyin_id":"抖音号","followers":10000,"category":"鞋靴/凉鞋","level":"S","risk_rating":"low","city":"杭州","bio":"简介","phone":"13800138000","wechat":"wxid","email":"a@b.com","cooperation_status":"available","contact_name":"联系人","follow_up_by":"跟进人","follow_up_note":"备注","agency":"签约机构","associated_company":"关联企业","total_gmv":"250万-500万","recent_7d_gmv":"50万-80万","rating_score":4.5,"fulfillment_score":4.8,"video_ratio":80,"live_ratio":20,"video_count":120,"total_products":45,"average_price":199,"video_gpm":3500,"video_total_play":5000000,"historical_days":90,"content_tags":["穿搭","鞋靴"],"fan_gender":"女性89%","fan_age":"31-40岁52%","fan_region":"二线21%","fan_crowd":"精致妈妈25%","fan_price_range":"100-200元34%","fan_category":"服装55%","raw_analysis":"{...}"}\n' +
     '   - 分析爆款达人：analyze_hit_talent，参数 {"talentId":"tal_xxx","fan_screenshot":"可选","conversion_rate":3.5,"gmv":100000,"sample_videos":["url1"],"extra_notes":"补充"}。当用户提到某个达人卖得好时调用，数据不足时先向用户索要达人后台截图、粉丝画像、转化率等。\n' +
     '   - 寻找相似达人：find_similar_talents，参数 {"talentId":"tal_xxx"} 或 {"features":{"category":"鞋靴/凉鞋","tags":["穿搭"],"followers":100000}}，返回匹配度与推荐理由。可与用户讨论匹配策略后迭代。\n' +
     '   - 录入新达人、编辑达人信息也可人工在UI操作\n' +
@@ -20485,6 +20485,7 @@ async function executeToolCall(call) {
         if (!talentName) return '【工具执行失败】缺少 name（达人昵称），请向用户确认后再调用';
         var rawAnalysis = params.raw_analysis || params.rawAnalysis || '';
         if (typeof rawAnalysis === 'object') rawAnalysis = JSON.stringify(rawAnalysis);
+        var contentTags = params.content_tags || params.contentTags || [];
         var talentBody = {
           name: talentName,
           douyin_id: params.douyin_id || params.douyinId || '',
@@ -20503,10 +20504,26 @@ async function executeToolCall(call) {
           follow_up_by: params.follow_up_by || params.followUpBy || '',
           follow_up_note: params.follow_up_note || params.followUpNote || '',
           agency: params.agency || '',
-          total_gmv: parseFloat(params.total_gmv || params.totalGmv || 0) || 0,
+          associated_company: params.associated_company || params.associatedCompany || '',
+          total_gmv: params.total_gmv || params.totalGmv || 0,
+          recent_7d_gmv: params.recent_7d_gmv || params.recent7dGmv || 0,
           rating_score: parseFloat(params.rating_score || params.ratingScore || 0) || 0,
-          fan_gender: params.fan_gender || params.fanGender || {},
-          fan_age: params.fan_age || params.fanAge || {},
+          fulfillment_score: parseFloat(params.fulfillment_score || params.fulfillmentScore || 0) || 0,
+          video_ratio: parseFloat(params.video_ratio || params.videoRatio || 0) || 0,
+          live_ratio: parseFloat(params.live_ratio || params.liveRatio || 0) || 0,
+          video_count: parseInt(params.video_count || params.videoCount || 0, 10) || 0,
+          total_products: parseInt(params.total_products || params.totalProducts || params.product_count || params.productCount || 0, 10) || 0,
+          average_price: params.average_price || params.averagePrice || 0,
+          video_gpm: params.video_gpm || params.videoGpm || 0,
+          video_total_play: parseInt(params.video_total_play || params.videoTotalPlay || 0, 10) || 0,
+          historical_days: parseInt(params.historical_days || params.historicalDays || 0, 10) || 0,
+          content_tags: contentTags,
+          fan_gender: params.fan_gender || params.fanGender || '',
+          fan_age: params.fan_age || params.fanAge || '',
+          fan_region: params.fan_region || params.fanRegion || '',
+          fan_crowd: params.fan_crowd || params.fanCrowd || '',
+          fan_price_range: params.fan_price_range || params.fanPriceRange || '',
+          fan_category: params.fan_category || params.fanCategory || '',
           raw_analysis: rawAnalysis,
           created_by: getCurrentEmpId() || ''
         };
@@ -25901,6 +25918,13 @@ function renderTalentPanelFans(t) {
   var priceRange = t.fan_price_range || '';
   var categoryPref = t.fan_category || '';
   var html = '';
+  function fmtDistText(val) {
+    if (!val) return '';
+    if (typeof val === 'object' && !Array.isArray(val)) {
+      return Object.keys(val).map(function(k){ return k + ' ' + val[k] + '%'; }).join('，');
+    }
+    return String(val);
+  }
   function renderDist(title, obj) {
     if (!obj || typeof obj !== 'object' || Array.isArray(obj) || Object.keys(obj).length === 0) return '';
     var total = Object.values(obj).reduce(function(a,b){return a + (parseFloat(b)||0);}, 0);
@@ -25927,13 +25951,13 @@ function renderTalentPanelFans(t) {
     html += '<div class="talents-info-item"><label>关联企业</label><div class="value">' + escapeHtml(t.associated_company) + '</div></div>';
   }
   if (crowd) {
-    html += '<div class="talents-info-item"><label>人群类型</label><div class="value">' + escapeHtml(String(crowd)) + '</div></div>';
+    html += '<div class="talents-info-item"><label>人群类型</label><div class="value">' + escapeHtml(fmtDistText(crowd)) + '</div></div>';
   }
   if (priceRange) {
-    html += '<div class="talents-info-item"><label>客单价偏好</label><div class="value">' + escapeHtml(String(priceRange)) + '</div></div>';
+    html += '<div class="talents-info-item"><label>客单价偏好</label><div class="value">' + escapeHtml(fmtDistText(priceRange)) + '</div></div>';
   }
   if (categoryPref) {
-    html += '<div class="talents-info-item"><label>品类偏好</label><div class="value">' + escapeHtml(String(categoryPref)) + '</div></div>';
+    html += '<div class="talents-info-item"><label>品类偏好</label><div class="value">' + escapeHtml(fmtDistText(categoryPref)) + '</div></div>';
   }
   html += '</div></div>';
 
