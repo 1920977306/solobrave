@@ -6407,7 +6407,7 @@ window.doLogin = function () {
           <div class="product-modal-field"><label>佣金要求 (%)</label><input type="number" step="0.01" id="talentCommissionRequirement" placeholder="0"></div>
           <div class="product-modal-field"><label>履约分</label><input type="number" step="0.01" id="talentFulfillmentScore" placeholder="0"></div>
           <div class="product-modal-field"><label>口碑分</label><input type="number" step="0.01" id="talentRatingScore" placeholder="0"></div>
-          <div class="product-modal-field"><label>总 GMV</label><input type="number" step="0.01" id="talentTotalGmv" placeholder="0"></div>
+          <div class="product-modal-field"><label>总 GMV</label><input type="text" id="talentTotalGmv" placeholder="如 250万-500万"></div>
           <div class="product-modal-field"><label>总商品数</label><input type="number" id="talentTotalProducts" placeholder="0"></div>
           <div class="product-modal-field"><label>当前商品数</label><input type="number" id="talentProductCount" placeholder="0"></div>
           <div class="product-modal-field"><label>总店铺数</label><input type="number" id="talentTotalShops" placeholder="0"></div>
@@ -24204,7 +24204,7 @@ function _renderProductTalentMatches() {
       return (b.followers || 0) - (a.followers || 0);
     }
     if (sortBy === 'gmv') {
-      return (b.total_gmv || 0) - (a.total_gmv || 0);
+      return (parseFloat(b.total_gmv) || 0) - (parseFloat(a.total_gmv) || 0);
     }
     return (b.score || 0) - (a.score || 0);
   });
@@ -24222,7 +24222,7 @@ function _renderProductTalentMatches() {
     html += '<div class="ai-match-card-title">' + escapeHtml(m.name || '-') + '</div>';
     html += '<div class="ai-match-card-meta">粉丝 ' + formatNumber(m.followers || 0) + ' · ' + escapeHtml(m.category || '未分类') + '</div>';
     html += '<div class="ai-match-card-tags">';
-    html += '<span class="ai-match-tag">历史GMV ¥' + formatNumber(m.total_gmv || 0) + '</span>';
+    html += '<span class="ai-match-tag">历史GMV ¥' + formatAmount(m.total_gmv) + '</span>';
     html += '</div>';
     html += '<div class="ai-match-card-reason">' + escapeHtml(m.reason || '') + '</div>';
     html += '</div>';
@@ -25337,7 +25337,7 @@ function sortTalentsLocally(talents, sort) {
       list.sort(function(a,b){ return (b.total_products || 0) - (a.total_products || 0); });
       break;
     case 'gmv_desc':
-      list.sort(function(a,b){ return (b.total_gmv || 0) - (a.total_gmv || 0); });
+      list.sort(function(a,b){ return (parseFloat(b.total_gmv) || 0) - (parseFloat(a.total_gmv) || 0); });
       break;
   }
   return list;
@@ -25432,7 +25432,7 @@ function renderTalentList(talents) {
     var aiScore = t.ai_rating ? (['S','A','B','C'].indexOf(t.ai_rating) >= 0 ? (4 - ['S','A','B','C'].indexOf(t.ai_rating)) * 25 : 0) : 0;
     var categories = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
     var followersText = formatFollowers(t.followers || 0).replace('w', '万');
-    var gmv = (t.total_gmv || mock.total_gmv || 0) >= 10000 ? (((t.total_gmv || mock.total_gmv) / 10000).toFixed(1).replace(/\.0$/, '') + 'w') : formatNumber(t.total_gmv || mock.total_gmv || 0);
+    var gmv = formatAmount(t.total_gmv || mock.total_gmv || 0);
     var productCount = t.product_count || t.total_products || mock.product_count || 0;
     var isSelected = _talentSelectedIds.indexOf(t.id) !== -1;
     html += '<div class="talents-mid-card' + (_talentCurrentId === t.id ? ' active' : '') + '" data-id="' + escapeAttr(t.id) + '" onclick="selectTalentItem(\'' + escapeAttr(t.id).replace(/'/g,"\\'") + '\')">';
@@ -25643,8 +25643,8 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-panel-title">核心数据</div>';
   html += '<div class="talents-metric-grid">';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + formatFollowers(t.followers || 0) + '</div><div class="talents-metric-label">粉丝量</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(totalGmv) + '</div><div class="talents-metric-label">历史GMV</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.recent_7d_gmv || 0) + '</div><div class="talents-metric-label">近7天结算</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatAmount(totalGmv) + '</div><div class="talents-metric-label">历史GMV</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatAmount(t.recent_7d_gmv) + '</div><div class="talents-metric-label">近7天结算</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + productCount + '</div><div class="talents-metric-label">带货商品数</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.video_count || 0) + '</div><div class="talents-metric-label">带货视频数</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.video_gpm || 0) + '</div><div class="talents-metric-label">视频GPM</div></div>';
@@ -25714,7 +25714,7 @@ function renderTalentPanelSales(t) {
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">核心带货指标</div>';
   html += '<div class="talents-metric-grid">';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.recent_7d_gmv || 0) + '</div><div class="talents-metric-label">近7天结算</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatAmount(t.recent_7d_gmv) + '</div><div class="talents-metric-label">近7天结算</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.video_count || 0) + '</div><div class="talents-metric-label">带货视频数</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">' + formatNumber(t.video_total_play || 0) + '</div><div class="talents-metric-label">视频总播放量</div></div>';
   html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.video_gpm || 0) + '</div><div class="talents-metric-label">视频GPM</div></div>';
@@ -25914,9 +25914,19 @@ function renderTalentPanelFans(t) {
   var gender = t.fan_gender || {};
   var age = t.fan_age || {};
   var region = t.fan_region || {};
-  var crowd = t.fan_crowd || '';
-  var priceRange = t.fan_price_range || '';
-  var categoryPref = t.fan_category || '';
+  function parseDistVal(val) {
+    if (val && typeof val === 'object') return val;
+    if (typeof val === 'string' && val.trim()) {
+      try {
+        var parsed = JSON.parse(val);
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch (e) {}
+    }
+    return val || '';
+  }
+  var crowd = parseDistVal(t.fan_crowd);
+  var priceRange = parseDistVal(t.fan_price_range);
+  var categoryPref = parseDistVal(t.fan_category);
   var html = '';
   function fmtDistText(val) {
     if (!val) return '';
@@ -26192,7 +26202,7 @@ function renderTalentPanelRecords(t) {
   var seed = _hashString(t.id + 'records');
   var records = [
     { date: '2024-06', title: '【' + (t.name || '-') + '】带货合作沟通', note: '沟通佣金与排期，双方初步达成合作意向。' },
-    { date: '2024-05', title: '历史合作商品：' + mock.category.split('/')[0] + '热销款', note: '直播带货 2 场，累计 GMV ¥' + formatNumber(Math.round(mock.total_gmv * 0.15)) + '。' },
+    { date: '2024-05', title: '历史合作商品：' + mock.category.split('/')[0] + '热销款', note: '直播带货 2 场，累计 GMV ¥' + (typeof mock.total_gmv === 'number' ? formatNumber(Math.round(mock.total_gmv * 0.15)) : formatAmount(mock.total_gmv)) + '。' },
     { date: '2024-03', title: '样品寄送与试用反馈', note: '达人收到样品，反馈产品质量良好，适合粉丝群体。' }
   ];
   if (seed % 2 === 0) records.push({ date: '2024-01', title: '首次建联', note: '通过抖音私信建立联系，发送品牌介绍与货盘表。' });
@@ -26534,7 +26544,7 @@ function saveTalent() {
     commission_requirement: parseFloat(document.getElementById('talentCommissionRequirement').value || '0') || 0,
     fulfillment_score: parseFloat(document.getElementById('talentFulfillmentScore').value || '0') || 0,
     rating_score: parseFloat(document.getElementById('talentRatingScore').value || '0') || 0,
-    total_gmv: parseFloat(document.getElementById('talentTotalGmv').value || '0') || 0,
+    total_gmv: document.getElementById('talentTotalGmv').value.trim() || '',
     total_products: parseInt(document.getElementById('talentTotalProducts').value || '0') || 0,
     product_count: parseInt(document.getElementById('talentProductCount').value || '0') || 0,
     total_shops: parseInt(document.getElementById('talentTotalShops').value || '0') || 0,
@@ -28543,6 +28553,17 @@ function showUserProfile() {
 
 function formatNumber(n) {
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+function formatAmount(val) {
+  if (typeof val === 'string' && val.trim()) {
+    var cleaned = val.replace(/,/g, '').replace(/，/g, '');
+    var num = parseFloat(cleaned);
+    if (!isNaN(num) && String(num) === cleaned) {
+      return formatNumber(num);
+    }
+    return escapeHtml(val);
+  }
+  return formatNumber(val || 0);
 }
 function formatFollowers(n) {
   var num = parseFloat(n) || 0;

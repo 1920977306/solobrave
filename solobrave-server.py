@@ -3106,7 +3106,7 @@ def _dict_to_talent_row(t):
         'commission_requirement': float(t.get('commission_requirement', 0) or 0),
         'fulfillment_score': float(t.get('fulfillment_score', 0) or 0),
         'rating_score': float(t.get('rating_score', 0) or 0),
-        'total_gmv': _parse_amount(t.get('total_gmv', 0)),
+        'total_gmv': str(t.get('total_gmv', t.get('totalGmv', '')) or ''),
         'total_products': int(t.get('total_products', 0) or 0),
         'product_count': int(t.get('product_count', t.get('total_products', 0)) or 0),
         'total_shops': int(t.get('total_shops', 0) or 0),
@@ -3138,7 +3138,7 @@ def _dict_to_talent_row(t):
         'content_tags': _parse_tags(t.get('content_tags', t.get('contentTags', []))),
         'associated_company': t.get('associated_company') or t.get('associatedCompany') or '',
         'historical_days': int(t.get('historical_days', t.get('historicalDays', 0)) or 0),
-        'recent_7d_gmv': _parse_amount(t.get('recent_7d_gmv', t.get('recent7dGmv', 0))),
+        'recent_7d_gmv': str(t.get('recent_7d_gmv', t.get('recent7dGmv', '')) or ''),
         'video_total_play': int(t.get('video_total_play', t.get('videoTotalPlay', 0)) or 0),
         'video_count': int(t.get('video_count', t.get('videoCount', 0)) or 0),
     }
