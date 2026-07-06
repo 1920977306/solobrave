@@ -849,14 +849,20 @@ def _group_ids_where_clause(user_group_ids):
 
 def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_categories=None,
                    scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None,
-                   emp_id=None, user_group_ids=None):
+                   emp_id=None, user_group_ids=None, emp_ids=None):
     """
     知识列表（支持分页、分类筛选、关键词搜索、四层隔离：global/team/personal/group）。
     scope: all/global/team/personal/group；None 默认按可读权限返回全部。
     emp_id 为旧参数：空字符串等价于 global，非空等价于 personal(user_id=emp_id)。
+    emp_ids 为新参数：允许传入多个 emp_id（如 [user_id] + 用户创建的 agent ids），用于 personal scope 过滤。
     """
     if user_group_ids is None:
         user_group_ids = []
+    if emp_ids is None:
+        emp_ids = []
+    # 兼容旧 user_id 参数：把 user_id 合并进 emp_ids
+    if user_id and user_id not in emp_ids:
+        emp_ids = list(emp_ids) + [user_id]
     conn = _db_conn()
     try:
         where = ['status = ?']
@@ -868,16 +874,18 @@ def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_cate
                 scope = 'global'
             else:
                 scope = 'personal'
-                user_id = emp_id
+                if emp_id not in emp_ids:
+                    emp_ids = list(emp_ids) + [emp_id]
 
         # 四层隔离过滤（global / team / personal / group）
         if scope == 'global':
             where.append("(scope IS NULL OR scope = 'global')")
         elif scope == 'personal':
             where.append("scope = 'personal'")
-            if user_id:
-                where.append('emp_id = ?')
-                params.append(user_id)
+            if emp_ids:
+                placeholders = ', '.join('?' for _ in emp_ids)
+                where.append(f'emp_id IN ({placeholders})')
+                params.extend(emp_ids)
         elif scope == 'team':
             where.append("scope = 'team'")
             if team_id:
@@ -903,9 +911,10 @@ def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_cate
             # 默认：按可读权限返回（global + 自己的 personal + 所在 team + 所在 group）
             if not is_admin:
                 readable = ["(scope IS NULL OR scope = 'global')"]
-                if user_id:
-                    readable.append("(scope = 'personal' AND emp_id = ?)")
-                    params.append(user_id)
+                if emp_ids:
+                    placeholders = ', '.join('?' for _ in emp_ids)
+                    readable.append(f"(scope = 'personal' AND emp_id IN ({placeholders}))")
+                    params.extend(emp_ids)
                 if user_team_ids:
                     placeholders = ', '.join('?' for _ in user_team_ids)
                     readable.append(f"(scope = 'team' AND team_id IN ({placeholders}))")
@@ -1044,15 +1053,20 @@ def _rechunk_and_vectorize(kid, emp_id, content, api_key, provider,
 # ═══════════════════════════════════════════════════
 
 def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=None, top_k_docs=3, allowed_categories=None,
-                 model=None, base_url=None, requester_id=None, is_admin=False, team_ids=None, group_ids=None):
+                 model=None, base_url=None, requester_id=None, is_admin=False, team_ids=None, group_ids=None, emp_ids=None):
     """
     RAG 检索：在 knowledge_chunks 中搜索，返回关联的原始文档。
     支持四层隔离：global 全员可读，personal 仅自己，team 仅团队成员可读，group 仅项目组成员可读。
     使用全局 embedding 配置，不再依赖传入的 api_key/provider。
     整个函数被 try-catch 保护，出错时降级返回空结果，避免拖垮主流程。
+    emp_ids 允许传入多个 emp_id（用户自身 id 及其创建的 agent ids）。
     """
     if group_ids is None:
         group_ids = []
+    if emp_ids is None:
+        emp_ids = []
+    if requester_id and requester_id not in emp_ids:
+        emp_ids = list(emp_ids) + [requester_id]
     try:
         if isinstance(query, list):
             text_parts = [item.get('text', '') for item in query if isinstance(item, dict) and item.get('type') == 'text']
@@ -1095,8 +1109,10 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
         # 四层隔离过滤（未提供 requester_id 时不限制，保持兼容）
         if requester_id is not None and not is_admin:
             readable = ["(k.scope IS NULL OR k.scope = 'global')"]
-            readable.append("(k.scope = 'personal' AND k.emp_id = ?)")
-            sql_params.append(requester_id)
+            if emp_ids:
+                placeholders = ', '.join('?' for _ in emp_ids)
+                readable.append(f"(k.scope = 'personal' AND k.emp_id IN ({placeholders}))")
+                sql_params.extend(emp_ids)
             if team_ids:
                 placeholders = ', '.join('?' for _ in team_ids)
                 readable.append(f"(k.scope = 'team' AND k.team_id IN ({placeholders}))")
@@ -1197,10 +1213,14 @@ def format_rag_context(docs):
 # Fallback：关键词搜索
 # ═══════════════════════════════════════════════════
 
-def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is_admin=False, team_ids=None, group_ids=None):
+def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is_admin=False, team_ids=None, group_ids=None, emp_ids=None):
     """API 失败时的关键词搜索 fallback（LIKE）；带四层隔离"""
     if group_ids is None:
         group_ids = []
+    if emp_ids is None:
+        emp_ids = []
+    if requester_id and requester_id not in emp_ids:
+        emp_ids = list(emp_ids) + [requester_id]
     if isinstance(query, list):
         text_parts = [item.get('text', '') for item in query if isinstance(item, dict) and item.get('type') == 'text']
         query = ''.join(text_parts)
@@ -1213,8 +1233,10 @@ def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is
         params = [keyword, keyword]
         if requester_id is not None and not is_admin:
             readable = ["(scope IS NULL OR scope = 'global')"]
-            readable.append("(scope = 'personal' AND emp_id = ?)")
-            params.append(requester_id)
+            if emp_ids:
+                placeholders = ', '.join('?' for _ in emp_ids)
+                readable.append(f"(scope = 'personal' AND emp_id IN ({placeholders}))")
+                params.extend(emp_ids)
             if team_ids:
                 placeholders = ', '.join('?' for _ in team_ids)
                 readable.append(f"(scope = 'team' AND team_id IN ({placeholders}))")
@@ -1245,24 +1267,29 @@ def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is
 
 def knowledge_search_semantic(query, emp_id, api_key=None, provider='openai', agent_config=None, limit=3, allowed_categories=None,
                               model=None, base_url=None,
-                              requester_id=None, is_admin=False, team_ids=None, group_ids=None):
+                              requester_id=None, is_admin=False, team_ids=None, group_ids=None, emp_ids=None):
     """
     语义检索，带 fallback；使用全局 embedding 配置，不再依赖传入的 api_key/provider。
     供 MS3 inject_memories 和 API 搜索使用。
+    emp_ids 允许传入多个 emp_id（用户自身 id 及其创建的 agent ids）。
     """
     if group_ids is None:
         group_ids = []
+    if emp_ids is None:
+        emp_ids = []
+    if requester_id and requester_id not in emp_ids:
+        emp_ids = list(emp_ids) + [requester_id]
     try:
         # 使用全局 embedding 配置
         emb_cfg = get_embedding_config(emp_id or None)
         result = rag_retrieve(query, emp_id, emb_cfg['apiKey'], emb_cfg['provider'], agent_config,
                               top_k_docs=limit, allowed_categories=allowed_categories,
                               model=emb_cfg['model'], base_url=emb_cfg['baseUrl'],
-                              requester_id=requester_id, is_admin=is_admin, team_ids=team_ids, group_ids=group_ids)
+                              requester_id=requester_id, is_admin=is_admin, team_ids=team_ids, group_ids=group_ids, emp_ids=emp_ids)
         return result.get('docs', [])
     except Exception as e:
         print(f'  [KnowledgeSearch] semantic failed, fallback to keyword: {e}', flush=True)
-        return knowledge_search_fallback(query, emp_id, limit, requester_id=requester_id, is_admin=is_admin, team_ids=team_ids, group_ids=group_ids)
+        return knowledge_search_fallback(query, emp_id, limit, requester_id=requester_id, is_admin=is_admin, team_ids=team_ids, group_ids=group_ids, emp_ids=emp_ids)
 
 
 # ═══════════════════════════════════════════════════
@@ -1290,13 +1317,19 @@ def _has_any(items_a, items_b):
     return bool(set(items_a) & set(items_b))
 
 
-def can_read_knowledge(doc, user_id, is_admin=False, user_team_ids=None, user_group_ids=None):
-    """判断用户是否可读某条知识"""
+def can_read_knowledge(doc, user_id=None, is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None):
+    """判断用户是否可读某条知识
+    emp_ids 允许传入多个 emp_id（包含用户自身 id 及其创建的 agent ids）。
+    """
+    if emp_ids is None:
+        emp_ids = []
+    if user_id and user_id not in emp_ids:
+        emp_ids = list(emp_ids) + [user_id]
     scope = _doc_scope(doc)
     if scope == 'global':
         return True
     if scope == 'personal':
-        return is_admin or doc.get('empId') == user_id
+        return is_admin or doc.get('empId') in emp_ids
     if scope == 'team':
         team_id = doc.get('teamId')
         return is_admin or (user_team_ids and team_id in user_team_ids)
@@ -1306,13 +1339,17 @@ def can_read_knowledge(doc, user_id, is_admin=False, user_team_ids=None, user_gr
     return False
 
 
-def can_edit_knowledge(doc, user_id, is_admin=False, managed_team_ids=None, managed_group_ids=None):
+def can_edit_knowledge(doc, user_id=None, is_admin=False, managed_team_ids=None, managed_group_ids=None, emp_ids=None):
     """判断用户是否可编辑/移动某条知识（group 维度仅群主/管理员可编辑）"""
+    if emp_ids is None:
+        emp_ids = []
+    if user_id and user_id not in emp_ids:
+        emp_ids = list(emp_ids) + [user_id]
     scope = _doc_scope(doc)
     if scope == 'global':
         return is_admin
     if scope == 'personal':
-        return is_admin or doc.get('empId') == user_id
+        return is_admin or doc.get('empId') in emp_ids
     if scope == 'team':
         team_id = doc.get('teamId')
         return is_admin or (managed_team_ids and team_id in managed_team_ids)
@@ -1322,13 +1359,17 @@ def can_edit_knowledge(doc, user_id, is_admin=False, managed_team_ids=None, mana
     return False
 
 
-def can_delete_knowledge(doc, user_id, is_admin=False, managed_team_ids=None, managed_group_ids=None, user_group_ids=None):
+def can_delete_knowledge(doc, user_id=None, is_admin=False, managed_team_ids=None, managed_group_ids=None, user_group_ids=None, emp_ids=None):
     """判断用户是否可删除某条知识（group 维度项目组成员或管理员可删除）"""
+    if emp_ids is None:
+        emp_ids = []
+    if user_id and user_id not in emp_ids:
+        emp_ids = list(emp_ids) + [user_id]
     scope = _doc_scope(doc)
     if scope == 'global':
         return is_admin
     if scope == 'personal':
-        return is_admin or doc.get('empId') == user_id
+        return is_admin or doc.get('empId') in emp_ids
     if scope == 'team':
         team_id = doc.get('teamId')
         return is_admin or (managed_team_ids and team_id in managed_team_ids)
@@ -1338,13 +1379,19 @@ def can_delete_knowledge(doc, user_id, is_admin=False, managed_team_ids=None, ma
     return False
 
 
-def can_create_knowledge(scope, user_id, is_admin=False, team_id=None, user_team_ids=None, managed_team_ids=None,
-                         group_ids=None, user_group_ids=None, managed_group_ids=None):
-    """判断用户是否可在指定 scope 下新建知识"""
+def can_create_knowledge(scope, user_id=None, is_admin=False, team_id=None, user_team_ids=None, managed_team_ids=None,
+                         group_ids=None, user_group_ids=None, managed_group_ids=None, emp_id=None, emp_ids=None):
+    """判断用户是否可在指定 scope 下新建知识
+    personal scope 下 emp_id 必须在 emp_ids 中（用户自身或其创建的 agent）。
+    """
+    if emp_ids is None:
+        emp_ids = []
+    if user_id and user_id not in emp_ids:
+        emp_ids = list(emp_ids) + [user_id]
     if scope == 'global':
         return is_admin
     if scope == 'personal':
-        return True
+        return is_admin or (emp_id in emp_ids)
     if scope == 'team':
         if is_admin:
             return True

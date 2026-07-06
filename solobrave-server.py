@@ -1064,7 +1064,6 @@ def _default_permission_templates():
         'version': '1.0',
         'roleTemplates': [
             {'id': 'admin', 'name': '超级管理员', 'modules': superadmin_modules, 'knowledgeCategories': ['*']},
-            {'id': 'leader', 'name': '管理员', 'modules': admin_modules, 'knowledgeCategories': ['*']},
             {'id': 'employee', 'name': '普通用户', 'modules': user_modules, 'knowledgeCategories': ['*']},
         ],
         'userOverrides': {}
@@ -1353,6 +1352,70 @@ def _get_user_managed_group_ids(user_id):
         return []
     groups = _load_groups()
     return [g.get('id') for g in groups if g.get('createdBy') == user_id and g.get('id')]
+
+
+def _get_user_emp_ids(user_id):
+    """返回用户自身 id 及其创建的 AI 员工 id 列表，用于知识库 personal scope 过滤"""
+    if not user_id:
+        return []
+    agents = _load_agents()
+    result = [user_id]
+    for a in agents:
+        if a.get('createdBy') == user_id and a.get('id'):
+            result.append(a.get('id'))
+    return result
+
+
+def _get_employee_accessible_talent_ids(user_id):
+    """员工可访问的达人 id 集合：自己创建的 + 自己 AI 员工所在项目组的"""
+    if not user_id:
+        return set()
+    accessible = set()
+    user_group_ids = set(_get_user_group_ids(user_id))
+    conn = _db_conn()
+    try:
+        rows = conn.execute("SELECT id, created_by, group_id FROM talents WHERE status = 'active'").fetchall()
+        for r in rows:
+            if r['created_by'] == user_id:
+                accessible.add(r['id'])
+                continue
+            if r['group_id'] and r['group_id'] in user_group_ids:
+                accessible.add(r['id'])
+    finally:
+        conn.close()
+    return accessible
+
+
+def _get_employee_accessible_product_ids(user_id):
+    """员工可访问的商品 id 集合：自己创建的 + 自己 AI 员工所在项目组对应品牌的"""
+    if not user_id:
+        return set()
+    accessible = set()
+    user_group_ids = set(_get_user_group_ids(user_id))
+    conn = _db_conn()
+    try:
+        # 收集用户可访问的 brand_id 列表
+        brand_rows = conn.execute("SELECT id, group_id FROM brands WHERE status = 'active'").fetchall()
+        accessible_brand_ids = set()
+        for r in brand_rows:
+            if r['group_id'] and r['group_id'] in user_group_ids:
+                accessible_brand_ids.add(r['id'])
+        if accessible_brand_ids:
+            placeholders = ','.join('?' for _ in accessible_brand_ids)
+            product_rows = conn.execute(
+                f"SELECT id, created_by, brand_id FROM products WHERE status != 'archived' AND (created_by = ? OR brand_id IN ({placeholders}))",
+                (user_id,) + tuple(accessible_brand_ids)
+            ).fetchall()
+        else:
+            product_rows = conn.execute(
+                "SELECT id, created_by, brand_id FROM products WHERE status != 'archived' AND created_by = ?",
+                (user_id,)
+            ).fetchall()
+        for r in product_rows:
+            accessible.add(r['id'])
+    finally:
+        conn.close()
+    return accessible
 
 
 # ─── 小组管理 ─────────────────────────────────────────
@@ -2525,6 +2588,7 @@ def _product_row_to_dict(row):
         'has_shipping_insurance': bool(row['has_shipping_insurance']) if row['has_shipping_insurance'] is not None else False,
         'no_shipping_areas': row['no_shipping_areas'] or '',
         'brand_background': row['brand_background'] or '',
+        'created_by': row['created_by'] or '',
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
@@ -2917,6 +2981,7 @@ def _talent_row_to_dict(row):
         'risk_rating': row['risk_rating'] or '',
         'group_id': row['group_id'] or '',
         'status': row['status'] or 'active',
+        'created_by': row['created_by'] or '',
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
@@ -5430,7 +5495,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'error': '密码至少 4 个字符'})
             return
 
-        if role not in ('admin', 'leader', 'employee'):
+        if role not in ('admin', 'employee'):
             role = 'employee'
 
         users = _load_users()
@@ -5447,13 +5512,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'role': role,
             'displayName': display_name,
             'avatar': 0,
-            'agentQuota': 10 if role == 'employee' else 999,
+            'agentQuota': 3 if role == 'employee' else 999,
             'apiQuota': 1000 if role == 'employee' else 99999,
             'createdAt': datetime.now().isoformat(),
             # V2 新增字段
             'teamIds': body.get('teamIds', []),
             'subordinateIds': [],
-            'roleTemplateId': body.get('roleTemplateId', None),
+            'roleTemplateId': role,
             'status': 'active',
             'lastLoginAt': None
         }
@@ -5764,8 +5829,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 可更新字段
-        if 'role' in body and body['role'] in ('admin', 'leader', 'employee'):
+        if 'role' in body and body['role'] in ('admin', 'employee'):
             user['role'] = body['role']
+            user['roleTemplateId'] = body['role']
         if 'displayName' in body:
             user['displayName'] = body['displayName']
         if 'avatar' in body and isinstance(body['avatar'], int):
@@ -5774,40 +5840,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             user['agentQuota'] = body['agentQuota']
         if 'apiQuota' in body and isinstance(body['apiQuota'], int):
             user['apiQuota'] = body['apiQuota']
-        # V2 新增字段
-        if 'teamIds' in body and isinstance(body['teamIds'], list):
-            user['teamIds'] = body['teamIds']
-        if 'subordinateIds' in body and isinstance(body['subordinateIds'], list):
-            user['subordinateIds'] = body['subordinateIds']
-        if 'roleTemplateId' in body:
-            user['roleTemplateId'] = body['roleTemplateId']
         if 'status' in body and body['status'] in ('active', 'disabled'):
             user['status'] = body['status']
 
         _save_users(users)
 
-        # 同步更新 teams 的 members 和 leaderId
+        # 同步更新 teams 的 members
         teams = _load_teams()
         uid = user['id']
         new_team_ids = set(user.get('teamIds', []))
-        new_role = user.get('role', 'employee')
         for t in teams:
             t_members = set(t.get('members', []))
-            # 如果用户在这个组，确保members里有
             if t['id'] in new_team_ids:
                 t_members.add(uid)
                 t['members'] = list(t_members)
-                # 如果是leader，设置leaderId
-                if new_role == 'leader' and not t.get('leaderId'):
-                    t['leaderId'] = uid
             else:
-                # 如果用户不在这个组，从members移除
                 if uid in t_members:
                     t_members.discard(uid)
                     t['members'] = list(t_members)
-                # 如果是leader离开了，清除leaderId
-                if t.get('leaderId') == uid:
-                    t['leaderId'] = None
         _save_teams(teams)
 
         self._send_json(200, {
@@ -6096,12 +6146,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, group)
 
     def _handle_create_group(self):
-        """POST /api/groups — 创建群组"""
+        """POST /api/groups — 创建群组（仅 admin）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'groups'): return
+        if not auth.is_admin:
+            self._send_auth_error('Permission denied', 403)
+            return
 
         body = self._read_body()
         if not body:
@@ -6170,8 +6223,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '群组不存在'})
             return
 
-        # 权限校验：创建者或管理员
-        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
+        # 权限校验：仅管理员可管理项目组
+        if not auth.is_admin:
             self._send_auth_error('权限不足', 403)
             return
 
@@ -6208,10 +6261,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, group)
 
     def _handle_batch_save_groups(self):
-        """PUT /api/groups — 前端批量保存群组列表"""
+        """PUT /api/groups — 前端批量保存群组列表（仅 admin）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_auth_error('Permission denied', 403)
             return
 
         body = self._read_body()
@@ -6231,36 +6287,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         valid_members.append({'id': m, 'role': ''})
                 g['members'] = valid_members
 
-        # 只允许管理员批量覆盖；普通用户只更新自己的群组
-        if auth.is_admin:
-            _save_groups(body)
-            self._send_json(200, body)
-        else:
-            uid = auth.user_info['userId']
-            existing = _load_groups()
-            other = [g for g in existing if g.get('createdBy') != uid]
-            my_new = [g for g in body if g.get('createdBy') == uid]
-            merged = other + my_new
-            _save_groups(merged)
-            self._send_json(200, my_new)
+        _save_groups(body)
+        self._send_json(200, body)
 
     def _handle_delete_group(self, group_id):
-        """DELETE /api/groups/:id"""
+        """DELETE /api/groups/:id（仅 admin）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'groups'): return
+        if not auth.is_admin:
+            self._send_auth_error('Permission denied', 403)
+            return
 
         groups = _load_groups()
         group = _find_group(groups, 'id', group_id)
         if not group:
             self._send_json(404, {'error': '群组不存在'})
-            return
-
-        # 权限校验：创建者或管理员
-        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
-            self._send_auth_error('权限不足', 403)
             return
 
         groups = [g for g in groups if g.get('id') != group_id]
@@ -6364,7 +6408,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     user_id=auth.user_id,
                     is_admin=auth.is_admin,
                     user_team_ids=auth.team_ids,
-                    user_group_ids=auth.group_ids
+                    user_group_ids=auth.group_ids,
+                    emp_ids=_get_user_emp_ids(auth.user_id)
                 )
                 docs = res.get('docs', []) or []
                 matched = []
@@ -6399,8 +6444,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '群组不存在'})
             return
 
-        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
-            self._send_auth_error('权限不足', 403)
+        if not auth.is_admin:
+            self._send_auth_error('Permission denied', 403)
             return
 
         body = self._read_body()
@@ -6453,8 +6498,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '群组不存在'})
             return
 
-        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
-            self._send_auth_error('权限不足', 403)
+        if not auth.is_admin:
+            self._send_auth_error('Permission denied', 403)
             return
 
         # 先统一转换现有 members 格式（兼容历史数据中的字符串数组）
@@ -7470,15 +7515,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'error': '无效的请求体'})
             return
 
-        # employee 配额检查
+        # employee 配额检查（硬上限 3 个）
         if not auth.is_admin:
             auth.load_user_record()
             user = auth.user_record
             if user:
                 agents = _load_agents()
                 my_count = len([a for a in agents if a.get('createdBy') == auth.user_info['userId']])
-                if my_count >= user.get('agentQuota', 10):
-                    self._send_json(403, {'error': f'已达到 Agent 配额上限 ({user.get("agentQuota", 10)})'})
+                quota = user.get('role') == 'employee' and 3 or user.get('agentQuota', 10)
+                if my_count >= quota:
+                    self._send_json(403, {'error': f'已达到 Agent 配额上限 ({quota})'})
                     return
 
         new_agent = {
@@ -8487,7 +8533,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     keyword=keyword if keyword else None,
                     user_id=auth.user_id, is_admin=auth.is_admin,
                     user_team_ids=auth.team_ids,
-                    user_group_ids=auth.group_ids
+                    user_group_ids=auth.group_ids,
+                    emp_ids=_get_user_emp_ids(auth.user_id)
                 )
                 kb_docs = kb_result.get('docs', [])
             except Exception as e:
@@ -9560,7 +9607,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             scope=scope, team_id=team_id, user_id=auth.user_id,
             is_admin=auth.is_admin, user_team_ids=auth.team_ids,
             user_group_ids=effective_group_ids,
-            emp_id=target_emp_id
+            emp_id=target_emp_id,
+            emp_ids=_get_user_emp_ids(auth.user_id)
         )
         self._send_json(200, result)
 
@@ -9576,7 +9624,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Knowledge not found')
             return
         # 权限检查
-        if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids, user_group_ids=auth.group_ids):
+        if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids, user_group_ids=auth.group_ids, emp_ids=_get_user_emp_ids(auth.user_id)):
             self._send_auth_error('Permission denied', 403)
             return
         if not _can_access_knowledge_category(auth, doc.get('category', '')):
@@ -9620,7 +9668,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 limit, allowed_categories=allowed_cats,
                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
                 requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
-                group_ids=auth.group_ids
+                group_ids=auth.group_ids,
+                emp_ids=_get_user_emp_ids(auth.user_id)
             )
             self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
         except Exception as e:
@@ -9651,13 +9700,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         # 兼容旧前端传入 empId
         emp_id = body.get('empId') or ''
+        user_emp_ids = _get_user_emp_ids(auth.user_id)
         if scope == 'personal' and not emp_id:
             emp_id = auth.user_id
         if not ks.can_create_knowledge(scope, auth.user_id, is_admin=auth.is_admin,
                                        team_id=team_id, user_team_ids=auth.team_ids,
                                        managed_team_ids=auth.managed_team_ids,
                                        group_ids=group_ids, user_group_ids=auth.group_ids,
-                                       managed_group_ids=auth.managed_group_ids):
+                                       managed_group_ids=auth.managed_group_ids,
+                                       emp_id=emp_id, emp_ids=user_emp_ids):
             self._send_auth_error('Permission denied', 403)
             return
         category = body.get('category', '')
@@ -9713,7 +9764,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
                                      managed_team_ids=auth.managed_team_ids,
-                                     managed_group_ids=auth.managed_group_ids):
+                                     managed_group_ids=auth.managed_group_ids,
+                                     emp_ids=_get_user_emp_ids(auth.user_id)):
             self._send_auth_error('Permission denied', 403)
             return
         # 分类权限：必须对原文档分类有权限，且不能修改到无权限的分类
@@ -9798,7 +9850,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not ks.can_delete_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
                                        managed_team_ids=auth.managed_team_ids,
                                        managed_group_ids=auth.managed_group_ids,
-                                       user_group_ids=auth.group_ids):
+                                       user_group_ids=auth.group_ids,
+                                       emp_ids=_get_user_emp_ids(auth.user_id)):
             self._send_auth_error('Permission denied', 403)
             return
         deleted = ks.knowledge_delete(doc_id)
@@ -9863,7 +9916,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
                                      managed_team_ids=auth.managed_team_ids,
-                                     managed_group_ids=auth.managed_group_ids):
+                                     managed_group_ids=auth.managed_group_ids,
+                                     emp_ids=_get_user_emp_ids(auth.user_id)):
             self._send_auth_error('Permission denied', 403)
             return
         if not _can_access_knowledge_category(auth, doc.get('category', '')):
@@ -9920,7 +9974,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 原知识编辑权限
         if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
                                      managed_team_ids=auth.managed_team_ids,
-                                     managed_group_ids=auth.managed_group_ids):
+                                     managed_group_ids=auth.managed_group_ids,
+                                     emp_ids=_get_user_emp_ids(auth.user_id)):
             self._send_auth_error('Permission denied', 403)
             return
         body = self._read_body() or {}
@@ -9991,7 +10046,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 top_k_docs=top_k, allowed_categories=allowed_cats,
                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
                 requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
-                group_ids=auth.group_ids
+                group_ids=auth.group_ids,
+                emp_ids=_get_user_emp_ids(auth.user_id)
             )
             # 同时检索产品库（所有员工共享，从 SQLite 读取）
             conn = _db_conn()
@@ -10111,6 +10167,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             scored = [(s, p) for s, p in scored if s > 0]
             scored.sort(key=lambda x: x[0], reverse=True)
             products = [p for _, p in scored]
+        # 员工权限过滤
+        if not auth.is_admin:
+            accessible_ids = _get_employee_accessible_product_ids(auth.user_id)
+            products = [p for p in products if p['id'] in accessible_ids]
         # 分页
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
@@ -10136,6 +10196,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not product:
             self._send_json_error(404, 'Product not found')
             return
+        if not auth.is_admin and product_id not in _get_employee_accessible_product_ids(auth.user_id):
+            self._send_json_error(403, 'Permission denied')
+            return
         self._send_json(200, product)
 
     def _handle_get_product_matches(self, product_id):
@@ -10155,6 +10218,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         if not product:
             self._send_json_error(404, 'Product not found')
+            return
+        if not auth.is_admin and product_id not in _get_employee_accessible_product_ids(auth.user_id):
+            self._send_json_error(403, 'Permission denied')
             return
         query = parse_qs(urlparse(self.path).query)
         limit = int(query.get('limit', [20])[0])
@@ -10343,6 +10409,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         product.setdefault('id', f'prod_{now_ts}_{uuid.uuid4().hex[:6]}')
         product.setdefault('createdAt', now_ts)
         product.setdefault('updatedAt', now_ts)
+        product['created_by'] = auth.user_id
         # 兼容旧字段 commission_rate -> commission_rates
         if 'commission_rate' in body and 'commission_rates' not in body:
             product['commission_rates'] = {'default': float(body['commission_rate'])}
@@ -10394,6 +10461,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         if not existing:
             self._send_json_error(404, 'Product not found')
+            return
+        if not auth.is_admin and product_id not in _get_employee_accessible_product_ids(auth.user_id):
+            self._send_json_error(403, 'Permission denied')
             return
         now_ts = int(time.time() * 1000)
         updated = dict(existing)
@@ -10454,6 +10524,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'): return
+        if not auth.is_admin and product_id not in _get_employee_accessible_product_ids(auth.user_id):
+            self._send_json_error(403, 'Permission denied')
+            return
         conn = _db_conn()
         try:
             cur = conn.execute('DELETE FROM products WHERE id = ?', (product_id,))
@@ -11628,6 +11701,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     t['tag_list'] = tag_map.get(t['id'], [])
                 if tag_ids:
                     talents = [t for t in talents if any(tag.get('id') in tag_ids for tag in t.get('tag_list', []))]
+            # 员工权限过滤
+            if not auth.is_admin:
+                accessible_ids = _get_employee_accessible_talent_ids(auth.user_id)
+                talents = [t for t in talents if t['id'] in accessible_ids]
             total = len(talents)
             talents = talents[offset:offset + limit]
         finally:
@@ -11651,6 +11728,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         if not talent:
             self._send_json_error(404, 'Talent not found')
+            return
+        if not auth.is_admin and talent_id not in _get_employee_accessible_talent_ids(auth.user_id):
+            self._send_json_error(403, 'Permission denied')
             return
         self._send_json(200, talent)
 
@@ -11702,6 +11782,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
 
+        body['created_by'] = auth.user_id
         row = _dict_to_talent_row(body)
         conn = _db_conn()
         try:
@@ -12079,6 +12160,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(404, 'Talent not found')
                 return
             existing = _talent_row_to_dict(row)
+            if not auth.is_admin and talent_id not in _get_employee_accessible_talent_ids(auth.user_id):
+                self._send_json_error(403, 'Permission denied')
+                return
 
             # 若修改抖音号，检查是否与其他达人冲突
             new_douyin_id = str(body.get('douyin_id') or body.get('douyinId') or existing.get('douyin_id') or '').strip()
@@ -12134,6 +12218,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        if not auth.is_admin and talent_id not in _get_employee_accessible_talent_ids(auth.user_id):
+            self._send_json_error(403, 'Permission denied')
+            return
         conn = _db_conn()
         try:
             talent = conn.execute('SELECT group_id FROM talents WHERE id = ?', (talent_id,)).fetchone()
