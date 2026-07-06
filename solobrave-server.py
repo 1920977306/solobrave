@@ -1387,31 +1387,17 @@ def _get_employee_accessible_talent_ids(user_id):
 
 
 def _get_employee_accessible_product_ids(user_id):
-    """员工可访问的商品 id 集合：自己创建的 + 自己 AI 员工所在项目组对应品牌的"""
+    """员工可访问的商品 id 集合：仅自己创建的"""
     if not user_id:
         return set()
     accessible = set()
-    user_group_ids = set(_get_user_group_ids(user_id))
     conn = _db_conn()
     try:
-        # 收集用户可访问的 brand_id 列表
-        brand_rows = conn.execute("SELECT id, group_id FROM brands WHERE status = 'active'").fetchall()
-        accessible_brand_ids = set()
-        for r in brand_rows:
-            if r['group_id'] and r['group_id'] in user_group_ids:
-                accessible_brand_ids.add(r['id'])
-        if accessible_brand_ids:
-            placeholders = ','.join('?' for _ in accessible_brand_ids)
-            product_rows = conn.execute(
-                f"SELECT id, created_by, brand_id FROM products WHERE status != 'archived' AND (created_by = ? OR brand_id IN ({placeholders}))",
-                (user_id,) + tuple(accessible_brand_ids)
-            ).fetchall()
-        else:
-            product_rows = conn.execute(
-                "SELECT id, created_by, brand_id FROM products WHERE status != 'archived' AND created_by = ?",
-                (user_id,)
-            ).fetchall()
-        for r in product_rows:
+        rows = conn.execute(
+            "SELECT id FROM products WHERE status != 'archived' AND created_by = ?",
+            (user_id,)
+        ).fetchall()
+        for r in rows:
             accessible.add(r['id'])
     finally:
         conn.close()

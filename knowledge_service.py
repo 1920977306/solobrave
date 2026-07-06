@@ -908,22 +908,21 @@ def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_cate
                 else:
                     where.append('1 = 0')
         else:
-            # 默认：按可读权限返回（global + 自己的 personal + 所在 team + 所在 group）
+            # 默认：按可读权限返回（admin 可读写 global；普通用户只看自己的 personal + 所在 group）
             if not is_admin:
-                readable = ["(scope IS NULL OR scope = 'global')"]
+                readable = []
                 if emp_ids:
                     placeholders = ', '.join('?' for _ in emp_ids)
                     readable.append(f"(scope = 'personal' AND emp_id IN ({placeholders}))")
                     params.extend(emp_ids)
-                if user_team_ids:
-                    placeholders = ', '.join('?' for _ in user_team_ids)
-                    readable.append(f"(scope = 'team' AND team_id IN ({placeholders}))")
-                    params.extend(user_team_ids)
                 group_clause, group_params = _group_ids_where_clause(user_group_ids)
                 if group_clause:
                     readable.append(f"(scope = 'group' AND {group_clause})")
                     params.extend(group_params)
-                where.append('(' + ' OR '.join(readable) + ')')
+                if not readable:
+                    where.append('1 = 0')
+                else:
+                    where.append('(' + ' OR '.join(readable) + ')')
 
         if category:
             where.append('category = ?')
@@ -1108,21 +1107,19 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
 
         # 四层隔离过滤（未提供 requester_id 时不限制，保持兼容）
         if requester_id is not None and not is_admin:
-            readable = ["(k.scope IS NULL OR k.scope = 'global')"]
+            readable = []
             if emp_ids:
                 placeholders = ', '.join('?' for _ in emp_ids)
                 readable.append(f"(k.scope = 'personal' AND k.emp_id IN ({placeholders}))")
                 sql_params.extend(emp_ids)
-            if team_ids:
-                placeholders = ', '.join('?' for _ in team_ids)
-                readable.append(f"(k.scope = 'team' AND k.team_id IN ({placeholders}))")
-                sql_params.extend(team_ids)
-            # FIXME: 项目组维度改造：RAG 检索支持 group 权限
             if group_ids:
                 placeholders = ', '.join('?' for _ in group_ids)
                 readable.append(f"(k.scope = 'group' AND EXISTS (SELECT 1 FROM json_each(k.group_ids) WHERE value IN ({placeholders})))")
                 sql_params.extend(group_ids)
-            where_clauses.append('(' + ' OR '.join(readable) + ')')
+            if not readable:
+                where_clauses.append('1 = 0')
+            else:
+                where_clauses.append('(' + ' OR '.join(readable) + ')')
 
         if allowed_categories is not None and '*' not in allowed_categories:
             if allowed_categories:
@@ -1232,21 +1229,19 @@ def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is
         where = ["status = 'ok'", "(title LIKE ? OR content LIKE ?)"]
         params = [keyword, keyword]
         if requester_id is not None and not is_admin:
-            readable = ["(scope IS NULL OR scope = 'global')"]
+            readable = []
             if emp_ids:
                 placeholders = ', '.join('?' for _ in emp_ids)
                 readable.append(f"(scope = 'personal' AND emp_id IN ({placeholders}))")
                 params.extend(emp_ids)
-            if team_ids:
-                placeholders = ', '.join('?' for _ in team_ids)
-                readable.append(f"(scope = 'team' AND team_id IN ({placeholders}))")
-                params.extend(team_ids)
-            # FIXME: 项目组维度改造：fallback 关键词搜索支持 group 权限
             if group_ids:
                 placeholders = ', '.join('?' for _ in group_ids)
                 readable.append(f"(scope = 'group' AND EXISTS (SELECT 1 FROM json_each(group_ids) WHERE value IN ({placeholders})))")
                 params.extend(group_ids)
-            where.append('(' + ' OR '.join(readable) + ')')
+            if not readable:
+                where.append('1 = 0')
+            else:
+                where.append('(' + ' OR '.join(readable) + ')')
         sql = '''
             SELECT id, title, content, category, scope, team_id, emp_id, created_at, updated_at
             FROM knowledge
@@ -1327,14 +1322,13 @@ def can_read_knowledge(doc, user_id=None, is_admin=False, user_team_ids=None, us
         emp_ids = list(emp_ids) + [user_id]
     scope = _doc_scope(doc)
     if scope == 'global':
-        return True
+        return is_admin
     if scope == 'personal':
         return is_admin or doc.get('empId') in emp_ids
     if scope == 'team':
-        team_id = doc.get('teamId')
-        return is_admin or (user_team_ids and team_id in user_team_ids)
+        return is_admin
     if scope == 'group':
-        # FIXME: 项目组维度改造：group 知识与用户所属项目组有交集即可读
+        # 项目组维度：group 知识与用户所属项目组有交集即可读
         return is_admin or _has_any(doc.get('groupIds') or [], user_group_ids)
     return False
 
