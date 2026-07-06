@@ -18,6 +18,7 @@ SoloBrave Server — Auth + CORS Proxy + OpenClaw Management API
 import http.server
 import json
 import os
+import re
 import subprocess
 import ssl
 import sys
