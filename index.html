@@ -6966,7 +6966,7 @@ window.doLogin = function () {
 <button class="emp-detail-tab" data-etab="skills" onclick="switchEmpDetailTab('skills')">技能</button>
 <button class="emp-detail-tab" data-etab="memory" onclick="switchEmpDetailTab('memory')">记忆</button>
 <button class="emp-detail-tab" data-etab="avatar" onclick="switchEmpDetailTab('avatar')">头像</button>
-<button class="emp-detail-tab" data-etab="connect" onclick="switchEmpDetailTab('connect')">连接</button>
+
 </div>
 
 <div class="emp-detail-content" id="empDetailContent">
@@ -7059,7 +7059,7 @@ window.doLogin = function () {
 <!-- Skills Tab -->
 <div class="emp-tab-pane" id="emp-tab-skills">
 <!-- OpenClaw技能区域 -->
-<div class="emp-doc-section" style="margin-bottom:20px;">
+<div class="emp-doc-section" data-admin-only style="margin-bottom:20px;">
 <div class="skills-header">
 <div class="skills-title">🛠️ OpenClaw技能</div>
 <button class="skills-add-btn" onclick="searchOpenClawSkills()">
@@ -7165,7 +7165,7 @@ window.doLogin = function () {
 
 <!-- Model Tab -->
 <!-- Connect Tab (OpenClaw Config) -->
-<div class="emp-tab-pane" id="emp-tab-connect">
+<div class="emp-tab-pane" data-admin-only id="emp-tab-connect">
 <div class="emp-doc-section">
 <div class="emp-doc-title">🦞 OpenClaw 连接配置</div>
 <div class="emp-doc-desc">通过 OpenClaw 网关连接 AI 服务</div>
@@ -22878,19 +22878,13 @@ function renderUserList(list, users) {
     var displayName = u.displayName || u.name || u.username;
     var roleBadge = '';
     if (u.role === 'admin') roleBadge = '<span class="settings-tag settings-tag-warning">👑 管理员</span>';
-    else if (u.role === 'leader') roleBadge = '<span class="settings-tag settings-tag-primary">⭐ 组长</span>';
     else roleBadge = '<span class="settings-tag settings-tag-success">🦞 员工</span>';
-    var teamTag = '';
-    if (u.teamIds && u.teamIds.length > 0) {
-      teamTag = '<span class="settings-tag settings-tag-primary">🏢 已有小组</span>';
-    }
     var avatarHtml = renderAvatar({ name: displayName, avatar: u.avatar }, 40);
     return '<div class="settings-user-card">'
       + '<div class="settings-user-avatar">' + avatarHtml + '</div>'
       + '<div class="settings-user-info">'
       + '<div class="settings-user-name">' + escapeHtml(displayName) + '</div>'
       + '<div class="settings-user-meta">@' + escapeHtml(u.username) + ' · ' + roleBadge + '</div>'
-      + (teamTag ? '<div class="settings-user-meta">' + teamTag + '</div>' : '')
       + '</div>'
       + '<div class="settings-user-actions">'
       + '<button onclick="editUser(\'' + escapeAttr(u.id) + '\')">编辑</button>'
@@ -22911,9 +22905,6 @@ function filterUserList() {
   renderUserList(list, filtered);
 }
 
-// 创建用户Modal相关变量
-var createUserModalTeams = [];
-
 // 显示创建用户弹窗
 function showCreateUserModal() {
   if (!isAdmin()) {
@@ -22925,9 +22916,6 @@ function showCreateUserModal() {
   document.getElementById('newPassword').value = '';
   document.getElementById('newDisplayName').value = '';
   document.getElementById('newRole').value = 'employee';
-  document.getElementById('newUserTeams').value = '';
-  // 加载小组列表
-  loadTeamsForUserModal();
   // 显示弹窗
   document.getElementById('createUserOverlay').classList.add('active');
   document.getElementById('createUserModal').classList.add('active');
@@ -22937,26 +22925,6 @@ function showCreateUserModal() {
 function closeCreateUserModal() {
   document.getElementById('createUserOverlay').classList.remove('active');
   document.getElementById('createUserModal').classList.remove('active');
-}
-
-// 加载小组列表到用户Modal
-function loadTeamsForUserModal() {
-  apiFetch('/api/teams').then(function (res) {
-    if (res && res.ok) {
-      return res.json();
-    }
-    return [];
-  }).then(function (teams) {
-    createUserModalTeams = teams || [];
-    var select = document.getElementById('newUserTeams');
-    if (select) {
-      select.innerHTML = '<option value="">-- 不分配小组 --</option>' + teams.map(function (t) {
-        return '<option value="' + t.id + '">' + t.name + '</option>';
-      }).join('');
-    }
-  }).catch(function () {
-    createUserModalTeams = [];
-  });
 }
 
 // 创建用户
@@ -22969,7 +22937,6 @@ function createUser() {
   var password = document.getElementById('newPassword').value;
   var displayName = document.getElementById('newDisplayName').value.trim() || username;
   var role = document.getElementById('newRole').value;
-  var teamId = document.getElementById('newUserTeams').value;
   if (!username) {
     showToast('⚠️ 请输入用户名');
     return;
@@ -22984,9 +22951,6 @@ function createUser() {
     role: role,
     displayName: displayName
   };
-  if (teamId) {
-    newUser.teamIds = [teamId];
-  }
   apiFetch('/api/auth/register', {
     method: 'POST',
     body: JSON.stringify(newUser)
@@ -23586,7 +23550,6 @@ function editUser(userId) {
 
 // 显示用户编辑弹窗
 var editingUserId = null;
-var editUserModalTeams = [];
 function showUserEditModal(user) {
   editingUserId = user.id;
   document.getElementById('editUserId').value = user.id;
@@ -23597,32 +23560,10 @@ function showUserEditModal(user) {
   var roleSelect = document.getElementById('editRole');
   if (user.role === 'admin') roleSelect.value = 'admin';else roleSelect.value = 'employee';
   document.getElementById('editAgentQuota').value = user.agentQuota || 10;
-  // 加载小组列表
-  loadEditUserTeams(user);
   document.getElementById('userEditOverlay').classList.add('active');
   document.getElementById('userEditModal').classList.add('active');
 }
 
-// 加载编辑用户的小组选择
-function loadEditUserTeams(user) {
-  apiFetch('/api/teams').then(function (res) {
-    if (res && res.ok) {
-      return res.json();
-    }
-    return [];
-  }).then(function (teams) {
-    editUserModalTeams = teams || [];
-    var select = document.getElementById('editUserTeam');
-    if (select) {
-      select.innerHTML = '<option value="">-- 不分配小组 --</option>' + teams.map(function (t) {
-        var selected = user.teamIds && user.teamIds.indexOf(t.id) >= 0 ? 'selected' : '';
-        return '<option value="' + t.id + '" ' + selected + '>' + t.name + '</option>';
-      }).join('');
-    }
-  }).catch(function () {
-    editUserModalTeams = [];
-  });
-}
 function closeUserEditModal() {
   document.getElementById('userEditOverlay').classList.remove('active');
   document.getElementById('userEditModal').classList.remove('active');
@@ -23639,14 +23580,10 @@ function saveUserEdit() {
     showToast('⚠️ 请输入显示名称');
     return;
   }
-  var teamSelect = document.getElementById('editUserTeam');
-  var teamId = teamSelect ? teamSelect.value : '';
-  var teamIds = teamId ? [teamId] : [];
   var payload = {
     displayName: displayName,
     role: role,
-    agentQuota: agentQuota,
-    teamIds: teamIds
+    agentQuota: agentQuota
   };
   if (password) {
     payload.password = password;
@@ -27488,12 +27425,6 @@ function closeMatchModal() {
       </select>
     </div>
     <div class="form-group">
-      <label class="form-label">所属小组</label>
-      <select id="editUserTeam" class="form-select">
-        <option value="">-- 不分配小组 --</option>
-      </select>
-    </div>
-    <div class="form-group">
       <label class="form-label">Agent配额</label>
       <input type="number" id="editAgentQuota" class="form-input" value="10" min="0">
     </div>
@@ -27529,12 +27460,6 @@ function closeMatchModal() {
       <select id="newRole" class="form-select">
         <option value="employee">🦞 员工</option>
         <option value="admin">👑 管理员</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <label class="form-label">所属小组（可选）</label>
-      <select id="newUserTeams" class="form-select">
-        <option value="">-- 不分配小组 --</option>
       </select>
     </div>
   </div>
