@@ -7519,9 +7519,27 @@ async function apiFetch(url, options = {}) {
       return null;
     }
     if (resp.status === 403) {
-      // 权限不足（如子账号访问其他用户的聊天记录），静默返回空数组，不报错
-      console.warn('[apiFetch] 403 Forbidden, skipping:', url);
-      return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      // 读取类请求保持静默返回空数组（如子账号访问其他用户的聊天记录）
+      var reqMethod = (options.method || 'GET').toUpperCase();
+      if (reqMethod === 'GET' || reqMethod === 'HEAD') {
+        console.warn('[apiFetch] 403 Forbidden, returning empty array:', url);
+        return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      // 修改/删除类请求必须抛错，防止调用方误将 403 当作成功（如 employee 编辑全局知识库）
+      var errMsg = '权限不足';
+      try {
+        var errData = await resp.clone().json();
+        if (errData && errData.message) {
+          errMsg = errData.message;
+        } else if (errData && errData.error) {
+          if (typeof errData.error === 'string') errMsg = errData.error;
+          else if (errData.error && errData.error.message) errMsg = errData.error.message;
+        }
+      } catch (parseErr) {}
+      if (!options.silent) {
+        showToast('❌ ' + errMsg, 'error');
+      }
+      throw new Error(errMsg);
     }
     if (resp.status === 404) {
       console.warn('[apiFetch] 404 Not Found:', url);
@@ -20890,10 +20908,10 @@ async function saveKnowledgeDoc() {
       content: content
     };
     if (docId) {
-      await apiFetch('/api/knowledge/' + encodeURIComponent(docId), { method: 'PUT', body: JSON.stringify(body) });
+      await apiFetch('/api/knowledge/' + encodeURIComponent(docId), { method: 'PUT', body: JSON.stringify(body), silent: true });
       showToast('文档已更新');
     } else {
-      await apiFetch('/api/knowledge', { method: 'POST', body: JSON.stringify(body) });
+      await apiFetch('/api/knowledge', { method: 'POST', body: JSON.stringify(body), silent: true });
       showToast('文档已创建');
     }
     closeKnowledgeDocForm();
@@ -20907,7 +20925,7 @@ async function deleteKnowledgeDoc(docId) {
   if (!docId) return;
   if (!confirm('确定删除该文档？此操作不可恢复。')) return;
   try {
-    await apiFetch('/api/knowledge/' + encodeURIComponent(docId), { method: 'DELETE' });
+    await apiFetch('/api/knowledge/' + encodeURIComponent(docId), { method: 'DELETE', silent: true });
     showToast('文档已删除');
     var currentEmpId = localStorage.getItem('sb_current_emp');
     if (currentEmpId) renderMemoryTab(currentEmpId);
@@ -27151,14 +27169,15 @@ function renderKnowledgeView(doc, skipPanelToggle) {
   }
   _knowledgePreviewMode = false;
   updateKnowledgeEditorView();
-  // employee 查看全局文档时隐藏编辑/删除按钮
+  // employee 查看全局/团队文档时隐藏编辑/删除/移动按钮（只读）
   var editBtn = document.getElementById('knowledgeViewEditBtn');
   var deleteBtn = document.getElementById('knowledgeViewDeleteBtn');
   var moveBtn = document.getElementById('knowledgeViewMoveBtn');
-  var isEmployeeGlobal = isEmployee() && (doc.scope || 'global') === 'global';
-  if (editBtn) editBtn.style.display = isEmployeeGlobal ? 'none' : '';
-  if (deleteBtn) deleteBtn.style.display = isEmployeeGlobal ? 'none' : '';
-  if (moveBtn) moveBtn.style.display = isEmployeeGlobal ? 'none' : '';
+  var docScope = doc.scope || 'global';
+  var isEmployeeRestricted = isEmployee() && (docScope === 'global' || docScope === 'team');
+  if (editBtn) editBtn.style.display = isEmployeeRestricted ? 'none' : '';
+  if (deleteBtn) deleteBtn.style.display = isEmployeeRestricted ? 'none' : '';
+  if (moveBtn) moveBtn.style.display = isEmployeeRestricted ? 'none' : '';
 }
 function createNewKnowledge() {
   _knowledgeCurrentId = null;
@@ -27282,7 +27301,7 @@ async function saveKnowledgeFromEditor() {
     }
     var url = _knowledgeCurrentId ? '/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId) : '/api/knowledge';
     var method = _knowledgeCurrentId ? 'PUT' : 'POST';
-    var r = await apiFetch(url, { method: method, body: JSON.stringify(body) });
+    var r = await apiFetch(url, { method: method, body: JSON.stringify(body), silent: true });
     var result = await r.json();
     statusEl.textContent = '知识库更新中...';
     showToast('✅ 已保存，正在生成向量...');
@@ -27294,8 +27313,9 @@ async function saveKnowledgeFromEditor() {
     statusEl.textContent = '已保存并生成向量';
     setTimeout(function() { statusEl.textContent = ''; }, 3000);
   } catch (e) {
-    statusEl.textContent = '保存失败';
-    showToast('❌ 保存失败');
+    var isForbidden = e && e.message && (e.message.indexOf('权限') >= 0 || e.message.indexOf('Permission denied') >= 0);
+    statusEl.textContent = isForbidden ? '权限不足' : '保存失败';
+    showToast(isForbidden ? '❌ 权限不足：无法编辑全局/团队文档' : '❌ 保存失败');
     console.warn('[KnowledgePage] 保存失败:', e);
   }
 }
@@ -27321,13 +27341,14 @@ async function deleteCurrentKnowledge() {
   }
   if (!confirm('确定删除该文档吗？此操作不可恢复')) return;
   try {
-    await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId), { method: 'DELETE' });
+    await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId), { method: 'DELETE', silent: true });
     showToast('✅ 已删除');
     _knowledgeCurrentId = null;
     closeKnowledgeRight();
     await loadKnowledgePage();
   } catch (e) {
-    showToast('❌ 删除失败');
+    var isForbiddenDel = e && e.message && (e.message.indexOf('权限') >= 0 || e.message.indexOf('Permission denied') >= 0);
+    showToast(isForbiddenDel ? '❌ 权限不足：无法删除全局/团队文档' : '❌ 删除失败');
     console.warn('[KnowledgePage] 删除失败:', e);
   }
 }
@@ -27387,7 +27408,8 @@ async function moveCurrentKnowledge() {
         try {
           var r = await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId) + '/move', {
             method: 'POST',
-            body: JSON.stringify({ scope: targetScope, groupIds: groupIds })
+            body: JSON.stringify({ scope: targetScope, groupIds: groupIds }),
+            silent: true
           });
           await r.json();
           showToast('✅ 已移动');
@@ -27395,7 +27417,8 @@ async function moveCurrentKnowledge() {
           var moved = _knowledgeData.docs.find(function (d) { return d.id === _knowledgeCurrentId; });
           if (moved) renderKnowledgeView(moved);
         } catch (e) {
-          showToast('❌ 移动失败');
+          var isForbiddenMove = e && e.message && (e.message.indexOf('权限') >= 0 || e.message.indexOf('Permission denied') >= 0);
+          showToast(isForbiddenMove ? '❌ 权限不足：无法移动全局/团队文档' : '❌ 移动失败');
           console.warn('[KnowledgePage] 移动失败:', e);
         }
       });
@@ -27445,14 +27468,16 @@ async function saveKnowledgeFromModal() {
     var body = { title: title, content: content, category: category };
     var r = await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeModalDocId), {
       method: 'PUT',
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      silent: true
     });
     await r.json();
     showToast('✅ 已保存');
     await loadKnowledgePage();
     closeKnowledgeModal();
   } catch (e) {
-    showToast('❌ 保存失败');
+    var isForbidden2 = e && e.message && (e.message.indexOf('权限') >= 0 || e.message.indexOf('Permission denied') >= 0);
+    showToast(isForbidden2 ? '❌ 权限不足：无法编辑全局/团队文档' : '❌ 保存失败');
     console.warn('[KnowledgePage] 弹窗保存失败:', e);
   } finally {
     saveBtn.textContent = originalText;
@@ -27467,12 +27492,13 @@ async function deleteKnowledgeFromEditor() {
   }
   if (!confirm('确定删除该知识？此操作不可恢复。')) return;
   try {
-    await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId), { method: 'DELETE' });
+    await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId), { method: 'DELETE', silent: true });
     showToast('✅ 已删除');
     closeKnowledgeRight();
     await loadKnowledgePage();
   } catch (e) {
-    showToast('❌ 删除失败');
+    var isForbiddenDel2 = e && e.message && (e.message.indexOf('权限') >= 0 || e.message.indexOf('Permission denied') >= 0);
+    showToast(isForbiddenDel2 ? '❌ 权限不足：无法删除全局/团队文档' : '❌ 删除失败');
     console.warn('[KnowledgePage] 删除失败:', e);
   }
 }
