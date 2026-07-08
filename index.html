@@ -10077,6 +10077,8 @@ function renderEmployeeList() {
   if (canSeeEmployees) {
     html += renderCategoryHeader('职能', state['职能']);
     if (state['职能']) {
+    // 在可见的员工列表区域顶部注入新增AI员工按钮（原 tab-team 中的按钮因 display:none 对当前视图不可见）
+    html += '<div style="padding:6px 12px 10px;"><button onclick="openWizard()" style="width:100%;padding:8px 12px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;"><span style="font-size:16px;line-height:1;">+</span>新增员工</button></div>';
     if (visible.length === 0) {
       // 没有员工时显示空状态提示
       html += '<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方「新增员工」按钮，创建属于你的AI员工</div><div style="font-size:11px;margin-top:6px;color:var(--text-tertiary)">双击员工可查看详情 · 右键更多操作</div></div>';
