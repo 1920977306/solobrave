@@ -6591,6 +6591,9 @@ window.doLogin = function () {
         <option value="commission_desc">佣金率从高到低</option>
         <option value="influencer_count_desc">带货达人从多到少</option>
       </select>
+      <select class="products-mid-filter" id="productsMidCreatedBy" onchange="selectProductCreatedBy(this.value)" title="按员工筛选" style="display:none;">
+        <option value="">全部员工</option>
+      </select>
       <button class="products-mid-new" onclick="createNewProduct()">+ 录入商品</button>
     </div>
     <div class="products-batch-bar" id="productsBatchBar">
@@ -6629,6 +6632,9 @@ window.doLogin = function () {
         <option value="followers_desc">粉丝数从高到低</option>
         <option value="products_desc">推广商品从多到少</option>
         <option value="gmv_desc">预估销售额从高到低</option>
+      </select>
+      <select class="products-mid-filter" id="talentsMidCreatedBy" onchange="selectTalentCreatedBy(this.value)" title="按员工筛选" style="display:none;">
+        <option value="">全部员工</option>
       </select>
       <button class="talents-mid-btn secondary" onclick="recommendTalentsAI()">✨ AI推荐达人</button>
       <button class="talents-mid-new" onclick="createNewTalent()">+ 录入达人</button>
@@ -23518,19 +23524,79 @@ function deleteUser(userId) {
     showToast('⚠️ 只有管理员可以删除用户');
     return;
   }
-  if (!confirm('确定要删除这个用户吗?')) return;
+  var users = (_userListCache || []).slice();
+  var targetUser = users.find(function (u) { return u.id === userId; });
+  if (!targetUser) {
+    showToast('⚠️ 用户信息未加载');
+    return;
+  }
+  // 构建转移下拉选项：其他员工 + 归还管理员
+  var optionsHtml = '<option value="">不转移直接删除</option>';
+  optionsHtml += '<option value="admin">归还管理员（' + escapeHtml(currentUser.displayName || currentUser.name || currentUser.username || '我') + '）</option>';
+  users.forEach(function (u) {
+    if (u.id === userId || u.id === currentUser.id) return;
+    var name = escapeHtml(u.displayName || u.name || u.username || '未知');
+    optionsHtml += '<option value="' + escapeAttr(u.id) + '">' + name + '</option>';
+  });
+  var dialogId = 'deleteUserDialog' + Date.now();
+  var html = '<div id="' + dialogId + '">'
+    + '<div style="font-size:14px;color:var(--text-secondary);margin-bottom:16px;">'
+    + '即将删除用户 <strong>' + escapeHtml(targetUser.displayName || targetUser.name || targetUser.username) + '</strong>。请选择该用户创建的达人、商品、AI员工数据的处理方式。'
+    + '</div>'
+    + '<div style="margin-bottom:16px;">'
+    + '<label style="display:block;font-size:13px;color:var(--text-secondary);margin-bottom:6px;">数据转移给</label>'
+    + '<select id="' + dialogId + '_transfer" style="width:100%;padding:8px 12px;border:0.5px solid var(--separator);border-radius:8px;background:var(--bg-primary);font-size:14px;">'
+    + optionsHtml
+    + '</select>'
+    + '</div>'
+    + '</div>';
+  showModal('删除用户', html);
+  // 添加确认/取消按钮
+  setTimeout(function () {
+    var panel = document.querySelector('#dynamicModal .modal-panel');
+    if (!panel) return;
+    var bodyDiv = panel.querySelector('div > div:last-child');
+    var footer = document.createElement('div');
+    footer.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid var(--separator);';
+    footer.innerHTML = '<button onclick="closeModal(\'dynamicModal\')" style="padding:8px 18px;border-radius:8px;border:none;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;cursor:pointer;">取消</button>'
+      + '<button id="' + dialogId + '_confirm" style="padding:8px 18px;border-radius:8px;border:none;background:#FF3B30;color:#fff;font-size:14px;cursor:pointer;">确认删除</button>';
+    bodyDiv.appendChild(footer);
+    document.getElementById(dialogId + '_confirm').addEventListener('click', function () {
+      var transferTo = document.getElementById(dialogId + '_transfer').value;
+      closeModal('dynamicModal');
+      _doDeleteUser(userId, transferTo);
+    });
+  }, 10);
+}
+function _doDeleteUser(userId, transferTo) {
+  var body = transferTo ? JSON.stringify({ transfer_to: transferTo }) : null;
   apiFetch('/api/users/' + userId, {
-    method: 'DELETE'
+    method: 'DELETE',
+    body: body
   }).then(function (res) {
-    if (res && res.ok) {
-      showToast('✅ 用户已删除');
+    if (!res) return null;
+    return res.json().then(function (data) {
+      return { ok: res.ok, data: data };
+    });
+  }).then(function (result) {
+    if (!result) {
+      showToast('⚠️ 后端不可用，无法删除用户');
+      return;
+    }
+    var data = result.data;
+    if (result.ok) {
+      var targetName = data.transfer_target_display_name || '管理员';
+      var counts = data.transfer_counts || {};
+      if (transferTo) {
+        showToast('✅ 已将 ' + (counts.talents || 0) + ' 个达人、' + (counts.products || 0) + ' 个商品、' + (counts.agents || 0) + ' 个AI员工转移给 ' + targetName);
+      } else {
+        showToast('✅ 用户已删除');
+      }
       loadUserList();
     } else {
-      return res ? res.json() : null;
+      var _errMsg = data && (data.message || data.error);
+      if (_errMsg) showToast('⚠️ ' + _errMsg);
     }
-  }).then(function (data) {
-    var _errMsg = data && (data.message || data.error);
-    if (_errMsg) showToast('⚠️ ' + _errMsg);
   }).catch(function () {
     showToast('⚠️ 后端不可用，无法删除用户');
   });
@@ -23661,6 +23727,7 @@ var _productBrandData = { brands: [], total: 0 };
 var _productCurrentBrandName = '';
 var _productCurrentStatus = '';
 var _productCurrentSort = '';
+var _productCreatedByFilter = '';
 var _productCurrentId = null;
 var _productPage = 1;
 var _productPageSize = 20;
@@ -23707,6 +23774,7 @@ function loadProducts(page) {
   if (_productCurrentBrandName) qs.push('brand=' + encodeURIComponent(_productCurrentBrandName));
   if (_productCurrentStatus) qs.push('status=' + encodeURIComponent(_productCurrentStatus));
   if (_productCurrentSort) qs.push('sort=' + encodeURIComponent(_productCurrentSort));
+  if (_productCreatedByFilter) qs.push('created_by=' + encodeURIComponent(_productCreatedByFilter));
   var tagIds = _productTagFilter ? _productTagFilter.getTagObjects().map(function(t){ return t.id; }).filter(Boolean).join(',') : '';
   if (tagIds) qs.push('tags=' + encodeURIComponent(tagIds));
   var kw = document.getElementById('productsMidSearch') ? document.getElementById('productsMidSearch').value.trim() : '';
@@ -25157,6 +25225,7 @@ var _talentCooperation = '';
 var _talentCategory = '';
 var _talentSearchKw = '';
 var _talentCurrentSort = '';
+var _talentCreatedByFilter = '';
 var _talentPage = 1;
 var _talentPageSize = 20;
 var _talentTab = 'overview';
@@ -25261,6 +25330,7 @@ function loadTalents(page) {
   if (_talentCategory) qs.push('category=' + encodeURIComponent(_talentCategory));
   if (_talentSearchKw) qs.push('q=' + encodeURIComponent(_talentSearchKw));
   if (_talentCurrentSort) qs.push('sort=' + encodeURIComponent(_talentCurrentSort));
+  if (_talentCreatedByFilter) qs.push('created_by=' + encodeURIComponent(_talentCreatedByFilter));
   var tagIds = _talentTagFilter ? _talentTagFilter.getTagObjects().map(function(t){ return t.id; }).filter(Boolean).join(',') : '';
   if (tagIds) qs.push('tags=' + encodeURIComponent(tagIds));
   var url = '/api/talents?' + qs.join('&');
@@ -25300,6 +25370,63 @@ function selectTalentSort(sort) {
   var sel = document.getElementById('talentsMidSort');
   if (sel) sel.value = _talentCurrentSort;
   loadTalents();
+}
+
+function selectProductCreatedBy(userId) {
+  _productCreatedByFilter = userId || '';
+  _productPage = 1;
+  var sel = document.getElementById('productsMidCreatedBy');
+  if (sel) sel.value = _productCreatedByFilter;
+  loadProducts();
+}
+
+function selectTalentCreatedBy(userId) {
+  _talentCreatedByFilter = userId || '';
+  _talentPage = 1;
+  var sel = document.getElementById('talentsMidCreatedBy');
+  if (sel) sel.value = _talentCreatedByFilter;
+  loadTalents();
+}
+
+function _populateEmployeeFilters() {
+  if (!isAdmin()) {
+    var pSel = document.getElementById('productsMidCreatedBy');
+    var tSel = document.getElementById('talentsMidCreatedBy');
+    if (pSel) pSel.style.display = 'none';
+    if (tSel) tSel.style.display = 'none';
+    return;
+  }
+  // 优先使用已缓存的用户列表
+  var users = (_userListCache || []).filter(function (u) { return u.role !== 'admin'; });
+  if (users.length === 0) {
+    apiFetch('/api/users').then(function (res) { return res ? res.json() : []; }).then(function (data) {
+      var list = Array.isArray(data) ? data : (data.users || []);
+      _userListCache = list;
+      _renderEmployeeFilterOptions(list.filter(function (u) { return u.role !== 'admin'; }));
+    }).catch(function () {});
+  } else {
+    _renderEmployeeFilterOptions(users);
+  }
+}
+
+function _renderEmployeeFilterOptions(employees) {
+  var optionsHtml = '<option value="">全部员工</option>';
+  employees.forEach(function (u) {
+    var name = escapeHtml(u.displayName || u.name || u.username || '未知');
+    optionsHtml += '<option value="' + escapeAttr(u.id) + '">' + name + '</option>';
+  });
+  var pSel = document.getElementById('productsMidCreatedBy');
+  var tSel = document.getElementById('talentsMidCreatedBy');
+  if (pSel) {
+    pSel.innerHTML = optionsHtml;
+    pSel.value = _productCreatedByFilter || '';
+    pSel.style.display = '';
+  }
+  if (tSel) {
+    tSel.innerHTML = optionsHtml;
+    tSel.value = _talentCreatedByFilter || '';
+    tSel.style.display = '';
+  }
 }
 
 function onTalentSearch(val) {
@@ -28225,8 +28352,8 @@ function switchModule(module) {
   }
 
   if (module === 'knowledge') { loadGroups(); loadKnowledgePage(); }
-  else if (module === 'products') { loadProductBrands(); loadProducts(); }
-  else if (module === 'influencers') loadTalents();
+  else if (module === 'products') { _populateEmployeeFilters(); loadProductBrands(); loadProducts(); }
+  else if (module === 'influencers') { _populateEmployeeFilters(); loadTalents(); }
   else if (module === 'settings') renderSettingsMid();
   applySidebarWidth(getSidebarWidth());
 }

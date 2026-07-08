@@ -5857,7 +5857,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         })
 
     def _handle_delete_user(self, user_id):
-        """DELETE /api/users/:id（需要 admin）"""
+        """DELETE /api/users/:id（需要 admin）
+        支持 request body 传入 transfer_to 进行数据交接：
+          - transfer_to 为具体用户 id：达人/商品/AI员工的 created_by 转移给该用户
+          - transfer_to='admin'：转移给当前操作的管理员
+          - 不传 transfer_to：保持原行为，直接删除用户
+        """
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -5879,10 +5884,65 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '用户不存在'})
             return
 
+        body = self._read_body() or {}
+        transfer_to = body.get('transfer_to')
+        transfer_counts = {'talents': 0, 'products': 0, 'agents': 0}
+        transfer_target_user = None
+
+        if transfer_to:
+            target_id = auth.user_id if transfer_to == 'admin' else transfer_to
+            transfer_target_user = _find_user(users, 'id', target_id)
+            if not transfer_target_user:
+                self._send_json(400, {'error': '目标用户不存在'})
+                return
+            if target_id == user_id:
+                self._send_json(400, {'error': '不能转移给自己'})
+                return
+
+            # 1) 转移 AI 员工（agents.json）
+            agents = _load_agents()
+            changed_agents = False
+            for agent in agents:
+                if agent.get('createdBy') == user_id:
+                    agent['createdBy'] = target_id
+                    # 同步 createdByName（如有）
+                    agent['createdByName'] = transfer_target_user.get('displayName') or transfer_target_user.get('username', '')
+                    changed_agents = True
+                    transfer_counts['agents'] += 1
+            if changed_agents:
+                _save_agents(agents)
+
+            # 2) 转移达人/商品（SQLite）
+            conn = _db_conn()
+            try:
+                cur_talents = conn.execute(
+                    'UPDATE talents SET created_by = ?, updated_at = ? WHERE created_by = ?',
+                    (target_id, int(time.time() * 1000), user_id)
+                )
+                transfer_counts['talents'] = cur_talents.rowcount
+                cur_products = conn.execute(
+                    'UPDATE products SET created_by = ?, updated_at = ? WHERE created_by = ?',
+                    (target_id, int(time.time() * 1000), user_id)
+                )
+                transfer_counts['products'] = cur_products.rowcount
+                conn.commit()
+            finally:
+                conn.close()
+
         users = [u for u in users if u['id'] != user_id]
         _save_users(users)
 
-        self._send_json(200, {'message': f'用户 {user["username"]} 已删除'})
+        target_display = ''
+        if transfer_target_user:
+            target_display = transfer_target_user.get('displayName') or transfer_target_user.get('username', '')
+        result = {
+            'message': f'用户 {user["username"]} 已删除',
+            'transfer_to': transfer_to,
+            'transfer_target_id': transfer_target_user['id'] if transfer_target_user else None,
+            'transfer_target_display_name': target_display,
+            'transfer_counts': transfer_counts
+        }
+        self._send_json(200, result)
 
     def _handle_get_user_subordinates(self, user_id):
         """GET /api/users/:id/subordinates — 获取下属列表"""
@@ -10167,6 +10227,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             scored = [(s, p) for s, p in scored if s > 0]
             scored.sort(key=lambda x: x[0], reverse=True)
             products = [p for _, p in scored]
+        # 按创建人筛选
+        if query.get('created_by'):
+            created_by = query['created_by'][0]
+            if not auth.is_admin and created_by != auth.user_id:
+                self._send_json_error(403, 'Permission denied')
+                return
+            products = [p for p in products if p.get('created_by') == created_by]
         # 员工权限过滤
         if not auth.is_admin:
             accessible_ids = _get_employee_accessible_product_ids(auth.user_id)
@@ -11687,6 +11754,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if q:
                 sql += " AND (LOWER(name) LIKE ? OR LOWER(douyin_id) LIKE ? OR LOWER(bio) LIKE ?)"
                 params.extend([f'%{q}%', f'%{q}%', f'%{q}%'])
+            # 按创建人筛选
+            if query.get('created_by'):
+                created_by = query['created_by'][0]
+                if not auth.is_admin and created_by != auth.user_id:
+                    self._send_json_error(403, 'Permission denied')
+                    return
+                sql += " AND created_by = ?"
+                params.append(created_by)
             sql += " ORDER BY followers DESC"
             rows = conn.execute(sql, params).fetchall()
             talents = [_talent_row_to_dict(r) for r in rows]
