@@ -10079,7 +10079,7 @@ function renderEmployeeList() {
     if (state['职能']) {
     if (visible.length === 0) {
       // 没有员工时显示空状态提示
-      html += '<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方「新增员工」按钮，创建属于你的AI员工</div><div style="font-size:11px;margin-top:6px;color:var(--text-tertiary)">双击员工可查看详情 · 右键更多操作</div></div>';
+      html += '<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">前往设置 → 成员管理 → 新增AI员工，创建属于你的AI员工</div><div style="font-size:11px;margin-top:6px;color:var(--text-tertiary)">双击员工可查看详情 · 右键更多操作</div></div>';
     } else {
       // 置顶的排在前面
       visible.sort(function (a, b) {
@@ -13748,7 +13748,7 @@ function renderMsgs(type) {
   if (type === 'private') {
     const empId = localStorage.getItem('sb_current_emp');
     if (!empId) {
-      area.innerHTML = '<div class="chat-empty-state"><div class="empty-avatar">🦞</div><div class="empty-title">开始对话</div><div class="empty-desc">点击左侧「新增员工」按钮<br>创建属于你的AI员工</div></div>';
+      area.innerHTML = '<div class="chat-empty-state"><div class="empty-avatar">🦞</div><div class="empty-title">开始对话</div><div class="empty-desc">前往设置 → 成员管理 → 新增AI员工<br>创建属于你的AI员工</div></div>';
       return;
     }
     const emp = emps.find(function (e) {
@@ -13756,7 +13756,7 @@ function renderMsgs(type) {
     });
     if (!emp) {
       localStorage.removeItem('sb_current_emp');
-      area.innerHTML = '<div class="chat-empty-state"><div class="empty-avatar">🦞</div><div class="empty-title">开始对话</div><div class="empty-desc">点击左侧「新增员工」按钮<br>创建属于你的AI员工</div></div>';
+      area.innerHTML = '<div class="chat-empty-state"><div class="empty-avatar">🦞</div><div class="empty-title">开始对话</div><div class="empty-desc">前往设置 → 成员管理 → 新增AI员工<br>创建属于你的AI员工</div></div>';
       return;
     }
 

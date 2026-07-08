@@ -1095,6 +1095,9 @@ def _load_permissions():
         for m in AVAILABLE_MODULES:
             if m not in modules:
                 modules[m] = bool(default_modules.get(m, False))
+        # 强制迁移：employee 模板必须能进入 settings（设置页）
+        if tmpl.get('id') == 'employee':
+            modules['settings'] = True
         tmpl['modules'] = modules
     return data
 
@@ -1184,11 +1187,22 @@ def _can_access_knowledge_category(user_or_auth, category):
     return category in cats
 
 
+def _is_archived_flag(value):
+    """统一判断 archived 字段（兼容 bool、字符串 'false'/'0'、数字 0）"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() not in ('false', '0', '', 'none', 'null', 'no', 'off')
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return bool(value)
+
+
 def _validate_agent_for_ai(agent):
     """AI 调用前校验：员工必须存在且未删除，systemPrompt/soulDoc 必须包含身份约束关键字"""
     if not isinstance(agent, dict):
         return False, '员工不存在'
-    if agent.get('status') == 'archived' or agent.get('archived'):
+    if agent.get('status') == 'archived' or _is_archived_flag(agent.get('archived')):
         return False, '员工不存在'
     effective_prompt = (agent.get('soulDoc') or agent.get('systemPrompt') or '').strip()
     if not effective_prompt:
@@ -1230,7 +1244,7 @@ def _load_agents(include_archived=False):
         if _is_default_agent(a):
             continue
         # 默认过滤已归档/软删除的员工，避免删除后仍影响列表、权限和新员工创建
-        if not include_archived and (a.get('status') == 'archived' or a.get('archived')):
+        if not include_archived and (a.get('status') == 'archived' or _is_archived_flag(a.get('archived'))):
             continue
         # 检测 apiKey 污染
         ak = a.get('apiKey', '')
@@ -7488,7 +7502,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'avatar': a.get('avatar', '🦞'),
                 'status': a.get('status', 'online'),
                 'msg': a.get('msg', ''),
-                'archived': bool(a.get('archived')) or a.get('status') == 'archived',
+                'archived': _is_archived_flag(a.get('archived')) or a.get('status') == 'archived',
                 'permission': a.get('permission', 'dev'),
                 'visibility': a.get('visibility', 'creator'),
                 'createdBy': a.get('createdBy', ''),
@@ -7645,7 +7659,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
             # 已归档员工只有在请求中明确取消归档时才允许更新
             is_unarchive = ('archived' in body and body.get('archived') is False) or ('status' in body and body.get('status') != 'archived')
-            if (agent.get('status') == 'archived' or agent.get('archived')) and not is_unarchive:
+            if (_is_archived_flag(agent.get('archived')) or agent.get('status') == 'archived') and not is_unarchive:
                 self._send_json(404, {'error': '员工不存在'})
                 return
 
@@ -7748,7 +7762,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '员工不存在'})
             return
 
-        is_archived = agent.get('status') == 'archived' or agent.get('archived')
+        is_archived = agent.get('status') == 'archived' or _is_archived_flag(agent.get('archived'))
 
         # 权限校验
         if not auth.is_admin:
