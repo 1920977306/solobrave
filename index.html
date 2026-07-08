@@ -27029,6 +27029,7 @@ function _updateKnowledgeNewButtonVisibility() {
   var btn = document.getElementById('knowledgeMidNewBtn');
   if (!btn) return;
   // employee 在全局/全部 tab 不能新建（全局文档只能 admin 创建）
+  console.log('[KnowledgeDebug] _updateKnowledgeNewButtonVisibility: role=' + (currentUser && currentUser.role) + ', isAdmin=' + isAdmin() + ', isEmployee=' + isEmployee() + ', scope=' + _knowledgeScope);
   if (isEmployee() && (_knowledgeScope === 'global' || _knowledgeScope === 'all')) {
     btn.style.display = 'none';
   } else {
@@ -27045,7 +27046,12 @@ function renderKnowledgeList(docs) {
   if (countEl) countEl.textContent = '共 ' + (_knowledgeData.total || 0) + ' 条';
   if (!el) return;
   if (!docs || docs.length === 0) {
-    el.innerHTML = '<div class="knowledge-mid-empty"><div class="knowledge-mid-empty-icon">📖</div><div class="knowledge-mid-empty-text">暂无知识文档</div><button class="knowledge-mid-empty-btn" onclick="createNewKnowledge()">手动添加</button></div>';
+    var emptyBtnHtml = '';
+    // employee 在全局/全部 tab 下不能新建全局文档
+    if (!isEmployee() || (_knowledgeScope !== 'global' && _knowledgeScope !== 'all')) {
+      emptyBtnHtml = '<button class="knowledge-mid-empty-btn" onclick="createNewKnowledge()">手动添加</button>';
+    }
+    el.innerHTML = '<div class="knowledge-mid-empty"><div class="knowledge-mid-empty-icon">📖</div><div class="knowledge-mid-empty-text">暂无知识文档</div>' + emptyBtnHtml + '</div>';
     return;
   }
   var scopeClassMap = { global: 'scope-global', group: 'scope-group', personal: 'scope-personal' };
@@ -27175,6 +27181,7 @@ function renderKnowledgeView(doc, skipPanelToggle) {
   var moveBtn = document.getElementById('knowledgeViewMoveBtn');
   var docScope = doc.scope || 'global';
   var isEmployeeRestricted = isEmployee() && (docScope === 'global' || docScope === 'team');
+  console.log('[KnowledgeDebug] renderKnowledgeView: role=' + (currentUser && currentUser.role) + ', isAdmin=' + isAdmin() + ', isEmployee=' + isEmployee() + ', docScope=' + docScope + ', restricted=' + isEmployeeRestricted);
   if (editBtn) editBtn.style.display = isEmployeeRestricted ? 'none' : '';
   if (deleteBtn) deleteBtn.style.display = isEmployeeRestricted ? 'none' : '';
   if (moveBtn) moveBtn.style.display = isEmployeeRestricted ? 'none' : '';
@@ -28377,7 +28384,7 @@ function switchModule(module) {
     if (rightEl) rightEl.classList.add('active');
   }
 
-  if (module === 'knowledge') { loadGroups(); loadKnowledgePage(); }
+  if (module === 'knowledge') { loadGroups(); _updateKnowledgeNewButtonVisibility(); loadKnowledgePage(); }
   else if (module === 'products') { _populateEmployeeFilters(); loadProductBrands(); loadProducts(); }
   else if (module === 'influencers') { _populateEmployeeFilters(); loadTalents(); }
   else if (module === 'settings') renderSettingsMid();
