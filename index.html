@@ -10077,8 +10077,6 @@ function renderEmployeeList() {
   if (canSeeEmployees) {
     html += renderCategoryHeader('职能', state['职能']);
     if (state['职能']) {
-    // 在可见的员工列表区域顶部注入新增AI员工按钮（原 tab-team 中的按钮因 display:none 对当前视图不可见）
-    html += '<div style="padding:6px 12px 10px;"><button onclick="openWizard()" style="width:100%;padding:8px 12px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;"><span style="font-size:16px;line-height:1;">+</span>新增员工</button></div>';
     if (visible.length === 0) {
       // 没有员工时显示空状态提示
       html += '<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方「新增员工」按钮，创建属于你的AI员工</div><div style="font-size:11px;margin-top:6px;color:var(--text-tertiary)">双击员工可查看详情 · 右键更多操作</div></div>';
@@ -28695,10 +28693,10 @@ function formatFollowers(n) {
 }
 
 // ========== 算力统计 ==========
-function getComputeStats(employeeStats) {
+function getComputeStats(employeeStats, totalTokensOverride, totalCallsOverride) {
   var baseUsed = parseInt(localStorage.getItem('sb_tokens_used') || '0');
-  var totalTokens = baseUsed || 124580;
-  var totalCalls = parseInt(localStorage.getItem('sb_compute_calls') || '0') || 3420;
+  var totalTokens = totalTokensOverride !== undefined ? totalTokensOverride : (baseUsed || 124580);
+  var totalCalls = totalCallsOverride !== undefined ? totalCallsOverride : (parseInt(localStorage.getItem('sb_compute_calls') || '0') || 3420);
   var timeStats = JSON.parse(localStorage.getItem('sb_compute_by_time') || 'null') || [
     { date: '周一', tokens: 18200 }, { date: '周二', tokens: 24500 },
     { date: '周三', tokens: 19800 }, { date: '周四', tokens: 31200 },
@@ -28713,11 +28711,16 @@ async function loadComputeStats() {
   area.innerHTML = '<div class="settings-card"><div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div></div>';
   var employeeStats = [];
   var localStats = JSON.parse(localStorage.getItem('sb_compute_by_employee') || 'null') || [];
+  var currentUserId = currentUser && (currentUser.userId || currentUser.id);
   try {
     var resp = await apiFetch('/api/agents');
     var agents = [];
     if (resp && resp.ok) agents = await resp.json();
     if (!Array.isArray(agents)) agents = [];
+    // employee 只看自己创建的 AI员工统计
+    if (!isAdmin() && currentUserId) {
+      agents = agents.filter(function (a) { return a.createdBy === currentUserId; });
+    }
     if (agents.length) {
       employeeStats = agents.map(function (a) {
         var local = localStats.find(function (s) { return s.id === a.id || s.name === a.name; }) || {};
@@ -28741,7 +28744,18 @@ async function loadComputeStats() {
       { name: 'David', tokens: 18980, calls: 1070 }
     ];
   }
-  area.innerHTML = renderComputeStats(getComputeStats(employeeStats));
+  // employee 只汇总自己的数据，admin 使用全局汇总
+  var totalTokens = 0, totalCalls = 0;
+  if (!isAdmin()) {
+    employeeStats.forEach(function (e) {
+      totalTokens += e.tokens || 0;
+      totalCalls += e.calls || 0;
+    });
+  } else {
+    totalTokens = parseInt(localStorage.getItem('sb_tokens_used') || '0') || 124580;
+    totalCalls = parseInt(localStorage.getItem('sb_compute_calls') || '0') || 3420;
+  }
+  area.innerHTML = renderComputeStats(getComputeStats(employeeStats, totalTokens, totalCalls));
 }
 function renderComputeStats(stats) {
   var html = '<div class="settings-card">';
