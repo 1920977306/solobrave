@@ -4482,7 +4482,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_agents()
             return
         if path.startswith('/api/agents/'):
-            agent_id = path[len('/api/agents/'):]
+            agent_id = urlparse(path).path[len('/api/agents/'):]
             if agent_id:
                 self._handle_get_agent(agent_id)
                 return
@@ -4675,7 +4675,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Chat API
         if path.startswith('/api/chat/'):
-            sub = path[len('/api/chat/'):]
+            sub = urlparse(path).path[len('/api/chat/'):]
             # /api/chat/summarize/:agentId
             if sub.startswith('summarize/'):
                 agent_id = sub[len('summarize/'):]
@@ -5080,7 +5080,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Chat API
         if path.startswith('/api/chat/'):
-            sub = path[len('/api/chat/'):]
+            sub = urlparse(path).path[len('/api/chat/'):]
             print(f'  [ChatPOST] 路由匹配: path={path} sub={sub}', flush=True)
             # /api/chat/summarize/:agentId
             if sub.startswith('summarize/'):
@@ -5128,7 +5128,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Agents API
         if path.startswith('/api/agents/'):
-            agent_id = path[len('/api/agents/'):]
+            agent_id = urlparse(path).path[len('/api/agents/'):]
             if agent_id:
                 self._handle_update_agent(agent_id)
                 return
@@ -5281,7 +5281,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Agents API
         if path.startswith('/api/agents/'):
-            agent_id = path[len('/api/agents/'):]
+            agent_id = urlparse(path).path[len('/api/agents/'):]
             if agent_id:
                 self._handle_delete_agent(agent_id)
                 return
@@ -5351,7 +5351,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # Chat API
         if path.startswith('/api/chat/'):
             # /api/chat/:agentId/:msgId
-            parts = path[len('/api/chat/'):].split('/')
+            parts = urlparse(path).path[len('/api/chat/'):].split('/')
             if len(parts) == 2:
                 _handle_delete_chat_message(self, parts[0], parts[1])
                 return

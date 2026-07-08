@@ -10067,8 +10067,14 @@ function _getLeaderVisibleAgentIds() {
 function renderEmployeeList() {
   var list = document.getElementById('employeeList');
   if (!list) return;
-  var visible = getVisibleEmps().filter(function (e) {
-    return !isArchivedEmp(e);
+  var currentUserId = currentUser && (currentUser.userId || currentUser.id);
+  // 职能区域直接使用 /api/agents 加载的 emps（后端已对 employee 做 createdBy 过滤）
+  var visible = (emps || []).filter(function (e) {
+    if (!e || !e.id || _isDefaultEmp(e)) return false;
+    if (isArchivedEmp(e)) return false;
+    // employee 只能看自己创建的（admin/leader 看后端的返回）
+    if (isEmployee() && e.createdBy !== currentUserId) return false;
+    return true;
   });
   var html = '';
   var state = getSidebarState();
@@ -29399,6 +29405,7 @@ function renderSettingsMemberList() {
       html += '<button class="danger" onclick="event.stopPropagation();permanentlyDeleteSettingsMember(\'' + escapeAttr(emp.id || '') + '\')">彻底删除</button>';
     } else {
       html += '<button onclick="event.stopPropagation();openEmpDetail(\'' + escapeAttr(emp.id || '') + '\')">查看</button>';
+      html += '<button class="danger" onclick="event.stopPropagation();deleteSettingsMember(\'' + escapeAttr(emp.id || '') + '\')">删除</button>';
     }
     html += '</div>';
     html += '</div>';
@@ -29428,6 +29435,31 @@ function restoreSettingsMember(empId) {
   renderSettingsMemberList();
   renderEmployeeList();
   showToast('📂 已恢复 ' + emp.name);
+}
+
+function deleteSettingsMember(empId) {
+  var emp = emps.find(function (e) { return e.id === empId; });
+  if (!emp) return;
+  if (!confirm('确定要删除 ' + (emp.name || '该AI员工') + '？删除后可到已归档中彻底删除。')) return;
+  if (typeof apiFetch === 'function') {
+    apiFetch('/api/agents/' + empId, { method: 'DELETE' }).then(function (resp) {
+      if (resp && resp.ok) {
+        archiveEmp(emp);
+        renderSettingsMemberList();
+        renderEmployeeList();
+        showToast('🗑️ 已删除');
+      } else {
+        showToast('❌ 删除失败');
+      }
+    }).catch(function () {
+      showToast('❌ 删除失败');
+    });
+  } else {
+    archiveEmp(emp);
+    renderSettingsMemberList();
+    renderEmployeeList();
+    showToast('🗑️ 已删除');
+  }
 }
 
 function permanentlyDeleteSettingsMember(empId) {
