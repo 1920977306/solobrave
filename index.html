@@ -7474,7 +7474,7 @@ window.doLogin = function () {
 </div>
 
 <div style="margin-top:20px;">
-<button class="btn-primary" data-module="employees" onclick="openWizard()" style="width:100%;padding:10px;border-radius:8px;background:var(--accent);color:white;border:none;font-weight:500;">
+<button class="btn-primary" onclick="openWizard()" style="width:100%;padding:10px;border-radius:8px;background:var(--accent);color:white;border:none;font-weight:500;">
 ➕ 添加员工
 </button>
 </div>
@@ -10070,7 +10070,7 @@ function renderEmployeeList() {
   });
   var html = '';
   var state = getSidebarState();
-  var canSeeEmployees = hasModulePermission('employees');
+  var canSeeEmployees = true; // AI员工列表/创建入口对全员可见（employee 只能看自己创建的）
   var canSeeGroups = hasModulePermission('groups');
 
   // ===== 一级分类：职能 =====
@@ -21285,10 +21285,7 @@ function toggleWizSkill(slug) {
   renderWizSkillGrid();
 }
 function openWizard() {
-  if (!hasModulePermission('employees')) {
-    showToast('⛔ 你没有员工管理权限', 'warning');
-    return;
-  }
+  // AI员工创建入口对全员可见，配额与数据权限由后端校验
   wizStep = 1;
   soulAnswers = {};
   currentSoulQ = 0;
