@@ -29221,10 +29221,15 @@ function renderSettingsMid() {
     { id: 'forbidden', icon: '<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>', title: '违禁词管理', adminOnly: true },
     { id: 'users', icon: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/>', title: '用户管理', adminOnly: true },
     { id: 'teams', icon: '<path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><rect x="4" y="2" width="16" height="20" rx="2"/>', title: '团队管理', adminOnly: true },
-    { id: 'members', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', title: '成员管理', adminOnly: true }
+    { id: 'members', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', title: isAdmin() ? '成员管理' : 'AI员工管理' }
   ];
   if (!isAdmin()) {
     categories = categories.filter(function (c) { return !c.adminOnly; });
+  }
+  // 如果当前选中分类被权限过滤掉，自动切换到第一个可见分类
+  var visibleIds = categories.map(function (c) { return c.id; });
+  if (visibleIds.indexOf(_settingsSelectedCategory) < 0 && categories.length > 0) {
+    _settingsSelectedCategory = categories[0].id;
   }
   var html = '';
   categories.forEach(function (c) {
@@ -29257,7 +29262,7 @@ function renderSettingsRight() {
   var contentEl = document.getElementById('settingsRightContent');
   var actionsEl = document.getElementById('settingsRightActions');
   if (titleEl) titleEl.textContent = {
-    compute: '算力统计', notification: '通知', account: '账号', permission: '权限管理', forbidden: '违禁词管理', users: '用户管理', teams: '团队管理', members: '成员管理'
+    compute: '算力统计', notification: '通知', account: '账号', permission: '权限管理', forbidden: '违禁词管理', users: '用户管理', teams: '团队管理', members: isAdmin() ? '成员管理' : 'AI员工管理'
   }[_settingsSelectedCategory] || '设置';
   if (actionsEl) actionsEl.innerHTML = '';
   if (!contentEl) return;
@@ -29305,7 +29310,8 @@ function renderSettingsRight() {
     html += '<div id="teamList"></div>';
     html += '</div>';
   } else if (_settingsSelectedCategory === 'members') {
-    if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="openWizard()" style="border-radius:8px;">➕ 添加成员</button>';
+    var addMemberLabel = isAdmin() ? '➕ 添加成员' : '➕ 新增AI员工';
+    if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="openWizard()" style="border-radius:8px;">' + addMemberLabel + '</button>';
     html += '<div class="settings-card">';
     html += '<div class="settings-member-filter" id="settingsMemberFilter"><button class="active" data-filter="all" onclick="setMemberFilter(\'all\')">全部</button><button data-filter="active" onclick="setMemberFilter(\'active\')">正常</button><button data-filter="archived" onclick="setMemberFilter(\'archived\')">已归档</button></div>';
     html += '<div class="settings-list-searchbar"><input type="text" id="memberSearchInput" class="form-input" placeholder="搜索成员名字..." oninput="filterSettingsMemberList()"></div>';
@@ -29340,8 +29346,11 @@ function renderSettingsMemberList() {
   var container = document.getElementById('settingsMemberList');
   if (!container) return;
   var filter = _settingsMemberFilter || 'all';
+  var currentUserId = currentUser && (currentUser.userId || currentUser.id);
   var list = (emps || []).filter(function (e) {
     if (!e || !e.id || _isDefaultEmp(e)) return false;
+    // employee 只能管理自己创建的 AI员工
+    if (isEmployee() && e.createdBy !== currentUserId) return false;
     var archived = isArchivedEmp(e);
     if (filter === 'active') return !archived;
     if (filter === 'archived') return archived;

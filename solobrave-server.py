@@ -1058,7 +1058,7 @@ def _default_permission_templates():
         'products': True,
         'groups': True,
         'influencers': True,
-        'settings': False,
+        'settings': True,
     }
     return {
         'version': '1.0',
