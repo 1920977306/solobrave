@@ -9748,6 +9748,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
+        # 非 admin 禁止修改 global/team 文档
+        if not auth.is_admin and (doc.get('scope') or 'global') in ('global', 'team'):
+            self._send_auth_error('Permission denied', 403)
+            return
         if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
                                      managed_team_ids=auth.managed_team_ids,
                                      managed_group_ids=auth.managed_group_ids,
@@ -9815,6 +9819,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 scope=new_scope,
                 team_id=new_team_id,
                 group_ids=new_group_ids,
+                is_admin=auth.is_admin,
             )
             self._send_json(200, updated)
         except Exception as e:
@@ -9833,6 +9838,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
+        # 非 admin 禁止删除 global/team 文档
+        if not auth.is_admin and (doc.get('scope') or 'global') in ('global', 'team'):
+            self._send_auth_error('Permission denied', 403)
+            return
         if not ks.can_delete_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
                                        managed_team_ids=auth.managed_team_ids,
                                        managed_group_ids=auth.managed_group_ids,
@@ -9840,7 +9849,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                                        emp_ids=_get_user_emp_ids(auth.user_id)):
             self._send_auth_error('Permission denied', 403)
             return
-        deleted = ks.knowledge_delete(doc_id)
+        deleted = ks.knowledge_delete(doc_id, is_admin=auth.is_admin)
         self._send_json(200, {'deleted': deleted, 'id': doc_id})
 
     def _handle_get_knowledge_versions(self, doc_id):
@@ -9900,6 +9909,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
+        # 非 admin 禁止回滚 global/team 文档
+        if not auth.is_admin and (doc.get('scope') or 'global') in ('global', 'team'):
+            self._send_auth_error('Permission denied', 403)
+            return
         if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
                                      managed_team_ids=auth.managed_team_ids,
                                      managed_group_ids=auth.managed_group_ids,
@@ -9936,7 +9949,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 agent_config=agent_config,
                 created_by=auth.user_id,
                 model=emb_cfg.get('model'),
-                base_url=emb_cfg.get('baseUrl')
+                base_url=emb_cfg.get('baseUrl'),
+                is_admin=auth.is_admin,
             )
             if not rolled:
                 self._send_json_error(404, 'Rollback target not found')
@@ -10157,6 +10171,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_admin:
             accessible_ids = _get_employee_accessible_product_ids(auth.user_id)
             products = [p for p in products if p['id'] in accessible_ids]
+        else:
+            # admin 视角补充创建人信息
+            users = _load_users()
+            user_map = {u.get('id'): u for u in users if u.get('id')}
+            for p in products:
+                creator = user_map.get(p.get('created_by') or '')
+                p['created_by_user'] = {
+                    'id': p.get('created_by') or '',
+                    'username': creator.get('username') if creator else '',
+                    'displayName': creator.get('displayName') if creator else (creator.get('username') if creator else '')
+                }
         # 分页
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
@@ -11691,6 +11716,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not auth.is_admin:
                 accessible_ids = _get_employee_accessible_talent_ids(auth.user_id)
                 talents = [t for t in talents if t['id'] in accessible_ids]
+            else:
+                # admin 视角补充创建人信息
+                users = _load_users()
+                user_map = {u.get('id'): u for u in users if u.get('id')}
+                for t in talents:
+                    creator = user_map.get(t.get('created_by') or '')
+                    t['created_by_user'] = {
+                        'id': t.get('created_by') or '',
+                        'username': creator.get('username') if creator else '',
+                        'displayName': creator.get('displayName') if creator else (creator.get('username') if creator else '')
+                    }
             total = len(talents)
             talents = talents[offset:offset + limit]
         finally:

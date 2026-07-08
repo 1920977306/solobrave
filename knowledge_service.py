@@ -647,13 +647,19 @@ def _save_knowledge_version(kid, created_by=None):
 
 def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
                      api_key=None, provider='openai', agent_config=None, created_by=None,
-                     model=None, base_url=None, scope=None, team_id=None, group_ids=None):
-    """更新知识条目，内容变更时先保存历史版本，再重新分段+向量化；使用全局 embedding 配置"""
+                     model=None, base_url=None, scope=None, team_id=None, group_ids=None,
+                     is_admin=False):
+    """更新知识条目，内容变更时先保存历史版本，再重新分段+向量化；使用全局 embedding 配置。
+    非 admin 禁止修改 scope=global 或 scope=team 的文档。"""
     conn = _db_conn()
     try:
         row = conn.execute('SELECT * FROM knowledge WHERE id = ?', (kid,)).fetchone()
         if not row:
             return None
+
+        doc_scope = (row['scope'] or 'global')
+        if not is_admin and doc_scope in ('global', 'team'):
+            raise PermissionError('Permission denied: non-admin cannot update global/team knowledge')
 
         # 内容或标题变更时保留历史版本
         will_change_content = title is not None or content is not None or category is not None
@@ -733,10 +739,17 @@ def knowledge_update(kid, title=None, content=None, category=None, emp_id=None,
     return knowledge_get_by_id(kid)
 
 
-def knowledge_delete(kid):
-    """删除知识条目，级联删除 chunks 和历史版本"""
+def knowledge_delete(kid, is_admin=False):
+    """删除知识条目，级联删除 chunks 和历史版本。
+    非 admin 禁止删除 scope=global 或 scope=team 的文档。"""
     conn = _db_conn()
     try:
+        row = conn.execute('SELECT scope FROM knowledge WHERE id = ?', (kid,)).fetchone()
+        if not row:
+            return False
+        doc_scope = (row['scope'] or 'global')
+        if not is_admin and doc_scope in ('global', 'team'):
+            raise PermissionError('Permission denied: non-admin cannot delete global/team knowledge')
         conn.execute('DELETE FROM knowledge_chunks WHERE knowledge_id = ?', (kid,))
         conn.execute('DELETE FROM knowledge_versions WHERE knowledge_id = ?', (kid,))
         cur = conn.execute('DELETE FROM knowledge WHERE id = ?', (kid,))
@@ -803,7 +816,7 @@ def knowledge_get_version(kid, version):
 
 
 def knowledge_rollback(kid, version, api_key=None, provider='openai', agent_config=None, created_by=None,
-                       model=None, base_url=None):
+                       model=None, base_url=None, is_admin=False):
     """回滚知识文档到指定历史版本；embedding 配置由 knowledge_update 内部获取"""
     target = knowledge_get_version(kid, version)
     if not target:
@@ -825,7 +838,8 @@ def knowledge_rollback(kid, version, api_key=None, provider='openai', agent_conf
         agent_config=agent_config,
         created_by=created_by,
         model=model,
-        base_url=base_url
+        base_url=base_url,
+        is_admin=is_admin
     )
 
 
@@ -908,9 +922,9 @@ def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_cate
                 else:
                     where.append('1 = 0')
         else:
-            # 默认：按可读权限返回（admin 可读写 global；普通用户只看自己的 personal + 所在 group）
+            # 默认：按可读权限返回（admin 可读写 global；普通用户可读 global + 自己的 personal + 所在 group）
             if not is_admin:
-                readable = []
+                readable = ["(scope IS NULL OR scope = 'global')"]
                 if emp_ids:
                     placeholders = ', '.join('?' for _ in emp_ids)
                     readable.append(f"(scope = 'personal' AND emp_id IN ({placeholders}))")
@@ -919,10 +933,7 @@ def knowledge_list(offset=0, limit=50, category=None, keyword=None, allowed_cate
                 if group_clause:
                     readable.append(f"(scope = 'group' AND {group_clause})")
                     params.extend(group_params)
-                if not readable:
-                    where.append('1 = 0')
-                else:
-                    where.append('(' + ' OR '.join(readable) + ')')
+                where.append('(' + ' OR '.join(readable) + ')')
 
         if category:
             where.append('category = ?')
@@ -1106,8 +1117,9 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
         sql_params = [embedding_model]
 
         # 四层隔离过滤（未提供 requester_id 时不限制，保持兼容）
+        # employee 可读 global 文档
         if requester_id is not None and not is_admin:
-            readable = []
+            readable = ["(k.scope IS NULL OR k.scope = 'global')"]
             if emp_ids:
                 placeholders = ', '.join('?' for _ in emp_ids)
                 readable.append(f"(k.scope = 'personal' AND k.emp_id IN ({placeholders}))")
@@ -1116,10 +1128,7 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
                 placeholders = ', '.join('?' for _ in group_ids)
                 readable.append(f"(k.scope = 'group' AND EXISTS (SELECT 1 FROM json_each(k.group_ids) WHERE value IN ({placeholders})))")
                 sql_params.extend(group_ids)
-            if not readable:
-                where_clauses.append('1 = 0')
-            else:
-                where_clauses.append('(' + ' OR '.join(readable) + ')')
+            where_clauses.append('(' + ' OR '.join(readable) + ')')
 
         if allowed_categories is not None and '*' not in allowed_categories:
             if allowed_categories:
@@ -1228,8 +1237,9 @@ def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is
     try:
         where = ["status = 'ok'", "(title LIKE ? OR content LIKE ?)"]
         params = [keyword, keyword]
+        # employee 可读 global 文档
         if requester_id is not None and not is_admin:
-            readable = []
+            readable = ["(scope IS NULL OR scope = 'global')"]
             if emp_ids:
                 placeholders = ', '.join('?' for _ in emp_ids)
                 readable.append(f"(scope = 'personal' AND emp_id IN ({placeholders}))")
@@ -1238,10 +1248,7 @@ def knowledge_search_fallback(query, emp_id=None, limit=3, requester_id=None, is
                 placeholders = ', '.join('?' for _ in group_ids)
                 readable.append(f"(scope = 'group' AND EXISTS (SELECT 1 FROM json_each(group_ids) WHERE value IN ({placeholders})))")
                 params.extend(group_ids)
-            if not readable:
-                where.append('1 = 0')
-            else:
-                where.append('(' + ' OR '.join(readable) + ')')
+            where.append('(' + ' OR '.join(readable) + ')')
         sql = '''
             SELECT id, title, content, category, scope, team_id, emp_id, created_at, updated_at
             FROM knowledge
@@ -1314,6 +1321,7 @@ def _has_any(items_a, items_b):
 
 def can_read_knowledge(doc, user_id=None, is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None):
     """判断用户是否可读某条知识
+    global / team scope 对 employee 只读开放；personal 仅自己；group 需所属项目组有交集。
     emp_ids 允许传入多个 emp_id（包含用户自身 id 及其创建的 agent ids）。
     """
     if emp_ids is None:
@@ -1322,11 +1330,12 @@ def can_read_knowledge(doc, user_id=None, is_admin=False, user_team_ids=None, us
         emp_ids = list(emp_ids) + [user_id]
     scope = _doc_scope(doc)
     if scope == 'global':
-        return is_admin
+        return True
     if scope == 'personal':
         return is_admin or doc.get('empId') in emp_ids
     if scope == 'team':
-        return is_admin
+        team_id = doc.get('teamId')
+        return is_admin or (user_team_ids and team_id in user_team_ids)
     if scope == 'group':
         # 项目组维度：group 知识与用户所属项目组有交集即可读
         return is_admin or _has_any(doc.get('groupIds') or [], user_group_ids)

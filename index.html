@@ -6112,7 +6112,7 @@ window.doLogin = function () {
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       <input type="text" placeholder="搜索文档..." id="knowledgeMidSearch" oninput="onKnowledgeSearch(this.value)">
     </div>
-    <button class="knowledge-mid-new" onclick="createNewKnowledge()">+ 新建文档</button>
+    <button class="knowledge-mid-new" id="knowledgeMidNewBtn" onclick="createNewKnowledge()">+ 新建文档</button>
   </div>
   <div class="knowledge-mid-items" id="knowledgeMidItems"></div>
   <div class="knowledge-mid-pagination" id="knowledgeMidPagination"></div>
@@ -6125,9 +6125,9 @@ window.doLogin = function () {
     <div class="knowledge-view-header">
       <div class="knowledge-view-title" id="knowledgeViewTitle">-</div>
       <div class="knowledge-view-actions">
-        <button class="module-action-btn" onclick="editCurrentKnowledge()">编辑</button>
-        <button class="module-action-btn" onclick="moveCurrentKnowledge()">移动到</button>
-        <button class="module-action-btn danger" onclick="deleteCurrentKnowledge()">删除</button>
+        <button class="module-action-btn" id="knowledgeViewEditBtn" onclick="editCurrentKnowledge()">编辑</button>
+        <button class="module-action-btn" id="knowledgeViewMoveBtn" onclick="moveCurrentKnowledge()">移动到</button>
+        <button class="module-action-btn danger" id="knowledgeViewDeleteBtn" onclick="deleteCurrentKnowledge()">删除</button>
         <button class="module-action-btn" onclick="closeKnowledgeRight()">关闭</button>
       </div>
     </div>
@@ -15286,10 +15286,13 @@ function renderMemoryTab(empId) {
       if (currentMemoryTab === 'kb') {
         var kbHeaderHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
         kbHeaderHtml += '<span style="font-size:12px;color:var(--text-secondary);">全局公共知识库（所有员工共享）</span>';
-        kbHeaderHtml += '<button onclick="openKnowledgeDocForm(null)" style="padding:6px 12px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;">＋ 新建文档</button>';
+        if (isAdmin()) {
+          kbHeaderHtml += '<button onclick="openKnowledgeDocForm(null)" style="padding:6px 12px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;">＋ 新建文档</button>';
+        }
         kbHeaderHtml += '</div>';
         if (kbDocs.length === 0) {
-          contentEl.innerHTML = kbHeaderHtml + '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">暂无知识文档，点击右上角新建全局共享文档</div>';
+          var kbEmptyHint = isAdmin() ? '暂无知识文档，点击右上角新建全局共享文档' : '暂无知识文档';
+          contentEl.innerHTML = kbHeaderHtml + '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">' + kbEmptyHint + '</div>';
         } else {
           var kbHtml = kbHeaderHtml;
           kbDocs.forEach(function (d) {
@@ -15300,9 +15303,13 @@ function renderMemoryTab(empId) {
             kbHtml += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
             kbHtml += '<span style="font-size:11px;color:var(--accent);background:var(--accent-light);padding:2px 6px;border-radius:4px;">📚 知识库</span>';
             kbHtml += '<div style="display:flex;gap:6px;">';
-            kbHtml += '<button onclick="event.stopPropagation();openKnowledgeDocForm(' + JSON.stringify(d).replace(/"/g, '&quot;') + ')" title="编辑" style="width:22px;height:22px;border-radius:5px;border:none;background:transparent;cursor:pointer;color:var(--text-secondary);font-size:13px;">✎</button>';
+            if (isAdmin()) {
+              kbHtml += '<button onclick="event.stopPropagation();openKnowledgeDocForm(' + JSON.stringify(d).replace(/"/g, '&quot;') + ')" title="编辑" style="width:22px;height:22px;border-radius:5px;border:none;background:transparent;cursor:pointer;color:var(--text-secondary);font-size:13px;">✎</button>';
+            }
             kbHtml += '<button onclick="event.stopPropagation();openKnowledgeVersionModal(\'' + escapeAttr(d.id) + '\', \'' + escapeAttr(d.name || '未命名文档') + '\')" title="历史" style="width:22px;height:22px;border-radius:5px;border:none;background:transparent;cursor:pointer;color:var(--text-secondary);font-size:13px;">🕐</button>';
-            kbHtml += '<button onclick="event.stopPropagation();deleteKnowledgeDoc(\'' + escapeAttr(d.id) + '\')" title="删除" style="width:22px;height:22px;border-radius:5px;border:none;background:transparent;cursor:pointer;color:#FF3B30;font-size:13px;">🗑</button>';
+            if (isAdmin()) {
+              kbHtml += '<button onclick="event.stopPropagation();deleteKnowledgeDoc(\'' + escapeAttr(d.id) + '\')" title="删除" style="width:22px;height:22px;border-radius:5px;border:none;background:transparent;cursor:pointer;color:#FF3B30;font-size:13px;">🗑</button>';
+            }
             kbHtml += '</div>';
             kbHtml += '</div>';
             kbHtml += '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">' + escapeHtml((d.icon || '📄') + ' ' + (d.name || '未命名文档')) + '</div>';
@@ -23860,7 +23867,12 @@ function renderProductList(products) {
     html += '<span class="products-mid-card-sales">月销 ' + formatNumber(p.monthly_sales || 0) + '</span>';
     html += '<span class="products-mid-card-influencers">' + (p.influencer_count || 0) + '位达人带货</span>';
     html += '<span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status) + '</span>';
-    html += '</div></div></div></div>';
+    html += '</div>';
+    if (isAdmin() && p.created_by_user) {
+      var isMe = p.created_by_user.id === (currentUser && currentUser.id);
+      html += '<div class="products-mid-card-creator">创建人：' + (isMe ? '我' : ('👤 ' + escapeHtml(p.created_by_user.displayName || p.created_by_user.username || '未知'))) + '</div>';
+    }
+    html += '</div></div></div>';
   });
   el.innerHTML = html;
   _updateProductBatchBar();
@@ -25392,6 +25404,10 @@ function renderTalentList(talents) {
     html += '<span>带货<strong>' + productCount + '款</strong></span>';
     html += '<span class="gmv">GMV ' + gmv + '</span>';
     html += '</div>';
+    if (isAdmin() && t.created_by_user) {
+      var isMe2 = t.created_by_user.id === (currentUser && currentUser.id);
+      html += '<div class="talents-mid-creator" style="margin-top:4px;font-size:12px;color:var(--text-tertiary);">创建人：' + (isMe2 ? '我' : ('👤 ' + escapeHtml(t.created_by_user.displayName || t.created_by_user.username || '未知'))) + '</div>';
+    }
     if (tags.length) {
       html += '<div class="talents-overview-tags" style="margin-top:6px;">' + tags.map(function(tag){ return '<span class="talents-overview-tag">' + escapeHtml(tag) + '</span>'; }).join('') + '</div>';
     }
@@ -26792,6 +26808,7 @@ async function loadKnowledgePage(page) {
     renderKnowledgeCategories(catMap, _knowledgeData.total);
     renderKnowledgeList(_knowledgeData.docs);
     renderKnowledgePagination(_knowledgeData.total, _knowledgePage, _knowledgePageSize);
+    _updateKnowledgeNewButtonVisibility();
     _knowledgeInitialized = true;
   } catch (e) {
     console.warn('[KnowledgePage] 加载失败:', e);
@@ -26860,7 +26877,18 @@ async function selectKnowledgeScope(scope) {
   });
   var titleEl = document.getElementById('knowledgeMidTitle');
   if (titleEl) titleEl.textContent = _knowledgeScopeNames[_knowledgeScope] || '全部文档';
+  _updateKnowledgeNewButtonVisibility();
   await loadKnowledgePage(1);
+}
+function _updateKnowledgeNewButtonVisibility() {
+  var btn = document.getElementById('knowledgeMidNewBtn');
+  if (!btn) return;
+  // employee 在全局/全部 tab 不能新建（全局文档只能 admin 创建）
+  if (isEmployee() && (_knowledgeScope === 'global' || _knowledgeScope === 'all')) {
+    btn.style.display = 'none';
+  } else {
+    btn.style.display = '';
+  }
 }
 function getKnowledgePreview(content) {
   if (!content) return '';
@@ -26996,6 +27024,14 @@ function renderKnowledgeView(doc, skipPanelToggle) {
   }
   _knowledgePreviewMode = false;
   updateKnowledgeEditorView();
+  // employee 查看全局文档时隐藏编辑/删除按钮
+  var editBtn = document.getElementById('knowledgeViewEditBtn');
+  var deleteBtn = document.getElementById('knowledgeViewDeleteBtn');
+  var moveBtn = document.getElementById('knowledgeViewMoveBtn');
+  var isEmployeeGlobal = isEmployee() && (doc.scope || 'global') === 'global';
+  if (editBtn) editBtn.style.display = isEmployeeGlobal ? 'none' : '';
+  if (deleteBtn) deleteBtn.style.display = isEmployeeGlobal ? 'none' : '';
+  if (moveBtn) moveBtn.style.display = isEmployeeGlobal ? 'none' : '';
 }
 function createNewKnowledge() {
   _knowledgeCurrentId = null;
