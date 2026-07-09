@@ -166,7 +166,7 @@ SOLOBRAVE_KNOWLEDGE_MOCK_MODE = os.environ.get('SOLOBRAVE_KNOWLEDGE_MOCK_MODE', 
 # 优先级：环境变量 > settings.json
 SOLOBRAVE_VISION_API_KEY = os.environ.get('SOLOBRAVE_VISION_API_KEY', '').strip()
 SOLOBRAVE_VISION_PROVIDER = os.environ.get('SOLOBRAVE_VISION_PROVIDER', 'kimi').strip()
-SOLOBRAVE_VISION_MODEL = os.environ.get('SOLOBRAVE_VISION_MODEL', 'moonshot-v1-8k-vision-preview').strip()
+SOLOBRAVE_VISION_MODEL = os.environ.get('SOLOBRAVE_VISION_MODEL', 'kimi-code').strip()
 
 
 def get_embedding_config(emp_id=None):
@@ -14132,9 +14132,9 @@ def _resolve_ai_model(api_provider, api_model=''):
         return api_model
     default_models = {
         'openai': 'gpt-4o-mini',
-        'kimi': 'kimi-for-coding',
-        'moonshot': 'kimi-for-coding',
-        'kimicode': 'kimi-for-coding',
+        'kimi': 'kimi-code',
+        'moonshot': 'kimi-code',
+        'kimicode': 'kimi-code',
         'deepseek': 'deepseek-chat',
         'zhipu': 'glm-4-flash',
         'anthropic': 'claude-3-5-sonnet-20241022',
@@ -14151,7 +14151,7 @@ def _get_vision_config():
     vision = settings.get('vision', {}) or {}
     provider = SOLOBRAVE_VISION_PROVIDER or vision.get('provider', 'kimi')
     api_key = SOLOBRAVE_VISION_API_KEY or vision.get('apiKey', '')
-    model = SOLOBRAVE_VISION_MODEL or vision.get('model', 'moonshot-v1-8k-vision-preview')
+    model = SOLOBRAVE_VISION_MODEL or vision.get('model', 'kimi-code')
     base_url = (vision.get('baseUrl', '') or '').strip()
     if not base_url:
         base_url = _resolve_ai_base_url(provider, base_url)
@@ -15675,8 +15675,13 @@ def _transform_openai_to_anthropic(body_json):
             anthropic_content = _openai_content_to_anthropic(content)
             messages.append({'role': role, 'content': anthropic_content})
 
+    # Kimi coding API 的模型 ID 固定为 kimi-code
+    model = body_json.get('model', '')
+    if model and ('kimi' in model.lower() or 'moonshot' in model.lower()):
+        model = 'kimi-code'
+
     anthropic_body = {
-        'model': body_json.get('model', ''),
+        'model': model,
         'max_tokens': body_json.get('max_tokens', 2000),
         'messages': messages
     }
@@ -15767,6 +15772,20 @@ def _handle_proxy(self):
         target_url = _resolve_kimi_coding_target_url(provider)
         body_json = _transform_openai_to_anthropic(body_json)
         body = json.dumps(body_json).encode('utf-8')
+
+        # 打印转换后的 Anthropic 请求体（脱敏 apiKey、截断 base64 便于排查）
+        try:
+            log_body = json.loads(body.decode('utf-8'))
+            log_str = json.dumps(log_body, ensure_ascii=False)
+            if len(log_str) > 2000:
+                log_str = log_str[:2000] + '...'
+            masked_key = 'none'
+            ai_api_key = self.headers.get('X-AI-API-Key', '')
+            if ai_api_key:
+                masked_key = ai_api_key[:4] + '...' if len(ai_api_key) > 4 else '****'
+            print(f'  [Proxy] Anthropic请求体(脱敏) key={masked_key} body={log_str}', flush=True)
+        except Exception as log_err:
+            print(f'  [Proxy] Anthropic请求体打印失败: {log_err}', flush=True)
 
         ai_api_key = self.headers.get('X-AI-API-Key', '')
         if ai_api_key:
