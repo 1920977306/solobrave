@@ -7514,9 +7514,21 @@ async function apiFetch(url, options = {}) {
       headers
     });
     if (resp.status === 401) {
-      // token 过期，跳转登录
-      doLogout();
-      return null;
+      // 认证失败：仅提示，不退出登录、不清理 token，但把响应返回给调用方做进一步处理
+      var errMsg = '认证失败，请检查登录状态或权限';
+      try {
+        var errData = await resp.clone().json();
+        if (errData && errData.message) {
+          errMsg = errData.message;
+        } else if (errData && errData.error) {
+          if (typeof errData.error === 'string') errMsg = errData.error;
+          else if (errData.error && errData.error.message) errMsg = errData.error.message;
+        }
+      } catch (parseErr) {}
+      if (!options.silent) {
+        showToast('❌ ' + errMsg, 'error');
+      }
+      return resp;
     }
     if (resp.status === 403) {
       // 读取类请求保持静默返回空数组（如子账号访问其他用户的聊天记录）
@@ -18161,6 +18173,10 @@ async function buildAIChatMessages(emp, userMessage, docContext, images) {
 
   var endpoint = baseUrl + '/chat/completions';
   if (providerId === 'zhipu') endpoint = baseUrl + '/chat/completions';
+  // Kimi coding API 使用 Anthropic Messages 格式 endpoint
+  if (providerId === 'kimi' || providerId === 'kimicode') {
+    endpoint = 'https://api.kimi.com/coding/v1/messages';
+  }
 
   return {
     providerId: providerId,
@@ -18265,7 +18281,8 @@ async function _sendChatMessages(emp, messages, ctx, docContext, timeStr, images
         'Content-Type': 'application/json',
         'Authorization': authToken && authToken !== 'local_mode' ? 'Bearer ' + authToken : '',
         'X-AI-API-Key': apiKey,
-        'X-Target-URL': endpoint
+        'X-Target-URL': endpoint,
+        'X-AI-Provider': providerId
       },
       body: JSON.stringify(bodyObj)
     });

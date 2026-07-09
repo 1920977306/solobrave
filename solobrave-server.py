@@ -15593,6 +15593,137 @@ def _handle_gateway_restart(self):
 # CORS 代理（需认证）
 # ═══════════════════════════════════════════════════
 
+KIMI_CODING_DEFAULT_ENDPOINT = 'https://api.kimi.com/coding/v1/messages'
+ANTHROPIC_VERSION = '2023-06-01'
+
+
+def _is_kimi_coding_request(provider, target_url):
+    """判断请求是否应走 Kimi coding / Anthropic Messages 格式。"""
+    provider = (provider or '').lower().strip()
+    if provider in ('kimi', 'kimicode'):
+        return True
+    host = urlparse(target_url).hostname or ''
+    if host in ('api.kimi.com',):
+        return True
+    return False
+
+
+def _resolve_kimi_coding_target_url(provider):
+    """确定 Kimi coding API endpoint：优先使用 settings.json 中显式设置的 vision.baseUrl，否则使用默认 endpoint。"""
+    try:
+        settings = _read_json(SETTINGS_FILE, {}) or {}
+        vision = settings.get('vision', {}) or {}
+        base_url = (vision.get('baseUrl', '') or '').strip()
+        if base_url:
+            base = base_url.rstrip('/')
+            if base.endswith('/messages'):
+                return base
+            return base + '/messages'
+    except Exception:
+        pass
+    return KIMI_CODING_DEFAULT_ENDPOINT
+
+
+def _openai_content_to_anthropic(content):
+    """将单条 OpenAI message.content 转成 Anthropic Messages API 格式。"""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content)
+
+    result = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get('type')
+        if item_type == 'text':
+            result.append({'type': 'text', 'text': item.get('text', '')})
+        elif item_type == 'image_url':
+            url = item.get('image_url', {}).get('url', '')
+            if url.startswith('data:'):
+                try:
+                    header, b64 = url.split(',', 1)
+                    media_type = header.split(';')[0].split(':')[1]
+                    result.append({
+                        'type': 'image',
+                        'source': {
+                            'type': 'base64',
+                            'media_type': media_type,
+                            'data': b64
+                        }
+                    })
+                except Exception:
+                    pass
+    return result
+
+
+def _transform_openai_to_anthropic(body_json):
+    """将 OpenAI chat/completions 请求体转为 Anthropic Messages API 格式（Kimi coding 兼容）。"""
+    system_parts = []
+    messages = []
+    for msg in body_json.get('messages', []):
+        role = msg.get('role')
+        content = msg.get('content', '')
+        if role == 'system':
+            if isinstance(content, str):
+                system_parts.append(content)
+            elif isinstance(content, list):
+                texts = [item.get('text', '') for item in content
+                         if isinstance(item, dict) and item.get('type') == 'text']
+                system_parts.extend(texts)
+        elif role in ('user', 'assistant'):
+            anthropic_content = _openai_content_to_anthropic(content)
+            messages.append({'role': role, 'content': anthropic_content})
+
+    anthropic_body = {
+        'model': body_json.get('model', ''),
+        'max_tokens': body_json.get('max_tokens', 2000),
+        'messages': messages
+    }
+    if system_parts:
+        anthropic_body['system'] = '\n\n'.join(system_parts)
+
+    temp = body_json.get('temperature')
+    if temp is not None and 0 <= temp <= 1:
+        anthropic_body['temperature'] = temp
+
+    return anthropic_body
+
+
+def _transform_anthropic_to_openai(resp_json):
+    """将 Anthropic Messages API 响应转回 OpenAI chat/completions 格式，便于前端统一解析。"""
+    content_items = resp_json.get('content', []) if isinstance(resp_json.get('content'), list) else []
+    texts = []
+    for item in content_items:
+        if isinstance(item, dict) and item.get('type') == 'text':
+            texts.append(item.get('text', ''))
+    content = ''.join(texts)
+
+    usage = resp_json.get('usage', {})
+    input_tokens = usage.get('input_tokens', 0)
+    output_tokens = usage.get('output_tokens', 0)
+
+    stop_reason = resp_json.get('stop_reason', '')
+    finish_reason_map = {'end_turn': 'stop', 'max_tokens': 'length', 'stop_sequence': 'stop'}
+    finish_reason = finish_reason_map.get(stop_reason, stop_reason or 'stop')
+
+    return {
+        'id': resp_json.get('id', ''),
+        'object': 'chat.completion',
+        'model': resp_json.get('model', ''),
+        'choices': [{
+            'index': 0,
+            'message': {'role': 'assistant', 'content': content},
+            'finish_reason': finish_reason
+        }],
+        'usage': {
+            'prompt_tokens': input_tokens,
+            'completion_tokens': output_tokens,
+            'total_tokens': input_tokens + output_tokens
+        }
+    }
+
+
 def _handle_proxy(self):
     """POST /api/proxy（需认证）"""
     auth = _authenticate(self.headers)
@@ -15618,35 +15749,59 @@ def _handle_proxy(self):
     content_length = int(self.headers.get('Content-Length', 0))
     body = self.rfile.read(content_length) if content_length > 0 else None
 
-    forward_headers = {}
-    # 代理请求使用的是用户 AI 的 API Key，不是 SoloBrave 的 token
-    # 从请求体或 header 中获取 AI API 的 Authorization
-    auth_header = self.headers.get('Authorization', '')
-    if auth_header.startswith('Bearer ') and not auth_header.startswith('Bearer ey'):  # 粗略区分 JWT 和 API Key
-        # 如果看起来像 API Key，转发它
-        pass
-    # 从请求头中取 AI API Key（前端可能放在 X-AI-API-Key 中）
-    ai_api_key = self.headers.get('X-AI-API-Key', '')
-    if ai_api_key:
-        forward_headers['Authorization'] = f'Bearer {ai_api_key}'
-    elif auth_header and not auth_header.startswith('Bearer ey'):
-        forward_headers['Authorization'] = auth_header
-
-    content_type = self.headers.get('Content-Type', 'application/json')
-    if content_type:
-        forward_headers['Content-Type'] = content_type
-    if body:
-        forward_headers['Content-Length'] = str(len(body))
-
-    # 解析 body 中的 model 信息（用于日志）
-    body_info = ''
+    # 解析 body 用于后续判断是否为 Kimi coding 请求
+    body_json = None
     if body:
         try:
             body_json = json.loads(body.decode('utf-8'))
-            body_info = f"model={body_json.get('model','?')} messages={len(body_json.get('messages',[]))}"
         except Exception:
-            body_info = f'body_len={len(body)}'
-    print(f'  [Proxy] 收到请求 -> {target_url} {body_info}', flush=True)
+            pass
+
+    # 判断是否为 Kimi coding / Anthropic Messages 格式请求
+    provider = self.headers.get('X-AI-Provider', '').lower()
+    is_kimi_coding = _is_kimi_coding_request(provider, target_url)
+
+    forward_headers = {}
+    if is_kimi_coding and body_json:
+        # Kimi coding API 使用 Anthropic Messages 格式
+        target_url = _resolve_kimi_coding_target_url(provider)
+        body_json = _transform_openai_to_anthropic(body_json)
+        body = json.dumps(body_json).encode('utf-8')
+
+        ai_api_key = self.headers.get('X-AI-API-Key', '')
+        if ai_api_key:
+            forward_headers['x-api-key'] = ai_api_key
+        forward_headers['anthropic-version'] = ANTHROPIC_VERSION
+        forward_headers['Content-Type'] = 'application/json'
+        if body:
+            forward_headers['Content-Length'] = str(len(body))
+    else:
+        # 代理请求使用的是用户 AI 的 API Key，不是 SoloBrave 的 token
+        # 从请求体或 header 中获取 AI API 的 Authorization
+        auth_header = self.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer ') and not auth_header.startswith('Bearer ey'):  # 粗略区分 JWT 和 API Key
+            # 如果看起来像 API Key，转发它
+            pass
+        # 从请求头中取 AI API Key（前端可能放在 X-AI-API-Key 中）
+        ai_api_key = self.headers.get('X-AI-API-Key', '')
+        if ai_api_key:
+            forward_headers['Authorization'] = f'Bearer {ai_api_key}'
+        elif auth_header and not auth_header.startswith('Bearer ey'):
+            forward_headers['Authorization'] = auth_header
+
+        content_type = self.headers.get('Content-Type', 'application/json')
+        if content_type:
+            forward_headers['Content-Type'] = content_type
+        if body:
+            forward_headers['Content-Length'] = str(len(body))
+
+    # 解析 body 中的 model 信息（用于日志）
+    body_info = ''
+    if body_json:
+        body_info = f"model={body_json.get('model','?')} messages={len(body_json.get('messages',[]))}"
+    elif body:
+        body_info = f'body_len={len(body)}'
+    print(f'  [Proxy] 收到请求 -> {target_url} {body_info} kimi={is_kimi_coding}', flush=True)
     try:
         req = urllib.request.Request(target_url, data=body, headers=forward_headers, method='POST')
         ctx = ssl.create_default_context()
@@ -15655,18 +15810,31 @@ def _handle_proxy(self):
         resp_body = resp.read()
         resp_content_type = resp.headers.get('Content-Type', 'application/json')
 
-        # 解析响应中的 choices 长度用于日志
-        choices_info = ''
-        try:
-            resp_json = json.loads(resp_body.decode('utf-8'))
-            choices = resp_json.get('choices', [])
-            choices_info = f' choices={len(choices)}'
-            if choices and choices[0].get('message'):
-                content = choices[0]['message'].get('content', '')
-                choices_info += f' content_len={len(content)}'
-        except Exception:
-            pass
-        print(f'  [Proxy] API返回 status={resp.status}{choices_info} <- {target_url}', flush=True)
+        # Kimi coding 返回 Anthropic Messages 格式，需要转回 OpenAI 格式给前端
+        if is_kimi_coding:
+            try:
+                anthropic_resp = json.loads(resp_body.decode('utf-8', errors='replace'))
+                openai_resp = _transform_anthropic_to_openai(anthropic_resp)
+                resp_body = json.dumps(openai_resp).encode('utf-8')
+                resp_content_type = 'application/json'
+                content_len = len(openai_resp.get('choices', []))
+                content_text = openai_resp['choices'][0]['message'].get('content', '') if openai_resp.get('choices') else ''
+                print(f'  [Proxy] API返回(Anthropic->OpenAI) status={resp.status} choices={content_len} content_len={len(content_text)} <- {target_url}', flush=True)
+            except Exception as e:
+                print(f'  [Proxy] Anthropic 响应转换失败: {e}', flush=True)
+        else:
+            # 解析响应中的 choices 长度用于日志
+            choices_info = ''
+            try:
+                resp_json = json.loads(resp_body.decode('utf-8'))
+                choices = resp_json.get('choices', [])
+                choices_info = f' choices={len(choices)}'
+                if choices and choices[0].get('message'):
+                    content = choices[0]['message'].get('content', '')
+                    choices_info += f' content_len={len(content)}'
+            except Exception:
+                pass
+            print(f'  [Proxy] API返回 status={resp.status}{choices_info} <- {target_url}', flush=True)
 
         self.send_response(resp.status)
         self._add_cors_headers()
