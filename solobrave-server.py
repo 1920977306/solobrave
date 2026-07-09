@@ -162,6 +162,13 @@ EMBEDDING_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_EMBEDDING_API_KEY', '').s
 SOLOBRAVE_KNOWLEDGE_MOCK_MODE = os.environ.get('SOLOBRAVE_KNOWLEDGE_MOCK_MODE', '').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+# 后端统一图片识别配置（vision 转文字，不要求前端员工配置 API Key）
+# 优先级：环境变量 > settings.json
+SOLOBRAVE_VISION_API_KEY = os.environ.get('SOLOBRAVE_VISION_API_KEY', '').strip()
+SOLOBRAVE_VISION_PROVIDER = os.environ.get('SOLOBRAVE_VISION_PROVIDER', 'kimi').strip()
+SOLOBRAVE_VISION_MODEL = os.environ.get('SOLOBRAVE_VISION_MODEL', 'kimi-for-coding').strip()
+
+
 def get_embedding_config(emp_id=None):
     """
     获取全局 embedding 配置。
@@ -4812,6 +4819,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 抖音视频语音转文字 (requires auth)
         if path == '/api/douyin/transcribe':
             self._handle_douyin_transcribe()
+            return
+
+        # 后端统一图片识别 (requires auth)
+        if path == '/api/vision/describe':
+            self._handle_vision_describe()
             return
 
         # Write SOUL.md/IDENTITY.md to OpenClaw agent workspace
@@ -14118,6 +14130,88 @@ def _resolve_ai_model(api_provider, api_model=''):
     return default_models.get(api_provider, 'gpt-4o-mini')
 
 
+def _get_vision_config():
+    """获取后端统一图片识别配置（环境变量 > settings.json）。
+    返回: {'provider': str, 'api_key': str, 'model': str, 'base_url': str}
+    """
+    settings = _read_json(SETTINGS_FILE, {}) or {}
+    vision = settings.get('vision', {}) or {}
+    provider = SOLOBRAVE_VISION_PROVIDER or vision.get('provider', 'kimi')
+    api_key = SOLOBRAVE_VISION_API_KEY or vision.get('apiKey', '')
+    model = SOLOBRAVE_VISION_MODEL or vision.get('model', 'kimi-for-coding')
+    base_url = (vision.get('baseUrl', '') or '').strip()
+    if not base_url:
+        base_url = _resolve_ai_base_url(provider, base_url)
+    return {
+        'provider': provider,
+        'api_key': api_key,
+        'model': model,
+        'base_url': base_url,
+    }
+
+
+def _describe_images_with_backend_vision(images, prompt=None):
+    """调用后端统一 Kimi vision API，将 base64 图片转为文字描述。
+    images: 列表，每项为 {'base64': str, 'filename?': str}
+    返回: (descriptions, error)
+      descriptions: [{'index': int, 'filename': str, 'description': str, 'error?': str}]
+    """
+    cfg = _get_vision_config()
+    if not cfg['api_key']:
+        return None, '后端未配置图片识别 API Key（SOLOBRAVE_VISION_API_KEY 或 settings.json vision.apiKey）'
+    if not cfg['base_url']:
+        return None, '无法解析图片识别服务 base URL'
+
+    prompt = prompt or '请详细描述图片中的文字、物体、场景和关键信息。如果有文字，请尽量完整转录。'
+    descriptions = []
+    target_url = cfg['base_url'].rstrip('/') + '/chat/completions'
+
+    for i, img in enumerate(images):
+        base64_str = (img.get('base64', '') or '').strip()
+        filename = (img.get('filename', '') or f'image_{i}').strip()
+        if not base64_str:
+            descriptions.append({'index': i, 'filename': filename, 'description': ''})
+            continue
+
+        messages = [
+            {'role': 'system', 'content': prompt},
+            {'role': 'user', 'content': [
+                {'type': 'text', 'text': '请描述这张图片。'},
+                {'type': 'image_url', 'image_url': {'url': base64_str}}
+            ]}
+        ]
+        req_body_obj = {
+            'model': cfg['model'],
+            'messages': messages,
+            'temperature': 0.6,
+            'max_tokens': 1500,
+            'stream': False
+        }
+        if cfg['provider'] == 'kimicode':
+            req_body_obj['thinking'] = {'type': 'disabled'}
+        req_body = json.dumps(req_body_obj).encode('utf-8')
+
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {cfg["api_key"]}',
+            'Content-Length': str(len(req_body))
+        }
+        try:
+            req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
+            ctx = ssl.create_default_context()
+            resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+            resp_data = json.loads(resp.read().decode('utf-8', errors='replace'))
+            message = resp_data.get('choices', [{}])[0].get('message', {})
+            content = message.get('content') or message.get('reasoning_content') or ''
+            descriptions.append({'index': i, 'filename': filename, 'description': content.strip()})
+        except Exception as e:
+            err_msg = f'图片 {i} 识别异常: {e}'
+            print(f'  [VisionDescribe] {err_msg}', flush=True)
+            descriptions.append({'index': i, 'filename': filename, 'description': '', 'error': err_msg})
+
+    return descriptions, None
+
+
 def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT):
     """底层 AI chat/completions 调用，返回字符串内容或 None（供聊天、定时任务复用）"""
     if not api_key:
@@ -15755,6 +15849,53 @@ def _handle_douyin_transcribe(self):
             print(f'  [Douyin] temp cleaned: {temp_dir}', flush=True)
 
 
+def _handle_vision_describe(self):
+    """POST /api/vision/describe - 后端统一图片识别
+    请求体: {
+      "images": [{"base64": "data:image/...;base64,...", "filename": "..."}],
+      "prompt": "可选自定义提示词"
+    }
+    响应: {
+      "success": true,
+      "descriptions": [{"index": 0, "filename": "...", "description": "..."}],
+      "combinedDescription": "..."
+    }
+    """
+    auth = _authenticate(self.headers)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+
+    body = self._read_body()
+    if not body or not isinstance(body, dict):
+        self._send_json(400, {'success': False, 'error': '请求体必须是 JSON 对象'})
+        return
+
+    images = body.get('images', [])
+    if not images or not isinstance(images, list):
+        self._send_json(400, {'success': False, 'error': '缺少 images 字段'})
+        return
+
+    prompt = body.get('prompt', '').strip() or None
+    print(f'  [VisionDescribe] 收到请求，图片数={len(images)}', flush=True)
+    descriptions, error = _describe_images_with_backend_vision(images, prompt)
+    if error:
+        print(f'  [VisionDescribe] 失败: {error}', flush=True)
+        self._send_json(503, {'success': False, 'error': error})
+        return
+
+    combined = '\n\n'.join([
+        f"【图片 {d['index'] + 1}{(': ' + d['filename']) if d.get('filename') else ''}】\n{d['description']}"
+        for d in descriptions if d.get('description')
+    ])
+    print(f'  [VisionDescribe] 完成，成功识别 {len([d for d in descriptions if d.get("description")])}/{len(images)} 张', flush=True)
+    self._send_json(200, {
+        'success': True,
+        'descriptions': descriptions,
+        'combinedDescription': combined
+    })
+
+
 # ─── 启动 ───────────────────────────────────────────────
 # ═══════════════════════════════════════════════════
 # 每日记忆定时任务（二期新增）
@@ -15772,6 +15913,7 @@ _MODULE_LEVEL_HANDLERS = (
     '_handle_skills_list', '_handle_skills_search', '_handle_skills_install', '_handle_skills_remove',
     '_handle_feishu_status', '_handle_feishu_config', '_handle_pairing_approve', '_handle_gateway_restart',
     '_handle_proxy', '_handle_douyin_parse', '_handle_douyin_transcribe',
+    '_handle_vision_describe',
 )
 for _h in _MODULE_LEVEL_HANDLERS:
     _fn = globals().get(_h)
@@ -16125,6 +16267,7 @@ def main():
     print(f'  [API] 代理:      POST /api/proxy')
     print(f'  [API] 抖音解析:  POST /api/douyin/parse')
     print(f'  [API] 抖音转写:  POST /api/douyin/transcribe')
+    print(f'  [API] 图片识别:  POST /api/vision/describe')
     print(f'  [API] OpenClaw:  /api/openclaw/*')
     print(f'  [API] 技能:      /api/openclaw/skills/*')
     print(f'  [CFG] 超时设置:  {PROXY_TIMEOUT}s')

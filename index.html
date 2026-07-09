@@ -8303,7 +8303,8 @@ async function sendMsg() {
   window._toolMentionDepth = 0;
 
   // 路由策略：
-  // 1. 图片消息必须使用支持 vision 的 API 直连（OpenClaw chat.send 只传字符串，无法识别图片）
+  // 1. 图片消息统一走后端 vision 识别：pendingImages 的 base64 传给 /api/vision/describe，
+  //    后端调用 Kimi vision API 转为文字描述，再注入用户消息发给后续通道（API 直连或 OpenClaw）
   // 2. OpenClaw 已连接时优先走 OpenClaw WS
   // 3. OpenClaw 不可用时，若员工配置了非 openclaw 的 aiProvider + apiKey，则降级 API 直连
   // 4. 无任何配置时尝试 OpenClaw main 兜底，否则提示未连接
@@ -8321,13 +8322,6 @@ async function sendMsg() {
     ocOk: ocOk
   });
   window._lastUserMessageHadImages = hasImages;
-
-  if (hasImages && !hasDirectApi) {
-    // OpenClaw 当前不支持图片，提前提示并停止
-    typing.remove();
-    showToast('⛔ 图片消息需要员工配置 API 直连（如 OpenAI/Kimi）', 'warning');
-    return;
-  }
 
   function detectTalentEntryIntent(text, pendingImages) {
     if (!text && (!pendingImages || pendingImages.length === 0)) return false;
@@ -8367,8 +8361,8 @@ async function sendMsg() {
   }
 
   if (hasImages) {
-    // 必须处理图片时降级到 API 直连
-    console.log('[Chat] 图片消息，使用 API 直连发送');
+    // 图片消息统一走后端 vision 识别，再由 sendViaAPI 根据配置选择 API 直连或 OpenClaw
+    console.log('[Chat] 图片消息，统一走后端 vision 识别');
     sendViaAPI(emp, text, docContext, timeStr, pendingImages);
   } else if (ocOk) {
     console.log('[Chat] OpenClaw 已连接，优先使用 WS 发送');
@@ -18355,20 +18349,75 @@ async function continueToolLoopPrivate(emp, originalUserMessage, rawAssistantRep
 
 async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
   images = images || [];
-  var ctx = await buildAIChatMessages(emp, userMessage, docContext, images);
-  if (!ctx) {
-    document.getElementById('typingMsg') && document.getElementById('typingMsg').remove();
-    displayAIReply('⚠️ AI 供应商配置错误', docContext, timeStr, emp.id, []);
-    _restoreEmpOnline(emp);
-    return;
+  var originalImages = images.slice();
+  var messageForAI = userMessage || '';
+
+  // 后端统一图片识别：将 pendingImages 的 base64 传给后端，由后端调用 Kimi vision API 转为文字描述
+  if (originalImages.length > 0) {
+    try {
+      var visionPayload = {
+        images: originalImages.map(function (img) {
+          return { base64: img.base64 || '', filename: img.filename || '' };
+        }),
+        prompt: '请详细描述图片中的文字、物体、场景和关键信息。如果有文字，请尽量完整转录。'
+      };
+      console.log('[Chat] 图片消息，请求后端 vision 识别，图片数=' + originalImages.length);
+      var visionRes = await apiFetch('/api/vision/describe', {
+        method: 'POST',
+        body: JSON.stringify(visionPayload)
+      });
+      if (visionRes && visionRes.ok) {
+        var visionData = await visionRes.json();
+        if (visionData && visionData.success && visionData.combinedDescription) {
+          messageForAI = (messageForAI ? messageForAI + '\n\n' : '') + '【图片内容描述】\n' + visionData.combinedDescription;
+          console.log('[Chat] 图片 vision 识别完成，描述长度=' + visionData.combinedDescription.length);
+        } else if (visionData && (visionData.error || visionData.message)) {
+          console.warn('[Chat] 后端 vision 识别返回错误:', visionData.error || visionData.message);
+        }
+      }
+    } catch (e) {
+      console.warn('[Chat] 后端 vision 识别请求异常:', e);
+    }
+    // 图片已转为文字描述，后续 AI/OpenClaw 通道使用纯文本，避免重复发送 base64
+    images = [];
   }
-  if (ctx.error) {
-    document.getElementById('typingMsg') && document.getElementById('typingMsg').remove();
-    displayAIReply('⚠️ ' + ctx.error, docContext, timeStr, emp.id, []);
-    _restoreEmpOnline(emp);
-    return;
+
+  // 有直连 API 配置时走 /api/proxy；否则尝试 OpenClaw；再无则兜底提示
+  var hasDirectApi = !!(emp.apiKey && emp.aiProvider && emp.aiProvider !== 'openclaw');
+  var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
+
+  if (hasDirectApi) {
+    var ctx = await buildAIChatMessages(emp, messageForAI, docContext, images);
+    if (!ctx) {
+      document.getElementById('typingMsg') && document.getElementById('typingMsg').remove();
+      displayAIReply('⚠️ AI 供应商配置错误', docContext, timeStr, emp.id, []);
+      _restoreEmpOnline(emp);
+      return;
+    }
+    if (ctx.error) {
+      document.getElementById('typingMsg') && document.getElementById('typingMsg').remove();
+      displayAIReply('⚠️ ' + ctx.error, docContext, timeStr, emp.id, []);
+      _restoreEmpOnline(emp);
+      return;
+    }
+    await _sendChatMessages(emp, ctx.messages, ctx, docContext, timeStr, originalImages, messageForAI, 0, []);
+  } else if (ocOk) {
+    console.log('[Chat] 图片消息已转文字，使用 OpenClaw WS 发送');
+    sendViaOpenClaw(emp, messageForAI, docContext, timeStr, images);
+  } else {
+    console.log('[Chat] 图片消息已转文字，无 API 配置，尝试 OpenClaw main 兜底');
+    var t = document.getElementById('typingMsg');
+    if (t) t.remove();
+    if (typeof openclaw !== 'undefined' && openclaw.connected) {
+      emp.openclawName = emp.openclawName || 'main';
+      sendViaOpenClaw(emp, messageForAI, docContext, timeStr, images);
+    } else {
+      var simReply = '⚠️ OpenClaw 网关未连接，请检查 Gateway 是否运行，或配置 AI 供应商的 API Key。';
+      displayAIReply(simReply, docContext, timeStr, emp.id, []);
+      saveChatHistory(emp.id, messageForAI, simReply, docContext, [], originalImages);
+      _restoreEmpOnline(emp);
+    }
   }
-  await _sendChatMessages(emp, ctx.messages, ctx, docContext, timeStr, images, userMessage, 0, []);
 }
 
 // 从可能包含思考过程/说明文字的文本中提取 JSON 对象
