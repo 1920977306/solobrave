@@ -166,7 +166,7 @@ SOLOBRAVE_KNOWLEDGE_MOCK_MODE = os.environ.get('SOLOBRAVE_KNOWLEDGE_MOCK_MODE', 
 # 优先级：环境变量 > settings.json
 SOLOBRAVE_VISION_API_KEY = os.environ.get('SOLOBRAVE_VISION_API_KEY', '').strip()
 SOLOBRAVE_VISION_PROVIDER = os.environ.get('SOLOBRAVE_VISION_PROVIDER', 'kimi').strip()
-SOLOBRAVE_VISION_MODEL = os.environ.get('SOLOBRAVE_VISION_MODEL', 'kimi-for-coding').strip()
+SOLOBRAVE_VISION_MODEL = os.environ.get('SOLOBRAVE_VISION_MODEL', 'moonshot-v1-8k-vision-preview').strip()
 
 
 def get_embedding_config(emp_id=None):
@@ -14138,7 +14138,7 @@ def _get_vision_config():
     vision = settings.get('vision', {}) or {}
     provider = SOLOBRAVE_VISION_PROVIDER or vision.get('provider', 'kimi')
     api_key = SOLOBRAVE_VISION_API_KEY or vision.get('apiKey', '')
-    model = SOLOBRAVE_VISION_MODEL or vision.get('model', 'kimi-for-coding')
+    model = SOLOBRAVE_VISION_MODEL or vision.get('model', 'moonshot-v1-8k-vision-preview')
     base_url = (vision.get('baseUrl', '') or '').strip()
     if not base_url:
         base_url = _resolve_ai_base_url(provider, base_url)

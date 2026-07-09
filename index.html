@@ -18369,8 +18369,10 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
       if (visionRes && visionRes.ok) {
         var visionData = await visionRes.json();
         if (visionData && visionData.success && visionData.combinedDescription) {
-          messageForAI = (messageForAI ? messageForAI + '\n\n' : '') + '【图片内容描述】\n' + visionData.combinedDescription;
-          console.log('[Chat] 图片 vision 识别完成，描述长度=' + visionData.combinedDescription.length);
+          var visionText = visionData.combinedDescription;
+          var userText = userMessage || '';
+          messageForAI = '【系统提示：用户发送的图片已由视觉系统转为以下文字描述，请基于描述内容进行分析回复】\n\n[图片描述]：' + visionText + '\n\n用户附言：' + userText;
+          console.log('[Chat] 图片 vision 识别完成，描述长度=' + visionText.length);
         } else if (visionData && (visionData.error || visionData.message)) {
           console.warn('[Chat] 后端 vision 识别返回错误:', visionData.error || visionData.message);
         }
