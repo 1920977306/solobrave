@@ -166,7 +166,7 @@ SOLOBRAVE_KNOWLEDGE_MOCK_MODE = os.environ.get('SOLOBRAVE_KNOWLEDGE_MOCK_MODE', 
 # 优先级：环境变量 > settings.json
 SOLOBRAVE_VISION_API_KEY = os.environ.get('SOLOBRAVE_VISION_API_KEY', '').strip()
 SOLOBRAVE_VISION_PROVIDER = os.environ.get('SOLOBRAVE_VISION_PROVIDER', 'kimi').strip()
-SOLOBRAVE_VISION_MODEL = os.environ.get('SOLOBRAVE_VISION_MODEL', 'kimi-code').strip()
+SOLOBRAVE_VISION_MODEL = os.environ.get('SOLOBRAVE_VISION_MODEL', 'kimi-for-coding').strip()
 
 
 def get_embedding_config(emp_id=None):
@@ -14132,9 +14132,9 @@ def _resolve_ai_model(api_provider, api_model=''):
         return api_model
     default_models = {
         'openai': 'gpt-4o-mini',
-        'kimi': 'kimi-code',
-        'moonshot': 'kimi-code',
-        'kimicode': 'kimi-code',
+        'kimi': 'kimi-for-coding',
+        'moonshot': 'kimi-for-coding',
+        'kimicode': 'kimi-for-coding',
         'deepseek': 'deepseek-chat',
         'zhipu': 'glm-4-flash',
         'anthropic': 'claude-3-5-sonnet-20241022',
@@ -14151,7 +14151,7 @@ def _get_vision_config():
     vision = settings.get('vision', {}) or {}
     provider = SOLOBRAVE_VISION_PROVIDER or vision.get('provider', 'kimi')
     api_key = SOLOBRAVE_VISION_API_KEY or vision.get('apiKey', '')
-    model = SOLOBRAVE_VISION_MODEL or vision.get('model', 'kimi-code')
+    model = SOLOBRAVE_VISION_MODEL or vision.get('model', 'kimi-for-coding')
     base_url = (vision.get('baseUrl', '') or '').strip()
     if not base_url:
         base_url = _resolve_ai_base_url(provider, base_url)
@@ -15675,13 +15675,8 @@ def _transform_openai_to_anthropic(body_json):
             anthropic_content = _openai_content_to_anthropic(content)
             messages.append({'role': role, 'content': anthropic_content})
 
-    # Kimi coding API 的模型 ID 固定为 kimi-code
-    model = body_json.get('model', '')
-    if model and ('kimi' in model.lower() or 'moonshot' in model.lower()):
-        model = 'kimi-code'
-
     anthropic_body = {
-        'model': model,
+        'model': body_json.get('model', ''),
         'max_tokens': body_json.get('max_tokens', 2000),
         'messages': messages
     }

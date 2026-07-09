@@ -151,7 +151,7 @@ EMBEDDING_PROVIDERS = {
     },
     'kimicode': {
         'url': 'https://api.kimi.com/coding/v1/embeddings',
-        'model': 'kimi-code',
+        'model': 'kimi-for-coding',
     },
     'zhipu': {
         'url': 'https://open.bigmodel.cn/api/paas/v4/embeddings',
