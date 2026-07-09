@@ -7625,6 +7625,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'customEndpoint': body.get('customEndpoint', ''),
         }
 
+        # 自动从全局 vision 配置填充 API Key/Provider/Model，使新建员工自带图片识别能力
+        vision_cfg = _get_vision_config()
+        if vision_cfg.get('api_key'):
+            if not new_agent.get('apiKey'):
+                new_agent['apiKey'] = vision_cfg['api_key']
+            if not new_agent.get('aiProvider') and vision_cfg.get('provider'):
+                new_agent['aiProvider'] = vision_cfg['provider']
+            if not new_agent.get('apiProvider') and vision_cfg.get('provider'):
+                new_agent['apiProvider'] = vision_cfg['provider']
+            if not new_agent.get('apiModel') and vision_cfg.get('model'):
+                new_agent['apiModel'] = vision_cfg['model']
+            print(f'  [CreateAgent] 已从全局 vision 配置填充 AI 凭证: {new_agent["id"]} provider={vision_cfg["provider"]} model={vision_cfg["model"]}', flush=True)
+
         agents = _load_agents(include_archived=True)
         # 检查 ID 重复
         for a in agents:
