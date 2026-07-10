@@ -15729,6 +15729,83 @@ def _transform_anthropic_to_openai(resp_json):
     }
 
 
+def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthropic_resp, max_retries=2):
+    """
+    处理 Anthropic Messages API 返回 stop_reason='tool_use' 的情况。
+    从原始请求 messages 中提取图片内容，构造 tool_result 块追加到 messages 末尾，
+    重新调用 Kimi API，最多重试 max_retries 次。
+    返回最终应返回给前端的 Anthropic 格式响应体 bytes。
+    """
+    if not isinstance(body_json, dict) or not isinstance(anthropic_resp, dict):
+        return None
+
+    messages = body_json.get('messages', [])
+    if not isinstance(messages, list):
+        return None
+
+    # 深拷贝 messages，避免修改原始请求
+    messages = json.loads(json.dumps(messages))
+
+    # 提取原始请求中的图片内容
+    image_items = []
+    for msg in messages:
+        content = msg.get('content', '')
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and item.get('type') == 'image':
+                    image_items.append(item)
+
+    if not image_items:
+        print('  [Proxy] Anthropic tool_use 续调用跳过：原始请求中未找到图片内容', flush=True)
+        return None
+
+    current_resp = anthropic_resp
+    headers = dict(forward_headers)
+
+    for retry in range(max_retries):
+        content_items = current_resp.get('content', []) if isinstance(current_resp.get('content'), list) else []
+        tool_use_items = [item for item in content_items if isinstance(item, dict) and item.get('type') == 'tool_use']
+        if not tool_use_items:
+            break
+
+        tool_use = tool_use_items[0]
+        tool_result = {
+            'type': 'tool_result',
+            'tool_use_id': tool_use.get('id', ''),
+            'content': [{'type': 'text', 'text': '图片识别结果：[系统自动识别，内容为图片数据]'}]
+        }
+
+        # 追加 tool_result 到 messages 末尾
+        messages.append({'role': 'user', 'content': [tool_result]})
+        new_body_json = dict(body_json)
+        new_body_json['messages'] = messages
+        new_body = json.dumps(new_body_json).encode('utf-8')
+
+        headers['Content-Length'] = str(len(new_body))
+        req = urllib.request.Request(target_url, data=new_body, headers=headers, method='POST')
+        ctx = ssl.create_default_context()
+        resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+        resp_body = resp.read()
+        current_resp = json.loads(resp_body.decode('utf-8', errors='replace'))
+
+        # 日志
+        resp_content_items = current_resp.get('content', []) if isinstance(current_resp.get('content'), list) else []
+        resp_text = ''.join(item.get('text', '') for item in resp_content_items if isinstance(item, dict) and item.get('type') == 'text')
+        print(f'  [Proxy] API返回(Anthropic tool_use续调用 retry={retry + 1}) status={resp.status} content_len={len(resp_text)} <- {target_url}', flush=True)
+
+        if current_resp.get('stop_reason') != 'tool_use':
+            break
+
+    # 取最终响应中 type 为 text 的 content 作为 AI 回复
+    final_content_items = current_resp.get('content', []) if isinstance(current_resp.get('content'), list) else []
+    final_texts = [item.get('text', '') for item in final_content_items if isinstance(item, dict) and item.get('type') == 'text']
+    final_text = ''.join(final_texts)
+
+    final_resp = dict(current_resp)
+    final_resp['content'] = [{'type': 'text', 'text': final_text}]
+    return json.dumps(final_resp).encode('utf-8')
+
+
 def _handle_proxy(self):
     """POST /api/proxy（需认证）"""
     auth = _authenticate(self.headers)
@@ -15854,6 +15931,24 @@ def _handle_proxy(self):
                     if isinstance(item, dict) and item.get('type') == 'text'
                 )
                 print(f'  [Proxy] API返回(Anthropic原生) status={resp.status} content_len={len(content_text)} <- {target_url}', flush=True)
+
+                # 处理 Anthropic tool_use 续调用
+                if anthropic_resp.get('stop_reason') == 'tool_use' and isinstance(body_json, dict):
+                    continued_body = _continue_anthropic_tool_use(
+                        target_url, forward_headers, body_json, anthropic_resp, max_retries=2
+                    )
+                    if continued_body is not None:
+                        resp_body = continued_body
+                        try:
+                            anthropic_resp = json.loads(resp_body.decode('utf-8', errors='replace'))
+                            content_items = anthropic_resp.get('content', []) if isinstance(anthropic_resp.get('content'), list) else []
+                            content_text = ''.join(
+                                item.get('text', '') for item in content_items
+                                if isinstance(item, dict) and item.get('type') == 'text'
+                            )
+                            print(f'  [Proxy] API返回(Anthropic tool_use续调用完成) content_len={len(content_text)} <- {target_url}', flush=True)
+                        except Exception as log_err:
+                            print(f'  [Proxy] Anthropic tool_use续调用响应解析日志失败: {log_err}', flush=True)
             except Exception as e:
                 print(f'  [Proxy] Anthropic 响应解析失败: {e}', flush=True)
         else:
