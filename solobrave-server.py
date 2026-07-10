@@ -15626,7 +15626,8 @@ def _resolve_kimi_coding_target_url(provider):
 
 
 def _openai_content_to_anthropic(content):
-    """将单条 OpenAI message.content 转成 Anthropic Messages API 格式。"""
+    """将单条 OpenAI message.content 转成 Anthropic Messages API 格式。
+    如果 content 里已经包含 Anthropic 原生格式（type='image' + source），直接透传，避免重复转换或丢失。"""
     if isinstance(content, str):
         return content
     if not isinstance(content, list):
@@ -15655,6 +15656,9 @@ def _openai_content_to_anthropic(content):
                     })
                 except Exception:
                     pass
+        elif item_type == 'image' and isinstance(item.get('source'), dict):
+            # 已经是 Anthropic Messages 原生图片格式，直接保留
+            result.append(item)
     return result
 
 
