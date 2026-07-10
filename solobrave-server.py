@@ -15993,8 +15993,14 @@ def _handle_proxy(self):
                 )
                 print(f'  [Proxy] API返回(Anthropic原生) status={resp.status} content_len={len(content_text)} <- {target_url}', flush=True)
 
+                # 诊断日志
+                stop_reason = anthropic_resp.get('stop_reason')
+                content_types = [c.get('type') for c in content_items if isinstance(c, dict)]
+                has_tool_use = any(t == 'tool_use' for t in content_types)
+                print(f'[Proxy诊断] stop_reason={stop_reason}, content_types={content_types}', flush=True)
+
                 # 处理 Anthropic tool_use 续调用
-                if anthropic_resp.get('stop_reason') == 'tool_use' and isinstance(body_json, dict):
+                if stop_reason == 'tool_use' and has_tool_use and isinstance(body_json, dict):
                     continued_body = _continue_anthropic_tool_use(
                         target_url, forward_headers, body_json, anthropic_resp, max_retries=2
                     )
@@ -16010,6 +16016,8 @@ def _handle_proxy(self):
                             print(f'  [Proxy] API返回(Anthropic tool_use续调用完成) content_len={len(content_text)} <- {target_url}', flush=True)
                         except Exception as log_err:
                             print(f'  [Proxy] Anthropic tool_use续调用响应解析日志失败: {log_err}', flush=True)
+                else:
+                    print(f'[Proxy诊断] 未触发续调用, 原因: stop_reason={stop_reason}, has_tool_use={has_tool_use}', flush=True)
             except Exception as e:
                 print(f'  [Proxy] Anthropic 响应解析失败: {e}', flush=True)
         else:
