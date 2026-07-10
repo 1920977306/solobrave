@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>全可AI Office - Mission Control</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23FF6B35'/%3E%3Ctext x='50' y='68' text-anchor='middle' font-size='55' font-weight='bold' fill='white' font-family='-apple-system,BlinkMacSystemFont,sans-serif'%3EQK%3C/text%3E%3C/svg%3E?v=2">
 <style>
@@ -18309,7 +18312,13 @@ async function _sendChatMessages(emp, messages, ctx, docContext, timeStr, images
     }
   }
 
-  console.log('[API] 发送请求 -> /api/proxy endpoint=' + endpoint + ' model=' + model + ' messages=' + messages.length + ' depth=' + depth);
+  // 调试：确认实际发送格式
+  var dbgContentTypes = [];
+  var dbgFirstMessage = messages && messages[0];
+  if (dbgFirstMessage && Array.isArray(dbgFirstMessage.content)) {
+    dbgContentTypes = dbgFirstMessage.content.map(function(item) { return item && item.type; });
+  }
+  console.log('[API] 发送请求 -> /api/proxy providerId=' + providerId + ' endpoint=' + endpoint + ' model=' + model + ' isAnthropicEndpoint=' + isAnthropicEndpoint + ' hasSystem=' + !!bodyObj.system + ' contentTypes=' + JSON.stringify(dbgContentTypes) + ' depth=' + depth);
 
   // 先保存用户消息；工具结果在 displayAIReply 里已单独保存
   if (depth === 0 && originalUserMessage) {

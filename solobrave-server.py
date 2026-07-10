@@ -4343,10 +4343,11 @@ def knowledge_migrate_from_json():
 class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     """自定义请求处理器：静态文件 + 认证 + CORS 代理 + OpenClaw API"""
     def end_headers(self):
-        # 开发模式禁用缓存
-        if self.path.endswith('.html') or self.path == '/' or self.path.endswith('.js'):
-            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+        # 开发模式禁用缓存，避免 index.html 被浏览器缓存导致前端更新不生效
+        if self.path.endswith('.html') or self.path == '/' or self.path.endswith('.js') or self.path.endswith('.css'):
+            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
             self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
         super().end_headers()
 
     def __init__(self, *args, **kwargs):
