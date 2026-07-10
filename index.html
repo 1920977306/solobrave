@@ -18149,6 +18149,9 @@ async function buildAIChatMessages(emp, userMessage, docContext, images) {
 
   systemPrompt += buildAgentToolsContext();
   systemPrompt += buildZilongWorkflowPrompt(emp, userMessage, images);
+  if (images && images.length > 0) {
+    systemPrompt += '\n\n【图片识别指令】当用户发送图片时，请直接识别并描述图片内容，不要调用任何工具。';
+  }
 
   var ragResult2 = { context: '', citations: [] };
   try {
