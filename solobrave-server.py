@@ -15732,8 +15732,9 @@ def _transform_anthropic_to_openai(resp_json):
 def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthropic_resp, max_retries=2):
     """
     处理 Anthropic Messages API 返回 stop_reason='tool_use' 的情况。
-    从原始请求 messages 中提取图片内容，构造 tool_result 块追加到 messages 末尾，
-    重新调用 Kimi API，最多重试 max_retries 次。
+    当工具名为 describe_image 时，独立调用同一个 Kimi API endpoint 获取真实图片描述；
+    其他工具仍使用占位文本作为 tool_result。
+    最多重试 max_retries 次。
     返回最终应返回给前端的 Anthropic 格式响应体 bytes。
     """
     if not isinstance(body_json, dict) or not isinstance(anthropic_resp, dict):
@@ -15759,6 +15760,40 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
         print('  [Proxy] Anthropic tool_use 续调用跳过：原始请求中未找到图片内容', flush=True)
         return None
 
+    def _fetch_image_description(image_item):
+        """构造独立的图片识别请求，调用同一个 Kimi API endpoint 获取真实描述。"""
+        try:
+            headers = dict(forward_headers)
+            description_body = {
+                'model': body_json.get('model', ''),
+                'max_tokens': body_json.get('max_tokens', 2000),
+                'system': '请直接描述这张图片的全部内容，输出结构化文字信息',
+                'messages': [{
+                    'role': 'user',
+                    'content': [image_item]
+                }]
+            }
+            temp = body_json.get('temperature')
+            if temp is not None and 0 <= temp <= 1:
+                description_body['temperature'] = temp
+
+            new_body = json.dumps(description_body).encode('utf-8')
+            headers['Content-Length'] = str(len(new_body))
+            req = urllib.request.Request(target_url, data=new_body, headers=headers, method='POST')
+            ctx = ssl.create_default_context()
+            resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+            resp_body = resp.read()
+            resp_json = json.loads(resp_body.decode('utf-8', errors='replace'))
+
+            content_items = resp_json.get('content', []) if isinstance(resp_json.get('content'), list) else []
+            texts = [item.get('text', '') for item in content_items if isinstance(item, dict) and item.get('type') == 'text']
+            description = ''.join(texts).strip()
+            print(f'  [Proxy] 图片独立识别完成 content_len={len(description)}', flush=True)
+            return description
+        except Exception as e:
+            print(f'  [Proxy] 图片独立识别失败: {e}', flush=True)
+            return None
+
     current_resp = anthropic_resp
     headers = dict(forward_headers)
 
@@ -15769,10 +15804,31 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
             break
 
         tool_use = tool_use_items[0]
+        tool_name = tool_use.get('name', '')
+        tool_use_id = tool_use.get('id', '')
+        tool_input = tool_use.get('input', {}) or {}
+
+        description_text = None
+        if tool_name == 'describe_image':
+            image_index = tool_input.get('imageIndex')
+            if isinstance(image_index, int):
+                # 兼容 0-based 和 1-based 索引
+                if 0 <= image_index < len(image_items):
+                    description_text = _fetch_image_description(image_items[image_index])
+                elif 1 <= image_index <= len(image_items):
+                    description_text = _fetch_image_description(image_items[image_index - 1])
+                else:
+                    print(f'  [Proxy] describe_image imageIndex 越界: {image_index} (共 {len(image_items)} 张)', flush=True)
+            else:
+                print(f'  [Proxy] describe_image imageIndex 无效: {image_index}', flush=True)
+
+        if description_text is None:
+            description_text = '图片识别结果：[系统自动识别，内容为图片数据]'
+
         tool_result = {
             'type': 'tool_result',
-            'tool_use_id': tool_use.get('id', ''),
-            'content': [{'type': 'text', 'text': '图片识别结果：[系统自动识别，内容为图片数据]'}]
+            'tool_use_id': tool_use_id,
+            'content': [{'type': 'text', 'text': description_text}]
         }
 
         # 追加 tool_result 到 messages 末尾
