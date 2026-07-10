@@ -15756,13 +15756,16 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
                 if isinstance(item, dict) and item.get('type') == 'image':
                     image_items.append(item)
 
+    print(f'  [ToolUse] 检测到tool_use续调用, 图片数={len(image_items)}', flush=True)
+
     if not image_items:
         print('  [Proxy] Anthropic tool_use 续调用跳过：原始请求中未找到图片内容', flush=True)
         return None
 
-    def _fetch_image_description(image_item):
+    def _fetch_image_description(image_item, image_index):
         """构造独立的图片识别请求，调用同一个 Kimi API endpoint 获取真实描述。"""
         try:
+            print(f'  [ImageDesc] 开始获取图片描述, imageIndex={image_index}', flush=True)
             headers = dict(forward_headers)
             description_body = {
                 'model': body_json.get('model', ''),
@@ -15788,10 +15791,10 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
             content_items = resp_json.get('content', []) if isinstance(resp_json.get('content'), list) else []
             texts = [item.get('text', '') for item in content_items if isinstance(item, dict) and item.get('type') == 'text']
             description = ''.join(texts).strip()
-            print(f'  [Proxy] 图片独立识别完成 content_len={len(description)}', flush=True)
+            print(f'  [ImageDesc] 获取成功, 描述长度={len(description)}', flush=True)
             return description
         except Exception as e:
-            print(f'  [Proxy] 图片独立识别失败: {e}', flush=True)
+            print(f'  [ImageDesc] 获取失败, error={e}', flush=True)
             return None
 
     current_resp = anthropic_resp
@@ -15814,9 +15817,9 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
             if isinstance(image_index, int):
                 # 兼容 0-based 和 1-based 索引
                 if 0 <= image_index < len(image_items):
-                    description_text = _fetch_image_description(image_items[image_index])
+                    description_text = _fetch_image_description(image_items[image_index], image_index)
                 elif 1 <= image_index <= len(image_items):
-                    description_text = _fetch_image_description(image_items[image_index - 1])
+                    description_text = _fetch_image_description(image_items[image_index - 1], image_index)
                 else:
                     print(f'  [Proxy] describe_image imageIndex 越界: {image_index} (共 {len(image_items)} 张)', flush=True)
             else:
@@ -15837,6 +15840,7 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
         new_body_json['messages'] = messages
         new_body = json.dumps(new_body_json).encode('utf-8')
 
+        print(f'  [ToolUse] 重新调用API, messages数={len(messages)}', flush=True)
         headers['Content-Length'] = str(len(new_body))
         req = urllib.request.Request(target_url, data=new_body, headers=headers, method='POST')
         ctx = ssl.create_default_context()
@@ -15859,6 +15863,7 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
 
     final_resp = dict(current_resp)
     final_resp['content'] = [{'type': 'text', 'text': final_text}]
+    print(f'  [ToolUse] 续调用完成, 最终content_len={len(final_text)}', flush=True)
     return json.dumps(final_resp).encode('utf-8')
 
 
