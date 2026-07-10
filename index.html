@@ -18159,26 +18159,46 @@ async function buildAIChatMessages(emp, userMessage, docContext, images) {
     return { error: 'AI身份约束缺失，禁止调用AI' };
   }
 
-  var messages = [{ role: 'system', content: systemPrompt }];
-  if (chatContext) messages.push({ role: 'system', content: chatContext });
-  if (images && images.length > 0) {
-    var userContent = [{ type: 'text', text: userMessage }];
-    images.forEach(function(img) {
-      userContent.push({ type: 'image_url', image_url: { url: img.base64 } });
-    });
-    messages.push({ role: 'user', content: userContent });
-  } else {
-    messages.push({ role: 'user', content: userMessage });
-  }
-
+  var isAnthropicEndpoint = (providerId === 'kimi' || providerId === 'kimicode');
   var endpoint = baseUrl + '/chat/completions';
   if (providerId === 'zhipu') endpoint = baseUrl + '/chat/completions';
   // Kimi coding API 使用 Anthropic Messages 格式 endpoint
-  if (providerId === 'kimi' || providerId === 'kimicode') {
+  if (isAnthropicEndpoint) {
     endpoint = 'https://api.kimi.com/coding/v1/messages';
   }
 
-  return {
+  var messages;
+  if (isAnthropicEndpoint) {
+    // Anthropic Messages 原生格式：system 必须放在顶层，content 数组用 text/image
+    var userContent = [{ type: 'text', text: userMessage }];
+    if (images && images.length > 0) {
+      images.forEach(function(img) {
+        userContent.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: (img.base64.match(/^data:([^;]+);/) || [null, 'image/jpeg'])[1],
+            data: img.base64.replace(/^data:[^;]+;base64,/, '')
+          }
+        });
+      });
+    }
+    messages = [{ role: 'user', content: userContent }];
+  } else {
+    messages = [{ role: 'system', content: systemPrompt }];
+    if (chatContext) messages.push({ role: 'system', content: chatContext });
+    if (images && images.length > 0) {
+      var userContent = [{ type: 'text', text: userMessage }];
+      images.forEach(function(img) {
+        userContent.push({ type: 'image_url', image_url: { url: img.base64 } });
+      });
+      messages.push({ role: 'user', content: userContent });
+    } else {
+      messages.push({ role: 'user', content: userMessage });
+    }
+  }
+
+  var result = {
     providerId: providerId,
     provider: provider,
     apiKey: apiKey,
@@ -18186,8 +18206,13 @@ async function buildAIChatMessages(emp, userMessage, docContext, images) {
     model: model,
     endpoint: endpoint,
     messages: messages,
-    citations: ragResult2.citations
+    citations: ragResult2.citations,
+    isAnthropicEndpoint: isAnthropicEndpoint
   };
+  if (isAnthropicEndpoint) {
+    result.systemPrompt = systemPrompt;
+  }
+  return result;
 }
 
 // 保存一条单独的 assistant 消息到后端历史（用于工具闭环的后续回复）
@@ -18258,12 +18283,30 @@ async function _sendChatMessages(emp, messages, ctx, docContext, timeStr, images
   var endpoint = ctx.endpoint;
   var model = ctx.model;
 
-  var bodyObj = { model: model, messages: messages, max_tokens: 2000 };
-  if (providerId === 'kimicode') {
-    bodyObj.temperature = 0.6;
-    bodyObj.thinking = { type: 'disabled' };
+  var isAnthropicEndpoint = !!ctx.isAnthropicEndpoint;
+  var bodyObj;
+  if (isAnthropicEndpoint) {
+    // Kimi coding / Anthropic Messages 原生格式
+    bodyObj = {
+      model: model,
+      max_tokens: 2000,
+      messages: messages
+    };
+    if (ctx.systemPrompt) bodyObj.system = ctx.systemPrompt;
+    if (providerId === 'kimicode') {
+      bodyObj.temperature = 0.6;
+      bodyObj.thinking = { type: 'disabled' };
+    } else {
+      bodyObj.temperature = 0.8;
+    }
   } else {
-    bodyObj.temperature = 0.8;
+    bodyObj = { model: model, messages: messages, max_tokens: 2000 };
+    if (providerId === 'kimicode') {
+      bodyObj.temperature = 0.6;
+      bodyObj.thinking = { type: 'disabled' };
+    } else {
+      bodyObj.temperature = 0.8;
+    }
   }
 
   console.log('[API] 发送请求 -> /api/proxy endpoint=' + endpoint + ' model=' + model + ' messages=' + messages.length + ' depth=' + depth);
@@ -18302,16 +18345,26 @@ async function _sendChatMessages(emp, messages, ctx, docContext, timeStr, images
       return;
     }
     var data = await res.json();
-    if (data && data.choices && data.choices[0] && data.choices[0].message) {
-      var reply = _extractMessageContent(data.choices[0].message);
+    var reply = null;
+    if (isAnthropicEndpoint && data && Array.isArray(data.content)) {
+      // Anthropic Messages 原生响应
+      reply = data.content
+        .filter(function(item) { return item && item.type === 'text'; })
+        .map(function(item) { return item.text || ''; })
+        .join('');
+      console.log('[API] AI回复(Anthropic原生) content_len=' + (reply ? reply.length : 0) + ' depth=' + depth);
+    } else if (data && data.choices && data.choices[0] && data.choices[0].message) {
+      reply = _extractMessageContent(data.choices[0].message);
       console.log('[API] AI回复 content_len=' + reply.length + ' depth=' + depth);
+    } else if (data) {
+      console.log('[API] 返回格式异常 data=', JSON.stringify(data).substring(0, 200));
+      displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr, emp.id, []);
+    }
+    if (reply !== null && reply !== undefined) {
       var hasToolCalls = parseToolCalls(reply).length > 0;
       // 有工具调用时，由 displayAIReply 执行完工具后再统一保存 assistant 消息（含 toolRecords）
       // 无工具调用时 assistant 消息由 displayAIReply 末尾统一保存
       displayAIReply(reply, docContext, timeStr, emp.id, ctx.citations, originalUserMessage, depth, executedKeys, images);
-    } else if (data) {
-      console.log('[API] 返回格式异常 data=', JSON.stringify(data).substring(0, 200));
-      displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr, emp.id, []);
     }
     _restoreEmpOnline(emp);
   } catch (error) {
@@ -18427,20 +18480,42 @@ async function describeImage(emp, base64, prompt) {
   if (!provider) return { error: '未知的 AI 供应商: ' + emp.aiProvider };
   var model = emp.apiModel || provider.defaultModel;
   var baseUrl = provider.baseUrl;
-  if (emp.aiProvider === 'custom') {
+  var providerId = emp.aiProvider;
+  if (providerId === 'custom') {
     baseUrl = emp.customEndpoint || '';
     model = emp.apiModel || 'custom-model';
   }
+  var isAnthropicEndpoint = (providerId === 'kimi' || providerId === 'kimicode');
   var endpoint = baseUrl + '/chat/completions';
-  var messages = [
-    { role: 'system', content: prompt || PRODUCT_IMAGE_RECOGNITION_PROMPT },
-    { role: 'user', content: [
-      { type: 'text', text: '请识别这张图片中的商品，并按要求的 JSON 格式输出。' },
-      { type: 'image_url', image_url: { url: base64 } }
-    ] }
+  if (isAnthropicEndpoint) {
+    endpoint = 'https://api.kimi.com/coding/v1/messages';
+  }
+  var mediaType = (base64.match(/^data:([^;]+);/) || [null, 'image/jpeg'])[1];
+  var imageData = base64.replace(/^data:[^;]+;base64,/, '');
+  var userContent = [
+    { type: 'text', text: '请识别这张图片中的商品，并按要求的 JSON 格式输出。' },
+    { type: 'image_url', image_url: { url: base64 } }
   ];
-  var bodyObj = { model: model, messages: messages, max_tokens: 1500 };
-  if (emp.aiProvider === 'kimicode') {
+  if (isAnthropicEndpoint) {
+    userContent[1] = { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageData } };
+  }
+  var messages, bodyObj;
+  if (isAnthropicEndpoint) {
+    messages = [{ role: 'user', content: userContent }];
+    bodyObj = {
+      model: model,
+      max_tokens: 1500,
+      messages: messages,
+      system: prompt || PRODUCT_IMAGE_RECOGNITION_PROMPT
+    };
+  } else {
+    messages = [
+      { role: 'system', content: prompt || PRODUCT_IMAGE_RECOGNITION_PROMPT },
+      { role: 'user', content: userContent }
+    ];
+    bodyObj = { model: model, messages: messages, max_tokens: 1500 };
+  }
+  if (providerId === 'kimicode') {
     bodyObj.temperature = 0.6;
     bodyObj.thinking = { type: 'disabled' };
     bodyObj.response_format = { type: 'json_object' };
@@ -18454,14 +18529,23 @@ async function describeImage(emp, base64, prompt) {
         'Content-Type': 'application/json',
         'Authorization': authToken && authToken !== 'local_mode' ? 'Bearer ' + authToken : '',
         'X-AI-API-Key': emp.apiKey,
-        'X-Target-URL': endpoint
+        'X-Target-URL': endpoint,
+        'X-AI-Provider': providerId
       },
       body: JSON.stringify(bodyObj)
     });
     if (!res.ok) return { error: '图片识别请求失败，状态码 ' + (res.status || 'unknown') };
     var data = await res.json();
-    var message = data && data.choices && data.choices[0] && data.choices[0].message || {};
-    var rawText = _extractMessageContent(message);
+    var rawText = '';
+    if (isAnthropicEndpoint && data && Array.isArray(data.content)) {
+      rawText = data.content
+        .filter(function(item) { return item && item.type === 'text'; })
+        .map(function(item) { return item.text || ''; })
+        .join('');
+    } else {
+      var message = data && data.choices && data.choices[0] && data.choices[0].message || {};
+      rawText = _extractMessageContent(message);
+    }
     // 从可能包含思考过程的文本中提取 JSON
     var obj = _extractJsonFromText(rawText);
     if (!obj) {
@@ -19056,7 +19140,18 @@ async function runSingleProductEntryWorkflow(emp, product, docContext, timeStr) 
 
 // 批量录入内部调用 AI（复用员工 API 配置）
 async function _callAIForBatchEntry(emp, messages, ctx) {
-  var bodyObj = { model: ctx.model, messages: messages, max_tokens: 2000 };
+  var isAnthropicEndpoint = !!ctx.isAnthropicEndpoint;
+  var bodyObj;
+  if (isAnthropicEndpoint) {
+    bodyObj = {
+      model: ctx.model,
+      max_tokens: 2000,
+      messages: messages
+    };
+    if (ctx.systemPrompt) bodyObj.system = ctx.systemPrompt;
+  } else {
+    bodyObj = { model: ctx.model, messages: messages, max_tokens: 2000 };
+  }
   if (ctx.providerId === 'kimicode') {
     bodyObj.temperature = 0.6;
     bodyObj.thinking = { type: 'disabled' };
@@ -19071,7 +19166,8 @@ async function _callAIForBatchEntry(emp, messages, ctx) {
         'Content-Type': 'application/json',
         'Authorization': authToken && authToken !== 'local_mode' ? 'Bearer ' + authToken : '',
         'X-AI-API-Key': ctx.apiKey,
-        'X-Target-URL': ctx.endpoint
+        'X-Target-URL': ctx.endpoint,
+        'X-AI-Provider': ctx.providerId || ''
       },
       body: JSON.stringify(bodyObj)
     });
@@ -19080,6 +19176,12 @@ async function _callAIForBatchEntry(emp, messages, ctx) {
       return null;
     }
     var data = await res.json();
+    if (isAnthropicEndpoint && data && Array.isArray(data.content)) {
+      return data.content
+        .filter(function(item) { return item && item.type === 'text'; })
+        .map(function(item) { return item.text || ''; })
+        .join('');
+    }
     var message = data && data.choices && data.choices[0] && data.choices[0].message || {};
     return _extractMessageContent(message);
   } catch (e) {
@@ -19120,7 +19222,11 @@ async function fetchEmployeeReplyAPI(emp, task) {
     baseUrl = emp.customEndpoint || '';
     model = emp.apiModel || 'custom-model';
   }
+  var isAnthropicEndpoint = (providerId === 'kimi' || providerId === 'kimicode');
   var endpoint = baseUrl + '/chat/completions';
+  if (isAnthropicEndpoint) {
+    endpoint = 'https://api.kimi.com/coding/v1/messages';
+  }
   var systemPrompt = emp.soulDoc || emp.systemPrompt || '';
   if (!systemPrompt) {
     systemPrompt = '你是 ' + emp.name + '，一个 ' + getEmpRoleDisplay(emp) + '。请用第一人称回复，保持角色一致性。';
@@ -19128,11 +19234,22 @@ async function fetchEmployeeReplyAPI(emp, task) {
   systemPrompt += '\n\n【同事协作】你正在被同事@求助，请直接针对任务给出结论或方案。除非任务明确要求，否则不要再次@其他人，避免循环协作。';
   systemPrompt += buildAgentToolsContext();
   systemPrompt += buildZilongWorkflowPrompt(emp, task, []);
-  var messages = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: task || '请协助处理这个任务。' }
-  ];
-  var bodyObj = { model: model, messages: messages, max_tokens: 1500 };
+  var messages, bodyObj;
+  if (isAnthropicEndpoint) {
+    messages = [{ role: 'user', content: task || '请协助处理这个任务。' }];
+    bodyObj = {
+      model: model,
+      max_tokens: 1500,
+      messages: messages,
+      system: systemPrompt
+    };
+  } else {
+    messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: task || '请协助处理这个任务。' }
+    ];
+    bodyObj = { model: model, messages: messages, max_tokens: 1500 };
+  }
   if (providerId === 'kimicode') {
     bodyObj.temperature = 0.6;
     bodyObj.thinking = { type: 'disabled' };
@@ -19145,14 +19262,23 @@ async function fetchEmployeeReplyAPI(emp, task) {
       'Content-Type': 'application/json',
       'Authorization': authToken && authToken !== 'local_mode' ? 'Bearer ' + authToken : '',
       'X-AI-API-Key': apiKey,
-      'X-Target-URL': endpoint
+      'X-Target-URL': endpoint,
+      'X-AI-Provider': providerId
     },
     body: JSON.stringify(bodyObj)
   });
   if (!res.ok) throw new Error('API 请求失败: ' + res.status);
   var data = await res.json();
-  var message = data && data.choices && data.choices[0] && data.choices[0].message || {};
-  var reply = _extractMessageContent(message);
+  var reply;
+  if (isAnthropicEndpoint && data && Array.isArray(data.content)) {
+    reply = data.content
+      .filter(function(item) { return item && item.type === 'text'; })
+      .map(function(item) { return item.text || ''; })
+      .join('');
+  } else {
+    var message = data && data.choices && data.choices[0] && data.choices[0].message || {};
+    reply = _extractMessageContent(message);
+  }
   return reply || '（同事未返回内容）';
 }
 

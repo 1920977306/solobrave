@@ -15763,14 +15763,29 @@ def _handle_proxy(self):
 
     forward_headers = {}
     if is_kimi_coding and body_json:
-        # Kimi coding API 使用 Anthropic Messages 格式
+        # Kimi coding API 是 Anthropic 原生端点，直接透传原生 Anthropic Messages 格式。
+        # 前端已负责构造 Anthropic 格式（含 image.source base64），后端不再做 OpenAI 转换。
         target_url = _resolve_kimi_coding_target_url(provider)
-        body_json = _transform_openai_to_anthropic(body_json)
-        body = json.dumps(body_json).encode('utf-8')
 
-        # 打印转换后的 Anthropic 请求体（脱敏 apiKey、截断 base64 便于排查）
+        # 如果前端仍发来 OpenAI 格式（含 image_url），为兼容做一次兜底转换，并记录警告。
+        has_openai_image = False
+        for msg in body_json.get('messages', []):
+            content = msg.get('content', '')
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get('type') == 'image_url':
+                        has_openai_image = True
+                        break
+            if has_openai_image:
+                break
+        if has_openai_image:
+            print('  [Proxy] 警告: 收到含 image_url 的 OpenAI 格式，正在转换为 Anthropic Messages 格式', flush=True)
+            body_json = _transform_openai_to_anthropic(body_json)
+            body = json.dumps(body_json).encode('utf-8')
+
+        # 打印 Anthropic 请求体摘要（脱敏 apiKey、截断 base64 便于排查）
         try:
-            log_body = json.loads(body.decode('utf-8'))
+            log_body = body_json if body_json is not None else json.loads(body.decode('utf-8'))
             log_str = json.dumps(log_body, ensure_ascii=False)
             if len(log_str) > 2000:
                 log_str = log_str[:2000] + '...'
@@ -15824,18 +15839,18 @@ def _handle_proxy(self):
         resp_body = resp.read()
         resp_content_type = resp.headers.get('Content-Type', 'application/json')
 
-        # Kimi coding 返回 Anthropic Messages 格式，需要转回 OpenAI 格式给前端
+        # Kimi coding 返回 Anthropic Messages 格式，前端已原生解析，后端直接透传。
         if is_kimi_coding:
             try:
                 anthropic_resp = json.loads(resp_body.decode('utf-8', errors='replace'))
-                openai_resp = _transform_anthropic_to_openai(anthropic_resp)
-                resp_body = json.dumps(openai_resp).encode('utf-8')
-                resp_content_type = 'application/json'
-                content_len = len(openai_resp.get('choices', []))
-                content_text = openai_resp['choices'][0]['message'].get('content', '') if openai_resp.get('choices') else ''
-                print(f'  [Proxy] API返回(Anthropic->OpenAI) status={resp.status} choices={content_len} content_len={len(content_text)} <- {target_url}', flush=True)
+                content_items = anthropic_resp.get('content', []) if isinstance(anthropic_resp.get('content'), list) else []
+                content_text = ''.join(
+                    item.get('text', '') for item in content_items
+                    if isinstance(item, dict) and item.get('type') == 'text'
+                )
+                print(f'  [Proxy] API返回(Anthropic原生) status={resp.status} content_len={len(content_text)} <- {target_url}', flush=True)
             except Exception as e:
-                print(f'  [Proxy] Anthropic 响应转换失败: {e}', flush=True)
+                print(f'  [Proxy] Anthropic 响应解析失败: {e}', flush=True)
         else:
             # 解析响应中的 choices 长度用于日志
             choices_info = ''
