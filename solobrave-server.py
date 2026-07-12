@@ -18,7 +18,6 @@ SoloBrave Server — Auth + CORS Proxy + OpenClaw Management API
 import http.server
 import json
 import os
-import re
 import subprocess
 import ssl
 import sys
@@ -36,10 +35,6 @@ import mimetypes
 import shutil
 import math
 import sqlite3
-import platform
-import signal
-import csv
-import io
 try:
     import fcntl
 except ImportError:
@@ -131,7 +126,7 @@ EMBEDDING_PROVIDERS = {
     },
     'kimicode': {
         'url': 'https://api.kimi.com/coding/v1/embeddings',
-        'model': 'kimi-code',
+        'model': 'kimi-for-coding',
         'dim': 1536,
     },
     'zhipu': {
@@ -160,13 +155,6 @@ EMBEDDING_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_EMBEDDING_API_KEY', '').s
 # 知识归纳模拟模式开关：无真实 API Key 时返回示例知识文档，便于测试/演示
 # 优先级：环境变量 > settings.json
 SOLOBRAVE_KNOWLEDGE_MOCK_MODE = os.environ.get('SOLOBRAVE_KNOWLEDGE_MOCK_MODE', '').strip().lower() in ('1', 'true', 'yes', 'on')
-
-
-# 后端统一图片识别配置（vision 转文字，不要求前端员工配置 API Key）
-# 优先级：环境变量 > settings.json
-SOLOBRAVE_VISION_API_KEY = os.environ.get('SOLOBRAVE_VISION_API_KEY', '').strip()
-SOLOBRAVE_VISION_PROVIDER = os.environ.get('SOLOBRAVE_VISION_PROVIDER', 'kimi').strip()
-SOLOBRAVE_VISION_MODEL = os.environ.get('SOLOBRAVE_VISION_MODEL', 'kimi-code').strip()
 
 
 def get_embedding_config(emp_id=None):
@@ -1040,6 +1028,42 @@ def _init_default_admin():
     return None
 
 
+def _ensure_knowledge_admin_agent():
+    """确保存在系统知识库管理员 AI 员工"""
+    agents = _load_agents(include_archived=True)
+    for a in agents:
+        if a.get('id') == 'knowledge_admin':
+            return
+    admin = {
+        'id': 'knowledge_admin',
+        'name': '知识库管理员',
+        'role': 'operator',
+        'bg': '#3B82F6',
+        'avatar': '📚',
+        'status': 'online',
+        'msg': '',
+        'archived': False,
+        'permission': 'dev',
+        'visibility': 'creator',
+        'createdBy': 'system',
+        'createdAt': datetime.now().isoformat(),
+        'connectionType': '',
+        'apiProvider': '',
+        'apiModel': '',
+        'apiKey': '',
+        'openclawAgent': '',
+        'openclawModel': '',
+        'openclawName': '',
+        'aiProvider': '',
+        'systemPrompt': '',
+        'department': '',
+        'customEndpoint': ''
+    }
+    agents.append(admin)
+    _save_agents(agents)
+    print('  [System] 已创建知识库管理员 AI 员工: knowledge_admin', flush=True)
+
+
 # ─── 权限管理 ─────────────────────────────────────────
 
 # 可用模块列表（与 switchModule 取值对齐）
@@ -1065,12 +1089,13 @@ def _default_permission_templates():
         'products': True,
         'groups': True,
         'influencers': True,
-        'settings': True,
+        'settings': False,
     }
     return {
         'version': '1.0',
         'roleTemplates': [
             {'id': 'admin', 'name': '超级管理员', 'modules': superadmin_modules, 'knowledgeCategories': ['*']},
+            {'id': 'leader', 'name': '管理员', 'modules': admin_modules, 'knowledgeCategories': ['*']},
             {'id': 'employee', 'name': '普通用户', 'modules': user_modules, 'knowledgeCategories': ['*']},
         ],
         'userOverrides': {}
@@ -1102,9 +1127,6 @@ def _load_permissions():
         for m in AVAILABLE_MODULES:
             if m not in modules:
                 modules[m] = bool(default_modules.get(m, False))
-        # 强制迁移：employee 模板必须能进入 settings（设置页）
-        if tmpl.get('id') == 'employee':
-            modules['settings'] = True
         tmpl['modules'] = modules
     return data
 
@@ -1194,22 +1216,11 @@ def _can_access_knowledge_category(user_or_auth, category):
     return category in cats
 
 
-def _is_archived_flag(value):
-    """统一判断 archived 字段（兼容 bool、字符串 'false'/'0'、数字 0）"""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.lower() not in ('false', '0', '', 'none', 'null', 'no', 'off')
-    if isinstance(value, (int, float)):
-        return bool(value)
-    return bool(value)
-
-
 def _validate_agent_for_ai(agent):
     """AI 调用前校验：员工必须存在且未删除，systemPrompt/soulDoc 必须包含身份约束关键字"""
     if not isinstance(agent, dict):
         return False, '员工不存在'
-    if agent.get('status') == 'archived' or _is_archived_flag(agent.get('archived')):
+    if agent.get('status') == 'archived' or agent.get('archived'):
         return False, '员工不存在'
     effective_prompt = (agent.get('soulDoc') or agent.get('systemPrompt') or '').strip()
     if not effective_prompt:
@@ -1251,7 +1262,7 @@ def _load_agents(include_archived=False):
         if _is_default_agent(a):
             continue
         # 默认过滤已归档/软删除的员工，避免删除后仍影响列表、权限和新员工创建
-        if not include_archived and (a.get('status') == 'archived' or _is_archived_flag(a.get('archived'))):
+        if not include_archived and (a.get('status') == 'archived' or a.get('archived')):
             continue
         # 检测 apiKey 污染
         ak = a.get('apiKey', '')
@@ -1373,56 +1384,6 @@ def _get_user_managed_group_ids(user_id):
         return []
     groups = _load_groups()
     return [g.get('id') for g in groups if g.get('createdBy') == user_id and g.get('id')]
-
-
-def _get_user_emp_ids(user_id):
-    """返回用户自身 id 及其创建的 AI 员工 id 列表，用于知识库 personal scope 过滤"""
-    if not user_id:
-        return []
-    agents = _load_agents()
-    result = [user_id]
-    for a in agents:
-        if a.get('createdBy') == user_id and a.get('id'):
-            result.append(a.get('id'))
-    return result
-
-
-def _get_employee_accessible_talent_ids(user_id):
-    """员工可访问的达人 id 集合：自己创建的 + 自己 AI 员工所在项目组的"""
-    if not user_id:
-        return set()
-    accessible = set()
-    user_group_ids = set(_get_user_group_ids(user_id))
-    conn = _db_conn()
-    try:
-        rows = conn.execute("SELECT id, created_by, group_id FROM talents WHERE status = 'active'").fetchall()
-        for r in rows:
-            if r['created_by'] == user_id:
-                accessible.add(r['id'])
-                continue
-            if r['group_id'] and r['group_id'] in user_group_ids:
-                accessible.add(r['id'])
-    finally:
-        conn.close()
-    return accessible
-
-
-def _get_employee_accessible_product_ids(user_id):
-    """员工可访问的商品 id 集合：仅自己创建的"""
-    if not user_id:
-        return set()
-    accessible = set()
-    conn = _db_conn()
-    try:
-        rows = conn.execute(
-            "SELECT id FROM products WHERE status != 'archived' AND created_by = ?",
-            (user_id,)
-        ).fetchall()
-        for r in rows:
-            accessible.add(r['id'])
-    finally:
-        conn.close()
-    return accessible
 
 
 # ─── 小组管理 ─────────────────────────────────────────
@@ -1570,16 +1531,7 @@ class AuthResult:
 
     @property
     def is_admin(self):
-        if not self.user_info:
-            return False
-        if self.user_info.get('role') == 'admin':
-            return True
-        record = self.user_record or {}
-        if record.get('role') == 'admin':
-            return True
-        if record.get('roleTemplateId') == 'admin':
-            return True
-        return False
+        return self.user_info and self.user_info.get('role') == 'admin'
 
     @property
     def user_id(self):
@@ -1595,12 +1547,8 @@ class AuthResult:
             self.user_record = _find_user(users, 'id', self.user_info['userId'])
             # 填充 team_ids 和 managed_team_ids
             if self.user_record:
-                # 以数据库实时角色为准，避免 token 中角色过期
-                live_role = self.user_record.get('role') or self.user_info.get('role')
-                if live_role:
-                    self.user_info['role'] = live_role
                 self.team_ids = self.user_record.get('teamIds', [])
-                self.is_leader = live_role == 'leader'
+                self.is_leader = self.user_record.get('role') == 'leader'
                 # leader 查找自己管理的小组
                 if self.is_leader:
                     teams = _load_teams()
@@ -1629,23 +1577,6 @@ def _authenticate(headers):
     result = AuthResult(user_info=user_info)
     result.load_user_record()
     return result
-
-
-def _get_team_member_ids(auth):
-    """返回当前 leader/admin 可管理的用户 ID 列表（用于员工更新/删除权限判断）"""
-    if auth.is_admin:
-        users = _load_users()
-        return [u.get('id') for u in users if u.get('id')]
-    if not auth.is_leader or not auth.managed_team_ids:
-        return []
-    member_ids = set()
-    teams = _load_teams()
-    for t in teams:
-        if t.get('id') in auth.managed_team_ids:
-            for uid in t.get('memberIds', []):
-                if uid:
-                    member_ids.add(uid)
-    return list(member_ids)
 
 
 def _can_access_team(auth, team_id):
@@ -1853,29 +1784,6 @@ def build_entity_text(entity_type, entity):
         if entity.get('sku'):
             parts.append(f"SKU: {entity['sku']}")
         return '\n'.join(parts)
-    elif entity_type == 'talent':
-        parts = [entity.get('name', '')]
-        if entity.get('category'):
-            parts.append(f"类目: {entity['category']}")
-        if entity.get('tags'):
-            tags = entity['tags']
-            if isinstance(tags, list):
-                parts.append(f"标签: {', '.join(str(t) for t in tags)}")
-        if entity.get('city'):
-            parts.append(f"城市: {entity['city']}")
-        if entity.get('level'):
-            parts.append(f"等级: {entity['level']}")
-        if entity.get('bio'):
-            parts.append(f"简介: {entity['bio']}")
-        if entity.get('ai_summary'):
-            parts.append(f"AI总结: {entity['ai_summary']}")
-        if entity.get('ai_tags'):
-            ai_tags = entity['ai_tags']
-            if isinstance(ai_tags, list):
-                parts.append(f"AI标签: {', '.join(str(t) for t in ai_tags)}")
-        if entity.get('fan_category'):
-            parts.append(f"粉丝类目: {entity['fan_category']}")
-        return '\n'.join(parts)
     return ''
 
 
@@ -2044,11 +1952,9 @@ def format_rag_context(docs, products):
 # ═══════════════════════════════════════════════════
 
 def _db_conn():
-    """获取 SQLite 数据库连接（线程安全，启用 WAL）"""
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
+    """获取 SQLite 数据库连接（线程安全）"""
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA journal_mode=WAL;')
-    conn.execute('PRAGMA busy_timeout=30000;')
     return conn
 
 
@@ -2167,20 +2073,16 @@ def init_db():
         conn.execute('''
             CREATE TABLE IF NOT EXISTS products (
                 id TEXT PRIMARY KEY,
-                external_id TEXT DEFAULT '',
                 name TEXT NOT NULL,
                 subtitle TEXT DEFAULT '',
                 main_image TEXT DEFAULT '',
                 price REAL DEFAULT 0,
-                original_price REAL DEFAULT 0,
                 price_range TEXT DEFAULT '',
                 brand TEXT DEFAULT '',
                 brand_id TEXT DEFAULT '',
                 category TEXT DEFAULT '',
                 sku_specs TEXT DEFAULT '{}',
                 stock INTEGER DEFAULT 0,
-                spot_stock INTEGER DEFAULT 0,
-                pre_stock INTEGER DEFAULT 0,
                 status TEXT DEFAULT 'active',
                 monthly_sales INTEGER DEFAULT 0,
                 monthly_gmv REAL DEFAULT 0,
@@ -2199,12 +2101,6 @@ def init_db():
                 videos TEXT DEFAULT '[]',
                 tags TEXT DEFAULT '[]',
                 selling_points TEXT DEFAULT '',
-                spot_delivery_days TEXT DEFAULT '',
-                pre_delivery_days TEXT DEFAULT '',
-                shipping_company TEXT DEFAULT '',
-                has_shipping_insurance INTEGER DEFAULT 0,
-                no_shipping_areas TEXT DEFAULT '',
-                brand_background TEXT DEFAULT '',
                 created_by TEXT DEFAULT '',
                 created_at INTEGER,
                 updated_at INTEGER
@@ -2217,16 +2113,6 @@ def init_db():
             ('brand_id', "TEXT DEFAULT ''"),
             ('talent_count', 'INTEGER DEFAULT 0'),
             ('created_by', "TEXT DEFAULT ''"),
-            ('original_price', 'REAL DEFAULT 0'),
-            ('spot_stock', 'INTEGER DEFAULT 0'),
-            ('pre_stock', 'INTEGER DEFAULT 0'),
-            ('spot_delivery_days', "TEXT DEFAULT ''"),
-            ('pre_delivery_days', "TEXT DEFAULT ''"),
-            ('shipping_company', "TEXT DEFAULT ''"),
-            ('has_shipping_insurance', 'INTEGER DEFAULT 0'),
-            ('no_shipping_areas', "TEXT DEFAULT ''"),
-            ('brand_background', "TEXT DEFAULT ''"),
-            ('external_id', "TEXT DEFAULT ''"),
         ]:
             _add_column_if_not_exists(conn, 'products', _prod_col, _prod_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)')
@@ -2311,12 +2197,6 @@ def init_db():
                 avg_live_gmv REAL DEFAULT 0,
                 live_gpm REAL DEFAULT 0,
                 video_gpm REAL DEFAULT 0,
-                content_tags TEXT DEFAULT '[]',
-                associated_company TEXT DEFAULT '',
-                historical_days INTEGER DEFAULT 0,
-                recent_7d_gmv REAL DEFAULT 0,
-                video_total_play INTEGER DEFAULT 0,
-                video_count INTEGER DEFAULT 0,
                 fan_gender TEXT DEFAULT '{}',
                 fan_age TEXT DEFAULT '{}',
                 fan_region TEXT DEFAULT '{}',
@@ -2354,9 +2234,6 @@ def init_db():
             ('product_count', 'INTEGER DEFAULT 0'), ('total_shops', 'INTEGER DEFAULT 0'), ('average_price', 'REAL DEFAULT 0'),
             ('live_ratio', 'REAL DEFAULT 0'), ('video_ratio', 'REAL DEFAULT 0'),
             ('avg_live_gmv', 'REAL DEFAULT 0'), ('live_gpm', 'REAL DEFAULT 0'), ('video_gpm', 'REAL DEFAULT 0'),
-            ('content_tags', "TEXT DEFAULT '[]'"), ('associated_company', "TEXT DEFAULT ''"),
-            ('historical_days', 'INTEGER DEFAULT 0'), ('recent_7d_gmv', 'REAL DEFAULT 0'),
-            ('video_total_play', 'INTEGER DEFAULT 0'), ('video_count', 'INTEGER DEFAULT 0'),
             ('fan_gender', "TEXT DEFAULT '{}'"), ('fan_age', "TEXT DEFAULT '{}'"), ('fan_region', "TEXT DEFAULT '{}'"),
             ('fan_crowd', "TEXT DEFAULT ''"), ('fan_price_range', "TEXT DEFAULT ''"), ('fan_category', "TEXT DEFAULT ''"),
             ('category', "TEXT DEFAULT ''"), ('fans_profile', "TEXT DEFAULT '{}'"),
@@ -2411,45 +2288,6 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tfu_talent_id ON talent_follow_ups(talent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tfu_follow_up_at ON talent_follow_ups(follow_up_at)')
 
-        # 标签体系
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS tags (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                category TEXT DEFAULT '',
-                color TEXT DEFAULT '#0a84ff',
-                type TEXT DEFAULT 'common',
-                status TEXT DEFAULT 'active',
-                created_at INTEGER,
-                updated_at INTEGER,
-                UNIQUE(name, type)
-            )
-        ''')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_tags_type_status ON tags(type, status)')
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS product_tags (
-                id TEXT PRIMARY KEY,
-                product_id TEXT NOT NULL,
-                tag_id TEXT NOT NULL,
-                created_at INTEGER,
-                UNIQUE(product_id, tag_id)
-            )
-        ''')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_product_tags_product_id ON product_tags(product_id)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_product_tags_tag_id ON product_tags(tag_id)')
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS talent_tags (
-                id TEXT PRIMARY KEY,
-                talent_id TEXT NOT NULL,
-                tag_id TEXT NOT NULL,
-                created_at INTEGER,
-                UNIQUE(talent_id, tag_id)
-            )
-        ''')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_talent_tags_talent_id ON talent_tags(talent_id)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_talent_tags_tag_id ON talent_tags(tag_id)')
-
         # FIXME: 新增记忆三级沉淀表（二级归纳、三级知识库），保持原有 knowledge/products 表不变
         conn.execute('''
             CREATE TABLE IF NOT EXISTS memory_summary (
@@ -2501,7 +2339,6 @@ def init_db():
 
         # 旧 JSON 数据迁移（幂等）
         _migrate_json_products_to_sqlite()
-        _migrate_json_tags_to_tables()
 
         # 空表时写入 COOLCHAP 示例数据
         _seed_coolchap_data(conn)
@@ -2530,13 +2367,11 @@ def _knowledge_row_to_dict(row):
 # ─── 商品库 SQLite 辅助函数 ─────────────────────────────
 
 _PRODUCT_COLUMNS = [
-    'id', 'external_id', 'name', 'subtitle', 'main_image', 'price', 'original_price', 'price_range', 'brand', 'brand_id',
-    'category', 'sku_specs', 'stock', 'spot_stock', 'pre_stock', 'status', 'monthly_sales', 'monthly_gmv',
+    'id', 'name', 'subtitle', 'main_image', 'price', 'price_range', 'brand', 'brand_id',
+    'category', 'sku_specs', 'stock', 'status', 'monthly_sales', 'monthly_gmv',
     'commission_rates', 'commission_amount', 'conversion_rate', 'avg_order_value',
     'influencer_count', 'talent_count', 'video_count', 'live_count', 'channel_distribution',
     'influencers', 'audience', 'ai_analysis', 'videos', 'tags', 'selling_points',
-    'spot_delivery_days', 'pre_delivery_days', 'shipping_company', 'has_shipping_insurance',
-    'no_shipping_areas', 'brand_background',
     'created_by', 'created_at', 'updated_at'
 ]
 
@@ -2557,7 +2392,6 @@ def _product_row_to_dict(row):
 
     product = {
         'id': row['id'],
-        'external_id': row['external_id'] or '',
         'name': row['name'] or '',
         'subtitle': row['subtitle'] or '',
         'main_image': row['main_image'] or '',
@@ -2586,16 +2420,6 @@ def _product_row_to_dict(row):
         'videos': _json_col('videos', []),
         'tags': _json_col('tags', []),
         'selling_points': row['selling_points'] or '',
-        'original_price': row['original_price'] if row['original_price'] is not None else 0,
-        'spot_stock': row['spot_stock'] if row['spot_stock'] is not None else 0,
-        'pre_stock': row['pre_stock'] if row['pre_stock'] is not None else 0,
-        'spot_delivery_days': row['spot_delivery_days'] or '',
-        'pre_delivery_days': row['pre_delivery_days'] or '',
-        'shipping_company': row['shipping_company'] or '',
-        'has_shipping_insurance': bool(row['has_shipping_insurance']) if row['has_shipping_insurance'] is not None else False,
-        'no_shipping_areas': row['no_shipping_areas'] or '',
-        'brand_background': row['brand_background'] or '',
-        'created_by': row['created_by'] or '',
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
@@ -2662,7 +2486,6 @@ def _dict_to_product_row(p):
 
     return {
         'id': p.get('id'),
-        'external_id': _get('external_id', 'externalId', default='') or '',
         'name': p.get('name'),
         'subtitle': _get('subtitle', 'description') or '',
         'main_image': main_image or '',
@@ -2691,177 +2514,10 @@ def _dict_to_product_row(p):
         'videos': _dump(_get('videos', 'hot_videos', 'hotVideos', default=[])),
         'tags': _dump(_get('tags', default=[])),
         'selling_points': _get('selling_points', 'sellingPoints', default='') or '',
-        'original_price': float(_get('original_price', 'originalPrice', default=0) or 0),
-        'spot_stock': int(_get('spot_stock', 'spotStock', default=0) or 0),
-        'pre_stock': int(_get('pre_stock', 'preStock', default=0) or 0),
-        'spot_delivery_days': _get('spot_delivery_days', 'spotDeliveryDays', default='') or '',
-        'pre_delivery_days': _get('pre_delivery_days', 'preDeliveryDays', default='') or '',
-        'shipping_company': _get('shipping_company', 'shippingCompany', default='') or '',
-        'has_shipping_insurance': 1 if _get('has_shipping_insurance', 'hasShippingInsurance', default=False) else 0,
-        'no_shipping_areas': _get('no_shipping_areas', 'noShippingAreas', default='') or '',
-        'brand_background': _get('brand_background', 'brandBackground', default='') or '',
         'created_by': _get('created_by', 'createdBy', default='') or '',
         'created_at': _get('created_at', 'createdAt'),
         'updated_at': _get('updated_at', 'updatedAt'),
     }
-
-
-def _split_search_tokens(text):
-    """将搜索词拆分为 tokens：中文逐字，英文/数字按空格或整体保留"""
-    import re
-    text = str(text or '').strip().lower()
-    if not text:
-        return []
-    tokens = []
-    # 把连续中文字符拆成单字，非中文按空白分割
-    parts = re.split(r'(\s+)', text)
-    for part in parts:
-        if not part.strip():
-            continue
-        # 判断是否全是 CJK 统一表意文字
-        if re.match(r'^[\u4e00-\u9fff]+$', part):
-            tokens.extend(list(part))
-        else:
-            tokens.append(part)
-    return tokens
-
-
-def _product_search_score(product, query):
-    """计算商品与搜索 query 的匹配分（0-100）"""
-    import difflib
-    q = str(query or '').strip().lower()
-    if not q:
-        return 0
-    name = str(product.get('name') or '').strip().lower()
-    brand = str(product.get('brand') or '').strip().lower()
-    category = str(product.get('category') or '').strip().lower()
-    subtitle = str(product.get('subtitle') or '').strip().lower()
-    selling_points = str(product.get('selling_points') or '').strip().lower()
-    brand_background = str(product.get('brand_background') or '').strip().lower()
-    tags = ' '.join(str(t) for t in (product.get('tags') or [])).lower()
-    sku_specs = str(product.get('sku_specs') or {}).lower()
-
-    # 完全匹配或精确子串优先
-    if q == name:
-        return 100
-    if q in name:
-        return 95
-    if q == brand or q == category:
-        return 85
-
-    # token 级匹配
-    tokens = _split_search_tokens(q)
-    if not tokens:
-        return 0
-    full_text = ' '.join([name, brand, category, subtitle, selling_points, brand_background, tags, sku_specs])
-    token_hits = sum(1 for t in tokens if t in full_text)
-    if token_hits == 0:
-        # 兜底：字符串相似度
-        return difflib.SequenceMatcher(None, q, name).ratio() * 40
-
-    score = (token_hits / len(tokens)) * 70
-    # 名称命中有额外加成
-    name_hits = sum(1 for t in tokens if t in name)
-    score += name_hits * 8
-    # brand/category 命中加成
-    brand_hits = sum(1 for t in tokens if t in brand)
-    cat_hits = sum(1 for t in tokens if t in category)
-    score += brand_hits * 3 + cat_hits * 2
-    return min(score, 98)
-
-
-def _product_similarity_score(a, b):
-    """计算两个商品 dict 的相似度分数（0-100），用于模糊重复检测"""
-    import difflib
-    score = 0.0
-    name_a = str(a.get('name') or '').strip().lower()
-    name_b = str(b.get('name') or '').strip().lower()
-    if name_a and name_b:
-        # 名称完全匹配权重高
-        if name_a == name_b:
-            score += 50
-        else:
-            # 互相包含
-            if name_a in name_b or name_b in name_a:
-                score += 35
-            else:
-                # 序列相似度
-                ratio = difflib.SequenceMatcher(None, name_a, name_b).ratio()
-                score += ratio * 30
-    brand_a = str(a.get('brand') or '').strip().lower()
-    brand_b = str(b.get('brand') or '').strip().lower()
-    if brand_a and brand_b:
-        if brand_a == brand_b:
-            score += 20
-        elif brand_a in brand_b or brand_b in brand_a:
-            score += 12
-    cat_a = str(a.get('category') or '').strip().lower()
-    cat_b = str(b.get('category') or '').strip().lower()
-    if cat_a and cat_b:
-        if cat_a == cat_b:
-            score += 15
-        elif cat_a in cat_b or cat_b in cat_a:
-            score += 8
-    price_a = float(a.get('price') or 0)
-    price_b = float(b.get('price') or 0)
-    if price_a > 0 and price_b > 0:
-        max_price = max(price_a, price_b)
-        if max_price > 0 and abs(price_a - price_b) / max_price <= 0.1:
-            score += 15
-    return min(score, 100)
-
-
-def _extract_external_id_from_url(url, fetched_text=''):
-    """从电商链接（抖音/淘宝/天猫等）中解析外部平台商品 ID"""
-    import urllib.request
-    if not url:
-        return ''
-    resolved_url = url
-    # 对短链接尝试跟随重定向，获取真实长链接
-    if 'v.douyin.com' in url or 'b23.tv' in url or 't.cn' in url:
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}, method='HEAD')
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                resolved_url = resp.geturl() or url
-        except Exception:
-            pass
-    combined = ' '.join([resolved_url, str(fetched_text or '')])
-    patterns = [
-        r'[?&]modal_id=(\d+)',
-        r'[?&]goods_id=(\d+)',
-        r'[?&]item_id=(\d+)',
-        r'[?&]product_id=(\d+)',
-        r'[?&]poi_id=(\d+)',
-        r'douyin\.com/(?:video|note)/(\d+)',
-        r'haohuo\.jinritemai\.com/.*?[?&]id=(\d+)',
-        r'jinritemai\.com/.*?[?&]id=(\d+)',
-        r'taobao\.com/.*[?&]id=(\d+)',
-        r'tmall\.com/.*[?&]id=(\d+)',
-        r'[?&]id=(\d{10,})',
-    ]
-    for pat in patterns:
-        m = _re.search(pat, combined, _re.IGNORECASE)
-        if m:
-            return m.group(1)
-    return ''
-
-
-def _find_duplicate_products(conn, candidate, threshold=60, limit=5):
-    """从数据库中查找与 candidate 疑似重复的商品，返回 [(score, product_dict), ...]"""
-    rows = conn.execute(
-        "SELECT * FROM products WHERE status != 'archived' ORDER BY updated_at DESC"
-    ).fetchall()
-    results = []
-    for row in rows:
-        p = _product_row_to_dict(row)
-        # 跳过自身（按 id）
-        if candidate.get('id') and p.get('id') == candidate.get('id'):
-            continue
-        score = _product_similarity_score(candidate, p)
-        if score >= threshold:
-            results.append((score, p))
-    results.sort(key=lambda x: x[0], reverse=True)
-    return results[:limit]
 
 
 # ─── 品牌库 / 达人库 SQLite 辅助函数 ─────────────────────────────
@@ -2882,9 +2538,7 @@ _TALENT_COLUMNS = [
     'live_ratio', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_gpm',
     'fan_gender', 'fan_age', 'fan_region', 'fan_crowd', 'fan_price_range',
     'fan_category', 'category', 'fans_profile', 'ai_tags', 'ai_rating', 'ai_summary',
-    'ai_analysis', 'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by', 'created_at', 'updated_at',
-    'content_tags', 'associated_company', 'historical_days', 'recent_7d_gmv',
-    'video_total_play', 'video_count'
+    'ai_analysis', 'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by', 'created_at', 'updated_at'
 ]
 
 _FOLLOW_UP_COLUMNS = [
@@ -2983,22 +2637,14 @@ def _talent_row_to_dict(row):
         'ai_rating': row['ai_rating'] or '',
         'ai_summary': row['ai_summary'] or '',
         'ai_analysis': row['ai_analysis'] or row['ai_summary'] or '',
-        'raw_analysis': row['ai_analysis'] or row['ai_summary'] or '',
         'ai_reason': row['ai_reason'] or '',
         'risk_rating': row['risk_rating'] or '',
         'group_id': row['group_id'] or '',
         'status': row['status'] or 'active',
-        'created_by': row['created_by'] or '',
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
         'updatedAt': row['updated_at'],
-        'content_tags': row['content_tags'] or '',
-        'associated_company': row['associated_company'] or '',
-        'historical_days': row['historical_days'] if row['historical_days'] is not None else 0,
-        'recent_7d_gmv': row['recent_7d_gmv'] if row['recent_7d_gmv'] is not None else 0,
-        'video_total_play': row['video_total_play'] if row['video_total_play'] is not None else 0,
-        'video_count': row['video_count'] if row['video_count'] is not None else 0,
     }
 
 
@@ -3057,97 +2703,10 @@ def _dict_to_brand_row(b):
 
 
 def _dict_to_talent_row(t):
-    def _jsonify(val, default=None):
+    def _dump(val):
         if val is None:
-            return json.dumps(default if default is not None else {})
-        if isinstance(val, str):
-            s = val.strip()
-            if s:
-                try:
-                    return json.dumps(json.loads(s), ensure_ascii=False)
-                except Exception:
-                    return json.dumps(s, ensure_ascii=False)
-            return json.dumps(default if default is not None else {})
+            return '{}'
         return json.dumps(val, ensure_ascii=False)
-
-    def _parse_distribution_text(val):
-        """把"女性89%"这类文本解析成 {\"女性\": 89} 的 JSON 对象"""
-        if val is None:
-            return '{}'
-        if isinstance(val, (dict, list)):
-            return json.dumps(val, ensure_ascii=False)
-        s = str(val).strip()
-        if not s:
-            return '{}'
-        # 先尝试按 JSON 解析
-        try:
-            parsed = json.loads(s)
-            if isinstance(parsed, (dict, list)):
-                return json.dumps(parsed, ensure_ascii=False)
-        except Exception:
-            pass
-        result = {}
-        # 匹配 "标签百分比%"，支持中文、数字、字母、横线、斜杠等
-        for label, num in re.findall(r'(.+?)(\d+(?:\.\d+)?)\s*%', s):
-            label = label.strip(' ,、:：；;()（）')
-            if label:
-                try:
-                    result[label] = float(num)
-                except Exception:
-                    pass
-        if result:
-            return json.dumps(result, ensure_ascii=False)
-        # 解析失败时存成 {"_raw": 原始文本}，保持 JSON 对象形态
-        return json.dumps({'_raw': s}, ensure_ascii=False)
-
-    def _parse_tags(val):
-        if val is None:
-            return '[]'
-        if isinstance(val, list):
-            return json.dumps(val, ensure_ascii=False)
-        if isinstance(val, str):
-            s = val.strip()
-            if not s:
-                return '[]'
-            try:
-                parsed = json.loads(s)
-                if isinstance(parsed, list):
-                    return json.dumps(parsed, ensure_ascii=False)
-            except Exception:
-                pass
-            parts = [p.strip() for p in re.split(r'[,，、\s]+', s) if p.strip()]
-            return json.dumps(parts, ensure_ascii=False)
-        return json.dumps([], ensure_ascii=False)
-
-    def _parse_amount(val):
-        if isinstance(val, (int, float)):
-            return float(val)
-        if val is None:
-            return 0.0
-        s = str(val).strip()
-        if not s:
-            return 0.0
-        s_clean = s.replace(',', '').replace('，', '')
-        unit = 1.0
-        if '亿' in s_clean:
-            unit = 1e8
-            s_clean = s_clean.replace('亿', '')
-        elif '万' in s_clean or 'w' in s_clean.lower():
-            unit = 1e4
-            s_clean = s_clean.replace('万', '').replace('w', '').replace('W', '')
-        nums = re.findall(r'[-+]?\d+\.?\d*', s_clean)
-        vals = []
-        for n in nums:
-            try:
-                vals.append(float(n) * unit)
-            except Exception:
-                pass
-        if len(vals) == 2:
-            return sum(vals) / 2.0
-        if len(vals) == 1:
-            return vals[0]
-        return 0.0
-
     now = int(time.time() * 1000)
     return {
         'id': t.get('id') or ('tal_' + str(now) + '_' + uuid.uuid4().hex[:6]),
@@ -3164,7 +2723,7 @@ def _dict_to_talent_row(t):
         'talent_type': t.get('talent_type') or t.get('talentType') or '',
         'location': t.get('location') or '',
         'agency': t.get('agency') or '',
-        'tags': _jsonify(t.get('tags', []), []),
+        'tags': _dump(t.get('tags', [])),
         'bio': t.get('bio') or '',
         'contact': t.get('contact') or '',
         'contact_name': t.get('contact_name') or t.get('contactName') or '',
@@ -3178,7 +2737,7 @@ def _dict_to_talent_row(t):
         'commission_requirement': float(t.get('commission_requirement', 0) or 0),
         'fulfillment_score': float(t.get('fulfillment_score', 0) or 0),
         'rating_score': float(t.get('rating_score', 0) or 0),
-        'total_gmv': str(t.get('total_gmv', t.get('totalGmv', '')) or ''),
+        'total_gmv': float(t.get('total_gmv', 0) or 0),
         'total_products': int(t.get('total_products', 0) or 0),
         'product_count': int(t.get('product_count', t.get('total_products', 0)) or 0),
         'total_shops': int(t.get('total_shops', 0) or 0),
@@ -3188,18 +2747,18 @@ def _dict_to_talent_row(t):
         'avg_live_gmv': float(t.get('avg_live_gmv', 0) or 0),
         'live_gpm': float(t.get('live_gpm', 0) or 0),
         'video_gpm': float(t.get('video_gpm', 0) or 0),
-        'fan_gender': _parse_distribution_text(t.get('fan_gender', t.get('fanGender', {}))),
-        'fan_age': _parse_distribution_text(t.get('fan_age', t.get('fanAge', {}))),
-        'fan_region': _parse_distribution_text(t.get('fan_region', t.get('fanRegion', {}))),
-        'fan_crowd': _parse_distribution_text(t.get('fan_crowd', t.get('fanCrowd', {}))),
-        'fan_price_range': _parse_distribution_text(t.get('fan_price_range', t.get('fanPriceRange', {}))),
-        'fan_category': _parse_distribution_text(t.get('fan_category', t.get('fanCategory', {}))),
+        'fan_gender': _dump(t.get('fan_gender', t.get('fanGender', {}))),
+        'fan_age': _dump(t.get('fan_age', t.get('fanAge', {}))),
+        'fan_region': _dump(t.get('fan_region', t.get('fanRegion', {}))),
+        'fan_crowd': t.get('fan_crowd') or t.get('fanCrowd') or '',
+        'fan_price_range': t.get('fan_price_range') or t.get('fanPriceRange') or '',
+        'fan_category': t.get('fan_category') or t.get('fanCategory') or '',
         'category': t.get('category') or t.get('fan_category') or t.get('fanCategory') or '',
-        'fans_profile': _jsonify(t.get('fans_profile', t.get('fansProfile', {})), {}),
-        'ai_tags': _jsonify(t.get('ai_tags', t.get('aiTags', [])), []),
+        'fans_profile': _dump(t.get('fans_profile', t.get('fansProfile', {}))),
+        'ai_tags': _dump(t.get('ai_tags', t.get('aiTags', []))),
         'ai_rating': t.get('ai_rating') or t.get('aiRating') or '',
         'ai_summary': t.get('ai_summary') or t.get('aiSummary') or '',
-        'ai_analysis': t.get('ai_analysis') or t.get('aiAnalysis') or t.get('raw_analysis') or t.get('rawAnalysis') or t.get('ai_summary') or t.get('aiSummary') or '',
+        'ai_analysis': t.get('ai_analysis') or t.get('aiAnalysis') or t.get('ai_summary') or t.get('aiSummary') or '',
         'ai_reason': t.get('ai_reason') or t.get('aiReason') or '',
         'risk_rating': t.get('risk_rating') or t.get('riskRating') or '',
         'group_id': t.get('group_id') or t.get('groupId') or '',
@@ -3207,12 +2766,6 @@ def _dict_to_talent_row(t):
         'created_by': t.get('created_by') or t.get('createdBy') or '',
         'created_at': t.get('created_at') or t.get('createdAt') or now,
         'updated_at': now,
-        'content_tags': _parse_tags(t.get('content_tags', t.get('contentTags', []))),
-        'associated_company': t.get('associated_company') or t.get('associatedCompany') or '',
-        'historical_days': int(t.get('historical_days', t.get('historicalDays', 0)) or 0),
-        'recent_7d_gmv': str(t.get('recent_7d_gmv', t.get('recent7dGmv', '')) or ''),
-        'video_total_play': int(t.get('video_total_play', t.get('videoTotalPlay', 0)) or 0),
-        'video_count': int(t.get('video_count', t.get('videoCount', 0)) or 0),
     }
 
 
@@ -3261,141 +2814,6 @@ def _update_product_talent_count(conn, product_id):
         "UPDATE products SET talent_count = ?, updated_at = ? WHERE id = ?",
         (count, int(time.time() * 1000), product_id)
     )
-
-
-def _tag_row_to_dict(row):
-    if not row:
-        return None
-    return {
-        'id': row['id'],
-        'name': row['name'] or '',
-        'category': row['category'] or '',
-        'color': row['color'] or '#0a84ff',
-        'type': row['type'] or 'common',
-        'status': row['status'] or 'active',
-        'created_at': row['created_at'],
-        'updated_at': row['updated_at'],
-    }
-
-
-def _sync_entity_tags(conn, entity_type, entity_id, tag_names):
-    """同步商品/达人与标签的关联；tag_names 为字符串数组，返回 [{id,name,color,category}]"""
-    if not entity_id:
-        return []
-    now = int(time.time() * 1000)
-    assoc_table = 'product_tags' if entity_type == 'product' else 'talent_tags'
-    entity_col = 'product_id' if entity_type == 'product' else 'talent_id'
-    tag_type = entity_type
-
-    names = []
-    if isinstance(tag_names, list):
-        for n in tag_names:
-            if isinstance(n, str) and n.strip():
-                names.append(n.strip())
-            elif isinstance(n, dict) and n.get('name'):
-                names.append(str(n['name']).strip())
-    names = list(dict.fromkeys(names))
-
-    tag_list = []
-    tag_ids = []
-    for name in names:
-        row = conn.execute('SELECT id FROM tags WHERE name = ? AND type = ?', (name, tag_type)).fetchone()
-        if row:
-            tag_id = row['id']
-        else:
-            tag_id = 'tag_' + str(now) + '_' + uuid.uuid4().hex[:6]
-            conn.execute(
-                'INSERT INTO tags (id, name, type, color, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                (tag_id, name, tag_type, '#0a84ff', 'active', now, now)
-            )
-        tag_ids.append(tag_id)
-        tag_row = conn.execute('SELECT * FROM tags WHERE id = ?', (tag_id,)).fetchone()
-        if tag_row:
-            tag_list.append(_tag_row_to_dict(tag_row))
-
-    conn.execute(f'DELETE FROM {assoc_table} WHERE {entity_col} = ?', (entity_id,))
-    for tag_id in tag_ids:
-        assoc_id = ('pt_' if entity_type == 'product' else 'tt_') + str(now) + '_' + uuid.uuid4().hex[:6]
-        conn.execute(
-            f'INSERT INTO {assoc_table} (id, {entity_col}, tag_id, created_at) VALUES (?, ?, ?, ?)',
-            (assoc_id, entity_id, tag_id, now)
-        )
-    return tag_list
-
-
-def _get_entity_tags(conn, entity_type, entity_id):
-    """获取商品/达人的标签列表"""
-    if not entity_id:
-        return []
-    assoc_table = 'product_tags' if entity_type == 'product' else 'talent_tags'
-    entity_col = 'product_id' if entity_type == 'product' else 'talent_id'
-    rows = conn.execute(
-        f'''SELECT t.* FROM tags t
-            JOIN {assoc_table} at ON at.tag_id = t.id
-            WHERE at.{entity_col} = ? AND t.status = 'active'
-            ORDER BY t.name''',
-        (entity_id,)
-    ).fetchall()
-    return [_tag_row_to_dict(r) for r in rows]
-
-
-def _migrate_json_tags_to_tables():
-    """将 products.tags / talents.tags JSON 字段迁移到 tags 关联表（幂等）"""
-    conn = _db_conn()
-    try:
-        now = int(time.time() * 1000)
-        # 商品标签
-        rows = conn.execute("SELECT id, tags FROM products WHERE tags IS NOT NULL AND tags != '' AND tags != '[]'").fetchall()
-        for row in rows:
-            product_id = row['id']
-            try:
-                tag_names = json.loads(row['tags'] or '[]')
-            except Exception:
-                continue
-            if not isinstance(tag_names, list):
-                continue
-            for name in tag_names:
-                if not isinstance(name, str) or not name.strip():
-                    continue
-                tag = conn.execute('SELECT id FROM tags WHERE name = ? AND type = ?', (name.strip(), 'product')).fetchone()
-                if not tag:
-                    tag_id = 'tag_' + str(now) + '_' + uuid.uuid4().hex[:6]
-                    conn.execute('INSERT INTO tags (id, name, type, color, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                                 (tag_id, name.strip(), 'product', '#0a84ff', 'active', now, now))
-                else:
-                    tag_id = tag['id']
-                if not conn.execute('SELECT 1 FROM product_tags WHERE product_id = ? AND tag_id = ?', (product_id, tag_id)).fetchone():
-                    conn.execute('INSERT INTO product_tags (id, product_id, tag_id, created_at) VALUES (?, ?, ?, ?)',
-                                 ('pt_' + str(now) + '_' + uuid.uuid4().hex[:6], product_id, tag_id, now))
-        # 达人标签
-        rows = conn.execute("SELECT id, tags FROM talents WHERE tags IS NOT NULL AND tags != '' AND tags != '[]'").fetchall()
-        for row in rows:
-            talent_id = row['id']
-            try:
-                tag_names = json.loads(row['tags'] or '[]')
-            except Exception:
-                continue
-            if not isinstance(tag_names, list):
-                continue
-            for name in tag_names:
-                if not isinstance(name, str) or not name.strip():
-                    continue
-                tag = conn.execute('SELECT id FROM tags WHERE name = ? AND type = ?', (name.strip(), 'talent')).fetchone()
-                if not tag:
-                    tag_id = 'tag_' + str(now) + '_' + uuid.uuid4().hex[:6]
-                    conn.execute('INSERT INTO tags (id, name, type, color, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                                 (tag_id, name.strip(), 'talent', '#0a84ff', 'active', now, now))
-                else:
-                    tag_id = tag['id']
-                if not conn.execute('SELECT 1 FROM talent_tags WHERE talent_id = ? AND tag_id = ?', (talent_id, tag_id)).fetchone():
-                    conn.execute('INSERT INTO talent_tags (id, talent_id, tag_id, created_at) VALUES (?, ?, ?, ?)',
-                                 ('tt_' + str(now) + '_' + uuid.uuid4().hex[:6], talent_id, tag_id, now))
-        conn.commit()
-        print('  [Tag] JSON 标签迁移完成', flush=True)
-    except Exception as e:
-        print(f'  [Tag] JSON 标签迁移失败: {e}', flush=True)
-    finally:
-        conn.close()
 
 
 def _migrate_json_products_to_sqlite():
@@ -4343,11 +3761,10 @@ def knowledge_migrate_from_json():
 class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     """自定义请求处理器：静态文件 + 认证 + CORS 代理 + OpenClaw API"""
     def end_headers(self):
-        # 开发模式禁用缓存，避免 index.html 被浏览器缓存导致前端更新不生效
-        if self.path.endswith('.html') or self.path == '/' or self.path.endswith('.js') or self.path.endswith('.css'):
-            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+        # 开发模式禁用缓存
+        if self.path.endswith('.html') or self.path == '/' or self.path.endswith('.js'):
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
             self.send_header('Pragma', 'no-cache')
-            self.send_header('Expires', '0')
         super().end_headers()
 
     def __init__(self, *args, **kwargs):
@@ -4381,14 +3798,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     # ─── JSON 响应 ─────────────────────────────────────
     def _send_json(self, code, data):
-        # 统一错误返回格式：{code, message, data}
-        if code >= 400 and isinstance(data, dict) and 'error' in data:
-            err = data['error']
-            if isinstance(err, dict):
-                message = err.get('message') or str(err)
-            else:
-                message = str(err)
-            data = {'code': code, 'message': message, 'data': None}
         self.send_response(code)
         self._add_cors_headers()
         self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -4396,28 +3805,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
 
     def _send_json_error(self, code, message):
-        self._send_json(code, {'error': message})
+        self._send_json(code, {'error': {'message': message, 'type': 'proxy_error', 'code': code}})
 
     def _send_auth_error(self, message, status=401):
         self._send_json(status, {'error': message})
-
-    def _send_csv(self, filename, rows):
-        """发送 CSV 文件下载响应"""
-        if not rows:
-            self._send_json_error(400, '无数据可导出')
-            return
-        output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(rows)
-        body = output.getvalue().encode('utf-8-sig')
-        self.send_response(200)
-        self._add_cors_headers()
-        self.send_header('Content-Type', 'text/csv; charset=utf-8')
-        self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
 
     # ─── 读取请求体 ────────────────────────────────────
     def _read_body(self):
@@ -4490,7 +3881,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_agents()
             return
         if path.startswith('/api/agents/'):
-            agent_id = urlparse(path).path[len('/api/agents/'):]
+            agent_id = path[len('/api/agents/'):]
             if agent_id:
                 self._handle_get_agent(agent_id)
                 return
@@ -4575,6 +3966,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_settings()
             return
 
+        # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
+        if path == '/api/knowledge/entries':
+            self._handle_get_kb_entries()
+            return
+        if path.startswith('/api/knowledge/entries/'):
+            sub = path[len('/api/knowledge/entries/'):]
+            if sub:
+                self._handle_get_kb_entry_detail(sub)
+                return
+        if path == '/api/knowledge/categories':
+            self._handle_get_kb_categories()
+            return
+        if path == '/api/knowledge/stats':
+            self._handle_get_kb_stats()
+            return
+
         # Knowledge API
         if path == '/api/knowledge':
             self._handle_get_knowledge()
@@ -4595,6 +4002,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_knowledge_version(parts[0], parts[2])
                 return
 
+        # Stats API
+        if path == '/api/stats/compute':
+            self._handle_get_stats_compute()
+            return
+
         # Brand API
         if path == '/api/brands' or path == '/api/brands/':
             self._handle_get_brands()
@@ -4605,18 +4017,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_brand(brand_id)
             else:
                 self._handle_get_brands()
-            return
-
-        # Tags API
-        if path == '/api/tags':
-            self._handle_get_tags()
-            return
-        if path.startswith('/api/tags/'):
-            tag_id = path[len('/api/tags/'):]
-            if tag_id:
-                self._handle_get_tag(tag_id)
-            else:
-                self._handle_get_tags()
             return
 
         # Talent API
@@ -4683,7 +4083,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Chat API
         if path.startswith('/api/chat/'):
-            sub = urlparse(path).path[len('/api/chat/'):]
+            sub = path[len('/api/chat/'):]
             # /api/chat/summarize/:agentId
             if sub.startswith('summarize/'):
                 agent_id = sub[len('summarize/'):]
@@ -4768,11 +4168,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(405, 'POST only')
             return
 
-        # Batch export
-        if path == '/api/export':
-            self._handle_export_csv()
-            return
-
         # Static files
         super().do_GET()
 
@@ -4820,11 +4215,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 抖音视频语音转文字 (requires auth)
         if path == '/api/douyin/transcribe':
             self._handle_douyin_transcribe()
-            return
-
-        # 后端统一图片识别 (requires auth)
-        if path == '/api/vision/describe':
-            self._handle_vision_describe()
             return
 
         # Write SOUL.md/IDENTITY.md to OpenClaw agent workspace
@@ -4978,6 +4368,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_post_agent_knowledge_base(parts[0])
                 return
 
+        # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
+        if path == '/api/knowledge/entries':
+            self._handle_post_kb_entry()
+            return
+        if path == '/api/knowledge/search':
+            self._handle_post_kb_search()
+            return
+
         # Knowledge API
         if path == '/api/knowledge':
             self._handle_post_knowledge()
@@ -4997,35 +4395,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_post_brand()
             return
 
-        # Tags API
-        if path == '/api/tags':
-            self._handle_post_tag()
-            return
-
-        # AI 标签推荐
-        if path == '/api/ai/recommend-tags':
-            self._handle_ai_recommend_tags()
-            return
-
-        # AI 统一数据分析
-        if path == '/api/ai/analyze':
-            self._handle_ai_analyze()
-            return
-
-        # Batch operations
-        if path == '/api/batch/send-messages':
-            self._handle_batch_send_messages()
-            return
-        if path == '/api/batch/update-tags':
-            self._handle_batch_update_tags()
-            return
-
         # Talent API
         if path == '/api/talents':
             self._handle_post_talent()
-            return
-        if path == '/api/talents/parse':
-            self._handle_parse_talent()
             return
         if path.startswith('/api/talents/'):
             sub = path[len('/api/talents/'):]
@@ -5033,18 +4405,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'analyze':
                 self._handle_analyze_talent_ai(parts[0])
                 return
-            if len(parts) == 2 and parts[1] == 'analyze-hit':
-                self._handle_analyze_hit_talent(parts[0])
-                return
             if len(parts) == 2 and parts[1] == 'match-products':
                 self._handle_match_talent_products(parts[0])
                 return
             if len(parts) == 2 and parts[1] == 'follow-ups':
                 self._handle_post_talent_follow_up(parts[0])
                 return
-        if path == '/api/talents/similar':
-            self._handle_find_similar_talents()
-            return
 
         # Product API
         if path == '/api/products':
@@ -5052,12 +4418,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/products/search':
             self._handle_search_products()
-            return
-        if path == '/api/products/check-duplicate':
-            self._handle_check_duplicate_product()
-            return
-        if path == '/api/products/extract':
-            self._handle_extract_product()
             return
         if path.startswith('/api/products/'):
             sub = path[len('/api/products/'):]
@@ -5087,13 +4447,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/ai-match':
             self._handle_ai_match()
             return
-        if path == '/api/matching/recommend':
-            self._handle_matching_recommend()
-            return
 
         # Chat API
         if path.startswith('/api/chat/'):
-            sub = urlparse(path).path[len('/api/chat/'):]
+            sub = path[len('/api/chat/'):]
             print(f'  [ChatPOST] 路由匹配: path={path} sub={sub}', flush=True)
             # /api/chat/summarize/:agentId
             if sub.startswith('summarize/'):
@@ -5141,7 +4498,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Agents API
         if path.startswith('/api/agents/'):
-            agent_id = urlparse(path).path[len('/api/agents/'):]
+            agent_id = path[len('/api/agents/'):]
             if agent_id:
                 self._handle_update_agent(agent_id)
                 return
@@ -5185,6 +4542,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_put_settings()
             return
 
+        # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
+        if path.startswith('/api/knowledge/entries/'):
+            entry_id = path[len('/api/knowledge/entries/'):]
+            if entry_id:
+                self._handle_put_kb_entry(entry_id)
+                return
+
         # Knowledge API
         if path.startswith('/api/knowledge/'):
             doc_id = path[len('/api/knowledge/'):]
@@ -5197,13 +4561,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             brand_id = path[len('/api/brands/'):]
             if brand_id:
                 self._handle_put_brand(brand_id)
-                return
-
-        # Tags API
-        if path.startswith('/api/tags/'):
-            tag_id = path[len('/api/tags/'):]
-            if tag_id:
-                self._handle_put_tag(tag_id)
                 return
 
         # Talent API
@@ -5220,14 +4577,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Product API
         if path.startswith('/api/products/'):
-            sub = path[len('/api/products/'):]
-            if sub:
-                if '/' in sub:
-                    parts = sub.split('/')
-                    if len(parts) == 2 and parts[1] == 'ai-analysis':
-                        self._handle_update_product_ai_analysis(parts[0])
-                        return
-                self._handle_put_product(sub)
+            product_id = path[len('/api/products/'):]
+            if product_id:
+                self._handle_put_product(product_id)
                 return
 
         # Influencer API (legacy JSON)
@@ -5294,7 +4646,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Agents API
         if path.startswith('/api/agents/'):
-            agent_id = urlparse(path).path[len('/api/agents/'):]
+            agent_id = path[len('/api/agents/'):]
             if agent_id:
                 self._handle_delete_agent(agent_id)
                 return
@@ -5314,6 +4666,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_delete_memory(parts[0], parts[1])
                 return
 
+        # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
+        if path.startswith('/api/knowledge/entries/'):
+            entry_id = path[len('/api/knowledge/entries/'):]
+            if entry_id:
+                self._handle_delete_kb_entry(entry_id)
+                return
+
         # Knowledge API
         if path.startswith('/api/knowledge/'):
             doc_id = path[len('/api/knowledge/'):]
@@ -5326,13 +4685,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             brand_id = path[len('/api/brands/'):]
             if brand_id:
                 self._handle_delete_brand(brand_id)
-                return
-
-        # Tags API
-        if path.startswith('/api/tags/'):
-            tag_id = path[len('/api/tags/'):]
-            if tag_id:
-                self._handle_delete_tag(tag_id)
                 return
 
         # Talent API
@@ -5364,7 +4716,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # Chat API
         if path.startswith('/api/chat/'):
             # /api/chat/:agentId/:msgId
-            parts = urlparse(path).path[len('/api/chat/'):].split('/')
+            parts = path[len('/api/chat/'):].split('/')
             if len(parts) == 2:
                 _handle_delete_chat_message(self, parts[0], parts[1])
                 return
@@ -5508,7 +4860,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'error': '密码至少 4 个字符'})
             return
 
-        if role not in ('admin', 'employee'):
+        if role not in ('admin', 'leader', 'employee'):
             role = 'employee'
 
         users = _load_users()
@@ -5525,13 +4877,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'role': role,
             'displayName': display_name,
             'avatar': 0,
-            'agentQuota': 3 if role == 'employee' else 999,
+            'agentQuota': 10 if role == 'employee' else 999,
             'apiQuota': 1000 if role == 'employee' else 99999,
             'createdAt': datetime.now().isoformat(),
             # V2 新增字段
             'teamIds': body.get('teamIds', []),
             'subordinateIds': [],
-            'roleTemplateId': role,
+            'roleTemplateId': body.get('roleTemplateId', None),
             'status': 'active',
             'lastLoginAt': None
         }
@@ -5842,9 +5194,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 可更新字段
-        if 'role' in body and body['role'] in ('admin', 'employee'):
+        if 'role' in body and body['role'] in ('admin', 'leader', 'employee'):
             user['role'] = body['role']
-            user['roleTemplateId'] = body['role']
         if 'displayName' in body:
             user['displayName'] = body['displayName']
         if 'avatar' in body and isinstance(body['avatar'], int):
@@ -5853,24 +5204,40 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             user['agentQuota'] = body['agentQuota']
         if 'apiQuota' in body and isinstance(body['apiQuota'], int):
             user['apiQuota'] = body['apiQuota']
+        # V2 新增字段
+        if 'teamIds' in body and isinstance(body['teamIds'], list):
+            user['teamIds'] = body['teamIds']
+        if 'subordinateIds' in body and isinstance(body['subordinateIds'], list):
+            user['subordinateIds'] = body['subordinateIds']
+        if 'roleTemplateId' in body:
+            user['roleTemplateId'] = body['roleTemplateId']
         if 'status' in body and body['status'] in ('active', 'disabled'):
             user['status'] = body['status']
 
         _save_users(users)
 
-        # 同步更新 teams 的 members
+        # 同步更新 teams 的 members 和 leaderId
         teams = _load_teams()
         uid = user['id']
         new_team_ids = set(user.get('teamIds', []))
+        new_role = user.get('role', 'employee')
         for t in teams:
             t_members = set(t.get('members', []))
+            # 如果用户在这个组，确保members里有
             if t['id'] in new_team_ids:
                 t_members.add(uid)
                 t['members'] = list(t_members)
+                # 如果是leader，设置leaderId
+                if new_role == 'leader' and not t.get('leaderId'):
+                    t['leaderId'] = uid
             else:
+                # 如果用户不在这个组，从members移除
                 if uid in t_members:
                     t_members.discard(uid)
                     t['members'] = list(t_members)
+                # 如果是leader离开了，清除leaderId
+                if t.get('leaderId') == uid:
+                    t['leaderId'] = None
         _save_teams(teams)
 
         self._send_json(200, {
@@ -5884,12 +5251,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         })
 
     def _handle_delete_user(self, user_id):
-        """DELETE /api/users/:id（需要 admin）
-        支持 request body 传入 transfer_to 进行数据交接：
-          - transfer_to 为具体用户 id：达人/商品/AI员工的 created_by 转移给该用户
-          - transfer_to='admin'：转移给当前操作的管理员
-          - 不传 transfer_to：保持原行为，直接删除用户
-        """
+        """DELETE /api/users/:id（需要 admin）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -5911,65 +5273,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '用户不存在'})
             return
 
-        body = self._read_body() or {}
-        transfer_to = body.get('transfer_to')
-        transfer_counts = {'talents': 0, 'products': 0, 'agents': 0}
-        transfer_target_user = None
-
-        if transfer_to:
-            target_id = auth.user_id if transfer_to == 'admin' else transfer_to
-            transfer_target_user = _find_user(users, 'id', target_id)
-            if not transfer_target_user:
-                self._send_json(400, {'error': '目标用户不存在'})
-                return
-            if target_id == user_id:
-                self._send_json(400, {'error': '不能转移给自己'})
-                return
-
-            # 1) 转移 AI 员工（agents.json）
-            agents = _load_agents()
-            changed_agents = False
-            for agent in agents:
-                if agent.get('createdBy') == user_id:
-                    agent['createdBy'] = target_id
-                    # 同步 createdByName（如有）
-                    agent['createdByName'] = transfer_target_user.get('displayName') or transfer_target_user.get('username', '')
-                    changed_agents = True
-                    transfer_counts['agents'] += 1
-            if changed_agents:
-                _save_agents(agents)
-
-            # 2) 转移达人/商品（SQLite）
-            conn = _db_conn()
-            try:
-                cur_talents = conn.execute(
-                    'UPDATE talents SET created_by = ?, updated_at = ? WHERE created_by = ?',
-                    (target_id, int(time.time() * 1000), user_id)
-                )
-                transfer_counts['talents'] = cur_talents.rowcount
-                cur_products = conn.execute(
-                    'UPDATE products SET created_by = ?, updated_at = ? WHERE created_by = ?',
-                    (target_id, int(time.time() * 1000), user_id)
-                )
-                transfer_counts['products'] = cur_products.rowcount
-                conn.commit()
-            finally:
-                conn.close()
-
         users = [u for u in users if u['id'] != user_id]
         _save_users(users)
 
-        target_display = ''
-        if transfer_target_user:
-            target_display = transfer_target_user.get('displayName') or transfer_target_user.get('username', '')
-        result = {
-            'message': f'用户 {user["username"]} 已删除',
-            'transfer_to': transfer_to,
-            'transfer_target_id': transfer_target_user['id'] if transfer_target_user else None,
-            'transfer_target_display_name': target_display,
-            'transfer_counts': transfer_counts
-        }
-        self._send_json(200, result)
+        self._send_json(200, {'message': f'用户 {user["username"]} 已删除'})
 
     def _handle_get_user_subordinates(self, user_id):
         """GET /api/users/:id/subordinates — 获取下属列表"""
@@ -6219,15 +5526,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, group)
 
     def _handle_create_group(self):
-        """POST /api/groups — 创建群组（仅 admin）"""
+        """POST /api/groups — 创建群组"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'groups'): return
-        if not auth.is_admin:
-            self._send_auth_error('Permission denied', 403)
-            return
 
         body = self._read_body()
         if not body:
@@ -6296,8 +5600,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '群组不存在'})
             return
 
-        # 权限校验：仅管理员可管理项目组
-        if not auth.is_admin:
+        # 权限校验：创建者或管理员
+        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
             self._send_auth_error('权限不足', 403)
             return
 
@@ -6334,13 +5638,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, group)
 
     def _handle_batch_save_groups(self):
-        """PUT /api/groups — 前端批量保存群组列表（仅 admin）"""
+        """PUT /api/groups — 前端批量保存群组列表"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
-            return
-        if not auth.is_admin:
-            self._send_auth_error('Permission denied', 403)
             return
 
         body = self._read_body()
@@ -6360,24 +5661,36 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         valid_members.append({'id': m, 'role': ''})
                 g['members'] = valid_members
 
-        _save_groups(body)
-        self._send_json(200, body)
+        # 只允许管理员批量覆盖；普通用户只更新自己的群组
+        if auth.is_admin:
+            _save_groups(body)
+            self._send_json(200, body)
+        else:
+            uid = auth.user_info['userId']
+            existing = _load_groups()
+            other = [g for g in existing if g.get('createdBy') != uid]
+            my_new = [g for g in body if g.get('createdBy') == uid]
+            merged = other + my_new
+            _save_groups(merged)
+            self._send_json(200, my_new)
 
     def _handle_delete_group(self, group_id):
-        """DELETE /api/groups/:id（仅 admin）"""
+        """DELETE /api/groups/:id"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'groups'): return
-        if not auth.is_admin:
-            self._send_auth_error('Permission denied', 403)
-            return
 
         groups = _load_groups()
         group = _find_group(groups, 'id', group_id)
         if not group:
             self._send_json(404, {'error': '群组不存在'})
+            return
+
+        # 权限校验：创建者或管理员
+        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
+            self._send_auth_error('权限不足', 403)
             return
 
         groups = [g for g in groups if g.get('id') != group_id]
@@ -6481,8 +5794,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     user_id=auth.user_id,
                     is_admin=auth.is_admin,
                     user_team_ids=auth.team_ids,
-                    user_group_ids=auth.group_ids,
-                    emp_ids=_get_user_emp_ids(auth.user_id)
+                    user_group_ids=auth.group_ids
                 )
                 docs = res.get('docs', []) or []
                 matched = []
@@ -6517,8 +5829,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '群组不存在'})
             return
 
-        if not auth.is_admin:
-            self._send_auth_error('Permission denied', 403)
+        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
+            self._send_auth_error('权限不足', 403)
             return
 
         body = self._read_body()
@@ -6571,8 +5883,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '群组不存在'})
             return
 
-        if not auth.is_admin:
-            self._send_auth_error('Permission denied', 403)
+        if not auth.is_admin and group.get('createdBy') != auth.user_info['userId']:
+            self._send_auth_error('权限不足', 403)
             return
 
         # 先统一转换现有 members 格式（兼容历史数据中的字符串数组）
@@ -7482,7 +6794,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not self._require_module_permission(auth, 'employees'): return
 
-        agents = _load_agents(include_archived=True)
+        agents = _load_agents()
         uid = auth.user_info['userId']
 
         # 调试日志：打印 uid 和所有 agent 的 createdBy，排查过滤问题
@@ -7515,7 +6827,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'avatar': a.get('avatar', '🦞'),
                 'status': a.get('status', 'online'),
                 'msg': a.get('msg', ''),
-                'archived': _is_archived_flag(a.get('archived')) or a.get('status') == 'archived',
+                'archived': bool(a.get('archived')) or a.get('status') == 'archived',
                 'permission': a.get('permission', 'dev'),
                 'visibility': a.get('visibility', 'creator'),
                 'createdBy': a.get('createdBy', ''),
@@ -7588,16 +6900,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'error': '无效的请求体'})
             return
 
-        # employee 配额检查（硬上限 3 个）
+        # employee 配额检查
         if not auth.is_admin:
             auth.load_user_record()
             user = auth.user_record
             if user:
                 agents = _load_agents()
                 my_count = len([a for a in agents if a.get('createdBy') == auth.user_info['userId']])
-                quota = user.get('role') == 'employee' and 3 or user.get('agentQuota', 10)
-                if my_count >= quota:
-                    self._send_json(403, {'error': f'已达到 Agent 配额上限 ({quota})'})
+                if my_count >= user.get('agentQuota', 10):
+                    self._send_json(403, {'error': f'已达到 Agent 配额上限 ({user.get("agentQuota", 10)})'})
                     return
 
         new_agent = {
@@ -7625,19 +6936,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'department': body.get('department', ''),
             'customEndpoint': body.get('customEndpoint', ''),
         }
-
-        # 自动从全局 vision 配置填充 API Key/Provider/Model，使新建员工自带图片识别能力
-        vision_cfg = _get_vision_config()
-        if vision_cfg.get('api_key'):
-            if not new_agent.get('apiKey'):
-                new_agent['apiKey'] = vision_cfg['api_key']
-            if not new_agent.get('aiProvider') and vision_cfg.get('provider'):
-                new_agent['aiProvider'] = vision_cfg['provider']
-            if not new_agent.get('apiProvider') and vision_cfg.get('provider'):
-                new_agent['apiProvider'] = vision_cfg['provider']
-            if not new_agent.get('apiModel') and vision_cfg.get('model'):
-                new_agent['apiModel'] = vision_cfg['model']
-            print(f'  [CreateAgent] 已从全局 vision 配置填充 AI 凭证: {new_agent["id"]} provider={vision_cfg["provider"]} model={vision_cfg["model"]}', flush=True)
 
         agents = _load_agents(include_archived=True)
         # 检查 ID 重复
@@ -7685,7 +6983,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
             # 已归档员工只有在请求中明确取消归档时才允许更新
             is_unarchive = ('archived' in body and body.get('archived') is False) or ('status' in body and body.get('status') != 'archived')
-            if (_is_archived_flag(agent.get('archived')) or agent.get('status') == 'archived') and not is_unarchive:
+            if (agent.get('status') == 'archived' or agent.get('archived')) and not is_unarchive:
                 self._send_json(404, {'error': '员工不存在'})
                 return
 
@@ -7788,7 +7086,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '员工不存在'})
             return
 
-        is_archived = agent.get('status') == 'archived' or _is_archived_flag(agent.get('archived'))
+        is_archived = agent.get('status') == 'archived' or agent.get('archived')
 
         # 权限校验
         if not auth.is_admin:
@@ -8619,8 +7917,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     keyword=keyword if keyword else None,
                     user_id=auth.user_id, is_admin=auth.is_admin,
                     user_team_ids=auth.team_ids,
-                    user_group_ids=auth.group_ids,
-                    emp_ids=_get_user_emp_ids(auth.user_id)
+                    user_group_ids=auth.group_ids
                 )
                 kb_docs = kb_result.get('docs', [])
             except Exception as e:
@@ -9693,8 +8990,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             scope=scope, team_id=team_id, user_id=auth.user_id,
             is_admin=auth.is_admin, user_team_ids=auth.team_ids,
             user_group_ids=effective_group_ids,
-            emp_id=target_emp_id,
-            emp_ids=_get_user_emp_ids(auth.user_id)
+            emp_id=target_emp_id
         )
         self._send_json(200, result)
 
@@ -9710,7 +9006,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Knowledge not found')
             return
         # 权限检查
-        if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids, user_group_ids=auth.group_ids, emp_ids=_get_user_emp_ids(auth.user_id)):
+        if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids, user_group_ids=auth.group_ids):
             self._send_auth_error('Permission denied', 403)
             return
         if not _can_access_knowledge_category(auth, doc.get('category', '')):
@@ -9754,8 +9050,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 limit, allowed_categories=allowed_cats,
                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
                 requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
-                group_ids=auth.group_ids,
-                emp_ids=_get_user_emp_ids(auth.user_id)
+                group_ids=auth.group_ids
             )
             self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
         except Exception as e:
@@ -9786,15 +9081,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         # 兼容旧前端传入 empId
         emp_id = body.get('empId') or ''
-        user_emp_ids = _get_user_emp_ids(auth.user_id)
         if scope == 'personal' and not emp_id:
             emp_id = auth.user_id
         if not ks.can_create_knowledge(scope, auth.user_id, is_admin=auth.is_admin,
                                        team_id=team_id, user_team_ids=auth.team_ids,
                                        managed_team_ids=auth.managed_team_ids,
                                        group_ids=group_ids, user_group_ids=auth.group_ids,
-                                       managed_group_ids=auth.managed_group_ids,
-                                       emp_id=emp_id, emp_ids=user_emp_ids):
+                                       managed_group_ids=auth.managed_group_ids):
             self._send_auth_error('Permission denied', 403)
             return
         category = body.get('category', '')
@@ -9848,14 +9141,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        # 非 admin 禁止修改 global/team 文档
-        if not auth.is_admin and (doc.get('scope') or 'global') in ('global', 'team'):
-            self._send_auth_error('Permission denied', 403)
-            return
         if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
                                      managed_team_ids=auth.managed_team_ids,
-                                     managed_group_ids=auth.managed_group_ids,
-                                     emp_ids=_get_user_emp_ids(auth.user_id)):
+                                     managed_group_ids=auth.managed_group_ids):
             self._send_auth_error('Permission denied', 403)
             return
         # 分类权限：必须对原文档分类有权限，且不能修改到无权限的分类
@@ -9919,7 +9207,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 scope=new_scope,
                 team_id=new_team_id,
                 group_ids=new_group_ids,
-                is_admin=auth.is_admin,
             )
             self._send_json(200, updated)
         except Exception as e:
@@ -9938,18 +9225,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        # 非 admin 禁止删除 global/team 文档
-        if not auth.is_admin and (doc.get('scope') or 'global') in ('global', 'team'):
-            self._send_auth_error('Permission denied', 403)
-            return
         if not ks.can_delete_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
                                        managed_team_ids=auth.managed_team_ids,
                                        managed_group_ids=auth.managed_group_ids,
-                                       user_group_ids=auth.group_ids,
-                                       emp_ids=_get_user_emp_ids(auth.user_id)):
+                                       user_group_ids=auth.group_ids):
             self._send_auth_error('Permission denied', 403)
             return
-        deleted = ks.knowledge_delete(doc_id, is_admin=auth.is_admin)
+        deleted = ks.knowledge_delete(doc_id)
         self._send_json(200, {'deleted': deleted, 'id': doc_id})
 
     def _handle_get_knowledge_versions(self, doc_id):
@@ -10009,14 +9291,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not doc:
             self._send_json_error(404, 'Knowledge not found')
             return
-        # 非 admin 禁止回滚 global/team 文档
-        if not auth.is_admin and (doc.get('scope') or 'global') in ('global', 'team'):
-            self._send_auth_error('Permission denied', 403)
-            return
         if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
                                      managed_team_ids=auth.managed_team_ids,
-                                     managed_group_ids=auth.managed_group_ids,
-                                     emp_ids=_get_user_emp_ids(auth.user_id)):
+                                     managed_group_ids=auth.managed_group_ids):
             self._send_auth_error('Permission denied', 403)
             return
         if not _can_access_knowledge_category(auth, doc.get('category', '')):
@@ -10049,8 +9326,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 agent_config=agent_config,
                 created_by=auth.user_id,
                 model=emb_cfg.get('model'),
-                base_url=emb_cfg.get('baseUrl'),
-                is_admin=auth.is_admin,
+                base_url=emb_cfg.get('baseUrl')
             )
             if not rolled:
                 self._send_json_error(404, 'Rollback target not found')
@@ -10074,8 +9350,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 原知识编辑权限
         if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
                                      managed_team_ids=auth.managed_team_ids,
-                                     managed_group_ids=auth.managed_group_ids,
-                                     emp_ids=_get_user_emp_ids(auth.user_id)):
+                                     managed_group_ids=auth.managed_group_ids):
             self._send_auth_error('Permission denied', 403)
             return
         body = self._read_body() or {}
@@ -10104,6 +9379,415 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             print(f'  [KnowledgeMove] failed: {e}', flush=True)
             self._send_json_error(500, f'Move failed: {str(e)}')
+
+    # ═══════════════════════════════════════════════════
+    # 新版知识库 API（重构后）
+    # ═══════════════════════════════════════════════════
+
+    def _handle_get_kb_entries(self):
+        """GET /api/knowledge/entries — 新版知识库列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        offset = max(0, int(qs.get('offset', [0])[0]))
+        limit = max(1, min(100, int(qs.get('limit', [20])[0])))
+        category = qs.get('category', [''])[0] or None
+        keyword = qs.get('q', [''])[0] or None
+        scope = qs.get('scope', [''])[0] or None
+        team_id = qs.get('teamId', [''])[0] or None
+        group_id = qs.get('groupId', [''])[0] or None
+        group_ids_param = qs.get('groupIds', [''])[0] or ''
+        created_by = qs.get('createdBy', [''])[0] or None
+
+        allowed_cats = _allowed_knowledge_categories(auth)
+        if category and not _can_access_knowledge_category(auth, category):
+            self._send_json(200, {'docs': [], 'total': 0, 'offset': offset, 'limit': limit})
+            return
+
+        requested_group_ids = []
+        if group_id:
+            requested_group_ids.append(group_id)
+        if group_ids_param:
+            requested_group_ids.extend([g.strip() for g in group_ids_param.split(',') if g.strip()])
+        if auth.is_admin:
+            effective_group_ids = requested_group_ids or auth.group_ids
+        else:
+            allowed = set(auth.group_ids)
+            effective_group_ids = [g for g in requested_group_ids if g in allowed] if requested_group_ids else list(allowed)
+
+        try:
+            result = ks.kb_entry_list(
+                offset=offset, limit=limit, category=category, keyword=keyword,
+                allowed_categories=allowed_cats,
+                scope=scope, team_id=team_id, user_id=auth.user_id,
+                is_admin=auth.is_admin, user_team_ids=auth.team_ids,
+                user_group_ids=effective_group_ids,
+                created_by=created_by,
+                emp_ids=_get_user_emp_ids(auth.user_id)
+            )
+            self._send_json(200, result)
+        except Exception as e:
+            print(f'  [KBEntries] list failed: {e}', flush=True)
+            self._send_json_error(500, f'List failed: {str(e)}')
+
+    def _handle_get_kb_entry_detail(self, entry_id):
+        """GET /api/knowledge/entries/<id> — 新版知识详情"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        doc = ks.kb_entry_get_by_id(entry_id)
+        if not doc:
+            self._send_json_error(404, 'Knowledge not found')
+            return
+        if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids, user_group_ids=auth.group_ids, emp_ids=_get_user_emp_ids(auth.user_id)):
+            self._send_auth_error('Permission denied', 403)
+            return
+        if not _can_access_knowledge_category(auth, doc.get('category', '')):
+            self._send_auth_error('No permission for this knowledge category', 403)
+            return
+        self._send_json(200, doc)
+
+    def _handle_post_kb_entry(self):
+        """POST /api/knowledge/entries — 创建新版知识"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body()
+        title = body.get('title') or body.get('name')
+        if not body or not title or 'content' not in body:
+            self._send_json_error(400, 'Missing title or content')
+            return
+
+        scope = body.get('scope', 'global')
+        team_id = body.get('teamId') or ''
+        group_ids = body.get('groupIds') or body.get('group_ids') or body.get('groupId') or []
+        if isinstance(group_ids, str):
+            group_ids = [g.strip() for g in group_ids.split(',') if g.strip()]
+        if scope == 'group' and not group_ids:
+            self._send_json_error(400, 'Missing group_ids for scope=group')
+            return
+        emp_id = body.get('empId') or ''
+        if scope == 'personal' and not emp_id:
+            emp_id = auth.user_id
+        if not ks.can_create_knowledge(scope, auth.user_id, is_admin=auth.is_admin,
+                                       team_id=team_id, user_team_ids=auth.team_ids,
+                                       managed_team_ids=auth.managed_team_ids,
+                                       group_ids=group_ids, user_group_ids=auth.group_ids,
+                                       managed_group_ids=auth.managed_group_ids,
+                                       emp_id=emp_id, emp_ids=_get_user_emp_ids(auth.user_id)):
+            self._send_auth_error('Permission denied', 403)
+            return
+        category = body.get('category', '')
+        if not _can_access_knowledge_category(auth, category):
+            self._send_auth_error('No permission for this knowledge category', 403)
+            return
+
+        agent = _get_agent_by_id(auth.user_id)
+        agent_config = dict(agent) if agent else None
+        try:
+            doc = ks.kb_entry_create(
+                title=title,
+                content=body['content'],
+                category=category,
+                created_by=auth.user_id,
+                scope=scope,
+                team_id=team_id,
+                group_ids=group_ids,
+                emp_id=emp_id,
+                agent_config=agent_config,
+            )
+            self._send_json(200, doc)
+        except Exception as e:
+            print(f'  [KBEntry] create failed: {e}', flush=True)
+            self._send_json_error(500, f'Create failed: {str(e)}')
+
+    def _handle_put_kb_entry(self, entry_id):
+        """PUT /api/knowledge/entries/<id> — 更新新版知识"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+
+        doc = ks.kb_entry_get_by_id(entry_id)
+        if not doc:
+            self._send_json_error(404, 'Knowledge not found')
+            return
+        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+                                     managed_team_ids=auth.managed_team_ids,
+                                     managed_group_ids=auth.managed_group_ids,
+                                     emp_ids=_get_user_emp_ids(auth.user_id)):
+            self._send_auth_error('Permission denied', 403)
+            return
+        if not _can_access_knowledge_category(auth, doc.get('category', '')):
+            self._send_auth_error('No permission for this knowledge category', 403)
+            return
+        new_category = body.get('category')
+        if new_category is not None and not _can_access_knowledge_category(auth, new_category):
+            self._send_auth_error('No permission for target knowledge category', 403)
+            return
+
+        group_ids = body.get('groupIds') or body.get('group_ids') or body.get('groupId')
+        if isinstance(group_ids, str):
+            group_ids = [g.strip() for g in group_ids.split(',') if g.strip()]
+
+        new_scope = body.get('scope')
+        new_team_id = body.get('teamId')
+        target_scope = new_scope if new_scope is not None else doc.get('scope') or 'global'
+        target_team_id = new_team_id if new_team_id is not None else doc.get('teamId') or ''
+        target_group_ids = group_ids if group_ids is not None else (doc.get('groupIds') or [])
+        if new_scope is not None or new_team_id is not None or group_ids is not None:
+            if not ks.can_create_knowledge(target_scope, auth.user_id, is_admin=auth.is_admin,
+                                           team_id=target_team_id, user_team_ids=auth.team_ids,
+                                           managed_team_ids=auth.managed_team_ids,
+                                           group_ids=target_group_ids, user_group_ids=auth.group_ids,
+                                           managed_group_ids=auth.managed_group_ids):
+                self._send_auth_error('Permission denied for target scope', 403)
+                return
+
+        title = body.get('title') or body.get('name')
+        agent = _get_agent_by_id(auth.user_id)
+        agent_config = dict(agent) if agent else None
+        try:
+            updated = ks.kb_entry_update(
+                entry_id=entry_id,
+                title=title,
+                content=body.get('content'),
+                category=body.get('category'),
+                scope=new_scope,
+                team_id=new_team_id,
+                group_ids=group_ids,
+                emp_id=body.get('empId'),
+                created_by=auth.user_id,
+                agent_config=agent_config,
+                is_admin=auth.is_admin,
+            )
+            self._send_json(200, updated)
+        except Exception as e:
+            print(f'  [KBEntry] update failed: {e}', flush=True)
+            self._send_json_error(500, f'Update failed: {str(e)}')
+
+    def _handle_delete_kb_entry(self, entry_id):
+        """DELETE /api/knowledge/entries/<id> — 删除新版知识"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        doc = ks.kb_entry_get_by_id(entry_id)
+        if not doc:
+            self._send_json_error(404, 'Knowledge not found')
+            return
+        if not ks.can_delete_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+                                       managed_team_ids=auth.managed_team_ids,
+                                       managed_group_ids=auth.managed_group_ids,
+                                       user_group_ids=auth.group_ids,
+                                       emp_ids=_get_user_emp_ids(auth.user_id)):
+            self._send_auth_error('Permission denied', 403)
+            return
+        try:
+            deleted = ks.kb_entry_delete(entry_id, is_admin=auth.is_admin)
+            self._send_json(200, {'success': deleted, 'id': entry_id})
+        except Exception as e:
+            print(f'  [KBEntry] delete failed: {e}', flush=True)
+            self._send_json_error(500, f'Delete failed: {str(e)}')
+
+    def _handle_get_kb_categories(self):
+        """GET /api/knowledge/categories — 分类统计"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        scope = qs.get('scope', [''])[0] or None
+        allowed_cats = _allowed_knowledge_categories(auth)
+        try:
+            cats = ks.kb_entry_categories(
+                allowed_categories=allowed_cats,
+                scope=scope, user_id=auth.user_id,
+                is_admin=auth.is_admin, user_team_ids=auth.team_ids,
+                user_group_ids=auth.group_ids,
+                emp_ids=_get_user_emp_ids(auth.user_id)
+            )
+            total = sum(c['count'] for c in cats)
+            self._send_json(200, {'categories': cats, 'total': total})
+        except Exception as e:
+            print(f'  [KBCategories] failed: {e}', flush=True)
+            self._send_json_error(500, f'Categories failed: {str(e)}')
+
+    def _handle_get_kb_stats(self):
+        """GET /api/knowledge/stats — 统计面板"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        scope = qs.get('scope', [''])[0] or None
+        allowed_cats = _allowed_knowledge_categories(auth)
+        try:
+            stats = ks.kb_entry_stats(
+                allowed_categories=allowed_cats,
+                scope=scope, user_id=auth.user_id,
+                is_admin=auth.is_admin, user_team_ids=auth.team_ids,
+                user_group_ids=auth.group_ids,
+                emp_ids=_get_user_emp_ids(auth.user_id)
+            )
+            self._send_json(200, {'stats': stats})
+        except Exception as e:
+            print(f'  [KBStats] failed: {e}', flush=True)
+            self._send_json_error(500, f'Stats failed: {str(e)}')
+
+    def _handle_post_kb_search(self):
+        """POST /api/knowledge/search — 新版语义搜索"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body()
+        if not body or not body.get('query'):
+            self._send_json_error(400, 'Missing query')
+            return
+        query = body['query']
+        limit = min(50, max(1, int(body.get('limit', [10])[0]) if isinstance(body.get('limit'), list) else body.get('limit', 10)))
+        scope = body.get('scope') or None
+        category = body.get('category') or None
+        allowed_cats = _allowed_knowledge_categories(auth)
+        if category and not _can_access_knowledge_category(auth, category):
+            self._send_json(200, {'query': query, 'docs': [], 'count': 0})
+            return
+        try:
+            docs = ks.kb_entry_search_semantic(
+                query=query, limit=limit,
+                allowed_categories=allowed_cats,
+                scope=scope, category=category,
+                user_id=auth.user_id, is_admin=auth.is_admin,
+                user_team_ids=auth.team_ids, user_group_ids=auth.group_ids,
+                emp_ids=_get_user_emp_ids(auth.user_id)
+            )
+            self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
+        except Exception as e:
+            print(f'  [KBSearch] failed: {e}', flush=True)
+            self._send_json_error(500, f'Search failed: {str(e)}')
+
+    def _handle_get_stats_compute(self):
+        """GET /api/stats/compute — 真实 Token/调用统计"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        group_by = qs.get('groupBy', ['agent'])[0] or 'agent'
+
+        user_emp_ids = _get_user_emp_ids(auth.user_id)
+        where = []
+        params = []
+        if not auth.is_admin:
+            placeholders = ', '.join('?' for _ in user_emp_ids) if user_emp_ids else None
+            if group_by == 'agent' and placeholders:
+                where.append(f'(agent_id IN ({placeholders}) OR user_id = ?)')
+                params.extend(user_emp_ids)
+                params.append(auth.user_id)
+            else:
+                where.append('user_id = ?')
+                params.append(auth.user_id)
+
+        where_sql = 'WHERE ' + ' AND '.join(where) if where else ''
+        conn = _db_conn()
+        try:
+            total_row = conn.execute(
+                f'SELECT COALESCE(SUM(total_tokens),0) AS t, COUNT(*) AS c FROM token_usage {where_sql}',
+                tuple(params)
+            ).fetchone()
+            total_tokens = total_row['t'] or 0
+            total_calls = total_row['c'] or 0
+
+            group_col = 'agent_id' if group_by == 'agent' else 'user_id'
+            rows = conn.execute(
+                f'''SELECT {group_col} AS gid,
+                           COALESCE(SUM(prompt_tokens),0) AS input_tokens,
+                           COALESCE(SUM(completion_tokens),0) AS output_tokens,
+                           COALESCE(SUM(total_tokens),0) AS total_tokens,
+                           COUNT(*) AS calls
+                    FROM token_usage {where_sql}
+                    GROUP BY {group_col}''',
+                tuple(params)
+            ).fetchall()
+
+            agents_map = {a.get('id'): a for a in _load_agents(include_archived=True)}
+            users_map = {u.get('id'): u for u in _load_users()}
+            employee_stats = []
+            for r in rows:
+                gid = r['gid'] or ''
+                name = '未知'
+                if group_by == 'agent':
+                    agent = agents_map.get(gid)
+                    if agent:
+                        name = agent.get('name') or gid
+                    else:
+                        user = users_map.get(gid)
+                        if user:
+                            name = user.get('displayName') or user.get('username') or gid
+                else:
+                    user = users_map.get(gid)
+                    if user:
+                        name = user.get('displayName') or user.get('username') or gid
+                employee_stats.append({
+                    'id': gid,
+                    'name': name,
+                    'inputTokens': r['input_tokens'] or 0,
+                    'outputTokens': r['output_tokens'] or 0,
+                    'tokens': r['total_tokens'] or 0,
+                    'calls': r['calls'] or 0,
+                })
+
+            # 近 7 天（本地时间）
+            time_rows = conn.execute(
+                f'''SELECT date(created_at/1000, 'unixepoch', 'localtime') AS d,
+                           COALESCE(SUM(total_tokens),0) AS tokens,
+                           COUNT(*) AS calls
+                    FROM token_usage {where_sql}
+                    GROUP BY d ORDER BY d DESC LIMIT 7''',
+                tuple(params)
+            ).fetchall()
+            day_map = {r['d']: {'tokens': r['tokens'] or 0, 'calls': r['calls'] or 0} for r in time_rows}
+            from datetime import datetime, timedelta
+            time_stats = []
+            weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+            for i in range(6, -1, -1):
+                d = datetime.now() - timedelta(days=i)
+                d_str = d.strftime('%Y-%m-%d')
+                time_stats.append({
+                    'date': weekdays[d.weekday()],
+                    'tokens': day_map.get(d_str, {}).get('tokens', 0),
+                    'calls': day_map.get(d_str, {}).get('calls', 0),
+                })
+        finally:
+            conn.close()
+
+        self._send_json(200, {
+            'totalTokens': total_tokens,
+            'totalCalls': total_calls,
+            'employeeStats': employee_stats,
+            'timeStats': time_stats,
+        })
 
     # ═══════════════════════════════════════════════════
     # RAG API
@@ -10146,8 +9830,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 top_k_docs=top_k, allowed_categories=allowed_cats,
                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'),
                 requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
-                group_ids=auth.group_ids,
-                emp_ids=_get_user_emp_ids(auth.user_id)
+                group_ids=auth.group_ids
             )
             # 同时检索产品库（所有员工共享，从 SQLite 读取）
             conn = _db_conn()
@@ -10209,26 +9892,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             rows = conn.execute('SELECT * FROM products ORDER BY updated_at DESC').fetchall()
             products = [_product_row_to_dict(r) for r in rows]
-            # 加载标签
-            if products:
-                pids = [p['id'] for p in products]
-                placeholders = ','.join('?' for _ in pids)
-                tag_rows = conn.execute(
-                    f'''SELECT pt.product_id, t.id, t.name, t.category, t.color, t.type, t.status
-                        FROM product_tags pt
-                        JOIN tags t ON t.id = pt.tag_id
-                        WHERE pt.product_id IN ({placeholders}) AND t.status = 'active'
-                        ORDER BY t.name''',
-                    pids
-                ).fetchall()
-                tag_map = {}
-                for r in tag_rows:
-                    tag_map.setdefault(r['product_id'], []).append({
-                        'id': r['id'], 'name': r['name'], 'category': r['category'],
-                        'color': r['color'], 'type': r['type'], 'status': r['status']
-                    })
-                for p in products:
-                    p['tag_list'] = tag_map.get(p['id'], [])
             return {'products': products, 'total': len(products), 'version': '1.0'}
         finally:
             conn.close()
@@ -10257,38 +9920,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if query.get('status'):
             status = query['status'][0]
             products = [p for p in products if p.get('status') == status]
-        if query.get('tags'):
-            tag_ids = set(t for t in query['tags'][0].split(',') if t.strip())
-            if tag_ids:
-                products = [p for p in products if any(t.get('id') in tag_ids for t in p.get('tag_list', []))]
         if query.get('q'):
-            kw = query['q'][0]
-            scored = [(_product_search_score(p, kw), p) for p in products]
-            scored = [(s, p) for s, p in scored if s > 0]
-            scored.sort(key=lambda x: x[0], reverse=True)
-            products = [p for _, p in scored]
-        # 按创建人筛选
-        if query.get('created_by'):
-            created_by = query['created_by'][0]
-            if not auth.is_admin and created_by != auth.user_id:
-                self._send_json_error(403, 'Permission denied')
-                return
-            products = [p for p in products if p.get('created_by') == created_by]
-        # 员工权限过滤
-        if not auth.is_admin:
-            accessible_ids = _get_employee_accessible_product_ids(auth.user_id)
-            products = [p for p in products if p['id'] in accessible_ids]
-        else:
-            # admin 视角补充创建人信息
-            users = _load_users()
-            user_map = {u.get('id'): u for u in users if u.get('id')}
-            for p in products:
-                creator = user_map.get(p.get('created_by') or '')
-                p['created_by_user'] = {
-                    'id': p.get('created_by') or '',
-                    'username': creator.get('username') if creator else '',
-                    'displayName': creator.get('displayName') if creator else (creator.get('username') if creator else '')
-                }
+            kw = query['q'][0].lower()
+            products = [p for p in products if kw in (p.get('id') or '').lower()
+                        or kw in (p.get('name') or '').lower()
+                        or kw in (p.get('description') or '').lower()
+                        or kw in (p.get('brand') or '').lower()
+                        or kw in (p.get('category') or '').lower()
+                        or any(kw in t.lower() for t in (p.get('tags') or []))]
         # 分页
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
@@ -10307,15 +9946,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             row = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
             product = _product_row_to_dict(row)
-            if product:
-                product['tag_list'] = _get_entity_tags(conn, 'product', product_id)
         finally:
             conn.close()
         if not product:
             self._send_json_error(404, 'Product not found')
-            return
-        if not auth.is_admin and product_id not in _get_employee_accessible_product_ids(auth.user_id):
-            self._send_json_error(403, 'Permission denied')
             return
         self._send_json(200, product)
 
@@ -10336,9 +9970,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         if not product:
             self._send_json_error(404, 'Product not found')
-            return
-        if not auth.is_admin and product_id not in _get_employee_accessible_product_ids(auth.user_id):
-            self._send_json_error(403, 'Permission denied')
             return
         query = parse_qs(urlparse(self.path).query)
         limit = int(query.get('limit', [20])[0])
@@ -10463,7 +10094,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'influencer_id': inf_id, 'matches': results[:limit], 'total': len(results), 'source': 'live'})
 
     def _handle_post_product(self):
-        """POST /api/products — 录入商品（支持模糊重复检测）"""
+        """POST /api/products — 录入商品（仅当 name+brand 完全一致时算重复）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -10476,47 +10107,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         name = str(body.get('name', '')).strip()
         brand = str(body.get('brand') or '').strip()
-        category = str(body.get('category') or '').strip()
-        price = float(body.get('price') or 0)
 
-        # 去重检查：先精确匹配，再模糊匹配
+        # 去重检查：仅当名称和品牌均非空且完全一致时才算重复
         conn = _db_conn()
+        existing = None
         try:
-            # 强重复：name + brand 完全一致
             if name and brand:
                 existing = conn.execute(
                     "SELECT * FROM products WHERE LOWER(name) = LOWER(?) AND LOWER(brand) = LOWER(?) LIMIT 1",
                     (name, brand)
                 ).fetchone()
-                if existing:
-                    result = _product_row_to_dict(existing)
-                    result['duplicate'] = True
-                    result['can_update'] = True
-                    result['message'] = f"该商品（名称：{name}，品牌：{brand}）已存在，是否需要更新信息？"
-                    self._send_json(200, result)
-                    return
-
-            # 模糊重复：名称/品牌/类目/价格相似
-            candidate = {'name': name, 'brand': brand, 'category': category, 'price': price}
-            duplicates = _find_duplicate_products(conn, candidate, threshold=60, limit=5)
-            if duplicates:
-                result = {
-                    'duplicate': True,
-                    'suspected': True,
-                    'can_update': False,
-                    'message': f"商品库里好像有 {len(duplicates)} 个相似商品，确认是同一个吗？",
-                    'candidates': [
-                        {
-                            'id': p.get('id'),
-                            'name': p.get('name'),
-                            'brand': p.get('brand'),
-                            'category': p.get('category'),
-                            'price': p.get('price'),
-                            'similarity': round(score, 1)
-                        }
-                        for score, p in duplicates
-                    ]
-                }
+            if existing:
+                result = _product_row_to_dict(existing)
+                result['duplicate'] = True
+                result['can_update'] = True
+                result['message'] = f"该商品（名称：{name}，品牌：{brand}）已存在，是否需要更新信息？"
                 self._send_json(200, result)
                 return
         finally:
@@ -10527,7 +10132,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         product.setdefault('id', f'prod_{now_ts}_{uuid.uuid4().hex[:6]}')
         product.setdefault('createdAt', now_ts)
         product.setdefault('updatedAt', now_ts)
-        product['created_by'] = auth.user_id
         # 兼容旧字段 commission_rate -> commission_rates
         if 'commission_rate' in body and 'commission_rates' not in body:
             product['commission_rates'] = {'default': float(body['commission_rate'])}
@@ -10548,13 +10152,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if row.get('brand_id'):
                 _update_brand_product_stats(conn, row['brand_id'])
                 conn.commit()
-            # 同步标签关联
-            tag_names = body.get('tags') or []
-            _sync_entity_tags(conn, 'product', row['id'], tag_names)
-            conn.commit()
             row_out = conn.execute('SELECT * FROM products WHERE id = ?', (row['id'],)).fetchone()
             product_out = _product_row_to_dict(row_out)
-            product_out['tag_list'] = _get_entity_tags(conn, 'product', row['id'])
         finally:
             conn.close()
         print(f'  [Product] 录入商品: {product_out["name"]} ({product_out["id"]})', flush=True)
@@ -10579,9 +10178,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         if not existing:
             self._send_json_error(404, 'Product not found')
-            return
-        if not auth.is_admin and product_id not in _get_employee_accessible_product_ids(auth.user_id):
-            self._send_json_error(403, 'Permission denied')
             return
         now_ts = int(time.time() * 1000)
         updated = dict(existing)
@@ -10611,27 +10207,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             for bid in {b for b in [old_brand_id, row.get('brand_id')] if b}:
                 _update_brand_product_stats(conn, bid)
             conn.commit()
-            # 同步标签关联
-            tag_names = body.get('tags')
-            if tag_names is not None:
-                _sync_entity_tags(conn, 'product', product_id, tag_names)
-                conn.commit()
             row_out = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
             product_out = _product_row_to_dict(row_out)
-            product_out['tag_list'] = _get_entity_tags(conn, 'product', product_id)
         finally:
             conn.close()
-
-        # 同步刷新商品向量索引（非阻塞，失败仅记录日志）
-        try:
-            emb_cfg = get_embedding_config()
-            if emb_cfg and emb_cfg.get('apiKey'):
-                ensure_embedding('product', product_out, emb_cfg['apiKey'], emb_cfg.get('provider', 'openai'),
-                                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
-                print(f'  [Product] 已刷新商品向量索引: {product_id}', flush=True)
-        except Exception as emb_e:
-            print(f'  [Product] 刷新商品向量索引失败（不影响更新）: {product_id}, {emb_e}', flush=True)
-
         print(f'  [Product] 更新商品: {product_out["name"]} ({product_id})', flush=True)
         self._send_json(200, product_out)
 
@@ -10642,13 +10221,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'): return
-        if not auth.is_admin and product_id not in _get_employee_accessible_product_ids(auth.user_id):
-            self._send_json_error(403, 'Permission denied')
-            return
         conn = _db_conn()
         try:
             cur = conn.execute('DELETE FROM products WHERE id = ?', (product_id,))
-            conn.execute('DELETE FROM product_tags WHERE product_id = ?', (product_id,))
             conn.commit()
             deleted = cur.rowcount > 0
         finally:
@@ -10770,11 +10345,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             {'role': 'system', 'content': '你是电商选品分析助手，擅长根据商品数据给出结构化分析。'},
             {'role': 'user', 'content': prompt}
         ]
-        try:
-            content = _call_ai_analysis(messages, cfg=cfg, context='product_analyze')
-        except _AIAnalysisTimeoutError:
-            self._send_json_error(503, 'AI 分析超时或失败，请稍后重试')
-            return
+        content = _call_ai_analysis(messages, cfg=cfg, context='product_analyze')
         if not content:
             self._send_json_error(503, 'AI analysis failed or returned empty response')
             return
@@ -10797,660 +10368,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         self._send_json(200, {'id': product_id, 'ai_analysis': analysis})
-
-    def _handle_ai_recommend_tags(self):
-        """POST /api/ai/recommend-tags — 调用 OpenClaw 从现有标签库推荐匹配标签"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-
-        body = self._read_body()
-        if not body:
-            self._send_json_error(400, 'Missing body')
-            return
-
-        entity_type = str(body.get('type') or '').strip().lower()
-        data = body.get('data') or {}
-        if entity_type not in ('product', 'talent'):
-            self._send_json_error(400, 'type 必须是 product 或 talent')
-            return
-        if not isinstance(data, dict):
-            self._send_json_error(400, 'data 必须是对象')
-            return
-
-        module = 'products' if entity_type == 'product' else 'influencers'
-        if not self._require_module_permission(auth, module):
-            return
-
-        # 加载候选标签（包含通用标签）
-        conn = _db_conn()
-        try:
-            rows = conn.execute(
-                "SELECT * FROM tags WHERE status = 'active' AND (type = ? OR type = 'common') ORDER BY name",
-                (entity_type,)
-            ).fetchall()
-            all_tags = [_tag_row_to_dict(r) for r in rows]
-        finally:
-            conn.close()
-
-        if not all_tags:
-            self._send_json(200, {'tags': []})
-            return
-
-        # 控制 prompt 长度，最多取 300 个候选标签
-        MAX_CANDIDATES = 300
-        candidate_tags = all_tags[:MAX_CANDIDATES]
-        candidate_names = [t['name'] for t in candidate_tags]
-
-        # 构建推荐 prompt
-        prompt = (
-            f"请根据以下{'商品' if entity_type == 'product' else '达人'}数据，从候选标签列表中推荐最相关的标签。\n"
-            f"只返回 JSON 数组，不要返回其他内容。\n"
-            f"JSON 数组中每个元素为对象，必须包含字段：\"name\"（标签名，必须从候选标签中选取）、\"score\"（0.0-1.0 的匹配分数）。\n"
-            f"最多推荐 10 个标签，按相关性从高到低排序。\n\n"
-            f"候选标签：{json.dumps(candidate_names, ensure_ascii=False)}\n\n"
-            f"输入数据：{json.dumps(data, ensure_ascii=False)}\n"
-        )
-        messages = [
-            {'role': 'system', 'content': '你是电商标签匹配助手，擅长根据商品或达人数据从候选标签中挑选最相关的标签。'},
-            {'role': 'user', 'content': prompt}
-        ]
-
-        cfg = get_embedding_config()
-        cfg['provider'] = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
-        cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
-        cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
-
-        try:
-            content = _call_ai_analysis(messages, cfg=cfg, context='recommend_tags')
-        except _AIAnalysisTimeoutError:
-            self._send_json_error(503, 'AI 推荐超时或失败，请稍后重试')
-            return
-        if not content:
-            self._send_json_error(503, 'AI 推荐失败或返回空响应')
-            return
-
-        raw_recs = _extract_json_array(content)
-        if not isinstance(raw_recs, list):
-            print(f'  [RecommendTags] AI response is not a valid JSON array: {content[:1000]}', flush=True)
-            self._send_json_error(503, 'AI 响应格式不正确')
-            return
-
-        # 将推荐结果映射到现有标签库，并补齐 id/score
-        name_to_tag = {}
-        for t in all_tags:
-            name_to_tag[t['name']] = t
-            name_to_tag.setdefault((t['name'] or '').lower(), t)
-
-        result = []
-        seen = set()
-        for rec in raw_recs:
-            if isinstance(rec, str):
-                rec_name = rec.strip()
-                rec_score = 0.9
-            elif isinstance(rec, dict) and rec.get('name'):
-                rec_name = str(rec.get('name')).strip()
-                rec_score = float(rec.get('score', 0.9))
-            else:
-                continue
-            if not rec_name:
-                continue
-            tag = name_to_tag.get(rec_name) or name_to_tag.get(rec_name.lower())
-            if not tag:
-                continue
-            if tag['id'] in seen:
-                continue
-            seen.add(tag['id'])
-            score = max(0.0, min(1.0, rec_score))
-            result.append({'id': tag['id'], 'name': tag['name'], 'score': round(score, 2)})
-
-        # 按分数降序，最多返回 10 个
-        result.sort(key=lambda x: x['score'], reverse=True)
-        result = result[:10]
-        self._send_json(200, {'tags': result})
-
-    def _handle_ai_analyze(self):
-        """POST /api/ai/analyze — 统一 AI 数据分析，生成摘要/趋势/建议报告"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-
-        body = self._read_body() or {}
-        entity_type = str(body.get('type') or '').strip().lower()
-        entity_id = str(body.get('id') or '').strip()
-        period = str(body.get('period') or '30d').strip().lower()
-        if entity_type not in ('product', 'talent') or not entity_id:
-            self._send_json_error(400, 'type 必须是 product 或 talent，且 id 不能为空')
-            return
-        if period not in ('7d', '30d', '90d'):
-            period = '30d'
-
-        module = 'products' if entity_type == 'product' else 'influencers'
-        if not self._require_module_permission(auth, module):
-            return
-
-        conn = _db_conn()
-        try:
-            if entity_type == 'product':
-                row = conn.execute('SELECT * FROM products WHERE id = ?', (entity_id,)).fetchone()
-                entity = _product_row_to_dict(row)
-            else:
-                row = conn.execute('SELECT * FROM talents WHERE id = ?', (entity_id,)).fetchone()
-                entity = _talent_row_to_dict(row)
-        finally:
-            conn.close()
-
-        if not entity:
-            self._send_json_error(404, f'{entity_type.capitalize()} not found')
-            return
-
-        cfg = get_embedding_config()
-        cfg['provider'] = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
-        cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
-        cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
-
-        if entity_type == 'product':
-            prompt = (
-                f"请对以下商品进行数据智能分析，分析周期为最近 {period}。\n"
-                f"只返回 JSON，不要返回其他内容。\n"
-                f"JSON 格式：{{\"summary\": \"一段整体摘要\", \"trends\": [{{\"label\": \"日期/维度\", \"value\": 数字, \"metric\": \"指标名\"}}], \"suggestions\": [\"建议1\", \"建议2\"]}}\n"
-                f"trends 请根据商品数据生成 5-7 个趋势点（可模拟日期分布），suggestions 给出 3-5 条可落地的优化建议。\n\n"
-                f"商品名称：{entity.get('name', '')}\n"
-                f"品牌：{entity.get('brand', '')}\n"
-                f"类目：{entity.get('category', '')}\n"
-                f"价格：¥{entity.get('price', 0)}\n"
-                f"月销量：{entity.get('monthly_sales', 0)}\n"
-                f"月 GMV：¥{entity.get('monthly_gmv', 0)}\n"
-                f"转化率：{entity.get('conversion_rate', 0)}%\n"
-                f"平均客单价：¥{entity.get('avg_order_value', 0)}\n"
-                f"佣金策略：{json.dumps(entity.get('commission_rates', {}), ensure_ascii=False)}\n"
-                f"受众画像：{json.dumps(entity.get('audience', {}), ensure_ascii=False)}\n"
-                f"渠道分布：{json.dumps(entity.get('channel_distribution', {}), ensure_ascii=False)}\n"
-                f"状态：{entity.get('status', '')}\n"
-            )
-        else:
-            prompt = (
-                f"请对以下抖音达人进行数据智能分析，分析周期为最近 {period}。\n"
-                f"只返回 JSON，不要返回其他内容。\n"
-                f"JSON 格式：{{\"summary\": \"一段整体摘要\", \"trends\": [{{\"label\": \"日期/维度\", \"value\": 数字, \"metric\": \"指标名\"}}], \"suggestions\": [\"建议1\", \"建议2\"]}}\n"
-                f"trends 请根据达人数据生成 5-7 个趋势点（可模拟日期分布），suggestions 给出 3-5 条可落地的优化建议。\n\n"
-                f"达人昵称：{entity.get('name', '')}\n"
-                f"等级：{entity.get('level', '')}\n"
-                f"粉丝量：{entity.get('followers', 0)}\n"
-                f"达人类型：{entity.get('talent_type', '')}\n"
-                f"主营类目：{entity.get('category', '') or entity.get('fan_category', '')}\n"
-                f"总 GMV：¥{entity.get('total_gmv', 0)}\n"
-                f"带货商品数：{entity.get('product_count', entity.get('total_products', 0))}\n"
-                f"平均客单价：¥{entity.get('average_price', 0)}\n"
-                f"直播占比：{entity.get('live_ratio', 0)}%\n"
-                f"视频占比：{entity.get('video_ratio', 0)}%\n"
-                f"场均直播 GMV：¥{entity.get('avg_live_gmv', 0)}\n"
-                f"履约分：{entity.get('fulfillment_score', 0)}\n"
-                f"口碑分：{entity.get('rating_score', 0)}\n"
-                f"粉丝性别分布：{json.dumps(entity.get('fan_gender', {}), ensure_ascii=False)}\n"
-                f"粉丝年龄分布：{json.dumps(entity.get('fan_age', {}), ensure_ascii=False)}\n"
-                f"简介：{entity.get('bio', '')}\n"
-            )
-
-        messages = [
-            {'role': 'system', 'content': '你是电商数据分析助手，擅长根据商品/达人数据生成结构化分析报告。'},
-            {'role': 'user', 'content': prompt}
-        ]
-
-        try:
-            content = _call_ai_analysis(messages, cfg=cfg, context='ai_analyze')
-        except _AIAnalysisTimeoutError:
-            self._send_json_error(503, 'AI 分析超时或失败，请稍后重试')
-            return
-        if not content:
-            self._send_json_error(503, 'AI 分析失败或返回空响应')
-            return
-
-        report = _extract_json_object(content)
-        if not isinstance(report, dict):
-            print(f'  [AI Analyze] response is not a valid JSON object: {content[:1000]}', flush=True)
-            self._send_json_error(503, 'AI 响应格式不正确')
-            return
-
-        # 规范化输出字段
-        summary = str(report.get('summary') or '').strip()
-        raw_trends = report.get('trends')
-        trends = []
-        if isinstance(raw_trends, list):
-            for item in raw_trends:
-                if isinstance(item, dict):
-                    trends.append({
-                        'label': str(item.get('label') or '').strip(),
-                        'value': float(item.get('value') or 0),
-                        'metric': str(item.get('metric') or '').strip()
-                    })
-                elif isinstance(item, (int, float)):
-                    trends.append({'label': '', 'value': float(item), 'metric': ''})
-        raw_suggestions = report.get('suggestions')
-        suggestions = []
-        if isinstance(raw_suggestions, list):
-            for s in raw_suggestions:
-                suggestions.append(str(s).strip())
-        elif isinstance(raw_suggestions, str):
-            suggestions = [raw_suggestions.strip()]
-
-        result = {
-            'id': entity_id,
-            'type': entity_type,
-            'period': period,
-            'report': {
-                'summary': summary,
-                'trends': trends,
-                'suggestions': suggestions
-            }
-        }
-        self._send_json(200, result)
-
-    def _handle_batch_send_messages(self):
-        """POST /api/batch/send-messages — 批量给达人发消息（以跟进记录形式落地）"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not self._require_module_permission(auth, 'influencers'):
-            return
-
-        body = self._read_body() or {}
-        talent_ids = body.get('talentIds') or body.get('talent_ids') or []
-        template = str(body.get('template') or '').strip()
-        message = str(body.get('message') or '').strip()
-        if not isinstance(talent_ids, list) or not talent_ids:
-            self._send_json_error(400, 'talentIds 不能为空')
-            return
-        if not template and not message:
-            self._send_json_error(400, 'template 或 message 至少填一个')
-            return
-
-        # 去重并过滤空 id
-        talent_ids = list(dict.fromkeys([str(tid).strip() for tid in talent_ids if str(tid).strip()]))
-        conn = _db_conn()
-        now = int(time.time() * 1000)
-        sent = []
-        failed = []
-        try:
-            for tid in talent_ids:
-                row = conn.execute('SELECT id, name, douyin_id FROM talents WHERE id = ?', (tid,)).fetchone()
-                if not row:
-                    failed.append({'id': tid, 'reason': '达人不存在'})
-                    continue
-                talent = {'id': row['id'], 'name': row['name'] or '', 'douyin_id': row['douyin_id'] or ''}
-                content = template or message
-                content = content.replace('{达人名称}', talent['name']).replace('{抖音号}', talent['douyin_id'])
-                if not content:
-                    failed.append({'id': tid, 'reason': '消息内容为空'})
-                    continue
-                fu_id = 'tfu_' + str(now) + '_' + uuid.uuid4().hex[:6]
-                conn.execute(
-                    f"INSERT INTO talent_follow_ups ({', '.join(_FOLLOW_UP_COLUMNS)}) VALUES ({', '.join('?' * len(_FOLLOW_UP_COLUMNS))})",
-                    (fu_id, tid, auth.user_info.get('userId', ''), now, 0, content, 'batch-sent', 'completed', now, now)
-                )
-                conn.execute(
-                    'UPDATE talents SET follow_up_by = ?, next_follow_up_at = ?, updated_at = ? WHERE id = ?',
-                    (auth.user_info.get('userId', ''), 0, now, tid)
-                )
-                sent.append({'id': tid, 'content': content})
-                now += 1
-            conn.commit()
-        finally:
-            conn.close()
-        self._send_json(200, {'sent': sent, 'failed': failed, 'total': len(talent_ids)})
-
-    def _handle_batch_update_tags(self):
-        """POST /api/batch/update-tags — 批量添加/移除商品或达人标签"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-
-        body = self._read_body() or {}
-        entity_type = str(body.get('type') or '').strip().lower()
-        ids = body.get('ids') or []
-        action = str(body.get('action') or '').strip().lower()
-        tag_ids = body.get('tagIds') or body.get('tag_ids') or []
-        if entity_type not in ('product', 'talent'):
-            self._send_json_error(400, 'type 必须是 product 或 talent')
-            return
-        if not isinstance(ids, list) or not ids:
-            self._send_json_error(400, 'ids 不能为空')
-            return
-        if action not in ('add', 'remove'):
-            self._send_json_error(400, 'action 必须是 add 或 remove')
-            return
-        if not isinstance(tag_ids, list) or not tag_ids:
-            self._send_json_error(400, 'tagIds 不能为空')
-            return
-
-        module = 'products' if entity_type == 'product' else 'influencers'
-        if not self._require_module_permission(auth, module):
-            return
-
-        ids = list(dict.fromkeys([str(i).strip() for i in ids if str(i).strip()]))
-        tag_ids = list(dict.fromkeys([str(t).strip() for t in tag_ids if str(t).strip()]))
-
-        conn = _db_conn()
-        now = int(time.time() * 1000)
-        assoc_table = 'product_tags' if entity_type == 'product' else 'talent_tags'
-        entity_col = 'product_id' if entity_type == 'product' else 'talent_id'
-        updated = 0
-        skipped = 0
-        try:
-            # 校验标签是否存在
-            valid_tag_ids = set()
-            tag_rows = conn.execute('SELECT id FROM tags WHERE status = ? AND id IN ({})'.format(','.join('?' * len(tag_ids))), (['active'] + tag_ids)).fetchall()
-            valid_tag_ids = {r['id'] for r in tag_rows}
-            if not valid_tag_ids:
-                self._send_json_error(400, '指定的标签不存在或已删除')
-                return
-
-            for eid in ids:
-                row = conn.execute(f'SELECT id FROM {entity_type}s WHERE id = ?', (eid,)).fetchone()
-                if not row:
-                    skipped += 1
-                    continue
-                # 当前关联标签
-                cur_rows = conn.execute(
-                    f'SELECT tag_id FROM {assoc_table} WHERE {entity_col} = ?',
-                    (eid,)
-                ).fetchall()
-                current_ids = {r['tag_id'] for r in cur_rows}
-                if action == 'add':
-                    new_ids = valid_tag_ids - current_ids
-                    for tag_id in new_ids:
-                        assoc_id = ('pt_' if entity_type == 'product' else 'tt_') + str(now) + '_' + uuid.uuid4().hex[:6]
-                        conn.execute(
-                            f'INSERT INTO {assoc_table} (id, {entity_col}, tag_id, created_at) VALUES (?, ?, ?, ?)',
-                            (assoc_id, eid, tag_id, now)
-                        )
-                        now += 1
-                    if new_ids:
-                        updated += 1
-                    else:
-                        skipped += 1
-                else:
-                    to_remove = current_ids & valid_tag_ids
-                    if to_remove:
-                        placeholders = ','.join('?' * len(to_remove))
-                        conn.execute(
-                            f'DELETE FROM {assoc_table} WHERE {entity_col} = ? AND tag_id IN ({placeholders})',
-                            (eid,) + tuple(to_remove)
-                        )
-                        updated += 1
-                    else:
-                        skipped += 1
-            # 批量更新实体的 updated_at
-            if updated:
-                placeholders = ','.join('?' * len(ids))
-                conn.execute(f'UPDATE {entity_type}s SET updated_at = ? WHERE id IN ({placeholders})', (now,) + tuple(ids))
-            conn.commit()
-        finally:
-            conn.close()
-        self._send_json(200, {'updated': updated, 'skipped': skipped, 'action': action, 'type': entity_type})
-
-    def _handle_export_csv(self):
-        """GET /api/export?type=product|talent&ids=逗号分隔 — 导出 CSV"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-
-        query = parse_qs(urlparse(self.path).query)
-        entity_type = str(query.get('type', [''])[0]).strip().lower()
-        if entity_type not in ('product', 'talent'):
-            self._send_json_error(400, 'type 必须是 product 或 talent')
-            return
-        module = 'products' if entity_type == 'product' else 'influencers'
-        if not self._require_module_permission(auth, module):
-            return
-
-        ids_param = query.get('ids', [''])[0].strip()
-        ids = [x.strip() for x in ids_param.split(',') if x.strip()] if ids_param else []
-        conn = _db_conn()
-        try:
-            if entity_type == 'product':
-                if ids:
-                    placeholders = ','.join('?' * len(ids))
-                    rows = conn.execute(f'SELECT * FROM products WHERE id IN ({placeholders}) ORDER BY name', tuple(ids)).fetchall()
-                else:
-                    rows = conn.execute("SELECT * FROM products WHERE status != 'archived' ORDER BY name").fetchall()
-                entities = [_product_row_to_dict(r) for r in rows]
-                for p in entities:
-                    p['tags'] = ', '.join([t['name'] for t in _get_entity_tags(conn, 'product', p['id'])])
-                fieldnames = ['id', 'name', 'brand', 'category', 'price', 'status', 'monthly_sales', 'monthly_gmv', 'conversion_rate', 'avg_order_value', 'tags']
-                filename = 'products_export.csv'
-            else:
-                if ids:
-                    placeholders = ','.join('?' * len(ids))
-                    rows = conn.execute(f'SELECT * FROM talents WHERE id IN ({placeholders}) ORDER BY name', tuple(ids)).fetchall()
-                else:
-                    rows = conn.execute("SELECT * FROM talents WHERE status != 'archived' ORDER BY name").fetchall()
-                entities = [_talent_row_to_dict(r) for r in rows]
-                for t in entities:
-                    t['tags'] = ', '.join([tag['name'] for tag in _get_entity_tags(conn, 'talent', t['id'])])
-                fieldnames = ['id', 'name', 'douyin_id', 'followers', 'category', 'cooperation_status', 'phone', 'wechat', 'email', 'total_gmv', 'product_count', 'tags']
-                filename = 'talents_export.csv'
-            # 补充 category 兼容字段
-            for t in entities:
-                if not t.get('category') and t.get('fan_category'):
-                    t['category'] = t['fan_category']
-                if not t.get('product_count') and t.get('total_products'):
-                    t['product_count'] = t['total_products']
-            rows_out = []
-            for e in entities:
-                row = {}
-                for fn in fieldnames:
-                    val = e.get(fn, '')
-                    if val is None:
-                        val = ''
-                    elif isinstance(val, (dict, list)):
-                        val = json.dumps(val, ensure_ascii=False)
-                    row[fn] = val
-                rows_out.append(row)
-        finally:
-            conn.close()
-        self._send_csv(filename, rows_out)
-
-    def _handle_check_duplicate_product(self):
-        """POST /api/products/check-duplicate — 检查疑似重复商品"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not self._require_module_permission(auth, 'products'): return
-        body = self._read_body()
-        if not body:
-            self._send_json_error(400, 'Missing body')
-            return
-        name = str(body.get('name', '')).strip()
-        external_id = str(body.get('external_id') or body.get('externalId') or '').strip()
-        if not name and not external_id:
-            self._send_json_error(400, 'Missing name or external_id')
-            return
-        conn = _db_conn()
-        try:
-            # 优先级 1：external_id 精确匹配
-            if external_id:
-                row = conn.execute(
-                    "SELECT * FROM products WHERE external_id = ? AND status != ? LIMIT 1",
-                    (external_id, 'archived')
-                ).fetchone()
-                if row:
-                    p = _product_row_to_dict(row)
-                    self._send_json(200, {
-                        'suspected': True,
-                        'candidates': [{
-                            'id': p.get('id'),
-                            'external_id': p.get('external_id'),
-                            'name': p.get('name'),
-                            'brand': p.get('brand'),
-                            'category': p.get('category'),
-                            'price': p.get('price'),
-                            'similarity': 100
-                        }]
-                    })
-                    return
-            # 优先级 2：name/brand/category/price 模糊查重
-            candidate = {
-                'name': name,
-                'brand': str(body.get('brand') or '').strip(),
-                'category': str(body.get('category') or '').strip(),
-                'price': float(body.get('price') or 0),
-            }
-            duplicates = _find_duplicate_products(conn, candidate, threshold=55, limit=5)
-        finally:
-            conn.close()
-        self._send_json(200, {
-            'suspected': len(duplicates) > 0,
-            'candidates': [
-                {
-                    'id': p.get('id'),
-                    'external_id': p.get('external_id'),
-                    'name': p.get('name'),
-                    'brand': p.get('brand'),
-                    'category': p.get('category'),
-                    'price': p.get('price'),
-                    'similarity': round(score, 1)
-                }
-                for score, p in duplicates
-            ]
-        })
-
-    def _handle_extract_product(self):
-        """POST /api/products/extract — 从文本/链接提取商品结构化信息"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not self._require_module_permission(auth, 'products'): return
-        body = self._read_body()
-        if not body:
-            self._send_json_error(400, 'Missing body')
-            return
-        text = str(body.get('text') or '').strip()
-        url = str(body.get('url') or '').strip()
-        if not text and not url:
-            self._send_json_error(400, 'Missing text or url')
-            return
-
-        # 尝试抓取链接文本，并解析外部平台商品 ID
-        fetched_text = ''
-        parsed_external_id = ''
-        if url:
-            try:
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    resolved_url = resp.geturl() or url
-                    html = resp.read().decode('utf-8', errors='replace')
-                    # 简单去标签
-                    fetched_text = _re.sub(r'<[^>]+>', ' ', html)
-                    fetched_text = _re.sub(r'\s+', ' ', fetched_text).strip()[:4000]
-                    parsed_external_id = _extract_external_id_from_url(resolved_url, fetched_text)
-            except Exception as e:
-                print(f'  [Extract] fetch url failed: {e}', flush=True)
-                parsed_external_id = _extract_external_id_from_url(url, '')
-
-        combined = text
-        if fetched_text:
-            combined += '\n\n【链接页面内容】\n' + fetched_text
-        if url and not fetched_text:
-            combined += '\n\n链接：' + url
-
-        prompt = (
-            "你是一名电商商品信息提取助手。请从以下商品描述/链接内容中提取结构化商品信息，"
-            "只返回 JSON，不要返回其他内容。\n"
-            "JSON 字段：\n"
-            "- name: 商品名称（必填，字符串）\n"
-            "- price: 实际售价/直播价（数字，识别不到填 0）\n"
-            "- original_price: 吊牌价/划线价（数字，识别不到填 0）\n"
-            "- price_range: 价格区间字符串（如 ¥89-129，识别不到填空字符串）\n"
-            "- category: 商品分类（如 鞋靴/凉鞋；识别不到填空字符串）\n"
-            "- brand: 品牌名（识别不到填空字符串）\n"
-            "- brand_background: 品牌背景/实力描述（识别不到填空字符串）\n"
-            "- stock: 库存数量（数字，识别不到填 0）\n"
-            "- spot_stock: 现货库存（数字，识别不到填 0）\n"
-            "- pre_stock: 预售库存（数字，识别不到填 0）\n"
-            "- spot_delivery_days: 现货发货时效文本（如 24小时内、1-2天；识别不到填空字符串）\n"
-            "- pre_delivery_days: 预售发货时效文本（如 7天内、15天；识别不到填空字符串）\n"
-            "- shipping_company: 快递公司（如 中通/韵达；识别不到填空字符串）\n"
-            "- has_shipping_insurance: 是否赠送运费险（布尔值，识别不到填 false）\n"
-            "- no_shipping_areas: 不发货地区文本（如 新疆、西藏；识别不到填空字符串）\n"
-            "- commission_rate: 佣金率百分比（数字，识别不到填 0）\n"
-            "- selling_points: 完整核心卖点文本（识别不到填空字符串）\n"
-            "- sku_specs: SKU 规格对象，必须包含颜色/尺码/款式，例如 {\"SKU\":\"SKU001\",\"颜色\":\"黑/白/粉\",\"尺码\":\"37-40\"}，无规格时填 {}\n"
-            "- tags: 标签数组（如 [\"凉鞋\",\"厚底\"]；无标签填 []）\n"
-            "- subtitle: 副标题/描述（识别不到填空字符串）\n"
-            "- main_image: 商品主图 URL（识别不到填空字符串）\n"
-            "- external_id: 外部平台商品 ID，例如抖音 modal_id/goods_id、淘宝 item_id 等（识别不到填空字符串）\n"
-            "- uncertain_fields: 无法确定或缺失的重要字段名称数组，例如 [\"price\",\"stock\"]\n\n"
-            f"内容：\n{combined}\n"
-        )
-        messages = [
-            {'role': 'system', 'content': '你是电商商品信息提取助手，擅长从文本和链接中抽取结构化商品数据。'},
-            {'role': 'user', 'content': prompt}
-        ]
-        cfg = get_embedding_config()
-        cfg['provider'] = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
-        cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
-        cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
-        try:
-            content = _call_ai_analysis(messages, cfg=cfg, context='product_extract')
-        except _AIAnalysisTimeoutError:
-            self._send_json_error(503, 'AI 分析超时或失败，请稍后重试')
-            return
-        if not content:
-            self._send_json_error(503, 'AI extraction failed or returned empty response')
-            return
-        extracted = _extract_json_object(content)
-        if not isinstance(extracted, dict):
-            print(f'  [Extract] product_extract AI response is not a valid JSON object: {content[:1000]}', flush=True)
-            self._send_json_error(503, 'AI response is not valid JSON')
-            return
-        # 规范化字段
-        if 'uncertain_fields' not in extracted or not isinstance(extracted['uncertain_fields'], list):
-            extracted['uncertain_fields'] = []
-        # 如果模型没识别出 external_id，但链接解析到了，则补录
-        if not extracted.get('external_id') and parsed_external_id:
-            extracted['external_id'] = parsed_external_id
-        self._send_json(200, extracted)
-
-    def _handle_update_product_ai_analysis(self, product_id):
-        """PUT /api/products/:id/ai-analysis — 更新商品 AI 分析结果"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not self._require_module_permission(auth, 'products'): return
-        body = self._read_body()
-        if not body or 'ai_analysis' not in body:
-            self._send_json_error(400, 'Missing ai_analysis')
-            return
-        conn = _db_conn()
-        try:
-            row = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
-            if not row:
-                self._send_json_error(404, 'Product not found')
-                return
-            ai_analysis = body['ai_analysis']
-            if not isinstance(ai_analysis, dict):
-                self._send_json_error(400, 'ai_analysis must be an object')
-                return
-            now_ts = int(time.time() * 1000)
-            conn.execute(
-                'UPDATE products SET ai_analysis = ?, updated_at = ? WHERE id = ?',
-                (json.dumps(ai_analysis, ensure_ascii=False), now_ts, product_id)
-            )
-            conn.commit()
-            row_out = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
-            product_out = _product_row_to_dict(row_out)
-        finally:
-            conn.close()
-        self._send_json(200, product_out)
 
     # ═══════════════════════════════════════════════════
     # 品牌库 API
@@ -11622,144 +10539,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'deleted': cur.rowcount > 0, 'id': brand_id})
 
     # ═══════════════════════════════════════════════════
-    # 标签体系 API
-    # ═══════════════════════════════════════════════════
-
-    def _handle_get_tags(self):
-        """GET /api/tags — 标签列表"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not (self._require_module_permission(auth, 'products') or self._require_module_permission(auth, 'influencers')):
-            return
-        query = parse_qs(urlparse(self.path).query)
-        tag_type = query.get('type', [''])[0].strip()
-        conn = _db_conn()
-        try:
-            sql = "SELECT * FROM tags WHERE status = 'active'"
-            params = []
-            if tag_type:
-                sql += " AND (type = ? OR type = 'common')"
-                params.append(tag_type)
-            sql += " ORDER BY name"
-            rows = conn.execute(sql, params).fetchall()
-            tags = [_tag_row_to_dict(r) for r in rows]
-        finally:
-            conn.close()
-        self._send_json(200, {'tags': tags, 'total': len(tags)})
-
-    def _handle_get_tag(self, tag_id):
-        """GET /api/tags/:id — 单个标签"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not (self._require_module_permission(auth, 'products') or self._require_module_permission(auth, 'influencers')):
-            return
-        conn = _db_conn()
-        try:
-            row = conn.execute('SELECT * FROM tags WHERE id = ?', (tag_id,)).fetchone()
-        finally:
-            conn.close()
-        if not row:
-            self._send_json_error(404, 'Tag not found')
-            return
-        self._send_json(200, _tag_row_to_dict(row))
-
-    def _handle_post_tag(self):
-        """POST /api/tags — 创建标签"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not (self._require_module_permission(auth, 'products') or self._require_module_permission(auth, 'influencers')):
-            return
-        body = self._read_body()
-        if not body:
-            self._send_json_error(400, 'Missing body')
-            return
-        name = str(body.get('name') or '').strip()
-        if not name:
-            self._send_json_error(400, '标签名称不能为空')
-            return
-        tag_type = str(body.get('type') or 'common').strip() or 'common'
-        category = str(body.get('category') or '').strip()
-        color = str(body.get('color') or '#0a84ff').strip() or '#0a84ff'
-        now = int(time.time() * 1000)
-        tag_id = 'tag_' + str(now) + '_' + uuid.uuid4().hex[:6]
-        conn = _db_conn()
-        try:
-            existing = conn.execute('SELECT id FROM tags WHERE name = ? AND type = ?', (name, tag_type)).fetchone()
-            if existing:
-                self._send_json_error(409, '同名标签已存在')
-                return
-            conn.execute(
-                'INSERT INTO tags (id, name, category, color, type, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                (tag_id, name, category, color, tag_type, 'active', now, now)
-            )
-            conn.commit()
-            row = conn.execute('SELECT * FROM tags WHERE id = ?', (tag_id,)).fetchone()
-        finally:
-            conn.close()
-        self._send_json(201, _tag_row_to_dict(row))
-
-    def _handle_put_tag(self, tag_id):
-        """PUT /api/tags/:id — 更新标签"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not (self._require_module_permission(auth, 'products') or self._require_module_permission(auth, 'influencers')):
-            return
-        body = self._read_body()
-        if not body:
-            self._send_json_error(400, 'Missing body')
-            return
-        conn = _db_conn()
-        try:
-            row = conn.execute('SELECT * FROM tags WHERE id = ?', (tag_id,)).fetchone()
-            if not row:
-                self._send_json_error(404, 'Tag not found')
-                return
-            name = str(body.get('name', row['name'])).strip() or row['name']
-            tag_type = str(body.get('type', row['type'])).strip() or row['type']
-            category = str(body.get('category', row['category'])).strip()
-            color = str(body.get('color', row['color'])).strip() or row['color']
-            status = str(body.get('status', row['status'])).strip() or row['status']
-            dup = conn.execute('SELECT id FROM tags WHERE name = ? AND type = ? AND id != ?', (name, tag_type, tag_id)).fetchone()
-            if dup:
-                self._send_json_error(409, '同名标签已存在')
-                return
-            now = int(time.time() * 1000)
-            conn.execute(
-                'UPDATE tags SET name = ?, category = ?, color = ?, type = ?, status = ?, updated_at = ? WHERE id = ?',
-                (name, category, color, tag_type, status, now, tag_id)
-            )
-            conn.commit()
-            row = conn.execute('SELECT * FROM tags WHERE id = ?', (tag_id,)).fetchone()
-        finally:
-            conn.close()
-        self._send_json(200, _tag_row_to_dict(row))
-
-    def _handle_delete_tag(self, tag_id):
-        """DELETE /api/tags/:id — 软删除标签"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not (self._require_module_permission(auth, 'products') or self._require_module_permission(auth, 'influencers')):
-            return
-        conn = _db_conn()
-        try:
-            now = int(time.time() * 1000)
-            conn.execute("UPDATE tags SET status = 'inactive', updated_at = ? WHERE id = ?", (now, tag_id))
-            conn.commit()
-        finally:
-            conn.close()
-        self._send_json(200, {'deleted': True, 'id': tag_id})
-
-    # ═══════════════════════════════════════════════════
     # 达人库 API (SQLite)
     # ═══════════════════════════════════════════════════
 
@@ -11775,7 +10554,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         cooperation = query.get('cooperation', [''])[0]
         category = query.get('category', [''])[0]
         status = query.get('status', ['active'])[0]
-        tag_ids = set(t for t in query.get('tags', [''])[0].split(',') if t.strip())
         offset = int(query.get('offset', ['0'])[0])
         limit = int(query.get('limit', ['50'])[0])
         conn = _db_conn()
@@ -11794,56 +10572,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if q:
                 sql += " AND (LOWER(name) LIKE ? OR LOWER(douyin_id) LIKE ? OR LOWER(bio) LIKE ?)"
                 params.extend([f'%{q}%', f'%{q}%', f'%{q}%'])
-            # 按创建人筛选
-            if query.get('created_by'):
-                created_by = query['created_by'][0]
-                if not auth.is_admin and created_by != auth.user_id:
-                    self._send_json_error(403, 'Permission denied')
-                    return
-                sql += " AND created_by = ?"
-                params.append(created_by)
             sql += " ORDER BY followers DESC"
             rows = conn.execute(sql, params).fetchall()
-            talents = [_talent_row_to_dict(r) for r in rows]
-            # 加载标签并筛选
-            if talents:
-                tids = [t['id'] for t in talents]
-                placeholders = ','.join('?' for _ in tids)
-                tag_rows = conn.execute(
-                    f'''SELECT tt.talent_id, t.id, t.name, t.category, t.color, t.type, t.status
-                        FROM talent_tags tt
-                        JOIN tags t ON t.id = tt.tag_id
-                        WHERE tt.talent_id IN ({placeholders}) AND t.status = 'active'
-                        ORDER BY t.name''',
-                    tids
-                ).fetchall()
-                tag_map = {}
-                for r in tag_rows:
-                    tag_map.setdefault(r['talent_id'], []).append({
-                        'id': r['id'], 'name': r['name'], 'category': r['category'],
-                        'color': r['color'], 'type': r['type'], 'status': r['status']
-                    })
-                for t in talents:
-                    t['tag_list'] = tag_map.get(t['id'], [])
-                if tag_ids:
-                    talents = [t for t in talents if any(tag.get('id') in tag_ids for tag in t.get('tag_list', []))]
-            # 员工权限过滤
-            if not auth.is_admin:
-                accessible_ids = _get_employee_accessible_talent_ids(auth.user_id)
-                talents = [t for t in talents if t['id'] in accessible_ids]
-            else:
-                # admin 视角补充创建人信息
-                users = _load_users()
-                user_map = {u.get('id'): u for u in users if u.get('id')}
-                for t in talents:
-                    creator = user_map.get(t.get('created_by') or '')
-                    t['created_by_user'] = {
-                        'id': t.get('created_by') or '',
-                        'username': creator.get('username') if creator else '',
-                        'displayName': creator.get('displayName') if creator else (creator.get('username') if creator else '')
-                    }
-            total = len(talents)
-            talents = talents[offset:offset + limit]
+            total = len(rows)
+            talents = [_talent_row_to_dict(r) for r in rows[offset:offset + limit]]
         finally:
             conn.close()
         self._send_json(200, {'talents': talents, 'total': total, 'offset': offset, 'limit': limit})
@@ -11858,18 +10590,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         conn = _db_conn()
         try:
             row = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
-            talent = _talent_row_to_dict(row) if row else None
-            if talent:
-                talent['tag_list'] = _get_entity_tags(conn, 'talent', talent_id)
         finally:
             conn.close()
-        if not talent:
+        if not row:
             self._send_json_error(404, 'Talent not found')
             return
-        if not auth.is_admin and talent_id not in _get_employee_accessible_talent_ids(auth.user_id):
-            self._send_json_error(403, 'Permission denied')
-            return
-        self._send_json(200, talent)
+        self._send_json(200, _talent_row_to_dict(row))
 
     def _handle_post_talent(self):
         """POST /api/talents — 录入达人（仅当 douyin_id 完全一致时算重复）"""
@@ -11902,24 +10628,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 result['message'] = f"该达人（抖音号{douyin_id}）已存在，是否需要更新信息？"
                 self._send_json(200, result)
                 return
-            # 昵称去重兜底：抖音号未命中时，再按名称不区分大小写检查
-            name = str(body.get('name') or '').strip()
-            if not existing and name:
-                existing = conn.execute(
-                    "SELECT * FROM talents WHERE LOWER(name) = LOWER(?) LIMIT 1",
-                    (name,)
-                ).fetchone()
-            if existing:
-                result = _talent_row_to_dict(existing)
-                result['duplicate'] = True
-                result['can_update'] = True
-                result['message'] = f"该达人（名称：{result.get('name')}，抖音号：{result.get('douyin_id') or '无'}）已存在，是否需要更新信息？"
-                self._send_json(200, result)
-                return
         finally:
             conn.close()
 
-        body['created_by'] = auth.user_id
         row = _dict_to_talent_row(body)
         conn = _db_conn()
         try:
@@ -11931,353 +10642,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if row.get('group_id'):
                 _update_brand_product_stats(conn, row['group_id'])
                 conn.commit()
-            # 同步标签关联
-            tag_names = body.get('tags') or []
-            _sync_entity_tags(conn, 'talent', row['id'], tag_names)
-            conn.commit()
             row_out = conn.execute('SELECT * FROM talents WHERE id = ?', (row['id'],)).fetchone()
         finally:
             conn.close()
-        talent_out = _talent_row_to_dict(row_out)
-        talent_out['tag_list'] = _get_entity_tags(_db_conn(), 'talent', row['id'])
-        self._send_json(200, talent_out)
-
-    def _handle_parse_talent(self):
-        """POST /api/talents/parse — AI 解析达人资料
-        请求体: {source: 'text'|'image'|'link', data: {...}}
-        返回: {success, source, talent: {...}, raw, error}
-        AI 调用优先 OpenClaw，降级 API 直连（复用 _call_ai_analysis）。
-        """
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not self._require_module_permission(auth, 'influencers'):
-            return
-
-        body = self._read_body()
-        if not body:
-            self._send_json_error(400, '无效的请求体')
-            return
-
-        source = str(body.get('source') or '').strip().lower()
-        data = body.get('data') or {}
-        if source not in ('text', 'image', 'link'):
-            self._send_json_error(400, "source 必须是 'text'|'image'|'link'")
-            return
-
-        # 构建用户内容
-        user_content = []
-        link_url = ''
-        if source == 'text':
-            text = str(data.get('text') or '').strip()
-            if not text:
-                self._send_json_error(400, 'text 内容不能为空')
-                return
-            user_content.append({'type': 'text', 'text': text})
-        elif source == 'link':
-            link_url = str(data.get('url') or '').strip()
-            if not link_url:
-                self._send_json_error(400, 'url 不能为空')
-                return
-            link_text = link_url
-            # 尝试抓取抖音达人主页补充文本上下文
-            if 'douyin.com/user/' in link_url or 'douyin.com' in link_url:
-                try:
-                    html, err = _fetch_douyin_page(link_url)
-                    if html:
-                        # 简单提取标题和 meta 描述
-                        title_match = re.search(r'<title>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
-                        desc_match = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\'](.*?)["\']', html, re.IGNORECASE | re.DOTALL)
-                        page_parts = []
-                        if title_match:
-                            page_parts.append('页面标题：' + re.sub(r'\s+', ' ', title_match.group(1)).strip())
-                        if desc_match:
-                            page_parts.append('页面描述：' + re.sub(r'\s+', ' ', desc_match.group(1)).strip())
-                        if page_parts:
-                            link_text = link_url + '\n\n' + '\n'.join(page_parts)
-                except Exception as e:
-                    print(f'  [TalentParse] 抓取链接失败: {e}', flush=True)
-            user_content.append({'type': 'text', 'text': link_text})
-        elif source == 'image':
-            base64_img = str(data.get('base64') or '').strip()
-            image_url = str(data.get('imageUrl') or '').strip()
-            if not base64_img and not image_url:
-                self._send_json_error(400, 'image 源需要 base64 或 imageUrl')
-                return
-            user_content.append({'type': 'text', 'text': '请从以下图片中提取达人资料信息。'})
-            if base64_img:
-                if not base64_img.startswith('data:'):
-                    base64_img = 'data:image/jpeg;base64,' + base64_img
-                user_content.append({'type': 'image_url', 'image_url': {'url': base64_img}})
-            elif image_url:
-                user_content.append({'type': 'image_url', 'image_url': {'url': image_url}})
-
-        system_prompt = (
-            "你是一个专业的达人数据提取员，看到截图后必须按以下字段逐条提取，截图里没有的字段标注未提供，"
-            "严禁跳过任何字段严禁概括省略所有数字必须保留原始精度。提取字段："
-            "【达人基础信息】昵称、抖音号、城市、粉丝数、等级、简介完整原文、内容标签、带货口碑分、合作邀约状态、关联企业、签约机构 "
-            "【核心带货数据含统计时间】带货商品数、历史带货天数、结算总额、结算总额近7天、带货形式视频百分比和直播百分比、视频总播放量、单视频结算额、视频GPM、发布内容总数、带货视频播放量、带货视频数量、平均件单价 "
-            "【带货评分5分制】带货评分、带货效果、合作履约、沟通态度、履约定次数、评级高中低、合作态度标签 "
-            "【热卖商品TOP逐条列出】每条含商品名称完整、到手价、结算额区间、关联短视频数、店铺名称 "
-            "【热卖类目TOP逐条列出】每条含类目名称、均价、结算额、占比百分比 "
-            "【热卖品牌TOP逐条列出】每条含品牌名称、均价、结算额、占比百分比 "
-            "【粉丝画像每张截图分别提取】性别分布、年龄分布、城市分布、人群标签、客单价偏好、品类偏好，"
-            "多张粉丝画像截图要分别标注来源维度如短视频维度或总体维度，数据不同时都要保留。"
-            "输出JSON格式顶层key为上述分类名。"
-        )
-
-        messages = [
-            {'role': 'system', 'content': system_prompt},
-            {'role': 'user', 'content': user_content}
-        ]
-
-        # 获取分析配置：优先使用 embedding 配置中的 apiKey/apiModel，否则取第一个有 key 的员工
-        cfg = {}
-        emb_cfg = get_embedding_config()
-        if emb_cfg and emb_cfg.get('apiKey'):
-            cfg = emb_cfg
-        else:
-            for agent in (_load_agents() or []):
-                key = (agent.get('apiKey') or '').strip()
-                if key:
-                    cfg = {
-                        'provider': agent.get('aiProvider') or agent.get('apiProvider') or 'kimicode',
-                        'apiKey': key,
-                        'apiModel': agent.get('apiModel', ''),
-                        'baseUrl': agent.get('customEndpoint', '')
-                    }
-                    break
-
-        raw_reply = None
-        try:
-            # 解析接口使用较短超时，避免前端长时间等待
-            raw_reply = _call_ai_analysis(messages, cfg, context='talent_parse', timeout=15)
-        except Exception as e:
-            print(f'  [TalentParse] AI 调用异常: {e}', flush=True)
-            traceback.print_exc()
-
-        if not raw_reply:
-            self._send_json(200, {
-                'success': False,
-                'source': source,
-                'talent': None,
-                'error': 'AI 解析失败，请检查 AI 配置或稍后重试',
-                'raw': ''
-            })
-            return
-
-        parsed = _extract_json_object(raw_reply)
-        if not parsed or not isinstance(parsed, dict):
-            self._send_json(200, {
-                'success': False,
-                'source': source,
-                'talent': None,
-                'error': 'AI 返回格式无法解析为 JSON',
-                'raw': raw_reply[:500]
-            })
-            return
-
-        # 字段清洗与新旧格式映射
-        def _safe_int(val):
-            s = str(val).strip().lower()
-            if not s:
-                return 0
-            s = s.replace(',', '').replace('，', '')
-            multiplier = 1
-            if '万' in s or 'w' in s:
-                multiplier = 10000
-                s = s.replace('万', '').replace('w', '').strip()
-            try:
-                return int(float(s) * multiplier)
-            except Exception:
-                return 0
-
-        def _safe_float(val):
-            if isinstance(val, (int, float)):
-                return float(val)
-            if val is None:
-                return 0.0
-            s = str(val).strip()
-            if not s:
-                return 0.0
-            s = s.replace(',', '').replace('，', '').replace('%', '')
-            multiplier = 1.0
-            if '亿' in s:
-                multiplier = 1e8
-                s = s.replace('亿', '')
-            elif '万' in s or 'w' in s.lower():
-                multiplier = 1e4
-                s = s.replace('万', '').replace('w', '').replace('W', '')
-            m = re.search(r'[-+]?\d+\.?\d*', s)
-            if not m:
-                return 0.0
-            try:
-                return float(m.group()) * multiplier
-            except Exception:
-                return 0.0
-
-        def _parse_ratio(text):
-            text = str(text) if text else ''
-            nums = re.findall(r'[-+]?\d+\.?\d*%?', text)
-            vals = []
-            for n in nums:
-                v = float(n.rstrip('%'))
-                vals.append(v)
-            if len(vals) >= 2:
-                return vals[0], vals[1]
-            if len(vals) == 1:
-                return vals[0], max(0.0, 100.0 - vals[0])
-            return 0.0, 0.0
-
-        def _cat(data, *names):
-            if not isinstance(data, dict):
-                return None
-            for n in names:
-                if n in data:
-                    return data[n]
-            norm = {re.sub(r'[【】\s]', '', str(k)): v for k, v in data.items() if isinstance(k, str)}
-            for n in names:
-                key = re.sub(r'[【】\s]', '', n)
-                if key in norm:
-                    return norm[key]
-            return None
-
-        def _resolve(candidates, key, default=None):
-            for c in candidates:
-                if isinstance(c, dict) and key in c:
-                    return c[key]
-                if isinstance(c, list) and c and isinstance(c[0], dict) and key in c[0]:
-                    return c[0][key]
-            return default
-
-        base = _cat(parsed, '【达人基础信息】', '达人基础信息')
-        core = _cat(parsed, '【核心带货数据含统计时间】', '核心带货数据含统计时间', '核心带货数据')
-        rating = _cat(parsed, '【带货评分5分制】', '带货评分5分制', '带货评分')
-        fans = _cat(parsed, '【粉丝画像每张截图分别提取】', '粉丝画像每张截图分别提取', '粉丝画像')
-
-        name = str(_resolve([base], '昵称') or parsed.get('name') or '').strip()[:100]
-        douyin_id = str(_resolve([base], '抖音号') or parsed.get('douyin_id') or parsed.get('douyinId') or '').strip()[:100]
-        city = str(_resolve([base], '城市') or parsed.get('city') or '').strip()[:50]
-        followers = _safe_int(_resolve([base], '粉丝数') or parsed.get('followers') or parsed.get('followerCount') or 0)
-        level = str(_resolve([base], '等级') or parsed.get('level') or '').strip()[:20]
-        bio = str(_resolve([base], '简介完整原文', '简介') or parsed.get('bio') or '').strip()[:2000]
-        category = str(_resolve([base], '内容标签') or parsed.get('category') or parsed.get('fan_category') or '').strip()[:100]
-        cooperation_status = str(_resolve([base], '合作邀约状态') or parsed.get('cooperation_status') or parsed.get('cooperationStatus') or 'available').strip()[:30]
-        agency = str(_resolve([base], '签约机构') or parsed.get('agency') or '').strip()[:100]
-
-        # 旧格式中的联系方式字段（新截图 prompt 未要求，保留兼容）
-        phone = str(parsed.get('phone') or parsed.get('contact_phone') or '').strip()[:50]
-        wechat = str(parsed.get('wechat') or parsed.get('contact_wechat') or '').strip()[:50]
-        email = str(parsed.get('email') or parsed.get('contact_email') or '').strip()[:100]
-        contact_name = str(parsed.get('contact_name') or parsed.get('contactName') or '').strip()[:100]
-        risk_rating = str(parsed.get('risk_rating') or parsed.get('riskRating') or 'low').strip()[:20]
-        follow_up_note = str(parsed.get('follow_up_note') or parsed.get('followUpNote') or '').strip()[:1000]
-
-        total_gmv = _safe_float(_resolve([core], '结算总额') or parsed.get('total_gmv') or 0)
-        total_products = _safe_int(_resolve([core], '带货商品数') or parsed.get('total_products') or parsed.get('product_count') or 0)
-        average_price = _safe_float(_resolve([core], '平均件单价') or parsed.get('average_price') or 0)
-        video_gpm = _safe_float(_resolve([core], '视频GPM') or parsed.get('video_gpm') or 0)
-        video_ratio, live_ratio = _parse_ratio(_resolve([core], '带货形式视频百分比和直播百分比') or parsed.get('video_ratio') or parsed.get('live_ratio') or '')
-
-        rating_score = _safe_float(_resolve([rating], '带货评分') or parsed.get('rating_score') or 0)
-        ai_rating = str(_resolve([rating], '评级高中低') or parsed.get('ai_rating') or '').strip()[:20]
-        ai_reason = str(_resolve([rating], '合作态度标签') or parsed.get('ai_reason') or '').strip()[:500]
-
-        fan_gender = _resolve([fans], '性别分布') or parsed.get('fan_gender') or parsed.get('fanGender') or {}
-        fan_age = _resolve([fans], '年龄分布') or parsed.get('fan_age') or parsed.get('fanAge') or {}
-        fan_region = _resolve([fans], '城市分布') or parsed.get('fan_region') or parsed.get('fanRegion') or {}
-        fan_crowd = str(_resolve([fans], '人群标签') or parsed.get('fan_crowd') or '').strip()[:100]
-        fan_price_range = str(_resolve([fans], '客单价偏好') or parsed.get('fan_price_range') or '').strip()[:100]
-        fan_category = str(_resolve([fans], '品类偏好') or parsed.get('fan_category') or parsed.get('category') or '').strip()[:100]
-        fans_profile = fans if fans is not None else (parsed.get('fans_profile') or parsed.get('fansProfile') or {})
-
-        raw_analysis = json.dumps(parsed, ensure_ascii=False)
-
-        talent = {
-            'name': name or '未命名达人',
-            'douyin_id': douyin_id,
-            'followers': followers,
-            'category': category,
-            'phone': phone,
-            'wechat': wechat,
-            'email': email,
-            'bio': bio,
-            'level': level,
-            'city': city,
-            'contact_name': contact_name,
-            'risk_rating': risk_rating,
-            'cooperation_status': cooperation_status,
-            'follow_up_note': follow_up_note,
-            'agency': agency,
-            'total_gmv': total_gmv,
-            'total_products': total_products,
-            'average_price': average_price,
-            'video_gpm': video_gpm,
-            'video_ratio': video_ratio,
-            'live_ratio': live_ratio,
-            'rating_score': rating_score,
-            'ai_rating': ai_rating,
-            'ai_reason': ai_reason,
-            'fan_gender': fan_gender,
-            'fan_age': fan_age,
-            'fan_region': fan_region,
-            'fan_crowd': fan_crowd,
-            'fan_price_range': fan_price_range,
-            'fan_category': fan_category,
-            'fans_profile': fans_profile,
-            'raw_analysis': raw_analysis,
-            'group_id': str(body.get('group_id') or body.get('groupId') or '').strip(),
-            'created_by': auth.user_id or '',
-            'status': 'active',
-        }
-
-        # 保存到达人库：douyin_id 已存在则更新，否则新建
-        talent_id = None
-        conn = _db_conn()
-        try:
-            existing = None
-            if douyin_id:
-                existing = conn.execute(
-                    'SELECT * FROM talents WHERE LOWER(douyin_id) = LOWER(?) LIMIT 1',
-                    (douyin_id,)
-                ).fetchone()
-            if existing:
-                existing_dict = _talent_row_to_dict(existing)
-                # 确保新的 raw_analysis 能覆盖旧 ai_analysis
-                existing_dict.pop('ai_analysis', None)
-                existing_dict.pop('aiAnalysis', None)
-                existing_dict.update(talent)
-                existing_dict['id'] = existing['id']
-                existing_dict['updated_at'] = int(time.time() * 1000)
-                row = _dict_to_talent_row(existing_dict)
-                conn.execute(
-                    f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_COLUMNS)} WHERE id = ?",
-                    tuple(row[c] for c in _TALENT_COLUMNS) + (existing['id'],)
-                )
-                conn.commit()
-                talent_id = existing['id']
-            else:
-                row = _dict_to_talent_row(talent)
-                conn.execute(
-                    f"INSERT INTO talents ({', '.join(_TALENT_COLUMNS)}) VALUES ({', '.join('?' * len(_TALENT_COLUMNS))})",
-                    tuple(row[c] for c in _TALENT_COLUMNS)
-                )
-                conn.commit()
-                talent_id = row['id']
-                if row.get('group_id'):
-                    _update_brand_product_stats(conn, row['group_id'])
-                    conn.commit()
-        finally:
-            conn.close()
-
-        self._send_json(200, {
-            'success': True,
-            'source': source,
-            'talent_id': talent_id,
-            'talent': talent,
-            'raw': raw_reply[:500]
-        })
+        self._send_json(200, _talent_row_to_dict(row_out))
 
     def _handle_put_talent(self, talent_id):
         """PUT /api/talents/:id — 更新达人"""
@@ -12297,22 +10665,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(404, 'Talent not found')
                 return
             existing = _talent_row_to_dict(row)
-            if not auth.is_admin and talent_id not in _get_employee_accessible_talent_ids(auth.user_id):
-                self._send_json_error(403, 'Permission denied')
-                return
-
-            # 若修改抖音号，检查是否与其他达人冲突
-            new_douyin_id = str(body.get('douyin_id') or body.get('douyinId') or existing.get('douyin_id') or '').strip()
-            old_douyin_id = str(existing.get('douyin_id') or '').strip()
-            if new_douyin_id and new_douyin_id.lower() != old_douyin_id.lower():
-                dup = conn.execute(
-                    "SELECT id FROM talents WHERE LOWER(douyin_id) = LOWER(?) AND id != ? LIMIT 1",
-                    (new_douyin_id, talent_id)
-                ).fetchone()
-                if dup:
-                    self._send_json_error(409, f'抖音号 {new_douyin_id} 已被其他达人使用')
-                    return
-
             existing.update(body)
             existing['id'] = talent_id
             existing['updated_at'] = int(time.time() * 1000)
@@ -12325,28 +10677,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if row.get('group_id'):
                 _update_brand_product_stats(conn, row['group_id'])
                 conn.commit()
-            # 同步标签关联
-            tag_names = body.get('tags')
-            if tag_names is not None:
-                _sync_entity_tags(conn, 'talent', talent_id, tag_names)
-                conn.commit()
             row_out = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
         finally:
             conn.close()
-        talent_out = _talent_row_to_dict(row_out)
-        talent_out['tag_list'] = _get_entity_tags(_db_conn(), 'talent', talent_id)
-
-        # 同步刷新达人向量索引（非阻塞，失败仅记录日志）
-        try:
-            emb_cfg = get_embedding_config()
-            if emb_cfg and emb_cfg.get('apiKey'):
-                ensure_embedding('talent', talent_out, emb_cfg['apiKey'], emb_cfg.get('provider', 'openai'),
-                                 model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
-                print(f'  [Talent] 已刷新达人向量索引: {talent_id}', flush=True)
-        except Exception as emb_e:
-            print(f'  [Talent] 刷新达人向量索引失败（不影响更新）: {talent_id}, {emb_e}', flush=True)
-
-        self._send_json(200, talent_out)
+        self._send_json(200, _talent_row_to_dict(row_out))
 
     def _handle_delete_talent(self, talent_id):
         """DELETE /api/talents/:id — 删除达人"""
@@ -12355,15 +10689,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
-        if not auth.is_admin and talent_id not in _get_employee_accessible_talent_ids(auth.user_id):
-            self._send_json_error(403, 'Permission denied')
-            return
         conn = _db_conn()
         try:
             talent = conn.execute('SELECT group_id FROM talents WHERE id = ?', (talent_id,)).fetchone()
             cur = conn.execute('DELETE FROM talents WHERE id = ?', (talent_id,))
             conn.execute('DELETE FROM product_talent_match WHERE talent_id = ?', (talent_id,))
-            conn.execute('DELETE FROM talent_tags WHERE talent_id = ?', (talent_id,))
             conn.commit()
             if talent and talent['group_id']:
                 _update_brand_product_stats(conn, talent['group_id'])
@@ -13466,145 +11796,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._read_body = original_read_body
             self._ai_match_body = None
 
-    def _handle_matching_recommend(self):
-        """POST /api/matching/recommend — 统一双向推荐接口
-        请求体: {type: 'product'|'talent', id: '...', limit: 10, aiCandidates: 30, minScore: 0, agentId: '...'}
-        返回: {type, id, recommendations: [{id, name, score(0-1), reason}], total, source}
-        """
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        body = self._read_body() or {}
-        rec_type = str(body.get('type') or '').strip().lower()
-        entity_id = str(body.get('id') or '').strip()
-        limit = max(1, int(body.get('limit', 10)))
-        ai_candidates = max(1, int(body.get('aiCandidates', 30)))
-        min_score = float(body.get('minScore', 0))
-
-        if rec_type not in ('product', 'talent'):
-            self._send_json_error(400, 'type 必须是 product 或 talent')
-            return
-        if not entity_id:
-            self._send_json_error(400, 'id 不能为空')
-            return
-
-        module = 'products' if rec_type == 'product' else 'influencers'
-        if not self._require_module_permission(auth, module):
-            return
-
-        # 加载当前 AI 员工配置（用于调用 OpenClaw）
-        agent_id = body.get('agentId') or auth.user_id
-        agent = None
-        agents_data = _load_agents()
-        agents = agents_data.get('agents', []) if isinstance(agents_data, dict) else agents_data
-        for a in agents:
-            if a.get('id') == agent_id:
-                agent = a
-                break
-        if not agent and agents:
-            agent = agents[0]
-
-        conn = _db_conn()
-        try:
-            if rec_type == 'product':
-                row = conn.execute('SELECT * FROM products WHERE id = ?', (entity_id,)).fetchone()
-                source = _product_row_to_dict(row)
-                if source:
-                    source['tag_list'] = _get_entity_tags(conn, 'product', entity_id)
-                candidate_rows = conn.execute("SELECT * FROM talents WHERE status = 'active'").fetchall()
-            else:
-                row = conn.execute('SELECT * FROM talents WHERE id = ?', (entity_id,)).fetchone()
-                source = _talent_row_to_dict(row)
-                if source:
-                    source['tag_list'] = _get_entity_tags(conn, 'talent', entity_id)
-                candidate_rows = conn.execute("SELECT * FROM products WHERE status = 'active'").fetchall()
-        finally:
-            conn.close()
-
-        if not source:
-            self._send_json_error(404, 'Entity not found')
-            return
-
-        # 阶段1：规则初筛打分
-        rule_results = []
-        for r in candidate_rows:
-            if rec_type == 'product':
-                candidate = _talent_row_to_dict(r)
-                rule_score, rule_reasons = self._calculate_match_score_v2(source, candidate)
-            else:
-                candidate = _product_row_to_dict(r)
-                rule_score, rule_reasons = self._calculate_match_score_v2(candidate, source)
-            if rule_score < min_score:
-                continue
-            rule_results.append({
-                'candidate': candidate,
-                'rule_score': rule_score,
-                'rule_reasons': rule_reasons
-            })
-        rule_results.sort(key=lambda x: x['rule_score'], reverse=True)
-
-        # 阶段2：AI 语义打分（仅对前 N 个候选）
-        ai_scores = {}
-        ai_input = rule_results[:ai_candidates]
-        if agent and ai_input:
-            target_type = 'talents' if rec_type == 'product' else 'products'
-            try:
-                ai_scores = self._ai_match_candidates(
-                    source, [r['candidate'] for r in ai_input], target_type, agent, limit=min(limit, 10)
-                )
-            except Exception as e:
-                print(f'  [MatchingRecommend] AI scoring failed: {e}', flush=True)
-                ai_scores = {}
-
-        # 阶段3：融合规则分与 AI 分，生成最终推荐列表
-        recommendations = []
-        for r in rule_results:
-            candidate = r['candidate']
-            rule_score = r['rule_score']
-            rule_reasons = r['rule_reasons']
-            ai_info = ai_scores.get(candidate['id'], {})
-            ai_score = ai_info.get('ai_score', 0)
-            ai_reason = ai_info.get('ai_reason', '')
-
-            if ai_score > 0:
-                final_score_100 = round(rule_score * 0.4 + ai_score * 0.6, 1)
-                reason = ai_reason if ai_reason else '；'.join(rule_reasons[:2])
-            else:
-                final_score_100 = round(rule_score, 1)
-                reason = '；'.join(rule_reasons[:2])
-
-            rec = {
-                'id': candidate['id'],
-                'name': candidate.get('name', ''),
-                'score': max(0.0, min(1.0, round(final_score_100 / 100.0, 2))),
-                'reason': reason,
-                'rule_score': rule_score,
-                'ai_score': ai_score
-            }
-            if rec_type == 'product':
-                rec['avatar'] = candidate.get('avatar', '')
-                rec['followers'] = candidate.get('followers', 0)
-                rec['category'] = candidate.get('fan_category') or candidate.get('category', '')
-                rec['total_gmv'] = candidate.get('total_gmv', 0)
-            else:
-                rec['brand'] = candidate.get('brand', '')
-                rec['category'] = candidate.get('category', '')
-                rec['price'] = candidate.get('price', 0)
-                rec['commission_rate'] = candidate.get('commission_rate', 0)
-                rec['stock'] = candidate.get('stock', 0)
-            recommendations.append(rec)
-
-        recommendations.sort(key=lambda x: x['score'], reverse=True)
-
-        self._send_json(200, {
-            'type': rec_type,
-            'id': entity_id,
-            'recommendations': recommendations[:limit],
-            'total': len(recommendations),
-            'source': 'live'
-        })
-
     def _handle_analyze_talent_ai(self, talent_id):
         """POST /api/talents/:id/analyze — 调用 AI 生成达人分析"""
         auth = _authenticate(self.headers)
@@ -13647,11 +11838,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             {'role': 'system', 'content': '你是电商达人分析助手，擅长根据达人数据给出结构化分析。'},
             {'role': 'user', 'content': prompt}
         ]
-        try:
-            content = _call_ai_analysis(messages, cfg=cfg, context='talent_analyze')
-        except _AIAnalysisTimeoutError:
-            self._send_json_error(503, 'AI 分析超时或失败，请稍后重试')
-            return
+        content = _call_ai_analysis(messages, cfg=cfg, context='talent_analyze')
         if not content:
             self._send_json_error(503, 'AI analysis failed or returned empty response')
             return
@@ -13666,15 +11853,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         now_ts = int(time.time() * 1000)
         conn = _db_conn()
         try:
-            # 同时把综合结论写入 ai_analysis，便于详情页直接展示
-            ai_analysis_text = analysis.get('suitable_products', '') or analysis.get('cooperation_advice', '')
             conn.execute(
-                '''UPDATE talents SET ai_rating = ?, ai_tags = ?, ai_summary = ?, ai_analysis = ?, ai_reason = ?, updated_at = ? WHERE id = ?''',
+                '''UPDATE talents SET ai_rating = ?, ai_tags = ?, ai_summary = ?, ai_reason = ?, updated_at = ? WHERE id = ?''',
                 (
                     analysis.get('rating', ''),
                     json.dumps(analysis.get('tags', []), ensure_ascii=False),
                     analysis.get('suitable_products', ''),
-                    ai_analysis_text,
                     json.dumps(analysis, ensure_ascii=False),
                     now_ts, talent_id
                 )
@@ -13683,249 +11867,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         self._send_json(200, {'id': talent_id, 'ai_analysis': analysis})
-
-    def _handle_analyze_hit_talent(self, talent_id):
-        """POST /api/talents/:id/analyze-hit — 分析达人为什么能卖爆"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not self._require_module_permission(auth, 'influencers'): return
-
-        conn = _db_conn()
-        try:
-            row = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
-            talent = _talent_row_to_dict(row)
-        finally:
-            conn.close()
-        if not talent:
-            self._send_json_error(404, 'Talent not found')
-            return
-
-        body = self._read_body() or {}
-        user_data = {
-            'fan_screenshot': body.get('fan_screenshot', ''),
-            'conversion_rate': body.get('conversion_rate'),
-            'gmv': body.get('gmv'),
-            'sample_videos': body.get('sample_videos', []),
-            'extra_notes': body.get('extra_notes', '')
-        }
-        has_data = any([
-            user_data['fan_screenshot'],
-            user_data['conversion_rate'] is not None,
-            user_data['gmv'] is not None,
-            user_data['sample_videos'],
-            user_data['extra_notes']
-        ])
-
-        cfg = get_embedding_config()
-        cfg['provider'] = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
-        cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
-        cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
-
-        prompt = (
-            f"请分析以下抖音达人为什么能把商品卖爆，只返回 JSON，不要返回其他内容。\n"
-            f"JSON 格式：{{\n"
-            f"  \"persona_style\": \"人设风格分析\",\n"
-            f"  \"content_format\": \"内容形式分析\",\n"
-            f"  \"selling_script\": \"带货话术分析\",\n"
-            f"  \"price_strategy\": \"价格策略分析\",\n"
-            f"  \"fan_profile\": \"粉丝画像分析\",\n"
-            f"  \"why_hit\": \"综合结论：为什么能卖爆\"\n"
-            f"}}\n\n"
-            f"达人昵称：{talent.get('name', '')}\n"
-            f"等级：{talent.get('level', '')}\n"
-            f"粉丝量：{talent.get('followers', 0)}\n"
-            f"达人类型：{talent.get('talent_type', '')}\n"
-            f"主营类目：{talent.get('fan_category', '')}\n"
-            f"粉丝价格带：{talent.get('fan_price_range', '')}\n"
-            f"粉丝画像（性别）：{json.dumps(talent.get('fan_gender', {}), ensure_ascii=False)}\n"
-            f"粉丝画像（年龄）：{json.dumps(talent.get('fan_age', {}), ensure_ascii=False)}\n"
-            f"带货数据：总GMV {talent.get('total_gmv', 0)}，总商品数 {talent.get('total_products', 0)}，平均价格 {talent.get('average_price', 0)}\n"
-            f"标签：{json.dumps(talent.get('tags', []), ensure_ascii=False)}\n"
-            f"简介：{talent.get('bio', '')}\n"
-        )
-        if has_data:
-            prompt += f"\n用户补充数据：\n{json.dumps(user_data, ensure_ascii=False)}\n"
-        else:
-            prompt += (
-                "\n注意：当前用户未提供达人后台截图、粉丝画像、转化率、GMV 等关键数据，"
-                "请在 why_hit 中说明\"数据不足，结论仅供参考\"，并简要说明还需要哪些数据才能更准确。"
-            )
-
-        messages = [
-            {'role': 'system', 'content': '你是电商达人运营分析专家，擅长从人设、内容、话术、价格、粉丝画像五个维度拆解爆款原因。'},
-            {'role': 'user', 'content': prompt}
-        ]
-        try:
-            content = _call_ai_analysis(messages, cfg=cfg, context='talent_hit_analyze')
-        except _AIAnalysisTimeoutError:
-            self._send_json_error(503, 'AI 分析超时或失败，请稍后重试')
-            return
-        if not content:
-            self._send_json_error(503, 'AI analysis failed or returned empty response')
-            return
-
-        analysis = _extract_json_object(content)
-        if not isinstance(analysis, dict):
-            print(f'  [Analyze] talent_hit_analyze AI response is not a valid JSON object: {content[:1000]}', flush=True)
-            self._send_json_error(503, 'AI response is not valid JSON')
-            return
-
-        now_ts = int(time.time() * 1000)
-        conn = _db_conn()
-        try:
-            existing_ai = talent.get('ai_analysis') or {}
-            if isinstance(existing_ai, str):
-                try:
-                    existing_ai = json.loads(existing_ai)
-                except Exception:
-                    existing_ai = {}
-            existing_ai['hit_analysis'] = analysis
-            conn.execute(
-                'UPDATE talents SET ai_analysis = ?, updated_at = ? WHERE id = ?',
-                (json.dumps(existing_ai, ensure_ascii=False), now_ts, talent_id)
-            )
-            conn.commit()
-        finally:
-            conn.close()
-        self._send_json(200, {'id': talent_id, 'hit_analysis': analysis, 'has_user_data': has_data})
-
-    def _handle_find_similar_talents(self):
-        """POST /api/talents/similar — 基于爆款达人特征找相似达人"""
-        auth = _authenticate(self.headers)
-        if not auth.is_authenticated:
-            self._send_auth_error(auth.error, auth.status)
-            return
-        if not self._require_module_permission(auth, 'influencers'): return
-        body = self._read_body() or {}
-        talent_id = body.get('talent_id') or body.get('talentId')
-        features = body.get('features') or {}
-        limit = int(body.get('limit', 10))
-
-        conn = _db_conn()
-        try:
-            source_talent = None
-            if talent_id:
-                row = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
-                source_talent = _talent_row_to_dict(row)
-            rows = conn.execute(
-                "SELECT * FROM talents WHERE status != 'archived' ORDER BY followers DESC"
-            ).fetchall()
-            talents = [_talent_row_to_dict(r) for r in rows]
-        finally:
-            conn.close()
-
-        if not source_talent and not features:
-            self._send_json_error(400, 'Missing talent_id or features')
-            return
-
-        if source_talent:
-            features = {
-                'category': source_talent.get('fan_category') or source_talent.get('category', ''),
-                'tags': source_talent.get('tags', []),
-                'followers': source_talent.get('followers', 0),
-                'price_range': source_talent.get('fan_price_range', ''),
-                'talent_type': source_talent.get('talent_type', ''),
-            }
-
-        # 规则匹配
-        results = []
-        for t in talents:
-            if talent_id and t.get('id') == talent_id:
-                continue
-            score = 0.0
-            reasons = []
-            source_cat = features.get('category', '')
-            target_cat = t.get('fan_category') or t.get('category', '')
-            if source_cat and target_cat:
-                if source_cat == target_cat:
-                    score += 30
-                    reasons.append('主营类目一致')
-                elif source_cat in target_cat or target_cat in source_cat:
-                    score += 15
-                    reasons.append('主营类目相近')
-            source_tags = set(str(x).lower() for x in (features.get('tags') or []))
-            target_tags = set(str(x).lower() for x in (t.get('tags') or []))
-            tag_overlap = source_tags & target_tags
-            if tag_overlap:
-                score += len(tag_overlap) * 8
-                reasons.append(f"标签重叠：{', '.join(list(tag_overlap)[:3])}")
-            src_followers = int(features.get('followers') or 0)
-            tgt_followers = int(t.get('followers') or 0)
-            if src_followers > 0 and tgt_followers > 0:
-                ratio = min(src_followers, tgt_followers) / max(src_followers, tgt_followers)
-                if ratio >= 0.5:
-                    score += 15
-                    reasons.append('粉丝量级相近')
-                elif ratio >= 0.2:
-                    score += 8
-                    reasons.append('粉丝量级可对标')
-            src_type = str(features.get('talent_type', '')).lower()
-            tgt_type = str(t.get('talent_type', '')).lower()
-            if src_type and tgt_type and src_type == tgt_type:
-                score += 10
-                reasons.append('达人类型一致')
-            if score > 0:
-                results.append({
-                    'talent_id': t.get('id'),
-                    'talent': t,
-                    'score': min(score, 100),
-                    'matchPercent': min(score, 100),
-                    'reasons': reasons
-                })
-
-        results.sort(key=lambda x: x['score'], reverse=True)
-
-        # 若候选充足且显式要求，调用 AI 生成更精细推荐理由
-        if results and body.get('ai_reason', False):
-            cfg = get_embedding_config()
-            cfg['provider'] = 'kimicode' if cfg['provider'] == 'kimicode' else (cfg['provider'] or 'kimicode')
-            cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
-            cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
-            top_candidates = results[:min(limit, 10)]
-            prompt = (
-                f"请根据以下爆款达人特征，为每个候选达人生成一句话推荐理由（突出为什么相似/可替代），"
-                f"只返回 JSON 数组，不要返回其他内容。\n\n"
-                f"爆款达人特征：\n{json.dumps(features, ensure_ascii=False)}\n\n"
-                f"候选达人：\n"
-            )
-            for idx, r in enumerate(top_candidates, 1):
-                t = r['talent']
-                prompt += (
-                    f"{idx}. {t.get('name')} | 粉丝 {t.get('followers')} | "
-                    f"类目 {t.get('fan_category') or t.get('category', '-')} | "
-                    f"标签 {', '.join(str(x) for x in (t.get('tags') or [])[:5])}\n"
-                )
-            prompt += (
-                "\n输出格式：[{\"talent_id\":\"tal_xxx\",\"ai_reason\":\"推荐理由\"},...]"
-            )
-            messages = [
-                {'role': 'system', 'content': '你是电商达人匹配专家，擅长基于特征找相似达人并给出精准推荐理由。'},
-                {'role': 'user', 'content': prompt}
-            ]
-            try:
-                content = _call_ai_analysis(messages, cfg=cfg, context='similar_talents')
-            except _AIAnalysisTimeoutError:
-                print('  [Similar] AI reason generation timed out, falling back to rule-based reasons', flush=True)
-                content = None
-            if content:
-                try:
-                    ai_reasons = _extract_json_array(content)
-                    reason_map = {item.get('talent_id'): item.get('ai_reason') for item in ai_reasons if isinstance(item, dict)}
-                    for r in results:
-                        if r['talent_id'] in reason_map and reason_map[r['talent_id']]:
-                            r['aiReason'] = reason_map[r['talent_id']]
-                            r['reasons'] = [r['aiReason']] + r['reasons'][:2]
-                except Exception as e:
-                    print(f'  [Similar] AI reason parse failed: {e}', flush=True)
-
-        self._send_json(200, {
-            'source_talent_id': talent_id,
-            'features': features,
-            'matches': results[:limit],
-            'total': len(results)
-        })
 
     def _handle_get_chat(self, agent_id):
         """GET /api/chat/:agentId?type=personal|group"""
@@ -14005,10 +11946,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         _citations = body.get('citations')
         if _citations:
             msg['citations'] = _citations
-        # 保留工具调用记录（用于刷新后重新渲染工具卡片）
-        _tool_records = body.get('toolRecords')
-        if _tool_records:
-            msg['toolRecords'] = _tool_records
         # 保留图片信息（多模态）
         images = body.get('images', [])
         if images:
@@ -14133,97 +12070,15 @@ def _resolve_ai_model(api_provider, api_model=''):
         return api_model
     default_models = {
         'openai': 'gpt-4o-mini',
-        'kimi': 'kimi-code',
-        'moonshot': 'kimi-code',
-        'kimicode': 'kimi-code',
+        'kimi': 'kimi-for-coding',
+        'moonshot': 'kimi-for-coding',
+        'kimicode': 'kimi-for-coding',
         'deepseek': 'deepseek-chat',
         'zhipu': 'glm-4-flash',
         'anthropic': 'claude-3-5-sonnet-20241022',
         'siliconflow': 'deepseek-ai/DeepSeek-V3',
     }
     return default_models.get(api_provider, 'gpt-4o-mini')
-
-
-def _get_vision_config():
-    """获取后端统一图片识别配置（环境变量 > settings.json）。
-    返回: {'provider': str, 'api_key': str, 'model': str, 'base_url': str}
-    """
-    settings = _read_json(SETTINGS_FILE, {}) or {}
-    vision = settings.get('vision', {}) or {}
-    provider = SOLOBRAVE_VISION_PROVIDER or vision.get('provider', 'kimi')
-    api_key = SOLOBRAVE_VISION_API_KEY or vision.get('apiKey', '')
-    model = SOLOBRAVE_VISION_MODEL or vision.get('model', 'kimi-code')
-    base_url = (vision.get('baseUrl', '') or '').strip()
-    if not base_url:
-        base_url = _resolve_ai_base_url(provider, base_url)
-    return {
-        'provider': provider,
-        'api_key': api_key,
-        'model': model,
-        'base_url': base_url,
-    }
-
-
-def _describe_images_with_backend_vision(images, prompt=None):
-    """调用后端统一 Kimi vision API，将 base64 图片转为文字描述。
-    images: 列表，每项为 {'base64': str, 'filename?': str}
-    返回: (descriptions, error)
-      descriptions: [{'index': int, 'filename': str, 'description': str, 'error?': str}]
-    """
-    cfg = _get_vision_config()
-    if not cfg['api_key']:
-        return None, '后端未配置图片识别 API Key（SOLOBRAVE_VISION_API_KEY 或 settings.json vision.apiKey）'
-    if not cfg['base_url']:
-        return None, '无法解析图片识别服务 base URL'
-
-    prompt = prompt or '请详细描述图片中的文字、物体、场景和关键信息。如果有文字，请尽量完整转录。'
-    descriptions = []
-    target_url = cfg['base_url'].rstrip('/') + '/chat/completions'
-
-    for i, img in enumerate(images):
-        base64_str = (img.get('base64', '') or '').strip()
-        filename = (img.get('filename', '') or f'image_{i}').strip()
-        if not base64_str:
-            descriptions.append({'index': i, 'filename': filename, 'description': ''})
-            continue
-
-        messages = [
-            {'role': 'system', 'content': prompt},
-            {'role': 'user', 'content': [
-                {'type': 'text', 'text': '请描述这张图片。'},
-                {'type': 'image_url', 'image_url': {'url': base64_str}}
-            ]}
-        ]
-        req_body_obj = {
-            'model': cfg['model'],
-            'messages': messages,
-            'temperature': 0.6,
-            'max_tokens': 1500,
-            'stream': False
-        }
-        if cfg['provider'] == 'kimicode':
-            req_body_obj['thinking'] = {'type': 'disabled'}
-        req_body = json.dumps(req_body_obj).encode('utf-8')
-
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {cfg["api_key"]}',
-            'Content-Length': str(len(req_body))
-        }
-        try:
-            req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
-            ctx = ssl.create_default_context()
-            resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
-            resp_data = json.loads(resp.read().decode('utf-8', errors='replace'))
-            message = resp_data.get('choices', [{}])[0].get('message', {})
-            content = message.get('content') or message.get('reasoning_content') or ''
-            descriptions.append({'index': i, 'filename': filename, 'description': content.strip()})
-        except Exception as e:
-            err_msg = f'图片 {i} 识别异常: {e}'
-            print(f'  [VisionDescribe] {err_msg}', flush=True)
-            descriptions.append({'index': i, 'filename': filename, 'description': '', 'error': err_msg})
-
-    return descriptions, None
 
 
 def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT):
@@ -14236,16 +12091,13 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
     target_url = base_url + '/chat/completions'
     resolved_model = _resolve_ai_model(api_provider, api_model or '')
 
-    req_body_obj = {
+    req_body = json.dumps({
         'model': resolved_model,
         'messages': messages,
-        'temperature': 0.6 if api_provider == 'kimicode' else 0.8,
+        'temperature': 0.8,
         'max_tokens': 2000,
         'stream': False
-    }
-    if api_provider == 'kimicode':
-        req_body_obj['thinking'] = {'type': 'disabled'}
-    req_body = json.dumps(req_body_obj).encode('utf-8')
+    }).encode('utf-8')
 
     headers = {
         'Content-Type': 'application/json',
@@ -14264,8 +12116,7 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
         print(f'  [API] chat completion response: HTTP {status}', flush=True)
         resp_data = json.loads(raw)
         if resp_data.get('choices') and resp_data['choices'][0].get('message'):
-            message = resp_data['choices'][0]['message']
-            return message.get('content') or message.get('reasoning_content') or ''
+            return resp_data['choices'][0]['message'].get('content', '')
         print(f'  [API] chat completion unexpected format: {raw[:500]}', flush=True)
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8', errors='replace')
@@ -14307,34 +12158,12 @@ def _extract_text_from_openclaw_output(obj):
     return None
 
 
-class _AIAnalysisTimeoutError(Exception):
-    """AI 分析调用超时异常，用于区分普通失败与超时"""
-    pass
-
-
-def _kill_process_tree(pid):
-    """跨平台尝试终止进程及其子进程（主要用于 Windows .CMD 包装器超时场景）。"""
-    try:
-        if platform.system() == 'Windows':
-            subprocess.run([r'C:\Windows\System32\taskkill.exe', '/T', '/F', '/PID', str(pid)],
-                           capture_output=True, text=True, errors='replace')
-        else:
-            # Unix: 先终止子进程，再终止自身
-            subprocess.run(['pkill', '-P', str(pid)], capture_output=True, text=True, errors='replace')
-            os.kill(pid, signal.SIGTERM)
-    except Exception as e:
-        print(f'  [KillTree] failed to kill process tree {pid}: {e}', flush=True)
-
-
-def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLAW_TIMEOUT, raise_on_timeout=False):
+def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLAW_TIMEOUT):
     """调用 OpenClaw CLI 并返回原始文本内容；失败返回 None
 
     兼容两种 CLI 形态：
       - 新版：openclaw agent --message <prompt> --json
       - 旧版：openclaw infer model run --prompt <prompt> --json
-
-    当 raise_on_timeout=True 时，子进程超时抛出 _AIAnalysisTimeoutError，
-    便于上层返回友好的超时提示。
     """
     if not os.path.isfile(OPENCLAW_CLI):
         print(f'  [OpenClaw] CLI not found at {OPENCLAW_CLI}', flush=True)
@@ -14364,30 +12193,16 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
 
     for name, args in variants:
         print(f'  [OpenClaw] {name} cmd: {" ".join(args)}', flush=True)
-        proc = None
         try:
-            proc = subprocess.Popen(
+            result = subprocess.run(
                 args,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 encoding='utf-8',
-                errors='replace'
+                errors='replace',
+                timeout=timeout
             )
-            try:
-                stdout, stderr = proc.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                print(f'  [OpenClaw] {name} timed out after {timeout}s (gateway offline?), killing process tree', flush=True)
-                if proc:
-                    _kill_process_tree(proc.pid)
-                    try:
-                        proc.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
-                if raise_on_timeout:
-                    raise _AIAnalysisTimeoutError(f'OpenClaw {name} timed out after {timeout}s')
-                return None
-            returncode = proc.returncode
+            stdout, stderr, returncode = result.stdout, result.stderr, result.returncode
             if returncode != 0:
                 print(f'  [OpenClaw] {name} failed (code={returncode}):', flush=True)
                 print(f'      stderr: {stderr}', flush=True)
@@ -14406,42 +12221,21 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
                 print(f'  [OpenClaw] {name} success, content length={len(content)}', flush=True)
                 return content
             print(f'  [OpenClaw] {name} returned empty/unrecognized content: {stdout[:500]}', flush=True)
-        except _AIAnalysisTimeoutError:
-            raise
+        except subprocess.TimeoutExpired as e:
+            print(f'  [OpenClaw] {name} timed out after {timeout}s (gateway offline?): {e}', flush=True)
+            return None
         except Exception as e:
             print(f'  [OpenClaw] {name} _call_openclaw_infer failed: {e}', flush=True)
             traceback.print_exc()
-            if proc:
-                _kill_process_tree(proc.pid)
             return None
     return None
 
 
-def _flatten_multimodal_content(content):
-    """将多模态 content 列表转为文本表示（用于 OpenClaw 等仅支持文本的通道）。"""
-    if not isinstance(content, list):
-        return str(content) if content is not None else ''
-    parts = []
-    for part in content:
-        if not isinstance(part, dict):
-            continue
-        ptype = part.get('type')
-        if ptype == 'text':
-            parts.append(part.get('text', ''))
-        elif ptype == 'image_url':
-            parts.append('[图片]')
-    return '\n'.join(parts)
-
-
-def _call_ai_analysis(messages, cfg=None, context='', timeout=60):
+def _call_ai_analysis(messages, cfg=None, context=''):
     """统一后端 AI 分析调用：优先 OpenClaw，其次 API 直连；失败返回 None
 
     注意：cfg 通常来自 embedding 配置，其中的 model 是 Embedding 模型，不能用于聊天/分析。
     因此分析任务使用 provider 对应的聊天默认模型（除非 cfg 显式传入了 apiModel）。
-    支持多模态 messages（content 为 list），OpenClaw 通道会自动扁平化为文本，
-    API 直连通道会保留原始 multimodal 结构传给 vision 模型。
-
-    timeout: OpenClaw 调用超时（秒），默认 60s。
     """
     cfg = cfg or {}
     provider = cfg.get('provider', '') or 'kimicode'
@@ -14465,54 +12259,33 @@ def _call_ai_analysis(messages, cfg=None, context='', timeout=60):
 
     system_parts = []
     user_parts = []
-    user_parts_text = []
-    has_multimodal = False
     for m in messages:
         if not isinstance(m, dict):
             continue
         role = m.get('role')
         content = m.get('content', '')
         if role == 'system':
-            if isinstance(content, list):
-                system_parts.append(_flatten_multimodal_content(content))
-            else:
-                system_parts.append(content)
+            system_parts.append(content)
         elif role == 'user':
-            if isinstance(content, list):
-                has_multimodal = True
-                user_parts.append(content)
-                user_parts_text.append(_flatten_multimodal_content(content))
-            else:
-                user_parts.append(content)
-                user_parts_text.append(content)
-    full_prompt = '\n\n'.join(user_parts_text).strip()
+            user_parts.append(content)
+    full_prompt = '\n\n'.join(user_parts).strip()
     system_prompt = '\n\n'.join(system_parts).strip()
 
     masked_key = f'{api_key[:4]}...' if api_key and len(api_key) > 4 else '(none)'
     print(f'  [AI] start analysis context={context} provider={provider} chat_model={chat_model} key={masked_key} openclaw={OPENCLAW_CLI}', flush=True)
 
     # 1. 优先 OpenClaw（项目主推的 AI 网关）
-    # 分析类接口统一使用 60s 超时；超时后不再抛出 _AIAnalysisTimeoutError，
-    # 而是降级到 API 直连兜底，避免前端收到 504。
     if os.path.isfile(OPENCLAW_CLI):
-        try:
-            content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=timeout, raise_on_timeout=True)
-            if content:
-                return content
-            print(f'  [AI] OpenClaw failed for {context}, will try direct API fallback', flush=True)
-        except _AIAnalysisTimeoutError as e:
-            print(f'  [AI] OpenClaw timeout for {context}: {e}, will try direct API fallback', flush=True)
+        content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=30)
+        if content:
+            return content
+        print(f'  [AI] OpenClaw failed for {context}, will try direct API fallback', flush=True)
     else:
         print(f'  [AI] OpenClaw CLI not available for {context}, skip to direct API', flush=True)
 
     # 2. 兜底：API 直连（需配置 API Key）
     if api_key:
-        # 保留原始 messages，便于 API 直连通道使用多模态/vision 能力
-        direct_messages = list(messages)
-        # 若使用了扁平化的 system_prompt 且原始 messages 无 system 消息，则前置追加
-        if system_prompt and not any(m.get('role') == 'system' for m in direct_messages):
-            direct_messages = [{'role': 'system', 'content': system_prompt}] + direct_messages
-        content = _call_chat_completion(provider, api_key, chat_model, base_url, direct_messages)
+        content = _call_chat_completion(provider, api_key, chat_model, base_url, messages)
         if content:
             return content
     else:
@@ -15626,7 +13399,8 @@ def _resolve_kimi_coding_target_url(provider):
 
 
 def _openai_content_to_anthropic(content):
-    """将单条 OpenAI message.content 转成 Anthropic Messages API 格式。"""
+    """将单条 OpenAI message.content 转成 Anthropic Messages API 格式。
+    如果 content 里已经包含 Anthropic 原生格式（type='image' + source），直接透传，避免重复转换或丢失。"""
     if isinstance(content, str):
         return content
     if not isinstance(content, list):
@@ -15655,6 +13429,9 @@ def _openai_content_to_anthropic(content):
                     })
                 except Exception:
                     pass
+        elif item_type == 'image' and isinstance(item.get('source'), dict):
+            # 已经是 Anthropic Messages 原生图片格式，直接保留
+            result.append(item)
     return result
 
 
@@ -15725,6 +13502,194 @@ def _transform_anthropic_to_openai(resp_json):
     }
 
 
+def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthropic_resp, max_retries=2):
+    """
+    处理 Anthropic Messages API 返回 stop_reason='tool_use' 的情况。
+    当工具名为 describe_image 时，独立调用同一个 Kimi API endpoint 获取真实图片描述；
+    其他工具仍使用占位文本作为 tool_result。
+    最多重试 max_retries 次。
+    返回最终应返回给前端的 Anthropic 格式响应体 bytes。
+    """
+    if not isinstance(body_json, dict) or not isinstance(anthropic_resp, dict):
+        return None
+
+    messages = body_json.get('messages', [])
+    if not isinstance(messages, list):
+        return None
+
+    # 深拷贝 messages，避免修改原始请求
+    messages = json.loads(json.dumps(messages))
+
+    # 提取原始请求中的图片内容
+    image_items = []
+    for msg in messages:
+        content = msg.get('content', '')
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and item.get('type') == 'image':
+                    image_items.append(item)
+
+    print(f'  [ToolUse] 检测到tool_use续调用, 图片数={len(image_items)}', flush=True)
+
+    if not image_items:
+        print('  [Proxy] Anthropic tool_use 续调用跳过：原始请求中未找到图片内容', flush=True)
+        return None
+
+    def _fetch_image_description(image_item, image_index):
+        """构造独立的图片识别请求，调用同一个 Kimi API endpoint 获取真实描述。"""
+        try:
+            print(f'  [ImageDesc] 开始获取图片描述, imageIndex={image_index}', flush=True)
+            headers = dict(forward_headers)
+            description_body = {
+                'model': body_json.get('model', ''),
+                'max_tokens': body_json.get('max_tokens', 2000),
+                'system': '请直接描述这张图片的全部内容，输出结构化文字信息',
+                'messages': [{
+                    'role': 'user',
+                    'content': [image_item]
+                }]
+            }
+            temp = body_json.get('temperature')
+            if temp is not None and 0 <= temp <= 1:
+                description_body['temperature'] = temp
+
+            new_body = json.dumps(description_body).encode('utf-8')
+            headers['Content-Length'] = str(len(new_body))
+            req = urllib.request.Request(target_url, data=new_body, headers=headers, method='POST')
+            ctx = ssl.create_default_context()
+            resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+            resp_body = resp.read()
+            resp_json = json.loads(resp_body.decode('utf-8', errors='replace'))
+
+            content_items = resp_json.get('content', []) if isinstance(resp_json.get('content'), list) else []
+            texts = [item.get('text', '') for item in content_items if isinstance(item, dict) and item.get('type') == 'text']
+            description = ''.join(texts).strip()
+            print(f'  [ImageDesc] 获取成功, 描述长度={len(description)}', flush=True)
+            return description
+        except Exception as e:
+            print(f'  [ImageDesc] 获取失败, error={e}', flush=True)
+            return None
+
+    current_resp = anthropic_resp
+    headers = dict(forward_headers)
+
+    for retry in range(max_retries):
+        content_items = current_resp.get('content', []) if isinstance(current_resp.get('content'), list) else []
+        tool_use_items = [item for item in content_items if isinstance(item, dict) and item.get('type') == 'tool_use']
+        if not tool_use_items:
+            break
+
+        tool_use = tool_use_items[0]
+        tool_name = tool_use.get('name', '')
+        tool_use_id = tool_use.get('id', '')
+        tool_input = tool_use.get('input', {}) or {}
+
+        description_text = None
+        if tool_name == 'describe_image':
+            image_index = tool_input.get('imageIndex')
+            if isinstance(image_index, int):
+                # 兼容 0-based 和 1-based 索引
+                if 0 <= image_index < len(image_items):
+                    description_text = _fetch_image_description(image_items[image_index], image_index)
+                elif 1 <= image_index <= len(image_items):
+                    description_text = _fetch_image_description(image_items[image_index - 1], image_index)
+                else:
+                    print(f'  [Proxy] describe_image imageIndex 越界: {image_index} (共 {len(image_items)} 张)', flush=True)
+            else:
+                print(f'  [Proxy] describe_image imageIndex 无效: {image_index}', flush=True)
+
+        if description_text is None:
+            description_text = '图片识别结果：[系统自动识别，内容为图片数据]'
+
+        tool_result = {
+            'type': 'tool_result',
+            'tool_use_id': tool_use_id,
+            'content': [{'type': 'text', 'text': description_text}]
+        }
+
+        # 追加 tool_result 到 messages 末尾
+        messages.append({'role': 'user', 'content': [tool_result]})
+        new_body_json = dict(body_json)
+        new_body_json['messages'] = messages
+        new_body = json.dumps(new_body_json).encode('utf-8')
+
+        print(f'  [ToolUse] 重新调用API, messages数={len(messages)}', flush=True)
+        headers['Content-Length'] = str(len(new_body))
+        req = urllib.request.Request(target_url, data=new_body, headers=headers, method='POST')
+        ctx = ssl.create_default_context()
+        resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+        resp_body = resp.read()
+        current_resp = json.loads(resp_body.decode('utf-8', errors='replace'))
+
+        # 日志
+        resp_content_items = current_resp.get('content', []) if isinstance(current_resp.get('content'), list) else []
+        resp_text = ''.join(item.get('text', '') for item in resp_content_items if isinstance(item, dict) and item.get('type') == 'text')
+        print(f'  [Proxy] API返回(Anthropic tool_use续调用 retry={retry + 1}) status={resp.status} content_len={len(resp_text)} <- {target_url}', flush=True)
+
+        if current_resp.get('stop_reason') != 'tool_use':
+            break
+
+    # 取最终响应中 type 为 text 的 content 作为 AI 回复
+    final_content_items = current_resp.get('content', []) if isinstance(current_resp.get('content'), list) else []
+    final_texts = [item.get('text', '') for item in final_content_items if isinstance(item, dict) and item.get('type') == 'text']
+    final_text = ''.join(final_texts)
+
+    final_resp = dict(current_resp)
+    final_resp['content'] = [{'type': 'text', 'text': final_text}]
+    print(f'  [ToolUse] 续调用完成, 最终content_len={len(final_text)}', flush=True)
+    return json.dumps(final_resp).encode('utf-8')
+
+
+def _log_proxy_token_usage(auth, body_json, resp_body, provider, target_url, agent_id):
+    """记录上游 API 的真实 token usage 到 token_usage 表"""
+    try:
+        if not resp_body:
+            return
+        resp_json = json.loads(resp_body.decode('utf-8', errors='replace'))
+        usage = resp_json.get('usage') or {}
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
+        if 'prompt_tokens' in usage and 'completion_tokens' in usage:
+            prompt_tokens = int(usage.get('prompt_tokens') or 0)
+            completion_tokens = int(usage.get('completion_tokens') or 0)
+            total_tokens = int(usage.get('total_tokens') or (prompt_tokens + completion_tokens))
+        elif 'input_tokens' in usage and 'output_tokens' in usage:
+            prompt_tokens = int(usage.get('input_tokens') or 0)
+            completion_tokens = int(usage.get('output_tokens') or 0)
+            total_tokens = prompt_tokens + completion_tokens
+        else:
+            return
+        model = ''
+        if isinstance(body_json, dict):
+            model = body_json.get('model') or ''
+        if not model and isinstance(resp_json, dict):
+            model = resp_json.get('model') or ''
+        if not provider:
+            host = urlparse(target_url).hostname or ''
+            if 'anthropic' in host:
+                provider = 'anthropic'
+            elif 'openai' in host:
+                provider = 'openai'
+            elif 'moonshot' in host or 'kimi' in host:
+                provider = 'kimi'
+            elif 'deepseek' in host:
+                provider = 'deepseek'
+            elif 'siliconflow' in host:
+                provider = 'siliconflow'
+        conn = _db_conn()
+        try:
+            conn.execute('''
+                INSERT INTO token_usage (id, user_id, agent_id, provider, model, endpoint, prompt_tokens, completion_tokens, total_tokens, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (uuid.uuid4().hex[:12], auth.user_id or '', agent_id or '', provider or '', model, target_url, prompt_tokens, completion_tokens, total_tokens, int(time.time() * 1000)))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f'  [Proxy] token usage log skipped: {e}', flush=True)
+
+
 def _handle_proxy(self):
     """POST /api/proxy（需认证）"""
     auth = _authenticate(self.headers)
@@ -15733,6 +13698,7 @@ def _handle_proxy(self):
         return
 
     target_url = self.headers.get('X-Target-URL', '')
+    agent_id = self.headers.get('X-Agent-Id', '')
     if not target_url:
         self._send_json_error(400, 'Missing X-Target-URL header')
         return
@@ -15750,88 +13716,35 @@ def _handle_proxy(self):
     content_length = int(self.headers.get('Content-Length', 0))
     body = self.rfile.read(content_length) if content_length > 0 else None
 
-    # 解析 body 用于后续判断是否为 Kimi coding 请求
-    body_json = None
-    if body:
-        try:
-            body_json = json.loads(body.decode('utf-8'))
-        except Exception:
-            pass
-
-    # 判断是否为 Kimi coding / Anthropic Messages 格式请求
-    provider = self.headers.get('X-AI-Provider', '').lower()
-    is_kimi_coding = _is_kimi_coding_request(provider, target_url)
-
     forward_headers = {}
-    if is_kimi_coding and body_json:
-        # Kimi coding API 是 Anthropic 原生端点，直接透传原生 Anthropic Messages 格式。
-        # 前端已负责构造 Anthropic 格式（含 image.source base64），后端不再做 OpenAI 转换。
-        target_url = _resolve_kimi_coding_target_url(provider)
+    # 代理请求使用的是用户 AI 的 API Key，不是 SoloBrave 的 token
+    # 从请求体或 header 中获取 AI API 的 Authorization
+    auth_header = self.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer ') and not auth_header.startswith('Bearer ey'):  # 粗略区分 JWT 和 API Key
+        # 如果看起来像 API Key，转发它
+        pass
+    # 从请求头中取 AI API Key（前端可能放在 X-AI-API-Key 中）
+    ai_api_key = self.headers.get('X-AI-API-Key', '')
+    if ai_api_key:
+        forward_headers['Authorization'] = f'Bearer {ai_api_key}'
+    elif auth_header and not auth_header.startswith('Bearer ey'):
+        forward_headers['Authorization'] = auth_header
 
-        # 如果前端仍发来 OpenAI 格式（含 image_url），为兼容做一次兜底转换，并记录警告。
-        has_openai_image = False
-        for msg in body_json.get('messages', []):
-            content = msg.get('content', '')
-            if isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict) and item.get('type') == 'image_url':
-                        has_openai_image = True
-                        break
-            if has_openai_image:
-                break
-        if has_openai_image:
-            print('  [Proxy] 警告: 收到含 image_url 的 OpenAI 格式，正在转换为 Anthropic Messages 格式', flush=True)
-            body_json = _transform_openai_to_anthropic(body_json)
-            body = json.dumps(body_json).encode('utf-8')
-
-        # 打印 Anthropic 请求体摘要（脱敏 apiKey、截断 base64 便于排查）
-        try:
-            log_body = body_json if body_json is not None else json.loads(body.decode('utf-8'))
-            log_str = json.dumps(log_body, ensure_ascii=False)
-            if len(log_str) > 2000:
-                log_str = log_str[:2000] + '...'
-            masked_key = 'none'
-            ai_api_key = self.headers.get('X-AI-API-Key', '')
-            if ai_api_key:
-                masked_key = ai_api_key[:4] + '...' if len(ai_api_key) > 4 else '****'
-            print(f'  [Proxy] Anthropic请求体(脱敏) key={masked_key} body={log_str}', flush=True)
-        except Exception as log_err:
-            print(f'  [Proxy] Anthropic请求体打印失败: {log_err}', flush=True)
-
-        ai_api_key = self.headers.get('X-AI-API-Key', '')
-        if ai_api_key:
-            forward_headers['x-api-key'] = ai_api_key
-        forward_headers['anthropic-version'] = ANTHROPIC_VERSION
-        forward_headers['Content-Type'] = 'application/json'
-        if body:
-            forward_headers['Content-Length'] = str(len(body))
-    else:
-        # 代理请求使用的是用户 AI 的 API Key，不是 SoloBrave 的 token
-        # 从请求体或 header 中获取 AI API 的 Authorization
-        auth_header = self.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer ') and not auth_header.startswith('Bearer ey'):  # 粗略区分 JWT 和 API Key
-            # 如果看起来像 API Key，转发它
-            pass
-        # 从请求头中取 AI API Key（前端可能放在 X-AI-API-Key 中）
-        ai_api_key = self.headers.get('X-AI-API-Key', '')
-        if ai_api_key:
-            forward_headers['Authorization'] = f'Bearer {ai_api_key}'
-        elif auth_header and not auth_header.startswith('Bearer ey'):
-            forward_headers['Authorization'] = auth_header
-
-        content_type = self.headers.get('Content-Type', 'application/json')
-        if content_type:
-            forward_headers['Content-Type'] = content_type
-        if body:
-            forward_headers['Content-Length'] = str(len(body))
+    content_type = self.headers.get('Content-Type', 'application/json')
+    if content_type:
+        forward_headers['Content-Type'] = content_type
+    if body:
+        forward_headers['Content-Length'] = str(len(body))
 
     # 解析 body 中的 model 信息（用于日志）
     body_info = ''
-    if body_json:
-        body_info = f"model={body_json.get('model','?')} messages={len(body_json.get('messages',[]))}"
-    elif body:
-        body_info = f'body_len={len(body)}'
-    print(f'  [Proxy] 收到请求 -> {target_url} {body_info} kimi={is_kimi_coding}', flush=True)
+    if body:
+        try:
+            body_json = json.loads(body.decode('utf-8'))
+            body_info = f"model={body_json.get('model','?')} messages={len(body_json.get('messages',[]))}"
+        except Exception:
+            body_info = f'body_len={len(body)}'
+    print(f'  [Proxy] 收到请求 -> {target_url} {body_info}', flush=True)
     try:
         req = urllib.request.Request(target_url, data=body, headers=forward_headers, method='POST')
         ctx = ssl.create_default_context()
@@ -15840,31 +13753,21 @@ def _handle_proxy(self):
         resp_body = resp.read()
         resp_content_type = resp.headers.get('Content-Type', 'application/json')
 
-        # Kimi coding 返回 Anthropic Messages 格式，前端已原生解析，后端直接透传。
-        if is_kimi_coding:
-            try:
-                anthropic_resp = json.loads(resp_body.decode('utf-8', errors='replace'))
-                content_items = anthropic_resp.get('content', []) if isinstance(anthropic_resp.get('content'), list) else []
-                content_text = ''.join(
-                    item.get('text', '') for item in content_items
-                    if isinstance(item, dict) and item.get('type') == 'text'
-                )
-                print(f'  [Proxy] API返回(Anthropic原生) status={resp.status} content_len={len(content_text)} <- {target_url}', flush=True)
-            except Exception as e:
-                print(f'  [Proxy] Anthropic 响应解析失败: {e}', flush=True)
-        else:
-            # 解析响应中的 choices 长度用于日志
-            choices_info = ''
-            try:
-                resp_json = json.loads(resp_body.decode('utf-8'))
-                choices = resp_json.get('choices', [])
-                choices_info = f' choices={len(choices)}'
-                if choices and choices[0].get('message'):
-                    content = choices[0]['message'].get('content', '')
-                    choices_info += f' content_len={len(content)}'
-            except Exception:
-                pass
-            print(f'  [Proxy] API返回 status={resp.status}{choices_info} <- {target_url}', flush=True)
+        # 解析响应中的 choices 长度用于日志
+        choices_info = ''
+        try:
+            resp_json = json.loads(resp_body.decode('utf-8'))
+            choices = resp_json.get('choices', [])
+            choices_info = f' choices={len(choices)}'
+            if choices and choices[0].get('message'):
+                content = choices[0]['message'].get('content', '')
+                choices_info += f' content_len={len(content)}'
+        except Exception:
+            pass
+        print(f'  [Proxy] API返回 status={resp.status}{choices_info} <- {target_url}', flush=True)
+
+        # 记录真实 token usage
+        _log_proxy_token_usage(auth, body_json, resp_body, provider, target_url, agent_id)
 
         self.send_response(resp.status)
         self._add_cors_headers()
@@ -16060,53 +13963,6 @@ def _handle_douyin_transcribe(self):
             print(f'  [Douyin] temp cleaned: {temp_dir}', flush=True)
 
 
-def _handle_vision_describe(self):
-    """POST /api/vision/describe - 后端统一图片识别
-    请求体: {
-      "images": [{"base64": "data:image/...;base64,...", "filename": "..."}],
-      "prompt": "可选自定义提示词"
-    }
-    响应: {
-      "success": true,
-      "descriptions": [{"index": 0, "filename": "...", "description": "..."}],
-      "combinedDescription": "..."
-    }
-    """
-    auth = _authenticate(self.headers)
-    if not auth.is_authenticated:
-        self._send_auth_error(auth.error, auth.status)
-        return
-
-    body = self._read_body()
-    if not body or not isinstance(body, dict):
-        self._send_json(400, {'success': False, 'error': '请求体必须是 JSON 对象'})
-        return
-
-    images = body.get('images', [])
-    if not images or not isinstance(images, list):
-        self._send_json(400, {'success': False, 'error': '缺少 images 字段'})
-        return
-
-    prompt = body.get('prompt', '').strip() or None
-    print(f'  [VisionDescribe] 收到请求，图片数={len(images)}', flush=True)
-    descriptions, error = _describe_images_with_backend_vision(images, prompt)
-    if error:
-        print(f'  [VisionDescribe] 失败: {error}', flush=True)
-        self._send_json(503, {'success': False, 'error': error})
-        return
-
-    combined = '\n\n'.join([
-        f"【图片 {d['index'] + 1}{(': ' + d['filename']) if d.get('filename') else ''}】\n{d['description']}"
-        for d in descriptions if d.get('description')
-    ])
-    print(f'  [VisionDescribe] 完成，成功识别 {len([d for d in descriptions if d.get("description")])}/{len(images)} 张', flush=True)
-    self._send_json(200, {
-        'success': True,
-        'descriptions': descriptions,
-        'combinedDescription': combined
-    })
-
-
 # ─── 启动 ───────────────────────────────────────────────
 # ═══════════════════════════════════════════════════
 # 每日记忆定时任务（二期新增）
@@ -16124,7 +13980,6 @@ _MODULE_LEVEL_HANDLERS = (
     '_handle_skills_list', '_handle_skills_search', '_handle_skills_install', '_handle_skills_remove',
     '_handle_feishu_status', '_handle_feishu_config', '_handle_pairing_approve', '_handle_gateway_restart',
     '_handle_proxy', '_handle_douyin_parse', '_handle_douyin_transcribe',
-    '_handle_vision_describe',
 )
 for _h in _MODULE_LEVEL_HANDLERS:
     _fn = globals().get(_h)
@@ -16395,8 +14250,12 @@ def main():
     init_db()  # 保留旧 init_db 兼容
     ks.set_data_dir(DATA_DIR)
     ks.init_db()
+    # 新版知识库表
+    ks.init_kb_entries_db()
     # 旧数据迁移（幂等，自动触发分段和向量化）
     ks.knowledge_migrate_from_json(DATA_DIR, lambda eid: _get_agent_by_id(eid) or {})
+    # 旧 knowledge 表数据迁移到新版 kb_entries（幂等）
+    ks.kb_migrate_from_old_knowledge()
 
     # 同步记忆服务 v3 配置（在 main() 中执行，避免模块导入时的 NameError）
     # 注意：v2 数据目录是 'memory'（单数），复用同一目录避免迁移
@@ -16414,6 +14273,9 @@ def main():
 
     # 初始化默认管理员
     _init_default_admin()
+
+    # 确保系统知识库管理员 AI 员工存在
+    _ensure_knowledge_admin_agent()
 
     # 确保 teams.json 存在
     if not os.path.isfile(TEAMS_FILE):
@@ -16436,25 +14298,22 @@ def main():
     else:
         print(f'  [CLAW] OpenClaw CLI: NOT FOUND ({OPENCLAW_CLI})')
 
-    # 启动每日记忆定时任务线程
-    threading.Thread(target=_daily_memory_job_loop, daemon=True).start()
-    print('  [DailyJob] 每日记忆任务调度线程已启动')
+    # 已停用：每日记忆定时任务 / 启动补跑 / 大脑调度器自动提炼任务
+    # threading.Thread(target=_daily_memory_job_loop, daemon=True).start()
+    # print('  [DailyJob] 每日记忆任务调度线程已启动')
+    # def _startup_memory_job():
+    #     time.sleep(10)
+    #     _run_daily_memory_jobs(startup=True)
+    # threading.Thread(target=_startup_memory_job, daemon=True).start()
+    # print('  [DailyJob] 启动补跑任务已调度（10 秒后执行）')
 
-    # 启动补跑：服务启动后 10 秒执行一次记忆候选生成与知识归纳
-    def _startup_memory_job():
-        time.sleep(10)
-        _run_daily_memory_jobs(startup=True)
-    threading.Thread(target=_startup_memory_job, daemon=True).start()
-    print('  [DailyJob] 启动补跑任务已调度（10 秒后执行）')
-
-    # FIXME: 大脑知识中枢：启动后台调度器与 OpenClaw 队列
+    # FIXME: 大脑知识中枢：OpenClaw 队列保持运行，后台 BrainScheduler 已停用
     _openclaw_queue.start()
-    _brain_scheduler.start()
-    # FIXME: 兼容现有数据：启动 5 秒后后台迁移旧记忆
-    def _brain_migrate_job():
-        time.sleep(5)
-        _brain_scheduler.migrate_existing_memories()
-    threading.Thread(target=_brain_migrate_job, daemon=True).start()
+    # _brain_scheduler.start()
+    # def _brain_migrate_job():
+    #     time.sleep(5)
+    #     _brain_scheduler.migrate_existing_memories()
+    # threading.Thread(target=_brain_migrate_job, daemon=True).start()
 
     # Allow port reuse to avoid "Address already in use"
     class ReuseHTTPServer(http.server.ThreadingHTTPServer):
@@ -16478,7 +14337,6 @@ def main():
     print(f'  [API] 代理:      POST /api/proxy')
     print(f'  [API] 抖音解析:  POST /api/douyin/parse')
     print(f'  [API] 抖音转写:  POST /api/douyin/transcribe')
-    print(f'  [API] 图片识别:  POST /api/vision/describe')
     print(f'  [API] OpenClaw:  /api/openclaw/*')
     print(f'  [API] 技能:      /api/openclaw/skills/*')
     print(f'  [CFG] 超时设置:  {PROXY_TIMEOUT}s')

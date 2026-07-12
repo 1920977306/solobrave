@@ -1513,3 +1513,724 @@ def knowledge_migrate_from_json(data_dir, get_agent_config_fn):
 
     print(f'  [Migrate] Total migrated: {migrated}', flush=True)
     return migrated
+
+
+# ═══════════════════════════════════════════════════
+# 新版知识库 kb_entries（重构后主表）
+# ═══════════════════════════════════════════════════
+
+def init_kb_entries_db():
+    """初始化新版知识库表与 token_usage 表"""
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = _db_conn()
+    try:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS kb_entries (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                category TEXT DEFAULT '',
+                scope TEXT DEFAULT 'global',
+                team_id TEXT DEFAULT '',
+                group_ids TEXT DEFAULT '[]',
+                emp_id TEXT DEFAULT '',
+                status TEXT DEFAULT 'ok',
+                chunk_count INTEGER DEFAULT 0,
+                created_by TEXT DEFAULT '',
+                created_at INTEGER,
+                updated_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_scope ON kb_entries(scope)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_category ON kb_entries(category)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_status ON kb_entries(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_emp ON kb_entries(emp_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_created ON kb_entries(created_at)')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS kb_entry_chunks (
+                id TEXT PRIMARY KEY,
+                entry_id TEXT NOT NULL,
+                emp_id TEXT DEFAULT '',
+                chunk_index INTEGER,
+                content TEXT NOT NULL,
+                embedding BLOB,
+                embedding_model TEXT DEFAULT '',
+                created_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entry_chunks_entry ON kb_entry_chunks(entry_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entry_chunks_emp ON kb_entry_chunks(emp_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entry_chunks_model ON kb_entry_chunks(embedding_model)')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS kb_operation_log (
+                id TEXT PRIMARY KEY,
+                entry_id TEXT,
+                operation TEXT NOT NULL,
+                operator_id TEXT DEFAULT '',
+                details TEXT DEFAULT '{}',
+                created_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_op_entry ON kb_operation_log(entry_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_op_created ON kb_operation_log(created_at)')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS token_usage (
+                id TEXT PRIMARY KEY,
+                user_id TEXT DEFAULT '',
+                agent_id TEXT DEFAULT '',
+                provider TEXT DEFAULT '',
+                model TEXT DEFAULT '',
+                endpoint TEXT DEFAULT '',
+                prompt_tokens INTEGER DEFAULT 0,
+                completion_tokens INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
+                created_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_token_usage_agent ON token_usage(agent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_token_usage_user ON token_usage(user_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_token_usage_created ON token_usage(created_at)')
+
+        conn.commit()
+        print('  [KnowledgeService] KB entries DB initialized', flush=True)
+    finally:
+        conn.close()
+
+
+def _kb_entry_row_to_dict(row):
+    """将 kb_entries 行转为前端兼容 dict"""
+    if not row:
+        return None
+    return {
+        'id': row['id'],
+        'title': row['title'],
+        'content': row['content'],
+        'category': row['category'] or '',
+        'scope': row['scope'] or 'global',
+        'teamId': row['team_id'] or '',
+        'groupIds': _parse_group_ids(row['group_ids']),
+        'empId': row['emp_id'] or '',
+        'status': row['status'] or 'ok',
+        'chunkCount': row['chunk_count'] or 0,
+        'createdBy': row['created_by'] or '',
+        'createdAt': row['created_at'],
+        'updatedAt': row['updated_at'],
+    }
+
+
+def _kb_entry_group_ids_json(group_ids):
+    """统一 group_ids 为 JSON 字符串"""
+    if group_ids is None:
+        return '[]'
+    if isinstance(group_ids, str):
+        try:
+            json.loads(group_ids)
+            return group_ids
+        except Exception:
+            return '[]'
+    return json.dumps(group_ids, ensure_ascii=False)
+
+
+def _save_kb_chunks_without_embedding(entry_id, emp_id, content, chunk_size, overlap):
+    """为 kb_entry 分段并保存无 embedding 的 chunks"""
+    conn = _db_conn()
+    try:
+        conn.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    chunks = chunk_text(content, chunk_size=chunk_size, overlap=overlap)
+    if not chunks:
+        conn = _db_conn()
+        try:
+            conn.execute('UPDATE kb_entries SET chunk_count=0 WHERE id=?', (entry_id,))
+            conn.commit()
+        finally:
+            conn.close()
+        return
+
+    conn = _db_conn()
+    try:
+        now = _now_ms()
+        for i, chunk_content in enumerate(chunks):
+            conn.execute('''
+                INSERT INTO kb_entry_chunks (id, entry_id, emp_id, chunk_index, content, embedding, created_at)
+                VALUES (?, ?, ?, ?, ?, NULL, ?)
+            ''', (f'{entry_id}_c{i}', entry_id, emp_id or '', i, chunk_content, now))
+        conn.execute('UPDATE kb_entries SET chunk_count=? WHERE id=?', (len(chunks), entry_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _vectorize_kb_chunks(entry_id, emp_id, api_key, provider, model, base_url=None):
+    """为 kb_entry_chunks 中 embedding 为 NULL 的 chunk 生成向量"""
+    import struct
+    conn = _db_conn()
+    try:
+        rows = conn.execute(
+            'SELECT id, chunk_index, content FROM kb_entry_chunks WHERE entry_id = ? AND embedding IS NULL',
+            (entry_id,)
+        ).fetchall()
+    finally:
+        conn.close()
+
+    updates = []
+    for row in rows:
+        emb = get_embedding_cached(row['content'], api_key, provider, model, base_url=base_url)
+        if emb is None:
+            raise RuntimeError(f'chunk {row["chunk_index"]} embedding failed')
+        emb_bytes = struct.pack(f'{len(emb)}f', *emb)
+        updates.append((emb_bytes, model, row['id']))
+
+    if updates:
+        conn = _db_conn()
+        try:
+            conn.executemany(
+                'UPDATE kb_entry_chunks SET embedding = ?, embedding_model = ? WHERE id = ?',
+                updates
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def kb_entry_create(title, content, category, created_by, scope='global', team_id='', group_ids=None, emp_id='', agent_config=None):
+    """创建新版知识条目，自动分段+向量化"""
+    entry_id = _gen_id('kbe')
+    now = _now_ms()
+    scope = scope or 'global'
+    group_ids_json = _kb_entry_group_ids_json(group_ids)
+
+    conn = _db_conn()
+    try:
+        conn.execute('''
+            INSERT INTO kb_entries (id, title, content, category, scope, team_id, group_ids, emp_id, status, chunk_count, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)
+        ''', (entry_id, title, content, category or '', scope, team_id or '', group_ids_json, emp_id or '', created_by or '', now, now))
+        conn.commit()
+    finally:
+        conn.close()
+
+    cfg = (agent_config or {}).get('knowledge', {})
+    chunk_size = cfg.get('chunkSize', 500)
+    overlap = cfg.get('chunkOverlap', 100)
+
+    try:
+        _save_kb_chunks_without_embedding(entry_id, emp_id or '', content, chunk_size, overlap)
+    except Exception as e:
+        print(f'  [KBEntry] chunking failed: {e}', flush=True)
+        conn = _db_conn()
+        try:
+            conn.execute('UPDATE kb_entries SET status="error" WHERE id=?', (entry_id,))
+            conn.commit()
+        finally:
+            conn.close()
+        raise
+
+    emb_cfg = get_embedding_config(emp_id or None)
+    api_key = emb_cfg.get('apiKey')
+    provider = emb_cfg.get('provider', 'openai')
+    model = emb_cfg.get('model')
+    base_url = emb_cfg.get('baseUrl')
+
+    if api_key:
+        try:
+            _vectorize_kb_chunks(entry_id, emp_id or '', api_key, provider, model, base_url=base_url)
+            conn = _db_conn()
+            try:
+                conn.execute('UPDATE kb_entries SET status="ok" WHERE id=?', (entry_id,))
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            print(f'  [KBEntry] vectorize failed: {e}', flush=True)
+            conn = _db_conn()
+            try:
+                conn.execute('UPDATE kb_entries SET status="error" WHERE id=?', (entry_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            raise
+    else:
+        print(f'  [KBEntry] No API key, chunked without embedding: {title}', flush=True)
+
+    kb_entry_log_operation(entry_id, 'create', created_by or '', {'title': title, 'category': category, 'scope': scope})
+    return kb_entry_get_by_id(entry_id)
+
+
+def kb_entry_get_by_id(entry_id):
+    """获取单条新版知识详情"""
+    conn = _db_conn()
+    try:
+        row = conn.execute('SELECT * FROM kb_entries WHERE id = ?', (entry_id,)).fetchone()
+        return _kb_entry_row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def kb_entry_update(entry_id, title=None, content=None, category=None, scope=None, team_id=None, group_ids=None, emp_id=None, created_by=None, agent_config=None, is_admin=False):
+    """更新新版知识条目；内容变更时重新分段向量化"""
+    conn = _db_conn()
+    try:
+        row = conn.execute('SELECT * FROM kb_entries WHERE id = ?', (entry_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+
+    doc_scope = (row['scope'] or 'global')
+    if not is_admin and doc_scope in ('global', 'team'):
+        raise PermissionError('Permission denied: non-admin cannot update global/team knowledge')
+
+    kb_entry_log_operation(entry_id, 'update', created_by or '', {
+        'title': row['title'],
+        'category': row['category'],
+        'scope': doc_scope,
+    })
+
+    updates = {}
+    if title is not None:
+        updates['title'] = title
+    if content is not None:
+        updates['content'] = content
+    if category is not None:
+        updates['category'] = category
+    if scope is not None:
+        updates['scope'] = scope
+    if team_id is not None:
+        updates['team_id'] = team_id
+    if group_ids is not None:
+        updates['group_ids'] = _kb_entry_group_ids_json(group_ids)
+    if emp_id is not None:
+        updates['emp_id'] = emp_id
+    updates['updated_at'] = _now_ms()
+
+    if not updates:
+        return _kb_entry_row_to_dict(row)
+
+    conn = _db_conn()
+    try:
+        fields = ', '.join(f'{k} = ?' for k in updates.keys())
+        values = list(updates.values()) + [entry_id]
+        conn.execute(f'UPDATE kb_entries SET {fields} WHERE id = ?', values)
+        conn.commit()
+    finally:
+        conn.close()
+
+    if content is not None:
+        cfg = (agent_config or {}).get('knowledge', {})
+        chunk_size = cfg.get('chunkSize', 500)
+        overlap = cfg.get('chunkOverlap', 100)
+        actual_emp_id = emp_id if emp_id is not None else (row['emp_id'] or '')
+        try:
+            _save_kb_chunks_without_embedding(entry_id, actual_emp_id, content, chunk_size, overlap)
+            emb_cfg = get_embedding_config(actual_emp_id or None)
+            api_key = emb_cfg.get('apiKey')
+            provider = emb_cfg.get('provider', 'openai')
+            model = emb_cfg.get('model')
+            base_url = emb_cfg.get('baseUrl')
+            if api_key:
+                _vectorize_kb_chunks(entry_id, actual_emp_id, api_key, provider, model, base_url=base_url)
+                conn = _db_conn()
+                try:
+                    conn.execute('UPDATE kb_entries SET status="ok" WHERE id=?', (entry_id,))
+                    conn.commit()
+                finally:
+                    conn.close()
+            else:
+                print(f'  [KBEntry] No API key, re-chunked without embedding: {entry_id}', flush=True)
+        except Exception as e:
+            print(f'  [KBEntry] update chunk/vectorize failed: {e}', flush=True)
+            conn = _db_conn()
+            try:
+                conn.execute('UPDATE kb_entries SET status="error" WHERE id=?', (entry_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            raise
+
+    return kb_entry_get_by_id(entry_id)
+
+
+def kb_entry_delete(entry_id, is_admin=False):
+    """删除新版知识条目，级联删除 chunks 与操作日志"""
+    conn = _db_conn()
+    try:
+        row = conn.execute('SELECT scope FROM kb_entries WHERE id = ?', (entry_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return False
+    doc_scope = (row['scope'] or 'global')
+    if not is_admin and doc_scope in ('global', 'team'):
+        raise PermissionError('Permission denied: non-admin cannot delete global/team knowledge')
+
+    conn = _db_conn()
+    try:
+        conn.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
+        conn.execute('DELETE FROM kb_operation_log WHERE entry_id = ?', (entry_id,))
+        cur = conn.execute('DELETE FROM kb_entries WHERE id = ?', (entry_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def _kb_entry_group_where_clause(user_group_ids):
+    """生成 group_ids JSON 数组交集过滤条件"""
+    if not user_group_ids:
+        return None, []
+    placeholders = ', '.join('?' for _ in user_group_ids)
+    return f"EXISTS (SELECT 1 FROM json_each(group_ids) WHERE value IN ({placeholders}))", list(user_group_ids)
+
+
+def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, category=None, keyword=None, allowed_categories=None):
+    """构建 kb_entries 查询 WHERE 子句与参数"""
+    if user_group_ids is None:
+        user_group_ids = []
+    if emp_ids is None:
+        emp_ids = []
+    if user_id and user_id not in emp_ids:
+        emp_ids = list(emp_ids) + [user_id]
+
+    where = ["status IN ('ok', 'pending')"]
+    params = []
+
+    if scope == 'global':
+        where.append("(scope IS NULL OR scope = 'global')")
+    elif scope == 'personal':
+        where.append("scope = 'personal'")
+        if emp_ids:
+            placeholders = ', '.join('?' for _ in emp_ids)
+            where.append(f'emp_id IN ({placeholders})')
+            params.extend(emp_ids)
+    elif scope == 'team':
+        where.append("scope = 'team'")
+        if team_id:
+            where.append('team_id = ?')
+            params.append(team_id)
+        elif user_team_ids:
+            placeholders = ', '.join('?' for _ in user_team_ids)
+            where.append(f'team_id IN ({placeholders})')
+            params.extend(user_team_ids)
+        elif not is_admin:
+            where.append('1 = 0')
+    elif scope == 'group':
+        where.append("scope = 'group'")
+        if not is_admin:
+            group_clause, group_params = _kb_entry_group_where_clause(user_group_ids)
+            if group_clause:
+                where.append(group_clause)
+                params.extend(group_params)
+            else:
+                where.append('1 = 0')
+    else:
+        if not is_admin:
+            readable = ["(scope IS NULL OR scope = 'global')"]
+            if emp_ids:
+                placeholders = ', '.join('?' for _ in emp_ids)
+                readable.append(f"(scope = 'personal' AND emp_id IN ({placeholders}))")
+                params.extend(emp_ids)
+            group_clause, group_params = _kb_entry_group_where_clause(user_group_ids)
+            if group_clause:
+                readable.append(f"(scope = 'group' AND {group_clause})")
+                params.extend(group_params)
+            where.append('(' + ' OR '.join(readable) + ')')
+
+    if category:
+        where.append('category = ?')
+        params.append(category)
+    if allowed_categories is not None and '*' not in allowed_categories:
+        if allowed_categories:
+            placeholders = ', '.join('?' for _ in allowed_categories)
+            where.append(f'category IN ({placeholders})')
+            params.extend(allowed_categories)
+        else:
+            where.append('1 = 0')
+    if keyword:
+        where.append('(title LIKE ? OR content LIKE ?)')
+        like = f'%{keyword}%'
+        params.extend([like, like])
+    if created_by:
+        where.append('created_by = ?')
+        params.append(created_by)
+
+    return where, params
+
+
+def kb_entry_list(offset=0, limit=50, category=None, keyword=None, allowed_categories=None,
+                  scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None,
+                  user_group_ids=None, emp_ids=None, created_by=None):
+    """新版知识库列表（分页、分类、关键词、四层隔离）"""
+    where, params = _kb_entry_build_where(
+        scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
+        user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
+        created_by=created_by, category=category, keyword=keyword, allowed_categories=allowed_categories
+    )
+
+    conn = _db_conn()
+    try:
+        sql = 'SELECT * FROM kb_entries'
+        if where:
+            sql += ' WHERE ' + ' AND '.join(where)
+        sql += ' ORDER BY updated_at DESC LIMIT ? OFFSET ?'
+        rows = conn.execute(sql, tuple(params + [limit, offset])).fetchall()
+        docs = [_kb_entry_row_to_dict(r) for r in rows]
+
+        count_sql = 'SELECT COUNT(*) FROM kb_entries'
+        count_params = params
+        if where:
+            count_sql += ' WHERE ' + ' AND '.join(where)
+        total = conn.execute(count_sql, tuple(count_params)).fetchone()[0]
+
+        return {'docs': docs, 'total': total, 'offset': offset, 'limit': limit}
+    finally:
+        conn.close()
+
+
+def kb_entry_categories(allowed_categories=None, scope=None, team_id=None, user_id=None, is_admin=False,
+                        user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None):
+    """返回当前用户可见的分类计数"""
+    where, params = _kb_entry_build_where(
+        scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
+        user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
+        created_by=created_by, category=None, keyword=None, allowed_categories=allowed_categories
+    )
+    conn = _db_conn()
+    try:
+        sql = 'SELECT COALESCE(category, "") AS cat, COUNT(*) AS cnt FROM kb_entries'
+        if where:
+            sql += ' WHERE ' + ' AND '.join(where)
+        sql += ' GROUP BY cat ORDER BY cnt DESC'
+        rows = conn.execute(sql, tuple(params)).fetchall()
+        result = []
+        for r in rows:
+            cat = r['cat'] or '未分类'
+            result.append({'name': cat, 'count': r['cnt']})
+        return result
+    finally:
+        conn.close()
+
+
+def kb_entry_stats(allowed_categories=None, scope=None, team_id=None, user_id=None, is_admin=False,
+                   user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None):
+    """新版知识库统计面板数据"""
+    where, params = _kb_entry_build_where(
+        scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
+        user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
+        created_by=created_by, category=None, keyword=None, allowed_categories=allowed_categories
+    )
+    conn = _db_conn()
+    try:
+        sql_total = 'SELECT COUNT(*) FROM kb_entries'
+        sql_where = ' WHERE ' + ' AND '.join(where) if where else ''
+        total = conn.execute(sql_total + sql_where, tuple(params)).fetchone()[0]
+
+        scope_counts = {}
+        for sc in ('global', 'team', 'personal', 'group'):
+            sc_where, sc_params = _kb_entry_build_where(
+                scope=sc, team_id=team_id, user_id=user_id, is_admin=is_admin,
+                user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
+                created_by=created_by, category=None, keyword=None, allowed_categories=allowed_categories
+            )
+            sc_sql = "SELECT COUNT(*) FROM kb_entries WHERE " + ' AND '.join(sc_where)
+            scope_counts[sc] = conn.execute(sc_sql, tuple(sc_params)).fetchone()[0]
+
+        cat_rows = conn.execute(
+            'SELECT COALESCE(category, "") AS cat, COUNT(*) AS cnt FROM kb_entries' + sql_where + ' GROUP BY cat ORDER BY cnt DESC',
+            tuple(params)
+        ).fetchall()
+        by_category = [{'name': (r['cat'] or '未分类'), 'count': r['cnt']} for r in cat_rows]
+
+        pending_sql = '''SELECT COUNT(*) FROM kb_entry_chunks c
+                         JOIN kb_entries e ON c.entry_id = e.id
+                         WHERE c.embedding IS NULL'''
+        pending_where = [w for w in where if not w.startswith('status =')]
+        pending_params = list(params)
+        # status 过滤已在 where 中；这里保留其余过滤条件
+        if pending_where:
+            pending_sql += ' AND ' + ' AND '.join(pending_where).replace('status = ?', 'e.status = ?')
+        pending_chunks = conn.execute(pending_sql, tuple(pending_params)).fetchone()[0]
+
+        return {
+            'total': total,
+            'byScope': scope_counts,
+            'byCategory': by_category,
+            'pendingChunks': pending_chunks,
+        }
+    finally:
+        conn.close()
+
+
+def kb_entry_search_semantic(query, limit=10, allowed_categories=None, scope=None, team_id=None, category=None, user_id=None,
+                             is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None):
+    """新版知识库语义搜索（复用全局 embedding 配置，支持硅基流动）"""
+    if not query or not query.strip():
+        return []
+
+    emb_cfg = get_embedding_config(None)
+    api_key = emb_cfg.get('apiKey')
+    provider = emb_cfg.get('provider', 'openai')
+    model = emb_cfg.get('model')
+    base_url = emb_cfg.get('baseUrl')
+    if not api_key:
+        return []
+
+    query_emb = get_embedding_cached(query.strip(), api_key, provider, model, base_url=base_url)
+    if not query_emb:
+        return []
+
+    where, params = _kb_entry_build_where(
+        scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
+        user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
+        created_by=created_by, category=category, keyword=None, allowed_categories=allowed_categories
+    )
+
+    import struct
+    conn = _db_conn()
+    try:
+        # 在现有过滤基础上增加 embedding 条件
+        where.append("c.embedding IS NOT NULL")
+        where.append("c.embedding_model = ?")
+        params.append(model)
+        sql = '''
+            SELECT e.id, e.title, e.category, e.content, e.scope, e.team_id, e.group_ids, e.emp_id,
+                   c.chunk_index, c.content AS chunk_content, c.embedding
+            FROM kb_entry_chunks c
+            JOIN kb_entries e ON c.entry_id = e.id
+            WHERE ''' + ' AND '.join(where)
+        rows = conn.execute(sql, tuple(params)).fetchall()
+    finally:
+        conn.close()
+
+    results = []
+    for row in rows:
+        try:
+            chunk_emb = struct.unpack(f'{len(row["embedding"])//4}f', row['embedding'])
+            sim = cosine_similarity(query_emb, chunk_emb)
+            if sim > 0.0:
+                results.append({
+                    'entry_id': row['id'],
+                    'knowledge_id': row['id'],
+                    'title': row['title'],
+                    'category': row['category'] or '',
+                    'content': row['content'],
+                    'scope': row['scope'] or 'global',
+                    'chunk_index': row['chunk_index'],
+                    'chunk_content': row['chunk_content'],
+                    'similarity': sim,
+                })
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x['similarity'], reverse=True)
+    seen = set()
+    docs = []
+    for r in results:
+        if r['entry_id'] not in seen:
+            seen.add(r['entry_id'])
+            docs.append({
+                'id': r['entry_id'],
+                'title': r['title'],
+                'category': r['category'],
+                'content': r['content'],
+                'relevantChunk': r['chunk_content'],
+                'similarity': r['similarity'],
+            })
+            if len(docs) >= limit:
+                break
+    return docs
+
+
+def kb_entry_log_operation(entry_id, operation, operator_id, details=None):
+    """记录知识库操作日志"""
+    conn = _db_conn()
+    try:
+        conn.execute('''
+            INSERT INTO kb_operation_log (id, entry_id, operation, operator_id, details, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (_gen_id('kbl'), entry_id, operation, operator_id or '', json.dumps(details or {}, ensure_ascii=False), _now_ms()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def kb_migrate_from_old_knowledge():
+    """启动时从旧 knowledge 表幂等迁移数据到 kb_entries"""
+    conn = _db_conn()
+    try:
+        rows = conn.execute('SELECT * FROM knowledge').fetchall()
+    finally:
+        conn.close()
+
+    migrated = 0
+    skipped = 0
+    for row in rows:
+        entry_id = row['id']
+        conn = _db_conn()
+        try:
+            existing = conn.execute('SELECT 1 FROM kb_entries WHERE id = ?', (entry_id,)).fetchone()
+        finally:
+            conn.close()
+        if existing:
+            skipped += 1
+            continue
+
+        title = row['title'] or ''
+        content = row['content'] or ''
+        if not title or not content:
+            skipped += 1
+            continue
+
+        now = _now_ms()
+        scope = row['scope'] or 'global'
+        group_ids = row['group_ids'] or '[]'
+        emp_id = row['emp_id'] or ''
+        status = row['status'] or 'ok'
+        created_at = row['created_at'] or now
+        updated_at = row['updated_at'] or now
+
+        conn = _db_conn()
+        try:
+            conn.execute('''
+                INSERT INTO kb_entries (id, title, content, category, scope, team_id, group_ids, emp_id, status, chunk_count, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (entry_id, title, content, row['category'] or '', scope, row['team_id'] or '', group_ids, emp_id, status, 0, '', created_at, updated_at))
+            conn.commit()
+        finally:
+            conn.close()
+
+        try:
+            _save_kb_chunks_without_embedding(entry_id, emp_id, content, 500, 100)
+            emb_cfg = get_embedding_config(emp_id or None)
+            api_key = emb_cfg.get('apiKey')
+            provider = emb_cfg.get('provider', 'openai')
+            model = emb_cfg.get('model')
+            base_url = emb_cfg.get('baseUrl')
+            if api_key:
+                _vectorize_kb_chunks(entry_id, emp_id, api_key, provider, model, base_url=base_url)
+                conn = _db_conn()
+                try:
+                    conn.execute('UPDATE kb_entries SET status="ok" WHERE id=?', (entry_id,))
+                    conn.commit()
+                finally:
+                    conn.close()
+            else:
+                conn = _db_conn()
+                try:
+                    conn.execute('UPDATE kb_entries SET status="pending" WHERE id=?', (entry_id,))
+                    conn.commit()
+                finally:
+                    conn.close()
+            migrated += 1
+        except Exception as e:
+            print(f'  [KBMigrate] failed to vectorize {entry_id}: {e}', flush=True)
+            migrated += 1
+
+    print(f'  [KBMigrate] migrated={migrated}, skipped={skipped}', flush=True)
+    return migrated
