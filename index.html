@@ -23161,6 +23161,12 @@ function closeKnowledgeRight() {
   if (editPanel) editPanel.classList.add('hidden');
   document.querySelectorAll('.knowledge-mid-card').forEach(function(el) { el.classList.remove('active'); });
 }
+function _updateKnowledgeNewButtonVisibility() {
+  var btn = document.querySelector('.knowledge-mid-new');
+  if (!btn) return;
+  // 仅管理员或有知识库模块权限的用户可新建
+  btn.style.display = hasModulePermission('knowledge') ? '' : 'none';
+}
 async function loadKnowledgePage(page) {
   if (page) _knowledgePage = page;
   try {
