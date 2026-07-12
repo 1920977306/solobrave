@@ -2443,6 +2443,86 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-shrink: 0;
 }
 .knowledge-mid-new:hover { background: var(--accent-hover); }
+.knowledge-mid-stats {
+  padding: 0 16px;
+  margin-top: 12px;
+  flex-shrink: 0;
+}
+.knowledge-stats-container {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 16px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
+  border: 0.5px solid var(--separator);
+  overflow-x: auto;
+}
+.knowledge-stats-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 76px;
+  padding: 12px 14px;
+  background: #F5F7FA;
+  border-radius: 10px;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.knowledge-stats-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.08);
+}
+.knowledge-stats-total {
+  background: linear-gradient(135deg, #007AFF 0%, #00A3FF 100%);
+  color: #ffffff;
+  min-width: 92px;
+}
+.knowledge-stats-total .knowledge-stats-label {
+  color: rgba(255, 255, 255, 0.85);
+}
+.knowledge-stats-pending {
+  background: #FFF8E1;
+}
+.knowledge-stats-pending .knowledge-stats-value {
+  color: #F5A623;
+}
+.knowledge-stats-value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+.knowledge-stats-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #86909c;
+  margin-top: 4px;
+}
+.knowledge-stats-divider {
+  width: 0.5px;
+  background: var(--separator);
+  margin: 4px 4px;
+}
+.knowledge-stats-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.knowledge-stats-cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: rgba(0, 122, 255, 0.06);
+  border-radius: 20px;
+  font-size: 12px;
+  color: #007AFF;
+  font-weight: 500;
+  border: 0.5px solid rgba(0, 122, 255, 0.12);
+}
 .knowledge-mid-items {
   flex: 1;
   overflow-y: auto;
@@ -23321,24 +23401,46 @@ function renderKnowledgeStats(stats) {
   if (!el) return;
   var total = stats.total || 0;
   var byScope = stats.byScope || {};
-  var byCategory = (stats.byCategory || []).slice(0, 5);
+  var byCategory = (stats.byCategory || []).slice(0, 8);
   var pending = stats.pendingChunks || 0;
   if (!total && !byCategory.length && !pending) {
     el.style.display = 'none';
     el.innerHTML = '';
     return;
   }
-  var scopeHtml = '';
-  var scopeMap = { global: '全局', team: '团队', personal: '个人', group: '项目组' };
-  for (var k in scopeMap) {
-    if (byScope[k]) {
-      scopeHtml += '<span class="knowledge-stat-scope">' + scopeMap[k] + ' ' + byScope[k] + '</span>';
+
+  var scopeMap = [
+    { key: 'global', label: '全局' },
+    { key: 'team', label: '团队' },
+    { key: 'personal', label: '个人' },
+    { key: 'group', label: '项目组' }
+  ];
+  var scopeCards = '';
+  scopeMap.forEach(function(item) {
+    var count = byScope[item.key] || 0;
+    if (count > 0) {
+      scopeCards += '<div class="knowledge-stats-card"><div class="knowledge-stats-value">' + count + '</div><div class="knowledge-stats-label">' + item.label + '</div></div>';
     }
+  });
+
+  var pendingCard = '';
+  if (pending > 0) {
+    pendingCard = '<div class="knowledge-stats-card knowledge-stats-pending"><div class="knowledge-stats-value">' + pending + '</div><div class="knowledge-stats-label">待向量</div></div>';
   }
-  var catHtml = byCategory.map(function(c) {
-    return '<span class="knowledge-stat-cat">' + escapeHtml(c.name) + ' ' + c.count + '</span>';
-  }).join('');
-  el.innerHTML = '<div class="knowledge-stats-row"><span class="knowledge-stat-total">📚 共 ' + total + ' 条</span>' + scopeHtml + (pending ? '<span class="knowledge-stat-pending">⏳ 待向量 ' + pending + '</span>' : '') + '</div>' + (catHtml ? '<div class="knowledge-stats-row">' + catHtml + '</div>' : '');
+
+  var catHtml = '';
+  if (byCategory.length > 0) {
+    catHtml = '<div class="knowledge-stats-categories">' + byCategory.map(function(c) {
+      return '<span class="knowledge-stats-cat">' + escapeHtml(c.name) + '<span style="opacity:0.7"> · ' + c.count + '</span></span>';
+    }).join('') + '</div>';
+  }
+
+  el.innerHTML = '<div class="knowledge-stats-container">' +
+    '<div class="knowledge-stats-card knowledge-stats-total"><div class="knowledge-stats-value">' + total + '</div><div class="knowledge-stats-label">知识总数</div></div>' +
+    '<div class="knowledge-stats-divider"></div>' +
+    scopeCards +
+    pendingCard +
+    '</div>' + catHtml;
   el.style.display = '';
 }
 function onKnowledgeSearch(value) {
