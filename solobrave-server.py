@@ -1028,6 +1028,42 @@ def _init_default_admin():
     return None
 
 
+def _ensure_knowledge_admin_agent():
+    """确保存在系统知识库管理员 AI 员工"""
+    agents = _load_agents(include_archived=True)
+    for a in agents:
+        if a.get('id') == 'knowledge_admin':
+            return
+    admin = {
+        'id': 'knowledge_admin',
+        'name': '知识库管理员',
+        'role': 'operator',
+        'bg': '#3B82F6',
+        'avatar': '📚',
+        'status': 'online',
+        'msg': '',
+        'archived': False,
+        'permission': 'dev',
+        'visibility': 'creator',
+        'createdBy': 'system',
+        'createdAt': datetime.now().isoformat(),
+        'connectionType': '',
+        'apiProvider': '',
+        'apiModel': '',
+        'apiKey': '',
+        'openclawAgent': '',
+        'openclawModel': '',
+        'openclawName': '',
+        'aiProvider': '',
+        'systemPrompt': '',
+        'department': '',
+        'customEndpoint': ''
+    }
+    agents.append(admin)
+    _save_agents(agents)
+    print('  [System] 已创建知识库管理员 AI 员工: knowledge_admin', flush=True)
+
+
 # ─── 权限管理 ─────────────────────────────────────────
 
 # 可用模块列表（与 switchModule 取值对齐）
@@ -3930,6 +3966,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_settings()
             return
 
+        # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
+        if path == '/api/knowledge/entries':
+            self._handle_get_kb_entries()
+            return
+        if path.startswith('/api/knowledge/entries/'):
+            sub = path[len('/api/knowledge/entries/'):]
+            if sub:
+                self._handle_get_kb_entry_detail(sub)
+                return
+        if path == '/api/knowledge/categories':
+            self._handle_get_kb_categories()
+            return
+        if path == '/api/knowledge/stats':
+            self._handle_get_kb_stats()
+            return
+
         # Knowledge API
         if path == '/api/knowledge':
             self._handle_get_knowledge()
@@ -3949,6 +4001,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(parts) == 3 and parts[1] == 'versions':
                 self._handle_get_knowledge_version(parts[0], parts[2])
                 return
+
+        # Stats API
+        if path == '/api/stats/compute':
+            self._handle_get_stats_compute()
+            return
 
         # Brand API
         if path == '/api/brands' or path == '/api/brands/':
@@ -4311,6 +4368,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_post_agent_knowledge_base(parts[0])
                 return
 
+        # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
+        if path == '/api/knowledge/entries':
+            self._handle_post_kb_entry()
+            return
+        if path == '/api/knowledge/search':
+            self._handle_post_kb_search()
+            return
+
         # Knowledge API
         if path == '/api/knowledge':
             self._handle_post_knowledge()
@@ -4477,6 +4542,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_put_settings()
             return
 
+        # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
+        if path.startswith('/api/knowledge/entries/'):
+            entry_id = path[len('/api/knowledge/entries/'):]
+            if entry_id:
+                self._handle_put_kb_entry(entry_id)
+                return
+
         # Knowledge API
         if path.startswith('/api/knowledge/'):
             doc_id = path[len('/api/knowledge/'):]
@@ -4592,6 +4664,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             parts = sub.split('/')
             if len(parts) == 2:
                 self._handle_delete_memory(parts[0], parts[1])
+                return
+
+        # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
+        if path.startswith('/api/knowledge/entries/'):
+            entry_id = path[len('/api/knowledge/entries/'):]
+            if entry_id:
+                self._handle_delete_kb_entry(entry_id)
                 return
 
         # Knowledge API
@@ -9302,6 +9381,415 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(500, f'Move failed: {str(e)}')
 
     # ═══════════════════════════════════════════════════
+    # 新版知识库 API（重构后）
+    # ═══════════════════════════════════════════════════
+
+    def _handle_get_kb_entries(self):
+        """GET /api/knowledge/entries — 新版知识库列表"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        offset = max(0, int(qs.get('offset', [0])[0]))
+        limit = max(1, min(100, int(qs.get('limit', [20])[0])))
+        category = qs.get('category', [''])[0] or None
+        keyword = qs.get('q', [''])[0] or None
+        scope = qs.get('scope', [''])[0] or None
+        team_id = qs.get('teamId', [''])[0] or None
+        group_id = qs.get('groupId', [''])[0] or None
+        group_ids_param = qs.get('groupIds', [''])[0] or ''
+        created_by = qs.get('createdBy', [''])[0] or None
+
+        allowed_cats = _allowed_knowledge_categories(auth)
+        if category and not _can_access_knowledge_category(auth, category):
+            self._send_json(200, {'docs': [], 'total': 0, 'offset': offset, 'limit': limit})
+            return
+
+        requested_group_ids = []
+        if group_id:
+            requested_group_ids.append(group_id)
+        if group_ids_param:
+            requested_group_ids.extend([g.strip() for g in group_ids_param.split(',') if g.strip()])
+        if auth.is_admin:
+            effective_group_ids = requested_group_ids or auth.group_ids
+        else:
+            allowed = set(auth.group_ids)
+            effective_group_ids = [g for g in requested_group_ids if g in allowed] if requested_group_ids else list(allowed)
+
+        try:
+            result = ks.kb_entry_list(
+                offset=offset, limit=limit, category=category, keyword=keyword,
+                allowed_categories=allowed_cats,
+                scope=scope, team_id=team_id, user_id=auth.user_id,
+                is_admin=auth.is_admin, user_team_ids=auth.team_ids,
+                user_group_ids=effective_group_ids,
+                created_by=created_by,
+                emp_ids=_get_user_emp_ids(auth.user_id)
+            )
+            self._send_json(200, result)
+        except Exception as e:
+            print(f'  [KBEntries] list failed: {e}', flush=True)
+            self._send_json_error(500, f'List failed: {str(e)}')
+
+    def _handle_get_kb_entry_detail(self, entry_id):
+        """GET /api/knowledge/entries/<id> — 新版知识详情"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        doc = ks.kb_entry_get_by_id(entry_id)
+        if not doc:
+            self._send_json_error(404, 'Knowledge not found')
+            return
+        if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids, user_group_ids=auth.group_ids, emp_ids=_get_user_emp_ids(auth.user_id)):
+            self._send_auth_error('Permission denied', 403)
+            return
+        if not _can_access_knowledge_category(auth, doc.get('category', '')):
+            self._send_auth_error('No permission for this knowledge category', 403)
+            return
+        self._send_json(200, doc)
+
+    def _handle_post_kb_entry(self):
+        """POST /api/knowledge/entries — 创建新版知识"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body()
+        title = body.get('title') or body.get('name')
+        if not body or not title or 'content' not in body:
+            self._send_json_error(400, 'Missing title or content')
+            return
+
+        scope = body.get('scope', 'global')
+        team_id = body.get('teamId') or ''
+        group_ids = body.get('groupIds') or body.get('group_ids') or body.get('groupId') or []
+        if isinstance(group_ids, str):
+            group_ids = [g.strip() for g in group_ids.split(',') if g.strip()]
+        if scope == 'group' and not group_ids:
+            self._send_json_error(400, 'Missing group_ids for scope=group')
+            return
+        emp_id = body.get('empId') or ''
+        if scope == 'personal' and not emp_id:
+            emp_id = auth.user_id
+        if not ks.can_create_knowledge(scope, auth.user_id, is_admin=auth.is_admin,
+                                       team_id=team_id, user_team_ids=auth.team_ids,
+                                       managed_team_ids=auth.managed_team_ids,
+                                       group_ids=group_ids, user_group_ids=auth.group_ids,
+                                       managed_group_ids=auth.managed_group_ids,
+                                       emp_id=emp_id, emp_ids=_get_user_emp_ids(auth.user_id)):
+            self._send_auth_error('Permission denied', 403)
+            return
+        category = body.get('category', '')
+        if not _can_access_knowledge_category(auth, category):
+            self._send_auth_error('No permission for this knowledge category', 403)
+            return
+
+        agent = _get_agent_by_id(auth.user_id)
+        agent_config = dict(agent) if agent else None
+        try:
+            doc = ks.kb_entry_create(
+                title=title,
+                content=body['content'],
+                category=category,
+                created_by=auth.user_id,
+                scope=scope,
+                team_id=team_id,
+                group_ids=group_ids,
+                emp_id=emp_id,
+                agent_config=agent_config,
+            )
+            self._send_json(200, doc)
+        except Exception as e:
+            print(f'  [KBEntry] create failed: {e}', flush=True)
+            self._send_json_error(500, f'Create failed: {str(e)}')
+
+    def _handle_put_kb_entry(self, entry_id):
+        """PUT /api/knowledge/entries/<id> — 更新新版知识"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+
+        doc = ks.kb_entry_get_by_id(entry_id)
+        if not doc:
+            self._send_json_error(404, 'Knowledge not found')
+            return
+        if not ks.can_edit_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+                                     managed_team_ids=auth.managed_team_ids,
+                                     managed_group_ids=auth.managed_group_ids,
+                                     emp_ids=_get_user_emp_ids(auth.user_id)):
+            self._send_auth_error('Permission denied', 403)
+            return
+        if not _can_access_knowledge_category(auth, doc.get('category', '')):
+            self._send_auth_error('No permission for this knowledge category', 403)
+            return
+        new_category = body.get('category')
+        if new_category is not None and not _can_access_knowledge_category(auth, new_category):
+            self._send_auth_error('No permission for target knowledge category', 403)
+            return
+
+        group_ids = body.get('groupIds') or body.get('group_ids') or body.get('groupId')
+        if isinstance(group_ids, str):
+            group_ids = [g.strip() for g in group_ids.split(',') if g.strip()]
+
+        new_scope = body.get('scope')
+        new_team_id = body.get('teamId')
+        target_scope = new_scope if new_scope is not None else doc.get('scope') or 'global'
+        target_team_id = new_team_id if new_team_id is not None else doc.get('teamId') or ''
+        target_group_ids = group_ids if group_ids is not None else (doc.get('groupIds') or [])
+        if new_scope is not None or new_team_id is not None or group_ids is not None:
+            if not ks.can_create_knowledge(target_scope, auth.user_id, is_admin=auth.is_admin,
+                                           team_id=target_team_id, user_team_ids=auth.team_ids,
+                                           managed_team_ids=auth.managed_team_ids,
+                                           group_ids=target_group_ids, user_group_ids=auth.group_ids,
+                                           managed_group_ids=auth.managed_group_ids):
+                self._send_auth_error('Permission denied for target scope', 403)
+                return
+
+        title = body.get('title') or body.get('name')
+        agent = _get_agent_by_id(auth.user_id)
+        agent_config = dict(agent) if agent else None
+        try:
+            updated = ks.kb_entry_update(
+                entry_id=entry_id,
+                title=title,
+                content=body.get('content'),
+                category=body.get('category'),
+                scope=new_scope,
+                team_id=new_team_id,
+                group_ids=group_ids,
+                emp_id=body.get('empId'),
+                created_by=auth.user_id,
+                agent_config=agent_config,
+                is_admin=auth.is_admin,
+            )
+            self._send_json(200, updated)
+        except Exception as e:
+            print(f'  [KBEntry] update failed: {e}', flush=True)
+            self._send_json_error(500, f'Update failed: {str(e)}')
+
+    def _handle_delete_kb_entry(self, entry_id):
+        """DELETE /api/knowledge/entries/<id> — 删除新版知识"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        doc = ks.kb_entry_get_by_id(entry_id)
+        if not doc:
+            self._send_json_error(404, 'Knowledge not found')
+            return
+        if not ks.can_delete_knowledge(doc, auth.user_id, is_admin=auth.is_admin,
+                                       managed_team_ids=auth.managed_team_ids,
+                                       managed_group_ids=auth.managed_group_ids,
+                                       user_group_ids=auth.group_ids,
+                                       emp_ids=_get_user_emp_ids(auth.user_id)):
+            self._send_auth_error('Permission denied', 403)
+            return
+        try:
+            deleted = ks.kb_entry_delete(entry_id, is_admin=auth.is_admin)
+            self._send_json(200, {'success': deleted, 'id': entry_id})
+        except Exception as e:
+            print(f'  [KBEntry] delete failed: {e}', flush=True)
+            self._send_json_error(500, f'Delete failed: {str(e)}')
+
+    def _handle_get_kb_categories(self):
+        """GET /api/knowledge/categories — 分类统计"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        scope = qs.get('scope', [''])[0] or None
+        allowed_cats = _allowed_knowledge_categories(auth)
+        try:
+            cats = ks.kb_entry_categories(
+                allowed_categories=allowed_cats,
+                scope=scope, user_id=auth.user_id,
+                is_admin=auth.is_admin, user_team_ids=auth.team_ids,
+                user_group_ids=auth.group_ids,
+                emp_ids=_get_user_emp_ids(auth.user_id)
+            )
+            total = sum(c['count'] for c in cats)
+            self._send_json(200, {'categories': cats, 'total': total})
+        except Exception as e:
+            print(f'  [KBCategories] failed: {e}', flush=True)
+            self._send_json_error(500, f'Categories failed: {str(e)}')
+
+    def _handle_get_kb_stats(self):
+        """GET /api/knowledge/stats — 统计面板"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        scope = qs.get('scope', [''])[0] or None
+        allowed_cats = _allowed_knowledge_categories(auth)
+        try:
+            stats = ks.kb_entry_stats(
+                allowed_categories=allowed_cats,
+                scope=scope, user_id=auth.user_id,
+                is_admin=auth.is_admin, user_team_ids=auth.team_ids,
+                user_group_ids=auth.group_ids,
+                emp_ids=_get_user_emp_ids(auth.user_id)
+            )
+            self._send_json(200, {'stats': stats})
+        except Exception as e:
+            print(f'  [KBStats] failed: {e}', flush=True)
+            self._send_json_error(500, f'Stats failed: {str(e)}')
+
+    def _handle_post_kb_search(self):
+        """POST /api/knowledge/search — 新版语义搜索"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body()
+        if not body or not body.get('query'):
+            self._send_json_error(400, 'Missing query')
+            return
+        query = body['query']
+        limit = min(50, max(1, int(body.get('limit', [10])[0]) if isinstance(body.get('limit'), list) else body.get('limit', 10)))
+        scope = body.get('scope') or None
+        category = body.get('category') or None
+        allowed_cats = _allowed_knowledge_categories(auth)
+        if category and not _can_access_knowledge_category(auth, category):
+            self._send_json(200, {'query': query, 'docs': [], 'count': 0})
+            return
+        try:
+            docs = ks.kb_entry_search_semantic(
+                query=query, limit=limit,
+                allowed_categories=allowed_cats,
+                scope=scope, category=category,
+                user_id=auth.user_id, is_admin=auth.is_admin,
+                user_team_ids=auth.team_ids, user_group_ids=auth.group_ids,
+                emp_ids=_get_user_emp_ids(auth.user_id)
+            )
+            self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
+        except Exception as e:
+            print(f'  [KBSearch] failed: {e}', flush=True)
+            self._send_json_error(500, f'Search failed: {str(e)}')
+
+    def _handle_get_stats_compute(self):
+        """GET /api/stats/compute — 真实 Token/调用统计"""
+        auth = _authenticate(self.headers)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        group_by = qs.get('groupBy', ['agent'])[0] or 'agent'
+
+        user_emp_ids = _get_user_emp_ids(auth.user_id)
+        where = []
+        params = []
+        if not auth.is_admin:
+            placeholders = ', '.join('?' for _ in user_emp_ids) if user_emp_ids else None
+            if group_by == 'agent' and placeholders:
+                where.append(f'(agent_id IN ({placeholders}) OR user_id = ?)')
+                params.extend(user_emp_ids)
+                params.append(auth.user_id)
+            else:
+                where.append('user_id = ?')
+                params.append(auth.user_id)
+
+        where_sql = 'WHERE ' + ' AND '.join(where) if where else ''
+        conn = _db_conn()
+        try:
+            total_row = conn.execute(
+                f'SELECT COALESCE(SUM(total_tokens),0) AS t, COUNT(*) AS c FROM token_usage {where_sql}',
+                tuple(params)
+            ).fetchone()
+            total_tokens = total_row['t'] or 0
+            total_calls = total_row['c'] or 0
+
+            group_col = 'agent_id' if group_by == 'agent' else 'user_id'
+            rows = conn.execute(
+                f'''SELECT {group_col} AS gid,
+                           COALESCE(SUM(prompt_tokens),0) AS input_tokens,
+                           COALESCE(SUM(completion_tokens),0) AS output_tokens,
+                           COALESCE(SUM(total_tokens),0) AS total_tokens,
+                           COUNT(*) AS calls
+                    FROM token_usage {where_sql}
+                    GROUP BY {group_col}''',
+                tuple(params)
+            ).fetchall()
+
+            agents_map = {a.get('id'): a for a in _load_agents(include_archived=True)}
+            users_map = {u.get('id'): u for u in _load_users()}
+            employee_stats = []
+            for r in rows:
+                gid = r['gid'] or ''
+                name = '未知'
+                if group_by == 'agent':
+                    agent = agents_map.get(gid)
+                    if agent:
+                        name = agent.get('name') or gid
+                    else:
+                        user = users_map.get(gid)
+                        if user:
+                            name = user.get('displayName') or user.get('username') or gid
+                else:
+                    user = users_map.get(gid)
+                    if user:
+                        name = user.get('displayName') or user.get('username') or gid
+                employee_stats.append({
+                    'id': gid,
+                    'name': name,
+                    'inputTokens': r['input_tokens'] or 0,
+                    'outputTokens': r['output_tokens'] or 0,
+                    'tokens': r['total_tokens'] or 0,
+                    'calls': r['calls'] or 0,
+                })
+
+            # 近 7 天（本地时间）
+            time_rows = conn.execute(
+                f'''SELECT date(created_at/1000, 'unixepoch', 'localtime') AS d,
+                           COALESCE(SUM(total_tokens),0) AS tokens,
+                           COUNT(*) AS calls
+                    FROM token_usage {where_sql}
+                    GROUP BY d ORDER BY d DESC LIMIT 7''',
+                tuple(params)
+            ).fetchall()
+            day_map = {r['d']: {'tokens': r['tokens'] or 0, 'calls': r['calls'] or 0} for r in time_rows}
+            from datetime import datetime, timedelta
+            time_stats = []
+            weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+            for i in range(6, -1, -1):
+                d = datetime.now() - timedelta(days=i)
+                d_str = d.strftime('%Y-%m-%d')
+                time_stats.append({
+                    'date': weekdays[d.weekday()],
+                    'tokens': day_map.get(d_str, {}).get('tokens', 0),
+                    'calls': day_map.get(d_str, {}).get('calls', 0),
+                })
+        finally:
+            conn.close()
+
+        self._send_json(200, {
+            'totalTokens': total_tokens,
+            'totalCalls': total_calls,
+            'employeeStats': employee_stats,
+            'timeStats': time_stats,
+        })
+
+    # ═══════════════════════════════════════════════════
     # RAG API
     # ═══════════════════════════════════════════════════
 
@@ -12879,6 +13367,329 @@ def _handle_gateway_restart(self):
 # CORS 代理（需认证）
 # ═══════════════════════════════════════════════════
 
+KIMI_CODING_DEFAULT_ENDPOINT = 'https://api.kimi.com/coding/v1/messages'
+ANTHROPIC_VERSION = '2023-06-01'
+
+
+def _is_kimi_coding_request(provider, target_url):
+    """判断请求是否应走 Kimi coding / Anthropic Messages 格式。"""
+    provider = (provider or '').lower().strip()
+    if provider in ('kimi', 'kimicode'):
+        return True
+    host = urlparse(target_url).hostname or ''
+    if host in ('api.kimi.com',):
+        return True
+    return False
+
+
+def _resolve_kimi_coding_target_url(provider):
+    """确定 Kimi coding API endpoint：优先使用 settings.json 中显式设置的 vision.baseUrl，否则使用默认 endpoint。"""
+    try:
+        settings = _read_json(SETTINGS_FILE, {}) or {}
+        vision = settings.get('vision', {}) or {}
+        base_url = (vision.get('baseUrl', '') or '').strip()
+        if base_url:
+            base = base_url.rstrip('/')
+            if base.endswith('/messages'):
+                return base
+            return base + '/messages'
+    except Exception:
+        pass
+    return KIMI_CODING_DEFAULT_ENDPOINT
+
+
+def _openai_content_to_anthropic(content):
+    """将单条 OpenAI message.content 转成 Anthropic Messages API 格式。
+    如果 content 里已经包含 Anthropic 原生格式（type='image' + source），直接透传，避免重复转换或丢失。"""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content)
+
+    result = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get('type')
+        if item_type == 'text':
+            result.append({'type': 'text', 'text': item.get('text', '')})
+        elif item_type == 'image_url':
+            url = item.get('image_url', {}).get('url', '')
+            if url.startswith('data:'):
+                try:
+                    header, b64 = url.split(',', 1)
+                    media_type = header.split(';')[0].split(':')[1]
+                    result.append({
+                        'type': 'image',
+                        'source': {
+                            'type': 'base64',
+                            'media_type': media_type,
+                            'data': b64
+                        }
+                    })
+                except Exception:
+                    pass
+        elif item_type == 'image' and isinstance(item.get('source'), dict):
+            # 已经是 Anthropic Messages 原生图片格式，直接保留
+            result.append(item)
+    return result
+
+
+def _transform_openai_to_anthropic(body_json):
+    """将 OpenAI chat/completions 请求体转为 Anthropic Messages API 格式（Kimi coding 兼容）。"""
+    system_parts = []
+    messages = []
+    for msg in body_json.get('messages', []):
+        role = msg.get('role')
+        content = msg.get('content', '')
+        if role == 'system':
+            if isinstance(content, str):
+                system_parts.append(content)
+            elif isinstance(content, list):
+                texts = [item.get('text', '') for item in content
+                         if isinstance(item, dict) and item.get('type') == 'text']
+                system_parts.extend(texts)
+        elif role in ('user', 'assistant'):
+            anthropic_content = _openai_content_to_anthropic(content)
+            messages.append({'role': role, 'content': anthropic_content})
+
+    anthropic_body = {
+        'model': body_json.get('model', ''),
+        'max_tokens': body_json.get('max_tokens', 2000),
+        'messages': messages
+    }
+    if system_parts:
+        anthropic_body['system'] = '\n\n'.join(system_parts)
+
+    temp = body_json.get('temperature')
+    if temp is not None and 0 <= temp <= 1:
+        anthropic_body['temperature'] = temp
+
+    return anthropic_body
+
+
+def _transform_anthropic_to_openai(resp_json):
+    """将 Anthropic Messages API 响应转回 OpenAI chat/completions 格式，便于前端统一解析。"""
+    content_items = resp_json.get('content', []) if isinstance(resp_json.get('content'), list) else []
+    texts = []
+    for item in content_items:
+        if isinstance(item, dict) and item.get('type') == 'text':
+            texts.append(item.get('text', ''))
+    content = ''.join(texts)
+
+    usage = resp_json.get('usage', {})
+    input_tokens = usage.get('input_tokens', 0)
+    output_tokens = usage.get('output_tokens', 0)
+
+    stop_reason = resp_json.get('stop_reason', '')
+    finish_reason_map = {'end_turn': 'stop', 'max_tokens': 'length', 'stop_sequence': 'stop'}
+    finish_reason = finish_reason_map.get(stop_reason, stop_reason or 'stop')
+
+    return {
+        'id': resp_json.get('id', ''),
+        'object': 'chat.completion',
+        'model': resp_json.get('model', ''),
+        'choices': [{
+            'index': 0,
+            'message': {'role': 'assistant', 'content': content},
+            'finish_reason': finish_reason
+        }],
+        'usage': {
+            'prompt_tokens': input_tokens,
+            'completion_tokens': output_tokens,
+            'total_tokens': input_tokens + output_tokens
+        }
+    }
+
+
+def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthropic_resp, max_retries=2):
+    """
+    处理 Anthropic Messages API 返回 stop_reason='tool_use' 的情况。
+    当工具名为 describe_image 时，独立调用同一个 Kimi API endpoint 获取真实图片描述；
+    其他工具仍使用占位文本作为 tool_result。
+    最多重试 max_retries 次。
+    返回最终应返回给前端的 Anthropic 格式响应体 bytes。
+    """
+    if not isinstance(body_json, dict) or not isinstance(anthropic_resp, dict):
+        return None
+
+    messages = body_json.get('messages', [])
+    if not isinstance(messages, list):
+        return None
+
+    # 深拷贝 messages，避免修改原始请求
+    messages = json.loads(json.dumps(messages))
+
+    # 提取原始请求中的图片内容
+    image_items = []
+    for msg in messages:
+        content = msg.get('content', '')
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and item.get('type') == 'image':
+                    image_items.append(item)
+
+    print(f'  [ToolUse] 检测到tool_use续调用, 图片数={len(image_items)}', flush=True)
+
+    if not image_items:
+        print('  [Proxy] Anthropic tool_use 续调用跳过：原始请求中未找到图片内容', flush=True)
+        return None
+
+    def _fetch_image_description(image_item, image_index):
+        """构造独立的图片识别请求，调用同一个 Kimi API endpoint 获取真实描述。"""
+        try:
+            print(f'  [ImageDesc] 开始获取图片描述, imageIndex={image_index}', flush=True)
+            headers = dict(forward_headers)
+            description_body = {
+                'model': body_json.get('model', ''),
+                'max_tokens': body_json.get('max_tokens', 2000),
+                'system': '请直接描述这张图片的全部内容，输出结构化文字信息',
+                'messages': [{
+                    'role': 'user',
+                    'content': [image_item]
+                }]
+            }
+            temp = body_json.get('temperature')
+            if temp is not None and 0 <= temp <= 1:
+                description_body['temperature'] = temp
+
+            new_body = json.dumps(description_body).encode('utf-8')
+            headers['Content-Length'] = str(len(new_body))
+            req = urllib.request.Request(target_url, data=new_body, headers=headers, method='POST')
+            ctx = ssl.create_default_context()
+            resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+            resp_body = resp.read()
+            resp_json = json.loads(resp_body.decode('utf-8', errors='replace'))
+
+            content_items = resp_json.get('content', []) if isinstance(resp_json.get('content'), list) else []
+            texts = [item.get('text', '') for item in content_items if isinstance(item, dict) and item.get('type') == 'text']
+            description = ''.join(texts).strip()
+            print(f'  [ImageDesc] 获取成功, 描述长度={len(description)}', flush=True)
+            return description
+        except Exception as e:
+            print(f'  [ImageDesc] 获取失败, error={e}', flush=True)
+            return None
+
+    current_resp = anthropic_resp
+    headers = dict(forward_headers)
+
+    for retry in range(max_retries):
+        content_items = current_resp.get('content', []) if isinstance(current_resp.get('content'), list) else []
+        tool_use_items = [item for item in content_items if isinstance(item, dict) and item.get('type') == 'tool_use']
+        if not tool_use_items:
+            break
+
+        tool_use = tool_use_items[0]
+        tool_name = tool_use.get('name', '')
+        tool_use_id = tool_use.get('id', '')
+        tool_input = tool_use.get('input', {}) or {}
+
+        description_text = None
+        if tool_name == 'describe_image':
+            image_index = tool_input.get('imageIndex')
+            if isinstance(image_index, int):
+                # 兼容 0-based 和 1-based 索引
+                if 0 <= image_index < len(image_items):
+                    description_text = _fetch_image_description(image_items[image_index], image_index)
+                elif 1 <= image_index <= len(image_items):
+                    description_text = _fetch_image_description(image_items[image_index - 1], image_index)
+                else:
+                    print(f'  [Proxy] describe_image imageIndex 越界: {image_index} (共 {len(image_items)} 张)', flush=True)
+            else:
+                print(f'  [Proxy] describe_image imageIndex 无效: {image_index}', flush=True)
+
+        if description_text is None:
+            description_text = '图片识别结果：[系统自动识别，内容为图片数据]'
+
+        tool_result = {
+            'type': 'tool_result',
+            'tool_use_id': tool_use_id,
+            'content': [{'type': 'text', 'text': description_text}]
+        }
+
+        # 追加 tool_result 到 messages 末尾
+        messages.append({'role': 'user', 'content': [tool_result]})
+        new_body_json = dict(body_json)
+        new_body_json['messages'] = messages
+        new_body = json.dumps(new_body_json).encode('utf-8')
+
+        print(f'  [ToolUse] 重新调用API, messages数={len(messages)}', flush=True)
+        headers['Content-Length'] = str(len(new_body))
+        req = urllib.request.Request(target_url, data=new_body, headers=headers, method='POST')
+        ctx = ssl.create_default_context()
+        resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+        resp_body = resp.read()
+        current_resp = json.loads(resp_body.decode('utf-8', errors='replace'))
+
+        # 日志
+        resp_content_items = current_resp.get('content', []) if isinstance(current_resp.get('content'), list) else []
+        resp_text = ''.join(item.get('text', '') for item in resp_content_items if isinstance(item, dict) and item.get('type') == 'text')
+        print(f'  [Proxy] API返回(Anthropic tool_use续调用 retry={retry + 1}) status={resp.status} content_len={len(resp_text)} <- {target_url}', flush=True)
+
+        if current_resp.get('stop_reason') != 'tool_use':
+            break
+
+    # 取最终响应中 type 为 text 的 content 作为 AI 回复
+    final_content_items = current_resp.get('content', []) if isinstance(current_resp.get('content'), list) else []
+    final_texts = [item.get('text', '') for item in final_content_items if isinstance(item, dict) and item.get('type') == 'text']
+    final_text = ''.join(final_texts)
+
+    final_resp = dict(current_resp)
+    final_resp['content'] = [{'type': 'text', 'text': final_text}]
+    print(f'  [ToolUse] 续调用完成, 最终content_len={len(final_text)}', flush=True)
+    return json.dumps(final_resp).encode('utf-8')
+
+
+def _log_proxy_token_usage(auth, body_json, resp_body, provider, target_url, agent_id):
+    """记录上游 API 的真实 token usage 到 token_usage 表"""
+    try:
+        if not resp_body:
+            return
+        resp_json = json.loads(resp_body.decode('utf-8', errors='replace'))
+        usage = resp_json.get('usage') or {}
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
+        if 'prompt_tokens' in usage and 'completion_tokens' in usage:
+            prompt_tokens = int(usage.get('prompt_tokens') or 0)
+            completion_tokens = int(usage.get('completion_tokens') or 0)
+            total_tokens = int(usage.get('total_tokens') or (prompt_tokens + completion_tokens))
+        elif 'input_tokens' in usage and 'output_tokens' in usage:
+            prompt_tokens = int(usage.get('input_tokens') or 0)
+            completion_tokens = int(usage.get('output_tokens') or 0)
+            total_tokens = prompt_tokens + completion_tokens
+        else:
+            return
+        model = ''
+        if isinstance(body_json, dict):
+            model = body_json.get('model') or ''
+        if not model and isinstance(resp_json, dict):
+            model = resp_json.get('model') or ''
+        if not provider:
+            host = urlparse(target_url).hostname or ''
+            if 'anthropic' in host:
+                provider = 'anthropic'
+            elif 'openai' in host:
+                provider = 'openai'
+            elif 'moonshot' in host or 'kimi' in host:
+                provider = 'kimi'
+            elif 'deepseek' in host:
+                provider = 'deepseek'
+            elif 'siliconflow' in host:
+                provider = 'siliconflow'
+        conn = _db_conn()
+        try:
+            conn.execute('''
+                INSERT INTO token_usage (id, user_id, agent_id, provider, model, endpoint, prompt_tokens, completion_tokens, total_tokens, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (uuid.uuid4().hex[:12], auth.user_id or '', agent_id or '', provider or '', model, target_url, prompt_tokens, completion_tokens, total_tokens, int(time.time() * 1000)))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f'  [Proxy] token usage log skipped: {e}', flush=True)
+
+
 def _handle_proxy(self):
     """POST /api/proxy（需认证）"""
     auth = _authenticate(self.headers)
@@ -12887,6 +13698,7 @@ def _handle_proxy(self):
         return
 
     target_url = self.headers.get('X-Target-URL', '')
+    agent_id = self.headers.get('X-Agent-Id', '')
     if not target_url:
         self._send_json_error(400, 'Missing X-Target-URL header')
         return
@@ -12953,6 +13765,9 @@ def _handle_proxy(self):
         except Exception:
             pass
         print(f'  [Proxy] API返回 status={resp.status}{choices_info} <- {target_url}', flush=True)
+
+        # 记录真实 token usage
+        _log_proxy_token_usage(auth, body_json, resp_body, provider, target_url, agent_id)
 
         self.send_response(resp.status)
         self._add_cors_headers()
@@ -13435,8 +14250,12 @@ def main():
     init_db()  # 保留旧 init_db 兼容
     ks.set_data_dir(DATA_DIR)
     ks.init_db()
+    # 新版知识库表
+    ks.init_kb_entries_db()
     # 旧数据迁移（幂等，自动触发分段和向量化）
     ks.knowledge_migrate_from_json(DATA_DIR, lambda eid: _get_agent_by_id(eid) or {})
+    # 旧 knowledge 表数据迁移到新版 kb_entries（幂等）
+    ks.kb_migrate_from_old_knowledge()
 
     # 同步记忆服务 v3 配置（在 main() 中执行，避免模块导入时的 NameError）
     # 注意：v2 数据目录是 'memory'（单数），复用同一目录避免迁移
@@ -13454,6 +14273,9 @@ def main():
 
     # 初始化默认管理员
     _init_default_admin()
+
+    # 确保系统知识库管理员 AI 员工存在
+    _ensure_knowledge_admin_agent()
 
     # 确保 teams.json 存在
     if not os.path.isfile(TEAMS_FILE):
@@ -13476,25 +14298,22 @@ def main():
     else:
         print(f'  [CLAW] OpenClaw CLI: NOT FOUND ({OPENCLAW_CLI})')
 
-    # 启动每日记忆定时任务线程
-    threading.Thread(target=_daily_memory_job_loop, daemon=True).start()
-    print('  [DailyJob] 每日记忆任务调度线程已启动')
+    # 已停用：每日记忆定时任务 / 启动补跑 / 大脑调度器自动提炼任务
+    # threading.Thread(target=_daily_memory_job_loop, daemon=True).start()
+    # print('  [DailyJob] 每日记忆任务调度线程已启动')
+    # def _startup_memory_job():
+    #     time.sleep(10)
+    #     _run_daily_memory_jobs(startup=True)
+    # threading.Thread(target=_startup_memory_job, daemon=True).start()
+    # print('  [DailyJob] 启动补跑任务已调度（10 秒后执行）')
 
-    # 启动补跑：服务启动后 10 秒执行一次记忆候选生成与知识归纳
-    def _startup_memory_job():
-        time.sleep(10)
-        _run_daily_memory_jobs(startup=True)
-    threading.Thread(target=_startup_memory_job, daemon=True).start()
-    print('  [DailyJob] 启动补跑任务已调度（10 秒后执行）')
-
-    # FIXME: 大脑知识中枢：启动后台调度器与 OpenClaw 队列
+    # FIXME: 大脑知识中枢：OpenClaw 队列保持运行，后台 BrainScheduler 已停用
     _openclaw_queue.start()
-    _brain_scheduler.start()
-    # FIXME: 兼容现有数据：启动 5 秒后后台迁移旧记忆
-    def _brain_migrate_job():
-        time.sleep(5)
-        _brain_scheduler.migrate_existing_memories()
-    threading.Thread(target=_brain_migrate_job, daemon=True).start()
+    # _brain_scheduler.start()
+    # def _brain_migrate_job():
+    #     time.sleep(5)
+    #     _brain_scheduler.migrate_existing_memories()
+    # threading.Thread(target=_brain_migrate_job, daemon=True).start()
 
     # Allow port reuse to avoid "Address already in use"
     class ReuseHTTPServer(http.server.ThreadingHTTPServer):

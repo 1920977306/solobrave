@@ -5792,6 +5792,7 @@ window.doLogin = function () {
     </div>
     <button class="knowledge-mid-new" onclick="createNewKnowledge()">+ 新建文档</button>
   </div>
+  <div class="knowledge-mid-stats" id="knowledgeMidStats" style="display:none;"></div>
   <div class="knowledge-mid-items" id="knowledgeMidItems"></div>
   <div class="knowledge-mid-pagination" id="knowledgeMidPagination"></div>
 </div>
@@ -17613,17 +17614,18 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
       'Content-Type': 'application/json',
       'Authorization': authToken && authToken !== 'local_mode' ? 'Bearer ' + authToken : '',
       'X-AI-API-Key': apiKey,
-      'X-Target-URL': endpoint
+      'X-Target-URL': endpoint,
+      'X-Agent-Id': emp.id || '',
     },
     body: JSON.stringify({
       model: model,
       messages: messages,
-      temperature: 1.0,
+      temperature: 0.8,
       max_tokens: 2000
     })
   }).then(function (res) {
     console.log('[API] /api/proxy 响应 status=' + (res ? res.status : 'null') + ' ok=' + (res ? res.ok : 'null'));
-    var t = document.getElementById('typingMsg');
+
     if (t) t.remove();
     if (!res || !res.ok) {
       var status = res ? res.status : 0;
@@ -19101,34 +19103,7 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
   var emp = getCurrentEmployeeInfo();
   var avatarBg = emp.bg ? 'background:' + emp.bg + ';' : 'background:linear-gradient(135deg,#FF6B35,#E55A2B);';
 
-  // 估算 token 使用量（中文字符约1.5 token/字，英文约0.3 token/字）
-  var inputTokens = 0;
-  var outputTokens = 0;
-  if (replyText) {
-    var cnCount = (replyText.match(/[\u4e00-\u9fa5]/g) || []).length;
-    var enCount = replyText.length - cnCount;
-    outputTokens = Math.ceil(cnCount * 1.5 + enCount * 0.3);
-  }
-
-  // 记录到员工 token 统计
-  var currentEmpId = localStorage.getItem('sb_current_emp');
-  if (currentEmpId) {
-    var targetEmp = emps.find(function (e) {
-      return e.id === currentEmpId;
-    });
-    if (targetEmp) {
-      if (!targetEmp.tokenStats) targetEmp.tokenStats = {
-        input: 0,
-        output: 0,
-        total: 0
-      };
-      targetEmp.tokenStats.input += inputTokens;
-      targetEmp.tokenStats.output += outputTokens;
-      targetEmp.tokenStats.total += inputTokens + outputTokens;
-      targetEmp.tokens = targetEmp.tokenStats.total;
-      saveEmployees(currentEmpId);
-    }
-  }
+  // Token 统计已由后端 /api/proxy 真实 usage 记录，前端不再估算
   // 解析并移除工具调用标记
   var toolCalls = parseToolCalls(replyText);
   var cleanText = stripToolCallsFromText(replyText);
@@ -23191,27 +23166,28 @@ async function loadKnowledgePage(page) {
   try {
     await loadGroups();
     var offset = (_knowledgePage - 1) * _knowledgePageSize;
-    var url = '/api/knowledge?limit=' + _knowledgePageSize + '&offset=' + offset;
+    var url = '/api/knowledge/entries?limit=' + _knowledgePageSize + '&offset=' + offset;
     if (_knowledgeScope && _knowledgeScope !== 'all') url += '&scope=' + encodeURIComponent(_knowledgeScope);
     if (_knowledgeCurrentCat) url += '&category=' + encodeURIComponent(_knowledgeCurrentCat);
     var searchInput = document.getElementById('knowledgeMidSearch');
     var kw = searchInput ? searchInput.value.trim() : '';
     if (kw) url += '&q=' + encodeURIComponent(kw);
-    var r = await apiFetch(url);
-    var data = await r.json();
+    var [listRes, catRes, statsRes] = await Promise.all([
+      apiFetch(url),
+      apiFetch('/api/knowledge/categories' + (_knowledgeScope && _knowledgeScope !== 'all' ? '?scope=' + encodeURIComponent(_knowledgeScope) : '')),
+      apiFetch('/api/knowledge/stats' + (_knowledgeScope && _knowledgeScope !== 'all' ? '?scope=' + encodeURIComponent(_knowledgeScope) : ''))
+    ]);
+    var data = await listRes.json();
     _knowledgeData.docs = data.docs || [];
     _knowledgeData.total = data.total || 0;
-    // 分类统计需要单独请求（因为分页只返回当前页）
-    // 简化：用当前页数据展示分类（分类点击会重新请求）
-    var catMap = {};
-    _knowledgeData.docs.forEach(function(d) {
-      var cat = d.category || '未分类';
-      catMap[cat] = (catMap[cat] || 0) + 1;
-    });
-    _knowledgeData.categories = Object.keys(catMap);
-    renderKnowledgeCategories(catMap, _knowledgeData.total);
+    var catData = await catRes.json();
+    _knowledgeData.categories = (catData.categories || []).map(function(c) { return c.name; });
+    renderKnowledgeCategories(catData.categories || [], catData.total || _knowledgeData.total);
     renderKnowledgeList(_knowledgeData.docs);
     renderKnowledgePagination(_knowledgeData.total, _knowledgePage, _knowledgePageSize);
+    var statsData = await statsRes.json();
+    renderKnowledgeStats(statsData.stats || {});
+    _updateKnowledgeNewButtonVisibility();
     _knowledgeInitialized = true;
   } catch (e) {
     console.warn('[KnowledgePage] 加载失败:', e);
@@ -23219,24 +23195,25 @@ async function loadKnowledgePage(page) {
     if (midItems) midItems.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
   }
 }
-function renderKnowledgeCategories(catMap, total) {
+function renderKnowledgeCategories(categories, total) {
   var list = document.getElementById('knowledgeMidCategory');
   if (!list) return;
   // 按权限过滤分类
   var allowedCats = getAllowedKnowledgeCategories();
   var canAll = allowedCats.indexOf('*') > -1;
-  var visibleCats = _knowledgeData.categories.filter(function(cat) {
-    return canAll || allowedCats.indexOf(cat) > -1;
+  var visibleCats = (categories || []).filter(function(item) {
+    return canAll || allowedCats.indexOf(item.name) > -1;
   });
 
   var html = '';
-  html += '<div class="knowledge-cat-item' + (!_knowledgeCurrentCat ? ' active' : '') + '" onclick="selectKnowledgeCategory(\'\')">';
+  html += '<div class="knowledge-cat-item' + (!_knowledgeCurrentCat ? ' active' : '') + '" data-cat="" onclick="selectKnowledgeCategory(\'\')">';
   html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
-  html += '<span class="knowledge-cat-name">全部分类</span><span class="knowledge-cat-count">' + (total || _knowledgeData.total) + '</span></div>';
-  visibleCats.forEach(function(cat) {
-    html += '<div class="knowledge-cat-item' + (_knowledgeCurrentCat === cat ? ' active' : '') + '" onclick="selectKnowledgeCategory(\'' + escapeAttr(cat).replace(/'/g, "\\'") + '\')">';
+  html += '<span class="knowledge-cat-name">全部分类</span><span class="knowledge-cat-count">' + (total || _knowledgeData.total || 0) + '</span></div>';
+  visibleCats.forEach(function(item) {
+    var cat = item.name;
+    html += '<div class="knowledge-cat-item' + (_knowledgeCurrentCat === cat ? ' active' : '') + '" data-cat="' + escapeAttr(cat) + '" onclick="selectKnowledgeCategory(\'' + escapeAttr(cat).replace(/'/g, "\\'") + '\')">';
     html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
-    html += '<span class="knowledge-cat-name">' + escapeHtml(cat) + '</span><span class="knowledge-cat-count">' + (catMap[cat] || 0) + '</span></div>';
+    html += '<span class="knowledge-cat-name">' + escapeHtml(cat) + '</span><span class="knowledge-cat-count">' + (item.count || 0) + '</span></div>';
   });
   list.innerHTML = html;
   // Update editor category select（只显示有权限分类）
@@ -23266,10 +23243,8 @@ async function selectKnowledgeCategory(cat) {
   _knowledgePage = 1;
   // Update active class in sidebar
   document.querySelectorAll('.knowledge-cat-item').forEach(function(item) {
-    item.classList.remove('active');
+    item.classList.toggle('active', item.dataset.cat === (cat || ''));
   });
-  var activeItem = document.querySelector('.knowledge-cat-item[onclick*="' + (cat ? escapeAttr(cat).replace(/'/g, "\\'") : "selectKnowledgeCategory('')") + '"]');
-  if (activeItem) activeItem.classList.add('active');
   await loadKnowledgePage(1);
 }
 async function selectKnowledgeScope(scope) {
@@ -23334,12 +23309,60 @@ function renderKnowledgePagination(total, page, pageSize) {
   html += '<button ' + (page >= totalPages ? 'disabled' : '') + ' onclick="loadKnowledgePage(' + (page + 1) + ')">→</button>';
   el.innerHTML = html;
 }
+function renderKnowledgeStats(stats) {
+  var el = document.getElementById('knowledgeMidStats');
+  if (!el) return;
+  var total = stats.total || 0;
+  var byScope = stats.byScope || {};
+  var byCategory = (stats.byCategory || []).slice(0, 5);
+  var pending = stats.pendingChunks || 0;
+  if (!total && !byCategory.length && !pending) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  var scopeHtml = '';
+  var scopeMap = { global: '全局', team: '团队', personal: '个人', group: '项目组' };
+  for (var k in scopeMap) {
+    if (byScope[k]) {
+      scopeHtml += '<span class="knowledge-stat-scope">' + scopeMap[k] + ' ' + byScope[k] + '</span>';
+    }
+  }
+  var catHtml = byCategory.map(function(c) {
+    return '<span class="knowledge-stat-cat">' + escapeHtml(c.name) + ' ' + c.count + '</span>';
+  }).join('');
+  el.innerHTML = '<div class="knowledge-stats-row"><span class="knowledge-stat-total">📚 共 ' + total + ' 条</span>' + scopeHtml + (pending ? '<span class="knowledge-stat-pending">⏳ 待向量 ' + pending + '</span>' : '') + '</div>' + (catHtml ? '<div class="knowledge-stats-row">' + catHtml + '</div>' : '');
+  el.style.display = '';
+}
 function onKnowledgeSearch(value) {
   clearTimeout(window._knowledgeSearchTimer);
-  window._knowledgeSearchTimer = setTimeout(function () {
+  window._knowledgeSearchTimer = setTimeout(async function () {
     _knowledgePage = 1;
-    loadKnowledgePage();
-  }, 250);
+    var kw = (value || '').trim();
+    if (!kw) {
+      loadKnowledgePage();
+      return;
+    }
+    var midItems = document.getElementById('knowledgeMidItems');
+    var countEl = document.getElementById('knowledgeMidCount');
+    if (midItems) midItems.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索中...</div>';
+    try {
+      var r = await apiFetch('/api/knowledge/search', {
+        method: 'POST',
+        body: JSON.stringify({ query: kw, limit: 20, scope: (_knowledgeScope !== 'all' ? _knowledgeScope : null), category: _knowledgeCurrentCat || null })
+      });
+      var data = await r.json();
+      var docs = (data.docs || []).map(function(d) { d.scope = d.scope || 'global'; return d; });
+      _knowledgeData.docs = docs;
+      _knowledgeData.total = docs.length;
+      if (countEl) countEl.textContent = '共 ' + docs.length + ' 条（语义搜索）';
+      renderKnowledgeList(docs);
+      renderKnowledgePagination(0, 1, _knowledgePageSize);
+    } catch (e) {
+      console.warn('[KnowledgeSearch] failed:', e);
+      if (midItems) midItems.innerHTML = '<div style="padding:40px;text-align:center;color:var(--danger);">搜索失败</div>';
+    }
+  }, 300);
 }
 function selectKnowledgeItem(id) {
   _knowledgeCurrentId = id;
@@ -23537,7 +23560,7 @@ async function saveKnowledgeFromEditor() {
         body.empId = currentUser ? currentUser.userId || currentUser.id : '';
       }
     }
-    var url = _knowledgeCurrentId ? '/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId) : '/api/knowledge';
+    var url = _knowledgeCurrentId ? '/api/knowledge/entries/' + encodeURIComponent(_knowledgeCurrentId) : '/api/knowledge/entries';
     var method = _knowledgeCurrentId ? 'PUT' : 'POST';
     var r = await apiFetch(url, { method: method, body: JSON.stringify(body) });
     var result = await r.json();
@@ -23578,7 +23601,7 @@ async function deleteCurrentKnowledge() {
   }
   if (!confirm('确定删除该文档吗？此操作不可恢复')) return;
   try {
-    await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId), { method: 'DELETE' });
+    await apiFetch('/api/knowledge/entries/' + encodeURIComponent(_knowledgeCurrentId), { method: 'DELETE', silent: true });
     showToast('✅ 已删除');
     _knowledgeCurrentId = null;
     closeKnowledgeRight();
@@ -23700,7 +23723,7 @@ async function saveKnowledgeFromModal() {
   saveBtn.disabled = true;
   try {
     var body = { title: title, content: content, category: category };
-    var r = await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeModalDocId), {
+    var r = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(_knowledgeModalDocId), {
       method: 'PUT',
       body: JSON.stringify(body)
     });
@@ -23724,7 +23747,7 @@ async function deleteKnowledgeFromEditor() {
   }
   if (!confirm('确定删除该知识？此操作不可恢复。')) return;
   try {
-    await apiFetch('/api/knowledge/' + encodeURIComponent(_knowledgeCurrentId), { method: 'DELETE' });
+    await apiFetch('/api/knowledge/entries/' + encodeURIComponent(_knowledgeCurrentId), { method: 'DELETE', silent: true });
     showToast('✅ 已删除');
     closeKnowledgeRight();
     await loadKnowledgePage();
@@ -24383,25 +24406,27 @@ function closeTokenStats() {
   var panel = document.getElementById('tokenStatsPanel');
   if (panel) panel.classList.remove('open');
 }
-function renderTokenStats() {
+async function renderTokenStats() {
   var content = document.getElementById('tokenStatsContent');
   if (!content) return;
-  var totalInput = 0;
-  var totalOutput = 0;
-  var totalTokens = 0;
-  var rows = '';
-  emps.forEach(function (emp) {
-    var stats = emp.tokenStats || {
-      input: 0,
-      output: 0,
-      total: 0
-    };
-    totalInput += stats.input;
-    totalOutput += stats.output;
-    totalTokens += stats.total;
-    rows += '<tr style="border-bottom:1px solid var(--separator);">' + '<td style="padding:8px;display:flex;align-items:center;gap:8px;">' + '<div class="avatar small" style="background:' + (emp.bg || '#8E8E93') + ';">' + renderAvatar(emp, 24) + '</div>' + '<span>' + escapeHtml(emp.name) + '</span>' + '</td>' + '<td style="padding:8px;text-align:right;font-size:12px;">' + stats.input.toLocaleString() + '</td>' + '<td style="padding:8px;text-align:right;font-size:12px;">' + stats.output.toLocaleString() + '</td>' + '<td style="padding:8px;text-align:right;font-size:12px;font-weight:600;">' + stats.total.toLocaleString() + '</td>' + '</tr>';
-  });
-  content.innerHTML = '<div style="margin-bottom:16px;">' + '<div style="display:flex;gap:16px;margin-bottom:12px;">' + '<div style="flex:1;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' + '<div style="font-size:11px;color:var(--text-tertiary);">总输入</div>' + '<div style="font-size:20px;font-weight:600;color:var(--accent);">' + totalInput.toLocaleString() + '</div>' + '</div>' + '<div style="flex:1;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' + '<div style="font-size:11px;color:var(--text-tertiary);">总输出</div>' + '<div style="font-size:20px;font-weight:600;color:var(--accent);">' + totalOutput.toLocaleString() + '</div>' + '</div>' + '<div style="flex:1;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' + '<div style="font-size:11px;color:var(--text-tertiary);">总计</div>' + '<div style="font-size:20px;font-weight:600;color:var(--accent);">' + totalTokens.toLocaleString() + '</div>' + '</div>' + '</div>' + '</div>' + '<table style="width:100%;border-collapse:collapse;font-size:13px;">' + '<thead>' + '<tr style="border-bottom:2px solid var(--separator);">' + '<th style="padding:8px;text-align:left;font-size:12px;color:var(--text-tertiary);">员工</th>' + '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">输入</th>' + '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">输出</th>' + '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">总计</th>' + '</tr>' + '</thead>' + '<tbody>' + rows + '</tbody>' + '</table>';
+  content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
+  try {
+    var resp = await apiFetch('/api/stats/compute?groupBy=agent');
+    var data = await resp.json();
+    var employeeStats = data.employeeStats || [];
+    var totalInput = 0, totalOutput = 0, totalTokens = 0;
+    var rows = '';
+    employeeStats.forEach(function (e) {
+      totalInput += e.inputTokens || 0;
+      totalOutput += e.outputTokens || 0;
+      totalTokens += e.tokens || 0;
+      rows += '<tr style="border-bottom:1px solid var(--separator);">' + '<td style="padding:8px;display:flex;align-items:center;gap:8px;">' + '<span>' + escapeHtml(e.name || '未知') + '</span>' + '</td>' + '<td style="padding:8px;text-align:right;font-size:12px;">' + (e.inputTokens || 0).toLocaleString() + '</td>' + '<td style="padding:8px;text-align:right;font-size:12px;">' + (e.outputTokens || 0).toLocaleString() + '</td>' + '<td style="padding:8px;text-align:right;font-size:12px;font-weight:600;">' + (e.tokens || 0).toLocaleString() + '</td>' + '</tr>';
+    });
+    content.innerHTML = '<div style="margin-bottom:16px;">' + '<div style="display:flex;gap:16px;margin-bottom:12px;">' + '<div style="flex:1;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' + '<div style="font-size:11px;color:var(--text-tertiary);">总输入</div>' + '<div style="font-size:20px;font-weight:600;color:var(--accent);">' + totalInput.toLocaleString() + '</div>' + '</div>' + '<div style="flex:1;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' + '<div style="font-size:11px;color:var(--text-tertiary);">总输出</div>' + '<div style="font-size:20px;font-weight:600;color:var(--accent);">' + totalOutput.toLocaleString() + '</div>' + '</div>' + '<div style="flex:1;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' + '<div style="font-size:11px;color:var(--text-tertiary);">总计</div>' + '<div style="font-size:20px;font-weight:600;color:var(--accent);">' + totalTokens.toLocaleString() + '</div>' + '</div>' + '</div>' + '</div>' + '<table style="width:100%;border-collapse:collapse;font-size:13px;">' + '<thead>' + '<tr style="border-bottom:2px solid var(--separator);">' + '<th style="padding:8px;text-align:left;font-size:12px;color:var(--text-tertiary);">员工</th>' + '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">输入</th>' + '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">输出</th>' + '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">总计</th>' + '</tr>' + '</thead>' + '<tbody>' + rows + '</tbody>' + '</table>';
+  } catch (e) {
+    console.warn('[renderTokenStats] failed:', e);
+    content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--danger);">加载失败</div>';
+  }
 }
 
 // ========== 渠道配置面板 ==========
@@ -24831,7 +24856,7 @@ function openGlobalSearchResult(type, id) {
 }
 
 function openKnowledgeDocById(id) {
-  apiFetch('/api/knowledge/' + encodeURIComponent(id))
+  apiFetch('/api/knowledge/entries/' + encodeURIComponent(id))
     .then(function (r) { return r.json(); })
     .then(function (doc) {
       if (!doc || doc.error) return;
@@ -24923,53 +24948,33 @@ function formatFollowers(n) {
 }
 
 // ========== 算力统计 ==========
-function getComputeStats(employeeStats) {
+function getComputeStats(employeeStats, totalTokensOverride, totalCallsOverride, timeStatsOverride) {
   var baseUsed = parseInt(localStorage.getItem('sb_tokens_used') || '0');
-  var totalTokens = baseUsed || 124580;
-  var totalCalls = parseInt(localStorage.getItem('sb_compute_calls') || '0') || 3420;
-  var timeStats = JSON.parse(localStorage.getItem('sb_compute_by_time') || 'null') || [
-    { date: '周一', tokens: 18200 }, { date: '周二', tokens: 24500 },
-    { date: '周三', tokens: 19800 }, { date: '周四', tokens: 31200 },
-    { date: '周五', tokens: 26880 }, { date: '周六', tokens: 15000 },
-    { date: '周日', tokens: 9000 }
-  ];
+  var totalTokens = totalTokensOverride !== undefined ? totalTokensOverride : baseUsed;
+  var totalCalls = totalCallsOverride !== undefined ? totalCallsOverride : (parseInt(localStorage.getItem('sb_compute_calls') || '0') || 0);
+  var timeStats = timeStatsOverride;
+  if (!timeStats || !timeStats.length) {
+    timeStats = JSON.parse(localStorage.getItem('sb_compute_by_time') || 'null') || [
+      { date: '周一', tokens: 0 }, { date: '周二', tokens: 0 },
+      { date: '周三', tokens: 0 }, { date: '周四', tokens: 0 },
+      { date: '周五', tokens: 0 }, { date: '周六', tokens: 0 },
+      { date: '周日', tokens: 0 }
+    ];
+  }
   return { totalTokens: totalTokens, totalCalls: totalCalls, employeeStats: employeeStats || [], timeStats: timeStats };
 }
 async function loadComputeStats() {
   var area = document.getElementById('computeStatsArea');
   if (!area) return;
   area.innerHTML = '<div class="settings-card"><div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div></div>';
-  var employeeStats = [];
-  var localStats = JSON.parse(localStorage.getItem('sb_compute_by_employee') || 'null') || [];
   try {
-    var resp = await apiFetch('/api/agents');
-    var agents = [];
-    if (resp && resp.ok) agents = await resp.json();
-    if (!Array.isArray(agents)) agents = [];
-    if (agents.length) {
-      employeeStats = agents.map(function (a) {
-        var local = localStats.find(function (s) { return s.id === a.id || s.name === a.name; }) || {};
-        var tokenStats = a.tokenStats || {};
-        return {
-          id: a.id,
-          name: a.name || '未命名',
-          tokens: local.tokens || tokenStats.total || 0,
-          calls: local.calls || 0
-        };
-      });
-    }
+    var resp = await apiFetch('/api/stats/compute');
+    var data = await resp.json();
+    area.innerHTML = renderComputeStats(getComputeStats(data.employeeStats || [], data.totalTokens || 0, data.totalCalls || 0, data.timeStats || []));
   } catch (e) {
-    console.warn('[loadComputeStats] 获取员工失败，使用本地数据', e);
+    console.warn('[loadComputeStats] 获取算力统计失败', e);
+    area.innerHTML = renderComputeStats(getComputeStats([], 0, 0, []));
   }
-  if (!employeeStats.length) {
-    employeeStats = localStats.length ? localStats : [
-      { name: 'Alice', tokens: 45200, calls: 980 },
-      { name: 'Bob', tokens: 32100, calls: 650 },
-      { name: 'Carol', tokens: 28300, calls: 720 },
-      { name: 'David', tokens: 18980, calls: 1070 }
-    ];
-  }
-  area.innerHTML = renderComputeStats(getComputeStats(employeeStats));
 }
 function renderComputeStats(stats) {
   var html = '<div class="settings-card">';
