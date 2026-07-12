@@ -23220,7 +23220,8 @@ function renderKnowledgeCategories(categories, total) {
   var editorCat = document.getElementById('knowledgeEditCategory');
   if (editorCat) {
     var opts = '<option value="">选择分类</option>';
-    visibleCats.forEach(function(cat) {
+    visibleCats.forEach(function(item) {
+      var cat = item.name;
       opts += '<option value="' + escapeAttr(cat) + '">' + escapeHtml(cat) + '</option>';
     });
     var currentVal = editorCat.value;

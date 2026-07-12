@@ -1358,6 +1358,14 @@ def _find_group(groups, key, value):
     return None
 
 
+def _get_user_emp_ids(user_id):
+    """根据 user_id 返回该用户创建的 AI 员工 ID 列表"""
+    if not user_id:
+        return []
+    agents = _load_agents()
+    return [a.get('id') for a in agents if a.get('createdBy') == user_id and a.get('id')]
+
+
 def _get_user_group_ids(user_id):
     """根据 user_id 返回该用户（通过其创建的 AI 员工）所属的项目组 ID 列表"""
     if not user_id:
