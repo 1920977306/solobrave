@@ -15869,6 +15869,7 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
 
 def _handle_proxy(self):
     """POST /api/proxy（需认证）"""
+    print("[Proxy] _handle_proxy 入口", flush=True)
     auth = _authenticate(self.headers)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
@@ -15980,6 +15981,7 @@ def _handle_proxy(self):
         resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
 
         resp_body = resp.read()
+        print(f"[Proxy] 原始响应前200字符: {resp_body[:200].decode('utf-8', errors='replace')}", flush=True)
         resp_content_type = resp.headers.get('Content-Type', 'application/json')
 
         # Kimi coding 返回 Anthropic Messages 格式，前端已原生解析，后端直接透传。
