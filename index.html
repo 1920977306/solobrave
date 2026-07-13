@@ -7466,7 +7466,7 @@ function formatDate(ts) {
   return y + '-' + pad(m) + '-' + pad(day) + ' ' + pad(h) + ':' + pad(min);
 }
 
-// 格式化消息内容（支持代码块、列表、标题、加粗、行内代码等）
+// 格式化消息内容（支持代码块、表格、列表、标题、加粗、行内代码等）
 function formatMessageContent(text) {
   if (!text) return '';
 
@@ -7488,10 +7488,96 @@ function formatMessageContent(text) {
       var langLabel = lang ? '<div class="code-lang">' + escapeHtml(lang) + '</div>' : '';
       result += '<div class="code-block">' + langLabel + '<pre><code>' + escapeHtml(code) + '</code></pre><button class="code-copy-btn" onclick="copyCode(this)">📋 复制</button></div>';
     } else {
-      result += formatMessageInline(part);
+      result += formatMessageBlock(part);
     }
   }
   return result;
+}
+
+// 块级 Markdown 处理：先拆分表格，表格直接渲染 HTML，其余走 inline
+function formatMessageBlock(text) {
+  if (!text) return '';
+  var lines = text.split('\n');
+  var segments = [];
+  var buffer = [];
+  var i = 0;
+  function flushBuffer() {
+    if (buffer.length) {
+      segments.push({type: 'text', text: buffer.join('\n')});
+      buffer = [];
+    }
+  }
+  while (i < lines.length) {
+    var tableEnd = findMarkdownTableEnd(lines, i);
+    if (tableEnd > i) {
+      flushBuffer();
+      segments.push({type: 'table', lines: lines.slice(i, tableEnd)});
+      i = tableEnd;
+    } else {
+      buffer.push(lines[i]);
+      i++;
+    }
+  }
+  flushBuffer();
+
+  var out = '';
+  segments.forEach(function(seg){
+    if (seg.type === 'table') {
+      out += renderMarkdownTable(seg.lines);
+    } else {
+      out += formatMessageInline(seg.text);
+    }
+  });
+  return out;
+}
+
+// 判断从 start 行开始是否是一个 Markdown 表格，返回表格结束行号（不含）
+function findMarkdownTableEnd(lines, start) {
+  if (start >= lines.length) return start;
+  var first = lines[start].trim();
+  if (!first.startsWith('|') || !first.endsWith('|')) return start;
+  if (start + 1 >= lines.length) return start;
+  var second = lines[start + 1].trim();
+  if (!second.startsWith('|') || !second.endsWith('|')) return start;
+  // 第二行必须是分隔符，如 |---|---|
+  var sepCells = second.slice(1, -1).split('|');
+  if (!sepCells.every(function(c){ return /^\s*:?-+:?\s*$/.test(c); })) return start;
+  var end = start + 2;
+  while (end < lines.length) {
+    var line = lines[end].trim();
+    if (!line.startsWith('|') || !line.endsWith('|')) break;
+    end++;
+  }
+  return end;
+}
+
+// 把 Markdown 表格行数组渲染成 HTML
+function renderMarkdownTable(tableLines) {
+  if (!tableLines || tableLines.length < 2) return '';
+  var headerLine = tableLines[0].trim();
+  var sepLine = tableLines[1].trim();
+  var headers = headerLine.slice(1, -1).split('|').map(function(h){ return h.trim(); });
+  var aligns = sepLine.slice(1, -1).split('|').map(function(c){
+    c = c.trim();
+    if (c.startsWith(':') && c.endsWith(':')) return 'center';
+    if (c.endsWith(':')) return 'right';
+    return 'left';
+  });
+  var html = '<table class="md-table"><thead><tr>';
+  headers.forEach(function(h, idx){
+    html += '<th style="text-align:' + (aligns[idx] || 'left') + '">' + formatMessageInline(h) + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+  for (var i = 2; i < tableLines.length; i++) {
+    var cells = tableLines[i].trim().slice(1, -1).split('|');
+    html += '<tr>';
+    cells.forEach(function(cell, idx){
+      html += '<td style="text-align:' + (aligns[idx] || 'left') + '">' + formatMessageInline(cell.trim()) + '</td>';
+    });
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
 }
 
 // 普通文本 Markdown 格式化（逃逸 HTML + 行内代码 + 加粗/斜体 + 标题 + 列表 + 换行）
@@ -7543,7 +7629,7 @@ function renderSimpleLists(text) {
       while (i < lines.length) {
         var m = lines[i].match(ulRe);
         if (!m) break;
-        items.push('<li>' + m[2] + '</li>');
+        items.push('<li>' + formatMessageInline(m[2]) + '</li>');
         i++;
       }
       out.push('<ul>' + items.join('') + '</ul>');
@@ -7554,7 +7640,7 @@ function renderSimpleLists(text) {
       while (i < lines.length) {
         var m = lines[i].match(olRe);
         if (!m) break;
-        items.push('<li>' + m[2] + '</li>');
+        items.push('<li>' + formatMessageInline(m[2]) + '</li>');
         i++;
       }
       out.push('<ol>' + items.join('') + '</ol>');
@@ -20002,6 +20088,11 @@ async function finishWizard() {
 .code-block:hover .code-copy { opacity: 1; }
 .code-copy:hover { background: rgba(0,0,0,0.08); color: var(--text-primary); }
 .inline-code { padding: 1px 5px; font-family: "SF Mono", "Monaco", "Menlo", monospace; font-size: 12px; background: #f0f0f0; border-radius: 3px; color: #e65100; }
+.md-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; line-height: 1.5; }
+.md-table th, .md-table td { padding: 8px 10px; border: 0.5px solid var(--separator, rgba(0,0,0,0.08)); }
+.md-table th { background: var(--bg-secondary, #f5f7fa); font-weight: 600; color: var(--text-primary); }
+.md-table td { color: var(--text-secondary); }
+.md-table tbody tr:nth-child(even) { background: var(--bg-secondary, #fafafa); }
 
 /* ===== @ 成员选择列表 ===== */
 .mention-popup {

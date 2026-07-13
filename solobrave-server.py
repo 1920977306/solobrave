@@ -11831,32 +11831,52 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         cfg['model'] = cfg['model'] or _resolve_ai_model(cfg['provider'], '')
         cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
 
+        content_style = talent.get('content_style', '') or talent.get('contentStyle', '')
         prompt = (
-            f"请为以下抖音达人做一份完整的 6 维度综合分析。只返回 JSON，不要返回其他内容。\n"
-            f"JSON 必须包含以下字段：\n"
-            f"{{\"rating\":\"S/A/B/C之一\", \"tags\":[\"标签1\",\"标签2\",...], \"suitable_products\":\"适合商品类型描述\", \"cooperation_advice\":\"合作建议\", \"risk_warnings\":\"风险提示\", \"content\":\"Markdown 格式的完整 6 维度综合分析报告\"}}\n\n"
-            f"6 个维度分别是：\n"
-            f"1）带货能力评估（结合粉丝量、历史 GMV、带货商品数、直播/视频数据）；\n"
-            f"2）粉丝画像匹配度（性别、年龄、价格带、类目偏好）；\n"
-            f"3）内容风格与短视频特征（必须结合下方「短视频特征/内容风格」字段做深度解读）；\n"
-            f"4）合作性价比（客单价、佣金空间、合作成本的综合判断）；\n"
-            f"5）风险与合规（口碑分、履约分、合作风险、内容合规性）；\n"
-            f"6）综合合作建议（是否推荐、优先合作品类、触达策略）。\n\n"
-            f"达人昵称：{talent.get('name', '')}\n"
-            f"等级：{talent.get('level', '')}\n"
-            f"粉丝量：{talent.get('followers', 0)}\n"
-            f"达人类型：{talent.get('talent_type', '')}\n"
-            f"主营类目：{talent.get('fan_category', '')}\n"
-            f"粉丝价格带：{talent.get('fan_price_range', '')}\n"
-            f"粉丝画像（性别）：{json.dumps(talent.get('fan_gender', {}), ensure_ascii=False)}\n"
-            f"粉丝画像（年龄）：{json.dumps(talent.get('fan_age', {}), ensure_ascii=False)}\n"
-            f"带货数据：总GMV {talent.get('total_gmv', 0)}，总商品数 {talent.get('total_products', 0)}，直播GMV {talent.get('avg_live_gmv', 0)}\n"
-            f"短视频特征/内容风格：{talent.get('content_style', '') or talent.get('contentStyle', '')}\n"
-            f"标签：{json.dumps(talent.get('tags', []), ensure_ascii=False)}\n"
-            f"简介：{talent.get('bio', '')}\n"
+            f"你是一位专业的抖音达人合作匹配分析师。请为以下达人生成一份完整的合作匹配分析报告，参考灵邀AI等专业达人评估平台的报告格式。\n"
+            f"要求：只返回 Markdown 格式报告，不要返回其他内容；必须包含 Markdown 表格和列表，确保前端能直接渲染。\n\n"
+            f"报告必须包含以下 6 个部分：\n\n"
+            f"## 1. 综合匹配度\n"
+            f"- 综合评分：0-100 分（如：85 分）\n"
+            f"- 匹配评级：高 / 中 / 低\n"
+            f"- 一句话总结：给出 1 句核心结论\n\n"
+            f"## 2. 六维评分\n"
+            f"使用 Markdown 表格输出，列名为「维度、评分（0-100）、详细说明」。六个维度分别是：\n"
+            f"- 受众匹配度\n"
+            f"- 品类相关性\n"
+            f"- 带货实力\n"
+            f"- 内容适配度\n"
+            f"- 合作性价比\n"
+            f"- 转化潜力\n\n"
+            f"## 3. 匹配亮点\n"
+            f"使用 ✓ 打勾列表，列出该达人与我们合作的 3-6 个具体匹配点，每个点 1-2 句话。\n\n"
+            f"## 4. 达人潜在问题\n"
+            f"使用 ! 感叹号列表，列出 2-5 个该达人存在的潜在问题或不足，每个问题 1-2 句话。\n\n"
+            f"## 5. 合作风险点与缓解建议\n"
+            f"使用列表输出，每条格式为「风险点：xxx。缓解建议：xxx」。\n\n"
+            f"## 6. 合作建议\n"
+            f"- 合作方式：建议以何种形式合作（如短视频种草、直播带货、切片分发等）\n"
+            f"- 预期效果：预估可带来的 GMV、曝光、转化等\n"
+            f"- 触达策略：如何与达人建立合作、议价要点、排期建议\n\n"
+            f"达人基础数据：\n"
+            f"- 达人昵称：{talent.get('name', '')}\n"
+            f"- 抖音号：{talent.get('douyin_id', '')}\n"
+            f"- 等级：{talent.get('level', '')}\n"
+            f"- 粉丝量：{talent.get('followers', 0)}\n"
+            f"- 达人类型：{talent.get('talent_type', '')}\n"
+            f"- 主营类目：{talent.get('fan_category', '')}\n"
+            f"- 粉丝价格带：{talent.get('fan_price_range', '')}\n"
+            f"- 粉丝画像（性别）：{json.dumps(talent.get('fan_gender', {}), ensure_ascii=False)}\n"
+            f"- 粉丝画像（年龄）：{json.dumps(talent.get('fan_age', {}), ensure_ascii=False)}\n"
+            f"- 带货数据：总GMV {talent.get('total_gmv', 0)}，总商品数 {talent.get('total_products', 0)}，直播GMV {talent.get('avg_live_gmv', 0)}\n"
+            f"- 短视频特征/内容风格：{content_style}\n"
+            f"- 标签：{json.dumps(talent.get('tags', []), ensure_ascii=False)}\n"
+            f"- 简介：{talent.get('bio', '')}\n"
+            f"- 口碑分：{talent.get('rating_score', 0)}，履约分：{talent.get('fulfillment_score', 0)}\n\n"
+            f"请特别结合「短视频特征/内容风格」深入分析内容适配度，并结合粉丝画像评估受众匹配度。"
         )
         messages = [
-            {'role': 'system', 'content': '你是电商达人分析助手，擅长根据达人数据给出结构化分析。'},
+            {'role': 'system', 'content': '你是电商达人合作匹配分析专家，擅长输出结构化的达人评估报告。'},
             {'role': 'user', 'content': prompt}
         ]
         content = _call_ai_analysis(messages, cfg=cfg, context='talent_analyze')
@@ -11864,31 +11884,29 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(503, 'AI analysis failed or returned empty response')
             return
 
-        # 解析 JSON（兼容 markdown 代码块、冗余文本）
-        analysis = _extract_json_object(content)
-        if not isinstance(analysis, dict):
-            print(f'  [Analyze] talent_analyze AI response is not a valid JSON object: {content[:1000]}', flush=True)
-            self._send_json_error(503, 'AI response is not valid JSON')
-            return
+        analysis_text = content.strip()
+        # 尝试提取综合评级写入 ai_rating，便于列表/徽章展示（非关键，失败也不影响主报告）
+        ai_rating = ''
+        rating_match = _re.search(r'评级[：:]\s*(高|中|低)', analysis_text)
+        if rating_match:
+            ai_rating = rating_match.group(1)
 
         now_ts = int(time.time() * 1000)
         conn = _db_conn()
         try:
             conn.execute(
-                '''UPDATE talents SET ai_rating = ?, ai_tags = ?, ai_summary = ?, ai_analysis = ?, ai_reason = ?, updated_at = ? WHERE id = ?''',
+                '''UPDATE talents SET ai_rating = ?, ai_analysis = ?, ai_reason = ?, updated_at = ? WHERE id = ?''',
                 (
-                    analysis.get('rating', ''),
-                    json.dumps(analysis.get('tags', []), ensure_ascii=False),
-                    analysis.get('suitable_products', ''),
-                    analysis.get('content', ''),
-                    json.dumps(analysis, ensure_ascii=False),
+                    ai_rating,
+                    analysis_text,
+                    analysis_text,
                     now_ts, talent_id
                 )
             )
             conn.commit()
         finally:
             conn.close()
-        self._send_json(200, {'id': talent_id, 'ai_analysis': analysis})
+        self._send_json(200, {'id': talent_id, 'ai_analysis': {'content': analysis_text, 'rating': ai_rating}})
 
     def _handle_get_chat(self, agent_id):
         """GET /api/chat/:agentId?type=personal|group"""
