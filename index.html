@@ -22508,9 +22508,9 @@ function renderTalentPanelOverview(t) {
   // AI 分析摘要
   html += '<div class="talents-ai-card">';
   html += '<div class="talents-ai-title">🤖 AI 综合分析</div>';
-  html += '<div class="talents-ai-text">' + escapeHtml(t.ai_analysis || mock.ai_analysis || '点击右上角「AI 分析」生成达人综合评估。') + '</div>';
-  if (ai.cooperation_advice) html += '<div class="talents-ai-title" style="margin-top:10px;">合作建议</div><div class="talents-ai-text">' + escapeHtml(ai.cooperation_advice) + '</div>';
-  if (ai.risk_warnings) html += '<div class="talents-ai-title" style="margin-top:10px;">风险提示</div><div class="talents-ai-text">' + escapeHtml(ai.risk_warnings) + '</div>';
+  html += '<div class="talents-ai-text">' + formatMessageContent(t.ai_analysis || mock.ai_analysis || '点击右上角「AI 分析」生成达人综合评估。') + '</div>';
+  if (!t.ai_analysis && ai.cooperation_advice) html += '<div class="talents-ai-title" style="margin-top:10px;">合作建议</div><div class="talents-ai-text">' + escapeHtml(ai.cooperation_advice) + '</div>';
+  if (!t.ai_analysis && ai.risk_warnings) html += '<div class="talents-ai-title" style="margin-top:10px;">风险提示</div><div class="talents-ai-text">' + escapeHtml(ai.risk_warnings) + '</div>';
   html += '</div>';
   el.innerHTML = html;
 }
@@ -23033,6 +23033,7 @@ function analyzeTalentAI() {
       t.ai_rating = data.ai_analysis.rating || '';
       t.ai_tags = data.ai_analysis.tags || [];
       t.ai_summary = data.ai_analysis.suitable_products || '';
+      t.ai_analysis = data.ai_analysis.content || (typeof data.ai_analysis === 'string' ? data.ai_analysis : JSON.stringify(data.ai_analysis));
       t.ai_reason = JSON.stringify(data.ai_analysis);
     }
     if (_currentTalent) _currentTalent = Object.assign(_currentTalent, t);

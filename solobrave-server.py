@@ -11832,8 +11832,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         cfg['baseUrl'] = cfg['baseUrl'] or _resolve_ai_base_url(cfg['provider'], '')
 
         prompt = (
-            f"请为以下抖音达人做综合分析，只返回 JSON，不要返回其他内容。\n"
-            f"JSON 格式：{{\"rating\":\"S/A/B/C之一\", \"tags\":[\"标签1\",\"标签2\",...], \"suitable_products\":\"适合商品类型描述\", \"cooperation_advice\":\"合作建议\", \"risk_warnings\":\"风险提示\"}}\n\n"
+            f"请为以下抖音达人做一份完整的 6 维度综合分析。只返回 JSON，不要返回其他内容。\n"
+            f"JSON 必须包含以下字段：\n"
+            f"{{\"rating\":\"S/A/B/C之一\", \"tags\":[\"标签1\",\"标签2\",...], \"suitable_products\":\"适合商品类型描述\", \"cooperation_advice\":\"合作建议\", \"risk_warnings\":\"风险提示\", \"content\":\"Markdown 格式的完整 6 维度综合分析报告\"}}\n\n"
+            f"6 个维度分别是：\n"
+            f"1）带货能力评估（结合粉丝量、历史 GMV、带货商品数、直播/视频数据）；\n"
+            f"2）粉丝画像匹配度（性别、年龄、价格带、类目偏好）；\n"
+            f"3）内容风格与短视频特征（必须结合下方「短视频特征/内容风格」字段做深度解读）；\n"
+            f"4）合作性价比（客单价、佣金空间、合作成本的综合判断）；\n"
+            f"5）风险与合规（口碑分、履约分、合作风险、内容合规性）；\n"
+            f"6）综合合作建议（是否推荐、优先合作品类、触达策略）。\n\n"
             f"达人昵称：{talent.get('name', '')}\n"
             f"等级：{talent.get('level', '')}\n"
             f"粉丝量：{talent.get('followers', 0)}\n"
@@ -11867,11 +11875,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         conn = _db_conn()
         try:
             conn.execute(
-                '''UPDATE talents SET ai_rating = ?, ai_tags = ?, ai_summary = ?, ai_reason = ?, updated_at = ? WHERE id = ?''',
+                '''UPDATE talents SET ai_rating = ?, ai_tags = ?, ai_summary = ?, ai_analysis = ?, ai_reason = ?, updated_at = ? WHERE id = ?''',
                 (
                     analysis.get('rating', ''),
                     json.dumps(analysis.get('tags', []), ensure_ascii=False),
                     analysis.get('suitable_products', ''),
+                    analysis.get('content', ''),
                     json.dumps(analysis, ensure_ascii=False),
                     now_ts, talent_id
                 )
