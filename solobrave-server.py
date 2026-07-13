@@ -11879,7 +11879,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             {'role': 'system', 'content': '你是电商达人合作匹配分析专家，擅长输出结构化的达人评估报告。'},
             {'role': 'user', 'content': prompt}
         ]
-        content = _call_ai_analysis(messages, cfg=cfg, context='talent_analyze')
+        content = _call_ai_analysis(messages, cfg=cfg, context='talent_analyze', timeout=120, max_tokens=4000)
         if not content:
             self._send_json_error(503, 'AI analysis failed or returned empty response')
             return
@@ -12121,7 +12121,7 @@ def _resolve_ai_model(api_provider, api_model=''):
     return default_models.get(api_provider, 'gpt-4o-mini')
 
 
-def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT):
+def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT, max_tokens=2000):
     """底层 AI chat/completions 调用，返回字符串内容或 None（供聊天、定时任务复用）"""
     if not api_key:
         return None
@@ -12135,7 +12135,7 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
         'model': resolved_model,
         'messages': messages,
         'temperature': 0.8,
-        'max_tokens': 2000,
+        'max_tokens': max_tokens,
         'stream': False
     }).encode('utf-8')
 
@@ -12271,11 +12271,14 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
     return None
 
 
-def _call_ai_analysis(messages, cfg=None, context=''):
+def _call_ai_analysis(messages, cfg=None, context='', timeout=None, max_tokens=2000):
     """统一后端 AI 分析调用：优先 OpenClaw，其次 API 直连；失败返回 None
 
     注意：cfg 通常来自 embedding 配置，其中的 model 是 Embedding 模型，不能用于聊天/分析。
     因此分析任务使用 provider 对应的聊天默认模型（除非 cfg 显式传入了 apiModel）。
+
+    timeout: OpenClaw 与直连 API 的超时秒数；None 则使用各自默认值。
+    max_tokens: 直连 API 的最大输出 token 数（OpenClaw 由其 CLI/配置决定）。
     """
     cfg = cfg or {}
     provider = cfg.get('provider', '') or 'kimicode'
@@ -12316,7 +12319,8 @@ def _call_ai_analysis(messages, cfg=None, context=''):
 
     # 1. 优先 OpenClaw（项目主推的 AI 网关）
     if os.path.isfile(OPENCLAW_CLI):
-        content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=30)
+        oc_timeout = timeout if timeout is not None else OPENCLAW_TIMEOUT
+        content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=oc_timeout)
         if content:
             return content
         print(f'  [AI] OpenClaw failed for {context}, will try direct API fallback', flush=True)
@@ -12325,7 +12329,8 @@ def _call_ai_analysis(messages, cfg=None, context=''):
 
     # 2. 兜底：API 直连（需配置 API Key）
     if api_key:
-        content = _call_chat_completion(provider, api_key, chat_model, base_url, messages)
+        api_timeout = timeout if timeout is not None else PROXY_TIMEOUT
+        content = _call_chat_completion(provider, api_key, chat_model, base_url, messages, timeout=api_timeout, max_tokens=max_tokens)
         if content:
             return content
     else:
