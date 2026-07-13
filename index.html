@@ -2404,9 +2404,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-shrink: 0;
 }
 .knowledge-mid-count {
-  font-size: 13px;
-  color: #86909c;
-  flex-shrink: 0;
+  display: none;
 }
 .knowledge-mid-search {
   flex: 1;
@@ -2455,8 +2453,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 16px;
   background: #ffffff;
   border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);
-  border: 0.5px solid var(--separator);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  border: 0.5px solid rgba(0, 0, 0, 0.04);
   overflow-x: auto;
 }
 .knowledge-stats-card {
@@ -2464,26 +2462,35 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-width: 76px;
+  min-width: 80px;
   padding: 12px 14px;
-  background: #F5F7FA;
+  background: #ffffff;
   border-radius: 10px;
+  border: 0.5px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   transition: transform 0.15s, box-shadow 0.15s;
 }
 .knowledge-stats-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.08);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 122, 255, 0.12);
+  border-color: rgba(0, 122, 255, 0.18);
 }
 .knowledge-stats-total {
   background: linear-gradient(135deg, #007AFF 0%, #00A3FF 100%);
   color: #ffffff;
-  min-width: 92px;
+  min-width: 96px;
+  border: none;
+  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.25);
+}
+.knowledge-stats-total:hover {
+  box-shadow: 0 6px 18px rgba(0, 122, 255, 0.32);
 }
 .knowledge-stats-total .knowledge-stats-label {
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.9);
 }
 .knowledge-stats-pending {
   background: #FFF8E1;
+  border-color: rgba(245, 166, 35, 0.18);
 }
 .knowledge-stats-pending .knowledge-stats-value {
   color: #F5A623;
@@ -2492,7 +2499,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 22px;
   font-weight: 700;
   line-height: 1.2;
-  color: var(--text-primary);
+  color: #007AFF;
 }
 .knowledge-stats-label {
   font-size: 12px;
@@ -5865,14 +5872,14 @@ window.doLogin = function () {
 <div class="knowledge-mid-list" id="knowledgeMidList">
   <div class="knowledge-mid-header">
     <div class="knowledge-mid-title" id="knowledgeMidTitle">全部文档</div>
-    <div class="knowledge-mid-count" id="knowledgeMidCount">共 0 条</div>
+    <div class="knowledge-mid-count" id="knowledgeMidCount"></div>
     <div class="knowledge-mid-search">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       <input type="text" placeholder="搜索文档..." id="knowledgeMidSearch" oninput="onKnowledgeSearch(this.value)">
     </div>
     <button class="knowledge-mid-new" onclick="createNewKnowledge()">+ 新建文档</button>
   </div>
-  <div class="knowledge-mid-stats" id="knowledgeMidStats" style="display:none;"></div>
+  <div class="knowledge-mid-stats" id="knowledgeMidStats"></div>
   <div class="knowledge-mid-items" id="knowledgeMidItems"></div>
   <div class="knowledge-mid-pagination" id="knowledgeMidPagination"></div>
 </div>
@@ -6068,6 +6075,7 @@ window.doLogin = function () {
         </div>
         <div class="product-modal-field"><label>所在城市</label><input type="text" id="talentCity" placeholder="输入所在城市"></div>
         <div class="product-modal-field"><label>达人简介</label><textarea id="talentBio" placeholder="输入达人简介"></textarea></div>
+        <div class="product-modal-field"><label>短视频特征</label><textarea id="talentContentStyle" placeholder="例如：带货场景、纯内容、真实测评+日常vlog、韩系简约风等"></textarea></div>
         <div class="product-modal-field"><label>AI 分析</label><textarea id="talentAIAnalysis" placeholder="输入 AI 综合分析"></textarea></div>
       </div>
       <div class="product-modal-section">
@@ -18550,7 +18558,7 @@ function buildAgentToolsContext() {
     '   - 查询达人列表：list_influencers\n' +
     '   - 按关键词搜索达人：search_influencers，参数 {"query":"关键词"}\n' +
     '   - 查看单个达人详情：get_influencer_detail，参数 {"influencerId":"inf_xxx"}\n' +
-    '   - 录入新达人：add_talent（对接 POST /api/talents 创建接口），参数 {"name":"昵称","douyin_id":"抖音号","followers":10000,"category":"鞋靴/凉鞋","level":"S","risk_rating":"low","city":"杭州","bio":"简介","phone":"13800138000","wechat":"wxid","email":"a@b.com","cooperation_status":"available","contact_name":"联系人","follow_up_by":"跟进人","follow_up_note":"备注"}\n' +
+    '   - 录入新达人：add_talent（对接 POST /api/talents 创建接口），参数 {"name":"昵称","douyin_id":"抖音号","followers":10000,"category":"鞋靴/凉鞋","level":"S","risk_rating":"low","city":"杭州","bio":"简介","content_style":"短视频特征/内容风格，如：带货场景、纯内容、真实测评+日常vlog","phone":"13800138000","wechat":"wxid","email":"a@b.com","cooperation_status":"available","contact_name":"联系人","follow_up_by":"跟进人","follow_up_note":"备注"}\n' +
     '   - 录入新达人、编辑达人信息也可人工在UI操作\n' +
     '   - 每个达人有：名称、平台、账号、粉丝数、分类、报价、互动率、标签\n' +
     '   - 当用户想录入达人时，你必须主动从对话中提取上述字段；必填字段只有 name（达人昵称）。如果缺少必填字段或字段值不确定，请一次性列出需要补充的信息，向用户确认后再调用 add_talent。\n' +
@@ -18870,6 +18878,7 @@ async function executeToolCall(call) {
           risk_rating: params.risk_rating || params.riskRating || '',
           city: params.city || '',
           bio: params.bio || '',
+          content_style: params.content_style || params.contentStyle || '',
           phone: params.phone || params.contact_phone || params.contactPhone || '',
           wechat: params.wechat || params.contact_wechat || params.contactWechat || '',
           email: params.email || params.contact_email || params.contactEmail || '',
@@ -22181,6 +22190,7 @@ function _getTalentMockData(t) {
     phone: phone,
     wechat: wechat,
     email: email,
+    content_style: t.content_style || t.contentStyle || (seed % 2 ? '真实测评+日常vlog，语言幽默亲切' : '韩系简约风，搭配教程+场景展示'),
     product_count: productCount,
     average_price: averagePrice,
     total_gmv: totalGmv,
@@ -22491,6 +22501,7 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-info-item"><label>所在城市</label><div class="value">' + escapeHtml(t.city || mock.city || '-') + '</div></div>';
   html += '<div class="talents-info-item"><label>手机号</label><div class="value">' + escapeHtml(t.phone || t.contact_phone || mock.phone || '-') + '</div></div>';
   html += '<div class="talents-info-item"><label>微信号</label><div class="value">' + escapeHtml(t.wechat || t.contact_wechat || mock.wechat || '-') + '</div></div>';
+  html += '<div class="talents-info-item full-width"><label>短视频特征</label><div class="value">' + escapeHtml(t.content_style || t.contentStyle || mock.content_style || mock.contentStyle || '-') + '</div></div>';
   html += '<div class="talents-info-item full-width"><label>邮箱</label><div class="value">' + escapeHtml(t.email || t.contact_email || mock.email || '-') + '</div></div>';
   html += '</div></div>';
 
@@ -23043,6 +23054,7 @@ function createNewTalent() {
   document.getElementById('talentRiskRating').value = '';
   document.getElementById('talentCity').value = '';
   document.getElementById('talentBio').value = '';
+  document.getElementById('talentContentStyle').value = '';
   document.getElementById('talentAIAnalysis').value = '';
   document.getElementById('talentContactName').value = '';
   document.getElementById('talentContactPhone').value = '';
@@ -23069,6 +23081,7 @@ function editCurrentTalent() {
     document.getElementById('talentRiskRating').value = t.risk_rating || '';
     document.getElementById('talentCity').value = t.city || '';
     document.getElementById('talentBio').value = t.bio || '';
+    document.getElementById('talentContentStyle').value = t.content_style || t.contentStyle || '';
     document.getElementById('talentAIAnalysis').value = t.ai_analysis || t.ai_summary || '';
     document.getElementById('talentContactName').value = t.contact_name || '';
     document.getElementById('talentContactPhone').value = t.phone || t.contact_phone || '';
@@ -23104,6 +23117,7 @@ function saveTalent() {
     risk_rating: document.getElementById('talentRiskRating').value.trim(),
     city: document.getElementById('talentCity').value.trim(),
     bio: document.getElementById('talentBio').value.trim(),
+    content_style: document.getElementById('talentContentStyle').value.trim(),
     ai_analysis: document.getElementById('talentAIAnalysis').value.trim(),
     contact_name: document.getElementById('talentContactName').value.trim(),
     contact_phone: document.getElementById('talentContactPhone').value.trim(),
@@ -23350,8 +23364,6 @@ function getKnowledgePreview(content) {
 }
 function renderKnowledgeList(docs) {
   var el = document.getElementById('knowledgeMidItems');
-  var countEl = document.getElementById('knowledgeMidCount');
-  if (countEl) countEl.textContent = '共 ' + (_knowledgeData.total || 0) + ' 条';
   if (!el) return;
   if (!docs || docs.length === 0) {
     el.innerHTML = '<div class="knowledge-mid-empty"><div class="knowledge-mid-empty-icon">📖</div><div class="knowledge-mid-empty-text">暂无知识文档</div><button class="knowledge-mid-empty-btn" onclick="createNewKnowledge()">手动添加</button></div>';
@@ -23399,15 +23411,11 @@ function renderKnowledgePagination(total, page, pageSize) {
 function renderKnowledgeStats(stats) {
   var el = document.getElementById('knowledgeMidStats');
   if (!el) return;
+  stats = stats || {};
   var total = stats.total || 0;
   var byScope = stats.byScope || {};
   var byCategory = (stats.byCategory || []).slice(0, 8);
   var pending = stats.pendingChunks || 0;
-  if (!total && !byCategory.length && !pending) {
-    el.style.display = 'none';
-    el.innerHTML = '';
-    return;
-  }
 
   var scopeMap = [
     { key: 'global', label: '全局' },
@@ -23418,9 +23426,7 @@ function renderKnowledgeStats(stats) {
   var scopeCards = '';
   scopeMap.forEach(function(item) {
     var count = byScope[item.key] || 0;
-    if (count > 0) {
-      scopeCards += '<div class="knowledge-stats-card"><div class="knowledge-stats-value">' + count + '</div><div class="knowledge-stats-label">' + item.label + '</div></div>';
-    }
+    scopeCards += '<div class="knowledge-stats-card"><div class="knowledge-stats-value">' + count + '</div><div class="knowledge-stats-label">' + item.label + '</div></div>';
   });
 
   var pendingCard = '';
@@ -23453,7 +23459,6 @@ function onKnowledgeSearch(value) {
       return;
     }
     var midItems = document.getElementById('knowledgeMidItems');
-    var countEl = document.getElementById('knowledgeMidCount');
     if (midItems) midItems.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索中...</div>';
     try {
       var r = await apiFetch('/api/knowledge/search', {
@@ -23464,7 +23469,6 @@ function onKnowledgeSearch(value) {
       var docs = (data.docs || []).map(function(d) { d.scope = d.scope || 'global'; return d; });
       _knowledgeData.docs = docs;
       _knowledgeData.total = docs.length;
-      if (countEl) countEl.textContent = '共 ' + docs.length + ' 条（语义搜索）';
       renderKnowledgeList(docs);
       renderKnowledgePagination(0, 1, _knowledgePageSize);
     } catch (e) {

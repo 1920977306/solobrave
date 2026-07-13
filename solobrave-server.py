@@ -2212,6 +2212,7 @@ def init_db():
                 fan_price_range TEXT DEFAULT '',
                 fan_category TEXT DEFAULT '',
                 category TEXT DEFAULT '',
+                content_style TEXT DEFAULT '',
                 fans_profile TEXT DEFAULT '{}',
                 ai_tags TEXT DEFAULT '[]',
                 ai_rating TEXT DEFAULT '',
@@ -2244,7 +2245,7 @@ def init_db():
             ('avg_live_gmv', 'REAL DEFAULT 0'), ('live_gpm', 'REAL DEFAULT 0'), ('video_gpm', 'REAL DEFAULT 0'),
             ('fan_gender', "TEXT DEFAULT '{}'"), ('fan_age', "TEXT DEFAULT '{}'"), ('fan_region', "TEXT DEFAULT '{}'"),
             ('fan_crowd', "TEXT DEFAULT ''"), ('fan_price_range', "TEXT DEFAULT ''"), ('fan_category', "TEXT DEFAULT ''"),
-            ('category', "TEXT DEFAULT ''"), ('fans_profile', "TEXT DEFAULT '{}'"),
+            ('category', "TEXT DEFAULT ''"), ('content_style', "TEXT DEFAULT ''"), ('fans_profile', "TEXT DEFAULT '{}'"),
             ('ai_tags', "TEXT DEFAULT '[]'"), ('ai_rating', "TEXT DEFAULT ''"), ('ai_summary', "TEXT DEFAULT ''"),
             ('ai_analysis', "TEXT DEFAULT ''"), ('ai_reason', "TEXT DEFAULT ''"), ('risk_rating', "TEXT DEFAULT ''"),
             ('group_id', "TEXT DEFAULT ''"), ('status', "TEXT DEFAULT 'active'"),
@@ -2545,7 +2546,7 @@ _TALENT_COLUMNS = [
     'total_gmv', 'total_products', 'product_count', 'total_shops', 'average_price',
     'live_ratio', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_gpm',
     'fan_gender', 'fan_age', 'fan_region', 'fan_crowd', 'fan_price_range',
-    'fan_category', 'category', 'fans_profile', 'ai_tags', 'ai_rating', 'ai_summary',
+    'fan_category', 'category', 'content_style', 'fans_profile', 'ai_tags', 'ai_rating', 'ai_summary',
     'ai_analysis', 'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by', 'created_at', 'updated_at'
 ]
 
@@ -2640,6 +2641,8 @@ def _talent_row_to_dict(row):
         'fan_price_range': row['fan_price_range'] or '',
         'fan_category': row['fan_category'] or '',
         'category': row['category'] or row['fan_category'] or '',
+        'content_style': row['content_style'] or '',
+        'contentStyle': row['content_style'] or '',
         'fans_profile': _json_col('fans_profile', {}),
         'ai_tags': _json_col('ai_tags', []),
         'ai_rating': row['ai_rating'] or '',
@@ -2762,6 +2765,7 @@ def _dict_to_talent_row(t):
         'fan_price_range': t.get('fan_price_range') or t.get('fanPriceRange') or '',
         'fan_category': t.get('fan_category') or t.get('fanCategory') or '',
         'category': t.get('category') or t.get('fan_category') or t.get('fanCategory') or '',
+        'content_style': t.get('content_style') or t.get('contentStyle') or '',
         'fans_profile': _dump(t.get('fans_profile', t.get('fansProfile', {}))),
         'ai_tags': _dump(t.get('ai_tags', t.get('aiTags', []))),
         'ai_rating': t.get('ai_rating') or t.get('aiRating') or '',
@@ -11839,6 +11843,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             f"粉丝画像（性别）：{json.dumps(talent.get('fan_gender', {}), ensure_ascii=False)}\n"
             f"粉丝画像（年龄）：{json.dumps(talent.get('fan_age', {}), ensure_ascii=False)}\n"
             f"带货数据：总GMV {talent.get('total_gmv', 0)}，总商品数 {talent.get('total_products', 0)}，直播GMV {talent.get('avg_live_gmv', 0)}\n"
+            f"短视频特征/内容风格：{talent.get('content_style', '') or talent.get('contentStyle', '')}\n"
             f"标签：{json.dumps(talent.get('tags', []), ensure_ascii=False)}\n"
             f"简介：{talent.get('bio', '')}\n"
         )
