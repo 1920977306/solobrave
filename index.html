@@ -3423,7 +3423,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-radius: 8px; 
   background: transparent;
   border: none;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border) !important;
   height: 56px;
 }
 
@@ -10466,7 +10466,7 @@ function renderEmployeeItem(e, showCreator) {
   // admin/leader视图：显示创建者标签
   if (showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
     var creatorName = e.createdByName || e._createdByName || '未知';
-    creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:var(--border);border-radius:4px;font-size:11px;color:var(--text-muted);vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
+    creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
   }
 
   var statusClass = escapeAttr(e.status || 'offline');
@@ -24677,7 +24677,7 @@ renderEmployeeItem = function (e, showCreator) {
   // admin/leader视图：显示创建者标签
   if (showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
     var creatorName = e.createdByName || e._createdByName || '未知';
-    creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:rgba(255,107,53,0.1);border-radius:4px;font-size:11px;color:#FF6B35;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
+    creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
   }
 
   // 新版 Badge
