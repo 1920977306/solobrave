@@ -1783,22 +1783,125 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-weight: 500;
 }
 .talents-ai-card {
-  background: linear-gradient(135deg, #f5f7ff 0%, #ffffff 100%);
-  border: 0.5px solid rgba(10,132,255,0.15);
-  border-radius: var(--radius-lg);
+  background: #ffffff;
+  border: 0.5px solid var(--separator);
+  border-radius: 12px;
   padding: 14px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.04);
 }
 .talents-ai-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 .talents-ai-text {
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.6;
 }
+
+/* AI 达人分析报告 - 灵邀风格卡片式布局 */
+.ai-report-body { display: flex; flex-direction: column; gap: 16px; }
+.ai-match-banner {
+  background: linear-gradient(135deg, #0a84ff 0%, #36cfc9 100%);
+  border-radius: 12px;
+  padding: 18px 20px;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ai-match-main { display: flex; align-items: center; gap: 14px; }
+.ai-match-score { font-size: 40px; font-weight: 700; line-height: 1; }
+.ai-match-score span { font-size: 14px; font-weight: 500; margin-left: 2px; opacity: 0.9; }
+.ai-match-label { font-size: 13px; opacity: 0.9; }
+.ai-match-rating {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.22);
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 4px;
+  width: fit-content;
+}
+.ai-match-summary { font-size: 13px; line-height: 1.5; opacity: 0.95; }
+.ai-dimension-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+@media (max-width: 700px) {
+  .ai-dimension-grid { grid-template-columns: repeat(2, 1fr); }
+}
+.ai-dimension-card {
+  background: #ffffff;
+  border: 0.5px solid var(--separator);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ai-dimension-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ai-dimension-name { font-size: 13px; color: var(--text-primary); font-weight: 500; }
+.ai-dimension-score { font-size: 20px; font-weight: 700; }
+.ai-dimension-score.high { color: #34c759; }
+.ai-dimension-score.mid { color: #faad14; }
+.ai-dimension-score.low { color: #ff4d4f; }
+.ai-progress-bar { height: 6px; background: rgba(0,0,0,0.06); border-radius: 3px; overflow: hidden; }
+.ai-progress-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+.ai-progress-fill.high { background: linear-gradient(90deg, #34c759, #86e29b); }
+.ai-progress-fill.mid { background: linear-gradient(90deg, #faad14, #ffd666); }
+.ai-progress-fill.low { background: linear-gradient(90deg, #ff4d4f, #ff7875); }
+.ai-dimension-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+.ai-section { display: flex; flex-direction: column; gap: 10px; }
+.ai-section-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.ai-section-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.ai-section-list li {
+  position: relative;
+  padding-left: 22px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.ai-section-list li::before {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+.ai-highlights li::before { content: '✓'; color: #34c759; }
+.ai-issues li::before { content: '!'; color: #ff7a45; }
+.ai-risks li::before { content: '•'; color: var(--text-secondary); }
+.ai-cooperation-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  border: 0.5px solid var(--separator);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.ai-cooperation-table th,
+.ai-cooperation-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 0.5px solid var(--separator);
+  vertical-align: top;
+}
+.ai-cooperation-table th {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-weight: 600;
+  width: 90px;
+}
+.ai-cooperation-table td { color: var(--text-secondary); line-height: 1.5; }
+.ai-cooperation-table tr:last-child th,
+.ai-cooperation-table tr:last-child td { border-bottom: none; }
 .talents-product-card {
   display: flex;
   align-items: center;
@@ -22528,6 +22631,135 @@ function switchTalentTab(tab) {
   }
 }
 
+// 解析达人 AI 分析报告 Markdown，提取结构化字段
+function parseTalentAIReport(text) {
+  var result = {score:'', rating:'', summary:'', dimensions:[], highlights:[], issues:[], risks:[], cooperation:[]};
+  if (!text) return result;
+
+  var sections = {};
+  var sectionRe = /##\s*(\d+)\.\s*([^\n]+)([\s\S]*?)(?=(?:##\s*\d+\.\s*[^\n]+)|$)/g;
+  var m;
+  while ((m = sectionRe.exec(text)) !== null) {
+    sections[m[1]] = {title: m[2].trim(), body: m[3]};
+  }
+
+  // 1. 综合匹配度
+  if (sections['1']) {
+    var body = sections['1'].body;
+    var scoreMatch = body.match(/综合评分[：:]?\s*(\d+(?:\.\d+)?)\s*分?/);
+    if (scoreMatch) result.score = parseFloat(scoreMatch[1]);
+    var ratingMatch = body.match(/匹配评级[：:]?\s*(高|中|低)/);
+    if (ratingMatch) result.rating = ratingMatch[1];
+    var summaryMatch = body.match(/一句话总结[：:]?\s*(.+)/);
+    if (summaryMatch) result.summary = summaryMatch[1].trim();
+  }
+
+  // 2. 六维评分表格
+  if (sections['2']) {
+    var tableLines = sections['2'].body.split('\n').filter(function(l){ return l.trim().startsWith('|'); });
+    if (tableLines.length >= 3) {
+      for (var i = 2; i < tableLines.length; i++) {
+        var cells = tableLines[i].trim().slice(1, -1).split('|').map(function(c){ return c.trim(); });
+        if (cells.length >= 3) {
+          var s = parseFloat(cells[1]);
+          result.dimensions.push({name: cells[0], score: isNaN(s) ? 0 : s, desc: cells[2]});
+        }
+      }
+    }
+  }
+
+  // 通用列表提取
+  function extractItems(body) {
+    return body.split('\n').map(function(l){ return l.trim(); }).filter(function(l){
+      return /^[-*✓!]\s+/.test(l);
+    }).map(function(l){ return l.replace(/^[-*✓!]\s+/, ''); });
+  }
+
+  if (sections['3']) result.highlights = extractItems(sections['3'].body);
+  if (sections['4']) result.issues = extractItems(sections['4'].body);
+  if (sections['5']) result.risks = extractItems(sections['5'].body);
+
+  // 6. 合作建议 key-value
+  if (sections['6']) {
+    var kvRe = /^[-*]?\s*(合作方式|预期效果|触达策略)[：:]\s*(.*)$/;
+    sections['6'].body.split('\n').forEach(function(l){
+      var line = l.trim();
+      var kv = line.match(kvRe);
+      if (kv) result.cooperation.push({label: kv[1], value: kv[2]});
+    });
+  }
+
+  return result;
+}
+
+// 将解析后的达人 AI 报告渲染为灵邀风格卡片式 HTML
+function renderTalentAIReport(text) {
+  var report = parseTalentAIReport(text);
+  if (report.score === '' && report.dimensions.length === 0 && report.highlights.length === 0 &&
+      report.issues.length === 0 && report.cooperation.length === 0 && report.risks.length === 0) {
+    return formatMessageContent(text);
+  }
+
+  var html = '<div class="ai-report-body">';
+
+  // 顶部综合匹配度横幅
+  var ratingText = report.rating === '高' ? '高匹配' : report.rating === '中' ? '中匹配' : report.rating === '低' ? '低匹配' : (report.rating || '未评级');
+  html += '<div class="ai-match-banner">';
+  html += '<div class="ai-match-main">';
+  html += '<div class="ai-match-score">' + (report.score || '-') + '<span>分</span></div>';
+  html += '<div class="ai-match-info"><div class="ai-match-label">综合匹配度</div><div class="ai-match-rating">' + escapeHtml(ratingText) + '</div></div>';
+  html += '</div>';
+  if (report.summary) html += '<div class="ai-match-summary">' + escapeHtml(report.summary) + '</div>';
+  html += '</div>';
+
+  // 六维评分卡片
+  if (report.dimensions.length) {
+    html += '<div class="ai-dimension-grid">';
+    report.dimensions.forEach(function(d){
+      var level = d.score >= 80 ? 'high' : (d.score >= 60 ? 'mid' : 'low');
+      html += '<div class="ai-dimension-card">';
+      html += '<div class="ai-dimension-header"><div class="ai-dimension-name">' + escapeHtml(d.name) + '</div><div class="ai-dimension-score ' + level + '">' + d.score + '</div></div>';
+      html += '<div class="ai-progress-bar"><div class="ai-progress-fill ' + level + '" style="width:' + d.score + '%"></div></div>';
+      html += '<div class="ai-dimension-desc">' + escapeHtml(d.desc) + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  // 匹配亮点
+  if (report.highlights.length) {
+    html += '<div class="ai-section"><div class="ai-section-title">匹配亮点</div><ul class="ai-section-list ai-highlights">';
+    report.highlights.forEach(function(item){ html += '<li>' + formatMessageInline(item) + '</li>'; });
+    html += '</ul></div>';
+  }
+
+  // 潜在问题
+  if (report.issues.length) {
+    html += '<div class="ai-section"><div class="ai-section-title">潜在问题</div><ul class="ai-section-list ai-issues">';
+    report.issues.forEach(function(item){ html += '<li>' + formatMessageInline(item) + '</li>'; });
+    html += '</ul></div>';
+  }
+
+  // 合作建议表格
+  if (report.cooperation.length) {
+    html += '<div class="ai-section"><div class="ai-section-title">合作建议</div><table class="ai-cooperation-table">';
+    report.cooperation.forEach(function(c){
+      html += '<tr><th>' + escapeHtml(c.label) + '</th><td>' + formatMessageInline(c.value) + '</td></tr>';
+    });
+    html += '</table></div>';
+  }
+
+  // 风险点与缓解建议
+  if (report.risks.length) {
+    html += '<div class="ai-section"><div class="ai-section-title">风险点与缓解建议</div><ul class="ai-section-list ai-risks">';
+    report.risks.forEach(function(item){ html += '<li>' + formatMessageInline(item) + '</li>'; });
+    html += '</ul></div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
 function renderTalentPanelOverview(t) {
   var el = document.getElementById('talentsPanelOverview');
   if (!el) return;
@@ -22586,11 +22818,16 @@ function renderTalentPanelOverview(t) {
   html += '</div></div>';
 
   // AI 分析摘要
+  var aiText = t.ai_analysis || mock.ai_analysis || '';
   html += '<div class="talents-ai-card">';
   html += '<div class="talents-ai-title">🤖 AI 综合分析</div>';
-  html += '<div class="talents-ai-text">' + formatMessageContent(t.ai_analysis || mock.ai_analysis || '点击右上角「AI 分析」生成达人综合评估。') + '</div>';
-  if (!t.ai_analysis && ai.cooperation_advice) html += '<div class="talents-ai-title" style="margin-top:10px;">合作建议</div><div class="talents-ai-text">' + formatMessageContent(ai.cooperation_advice) + '</div>';
-  if (!t.ai_analysis && ai.risk_warnings) html += '<div class="talents-ai-title" style="margin-top:10px;">风险提示</div><div class="talents-ai-text">' + formatMessageContent(ai.risk_warnings) + '</div>';
+  if (aiText) {
+    html += renderTalentAIReport(aiText);
+  } else {
+    html += '<div class="talents-ai-text">点击右上角「AI 分析」生成达人综合评估。</div>';
+    if (!t.ai_analysis && ai.cooperation_advice) html += '<div class="talents-ai-title" style="margin-top:10px;">合作建议</div><div class="talents-ai-text">' + formatMessageContent(ai.cooperation_advice) + '</div>';
+    if (!t.ai_analysis && ai.risk_warnings) html += '<div class="talents-ai-title" style="margin-top:10px;">风险提示</div><div class="talents-ai-text">' + formatMessageContent(ai.risk_warnings) + '</div>';
+  }
   html += '</div>';
   el.innerHTML = html;
 }
