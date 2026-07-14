@@ -3423,7 +3423,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-radius: 8px; 
   background: transparent;
   border: none;
-  border-bottom: 0.5px solid var(--border);
+  border-bottom: 1px solid var(--border);
   height: 56px;
 }
 
@@ -3435,7 +3435,17 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 .list-item.active { 
   background: var(--accent-light);
-  box-shadow: inset 4px 0 0 var(--accent);
+}
+
+.list-item.active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 12px;
+  bottom: 12px;
+  width: 4px;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
 }
 
 .list-item.active .emp-name,
@@ -10456,7 +10466,7 @@ function renderEmployeeItem(e, showCreator) {
   // admin/leader视图：显示创建者标签
   if (showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
     var creatorName = e.createdByName || e._createdByName || '未知';
-    creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:rgba(10,132,255,0.15);border-radius:4px;font-size:11px;color:#0a84ff;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
+    creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:var(--border);border-radius:4px;font-size:11px;color:var(--text-muted);vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
   }
 
   var statusClass = escapeAttr(e.status || 'offline');
