@@ -141,6 +141,25 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   background: #3370FF;
   border-radius: 0 3px 3px 0;
 }
+.nav-item[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 8px;
+  background: #333333;
+  color: #ffffff;
+  font-size: 12px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  transition-delay: 0.3s;
+  z-index: 1000;
+}
+.nav-item[data-tooltip]:hover::after { opacity: 1; }
 .nav-item svg {
   width: 20px;
   height: 20px;
@@ -304,11 +323,11 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .module-right-header { height: 48px; padding: 0 16px; border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; justify-content: space-between; background: #fff; flex-shrink: 0; }
 .module-right-title { font-size: 15px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .module-right-actions { display: flex; gap: 8px; align-items: center; }
-.module-action-btn { padding: 6px 14px; border-radius: 8px; border: none; font-size: 13px; cursor: pointer; transition: all 0.15s; background: var(--bg-secondary); color: var(--text-primary); }
-.module-action-btn:hover { background: var(--bg-tertiary); }
-.module-action-btn.primary { background: var(--accent); color: #fff; }
-.module-action-btn.primary:hover { background: var(--accent-hover); }
-.module-action-btn.danger { color: #FF3B30; }
+.module-action-btn { padding: 6px 14px; border-radius: 8px; border: 1px solid var(--accent); font-size: 13px; cursor: pointer; transition: all 0.15s; background: #ffffff; color: var(--accent); }
+.module-action-btn:hover { background: var(--accent-light); }
+.module-action-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.module-action-btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.module-action-btn.danger { color: #FF3B30; border-color: #FF3B30; background: #ffffff; }
 .module-action-btn.danger:hover { background: #FF3B30; color: #fff; }
 .module-form-row { margin-bottom: 14px; }
 .module-form-row label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
@@ -628,7 +647,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .products-mid-new {
   padding: 8px 14px;
-  border-radius: var(--radius-md);
+  border-radius: 8px;
   border: none;
   background: var(--accent);
   color: #ffffff;
@@ -780,7 +799,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .products-mid-card-influencers {
   font-size: 12px;
-  color: var(--accent);
+  color: var(--text-muted);
   font-weight: 600;
 }
 .products-status-active,
@@ -842,7 +861,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .products-empty-text { font-size: 14px; }
 .products-empty-btn {
   padding: 8px 16px;
-  border-radius: var(--radius-md);
+  border-radius: 8px;
   border: none;
   background: var(--accent);
   color: #ffffff;
@@ -1474,23 +1493,23 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .talents-mid-new:hover { background: var(--accent-hover); }
 .talents-mid-btn {
   padding: 8px 14px;
-  border-radius: var(--radius-md);
-  border: 0.5px solid var(--separator);
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: #ffffff;
+  color: var(--accent);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s;
   flex-shrink: 0;
 }
-.talents-mid-btn:hover { background: var(--hover-bg); }
+.talents-mid-btn:hover { background: var(--accent-light); }
 .talents-mid-btn.secondary {
-  background: var(--accent-light);
-  border-color: rgba(10,132,255,0.2);
+  background: #ffffff;
+  border-color: var(--accent);
   color: var(--accent);
 }
-.talents-mid-btn.secondary:hover { background: rgba(10,132,255,0.12); }
+.talents-mid-btn.secondary:hover { background: var(--accent-light); }
 .talents-mid-items {
   flex: 1;
   overflow-y: auto;
@@ -3478,6 +3497,17 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   background: var(--accent);
   border-radius: 0 2px 2px 0;
 }
+
+/* 项目组卡片：与员工列表视觉区分 */
+.list-item[data-group] {
+  background: var(--surface);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 0.5px solid var(--border);
+  border-bottom: none !important;
+  margin: 6px 8px;
+}
+.list-item[data-group]:hover { background: var(--surface); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
 
 .list-item.active .emp-name,
 .list-item.active .group-item-name { 
@@ -5771,6 +5801,12 @@ window.doLogin = function () {
   background: var(--bg-tertiary);
   padding: 2px 8px;
   border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  box-sizing: border-box;
 }
 .knowledge-list {
   flex: 0 0 320px;
@@ -5928,25 +5964,25 @@ window.doLogin = function () {
 <!-- Left Navigation (56px) -->
 <nav class="left-nav">
   <div class="left-nav-top">
-    <div class="nav-item" id="navSearch" onclick="openGlobalSearch()" title="搜索 (Ctrl+K)">
+    <div class="nav-item" id="navSearch" onclick="openGlobalSearch()" data-tooltip="搜索">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
     </div>
-    <div class="nav-item active" id="navMessages" data-module="messages" onclick="switchModule('messages')" title="消息">
+    <div class="nav-item active" id="navMessages" data-module="messages" onclick="switchModule('messages')" data-tooltip="即时通讯">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     </div>
-    <div class="nav-item" id="navOffice" onclick="openLobsterOffice()" title="龙虾办公室">
+    <div class="nav-item" id="navOffice" onclick="openLobsterOffice()" data-tooltip="龙虾办公室">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/></svg>
     </div>
-    <div class="nav-item" id="navKnowledge" data-module="knowledge" onclick="switchModule('knowledge')" title="知识库">
+    <div class="nav-item" id="navKnowledge" data-module="knowledge" onclick="switchModule('knowledge')" data-tooltip="知识库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>
     </div>
-    <div class="nav-item" id="navProducts" data-module="products" onclick="switchModule('products')" title="商品库">
+    <div class="nav-item" id="navProducts" data-module="products" onclick="switchModule('products')" data-tooltip="商品库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
     </div>
-    <div class="nav-item" id="navInfluencers" data-module="influencers" onclick="switchModule('influencers')" title="达人库">
+    <div class="nav-item" id="navInfluencers" data-module="influencers" onclick="switchModule('influencers')" data-tooltip="达人库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
     </div>
-    <div class="nav-item" id="navSettings" data-module="settings" onclick="switchModule('settings')" title="设置">
+    <div class="nav-item" id="navSettings" data-module="settings" onclick="switchModule('settings')" data-tooltip="设置">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
     </div>
   </div>
