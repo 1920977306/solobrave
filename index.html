@@ -12,9 +12,21 @@
 
 /* CSS Variables - Feishu Light Mode */
 :root {
-  --accent: #0a84ff;
+  /* SoloBrave 视觉规范 */
+  --bg: #F8F9FA;
+  --surface: #FFFFFF;
+  --border: #E8E8E8;
+  --text-primary: #1A1A1A;
+  --text-muted: #999999;
+  --accent: #007AFF;
+  --accent-light: #EBF5FF;
+  --danger: #FF3B30;
+  --success: #34C759;
+  --warning: #FF9500;
+  --card-radius: 12px;
+  --card-shadow: 0 1px 3px rgba(0,0,0,0.06);
+
   --accent-hover: #0070e0;
-  --accent-light: rgba(10, 132, 255, 0.08);
   --status-todo: #FF6B35;
   --status-progress: #5AC8FA;
   --status-done: #34C759;
@@ -22,7 +34,6 @@
   --bg-secondary: #ffffff;
   --bg-tertiary: #f7f7f8;
   --bg-sidebar: #f7f7f8;
-  --text-primary: #1f2329;
   --text-secondary: #86909c;
   --text-tertiary: #86909c;
   --separator: #e5e6eb;
@@ -39,7 +50,7 @@
   --font-sm: 600 13px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
   --font-xs: 400 13px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
   --font-micro: 400 11px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
-  
+
   /* Feishu three-column layout colors */
   --left-nav-bg: #2e2e33;
   --mid-sidebar-bg: #ffffff;
@@ -58,7 +69,7 @@ html { scroll-behavior: smooth; }
 ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }
 
-html, body { height: 100%; font: var(--font-md); color: var(--text-primary); background: #ffffff; overflow: hidden; }
+html, body { height: 100%; font: var(--font-md); color: var(--text-primary); background: var(--bg); overflow: hidden; }
 button { font: inherit; border: none; background: none; cursor: pointer; outline: none; }
 input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
@@ -224,8 +235,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* Middle Sidebar (280px) */
 .app-sidebar {
   width: 280px;
-  background: var(--mid-sidebar-bg);
-  border-right: 1px solid var(--separator);
+  background: #FAFAFA;
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -3352,7 +3363,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 
 .list-section { flex: 1; overflow-y: auto; padding-bottom: 28px; }
-.section-title { font: 12px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; color: #86909c; letter-spacing: 1px; padding: 16px 14px 8px; }
+.section-title { font: 12px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; color: #999999; letter-spacing: 1px; padding: 16px 14px 8px; }
 .dept-group { margin-bottom: 4px; }
 .dept-header {
   display: flex;
@@ -3412,6 +3423,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-radius: 8px; 
   background: transparent;
   border: none;
+  border-bottom: 0.5px solid var(--border);
   height: 56px;
 }
 
@@ -3422,7 +3434,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .list-item:hover .item-actions { opacity: 1; }
 
 .list-item.active { 
-  background: #e8f3ff;
+  background: var(--accent-light);
+  box-shadow: inset 4px 0 0 var(--accent);
 }
 
 .list-item.active .emp-name,
