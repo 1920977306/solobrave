@@ -26,6 +26,12 @@
   --card-radius: 12px;
   --card-shadow: 0 1px 3px rgba(0,0,0,0.06);
 
+  /* 知识库分类色 */
+  --knowledge-cat-brain: #007AFF;
+  --knowledge-cat-product: #FF9500;
+  --knowledge-cat-workflow: #34C759;
+  --knowledge-cat-default: #999999;
+
   --accent-hover: #0070e0;
   --status-todo: #FF6B35;
   --status-progress: #5AC8FA;
@@ -662,28 +668,34 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 12px;
   padding: 12px;
   margin-bottom: 12px;
-  background: #ffffff;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
-  border: 0.5px solid var(--separator);
+  background: var(--surface);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 0.5px solid var(--border);
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: all 0.2s ease;
   min-height: 80px;
 }
 .products-mid-card + .products-mid-card {
-  border-top: 0.5px solid var(--separator);
   margin-top: 12px;
 }
 .products-mid-card:hover {
-  background: #fafbfc;
+  background: var(--surface);
   border-color: rgba(0,0,0,0.08);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
 }
 .products-mid-card.active {
   border-color: var(--accent);
   background: var(--accent-light);
   box-shadow: 0 0 0 1px var(--accent) inset, 0 2px 8px rgba(10,132,255,0.08);
+}
+.products-brand-block {
+  width: 6px;
+  height: 18px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #0a84ff, #36cfc9);
 }
 .products-mid-card-image {
   width: 60px;
@@ -719,6 +731,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 .products-mid-card-subtitle {
   font-size: 12px;
@@ -742,16 +756,16 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .products-mid-card-price {
   font-size: 16px;
   font-weight: 700;
-  color: var(--accent);
+  color: #FF3B30;
   letter-spacing: -0.2px;
 }
 .products-mid-card-commission {
-  color: #FF6B35;
-  background: rgba(255,107,53,0.08);
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
+  color: #999999;
+  background: #F0F0F0;
+  padding: 2px 6px;
+  border-radius: 4px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .products-mid-card-sales-row {
   display: flex;
@@ -2457,13 +2471,15 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .knowledge-cat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .knowledge-cat-count {
-  font-size: 12px;
-  color: #86909c;
-  background: #F5F5F5;
-  padding: 2px 8px;
+  font-size: 10px;
+  color: #ffffff;
+  background: #007AFF;
+  padding: 2px 6px;
   border-radius: 10px;
+  font-weight: 500;
 }
-.knowledge-cat-item.active .knowledge-cat-count { background: rgba(0,122,255,0.12); color: #007AFF; }
+.knowledge-cat-item.active .knowledge-cat-count { background: #007AFF; color: #ffffff; }
+.knowledge-cat-icon { font-size: 16px; width: 18px; text-align: center; flex-shrink: 0; }
 .knowledge-cat-new {
   width: calc(100% - 16px);
   margin: 8px;
@@ -2654,19 +2670,34 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   align-content: start;
 }
 .knowledge-mid-card {
+  position: relative;
   margin: 0;
   padding: 16px;
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-  border: 0.5px solid var(--separator);
+  background: var(--surface);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 0.5px solid var(--border);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.2s ease;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
-.knowledge-mid-card:hover { border-color: var(--accent); box-shadow: 0 4px 12px rgba(10,132,255,0.08); }
+.knowledge-mid-card::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: 14px;
+  bottom: 14px;
+  width: 4px;
+  background: var(--cat-color, var(--knowledge-cat-default));
+  border-radius: 0 2px 2px 0;
+}
+.knowledge-mid-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+  transform: translateY(-2px);
+}
 .knowledge-mid-card.active {
   border-color: var(--accent);
   background: var(--accent-light);
@@ -5273,10 +5304,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .settings-section-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin: 16px 0 10px; }
 .settings-section-title:first-child { margin-top: 0; }
 .settings-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
-.settings-stat-card { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 16px; border: 0.5px solid var(--separator); }
-.settings-stat-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.settings-stat-card { background: var(--bg-secondary); border-radius: var(--card-radius); padding: 16px; border: 0.5px solid var(--border); }
+.settings-stat-card.stat-token { background: #EBF5FF; }
+.settings-stat-card.stat-calls { background: #E8F8E8; }
+.settings-stat-card.stat-per-emp { background: #FFF5E6; }
+.settings-stat-card.stat-avg { background: #F0E6FF; }
+.settings-stat-label { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
 .settings-stat-value { font-size: 28px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.5px; }
-.settings-stat-unit { font-size: 13px; color: var(--text-secondary); margin-left: 4px; font-weight: 500; }
+.settings-stat-unit { font-size: 13px; color: var(--text-muted); margin-left: 4px; font-weight: 500; }
+.settings-stat-empty { padding: 48px 20px; text-align: center; color: var(--text-muted); font-size: 14px; }
+.settings-stat-empty-icon { font-size: 40px; margin-bottom: 12px; }
 .settings-chart-card { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 16px; border: 0.5px solid var(--separator); margin-bottom: 12px; }
 .settings-chart-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; }
 .settings-bar-chart { display: flex; flex-direction: column; gap: 10px; }
@@ -5426,10 +5463,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .settings-form-row select:focus { outline: none; border-color: var(--accent); }
 
 .settings-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
-.settings-stat-card { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 16px; border: 0.5px solid var(--separator); }
-.settings-stat-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.settings-stat-card { background: var(--bg-secondary); border-radius: var(--card-radius); padding: 16px; border: 0.5px solid var(--border); }
+.settings-stat-card.stat-token { background: #EBF5FF; }
+.settings-stat-card.stat-calls { background: #E8F8E8; }
+.settings-stat-card.stat-per-emp { background: #FFF5E6; }
+.settings-stat-card.stat-avg { background: #F0E6FF; }
+.settings-stat-label { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
 .settings-stat-value { font-size: 28px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.5px; }
-.settings-stat-unit { font-size: 13px; color: var(--text-secondary); margin-left: 4px; font-weight: 500; }
+.settings-stat-unit { font-size: 13px; color: var(--text-muted); margin-left: 4px; font-weight: 500; }
+.settings-stat-empty { padding: 48px 20px; text-align: center; color: var(--text-muted); font-size: 14px; }
+.settings-stat-empty-icon { font-size: 40px; margin-bottom: 12px; }
 .settings-chart-card { background: #ffffff; border-radius: 12px; padding: 20px; border: 0.5px solid var(--separator); box-shadow: 0 1px 3px rgba(0,0,0,0.04); margin-bottom: 16px; }
 .settings-chart-card:last-child { margin-bottom: 0; }
 .settings-chart-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 16px; }
@@ -21920,7 +21963,7 @@ function renderProductList(products) {
     html += '<div class="products-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(p.id) + '" onclick="selectProductItem(\'' + escapeAttr(p.id).replace(/'/g,"\\'") + '\')">';
     html += placeholder;
     html += '<div class="products-mid-card-info">';
-    html += '<div class="products-mid-card-title">' + escapeHtml(p.name) + '</div>';
+    html += '<div style="display:flex;align-items:center;gap:6px;"><div class="products-brand-block" style="background:' + getBrandGradient(p.brand) + ';"></div><div class="products-mid-card-title">' + escapeHtml(p.name) + '</div></div>';
     html += '<div class="products-mid-card-subtitle">' + escapeHtml(p.brand || '-') + ' · ' + escapeHtml(p.category || '-') + '</div>';
     html += '<div class="products-mid-card-metrics">';
     html += '<div class="products-mid-card-price-row">';
@@ -21944,6 +21987,26 @@ function getProductPlaceholder(p) {
   var color = brandColors[p.brand] || '#165DFF';
   var ch = (p.name || '?').charAt(0);
   return '<div class="products-mid-card-placeholder" style="background:' + color + '">' + escapeHtml(ch) + '</div>';
+}
+
+function getBrandGradient(brand) {
+  var map = {
+    'COOLCHAP': 'linear-gradient(135deg, #FF6B35, #FF9500)',
+    'COOLCHAP/': 'linear-gradient(135deg, #FF6B35, #FF9500)'
+  };
+  if (map[brand]) return map[brand];
+  var colors = {
+    'A': '#FF6B35', 'B': '#5856D6', 'C': '#34C759', 'D': '#007AFF',
+    'E': '#FF9500', 'F': '#AF52DE', 'G': '#00C7BE', 'H': '#FF3B30',
+    'I': '#5AC8FA', 'J': '#FFCC00', 'K': '#FF2D55', 'L': '#34C759',
+    'M': '#007AFF', 'N': '#FF6B35', 'O': '#5856D6', 'P': '#FF9500',
+    'Q': '#AF52DE', 'R': '#00C7BE', 'S': '#FF3B30', 'T': '#5AC8FA',
+    'U': '#FFCC00', 'V': '#FF2D55', 'W': '#34C759', 'X': '#007AFF',
+    'Y': '#FF6B35', 'Z': '#5856D6'
+  };
+  var first = (brand || '?').charAt(0).toUpperCase();
+  var c1 = colors[first] || '#0a84ff';
+  return 'linear-gradient(135deg, ' + c1 + ', ' + c1 + 'dd)';
 }
 
 function renderProductPagination(total, page, pageSize) {
@@ -23636,6 +23699,15 @@ async function loadKnowledgePage(page) {
     if (midItems) midItems.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
   }
 }
+function _getKnowledgeCategoryIcon(cat) {
+  var map = {'brain':'📁','产品规范':'📋','工作流程':'⚙️'};
+  return map[cat] || '📄';
+}
+function _getKnowledgeCategoryColorVar(cat) {
+  var map = {'brain':'var(--knowledge-cat-brain)','产品规范':'var(--knowledge-cat-product)','工作流程':'var(--knowledge-cat-workflow)'};
+  return map[cat] || 'var(--knowledge-cat-default)';
+}
+
 function renderKnowledgeCategories(categories, total) {
   var list = document.getElementById('knowledgeMidCategory');
   if (!list) return;
@@ -23648,12 +23720,12 @@ function renderKnowledgeCategories(categories, total) {
 
   var html = '';
   html += '<div class="knowledge-cat-item' + (!_knowledgeCurrentCat ? ' active' : '') + '" data-cat="" onclick="selectKnowledgeCategory(\'\')">';
-  html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
+  html += '<span class="knowledge-cat-icon">📁</span>';
   html += '<span class="knowledge-cat-name">全部分类</span><span class="knowledge-cat-count">' + (total || _knowledgeData.total || 0) + '</span></div>';
   visibleCats.forEach(function(item) {
     var cat = item.name;
     html += '<div class="knowledge-cat-item' + (_knowledgeCurrentCat === cat ? ' active' : '') + '" data-cat="' + escapeAttr(cat) + '" onclick="selectKnowledgeCategory(\'' + escapeAttr(cat).replace(/'/g, "\\'") + '\')">';
-    html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+    html += '<span class="knowledge-cat-icon">' + _getKnowledgeCategoryIcon(cat) + '</span>';
     html += '<span class="knowledge-cat-name">' + escapeHtml(cat) + '</span><span class="knowledge-cat-count">' + (item.count || 0) + '</span></div>';
   });
   list.innerHTML = html;
@@ -23717,7 +23789,7 @@ function renderKnowledgeList(docs) {
     var isActive = d.id === _knowledgeCurrentId;
     var preview = getKnowledgePreview(d.content).slice(0, 100);
     var scope = d.scope || 'global';
-    html += '<div class="knowledge-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(d.id || '') + '" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
+    html += '<div class="knowledge-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
     html += '<div class="knowledge-mid-card-header">';
     html += '<div class="knowledge-mid-card-title-wrap"><div class="knowledge-mid-card-title">' + escapeHtml(d.title || d.name || '未命名') + '</div></div>';
     html += '<span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
@@ -25432,12 +25504,16 @@ async function loadComputeStats() {
 }
 function renderComputeStats(stats) {
   var html = '<div class="settings-card">';
-  html += '<div class="settings-stats-grid">';
-  html += '<div class="settings-stat-card"><div class="settings-stat-label">Token 使用总量</div><div class="settings-stat-value">' + formatNumber(stats.totalTokens) + '<span class="settings-stat-unit">tokens</span></div></div>';
-  html += '<div class="settings-stat-card"><div class="settings-stat-label">调用次数</div><div class="settings-stat-value">' + formatNumber(stats.totalCalls) + '<span class="settings-stat-unit">次</span></div></div>';
-  html += '<div class="settings-stat-card"><div class="settings-stat-label">人均调用</div><div class="settings-stat-value">' + Math.round(stats.totalCalls / Math.max(stats.employeeStats.length, 1)) + '<span class="settings-stat-unit">次</span></div></div>';
-  html += '<div class="settings-stat-card"><div class="settings-stat-label">平均单次 Token</div><div class="settings-stat-value">' + Math.round(stats.totalTokens / Math.max(stats.totalCalls, 1)) + '<span class="settings-stat-unit">tokens</span></div></div>';
-  html += '</div>';
+  if (!stats.totalTokens && !stats.totalCalls) {
+    html += '<div class="settings-stat-empty"><div class="settings-stat-empty-icon">📊</div><div>使用后自动统计</div></div>';
+  } else {
+    html += '<div class="settings-stats-grid">';
+    html += '<div class="settings-stat-card stat-token"><div class="settings-stat-label">Token 使用总量</div><div class="settings-stat-value">' + formatNumber(stats.totalTokens) + '<span class="settings-stat-unit">tokens</span></div></div>';
+    html += '<div class="settings-stat-card stat-calls"><div class="settings-stat-label">调用次数</div><div class="settings-stat-value">' + formatNumber(stats.totalCalls) + '<span class="settings-stat-unit">次</span></div></div>';
+    html += '<div class="settings-stat-card stat-per-emp"><div class="settings-stat-label">人均调用</div><div class="settings-stat-value">' + Math.round(stats.totalCalls / Math.max(stats.employeeStats.length, 1)) + '<span class="settings-stat-unit">次</span></div></div>';
+    html += '<div class="settings-stat-card stat-avg"><div class="settings-stat-label">平均单次 Token</div><div class="settings-stat-value">' + Math.round(stats.totalTokens / Math.max(stats.totalCalls, 1)) + '<span class="settings-stat-unit">tokens</span></div></div>';
+    html += '</div>';
+  }
   html += '</div>';
   html += '<div class="settings-chart-card"><div class="settings-chart-title">按员工统计</div><div class="settings-bar-chart">';
   var maxEmp = Math.max.apply(Math, stats.employeeStats.map(function (e) { return e.tokens; })) || 1;
