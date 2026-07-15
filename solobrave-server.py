@@ -12121,10 +12121,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     group_ids=auth.group_ids
                 )
                 if api_reply:
+                    print(f'  [ChatPOST] {agent_id} api_reply_len={len(api_reply)} preview={repr(api_reply[:200])}', flush=True)
                     # 解析并应用 AI 自修改标记，移除后保存到聊天记录
-                    self_updates, cleaned_reply = _parse_self_updates(api_reply)
-                    if self_updates:
-                        _apply_agent_self_update(agent_id, self_updates, source=f'chat:{auth.user_id}')
+                    try:
+                        self_updates, cleaned_reply = _parse_self_updates(api_reply)
+                        print(f'  [ChatPOST] {agent_id} self_updates={self_updates} cleaned_len={len(cleaned_reply)}', flush=True)
+                        if self_updates:
+                            ok, su_msg, _ = _apply_agent_self_update(agent_id, self_updates, source=f'chat:{auth.user_id}')
+                            print(f'  [ChatPOST] {agent_id} apply_self_update ok={ok} msg={su_msg}', flush=True)
+                    except Exception as self_update_err:
+                        print(f'  [ChatPOST] {agent_id} self_update processing error: {self_update_err}', flush=True)
+                        import traceback
+                        traceback.print_exc()
+                        cleaned_reply = api_reply
+
+                    if not cleaned_reply:
+                        print(f'  [ChatPOST] {agent_id} cleaned_reply is empty, falling back to original api_reply', flush=True)
+                        cleaned_reply = api_reply
 
                     ai_message = {
                         'id': 'msg_' + uuid.uuid4().hex[:8],
@@ -12136,7 +12149,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         ai_message['empId'] = _emp_id
                     messages.append(ai_message)
                     _save_chat(agent_id, messages)
-                    print(f'  [ChatPOST] {agent_id} API代理 保存 {len(messages)} 条消息')
+                    print(f'  [ChatPOST] {agent_id} API代理 保存 {len(messages)} 条消息 ai_content_len={len(ai_message["content"])}')
                     self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message, 'archived': archived_count})
                     return
 
