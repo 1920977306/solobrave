@@ -1317,6 +1317,10 @@ _LOG_POLLUTION_PATTERNS = [
     _re.compile(r'\[\d{2}:\d{2}:\d{2}\]\s+\['),
     _re.compile(r'\[PUT agent\]|\[GET agents\]|\[POST agent\]|\[OpenClawSync\]'),
 ]
+_SELF_UPDATE_MARKER_RE = _re.compile(
+    r'\[SELF_UPDATE\]\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.*?)\s*\[/SELF_UPDATE\]',
+    _re.DOTALL
+)
 
 def _is_log_polluted(value):
     """检测值是否被服务器日志污染"""
@@ -4510,9 +4514,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # Agents API
         if path.startswith('/api/agents/'):
-            agent_id = path[len('/api/agents/'):]
-            if agent_id:
-                self._handle_update_agent(agent_id)
+            sub = path[len('/api/agents/'):]
+            if sub.endswith('/self-update'):
+                agent_id = sub[:-len('/self-update')]
+                if agent_id:
+                    self._handle_agent_self_update(agent_id)
+                    return
+            if sub:
+                self._handle_update_agent(sub)
                 return
 
         # Users API
@@ -7070,6 +7079,61 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, agent)
         except Exception as e:
             print(f'  [PUT agent] ERROR: {e}', flush=True)
+            import traceback
+            traceback.print_exc()
+            self._send_json(500, {'error': str(e)})
+
+    def _handle_agent_self_update(self, agent_id):
+        """PUT /api/agents/:id/self-update - AI 员工自修改配置"""
+        try:
+            auth = _authenticate(self.headers)
+            if not auth.is_authenticated:
+                self._send_auth_error(auth.error, auth.status)
+                return
+            if not self._require_module_permission(auth, 'employees'):
+                return
+
+            body = self._read_body()
+            if not body:
+                self._send_json(400, {'error': '无效的请求体'})
+                return
+
+            # 通过 agent_id 校验只能修改自身
+            body_agent_id = body.get('agent_id', '')
+            if body_agent_id != agent_id:
+                self._send_json(403, {'error': 'agent_id 不匹配，只能修改自身数据'})
+                return
+
+            # 校验访问权限
+            _, err, status = self._check_agent_access(auth, agent_id)
+            if err:
+                self._send_json(status, {'error': err})
+                return
+
+            # 禁止携带不允许的字段
+            forbidden = [k for k in body.keys() if k in _SELF_UPDATE_FORBIDDEN_FIELDS]
+            if forbidden:
+                self._send_json(400, {'error': '包含不允许修改的字段: ' + ', '.join(forbidden)})
+                return
+
+            updates = []
+            for field in _SELF_UPDATE_ALLOWED_FIELDS.keys():
+                if field in body:
+                    updates.append((field, body[field]))
+
+            if not updates:
+                self._send_json(400, {'error': '没有可更新的字段'})
+                return
+
+            ok, message, agent = _apply_agent_self_update(agent_id, updates, source=f'api:{auth.user_id}')
+            if not ok:
+                status = 404 if '不存在' in message else 400
+                self._send_json(status, {'error': message})
+                return
+
+            self._send_json(200, {'success': True, 'agent': agent, 'message': message})
+        except Exception as e:
+            print(f'  [PUT agent self-update] ERROR: {e}', flush=True)
             import traceback
             traceback.print_exc()
             self._send_json(500, {'error': str(e)})
@@ -12057,10 +12121,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     group_ids=auth.group_ids
                 )
                 if api_reply:
+                    # 解析并应用 AI 自修改标记，移除后保存到聊天记录
+                    self_updates, cleaned_reply = _parse_self_updates(api_reply)
+                    if self_updates:
+                        _apply_agent_self_update(agent_id, self_updates, source=f'chat:{auth.user_id}')
+
                     ai_message = {
                         'id': 'msg_' + uuid.uuid4().hex[:8],
                         'role': 'assistant',
-                        'content': api_reply,
+                        'content': cleaned_reply,
                         'timestamp': datetime.now().isoformat()
                     }
                     if _emp_id:
@@ -12168,6 +12237,96 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
         print(f'  ❌ AI API call failed: {e}', flush=True)
         traceback.print_exc()
     return None
+
+
+# ═══ AI 员工自修改配置（SELF_UPDATE）══════════════════════════════════
+_SELF_UPDATE_ALLOWED_FIELDS = {
+    'description': 'description',
+    'system_prompt': 'systemPrompt',
+    'role': 'role',
+}
+_SELF_UPDATE_FORBIDDEN_FIELDS = {
+    'name', 'id', 'createdBy', 'createdByName', 'createdAt', 'owner',
+    'apiKey', 'apiProvider', 'aiProvider', 'apiModel', 'customEndpoint',
+    'openclawName', 'openclawAgent', 'openclawModel', 'avatar', 'bg',
+    'status', 'archived', 'permission', 'visibility', 'department',
+    'group', 'pinned', 'badge', 'soulDoc', 'idDoc', 'toolsDoc', 'userDoc',
+    'tokens', 'tokenStats', 'msg', 'lastActive',
+}
+
+
+def _append_self_update_prompt(system_prompt):
+    """在 system_prompt 末尾追加自修改工具声明"""
+    if not system_prompt:
+        system_prompt = ''
+    declaration = (
+        '\n\n【自修改配置工具】\n'
+        '当你需要更新自己的描述、角色或行为指令时，'
+        '在回复中输出标记：[SELF_UPDATE]字段名=值[/SELF_UPDATE]。\n'
+        '支持字段：description（描述）、system_prompt（行为指令）、role（角色）。\n'
+        '例如：[SELF_UPDATE]description=新的描述内容[/SELF_UPDATE]。\n'
+        '每次可输出多个标记；标记会在发送给用户前自动移除。'
+    )
+    return system_prompt + declaration
+
+
+def _parse_self_updates(text):
+    """解析文本中的 SELF_UPDATE 标记，返回 (updates, cleaned_text)"""
+    if not text:
+        return [], text
+    updates = []
+    for match in _SELF_UPDATE_MARKER_RE.finditer(text):
+        field = match.group(1).strip()
+        value = match.group(2).strip()
+        if field in _SELF_UPDATE_ALLOWED_FIELDS:
+            updates.append((field, value))
+    cleaned = _SELF_UPDATE_MARKER_RE.sub('', text).strip()
+    return updates, cleaned
+
+
+def _log_self_update(agent_id, updates, source):
+    """记录自修改日志"""
+    if not updates:
+        return
+    fields = ', '.join([f'{f}={len(v)}字符' for f, v in updates])
+    print(f'  [SELF_UPDATE] agent={agent_id} source={source} fields={fields}', flush=True)
+
+
+def _apply_agent_self_update(agent_id, updates, source='openclaw'):
+    """将自修改更新应用到 agents.json；返回 (success, message, agent_or_none)"""
+    if not agent_id or not updates:
+        return True, '无更新', None
+    # 安全过滤：只保留允许字段
+    allowed = []
+    for field, value in updates:
+        if field not in _SELF_UPDATE_ALLOWED_FIELDS:
+            print(f'  [SELF_UPDATE] 忽略不允许的字段: {field}', flush=True)
+            continue
+        allowed.append((field, value))
+    if not allowed:
+        return True, '无允许字段', None
+
+    agents = _load_agents(include_archived=True)
+    agent = None
+    for a in agents:
+        if a.get('id') == agent_id:
+            agent = a
+            break
+    if not agent:
+        return False, '员工不存在', None
+    if agent.get('status') == 'archived' or agent.get('archived'):
+        return False, '员工已归档', None
+
+    for field, value in allowed:
+        key = _SELF_UPDATE_ALLOWED_FIELDS[field]
+        if key == 'role':
+            agent[key] = _sanitize_role(value)
+        else:
+            agent[key] = value
+
+    _save_agents(agents)
+    _log_self_update(agent_id, allowed, source)
+    return True, '已保存', agent
 
 
 def _extract_text_from_openclaw_output(obj):
@@ -12587,6 +12746,8 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                     system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'
         except Exception as e:
             print(f'  [RAG] {agent_id} 注入失败: {e}', flush=True)
+
+    system_prompt = _append_self_update_prompt(system_prompt)
 
     messages = [{'role': 'system', 'content': system_prompt}]
 
