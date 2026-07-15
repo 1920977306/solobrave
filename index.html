@@ -2590,6 +2590,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex-shrink: 0;
 }
 .knowledge-mid-new:hover { background: var(--accent-hover); }
+.knowledge-view-toggle { display: flex; gap: 4px; margin-left: 8px; }
+.knowledge-view-btn { width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; transition: all 0.15s; }
+.knowledge-view-btn:hover { background: var(--hover-bg); color: var(--text-primary); }
+.knowledge-view-btn.active { background: var(--accent-light); color: var(--accent); }
 .knowledge-mid-stats {
   padding: 0 16px;
   margin-top: 12px;
@@ -2688,6 +2692,33 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 16px;
   align-content: start;
 }
+.knowledge-mid-items.list-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.knowledge-list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 0.5px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.knowledge-list-item:hover { border-color: var(--accent); box-shadow: 0 6px 16px rgba(0,0,0,0.08); }
+.knowledge-list-item.active { border-color: var(--accent); background: var(--accent-light); }
+.knowledge-list-cat-line { width: 4px; height: 36px; border-radius: 2px; background: var(--cat-color, var(--knowledge-cat-default)); flex-shrink: 0; }
+.knowledge-list-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.knowledge-list-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.knowledge-list-title { font-size: 15px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-list-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; }
+.knowledge-list-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.knowledge-list-actions button { width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px; transition: all 0.15s; }
+.knowledge-list-actions button:hover { background: rgba(22, 93, 255, 0.08); color: #165DFF; }
 .knowledge-mid-card {
   position: relative;
   margin: 0;
@@ -6099,6 +6130,10 @@ window.doLogin = function () {
       <input type="text" placeholder="搜索文档..." id="knowledgeMidSearch" oninput="onKnowledgeSearch(this.value)">
     </div>
     <button class="knowledge-mid-new" onclick="createNewKnowledge()">+ 新建文档</button>
+    <div class="knowledge-view-toggle">
+      <button class="knowledge-view-btn active" id="knowledgeViewCardBtn" onclick="switchKnowledgeView('card')" title="卡片视图">⊞</button>
+      <button class="knowledge-view-btn" id="knowledgeViewListBtn" onclick="switchKnowledgeView('list')" title="列表视图">☰</button>
+    </div>
   </div>
   <div class="knowledge-mid-stats" id="knowledgeMidStats"></div>
   <div class="knowledge-mid-items" id="knowledgeMidItems"></div>
@@ -7686,19 +7721,45 @@ function escapeAttr(s) {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// 格式化日期时间戳
-function formatDate(ts) {
+// 格式化相对时间：今天 HH:mm，昨天 昨天 HH:mm，前天到本周 周X HH:mm，更早 MM-DD HH:mm，跨年 YYYY-MM-DD HH:mm
+function formatRelativeTime(ts) {
   if (!ts) return '';
   var d = new Date(ts);
   if (isNaN(d.getTime())) return '';
   var now = new Date();
-  var y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
-  var h = d.getHours(), min = d.getMinutes();
   var pad = function(n) { return n < 10 ? '0' + n : n; };
+  var y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
+  var h = pad(d.getHours()), min = pad(d.getMinutes());
+  var timePart = h + ':' + min;
+  // 今天
   if (y === now.getFullYear() && m === now.getMonth() + 1 && day === now.getDate()) {
-    return pad(h) + ':' + pad(min);
+    return '今天 ' + timePart;
   }
-  return y + '-' + pad(m) + '-' + pad(day) + ' ' + pad(h) + ':' + pad(min);
+  // 昨天
+  var yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1);
+  if (y === yesterday.getFullYear() && m === yesterday.getMonth() + 1 && day === yesterday.getDate()) {
+    return '昨天 ' + timePart;
+  }
+  // 同一周内（前天到本周，按周一为一周开始）
+  var startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+  startOfWeek.setHours(0, 0, 0, 0);
+  var dStart = new Date(d); dStart.setHours(0, 0, 0, 0);
+  var weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  if (dStart >= startOfWeek && y === now.getFullYear()) {
+    return weekDays[d.getDay()] + ' ' + timePart;
+  }
+  // 同年更早
+  if (y === now.getFullYear()) {
+    return pad(m) + '-' + pad(day) + ' ' + timePart;
+  }
+  // 跨年
+  return y + '-' + pad(m) + '-' + pad(day) + ' ' + timePart;
+}
+
+// 格式化日期时间戳（统一使用相对时间）
+function formatDate(ts) {
+  return formatRelativeTime(ts);
 }
 
 // 格式化消息内容（支持代码块、表格、列表、标题、加粗、行内代码、链接等）
@@ -17381,15 +17442,16 @@ function selectModel(el, modelId) {
 
 // 统一获取员工职能显示名称，未设置返回空字符串
 function getEmpRoleDisplay(emp) {
-  if (!emp) return '';
+  if (!emp) return '成员';
   var role = emp.role;
   if (role === '__custom__') {
     if (emp.subCategory && emp.subCategory !== '__custom__' && emp.subCategory !== 'custom') {
       return emp.subCategory;
     }
-    return '';
+    return '成员';
   }
-  return role || '';
+  if (!role || role === 'unknown') return '成员';
+  return role;
 }
 
 function renderCurrentTeamList() {
@@ -19499,7 +19561,7 @@ function loadKnowledgeVersions(docId) {
     versions.forEach(function (v) {
       var content = v.content || '';
       var preview = content.length > 80 ? content.slice(0, 80) + '...' : content;
-      var timeStr = v.createdAt ? new Date(v.createdAt).toLocaleString('zh-CN') : '-';
+      var timeStr = v.createdAt ? formatRelativeTime(v.createdAt) : '-';
       html += '<div style="padding:12px;background:var(--bg-secondary);border-radius:12px;margin-bottom:10px;">';
       html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
       html += '<span style="font-size:14px;font-weight:600;color:var(--text-primary);">版本 ' + escapeHtml(String(v.version || '-')) + '</span>';
@@ -19523,7 +19585,7 @@ function viewKnowledgeVersion(docId, version) {
   apiFetch('/api/knowledge/' + encodeURIComponent(docId) + '/versions/' + encodeURIComponent(version)).then(function (r) { return r.json(); }).then(function (data) {
     var v = data.version || data;
     var content = v.content || '';
-    var timeStr = v.createdAt ? new Date(v.createdAt).toLocaleString('zh-CN') : '-';
+    var timeStr = v.createdAt ? formatRelativeTime(v.createdAt) : '-';
     var html = '<div style="padding:16px;background:var(--bg-secondary);border-radius:12px;">';
     html += '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">版本 ' + escapeHtml(String(v.version || '-')) + ' · ' + escapeHtml(timeStr) + '</div>';
     html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">操作者: ' + escapeHtml(v.createdBy || '-') + '</div>';
@@ -22011,6 +22073,11 @@ function loadProducts(page) {
   if (itemsEl) itemsEl.innerHTML = '<div class="products-loading">加载中...</div>';
   apiFetch(url).then(function(r){return r.json();}).then(function(data){
     _productData.products = sortProductsLocally(data.products || [], _productCurrentSort);
+    _productData.products.forEach(function(p) {
+      if (p.stock === undefined || p.stock === null) {
+        p.stock = p.inventory !== undefined && p.inventory !== null ? p.inventory : 0;
+      }
+    });
     _productData.total = data.total || 0;
     renderProductList(_productData.products);
     renderProductPagination(_productData.total, _productPage, _productPageSize);
@@ -22109,11 +22176,13 @@ function renderProductList(products) {
   products.forEach(function(p){
     var isActive = p.id === _productCurrentId;
     var placeholder = getProductPlaceholder(p);
+    var hasBrand = p.brand && p.brand !== '-';
+    var stock = p.stock !== undefined ? p.stock : (p.inventory !== undefined ? p.inventory : 0);
     html += '<div class="products-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(p.id) + '" onclick="selectProductItem(\'' + escapeAttr(p.id).replace(/'/g,"\\'") + '\')">';
     html += placeholder;
     html += '<div class="products-mid-card-info">';
-    html += '<div style="display:flex;align-items:center;gap:6px;"><div class="products-brand-block" style="background:' + getBrandGradient(p.brand) + ';"></div><div class="products-mid-card-title">' + escapeHtml(p.name) + '</div></div>';
-    html += '<div class="products-mid-card-subtitle">' + escapeHtml(p.brand || '-') + ' · ' + escapeHtml(p.category || '-') + '</div>';
+    html += '<div style="display:flex;align-items:center;gap:6px;">' + (hasBrand ? '<div class="products-brand-block" style="background:' + getBrandGradient(p.brand) + ';"></div>' : '') + '<div class="products-mid-card-title">' + escapeHtml(p.name) + '</div></div>';
+    html += '<div class="products-mid-card-subtitle">' + (hasBrand ? escapeHtml(p.brand) + ' · ' : '') + escapeHtml(p.category || '-') + '</div>';
     html += '<div class="products-mid-card-metrics">';
     html += '<div class="products-mid-card-price-row">';
     html += '<span class="products-mid-card-price">¥' + (p.price || 0).toFixed(2) + '</span>';
@@ -22123,6 +22192,7 @@ function renderProductList(products) {
     html += '<div class="products-mid-card-sales-row">';
     html += '<span class="products-mid-card-sales">月销 ' + formatNumber(p.monthly_sales || 0) + '</span>';
     html += '<span class="products-mid-card-influencers">' + (p.influencer_count || 0) + '位达人带货</span>';
+    html += '<span class="products-mid-card-sales">库存 ' + formatNumber(stock) + '</span>';
     html += '<span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status) + '</span>';
     html += '</div></div></div></div>';
   });
@@ -22740,7 +22810,7 @@ function renderTalentList(talents) {
     }
     html += '</div>';
     html += '<div class="talents-mid-score">';
-    html += '<div class="talents-mid-score-value">' + (aiScore || '-') + '</div>';
+    html += '<div class="talents-mid-score-value">' + (aiScore ? '匹配度 ' + aiScore : '-') + '</div>';
     html += '<div class="talents-mid-score-label">AI推荐</div>';
     html += '</div>';
     html += '</div>';
@@ -23711,6 +23781,7 @@ var _knowledgeCurrentCat = '';
 var _knowledgeCurrentId = null;
 var _knowledgeScope = 'all';
 var _knowledgePreviewMode = false;
+var _knowledgeViewMode = 'card';
 var _knowledgePage = 1;
 var _knowledgePageSize = 20;
 var _knowledgeInitialized = false;
@@ -23928,6 +23999,7 @@ function getKnowledgePreview(content) {
 function renderKnowledgeList(docs) {
   var el = document.getElementById('knowledgeMidItems');
   if (!el) return;
+  el.classList.toggle('list-view', _knowledgeViewMode === 'list');
   if (!docs || docs.length === 0) {
     el.innerHTML = '<div class="knowledge-mid-empty"><div class="knowledge-mid-empty-icon">📖</div><div class="knowledge-mid-empty-text">暂无知识文档</div><button class="knowledge-mid-empty-btn" onclick="createNewKnowledge()">手动添加</button></div>';
     return;
@@ -23935,29 +24007,73 @@ function renderKnowledgeList(docs) {
   var scopeClassMap = { global: 'scope-global', group: 'scope-group', personal: 'scope-personal' };
   var scopeNameMap = { global: '全局', group: '项目组', personal: '个人' };
   var html = '';
-  docs.forEach(function(d) {
-    var isActive = d.id === _knowledgeCurrentId;
-    var preview = getKnowledgePreview(d.content).slice(0, 100);
-    var scope = d.scope || 'global';
-    html += '<div class="knowledge-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
-    html += '<div class="knowledge-mid-card-header">';
-    html += '<div class="knowledge-mid-card-title-wrap"><div class="knowledge-mid-card-title">' + escapeHtml(d.title || d.name || '未命名') + '</div></div>';
-    html += '<span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
-    html += '<div class="knowledge-mid-card-body">' + escapeHtml(preview) + (preview.length >= 100 ? '...' : '') + '</div>';
-    html += '<div class="knowledge-mid-card-meta">';
-    html += '<span class="knowledge-view-scope ' + (scopeClassMap[scope] || 'scope-global') + '">' + (scopeNameMap[scope] || '全局') + '</span>';
-    if (scope === 'group' && d.groupIds && d.groupIds.length > 0) {
-      d.groupIds.slice(0, 3).forEach(function(gid) {
-        html += '<span class="knowledge-mid-card-group-label">' + escapeHtml(_getGroupName(gid)) + '</span>';
-      });
-      if (d.groupIds.length > 3) html += '<span class="knowledge-mid-card-group-label">+' + (d.groupIds.length - 3) + '</span>';
-    }
-    html += '<span>' + formatDate(d.updatedAt) + '</span>';
-    html += '</div>';
-    html += '</div>';
-  });
+  if (_knowledgeViewMode === 'list') {
+    docs.forEach(function(d) {
+      var isActive = d.id === _knowledgeCurrentId;
+      var scope = d.scope || 'global';
+      html += '<div class="knowledge-list-item' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';">';
+      html += '<div class="knowledge-list-cat-line"></div>';
+      html += '<div class="knowledge-list-main" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
+      html += '<div class="knowledge-list-title-row"><div class="knowledge-list-title">' + escapeHtml(d.title || d.name || '未命名') + '</div><span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
+      html += '<div class="knowledge-list-meta">';
+      html += '<span class="knowledge-view-scope ' + (scopeClassMap[scope] || 'scope-global') + '">' + (scopeNameMap[scope] || '全局') + '</span>';
+      html += '<span>' + formatRelativeTime(d.updatedAt) + '</span>';
+      html += '</div></div>';
+      html += '<div class="knowledge-list-actions">';
+      html += '<button onclick="event.stopPropagation();editKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="编辑">✏️</button>';
+      html += '<button onclick="event.stopPropagation();deleteKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="删除">🗑️</button>';
+      html += '</div>';
+      html += '</div>';
+    });
+  } else {
+    docs.forEach(function(d) {
+      var isActive = d.id === _knowledgeCurrentId;
+      var preview = getKnowledgePreview(d.content).slice(0, 100);
+      var scope = d.scope || 'global';
+      html += '<div class="knowledge-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
+      html += '<div class="knowledge-mid-card-header">';
+      html += '<div class="knowledge-mid-card-title-wrap"><div class="knowledge-mid-card-title">' + escapeHtml(d.title || d.name || '未命名') + '</div></div>';
+      html += '<span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
+      html += '<div class="knowledge-mid-card-body">' + escapeHtml(preview) + (preview.length >= 100 ? '...' : '') + '</div>';
+      html += '<div class="knowledge-mid-card-meta">';
+      html += '<span class="knowledge-view-scope ' + (scopeClassMap[scope] || 'scope-global') + '">' + (scopeNameMap[scope] || '全局') + '</span>';
+      if (scope === 'group' && d.groupIds && d.groupIds.length > 0) {
+        d.groupIds.slice(0, 3).forEach(function(gid) {
+          html += '<span class="knowledge-mid-card-group-label">' + escapeHtml(_getGroupName(gid)) + '</span>';
+        });
+        if (d.groupIds.length > 3) html += '<span class="knowledge-mid-card-group-label">+' + (d.groupIds.length - 3) + '</span>';
+      }
+      html += '<span>' + formatRelativeTime(d.updatedAt) + '</span>';
+      html += '</div>';
+      html += '</div>';
+    });
+  }
   el.innerHTML = html;
 }
+function switchKnowledgeView(mode) {
+  _knowledgeViewMode = mode === 'list' ? 'list' : 'card';
+  var cardBtn = document.getElementById('knowledgeViewCardBtn');
+  var listBtn = document.getElementById('knowledgeViewListBtn');
+  if (cardBtn) cardBtn.classList.toggle('active', _knowledgeViewMode === 'card');
+  if (listBtn) listBtn.classList.toggle('active', _knowledgeViewMode === 'list');
+  renderKnowledgeList(_knowledgeData.docs);
+}
+
+function editKnowledgeDoc(docId) {
+  var doc = _knowledgeData.docs.find(function(d) { return d.id === docId; });
+  if (!doc) return;
+  _knowledgeCurrentId = docId;
+  renderKnowledgeView(doc, true);
+  _knowledgePreviewMode = false;
+  updateKnowledgeEditorView();
+  openKnowledgeEditor();
+  var contentEl = document.getElementById('knowledgeEditContent');
+  if (contentEl) {
+    contentEl.focus();
+    contentEl.setSelectionRange(contentEl.value.length, contentEl.value.length);
+  }
+}
+
 function renderKnowledgePagination(total, page, pageSize) {
   var el = document.getElementById('knowledgeMidPagination');
   if (!el || !total || total <= pageSize) {
@@ -24049,11 +24165,11 @@ function selectKnowledgeItem(id) {
   var overlay = document.getElementById('knowledgeRightOverlay');
   if (right) right.classList.add('active');
   if (overlay) overlay.classList.add('open');
-  // Update active card
-  document.querySelectorAll('.knowledge-mid-card').forEach(function(el) {
+  // Update active card/list item
+  document.querySelectorAll('.knowledge-mid-card, .knowledge-list-item').forEach(function(el) {
     el.classList.remove('active');
   });
-  var activeEl = document.querySelector('.knowledge-mid-card[data-id="' + escapeAttr(id || '') + '"]');
+  var activeEl = document.querySelector('.knowledge-mid-card[data-id="' + escapeAttr(id || '') + '"], .knowledge-list-item[data-id="' + escapeAttr(id || '') + '"]');
   if (activeEl) activeEl.classList.add('active');
 }
 
