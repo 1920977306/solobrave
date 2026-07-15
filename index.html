@@ -5980,25 +5980,25 @@ window.doLogin = function () {
 <!-- Left Navigation (56px) -->
 <nav class="left-nav">
   <div class="left-nav-top">
-    <div class="nav-item" id="navSearch" onclick="openGlobalSearch()" data-tooltip="搜索">
+    <div class="nav-item" id="navSearch" onclick="openGlobalSearch()" data-tooltip="搜索" title="全局搜索">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
     </div>
-    <div class="nav-item active" id="navMessages" data-module="messages" onclick="switchModule('messages')" data-tooltip="即时通讯">
+    <div class="nav-item active" id="navMessages" data-module="messages" onclick="switchModule('messages')" data-tooltip="即时通讯" title="即时通讯">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     </div>
-    <div class="nav-item" id="navOffice" onclick="openLobsterOffice()" data-tooltip="龙虾办公室">
+    <div class="nav-item" id="navOffice" onclick="openLobsterOffice()" data-tooltip="龙虾办公室" title="龙虾办公室">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/></svg>
     </div>
-    <div class="nav-item" id="navKnowledge" data-module="knowledge" onclick="switchModule('knowledge')" data-tooltip="知识库">
+    <div class="nav-item" id="navKnowledge" data-module="knowledge" onclick="switchModule('knowledge')" data-tooltip="知识库" title="知识库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>
     </div>
-    <div class="nav-item" id="navProducts" data-module="products" onclick="switchModule('products')" data-tooltip="商品库">
+    <div class="nav-item" id="navProducts" data-module="products" onclick="switchModule('products')" data-tooltip="商品库" title="商品管理">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
     </div>
-    <div class="nav-item" id="navInfluencers" data-module="influencers" onclick="switchModule('influencers')" data-tooltip="达人库">
+    <div class="nav-item" id="navInfluencers" data-module="influencers" onclick="switchModule('influencers')" data-tooltip="达人库" title="达人库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
     </div>
-    <div class="nav-item" id="navSettings" data-module="settings" onclick="switchModule('settings')" data-tooltip="设置">
+    <div class="nav-item" id="navSettings" data-module="settings" onclick="switchModule('settings')" data-tooltip="设置" title="系统设置">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
     </div>
   </div>
@@ -23967,7 +23967,7 @@ function renderKnowledgePagination(total, page, pageSize) {
   var totalPages = Math.ceil(total / pageSize);
   var html = '';
   html += '<button ' + (page <= 1 ? 'disabled' : '') + ' onclick="loadKnowledgePage(' + (page - 1) + ')">←</button>';
-  html += '<span>' + page + ' / ' + totalPages + '</span>';
+  html += '<span>' + page + '/' + totalPages + '</span>';
   html += '<button ' + (page >= totalPages ? 'disabled' : '') + ' onclick="loadKnowledgePage(' + (page + 1) + ')">→</button>';
   el.innerHTML = html;
 }
