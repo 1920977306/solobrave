@@ -6891,6 +6891,15 @@ window.doLogin = function () {
 </div>
 </div>
 <div class="emp-doc-section" style="margin-top:16px;">
+  <div class="emp-doc-title">📝 描述</div>
+  <textarea id="empDescriptionInput" rows="3" placeholder="输入员工描述..." style="width:100%;padding:10px 12px;border:1px solid var(--separator);border-radius:8px;font-size:13px;box-sizing:border-box;resize:vertical;"></textarea>
+  <div id="empDetailDescription" style="margin-top:8px;font-size:12px;color:var(--text-secondary);line-height:1.5;"></div>
+  <button class="emp-action-btn primary" onclick="saveEmpDescription()" style="margin-top:10px;">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+    保存并同步
+  </button>
+</div>
+<div class="emp-doc-section" style="margin-top:16px;">
   <div class="emp-doc-title">⚠️ 紧急标记</div>
   <input type="text" id="empBadgeInput" placeholder="如: 称呼Truman! 立刻" style="width:100%;padding:10px 12px;border:1px solid var(--separator);border-radius:8px;font-size:13px;box-sizing:border-box;" oninput="updateBadgePreview(this.value)">
   <div id="empBadgePreview" style="margin-top:8px;font-size:12px;color:var(--text-secondary);"></div>
@@ -14912,6 +14921,8 @@ function openEmpDetail(empId) {
   document.getElementById('empDetailTokens').textContent = (emp.tokens || Math.floor(Math.random() * 5000)).toLocaleString();
   document.getElementById('empDetailTasks').textContent = emp.tasks || 0;
   document.getElementById('empDetailCtx').textContent = emp.ctx || '4K / 8K';
+  document.getElementById('empDescriptionInput').value = emp.description || '';
+  document.getElementById('empDetailDescription').textContent = emp.description ? '当前描述: ' + emp.description : '暂无描述';
   document.getElementById('empBadgeInput').value = emp.badge || '';
   document.getElementById('empBadgePreview').textContent = emp.badge ? '当前: ⚠️ ' + emp.badge : '';
   (document.getElementById('empModelConfig') || {}).value = emp.modelConfig || JSON.stringify({
@@ -17086,6 +17097,20 @@ function saveEmpAvatar() {
     }
     showToast('✅ 头像已保存');
   }
+}
+function saveEmpDescription() {
+  if (!currentEmpId) return;
+  var emp = emps.find(function (e) { return e.id === currentEmpId; });
+  if (!emp) return;
+  var descInput = document.getElementById('empDescriptionInput');
+  var descDisplay = document.getElementById('empDetailDescription');
+  if (!descInput) return;
+  var newDesc = descInput.value.trim();
+  emp.description = newDesc;
+  if (descDisplay) descDisplay.textContent = newDesc ? '当前描述: ' + newDesc : '暂无描述';
+  saveEmployees(currentEmpId);
+  syncEmpToServer(emp);
+  showToast('✅ 描述已保存并同步');
 }
 // ========== 员工连接配置 ==========
 var empSelectedConnectAIProvider = 'kimi';
@@ -23888,6 +23913,8 @@ function _updateKnowledgeNewButtonVisibility() {
 }
 async function loadKnowledgePage(page) {
   if (page) _knowledgePage = page;
+  var midItems = document.getElementById('knowledgeMidItems');
+  if (midItems) midItems.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
   try {
     await loadGroups();
     var offset = (_knowledgePage - 1) * _knowledgePageSize;
@@ -23916,7 +23943,6 @@ async function loadKnowledgePage(page) {
     _knowledgeInitialized = true;
   } catch (e) {
     console.warn('[KnowledgePage] 加载失败:', e);
-    var midItems = document.getElementById('knowledgeMidItems');
     if (midItems) midItems.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载失败</div>';
   }
 }
@@ -23985,6 +24011,7 @@ async function selectKnowledgeCategory(cat) {
 async function selectKnowledgeScope(scope) {
   _knowledgeScope = scope || 'all';
   _knowledgePage = 1;
+  _knowledgeCurrentCat = '';
   document.querySelectorAll('.knowledge-scope-tab').forEach(function(t) {
     t.classList.toggle('active', t.dataset.scope === _knowledgeScope);
   });
