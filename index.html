@@ -13703,7 +13703,17 @@ function renderMsgs(type) {
         minute: '2-digit'
       });
       var imagesHtml2 = own ? buildChatImagesHtml(m.images) : '';
-      return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + formatMessageContent(m.content) + '</div>' + imagesHtml2 + '</div></div>';
+      var citationHtml2 = '';
+      if (!own && m.citations && m.citations.length > 0) {
+        var citeId2 = 'citations_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+        var citeItems2 = m.citations.map(function(c) {
+          var icon = c.type === 'product' ? '📦' : '📄';
+          return '<span class="citation-tag" onclick="event.stopPropagation();showCitationDetail(\'' + (c.id || '') + '\', \'' + escapeHtml(c.title || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\', \'' + (c.type || 'doc') + '\')">' + icon + ' ' + escapeHtml(c.title || '未命名') + '</span>';
+        }).join('');
+        citationHtml2 = '<div class="citation-bar" onclick="toggleCitationPanel(\'' + citeId2 + '\')">📚 引用了 ' + m.citations.length + ' 条知识 <span class="citation-toggle">▼</span></div>' +
+          '<div class="citation-panel hidden" id="' + citeId2 + '">' + citeItems2 + '</div>';
+      }
+      return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
     if (typingMsg) {
       area.appendChild(typingMsg);
@@ -18367,7 +18377,8 @@ function loadChatFromServer(id, type, callback) {
           content: m.content || '',
           groupId: m.groupId || null,
           time: m.timestamp || Date.now(),
-          images: m.images || null
+          images: m.images || null,
+          citations: m.citations || []
         };
       });
       // 按时间升序排序（旧消息在前，新消息在后）

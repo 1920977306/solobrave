@@ -12273,14 +12273,17 @@ def _append_self_update_prompt(system_prompt):
     if not system_prompt:
         system_prompt = ''
     declaration = (
-        '\n\n【自修改配置工具】\n'
-        '当用户要求你修改自己的简介/描述、角色、行为指令时，'
-        '你必须在回复中输出对应的标记（不要只是口头承诺会修改，必须输出标记才能真正生效）：\n'
-        '- 用户要求改你的简介/描述时输出：[SELF_UPDATE]description=新的简介内容[/SELF_UPDATE]\n'
-        '- 用户要求改你的行为指令时输出：[SELF_UPDATE]system_prompt=新的完整指令[/SELF_UPDATE]\n'
-        '- 用户要求改你的角色时输出：[SELF_UPDATE]role=新角色名[/SELF_UPDATE]\n'
-        '注意：这是修改你自己的配置，不是修改商品或知识库等其他数据。'
-        '每次可输出多个标记；标记会在发送给用户前自动移除。'
+        '\n\n---\n'
+        '【重要指令 - 自我修改能力】\n'
+        '当老板要求你修改自己的简介/描述/角色/行为指令时，'
+        '你必须在回复中输出以下标记（这是唯一生效的方式，只口头承诺无效）：\n\n'
+        '示例1 - 老板说"把你的描述改成xxx"：\n'
+        '你的回复必须包含：[SELF_UPDATE]description=xxx[/SELF_UPDATE]\n\n'
+        '示例2 - 老板说"改一下你的角色"：\n'
+        '你的回复必须包含：[SELF_UPDATE]role=新角色[/SELF_UPDATE]\n\n'
+        '注意：这是改你自己的配置，不是改商品！'
+        '严禁调用add_product或update_product来修改自己的描述。\n'
+        '---'
     )
     return system_prompt + declaration
 
