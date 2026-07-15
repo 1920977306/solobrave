@@ -22042,7 +22042,8 @@ function renderProductList(products) {
     html += '<div class="products-mid-card-metrics">';
     html += '<div class="products-mid-card-price-row">';
     html += '<span class="products-mid-card-price">¥' + (p.price || 0).toFixed(2) + '</span>';
-    html += '<span class="products-mid-card-commission">佣金' + (p.commission_rate || 0).toFixed(0) + '%</span>';
+    var commissionUnset = p.commission_rate === null || p.commission_rate === undefined || Number(p.commission_rate) === 0;
+    html += '<span class="products-mid-card-commission">' + (commissionUnset ? '待设置' : '佣金' + Number(p.commission_rate).toFixed(0) + '%') + '</span>';
     html += '</div>';
     html += '<div class="products-mid-card-sales-row">';
     html += '<span class="products-mid-card-sales">月销 ' + formatNumber(p.monthly_sales || 0) + '</span>';
