@@ -3942,6 +3942,18 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .chat-empty-state .welcome-card-icon { font-size: 24px; line-height: 1; }
 .chat-empty-state .welcome-card-text { font-size: 12px; color: var(--text-secondary); }
 
+/* Module Empty State - Welcome */
+.module-welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; width: 100%; text-align: center; color: var(--text-secondary); }
+.module-welcome-icon { font-size: 32px; line-height: 1; margin-bottom: 16px; }
+.module-welcome-title { font-size: 24px; font-weight: bold; color: var(--accent); margin-bottom: 8px; }
+.module-welcome-subtitle { font-size: 13px; color: var(--text-muted); margin-bottom: 32px; }
+.module-welcome-cards { display: flex; gap: 16px; justify-content: center; }
+.module-welcome-card { width: 120px; height: 80px; background: var(--surface); border-radius: var(--card-radius); box-shadow: var(--card-shadow); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: all 0.2s ease; user-select: none; }
+.module-welcome-card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.1); }
+.module-welcome-card.disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; box-shadow: var(--card-shadow) !important; }
+.module-welcome-card-icon { font-size: 24px; line-height: 1; }
+.module-welcome-card-text { font-size: 12px; color: var(--text-secondary); }
+
 /* Chat Input */
 .chat-input-area { padding: 10px 14px; border-top: 0.5px solid var(--separator); background: var(--bg-primary); }
 .input-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
@@ -6185,10 +6197,20 @@ window.doLogin = function () {
     <div class="module-right-title" id="productsRightTitle">商品详情</div>
   </div>
   <div class="module-right-content products-right-content" id="productsRightContent">
-    <div class="products-empty" id="productsEmptyState">
-      <div class="products-empty-icon">📦</div>
-      <div class="products-empty-text">选择左侧商品查看详情，或点击 + 新建</div>
-      <button class="products-empty-btn" onclick="createNewProduct()">+ 录入商品</button>
+    <div class="module-welcome" id="productsEmptyState">
+      <div class="module-welcome-icon">📦</div>
+      <div class="module-welcome-title">管理你的商品库</div>
+      <div class="module-welcome-subtitle">录入商品信息，AI自动匹配达人带货</div>
+      <div class="module-welcome-cards">
+        <div class="module-welcome-card" onclick="onWelcomeCreateProduct()">
+          <span class="module-welcome-card-icon">➕</span>
+          <span class="module-welcome-card-text">新增商品</span>
+        </div>
+        <div class="module-welcome-card disabled" id="productsWelcomeViewBtn">
+          <span class="module-welcome-card-icon">📊</span>
+          <span class="module-welcome-card-text">查看数据</span>
+        </div>
+      </div>
     </div>
     <!-- AI Analysis Card at top -->
     <div class="products-ai-card" id="productsAICard">
@@ -6357,9 +6379,20 @@ window.doLogin = function () {
     </div>
   </div>
   <div class="module-right-content talents-right-content" id="talentsRightContent">
-    <div class="products-empty" id="talentsEmptyState">
-      <div class="products-empty-icon">👤</div>
-      <div class="products-empty-text">选择左侧达人查看详情</div>
+    <div class="module-welcome" id="talentsEmptyState">
+      <div class="module-welcome-icon">👥</div>
+      <div class="module-welcome-title">开始搭建你的达人矩阵</div>
+      <div class="module-welcome-subtitle">从抖音链接录入达人，AI自动分析6维度匹配度</div>
+      <div class="module-welcome-cards">
+        <div class="module-welcome-card" onclick="onWelcomeCreateTalent()">
+          <span class="module-welcome-card-icon">📤</span>
+          <span class="module-welcome-card-text">批量导入达人</span>
+        </div>
+        <div class="module-welcome-card" onclick="onWelcomeSearchTalent()">
+          <span class="module-welcome-card-icon">🔍</span>
+          <span class="module-welcome-card-text">搜索达人</span>
+        </div>
+      </div>
     </div>
     <div class="talents-tabs" id="talentsTabs">
       <button class="talents-tab active" data-tab="overview" onclick="switchTalentTab('overview')">概览</button>
@@ -13658,6 +13691,32 @@ function renderEmptyChat() {
   }
   var messagesArea = document.getElementById('messagesArea');
   if (messagesArea) messagesArea.innerHTML = getChatEmptyStateHtml();
+}
+
+// ============ 模块空状态 - 欢迎态快捷入口 ============
+function onWelcomeCreateProduct() {
+  createNewProduct();
+}
+
+function onWelcomeViewProductData() {
+  if ((_productData.total || 0) === 0) return;
+  var first = _productData.products && _productData.products[0];
+  if (first && first.id) {
+    selectProductItem(first.id);
+    switchProductTab('sales');
+  }
+}
+
+function onWelcomeCreateTalent() {
+  createNewTalent();
+}
+
+function onWelcomeSearchTalent() {
+  var el = document.getElementById('talentsMidSearch');
+  if (el) {
+    el.focus();
+    el.select();
+  }
 }
 
 // ============ 群公告功能（文档链接版）============
@@ -21903,7 +21962,23 @@ function showProductEmptyState() {
   var ai = document.getElementById('productsAICard');
   var tabs = document.getElementById('productsTabs');
   var panels = document.getElementById('productsTabPanels');
-  if (empty) empty.style.display = 'flex';
+  if (empty) {
+    var hasData = (_productData.total || 0) > 0;
+    empty.innerHTML = '<div class="module-welcome-icon">📦</div>' +
+      '<div class="module-welcome-title">管理你的商品库</div>' +
+      '<div class="module-welcome-subtitle">录入商品信息，AI自动匹配达人带货</div>' +
+      '<div class="module-welcome-cards">' +
+      '<div class="module-welcome-card" onclick="onWelcomeCreateProduct()">' +
+      '<span class="module-welcome-card-icon">➕</span>' +
+      '<span class="module-welcome-card-text">新增商品</span>' +
+      '</div>' +
+      '<div class="module-welcome-card' + (hasData ? '' : ' disabled') + '"' + (hasData ? ' onclick="onWelcomeViewProductData()"' : '') + '>' +
+      '<span class="module-welcome-card-icon">📊</span>' +
+      '<span class="module-welcome-card-text">查看数据</span>' +
+      '</div>' +
+      '</div>';
+    empty.style.display = 'flex';
+  }
   if (ai) ai.style.display = 'none';
   if (tabs) tabs.style.display = 'none';
   if (panels) panels.style.display = 'none';
