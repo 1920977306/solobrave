@@ -3765,7 +3765,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .progress-text { font: var(--font-micro); color: var(--text-secondary); white-space: nowrap; }
 
 /* Messages */
-.messages-area { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; background: #ffffff; }
+.messages-area { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; background: #ffffff; min-height: 300px; }
 .messages-area:has(.chat-empty-state) { align-items: center; }
 
 .time-separator { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
@@ -13595,6 +13595,10 @@ function renderMsgs(type) {
     var filtered = history.filter(function (m) {
       return (m.role === 'user' || m.role === 'assistant') && !m.groupId;
     });
+    if (filtered.length === 0) {
+      area.innerHTML = getChatEmptyStateHtml();
+      return;
+    }
     var typingMsg = document.getElementById('typingMsg');
     area.innerHTML = '<div class="time-separator"><span>今天</span></div>' + filtered.map(function (m) {
       const own = m.role === 'user';
