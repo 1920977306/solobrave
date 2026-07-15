@@ -7411,15 +7411,8 @@ function showMainApp() {
         // 自动选择第一个可见员工作为默认聊天对象
         openChat(visibleEmps3[0].id);
       } else {
-        var chatHeaderName = document.querySelector('.chat-header-name');
-        var chatHeaderRole = document.querySelector('.chat-header-role');
-        var chatHeaderAvatar = document.querySelector('.chat-header-v2 .avatar');
-        if (chatHeaderName) chatHeaderName.textContent = '';
-        if (chatHeaderRole) chatHeaderRole.textContent = '';
-        if (chatHeaderAvatar) {
-          chatHeaderAvatar.innerHTML = '🦞';
-        }
-        renderMsgs('private');
+        renderEmptyChat();
+        return;
       }
     }
   }).catch(function (err) {
@@ -13653,6 +13646,20 @@ function onWelcomeTalents() {
   }, 50);
 }
 
+function renderEmptyChat() {
+  var chatHeaderName = document.querySelector('.chat-header-name');
+  var chatHeaderRole = document.querySelector('.chat-header-role');
+  var chatHeaderAvatar = document.querySelector('.chat-header-v2 .avatar');
+  if (chatHeaderName) chatHeaderName.textContent = '';
+  if (chatHeaderRole) chatHeaderRole.textContent = '';
+  if (chatHeaderAvatar) {
+    chatHeaderAvatar.innerHTML = '🦞';
+    chatHeaderAvatar.style.background = 'linear-gradient(135deg,#FF6B35,#E55A2B)';
+  }
+  var messagesArea = document.getElementById('messagesArea');
+  if (messagesArea) messagesArea.innerHTML = getChatEmptyStateHtml();
+}
+
 // ============ 群公告功能（文档链接版）============
 const bulletinData = JSON.parse(localStorage.getItem('sb_bulletins') || '{}');
 function showBulletin() {
@@ -18089,7 +18096,7 @@ function isEmployeeNotFoundError(res, data) {
 function closeCurrentChatAsDeleted() {
   localStorage.removeItem('sb_current_emp');
   closeEmpDetail();
-  renderMsgs('private');
+  renderEmptyChat();
   renderEmployeeList();
   showToast('该员工已被删除');
 }
@@ -18102,7 +18109,7 @@ function openNextEmployeeOrEmpty() {
     openChat(visible[0].id);
   } else {
     localStorage.removeItem('sb_current_emp');
-    renderMsgs('private');
+    renderEmptyChat();
     renderEmployeeList();
   }
 }
@@ -25199,6 +25206,11 @@ function switchModule(module) {
     if (employeeList) employeeList.style.display = 'block';
     if (projectList) projectList.style.display = 'none';
     renderEmployeeList();
+    var currentEmpId = localStorage.getItem('sb_current_emp');
+    var currentEmp = currentEmpId && emps.find(function (e) { return e.id === currentEmpId; });
+    if (!currentEmp) {
+      renderEmptyChat();
+    }
     applySidebarWidth(getSidebarWidth());
     return;
   }
