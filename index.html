@@ -13080,6 +13080,9 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   });
   // 解析并移除工具调用标记
   var toolCalls = parseToolCalls(replyText);
+  if (toolCalls.length === 0 && replyText && /update_product|add_product/.test(replyText)) {
+    console.log('[ToolCallParse] AI回复包含 update_product/add_product 关键词但未被解析为工具调用，原文前500字符:', replyText.slice(0, 500));
+  }
   var cleanText = stripToolCallsFromText(replyText);
   var bubbleContent = highlightMentions(formatMessageContent(cleanText));
 
@@ -19745,6 +19748,9 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
   // Token 统计已由后端 /api/proxy 真实 usage 记录，前端不再估算
   // 解析并移除工具调用标记
   var toolCalls = parseToolCalls(replyText);
+  if (toolCalls.length === 0 && replyText && /update_product|add_product/.test(replyText)) {
+    console.log('[ToolCallParse] AI回复包含 update_product/add_product 关键词但未被解析为工具调用，原文前500字符:', replyText.slice(0, 500));
+  }
   var cleanText = stripToolCallsFromText(replyText);
 
   var bubble = formatMessageContent(cleanText);
