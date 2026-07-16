@@ -10301,7 +10301,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, product_out)
 
     def _handle_put_product(self, product_id):
-        """PUT /api/products/{id} — 更新商品（同时同步 SQLite 与 data/products.json；不存在则自动创建）"""
+        """PUT /api/products/{id} — 更新商品（同时同步 SQLite 与 data/products.json；SQLite 不存在时回退到 JSON）"""
         print(f'  [ProductPUT] 入口 product_id={product_id}', flush=True)
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
@@ -10327,12 +10327,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         print(f'  [ProductPUT] 查询SQLite后 product_id={product_id} existing={bool(existing)}', flush=True)
 
-        # 商品不存在时自动创建，不再返回 404
+        exists_in_sql = bool(existing)
         if not existing:
-            print(f'  [ProductPUT] SQLite中不存在 product_id={product_id}，将自动INSERT后更新', flush=True)
+            print(f'  [ProductPUT] SQLite中不存在 product_id={product_id}，尝试从 data/products.json 加载', flush=True)
+            json_data = _load_json_products()
+            for p in json_data.get('products', []):
+                if p.get('id') == product_id:
+                    existing = dict(p)
+                    print(f'  [ProductPUT] 从JSON找到 product_id={product_id} name={existing.get("name", "")}', flush=True)
+                    break
+        if not existing:
+            print(f'  [ProductPUT] 返回 404: SQLite和JSON均未找到 product_id={product_id}', flush=True)
+            self._send_json_error(404, 'Product not found')
+            return
 
         now_ts = int(time.time() * 1000)
-        updated = dict(existing) if existing else {'id': product_id}
+        updated = dict(existing)
         updated.update(body)
         updated['id'] = product_id
         updated['updatedAt'] = now_ts
@@ -10350,12 +10360,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         row['created_at'] = updated.get('createdAt')
         row['updated_at'] = now_ts
 
-        old_brand_id = existing.get('brand_id') if existing else None
-        print(f'  [ProductPUT] 写入SQLite前 product_id={product_id} op={"UPDATE" if existing else "INSERT"}', flush=True)
+        old_brand_id = existing.get('brand_id')
+        print(f'  [ProductPUT] 写入SQLite前 product_id={product_id} op={"UPDATE" if exists_in_sql else "INSERT"}', flush=True)
         conn = _db_conn()
         try:
             _sync_product_brand(conn, row)
-            if existing:
+            if exists_in_sql:
                 conn.execute(
                     f"UPDATE products SET {', '.join(f'{c} = ?' for c in _PRODUCT_COLUMNS)} WHERE id = ?",
                     tuple(row[c] for c in _PRODUCT_COLUMNS) + (product_id,)
