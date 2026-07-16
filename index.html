@@ -19042,12 +19042,12 @@ function buildAgentToolsContext() {
     '   - 按关键词搜索商品：search_products，参数 {"query":"关键词"}\n' +
     '   - 查看单个商品详情：get_product_detail，参数 {"productId":"prod_xxx"}\n' +
     '   - 录入新商品：add_product（对接 POST /api/products 创建接口），参数 {"name":"商品名称","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"品牌名","sku_specs":{"SKU":"SKU001","尺码":"37-40"},"tags":["标签1","标签2"],"selling_points":"核心卖点","commission_rate":20,"main_image":"图片URL","subtitle":"副标题/描述"}\n' +
-    '   - 编辑商品信息需人工在UI操作\n' +
+    '   - 修改已有商品：update_product（对接 PUT /api/products/:id），参数 {"product_id":"prod_xxx","price":199,"stock":1000,"description":"新描述","category":"鞋靴/凉鞋","brand":"品牌名","commission_rate":20}，只需传需要修改的字段\n' +
     '   - 每个商品有：名称、SKU、分类、价格、库存、品牌、标签、状态、卖点、佣金率\n' +
     '   - 当用户想录入商品时，你必须主动从对话中提取上述字段。必填字段只有 name（商品名称）。\n' +
     '   - 重要字段包括：price（价格）、category（分类）、brand（品牌）、stock（库存）、commission_rate（佣金率）、selling_points（卖点）、sku_specs（SKU规格）。当这些重要字段中有任何一项缺失或不确定时，你必须一次性列出所有缺失的重要字段，向用户确认后再调用 add_product；切勿在未确认的情况下编造或假设。\n' +
     '   - 创建成功后，向用户确认并展示商品名称、价格、库存、分类、品牌、SKU、佣金率等关键信息。\n' +
-    '   - 如果系统返回“该商品（名称：XXX，品牌：XXX）已存在，是否需要更新信息？”，请询问用户是否更新。若用户确认更新，请在后续调用 add_product 时传入 id 字段（即系统返回的商品 ID）和需要修改的字段，调用 PUT 接口更新商品信息；若用户取消，则不再调用。\n\n' +
+    '   - 如果系统返回“该商品（名称：XXX，品牌：XXX）已存在，是否需要更新信息？”，请询问用户是否更新。若用户确认更新，请调用 update_product 并传入 product_id（即系统返回的商品 ID）和需要修改的字段；若用户取消，则不再调用。\n\n' +
     '2. 达人库 (/api/influencers)\n' +
     '   - 查询达人列表：list_influencers\n' +
     '   - 按关键词搜索达人：search_influencers，参数 {"query":"关键词"}\n' +
@@ -19077,6 +19077,7 @@ function buildAgentToolsContext() {
     '或 [TOOL_CALL]{"action":"match_talent_product","params":{"direction":"talent-to-product","talentId":"tal_xxx"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"add_talent","params":{"name":"李佳琦","douyin_id":"lijiaqi","followers":45000000,"category":"美妆护肤","level":"S","risk_rating":"low","cooperation_status":"available"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"add_product","params":{"name":"2024新款厚底凉鞋","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"COOLCHAP","sku_specs":{"SKU":"SKU2024001"},"commission_rate":20}}[/TOOL_CALL]\n' +
+    '或 [TOOL_CALL]{"action":"update_product","params":{"product_id":"prod_xxx","price":179,"stock":800,"description":"升级款厚底凉鞋"}}[/TOOL_CALL]\n' +
     '或 [TOOL_CALL]{"action":"send_group_message","params":{"groupId":"grp_xxx","message":"请帮忙看下这个需求","mentions":["小明"]}}[/TOOL_CALL]\n' +
     '主大脑会自动执行并把结果展示给用户。\n' +
     '【注意】禁止编造不存在的商品或达人信息，所有数据以主大脑查询结果为准。';
@@ -19526,6 +19527,61 @@ async function executeToolCall(call) {
           return '✅ 商品信息更新成功\n' + productResultLines;
         }
         return '✅ 商品录入成功\n' + productResultLines;
+      case 'update_product':
+        var uparams = call.params || {};
+        var updateProductId = uparams.product_id || uparams.productId || uparams.id || '';
+        if (!updateProductId) return '【工具执行失败】缺少 product_id（商品 ID），请确认后再调用';
+        var updateBody = {};
+        if (uparams.name !== undefined) updateBody.name = String(uparams.name).trim();
+        if (uparams.price !== undefined) updateBody.price = parseFloat(uparams.price) || 0;
+        if (uparams.stock !== undefined) updateBody.stock = parseInt(uparams.stock, 10) || 0;
+        if (uparams.category !== undefined) updateBody.category = uparams.category;
+        if (uparams.brand !== undefined) updateBody.brand = uparams.brand;
+        if (uparams.status !== undefined) updateBody.status = uparams.status;
+        if (uparams.subtitle !== undefined || uparams.description !== undefined || uparams.selling_points !== undefined) {
+          updateBody.subtitle = uparams.subtitle || uparams.description || uparams.selling_points || '';
+        }
+        if (uparams.commission_rate !== undefined || uparams.commissionRate !== undefined) {
+          updateBody.commission_rate = parseFloat(uparams.commission_rate || uparams.commissionRate || 0) || 0;
+        }
+        if (uparams.main_image !== undefined || uparams.mainImage !== undefined) {
+          updateBody.main_image = uparams.main_image || uparams.mainImage || '';
+        }
+        if (uparams.tags !== undefined) {
+          var updateTags = uparams.tags;
+          if (typeof updateTags === 'string') {
+            updateTags = updateTags.split(/[,，]/).map(function(s) { return s.trim(); }).filter(Boolean);
+          }
+          updateBody.tags = Array.isArray(updateTags) ? updateTags : [];
+        }
+        if (uparams.sku_specs !== undefined || uparams.skuSpecs !== undefined || uparams.sku !== undefined || uparams.SKU !== undefined) {
+          var updateSkuSpecs = uparams.sku_specs || uparams.skuSpecs || {};
+          if (typeof updateSkuSpecs === 'string') {
+            try { updateSkuSpecs = JSON.parse(updateSkuSpecs); } catch (e) { updateSkuSpecs = {}; }
+          }
+          if (!updateSkuSpecs || typeof updateSkuSpecs !== 'object' || Array.isArray(updateSkuSpecs)) {
+            updateSkuSpecs = {};
+          }
+          if (!updateSkuSpecs.SKU && (uparams.sku || uparams.SKU)) {
+            updateSkuSpecs.SKU = uparams.sku || uparams.SKU;
+          }
+          updateBody.sku_specs = updateSkuSpecs;
+        }
+        var updatePr = await apiFetch('/api/products/' + encodeURIComponent(updateProductId), {
+          method: 'PUT',
+          body: JSON.stringify(updateBody)
+        });
+        var up = await updatePr.json();
+        if (up.error) return '【工具执行失败】' + up.error;
+        if (typeof loadProducts === 'function') loadProducts();
+        return '✅ 商品信息更新成功\n' +
+          '名称：' + (up.name || '-') + '\n' +
+          '价格：¥' + (up.price || 0).toFixed(2) + '\n' +
+          '库存：' + (up.stock || 0) + '\n' +
+          '分类：' + (up.category || '未分类') + '\n' +
+          '品牌：' + (up.brand || '-') + '\n' +
+          'SKU：' + (up.sku || '-') + '\n' +
+          'ID：' + (up.id || '-');
       default:
         return '【工具执行失败】未知操作: ' + call.action;
     }
