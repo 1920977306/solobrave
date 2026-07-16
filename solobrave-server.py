@@ -12104,6 +12104,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
                 content = body.get('content', '')
+                # 记忆提取场景不需要加载历史记录，避免 token 超限和干扰
+                is_extract = '【记忆提取任务】' in content
+
+                # 后端拦截自然语言自修改指令，不依赖 AI 输出 [SELF_UPDATE] 标记
+                if role == 'user':
+                    intent_updates = _detect_self_update_intent(content)
+                    if intent_updates:
+                        ok, su_msg, _ = _apply_agent_self_update(agent_id, intent_updates, source=f'chat:{auth.user_id}')
+                        if ok:
+                            field_name, new_value = intent_updates[0]
+                            confirmation = f'（系统已根据你的指令更新了你的{field_name}为{new_value}，请在回复中确认已更新）'
+                            content = confirmation + '\n\n' + content
+                            msg['content'] = content
+                            print(f'  [ChatPOST] {agent_id} self-update intent applied: {field_name}={new_value}', flush=True)
+                        else:
+                            print(f'  [ChatPOST] {agent_id} self-update intent apply failed: {su_msg}', flush=True)
+
                 images = body.get('images', [])
                 if images:
                     user_payload = [{'type': 'text', 'text': content}]
@@ -12111,8 +12128,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         user_payload.append({'type': 'image_url', 'image_url': {'url': img.get('base64', '')}})
                 else:
                     user_payload = content
-                # 记忆提取场景不需要加载历史记录，避免 token 超限和干扰
-                is_extract = '【记忆提取任务】' in content
                 allowed_cats = _allowed_knowledge_categories(auth)
                 api_reply = _call_ai_api(
                     agent, user_payload, auth.user_info, include_history=not is_extract,
@@ -12266,6 +12281,34 @@ _SELF_UPDATE_FORBIDDEN_FIELDS = {
     'group', 'pinned', 'badge', 'soulDoc', 'idDoc', 'toolsDoc', 'userDoc',
     'tokens', 'tokenStats', 'msg', 'lastActive',
 }
+
+_SELF_UPDATE_INTENT_FIELD_MAP = {
+    '描述': 'description',
+    '简介': 'description',
+    '角色': 'role',
+    '行为指令': 'system_prompt',
+}
+
+_SELF_UPDATE_INTENT_PATTERNS = [
+    _re.compile(r'(?:把|将)\s*你的\s*(描述|简介|角色|行为指令)\s*(?:改成|改为|改[为成])\s*([^\n。！？；,.]+)'),
+    _re.compile(r'修改\s*你的\s*(描述|简介|角色|行为指令)\s*为\s*([^\n。！？；,.]+)'),
+]
+
+
+def _detect_self_update_intent(text):
+    """检测用户消息中是否包含修改自身配置的自然语言指令，返回 (field, value) 列表"""
+    if not text or not isinstance(text, str):
+        return []
+    text = text.strip()
+    for pat in _SELF_UPDATE_INTENT_PATTERNS:
+        m = pat.search(text)
+        if m:
+            cn_field = m.group(1).strip()
+            value = m.group(2).strip()
+            field = _SELF_UPDATE_INTENT_FIELD_MAP.get(cn_field)
+            if field and value:
+                return [(field, value)]
+    return []
 
 
 def _append_self_update_prompt(system_prompt):
