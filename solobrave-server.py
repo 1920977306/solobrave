@@ -10301,22 +10301,36 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, product_out)
 
     def _handle_put_product(self, product_id):
-        """PUT /api/products/{id} — 更新商品（同时同步 SQLite 与 data/products.json）"""
+        """PUT /api/products/{id} — 更新商品（同时同步 SQLite 与 data/products.json；不存在则自动创建）"""
+        print(f'  [ProductPUT] 入口 product_id={product_id}', flush=True)
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
+            print(f'  [ProductPUT] 返回 401: 未认证 product_id={product_id}', flush=True)
             self._send_auth_error(auth.error, auth.status)
             return
-        if not self._require_module_permission(auth, 'products'): return
+        if not self._require_module_permission(auth, 'products'):
+            print(f'  [ProductPUT] 返回 403: 无 products 模块权限 product_id={product_id}', flush=True)
+            return
         body = self._read_body()
+        print(f'  [ProductPUT] 请求体 product_id={product_id} body={repr(body)[:500]}', flush=True)
         if not body:
+            print(f'  [ProductPUT] 返回 400: 请求体为空 product_id={product_id}', flush=True)
             self._send_json_error(400, 'Missing body')
             return
+
+        print(f'  [ProductPUT] 查询SQLite前 product_id={product_id}', flush=True)
         conn = _db_conn()
         try:
             row = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
             existing = _product_row_to_dict(row)
         finally:
             conn.close()
+        print(f'  [ProductPUT] 查询SQLite后 product_id={product_id} existing={bool(existing)}', flush=True)
+
+        # 商品不存在时自动创建，不再返回 404
+        if not existing:
+            print(f'  [ProductPUT] SQLite中不存在 product_id={product_id}，将自动INSERT后更新', flush=True)
+
         now_ts = int(time.time() * 1000)
         updated = dict(existing) if existing else {'id': product_id}
         updated.update(body)
@@ -10337,6 +10351,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         row['updated_at'] = now_ts
 
         old_brand_id = existing.get('brand_id') if existing else None
+        print(f'  [ProductPUT] 写入SQLite前 product_id={product_id} op={"UPDATE" if existing else "INSERT"}', flush=True)
         conn = _db_conn()
         try:
             _sync_product_brand(conn, row)
@@ -10356,6 +10371,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.commit()
         finally:
             conn.close()
+        print(f'  [ProductPUT] 写入SQLite完成 product_id={product_id}', flush=True)
 
         # 同步到 data/products.json
         json_data = _load_json_products()
@@ -10372,7 +10388,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         json_data['total'] = len(products)
         _save_json_products(json_data)
 
-        print(f'  [Product] 更新商品: {updated.get("name", "")} ({product_id})', flush=True)
+        print(f'  [ProductPUT] 返回 200 product_id={product_id} name={updated.get("name", "")}', flush=True)
         self._send_json(200, updated)
 
     def _handle_delete_product(self, product_id):
