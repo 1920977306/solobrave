@@ -8435,6 +8435,25 @@ async function probeOpenClawMultimodal() {
 // 通过 OpenClaw WS 发送消息
 async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
   images = images || [];
+
+  // OpenClaw 直连不经过后端 /api/proxy，在后端无 WebSocket 回调可拦截，
+  // 因此先调用后端意图检测接口，在消息到达 OpenClaw 前完成自修改并追加确认句。
+  try {
+    var intentRes = await apiFetch('/api/agents/' + encodeURIComponent(emp.id) + '/self-update-intent', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({content: userMessage})
+    });
+    if (intentRes && intentRes.ok) {
+      var intentData = await intentRes.json();
+      if (intentData && intentData.matched && intentData.confirmation) {
+        userMessage = intentData.confirmation + '\n\n' + userMessage;
+      }
+    }
+  } catch (intentErr) {
+    console.warn('[OpenClaw] self-update intent check failed:', intentErr);
+  }
+
   // 统一恢复员工在线状态
   function restoreOnline() {
     window._thinkingTimeouts = window._thinkingTimeouts || {};

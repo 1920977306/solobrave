@@ -2533,6 +2533,19 @@ def _dict_to_product_row(p):
     }
 
 
+_PRODUCT_JSON_PATH = os.path.join(DATA_DIR, 'products.json')
+
+
+def _load_json_products():
+    """加载 data/products.json（兼容旧版格式）"""
+    return _read_json(_PRODUCT_JSON_PATH, {'products': [], 'total': 0, 'version': '1.0'})
+
+
+def _save_json_products(data):
+    """保存 data/products.json"""
+    _write_json(_PRODUCT_JSON_PATH, data)
+
+
 # ─── 品牌库 / 达人库 SQLite 辅助函数 ─────────────────────────────
 
 _BRAND_COLUMNS = [
@@ -4279,6 +4292,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/agents':
             self._handle_create_agent()
             return
+        if path.startswith('/api/agents/'):
+            sub = path[len('/api/agents/'):]
+            parts = sub.split('/')
+            if len(parts) == 2 and parts[1] == 'self-update-intent':
+                self._handle_agent_self_update_intent(parts[0])
+                return
 
         # Groups API
         if path == '/api/groups':
@@ -7134,6 +7153,52 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'success': True, 'agent': agent, 'message': message})
         except Exception as e:
             print(f'  [PUT agent self-update] ERROR: {e}', flush=True)
+            import traceback
+            traceback.print_exc()
+            self._send_json(500, {'error': str(e)})
+
+    def _handle_agent_self_update_intent(self, agent_id):
+        """POST /api/agents/:id/self-update-intent - 检测自然语言自修改意图并直接应用"""
+        try:
+            auth = _authenticate(self.headers)
+            if not auth.is_authenticated:
+                self._send_auth_error(auth.error, auth.status)
+                return
+            if not self._require_module_permission(auth, 'employees'):
+                return
+
+            _, err, status = self._check_agent_access(auth, agent_id)
+            if err:
+                self._send_json(status, {'error': err})
+                return
+
+            body = self._read_body()
+            if not body:
+                self._send_json(400, {'error': '无效的请求体'})
+                return
+
+            content = body.get('content', '')
+            intent_updates = _detect_self_update_intent(content)
+            if not intent_updates:
+                self._send_json(200, {'matched': False})
+                return
+
+            ok, su_msg, _ = _apply_agent_self_update(agent_id, intent_updates, source=f'chat:{auth.user_id}')
+            if not ok:
+                self._send_json(200, {'matched': False, 'error': su_msg})
+                return
+
+            field_name, new_value = intent_updates[0]
+            confirmation = f'（系统已根据你的指令更新了你的{field_name}为{new_value}，请在回复中确认已更新）'
+            print(f'  [AgentSelfUpdateIntent] agent={agent_id} field={field_name} value={new_value}', flush=True)
+            self._send_json(200, {
+                'matched': True,
+                'field': field_name,
+                'value': new_value,
+                'confirmation': confirmation
+            })
+        except Exception as e:
+            print(f'  [AgentSelfUpdateIntent] ERROR: {e}', flush=True)
             import traceback
             traceback.print_exc()
             self._send_json(500, {'error': str(e)})
@@ -10236,7 +10301,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, product_out)
 
     def _handle_put_product(self, product_id):
-        """PUT /api/products/{id} — 更新商品"""
+        """PUT /api/products/{id} — 更新商品（同时同步 SQLite 与 data/products.json）"""
         auth = _authenticate(self.headers)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -10252,14 +10317,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             existing = _product_row_to_dict(row)
         finally:
             conn.close()
-        if not existing:
-            self._send_json_error(404, 'Product not found')
-            return
         now_ts = int(time.time() * 1000)
-        updated = dict(existing)
+        updated = dict(existing) if existing else {'id': product_id}
         updated.update(body)
         updated['id'] = product_id
         updated['updatedAt'] = now_ts
+        if not updated.get('createdAt'):
+            updated['createdAt'] = now_ts
         # 兼容旧字段 commission_rate -> commission_rates
         if 'commission_rate' in body and 'commission_rates' not in body:
             updated['commission_rates'] = {'default': float(body['commission_rate'])}
@@ -10269,26 +10333,47 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             rate = float(updated.get('commission_rate', 0) or 0)
             updated['commission_amount'] = round(price * rate / 100, 2)
         row = _dict_to_product_row(updated)
-        row['created_at'] = existing['created_at']
+        row['created_at'] = updated.get('createdAt')
         row['updated_at'] = now_ts
+
+        old_brand_id = existing.get('brand_id') if existing else None
         conn = _db_conn()
         try:
-            old_brand_id = existing.get('brand_id')
             _sync_product_brand(conn, row)
-            conn.execute(
-                f"UPDATE products SET {', '.join(f'{c} = ?' for c in _PRODUCT_COLUMNS)} WHERE id = ?",
-                tuple(row[c] for c in _PRODUCT_COLUMNS) + (product_id,)
-            )
+            if existing:
+                conn.execute(
+                    f"UPDATE products SET {', '.join(f'{c} = ?' for c in _PRODUCT_COLUMNS)} WHERE id = ?",
+                    tuple(row[c] for c in _PRODUCT_COLUMNS) + (product_id,)
+                )
+            else:
+                conn.execute(
+                    f"INSERT INTO products ({', '.join(_PRODUCT_COLUMNS)}) VALUES ({', '.join('?' * len(_PRODUCT_COLUMNS))})",
+                    tuple(row[c] for c in _PRODUCT_COLUMNS)
+                )
             conn.commit()
             for bid in {b for b in [old_brand_id, row.get('brand_id')] if b}:
                 _update_brand_product_stats(conn, bid)
             conn.commit()
-            row_out = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
-            product_out = _product_row_to_dict(row_out)
         finally:
             conn.close()
-        print(f'  [Product] 更新商品: {product_out["name"]} ({product_id})', flush=True)
-        self._send_json(200, product_out)
+
+        # 同步到 data/products.json
+        json_data = _load_json_products()
+        products = json_data.get('products', [])
+        found = False
+        for p in products:
+            if p.get('id') == product_id:
+                p.update(updated)
+                found = True
+                break
+        if not found:
+            products.append(updated)
+        json_data['products'] = products
+        json_data['total'] = len(products)
+        _save_json_products(json_data)
+
+        print(f'  [Product] 更新商品: {updated.get("name", "")} ({product_id})', flush=True)
+        self._send_json(200, updated)
 
     def _handle_delete_product(self, product_id):
         """DELETE /api/products/{id} — 删除商品（硬删除，符合常规 CRUD 语义）"""
@@ -13983,6 +14068,58 @@ def _handle_proxy(self):
     content_length = int(self.headers.get('Content-Length', 0))
     body = self.rfile.read(content_length) if content_length > 0 else None
 
+    # 解析 body（后续日志和自修改拦截都需要）
+    body_json = None
+    if body:
+        try:
+            body_json = json.loads(body.decode('utf-8'))
+        except Exception:
+            pass
+
+    # 检测并处理 AI 自修改自然语言意图（在消息到达上游 AI 前拦截）
+    if agent_id and body_json:
+        try:
+            messages = body_json.get('messages', [])
+            user_msg = None
+            for m in reversed(messages):
+                if isinstance(m, dict) and m.get('role') == 'user':
+                    user_msg = m
+                    break
+            if user_msg:
+                original_content = user_msg.get('content', '')
+                text_content = ''
+                content_list = None
+                if isinstance(original_content, str):
+                    text_content = original_content
+                elif isinstance(original_content, list):
+                    for item in original_content:
+                        if isinstance(item, dict) and item.get('type') == 'text':
+                            text_content = item.get('text', '')
+                            content_list = original_content
+                            break
+                if text_content:
+                    intent_updates = _detect_self_update_intent(text_content)
+                    if intent_updates:
+                        ok, su_msg, _ = _apply_agent_self_update(agent_id, intent_updates, source=f'proxy:{auth.user_id}')
+                        if ok:
+                            field_name, new_value = intent_updates[0]
+                            confirmation = f'（系统已根据你的指令更新了你的{field_name}为{new_value}，请在回复中确认已更新）\n\n'
+                            if isinstance(original_content, str):
+                                user_msg['content'] = confirmation + original_content
+                            elif content_list is not None:
+                                for item in content_list:
+                                    if isinstance(item, dict) and item.get('type') == 'text':
+                                        item['text'] = confirmation + item.get('text', '')
+                                        break
+                            body = json.dumps(body_json, ensure_ascii=False).encode('utf-8')
+                            print(f'  [Proxy] self-update intent applied: {field_name}={new_value}', flush=True)
+                        else:
+                            print(f'  [Proxy] self-update intent apply failed: {su_msg}', flush=True)
+        except Exception as self_update_err:
+            print(f'  [Proxy] self-update intent processing error: {self_update_err}', flush=True)
+            import traceback
+            traceback.print_exc()
+
     forward_headers = {}
     # 代理请求使用的是用户 AI 的 API Key，不是 SoloBrave 的 token
     # 从请求体或 header 中获取 AI API 的 Authorization
@@ -14005,12 +14142,13 @@ def _handle_proxy(self):
 
     # 解析 body 中的 model 信息（用于日志）
     body_info = ''
-    if body:
+    if body_json:
         try:
-            body_json = json.loads(body.decode('utf-8'))
             body_info = f"model={body_json.get('model','?')} messages={len(body_json.get('messages',[]))}"
         except Exception:
             body_info = f'body_len={len(body)}'
+    elif body:
+        body_info = f'body_len={len(body)}'
     print(f'  [Proxy] 收到请求 -> {target_url} {body_info}', flush=True)
     try:
         req = urllib.request.Request(target_url, data=body, headers=forward_headers, method='POST')
