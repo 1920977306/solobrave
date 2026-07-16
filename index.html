@@ -19796,7 +19796,7 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
     (async function() {
       for (var i = 0; i < toolCalls.length; i++) {
         var result = await executeToolCall(toolCalls[i]);
-        if (currentGroupId) {
+        if (true) {
           var toolTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
           var toolHtml = '<div class="msg">\n';
           toolHtml += '<div class="msg-avatar" style="font-size:20px;">🧠</div>\n';
@@ -22706,7 +22706,7 @@ function saveProduct() {
   if (!body.name) { showToast('请输入商品名称'); return; }
   var url = '/api/products' + (id ? '/' + encodeURIComponent(id) : '');
   var method = id ? 'PUT' : 'POST';
-  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(){ showToast('✅ 已保存'); closeProductModal(); loadProducts(); }).catch(function(){ showToast('❌ 保存失败'); });
+  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(){ showToast('✅ 已保存'); closeProductModal(); loadProducts(); if (id) { selectProductItem(id); } }).catch(function(){ showToast('❌ 保存失败'); });
 }
 
 function deleteCurrentProduct() {
