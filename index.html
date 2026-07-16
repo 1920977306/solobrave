@@ -19045,7 +19045,7 @@ function buildAgentToolsContext() {
     '   - 按关键词搜索商品：search_products，参数 {"query":"关键词"}\n' +
     '   - 查看单个商品详情：get_product_detail，参数 {"productId":"prod_xxx"}\n' +
     '   - 录入新商品：add_product（对接 POST /api/products 创建接口），参数 {"name":"商品名称","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"品牌名","sku_specs":{"SKU":"SKU001","尺码":"37-40"},"tags":["标签1","标签2"],"selling_points":"核心卖点","commission_rate":20,"main_image":"图片URL","subtitle":"副标题/描述"}\n' +
-    '   - 修改已有商品：update_product（对接 PUT /api/products/:id），参数 {"product_id":"prod_xxx","price":199,"stock":1000,"description":"新描述","category":"鞋靴/凉鞋","brand":"品牌名","commission_rate":20}，只需传需要修改的字段\n' +
+    '   - 修改已有商品：update_product（对接 PUT /api/products/:id），参数 {"product_id":"prod_xxx","price":199,"stock":1000,"description":"新描述","category":"鞋靴/凉鞋","brand":"品牌名","commission_rate":20}，只需传需要修改的字段。必须输出 [TOOL_CALL]{"action":"update_product","params":{"product_id":"商品ID","description":"新描述"}}[/TOOL_CALL] 标记来实际执行修改，不能只说将要修改而不输出标记，没有标记的操作不会被执行。\n' +
     '   - 每个商品有：名称、SKU、分类、价格、库存、品牌、标签、状态、卖点、佣金率\n' +
     '   - 当用户想录入商品时，你必须主动从对话中提取上述字段。必填字段只有 name（商品名称）。\n' +
     '   - 重要字段包括：price（价格）、category（分类）、brand（品牌）、stock（库存）、commission_rate（佣金率）、selling_points（卖点）、sku_specs（SKU规格）。当这些重要字段中有任何一项缺失或不确定时，你必须一次性列出所有缺失的重要字段，向用户确认后再调用 add_product；切勿在未确认的情况下编造或假设。\n' +
@@ -19072,7 +19072,7 @@ function buildAgentToolsContext() {
     '4. 项目组消息发送\n' +
     '   - 向指定项目组发送消息：send_group_message，参数 {"groupId":"grp_xxx","message":"消息内容","mentions":["员工名字"]}\n' +
     '   - mentions 为可选参数，填写需要 @ 的员工名称数组\n\n' +
-    '当你需要执行以上操作时，请在回复末尾使用以下格式（用户看不到这段标记）：\n' +
+    '当你需要执行以上操作时，请在回复末尾使用以下格式（用户看不到这段标记）。使用任何工具时必须输出 [TOOL_CALL]{...}[/TOOL_CALL] 格式，不输出标记的操作不会执行：\n' +
     '[TOOL_CALL]{"action":"list_products"}[/TOOL_CALL]\n' +
     '[TOOL_CALL]{"action":"search_products","params":{"query":"口红"}}[/TOOL_CALL]\n' +
     '[TOOL_CALL]{"action":"get_product_detail","params":{"productId":"prod_xxx"}}[/TOOL_CALL]\n' +
