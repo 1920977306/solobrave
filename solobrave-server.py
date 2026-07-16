@@ -10344,6 +10344,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         now_ts = int(time.time() * 1000)
         updated = dict(existing)
         updated.update(body)
+        # 确保 description 与 subtitle 双向同步
+        if 'description' in body and 'subtitle' not in body:
+            updated['subtitle'] = updated['description']
+        if 'subtitle' in body and 'description' not in body:
+            updated['description'] = updated['subtitle']
         updated['id'] = product_id
         updated['updatedAt'] = now_ts
         if not updated.get('createdAt'):
