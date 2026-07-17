@@ -13081,7 +13081,7 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   // 解析并移除工具调用标记
   var toolCalls = parseToolCalls(replyText);
   if (toolCalls.length === 0 && replyText && /update_product|add_product/.test(replyText)) {
-    console.log('[ToolCallParse] AI回复包含 update_product/add_product 关键词但未被解析为工具调用，原文前500字符:', replyText.slice(0, 500));
+    console.log('[ToolCallParse] AI回复包含 update_product/add_product 关键词但未被解析为工具调用，原文前300字符:', replyText.substring(0, 300), '|||尾部200字符:', replyText.slice(-200), '|||总长度:', replyText.length);
   }
   var cleanText = stripToolCallsFromText(replyText);
   var bubbleContent = highlightMentions(formatMessageContent(cleanText));
@@ -19115,6 +19115,7 @@ function parseToolCalls(text) {
       var tcJsons = _extractJsonObjects(afterTC);
       console.log('[ToolCallParse] 1b: after [TOOL_CALL], found', tcJsons.length, 'JSON objects');
       tcJsons.forEach(function(jsonStr, idx) {
+        console.log('[ToolCallParse] 1b: JSON[' + idx + '] len:' + jsonStr.length + ' hasAction:' + (jsonStr.indexOf('"action"') !== -1) + ' start:' + jsonStr.substring(0, 80) + ' end:' + jsonStr.slice(-60));
         if (jsonStr.indexOf('"action"') !== -1) {
           var parsed = _tryParseToolCallJson(jsonStr);
           if (parsed) { addCall(parsed); }
