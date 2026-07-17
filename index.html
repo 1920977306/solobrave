@@ -19107,6 +19107,30 @@ function parseToolCalls(text) {
     if (parsed) addCall(parsed);
   }
 
+  // 1b. [TOOL_CALL] without closing tag — Helen/Kimi often omits [/TOOL_CALL]
+  if (calls.length === 0) {
+    var tcIdx = text.indexOf('[TOOL_CALL]');
+    if (tcIdx !== -1) {
+      var afterTC = text.substring(tcIdx + 11);
+      var tcJsons = _extractJsonObjects(afterTC);
+      console.log('[ToolCallParse] 1b: after [TOOL_CALL], found', tcJsons.length, 'JSON objects');
+      tcJsons.forEach(function(jsonStr, idx) {
+        if (jsonStr.indexOf('"action"') !== -1) {
+          var parsed = _tryParseToolCallJson(jsonStr);
+          if (parsed) { addCall(parsed); }
+          else {
+            console.log('[ToolCallParse] 1b: JSON has action but parse failed, len:', jsonStr.length, 'start:', jsonStr.substring(0, 120), 'end:', jsonStr.slice(-60));
+            try {
+              var fixed = jsonStr.replace(/[\r\n]+/g, '\\n');
+              var obj = JSON.parse(fixed);
+              if (obj && typeof obj.action === 'string') { console.log('[ToolCallParse] 1b: lenient parse succeeded'); addCall(obj); }
+            } catch(e2) { console.log('[ToolCallParse] 1b: lenient also failed:', e2.message); }
+          }
+        }
+      });
+    }
+  }
+
   // 2. Markdown 代码块内包含工具调用标记
   var blockRegex = /```(?:json)?\s*\[TOOL_CALL\]([\s\S]*?)\[\/TOOL_CALL\]\s*```/gi;
   while ((m = blockRegex.exec(text)) !== null) {
@@ -19123,10 +19147,16 @@ function parseToolCalls(text) {
 
   // 4. 文本中裸露出 action 字段的 JSON 对象（容错最后一层，使用栈匹配嵌套大括号）
   if (calls.length === 0) {
-    _extractJsonObjects(text).forEach(function(jsonStr) {
+    var fallbackJsons = _extractJsonObjects(text);
+    console.log('[ToolCallParse] 4-fallback: found', fallbackJsons.length, 'JSON objects in full text');
+    fallbackJsons.forEach(function(jsonStr, idx) {
       if (jsonStr.indexOf('"action"') !== -1) {
         var parsed = _tryParseToolCallJson(jsonStr);
         if (parsed) addCall(parsed);
+        else {
+          console.log('[ToolCallParse] 4-fallback: JSON', idx, 'has action but parse failed, len:', jsonStr.length, 'end:', jsonStr.slice(-60));
+          try { var fixed = jsonStr.replace(/[\r\n]+/g, '\\n'); var obj = JSON.parse(fixed); if (obj && typeof obj.action === 'string') { console.log('[ToolCallParse] 4-fallback: lenient succeeded'); addCall(obj); } } catch(e2) { console.log('[ToolCallParse] 4-fallback: lenient also failed:', e2.message); }
+        }
       }
     });
   }
