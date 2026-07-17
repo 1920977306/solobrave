@@ -19051,6 +19051,7 @@ function buildAgentToolsContext() {
     '   - 重要字段包括：price（价格）、category（分类）、brand（品牌）、stock（库存）、commission_rate（佣金率）、selling_points（卖点）、sku_specs（SKU规格）。当这些重要字段中有任何一项缺失或不确定时，你必须一次性列出所有缺失的重要字段，向用户确认后再调用 add_product；切勿在未确认的情况下编造或假设。\n' +
     '   - 创建成功后，向用户确认并展示商品名称、价格、库存、分类、品牌、SKU、佣金率等关键信息。\n' +
     '   - 如果系统返回“该商品（名称：XXX，品牌：XXX）已存在，是否需要更新信息？”，请询问用户是否更新。若用户确认更新，请调用 update_product 并传入 product_id（即系统返回的商品 ID）和需要修改的字段；若用户取消，则不再调用。\n\n' +
+    '   - 【重要】当用户要求修改或更新已有商品时，必须先调用 search_products 搜索商品名称获取 product_id，再用 update_product 执行修改。严禁在不知道 product_id 的情况下用 add_product 创建重复商品。add_product 仅用于录入全新商品。\n' +
     '2. 达人库 (/api/influencers)\n' +
     '   - 查询达人列表：list_influencers\n' +
     '   - 按关键词搜索达人：search_influencers，参数 {"query":"关键词"}\n' +
