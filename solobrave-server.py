@@ -10327,19 +10327,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         print(f'  [ProductPUT] 查询SQLite后 product_id={product_id} existing={bool(existing)}', flush=True)
 
-        exists_in_sql = bool(existing)
         if not existing:
-            print(f'  [ProductPUT] SQLite中不存在 product_id={product_id}，尝试从 data/products.json 加载', flush=True)
-            json_data = _load_json_products()
-            for p in json_data.get('products', []):
-                if p.get('id') == product_id:
-                    existing = dict(p)
-                    print(f'  [ProductPUT] 从JSON找到 product_id={product_id} name={existing.get("name", "")}', flush=True)
-                    break
-        if not existing:
-            print(f'  [ProductPUT] 返回 404: SQLite和JSON均未找到 product_id={product_id}', flush=True)
+            print(f'  [ProductPUT] 返回 404: SQLite中未找到 product_id={product_id}', flush=True)
             self._send_json_error(404, 'Product not found')
             return
+        exists_in_sql = True
 
         now_ts = int(time.time() * 1000)
         updated = dict(existing)
