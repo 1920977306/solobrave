@@ -3963,6 +3963,15 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   30% { opacity: 1; }
 }
 
+.tool-card { background: #fff; border-radius: 12px; border: 1px solid #E5E5EA; padding: 12px; margin: 4px 0 8px; }
+.tool-card-header { display: flex; align-items: center; gap: 6px; }
+.tool-name { font-weight: 600; font-size: 14px; }
+.tool-badge { padding: 2px 8px; border-radius: 4px; font-size: 12px; color: #fff; }
+.tool-badge-running { background: #007AFF; }
+.tool-badge-done { background: #34C759; }
+.tool-cmd { font-family: monospace; background: #F5F5F7; border-radius: 6px; padding: 8px; font-size: 13px; margin-top: 8px; }
+.tool-output { font-family: monospace; max-height: 200px; overflow: auto; margin-top: 8px; font-size: 12px; color: #666; }
+
 /* Chat Empty State - Welcome */
 .chat-empty-state { display: flex; flex-direction: column; align-items: center; width: 100%; padding-top: 30vh; text-align: center; color: var(--text-secondary); }
 .chat-empty-state .welcome-title { font-size: 28px; font-weight: bold; color: var(--accent); margin-bottom: 8px; }
@@ -8576,11 +8585,6 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
           hasSentWorking = true;
           setEmpStatus('working');
         }
-        if (!hasSentCoding && (text.indexOf('[TOOL_CALL]') !== -1 || text.indexOf('tool_call') !== -1)) {
-          hasSentCoding = true;
-          setEmpStatus('coding');
-          _updateTypingText('🛠️ 正在调用工具<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>');
-        }
       },
       onStartThinking: function () {
         setEmpStatus('thinking');
@@ -8597,6 +8601,50 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
         } else if (phase === 'error') {
           setEmpStatus('online');
         }
+      },
+      onToolStart: function (tool) {
+        var area = document.getElementById('messagesArea');
+        var typing = document.getElementById('typingMsg');
+        var card = document.createElement('div');
+        card.className = 'tool-card';
+        card.id = 'tool-' + tool.toolCallId;
+        card.innerHTML = '<div class="tool-card-header"><span class="tool-icon">🔧</span><span class="tool-name">' + escapeHtml(tool.name || '工具') + '</span><span class="tool-badge tool-badge-running">运行中</span></div><div class="tool-cmd">' + escapeHtml(tool.meta || '') + '</div><div class="tool-output" style="display:none"></div>';
+        if (typing && typing.parentNode) typing.parentNode.insertBefore(card, typing);
+        else if (area) area.appendChild(card);
+        if (area) area.scrollTop = area.scrollHeight;
+      },
+      onToolOutput: function (out) {
+        var card = document.getElementById('tool-' + out.toolCallId);
+        if (!card) return;
+        var outputEl = card.querySelector('.tool-output');
+        if (!outputEl) return;
+        var text = out.output || '';
+        var truncated = text.length > 200;
+        var displayText = truncated ? text.substring(0, 200) : text;
+        var html = '<pre id="tool-out-pre-' + out.toolCallId + '" style="margin:0;white-space:pre-wrap;word-break:break-all;">' + escapeHtml(displayText) + '</pre>';
+        if (truncated) {
+          html += '<button onclick="var p=document.getElementById(\'tool-out-pre-' + out.toolCallId + '\');p.style.whiteSpace=\'pre\';p.textContent=' + JSON.stringify(text) + ';this.remove()" style="margin-top:4px;padding:2px 8px;border:none;background:var(--accent);color:#fff;border-radius:4px;font-size:12px;cursor:pointer;">展开</button>';
+        }
+        if (out.phase === 'end') {
+          html += '<div style="margin-top:6px;font-size:12px;">';
+          if (out.exitCode === 0) html += '<span style="color:#34C759;">✓</span> exit: 0';
+          else html += '<span style="color:#FF3B30;">✗</span> exit: ' + (out.exitCode == null ? '-' : out.exitCode);
+          if (out.durationMs != null) html += ' · ' + out.durationMs + 'ms';
+          html += '</div>';
+        }
+        outputEl.innerHTML = html;
+        outputEl.style.display = 'block';
+        var area = document.getElementById('messagesArea');
+        if (area) area.scrollTop = area.scrollHeight;
+      },
+      onToolEnd: function (tool) {
+        var card = document.getElementById('tool-' + tool.toolCallId);
+        if (!card) return;
+        var badge = card.querySelector('.tool-badge');
+        if (!badge) return;
+        var duration = (tool.endedAt && tool.startedAt) ? (tool.endedAt - tool.startedAt) : 0;
+        badge.className = 'tool-badge tool-badge-done';
+        badge.textContent = '已完成 耗时' + duration + 'ms';
       }
     }, lifecycleOptions);
     
@@ -12155,6 +12203,50 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
               _gse.status = 'thinking';
               renderEmployeeList();
             }
+          },
+          onToolStart: function (tool) {
+            var area = document.getElementById('messagesArea');
+            var typing = document.getElementById('groupTypingMsg');
+            var card = document.createElement('div');
+            card.className = 'tool-card';
+            card.id = 'tool-' + tool.toolCallId;
+            card.innerHTML = '<div class="tool-card-header"><span class="tool-icon">🔧</span><span class="tool-name">' + escapeHtml(tool.name || '工具') + '</span><span class="tool-badge tool-badge-running">运行中</span></div><div class="tool-cmd">' + escapeHtml(tool.meta || '') + '</div><div class="tool-output" style="display:none"></div>';
+            if (typing && typing.parentNode) typing.parentNode.insertBefore(card, typing);
+            else if (area) area.appendChild(card);
+            if (area) area.scrollTop = area.scrollHeight;
+          },
+          onToolOutput: function (out) {
+            var card = document.getElementById('tool-' + out.toolCallId);
+            if (!card) return;
+            var outputEl = card.querySelector('.tool-output');
+            if (!outputEl) return;
+            var text = out.output || '';
+            var truncated = text.length > 200;
+            var displayText = truncated ? text.substring(0, 200) : text;
+            var html = '<pre id="tool-out-pre-' + out.toolCallId + '" style="margin:0;white-space:pre-wrap;word-break:break-all;">' + escapeHtml(displayText) + '</pre>';
+            if (truncated) {
+              html += '<button onclick="var p=document.getElementById(\'tool-out-pre-' + out.toolCallId + '\');p.style.whiteSpace=\'pre\';p.textContent=' + JSON.stringify(text) + ';this.remove()" style="margin-top:4px;padding:2px 8px;border:none;background:var(--accent);color:#fff;border-radius:4px;font-size:12px;cursor:pointer;">展开</button>';
+            }
+            if (out.phase === 'end') {
+              html += '<div style="margin-top:6px;font-size:12px;">';
+              if (out.exitCode === 0) html += '<span style="color:#34C759;">✓</span> exit: 0';
+              else html += '<span style="color:#FF3B30;">✗</span> exit: ' + (out.exitCode == null ? '-' : out.exitCode);
+              if (out.durationMs != null) html += ' · ' + out.durationMs + 'ms';
+              html += '</div>';
+            }
+            outputEl.innerHTML = html;
+            outputEl.style.display = 'block';
+            var area = document.getElementById('messagesArea');
+            if (area) area.scrollTop = area.scrollHeight;
+          },
+          onToolEnd: function (tool) {
+            var card = document.getElementById('tool-' + tool.toolCallId);
+            if (!card) return;
+            var badge = card.querySelector('.tool-badge');
+            if (!badge) return;
+            var duration = (tool.endedAt && tool.startedAt) ? (tool.endedAt - tool.startedAt) : 0;
+            badge.className = 'tool-badge tool-badge-done';
+            badge.textContent = '已完成 耗时' + duration + 'ms';
           }
         });
         var finalReply = (chatResult.reply || '').trim();
@@ -12262,6 +12354,20 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
           if (data.data.text) fullReply = data.data.text;
           else if (data.data.delta) fullReply += data.data.delta;
           if (callbacks.onStream) callbacks.onStream(fullReply);
+        }
+        if (data.stream === 'item' && data.data) {
+          var item = data.data;
+          if (item.kind === 'tool') {
+            if (item.phase === 'start' && callbacks.onToolStart) {
+              callbacks.onToolStart({ name: item.name, meta: item.meta, toolCallId: item.toolCallId, startedAt: item.startedAt });
+            } else if (item.phase === 'end' && callbacks.onToolEnd) {
+              callbacks.onToolEnd({ toolCallId: item.toolCallId, status: item.status, startedAt: item.startedAt, endedAt: item.endedAt });
+            }
+          }
+        }
+        if (data.stream === 'command_output' && data.data && callbacks.onToolOutput) {
+          var co = data.data;
+          callbacks.onToolOutput({ toolCallId: co.toolCallId, output: co.output, exitCode: co.exitCode, durationMs: co.durationMs, phase: co.phase });
         }
         if (data.stream === 'lifecycle' && data.data) {
           if (callbacks.onPhase) callbacks.onPhase(data.data.phase);
