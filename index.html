@@ -8738,6 +8738,11 @@ function initOpenClaw() {
     }
     updateConnectionStatus();
 
+    // 全局事件捕获：记录 OpenClaw 推送的所有事件类型，特别是工具调用相关事件
+    openclaw.on('event', function (e) {
+      console.log('[OC-EVT] ' + (e && e.event || 'unknown') + ' ' + JSON.stringify(e && e.payload).substring(0, 500));
+    });
+
     // 连接成功后自动获取模型列表
     setTimeout(function () {
       fetchOpenClawModels().then(function (models) {
@@ -12252,6 +12257,7 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
         // runId 过滤，防止多个 AI 响应串扰
         if (data.runId && !currentRunId) currentRunId = data.runId;
         if (currentRunId && data.runId && data.runId !== currentRunId) return;
+        console.log('[OC-DEBUG] stream=' + data.stream + ' data=' + JSON.stringify(data.data).substring(0, 500));
         if (data.stream === 'assistant' && data.data) {
           if (data.data.text) fullReply = data.data.text;
           else if (data.data.delta) fullReply += data.data.delta;
