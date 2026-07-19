@@ -8433,25 +8433,29 @@ async function probeOpenClawMultimodal() {
 }
 
 // 通过 OpenClaw WS 发送消息
-async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
+async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, chainDepth, groupId) {
   images = images || [];
+  chainDepth = chainDepth || 0;
 
   // OpenClaw 直连不经过后端 /api/proxy，在后端无 WebSocket 回调可拦截，
   // 因此先调用后端意图检测接口，在消息到达 OpenClaw 前完成自修改并追加确认句。
-  try {
-    var intentRes = await apiFetch('/api/agents/' + encodeURIComponent(emp.id) + '/self-update-intent', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({content: userMessage})
-    });
-    if (intentRes && intentRes.ok) {
-      var intentData = await intentRes.json();
-      if (intentData && intentData.matched && intentData.confirmation) {
-        userMessage = intentData.confirmation + '\n\n' + userMessage;
+  // 群聊工具链 follow-up 跳过意图检测，避免对工具结果追加确认句。
+  if (!groupId) {
+    try {
+      var intentRes = await apiFetch('/api/agents/' + encodeURIComponent(emp.id) + '/self-update-intent', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({content: userMessage})
+      });
+      if (intentRes && intentRes.ok) {
+        var intentData = await intentRes.json();
+        if (intentData && intentData.matched && intentData.confirmation) {
+          userMessage = intentData.confirmation + '\n\n' + userMessage;
+        }
       }
+    } catch (intentErr) {
+      console.warn('[OpenClaw] self-update intent check failed:', intentErr);
     }
-  } catch (intentErr) {
-    console.warn('[OpenClaw] self-update intent check failed:', intentErr);
   }
 
   // 统一恢复员工在线状态
@@ -8476,7 +8480,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
   }
 
   // 加载最近对话上下文（OpenClaw session 丢失时恢复历史）
-  var chatContext = await buildRecentChatContext(emp.id, 10);
+  var chatContext = groupId ? await buildRecentGroupContext(groupId, 10) : await buildRecentChatContext(emp.id, 10);
 
   // 注入 RAG 检索结果（产品知识库）
   var ragResult = { context: '', citations: [] };
@@ -8495,18 +8499,20 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
   var userName = currentUser && currentUser.name || currentUser && currentUser.displayName || '用户';
   systemPrompt += '\n\n【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- ' + userName + '（' + userRole + '）是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。\n- 严禁用"教你""指导你""你做过吗""你懂吗"等居高临下的语气。\n- 老板问你问题时，直接回答，不要反问或考验老板。';
 
-  // 加载对话摘要（如果有）
-  var summaryText = '';
-  try {
-    var summaryRes = await apiFetch('/api/chat/summarize/' + encodeURIComponent(emp.id));
-    var summaryData = await summaryRes.json();
-    if (summaryData && summaryData.summary) {
-      summaryText = '\n\n【历史对话摘要】\n' + summaryData.summary;
+  // 加载对话摘要（如果有）；群聊工具链 follow-up 不注入单聊摘要
+  if (!groupId) {
+    var summaryText = '';
+    try {
+      var summaryRes = await apiFetch('/api/chat/summarize/' + encodeURIComponent(emp.id));
+      var summaryData = await summaryRes.json();
+      if (summaryData && summaryData.summary) {
+        summaryText = '\n\n【历史对话摘要】\n' + summaryData.summary;
+      }
+    } catch (summaryErr) {
+      // 摘要不存在或加载失败，静默忽略
     }
-  } catch (summaryErr) {
-    // 摘要不存在或加载失败，静默忽略
+    if (summaryText) systemPrompt += summaryText;
   }
-  if (summaryText) systemPrompt += summaryText;
 
   // 注入商品库/达人库/匹配引擎工具说明（主大脑管控）
   systemPrompt += buildAgentToolsContext();
@@ -8516,7 +8522,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
   if (!validateFinalSystemPrompt(systemPrompt)) {
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
-    displayAIReply('⚠️ AI身份约束缺失，禁止调用AI', docContext, timeStr, emp.id, []);
+    displayAIReply('⚠️ AI身份约束缺失，禁止调用AI', docContext, timeStr, emp.id, [], chainDepth);
     restoreOnline();
     return;
   }
@@ -8530,13 +8536,17 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
   var fullMessage = textParts.join('\n\n');
   
   function _doHandle(reply, isError) {
-    console.log('[OpenClaw] _doHandle 调用 reply_len=' + (reply || '').length + ' isError=' + isError);
+    console.log('[OpenClaw] _doHandle 调用 reply_len=' + (reply || '').length + ' isError=' + isError + ' chainDepth=' + chainDepth + ' groupId=' + groupId);
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
     if (!reply) reply = '（AI 未返回内容）';
     if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
-    displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations);
-    saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images);
+    if (groupId) {
+      displayGroupAIReply(groupId, emp.id, reply, chainDepth);
+    } else {
+      displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations, chainDepth);
+      saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images);
+    }
   }
 
   try {
@@ -8607,18 +8617,34 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images) {
         var retryResult = await _sendChatWaitForLifecycle(fallbackKey, fullMessage);
         console.log('[OpenClaw] main agent 重试返回:', JSON.stringify(retryResult));
         if (retryResult.reply) {
-          displayAIReply(retryResult.reply, docContext, timeStr, emp.id, ragResult.citations);
-          saveChatHistory(emp.id, userMessage, retryResult.reply, docContext, ragResult.citations, images);
+          if (groupId) {
+            displayGroupAIReply(groupId, emp.id, retryResult.reply, chainDepth);
+          } else {
+            displayAIReply(retryResult.reply, docContext, timeStr, emp.id, ragResult.citations, chainDepth);
+            saveChatHistory(emp.id, userMessage, retryResult.reply, docContext, ragResult.citations, images);
+          }
         } else {
-          displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr, emp.id, []);
-          saveChatHistory(emp.id, userMessage, '⚠️ Agent 不存在', docContext, [], images);
+          if (groupId) {
+            displayGroupAIReply(groupId, emp.id, '⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', chainDepth);
+          } else {
+            displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr, emp.id, [], chainDepth);
+            saveChatHistory(emp.id, userMessage, '⚠️ Agent 不存在', docContext, [], images);
+          }
         }
       } catch (retryErr) {
-        displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr, emp.id, []);
-        saveChatHistory(emp.id, userMessage, '⚠️ Agent 不存在', docContext, [], images);
+        if (groupId) {
+          displayGroupAIReply(groupId, emp.id, '⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', chainDepth);
+        } else {
+          displayAIReply('⚠️ Agent "' + agentName + '" 不存在，默认 Agent 也无法连接。请在配置中检查 Agent 名称。', docContext, timeStr, emp.id, [], chainDepth);
+          saveChatHistory(emp.id, userMessage, '⚠️ Agent 不存在', docContext, [], images);
+        }
       }
     } else {
-      displayAIReply('⚠️ OpenClaw 连接异常: ' + e.message, docContext, timeStr, emp.id, []);
+      if (groupId) {
+        displayGroupAIReply(groupId, emp.id, '⚠️ OpenClaw 连接异常: ' + e.message, chainDepth);
+      } else {
+        displayAIReply('⚠️ OpenClaw 连接异常: ' + e.message, docContext, timeStr, emp.id, [], chainDepth);
+      }
     }
   }
 }
@@ -8647,6 +8673,33 @@ async function buildRecentChatContext(empId, limit) {
   } catch (e) {
     return '';
   }
+}
+
+// 构建最近群聊上下文（用于群聊工具链 follow-up）
+async function buildRecentGroupContext(groupId, limit) {
+  limit = limit || 10;
+  try {
+    var ghRes = await apiFetch('/api/groups/' + encodeURIComponent(groupId) + '/history');
+    var ghData = await ghRes.json();
+    if (ghData && ghData.messages && ghData.messages.length > 0) {
+      var recentMsgs = ghData.messages.slice(-limit);
+      var ghLines = [];
+      recentMsgs.forEach(function (m) {
+        var sender = m.senderName;
+        if (!sender && m.senderId) {
+          var _se = findEmpByIdAcrossGroups(m.senderId);
+          if (_se) sender = _se.name;
+        }
+        if (!sender) sender = m.senderType === 'user' ? '用户' : 'AI';
+        var content = (m.content || '').substring(0, 200);
+        if (content) ghLines.push(sender + ': ' + content);
+      });
+      if (ghLines.length > 0) {
+        return '\n\n【最近群聊上下文】\n' + ghLines.join('\n');
+      }
+    }
+  } catch (e) {}
+  return '';
 }
 
 // 初始化 OpenClaw 连接
@@ -13050,8 +13103,9 @@ function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) {
 }
 
 // 在群聊中显示 AI 回复
-function displayGroupAIReply(groupId, senderId, replyText) {
-  console.log('[displayGroupAIReply] 被调用 groupId=' + groupId + ' senderId=' + senderId + ' 文本长度=' + (replyText || '').length + ' 文本前100字:', (replyText || '').substring(0, 100));
+function displayGroupAIReply(groupId, senderId, replyText, chainDepth) {
+  chainDepth = chainDepth || 0;
+  console.log('[displayGroupAIReply] 被调用 groupId=' + groupId + ' senderId=' + senderId + ' chainDepth=' + chainDepth + ' 文本长度=' + (replyText || '').length + ' 文本前100字:', (replyText || '').substring(0, 100));
   // 如果用户已切换出群聊，不再往当前 DOM 追加消息，避免串渲染
   if (currentGroupId !== groupId) {
     console.log('[displayGroupAIReply] 当前不在该群聊，跳过渲染 currentGroupId=' + currentGroupId);
@@ -13112,12 +13166,20 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   // 如果有工具调用，主大脑自动执行并展示结果
   if (toolCalls.length > 0) {
     (async function() {
+      var toolResults = [];
       for (var i = 0; i < toolCalls.length; i++) {
         var result = await executeToolCall(toolCalls[i]);
+        toolResults.push(result);
         var toolTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
         var toolHtml = '<div class="msg"><div class="msg-avatar" style="font-size:20px;">🧠</div><div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">主大脑</span><span class="msg-sender-role">系统</span><span class="msg-sender-time">' + toolTime + '</span></div><div class="msg-bubble" style="background:var(--accent-light);color:var(--accent);font-size:13px;white-space:pre-wrap;">' + escapeHtml(result) + '</div></div></div>';
         area.insertAdjacentHTML('beforeend', toolHtml);
         area.scrollTop = area.scrollHeight;
+      }
+      // 群聊：将工具执行结果作为 follow-up 发回当前 AI，支持链式调用，最多重试 3 次
+      if (chainDepth < 3 && senderEmp && senderEmp.id) {
+        var followUp = '工具执行结果：\n' + toolResults.join('\n');
+        var followUpTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+        sendViaOpenClaw(senderEmp, followUp, null, followUpTime, [], chainDepth + 1, groupId);
       }
     })();
   }
@@ -19766,8 +19828,9 @@ function rollbackKnowledgeVersion(docId, version) {
   });
 }
 
-function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations) {
+function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations, chainDepth) {
   citations = citations || [];
+  chainDepth = chainDepth || 0;
   var area = document.getElementById('messagesArea');
   // 防御性校验：如果指定了 expectedEmpId，必须匹配当前员工才渲染，防止切换后串渲染
   if (expectedEmpId && localStorage.getItem('sb_current_emp') !== expectedEmpId) {
@@ -19827,9 +19890,11 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
   // 如果有工具调用，主大脑自动执行并展示结果（群聊与单聊均展示）
   if (toolCalls.length > 0) {
     (async function() {
+      var toolResults = [];
       for (var i = 0; i < toolCalls.length; i++) {
         var result = await executeToolCall(toolCalls[i]);
         console.log('[executeToolCall] result:', result);
+        toolResults.push(result);
         var toolTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
         var toolHtml = '<div class="msg">\n';
         toolHtml += '<div class="msg-avatar" style="font-size:20px;">🧠</div>\n';
@@ -19839,6 +19904,12 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
         toolHtml += '</div></div>';
         area.insertAdjacentHTML('beforeend', toolHtml);
         area.scrollTop = area.scrollHeight;
+      }
+      // 单聊：将工具执行结果作为 follow-up 发回当前 AI，支持链式调用，最多重试 3 次
+      if (chainDepth < 3 && emp && emp.id) {
+        var followUp = '工具执行结果：\n' + toolResults.join('\n');
+        var followUpTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+        sendViaOpenClaw(emp, followUp, docContext, followUpTime, [], chainDepth + 1);
       }
     })();
   }
