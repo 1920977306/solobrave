@@ -3964,13 +3964,15 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 
 .tool-card { background: #fff; border-radius: 12px; border: 1px solid #E5E5EA; padding: 12px; margin: 4px 0 8px; }
-.tool-card-header { display: flex; align-items: center; gap: 6px; }
+.tool-card-header { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .tool-name { font-weight: 600; font-size: 14px; }
 .tool-badge { padding: 2px 8px; border-radius: 4px; font-size: 12px; color: #fff; }
 .tool-badge-running { background: #007AFF; }
 .tool-badge-done { background: #34C759; }
-.tool-cmd { font-family: monospace; background: #F5F5F7; border-radius: 6px; padding: 8px; font-size: 13px; margin-top: 8px; }
-.tool-output { font-family: monospace; max-height: 200px; overflow: auto; margin-top: 8px; font-size: 12px; color: #666; }
+.tool-toggle { margin-left: auto; font-size: 12px; color: var(--text-secondary); user-select: none; }
+.tool-notify { width: 6px; height: 6px; border-radius: 50%; background: #FF3B30; display: none; }
+.tool-cmd { font-family: monospace; background: #F5F5F7; border-radius: 6px; padding: 8px; font-size: 13px; margin-top: 8px; display: none; }
+.tool-output { font-family: monospace; max-height: 200px; overflow: auto; margin-top: 8px; font-size: 12px; color: #666; display: none; }
 
 /* Chat Empty State - Welcome */
 .chat-empty-state { display: flex; flex-direction: column; align-items: center; width: 100%; padding-top: 30vh; text-align: center; color: var(--text-secondary); }
@@ -8608,7 +8610,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
         var card = document.createElement('div');
         card.className = 'tool-card';
         card.id = 'tool-' + tool.toolCallId;
-        card.innerHTML = '<div class="tool-card-header"><span class="tool-icon">🔧</span><span class="tool-name">' + escapeHtml(tool.name || '工具') + '</span><span class="tool-badge tool-badge-running">运行中</span></div><div class="tool-cmd">' + escapeHtml(tool.meta || '') + '</div><div class="tool-output" style="display:none"></div>';
+        card.setAttribute('data-expanded', 'false');
+        card.innerHTML = '<div class="tool-card-header" onclick="toggleToolCard(\'' + tool.toolCallId + '\')"><span class="tool-icon">🔧</span><span class="tool-name">' + escapeHtml(tool.name || '工具') + '</span><span class="tool-badge tool-badge-running">运行中</span><span class="tool-notify"></span><span class="tool-toggle">展开▼</span></div><div class="tool-cmd">' + escapeHtml(tool.meta || '') + '</div><div class="tool-output"></div>';
         if (typing && typing.parentNode) typing.parentNode.insertBefore(card, typing);
         else if (area) area.appendChild(card);
         if (area) area.scrollTop = area.scrollHeight;
@@ -8633,7 +8636,16 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
           html += '</div>';
         }
         outputEl.innerHTML = html;
-        outputEl.style.display = 'block';
+        var expanded = card.getAttribute('data-expanded') === 'true';
+        if (expanded) {
+          outputEl.style.display = 'block';
+          var notify = card.querySelector('.tool-notify');
+          if (notify) notify.style.display = 'none';
+        } else {
+          outputEl.style.display = 'none';
+          var notify = card.querySelector('.tool-notify');
+          if (notify) notify.style.display = 'inline-block';
+        }
         var area = document.getElementById('messagesArea');
         if (area) area.scrollTop = area.scrollHeight;
       },
@@ -12210,7 +12222,8 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
             var card = document.createElement('div');
             card.className = 'tool-card';
             card.id = 'tool-' + tool.toolCallId;
-            card.innerHTML = '<div class="tool-card-header"><span class="tool-icon">🔧</span><span class="tool-name">' + escapeHtml(tool.name || '工具') + '</span><span class="tool-badge tool-badge-running">运行中</span></div><div class="tool-cmd">' + escapeHtml(tool.meta || '') + '</div><div class="tool-output" style="display:none"></div>';
+            card.setAttribute('data-expanded', 'false');
+            card.innerHTML = '<div class="tool-card-header" onclick="toggleToolCard(\'' + tool.toolCallId + '\')"><span class="tool-icon">🔧</span><span class="tool-name">' + escapeHtml(tool.name || '工具') + '</span><span class="tool-badge tool-badge-running">运行中</span><span class="tool-notify"></span><span class="tool-toggle">展开▼</span></div><div class="tool-cmd">' + escapeHtml(tool.meta || '') + '</div><div class="tool-output"></div>';
             if (typing && typing.parentNode) typing.parentNode.insertBefore(card, typing);
             else if (area) area.appendChild(card);
             if (area) area.scrollTop = area.scrollHeight;
@@ -12235,7 +12248,16 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
               html += '</div>';
             }
             outputEl.innerHTML = html;
-            outputEl.style.display = 'block';
+            var expanded = card.getAttribute('data-expanded') === 'true';
+            if (expanded) {
+              outputEl.style.display = 'block';
+              var notify = card.querySelector('.tool-notify');
+              if (notify) notify.style.display = 'none';
+            } else {
+              outputEl.style.display = 'none';
+              var notify = card.querySelector('.tool-notify');
+              if (notify) notify.style.display = 'inline-block';
+            }
             var area = document.getElementById('messagesArea');
             if (area) area.scrollTop = area.scrollHeight;
           },
@@ -19185,6 +19207,24 @@ async function retrieveRAGContext(empId, query) {
 }
 
 // ========== Agent 工具调用（OpenClaw 原生工具 + exec curl 本地 API）==========
+function toggleToolCard(toolCallId) {
+  var card = document.getElementById('tool-' + toolCallId);
+  if (!card) return;
+  var expanded = card.getAttribute('data-expanded') === 'true';
+  expanded = !expanded;
+  card.setAttribute('data-expanded', expanded);
+  var cmd = card.querySelector('.tool-cmd');
+  var output = card.querySelector('.tool-output');
+  var toggle = card.querySelector('.tool-toggle');
+  if (cmd) cmd.style.display = expanded ? 'block' : 'none';
+  if (output) output.style.display = expanded ? 'block' : 'none';
+  if (toggle) toggle.textContent = expanded ? '收起▲' : '展开▼';
+  var notify = card.querySelector('.tool-notify');
+  if (notify) notify.style.display = 'none';
+  var area = document.getElementById('messagesArea');
+  if (area) area.scrollTop = area.scrollHeight;
+}
+
 function buildAgentToolsContext() {
   var port = window.location.port || '8080';
   var baseUrl = 'http://localhost:' + port;
