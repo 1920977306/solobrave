@@ -19080,14 +19080,17 @@ async function retrieveRAGContext(empId, query) {
 
 // ========== Agent 工具调用（OpenClaw 原生工具 + exec curl 本地 API）==========
 function buildAgentToolsContext() {
+  var port = window.location.port || '8080';
+  var baseUrl = 'http://localhost:' + port;
   return '\n\n【系统资源（通过本地 API 访问）】\n' +
     '你作为AI员工，可以使用 OpenClaw 原生工具完成任务。\n\n' +
     '当需要查询商品、达人、订单等业务数据时，使用 exec 工具执行 curl 命令调用本地 API，例如：\n' +
-    "exec(command='curl -s http://localhost:8080/api/products?q=关键词')\n" +
+    "exec(command='curl -s " + baseUrl + "/api/products?q=关键词')\n" +
     '当需要修改业务数据时，同样通过 curl POST/PUT/DELETE 调用对应 API 接口，例如：\n' +
-    "exec(command=\"curl -s -X POST -H 'Content-Type: application/json' -d '{\\\"name\\\":\\\"新商品\\\",\\\"price\\\":199}' http://localhost:8080/api/products\")\n" +
+    "exec(command=\"curl -s -X POST -H 'Content-Type: application/json' -d '{\\\"name\\\":\\\"新商品\\\",\\\"price\\\":199}' " + baseUrl + "/api/products\")\n" +
     '本地 API 无需认证 token，可直接调用。\n' +
-    '【注意】禁止编造不存在的商品或达人信息，所有数据以本地 API 返回结果为准。';
+    '【注意】禁止编造不存在的商品或达人信息，所有数据以本地 API 返回结果为准。\n' +
+    '【禁止】不要使用 [TOOL_CALL] 格式，所有操作必须通过 exec 工具执行 curl 命令完成。';
 }
 
 function toggleCitationPanel(panelId) {
