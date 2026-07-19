@@ -19205,6 +19205,7 @@ function showCitationDetail(id, title, type) {
 }
 
 async function executeToolCall(call) {
+  console.log('[executeToolCall] action:', call.action, 'params:', JSON.stringify(call.params));
   try {
     switch (call.action) {
       case 'list_products':
@@ -19791,22 +19792,21 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
     }, 500);
   }
 
-  // 如果有工具调用，主大脑自动执行并展示结果（仅在群聊中展示，单聊静默执行）
+  // 如果有工具调用，主大脑自动执行并展示结果（群聊与单聊均展示）
   if (toolCalls.length > 0) {
     (async function() {
       for (var i = 0; i < toolCalls.length; i++) {
         var result = await executeToolCall(toolCalls[i]);
-        if (currentGroupId) {
-          var toolTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
-          var toolHtml = '<div class="msg">\n';
-          toolHtml += '<div class="msg-avatar" style="font-size:20px;">🧠</div>\n';
-          toolHtml += '<div class="msg-content">\n';
-          toolHtml += '<div class="msg-sender"><span class="msg-sender-name">主大脑</span><span class="msg-sender-role">系统</span><span class="msg-sender-time">' + toolTime + '</span></div>\n';
-          toolHtml += '<div class="msg-bubble" style="background:var(--accent-light);color:var(--accent);font-size:13px;white-space:pre-wrap;">' + escapeHtml(result) + '</div>\n';
-          toolHtml += '</div></div>';
-          area.insertAdjacentHTML('beforeend', toolHtml);
-          area.scrollTop = area.scrollHeight;
-        }
+        console.log('[executeToolCall] result:', result);
+        var toolTime = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+        var toolHtml = '<div class="msg">\n';
+        toolHtml += '<div class="msg-avatar" style="font-size:20px;">🧠</div>\n';
+        toolHtml += '<div class="msg-content">\n';
+        toolHtml += '<div class="msg-sender"><span class="msg-sender-name">主大脑</span><span class="msg-sender-role">系统</span><span class="msg-sender-time">' + toolTime + '</span></div>\n';
+        toolHtml += '<div class="msg-bubble" style="background:var(--accent-light);color:var(--accent);font-size:13px;white-space:pre-wrap;">' + escapeHtml(result) + '</div>\n';
+        toolHtml += '</div></div>';
+        area.insertAdjacentHTML('beforeend', toolHtml);
+        area.scrollTop = area.scrollHeight;
       }
     })();
   }
@@ -22459,17 +22459,18 @@ function renderProductPanelDetail(p) {
 function renderProductPanelSales(p) {
   var el = document.getElementById('productsPanelSales');
   if (!el) return;
+  var inputStyle = 'width:100%;padding:6px 8px;border:1px solid #E0E0E0;border-radius:8px;font-size:14px;color:var(--text-primary);font-weight:500;text-align:right;outline:none;background:#fff;box-sizing:border-box;';
   var html = '<div class="products-panel-section">';
-  html += '<div class="products-panel-title">销售概览</div>';
+  html += '<div class="products-panel-title"><span>销售概览</span><button class="ai-match-btn" style="padding:6px 12px;font-size:12px;margin-left:auto;" onclick="saveProductSales()">保存</button></div>';
   html += '<div class="products-detail-grid">';
-  html += '<div class="products-detail-item"><div class="products-detail-label">月销量</div><div class="products-detail-value">' + formatNumber(p.monthly_sales || 0) + '</div></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">月 GMV</div><div class="products-detail-value">¥' + formatNumber(p.monthly_gmv || 0) + '</div></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">佣金金额</div><div class="products-detail-value">¥' + (p.commission_amount || 0).toFixed(2) + '</div></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">转化率</div><div class="products-detail-value">' + (p.conversion_rate || 0).toFixed(2) + '%</div></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">客单价</div><div class="products-detail-value">¥' + (p.avg_order_value || 0).toFixed(2) + '</div></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">合作达人数</div><div class="products-detail-value">' + (p.influencer_count || 0) + '</div></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">视频数</div><div class="products-detail-value">' + (p.video_count || 0) + '</div></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">直播数</div><div class="products-detail-value">' + (p.live_count || 0) + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">月销量</div><input type="number" id="productSales-monthly_sales" value="' + (p.monthly_sales || 0) + '" step="1" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">月 GMV</div><input type="number" id="productSales-monthly_gmv" value="' + (p.monthly_gmv || 0) + '" step="0.01" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">佣金金额</div><input type="number" id="productSales-commission_amount" value="' + (p.commission_amount || 0) + '" step="0.01" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">转化率</div><input type="number" id="productSales-conversion_rate" value="' + (p.conversion_rate || 0) + '" step="0.01" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">客单价</div><input type="number" id="productSales-avg_order_value" value="' + (p.avg_order_value || 0) + '" step="0.01" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">合作达人数</div><input type="number" id="productSales-influencer_count" value="' + (p.influencer_count || 0) + '" step="1" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">视频数</div><input type="number" id="productSales-video_count" value="' + (p.video_count || 0) + '" step="1" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">直播数</div><input type="number" id="productSales-live_count" value="' + (p.live_count || 0) + '" step="1" style="' + inputStyle + '"></div>';
   html += '</div></div>';
   if (p.commission_rates && Object.keys(p.commission_rates).length > 0) {
     html += '<div class="products-panel-section">';
@@ -22493,6 +22494,30 @@ function renderProductPanelSales(p) {
     html += '</div>';
   }
   el.innerHTML = html;
+}
+
+function saveProductSales() {
+  if (!_productCurrentId) { showToast('请选择商品'); return; }
+  var body = {
+    monthly_sales: parseInt(document.getElementById('productSales-monthly_sales').value) || 0,
+    monthly_gmv: parseFloat(document.getElementById('productSales-monthly_gmv').value) || 0,
+    commission_amount: parseFloat(document.getElementById('productSales-commission_amount').value) || 0,
+    conversion_rate: parseFloat(document.getElementById('productSales-conversion_rate').value) || 0,
+    avg_order_value: parseFloat(document.getElementById('productSales-avg_order_value').value) || 0,
+    influencer_count: parseInt(document.getElementById('productSales-influencer_count').value) || 0,
+    video_count: parseInt(document.getElementById('productSales-video_count').value) || 0,
+    live_count: parseInt(document.getElementById('productSales-live_count').value) || 0
+  };
+  apiFetch('/api/products/' + encodeURIComponent(_productCurrentId), {
+    method: 'PUT',
+    body: JSON.stringify(body)
+  }).then(function(r){ return r.json(); }).then(function(data){
+    showToast('✅ 保存成功');
+    selectProductItem(_productCurrentId);
+  }).catch(function(e){
+    console.error(e);
+    showToast('❌ 保存失败');
+  });
 }
 
 function renderProductPanelInfluencers(p) {
