@@ -13081,7 +13081,7 @@ function displayGroupAIReply(groupId, senderId, replyText) {
   // 解析并移除工具调用标记
   var toolCalls = parseToolCalls(replyText);
   if (toolCalls.length === 0 && replyText && /update_product|add_product/.test(replyText)) {
-    console.log('[ToolCallParse] AI回复包含 update_product/add_product 关键词但未被解析为工具调用，原文前500字符:', replyText.slice(0, 500));
+    console.log('[ToolCallParse] AI回复包含 update_product/add_product 关键词但未被解析为工具调用，原文前300字符:', replyText.substring(0, 300), '|||尾部200字符:', replyText.slice(-200), '|||总长度:', replyText.length);
   }
   var cleanText = stripToolCallsFromText(replyText);
   var bubbleContent = highlightMentions(formatMessageContent(cleanText));
@@ -19042,7 +19042,7 @@ function buildAgentToolsContext() {
     '你作为AI员工，可以通过主大脑访问以下资源。当用户有相关需求时，你可以主动提出帮忙操作。\n\n' +
     '1. 商品库 (/api/products)\n' +
     '   - 查询商品列表：list_products\n' +
-    '   - 按关键词搜索商品：search_products，参数 {"query":"关键词"}\n' +
+    '   - 按关键词搜索商品：search_products，参数 {"query":"关键词"}。必须输出 [TOOL_CALL]{"action":"search_products","params":{"query":"关键词"}}[/TOOL_CALL] 标记来实际执行搜索，不能只说"我来搜索"而不输出标记，没有标记的搜索不会被执行。\n' +
     '   - 查看单个商品详情：get_product_detail，参数 {"productId":"prod_xxx"}\n' +
     '   - 录入新商品：add_product（对接 POST /api/products 创建接口），参数 {"name":"商品名称","price":199,"stock":1000,"category":"鞋靴/凉鞋","brand":"品牌名","sku_specs":{"SKU":"SKU001","尺码":"37-40"},"tags":["标签1","标签2"],"selling_points":"核心卖点","commission_rate":20,"main_image":"图片URL","subtitle":"副标题/描述"}\n' +
     '   - 修改已有商品：update_product（对接 PUT /api/products/:id），参数 {"product_id":"prod_xxx","price":199,"stock":1000,"description":"新描述","category":"鞋靴/凉鞋","brand":"品牌名","commission_rate":20}，只需传需要修改的字段。必须输出 [TOOL_CALL]{"action":"update_product","params":{"product_id":"商品ID","description":"新描述"}}[/TOOL_CALL] 标记来实际执行修改，不能只说将要修改而不输出标记，没有标记的操作不会被执行。\n' +
@@ -19051,6 +19051,7 @@ function buildAgentToolsContext() {
     '   - 重要字段包括：price（价格）、category（分类）、brand（品牌）、stock（库存）、commission_rate（佣金率）、selling_points（卖点）、sku_specs（SKU规格）。当这些重要字段中有任何一项缺失或不确定时，你必须一次性列出所有缺失的重要字段，向用户确认后再调用 add_product；切勿在未确认的情况下编造或假设。\n' +
     '   - 创建成功后，向用户确认并展示商品名称、价格、库存、分类、品牌、SKU、佣金率等关键信息。\n' +
     '   - 如果系统返回“该商品（名称：XXX，品牌：XXX）已存在，是否需要更新信息？”，请询问用户是否更新。若用户确认更新，请调用 update_product 并传入 product_id（即系统返回的商品 ID）和需要修改的字段；若用户取消，则不再调用。\n\n' +
+    '   - 【重要】当用户要求修改或更新已有商品时，必须先调用 search_products 搜索商品名称获取 product_id，再用 update_product 执行修改。严禁在不知道 product_id 的情况下用 add_product 创建重复商品。add_product 仅用于录入全新商品。严禁根据商品名称拼音自行构造product_id（如把"嘭嘭爱心"拼成prod_coolchap_pengpeng_aixin），product_id只能来自search_products的返回结果。如果update_product返回404错误，必须立即调用search_products重新搜索获取正确ID。\n' +
     '2. 达人库 (/api/influencers)\n' +
     '   - 查询达人列表：list_influencers\n' +
     '   - 按关键词搜索达人：search_influencers，参数 {"query":"关键词"}\n' +
@@ -19106,6 +19107,31 @@ function parseToolCalls(text) {
     if (parsed) addCall(parsed);
   }
 
+  // 1b. [TOOL_CALL] without closing tag — Helen/Kimi often omits [/TOOL_CALL]
+  if (calls.length === 0) {
+    var tcIdx = text.indexOf('[TOOL_CALL]');
+    if (tcIdx !== -1) {
+      var afterTC = text.substring(tcIdx + 11);
+      var tcJsons = _extractJsonObjects(afterTC);
+      console.log('[ToolCallParse] 1b: after [TOOL_CALL], found', tcJsons.length, 'JSON objects');
+      tcJsons.forEach(function(jsonStr, idx) {
+        console.log('[ToolCallParse] 1b: JSON[' + idx + '] len:' + jsonStr.length + ' hasAction:' + (jsonStr.indexOf('"action"') !== -1) + ' start:' + jsonStr.substring(0, 80) + ' end:' + jsonStr.slice(-60));
+        if (jsonStr.indexOf('"action"') !== -1) {
+          var parsed = _tryParseToolCallJson(jsonStr);
+          if (parsed) { addCall(parsed); }
+          else {
+            console.log('[ToolCallParse] 1b: JSON has action but parse failed, len:', jsonStr.length, 'start:', jsonStr.substring(0, 120), 'end:', jsonStr.slice(-60));
+            try {
+              var fixed = jsonStr.replace(/[\r\n]+/g, '\\n');
+              var obj = JSON.parse(fixed);
+              if (obj && typeof obj.action === 'string') { console.log('[ToolCallParse] 1b: lenient parse succeeded'); addCall(obj); }
+            } catch(e2) { console.log('[ToolCallParse] 1b: lenient also failed:', e2.message); }
+          }
+        }
+      });
+    }
+  }
+
   // 2. Markdown 代码块内包含工具调用标记
   var blockRegex = /```(?:json)?\s*\[TOOL_CALL\]([\s\S]*?)\[\/TOOL_CALL\]\s*```/gi;
   while ((m = blockRegex.exec(text)) !== null) {
@@ -19122,10 +19148,16 @@ function parseToolCalls(text) {
 
   // 4. 文本中裸露出 action 字段的 JSON 对象（容错最后一层，使用栈匹配嵌套大括号）
   if (calls.length === 0) {
-    _extractJsonObjects(text).forEach(function(jsonStr) {
+    var fallbackJsons = _extractJsonObjects(text);
+    console.log('[ToolCallParse] 4-fallback: found', fallbackJsons.length, 'JSON objects in full text');
+    fallbackJsons.forEach(function(jsonStr, idx) {
       if (jsonStr.indexOf('"action"') !== -1) {
         var parsed = _tryParseToolCallJson(jsonStr);
         if (parsed) addCall(parsed);
+        else {
+          console.log('[ToolCallParse] 4-fallback: JSON', idx, 'has action but parse failed, len:', jsonStr.length, 'end:', jsonStr.slice(-60));
+          try { var fixed = jsonStr.replace(/[\r\n]+/g, '\\n'); var obj = JSON.parse(fixed); if (obj && typeof obj.action === 'string') { console.log('[ToolCallParse] 4-fallback: lenient succeeded'); addCall(obj); } } catch(e2) { console.log('[ToolCallParse] 4-fallback: lenient also failed:', e2.message); }
+        }
       }
     });
   }
@@ -19213,7 +19245,7 @@ async function executeToolCall(call) {
         var data = await r.json();
         return '📦 商品库当前共有 ' + (data.total || data.products.length) + ' 个商品：\n' +
           data.products.slice(0, 10).map(function(p) {
-            return '- ' + p.name + ' (¥' + (p.price || 0).toFixed(2) + ', ' + (p.category || '未分类') + ', 库存' + (p.stock || 0) + ')';
+            return '- [' + p.id + '] ' + p.name + ' (¥' + (p.price || 0).toFixed(2) + ', ' + (p.category || '未分类') + ', 库存' + (p.stock || 0) + ')';
           }).join('\n');
       case 'list_influencers':
         var r = await apiFetch('/api/influencers');
@@ -19229,7 +19261,7 @@ async function executeToolCall(call) {
         var data = await r.json();
         return '📦 搜索商品「' + q + '」找到 ' + (data.total || data.products.length) + ' 个结果：\n' +
           data.products.slice(0, 10).map(function(p) {
-            return '- ' + p.name + ' (¥' + (p.price || 0).toFixed(2) + ', ' + (p.category || '未分类') + ', 库存' + (p.stock || 0) + ')';
+            return '- [' + p.id + '] ' + p.name + ' (¥' + (p.price || 0).toFixed(2) + ', ' + (p.category || '未分类') + ', 库存' + (p.stock || 0) + ')';
           }).join('\n');
       case 'search_influencers':
         var q = call.params && call.params.query;
@@ -22731,7 +22763,7 @@ function saveProduct() {
   if (!body.name) { showToast('请输入商品名称'); return; }
   var url = '/api/products' + (id ? '/' + encodeURIComponent(id) : '');
   var method = id ? 'PUT' : 'POST';
-  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(){ showToast('✅ 已保存'); closeProductModal(); loadProducts(); }).catch(function(){ showToast('❌ 保存失败'); });
+  apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(){ showToast('✅ 已保存'); closeProductModal(); loadProducts(); if (id) { selectProductItem(id); } }).catch(function(){ showToast('❌ 保存失败'); });
 }
 
 function deleteCurrentProduct() {
