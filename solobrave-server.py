@@ -1155,6 +1155,8 @@ def _get_role_template(permissions, role_or_template_id):
 
 def _get_effective_permissions(user_or_auth):
     """合并角色模板 + 用户覆盖，返回 {modules, knowledgeCategories}"""
+    if hasattr(user_or_auth, 'is_admin') and user_or_auth.is_admin:
+        return {'modules': {m: True for m in AVAILABLE_MODULES}, 'knowledgeCategories': ['*']}
     permissions = _load_permissions()
     if hasattr(user_or_auth, 'user_record') and user_or_auth.user_record:
         user = user_or_auth.user_record
