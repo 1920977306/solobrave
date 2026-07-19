@@ -8243,37 +8243,6 @@ async function sendMsg() {
   });
   window._lastUserMessageHadImages = hasImages;
 
-  // 图片前置处理：有图片且有 API Key 时，先转成文字描述再发给 OpenClaw
-  if (hasImages && hasDirectApi) {
-    console.log('[Chat] 检测到图片，正在识别图片内容...');
-    // 更新状态显示
-    var typingBubble = document.querySelector('#typingMsg .msg-bubble');
-    if (typingBubble) {
-      typingBubble.innerHTML = '🖼️ 正在识别图片...';
-    }
-    var imageDescriptions = [];
-    for (var i = 0; i < pendingImages.length; i++) {
-      var img = pendingImages[i];
-      var desc = await describeImage(img.base64, emp.apiKey);
-      if (desc) {
-        imageDescriptions.push('图片' + (i+1) + '内容：' + desc);
-      }
-    }
-    if (imageDescriptions.length > 0) {
-      text = text + '\n\n【' + imageDescriptions.length + '张图片内容】\n' + imageDescriptions.join('\n\n');
-      console.log('[Chat] 图片识别完成，已转为文字描述');
-    }
-    // 识别完成，改回思考状态
-    if (typingBubble) {
-      typingBubble.innerHTML = '<span class="thinking-dots">思考中<span>.</span><span>.</span><span>.</span></span>';
-    }
-    // 图片已经转成文字了，清空图片列表
-    pendingImages = [];
-    hasImages = false;
-  } else if (hasImages && !hasDirectApi) {
-    console.log('[Chat] 有图片但未配置 API Key，无法识别图片内容');
-  }
-
   if (ocOk) {
     // 所有消息统一走 OpenClaw 主干道（图片已提前转成文字描述）
     console.log('[Chat] 使用 OpenClaw WS 发送');
@@ -8617,6 +8586,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
         if (area) area.scrollTop = area.scrollHeight;
       },
       onToolOutput: function (out) {
+        window._toolOutputs = window._toolOutputs || {};
+        window._toolOutputs[out.toolCallId] = out.output || '';
         var card = document.getElementById('tool-' + out.toolCallId);
         if (!card) return;
         var outputEl = card.querySelector('.tool-output');
@@ -8657,6 +8628,19 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
         var duration = (tool.endedAt && tool.startedAt) ? (tool.endedAt - tool.startedAt) : 0;
         badge.className = 'tool-badge tool-badge-done';
         badge.textContent = '已完成 耗时' + duration + 'ms';
+        fetch('/api/tool-calls/log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agent_id: emp.id,
+            tool_call_id: tool.toolCallId,
+            tool_name: tool.name,
+            meta: tool.meta,
+            output: (window._toolOutputs && window._toolOutputs[tool.toolCallId]) || '',
+            exit_code: tool.status === 'completed' ? 0 : 1,
+            duration_ms: duration
+          })
+        }).catch(function (e) { console.warn('[ToolLog] 记录失败:', e); });
       }
     }, lifecycleOptions);
     
@@ -12229,6 +12213,8 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
             if (area) area.scrollTop = area.scrollHeight;
           },
           onToolOutput: function (out) {
+            window._toolOutputs = window._toolOutputs || {};
+            window._toolOutputs[out.toolCallId] = out.output || '';
             var card = document.getElementById('tool-' + out.toolCallId);
             if (!card) return;
             var outputEl = card.querySelector('.tool-output');
@@ -12269,6 +12255,19 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
             var duration = (tool.endedAt && tool.startedAt) ? (tool.endedAt - tool.startedAt) : 0;
             badge.className = 'tool-badge tool-badge-done';
             badge.textContent = '已完成 耗时' + duration + 'ms';
+            fetch('/api/tool-calls/log', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                agent_id: group.leadAgentId,
+                tool_call_id: tool.toolCallId,
+                tool_name: tool.name,
+                meta: tool.meta,
+                output: (window._toolOutputs && window._toolOutputs[tool.toolCallId]) || '',
+                exit_code: tool.status === 'completed' ? 0 : 1,
+                duration_ms: duration
+              })
+            }).catch(function (e) { console.warn('[ToolLog] 记录失败:', e); });
           }
         });
         var finalReply = (chatResult.reply || '').trim();

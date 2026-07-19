@@ -2349,6 +2349,24 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_base_status ON knowledge_base(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_base_title ON knowledge_base(title)')
 
+        # 工具调用日志
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS tool_calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT,
+                tool_call_id TEXT,
+                tool_name TEXT,
+                meta TEXT,
+                output TEXT,
+                exit_code INTEGER,
+                duration_ms INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tool_calls_agent ON tool_calls(agent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_call_id ON tool_calls(tool_call_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tool_calls_created_at ON tool_calls(created_at)')
+
         # FIXME: 大脑知识中枢新增表（保留旧表，不删数据）
         _init_brain_tables(conn)
 
@@ -4233,6 +4251,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/auth/change-password':
             self._handle_change_password()
+            return
+
+        # Tool calls log
+        if path == '/api/tool-calls/log':
+            self._handle_post_tool_calls_log()
             return
 
         # Proxy (requires auth)
@@ -10026,6 +10049,45 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             print(f'  [RAG] build failed: {e}', flush=True)
             self._send_json_error(500, f'Build failed: {str(e)}')
+
+    def _handle_post_tool_calls_log(self):
+        """POST /api/tool-calls/log — 记录 OpenClaw 工具调用日志"""
+        auth = _authenticate(self.headers, self.client_address[0])
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body() or {}
+        agent_id = body.get('agent_id') or ''
+        tool_call_id = body.get('tool_call_id') or ''
+        tool_name = body.get('tool_name') or ''
+        meta = body.get('meta') or ''
+        output = body.get('output') or ''
+        exit_code = body.get('exit_code')
+        duration_ms = body.get('duration_ms')
+        try:
+            conn = _db_conn()
+            try:
+                conn.execute('''
+                    INSERT INTO tool_calls
+                    (agent_id, tool_call_id, tool_name, meta, output, exit_code, duration_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    agent_id,
+                    tool_call_id,
+                    tool_name,
+                    meta if isinstance(meta, str) else json.dumps(meta, ensure_ascii=False),
+                    output if isinstance(output, str) else json.dumps(output, ensure_ascii=False),
+                    int(exit_code) if exit_code is not None else None,
+                    int(duration_ms) if duration_ms is not None else None,
+                ))
+                conn.commit()
+            finally:
+                conn.close()
+            self._send_json(200, {'success': True})
+        except Exception as e:
+            print(f'  [TOOL-CALLS-LOG] failed: {e}', flush=True)
+            import traceback; traceback.print_exc()
+            self._send_json_error(500, f'Log tool call failed: {str(e)}')
 
     # ═══════════════════════════════════════════════════
     # 商品库 API
