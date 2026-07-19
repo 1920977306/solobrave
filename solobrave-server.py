@@ -10062,13 +10062,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             status = query['status'][0]
             products = [p for p in products if p.get('status') == status]
         if query.get('q'):
-            kw = query['q'][0].lower()
-            products = [p for p in products if kw in (p.get('id') or '').lower()
-                        or kw in (p.get('name') or '').lower()
-                        or kw in (p.get('description') or '').lower()
-                        or kw in (p.get('brand') or '').lower()
-                        or kw in (p.get('category') or '').lower()
-                        or any(kw in t.lower() for t in (p.get('tags') or []))]
+            kws = query['q'][0].lower().split()
+            def _match_product(p):
+                fields = ' '.join([
+                    str(p.get('id') or ''), str(p.get('name') or ''), str(p.get('description') or ''),
+                    str(p.get('brand') or ''), str(p.get('category') or ''), str(p.get('subtitle') or '')
+                ] + [str(t) for t in (p.get('tags') or [])]).lower()
+                return all(kw in fields for kw in kws)
+            products = [p for p in products if _match_product(p)]
         # 分页
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
