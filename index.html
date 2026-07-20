@@ -8630,7 +8630,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
         badge.textContent = '已完成 耗时' + duration + 'ms';
         fetch('/api/tool-calls/log', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('sb_auth_token') || '') },
           body: JSON.stringify({
             agent_id: emp.id,
             tool_call_id: tool.toolCallId,
@@ -12257,7 +12257,7 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
             badge.textContent = '已完成 耗时' + duration + 'ms';
             fetch('/api/tool-calls/log', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('sb_auth_token') || '') },
               body: JSON.stringify({
                 agent_id: group.leadAgentId,
                 tool_call_id: tool.toolCallId,
