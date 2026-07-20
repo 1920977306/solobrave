@@ -10167,7 +10167,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return all(kw in fields for kw in kws)
             products = [p for p in products if _match_product(p)]
         if not auth.is_admin:
-            products = [p for p in products if p.get('created_by') == auth.user_info.get('userId', '') or not p.get('created_by')]
+            products = [p for p in products if p.get('created_by') == auth.user_info.get('userId', '')]
         # 分页
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
@@ -10864,7 +10864,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         if not auth.is_admin:
-            talents = [t for t in talents if t.get('created_by') == auth.user_info.get('userId', '') or not t.get('created_by')]
+            talents = [t for t in talents if t.get('created_by') == auth.user_info.get('userId', '')]
         self._send_json(200, {'talents': talents, 'total': total, 'offset': offset, 'limit': limit})
 
     def _handle_get_talent(self, talent_id):
