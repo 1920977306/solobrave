@@ -5340,6 +5340,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(404, {'error': '用户不存在'})
             return
 
+        admin_id = auth.user_info.get('userId', '')
+        conn = _db_conn()
+        conn.execute('UPDATE products SET created_by=? WHERE created_by=?', (admin_id, user_id))
+        conn.execute('UPDATE talents SET created_by=? WHERE created_by=?', (admin_id, user_id))
+        conn.commit()
+        conn.close()
+        agents = _load_agents()
+        for a in agents:
+            if a.get('createdBy') == user_id:
+                a['createdBy'] = admin_id
+                a['createdByName'] = auth.user_info.get('displayName', '管理员')
+        _save_agents(agents)
+
         users = [u for u in users if u['id'] != user_id]
         _save_users(users)
 
@@ -10136,6 +10149,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 ] + [str(t) for t in (p.get('tags') or [])]).lower()
                 return all(kw in fields for kw in kws)
             products = [p for p in products if _match_product(p)]
+        if not auth.is_admin:
+            products = [p for p in products if p.get('created_by') == auth.user_info.get('userId', '') or not p.get('created_by')]
         # 分页
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
@@ -10347,6 +10362,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if 'commission_rate' in body and 'commission_amount' not in body:
             product['commission_amount'] = round(float(body.get('price', 0) or 0) * float(body['commission_rate']) / 100, 2)
         row = _dict_to_product_row(product)
+        if not row.get('created_by'):
+            row['created_by'] = auth.user_info.get('userId', '')
         row['created_at'] = row['created_at'] or now_ts
         row['updated_at'] = row['updated_at'] or now_ts
         conn = _db_conn()
@@ -10829,6 +10846,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             talents = [_talent_row_to_dict(r) for r in rows[offset:offset + limit]]
         finally:
             conn.close()
+        if not auth.is_admin:
+            talents = [t for t in talents if t.get('created_by') == auth.user_info.get('userId', '') or not t.get('created_by')]
         self._send_json(200, {'talents': talents, 'total': total, 'offset': offset, 'limit': limit})
 
     def _handle_get_talent(self, talent_id):
@@ -10883,6 +10902,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
 
         row = _dict_to_talent_row(body)
+        if not row.get('created_by'):
+            row['created_by'] = auth.user_info.get('userId', '')
         conn = _db_conn()
         try:
             conn.execute(

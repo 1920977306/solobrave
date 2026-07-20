@@ -6302,11 +6302,16 @@ window.doLogin = function () {
       <div class="product-modal-field"><label>品牌</label><select id="productBrandSelect" onchange="onProductBrandChange(this.value)"><option value="">选择品牌</option></select></div>
       <div class="product-modal-field"><label>类目</label><input type="text" id="productCategory" value="拖鞋"></div>
       <div class="product-modal-field required"><label>价格</label><input type="number" id="productPrice" placeholder="0.00"></div>
+      <div class="product-modal-field"><label>原价</label><input type="number" id="productOriginalPrice" placeholder="0.00"></div>
+      <div class="product-modal-field"><label>佣金率</label><input type="number" id="productCommissionRate" placeholder="如20表示20%"></div>
       <div class="product-modal-field"><label>库存</label><input type="number" id="productStock" value="0"></div>
       <div class="product-modal-field"><label>状态</label>
         <select id="productStatus"><option value="active">在售</option><option value="inactive">停售</option><option value="out_of_stock">缺货</option></select>
       </div>
+      <div class="product-modal-field"><label>发货地</label><input type="text" id="productShippingFrom" placeholder="如浙江温州"></div>
+      <div class="product-modal-field"><label>不发货地区</label><input type="text" id="productShippingNote" placeholder="如新疆西藏"></div>
       <div class="product-modal-field"><label>描述</label><textarea id="productDescription" placeholder="输入商品描述"></textarea></div>
+      <div class="product-modal-field"><label>SKU 编码</label><input type="text" id="productSkuCode" placeholder="如SB-001"></div>
       <div class="product-modal-field"><label>SKU 规格</label><textarea id="productSkuSpecs" placeholder='{"颜色":["米白"],"尺码":["36-40"]}'></textarea></div>
     </div>
     <div class="product-modal-footer">
@@ -22150,6 +22155,11 @@ function renderProductPanelDetail(p) {
   html += '<div class="products-detail-item"><div class="products-detail-label">价格</div><div class="products-detail-value">¥' + (p.price || 0).toFixed(2) + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">库存</div><div class="products-detail-value">' + (p.stock || 0) + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">状态</div><div class="products-detail-value"><span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status || '-') + '</span></div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">原价</div><div class="products-detail-value">¥' + (p.original_price || 0).toFixed(2) + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">佣金率</div><div class="products-detail-value">' + (p.commission_rate || 0) + '%</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">发货地</div><div class="products-detail-value">' + escapeHtml(p.shipping_from || '-') + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">不发货地区</div><div class="products-detail-value">' + escapeHtml(p.shipping_note || '-') + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">SKU 编码</div><div class="products-detail-value">' + escapeHtml(p.sku_code || '-') + '</div></div>';
   html += '</div></div>';
   if (p.description || p.subtitle) {
     html += '<div class="products-panel-section">';
@@ -22409,9 +22419,14 @@ function createNewProduct() {
   document.getElementById('productBrandSelect').value = _productCurrentBrandName || '';
   document.getElementById('productCategory').value = '拖鞋';
   document.getElementById('productPrice').value = '';
+  document.getElementById('productOriginalPrice').value = '';
+  document.getElementById('productCommissionRate').value = '';
   document.getElementById('productStock').value = '0';
   document.getElementById('productSkuSpecs').value = '';
   document.getElementById('productStatus').value = 'active';
+  document.getElementById('productShippingFrom').value = '';
+  document.getElementById('productShippingNote').value = '';
+  document.getElementById('productSkuCode').value = '';
   document.getElementById('productModalTitle').textContent = '录入商品';
   document.getElementById('productModalOverlay').classList.add('active');
 }
@@ -22426,9 +22441,14 @@ function editCurrentProduct() {
     document.getElementById('productBrandSelect').value = p.brand || '';
     document.getElementById('productCategory').value = p.category || '';
     document.getElementById('productPrice').value = p.price || '';
+    document.getElementById('productOriginalPrice').value = p.original_price || '';
+    document.getElementById('productCommissionRate').value = p.commission_rate || '';
     document.getElementById('productStock').value = p.stock || 0;
     document.getElementById('productSkuSpecs').value = p.sku_specs ? JSON.stringify(p.sku_specs, null, 2) : '';
     document.getElementById('productStatus').value = p.status || 'active';
+    document.getElementById('productShippingFrom').value = p.shipping_from || '';
+    document.getElementById('productShippingNote').value = p.shipping_note || '';
+    document.getElementById('productSkuCode').value = p.sku_code || '';
     document.getElementById('productModalTitle').textContent = '编辑商品';
     document.getElementById('productModalOverlay').classList.add('active');
   });
@@ -22450,9 +22470,14 @@ function saveProduct() {
     brand: b ? b.name : '',
     category: document.getElementById('productCategory').value.trim(),
     price: parseFloat(document.getElementById('productPrice').value) || 0,
+    original_price: parseFloat(document.getElementById('productOriginalPrice').value) || 0,
+    commission_rate: parseFloat(document.getElementById('productCommissionRate').value) || 0,
     stock: parseInt(document.getElementById('productStock').value) || 0,
     sku_specs: skuSpecs,
-    status: document.getElementById('productStatus').value
+    status: document.getElementById('productStatus').value,
+    shipping_from: document.getElementById('productShippingFrom').value.trim(),
+    shipping_note: document.getElementById('productShippingNote').value.trim(),
+    sku_code: document.getElementById('productSkuCode').value.trim()
   };
   if (!body.name) { showToast('请输入商品名称'); return; }
   var url = '/api/products' + (id ? '/' + encodeURIComponent(id) : '');
