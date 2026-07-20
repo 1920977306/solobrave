@@ -2094,6 +2094,10 @@ def init_db():
                 main_image TEXT DEFAULT '',
                 price REAL DEFAULT 0,
                 price_range TEXT DEFAULT '',
+                original_price REAL DEFAULT 0,
+                shipping_from TEXT DEFAULT '',
+                no_shipping_areas TEXT DEFAULT '',
+                sku_code TEXT DEFAULT '',
                 brand TEXT DEFAULT '',
                 brand_id TEXT DEFAULT '',
                 category TEXT DEFAULT '',
@@ -2129,6 +2133,10 @@ def init_db():
             ('brand_id', "TEXT DEFAULT ''"),
             ('talent_count', 'INTEGER DEFAULT 0'),
             ('created_by', "TEXT DEFAULT ''"),
+            ('original_price', 'REAL DEFAULT 0'),
+            ('shipping_from', "TEXT DEFAULT ''"),
+            ('no_shipping_areas', "TEXT DEFAULT ''"),
+            ('sku_code', "TEXT DEFAULT ''"),
         ]:
             _add_column_if_not_exists(conn, 'products', _prod_col, _prod_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)')
@@ -2407,7 +2415,7 @@ _PRODUCT_COLUMNS = [
     'commission_rates', 'commission_amount', 'conversion_rate', 'avg_order_value',
     'influencer_count', 'talent_count', 'video_count', 'live_count', 'channel_distribution',
     'influencers', 'audience', 'ai_analysis', 'videos', 'tags', 'selling_points',
-    'created_by', 'created_at', 'updated_at'
+    'created_by', 'original_price', 'shipping_from', 'no_shipping_areas', 'sku_code', 'created_at', 'updated_at'
 ]
 
 
@@ -2455,6 +2463,11 @@ def _product_row_to_dict(row):
         'videos': _json_col('videos', []),
         'tags': _json_col('tags', []),
         'selling_points': row['selling_points'] or '',
+        'created_by': row['created_by'] or '',
+        'original_price': row['original_price'] if row['original_price'] is not None else 0,
+        'shipping_from': row['shipping_from'] or '',
+        'shipping_note': row['no_shipping_areas'] or '',
+        'sku_code': row['sku_code'] or '',
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
@@ -2550,6 +2563,10 @@ def _dict_to_product_row(p):
         'tags': _dump(_get('tags', default=[])),
         'selling_points': _get('selling_points', 'sellingPoints', default='') or '',
         'created_by': _get('created_by', 'createdBy', default='') or '',
+        'original_price': float(_get('original_price', 'originalPrice', default=0) or 0),
+        'shipping_from': _get('shipping_from', 'shippingFrom', default='') or '',
+        'no_shipping_areas': _get('no_shipping_areas', 'shipping_note', 'shippingNote', 'noShippingAreas', default='') or '',
+        'sku_code': _get('sku_code', 'skuCode', default='') or '',
         'created_at': _get('created_at', 'createdAt'),
         'updated_at': _get('updated_at', 'updatedAt'),
     }
