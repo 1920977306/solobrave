@@ -12426,6 +12426,17 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
         sendExtraParams.attachments = options.images.map(function(img) {
           return { type: "image", url: img.base64 || img.url || img };
         });
+        // 额外添加 input 数组参数，适配 Anthropic 等模型的 vision 输入格式
+        sendExtraParams.input = [];
+        sendExtraParams.input.push({ type: 'input_text', text: prompt });
+        options.images.forEach(function(img) {
+          var m = (img.base64 || img.url || img).match(/^data:(image\/[\w+]+);base64,(.+)$/);
+          if (m) {
+            sendExtraParams.input.push({ type: 'input_image', source: { type: 'base64', media_type: m[1], data: m[2] } });
+          } else {
+            sendExtraParams.input.push({ type: 'input_image', source: { type: 'url', url: img.base64 || img.url || img } });
+          }
+        });
       }
       openclaw.sendChat(sessionKey, prompt, sendExtraParams).then(function (result) {
         // 如果 lifecycle 在 sendChat resolve 之前已经触发，resolve 已在 handler 中完成
