@@ -8746,6 +8746,79 @@ async function buildRecentGroupContext(groupId, limit) {
   return '';
 }
 
+// ===== Exec 命令审批 =====
+var currentExecApprovalBatchId = null;
+var execApprovalTimeout = null;
+var execApprovalCountdownInterval = null;
+
+function showExecApprovalModal(payload) {
+  if (currentExecApprovalBatchId) {
+    sendExecApprovalResolve(currentExecApprovalBatchId, 'deny');
+    closeExecApprovalModal();
+  }
+  var batchId = payload && payload.batchId;
+  var agentId = (payload && (payload.agentId || payload.agent_id || payload.agentID)) || '-';
+  var command = (payload && (payload.command || payload.cmd || payload.content || payload.text)) || '-';
+  if (!batchId) {
+    console.warn('[ExecApproval] 无效的审批请求，缺少 batchId');
+    return;
+  }
+  currentExecApprovalBatchId = batchId;
+  var agentEl = document.getElementById('execApprovalAgentId');
+  var cmdEl = document.getElementById('execApprovalCommand');
+  var countdownEl = document.getElementById('execApprovalCountdown');
+  if (agentEl) agentEl.textContent = agentId;
+  if (cmdEl) cmdEl.textContent = command;
+  if (countdownEl) countdownEl.textContent = '30 秒后自动拒绝';
+  var modal = document.getElementById('execApprovalModal');
+  if (modal) modal.classList.add('show');
+  var remaining = 30;
+  execApprovalCountdownInterval = setInterval(function () {
+    remaining--;
+    var el = document.getElementById('execApprovalCountdown');
+    if (el) el.textContent = remaining + ' 秒后自动拒绝';
+    if (remaining <= 0) clearInterval(execApprovalCountdownInterval);
+  }, 1000);
+  execApprovalTimeout = setTimeout(function () {
+    console.warn('[ExecApproval] 审批超时，自动拒绝 batchId=' + batchId);
+    resolveExecApproval('deny');
+  }, 30000);
+}
+
+function resolveExecApproval(action) {
+  if (!currentExecApprovalBatchId) return;
+  sendExecApprovalResolve(currentExecApprovalBatchId, action);
+  closeExecApprovalModal();
+}
+
+function sendExecApprovalResolve(batchId, action) {
+  if (!openclaw || !openclaw.connected) {
+    console.warn('[ExecApproval] OpenClaw 未连接，无法发送审批结果');
+    return;
+  }
+  openclaw.send('exec.approval.resolve', { batchId: batchId, action: action })
+    .then(function () {
+      console.log('[ExecApproval] 已发送审批结果:', batchId, action);
+    })
+    .catch(function (err) {
+      console.error('[ExecApproval] 发送审批结果失败:', err);
+    });
+}
+
+function closeExecApprovalModal() {
+  if (execApprovalTimeout) {
+    clearTimeout(execApprovalTimeout);
+    execApprovalTimeout = null;
+  }
+  if (execApprovalCountdownInterval) {
+    clearInterval(execApprovalCountdownInterval);
+    execApprovalCountdownInterval = null;
+  }
+  currentExecApprovalBatchId = null;
+  var modal = document.getElementById('execApprovalModal');
+  if (modal) modal.classList.remove('show');
+}
+
 // 初始化 OpenClaw 连接
 const OPENCLAW_CONFIG = {
   gatewayUrl: 'ws://192.168.1.25:18789',
@@ -8816,6 +8889,13 @@ function initOpenClaw() {
     console.warn('[OpenClaw] ⚠️ 连接失败，已降级到 Mock 模式');
     updateConnectionStatus();
   });
+
+  // Exec 命令审批
+  openclaw.on('exec.approval.requested', function (payload) {
+    console.log('[ExecApproval] 收到审批请求:', payload);
+    showExecApprovalModal(payload);
+  });
+
   openclaw.connect().then(function (ok) {
     console.log('[OpenClaw] connect() 返回:', ok, 'connected:', openclaw.connected, 'authenticated:', openclaw.authenticated);
   }).catch(function (err) {
@@ -20151,6 +20231,15 @@ async function finishWizard() {
 .modal-btn.danger{background:#FF3B30;color:white}
 .modal-btn.danger:hover{background:#E03030}
 
+/* Exec Approval Modal */
+.exec-approval-section{margin-bottom:12px;text-align:left}
+.exec-approval-section:last-child{margin-bottom:0}
+.exec-approval-label{font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;text-transform:uppercase;letter-spacing:.02em}
+.exec-approval-value{font-size:14px;color:var(--text-primary);word-break:break-all}
+.exec-approval-command{width:100%;max-height:160px;overflow-y:auto;padding:10px 12px;background:var(--bg-tertiary);border-radius:var(--radius-md);font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;line-height:1.5;color:var(--text-primary);white-space:pre-wrap;word-break:break-all;margin:0}
+.exec-approval-countdown{margin-top:10px;font-size:12px;color:var(--text-tertiary);text-align:center}
+.exec-approval-footer .modal-btn{padding:10px 14px}
+
 /* Toast Notification */
 .toast-container { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 .toast { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); color: var(--text-primary); border: 0.5px solid var(--separator); padding: 12px 20px; border-radius: 12px; font-size: 14px; font-weight: 500; box-shadow: 0 8px 32px rgba(0,0,0,0.12); opacity: 0; transform: translateY(-20px) scale(0.95); transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); pointer-events: auto; max-width: 320px; text-align: center; }
@@ -26260,6 +26349,32 @@ function permanentlyDeleteSettingsMember(empId) {
     </div>
     <div class="product-modal-footer">
       <button class="product-modal-btn cancel" onclick="closeMatchModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- Exec Approval Modal -->
+<div class="modal-overlay" id="execApprovalModal" onclick="if(event.target===this)resolveExecApproval('deny')">
+  <div class="modal-card" style="max-width:480px;" onclick="event.stopPropagation()">
+    <div class="modal-card-header">
+      <div class="modal-card-title">🔒 执行命令审批</div>
+      <div class="modal-card-subtitle" id="execApprovalSubtitle">Agent 请求执行命令</div>
+    </div>
+    <div class="modal-card-body" style="text-align:left;">
+      <div class="exec-approval-section">
+        <div class="exec-approval-label">Agent ID</div>
+        <div class="exec-approval-value" id="execApprovalAgentId">-</div>
+      </div>
+      <div class="exec-approval-section">
+        <div class="exec-approval-label">命令内容</div>
+        <pre class="exec-approval-command" id="execApprovalCommand">-</pre>
+      </div>
+      <div class="exec-approval-countdown" id="execApprovalCountdown">30 秒后自动拒绝</div>
+    </div>
+    <div class="modal-card-footer exec-approval-footer">
+      <button class="modal-btn secondary" onclick="resolveExecApproval('deny')">拒绝</button>
+      <button class="modal-btn secondary" onclick="resolveExecApproval('allow-once')">允许一次</button>
+      <button class="modal-btn primary" onclick="resolveExecApproval('allow-always')">始终允许</button>
     </div>
   </div>
 </div>
