@@ -8628,13 +8628,14 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
         var duration = (tool.endedAt && tool.startedAt) ? (tool.endedAt - tool.startedAt) : 0;
         badge.className = 'tool-badge tool-badge-done';
         badge.textContent = '已完成 耗时' + duration + 'ms';
+        console.log('[ToolEnd] tool object:', JSON.stringify(tool));
         fetch('/api/tool-calls/log', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('sb_auth_token') || '') },
           body: JSON.stringify({
             agent_id: emp.id,
             tool_call_id: tool.toolCallId,
-            tool_name: tool.name,
+            tool_name: tool.toolName || tool.name || tool.tool || tool.command || 'exec',
             meta: tool.meta,
             output: (window._toolOutputs && window._toolOutputs[tool.toolCallId]) || '',
             exit_code: tool.status === 'completed' ? 0 : 1,
@@ -12335,13 +12336,14 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
             var duration = (tool.endedAt && tool.startedAt) ? (tool.endedAt - tool.startedAt) : 0;
             badge.className = 'tool-badge tool-badge-done';
             badge.textContent = '已完成 耗时' + duration + 'ms';
+            console.log('[ToolEnd] tool object:', JSON.stringify(tool));
             fetch('/api/tool-calls/log', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('sb_auth_token') || '') },
               body: JSON.stringify({
                 agent_id: group.leadAgentId,
                 tool_call_id: tool.toolCallId,
-                tool_name: tool.name,
+                tool_name: tool.toolName || tool.name || tool.tool || tool.command || 'exec',
                 meta: tool.meta,
                 output: (window._toolOutputs && window._toolOutputs[tool.toolCallId]) || '',
                 exit_code: tool.status === 'completed' ? 0 : 1,
