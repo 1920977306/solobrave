@@ -1578,10 +1578,22 @@ class AuthResult:
         return self.user_record
 
 
+def _get_localhost_auth_result(headers):
+    """本地回环地址的认证结果：优先根据 X-Agent-Id 识别 AI 员工创建者，否则回退到 localhost"""
+    agent_id = headers.get('X-Agent-Id', '').strip()
+    if agent_id:
+        agent = _get_agent_by_id(agent_id)
+        if agent:
+            created_by = agent.get('createdBy')
+            if created_by:
+                return AuthResult(user_info={'userId': created_by, 'role': 'admin'})
+    return AuthResult(user_info={'userId': 'localhost', 'role': 'admin'})
+
+
 def _authenticate(headers, client_ip=None):
     """从请求头中提取并验证 token；本地回环地址跳过鉴权"""
     if client_ip in ('127.0.0.1', 'localhost', '::1'):
-        return AuthResult(user_info={'userId': 'localhost', 'role': 'admin'})
+        return _get_localhost_auth_result(headers)
     auth_header = headers.get('Authorization', '')
     if not auth_header.startswith('Bearer '):
         return AuthResult(error='未登录或 token 已过期', status=401)
