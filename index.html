@@ -25098,18 +25098,19 @@ async function renderTokenStats() {
   if (!content) return;
   content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
   try {
-    var resp = await apiFetch('/api/stats/compute?groupBy=agent');
+    var resp = await apiFetch('/api/token-usage?group_by=agent');
     var data = await resp.json();
-    var employeeStats = data.employeeStats || [];
-    var totalInput = 0, totalOutput = 0, totalTokens = 0;
+    var employeeStats = (data.items || []).map(normalizeTokenUsageItem);
+    var summary = data.summary || {};
+    var totalInput = summary.inputTokens || 0;
+    var totalOutput = summary.outputTokens || 0;
+    var totalCache = summary.cacheReadTokens || 0;
+    var totalTokens = summary.totalTokens || 0;
     var rows = '';
     employeeStats.forEach(function (e) {
-      totalInput += e.inputTokens || 0;
-      totalOutput += e.outputTokens || 0;
-      totalTokens += e.tokens || 0;
-      rows += '<tr style="border-bottom:1px solid var(--separator);">' + '<td style="padding:8px;display:flex;align-items:center;gap:8px;">' + '<span>' + escapeHtml(e.name || '未知') + '</span>' + '</td>' + '<td style="padding:8px;text-align:right;font-size:12px;">' + (e.inputTokens || 0).toLocaleString() + '</td>' + '<td style="padding:8px;text-align:right;font-size:12px;">' + (e.outputTokens || 0).toLocaleString() + '</td>' + '<td style="padding:8px;text-align:right;font-size:12px;font-weight:600;">' + (e.tokens || 0).toLocaleString() + '</td>' + '</tr>';
+      rows += '<tr style="border-bottom:1px solid var(--separator);">' + '<td style="padding:8px;display:flex;align-items:center;gap:8px;">' + '<span>' + escapeHtml(e.name || '未知') + '</span>' + '</td>' + '<td style="padding:8px;text-align:right;font-size:12px;">' + formatNumber(e.inputTokens) + '</td>' + '<td style="padding:8px;text-align:right;font-size:12px;">' + formatNumber(e.outputTokens) + '</td>' + '<td style="padding:8px;text-align:right;font-size:12px;">' + formatNumber(e.cacheReadTokens) + '</td>' + '<td style="padding:8px;text-align:right;font-size:12px;font-weight:600;">' + formatNumber(e.totalTokens) + '</td>' + '</tr>';
     });
-    content.innerHTML = '<div style="margin-bottom:16px;">' + '<div style="display:flex;gap:16px;margin-bottom:12px;">' + '<div style="flex:1;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' + '<div style="font-size:11px;color:var(--text-tertiary);">总输入</div>' + '<div style="font-size:20px;font-weight:600;color:var(--accent);">' + totalInput.toLocaleString() + '</div>' + '</div>' + '<div style="flex:1;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' + '<div style="font-size:11px;color:var(--text-tertiary);">总输出</div>' + '<div style="font-size:20px;font-weight:600;color:var(--accent);">' + totalOutput.toLocaleString() + '</div>' + '</div>' + '<div style="flex:1;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' + '<div style="font-size:11px;color:var(--text-tertiary);">总计</div>' + '<div style="font-size:20px;font-weight:600;color:var(--accent);">' + totalTokens.toLocaleString() + '</div>' + '</div>' + '</div>' + '</div>' + '<table style="width:100%;border-collapse:collapse;font-size:13px;">' + '<thead>' + '<tr style="border-bottom:2px solid var(--separator);">' + '<th style="padding:8px;text-align:left;font-size:12px;color:var(--text-tertiary);">员工</th>' + '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">输入</th>' + '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">输出</th>' + '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">总计</th>' + '</tr>' + '</thead>' + '<tbody>' + rows + '</tbody>' + '</table>';
+    content.innerHTML = '<div style="margin-bottom:16px;">' + '<div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;">' + '<div style="flex:1;min-width:110px;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' + '<div style="font-size:11px;color:var(--text-tertiary);">总输入</div>' + '<div style="font-size:18px;font-weight:600;color:var(--accent);">' + formatNumber(totalInput) + '</div>' + '</div>' + '<div style="flex:1;min-width:110px;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' + '<div style="font-size:11px;color:var(--text-tertiary);">总输出</div>' + '<div style="font-size:18px;font-weight:600;color:var(--accent);">' + formatNumber(totalOutput) + '</div>' + '</div>' + '<div style="flex:1;min-width:110px;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' + '<div style="font-size:11px;color:var(--text-tertiary);">缓存命中</div>' + '<div style="font-size:18px;font-weight:600;color:var(--accent);">' + formatNumber(totalCache) + '</div>' + '</div>' + '<div style="flex:1;min-width:110px;padding:12px;background:var(--bg-secondary);border-radius:8px;text-align:center;">' + '<div style="font-size:11px;color:var(--text-tertiary);">总计</div>' + '<div style="font-size:18px;font-weight:600;color:var(--accent);">' + formatNumber(totalTokens) + '</div>' + '</div>' + '</div>' + '</div>' + '<table style="width:100%;border-collapse:collapse;font-size:13px;">' + '<thead>' + '<tr style="border-bottom:2px solid var(--separator);">' + '<th style="padding:8px;text-align:left;font-size:12px;color:var(--text-tertiary);">员工</th>' + '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">输入</th>' + '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">输出</th>' + '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">缓存</th>' + '<th style="padding:8px;text-align:right;font-size:12px;color:var(--text-tertiary);">总计</th>' + '</tr>' + '</thead>' + '<tbody>' + rows + '</tbody>' + '</table>';
   } catch (e) {
     console.warn('[renderTokenStats] failed:', e);
     content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--danger);">加载失败</div>';
@@ -25640,69 +25641,134 @@ function formatFollowers(n) {
 }
 
 // ========== 算力统计 ==========
-function getComputeStats(employeeStats, totalTokensOverride, totalCallsOverride, timeStatsOverride) {
-  var baseUsed = parseInt(localStorage.getItem('sb_tokens_used') || '0');
-  var totalTokens = totalTokensOverride !== undefined ? totalTokensOverride : baseUsed;
-  var totalCalls = totalCallsOverride !== undefined ? totalCallsOverride : (parseInt(localStorage.getItem('sb_compute_calls') || '0') || 0);
-  var timeStats = timeStatsOverride;
-  if (!timeStats || !timeStats.length) {
-    timeStats = JSON.parse(localStorage.getItem('sb_compute_by_time') || 'null') || [
-      { date: '周一', tokens: 0 }, { date: '周二', tokens: 0 },
-      { date: '周三', tokens: 0 }, { date: '周四', tokens: 0 },
-      { date: '周五', tokens: 0 }, { date: '周六', tokens: 0 },
-      { date: '周日', tokens: 0 }
-    ];
+function normalizeTokenUsageItem(item) {
+  return {
+    id: item.id || '',
+    name: item.name || item.date || '未知',
+    date: item.date || '',
+    inputTokens: item.inputTokens || 0,
+    outputTokens: item.outputTokens || 0,
+    cacheReadTokens: item.cacheReadTokens || 0,
+    totalTokens: item.totalTokens || 0,
+    calls: item.calls || 0
+  };
+}
+function getComputeStats(agentData, dayData) {
+  var summary = (agentData && agentData.summary) || {};
+  var employeeStats = ((agentData && agentData.items) || []).map(normalizeTokenUsageItem);
+  var timeStats = ((dayData && dayData.items) || []).map(normalizeTokenUsageItem);
+  return {
+    inputTokens: summary.inputTokens || 0,
+    outputTokens: summary.outputTokens || 0,
+    cacheReadTokens: summary.cacheReadTokens || 0,
+    totalTokens: summary.totalTokens || 0,
+    totalCalls: summary.calls || 0,
+    employeeStats: employeeStats,
+    timeStats: timeStats
+  };
+}
+async function syncTokenUsage() {
+  try {
+    showToast('🔄 正在同步 Token 数据...');
+    var resp = await apiFetch('/api/token-usage/sync');
+    var data = await resp.json();
+    showToast('✅ 同步完成：扫描 ' + (data.scannedFiles || 0) + ' 个文件，新增 ' + (data.inserted || 0) + ' 条记录');
+    loadComputeStats();
+  } catch (e) {
+    console.warn('[syncTokenUsage] failed:', e);
+    showToast('❌ 同步失败');
   }
-  return { totalTokens: totalTokens, totalCalls: totalCalls, employeeStats: employeeStats || [], timeStats: timeStats };
 }
 async function loadComputeStats() {
   var area = document.getElementById('computeStatsArea');
   if (!area) return;
   area.innerHTML = '<div class="settings-card"><div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div></div>';
   try {
-    var resp = await apiFetch('/api/stats/compute');
-    var data = await resp.json();
-    area.innerHTML = renderComputeStats(getComputeStats(data.employeeStats || [], data.totalTokens || 0, data.totalCalls || 0, data.timeStats || []));
+    var [agentResp, dayResp] = await Promise.all([
+      apiFetch('/api/token-usage?group_by=agent'),
+      apiFetch('/api/token-usage?group_by=day')
+    ]);
+    var agentData = agentResp ? await agentResp.json() : {};
+    var dayData = dayResp ? await dayResp.json() : {};
+    area.innerHTML = renderComputeStats(getComputeStats(agentData, dayData));
   } catch (e) {
     console.warn('[loadComputeStats] 获取算力统计失败', e);
-    area.innerHTML = renderComputeStats(getComputeStats([], 0, 0, []));
+    area.innerHTML = renderComputeStats(getComputeStats({}, {}));
   }
 }
 function renderComputeStats(stats) {
+  var hasData = stats.totalTokens > 0 || stats.totalCalls > 0;
   var html = '<div class="settings-card">';
-  if (!stats.totalTokens && !stats.totalCalls) {
-    html += '<div class="settings-stat-empty"><div class="settings-stat-empty-icon">📊</div><div>使用后自动统计</div></div>';
+  if (!hasData) {
+    html += '<div class="settings-stat-empty"><div class="settings-stat-empty-icon">📊</div><div>使用后自动统计，可点击右上角「同步 Token 数据」导入 OpenClaw 日志</div></div>';
   } else {
     html += '<div class="settings-stats-grid">';
-    html += '<div class="settings-stat-card stat-token"><div class="settings-stat-label">Token 使用总量</div><div class="settings-stat-value">' + formatNumber(stats.totalTokens) + '<span class="settings-stat-unit">tokens</span></div></div>';
-    html += '<div class="settings-stat-card stat-calls"><div class="settings-stat-label">调用次数</div><div class="settings-stat-value">' + formatNumber(stats.totalCalls) + '<span class="settings-stat-unit">次</span></div></div>';
-    html += '<div class="settings-stat-card stat-per-emp"><div class="settings-stat-label">人均调用</div><div class="settings-stat-value">' + Math.round(stats.totalCalls / Math.max(stats.employeeStats.length, 1)) + '<span class="settings-stat-unit">次</span></div></div>';
-    html += '<div class="settings-stat-card stat-avg"><div class="settings-stat-label">平均单次 Token</div><div class="settings-stat-value">' + Math.round(stats.totalTokens / Math.max(stats.totalCalls, 1)) + '<span class="settings-stat-unit">tokens</span></div></div>';
+    html += '<div class="settings-stat-card stat-token"><div class="settings-stat-label">输入 Tokens</div><div class="settings-stat-value">' + formatNumber(stats.inputTokens) + '<span class="settings-stat-unit">tokens</span></div></div>';
+    html += '<div class="settings-stat-card stat-calls"><div class="settings-stat-label">输出 Tokens</div><div class="settings-stat-value">' + formatNumber(stats.outputTokens) + '<span class="settings-stat-unit">tokens</span></div></div>';
+    html += '<div class="settings-stat-card stat-per-emp"><div class="settings-stat-label">缓存命中</div><div class="settings-stat-value">' + formatNumber(stats.cacheReadTokens) + '<span class="settings-stat-unit">tokens</span></div></div>';
+    html += '<div class="settings-stat-card stat-avg"><div class="settings-stat-label">Token 总量</div><div class="settings-stat-value">' + formatNumber(stats.totalTokens) + '<span class="settings-stat-unit">tokens</span></div></div>';
     html += '</div>';
   }
   html += '</div>';
+
+  // 按员工统计（堆叠条形：输入+输出+缓存）
   html += '<div class="settings-chart-card"><div class="settings-chart-title">按员工统计</div><div class="settings-bar-chart">';
-  var maxEmp = Math.max.apply(Math, stats.employeeStats.map(function (e) { return e.tokens; })) || 1;
-  stats.employeeStats.forEach(function (e) {
-    var pct = maxEmp ? Math.round(e.tokens / maxEmp * 100) : 0;
-    html += '<div class="settings-bar-row"><div class="settings-bar-label" title="' + escapeHtml(e.name) + '">' + escapeHtml(e.name) + '</div><div class="settings-bar-track"><div class="settings-bar-fill" style="width:' + pct + '%;"></div></div><div class="settings-bar-value">' + formatNumber(e.tokens) + '</div></div>';
-  });
+  if (!stats.employeeStats.length) {
+    html += '<div class="settings-empty" style="padding:20px;">暂无员工数据</div>';
+  } else {
+    var maxEmp = Math.max.apply(Math, stats.employeeStats.map(function (e) { return e.totalTokens; })) || 1;
+    stats.employeeStats.forEach(function (e) {
+      var inputPct = maxEmp ? Math.round(e.inputTokens / maxEmp * 100) : 0;
+      var outputPct = maxEmp ? Math.round(e.outputTokens / maxEmp * 100) : 0;
+      var cachePct = maxEmp ? Math.round(e.cacheReadTokens / maxEmp * 100) : 0;
+      html += '<div class="settings-bar-row">';
+      html += '<div class="settings-bar-label" title="输入: ' + formatNumber(e.inputTokens) + ' / 输出: ' + formatNumber(e.outputTokens) + ' / 缓存: ' + formatNumber(e.cacheReadTokens) + '">' + escapeHtml(e.name) + '</div>';
+      html += '<div class="settings-bar-track" style="display:flex;gap:2px;background:transparent;">';
+      html += '<div style="width:' + inputPct + '%;background:var(--accent);border-radius:2px 0 0 2px;" title="输入"></div>';
+      html += '<div style="width:' + outputPct + '%;background:#34C759;" title="输出"></div>';
+      html += '<div style="width:' + cachePct + '%;background:#FF9500;border-radius:0 2px 2px 0;" title="缓存命中"></div>';
+      html += '</div>';
+      html += '<div class="settings-bar-value" style="white-space:nowrap;">' + formatNumber(e.totalTokens) + '</div>';
+      html += '</div>';
+    });
+  }
   html += '</div></div>';
-  html += '<div class="settings-chart-card"><div class="settings-chart-title">按时间统计（近7天）</div><div class="settings-line-chart"><svg class="settings-line-svg" viewBox="0 0 600 160" preserveAspectRatio="none">';
-  var maxTime = Math.max.apply(Math, stats.timeStats.map(function (t) { return t.tokens; })) || 1;
-  var points = stats.timeStats.map(function (t, i) {
-    var x = (i / (stats.timeStats.length - 1 || 1)) * 600;
-    var y = 160 - (t.tokens / maxTime) * 140 - 10;
-    return x + ',' + y;
-  });
-  html += '<polygon class="settings-line-area" points="0,160 ' + points.join(' ') + ' 600,160" />';
-  html += '<polyline class="settings-line-path" points="' + points.join(' ') + '" />';
-  stats.timeStats.forEach(function (t, i) {
-    var x = (i / (stats.timeStats.length - 1 || 1)) * 600;
-    var y = 160 - (t.tokens / maxTime) * 140 - 10;
-    html += '<circle class="settings-line-dot" cx="' + x + '" cy="' + y + '" /><text x="' + x + '" y="155" text-anchor="middle" font-size="10" fill="var(--text-secondary)">' + escapeHtml(t.date) + '</text>';
-  });
-  html += '</svg></div></div>';
+
+  // 按天统计（多系列折线）
+  html += '<div class="settings-chart-card"><div class="settings-chart-title">按天统计</div>';
+  if (!stats.timeStats.length) {
+    html += '<div class="settings-empty" style="padding:20px;">暂无时间维度数据</div>';
+  } else {
+    html += '<div style="display:flex;gap:16px;justify-content:center;margin-bottom:8px;font-size:12px;color:var(--text-secondary);">';
+    html += '<span><span style="display:inline-block;width:8px;height:8px;background:var(--accent);border-radius:50%;margin-right:4px;"></span>输入</span>';
+    html += '<span><span style="display:inline-block;width:8px;height:8px;background:#34C759;border-radius:50%;margin-right:4px;"></span>输出</span>';
+    html += '<span><span style="display:inline-block;width:8px;height:8px;background:#FF9500;border-radius:50%;margin-right:4px;"></span>缓存命中</span>';
+    html += '</div>';
+    html += '<div class="settings-line-chart"><svg class="settings-line-svg" viewBox="0 0 600 160" preserveAspectRatio="none">';
+    var keys = ['inputTokens', 'outputTokens', 'cacheReadTokens'];
+    var colors = ['var(--accent)', '#34C759', '#FF9500'];
+    var maxTime = Math.max.apply(Math, stats.timeStats.map(function (t) { return Math.max(t.inputTokens, t.outputTokens, t.cacheReadTokens); })) || 1;
+    var n = stats.timeStats.length;
+    keys.forEach(function (key, ki) {
+      var points = stats.timeStats.map(function (t, i) {
+        var x = (n <= 1 ? 300 : (i / (n - 1)) * 600);
+        var y = 160 - (t[key] / maxTime) * 140 - 10;
+        return x + ',' + y;
+      });
+      html += '<polyline fill="none" stroke="' + colors[ki] + '" stroke-width="2" points="' + points.join(' ') + '" />';
+      stats.timeStats.forEach(function (t, i) {
+        var x = (n <= 1 ? 300 : (i / (n - 1)) * 600);
+        var y = 160 - (t[key] / maxTime) * 140 - 10;
+        html += '<circle cx="' + x + '" cy="' + y + '" r="3" fill="' + colors[ki] + '" />';
+      });
+    });
+    stats.timeStats.forEach(function (t, i) {
+      var x = (n <= 1 ? 300 : (i / (n - 1)) * 600);
+      html += '<text x="' + x + '" y="155" text-anchor="middle" font-size="10" fill="var(--text-secondary)">' + escapeHtml(t.date.slice(5)) + '</text>';
+    });
+    html += '</svg></div>';
+  }
+  html += '</div>';
   return html;
 }
 
@@ -26185,6 +26251,9 @@ function renderSettingsRight() {
     compute: '算力统计', notification: '通知', account: '账号', permission: '权限管理', forbidden: '违禁词管理', users: '用户管理', teams: '团队管理', members: '成员管理'
   }[_settingsSelectedCategory] || '设置';
   if (actionsEl) actionsEl.innerHTML = '';
+  if (_settingsSelectedCategory === 'compute' && actionsEl) {
+    actionsEl.innerHTML = '<button class="module-action-btn" onclick="syncTokenUsage()">🔄 同步 Token 数据</button>';
+  }
   if (!contentEl) return;
   var html = '';
   if (_settingsSelectedCategory === 'compute') {

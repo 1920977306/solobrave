@@ -4074,6 +4074,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/stats/compute':
             self._handle_get_stats_compute()
             return
+        if path == '/api/token-usage':
+            self._handle_get_token_usage()
+            return
+        if path == '/api/token-usage/sync':
+            self._handle_get_token_usage_sync()
+            return
 
         # Brand API
         if path == '/api/brands' or path == '/api/brands/':
@@ -9987,6 +9993,161 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'timeStats': time_stats,
         })
 
+    def _handle_get_token_usage_sync(self):
+        """GET /api/token-usage/sync — 从 OpenClaw trajectory 同步 token 数据"""
+        auth = _authenticate(self.headers, self.client_address[0])
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        try:
+            result = _sync_token_usage_from_trajectories()
+            self._send_json(200, result)
+        except Exception as e:
+            print(f'  [TokenUsageSync] failed: {e}', flush=True)
+            import traceback; traceback.print_exc()
+            self._send_json_error(500, f'Sync failed: {str(e)}')
+
+    def _handle_get_token_usage(self):
+        """GET /api/token-usage — 按 agent/day 聚合 token 用量"""
+        auth = _authenticate(self.headers, self.client_address[0])
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        agent_id = qs.get('agent_id', [''])[0] or ''
+        start_date = qs.get('start_date', [''])[0] or ''
+        end_date = qs.get('end_date', [''])[0] or ''
+        group_by = qs.get('group_by', ['agent'])[0] or 'agent'
+        if group_by not in ('agent', 'day'):
+            group_by = 'agent'
+
+        where = []
+        params = []
+
+        if agent_id:
+            where.append('agent_id = ?')
+            params.append(agent_id)
+
+        def _date_to_millis(d_str, end_of_day=False):
+            try:
+                dt = datetime.strptime(d_str, '%Y-%m-%d')
+                if end_of_day:
+                    dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+                return int(dt.timestamp() * 1000)
+            except Exception:
+                return None
+
+        if start_date:
+            ms = _date_to_millis(start_date, False)
+            if ms is not None:
+                where.append('ts >= ?')
+                params.append(ms)
+        if end_date:
+            ms = _date_to_millis(end_date, True)
+            if ms is not None:
+                where.append('ts <= ?')
+                params.append(ms)
+
+        # 非管理员只能查看自己创建的 agent 数据
+        user_emp_ids = _get_user_emp_ids(auth.user_id)
+        if not auth.is_admin:
+            placeholders = ', '.join('?' for _ in user_emp_ids) if user_emp_ids else None
+            if placeholders:
+                where.append(f'agent_id IN ({placeholders})')
+                params.extend(user_emp_ids)
+            else:
+                # 无可用 agent 时返回空结果
+                self._send_json(200, {
+                    'summary': {'inputTokens': 0, 'outputTokens': 0, 'cacheReadTokens': 0, 'totalTokens': 0, 'calls': 0},
+                    'groupBy': group_by,
+                    'items': []
+                })
+                return
+
+        where_sql = 'WHERE ' + ' AND '.join(where) if where else ''
+        conn = _db_conn()
+        try:
+            # 总计
+            sum_row = conn.execute(
+                f'''SELECT COALESCE(SUM(prompt_tokens),0) AS input_tokens,
+                           COALESCE(SUM(completion_tokens),0) AS output_tokens,
+                           COALESCE(SUM(cache_read_tokens),0) AS cache_read_tokens,
+                           COALESCE(SUM(total_tokens),0) AS total_tokens,
+                           COUNT(*) AS calls
+                    FROM token_usage {where_sql}''',
+                tuple(params)
+            ).fetchone()
+
+            summary = {
+                'inputTokens': sum_row['input_tokens'] or 0,
+                'outputTokens': sum_row['output_tokens'] or 0,
+                'cacheReadTokens': sum_row['cache_read_tokens'] or 0,
+                'totalTokens': sum_row['total_tokens'] or 0,
+                'calls': sum_row['calls'] or 0,
+            }
+
+            if group_by == 'agent':
+                rows = conn.execute(
+                    f'''SELECT agent_id,
+                               COALESCE(SUM(prompt_tokens),0) AS input_tokens,
+                               COALESCE(SUM(completion_tokens),0) AS output_tokens,
+                               COALESCE(SUM(cache_read_tokens),0) AS cache_read_tokens,
+                               COALESCE(SUM(total_tokens),0) AS total_tokens,
+                               COUNT(*) AS calls
+                        FROM token_usage {where_sql}
+                        GROUP BY agent_id
+                        ORDER BY total_tokens DESC''',
+                    tuple(params)
+                ).fetchall()
+                agents_map = {a.get('id'): a for a in _load_agents(include_archived=True)}
+                items = []
+                for r in rows:
+                    aid = r['agent_id'] or ''
+                    agent = agents_map.get(aid)
+                    name = (agent.get('name') or aid) if agent else aid
+                    items.append({
+                        'id': aid,
+                        'name': name,
+                        'inputTokens': r['input_tokens'] or 0,
+                        'outputTokens': r['output_tokens'] or 0,
+                        'cacheReadTokens': r['cache_read_tokens'] or 0,
+                        'totalTokens': r['total_tokens'] or 0,
+                        'calls': r['calls'] or 0,
+                    })
+            else:
+                rows = conn.execute(
+                    f'''SELECT date(ts/1000, 'unixepoch', 'localtime') AS d,
+                               COALESCE(SUM(prompt_tokens),0) AS input_tokens,
+                               COALESCE(SUM(completion_tokens),0) AS output_tokens,
+                               COALESCE(SUM(cache_read_tokens),0) AS cache_read_tokens,
+                               COALESCE(SUM(total_tokens),0) AS total_tokens,
+                               COUNT(*) AS calls
+                        FROM token_usage {where_sql}
+                        GROUP BY d
+                        ORDER BY d ASC''',
+                    tuple(params)
+                ).fetchall()
+                items = []
+                for r in rows:
+                    items.append({
+                        'date': r['d'] or '',
+                        'inputTokens': r['input_tokens'] or 0,
+                        'outputTokens': r['output_tokens'] or 0,
+                        'cacheReadTokens': r['cache_read_tokens'] or 0,
+                        'totalTokens': r['total_tokens'] or 0,
+                        'calls': r['calls'] or 0,
+                    })
+        finally:
+            conn.close()
+
+        self._send_json(200, {
+            'summary': summary,
+            'groupBy': group_by,
+            'items': items,
+        })
+
     # ═══════════════════════════════════════════════════
     # RAG API
     # ═══════════════════════════════════════════════════
@@ -14168,6 +14329,157 @@ def _log_proxy_token_usage(auth, body_json, resp_body, provider, target_url, age
             conn.close()
     except Exception as e:
         print(f'  [Proxy] token usage log skipped: {e}', flush=True)
+
+
+# ═══════════════════════════════════════════════════
+# OpenClaw trajectory token usage 同步
+# ═══════════════════════════════════════════════════
+
+import glob as _glob
+
+
+def _trajectory_base_path():
+    """OpenClaw agents 目录"""
+    return os.path.expanduser('~/.openclaw/agents')
+
+
+def _glob_trajectory_files():
+    """扫描所有 trajectory JSONL 文件"""
+    base = _trajectory_base_path()
+    if not os.path.isdir(base):
+        return []
+    pattern = os.path.join(base, '*', 'sessions', '*.trajectory.jsonl')
+    return sorted(_glob.glob(pattern))
+
+
+def _ts_to_millis(ts):
+    """将 trajectory 中的 ts 统一转换为毫秒时间戳"""
+    if ts is None:
+        return None
+    if isinstance(ts, (int, float)):
+        # 秒或毫秒：大于 1e12 视为毫秒
+        ts_num = int(ts)
+        if ts_num > 1_000_000_000_000:
+            return ts_num
+        return ts_num * 1000
+    if isinstance(ts, str):
+        s = ts.strip()
+        if not s:
+            return None
+        # 尝试纯数字
+        try:
+            return _ts_to_millis(float(s))
+        except ValueError:
+            pass
+        # ISO 8601
+        try:
+            # 处理带 Z 与带时区的情况
+            if s.endswith('Z'):
+                s = s[:-1] + '+00:00'
+            dt = datetime.fromisoformat(s)
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            return None
+    return None
+
+
+def _agent_id_from_session_key(session_key):
+    """从 sessionKey 提取 agent/empId，格式 agent:empId:chat 或 agent:empId:memory_extract"""
+    if not session_key or not isinstance(session_key, str):
+        return ''
+    parts = session_key.split(':')
+    if len(parts) >= 2:
+        return parts[1]
+    return session_key
+
+
+def _parse_trajectory_event(line):
+    """解析单行 trajectory JSONL，仅返回 model.completed 事件的数据"""
+    try:
+        obj = json.loads(line)
+    except Exception:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    if obj.get('type') != 'model.completed':
+        return None
+    data = obj.get('data') or {}
+    usage = data.get('usage') or {}
+    ts = _ts_to_millis(obj.get('ts'))
+    session_key = obj.get('sessionKey') or ''
+    model_id = obj.get('modelId') or ''
+    if not ts:
+        # 没有时间戳则无法去重，跳过
+        return None
+    input_tokens = int(usage.get('input') or 0)
+    output_tokens = int(usage.get('output') or 0)
+    cache_read = int(usage.get('cacheRead') or 0)
+    total = int(usage.get('total') or (input_tokens + output_tokens + cache_read))
+    return {
+        'ts': ts,
+        'session_key': session_key,
+        'agent_id': _agent_id_from_session_key(session_key),
+        'model_id': model_id,
+        'input_tokens': input_tokens,
+        'output_tokens': output_tokens,
+        'cache_read_tokens': cache_read,
+        'total_tokens': total,
+    }
+
+
+def _sync_token_usage_from_trajectories():
+    """扫描 trajectory 文件并写入 token_usage 表，按 ts+session_key 去重"""
+    files = _glob_trajectory_files()
+    scanned_events = 0
+    inserted = 0
+    if not files:
+        return {'scannedFiles': 0, 'scannedEvents': 0, 'inserted': 0}
+
+    conn = _db_conn()
+    try:
+        for filepath in files:
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        ev = _parse_trajectory_event(line)
+                        if not ev:
+                            continue
+                        scanned_events += 1
+                        try:
+                            before = conn.total_changes
+                            conn.execute('''
+                                INSERT OR IGNORE INTO token_usage
+                                (id, user_id, agent_id, model_id, session_key,
+                                 prompt_tokens, completion_tokens, cache_read_tokens,
+                                 total_tokens, ts, source, created_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', (
+                                uuid.uuid4().hex[:12],
+                                '',
+                                ev['agent_id'],
+                                ev['model_id'],
+                                ev['session_key'],
+                                ev['input_tokens'],
+                                ev['output_tokens'],
+                                ev['cache_read_tokens'],
+                                ev['total_tokens'],
+                                ev['ts'],
+                                'trajectory',
+                                int(time.time() * 1000)
+                            ))
+                            if conn.total_changes > before:
+                                inserted += 1
+                        except Exception as e:
+                            print(f'  [TrajectorySync] insert skipped: {e}', flush=True)
+            except Exception as e:
+                print(f'  [TrajectorySync] read failed {filepath}: {e}', flush=True)
+        conn.commit()
+    finally:
+        conn.close()
+    return {'scannedFiles': len(files), 'scannedEvents': scanned_events, 'inserted': inserted}
 
 
 def _handle_proxy(self):

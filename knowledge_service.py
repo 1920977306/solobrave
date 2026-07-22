@@ -1583,16 +1583,29 @@ def init_kb_entries_db():
                 agent_id TEXT DEFAULT '',
                 provider TEXT DEFAULT '',
                 model TEXT DEFAULT '',
+                model_id TEXT DEFAULT '',
                 endpoint TEXT DEFAULT '',
+                session_key TEXT DEFAULT '',
                 prompt_tokens INTEGER DEFAULT 0,
                 completion_tokens INTEGER DEFAULT 0,
+                cache_read_tokens INTEGER DEFAULT 0,
                 total_tokens INTEGER DEFAULT 0,
+                ts INTEGER,
+                source TEXT DEFAULT 'proxy',
                 created_at INTEGER
             )
         ''')
+        # 兼容升级：为旧表补充新列
+        _add_column_if_not_exists(conn, 'token_usage', 'session_key', "TEXT DEFAULT ''")
+        _add_column_if_not_exists(conn, 'token_usage', 'ts', 'INTEGER')
+        _add_column_if_not_exists(conn, 'token_usage', 'cache_read_tokens', 'INTEGER DEFAULT 0')
+        _add_column_if_not_exists(conn, 'token_usage', 'model_id', "TEXT DEFAULT ''")
+        _add_column_if_not_exists(conn, 'token_usage', 'source', "TEXT DEFAULT 'proxy'")
         conn.execute('CREATE INDEX IF NOT EXISTS idx_token_usage_agent ON token_usage(agent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_token_usage_user ON token_usage(user_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_token_usage_created ON token_usage(created_at)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_token_usage_ts ON token_usage(ts)')
+        conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_token_usage_session_ts ON token_usage(ts, session_key)')
 
         conn.commit()
         print('  [KnowledgeService] KB entries DB initialized', flush=True)
