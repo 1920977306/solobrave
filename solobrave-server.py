@@ -1578,9 +1578,13 @@ class AuthResult:
         return self.user_record
 
 
-def _get_localhost_auth_result(headers):
-    """本地回环地址的认证结果：优先根据 X-Agent-Id 识别 AI 员工创建者，否则回退到 localhost"""
+def _get_localhost_auth_result(headers, parsed_body=None):
+    """本地回环地址的认证结果：优先根据 X-Agent-Id 识别 AI 员工创建者，否则检查 body 中的 agent_id，最后回退到 localhost"""
     agent_id = headers.get('X-Agent-Id', '').strip()
+    if not agent_id and isinstance(parsed_body, dict):
+        body_agent_id = parsed_body.get('agent_id')
+        if isinstance(body_agent_id, str):
+            agent_id = body_agent_id.strip()
     if agent_id:
         agent = _get_agent_by_id(agent_id)
         if agent:
@@ -1590,10 +1594,25 @@ def _get_localhost_auth_result(headers):
     return AuthResult(user_info={'userId': 'localhost', 'role': 'admin'})
 
 
-def _authenticate(headers, client_ip=None):
-    """从请求头中提取并验证 token；本地回环地址跳过鉴权"""
+def _authenticate(headers, client_ip=None, request_handler=None):
+    """从请求头中提取并验证 token；本地回环地址跳过鉴权，支持从 body 缓存中读取 agent_id"""
     if client_ip in ('127.0.0.1', 'localhost', '::1'):
-        return _get_localhost_auth_result(headers)
+        parsed_body = None
+        if request_handler is not None:
+            parsed_body = getattr(request_handler, 'cached_body', None)
+            # 仅在未提供 X-Agent-Id 且请求可能带 body 时才读取，避免误消耗后续 handler 需要的 body
+            if parsed_body is None and not headers.get('X-Agent-Id', '').strip():
+                method = getattr(request_handler, 'command', '')
+                if method in ('POST', 'PUT', 'PATCH'):
+                    content_length = int(headers.get('Content-Length', 0))
+                    if content_length > 0:
+                        try:
+                            raw = request_handler.rfile.read(content_length)
+                            parsed_body = json.loads(raw)
+                        except Exception:
+                            parsed_body = None
+                    request_handler.cached_body = parsed_body
+        return _get_localhost_auth_result(headers, parsed_body)
     auth_header = headers.get('Authorization', '')
     if not auth_header.startswith('Bearer '):
         return AuthResult(error='未登录或 token 已过期', status=401)
@@ -3892,13 +3911,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     # ─── 读取请求体 ────────────────────────────────────
     def _read_body(self):
+        if hasattr(self, 'cached_body'):
+            return self.cached_body
         content_length = int(self.headers.get('Content-Length', 0))
         if content_length > 0:
             raw = self.rfile.read(content_length)
             try:
-                return json.loads(raw)
+                self.cached_body = json.loads(raw)
+                return self.cached_body
             except json.JSONDecodeError:
+                self.cached_body = None
                 return None
+        self.cached_body = None
         return None
 
     # ─── 路由 ──────────────────────────────────────────
@@ -4832,7 +4856,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ─── Auth-required passthrough for OpenClaw routes ──
     def _handle_auth_required_get(self, path):
         """需要认证的 GET 路由"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -4858,7 +4882,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_auth_required_post(self, path):
         """需要认证的 POST 路由"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -4877,7 +4901,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_auth_required_delete(self, path):
         """需要认证的 DELETE 路由"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -4935,7 +4959,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_auth_register(self):
         """POST /api/auth/register（需要 admin token）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5006,7 +5030,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_auth_me(self):
         """GET /api/auth/me"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5031,7 +5055,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_permissions(self):
         """GET /api/permissions — 获取完整权限配置（仅 admin）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated or not auth.is_admin:
             self._send_auth_error('Permission denied', 403)
             return
@@ -5041,7 +5065,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_permission_modules(self):
         """GET /api/permissions/modules — 返回可用模块列表"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5049,7 +5073,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_settings(self):
         """GET /api/settings — 读取全局设置（含 embedding 配置）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5067,7 +5091,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_put_settings(self):
         """PUT /api/settings — 更新全局设置（含 embedding 配置）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5105,7 +5129,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_update_role_permissions(self, role_id):
         """PUT /api/permissions/roles/{roleId}"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated or not auth.is_admin:
             self._send_auth_error('Permission denied', 403)
             return
@@ -5135,7 +5159,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_update_user_permissions(self, user_id):
         """PUT /api/permissions/users/{userId} — 更新用户权限覆盖；body 为空对象则删除覆盖"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated or not auth.is_admin:
             self._send_auth_error('Permission denied', 403)
             return
@@ -5162,7 +5186,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_change_password(self):
         """POST /api/auth/change-password"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5206,7 +5230,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_users(self):
         """GET /api/users（需要 admin）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5239,7 +5263,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_user(self, user_id):
         """GET /api/users/:id（需要 admin）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5274,7 +5298,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_update_user(self, user_id):
         """PUT /api/users/:id（需要 admin）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5354,7 +5378,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_delete_user(self, user_id):
         """DELETE /api/users/:id（需要 admin）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5395,7 +5419,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_user_subordinates(self, user_id):
         """GET /api/users/:id/subordinates — 获取下属列表"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5441,7 +5465,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_update_user_role(self, user_id):
         """PUT /api/users/:id/role — 修改用户角色（仅admin）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5537,7 +5561,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_get_groups(self):
         """GET /api/groups — 获取所有群组，members 附带基础信息（name/avatar/bg/role）"""
         try:
-            auth = _authenticate(self.headers, self.client_address[0])
+            auth = _authenticate(self.headers, self.client_address[0], self)
             if not auth.is_authenticated:
                 self._send_auth_error(auth.error, auth.status)
                 return
@@ -5603,7 +5627,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_group(self, group_id):
         """GET /api/groups/:id"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5642,7 +5666,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_create_group(self):
         """POST /api/groups — 创建群组"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5703,7 +5727,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_update_group(self, group_id):
         """PUT /api/groups/:id"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5754,7 +5778,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_batch_save_groups(self):
         """PUT /api/groups — 前端批量保存群组列表"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5791,7 +5815,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_delete_group(self, group_id):
         """DELETE /api/groups/:id"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5823,7 +5847,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_global_search(self):
         """GET /api/search?q=xxx&scope=all|employees|groups|knowledge&limit=8"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5932,7 +5956,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_add_group_member(self, group_id):
         """POST /api/groups/:id/members — 添加成员"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -5986,7 +6010,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_remove_group_member(self, group_id, emp_id):
         """DELETE /api/groups/:id/members/:empId — 移除成员"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6031,7 +6055,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_teams(self):
         """GET /api/teams — 列出小组（按权限过滤）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6075,7 +6099,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_team(self, team_id):
         """GET /api/teams/:id — 获取小组详情"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6134,7 +6158,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_team_member(self, team_id, user_id):
         """GET /api/teams/:id/members/:userId"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6143,7 +6167,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_create_team(self):
         """POST /api/teams — 创建小组（仅admin）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6221,7 +6245,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_update_team(self, team_id):
         """PUT /api/teams/:id — 更新小组"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6279,7 +6303,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_delete_team(self, team_id):
         """DELETE /api/teams/:id — 删除小组（admin 或小组负责人）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6326,7 +6350,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_add_team_member(self, team_id):
         """POST /api/teams/:id/members — 添加成员"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6371,7 +6395,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_remove_team_member(self, team_id, user_id):
         """DELETE /api/teams/:id/members/:userId — 移除成员"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6414,7 +6438,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_group_chat(self, group_id):
         """POST /api/groups/:id/chat — 发送消息到群组"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6475,7 +6499,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_group_history(self, group_id):
         """GET /api/groups/:id/history — 获取群组聊天历史"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6491,7 +6515,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_group_history(self, group_id):
         """POST /api/groups/:id/history — 保存群组聊天消息"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6638,7 +6662,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_group_memory(self, group_id):
         """GET /api/groups/:groupId/memory — 获取项目组公共记忆"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6734,7 +6758,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_group_memory(self, group_id):
         """POST /api/groups/:groupId/memory — 添加项目组公共记忆"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6783,7 +6807,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_update_group_memory(self, group_id, mem_id):
         """PUT /api/groups/:groupId/memory/:memId — 修改项目组记忆"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6832,7 +6856,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_delete_group_memory(self, group_id, mem_id):
         """DELETE /api/groups/:groupId/memory/:memId — 删除项目组记忆"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6863,7 +6887,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_promote_group_memory(self, group_id, mem_id):
         """POST /api/groups/:groupId/memory/:memId/promote — 升级为项目组核心记忆"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6903,7 +6927,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_agents(self):
         """GET /api/agents — 只返回当前用户创建的 agents（严格权限）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -6968,7 +6992,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_agent(self, agent_id):
         """GET /api/agents/:id"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -7004,7 +7028,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_create_agent_inner(self):
         """POST /api/agents (implementation)"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -7072,7 +7096,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_update_agent(self, agent_id):
         """PUT /api/agents/:id"""
         try:
-            auth = _authenticate(self.headers, self.client_address[0])
+            auth = _authenticate(self.headers, self.client_address[0], self)
             if not auth.is_authenticated:
                 self._send_auth_error(auth.error, auth.status)
                 return
@@ -7180,7 +7204,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_agent_self_update(self, agent_id):
         """PUT /api/agents/:id/self-update - AI 员工自修改配置"""
         try:
-            auth = _authenticate(self.headers, self.client_address[0])
+            auth = _authenticate(self.headers, self.client_address[0], self)
             if not auth.is_authenticated:
                 self._send_auth_error(auth.error, auth.status)
                 return
@@ -7235,7 +7259,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_agent_self_update_intent(self, agent_id):
         """POST /api/agents/:id/self-update-intent - 检测自然语言自修改意图并直接应用"""
         try:
-            auth = _authenticate(self.headers, self.client_address[0])
+            auth = _authenticate(self.headers, self.client_address[0], self)
             if not auth.is_authenticated:
                 self._send_auth_error(auth.error, auth.status)
                 return
@@ -7280,7 +7304,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_delete_agent(self, agent_id):
         """DELETE /api/agents/:id"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -7690,7 +7714,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_dreaming(self):
         """GET /api/openclaw/dreaming?agentId=xxx"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -7717,7 +7741,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_dreaming(self):
         """POST /api/openclaw/dreaming body:{agentId, enabled}"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -7763,7 +7787,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_write_agent_docs(self):
         """POST /api/openclaw/write-agent-docs - Write SOUL.md/IDENTITY.md/AGENTS.md to agent workspace"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -7837,7 +7861,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_agent_docs(self, agent_id):
         """GET /api/openclaw/agent-docs/:agentId?doc=SOUL.md"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -7900,7 +7924,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_write_soul(self):
         """POST /api/openclaw/write-soul - Write SOUL.md/IDENTITY.md to agent workspace"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8015,7 +8039,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_memory(self, emp_id):
         """GET /api/memory/{empId}[?type=&key=&tag=&keyword=&limit=&offset=] — 查询记忆列表"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8188,7 +8212,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_archived_memories(self):
         """GET /api/memory/archived — 查看全局归档记忆（支持分页/搜索）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8249,7 +8273,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_consolidate_memory(self):
         """POST /api/memory/consolidate — 归纳合并多条 daily 记忆为 core 记忆"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8332,7 +8356,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_search_memory(self):
         """GET /api/memory/search — 全局搜索记忆（跨员工、跨池）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8435,7 +8459,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_memory(self, emp_id):
         """POST /api/memory/{empId} — 添加记忆到对应分池（容量检查，超出返回 409）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8554,7 +8578,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_delete_memory(self, emp_id, memory_id):
         """DELETE /api/memory/{empId}/{memoryId} — 删除单条记忆（支持 archived 数据）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8573,7 +8597,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_update_memory(self, emp_id, memory_id):
         """PUT /api/memory/{empId}/{memoryId} — 修改单条记忆（支持跨池移动）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8646,7 +8670,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_promote_memory(self, emp_id, memory_id):
         """POST /api/memory/{empId}/{memoryId}/promote — 升级为核心记忆"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8676,7 +8700,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_restore_memory(self, emp_id, memory_id):
         """POST /api/memory/{empId}/{memoryId}/restore — 从归档恢复为日常记忆"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8709,7 +8733,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_archive_memory_cleanup(self, emp_id):
         """POST /api/memory/{empId}/archive — 手动触发归档过期日常记录"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8725,7 +8749,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_core_candidates(self, emp_id):
         """GET /api/memory/{empId}/core-candidates — 获取核心记忆候选列表"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8742,7 +8766,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_confirm_core_candidate(self, emp_id, cand_id):
         """POST /api/memory/{empId}/core-candidates/{candId}/confirm"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8782,7 +8806,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_dismiss_core_candidate(self, emp_id, cand_id):
         """POST /api/memory/{empId}/core-candidates/{candId}/dismiss"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8798,7 +8822,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_induct_to_knowledge(self, emp_id):
         """POST /api/memory/{empId}/induct-to-knowledge — 手动触发知识归纳"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8824,7 +8848,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_archive_inducted(self, emp_id):
         """POST /api/memory/{empId}/archive-inducted — 归档所有已归纳的活跃记忆"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8848,7 +8872,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_merge_history(self, emp_id):
         """GET /api/memory/{empId}/merge-history — 获取去重合并记录"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8864,7 +8888,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_conflicts(self, emp_id):
         """GET /api/memory/{empId}/conflicts — 获取核心记忆冲突列表"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8878,7 +8902,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_detect_conflicts(self, emp_id):
         """POST /api/memory/{empId}/detect-conflicts — 手动触发冲突检测"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8907,7 +8931,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_resolve_conflict(self, emp_id, mem_id):
         """POST /api/memory/{empId}/{memId}/resolve-conflict — 解决冲突"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8930,7 +8954,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # FIXME: 大脑知识中枢 API 处理器
     def _handle_get_brain_status(self):
         """GET /api/brain/status — 返回大脑处理状态"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8944,7 +8968,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_brain_trigger_manual(self):
         """POST /api/brain/trigger-manual — 手动触发全量处理"""
         # FIXME: 修复大脑手动触发接口鉴权：确保和其他 /api/ 接口使用相同的登录态校验
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8962,7 +8986,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_brain_topics(self):
         """GET /api/brain/topics?empId=xxx — 获取员工的主题列表"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -8981,7 +9005,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_brain_knowledge(self):
         """GET /api/brain/knowledge?topicId=xxx — 获取主题下的知识"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9000,7 +9024,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_brain_knowledge_feedback(self, knowledge_id):
         """POST /api/brain/knowledge/{kid}/feedback — 准确/有误反馈"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9016,7 +9040,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # FIXME: 记忆三级沉淀 API：二级归纳（daily/project） + 三级知识库查询/标记
     def _handle_get_daily_summary(self, emp_id):
         """GET /api/memory/{empId}/daily-summary?date=YYYY-MM-DD"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9037,7 +9061,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_project_summary(self, emp_id):
         """GET /api/memory/{empId}/project-summary?project=xxx"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9058,7 +9082,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_trigger_summary(self, emp_id):
         """POST /api/memory/{empId}/trigger-summary — 手动触发/保存归纳结果"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9081,7 +9105,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_agent_knowledge_base(self, emp_id):
         """GET /api/memory/{empId}/knowledge — 查询该员工三级知识库"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9102,7 +9126,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_agent_knowledge_base(self, emp_id):
         """POST /api/memory/{empId}/knowledge — 手动标记记忆为知识库"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9165,7 +9189,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_get_knowledge(self):
         """GET /api/knowledge — 获取知识库列表（支持分页、分类、关键词、scope 四层隔离：all/global/team/personal/group）
         项目组维度支持 scope=group，以及 groupId / groupIds 过滤参数。"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9212,7 +9236,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_knowledge_detail(self, kid):
         """GET /api/knowledge/<id> — 单条知识详情"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9232,7 +9256,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_knowledge_search(self):
         """GET /api/knowledge/search?q=xxx&limit=3 — 语义检索（带三层隔离）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9275,7 +9299,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_knowledge(self):
         """POST /api/knowledge — 新增全局公共知识（自动分段+向量化）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9342,7 +9366,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_put_knowledge(self, doc_id):
         """PUT /api/knowledge/{docId} — 更新全局公共知识（自动重新分段+向量化）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9431,7 +9455,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_delete_knowledge(self, doc_id):
         """DELETE /api/knowledge/{docId} — 删除知识"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9452,7 +9476,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_knowledge_versions(self, doc_id):
         """GET /api/knowledge/<id>/versions — 获取历史版本列表"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9473,7 +9497,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_knowledge_version(self, doc_id, version):
         """GET /api/knowledge/<id>/versions/<version> — 获取某一历史版本"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9498,7 +9522,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_knowledge_rollback(self, doc_id):
         """POST /api/knowledge/<id>/rollback — 回滚到指定版本"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9554,7 +9578,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_knowledge_move(self, doc_id):
         """POST /api/knowledge/{docId}/move — 移动知识到指定 scope/team"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9602,7 +9626,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_kb_entries(self):
         """GET /api/knowledge/entries — 新版知识库列表"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9652,7 +9676,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_kb_entry_detail(self, entry_id):
         """GET /api/knowledge/entries/<id> — 新版知识详情"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9671,7 +9695,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_kb_entry(self):
         """POST /api/knowledge/entries — 创建新版知识"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9727,7 +9751,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_put_kb_entry(self, entry_id):
         """PUT /api/knowledge/entries/<id> — 更新新版知识"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9797,7 +9821,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_delete_kb_entry(self, entry_id):
         """DELETE /api/knowledge/entries/<id> — 删除新版知识"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9822,7 +9846,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_kb_categories(self):
         """GET /api/knowledge/categories — 分类统计"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9847,7 +9871,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_kb_stats(self):
         """GET /api/knowledge/stats — 统计面板"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9871,7 +9895,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_kb_search(self):
         """POST /api/knowledge/search — 新版语义搜索"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -9904,7 +9928,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_stats_compute(self):
         """GET /api/stats/compute — 真实 Token/调用统计"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10007,7 +10031,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_token_usage_sync(self):
         """GET /api/token-usage/sync — 从 OpenClaw trajectory 同步 token 数据"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10021,7 +10045,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_token_usage(self):
         """GET /api/token-usage — 按 agent/day 聚合 token 用量"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10166,7 +10190,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_rag_retrieve(self):
         """POST /api/rag/retrieve — RAG 向量检索（全局知识库 + 产品库）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10233,7 +10257,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_rag_build(self):
         """POST /api/rag/build — 批量构建所有 embedding 索引"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10255,7 +10279,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_tool_calls_log(self):
         """POST /api/tool-calls/log — 记录 OpenClaw 工具调用日志"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10312,7 +10336,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_products(self):
         """GET /api/products — 获取商品列表（支持 query 筛选）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10350,7 +10374,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_product(self, product_id):
         """GET /api/products/:id — 获取单个商品详情"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10369,7 +10393,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_get_product_matches(self, product_id):
         """GET /api/products/:id/matches — 获取商品的匹配达人列表
         优先读取商品自身的 matched_influencers，为空或超24小时则重新计算并缓存"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10443,7 +10467,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_get_influencer_matches(self, inf_id):
         """GET /api/influencers/:id/matches — 获取达人的匹配商品列表
         优先读取达人自身的 matched_products，为空或超24小时则重新计算并缓存"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10508,7 +10532,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_product(self):
         """POST /api/products — 录入商品（仅当 name+brand 完全一致时算重复）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10577,7 +10601,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_put_product(self, product_id):
         """PUT /api/products/{id} — 更新商品（同时同步 SQLite 与 data/products.json；SQLite 不存在时回退到 JSON）"""
         print(f'  [ProductPUT] 入口 product_id={product_id}', flush=True)
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             print(f'  [ProductPUT] 返回 401: 未认证 product_id={product_id}', flush=True)
             self._send_auth_error(auth.error, auth.status)
@@ -10674,7 +10698,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_delete_product(self, product_id):
         """DELETE /api/products/{id} — 删除商品（硬删除，符合常规 CRUD 语义）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10698,7 +10722,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_search_products(self):
         """POST /api/products/search — 高级搜索/匹配"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10764,7 +10788,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_analyze_product_ai(self, product_id):
         """POST /api/products/:id/analyze — 调用 AI 生成选品分析"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10833,7 +10857,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_brands(self):
         """GET /api/brands — 获取品牌列表"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10910,7 +10934,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_brand(self, brand_id):
         """GET /api/brands/:id — 获取单个品牌"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10927,7 +10951,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_brand(self):
         """POST /api/brands — 创建品牌"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10951,7 +10975,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_put_brand(self, brand_id):
         """PUT /api/brands/:id — 更新品牌"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -10983,7 +11007,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_delete_brand(self, brand_id):
         """DELETE /api/brands/:id — 删除品牌"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11002,7 +11026,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_talents(self):
         """GET /api/talents — 获取达人列表"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11042,7 +11066,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_talent(self, talent_id):
         """GET /api/talents/:id — 获取达人详情"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11059,7 +11083,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_talent(self):
         """POST /api/talents — 录入达人（仅当 douyin_id 完全一致时算重复）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11111,7 +11135,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_put_talent(self, talent_id):
         """PUT /api/talents/:id — 更新达人"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11146,7 +11170,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_delete_talent(self, talent_id):
         """DELETE /api/talents/:id — 删除达人"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11166,7 +11190,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_talent_follow_ups(self, talent_id):
         """GET /api/talents/:id/follow-ups — 获取跟进记录列表"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11188,7 +11212,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_talent_follow_up(self, talent_id):
         """POST /api/talents/:id/follow-ups — 新增跟进记录"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11223,7 +11247,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_put_talent_follow_up(self, talent_id, follow_up_id):
         """PUT /api/talents/:id/follow-ups/:follow_up_id — 更新跟进记录"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11263,7 +11287,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_delete_talent_follow_up(self, talent_id, follow_up_id):
         """DELETE /api/talents/:id/follow-ups/:follow_up_id — 删除跟进记录"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11306,7 +11330,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_influencers(self):
         """GET /api/influencers — 获取达人列表（支持 query 筛选）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11334,7 +11358,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_influencer(self, inf_id):
         """GET /api/influencers/:id — 获取单个达人详情"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11348,7 +11372,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_post_influencer(self):
         """POST /api/influencers — 录入达人"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11389,7 +11413,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_put_influencer(self, inf_id):
         """PUT /api/influencers/{id} — 更新达人"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11421,7 +11445,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_delete_influencer(self, inf_id):
         """DELETE /api/influencers/{id} — 删除达人"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11437,7 +11461,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_search_influencers(self):
         """POST /api/influencers/search — 高级搜索/匹配"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11628,7 +11652,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_match_product_to_influencer(self):
         """POST /api/match/product-to-influencer — 为商品匹配达人"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11679,7 +11703,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_match_influencer_to_product(self):
         """POST /api/match/influencer-to-product — 为达人匹配商品"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11912,7 +11936,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_product_talents(self, product_id):
         """GET /api/products/:id/talents — 带该商品的Top达人排名"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11943,7 +11967,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_talent_products(self, talent_id):
         """GET /api/talents/:id/products — 达人匹配商品列表"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -11975,7 +11999,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_match_product_talents(self, product_id):
         """POST /api/products/:id/match-talents — AI语义匹配推荐达人"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -12100,7 +12124,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_match_talent_products(self, talent_id):
         """POST /api/talents/:id/match-products — AI语义匹配推荐商品"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -12223,7 +12247,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_ai_match(self):
         """POST /api/ai-match — 统一 AI 匹配入口（talent→product 或 product→talent）"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -12260,7 +12284,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_analyze_talent_ai(self, talent_id):
         """POST /api/talents/:id/analyze — 调用 AI 生成达人分析"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -12360,7 +12384,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_chat(self, agent_id):
         """GET /api/chat/:agentId?type=personal|group"""
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -12397,7 +12421,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_post_chat(self, agent_id):
         """POST /api/chat/:agentId"""
         print(f'  [ChatPOST] 收到请求: {agent_id} path={self.path}', flush=True)
-        auth = _authenticate(self.headers, self.client_address[0])
+        auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
@@ -13245,7 +13269,7 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
 
 def _handle_delete_chat_message(self, agent_id, msg_id):
     """DELETE /api/chat/:agentId/:msgId?type=..."""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13271,7 +13295,7 @@ def _handle_delete_chat_message(self, agent_id, msg_id):
 
 def _handle_clear_chat(self, agent_id):
     """DELETE /api/chat/:agentId?type=... - 清空聊天记录"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13296,7 +13320,7 @@ def _handle_clear_chat(self, agent_id):
 
 def _handle_get_summarize(self, agent_id):
     """GET /api/chat/summarize/:agentId - 读取已保存的对话摘要"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13314,7 +13338,7 @@ def _handle_get_summarize(self, agent_id):
 
 def _handle_summarize_chat(self, agent_id):
     """POST /api/chat/summarize/:agentId - 将旧对话压缩成摘要"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13399,7 +13423,7 @@ def _call_ai_for_summary(self, agent, chat_text):
 
 def _handle_openclaw_status(self):
     """GET /api/openclaw/status"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13408,7 +13432,7 @@ def _handle_openclaw_status(self):
 
 def _handle_openclaw_list_agents(self):
     """GET /api/openclaw/agents"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13447,7 +13471,7 @@ def _handle_openclaw_list_agents(self):
 
 def _handle_openclaw_list_models(self):
     """GET /api/openclaw/models"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13467,7 +13491,7 @@ def _handle_openclaw_list_models(self):
 
 def _handle_openclaw_create_agent(self):
     """POST /api/openclaw/agents/create"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13533,7 +13557,7 @@ def _handle_openclaw_create_agent(self):
 
 def _handle_openclaw_update_agent(self):
     """POST /api/openclaw/agents/update"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13628,7 +13652,7 @@ def _handle_openclaw_update_agent(self):
 
 def _handle_openclaw_delete_agent(self, agent_name):
     """DELETE /api/openclaw/agents/:name"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13661,7 +13685,7 @@ def _handle_openclaw_delete_agent(self, agent_name):
 
 def _handle_skills_list(self):
     """GET /api/openclaw/skills/list - 列出已安装技能"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13705,7 +13729,7 @@ def _handle_skills_list(self):
 
 def _handle_skills_search(self):
     """GET /api/openclaw/skills/search?q=keyword - 搜索社区技能"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13751,7 +13775,7 @@ def _handle_skills_search(self):
 
 def _handle_skills_install(self):
     """POST /api/openclaw/skills/install - 安装技能"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13793,7 +13817,7 @@ def _handle_skills_install(self):
 
 def _handle_skills_remove(self):
     """POST /api/openclaw/skills/remove - 卸载技能"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13839,7 +13863,7 @@ def _handle_skills_remove(self):
 
 def _handle_feishu_status(self):
     """GET /api/openclaw/channels/feishu/status"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13877,7 +13901,7 @@ def _handle_feishu_status(self):
 
 def _handle_feishu_config(self):
     """POST /api/openclaw/channels/feishu"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13961,7 +13985,7 @@ def _handle_feishu_config(self):
 
 def _handle_pairing_approve(self):
     """POST /api/openclaw/pairing/approve"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -13996,7 +14020,7 @@ def _handle_pairing_approve(self):
 
 def _handle_gateway_restart(self):
     """POST /api/openclaw/gateway/restart"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -14496,7 +14520,7 @@ def _sync_token_usage_from_trajectories():
 
 def _handle_proxy(self):
     """POST /api/proxy（需认证）"""
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
         return
@@ -14685,7 +14709,7 @@ def _handle_douyin_parse(self):
     请求体: {"url": "链接"} 或 {"text": "分享文本"}，可选 "transcribe": true
     响应: parse_douyin_video() 的结果
     """
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_json(auth.status, {'success': False, 'error': auth.error})
         return
@@ -14727,7 +14751,7 @@ def _handle_douyin_transcribe(self):
     响应: {"success": true, "data": {"text": "转写结果"}} 或 {"success": false, "error": "..."}
     流程: 下载视频 -> ffmpeg 提取音频(mp3) -> 硅基流动 API 语音转文字
     """
-    auth = _authenticate(self.headers, self.client_address[0])
+    auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_json(auth.status, {'success': False, 'error': auth.error})
         return
