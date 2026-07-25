@@ -24470,19 +24470,6 @@ function createNewKnowledge() {
   }
   console.log('[Knowledge] 新建知识，表单已清空');
 }
-function createNewKnowledgeCategory() {
-  var name = prompt('请输入新分类名称');
-  if (!name) return;
-  createNewKnowledge();
-  var catEl = document.getElementById('knowledgeEditCategory');
-  if (catEl) {
-    var val = name.trim();
-    if (val && !Array.prototype.slice.call(catEl.options).some(function(o) { return o.value === val; })) {
-      catEl.innerHTML += '<option value="' + escapeAttr(val) + '">' + escapeHtml(val) + '</option>';
-    }
-    catEl.value = val;
-  }
-}
 function updateKnowledgeEditorView() {
   var textarea = document.getElementById('knowledgeEditContent');
   var preview = document.getElementById('knowledgeEditPreview');
@@ -24551,7 +24538,7 @@ async function saveKnowledgeFromEditor() {
   statusEl.textContent = '保存中...';
   try {
     var categoryName = categoryId && _knowledgeData.categoryMap[categoryId] ? _knowledgeData.categoryMap[categoryId].name : '';
-    var body = { title: title, content: content, category: categoryName, categoryId: categoryId || null, projectId: projectId || null };
+    var body = { title: title, content: content, category: categoryName, categoryId: categoryId ? parseInt(categoryId, 10) : null, projectId: projectId || null };
     if (!_knowledgeCurrentId) {
       // 新建时默认使用当前选中的 scope
       var createScope = (_knowledgeScope && _knowledgeScope !== 'all') ? _knowledgeScope : 'global';
