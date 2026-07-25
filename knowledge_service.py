@@ -1755,26 +1755,46 @@ def _kb_category_row_to_dict(row):
 
 
 def kb_category_update(category_id, name=None, sort_order=None):
-    """更新分类名称和/或排序"""
+    """更新分类名称和/或排序；排序变更时会重排同层级分类的 sort_order"""
     if not category_id:
         raise ValueError('分类 ID 不能为空')
-    updates = []
-    params = []
-    if name is not None:
-        name = str(name).strip()
-        if not name:
-            raise ValueError('分类名称不能为空')
-        updates.append('name = ?')
-        params.append(name)
-    if sort_order is not None:
-        updates.append('sort_order = ?')
-        params.append(int(sort_order))
-    if not updates:
-        return kb_category_get_by_id(category_id)
-    params.append(int(category_id))
+    category_id = int(category_id)
     conn = _db_conn()
     try:
-        conn.execute(f'UPDATE knowledge_categories SET {", ".join(updates)} WHERE id = ?', params)
+        cat = conn.execute('SELECT * FROM knowledge_categories WHERE id = ?', (category_id,)).fetchone()
+        if not cat:
+            return None
+
+        # 名称校验
+        if name is not None:
+            name = str(name).strip()
+            if not name:
+                raise ValueError('分类名称不能为空')
+
+        new_sort_order = int(sort_order) if sort_order is not None else None
+        need_reorder = new_sort_order is not None and new_sort_order != (cat['sort_order'] or 0)
+
+        if need_reorder:
+            parent_id = cat['parent_id']
+            project_id = cat['project_id'] or ''
+            # 同层级所有分类（排除当前分类），按当前 sort_order + id 稳定排序
+            rows = conn.execute(
+                'SELECT id, sort_order FROM knowledge_categories '
+                'WHERE parent_id IS ? AND project_id = ? AND id != ? '
+                'ORDER BY sort_order ASC, id ASC',
+                (parent_id, project_id, category_id)
+            ).fetchall()
+            target_index = max(0, min(new_sort_order, len(rows)))
+            ordered_ids = [r['id'] for r in rows]
+            ordered_ids.insert(target_index, category_id)
+            for idx, cid in enumerate(ordered_ids):
+                conn.execute(
+                    'UPDATE knowledge_categories SET sort_order = ? WHERE id = ?',
+                    (idx, cid)
+                )
+        elif name is not None:
+            conn.execute('UPDATE knowledge_categories SET name = ? WHERE id = ?', (name, category_id))
+
         conn.commit()
         return kb_category_get_by_id(category_id)
     finally:

@@ -2589,6 +2589,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .knowledge-cat-tree-row:hover { background: #F5F6F7; }
 .knowledge-cat-tree-row.active { background: rgba(22, 93, 255, 0.10); color: #165DFF; }
 .knowledge-cat-tree-row.drag-over { background: rgba(22, 93, 255, 0.16); }
+.knowledge-cat-tree-row.drag-over-before { border-top: 2px solid #165DFF; }
+.knowledge-cat-tree-row.drag-over-after { border-bottom: 2px solid #165DFF; }
 .knowledge-cat-toggle {
   width: 18px; height: 18px;
   display: flex; align-items: center; justify-content: center;
@@ -23992,34 +23994,75 @@ function _bindKnowledgeCatTreeEvents(container) {
     row.addEventListener('dragstart', function(e) {
       var node = row.closest('.knowledge-cat-tree-node');
       _knowledgeDragCat = node ? parseInt(node.dataset.catId, 10) : null;
+      if (_knowledgeDragCat) {
+        e.dataTransfer.setData('text/plain', String(_knowledgeDragCat));
+      }
       e.dataTransfer.effectAllowed = 'move';
+      row.classList.add('dragging');
+    });
+    row.addEventListener('dragend', function() {
+      row.classList.remove('dragging');
+      _knowledgeDragCat = null;
     });
     row.addEventListener('dragover', function(e) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      row.classList.add('drag-over');
+      var rect = row.getBoundingClientRect();
+      var offsetY = e.clientY - rect.top;
+      var isBefore = offsetY < rect.height / 2;
+      row.classList.remove('drag-over-before', 'drag-over-after');
+      row.classList.add(isBefore ? 'drag-over-before' : 'drag-over-after');
     });
-    row.addEventListener('dragleave', function() { row.classList.remove('drag-over'); });
+    row.addEventListener('dragleave', function(e) {
+      if (!row.contains(e.relatedTarget)) {
+        row.classList.remove('drag-over-before', 'drag-over-after');
+      }
+    });
     row.addEventListener('drop', function(e) {
       e.preventDefault();
-      row.classList.remove('drag-over');
+      var rect = row.getBoundingClientRect();
+      var offsetY = e.clientY - rect.top;
+      var position = offsetY < rect.height / 2 ? 'before' : 'after';
+      row.classList.remove('drag-over-before', 'drag-over-after');
       var node = row.closest('.knowledge-cat-tree-node');
       var targetId = node ? parseInt(node.dataset.catId, 10) : null;
       if (_knowledgeDragCat && !isNaN(targetId) && _knowledgeDragCat !== targetId) {
-        _moveKnowledgeCategory(_knowledgeDragCat, targetId);
+        _moveKnowledgeCategory(_knowledgeDragCat, targetId, position);
       }
       _knowledgeDragCat = null;
     });
   });
 }
 
-async function _moveKnowledgeCategory(dragId, targetId) {
+async function _moveKnowledgeCategory(dragId, targetId, position) {
   try {
+    var dragCat = _knowledgeData.categoryMap[dragId];
     var target = _knowledgeData.categoryMap[targetId];
-    if (!target) return;
+    if (!dragCat || !target) return;
+    // 仅允许同 project_id 内同层级排序，不允许跨项目/跨父级拖拽
+    if (dragCat.projectId !== target.projectId || dragCat.parentId !== target.parentId) {
+      showToast('❌ 仅支持同层级内排序');
+      return;
+    }
+    var siblings = [];
+    (_knowledgeData.categories || []).forEach(function walk(c) {
+      if ((c.parentId || null) === (target.parentId || null) && c.projectId === target.projectId) {
+        siblings.push(c);
+      }
+      if (c.children) c.children.forEach(walk);
+    });
+    siblings.sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0) || a.id - b.id; });
+    var targetIndex = siblings.findIndex(function(c) { return c.id === targetId; });
+    if (targetIndex < 0) return;
+    var newIndex = position === 'before' ? targetIndex : targetIndex + 1;
+    // 同层级拖拽时，先把自己从原位置移除，再计算目标位置
+    var dragIndex = siblings.findIndex(function(c) { return c.id === dragId; });
+    if (dragIndex >= 0 && dragIndex < newIndex) {
+      newIndex -= 1;
+    }
     await apiFetch('/api/knowledge/categories/' + encodeURIComponent(dragId), {
       method: 'PUT',
-      body: JSON.stringify({ sortOrder: (target.sortOrder || 0) + 1 })
+      body: JSON.stringify({ sortOrder: newIndex })
     });
     showToast('✅ 已调整排序');
     await loadKnowledgePage();
