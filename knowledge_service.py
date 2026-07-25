@@ -126,6 +126,15 @@ def _gen_id(prefix='kb'):
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
 
+def _add_column_if_not_exists(conn, table, column, def_type):
+    """如果表不存在某列，则添加该列（用于向后兼容升级）"""
+    try:
+        conn.execute(f'ALTER TABLE {table} ADD COLUMN {column} {def_type}')
+    except sqlite3.OperationalError as e:
+        if 'duplicate column name' not in str(e).lower():
+            raise
+
+
 # ═══════════════════════════════════════════════════
 # Embedding API（复用 solobrave-server.py 配置，但独立实现）
 # ═══════════════════════════════════════════════════
@@ -1530,6 +1539,8 @@ def init_kb_entries_db():
                 title TEXT NOT NULL,
                 content TEXT NOT NULL,
                 category TEXT DEFAULT '',
+                category_id INTEGER,
+                project_id TEXT DEFAULT '',
                 scope TEXT DEFAULT 'global',
                 team_id TEXT DEFAULT '',
                 group_ids TEXT DEFAULT '[]',
@@ -1541,11 +1552,30 @@ def init_kb_entries_db():
                 updated_at INTEGER
             )
         ''')
+        # 向后兼容：新增 category_id / project_id 字段
+        _add_column_if_not_exists(conn, 'kb_entries', 'category_id', 'INTEGER')
+        _add_column_if_not_exists(conn, 'kb_entries', 'project_id', "TEXT DEFAULT ''")
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_scope ON kb_entries(scope)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_category ON kb_entries(category)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_category_id ON kb_entries(category_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_project_id ON kb_entries(project_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_status ON kb_entries(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_emp ON kb_entries(emp_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kb_entries_created ON kb_entries(created_at)')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS knowledge_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                parent_id INTEGER,
+                project_id TEXT DEFAULT '',
+                sort_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_categories_parent ON knowledge_categories(parent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_categories_project ON knowledge_categories(project_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_categories_sort ON knowledge_categories(sort_order)')
 
         conn.execute('''
             CREATE TABLE IF NOT EXISTS kb_entry_chunks (
@@ -1613,15 +1643,34 @@ def init_kb_entries_db():
         conn.close()
 
 
+def _kb_category_name(category_id):
+    """根据分类 id 获取分类名称"""
+    if not category_id:
+        return None
+    try:
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT name FROM knowledge_categories WHERE id = ?', (category_id,)).fetchone()
+            return row['name'] if row else None
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
 def _kb_entry_row_to_dict(row):
     """将 kb_entries 行转为前端兼容 dict"""
     if not row:
         return None
+    category_id = row['category_id']
+    category_name = _kb_category_name(category_id) if category_id else (row['category'] or '')
     return {
         'id': row['id'],
         'title': row['title'],
         'content': row['content'],
-        'category': row['category'] or '',
+        'category': category_name or (row['category'] or ''),
+        'categoryId': category_id,
+        'projectId': row['project_id'] or '',
         'scope': row['scope'] or 'global',
         'teamId': row['team_id'] or '',
         'groupIds': _parse_group_ids(row['group_ids']),
@@ -1645,6 +1694,157 @@ def _kb_entry_group_ids_json(group_ids):
         except Exception:
             return '[]'
     return json.dumps(group_ids, ensure_ascii=False)
+
+
+# ═══════════════════════════════════════════════════
+# 知识库分类管理（项目分类树）
+# ═══════════════════════════════════════════════════
+
+def kb_category_create(name, parent_id=None, project_id=None):
+    """创建知识库分类"""
+    name = (name or '').strip()
+    if not name:
+        raise ValueError('分类名称不能为空')
+    parent_id = int(parent_id) if parent_id else None
+    project_id = (project_id or '').strip()
+    conn = _db_conn()
+    try:
+        if parent_id:
+            parent = conn.execute('SELECT id FROM knowledge_categories WHERE id = ?', (parent_id,)).fetchone()
+            if not parent:
+                raise ValueError('父分类不存在')
+        # 同项目/同父下最大排序 + 1
+        row = conn.execute(
+            'SELECT COALESCE(MAX(sort_order), 0) AS max_sort FROM knowledge_categories WHERE parent_id IS ? AND project_id = ?',
+            (parent_id, project_id)
+        ).fetchone()
+        sort_order = (row['max_sort'] or 0) + 1
+        cur = conn.execute(
+            'INSERT INTO knowledge_categories (name, parent_id, project_id, sort_order) VALUES (?, ?, ?, ?)',
+            (name, parent_id, project_id, sort_order)
+        )
+        conn.commit()
+        return kb_category_get_by_id(cur.lastrowid)
+    finally:
+        conn.close()
+
+
+def kb_category_get_by_id(category_id):
+    """获取单条分类详情"""
+    if not category_id:
+        return None
+    conn = _db_conn()
+    try:
+        row = conn.execute('SELECT * FROM knowledge_categories WHERE id = ?', (int(category_id),)).fetchone()
+        return _kb_category_row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _kb_category_row_to_dict(row):
+    if not row:
+        return None
+    return {
+        'id': row['id'],
+        'name': row['name'],
+        'parentId': row['parent_id'],
+        'projectId': row['project_id'] or '',
+        'sortOrder': row['sort_order'] or 0,
+        'createdAt': row['created_at'],
+    }
+
+
+def kb_category_update(category_id, name=None, sort_order=None):
+    """更新分类名称和/或排序"""
+    if not category_id:
+        raise ValueError('分类 ID 不能为空')
+    updates = []
+    params = []
+    if name is not None:
+        name = str(name).strip()
+        if not name:
+            raise ValueError('分类名称不能为空')
+        updates.append('name = ?')
+        params.append(name)
+    if sort_order is not None:
+        updates.append('sort_order = ?')
+        params.append(int(sort_order))
+    if not updates:
+        return kb_category_get_by_id(category_id)
+    params.append(int(category_id))
+    conn = _db_conn()
+    try:
+        conn.execute(f'UPDATE knowledge_categories SET {", ".join(updates)} WHERE id = ?', params)
+        conn.commit()
+        return kb_category_get_by_id(category_id)
+    finally:
+        conn.close()
+
+
+def kb_category_delete(category_id):
+    """删除分类及其子分类，并将关联知识 category_id 置 NULL"""
+    if not category_id:
+        return False
+    category_id = int(category_id)
+    conn = _db_conn()
+    try:
+        # 收集待删除的分类 id（含子分类）
+        to_delete = set()
+        queue = [category_id]
+        while queue:
+            cid = queue.pop(0)
+            if cid in to_delete:
+                continue
+            to_delete.add(cid)
+            rows = conn.execute('SELECT id FROM knowledge_categories WHERE parent_id = ?', (cid,)).fetchall()
+            for r in rows:
+                queue.append(r['id'])
+
+        # 将关联知识 category_id 置 NULL
+        if to_delete:
+            placeholders = ', '.join('?' for _ in to_delete)
+            conn.execute(
+                f'UPDATE kb_entries SET category_id = NULL WHERE category_id IN ({placeholders})',
+                tuple(to_delete)
+            )
+            conn.execute(
+                f'DELETE FROM knowledge_categories WHERE id IN ({placeholders})',
+                tuple(to_delete)
+            )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def kb_category_list(project_id=None):
+    """返回分类列表（平铺），按 project_id 过滤；project_id 为空字符串或 None 表示公共分类"""
+    project_id = (project_id or '').strip()
+    conn = _db_conn()
+    try:
+        rows = conn.execute(
+            'SELECT * FROM knowledge_categories WHERE project_id = ? ORDER BY sort_order ASC, id ASC',
+            (project_id,)
+        ).fetchall()
+        return [_kb_category_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def kb_category_tree(project_id=None):
+    """返回分类树（嵌套 children）"""
+    flat = kb_category_list(project_id=project_id)
+    node_map = {c['id']: c for c in flat}
+    roots = []
+    for c in flat:
+        c['children'] = []
+    for c in flat:
+        pid = c.get('parentId')
+        if pid and pid in node_map:
+            node_map[pid]['children'].append(c)
+        else:
+            roots.append(c)
+    return roots
 
 
 def _save_kb_chunks_without_embedding(entry_id, emp_id, content, chunk_size, overlap):
@@ -1712,19 +1912,21 @@ def _vectorize_kb_chunks(entry_id, emp_id, api_key, provider, model, base_url=No
             conn.close()
 
 
-def kb_entry_create(title, content, category, created_by, scope='global', team_id='', group_ids=None, emp_id='', agent_config=None):
+def kb_entry_create(title, content, category, created_by, scope='global', team_id='', group_ids=None, emp_id='', agent_config=None, category_id=None, project_id=None):
     """创建新版知识条目，自动分段+向量化"""
     entry_id = _gen_id('kbe')
     now = _now_ms()
     scope = scope or 'global'
     group_ids_json = _kb_entry_group_ids_json(group_ids)
+    category_id = int(category_id) if category_id else None
+    project_id = (project_id or '').strip()
 
     conn = _db_conn()
     try:
         conn.execute('''
-            INSERT INTO kb_entries (id, title, content, category, scope, team_id, group_ids, emp_id, status, chunk_count, created_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)
-        ''', (entry_id, title, content, category or '', scope, team_id or '', group_ids_json, emp_id or '', created_by or '', now, now))
+            INSERT INTO kb_entries (id, title, content, category, category_id, project_id, scope, team_id, group_ids, emp_id, status, chunk_count, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)
+        ''', (entry_id, title, content, category or '', category_id, project_id, scope, team_id or '', group_ids_json, emp_id or '', created_by or '', now, now))
         conn.commit()
     finally:
         conn.close()
@@ -1786,7 +1988,7 @@ def kb_entry_get_by_id(entry_id):
         conn.close()
 
 
-def kb_entry_update(entry_id, title=None, content=None, category=None, scope=None, team_id=None, group_ids=None, emp_id=None, created_by=None, agent_config=None, is_admin=False):
+def kb_entry_update(entry_id, title=None, content=None, category=None, category_id=None, project_id=None, scope=None, team_id=None, group_ids=None, emp_id=None, created_by=None, agent_config=None, is_admin=False):
     """更新新版知识条目；内容变更时重新分段向量化"""
     conn = _db_conn()
     try:
@@ -1813,6 +2015,10 @@ def kb_entry_update(entry_id, title=None, content=None, category=None, scope=Non
         updates['content'] = content
     if category is not None:
         updates['category'] = category
+    if category_id is not None:
+        updates['category_id'] = int(category_id) if category_id else None
+    if project_id is not None:
+        updates['project_id'] = (project_id or '').strip()
     if scope is not None:
         updates['scope'] = scope
     if team_id is not None:
@@ -1902,7 +2108,28 @@ def _kb_entry_group_where_clause(user_group_ids):
     return f"EXISTS (SELECT 1 FROM json_each(group_ids) WHERE value IN ({placeholders}))", list(user_group_ids)
 
 
-def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, category=None, keyword=None, allowed_categories=None):
+def _kb_category_descendant_ids(category_id):
+    """获取某分类及其所有后代分类的 id 列表"""
+    if not category_id:
+        return []
+    category_id = int(category_id)
+    result = [category_id]
+    conn = _db_conn()
+    try:
+        queue = [category_id]
+        while queue:
+            cid = queue.pop(0)
+            rows = conn.execute('SELECT id FROM knowledge_categories WHERE parent_id = ?', (cid,)).fetchall()
+            for r in rows:
+                if r['id'] not in result:
+                    result.append(r['id'])
+                    queue.append(r['id'])
+        return result
+    finally:
+        conn.close()
+
+
+def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, category=None, category_id=None, project_id=None, keyword=None, allowed_categories=None):
     """构建 kb_entries 查询 WHERE 子句与参数"""
     if user_group_ids is None:
         user_group_ids = []
@@ -1958,6 +2185,18 @@ def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False
     if category:
         where.append('category = ?')
         params.append(category)
+    if category_id:
+        cat_ids = _kb_category_descendant_ids(category_id)
+        if cat_ids:
+            placeholders = ', '.join('?' for _ in cat_ids)
+            where.append(f'category_id IN ({placeholders})')
+            params.extend(cat_ids)
+        else:
+            where.append('1 = 0')
+    if project_id is not None:
+        project_id = (project_id or '').strip()
+        where.append('project_id = ?')
+        params.append(project_id)
     if allowed_categories is not None and '*' not in allowed_categories:
         if allowed_categories:
             placeholders = ', '.join('?' for _ in allowed_categories)
@@ -1976,14 +2215,15 @@ def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False
     return where, params
 
 
-def kb_entry_list(offset=0, limit=50, category=None, keyword=None, allowed_categories=None,
+def kb_entry_list(offset=0, limit=50, category=None, category_id=None, project_id=None, keyword=None, allowed_categories=None,
                   scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None,
                   user_group_ids=None, emp_ids=None, created_by=None):
     """新版知识库列表（分页、分类、关键词、四层隔离）"""
     where, params = _kb_entry_build_where(
         scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
         user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
-        created_by=created_by, category=category, keyword=keyword, allowed_categories=allowed_categories
+        created_by=created_by, category=category, category_id=category_id, project_id=project_id,
+        keyword=keyword, allowed_categories=allowed_categories
     )
 
     conn = _db_conn()
@@ -2007,12 +2247,13 @@ def kb_entry_list(offset=0, limit=50, category=None, keyword=None, allowed_categ
 
 
 def kb_entry_categories(allowed_categories=None, scope=None, team_id=None, user_id=None, is_admin=False,
-                        user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None):
+                        user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, project_id=None):
     """返回当前用户可见的分类计数"""
     where, params = _kb_entry_build_where(
         scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
         user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
-        created_by=created_by, category=None, keyword=None, allowed_categories=allowed_categories
+        created_by=created_by, category=None, category_id=None, project_id=project_id,
+        keyword=None, allowed_categories=allowed_categories
     )
     conn = _db_conn()
     try:
@@ -2031,12 +2272,13 @@ def kb_entry_categories(allowed_categories=None, scope=None, team_id=None, user_
 
 
 def kb_entry_stats(allowed_categories=None, scope=None, team_id=None, user_id=None, is_admin=False,
-                   user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None):
+                   user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, project_id=None):
     """新版知识库统计面板数据"""
     where, params = _kb_entry_build_where(
         scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
         user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
-        created_by=created_by, category=None, keyword=None, allowed_categories=allowed_categories
+        created_by=created_by, category=None, category_id=None, project_id=project_id,
+        keyword=None, allowed_categories=allowed_categories
     )
     conn = _db_conn()
     try:
@@ -2049,7 +2291,8 @@ def kb_entry_stats(allowed_categories=None, scope=None, team_id=None, user_id=No
             sc_where, sc_params = _kb_entry_build_where(
                 scope=sc, team_id=team_id, user_id=user_id, is_admin=is_admin,
                 user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
-                created_by=created_by, category=None, keyword=None, allowed_categories=allowed_categories
+                created_by=created_by, category=None, category_id=None, project_id=project_id,
+                keyword=None, allowed_categories=allowed_categories
             )
             sc_sql = "SELECT COUNT(*) FROM kb_entries WHERE " + ' AND '.join(sc_where)
             scope_counts[sc] = conn.execute(sc_sql, tuple(sc_params)).fetchone()[0]
@@ -2080,7 +2323,7 @@ def kb_entry_stats(allowed_categories=None, scope=None, team_id=None, user_id=No
         conn.close()
 
 
-def kb_entry_search_semantic(query, limit=10, allowed_categories=None, scope=None, team_id=None, category=None, user_id=None,
+def kb_entry_search_semantic(query, limit=10, allowed_categories=None, scope=None, team_id=None, category=None, category_id=None, project_id=None, user_id=None,
                              is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None):
     """新版知识库语义搜索（复用全局 embedding 配置，支持硅基流动）"""
     if not query or not query.strip():
@@ -2101,7 +2344,8 @@ def kb_entry_search_semantic(query, limit=10, allowed_categories=None, scope=Non
     where, params = _kb_entry_build_where(
         scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
         user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
-        created_by=created_by, category=category, keyword=None, allowed_categories=allowed_categories
+        created_by=created_by, category=category, category_id=category_id, project_id=project_id,
+        keyword=None, allowed_categories=allowed_categories
     )
 
     import struct

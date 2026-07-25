@@ -786,6 +786,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 11px;
   font-weight: 500;
 }
+.products-mid-card-commission.commission-set {
+  color: #34C759;
+  background: #E8F8E8;
+}
 .products-mid-card-sales-row {
   display: flex;
   align-items: center;
@@ -2536,6 +2540,99 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .knowledge-scope-tab:hover { background: var(--bg-tertiary); color: var(--text-primary); }
 .knowledge-scope-tab.active { background: var(--accent-light); color: var(--accent); font-weight: 500; }
+
+/* Project tabs */
+.knowledge-project-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px 6px;
+  border-bottom: 0.5px solid var(--separator);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.knowledge-project-tab {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.knowledge-project-tab:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.knowledge-project-tab.active { background: var(--accent-light); color: var(--accent); font-weight: 500; }
+
+/* Category tree */
+.knowledge-cat-list { padding: 8px; }
+.knowledge-cat-tree-node {
+  user-select: none;
+}
+.knowledge-cat-tree-children {
+  padding-left: 18px;
+  overflow: hidden;
+}
+.knowledge-cat-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 8px;
+  margin: 1px 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.knowledge-cat-tree-row:hover { background: #F5F6F7; }
+.knowledge-cat-tree-row.active { background: rgba(22, 93, 255, 0.10); color: #165DFF; }
+.knowledge-cat-tree-row.drag-over { background: rgba(22, 93, 255, 0.16); }
+.knowledge-cat-toggle {
+  width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  color: #86909c;
+  font-size: 12px;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.knowledge-cat-toggle.expanded { transform: rotate(90deg); }
+.knowledge-cat-toggle.leaf { visibility: hidden; }
+.knowledge-cat-icon { font-size: 16px; width: 18px; text-align: center; flex-shrink: 0; }
+.knowledge-cat-tree-row .knowledge-cat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-cat-count {
+  font-size: 10px;
+  color: #86909c;
+  background: #F2F3F5;
+  padding: 1px 5px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.knowledge-cat-tree-row.active .knowledge-cat-count { background: rgba(22, 93, 255, 0.16); color: #165DFF; }
+
+/* Context menu */
+.knowledge-cat-context-menu {
+  position: fixed;
+  background: #ffffff;
+  border: 0.5px solid var(--separator);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  padding: 4px;
+  z-index: 10000;
+  min-width: 120px;
+}
+.knowledge-cat-context-menu.hidden { display: none; }
+.knowledge-cat-context-item {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.knowledge-cat-context-item:hover { background: #F5F6F7; }
+.knowledge-cat-context-item.danger { color: #F53F3F; }
+.knowledge-cat-context-item.danger:hover { background: #FFF2F0; }
 
 /* Middle list */
 .knowledge-mid-header {
@@ -6096,15 +6193,11 @@ window.doLogin = function () {
 
 <!-- Knowledge Category Sidebar -->
 <div class="module-mid knowledge-cat-sidebar" id="knowledgeMid">
-  <div class="knowledge-scope-tabs" id="knowledgeScopeTabs">
-    <button class="knowledge-scope-tab active" data-scope="all" onclick="selectKnowledgeScope('all')">全部</button>
-    <button class="knowledge-scope-tab" data-scope="global" onclick="selectKnowledgeScope('global')">全局</button>
-    <button class="knowledge-scope-tab" data-scope="group" onclick="selectKnowledgeScope('group')">项目组</button>
-    <button class="knowledge-scope-tab" data-scope="personal" onclick="selectKnowledgeScope('personal')">个人</button>
-  </div>
+  <div class="knowledge-project-tabs" id="knowledgeProjectTabs"></div>
   <div class="knowledge-cat-list" id="knowledgeMidCategory"></div>
   <button class="knowledge-cat-new" onclick="createNewKnowledgeCategory()">+ 新建分类</button>
 </div>
+<div id="knowledgeCatContextMenu" class="knowledge-cat-context-menu hidden"></div>
 
 <!-- Settings Mid -->
 <div class="module-mid" id="settingsMid">
@@ -6179,6 +6272,7 @@ window.doLogin = function () {
   <div class="module-right-content knowledge-editor hidden" id="knowledgeEditPanel">
     <div class="knowledge-editor-header">
       <input type="text" id="knowledgeEditTitle" placeholder="知识标题">
+      <select id="knowledgeEditProject"><option value="">公共知识</option></select>
       <select id="knowledgeEditCategory"><option value="">选择分类</option></select>
       <div id="knowledgeEditGroups" class="knowledge-edit-groups" style="display:none;"></div>
     </div>
@@ -7756,6 +7850,7 @@ function formatRelativeTime(ts) {
   var y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
   var h = pad(d.getHours()), min = pad(d.getMinutes());
   var timePart = h + ':' + min;
+  var absTime = y + '-' + pad(m) + '-' + pad(day) + ' ' + timePart;
   // 今天
   if (y === now.getFullYear() && m === now.getMonth() + 1 && day === now.getDate()) {
     return '今天 ' + timePart;
@@ -7765,21 +7860,15 @@ function formatRelativeTime(ts) {
   if (y === yesterday.getFullYear() && m === yesterday.getMonth() + 1 && day === yesterday.getDate()) {
     return '昨天 ' + timePart;
   }
-  // 同一周内（前天到本周，按周一为一周开始）
-  var startOfWeek = new Date(now);
-  startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-  startOfWeek.setHours(0, 0, 0, 0);
+  // 2-7 天前
   var dStart = new Date(d); dStart.setHours(0, 0, 0, 0);
-  var weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-  if (dStart >= startOfWeek && y === now.getFullYear()) {
-    return weekDays[d.getDay()] + ' ' + timePart;
+  var nowStart = new Date(now); nowStart.setHours(0, 0, 0, 0);
+  var dayDiff = Math.floor((nowStart - dStart) / (1000 * 60 * 60 * 24));
+  if (dayDiff >= 2 && dayDiff <= 7) {
+    return dayDiff + '天前';
   }
-  // 同年更早
-  if (y === now.getFullYear()) {
-    return pad(m) + '-' + pad(day) + ' ' + timePart;
-  }
-  // 跨年
-  return y + '-' + pad(m) + '-' + pad(day) + ' ' + timePart;
+  // 超过 7 天显示绝对时间
+  return absTime;
 }
 
 // 格式化日期时间戳（统一使用相对时间）
@@ -22035,7 +22124,7 @@ function renderProductList(products) {
     html += '<div class="products-mid-card-price-row">';
     html += '<span class="products-mid-card-price">¥' + (p.price || 0).toFixed(2) + '</span>';
     var commissionUnset = p.commission_rate === null || p.commission_rate === undefined || Number(p.commission_rate) === 0;
-    html += '<span class="products-mid-card-commission">' + (commissionUnset ? '待设置' : '佣金' + Number(p.commission_rate).toFixed(0) + '%') + '</span>';
+    html += '<span class="products-mid-card-commission' + (commissionUnset ? '' : ' commission-set') + '">' + (commissionUnset ? '佣金·待设置' : '佣金' + Number(p.commission_rate).toFixed(0) + '%') + '</span>';
     html += '</div>';
     html += '<div class="products-mid-card-sales-row">';
     html += '<span class="products-mid-card-sales">月销 ' + formatNumber(p.monthly_sales || 0) + '</span>';
@@ -22703,7 +22792,7 @@ function renderTalentList(talents) {
     }
     html += '</div>';
     html += '<div class="talents-mid-score">';
-    html += '<div class="talents-mid-score-value">' + (aiScore ? '匹配度 ' + aiScore : '-') + '</div>';
+    html += '<div class="talents-mid-score-value">' + (aiScore ? '推荐指数 ' + aiScore : '-') + '</div>';
     html += '<div class="talents-mid-score-label">AI推荐</div>';
     html += '</div>';
     html += '</div>';
@@ -23669,15 +23758,20 @@ var _currentTalentMatchProducts = { talent: null, matches: [], sortBy: 'score' }
 var _currentProductMatchTalents = { product: null, matches: [], sortBy: 'score' };
 
 // ========== Knowledge Page ==========
-var _knowledgeData = { docs: [], categories: [], total: 0 };
+var _knowledgeData = { docs: [], categories: [], categoryMap: {}, total: 0 };
 var _knowledgeCurrentCat = '';
+var _knowledgeCurrentCategoryId = null;
 var _knowledgeCurrentId = null;
 var _knowledgeScope = 'all';
+var _knowledgeProjectId = '';
 var _knowledgePreviewMode = false;
 var _knowledgeViewMode = 'card';
 var _knowledgePage = 1;
 var _knowledgePageSize = 20;
 var _knowledgeInitialized = false;
+var _knowledgeExpandedCats = {};
+var _knowledgeDragCat = null;
+var _knowledgeCatContextTarget = null;
 
 var _knowledgeScopeNames = { all: '全部文档', global: '全局知识库', group: '项目组知识库', personal: '个人知识库' };
 
@@ -23785,29 +23879,37 @@ async function loadKnowledgePage(page) {
   if (midItems) midItems.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
   try {
     await loadGroups();
+    renderKnowledgeProjectTabs();
     var offset = (_knowledgePage - 1) * _knowledgePageSize;
     var url = '/api/knowledge/entries?limit=' + _knowledgePageSize + '&offset=' + offset;
     if (_knowledgeScope && _knowledgeScope !== 'all') url += '&scope=' + encodeURIComponent(_knowledgeScope);
-    if (_knowledgeCurrentCat) url += '&category=' + encodeURIComponent(_knowledgeCurrentCat);
+    if (_knowledgeCurrentCategoryId) url += '&categoryId=' + encodeURIComponent(_knowledgeCurrentCategoryId);
+    if (_knowledgeProjectId) url += '&projectId=' + encodeURIComponent(_knowledgeProjectId);
     var searchInput = document.getElementById('knowledgeMidSearch');
     var kw = searchInput ? searchInput.value.trim() : '';
     if (kw) url += '&q=' + encodeURIComponent(kw);
-    var [listRes, catRes, statsRes] = await Promise.all([
-      apiFetch(url),
-      apiFetch('/api/knowledge/categories' + (_knowledgeScope && _knowledgeScope !== 'all' ? '?scope=' + encodeURIComponent(_knowledgeScope) : '')),
-      apiFetch('/api/knowledge/stats' + (_knowledgeScope && _knowledgeScope !== 'all' ? '?scope=' + encodeURIComponent(_knowledgeScope) : ''))
-    ]);
+    var catUrl = '/api/knowledge/categories?projectId=' + encodeURIComponent(_knowledgeProjectId || '');
+    var statsUrl = '/api/knowledge/stats?projectId=' + encodeURIComponent(_knowledgeProjectId || '');
+    if (_knowledgeScope && _knowledgeScope !== 'all') {
+      catUrl += '&scope=' + encodeURIComponent(_knowledgeScope);
+      statsUrl += '&scope=' + encodeURIComponent(_knowledgeScope);
+    }
+    var [listRes, catRes, statsRes] = await Promise.all([apiFetch(url), apiFetch(catUrl), apiFetch(statsUrl)]);
     var data = await listRes.json();
     _knowledgeData.docs = data.docs || [];
     _knowledgeData.total = data.total || 0;
     var catData = await catRes.json();
-    _knowledgeData.categories = (catData.categories || []).map(function(c) { return c.name; });
-    renderKnowledgeCategories(catData.categories || [], catData.total || _knowledgeData.total);
+    _knowledgeData.categories = catData.categories || [];
+    _knowledgeData.categoryMap = {};
+    function walk(cats) { cats.forEach(function(c) { _knowledgeData.categoryMap[c.id] = c; if (c.children) walk(c.children); }); }
+    walk(_knowledgeData.categories);
+    renderKnowledgeCategories(_knowledgeData.categories);
     renderKnowledgeList(_knowledgeData.docs);
     renderKnowledgePagination(_knowledgeData.total, _knowledgePage, _knowledgePageSize);
     var statsData = await statsRes.json();
     renderKnowledgeStats(statsData.stats || {});
     _updateKnowledgeNewButtonVisibility();
+    _updateKnowledgeEditorProjectCategoryOptions();
     _knowledgeInitialized = true;
   } catch (e) {
     console.warn('[KnowledgePage] 加载失败:', e);
@@ -23823,70 +23925,285 @@ function _getKnowledgeCategoryColorVar(cat) {
   return map[cat] || 'var(--knowledge-cat-default)';
 }
 
-function renderKnowledgeCategories(categories, total) {
+function renderKnowledgeProjectTabs() {
+  var container = document.getElementById('knowledgeProjectTabs');
+  if (!container) return;
+  var userGroups = _getCurrentUserGroups();
+  var html = '<button class="knowledge-project-tab' + (_knowledgeProjectId === '' ? ' active' : '') + '" data-project="" onclick="selectKnowledgeProject(\'\')">公共知识</button>';
+  userGroups.forEach(function(g) {
+    html += '<button class="knowledge-project-tab' + (_knowledgeProjectId === g.id ? ' active' : '') + '" data-project="' + escapeAttr(g.id) + '" onclick="selectKnowledgeProject(\'' + escapeAttr(g.id).replace(/'/g, "\\'") + '\')">' + escapeHtml(g.name || g.id) + '</button>';
+  });
+  container.innerHTML = html;
+}
+
+async function selectKnowledgeProject(projectId) {
+  _knowledgeProjectId = projectId || '';
+  _knowledgeCurrentCategoryId = null;
+  _knowledgeCurrentCat = '';
+  _knowledgePage = 1;
+  var titleEl = document.getElementById('knowledgeMidTitle');
+  if (titleEl) titleEl.textContent = _getKnowledgeProjectName(_knowledgeProjectId);
+  await loadKnowledgePage(1);
+}
+
+function _getKnowledgeProjectName(projectId) {
+  if (!projectId) return '公共知识';
+  var g = groups.find(function(x) { return x.id === projectId; });
+  return g ? (g.name || projectId) : projectId;
+}
+
+function renderKnowledgeCategories(categories) {
   var list = document.getElementById('knowledgeMidCategory');
   if (!list) return;
-  // 按权限过滤分类
-  var allowedCats = getAllowedKnowledgeCategories();
-  var canAll = allowedCats.indexOf('*') > -1;
-  var visibleCats = (categories || []).filter(function(item) {
-    return canAll || allowedCats.indexOf(item.name) > -1;
-  });
-
-  var html = '';
-  html += '<div class="knowledge-cat-item' + (!_knowledgeCurrentCat ? ' active' : '') + '" data-cat="" onclick="selectKnowledgeCategory(\'\')">';
-  html += '<span class="knowledge-cat-icon">📁</span>';
-  html += '<span class="knowledge-cat-name">全部分类</span><span class="knowledge-cat-count">' + (total || _knowledgeData.total || 0) + '</span></div>';
-  visibleCats.forEach(function(item) {
-    var cat = item.name;
-    html += '<div class="knowledge-cat-item' + (_knowledgeCurrentCat === cat ? ' active' : '') + '" data-cat="' + escapeAttr(cat) + '" onclick="selectKnowledgeCategory(\'' + escapeAttr(cat).replace(/'/g, "\\'") + '\')">';
-    html += '<span class="knowledge-cat-icon">' + _getKnowledgeCategoryIcon(cat) + '</span>';
-    html += '<span class="knowledge-cat-name">' + escapeHtml(cat) + '</span><span class="knowledge-cat-count">' + (item.count || 0) + '</span></div>';
-  });
+  var html = '<div class="knowledge-cat-tree-node">';
+  html += _renderKnowledgeCatNode({ id: '', name: '全部分类', children: [] }, 0, true);
+  (categories || []).forEach(function(c) { html += _renderKnowledgeCatNode(c, 0, false); });
+  html += '</div>';
   list.innerHTML = html;
-  // Update editor category select（只显示有权限分类）
-  var editorCat = document.getElementById('knowledgeEditCategory');
-  if (editorCat) {
-    var opts = '<option value="">选择分类</option>';
-    visibleCats.forEach(function(item) {
-      var cat = item.name;
-      opts += '<option value="' + escapeAttr(cat) + '">' + escapeHtml(cat) + '</option>';
-    });
-    var currentVal = editorCat.value;
-    editorCat.innerHTML = opts;
-    if (currentVal && (canAll || allowedCats.indexOf(currentVal) > -1)) {
-      editorCat.value = currentVal;
-    } else {
-      editorCat.value = '';
-    }
-  }
-  // Update middle list header title
+  _bindKnowledgeCatTreeEvents(list);
   var titleEl = document.getElementById('knowledgeMidTitle');
-  if (titleEl) titleEl.textContent = _knowledgeScopeNames[_knowledgeScope] || '全部文档';
+  if (titleEl) titleEl.textContent = _getKnowledgeProjectName(_knowledgeProjectId);
 }
+
+function _renderKnowledgeCatNode(cat, depth, isAll) {
+  var children = cat.children || [];
+  var hasChildren = children.length > 0;
+  var expanded = isAll || _knowledgeExpandedCats[cat.id] || false;
+  var active = isAll ? !_knowledgeCurrentCategoryId : (_knowledgeCurrentCategoryId === cat.id);
+  var catIdVal = cat.id === '' ? 'null' : JSON.stringify(cat.id);
+  var html = '<div class="knowledge-cat-tree-node" data-cat-id="' + escapeAttr(String(cat.id)) + '">';
+  html += '<div class="knowledge-cat-tree-row' + (active ? ' active' : '') + '" draggable="' + (isAll ? 'false' : 'true') + '" style="padding-left:' + (8 + depth * 14) + 'px;"' + (isAll ? '' : ' oncontextmenu="showKnowledgeCatContextMenu(event, ' + catIdVal + ')"') + '>';
+  html += '<span class="knowledge-cat-toggle ' + (hasChildren ? (expanded ? 'expanded' : '') : 'leaf') + '" onclick="toggleKnowledgeCategory(event, ' + catIdVal + ')">▶</span>';
+  html += '<span class="knowledge-cat-icon">' + (isAll ? '📁' : '📄') + '</span>';
+  html += '<span class="knowledge-cat-name" onclick="selectKnowledgeCategoryId(event, ' + catIdVal + ', ' + isAll + ')">' + escapeHtml(cat.name || '未命名') + '</span>';
+  html += '</div>';
+  if (hasChildren) {
+    html += '<div class="knowledge-cat-tree-children" style="display:' + (expanded ? 'block' : 'none') + '">';
+    children.forEach(function(child) { html += _renderKnowledgeCatNode(child, depth + 1, false); });
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function _bindKnowledgeCatTreeEvents(container) {
+  var rows = container.querySelectorAll('.knowledge-cat-tree-row');
+  rows.forEach(function(row) {
+    row.addEventListener('dragstart', function(e) {
+      var node = row.closest('.knowledge-cat-tree-node');
+      _knowledgeDragCat = node ? parseInt(node.dataset.catId, 10) : null;
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      row.classList.add('drag-over');
+    });
+    row.addEventListener('dragleave', function() { row.classList.remove('drag-over'); });
+    row.addEventListener('drop', function(e) {
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      var node = row.closest('.knowledge-cat-tree-node');
+      var targetId = node ? parseInt(node.dataset.catId, 10) : null;
+      if (_knowledgeDragCat && !isNaN(targetId) && _knowledgeDragCat !== targetId) {
+        _moveKnowledgeCategory(_knowledgeDragCat, targetId);
+      }
+      _knowledgeDragCat = null;
+    });
+  });
+}
+
+async function _moveKnowledgeCategory(dragId, targetId) {
+  try {
+    var target = _knowledgeData.categoryMap[targetId];
+    if (!target) return;
+    await apiFetch('/api/knowledge/categories/' + encodeURIComponent(dragId), {
+      method: 'PUT',
+      body: JSON.stringify({ sortOrder: (target.sortOrder || 0) + 1 })
+    });
+    showToast('✅ 已调整排序');
+    await loadKnowledgePage();
+  } catch (e) {
+    showToast('❌ 排序调整失败');
+    console.warn('[KnowledgeCat] move failed:', e);
+  }
+}
+
+function toggleKnowledgeCategory(e, catId) {
+  if (e) e.stopPropagation();
+  if (!catId) return;
+  _knowledgeExpandedCats[catId] = !_knowledgeExpandedCats[catId];
+  var node = document.querySelector('.knowledge-cat-tree-node[data-cat-id="' + catId + '"]');
+  if (!node) return;
+  var children = node.querySelector(':scope > .knowledge-cat-tree-children');
+  var toggle = node.querySelector(':scope > .knowledge-cat-tree-row > .knowledge-cat-toggle');
+  if (children) children.style.display = _knowledgeExpandedCats[catId] ? 'block' : 'none';
+  if (toggle) toggle.classList.toggle('expanded', _knowledgeExpandedCats[catId]);
+}
+
+async function selectKnowledgeCategoryId(e, catId, isAll) {
+  if (e) e.stopPropagation();
+  _knowledgeCurrentCategoryId = isAll ? null : (catId || null);
+  _knowledgeCurrentCat = isAll ? '' : ((_knowledgeData.categoryMap[catId] || {}).name || '');
+  _knowledgePage = 1;
+  document.querySelectorAll('.knowledge-cat-tree-row').forEach(function(row) {
+    var node = row.closest('.knowledge-cat-tree-node');
+    var id = node ? node.dataset.catId : '';
+    row.classList.toggle('active', (_knowledgeCurrentCategoryId === null ? id === '' : id === String(_knowledgeCurrentCategoryId)));
+  });
+  await loadKnowledgePage(1);
+}
+
 function onKnowledgeMidCategoryChange(cat) {
   selectKnowledgeCategory(cat);
 }
 async function selectKnowledgeCategory(cat) {
-  _knowledgeCurrentCat = cat;
-  _knowledgePage = 1;
-  // Update active class in sidebar
-  document.querySelectorAll('.knowledge-cat-item').forEach(function(item) {
-    item.classList.toggle('active', item.dataset.cat === (cat || ''));
+  var found = null;
+  Object.keys(_knowledgeData.categoryMap || {}).forEach(function(id) {
+    if (_knowledgeData.categoryMap[id].name === cat) found = parseInt(id, 10);
   });
-  await loadKnowledgePage(1);
+  await selectKnowledgeCategoryId(null, found, !found);
 }
 async function selectKnowledgeScope(scope) {
   _knowledgeScope = scope || 'all';
   _knowledgePage = 1;
   _knowledgeCurrentCat = '';
-  document.querySelectorAll('.knowledge-scope-tab').forEach(function(t) {
-    t.classList.toggle('active', t.dataset.scope === _knowledgeScope);
-  });
-  var titleEl = document.getElementById('knowledgeMidTitle');
-  if (titleEl) titleEl.textContent = _knowledgeScopeNames[_knowledgeScope] || '全部文档';
+  _knowledgeCurrentCategoryId = null;
   await loadKnowledgePage(1);
 }
+
+function showKnowledgeCatContextMenu(e, catId) {
+  if (e) e.preventDefault();
+  if (catId === '' || catId === null || catId === undefined) return;
+  _knowledgeCatContextTarget = catId;
+  var menu = document.getElementById('knowledgeCatContextMenu');
+  if (!menu) return;
+  menu.innerHTML = '<div class="knowledge-cat-context-item" onclick="addChildKnowledgeCategory()">新建子分类</div>' +
+    '<div class="knowledge-cat-context-item" onclick="renameKnowledgeCategory()">重命名</div>' +
+    '<div class="knowledge-cat-context-item danger" onclick="deleteKnowledgeCategory()">删除</div>';
+  menu.style.left = (e.clientX || 0) + 'px';
+  menu.style.top = (e.clientY || 0) + 'px';
+  menu.classList.remove('hidden');
+}
+
+function hideKnowledgeCatContextMenu() {
+  var menu = document.getElementById('knowledgeCatContextMenu');
+  if (menu) menu.classList.add('hidden');
+  _knowledgeCatContextTarget = null;
+}
+
+document.addEventListener('click', function(e) {
+  var menu = document.getElementById('knowledgeCatContextMenu');
+  if (menu && !menu.contains(e.target)) hideKnowledgeCatContextMenu();
+});
+
+async function createNewKnowledgeCategory() {
+  var name = prompt('请输入新分类名称');
+  if (!name || !name.trim()) return;
+  try {
+    await apiFetch('/api/knowledge/categories', {
+      method: 'POST',
+      body: JSON.stringify({ name: name.trim(), projectId: _knowledgeProjectId })
+    });
+    showToast('✅ 分类已创建');
+    await loadKnowledgePage();
+  } catch (e) {
+    showToast('❌ 创建分类失败');
+    console.warn('[KnowledgeCat] create failed:', e);
+  }
+}
+
+async function addChildKnowledgeCategory() {
+  if (!_knowledgeCatContextTarget) return;
+  var name = prompt('请输入子分类名称');
+  if (!name || !name.trim()) return;
+  try {
+    await apiFetch('/api/knowledge/categories', {
+      method: 'POST',
+      body: JSON.stringify({ name: name.trim(), parentId: _knowledgeCatContextTarget, projectId: _knowledgeProjectId })
+    });
+    hideKnowledgeCatContextMenu();
+    showToast('✅ 子分类已创建');
+    await loadKnowledgePage();
+  } catch (e) {
+    showToast('❌ 创建子分类失败');
+    console.warn('[KnowledgeCat] add child failed:', e);
+  }
+}
+
+async function renameKnowledgeCategory() {
+  if (!_knowledgeCatContextTarget) return;
+  var cat = _knowledgeData.categoryMap[_knowledgeCatContextTarget];
+  var name = prompt('重命名分类', cat ? cat.name : '');
+  if (!name || !name.trim()) return;
+  try {
+    await apiFetch('/api/knowledge/categories/' + encodeURIComponent(_knowledgeCatContextTarget), {
+      method: 'PUT',
+      body: JSON.stringify({ name: name.trim() })
+    });
+    hideKnowledgeCatContextMenu();
+    showToast('✅ 已重命名');
+    await loadKnowledgePage();
+  } catch (e) {
+    showToast('❌ 重命名失败');
+    console.warn('[KnowledgeCat] rename failed:', e);
+  }
+}
+
+function _updateKnowledgeEditorProjectCategoryOptions() {
+  var projEl = document.getElementById('knowledgeEditProject');
+  var catEl = document.getElementById('knowledgeEditCategory');
+  if (projEl) {
+    var html = '<option value="">公共知识</option>';
+    _getCurrentUserGroups().forEach(function(g) {
+      html += '<option value="' + escapeAttr(g.id) + '">' + escapeHtml(g.name || g.id) + '</option>';
+    });
+    var currentVal = projEl.value;
+    projEl.innerHTML = html;
+    projEl.value = currentVal || _knowledgeProjectId || '';
+    projEl.onchange = function() {
+      _populateKnowledgeEditCategoryOptions(catEl, projEl.value, null);
+    };
+  }
+  if (catEl) {
+    _populateKnowledgeEditCategoryOptions(catEl, projEl ? projEl.value : _knowledgeProjectId, _knowledgeCurrentCategoryId);
+  }
+}
+
+function _populateKnowledgeEditCategoryOptions(catEl, projectId, selectedId) {
+  if (!catEl) return;
+  var opts = '<option value="">选择分类</option>';
+  function walk(cats, depth) {
+    cats.forEach(function(c) {
+      if ((c.projectId || '') !== (projectId || '')) return;
+      opts += '<option value="' + escapeAttr(String(c.id)) + '">' + '　'.repeat(depth) + escapeHtml(c.name) + '</option>';
+      if (c.children && c.children.length) walk(c.children, depth + 1);
+    });
+  }
+  walk(_knowledgeData.categories || [], 0);
+  catEl.innerHTML = opts;
+  catEl.value = selectedId ? String(selectedId) : '';
+}
+
+async function deleteKnowledgeCategory() {
+  if (!_knowledgeCatContextTarget) return;
+  var cat = _knowledgeData.categoryMap[_knowledgeCatContextTarget];
+  if (!confirm('确定删除分类“' + (cat ? cat.name : '') + '”？子分类和关联知识将变为未分类。')) return;
+  try {
+    await apiFetch('/api/knowledge/categories/' + encodeURIComponent(_knowledgeCatContextTarget), { method: 'DELETE' });
+    hideKnowledgeCatContextMenu();
+    if (_knowledgeCurrentCategoryId === _knowledgeCatContextTarget) {
+      _knowledgeCurrentCategoryId = null;
+      _knowledgeCurrentCat = '';
+    }
+    showToast('✅ 已删除');
+    await loadKnowledgePage();
+  } catch (e) {
+    showToast('❌ 删除失败');
+    console.warn('[KnowledgeCat] delete failed:', e);
+  }
+}
+
 function getKnowledgePreview(content) {
   if (!content) return '';
   return content.replace(/[#*`\[\]()!>\-]/g, '').replace(/\s+/g, ' ').trim();
@@ -23978,7 +24295,7 @@ function renderKnowledgePagination(total, page, pageSize) {
   var totalPages = Math.ceil(total / pageSize);
   var html = '';
   html += '<button ' + (page <= 1 ? 'disabled' : '') + ' onclick="loadKnowledgePage(' + (page - 1) + ')">←</button>';
-  html += '<span>' + page + '/' + totalPages + '</span>';
+  html += '<span>第' + page + '页 / 共' + totalPages + '页</span>';
   html += '<button ' + (page >= totalPages ? 'disabled' : '') + ' onclick="loadKnowledgePage(' + (page + 1) + ')">→</button>';
   el.innerHTML = html;
 }
@@ -24037,7 +24354,7 @@ function onKnowledgeSearch(value) {
     try {
       var r = await apiFetch('/api/knowledge/search', {
         method: 'POST',
-        body: JSON.stringify({ query: kw, limit: 20, scope: (_knowledgeScope !== 'all' ? _knowledgeScope : null), category: _knowledgeCurrentCat || null })
+        body: JSON.stringify({ query: kw, limit: 20, scope: (_knowledgeScope !== 'all' ? _knowledgeScope : null), category: _knowledgeCurrentCat || null, categoryId: _knowledgeCurrentCategoryId || null, projectId: _knowledgeProjectId || null })
       });
       var data = await r.json();
       var docs = (data.docs || []).map(function(d) { d.scope = d.scope || 'global'; return d; });
@@ -24113,16 +24430,15 @@ function renderKnowledgeView(doc, skipPanelToggle) {
 
   // 同步编辑表单
   var editTitle = document.getElementById('knowledgeEditTitle');
+  var editProj = document.getElementById('knowledgeEditProject');
   var editCat = document.getElementById('knowledgeEditCategory');
   var editContent = document.getElementById('knowledgeEditContent');
   if (editTitle) editTitle.value = doc.title || doc.name || '';
   if (editContent) editContent.value = doc.content || '';
+  _updateKnowledgeEditorProjectCategoryOptions();
+  if (editProj) editProj.value = doc.projectId || _knowledgeProjectId || '';
   if (editCat) {
-    var cat = doc.category || '';
-    if (cat && !Array.prototype.slice.call(editCat.options).some(function(o) { return o.value === cat; })) {
-      editCat.innerHTML += '<option value="' + escapeAttr(cat) + '">' + escapeHtml(cat) + '</option>';
-    }
-    editCat.value = cat;
+    _populateKnowledgeEditCategoryOptions(editCat, editProj ? editProj.value : _knowledgeProjectId, doc.categoryId || _knowledgeCurrentCategoryId);
   }
   _knowledgePreviewMode = false;
   updateKnowledgeEditorView();
@@ -24130,11 +24446,13 @@ function renderKnowledgeView(doc, skipPanelToggle) {
 function createNewKnowledge() {
   _knowledgeCurrentId = null;
   var titleEl = document.getElementById('knowledgeEditTitle');
+  var projEl = document.getElementById('knowledgeEditProject');
   var catEl = document.getElementById('knowledgeEditCategory');
   var contentEl = document.getElementById('knowledgeEditContent');
   var statusEl = document.getElementById('knowledgeEditStatus');
   if (titleEl) titleEl.value = '';
-  if (catEl) catEl.value = _knowledgeCurrentCat || '';
+  if (projEl) projEl.value = _knowledgeProjectId || '';
+  if (catEl) _populateKnowledgeEditCategoryOptions(catEl, projEl ? projEl.value : _knowledgeProjectId, _knowledgeCurrentCategoryId);
   if (contentEl) contentEl.value = '';
   if (statusEl) statusEl.textContent = '';
   _knowledgePreviewMode = false;
@@ -24221,7 +24539,10 @@ function renderMarkdown(text) {
 async function saveKnowledgeFromEditor() {
   var title = document.getElementById('knowledgeEditTitle').value.trim();
   var content = document.getElementById('knowledgeEditContent').value.trim();
-  var category = document.getElementById('knowledgeEditCategory').value.trim();
+  var category = document.getElementById('knowledgeEditCategory');
+  var project = document.getElementById('knowledgeEditProject');
+  var categoryId = category ? category.value : '';
+  var projectId = project ? project.value : '';
   if (!title || !content) {
     showToast('请填写标题和内容');
     return;
@@ -24229,7 +24550,8 @@ async function saveKnowledgeFromEditor() {
   var statusEl = document.getElementById('knowledgeEditStatus');
   statusEl.textContent = '保存中...';
   try {
-    var body = { title: title, content: content, category: category };
+    var categoryName = categoryId && _knowledgeData.categoryMap[categoryId] ? _knowledgeData.categoryMap[categoryId].name : '';
+    var body = { title: title, content: content, category: categoryName, categoryId: categoryId || null, projectId: projectId || null };
     if (!_knowledgeCurrentId) {
       // 新建时默认使用当前选中的 scope
       var createScope = (_knowledgeScope && _knowledgeScope !== 'all') ? _knowledgeScope : 'global';

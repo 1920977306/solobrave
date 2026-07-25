@@ -2382,14 +2382,20 @@ def init_db():
                 tags TEXT DEFAULT '[]',
                 evidence_count INTEGER DEFAULT 1,
                 related_mem_ids TEXT DEFAULT '[]',
+                category_id INTEGER,
+                project_id TEXT DEFAULT '',
                 status TEXT DEFAULT 'pending',
                 created_at INTEGER,
                 updated_at INTEGER
             )
         ''')
+        _add_column_if_not_exists(conn, 'knowledge_base', 'category_id', 'INTEGER')
+        _add_column_if_not_exists(conn, 'knowledge_base', 'project_id', "TEXT DEFAULT ''")
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_base_emp ON knowledge_base(emp_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_base_status ON knowledge_base(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_base_title ON knowledge_base(title)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_base_category_id ON knowledge_base(category_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_base_project_id ON knowledge_base(project_id)')
 
         # 工具调用日志
         conn.execute('''
@@ -3026,6 +3032,8 @@ def _knowledge_base_row_to_dict(row):
         'tags': _parse_json_col(row['tags'], []),
         'evidenceCount': row['evidence_count'],
         'relatedMemIds': _parse_json_col(row['related_mem_ids'], []),
+        'categoryId': row['category_id'],
+        'projectId': row['project_id'] or '',
         'status': row['status'],
         'createdAt': row['created_at'],
         'updatedAt': row['updated_at'],
@@ -3153,13 +3161,16 @@ def _upsert_knowledge_base(kb):
             count = existing['evidence_count'] + int(kb.get('evidenceCount') or 1)
             kb_min = MEMORY_INDUCTION_THRESHOLDS['knowledge_repeat_min']
             new_status = 'active' if count >= kb_min or kb.get('status') == 'active' or existing['status'] == 'active' else existing['status']
+            category_id = int(kb.get('categoryId') or kb.get('category_id')) if kb.get('categoryId') or kb.get('category_id') else existing.get('category_id')
+            project_id = (kb.get('projectId') or kb.get('project_id') or existing.get('project_id') or '').strip()
             conn.execute('''
                 UPDATE knowledge_base SET title=?, content=?, source=?, tags=?,
-                evidence_count=?, related_mem_ids=?, status=?, updated_at=?
+                evidence_count=?, related_mem_ids=?, category_id=?, project_id=?, status=?, updated_at=?
                 WHERE id=?
             ''', (
                 kb.get('title', ''), kb.get('content', ''), kb.get('source', 'manual'),
-                _dump_json_col(kb.get('tags')), count, _dump_json_col(new_ids), new_status, now, kb_id
+                _dump_json_col(kb.get('tags')), count, _dump_json_col(new_ids),
+                category_id, project_id, new_status, now, kb_id
             ))
             conn.commit()
             return kb_id
@@ -3186,14 +3197,17 @@ def _upsert_knowledge_base(kb):
         status = kb.get('status', 'pending')
         if _contains_decision_keyword(content):
             status = 'active'
+        category_id = int(kb.get('categoryId') or kb.get('category_id')) if kb.get('categoryId') or kb.get('category_id') else None
+        project_id = (kb.get('projectId') or kb.get('project_id') or '').strip()
         conn.execute('''
-            INSERT INTO knowledge_base (id, emp_id, title, content, source, tags, evidence_count, related_mem_ids, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO knowledge_base (id, emp_id, title, content, source, tags, evidence_count, related_mem_ids, category_id, project_id, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             kb_id, kb.get('empId') or kb.get('emp_id'), kb.get('title', ''), kb.get('content', ''),
             kb.get('source', 'manual'), _dump_json_col(kb.get('tags')),
             int(kb.get('evidenceCount') or 1),
             _dump_json_col(kb.get('relatedMemIds') or kb.get('related_mem_ids')),
+            category_id, project_id,
             status, created_at, now
         ))
         conn.commit()
@@ -4499,6 +4513,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/knowledge/search':
             self._handle_post_kb_search()
             return
+        if path == '/api/knowledge/categories':
+            self._handle_post_kb_categories()
+            return
 
         # Knowledge API
         if path == '/api/knowledge':
@@ -4677,6 +4694,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if entry_id:
                 self._handle_put_kb_entry(entry_id)
                 return
+        if path.startswith('/api/knowledge/categories/'):
+            category_id = path[len('/api/knowledge/categories/'):]
+            if category_id:
+                self._handle_put_kb_category(category_id)
+                return
 
         # Knowledge API
         if path.startswith('/api/knowledge/'):
@@ -4800,6 +4822,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             entry_id = path[len('/api/knowledge/entries/'):]
             if entry_id:
                 self._handle_delete_kb_entry(entry_id)
+                return
+        if path.startswith('/api/knowledge/categories/'):
+            category_id = path[len('/api/knowledge/categories/'):]
+            if category_id:
+                self._handle_delete_kb_category(category_id)
                 return
 
         # Knowledge API
@@ -9166,6 +9193,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'source': body.get('source', 'manual'),
                 'tags': body.get('tags', []),
                 'relatedMemIds': [mem_id] if mem_id else [],
+                'categoryId': body.get('categoryId') or body.get('category_id'),
+                'projectId': body.get('projectId') or body.get('project_id'),
                 'status': 'active'
             })
         except Exception as e:
@@ -9639,6 +9668,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         offset = max(0, int(qs.get('offset', [0])[0]))
         limit = max(1, min(100, int(qs.get('limit', [20])[0])))
         category = qs.get('category', [''])[0] or None
+        category_id = qs.get('categoryId', [''])[0] or None
+        project_id = qs.get('projectId', [''])[0] or None
         keyword = qs.get('q', [''])[0] or None
         scope = qs.get('scope', [''])[0] or None
         team_id = qs.get('teamId', [''])[0] or None
@@ -9664,7 +9695,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         try:
             result = ks.kb_entry_list(
-                offset=offset, limit=limit, category=category, keyword=keyword,
+                offset=offset, limit=limit, category=category, category_id=category_id,
+                project_id=project_id, keyword=keyword,
                 allowed_categories=allowed_cats,
                 scope=scope, team_id=team_id, user_id=auth.user_id,
                 is_admin=auth.is_admin, user_team_ids=auth.team_ids,
@@ -9729,6 +9761,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('Permission denied', 403)
             return
         category = body.get('category', '')
+        category_id = body.get('categoryId') or body.get('category_id')
+        project_id = body.get('projectId') or body.get('project_id')
         if not _can_access_knowledge_category(auth, category):
             self._send_auth_error('No permission for this knowledge category', 403)
             return
@@ -9740,6 +9774,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 title=title,
                 content=body['content'],
                 category=category,
+                category_id=category_id,
+                project_id=project_id,
                 created_by=auth.user_id,
                 scope=scope,
                 team_id=team_id,
@@ -9778,6 +9814,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('No permission for this knowledge category', 403)
             return
         new_category = body.get('category')
+        new_category_id = body.get('categoryId') or body.get('category_id')
+        new_project_id = body.get('projectId') or body.get('project_id')
         if new_category is not None and not _can_access_knowledge_category(auth, new_category):
             self._send_auth_error('No permission for target knowledge category', 403)
             return
@@ -9809,6 +9847,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 title=title,
                 content=body.get('content'),
                 category=body.get('category'),
+                category_id=new_category_id,
+                project_id=new_project_id,
                 scope=new_scope,
                 team_id=new_team_id,
                 group_ids=group_ids,
@@ -9848,7 +9888,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(500, f'Delete failed: {str(e)}')
 
     def _handle_get_kb_categories(self):
-        """GET /api/knowledge/categories — 分类统计"""
+        """GET /api/knowledge/categories — 分类树"""
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -9856,21 +9896,76 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not self._require_module_permission(auth, 'knowledge'): return
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
-        scope = qs.get('scope', [''])[0] or None
-        allowed_cats = _allowed_knowledge_categories(auth)
+        project_id = qs.get('projectId', [''])[0] or ''
         try:
-            cats = ks.kb_entry_categories(
-                allowed_categories=allowed_cats,
-                scope=scope, user_id=auth.user_id,
-                is_admin=auth.is_admin, user_team_ids=auth.team_ids,
-                user_group_ids=auth.group_ids,
-                emp_ids=_get_user_emp_ids(auth.user_id)
-            )
-            total = sum(c['count'] for c in cats)
-            self._send_json(200, {'categories': cats, 'total': total})
+            tree = ks.kb_category_tree(project_id=project_id)
+            self._send_json(200, {'categories': tree, 'projectId': project_id})
         except Exception as e:
             print(f'  [KBCategories] failed: {e}', flush=True)
             self._send_json_error(500, f'Categories failed: {str(e)}')
+
+    def _handle_post_kb_categories(self):
+        """POST /api/knowledge/categories — 创建分类"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body() or {}
+        name = body.get('name') or body.get('category')
+        if not name or not str(name).strip():
+            self._send_json_error(400, 'Missing category name')
+            return
+        try:
+            cat = ks.kb_category_create(
+                name=str(name).strip(),
+                parent_id=body.get('parentId') or body.get('parent_id'),
+                project_id=body.get('projectId') or body.get('project_id')
+            )
+            self._send_json(200, cat)
+        except ValueError as e:
+            self._send_json_error(400, str(e))
+        except Exception as e:
+            print(f'  [KBCategories] create failed: {e}', flush=True)
+            self._send_json_error(500, f'Create category failed: {str(e)}')
+
+    def _handle_put_kb_category(self, category_id):
+        """PUT /api/knowledge/categories/<id> — 更新分类"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body() or {}
+        try:
+            cat = ks.kb_category_update(
+                category_id,
+                name=body.get('name'),
+                sort_order=body.get('sortOrder') if body.get('sortOrder') is not None else body.get('sort_order')
+            )
+            if not cat:
+                self._send_json_error(404, 'Category not found')
+                return
+            self._send_json(200, cat)
+        except ValueError as e:
+            self._send_json_error(400, str(e))
+        except Exception as e:
+            print(f'  [KBCategories] update failed: {e}', flush=True)
+            self._send_json_error(500, f'Update category failed: {str(e)}')
+
+    def _handle_delete_kb_category(self, category_id):
+        """DELETE /api/knowledge/categories/<id> — 删除分类"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        try:
+            ok = ks.kb_category_delete(category_id)
+            self._send_json(200, {'success': ok})
+        except Exception as e:
+            print(f'  [KBCategories] delete failed: {e}', flush=True)
+            self._send_json_error(500, f'Delete category failed: {str(e)}')
 
     def _handle_get_kb_stats(self):
         """GET /api/knowledge/stats — 统计面板"""
@@ -9882,11 +9977,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         scope = qs.get('scope', [''])[0] or None
+        project_id = qs.get('projectId', [''])[0] or None
         allowed_cats = _allowed_knowledge_categories(auth)
         try:
             stats = ks.kb_entry_stats(
                 allowed_categories=allowed_cats,
-                scope=scope, user_id=auth.user_id,
+                scope=scope, project_id=project_id, user_id=auth.user_id,
                 is_admin=auth.is_admin, user_team_ids=auth.team_ids,
                 user_group_ids=auth.group_ids,
                 emp_ids=_get_user_emp_ids(auth.user_id)
@@ -9911,6 +10007,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         limit = min(50, max(1, int(body.get('limit', [10])[0]) if isinstance(body.get('limit'), list) else body.get('limit', 10)))
         scope = body.get('scope') or None
         category = body.get('category') or None
+        category_id = body.get('categoryId') or body.get('category_id')
+        project_id = body.get('projectId') or body.get('project_id')
         allowed_cats = _allowed_knowledge_categories(auth)
         if category and not _can_access_knowledge_category(auth, category):
             self._send_json(200, {'query': query, 'docs': [], 'count': 0})
@@ -9920,6 +10018,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 query=query, limit=limit,
                 allowed_categories=allowed_cats,
                 scope=scope, category=category,
+                category_id=category_id, project_id=project_id,
                 user_id=auth.user_id, is_admin=auth.is_admin,
                 user_team_ids=auth.team_ids, user_group_ids=auth.group_ids,
                 emp_ids=_get_user_emp_ids(auth.user_id)
