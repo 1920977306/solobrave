@@ -12535,7 +12535,7 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
   callbacks = callbacks || {};
   options = options || {};
   var priority = typeof options.priority === 'number' ? options.priority : 1;
-  var lifecycleWaitMs = typeof options.timeout === 'number' ? options.timeout : 30000;
+  var lifecycleWaitMs = typeof options.timeout === 'number' ? options.timeout : 120000;
   return new Promise(function (resolve, reject) {
     _enqueueOcCall(function (done) {
       var fullReply = '';
