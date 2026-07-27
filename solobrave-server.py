@@ -9358,6 +9358,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         emp_id = body.get('empId') or ''
         if scope == 'personal' and not emp_id:
             emp_id = auth.user_id
+        # 兼容 Agent 直连：从 X-Agent-Id 请求头自动填充 emp_id
+        if not emp_id:
+            agent_id_header = self.headers.get('X-Agent-Id', '').strip()
+            if agent_id_header:
+                emp_id = agent_id_header
         if not ks.can_create_knowledge(scope, auth.user_id, is_admin=auth.is_admin,
                                        team_id=team_id, user_team_ids=auth.team_ids,
                                        managed_team_ids=auth.managed_team_ids,
@@ -9758,6 +9763,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         emp_id = body.get('empId') or ''
         if scope == 'personal' and not emp_id:
             emp_id = auth.user_id
+        # 兼容 Agent 直连：从 X-Agent-Id 请求头自动填充 emp_id
+        if not emp_id:
+            agent_id_header = self.headers.get('X-Agent-Id', '').strip()
+            if agent_id_header:
+                emp_id = agent_id_header
         if not ks.can_create_knowledge(scope, auth.user_id, is_admin=auth.is_admin,
                                        team_id=team_id, user_team_ids=auth.team_ids,
                                        managed_team_ids=auth.managed_team_ids,
@@ -10015,6 +10025,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         category = body.get('category') or None
         category_id = body.get('categoryId') or body.get('category_id')
         project_id = body.get('projectId') or body.get('project_id')
+        search_emp_id = body.get('empId') or body.get('emp_id')
         allowed_cats = _allowed_knowledge_categories(auth)
         if category and not _can_access_knowledge_category(auth, category):
             self._send_json(200, {'query': query, 'docs': [], 'count': 0})
@@ -10027,7 +10038,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 category_id=category_id, project_id=project_id,
                 user_id=auth.user_id, is_admin=auth.is_admin,
                 user_team_ids=auth.team_ids, user_group_ids=auth.group_ids,
-                emp_ids=_get_user_emp_ids(auth.user_id)
+                emp_ids=_get_user_emp_ids(auth.user_id),
+                author_emp_id=search_emp_id
             )
             self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
         except Exception as e:

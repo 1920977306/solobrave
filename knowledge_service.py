@@ -2344,7 +2344,7 @@ def kb_entry_stats(allowed_categories=None, scope=None, team_id=None, user_id=No
 
 
 def kb_entry_search_semantic(query, limit=10, allowed_categories=None, scope=None, team_id=None, category=None, category_id=None, project_id=None, user_id=None,
-                             is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None):
+                             is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, author_emp_id=None):
     """新版知识库语义搜索（复用全局 embedding 配置，支持硅基流动）"""
     if not query or not query.strip():
         return []
@@ -2367,6 +2367,9 @@ def kb_entry_search_semantic(query, limit=10, allowed_categories=None, scope=Non
         created_by=created_by, category=category, category_id=category_id, project_id=project_id,
         keyword=None, allowed_categories=allowed_categories
     )
+    if author_emp_id:
+        where.append('emp_id = ?')
+        params.append(author_emp_id)
 
     import struct
     conn = _db_conn()
