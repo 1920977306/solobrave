@@ -8303,6 +8303,11 @@ async function sendMsg() {
   var imagesHtml = buildChatImagesHtml(pendingImages);
   userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + formatMessageContent(text || '') + '</div>' + imagesHtml + '</div>';
   area.appendChild(userMsg);
+  // 立即保存用户消息到服务器，避免切换员工时消息丢失（AI 回复由 saveChatToServer 再存）
+  apiFetch('/api/chat/' + encodeURIComponent(emp.id), {
+    method: 'POST',
+    body: JSON.stringify({ role: 'user', content: text, skipAI: true, empId: emp.id, images: pendingImages })
+  }).catch(function (e) { console.error('[Chat] 用户消息即时保存失败:', e); });
   input.value = '';
   clearPendingImages();
   updateSendButtonState();
@@ -18656,30 +18661,9 @@ async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, i
   var baseUrl = '/api/chat/' + encodeURIComponent(projId);
 
   try {
-    // 1. 保存 user 消息
-    var userBody = {
-      role: 'user',
-      content: userMsg,
-      skipAI: true,
-      empId: projId
-    };
-    if (images.length > 0) userBody.images = images;
-    var resp = await apiFetch(baseUrl, {
-      method: 'POST',
-      body: JSON.stringify(userBody)
-    });
-    if (!resp) throw new Error('User message POST returned null');
-    if (resp.status === 404) {
-      try {
-        var errData = await resp.clone().json();
-        if (errData && errData.error === '员工不存在') {
-          closeCurrentChatAsDeleted();
-          return;
-        }
-      } catch (e) {}
-    }
-
-    // 2. 保存 system 消息（如果有文档上下文）
+    // user 消息已在 sendMsg() 中即时保存，此处不再保存（userMsg 参数保留但不再使用）
+    var resp;
+    // 1. 保存 system 消息（如果有文档上下文）
     if (docContext && docContext.length > 0) {
       resp = await apiFetch(baseUrl, {
         method: 'POST',
@@ -18693,7 +18677,7 @@ async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, i
       if (!resp) throw new Error('System message POST returned null');
     }
 
-    // 3. 保存 assistant 消息（附带引用信息）
+    // 2. 保存 assistant 消息（附带引用信息）
     var assistantBody = {
       role: 'assistant',
       content: aiMsg,
@@ -18709,7 +18693,7 @@ async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, i
     });
     if (!resp) throw new Error('Assistant message POST returned null');
 
-    // 4. 检查是否需要触发摘要生成（每15条消息触发一次）
+    // 3. 检查是否需要触发摘要生成（每15条消息触发一次）
     var msgsResp = await apiFetch(baseUrl);
     var msgs = await msgsResp.json();
     if (msgs && msgs.length > 0 && msgs.length % 15 === 0) {
