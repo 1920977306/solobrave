@@ -12583,7 +12583,8 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
           }
           if (data.data.phase === 'end' || data.data.phase === 'error') {
             lifecycleEnded = true;
-            lifecycleError = data.data.phase === 'error';
+            // 首次 LLM 请求失败但重试成功时 OpenClaw 仍标记 phase=error，此时 fullReply 已有实际回复，不算错误
+            lifecycleError = (data.data.phase === 'error') && !fullReply;
             openclaw.off('agent', handler);
             if (lifecycleTimeout) clearTimeout(lifecycleTimeout);
             resolve({ reply: fullReply, isError: lifecycleError, lifecycleEnded: true, fullReply: fullReply });
