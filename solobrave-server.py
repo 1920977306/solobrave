@@ -9348,6 +9348,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         group_ids = body.get('groupIds') or body.get('group_ids') or body.get('groupId') or []
         if isinstance(group_ids, str):
             group_ids = [g.strip() for g in group_ids.split(',') if g.strip()]
+        # 自动修正：传了 group_ids 但 scope=team 时，按 group 处理
+        if group_ids and scope == 'team':
+            scope = 'group'
         if scope == 'group' and not group_ids:
             self._send_json_error(400, 'Missing group_ids for scope=group')
             return
@@ -9746,6 +9749,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         group_ids = body.get('groupIds') or body.get('group_ids') or body.get('groupId') or []
         if isinstance(group_ids, str):
             group_ids = [g.strip() for g in group_ids.split(',') if g.strip()]
+        # 自动修正：传了 group_ids 但 scope=team 时，按 group 处理
+        if group_ids and scope == 'team':
+            scope = 'group'
         if scope == 'group' and not group_ids:
             self._send_json_error(400, 'Missing group_ids for scope=group')
             return
