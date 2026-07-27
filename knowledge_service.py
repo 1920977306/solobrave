@@ -2368,7 +2368,7 @@ def kb_entry_search_semantic(query, limit=10, allowed_categories=None, scope=Non
         keyword=None, allowed_categories=allowed_categories
     )
     if author_emp_id:
-        where.append('emp_id = ?')
+        where.append('e.emp_id = ?')
         params.append(author_emp_id)
 
     import struct
