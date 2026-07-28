@@ -1400,6 +1400,86 @@ def _get_user_managed_group_ids(user_id):
     return [g.get('id') for g in groups if g.get('createdBy') == user_id and g.get('id')]
 
 
+# ─── 项目组消息可见（团队动态） ─────────────────────────
+
+def _get_agent_group_id(agent_id):
+    """返回 agent 所属的项目组 ID（不在任何项目组则返回 None）"""
+    if not agent_id:
+        return None
+    for g in _load_groups():
+        gid = g.get('id')
+        if not gid:
+            continue
+        for m in g.get('members', []):
+            mid = m if isinstance(m, str) else m.get('id')
+            if mid == agent_id:
+                return gid
+    return None
+
+
+def _record_group_message(group_id, agent_id, role, content):
+    """记录一条项目组对话消息到 group_messages 表"""
+    if not group_id or not agent_id or not content:
+        return
+    conn = _db_conn()
+    try:
+        conn.execute(
+            'INSERT INTO group_messages (id, group_id, agent_id, role, content) VALUES (?, ?, ?, ?, ?)',
+            ('gm_' + uuid.uuid4().hex[:8], group_id, agent_id, role, content)
+        )
+        conn.commit()
+    except Exception as e:
+        print(f'  [TeamFeed] 记录消息失败: {e}', flush=True)
+    finally:
+        conn.close()
+
+
+def _build_team_feed(group_id, exclude_agent_id):
+    """查询同项目组其他 agent 最近24小时最多10条对话，格式化为【团队动态】摘要。
+    不注入 exclude_agent_id 自己的消息；agent 不在任何项目组时由调用方保证不进入此函数。"""
+    if not group_id:
+        return ''
+    conn = _db_conn()
+    try:
+        rows = conn.execute(
+            "SELECT agent_id, role, content, created_at FROM group_messages "
+            "WHERE group_id = ? AND agent_id != ? "
+            "AND created_at >= datetime('now', '-24 hours') "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 10",
+            (group_id, exclude_agent_id or '')
+        ).fetchall()
+    except Exception as e:
+        print(f'  [TeamFeed] 查询失败: {e}', flush=True)
+        return ''
+    finally:
+        conn.close()
+    if not rows:
+        return ''
+    name_map = {a.get('id'): a.get('name', 'AI') for a in _load_agents()}
+    local_offset = datetime.now() - datetime.utcnow()  # created_at 为 UTC，转本地时间显示
+    lines = []
+    prev = None
+    for row in reversed(rows):  # 按时间正序展示
+        content = (row['content'] or '').replace('\n', ' ').strip()
+        if len(content) > 200:
+            content = content[:200] + '…'
+        name = name_map.get(row['agent_id'], 'AI')
+        hm = ''
+        try:
+            hm = (datetime.strptime(row['created_at'], '%Y-%m-%d %H:%M:%S') + local_offset).strftime('%H:%M')
+        except Exception:
+            pass
+        if (row['role'] == 'assistant' and prev is not None
+                and prev['role'] == 'user' and prev['agent_id'] == row['agent_id'] and lines):
+            # AI 回复紧跟同 agent 的用户消息时，合并为一行：用户消息→AI建议
+            lines[-1] += f'→{content}'
+        else:
+            prefix = '' if row['role'] == 'user' else '→'
+            lines.append(f'[{name} {hm}]{prefix}{content}')
+        prev = row
+    return '【团队动态】\n' + '\n'.join(lines)
+
+
 # ─── 小组管理 ─────────────────────────────────────────
 
 def _load_teams():
@@ -2119,6 +2199,19 @@ def init_db():
         ''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge(category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_created ON knowledge(created_at)')
+
+        # 项目组对话消息表（团队动态：同组 AI 互相可见）
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS group_messages (
+                id TEXT PRIMARY KEY,
+                group_id TEXT,
+                agent_id TEXT,
+                role TEXT,
+                content TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_group_messages_group_time ON group_messages(group_id, created_at DESC)')
 
         conn.execute('''
             CREATE TABLE IF NOT EXISTS products (
@@ -12695,6 +12788,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     messages.append(ai_message)
                     _save_chat(agent_id, messages)
                     print(f'  [ChatPOST] {agent_id} API代理 保存 {len(messages)} 条消息 ai_content_len={len(ai_message["content"])}')
+                    # 记录项目组对话到 group_messages（供同组其他 AI 感知团队动态；记忆提取任务不记录）
+                    if not is_extract:
+                        try:
+                            agent_group_id = _get_agent_group_id(agent_id)
+                            if agent_group_id:
+                                _record_group_message(agent_group_id, agent_id, 'user', content)
+                                _record_group_message(agent_group_id, agent_id, 'assistant', ai_message['content'])
+                        except Exception as feed_err:
+                            print(f'  [TeamFeed] {agent_id} 记录失败: {feed_err}', flush=True)
                     self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message, 'archived': archived_count})
                     return
 
@@ -13316,6 +13418,18 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                 system_prompt = ms3.inject_group_memories(group_id, system_prompt)
             except Exception as e:
                 print(f'  [GroupMemoryInject] {group_id} 注入失败: {e}', flush=True)
+
+        # 注入团队动态（同项目组其他 agent 最近24小时对话摘要；不注入自己的消息，
+        # 不在任何项目组的 agent 不注入；include_history=False 的摘要/提取任务不注入）
+        if include_history:
+            try:
+                agent_group_id = _get_agent_group_id(agent_id)
+                if agent_group_id:
+                    team_feed = _build_team_feed(agent_group_id, agent_id)
+                    if team_feed:
+                        system_prompt += '\n\n' + team_feed
+            except Exception as e:
+                print(f'  [TeamFeed] {agent_id} 注入失败: {e}', flush=True)
 
         # 注入 RAG 检索结果（产品知识库）
         try:
