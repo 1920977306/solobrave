@@ -2508,6 +2508,31 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_call_id ON tool_calls(tool_call_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tool_calls_created_at ON tool_calls(created_at)')
 
+        # 通知表
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS notifications (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                agent_id TEXT,
+                type TEXT,
+                title TEXT,
+                content TEXT,
+                read INTEGER DEFAULT 0,
+                created_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at DESC)')
+
+        # 用户通知开关
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_settings (
+                user_id TEXT PRIMARY KEY,
+                message_notify INTEGER DEFAULT 1,
+                group_urge INTEGER DEFAULT 1,
+                task_reminder INTEGER DEFAULT 1
+            )
+        ''')
+
         # FIXME: 大脑知识中枢新增表（保留旧表，不删数据）
         _init_brain_tables(conn)
 
@@ -2520,6 +2545,62 @@ def init_db():
         _seed_coolchap_data(conn)
     finally:
         conn.close()
+
+
+# 通知类型与通知开关字段的映射
+_NOTIFICATION_TYPE_SWITCH = {
+    'message': 'message_notify',
+    'tool_call': 'message_notify',
+    'group_urge': 'group_urge',
+    'task_reminder': 'task_reminder',
+}
+
+# 默认通知开关
+_DEFAULT_NOTIFICATION_SETTINGS = {'message_notify': 1, 'group_urge': 1, 'task_reminder': 1}
+
+
+def _get_notification_settings(user_id):
+    """读取用户通知开关，无记录时返回默认全开"""
+    conn = _db_conn()
+    try:
+        row = conn.execute(
+            'SELECT message_notify, group_urge, task_reminder FROM user_settings WHERE user_id = ?',
+            (user_id,)
+        ).fetchone()
+        if not row:
+            return dict(_DEFAULT_NOTIFICATION_SETTINGS)
+        return {
+            'message_notify': int(row['message_notify'] if row['message_notify'] is not None else 1),
+            'group_urge': int(row['group_urge'] if row['group_urge'] is not None else 1),
+            'task_reminder': int(row['task_reminder'] if row['task_reminder'] is not None else 1),
+        }
+    finally:
+        conn.close()
+
+
+def _push_notification(user_id, type, title, content, agent_id=None):
+    """写入一条通知（先检查用户对应的通知开关，关闭则不推）"""
+    if not user_id:
+        return None
+    switch_key = _NOTIFICATION_TYPE_SWITCH.get(type, 'message_notify')
+    try:
+        settings = _get_notification_settings(user_id)
+        if not settings.get(switch_key, 1):
+            return None
+        notif_id = 'notif_' + uuid.uuid4().hex[:12]
+        conn = _db_conn()
+        try:
+            conn.execute('''
+                INSERT INTO notifications (id, user_id, agent_id, type, title, content, read, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+            ''', (notif_id, user_id, agent_id or '', type, title or '', content or '', int(time.time() * 1000)))
+            conn.commit()
+        finally:
+            conn.close()
+        return notif_id
+    except Exception as e:
+        print(f'  [Notify] 推送通知失败 user={user_id} type={type}: {e}', flush=True)
+        return None
 
 
 def _knowledge_row_to_dict(row):
@@ -4180,6 +4261,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_settings()
             return
 
+        # 通知 API
+        if path == '/api/notifications':
+            self._handle_get_notifications()
+            return
+        if path == '/api/notification-settings':
+            self._handle_get_notification_settings()
+            return
+
         # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
         if path == '/api/knowledge/entries':
             self._handle_get_kb_entries()
@@ -4425,6 +4514,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # Tool calls log
         if path == '/api/tool-calls/log':
             self._handle_post_tool_calls_log()
+            return
+
+        # 通知 API
+        if path == '/api/notifications':
+            self._handle_post_notification()
             return
 
         # Proxy (requires auth)
@@ -4781,6 +4875,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_put_settings()
             return
 
+        # 通知 API（read-all 需先于 /api/notifications/{id} 通配匹配）
+        if path == '/api/notifications/read-all':
+            self._handle_notifications_read_all()
+            return
+        if path == '/api/notification-settings':
+            self._handle_put_notification_settings()
+            return
+        if path.startswith('/api/notifications/'):
+            sub = path[len('/api/notifications/'):]
+            if sub.endswith('/read'):
+                notif_id = sub[:-len('/read')]
+                if notif_id:
+                    self._handle_notification_read(notif_id)
+                    return
+
         # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
         if path.startswith('/api/knowledge/entries/'):
             entry_id = path[len('/api/knowledge/entries/'):]
@@ -4847,6 +4956,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _do_DELETE(self):
         path = self._normalize_path(self.path)
+
+        # 通知 API
+        if path.startswith('/api/notifications/'):
+            notif_id = path[len('/api/notifications/'):]
+            if notif_id and '/' not in notif_id:
+                self._handle_delete_notification(notif_id)
+                return
 
         # OpenClaw
         if path.startswith('/api/openclaw/agents/'):
@@ -10523,11 +10639,170 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 conn.commit()
             finally:
                 conn.close()
+            # 推送工具执行通知（受用户 message_notify 开关控制）
+            _push_notification(
+                auth.user_id, 'tool_call',
+                f'工具执行完成: {tool_name or "未知工具"}',
+                (output if isinstance(output, str) else json.dumps(output, ensure_ascii=False))[:200],
+                agent_id
+            )
             self._send_json(200, {'success': True})
         except Exception as e:
             print(f'  [TOOL-CALLS-LOG] failed: {e}', flush=True)
             import traceback; traceback.print_exc()
             self._send_json_error(500, f'Log tool call failed: {str(e)}')
+
+    # ═══════════════════════════════════════════════════
+    # 通知 API
+    # ═══════════════════════════════════════════════════
+
+    def _notification_row_to_dict(self, row):
+        return {
+            'id': row['id'],
+            'user_id': row['user_id'],
+            'agent_id': row['agent_id'] or '',
+            'type': row['type'] or '',
+            'title': row['title'] or '',
+            'content': row['content'] or '',
+            'read': int(row['read'] or 0),
+            'created_at': int(row['created_at'] or 0),
+        }
+
+    def _handle_get_notifications(self):
+        """GET /api/notifications — 当前用户通知列表"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        limit = max(1, min(200, int(qs.get('limit', [50])[0] or 50)))
+        unread_only = qs.get('unread_only', [''])[0] == '1'
+        conn = _db_conn()
+        try:
+            sql = 'SELECT * FROM notifications WHERE user_id = ?'
+            params = [auth.user_id]
+            if unread_only:
+                sql += ' AND read = 0'
+            sql += ' ORDER BY created_at DESC LIMIT ?'
+            params.append(limit)
+            rows = conn.execute(sql, params).fetchall()
+            unread = conn.execute(
+                'SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND read = 0',
+                (auth.user_id,)
+            ).fetchone()['c']
+            self._send_json(200, {
+                'items': [self._notification_row_to_dict(r) for r in rows],
+                'unreadCount': int(unread),
+            })
+        finally:
+            conn.close()
+
+    def _handle_post_notification(self):
+        """POST /api/notifications — 推送一条通知（user_id 取当前认证用户）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body() or {}
+        notif_type = (body.get('type') or 'message').strip()
+        title = (body.get('title') or '').strip()
+        content = (body.get('content') or '').strip()
+        if not title and not content:
+            self._send_json_error(400, 'Missing title or content')
+            return
+        agent_id = (body.get('agent_id') or '').strip()
+        notif_id = _push_notification(auth.user_id, notif_type, title, content, agent_id)
+        if not notif_id:
+            # 开关关闭，不推送，返回成功但标记 skipped
+            self._send_json(200, {'success': True, 'skipped': True})
+            return
+        self._send_json(200, {'success': True, 'id': notif_id})
+
+    def _handle_notification_read(self, notif_id):
+        """PUT /api/notifications/{id}/read — 标记单条已读（限本人）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT user_id FROM notifications WHERE id = ?', (notif_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Notification not found')
+                return
+            if row['user_id'] != auth.user_id:
+                self._send_json_error(403, 'Permission denied')
+                return
+            conn.execute('UPDATE notifications SET read = 1 WHERE id = ?', (notif_id,))
+            conn.commit()
+            self._send_json(200, {'success': True})
+        finally:
+            conn.close()
+
+    def _handle_notifications_read_all(self):
+        """PUT /api/notifications/read-all — 当前用户全部已读"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        conn = _db_conn()
+        try:
+            conn.execute('UPDATE notifications SET read = 1 WHERE user_id = ?', (auth.user_id,))
+            conn.commit()
+            self._send_json(200, {'success': True})
+        finally:
+            conn.close()
+
+    def _handle_delete_notification(self, notif_id):
+        """DELETE /api/notifications/{id} — 删除单条（限本人）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT user_id FROM notifications WHERE id = ?', (notif_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Notification not found')
+                return
+            if row['user_id'] != auth.user_id:
+                self._send_json_error(403, 'Permission denied')
+                return
+            conn.execute('DELETE FROM notifications WHERE id = ?', (notif_id,))
+            conn.commit()
+            self._send_json(200, {'success': True})
+        finally:
+            conn.close()
+
+    def _handle_get_notification_settings(self):
+        """GET /api/notification-settings — 当前用户通知开关"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        self._send_json(200, _get_notification_settings(auth.user_id))
+
+    def _handle_put_notification_settings(self):
+        """PUT /api/notification-settings — 保存通知开关"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body() or {}
+        current = _get_notification_settings(auth.user_id)
+        for key in ('message_notify', 'group_urge', 'task_reminder'):
+            if key in body:
+                current[key] = 1 if body.get(key) else 0
+        conn = _db_conn()
+        try:
+            conn.execute('''
+                INSERT OR REPLACE INTO user_settings (user_id, message_notify, group_urge, task_reminder)
+                VALUES (?, ?, ?, ?)
+            ''', (auth.user_id, current['message_notify'], current['group_urge'], current['task_reminder']))
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, current)
 
     # ═══════════════════════════════════════════════════
     # 商品库 API
@@ -12797,6 +13072,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                                 _record_group_message(agent_group_id, agent_id, 'assistant', ai_message['content'])
                         except Exception as feed_err:
                             print(f'  [TeamFeed] {agent_id} 记录失败: {feed_err}', flush=True)
+                    # 推送 AI 回复通知（受用户 message_notify 开关控制）
+                    _push_notification(
+                        auth.user_id, 'message',
+                        f'{agent.get("name", agent_id)} 回复了你',
+                        (cleaned_reply or '')[:200],
+                        agent_id
+                    )
                     self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message, 'archived': archived_count})
                     return
 

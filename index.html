@@ -10087,6 +10087,24 @@ async function sendTaskReminderToEmp(emp, task) {
 
   // 标记今天已提醒
   localStorage.setItem(remindKey, todayStr);
+
+  // 推送任务提醒通知到通知中心（保留现有提醒 UI 行为）
+  if (typeof apiFetch === 'function') {
+    apiFetch('/api/notifications', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        type: 'task_reminder',
+        title: '⏰ 任务超时提醒',
+        content: '任务「' + (task.name || '') + '」已于 ' + (task.deadline || '') + ' 超时，请尽快处理',
+        agent_id: emp.id
+      })
+    }).then(function () {
+      refreshUnreadBadge();
+    }).catch(function (e) {
+      console.warn('[TaskReminder] 推送通知失败:', e);
+    });
+  }
 }
 
 // 自动催促（定时检测）
@@ -19616,6 +19634,7 @@ window.addEventListener('DOMContentLoaded', function () {
   initTheme();
   initStatsAndNotifications();
   initNotifications();
+  initNotificationPolling();
 });
 
 // ===== 新增员工向导 =====
@@ -25410,6 +25429,24 @@ function triggerUrgeNotification(empId, taskName, deadline) {
       deadline: deadline,
       show: true
     }));
+
+    // 推送群主督促通知到通知中心（保留现有提醒 UI 行为）
+    if (typeof apiFetch === 'function') {
+      apiFetch('/api/notifications', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          type: 'group_urge',
+          title: '⚡ ' + emp.name + ' 催你处理任务',
+          content: '任务「' + (taskName || '') + '」截止时间：' + (deadline || '未设置'),
+          agent_id: empId
+        })
+      }).then(function () {
+        refreshUnreadBadge();
+      }).catch(function (e) {
+        console.warn('[Urge] 推送通知失败:', e);
+      });
+    }
   }
 }
 
@@ -26110,58 +26147,151 @@ function renderComputeStats(stats) {
 }
 
 // ========== 通知历史 ==========
-function _getNotificationHistory() {
+var _notificationHistoryCache = [];
+async function fetchNotifications(unreadOnly) {
+  if (typeof apiFetch !== 'function') return { items: [], unreadCount: 0 };
   try {
-    return JSON.parse(localStorage.getItem('sb_notification_history') || '[]');
+    var resp = await apiFetch('/api/notifications?limit=50' + (unreadOnly ? '&unread_only=1' : ''));
+    if (!resp) return { items: [], unreadCount: 0 };
+    var data = await resp.json();
+    if (!data || typeof data !== 'object' || !Array.isArray(data.items)) return { items: [], unreadCount: 0 };
+    return data;
   } catch (e) {
-    return [];
+    console.warn('[Notifications] 加载失败:', e);
+    return { items: [], unreadCount: 0 };
   }
 }
-function _saveNotificationHistory(list) {
-  localStorage.setItem('sb_notification_history', JSON.stringify(list.slice(0, 100)));
-}
 function addNotificationHistory(text, type) {
-  var list = _getNotificationHistory();
-  list.unshift({
-    id: 'n_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
-    text: text || '',
-    type: type || 'system',
-    read: false,
-    createdAt: Date.now()
+  // 推送一条通知到后端（不再写 localStorage）
+  if (typeof apiFetch !== 'function') return;
+  apiFetch('/api/notifications', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ type: type || 'message', title: text || '', content: text || '' })
+  }).then(function () {
+    renderNotificationHistory();
+    refreshUnreadBadge();
+  }).catch(function (e) {
+    console.warn('[Notifications] 推送失败:', e);
   });
-  _saveNotificationHistory(list);
 }
 function toggleNotificationRead(id) {
-  var list = _getNotificationHistory();
-  list.forEach(function (n) { if (n.id === id) n.read = !n.read; });
-  _saveNotificationHistory(list);
-  renderNotificationHistory();
+  var item = _notificationHistoryCache.find(function (n) { return n.id === id; });
+  if (!item || item.read) return;
+  apiFetch('/api/notifications/' + encodeURIComponent(id) + '/read', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'}
+  }).then(function () {
+    renderNotificationHistory();
+    refreshUnreadBadge();
+  }).catch(function (e) {
+    console.warn('[Notifications] 标记已读失败:', e);
+  });
 }
 function markAllNotificationsRead() {
-  var list = _getNotificationHistory();
-  list.forEach(function (n) { n.read = true; });
-  _saveNotificationHistory(list);
-  renderNotificationHistory();
+  apiFetch('/api/notifications/read-all', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'}
+  }).then(function () {
+    renderNotificationHistory();
+    refreshUnreadBadge();
+  }).catch(function (e) {
+    console.warn('[Notifications] 全部已读失败:', e);
+  });
 }
-function renderNotificationHistory() {
+function deleteNotification(id) {
+  apiFetch('/api/notifications/' + encodeURIComponent(id), {
+    method: 'DELETE'
+  }).then(function () {
+    renderNotificationHistory();
+    refreshUnreadBadge();
+  }).catch(function (e) {
+    console.warn('[Notifications] 删除失败:', e);
+  });
+}
+async function renderNotificationHistory() {
   var area = document.getElementById('notificationHistoryArea');
   if (!area) return;
-  var list = _getNotificationHistory();
-  if (!list.length) {
+  var data = await fetchNotifications(false);
+  _notificationHistoryCache = data.items || [];
+  if (!_notificationHistoryCache.length) {
     area.innerHTML = '<div class="settings-empty"><div style="font-size:32px;margin-bottom:12px">🔔</div><div>暂无通知</div></div>';
     return;
   }
   var html = '<div style="margin-bottom:12px;text-align:right;"><button class="module-action-btn" onclick="markAllNotificationsRead()">全部已读</button></div>';
-  html += list.map(function (n) {
-    var timeStr = new Date(n.createdAt).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  html += _notificationHistoryCache.map(function (n) {
+    var timeStr = new Date(n.created_at || 0).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    var text = n.title && n.content && n.title !== n.content ? (n.title + '：' + n.content) : (n.title || n.content || '');
     return '<div class="settings-notification-item" onclick="toggleNotificationRead(\'' + escapeAttr(n.id) + '\')">'
       + '<div class="settings-notification-dot ' + (n.read ? 'read' : 'unread') + '"></div>'
       + '<div class="settings-notification-content">'
       + '<div class="settings-notification-time">' + escapeHtml(timeStr) + '</div>'
-      + '<div class="settings-notification-text">' + escapeHtml(n.text) + '</div>'
-      + '</div></div>';
+      + '<div class="settings-notification-text">' + escapeHtml(text) + '</div>'
+      + '</div>'
+      + '<button class="module-action-btn danger" style="margin-left:8px;" onclick="event.stopPropagation();deleteNotification(\'' + escapeAttr(n.id) + '\')">删除</button>'
+      + '</div>';
   }).join('');
   area.innerHTML = html;
+}
+
+// 未读角标轮询（每 30 秒）
+function refreshUnreadBadge() {
+  var badge = document.getElementById('notificationBadge');
+  if (!badge || typeof apiFetch !== 'function') return;
+  fetchNotifications(true).then(function (data) {
+    badge.textContent = data.unreadCount || 0;
+  }).catch(function () {});
+}
+function initNotificationPolling() {
+  refreshUnreadBadge();
+  setInterval(refreshUnreadBadge, 30 * 1000);
+}
+
+// ========== 通知开关 ==========
+async function loadNotificationSwitches() {
+  var area = document.getElementById('notificationSwitchArea');
+  if (!area) return;
+  var s = { message_notify: 1, group_urge: 1, task_reminder: 1 };
+  if (typeof apiFetch === 'function') {
+    try {
+      var resp = await apiFetch('/api/notification-settings');
+      if (resp) {
+        var data = await resp.json();
+        if (data && typeof data === 'object') {
+          ['message_notify', 'group_urge', 'task_reminder'].forEach(function (k) {
+            if (k in data) s[k] = data[k] ? 1 : 0;
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[Notifications] 开关加载失败:', e);
+    }
+  }
+  var items = [
+    { key: 'message_notify', label: '消息通知' },
+    { key: 'group_urge', label: '群主督促' },
+    { key: 'task_reminder', label: '任务提醒' }
+  ];
+  area.innerHTML = items.map(function (it) {
+    return '<div class="settings-item"><span class="settings-item-label">' + it.label + '</span><div class="toggle' + (s[it.key] ? ' active' : '') + '" onclick="toggleNotificationSwitch(\'' + it.key + '\', this)"></div></div>';
+  }).join('');
+}
+async function toggleNotificationSwitch(key, el) {
+  var on = el.classList.toggle('active');
+  if (typeof apiFetch !== 'function') return;
+  var body = {};
+  body[key] = on ? 1 : 0;
+  try {
+    await apiFetch('/api/notification-settings', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    showToast('✅ 通知设置已保存');
+  } catch (e) {
+    el.classList.toggle('active');
+    showToast('❌ 通知设置保存失败');
+  }
 }
 
 // ========== 权限管理 ==========
@@ -26598,9 +26728,7 @@ function renderSettingsRight() {
   } else if (_settingsSelectedCategory === 'notification') {
     html += '<div class="settings-card">';
     html += '<div class="settings-card-title">通知开关</div>';
-    html += '<div class="settings-item"><span class="settings-item-label">消息通知</span><div class="toggle active" onclick="this.classList.toggle(\'active\')"></div></div>';
-    html += '<div class="settings-item"><span class="settings-item-label">群主督促</span><div class="toggle active" onclick="this.classList.toggle(\'active\')"></div></div>';
-    html += '<div class="settings-item"><span class="settings-item-label">任务提醒</span><div class="toggle active" onclick="this.classList.toggle(\'active\')"></div></div>';
+    html += '<div id="notificationSwitchArea"></div>';
     html += '</div>';
     html += '<div class="settings-card">';
     html += '<div class="settings-card-title">通知历史</div>';
@@ -26645,7 +26773,7 @@ function renderSettingsRight() {
   }
   contentEl.innerHTML = html;
   if (_settingsSelectedCategory === 'compute') loadComputeStats();
-  if (_settingsSelectedCategory === 'notification') renderNotificationHistory();
+  if (_settingsSelectedCategory === 'notification') { loadNotificationSwitches(); renderNotificationHistory(); }
   if (_settingsSelectedCategory === 'permission') loadPermissionSettings();
   if (_settingsSelectedCategory === 'forbidden') loadForbiddenWords();
   if (_settingsSelectedCategory === 'users') loadUserList();
