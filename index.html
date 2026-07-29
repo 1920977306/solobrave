@@ -8569,6 +8569,24 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
   systemPrompt += buildAgentToolsContext();
   if (ragResult.context) systemPrompt += '\n\n' + ragResult.context;
 
+  // 注入团队动态（同项目组其他 AI 最近对话摘要）
+  if (!groupId) {
+    try {
+      var feedRes = await apiFetch('/api/team-feed/' + encodeURIComponent(emp.id));
+      console.log('[TeamFeed] apiFetch result:', feedRes ? feedRes.status : 'null');
+      if (feedRes && feedRes.ok) {
+        var feedData = await feedRes.json();
+        console.log('[TeamFeed] feedData:', JSON.stringify(feedData).substring(0, 200));
+        if (feedData && feedData.teamFeed) {
+          systemPrompt += '\n\n' + feedData.teamFeed;
+          console.log('[TeamFeed] 注入成功 len=' + feedData.teamFeed.length);
+        }
+      }
+    } catch (feedErr) {
+      console.warn('[TeamFeed] 获取失败:', feedErr);
+    }
+  }
+
   // AI 调用前防御：最终 systemPrompt 必须包含身份约束关键字
   if (!validateFinalSystemPrompt(systemPrompt)) {
     var t = document.getElementById('typingMsg');
