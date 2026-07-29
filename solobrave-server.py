@@ -55,6 +55,11 @@ import knowledge_service as ks
 import topic_service as ts
 import brain_knowledge_service as bks
 
+# 统一日志（替代散落的 print 调试输出）
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger('solubrave')
+
 # 按 agent_id 细分的聊天写入锁，防止读-修改-写竞争导致消息丢失
 _chat_write_locks = {}
 _chat_locks_mutex = threading.Lock()
@@ -270,7 +275,7 @@ class _OpenClawTaskQueue:
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True, name='OpenClawTaskQueue')
         self._thread.start()
-        print('  [OpenClawQueue] started', flush=True)
+        logger.info('  [OpenClawQueue] started')
 
     def stop(self):
         self._running = False
@@ -322,7 +327,7 @@ class _OpenClawTaskQueue:
                 event.set()
         except Exception as e:
             task['retries'] += 1
-            print(f'  [OpenClawQueue] task {task_id} failed ({task["retries"]}/{task["max_retries"]}): {e}', flush=True)
+            logger.error(f'  [OpenClawQueue] task {task_id} failed ({task["retries"]}/{task["max_retries"]}): {e}')
             if task['retries'] <= task['max_retries']:
                 delay = self.RETRY_DELAY_BASE_S * (2 ** (task['retries'] - 1))
                 time.sleep(delay)
@@ -373,7 +378,7 @@ class _BrainScheduler:
                 prompt, agent=agent or self._default_agent(), priority=-1, max_retries=3
             )
         except Exception as e:
-            print(f'  [BrainScheduler] AI call failed: {e}', flush=True)
+            logger.error(f'  [BrainScheduler] AI call failed: {e}')
             return []
 
     def _default_agent(self):
@@ -430,9 +435,9 @@ class _BrainScheduler:
             for row in rows:
                 self.request_clean(row['emp_id'], row['id'])
                 count += 1
-            print(f'  [BrainScheduler] enqueued {count} uncleaned memories at startup', flush=True)
+            logger.info(f'  [BrainScheduler] enqueued {count} uncleaned memories at startup')
         except Exception as e:
-            print(f'  [BrainScheduler] enqueue uncleaned memories failed: {e}', flush=True)
+            logger.error(f'  [BrainScheduler] enqueue uncleaned memories failed: {e}')
 
     def start(self):
         """FIXME: 启动大脑调度器守护线程"""
@@ -444,7 +449,7 @@ class _BrainScheduler:
         self._last_uncleaned_scan = int(time.time() * 1000)
         self._thread = threading.Thread(target=self._loop, daemon=True, name='BrainScheduler')
         self._thread.start()
-        print('  [BrainScheduler] started', flush=True)
+        logger.info('  [BrainScheduler] started')
 
     def stop(self):
         self._running = False
@@ -454,7 +459,7 @@ class _BrainScheduler:
             try:
                 self._tick()
             except Exception as e:
-                print(f'  [BrainScheduler] tick error: {e}', flush=True)
+                logger.error(f'  [BrainScheduler] tick error: {e}')
             time.sleep(1)
 
     def _tick(self):
@@ -490,7 +495,7 @@ class _BrainScheduler:
             try:
                 self._execute_task(task)
             except Exception as e:
-                print(f'  [BrainScheduler] task error: {e}', flush=True)
+                logger.error(f'  [BrainScheduler] task error: {e}')
 
         # 每 5 分钟巡检待沉淀主题
         if now - self._last_induct_check >= self.INDUCT_INTERVAL_MS:
@@ -516,14 +521,14 @@ class _BrainScheduler:
                 self._do_classify(payload['emp_id'], payload['mem_id'])
         except Exception as e:
             task['retries'] = task.get('retries', 0) + 1
-            print(f'  [BrainScheduler] task failed ({task["retries"]}/3): {e}', flush=True)
+            logger.error(f'  [BrainScheduler] task failed ({task["retries"]}/3): {e}')
             if task['retries'] <= 3:
                 delay = 1000 * (2 ** (task['retries'] - 1))
                 task['run_at'] = int(time.time() * 1000) + delay
                 with self._lock:
                     self._tasks.append(task)
             else:
-                print(f'  [BrainScheduler] task dropped after 3 retries', flush=True)
+                logger.info(f'  [BrainScheduler] task dropped after 3 retries')
                 # FIXME: 归纳队列去重：任务最终失败时释放主题 id，允许后续重新入队
                 if topic_id:
                     with self._lock:
@@ -536,7 +541,7 @@ class _BrainScheduler:
 
     def _do_clean(self, emp_id, mem_ids):
         """FIXME: 批量清洗 + 自动主题归类；归类只置 pending_induct=1，不直接入队"""
-        print(f'  [BrainScheduler] clean {len(mem_ids)} memories for {emp_id}', flush=True)
+        logger.info(f'  [BrainScheduler] clean {len(mem_ids)} memories for {emp_id}')
         agent = self._default_agent()
         for mem_id in mem_ids:
             mem = ms3._clean_and_deduplicate(mem_id, emp_id)
@@ -547,7 +552,7 @@ class _BrainScheduler:
 
     def _do_induct(self, topic_id):
         """FIXME: 执行主题知识沉淀"""
-        print(f'  [BrainScheduler] induct topic {topic_id}', flush=True)
+        logger.info(f'  [BrainScheduler] induct topic {topic_id}')
         # FIXME: 归纳任务执行前再校验：若 pending_induct=0 说明已被处理过，直接跳过
         conn = _db_conn()
         try:
@@ -555,7 +560,7 @@ class _BrainScheduler:
                 'SELECT pending_induct FROM memory_topics WHERE id=?', (topic_id,)
             ).fetchone()
             if not row or not row['pending_induct']:
-                print(f'  [BrainScheduler] topic {topic_id} already inducted, skip', flush=True)
+                logger.info(f'  [BrainScheduler] topic {topic_id} already inducted, skip')
                 return
         finally:
             conn.close()
@@ -579,19 +584,19 @@ class _BrainScheduler:
             if row:
                 return {'id': row['id'], 'cleaned_at': row['cleaned_at'], 'topic_ids': row['topic_ids']}
         except Exception as e:
-            print(f'  [BrainScheduler] get_memory_row {mem_id} failed: {e}', flush=True)
+            logger.error(f'  [BrainScheduler] get_memory_row {mem_id} failed: {e}')
         return None
 
     def migrate_existing_memories(self):
         """FIXME: 兼容现有数据：从 v3 记忆目录 data/memory/ 迁移 daily 记忆到 memory 表并加入清洗队列"""
-        print('  [BrainScheduler] migrating existing memories', flush=True)
+        logger.info('  [BrainScheduler] migrating existing memories')
         migrated = 0
         enqueued = 0
         per_emp = {}  # FIXME: 记录每个员工的迁移数量
         # FIXME: v3 记忆目录是 data/memory/（ms3.MEMORY_V3_DIR 已被 main() 覆写为 MEMORY_DIR）
         memories_dir = MEMORY_DIR
         if not os.path.isdir(memories_dir):
-            print(f'  [BrainScheduler] memory dir not found: {memories_dir}', flush=True)
+            logger.info(f'  [BrainScheduler] memory dir not found: {memories_dir}')
             return
         now = int(time.time() * 1000)
         for emp_id in os.listdir(memories_dir):
@@ -601,7 +606,7 @@ class _BrainScheduler:
             try:
                 ms3._validate_emp_id(emp_id)
             except Exception as e:
-                print(f'  [BrainScheduler] skip invalid emp_id {emp_id}: {e}', flush=True)
+                logger.info(f'  [BrainScheduler] skip invalid emp_id {emp_id}: {e}')
                 continue
             mem_path = os.path.join(memories_dir, emp_id, 'memory.json')
             if not os.path.isfile(mem_path):
@@ -640,21 +645,21 @@ class _BrainScheduler:
                     ms3.save_memory(emp_id, data)
                 # FIXME: 打印每个员工的迁移数量
                 if emp_id in per_emp:
-                    print(f'  [BrainScheduler] {emp_id} migrated {per_emp[emp_id]} memories', flush=True)
+                    logger.info(f'  [BrainScheduler] {emp_id} migrated {per_emp[emp_id]} memories')
             except Exception as e:
-                print(f'  [BrainScheduler] migrate {emp_id} failed: {e}', flush=True)
-        print(f'  [BrainScheduler] migrated {migrated} memories, enqueued {enqueued} clean tasks', flush=True)
+                logger.error(f'  [BrainScheduler] migrate {emp_id} failed: {e}')
+        logger.info(f'  [BrainScheduler] migrated {migrated} memories, enqueued {enqueued} clean tasks')
 
     def _check_pending_topics(self):
         """FIXME: 只扫描 pending_induct=1 的主题"""
         topics = self._topic_svc.get_pending_induct_topics(min_memories=3)
-        print(f'  [BrainScheduler] {len(topics)} pending topics', flush=True)
+        logger.info(f'  [BrainScheduler] {len(topics)} pending topics')
         for t in topics:
             self.request_induct(t['id'])
 
     def _daily_inspect(self):
         """FIXME: 每日全量巡检：归档不活跃主题、校验冲突"""
-        print('  [BrainScheduler] daily inspect', flush=True)
+        logger.info('  [BrainScheduler] daily inspect')
         now = int(time.time() * 1000)
         cutoff = now - self.INACTIVE_TOPIC_DAYS * 24 * 3600 * 1000
         conn = _db_conn()
@@ -670,7 +675,7 @@ class _BrainScheduler:
             try:
                 self._know_svc.detect_conflicts(know['id'], agent=agent)
             except Exception as e:
-                print(f'  [BrainScheduler] conflict check failed: {e}', flush=True)
+                logger.error(f'  [BrainScheduler] conflict check failed: {e}')
 
     def get_stats(self):
         """FIXME: 返回大脑状态统计"""
@@ -799,7 +804,7 @@ def _write_json(filepath, data):
                     if isinstance(agent, dict):
                         ak = agent.get('apiKey', '')
                         if _is_log_polluted(ak):
-                            print(f'  [WRITE_GUARD] 写入前发现 apiKey 被污染: {agent.get("id")} len={len(ak)} 已清空', flush=True)
+                            logger.info(f'  [WRITE_GUARD] 写入前发现 apiKey 被污染: {agent.get("id")} len={len(ak)} 已清空')
                             agent['apiKey'] = ''
             with open(tmp_path, 'w', encoding='utf-8') as f:
                 if fcntl:
@@ -1023,7 +1028,7 @@ def _init_default_admin():
             'lastLoginAt': None
         }
         _save_users([admin])
-        print('  🔑 默认管理员账号: admin / admin123，请尽快修改密码')
+        logger.info('  🔑 默认管理员账号: admin / admin123，请尽快修改密码')
         return admin
     return None
 
@@ -1061,7 +1066,7 @@ def _ensure_knowledge_admin_agent():
     }
     agents.append(admin)
     _save_agents(agents)
-    print('  [System] 已创建知识库管理员 AI 员工: knowledge_admin', flush=True)
+    logger.info('  [System] 已创建知识库管理员 AI 员工: knowledge_admin')
 
 
 # ─── 权限管理 ─────────────────────────────────────────
@@ -1269,13 +1274,13 @@ def _load_agents(include_archived=False):
         # 检测 apiKey 污染
         ak = a.get('apiKey', '')
         if _is_log_polluted(ak):
-            print(f'  [LOAD_GUARD] 加载时发现 apiKey 被污染: {a.get("id")} len={len(ak)} 已清空', flush=True)
+            logger.info(f'  [LOAD_GUARD] 加载时发现 apiKey 被污染: {a.get("id")} len={len(ak)} 已清空')
             a['apiKey'] = ''
         # 检测 systemPrompt / soulDoc / idDoc 污染（日志写入 JSON 时可能连带污染）
         for field in ('systemPrompt', 'soulDoc', 'idDoc', 'toolsDoc', 'userDoc'):
             val = a.get(field, '')
             if _is_log_polluted(val):
-                print(f'  [LOAD_GUARD] 加载时发现 {field} 被污染: {a.get("id")} len={len(val)} 已清空', flush=True)
+                logger.info(f'  [LOAD_GUARD] 加载时发现 {field} 被污染: {a.get("id")} len={len(val)} 已清空')
                 a[field] = ''
         cleaned.append(a)
     return cleaned
@@ -1298,7 +1303,7 @@ def _clean_agents_file():
     removed = len(agents) - len(cleaned)
     if removed > 0:
         _write_json(AGENTS_FILE, cleaned)
-        print(f'  [Clean] 已从 agents.json 清理 {removed} 个历史遗留默认员工', flush=True)
+        logger.info(f'  [Clean] 已从 agents.json 清理 {removed} 个历史遗留默认员工')
     return removed
 
 def _save_agents(agents):
@@ -1338,7 +1343,7 @@ def _sanitize_api_key(api_key):
     if not isinstance(api_key, str):
         return ''
     if _is_log_polluted(api_key):
-        print(f'  [SANITIZE] apiKey 被日志污染，长度={len(api_key)}，已清空', flush=True)
+        logger.info(f'  [SANITIZE] apiKey 被日志污染，长度={len(api_key)}，已清空')
         return ''
     return api_key.strip()
 
@@ -1429,7 +1434,7 @@ def _record_group_message(group_id, agent_id, role, content):
         )
         conn.commit()
     except Exception as e:
-        print(f'  [TeamFeed] 记录消息失败: {e}', flush=True)
+        logger.error(f'  [TeamFeed] 记录消息失败: {e}')
     finally:
         conn.close()
 
@@ -1449,7 +1454,7 @@ def _build_team_feed(group_id, exclude_agent_id):
             (group_id, exclude_agent_id or '')
         ).fetchall()
     except Exception as e:
-        print(f'  [TeamFeed] 查询失败: {e}', flush=True)
+        logger.error(f'  [TeamFeed] 查询失败: {e}')
         return ''
     finally:
         conn.close()
@@ -1555,11 +1560,11 @@ def _sync_agent_api_key_to_openclaw(agent):
     args = ['models', 'auth', 'paste-api-key', '--provider', provider, '--profile-id', f'{agent_id}:manual']
     success, stdout, stderr, rc = _run_openclaw(args, input_data=api_key)
     if success and rc == 0:
-        print(f'  [OpenClawSync] API Key 已同步: {agent_id} provider={provider}', flush=True)
+        logger.info(f'  [OpenClawSync] API Key 已同步: {agent_id} provider={provider}')
         return True, stdout
     else:
         err = stderr or stdout or f'returncode={rc}'
-        print(f'  [OpenClawSync] API Key 同步失败: {agent_id} provider={provider} err={err}', flush=True)
+        logger.error(f'  [OpenClawSync] API Key 同步失败: {agent_id} provider={provider} err={err}')
         return False, err
 
 
@@ -1931,7 +1936,7 @@ def ensure_embedding(entity_type, entity, api_key, provider='openai', model=None
             save_embedding(entity_type, entity_id, emb)
         return emb
     except Exception as e:
-        print(f'  [Embedding] {entity_type} {entity_id} 生成失败: {e}', flush=True)
+        logger.error(f'  [Embedding] {entity_type} {entity_id} 生成失败: {e}')
         return None
 
 
@@ -1944,7 +1949,7 @@ def build_all_embeddings(api_key=None, provider='openai', model=None, base_url=N
     model = emb_cfg['model']
     base_url = emb_cfg['baseUrl']
     if not api_key:
-        print(f'  [Embedding] 全局未配置 API key，跳过批量构建', flush=True)
+        logger.info(f'  [Embedding] 全局未配置 API key，跳过批量构建')
         return
 
     os.makedirs(EMBEDDING_DIR, exist_ok=True)
@@ -1970,7 +1975,7 @@ def build_all_embeddings(api_key=None, provider='openai', model=None, base_url=N
         conn.close()
     for product in products:
         ensure_embedding('product', product, api_key, provider, model=model, base_url=base_url)
-    print(f'  [Embedding] 批量构建完成', flush=True)
+    logger.info(f'  [Embedding] 批量构建完成')
 
 
 def rag_retrieve(query, api_key, provider='openai', top_k_docs=3, top_k_products=3, model=None, base_url=None,
@@ -2611,7 +2616,7 @@ def _push_notification(user_id, type, title, content, agent_id=None):
             conn.close()
         return notif_id
     except Exception as e:
-        print(f'  [Notify] 推送通知失败 user={user_id} type={type}: {e}', flush=True)
+        logger.error(f'  [Notify] 推送通知失败 user={user_id} type={type}: {e}')
         return None
 
 
@@ -3115,15 +3120,15 @@ def _migrate_json_products_to_sqlite():
     old_path = os.path.join(PRODUCT_DIR, 'index.json')
     if not os.path.isfile(old_path):
         return
-    print('  [Product] 发现旧版 JSON 商品库，开始迁移到 SQLite...', flush=True)
+    logger.info('  [Product] 发现旧版 JSON 商品库，开始迁移到 SQLite...')
     data = _read_json(old_path, {'products': []})
     products = data.get('products', [])
     if not products:
         try:
             os.rename(old_path, old_path + '.bak')
-            print('  [Product] 旧 JSON 为空，已备份', flush=True)
+            logger.info('  [Product] 旧 JSON 为空，已备份')
         except Exception as e:
-            print(f'  [Product] 备份旧 JSON 失败: {e}', flush=True)
+            logger.error(f'  [Product] 备份旧 JSON 失败: {e}')
         return
 
     conn = _db_conn()
@@ -3149,7 +3154,7 @@ def _migrate_json_products_to_sqlite():
             )
             inserted += 1
         conn.commit()
-        print(f'  [Product] JSON 迁移完成: 插入 {inserted} 条, 跳过 {skipped} 条', flush=True)
+        logger.info(f'  [Product] JSON 迁移完成: 插入 {inserted} 条, 跳过 {skipped} 条')
     finally:
         conn.close()
 
@@ -3158,9 +3163,9 @@ def _migrate_json_products_to_sqlite():
         if os.path.exists(bak_path):
             os.remove(bak_path)
         os.rename(old_path, bak_path)
-        print(f'  [Product] 旧 JSON 已备份: {bak_path}', flush=True)
+        logger.info(f'  [Product] 旧 JSON 已备份: {bak_path}')
     except Exception as e:
-        print(f'  [Product] 备份旧 JSON 失败: {e}', flush=True)
+        logger.error(f'  [Product] 备份旧 JSON 失败: {e}')
 
 
 # FIXME: 记忆三级沉淀辅助函数（二级归纳 memory_summary、三级知识库 knowledge_base）
@@ -3833,7 +3838,7 @@ def _seed_coolchap_data(conn):
     for pid in product_ids:
         _update_product_talent_count(conn, pid)
     conn.commit()
-    print(f'  [Product] 已写入 COOLCHAP 示例数据 {len(seed_items)} 条商品 / {len(base_talents)} 条达人', flush=True)
+    logger.info(f'  [Product] 已写入 COOLCHAP 示例数据 {len(seed_items)} 条商品 / {len(base_talents)} 条达人')
 
 
 def knowledge_create(title, content, category='', embedding=None, api_key=None, provider='openai', model=None, base_url=None):
@@ -3850,7 +3855,7 @@ def knowledge_create(title, content, category='', embedding=None, api_key=None, 
             emb = get_embedding(text[:8000], api_key, provider, model=model, base_url=base_url)
             embedding = json.dumps(emb) if emb else None
         except Exception as e:
-            print(f'  [Knowledge] embedding 生成失败: {e}', flush=True)
+            logger.error(f'  [Knowledge] embedding 生成失败: {e}')
 
     conn = _db_conn()
     try:
@@ -3954,7 +3959,7 @@ def knowledge_update(kid, title=None, content=None, category=None, embedding=Non
                 if emb:
                     updates['embedding'] = json.dumps(emb)
             except Exception as e:
-                print(f'  [Knowledge] update embedding 失败: {e}', flush=True)
+                logger.error(f'  [Knowledge] update embedding 失败: {e}')
 
         if embedding is not None and 'embedding' not in updates:
             updates['embedding'] = json.dumps(embedding) if isinstance(embedding, list) else embedding
@@ -4052,7 +4057,7 @@ def knowledge_migrate_from_json():
             ))
             migrated += 1
         conn.commit()
-        print(f'  [Knowledge] 从 JSON 迁移 {migrated} 条记录到 SQLite', flush=True)
+        logger.info(f'  [Knowledge] 从 JSON 迁移 {migrated} 条记录到 SQLite')
     finally:
         conn.close()
     return migrated
@@ -4143,7 +4148,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             self._do_GET()
         except Exception as e:
-            print(f'  [ERROR] GET {self.path}: {e}', flush=True)
+            logger.error(f'  [ERROR] GET {self.path}: {e}')
             try:
                 self._send_json(500, {'error': str(e)})
             except:
@@ -4512,7 +4517,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             self._do_POST()
         except Exception as e:
-            print(f'  [ERROR] POST {self.path}: {e}', flush=True)
+            logger.error(f'  [ERROR] POST {self.path}: {e}')
             import traceback; traceback.print_exc()
             try:
                 self._send_json(500, {'error': str(e)})
@@ -4809,7 +4814,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # Chat API
         if path.startswith('/api/chat/'):
             sub = path[len('/api/chat/'):]
-            print(f'  [ChatPOST] 路由匹配: path={path} sub={sub}', flush=True)
+            logger.info(f'  [ChatPOST] 路由匹配: path={path} sub={sub}')
             # /api/chat/summarize/:agentId
             if sub.startswith('summarize/'):
                 agent_id = sub[len('summarize/'):]
@@ -4827,7 +4832,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             self._do_PUT()
         except Exception as e:
-            print(f'  [ERROR] PUT {self.path}: {e}', flush=True)
+            logger.error(f'  [ERROR] PUT {self.path}: {e}')
             import traceback; traceback.print_exc()
             try:
                 self._send_json(500, {'error': str(e)})
@@ -4983,7 +4988,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             self._do_DELETE()
         except Exception as e:
-            print(f'  [ERROR] DELETE {self.path}: {e}', flush=True)
+            logger.error(f'  [ERROR] DELETE {self.path}: {e}')
             try:
                 self._send_json(500, {'error': str(e)})
             except:
@@ -5900,7 +5905,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
             self._send_json(200, result)
         except Exception as e:
-            print(f'  [ERROR] _handle_get_groups: {e}', flush=True)
+            logger.error(f'  [ERROR] _handle_get_groups: {e}')
             try:
                 self._send_json(200, [])
             except:
@@ -6231,7 +6236,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if matched:
                     result_groups['knowledge'] = matched
             except Exception as e:
-                print(f'  [ERROR] global search knowledge: {e}', flush=True)
+                logger.error(f'  [ERROR] global search knowledge: {e}')
 
         self._send_json(200, {'q': q, 'scope': scope, 'groups': result_groups})
 
@@ -6852,9 +6857,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 _save_archive(chat_key, archive_data)
                 archived_count = len(old_messages)
                 messages = messages[-300:]
-                print(f'  [ChatArchive] {chat_key} 归档 {archived_count} 条溢出消息到 L3', flush=True)
+                logger.info(f'  [ChatArchive] {chat_key} 归档 {archived_count} 条溢出消息到 L3')
             except Exception as e:
-                print(f'  [ChatArchive] {chat_key} 归档失败: {e}，回退到静默截断', flush=True)
+                logger.error(f'  [ChatArchive] {chat_key} 归档失败: {e}，回退到静默截断')
                 messages = messages[-500:]
 
         _save_chat(chat_key, messages)
@@ -6881,9 +6886,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     base_url=chat_emb_cfg['baseUrl'],
                     sender_id=sender_id if sender_type == 'agent' else None
                 )
-                print(f'  [GroupMemory] group_{group_id} 群聊消息已保存到项目组公共记忆', flush=True)
+                logger.info(f'  [GroupMemory] group_{group_id} 群聊消息已保存到项目组公共记忆')
             except Exception as e:
-                print(f'  [GroupMemory] group_{group_id} 保存项目组公共记忆失败: {e}', flush=True)
+                logger.error(f'  [GroupMemory] group_{group_id} 保存项目组公共记忆失败: {e}')
 
             # 2) 发送者 AI 的个人记忆
             if sender_type == 'agent' and sender_id:
@@ -6901,9 +6906,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         base_url=sender_cfg['baseUrl'] or chat_emb_cfg['baseUrl'],
                         sender_id=sender_id
                     )
-                    print(f'  [GroupMemory] {sender_id} (AI) 群聊消息已保存到 daily 记忆', flush=True)
+                    logger.info(f'  [GroupMemory] {sender_id} (AI) 群聊消息已保存到 daily 记忆')
                 except Exception as e:
-                    print(f'  [GroupMemory] {sender_id} 保存群聊记忆失败: {e}', flush=True)
+                    logger.error(f'  [GroupMemory] {sender_id} 保存群聊记忆失败: {e}')
 
             # 3) 所有参与 AI（含群主）都保存一份群聊上下文，确保任何 AI 被触发时都能拿到完整群聊背景
             member_ids = set()
@@ -6931,9 +6936,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         base_url=member_cfg['baseUrl'] or chat_emb_cfg['baseUrl'],
                         sender_id=sender_id
                     )
-                    print(f'  [GroupMemory] {mid} 群聊上下文已保存到 daily 记忆', flush=True)
+                    logger.info(f'  [GroupMemory] {mid} 群聊上下文已保存到 daily 记忆')
                 except Exception as e:
-                    print(f'  [GroupMemory] {mid} 保存群聊上下文失败: {e}', flush=True)
+                    logger.error(f'  [GroupMemory] {mid} 保存群聊上下文失败: {e}')
 
         self._send_json(200, {'saved': True, 'id': msg['id'], 'archived': archived_count})
 
@@ -7218,9 +7223,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         uid = auth.user_info['userId']
 
         # 调试日志：打印 uid 和所有 agent 的 createdBy，排查过滤问题
-        print(f'  [DEBUG get_agents] uid={uid} role={auth.user_info.get("role")} is_admin={auth.is_admin} is_leader={auth.is_leader}')
+        logger.info(f'  [DEBUG get_agents] uid={uid} role={auth.user_info.get("role")} is_admin={auth.is_admin} is_leader={auth.is_leader}')
         for a in agents:
-            print(f'  [DEBUG get_agents] agent id={a.get("id")} name={a.get("name")} createdBy={repr(a.get("createdBy"))}')
+            logger.info(f'  [DEBUG get_agents] agent id={a.get("id")} name={a.get("name")} createdBy={repr(a.get("createdBy"))}')
 
         if auth.is_admin:
             result = agents
@@ -7232,9 +7237,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # employee: 严格只返回自己创建的 agents，侧边栏不显示其他人的 AI
             result = [a for a in agents if a.get('createdBy') == uid]
 
-        print(f'  [DEBUG get_agents] 过滤后返回 {len(result)} 个 agents')
+        logger.info(f'  [DEBUG get_agents] 过滤后返回 {len(result)} 个 agents')
         for a in result:
-            print(f'  [DEBUG get_agents] -> result id={a.get("id")} name={a.get("name")} createdBy={repr(a.get("createdBy"))}')
+            logger.info(f'  [DEBUG get_agents] -> result id={a.get("id")} name={a.get("name")} createdBy={repr(a.get("createdBy"))}')
 
         # 返回员工完整数据（包含 apiKey，前端需要它来显示和保存）
         safe_result = []
@@ -7303,7 +7308,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             self._handle_create_agent_inner()
         except Exception as e:
-            print(f'  [POST agent] ERROR: {e}', flush=True)
+            logger.error(f'  [POST agent] ERROR: {e}')
             import traceback; traceback.print_exc()
             self._send_json(500, {'error': str(e)})
 
@@ -7389,7 +7394,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             body_keys = list(body.keys())
-            print(f'  [PUT agent] id={agent_id} body_keys={body_keys}', flush=True)
+            logger.info(f'  [PUT agent] id={agent_id} body_keys={body_keys}')
 
             agents = _load_agents(include_archived=True)
             agent = None
@@ -7437,12 +7442,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         agent[key] = body[key]
                     saved_keys.append(key)
 
-            print(f'  [PUT agent] id={agent_id} 实际保存字段={saved_keys}', flush=True)
+            logger.info(f'  [PUT agent] id={agent_id} 实际保存字段={saved_keys}')
 
             # 根因排查：保存前打印 apiKey 详情
             pre_save_api_key = agent.get('apiKey', '')
             if pre_save_api_key:
-                print(f'  [PUT agent] id={agent_id} 保存前 apiKey len={len(pre_save_api_key)} preview={repr(pre_save_api_key[:50])}', flush=True)
+                logger.info(f'  [PUT agent] id={agent_id} 保存前 apiKey len={len(pre_save_api_key)} preview={repr(pre_save_api_key[:50])}')
 
             _save_agents(agents)
 
@@ -7456,28 +7461,28 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if post_agent:
                 post_api_key = post_agent.get('apiKey', '')
                 if post_api_key != pre_save_api_key:
-                    print(f'  [PUT agent] id={agent_id} 保存后 apiKey 发生变化! pre_len={len(pre_save_api_key)} post_len={len(post_api_key)} post_preview={repr(post_api_key[:50])}', flush=True)
+                    logger.info(f'  [PUT agent] id={agent_id} 保存后 apiKey 发生变化! pre_len={len(pre_save_api_key)} post_len={len(post_api_key)} post_preview={repr(post_api_key[:50])}')
                     import traceback
                     traceback.print_stack()
                 elif post_api_key:
-                    print(f'  [PUT agent] id={agent_id} 保存后 apiKey 一致 len={len(post_api_key)}', flush=True)
+                    logger.info(f'  [PUT agent] id={agent_id} 保存后 apiKey 一致 len={len(post_api_key)}')
 
             # 自动同步 API Key 到 OpenClaw（有变动时）
             new_api_key = agent.get('apiKey', '')
             new_provider = agent.get('aiProvider', '') or agent.get('apiProvider', '')
-            print(f'  [PUT agent] id={agent_id} 同步检测: old_key={bool(old_api_key)} new_key={bool(new_api_key)} old_prov={old_provider} new_prov={new_provider}', flush=True)
+            logger.info(f'  [PUT agent] id={agent_id} 同步检测: old_key={bool(old_api_key)} new_key={bool(new_api_key)} old_prov={old_provider} new_prov={new_provider}')
             if new_api_key and new_provider:
                 if new_api_key != old_api_key or new_provider != old_provider:
                     _sync_agent_api_key_to_openclaw(agent)
                 else:
-                    print(f'  [PUT agent] id={agent_id} API Key 未变动，跳过同步', flush=True)
+                    logger.info(f'  [PUT agent] id={agent_id} API Key 未变动，跳过同步')
             else:
-                print(f'  [PUT agent] id={agent_id} 缺少 apiKey 或 provider，跳过同步', flush=True)
+                logger.info(f'  [PUT agent] id={agent_id} 缺少 apiKey 或 provider，跳过同步')
 
-            print(f'  [PUT agent] saved ok, sending response', flush=True)
+            logger.info(f'  [PUT agent] saved ok, sending response')
             self._send_json(200, agent)
         except Exception as e:
-            print(f'  [PUT agent] ERROR: {e}', flush=True)
+            logger.error(f'  [PUT agent] ERROR: {e}')
             import traceback
             traceback.print_exc()
             self._send_json(500, {'error': str(e)})
@@ -7532,7 +7537,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
             self._send_json(200, {'success': True, 'agent': agent, 'message': message})
         except Exception as e:
-            print(f'  [PUT agent self-update] ERROR: {e}', flush=True)
+            logger.error(f'  [PUT agent self-update] ERROR: {e}')
             import traceback
             traceback.print_exc()
             self._send_json(500, {'error': str(e)})
@@ -7570,7 +7575,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
             field_name, new_value = intent_updates[0]
             confirmation = f'（系统已根据你的指令更新了你的{field_name}为{new_value}，请在回复中确认已更新）'
-            print(f'  [AgentSelfUpdateIntent] agent={agent_id} field={field_name} value={new_value}', flush=True)
+            logger.info(f'  [AgentSelfUpdateIntent] agent={agent_id} field={field_name} value={new_value}')
             self._send_json(200, {
                 'matched': True,
                 'field': field_name,
@@ -7578,7 +7583,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'confirmation': confirmation
             })
         except Exception as e:
-            print(f'  [AgentSelfUpdateIntent] ERROR: {e}', flush=True)
+            logger.error(f'  [AgentSelfUpdateIntent] ERROR: {e}')
             import traceback
             traceback.print_exc()
             self._send_json(500, {'error': str(e)})
@@ -7651,7 +7656,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 os.remove(chat_file)
             except OSError as e:
-                print(f'  [Cleanup] 删除聊天文件失败 {chat_file}: {e}', flush=True)
+                logger.error(f'  [Cleanup] 删除聊天文件失败 {chat_file}: {e}')
 
         # 清理聊天摘要
         summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
@@ -7659,7 +7664,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 os.remove(summary_file)
             except OSError as e:
-                print(f'  [Cleanup] 删除摘要文件失败 {summary_file}: {e}', flush=True)
+                logger.error(f'  [Cleanup] 删除摘要文件失败 {summary_file}: {e}')
 
         # 清理 v3 记忆数据目录
         try:
@@ -7668,7 +7673,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if os.path.isdir(mem_dir):
                 shutil.rmtree(mem_dir)
         except Exception as e:
-            print(f'  [Cleanup] 清理记忆目录失败 {agent_id}: {e}', flush=True)
+            logger.error(f'  [Cleanup] 清理记忆目录失败 {agent_id}: {e}')
 
         # 清理其他 AI 员工个人记忆中来自该员工的项目组上下文
         try:
@@ -7709,11 +7714,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             mem_data['updatedAt'] = int(time.time() * 1000)
                             with open(fp, 'w', encoding='utf-8') as f:
                                 json.dump(mem_data, f, ensure_ascii=False, indent=2)
-                            print(f'  [Cleanup] 从 {other_id}/{mem_file} 移除该 AI 员工的群聊上下文', flush=True)
+                            logger.info(f'  [Cleanup] 从 {other_id}/{mem_file} 移除该 AI 员工的群聊上下文')
                     except Exception as e:
-                        print(f'  [Cleanup] 清理 {other_id} 记忆失败: {e}', flush=True)
+                        logger.error(f'  [Cleanup] 清理 {other_id} 记忆失败: {e}')
         except Exception as e:
-            print(f'  [Cleanup] 扫描其他 AI 记忆失败: {e}', flush=True)
+            logger.error(f'  [Cleanup] 扫描其他 AI 记忆失败: {e}')
 
         # 清理项目组公共记忆中该 AI 员工的发言记录（活跃 + 归档）
         try:
@@ -7738,9 +7743,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             gm_data['updatedAt'] = int(time.time() * 1000)
                             with open(group_mem_file, 'w', encoding='utf-8') as f:
                                 json.dump(gm_data, f, ensure_ascii=False, indent=2)
-                            print(f'  [Cleanup] 从 {os.path.basename(group_mem_file)} 移除该 AI 员工的项目组记忆', flush=True)
+                            logger.info(f'  [Cleanup] 从 {os.path.basename(group_mem_file)} 移除该 AI 员工的项目组记忆')
                     except Exception as e:
-                        print(f'  [Cleanup] 清理项目组记忆失败 {group_mem_file}: {e}', flush=True)
+                        logger.error(f'  [Cleanup] 清理项目组记忆失败 {group_mem_file}: {e}')
                 # 归档记忆
                 for group_arc_file in _glob.glob(os.path.join(group_dir, 'group_*_archived.json')):
                     try:
@@ -7755,11 +7760,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             ga_data['updatedAt'] = int(time.time() * 1000)
                             with open(group_arc_file, 'w', encoding='utf-8') as f:
                                 json.dump(ga_data, f, ensure_ascii=False, indent=2)
-                            print(f'  [Cleanup] 从 {os.path.basename(group_arc_file)} 移除该 AI 员工的项目组归档记忆', flush=True)
+                            logger.info(f'  [Cleanup] 从 {os.path.basename(group_arc_file)} 移除该 AI 员工的项目组归档记忆')
                     except Exception as e:
-                        print(f'  [Cleanup] 清理项目组归档记忆失败 {group_arc_file}: {e}', flush=True)
+                        logger.error(f'  [Cleanup] 清理项目组归档记忆失败 {group_arc_file}: {e}')
         except Exception as e:
-            print(f'  [Cleanup] 扫描项目组记忆失败: {e}', flush=True)
+            logger.error(f'  [Cleanup] 扫描项目组记忆失败: {e}')
 
         # 清理归档文件
         archive_file = os.path.join(ARCHIVE_DIR, f'{agent_id}.json')
@@ -7767,7 +7772,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 os.remove(archive_file)
             except OSError as e:
-                print(f'  [Cleanup] 删除归档文件失败 {archive_file}: {e}', flush=True)
+                logger.error(f'  [Cleanup] 删除归档文件失败 {archive_file}: {e}')
 
         # 清理群聊归档（L3 overflow）中该 AI 员工发送的消息
         try:
@@ -7792,11 +7797,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         ga_data['updatedAt'] = int(time.time() * 1000)
                         with open(group_arc_file, 'w', encoding='utf-8') as f:
                             json.dump(ga_data, f, ensure_ascii=False, indent=2)
-                        print(f'  [Cleanup] 从 {os.path.basename(group_arc_file)} 归档移除该 AI 消息', flush=True)
+                        logger.info(f'  [Cleanup] 从 {os.path.basename(group_arc_file)} 归档移除该 AI 消息')
                 except Exception as e:
-                    print(f'  [Cleanup] 清理群聊归档失败 {group_arc_file}: {e}', flush=True)
+                    logger.error(f'  [Cleanup] 清理群聊归档失败 {group_arc_file}: {e}')
         except Exception as e:
-            print(f'  [Cleanup] 扫描群聊归档失败: {e}', flush=True)
+            logger.error(f'  [Cleanup] 扫描群聊归档失败: {e}')
 
         # 清理群聊中该 AI 员工发送的消息
         try:
@@ -7818,11 +7823,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     if len(filtered) < original_len:
                         with open(group_chat_file, 'w', encoding='utf-8') as f:
                             json.dump(filtered, f, ensure_ascii=False, indent=2)
-                        print(f'  [Cleanup] 从 {os.path.basename(group_chat_file)} 移除 {original_len - len(filtered)} 条该 AI 消息', flush=True)
+                        logger.info(f'  [Cleanup] 从 {os.path.basename(group_chat_file)} 移除 {original_len - len(filtered)} 条该 AI 消息')
                 except Exception as e:
-                    print(f'  [Cleanup] 清理群聊文件失败 {group_chat_file}: {e}', flush=True)
+                    logger.error(f'  [Cleanup] 清理群聊文件失败 {group_chat_file}: {e}')
         except Exception as e:
-            print(f'  [Cleanup] 扫描群聊文件失败: {e}', flush=True)
+            logger.error(f'  [Cleanup] 扫描群聊文件失败: {e}')
 
         # 清理数据库中的员工级联数据（记忆、沉淀、知识库、向量缓存等）
         try:
@@ -7944,7 +7949,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 conn.execute(f"DELETE FROM talent_follow_ups WHERE talent_id IN ({placeholders})", tuple(talent_ids))
                 conn.execute(f"DELETE FROM product_talent_match WHERE talent_id IN ({placeholders})", tuple(talent_ids))
                 conn.execute(f"DELETE FROM talents WHERE id IN ({placeholders})", tuple(talent_ids))
-                print(f'  [Cleanup] 已硬删除 {agent_id} 创建的 {len(talent_ids)} 个达人及关联跟进/匹配记录', flush=True)
+                logger.info(f'  [Cleanup] 已硬删除 {agent_id} 创建的 {len(talent_ids)} 个达人及关联跟进/匹配记录')
 
             # 7.2) 商品及其关联匹配数据
             product_ids = [r['id'] for r in conn.execute(
@@ -7960,7 +7965,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 placeholders = ','.join('?' * len(product_ids))
                 conn.execute(f"DELETE FROM product_talent_match WHERE product_id IN ({placeholders})", tuple(product_ids))
                 conn.execute(f"DELETE FROM products WHERE id IN ({placeholders})", tuple(product_ids))
-                print(f'  [Cleanup] 已硬删除 {agent_id} 创建的 {len(product_ids)} 个商品及关联匹配记录', flush=True)
+                logger.info(f'  [Cleanup] 已硬删除 {agent_id} 创建的 {len(product_ids)} 个商品及关联匹配记录')
 
             conn.commit()
 
@@ -7970,12 +7975,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     _update_brand_product_stats(conn, brand_id)
                 conn.commit()
             except Exception as e:
-                print(f'  [Cleanup] 更新品牌统计失败: {e}', flush=True)
+                logger.error(f'  [Cleanup] 更新品牌统计失败: {e}')
 
             conn.close()
-            print(f'  [Cleanup] 已清理 {agent_id} 的数据库级联数据', flush=True)
+            logger.info(f'  [Cleanup] 已清理 {agent_id} 的数据库级联数据')
         except Exception as e:
-            print(f'  [Cleanup] 数据库级联清理失败 {agent_id}: {e}', flush=True)
+            logger.error(f'  [Cleanup] 数据库级联清理失败 {agent_id}: {e}')
 
         # 清理 RAG 内存缓存中该员工的查询结果
         try:
@@ -7985,9 +7990,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 for k in keys_to_remove:
                     rag_cache.pop(k, None)
                 if keys_to_remove:
-                    print(f'  [Cleanup] 已清理 {agent_id} 的 RAG 内存缓存 {len(keys_to_remove)} 条', flush=True)
+                    logger.info(f'  [Cleanup] 已清理 {agent_id} 的 RAG 内存缓存 {len(keys_to_remove)} 条')
         except Exception as e:
-            print(f'  [Cleanup] RAG 缓存清理失败 {agent_id}: {e}', flush=True)
+            logger.error(f'  [Cleanup] RAG 缓存清理失败 {agent_id}: {e}')
 
     # ═══════════════════════════════════════════════════
     # Dreaming API
@@ -8017,7 +8022,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             dreaming = agent.get('dreaming', {'enabled': False, 'phase': 'idle'})
             self._send_json(200, {'agentId': agent_id, 'enabled': dreaming.get('enabled', False), 'phase': dreaming.get('phase', 'idle')})
         except Exception as e:
-            print(f'  [GET dreaming] ERROR: {e}', flush=True)
+            logger.error(f'  [GET dreaming] ERROR: {e}')
             self._send_json(500, {'error': str(e)})
 
     def _handle_post_dreaming(self):
@@ -8059,7 +8064,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             _save_agents(agents)
             self._send_json(200, {'agentId': agent_id, 'enabled': dreaming['enabled'], 'phase': dreaming['phase']})
         except Exception as e:
-            print(f'  [POST dreaming] ERROR: {e}', flush=True)
+            logger.error(f'  [POST dreaming] ERROR: {e}')
             self._send_json(500, {'error': str(e)})
 
     # ═══════════════════════════════════════════════════
@@ -8279,7 +8284,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         
         seed_path = os.path.join(STATIC_DIR, 'docs', 'role-templates', seed_name, 'memory-seed.json')
         if not os.path.isfile(seed_path):
-            print(f'  [MemorySeed] 未找到种子文件: {seed_path}', flush=True)
+            logger.info(f'  [MemorySeed] 未找到种子文件: {seed_path}')
             return
         
         try:
@@ -8304,9 +8309,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 memories.append(memory)
             
             _write_json(filepath, memories)
-            print(f'  [MemorySeed] {agent_id} 已加载 {len(initial_memories)} 条初始记忆 ({seed_name})', flush=True)
+            logger.info(f'  [MemorySeed] {agent_id} 已加载 {len(initial_memories)} 条初始记忆 ({seed_name})')
         except Exception as e:
-            print(f'  [MemorySeed] 加载失败: {e}', flush=True)
+            logger.error(f'  [MemorySeed] 加载失败: {e}')
 
 
     # ─── 记忆 API ─────────────────────────────────────────
@@ -8442,7 +8447,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 )
                 kb_docs = kb_result.get('docs', [])
             except Exception as e:
-                print(f'  [MemoryAPI] 加载知识库失败: {e}', flush=True)
+                logger.error(f'  [MemoryAPI] 加载知识库失败: {e}')
                 kb_docs = []
             knowledge_list = [_map_knowledge(d) for d in kb_docs]
 
@@ -8591,7 +8596,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     return
                 consolidated_value = '\n'.join('• ' + (m.get('value', '') or '') for m in source_memories)
             except Exception as e:
-                print(f'  [MemoryV3] auto-generate consolidatedValue failed: {e}', flush=True)
+                logger.error(f'  [MemoryV3] auto-generate consolidatedValue failed: {e}')
                 self._send_json_error(500, '生成归纳内容失败')
                 return
 
@@ -8626,7 +8631,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         mapped.pop('expiresAt', None)
         mapped.pop('accessCount', None)
 
-        print(f'  [MemoryV3] {emp_id} 归纳合并 {len(archived_ids)} 条记忆 → {new_mem["id"]}', flush=True)
+        logger.info(f'  [MemoryV3] {emp_id} 归纳合并 {len(archived_ids)} 条记忆 → {new_mem["id"]}')
         self._send_json(200, {
             'success': True,
             'data': {
@@ -8814,13 +8819,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         mapped.pop('accessCount', None)
         # priority / tags 保留给前端展示
 
-        print(f'  [MemoryV3] {emp_id} 保存 {pool} 记忆: {value[:50]}...', flush=True)
+        logger.info(f'  [MemoryV3] {emp_id} 保存 {pool} 记忆: {value[:50]}...')
 
         # FIXME: 大脑知识中枢新增：把记忆加入清洗窗口
         try:
             _brain_scheduler.request_clean(emp_id, memory.get('id'))
         except Exception as e:
-            print(f'  [BrainScheduler] request_clean failed: {e}', flush=True)
+            logger.error(f'  [BrainScheduler] request_clean failed: {e}')
 
         # FIXME: 三级知识库自动沉淀 + 二级归纳自动触发（数量/决策）
         auto_triggers = []
@@ -8831,7 +8836,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 # 二级归纳：数量触发 / 决策触发 -> 创建 pending 记录，由前端 AI 生成正式内容
                 auto_triggers = _auto_summarize_triggers(emp_id, memory)
             except Exception as e:
-                print(f'  [MemoryV3] {emp_id} 自动沉淀/归纳触发失败: {e}', flush=True)
+                logger.error(f'  [MemoryV3] {emp_id} 自动沉淀/归纳触发失败: {e}')
 
         # 自动提取的记忆（auto/auto_extract）尝试触发知识归纳到个人知识库
         if key in ('auto', 'auto_extract'):
@@ -8843,7 +8848,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     daemon=True
                 ).start()
             except Exception as e:
-                print(f'  [MemoryV3] {emp_id} 自动归纳触发失败: {e}', flush=True)
+                logger.error(f'  [MemoryV3] {emp_id} 自动归纳触发失败: {e}')
 
         result = {
             'success': True,
@@ -8869,7 +8874,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         removed = ms3.delete_memory(emp_id, memory_id)
         if removed:
-            print(f'  [MemoryV3] {emp_id} 删除记忆: {memory_id}', flush=True)
+            logger.info(f'  [MemoryV3] {emp_id} 删除记忆: {memory_id}')
 
         self._send_json(200, {
             'success': True,
@@ -8976,7 +8981,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         result.pop('expiresAt', None)
         result.pop('context', None)
 
-        print(f'  [MemoryV3] {emp_id} 升级为核心记忆: {mem.get("value", "")[:50]}...', flush=True)
+        logger.info(f'  [MemoryV3] {emp_id} 升级为核心记忆: {mem.get("value", "")[:50]}...')
         self._send_json(200, result)
 
     def _handle_restore_memory(self, emp_id, memory_id):
@@ -9006,7 +9011,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         mapped.pop('expiresAt', None)
         mapped.pop('context', None)
 
-        print(f'  [MemoryV3] {emp_id} 恢复归档记忆到 daily: {mem.get("value", "")[:50]}...', flush=True)
+        logger.info(f'  [MemoryV3] {emp_id} 恢复归档记忆到 daily: {mem.get("value", "")[:50]}...')
         self._send_json(200, {
             'success': True,
             'data': mapped
@@ -9076,7 +9081,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 归档源 daily 记忆
             ms3.archive_source_memories_as_promoted(emp_id, cand.get('sourceIds', []))
         except Exception as e:
-            print(f'  [CoreCandidate] confirm failed: {e}', flush=True)
+            logger.error(f'  [CoreCandidate] confirm failed: {e}')
             self._send_json_error(500, f'Confirm failed: {str(e)}')
             return
         self._send_json(200, {
@@ -9117,7 +9122,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             count, reason = _induct_knowledge_for_agent(agent, owner_user_id=auth.user_id)
         except Exception as e:
-            print(f'  [InductKnowledge] manual failed: {e}', flush=True)
+            logger.error(f'  [InductKnowledge] manual failed: {e}')
             self._send_json_error(500, f'Induction failed: {str(e)}')
             return
         self._send_json(200, {
@@ -9142,7 +9147,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             archived_ids = ms3.archive_inducted_memories(emp_id)
         except Exception as e:
-            print(f'  [ArchiveInducted] failed: {e}', flush=True)
+            logger.error(f'  [ArchiveInducted] failed: {e}')
             self._send_json_error(500, f'Archive failed: {str(e)}')
             return
         self._send_json(200, {
@@ -9207,7 +9212,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             detected = ms3.detect_core_memory_conflicts(emp_id, emb_cfg['apiKey'], emb_cfg['provider'], _ai_resolve)
             self._send_json(200, {'success': True, 'empId': emp_id, 'detected': detected})
         except Exception as e:
-            print(f'  [DetectConflicts] failed: {e}', flush=True)
+            logger.error(f'  [DetectConflicts] failed: {e}')
             self._send_json_error(500, f'Detect failed: {str(e)}')
 
     def _handle_resolve_conflict(self, emp_id, mem_id):
@@ -9229,7 +9234,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
             self._send_json(200, {'success': True, 'empId': emp_id, 'memory': mem})
         except Exception as e:
-            print(f'  [ResolveConflict] failed: {e}', flush=True)
+            logger.error(f'  [ResolveConflict] failed: {e}')
             self._send_json_error(500, f'Resolve failed: {str(e)}')
 
     # FIXME: 大脑知识中枢 API 处理器
@@ -9243,7 +9248,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             stats = _brain_scheduler.get_stats()
             self._send_json(200, {'success': True, **stats})
         except Exception as e:
-            print(f'  [BrainAPI] status failed: {e}', flush=True)
+            logger.error(f'  [BrainAPI] status failed: {e}')
             self._send_json_error(500, f'Status failed: {str(e)}')
 
     def _handle_brain_trigger_manual(self):
@@ -9262,7 +9267,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'enqueuedInduct': enqueued_induct
             })
         except Exception as e:
-            print(f'  [BrainAPI] trigger failed: {e}', flush=True)
+            logger.error(f'  [BrainAPI] trigger failed: {e}')
             self._send_json_error(500, f'Trigger failed: {str(e)}')
 
     def _handle_get_brain_topics(self):
@@ -9281,7 +9286,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             topics = _brain_scheduler._topic_svc.get_emp_topics(emp_id, limit=100)
             self._send_json(200, {'success': True, 'empId': emp_id, 'topics': topics})
         except Exception as e:
-            print(f'  [BrainAPI] topics failed: {e}', flush=True)
+            logger.error(f'  [BrainAPI] topics failed: {e}')
             self._send_json_error(500, f'Topics failed: {str(e)}')
 
     def _handle_get_brain_knowledge(self):
@@ -9300,7 +9305,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             knowledge = _brain_scheduler._know_svc.get_knowledge_by_topic(topic_id, limit=100)
             self._send_json(200, {'success': True, 'topicId': topic_id, 'knowledge': knowledge})
         except Exception as e:
-            print(f'  [BrainAPI] knowledge failed: {e}', flush=True)
+            logger.error(f'  [BrainAPI] knowledge failed: {e}')
             self._send_json_error(500, f'Knowledge failed: {str(e)}')
 
     def _handle_brain_knowledge_feedback(self, knowledge_id):
@@ -9315,7 +9320,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             ok = _brain_scheduler._know_svc.feedback_knowledge(knowledge_id, accurate=accurate)
             self._send_json(200, {'success': ok})
         except Exception as e:
-            print(f'  [BrainAPI] feedback failed: {e}', flush=True)
+            logger.error(f'  [BrainAPI] feedback failed: {e}')
             self._send_json_error(500, f'Feedback failed: {str(e)}')
 
     # FIXME: 记忆三级沉淀 API：二级归纳（daily/project） + 三级知识库查询/标记
@@ -9379,7 +9384,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             sid = _save_memory_summary(summary)
         except Exception as e:
-            print(f'  [SummaryTrigger] save failed: {e}', flush=True)
+            logger.error(f'  [SummaryTrigger] save failed: {e}')
             self._send_json_error(500, f'Save summary failed: {str(e)}')
             return
         self._send_json(200, {'success': True, 'empId': emp_id, 'summaryId': sid})
@@ -9449,7 +9454,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'status': 'active'
             })
         except Exception as e:
-            print(f'  [KnowledgeBase] manual mark failed: {e}', flush=True)
+            logger.error(f'  [KnowledgeBase] manual mark failed: {e}')
             self._send_json_error(500, f'Mark knowledge failed: {str(e)}')
             return
         self._send_json(200, {'success': True, 'empId': emp_id, 'knowledgeId': kb_id})
@@ -9577,7 +9582,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             )
             self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
         except Exception as e:
-            print(f'  [KnowledgeSearch] failed: {e}', flush=True)
+            logger.error(f'  [KnowledgeSearch] failed: {e}')
             self._send_json_error(500, f'Search failed: {str(e)}')
 
     def _handle_post_knowledge(self):
@@ -9652,7 +9657,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             )
             self._send_json(200, doc)
         except Exception as e:
-            print(f'  [Knowledge] create failed: {e}', flush=True)
+            logger.error(f'  [Knowledge] create failed: {e}')
             self._send_json_error(500, f'Create failed: {str(e)}')
 
     def _handle_put_knowledge(self, doc_id):
@@ -9741,7 +9746,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             )
             self._send_json(200, updated)
         except Exception as e:
-            print(f'  [Knowledge] update failed: {e}', flush=True)
+            logger.error(f'  [Knowledge] update failed: {e}')
             self._send_json_error(500, f'Update failed: {str(e)}')
 
     def _handle_delete_knowledge(self, doc_id):
@@ -9864,7 +9869,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
             self._send_json(200, {'success': True, 'knowledge': rolled})
         except Exception as e:
-            print(f'  [KnowledgeRollback] failed: {e}', flush=True)
+            logger.error(f'  [KnowledgeRollback] failed: {e}')
             self._send_json_error(500, f'Rollback failed: {str(e)}')
 
     def _handle_knowledge_move(self, doc_id):
@@ -9908,7 +9913,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             moved = ks.knowledge_move(doc_id, new_scope, new_team_id, group_ids=new_group_ids, moved_by=auth.user_id)
             self._send_json(200, {'success': True, 'knowledge': moved})
         except Exception as e:
-            print(f'  [KnowledgeMove] failed: {e}', flush=True)
+            logger.error(f'  [KnowledgeMove] failed: {e}')
             self._send_json_error(500, f'Move failed: {str(e)}')
 
     # ═══════════════════════════════════════════════════
@@ -9965,7 +9970,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             )
             self._send_json(200, result)
         except Exception as e:
-            print(f'  [KBEntries] list failed: {e}', flush=True)
+            logger.error(f'  [KBEntries] list failed: {e}')
             self._send_json_error(500, f'List failed: {str(e)}')
 
     def _handle_get_kb_entry_detail(self, entry_id):
@@ -10052,7 +10057,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             )
             self._send_json(200, doc)
         except Exception as e:
-            print(f'  [KBEntry] create failed: {e}', flush=True)
+            logger.error(f'  [KBEntry] create failed: {e}')
             self._send_json_error(500, f'Create failed: {str(e)}')
 
     def _handle_put_kb_entry(self, entry_id):
@@ -10126,7 +10131,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             )
             self._send_json(200, updated)
         except Exception as e:
-            print(f'  [KBEntry] update failed: {e}', flush=True)
+            logger.error(f'  [KBEntry] update failed: {e}')
             self._send_json_error(500, f'Update failed: {str(e)}')
 
     def _handle_delete_kb_entry(self, entry_id):
@@ -10151,7 +10156,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             deleted = ks.kb_entry_delete(entry_id, is_admin=auth.is_admin)
             self._send_json(200, {'success': deleted, 'id': entry_id})
         except Exception as e:
-            print(f'  [KBEntry] delete failed: {e}', flush=True)
+            logger.error(f'  [KBEntry] delete failed: {e}')
             self._send_json_error(500, f'Delete failed: {str(e)}')
 
     def _handle_get_kb_categories(self):
@@ -10168,7 +10173,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             tree = ks.kb_category_tree(project_id=project_id)
             self._send_json(200, {'categories': tree, 'projectId': project_id})
         except Exception as e:
-            print(f'  [KBCategories] failed: {e}', flush=True)
+            logger.error(f'  [KBCategories] failed: {e}')
             self._send_json_error(500, f'Categories failed: {str(e)}')
 
     def _handle_post_kb_categories(self):
@@ -10193,7 +10198,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except ValueError as e:
             self._send_json_error(400, str(e))
         except Exception as e:
-            print(f'  [KBCategories] create failed: {e}', flush=True)
+            logger.error(f'  [KBCategories] create failed: {e}')
             self._send_json_error(500, f'Create category failed: {str(e)}')
 
     def _handle_put_kb_category(self, category_id):
@@ -10217,7 +10222,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except ValueError as e:
             self._send_json_error(400, str(e))
         except Exception as e:
-            print(f'  [KBCategories] update failed: {e}', flush=True)
+            logger.error(f'  [KBCategories] update failed: {e}')
             self._send_json_error(500, f'Update category failed: {str(e)}')
 
     def _handle_delete_kb_category(self, category_id):
@@ -10231,7 +10236,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             ok = ks.kb_category_delete(category_id)
             self._send_json(200, {'success': ok})
         except Exception as e:
-            print(f'  [KBCategories] delete failed: {e}', flush=True)
+            logger.error(f'  [KBCategories] delete failed: {e}')
             self._send_json_error(500, f'Delete category failed: {str(e)}')
 
     def _handle_get_kb_stats(self):
@@ -10256,7 +10261,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             )
             self._send_json(200, {'stats': stats})
         except Exception as e:
-            print(f'  [KBStats] failed: {e}', flush=True)
+            logger.error(f'  [KBStats] failed: {e}')
             self._send_json_error(500, f'Stats failed: {str(e)}')
 
     def _handle_post_kb_search(self):
@@ -10294,7 +10299,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             )
             self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
         except Exception as e:
-            print(f'  [KBSearch] failed: {e}', flush=True)
+            logger.error(f'  [KBSearch] failed: {e}')
             self._send_json_error(500, f'Search failed: {str(e)}')
 
     def _handle_get_stats_compute(self):
@@ -10410,7 +10415,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             result = _sync_token_usage_from_trajectories()
             self._send_json(200, result)
         except Exception as e:
-            print(f'  [TokenUsageSync] failed: {e}', flush=True)
+            logger.error(f'  [TokenUsageSync] failed: {e}')
             import traceback; traceback.print_exc()
             self._send_json_error(500, f'Sync failed: {str(e)}')
 
@@ -10608,7 +10613,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             try:
                 query_emb = ks.get_embedding(query, api_key, provider, model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
             except Exception as e:
-                print(f'  [RAG] product embedding query failed: {e}', flush=True)
+                logger.error(f'  [RAG] product embedding query failed: {e}')
                 query_emb = None
             if query_emb:
                 product_scores = []
@@ -10622,7 +10627,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 result['products'] = [p for _, p in product_scores[:top_k]]
             self._send_json(200, result)
         except Exception as e:
-            print(f'  [RAG] retrieve failed: {e}', flush=True)
+            logger.error(f'  [RAG] retrieve failed: {e}')
             import traceback; traceback.print_exc()
             self._send_json_error(500, f'RAG retrieve failed: {str(e)}')
 
@@ -10645,7 +10650,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             build_all_embeddings(api_key, provider, model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
             self._send_json(200, {'success': True, 'message': 'Embedding index built'})
         except Exception as e:
-            print(f'  [RAG] build failed: {e}', flush=True)
+            logger.error(f'  [RAG] build failed: {e}')
             self._send_json_error(500, f'Build failed: {str(e)}')
 
     def _handle_post_tool_calls_log(self):
@@ -10690,7 +10695,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             )
             self._send_json(200, {'success': True})
         except Exception as e:
-            print(f'  [TOOL-CALLS-LOG] failed: {e}', flush=True)
+            logger.error(f'  [TOOL-CALLS-LOG] failed: {e}')
             import traceback; traceback.print_exc()
             self._send_json_error(500, f'Log tool call failed: {str(e)}')
 
@@ -11299,38 +11304,38 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             product_out = _product_row_to_dict(row_out)
         finally:
             conn.close()
-        print(f'  [Product] 录入商品: {product_out["name"]} ({product_out["id"]})', flush=True)
+        logger.info(f'  [Product] 录入商品: {product_out["name"]} ({product_out["id"]})')
         self._send_json(200, product_out)
 
     def _handle_put_product(self, product_id):
         """PUT /api/products/{id} — 更新商品（同时同步 SQLite 与 data/products.json；SQLite 不存在时回退到 JSON）"""
-        print(f'  [ProductPUT] 入口 product_id={product_id}', flush=True)
+        logger.info(f'  [ProductPUT] 入口 product_id={product_id}')
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
-            print(f'  [ProductPUT] 返回 401: 未认证 product_id={product_id}', flush=True)
+            logger.info(f'  [ProductPUT] 返回 401: 未认证 product_id={product_id}')
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'):
-            print(f'  [ProductPUT] 返回 403: 无 products 模块权限 product_id={product_id}', flush=True)
+            logger.info(f'  [ProductPUT] 返回 403: 无 products 模块权限 product_id={product_id}')
             return
         body = self._read_body()
-        print(f'  [ProductPUT] 请求体 product_id={product_id} body={repr(body)[:500]}', flush=True)
+        logger.info(f'  [ProductPUT] 请求体 product_id={product_id} body={repr(body)[:500]}')
         if not body:
-            print(f'  [ProductPUT] 返回 400: 请求体为空 product_id={product_id}', flush=True)
+            logger.info(f'  [ProductPUT] 返回 400: 请求体为空 product_id={product_id}')
             self._send_json_error(400, 'Missing body')
             return
 
-        print(f'  [ProductPUT] 查询SQLite前 product_id={product_id}', flush=True)
+        logger.info(f'  [ProductPUT] 查询SQLite前 product_id={product_id}')
         conn = _db_conn()
         try:
             row = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
             existing = _product_row_to_dict(row)
         finally:
             conn.close()
-        print(f'  [ProductPUT] 查询SQLite后 product_id={product_id} existing={bool(existing)}', flush=True)
+        logger.info(f'  [ProductPUT] 查询SQLite后 product_id={product_id} existing={bool(existing)}')
 
         if not existing:
-            print(f'  [ProductPUT] 返回 404: SQLite中未找到 product_id={product_id}', flush=True)
+            logger.info(f'  [ProductPUT] 返回 404: SQLite中未找到 product_id={product_id}')
             self._send_json_error(404, 'Product not found')
             return
         exists_in_sql = True
@@ -11360,7 +11365,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         row['updated_at'] = now_ts
 
         old_brand_id = existing.get('brand_id')
-        print(f'  [ProductPUT] 写入SQLite前 product_id={product_id} op={"UPDATE" if exists_in_sql else "INSERT"}', flush=True)
+        logger.info(f'  [ProductPUT] 写入SQLite前 product_id={product_id} op={"UPDATE" if exists_in_sql else "INSERT"}')
         conn = _db_conn()
         try:
             _sync_product_brand(conn, row)
@@ -11380,7 +11385,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.commit()
         finally:
             conn.close()
-        print(f'  [ProductPUT] 写入SQLite完成 product_id={product_id}', flush=True)
+        logger.info(f'  [ProductPUT] 写入SQLite完成 product_id={product_id}')
 
         # 同步到 data/products.json
         json_data = _load_json_products()
@@ -11397,7 +11402,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         json_data['total'] = len(products)
         _save_json_products(json_data)
 
-        print(f'  [ProductPUT] 返回 200 product_id={product_id} name={updated.get("name", "")}', flush=True)
+        logger.info(f'  [ProductPUT] 返回 200 product_id={product_id} name={updated.get("name", "")}')
         self._send_json(200, updated)
 
     def _handle_delete_product(self, product_id):
@@ -11539,7 +11544,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 解析 JSON（兼容 markdown 代码块、冗余文本）
         analysis = _extract_json_object(content)
         if not isinstance(analysis, dict):
-            print(f'  [Analyze] product_analyze AI response is not a valid JSON object: {content[:1000]}', flush=True)
+            logger.info(f'  [Analyze] product_analyze AI response is not a valid JSON object: {content[:1000]}')
             self._send_json_error(503, 'AI response is not valid JSON')
             return
 
@@ -11596,9 +11601,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 sql += " AND (LOWER(name) LIKE ? OR LOWER(main_category) LIKE ?)"
                 params.extend([f'%{q}%', f'%{q}%'])
             sql += " ORDER BY updated_at DESC"
-            print(f'[DEBUG] GET /api/brands SQL: {sql} params={params}', flush=True)
+            logger.debug(f'[DEBUG] GET /api/brands SQL: {sql} params={params}')
             rows = conn.execute(sql, params).fetchall()
-            print(f'[DEBUG] GET /api/brands rows={len(rows)}', flush=True)
+            logger.debug(f'[DEBUG] GET /api/brands rows={len(rows)}')
             brands = [_brand_row_to_dict(r) for r in rows]
             # Fallback：brands 表为空时，从 products 表聚合生成品牌列表，兼容旧数据
             if not brands:
@@ -11629,7 +11634,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 } for r in agg_rows]
             self._send_json(200, {'brands': brands, 'total': len(brands)})
         except Exception as e:
-            print(f'[ERROR] GET /api/brands failed: {e}', flush=True)
+            logger.error(f'[ERROR] GET /api/brands failed: {e}')
             import traceback
             traceback.print_exc()
             self._send_json(500, {'error': f'获取品牌列表失败: {str(e)}'})
@@ -12112,7 +12117,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         data['influencers'].append(influencer)
         self._save_influencers(data)
         self._sync_influencer_file(influencer)
-        print(f'  [Influencer] 录入达人: {influencer["name"]} ({influencer["id"]})', flush=True)
+        logger.info(f'  [Influencer] 录入达人: {influencer["name"]} ({influencer["id"]})')
         self._send_json(200, influencer)
 
     def _handle_put_influencer(self, inf_id):
@@ -12635,7 +12640,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     }
             return scores
         except Exception as e:
-            print(f'  [AI Match] scoring failed: {e}', flush=True)
+            logger.error(f'  [AI Match] scoring failed: {e}')
             return {}
 
     def _handle_get_product_talents(self, product_id):
@@ -13112,19 +13117,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             original_len = len(messages)
             messages = [m for m in messages if not m.get('groupId')]
             if len(messages) < original_len:
-                print(f'  [ChatFilter] {agent_id}: 过滤了 {original_len - len(messages)} 条群聊消息')
+                logger.info(f'  [ChatFilter] {agent_id}: 过滤了 {original_len - len(messages)} 条群聊消息')
 
         # 统计角色分布，便于排查 user 消息是否丢失
         role_counts = {}
         for m in messages:
             r = m.get('role', 'unknown')
             role_counts[r] = role_counts.get(r, 0) + 1
-        print(f'  [ChatGET] {agent_id} type={chat_type} 返回 {len(messages)} 条消息, 角色分布: {role_counts}')
+        logger.info(f'  [ChatGET] {agent_id} type={chat_type} 返回 {len(messages)} 条消息, 角色分布: {role_counts}')
         self._send_json(200, messages)
 
     def _handle_post_chat(self, agent_id):
         """POST /api/chat/:agentId"""
-        print(f'  [ChatPOST] 收到请求: {agent_id} path={self.path}', flush=True)
+        logger.info(f'  [ChatPOST] 收到请求: {agent_id} path={self.path}')
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -13199,9 +13204,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     _save_archive(agent_id, archive_data)
                     archived_count = len(old_messages)
                     messages = messages[-300:]
-                    print(f'  [ChatArchive] {agent_id} 个人聊天归档 {archived_count} 条溢出消息到 L3', flush=True)
+                    logger.info(f'  [ChatArchive] {agent_id} 个人聊天归档 {archived_count} 条溢出消息到 L3')
                 except Exception as e:
-                    print(f'  [ChatArchive] {agent_id} 归档失败: {e}，回退到静默截断', flush=True)
+                    logger.error(f'  [ChatArchive] {agent_id} 归档失败: {e}，回退到静默截断')
                     messages = messages[-cfg["chat_store_max"]:]
 
             # 如果前端标记 skipAI（AI已通过OpenClaw回复），跳过API代理
@@ -13231,9 +13236,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             confirmation = f'（系统已根据你的指令更新了你的{field_name}为{new_value}，请在回复中确认已更新）'
                             content = confirmation + '\n\n' + content
                             msg['content'] = content
-                            print(f'  [ChatPOST] {agent_id} self-update intent applied: {field_name}={new_value}', flush=True)
+                            logger.info(f'  [ChatPOST] {agent_id} self-update intent applied: {field_name}={new_value}')
                         else:
-                            print(f'  [ChatPOST] {agent_id} self-update intent apply failed: {su_msg}', flush=True)
+                            logger.error(f'  [ChatPOST] {agent_id} self-update intent apply failed: {su_msg}')
 
                 images = body.get('images', [])
                 if images:
@@ -13250,22 +13255,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     group_ids=auth.group_ids
                 )
                 if api_reply:
-                    print(f'  [ChatPOST] {agent_id} api_reply_len={len(api_reply)} preview={repr(api_reply[:200])}', flush=True)
+                    logger.info(f'  [ChatPOST] {agent_id} api_reply_len={len(api_reply)} preview={repr(api_reply[:200])}')
                     # 解析并应用 AI 自修改标记，移除后保存到聊天记录
                     try:
                         self_updates, cleaned_reply = _parse_self_updates(api_reply)
-                        print(f'  [ChatPOST] {agent_id} self_updates={self_updates} cleaned_len={len(cleaned_reply)}', flush=True)
+                        logger.info(f'  [ChatPOST] {agent_id} self_updates={self_updates} cleaned_len={len(cleaned_reply)}')
                         if self_updates:
                             ok, su_msg, _ = _apply_agent_self_update(agent_id, self_updates, source=f'chat:{auth.user_id}')
-                            print(f'  [ChatPOST] {agent_id} apply_self_update ok={ok} msg={su_msg}', flush=True)
+                            logger.info(f'  [ChatPOST] {agent_id} apply_self_update ok={ok} msg={su_msg}')
                     except Exception as self_update_err:
-                        print(f'  [ChatPOST] {agent_id} self_update processing error: {self_update_err}', flush=True)
+                        logger.error(f'  [ChatPOST] {agent_id} self_update processing error: {self_update_err}')
                         import traceback
                         traceback.print_exc()
                         cleaned_reply = api_reply
 
                     if not cleaned_reply:
-                        print(f'  [ChatPOST] {agent_id} cleaned_reply is empty, falling back to original api_reply', flush=True)
+                        logger.info(f'  [ChatPOST] {agent_id} cleaned_reply is empty, falling back to original api_reply')
                         cleaned_reply = api_reply
 
                     ai_message = {
@@ -13278,7 +13283,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         ai_message['empId'] = _emp_id
                     messages.append(ai_message)
                     _save_chat(agent_id, messages)
-                    print(f'  [ChatPOST] {agent_id} API代理 保存 {len(messages)} 条消息 ai_content_len={len(ai_message["content"])}')
+                    logger.info(f'  [ChatPOST] {agent_id} API代理 保存 {len(messages)} 条消息 ai_content_len={len(ai_message["content"])}')
                     # 记录项目组对话到 group_messages（供同组其他 AI 感知团队动态；记忆提取任务不记录）
                     if not is_extract:
                         try:
@@ -13287,7 +13292,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                                 _record_group_message(agent_group_id, agent_id, 'user', content)
                                 _record_group_message(agent_group_id, agent_id, 'assistant', ai_message['content'])
                         except Exception as feed_err:
-                            print(f'  [TeamFeed] {agent_id} 记录失败: {feed_err}', flush=True)
+                            logger.error(f'  [TeamFeed] {agent_id} 记录失败: {feed_err}')
                     # 推送 AI 回复通知（受用户 message_notify 开关控制）
                     _push_notification(
                         auth.user_id, 'message',
@@ -13300,7 +13305,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
             # OpenClaw 或其他
             _save_chat(agent_id, messages)
-            print(f'  [ChatPOST] {agent_id} role={role} skipAI={skip_ai} 保存后共 {len(messages)} 条消息')
+            logger.info(f'  [ChatPOST] {agent_id} role={role} skipAI={skip_ai} 保存后共 {len(messages)} 条消息')
 
         if connection_type == 'openclaw':
             self._send_json(200, {
@@ -13373,26 +13378,26 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
     }
 
     masked_key = f'{api_key[:4]}...' if api_key and len(api_key) > 4 else '(none)'
-    print(f'  [API] chat completion request: provider={api_provider} model={resolved_model} url={target_url} key={masked_key}', flush=True)
+    logger.info(f'  [API] chat completion request: provider={api_provider} model={resolved_model} url={target_url} key={masked_key}')
     try:
         req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
         ctx = ssl.create_default_context()
         resp = urllib.request.urlopen(req, timeout=timeout, context=ctx)
         status = resp.status
         raw = resp.read().decode('utf-8', errors='replace')
-        print(f'  [API] chat completion response: HTTP {status}', flush=True)
+        logger.info(f'  [API] chat completion response: HTTP {status}')
         resp_data = json.loads(raw)
         if resp_data.get('choices') and resp_data['choices'][0].get('message'):
             return resp_data['choices'][0]['message'].get('content', '')
-        print(f'  [API] chat completion unexpected format: {raw[:500]}', flush=True)
+        logger.info(f'  [API] chat completion unexpected format: {raw[:500]}')
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8', errors='replace')
-        print(f'  ❌ AI API call failed: HTTP {e.code} {e.reason}', flush=True)
-        print(f'      Provider: {api_provider}, Model: {resolved_model}, URL: {target_url}', flush=True)
-        print(f'      Request body preview: {req_body[:500].decode("utf-8", errors="replace")}', flush=True)
-        print(f'      Response: {error_body}', flush=True)
+        logger.error(f'  ❌ AI API call failed: HTTP {e.code} {e.reason}')
+        logger.info(f'      Provider: {api_provider}, Model: {resolved_model}, URL: {target_url}')
+        logger.error(f'      Request body preview: {req_body[:500].decode("utf-8", errors="replace")}')
+        logger.error(f'      Response: {error_body}')
     except Exception as e:
-        print(f'  ❌ AI API call failed: {e}', flush=True)
+        logger.error(f'  ❌ AI API call failed: {e}')
         traceback.print_exc()
     return None
 
@@ -13480,7 +13485,7 @@ def _log_self_update(agent_id, updates, source):
     if not updates:
         return
     fields = ', '.join([f'{f}={len(v)}字符' for f, v in updates])
-    print(f'  [SELF_UPDATE] agent={agent_id} source={source} fields={fields}', flush=True)
+    logger.info(f'  [SELF_UPDATE] agent={agent_id} source={source} fields={fields}')
 
 
 def _apply_agent_self_update(agent_id, updates, source='openclaw'):
@@ -13491,7 +13496,7 @@ def _apply_agent_self_update(agent_id, updates, source='openclaw'):
     allowed = []
     for field, value in updates:
         if field not in _SELF_UPDATE_ALLOWED_FIELDS:
-            print(f'  [SELF_UPDATE] 忽略不允许的字段: {field}', flush=True)
+            logger.info(f'  [SELF_UPDATE] 忽略不允许的字段: {field}')
             continue
         allowed.append((field, value))
     if not allowed:
@@ -13556,7 +13561,7 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
       - 旧版：openclaw infer model run --prompt <prompt> --json
     """
     if not os.path.isfile(OPENCLAW_CLI):
-        print(f'  [OpenClaw] CLI not found at {OPENCLAW_CLI}', flush=True)
+        logger.info(f'  [OpenClaw] CLI not found at {OPENCLAW_CLI}')
         return None
 
     full_prompt = ''
@@ -13567,7 +13572,7 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
     # 与大脑知识中枢保持一致：过长 prompt 截断
     MAX_PROMPT_LEN = 10000
     if len(full_prompt) > MAX_PROMPT_LEN:
-        print(f'  [OpenClaw] WARNING: prompt too long ({len(full_prompt)}), truncating to {MAX_PROMPT_LEN}', flush=True)
+        logger.info(f'  [OpenClaw] WARNING: prompt too long ({len(full_prompt)}), truncating to {MAX_PROMPT_LEN}')
         full_prompt = full_prompt[:MAX_PROMPT_LEN]
 
     # 新版 CLI：openclaw agent --message ... --json（项目环境更可能可用）
@@ -13582,7 +13587,7 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
     variants.append(('infer', infer_args))
 
     for name, args in variants:
-        print(f'  [OpenClaw] {name} cmd: {" ".join(args)}', flush=True)
+        logger.info(f'  [OpenClaw] {name} cmd: {" ".join(args)}')
         try:
             result = subprocess.run(
                 args,
@@ -13594,9 +13599,9 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
             )
             stdout, stderr, returncode = result.stdout, result.stderr, result.returncode
             if returncode != 0:
-                print(f'  [OpenClaw] {name} failed (code={returncode}):', flush=True)
-                print(f'      stderr: {stderr}', flush=True)
-                print(f'      stdout: {stdout}', flush=True)
+                logger.error(f'  [OpenClaw] {name} failed (code={returncode}):')
+                logger.info(f'      stderr: {stderr}')
+                logger.info(f'      stdout: {stdout}')
                 # 如果当前命令不存在，继续尝试旧命令；否则直接返回 None
                 if 'unknown command' in (stderr or '').lower():
                     continue
@@ -13604,18 +13609,18 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
             try:
                 output = json.loads(stdout)
             except Exception:
-                print(f'  [OpenClaw] {name} output is not JSON: {stdout[:500]}', flush=True)
+                logger.info(f'  [OpenClaw] {name} output is not JSON: {stdout[:500]}')
                 continue
             content = _extract_text_from_openclaw_output(output)
             if content:
-                print(f'  [OpenClaw] {name} success, content length={len(content)}', flush=True)
+                logger.info(f'  [OpenClaw] {name} success, content length={len(content)}')
                 return content
-            print(f'  [OpenClaw] {name} returned empty/unrecognized content: {stdout[:500]}', flush=True)
+            logger.info(f'  [OpenClaw] {name} returned empty/unrecognized content: {stdout[:500]}')
         except subprocess.TimeoutExpired as e:
-            print(f'  [OpenClaw] {name} timed out after {timeout}s (gateway offline?): {e}', flush=True)
+            logger.info(f'  [OpenClaw] {name} timed out after {timeout}s (gateway offline?): {e}')
             return None
         except Exception as e:
-            print(f'  [OpenClaw] {name} _call_openclaw_infer failed: {e}', flush=True)
+            logger.error(f'  [OpenClaw] {name} _call_openclaw_infer failed: {e}')
             traceback.print_exc()
             return None
     return None
@@ -13647,7 +13652,7 @@ def _call_ai_analysis(messages, cfg=None, context='', timeout=None, max_tokens=2
                 api_key = agent_key
                 base_url = agent.get('customEndpoint', '') or _resolve_ai_base_url(provider, '')
                 chat_model = agent.get('apiModel', '') or _resolve_ai_model(provider, '')
-                print(f'  [AI] fallback to agent {agent.get("id")} AI config for {context}', flush=True)
+                logger.info(f'  [AI] fallback to agent {agent.get("id")} AI config for {context}')
                 break
 
     system_parts = []
@@ -13665,7 +13670,7 @@ def _call_ai_analysis(messages, cfg=None, context='', timeout=None, max_tokens=2
     system_prompt = '\n\n'.join(system_parts).strip()
 
     masked_key = f'{api_key[:4]}...' if api_key and len(api_key) > 4 else '(none)'
-    print(f'  [AI] start analysis context={context} provider={provider} chat_model={chat_model} key={masked_key} openclaw={OPENCLAW_CLI}', flush=True)
+    logger.info(f'  [AI] start analysis context={context} provider={provider} chat_model={chat_model} key={masked_key} openclaw={OPENCLAW_CLI}')
 
     # 1. 优先 OpenClaw（项目主推的 AI 网关）
     if os.path.isfile(OPENCLAW_CLI):
@@ -13673,9 +13678,9 @@ def _call_ai_analysis(messages, cfg=None, context='', timeout=None, max_tokens=2
         content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=oc_timeout)
         if content:
             return content
-        print(f'  [AI] OpenClaw failed for {context}, will try direct API fallback', flush=True)
+        logger.error(f'  [AI] OpenClaw failed for {context}, will try direct API fallback')
     else:
-        print(f'  [AI] OpenClaw CLI not available for {context}, skip to direct API', flush=True)
+        logger.info(f'  [AI] OpenClaw CLI not available for {context}, skip to direct API')
 
     # 2. 兜底：API 直连（需配置 API Key）
     if api_key:
@@ -13684,7 +13689,7 @@ def _call_ai_analysis(messages, cfg=None, context='', timeout=None, max_tokens=2
         if content:
             return content
     else:
-        print(f'  [AI] no API key configured for {context}, skip direct API fallback', flush=True)
+        logger.info(f'  [AI] no API key configured for {context}, skip direct API fallback')
 
     return None
 
@@ -13815,7 +13820,7 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
     """调用 AI 并尝试返回 JSON 数组；通过 openclaw CLI 调用"""
     # 模拟模式：知识归纳场景无需真实 API Key，直接返回示例文档
     if _get_knowledge_mock_mode() and system_prompt and '知识库整理助手' in system_prompt:
-        print(f'  [Knowledge] mock mode enabled for {agent.get("id", "?")}, returning sample docs', flush=True)
+        logger.info(f'  [Knowledge] mock mode enabled for {agent.get("id", "?")}, returning sample docs')
         return _generate_mock_knowledge_docs(prompt, agent)
 
     # 优先使用 agent.apiModel；未配置时根据 provider 取默认模型，避免 openclaw 因空模型名 404
@@ -13833,7 +13838,7 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
     # FIXME: 修复_openclaw调用方式：兜底，prompt 超过一定长度自动截断并记录警告
     MAX_PROMPT_LEN = 10000
     if len(full_prompt) > MAX_PROMPT_LEN:
-        print(f'  [OpenClaw] WARNING: prompt too long ({len(full_prompt)}), truncating to {MAX_PROMPT_LEN}', flush=True)
+        logger.info(f'  [OpenClaw] WARNING: prompt too long ({len(full_prompt)}), truncating to {MAX_PROMPT_LEN}')
         full_prompt = full_prompt[:MAX_PROMPT_LEN]
 
     # 调用 OpenClaw CLI 并提取 JSON 数组
@@ -13908,14 +13913,14 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                 base_url=emb_cfg.get('baseUrl'),
             )
         except Exception as e:
-            print(f'  [MemoryInject] {agent_id} 注入失败: {e}', flush=True)
+            logger.error(f'  [MemoryInject] {agent_id} 注入失败: {e}')
 
         # 注入项目组公共记忆（群聊场景）
         if group_id:
             try:
                 system_prompt = ms3.inject_group_memories(group_id, system_prompt)
             except Exception as e:
-                print(f'  [GroupMemoryInject] {group_id} 注入失败: {e}', flush=True)
+                logger.error(f'  [GroupMemoryInject] {group_id} 注入失败: {e}')
 
         # 注入团队动态（同项目组其他 agent 最近24小时对话摘要；不注入自己的消息，
         # 不在任何项目组的 agent 不注入；include_history=False 的摘要/提取任务不注入）
@@ -13927,7 +13932,7 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                     if team_feed:
                         system_prompt += '\n\n' + team_feed
             except Exception as e:
-                print(f'  [TeamFeed] {agent_id} 注入失败: {e}', flush=True)
+                logger.error(f'  [TeamFeed] {agent_id} 注入失败: {e}')
 
         # 注入 RAG 检索结果（产品知识库）
         try:
@@ -13948,7 +13953,7 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                 if rag_result.get('context'):
                     system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'
         except Exception as e:
-            print(f'  [RAG] {agent_id} 注入失败: {e}', flush=True)
+            logger.error(f'  [RAG] {agent_id} 注入失败: {e}')
 
     system_prompt = _append_self_update_prompt(system_prompt)
 
@@ -14022,7 +14027,7 @@ def _handle_delete_chat_message(self, agent_id, msg_id):
             return
 
         _save_chat(agent_id, messages)
-        print(f'  [ChatDELETE] {agent_id} 删除消息 {msg_id}，剩余 {len(messages)} 条')
+        logger.info(f'  [ChatDELETE] {agent_id} 删除消息 {msg_id}，剩余 {len(messages)} 条')
     self._send_json(200, {'message': '消息已删除'})
 
 def _handle_clear_chat(self, agent_id):
@@ -14041,12 +14046,12 @@ def _handle_clear_chat(self, agent_id):
     if os.path.isfile(chat_file):
         try:
             os.remove(chat_file)
-            print(f'  [ChatCLEAR] {agent_id} 聊天记录已清空')
+            logger.info(f'  [ChatCLEAR] {agent_id} 聊天记录已清空')
         except OSError as e:
-            print(f'  [ChatCLEAR] {agent_id} 清空失败: {e}')
+            logger.error(f'  [ChatCLEAR] {agent_id} 清空失败: {e}')
             pass
     else:
-        print(f'  [ChatCLEAR] {agent_id} 文件不存在，无需清空')
+        logger.info(f'  [ChatCLEAR] {agent_id} 文件不存在，无需清空')
 
     self._send_json(200, {'message': '聊天记录已清空'})
 
@@ -14118,9 +14123,9 @@ def _handle_summarize_chat(self, agent_id):
             'createdAt': int(time.time() * 1000)
         })
         _save_archive(agent_id, archive_data)
-        print(f'  [Summarize] {agent_id} 摘要已存入 L3 归档层', flush=True)
+        logger.info(f'  [Summarize] {agent_id} 摘要已存入 L3 归档层')
     except Exception as e:
-        print(f'  [Summarize] 存入 L3 归档层失败: {e}', flush=True)
+        logger.error(f'  [Summarize] 存入 L3 归档层失败: {e}')
 
     self._send_json(200, {
         'summary': summary,
@@ -14136,7 +14141,7 @@ def _call_ai_for_summary(self, agent, chat_text):
         if result:
             return result[:500]
     except Exception as e:
-        print(f'  [Summary] AI摘要失败: {e}', flush=True)
+        logger.error(f'  [Summary] AI摘要失败: {e}')
 
     # 降级：AI不可用时，截取最近 N 条消息文本作为摘要
     lines = chat_text.strip().split('\n')
@@ -14145,7 +14150,7 @@ def _call_ai_for_summary(self, agent, chat_text):
     if len(fallback) > 500:
         fallback = fallback[:500] + '...'
     if fallback:
-        print(f'  [Summary] AI 不可用，已降级为文本截取（{len(fallback_lines)} 条消息）', flush=True)
+        logger.info(f'  [Summary] AI 不可用，已降级为文本截取（{len(fallback_lines)} 条消息）')
         return fallback
     return ''
 
@@ -14938,16 +14943,16 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
                 if isinstance(item, dict) and item.get('type') == 'image':
                     image_items.append(item)
 
-    print(f'  [ToolUse] 检测到tool_use续调用, 图片数={len(image_items)}', flush=True)
+    logger.info(f'  [ToolUse] 检测到tool_use续调用, 图片数={len(image_items)}')
 
     if not image_items:
-        print('  [Proxy] Anthropic tool_use 续调用跳过：原始请求中未找到图片内容', flush=True)
+        logger.info('  [Proxy] Anthropic tool_use 续调用跳过：原始请求中未找到图片内容')
         return None
 
     def _fetch_image_description(image_item, image_index):
         """构造独立的图片识别请求，调用同一个 Kimi API endpoint 获取真实描述。"""
         try:
-            print(f'  [ImageDesc] 开始获取图片描述, imageIndex={image_index}', flush=True)
+            logger.info(f'  [ImageDesc] 开始获取图片描述, imageIndex={image_index}')
             headers = dict(forward_headers)
             description_body = {
                 'model': body_json.get('model', ''),
@@ -14973,10 +14978,10 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
             content_items = resp_json.get('content', []) if isinstance(resp_json.get('content'), list) else []
             texts = [item.get('text', '') for item in content_items if isinstance(item, dict) and item.get('type') == 'text']
             description = ''.join(texts).strip()
-            print(f'  [ImageDesc] 获取成功, 描述长度={len(description)}', flush=True)
+            logger.info(f'  [ImageDesc] 获取成功, 描述长度={len(description)}')
             return description
         except Exception as e:
-            print(f'  [ImageDesc] 获取失败, error={e}', flush=True)
+            logger.error(f'  [ImageDesc] 获取失败, error={e}')
             return None
 
     current_resp = anthropic_resp
@@ -15003,9 +15008,9 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
                 elif 1 <= image_index <= len(image_items):
                     description_text = _fetch_image_description(image_items[image_index - 1], image_index)
                 else:
-                    print(f'  [Proxy] describe_image imageIndex 越界: {image_index} (共 {len(image_items)} 张)', flush=True)
+                    logger.info(f'  [Proxy] describe_image imageIndex 越界: {image_index} (共 {len(image_items)} 张)')
             else:
-                print(f'  [Proxy] describe_image imageIndex 无效: {image_index}', flush=True)
+                logger.info(f'  [Proxy] describe_image imageIndex 无效: {image_index}')
 
         if description_text is None:
             description_text = '图片识别结果：[系统自动识别，内容为图片数据]'
@@ -15022,7 +15027,7 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
         new_body_json['messages'] = messages
         new_body = json.dumps(new_body_json).encode('utf-8')
 
-        print(f'  [ToolUse] 重新调用API, messages数={len(messages)}', flush=True)
+        logger.info(f'  [ToolUse] 重新调用API, messages数={len(messages)}')
         headers['Content-Length'] = str(len(new_body))
         req = urllib.request.Request(target_url, data=new_body, headers=headers, method='POST')
         ctx = ssl.create_default_context()
@@ -15033,7 +15038,7 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
         # 日志
         resp_content_items = current_resp.get('content', []) if isinstance(current_resp.get('content'), list) else []
         resp_text = ''.join(item.get('text', '') for item in resp_content_items if isinstance(item, dict) and item.get('type') == 'text')
-        print(f'  [Proxy] API返回(Anthropic tool_use续调用 retry={retry + 1}) status={resp.status} content_len={len(resp_text)} <- {target_url}', flush=True)
+        logger.info(f'  [Proxy] API返回(Anthropic tool_use续调用 retry={retry + 1}) status={resp.status} content_len={len(resp_text)} <- {target_url}')
 
         if current_resp.get('stop_reason') != 'tool_use':
             break
@@ -15045,7 +15050,7 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
 
     final_resp = dict(current_resp)
     final_resp['content'] = [{'type': 'text', 'text': final_text}]
-    print(f'  [ToolUse] 续调用完成, 最终content_len={len(final_text)}', flush=True)
+    logger.info(f'  [ToolUse] 续调用完成, 最终content_len={len(final_text)}')
     return json.dumps(final_resp).encode('utf-8')
 
 
@@ -15096,7 +15101,7 @@ def _log_proxy_token_usage(auth, body_json, resp_body, provider, target_url, age
         finally:
             conn.close()
     except Exception as e:
-        print(f'  [Proxy] token usage log skipped: {e}', flush=True)
+        logger.info(f'  [Proxy] token usage log skipped: {e}')
 
 
 # ═══════════════════════════════════════════════════
@@ -15241,9 +15246,9 @@ def _sync_token_usage_from_trajectories():
                             if conn.total_changes > before:
                                 inserted += 1
                         except Exception as e:
-                            print(f'  [TrajectorySync] insert skipped: {e}', flush=True)
+                            logger.info(f'  [TrajectorySync] insert skipped: {e}')
             except Exception as e:
-                print(f'  [TrajectorySync] read failed {filepath}: {e}', flush=True)
+                logger.error(f'  [TrajectorySync] read failed {filepath}: {e}')
         conn.commit()
     finally:
         conn.close()
@@ -15320,11 +15325,11 @@ def _handle_proxy(self):
                                         item['text'] = confirmation + item.get('text', '')
                                         break
                             body = json.dumps(body_json, ensure_ascii=False).encode('utf-8')
-                            print(f'  [Proxy] self-update intent applied: {field_name}={new_value}', flush=True)
+                            logger.info(f'  [Proxy] self-update intent applied: {field_name}={new_value}')
                         else:
-                            print(f'  [Proxy] self-update intent apply failed: {su_msg}', flush=True)
+                            logger.error(f'  [Proxy] self-update intent apply failed: {su_msg}')
         except Exception as self_update_err:
-            print(f'  [Proxy] self-update intent processing error: {self_update_err}', flush=True)
+            logger.error(f'  [Proxy] self-update intent processing error: {self_update_err}')
             import traceback
             traceback.print_exc()
 
@@ -15357,7 +15362,7 @@ def _handle_proxy(self):
             body_info = f'body_len={len(body)}'
     elif body:
         body_info = f'body_len={len(body)}'
-    print(f'  [Proxy] 收到请求 -> {target_url} {body_info}', flush=True)
+    logger.info(f'  [Proxy] 收到请求 -> {target_url} {body_info}')
     try:
         req = urllib.request.Request(target_url, data=body, headers=forward_headers, method='POST')
         ctx = ssl.create_default_context()
@@ -15377,7 +15382,7 @@ def _handle_proxy(self):
                 choices_info += f' content_len={len(content)}'
         except Exception:
             pass
-        print(f'  [Proxy] API返回 status={resp.status}{choices_info} <- {target_url}', flush=True)
+        logger.info(f'  [Proxy] API返回 status={resp.status}{choices_info} <- {target_url}')
 
         # 记录真实 token usage
         _log_proxy_token_usage(auth, body_json, resp_body, provider, target_url, agent_id)
@@ -15409,7 +15414,7 @@ def _handle_proxy(self):
             err_text = err_body.decode('utf-8', errors='replace')[:200]
         except Exception:
             pass
-        print(f'  [Proxy] API错误 status={status} detail={detail} err={err_text} <- {target_url}', flush=True)
+        logger.error(f'  [Proxy] API错误 status={status} detail={detail} err={err_text} <- {target_url}')
 
         self.send_response(status)
         self._add_cors_headers()
@@ -15425,15 +15430,15 @@ def _handle_proxy(self):
 
     except urllib.error.URLError as e:
         reason = str(e.reason) if hasattr(e, 'reason') else str(e)
-        print(f'  ❌ Proxy Network Error: {reason} <- {target_url}', flush=True)
+        logger.error(f'  ❌ Proxy Network Error: {reason} <- {target_url}')
         self._send_json_error(502, f'Network error: {reason}')
 
     except TimeoutError:
-        print(f'  ❌ Proxy Timeout ({PROXY_TIMEOUT}s) <- {target_url}', flush=True)
+        logger.error(f'  ❌ Proxy Timeout ({PROXY_TIMEOUT}s) <- {target_url}')
         self._send_json_error(504, f'Request timed out after {PROXY_TIMEOUT}s')
 
     except Exception as e:
-        print(f'  ❌ Proxy Unexpected Error: {e} <- {target_url}', flush=True)
+        logger.error(f'  ❌ Proxy Unexpected Error: {e} <- {target_url}')
         self._send_json_error(500, f'Internal proxy error: {str(e)}')
 
 def _handle_douyin_parse(self):
@@ -15470,7 +15475,7 @@ def _handle_douyin_parse(self):
                or self.headers.get('X-AI-API-Key', '')
                or os.environ.get('DOUYIN_API_KEY', ''))
 
-    print(f'  [Douyin] parse -> {url[:80]}... transcribe={transcribe}', flush=True)
+    logger.info(f'  [Douyin] parse -> {url[:80]}... transcribe={transcribe}')
     result = parse_douyin_video(url, api_key=api_key, transcribe=transcribe)
     if result.get('success'):
         self._send_json(200, result)
@@ -15516,20 +15521,20 @@ def _handle_douyin_transcribe(self):
     temp_dir = None
     try:
         # 1. 下载视频
-        print(f'  [Douyin] downloading video...', flush=True)
+        logger.info(f'  [Douyin] downloading video...')
         video_path, temp_dir = _download_video_to_temp(video_url)
-        print(f'  [Douyin] video saved: {video_path} ({os.path.getsize(video_path)} bytes)', flush=True)
+        logger.info(f'  [Douyin] video saved: {video_path} ({os.path.getsize(video_path)} bytes)')
 
         # 2. 提取音频
-        print(f'  [Douyin] extracting audio with ffmpeg...', flush=True)
+        logger.info(f'  [Douyin] extracting audio with ffmpeg...')
         audio_path = _extract_audio_with_ffmpeg(video_path)
         if not audio_path:
             self._send_json(502, {'success': False, 'error': 'ffmpeg 音频提取失败'})
             return
-        print(f'  [Douyin] audio saved: {audio_path} ({os.path.getsize(audio_path)} bytes)', flush=True)
+        logger.info(f'  [Douyin] audio saved: {audio_path} ({os.path.getsize(audio_path)} bytes)')
 
         # 3. 语音转文字
-        print(f'  [Douyin] transcribing with SiliconFlow...', flush=True)
+        logger.info(f'  [Douyin] transcribing with SiliconFlow...')
         text = _transcribe_audio_siliconflow(audio_path, api_key)
         if text is None:
             self._send_json(502, {'success': False, 'error': '硅基流动语音转文字 API 调用失败'})
@@ -15542,20 +15547,20 @@ def _handle_douyin_transcribe(self):
             if cover_path:
                 with open(cover_path, 'rb') as f:
                     cover_base64 = 'data:image/jpeg;base64,' + base64.b64encode(f.read()).decode('utf-8')
-                print(f'  [Douyin] cover extracted: {len(cover_base64)} bytes', flush=True)
+                logger.info(f'  [Douyin] cover extracted: {len(cover_base64)} bytes')
         except Exception as e:
-            print(f'  [Douyin] cover extraction skipped: {e}', flush=True)
+            logger.info(f'  [Douyin] cover extraction skipped: {e}')
 
         # 5. 获取媒体信息（可选，不阻断主流程）
         media_info = None
         try:
             media_info = _get_media_info(video_path)
             if media_info:
-                print(f'  [Douyin] media info: {media_info.get("width")}x{media_info.get("height")}, {media_info.get("duration")}s', flush=True)
+                logger.info(f'  [Douyin] media info: {media_info.get("width")}x{media_info.get("height")}, {media_info.get("duration")}s')
         except Exception as e:
-            print(f'  [Douyin] media info skipped: {e}', flush=True)
+            logger.info(f'  [Douyin] media info skipped: {e}')
 
-        print(f'  [Douyin] transcribe OK, length={len(text)}', flush=True)
+        logger.info(f'  [Douyin] transcribe OK, length={len(text)}')
         result_data = {'text': text}
         if cover_base64:
             result_data['cover_base64'] = cover_base64
@@ -15564,16 +15569,16 @@ def _handle_douyin_transcribe(self):
         self._send_json(200, {'success': True, 'data': result_data})
 
     except ValueError as e:
-        print(f'  [Douyin] transcribe error: {e}', flush=True)
+        logger.error(f'  [Douyin] transcribe error: {e}')
         self._send_json(400, {'success': False, 'error': str(e)})
     except Exception as e:
-        print(f'  [Douyin] transcribe error: {e}', flush=True)
+        logger.error(f'  [Douyin] transcribe error: {e}')
         self._send_json(500, {'success': False, 'error': f'转写失败: {str(e)}'})
     finally:
         # 清理临时文件
         if temp_dir and os.path.isdir(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
-            print(f'  [Douyin] temp cleaned: {temp_dir}', flush=True)
+            logger.info(f'  [Douyin] temp cleaned: {temp_dir}')
 
 
 # ─── 启动 ───────────────────────────────────────────────
@@ -15615,21 +15620,21 @@ def _daily_memory_job_loop():
         try:
             next_run = _next_daily_run_at(DAILY_JOB_HOUR)
             sleep_seconds = max(1, next_run - int(time.time()))
-            print(f'  [DailyJob] 下次执行时间: {datetime.fromtimestamp(next_run).isoformat()} (约 {sleep_seconds // 3600}h {sleep_seconds % 3600 // 60}m 后)', flush=True)
+            logger.info(f'  [DailyJob] 下次执行时间: {datetime.fromtimestamp(next_run).isoformat()} (约 {sleep_seconds // 3600}h {sleep_seconds % 3600 // 60}m 后)')
             time.sleep(sleep_seconds)
             _run_daily_memory_jobs(startup=False)
         except Exception as e:
-            print(f'  [DailyJob] 循环异常: {e}', flush=True)
+            logger.error(f'  [DailyJob] 循环异常: {e}')
             time.sleep(60)
 
 
 def _run_daily_memory_jobs(startup=False):
     """遍历所有 agent，执行核心记忆候选生成和知识归纳"""
     label = '启动补跑' if startup else '每日记忆任务'
-    print(f'  [DailyJob] 开始执行{label}...', flush=True)
+    logger.info(f'  [DailyJob] 开始执行{label}...')
     agents = _load_agents()
     if not agents:
-        print(f'  [DailyJob] 无 agent，跳过', flush=True)
+        logger.info(f'  [DailyJob] 无 agent，跳过')
         return
     processed = 0
     for agent in agents:
@@ -15651,11 +15656,11 @@ def _run_daily_memory_jobs(startup=False):
                 if recent_ids:
                     _create_pending_summary(emp_id, 'daily', today + ' 每日归纳', date=today, mem_ids=recent_ids)
             except Exception as e:
-                print(f'  [DailyJob] {emp_id} 创建每日归纳 pending 失败: {e}', flush=True)
+                logger.error(f'  [DailyJob] {emp_id} 创建每日归纳 pending 失败: {e}')
             processed += 1
         except Exception as e:
-            print(f'  [DailyJob] agent {agent.get("id")} 处理失败: {e}', flush=True)
-    print(f'  [DailyJob] {label}完成，共处理 {processed}/{len(agents)} 个 agent', flush=True)
+            logger.error(f'  [DailyJob] agent {agent.get("id")} 处理失败: {e}')
+    logger.info(f'  [DailyJob] {label}完成，共处理 {processed}/{len(agents)} 个 agent')
 
 
 def _detect_conflicts_for_agent(agent):
@@ -15679,10 +15684,10 @@ def _detect_conflicts_for_agent(agent):
             reason = item.get('reason', '')
             if mem_id and conflict_with:
                 ms3.mark_memory_conflict(emp_id, mem_id, conflict_with, reason)
-        print(f'  [DailyJob] {emp_id} 检测到 {len(detected)} 组核心记忆冲突', flush=True)
+        logger.info(f'  [DailyJob] {emp_id} 检测到 {len(detected)} 组核心记忆冲突')
         return len(detected)
     except Exception as e:
-        print(f'  [DailyJob] {emp_id} 冲突检测失败: {e}', flush=True)
+        logger.error(f'  [DailyJob] {emp_id} 冲突检测失败: {e}')
         return 0
 
 
@@ -15730,7 +15735,7 @@ def _generate_core_candidates_for_agent(agent):
     if not valid:
         return 0
     added = ms3.add_core_candidates(emp_id, valid)
-    print(f'  [DailyJob] {emp_id} 生成 {added} 条核心记忆候选', flush=True)
+    logger.info(f'  [DailyJob] {emp_id} 生成 {added} 条核心记忆候选')
     return added
 
 
@@ -15807,14 +15812,14 @@ def _induct_knowledge_for_agent(agent, owner_user_id=None):
             )
             created_count += 1
         except Exception as e:
-            print(f'  [DailyJob] {emp_id} 知识文档创建失败: {e}', flush=True)
+            logger.error(f'  [DailyJob] {emp_id} 知识文档创建失败: {e}')
 
     if created_count > 0:
         # 标记所有本次参与归纳的源记忆为已归纳
         source_ids = [m['id'] for m, _ in uninducted]
         ms3.mark_memories_inducted(emp_id, source_ids)
         ms3.set_last_knowledge_induction_at(emp_id)
-        print(f'  [DailyJob] {emp_id} 归纳 {created_count} 篇知识文档', flush=True)
+        logger.info(f'  [DailyJob] {emp_id} 归纳 {created_count} 篇知识文档')
         return created_count, None
     return 0, 'AI 返回的文档未通过校验（缺少标题或正文），未生成知识文档'
 
@@ -15893,23 +15898,23 @@ def main():
     # 确保 teams.json 存在
     if not os.path.isfile(TEAMS_FILE):
         _save_teams([])
-        print('  [TEAM] 初始化 teams.json')
+        logger.info('  [TEAM] 初始化 teams.json')
 
     # 检查静态目录
     if not os.path.isdir(STATIC_DIR):
-        print(f'⚠️  静态文件目录不存在: {STATIC_DIR}')
+        logger.warning(f'⚠️  静态文件目录不存在: {STATIC_DIR}')
         sys.exit(1)
 
     index_file = os.path.join(STATIC_DIR, 'index.html')
     if not os.path.isfile(index_file):
-        print(f'⚠️  找不到 index.html: {index_file}')
+        logger.warning(f'⚠️  找不到 index.html: {index_file}')
         sys.exit(1)
 
     # 检查 OpenClaw CLI
     if os.path.isfile(OPENCLAW_CLI):
-        print(f'  [CLAW] OpenClaw CLI: OK ({OPENCLAW_CLI})')
+        logger.info(f'  [CLAW] OpenClaw CLI: OK ({OPENCLAW_CLI})')
     else:
-        print(f'  [CLAW] OpenClaw CLI: NOT FOUND ({OPENCLAW_CLI})')
+        logger.info(f'  [CLAW] OpenClaw CLI: NOT FOUND ({OPENCLAW_CLI})')
 
     # 已停用：每日记忆定时任务 / 启动补跑 / 大脑调度器自动提炼任务
     # threading.Thread(target=_daily_memory_job_loop, daemon=True).start()
@@ -15934,32 +15939,32 @@ def main():
         daemon_threads = True
     server = ReuseHTTPServer((BIND, PORT), SoloBraveHandler)
 
-    print('=' * 56)
-    print('  [SOLO] SoloBrave Server (Auth Enabled)')
-    print('=' * 56)
-    print(f'  [DIR] 静态文件:  {STATIC_DIR}')
-    print(f'  [DIR] 数据目录:  {DATA_DIR}')
-    print(f'  [URL] 本机访问:  http://localhost:{PORT}')
-    print(f'  [URL] 局域网:    http://0.0.0.0:{PORT}')
-    print(f'  [API] 认证:      /api/auth/*')
-    print(f'  [API] 用户管理:  /api/users/*')
-    print(f'  [API] Agent:     /api/agents/*')
-    print(f'  [API] 全局搜索:  GET /api/search')
-    print(f'  [API] 群组:      /api/groups/*')
-    print(f'  [API] 聊天:      /api/chat/*')
-    print(f'  [API] 代理:      POST /api/proxy')
-    print(f'  [API] 抖音解析:  POST /api/douyin/parse')
-    print(f'  [API] 抖音转写:  POST /api/douyin/transcribe')
-    print(f'  [API] OpenClaw:  /api/openclaw/*')
-    print(f'  [API] 技能:      /api/openclaw/skills/*')
-    print(f'  [CFG] 超时设置:  {PROXY_TIMEOUT}s')
-    print('=' * 56)
-    print('  Ctrl+C 停止服务\n')
+    logger.info('=' * 56)
+    logger.info('  [SOLO] SoloBrave Server (Auth Enabled)')
+    logger.info('=' * 56)
+    logger.info(f'  [DIR] 静态文件:  {STATIC_DIR}')
+    logger.info(f'  [DIR] 数据目录:  {DATA_DIR}')
+    logger.info(f'  [URL] 本机访问:  http://localhost:{PORT}')
+    logger.info(f'  [URL] 局域网:    http://0.0.0.0:{PORT}')
+    logger.info(f'  [API] 认证:      /api/auth/*')
+    logger.info(f'  [API] 用户管理:  /api/users/*')
+    logger.info(f'  [API] Agent:     /api/agents/*')
+    logger.info(f'  [API] 全局搜索:  GET /api/search')
+    logger.info(f'  [API] 群组:      /api/groups/*')
+    logger.info(f'  [API] 聊天:      /api/chat/*')
+    logger.info(f'  [API] 代理:      POST /api/proxy')
+    logger.info(f'  [API] 抖音解析:  POST /api/douyin/parse')
+    logger.info(f'  [API] 抖音转写:  POST /api/douyin/transcribe')
+    logger.info(f'  [API] OpenClaw:  /api/openclaw/*')
+    logger.info(f'  [API] 技能:      /api/openclaw/skills/*')
+    logger.info(f'  [CFG] 超时设置:  {PROXY_TIMEOUT}s')
+    logger.info('=' * 56)
+    logger.info('  Ctrl+C 停止服务\n')
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print('\n\n  [STOP] 服务已停止')
+        logger.info('\n\n  [STOP] 服务已停止')
         _brain_scheduler.stop()
         server.server_close()
 

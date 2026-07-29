@@ -7532,7 +7532,7 @@ async function checkAuth() {
         return;
       }
     } catch (e) {
-      console.log('Token 验证失败', e);
+      console.debug('Token 验证失败', e);
     }
   } else if (savedUser && savedToken === 'local_mode') {
     // 本地模式直接恢复
@@ -8265,7 +8265,7 @@ async function sendMsg() {
       _te.status = 'online';
       renderEmployeeList();
       notifyOfficeStatusChange(_curEmpId, 'online');
-      console.log('[Timeout] ' + _te.name + ' 思考超时，恢复在线');
+      console.debug('[Timeout] ' + _te.name + ' 思考超时，恢复在线');
     }
   }, 60000);
 
@@ -8332,29 +8332,16 @@ async function sendMsg() {
   var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
   var hasImages = pendingImages.length > 0;
   var hasDirectApi = !!(emp.apiKey && emp.aiProvider && emp.aiProvider !== 'openclaw');
-  console.log('[Chat] 发送消息:', {
-    empId: emp.id,
-    empName: emp.name,
-    openclawName: emp.openclawName,
-    apiProvider: emp.apiProvider,
-    aiProvider: emp.aiProvider,
-    hasImages: hasImages,
-    hasDirectApi: hasDirectApi,
-    ocOk: ocOk
-  });
   window._lastUserMessageHadImages = hasImages;
 
   if (ocOk) {
     // 所有消息统一走 OpenClaw 主干道（图片已提前转成文字描述）
-    console.log('[Chat] 使用 OpenClaw WS 发送');
     sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages);
   } else if (emp.apiKey && emp.aiProvider) {
     // OpenClaw 不可用时降级到 API 直连
-    console.log('[Chat] OpenClaw 未连接，降级到 API 直连');
     sendViaAPI(emp, text, docContext, timeStr, pendingImages);
   } else {
     // 即使没有配置AI，也用 OpenClaw main agent 兜底
-    console.log('[Chat] 无API配置，尝试OpenClaw main兜底');
     if (typeof openclaw !== 'undefined' && openclaw.connected) {
       emp.openclawName = emp.openclawName || 'main';
       sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages);
@@ -8390,27 +8377,21 @@ function extractKeywords(text) {
 async function probeOpenClawMultimodal() {
   // 等待连接建立
   if (!window.openclaw) {
-    console.log('[Probe] 等待 OpenClaw 初始化...');
     await new Promise(r => setTimeout(r, 2000));
   }
   if (!window.openclaw) {
-    console.log('[Probe] OpenClaw 未初始化');
     return;
   }
   
   // 如果未连接，尝试连接
   if (!window.openclaw.connected) {
-    console.log('[Probe] 尝试连接 OpenClaw...');
     try {
       await window.openclaw.connect();
     } catch (e) {
-      console.log('[Probe] 连接失败，可能在 mock 模式下继续:', e.message);
     }
     await new Promise(r => setTimeout(r, 2000));
   }
   
-  console.log('[Probe] 开始探测 OpenClaw 多模态支持...');
-  console.log('[Probe] connected:', window.openclaw.connected, 'authenticated:', window.openclaw.authenticated, 'mockMode:', window.openclaw.mockMode);
   
   // 测试不同的 method（从前端 JS 中发现的候选）
   const methodsToTest = [
@@ -8447,19 +8428,15 @@ async function probeOpenClawMultimodal() {
         sessionKey: testSessionKey,
         message: 'test'
       });
-      console.log(`[Probe] ✅ ${method} 可用:`, result);
     } catch (e) {
       const errMsg = e.message || String(e);
       if (errMsg.includes('unexpected property') || errMsg.includes('must have') || errMsg.includes('must be')) {
-        console.log(`[Probe] ✅ ${method} 存在但参数不对: ${errMsg}`);
       } else {
-        console.log(`[Probe] ❌ ${method} 不可用: ${errMsg}`);
       }
     }
   }
   
   // 测试 chat.send 的不同参数名
-  console.log('[Probe] 测试 chat.send 的不同图片参数名...');
   for (const paramName of paramNamesToTest) {
     try {
       const params = {
@@ -8478,19 +8455,15 @@ async function probeOpenClawMultimodal() {
       }
       
       const result = await window.openclaw.send('chat.send', params);
-      console.log(`[Probe] ✅ chat.send + ${paramName} 成功:`, result);
     } catch (e) {
       const errMsg = e.message || String(e);
       if (errMsg.includes('unexpected property') || errMsg.includes('must have') || errMsg.includes('must be')) {
-        console.log(`[Probe] ❌ chat.send + ${paramName} 不支持: ${errMsg}`);
       } else {
-        console.log(`[Probe] ⚠️ chat.send + ${paramName} 其他错误: ${errMsg}`);
       }
     }
   }
   
   // 测试嵌套参数结构
-  console.log('[Probe] 测试嵌套参数结构...');
   const nestedTests = [
     { name: 'options.images', params: { sessionKey: testSessionKey, message: 'hi', options: { images: [testImageBase64] } } },
     { name: 'options.files', params: { sessionKey: testSessionKey, message: 'hi', options: { files: [testImageBase64] } } },
@@ -8503,14 +8476,11 @@ async function probeOpenClawMultimodal() {
   for (const test of nestedTests) {
     try {
       const result = await window.openclaw.send('chat.send', test.params);
-      console.log(`[Probe] ✅ ${test.name} 成功:`, result);
     } catch (e) {
       const errMsg = e.message || String(e);
-      console.log(`[Probe] ❌ ${test.name}: ${errMsg}`);
     }
   }
   
-  console.log('[Probe] 探测完成');
 }
 
 // 通过 OpenClaw WS 发送消息
@@ -8636,7 +8606,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
     } catch (fwErr) {
       console.warn('[ForbiddenWords] 检查失败，静默放行:', fwErr);
     }
-    console.log('[OpenClaw] _doHandle 调用 reply_len=' + (reply || '').length + ' isError=' + isError + ' chainDepth=' + chainDepth + ' groupId=' + groupId);
+    console.debug('[OpenClaw] _doHandle 调用 reply_len=' + (reply || '').length + ' isError=' + isError + ' chainDepth=' + chainDepth + ' groupId=' + groupId);
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
     if (!reply) reply = '（AI 未返回内容）';
@@ -8758,7 +8728,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
         var duration = (tool.endedAt && tool.startedAt) ? (tool.endedAt - tool.startedAt) : 0;
         badge.className = 'tool-badge tool-badge-done';
         badge.textContent = '已完成 耗时' + duration + 'ms';
-        console.log('[ToolEnd] tool object:', JSON.stringify(tool));
+        console.debug('[ToolEnd] tool object:', JSON.stringify(tool));
         fetch('/api/tool-calls/log', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('sb_auth_token') || '') },
@@ -8790,7 +8760,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
       var fallbackKey = 'agent:main:chat-' + emp.id;
       try {
         var retryResult = await _sendChatWaitForLifecycle(fallbackKey, fullMessage);
-        console.log('[OpenClaw] main agent 重试返回:', JSON.stringify(retryResult));
+        console.debug('[OpenClaw] main agent 重试返回:', JSON.stringify(retryResult));
         if (retryResult.reply) {
           if (groupId) {
             displayGroupAIReply(groupId, emp.id, retryResult.reply, chainDepth);
@@ -8929,7 +8899,7 @@ function sendExecApprovalResolve(batchId, action) {
   }
   openclaw.send('exec.approval.resolve', { batchId: batchId, action: action })
     .then(function () {
-      console.log('[ExecApproval] 已发送审批结果:', batchId, action);
+      console.debug('[ExecApproval] 已发送审批结果:', batchId, action);
     })
     .catch(function (err) {
       console.error('[ExecApproval] 发送审批结果失败:', err);
@@ -8966,16 +8936,16 @@ function initOpenClaw() {
     console.warn('[OpenClaw] 无 token，跳过连接');
     return;
   }
-  console.log('[OpenClaw] 设置 token 并开始连接...');
+  console.debug('[OpenClaw] 设置 token 并开始连接...');
   openclaw.setToken(token);
 
   // 监听事件（事件名必须匹配 openclaw-client.js 的 emit 名称）
   openclaw.on('connected', function () {
-    console.log('[OpenClaw] WebSocket 已连接');
+    console.debug('[OpenClaw] WebSocket 已连接');
     updateConnectionStatus();
   });
   openclaw.on('authenticated', function () {
-    console.log('[OpenClaw] ✅ 已连接 Gateway 并认证成功！');
+    console.debug('[OpenClaw] ✅ 已连接 Gateway 并认证成功！');
     localStorage.setItem('openclaw_token', token);
     var statusEl = document.getElementById('openclawStatus');
     if (statusEl) statusEl.textContent = '🟢 已连接';
@@ -8988,21 +8958,20 @@ function initOpenClaw() {
 
     // 全局事件捕获：记录 OpenClaw 推送的所有事件类型，特别是工具调用相关事件
     openclaw.on('event', function (e) {
-      console.log('[OC-EVT] ' + (e && e.event || 'unknown') + ' ' + JSON.stringify(e && e.payload).substring(0, 500));
     });
 
     // 连接成功后自动获取模型列表
     setTimeout(function () {
       fetchOpenClawModels().then(function (models) {
         if (models && models.length > 0) {
-          console.log('[OpenClaw] 模型列表已自动加载，共 ' + models.length + ' 个');
+          console.debug('[OpenClaw] 模型列表已自动加载，共 ' + models.length + ' 个');
           showToast('✅ 已加载 ' + models.length + ' 个可用模型', 'success');
         }
       });
     }, 500);
   });
   openclaw.on('disconnected', function () {
-    console.log('[OpenClaw] 断开连接');
+    console.debug('[OpenClaw] 断开连接');
     var statusEl = document.getElementById('openclawStatus');
     if (statusEl) statusEl.textContent = '🔴 未连接';
     var empStatusEl = document.getElementById('empConnectGatewayStatus');
@@ -9023,12 +8992,12 @@ function initOpenClaw() {
 
   // Exec 命令审批
   openclaw.on('exec.approval.requested', function (payload) {
-    console.log('[ExecApproval] 收到审批请求:', payload);
+    console.debug('[ExecApproval] 收到审批请求:', payload);
     showExecApprovalModal(payload);
   });
 
   openclaw.connect().then(function (ok) {
-    console.log('[OpenClaw] connect() 返回:', ok, 'connected:', openclaw.connected, 'authenticated:', openclaw.authenticated);
+    console.debug('[OpenClaw] connect() 返回:', ok, 'connected:', openclaw.connected, 'authenticated:', openclaw.authenticated);
   }).catch(function (err) {
     console.error('[OpenClaw] connect() 异常:', err);
   });
@@ -9084,7 +9053,7 @@ function gearMoveToGroup(groupName) {
     let content = targetGroup.querySelector('.sub-group-content');
     if (content) {
       content.appendChild(activeEmployeeItem);
-      console.log('Moved to', groupName);
+      console.debug('Moved to', groupName);
     }
   }
   closeAllGearMenus();
@@ -9094,7 +9063,7 @@ function gearPinEmployee() {
   let subGroup = activeEmployeeItem.closest('.sub-group-content');
   if (subGroup) {
     subGroup.insertBefore(activeEmployeeItem, subGroup.firstChild);
-    console.log('Pinned');
+    console.debug('Pinned');
   }
   closeAllGearMenus();
 }
@@ -9262,12 +9231,12 @@ function initLobsterChannel() {
           }
           break;
         default:
-          console.log('[Main] Received from office:', type);
+          console.debug('[Main] Received from office:', type);
       }
     };
-    console.log('[Main] BroadcastChannel lobster-office initialized');
+    console.debug('[Main] BroadcastChannel lobster-office initialized');
   } catch (err) {
-    console.log('[Main] BroadcastChannel not supported:', err);
+    console.debug('[Main] BroadcastChannel not supported:', err);
   }
 }
 
@@ -9547,7 +9516,7 @@ async function syncEmpToServer(emp) {
       syncData.apiKey = '';
       emp.apiKey = '';
     }
-    console.log('[syncEmpToServer] 发送 PUT /api/agents/' + emp.id, 'body_keys=' + Object.keys(syncData).join(','));
+    console.debug('[syncEmpToServer] 发送 PUT /api/agents/' + emp.id, 'body_keys=' + Object.keys(syncData).join(','));
     var res = await apiFetch('/api/agents/' + emp.id, {
       method: 'PUT',
       headers: {
@@ -9559,7 +9528,7 @@ async function syncEmpToServer(emp) {
       console.warn('[syncEmpToServer] Agent', emp.id, '不在服务器上，跳过同步');
     }
   } catch (e) {
-    console.log('同步员工到后端失败:', e);
+    console.debug('同步员工到后端失败:', e);
   }
 }
 
@@ -9577,12 +9546,12 @@ async function syncNewEmpToServer(emp) {
       }))
     });
     if (res && res.ok) {
-      console.log('[syncNewEmpToServer] 员工已同步到服务器:', emp.id);
+      console.debug('[syncNewEmpToServer] 员工已同步到服务器:', emp.id);
     } else {
       console.warn('[syncNewEmpToServer] 同步失败:', res ? res.status : 'no response');
     }
   } catch (e) {
-    console.log('新建员工同步到后端失败:', e);
+    console.debug('新建员工同步到后端失败:', e);
   }
 }
 
@@ -9771,9 +9740,9 @@ async function loadEmployees() {
       var resp = await apiFetch('/api/agents');
       if (resp && resp.ok) {
         var data = await resp.json();
-        console.log('[loadEmployees] /api/agents 返回:', data.length, '个 agents');
+        console.debug('[loadEmployees] /api/agents 返回:', data.length, '个 agents');
         data.forEach(function(a) {
-          console.log('[loadEmployees] agent:', a.id, a.name, 'createdBy=', a.createdBy);
+          console.debug('[loadEmployees] agent:', a.id, a.name, 'createdBy=', a.createdBy);
         });
 
         // 后端有权限过滤，直接用后端数据（包括空数组）
@@ -9851,10 +9820,10 @@ async function loadEmployees() {
         }
       }
     } catch (e) {
-      console.log('从后端加载员工失败:', e);
+      console.debug('从后端加载员工失败:', e);
     }
   } else {
-    console.log('[loadEmployees] 跳过后端加载, token=', token);
+    console.debug('[loadEmployees] 跳过后端加载, token=', token);
   }
   // 后端加载失败或本地模式时，也尝试合并项目组成员
   mergeGroupMembersToEmps();
@@ -9994,7 +9963,7 @@ function scheduleTaskTimeout(task) {
   taskTimeoutTimers[timerId] = setTimeout(function () {
     _triggerTaskTimeout(task);
   }, delayMs);
-  console.log('[TaskTimer] 任务「' + task.name + '」超时定时器已设置，' + Math.round(delayMs / 1000 / 60) + ' 分钟后触发');
+  console.debug('[TaskTimer] 任务「' + task.name + '」超时定时器已设置，' + Math.round(delayMs / 1000 / 60) + ' 分钟后触发');
 }
 
 // 清除任务的超时定时器
@@ -10003,7 +9972,7 @@ function clearTaskTimeout(task) {
   if (taskTimeoutTimers[timerId]) {
     clearTimeout(taskTimeoutTimers[timerId]);
     delete taskTimeoutTimers[timerId];
-    console.log('[TaskTimer] 任务「' + task.name + '」超时定时器已清除');
+    console.debug('[TaskTimer] 任务「' + task.name + '」超时定时器已清除');
   }
 }
 
@@ -10036,7 +10005,7 @@ function initTaskTimeoutTimers() {
       }
     });
   });
-  console.log('[TaskTimer] 已初始化 ' + scheduled + ' 个任务的精确超时触发器');
+  console.debug('[TaskTimer] 已初始化 ' + scheduled + ' 个任务的精确超时触发器');
 }
 
 // 兜底：每天零点检查一次是否有遗漏（防止浏览器休眠导致 setTimeout 延迟）
@@ -10094,7 +10063,7 @@ async function sendTaskReminderToEmp(emp, task) {
       var sessionKey = 'agent:' + emp.id + ':chat';
       try {
         await _sendChatWaitForLifecycle(sessionKey, reminderMsg);
-        console.log('[TaskReminder] AI 员工 ' + emp.name + ' 已收到任务超时提醒');
+        console.debug('[TaskReminder] AI 员工 ' + emp.name + ' 已收到任务超时提醒');
       } catch (e) {
         console.warn('[TaskReminder] OpenClaw 发送失败:', e);
       }
@@ -10111,7 +10080,7 @@ async function sendTaskReminderToEmp(emp, task) {
     }
     // Toast 通知
     showToast('📢 ' + emp.name + '：' + notifyBody);
-    console.log('[TaskReminder] 人类员工 ' + emp.name + ' 已收到通知');
+    console.debug('[TaskReminder] 人类员工 ' + emp.name + ' 已收到通知');
   }
 
   // 标记今天已提醒
@@ -10567,7 +10536,7 @@ async function loadGroups() {
         }
       }
     } catch (e) {
-      console.log('[Groups] 后端加载失败:', e);
+      console.debug('[Groups] 后端加载失败:', e);
     }
   }
 }
@@ -10587,7 +10556,7 @@ function mergeGroupMembersToEmps() {
           // 如果本地员工缺少 openclawName/头像等字段，用项目组成员里的信息补全
           if (!existing.openclawName && m.openclawName) {
             existing.openclawName = m.openclawName;
-            console.log('[mergeGroupMembersToEmps] 补全 openclawName:', m.id, m.openclawName);
+            console.debug('[mergeGroupMembersToEmps] 补全 openclawName:', m.id, m.openclawName);
           }
           if (!existing.name && m.name) existing.name = m.name;
           if (!existing.bg && m.bg) existing.bg = m.bg;
@@ -10687,7 +10656,7 @@ async function saveGroups() {
         body: JSON.stringify(groups)
       });
     } catch (e) {
-      console.log('[Groups] 保存到后端失败:', e);
+      console.debug('[Groups] 保存到后端失败:', e);
     }
   }
 }
@@ -10746,10 +10715,10 @@ async function _pollGroupsForUpdates() {
         showToast('📁 你被加入了新项目：' + names);
       }
 
-      console.log('[GroupPoll] 项目组列表已更新，新增 ' + newGroups.length + ' 个');
+      console.debug('[GroupPoll] 项目组列表已更新，新增 ' + newGroups.length + ' 个');
     }
   } catch (e) {
-    console.log('[GroupPoll] 轮询失败:', e);
+    console.debug('[GroupPoll] 轮询失败:', e);
   }
 }
 
@@ -12100,7 +12069,7 @@ function renderGroupMessages(groupId) {
       _doRender(backendHistory);
     })
     .catch(function (err) {
-      console.log('[renderGroupMessages] 后端加载失败:', err);
+      console.debug('[renderGroupMessages] 后端加载失败:', err);
       _doRender([]);
     });
 
@@ -12185,7 +12154,7 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
     method: 'POST',
     body: JSON.stringify(bodyObj)
   }).catch(function (err) {
-    console.log('[sendGroupMessage] 同步后端失败:', err);
+    console.debug('[sendGroupMessage] 同步后端失败:', err);
   });
 
   // 群聊消息触发记忆提取：参与 AI 的个人记忆 + 项目组公共记忆
@@ -12275,7 +12244,7 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
     if (leadEmp) await ensureAgentRegistered(leadEmp);
     var agentId = leadEmp ? _resolveGroupAgentId(leadEmp) : group.leadAgentId;
     var sessionKey = 'agent:' + (leadEmp ? leadEmp.id : group.leadAgentId) + ':chat';
-    console.log('[sendGroupMessage] 群主消息 agentId=' + agentId + '，lead=' + (leadEmp && leadEmp.name || group.leadAgentId) + '，openclawName=' + (leadEmp && leadEmp.openclawName || '空') + '，sessionKey=' + sessionKey);
+    console.debug('[sendGroupMessage] 群主消息 agentId=' + agentId + '，lead=' + (leadEmp && leadEmp.name || group.leadAgentId) + '，openclawName=' + (leadEmp && leadEmp.openclawName || '空') + '，sessionKey=' + sessionKey);
 
     // 解析用户消息中的 @mentions（必须在用户原始消息 message 中匹配，不能在 fullMessage 中匹配，因为 fullMessage 的系统提示里包含了所有成员的 @名字）
     var userMentions = [];
@@ -12352,7 +12321,7 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
           _gte.status = 'online';
           renderEmployeeList();
           notifyOfficeStatusChange(group.leadAgentId, 'online');
-          console.log('[Timeout] 群主 ' + _gte.name + ' 思考超时，恢复在线');
+          console.debug('[Timeout] 群主 ' + _gte.name + ' 思考超时，恢复在线');
         }
       }, 60000);
       try {
@@ -12391,7 +12360,7 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
             reply = _buildLeadFallbackReply(message);
           }
           if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
-          console.log('[sendGroupMessage] 群主最终回复长度=' + reply.length + '，是否错误=' + isError + '，传给parseAndTriggerMentions的文本前100字:', reply.substring(0, 100));
+          console.debug('[sendGroupMessage] 群主最终回复长度=' + reply.length + '，是否错误=' + isError + '，传给parseAndTriggerMentions的文本前100字:', reply.substring(0, 100));
           displayGroupAIReply(groupId, group.leadAgentId, reply);
           // 保存已在 displayGroupAIReply 中统一处理，此处不再重复存储
           notifyOfficeStatusChange(group.leadAgentId, 'online');
@@ -12484,7 +12453,7 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
             var duration = (tool.endedAt && tool.startedAt) ? (tool.endedAt - tool.startedAt) : 0;
             badge.className = 'tool-badge tool-badge-done';
             badge.textContent = '已完成 耗时' + duration + 'ms';
-            console.log('[ToolEnd] tool object:', JSON.stringify(tool));
+            console.debug('[ToolEnd] tool object:', JSON.stringify(tool));
             fetch('/api/tool-calls/log', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('sb_auth_token') || '') },
@@ -12501,7 +12470,7 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
           }
         });
         var finalReply = (chatResult.reply || '').trim();
-        console.log('[sendGroupMessage] lifecycle结束，回复长度=' + finalReply.length + '，是否错误=' + chatResult.isError + '，lifecycleEnded=' + chatResult.lifecycleEnded);
+        console.debug('[sendGroupMessage] lifecycle结束，回复长度=' + finalReply.length + '，是否错误=' + chatResult.isError + '，lifecycleEnded=' + chatResult.lifecycleEnded);
         if (!finalReply) {
           console.warn('[sendGroupMessage] 群主回复为空，等待 lifecycle 后仍未获得内容');
         }
@@ -12600,7 +12569,6 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
         // runId 过滤，防止多个 AI 响应串扰
         if (data.runId && !currentRunId) currentRunId = data.runId;
         if (currentRunId && data.runId && data.runId !== currentRunId) return;
-        console.log('[OC-DEBUG] stream=' + data.stream + ' data=' + JSON.stringify(data.data).substring(0, 500));
         if (data.stream === 'assistant' && data.data) {
           if (data.data.text) fullReply = data.data.text;
           else if (data.data.delta) fullReply += data.data.delta;
@@ -12718,7 +12686,7 @@ function _runWithGroupReplyLock(groupId, fn) {
     }
   };
   if (lock.locked) {
-    console.log('[GroupLock] groupId=' + groupId + ' 正在回复，排队等待，当前队列长度=' + lock.queue.length);
+    console.debug('[GroupLock] groupId=' + groupId + ' 正在回复，排队等待，当前队列长度=' + lock.queue.length);
     lock.queue.push(execute);
   } else {
     execute();
@@ -12750,8 +12718,8 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
     return (typeof m === 'object' && m !== null) ? (m.id || m) : m;
   }).filter(function (id) { return id; });
 
-  console.log('[parseAndTriggerMentions] 开始解析，groupId=' + groupId + '，senderId=' + senderId + '，depth=' + mentionChainDepth + '/' + MENTION_MAX_DEPTH + '，群是否存在=' + !!group + '，群成员数=' + groupMemberIds.length + '，群成员=[' + groupMemberIds.join(',') + ']，mentionTriggeredKeys=[' + Object.keys(mentionTriggered || {}).join(',') + ']，文本长度=' + replyText.length);
-  console.log('[parseAndTriggerMentions] 待解析文本:', replyText);
+  console.debug('[parseAndTriggerMentions] 开始解析，groupId=' + groupId + '，senderId=' + senderId + '，depth=' + mentionChainDepth + '/' + MENTION_MAX_DEPTH + '，群是否存在=' + !!group + '，群成员数=' + groupMemberIds.length + '，群成员=[' + groupMemberIds.join(',') + ']，mentionTriggeredKeys=[' + Object.keys(mentionTriggered || {}).join(',') + ']，文本长度=' + replyText.length);
+  console.debug('[parseAndTriggerMentions] 待解析文本:', replyText);
 
   // 匹配 @名字（中英文都支持），仅触发当前项目组成员
   // 名字中不能包含中英文标点、括号、另一 @ 或空格，防止 "@张三（设计师）" 被整个捕获
@@ -12760,14 +12728,14 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
   var m;
   while ((m = mentionRegex.exec(replyText)) !== null) {
     var mentionedName = m[1];
-    console.log('[parseAndTriggerMentions] 正则匹配到 @' + mentionedName);
+    console.debug('[parseAndTriggerMentions] 正则匹配到 @' + mentionedName);
     // 跨 emps + groups.members 查找，并支持带后缀/语气词的 @，确保群主/其他成员 @ 的 AI 也能被触发
     var mentionedEmp = resolveMentionedName(mentionedName);
     var isGroupMember = mentionedEmp && groupMemberIds.indexOf(mentionedEmp.id) !== -1;
     if (isGroupMember && mentionedEmp.id !== senderId && !mentionTriggered[mentionedEmp.id]) {
       matches.push(mentionedEmp);
       mentionTriggered[mentionedEmp.id] = true;
-      console.log('[parseAndTriggerMentions] 检测到 @' + mentionedName + ' -> ' + mentionedEmp.name + '(' + mentionedEmp.id + ')，将触发回复');
+      console.debug('[parseAndTriggerMentions] 检测到 @' + mentionedName + ' -> ' + mentionedEmp.name + '(' + mentionedEmp.id + ')，将触发回复');
     } else {
       var detail = {
         found: !!mentionedEmp,
@@ -12779,7 +12747,7 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
         groupMemberIds: groupMemberIds,
         mentionTriggeredKeys: Object.keys(mentionTriggered || {})
       };
-      console.log('[parseAndTriggerMentions] 未触发 @' + mentionedName + ':', detail);
+      console.debug('[parseAndTriggerMentions] 未触发 @' + mentionedName + ':', detail);
     }
   }
 
@@ -12799,11 +12767,11 @@ function parseAndTriggerMentions(replyText, groupId, senderId) {
     if (matched) {
       matches.push(emp);
       mentionTriggered[mid] = true;
-      console.log('[parseAndTriggerMentions] 纯文字提到成员 ' + emp.name + '，将触发回复');
+      console.debug('[parseAndTriggerMentions] 纯文字提到成员 ' + emp.name + '，将触发回复');
     }
   });
 
-  console.log('[parseAndTriggerMentions] 解析完成，将触发 ' + matches.length + ' 人:', matches.map(function (e) { return e.name + '(' + e.id + ')'; }).join(', '));
+  console.debug('[parseAndTriggerMentions] 解析完成，将触发 ' + matches.length + ' 人:', matches.map(function (e) { return e.name + '(' + e.id + ')'; }).join(', '));
   if (matches.length === 0) return;
   matches.forEach(function (emp, idx) {
     var delay = (idx + 1) * (2000 + Math.floor(Math.random() * 3000));
@@ -12837,7 +12805,7 @@ function pollAgentsForReply(groupId, senderId, messageContent) {
     return e && !e.archived;
   });
   if (others.length === 0) return;
-  console.log('[pollAgentsForReply] 轮询成员:', others.map(function (mid) {
+  console.debug('[pollAgentsForReply] 轮询成员:', others.map(function (mid) {
     var e = findEmpByIdAcrossGroups(mid);
     return e ? e.name : mid;
   }).join(', '));
@@ -12859,17 +12827,17 @@ async function _askAgentToReply(mid, groupId, senderId, messageContent) {
   if (window._pollTriggered && window._pollTriggered[pollKey]) return;
   // 如果该成员正在思考中，跳过避免并发冲突
   if (emp.status === 'thinking') {
-    console.log('[askAgentToReply] ' + emp.name + ' 正在思考中，跳过轮询');
+    console.debug('[askAgentToReply] ' + emp.name + ' 正在思考中，跳过轮询');
     return;
   }
   // 如果该成员已被 checkAgentInterest 标记为感兴趣，即将由 triggerMentionedAgent 处理，跳过
   if (mentionTriggered && mentionTriggered[mid]) {
-    console.log('[askAgentToReply] ' + emp.name + ' 已被 checkAgentInterest 标记，跳过轮询');
+    console.debug('[askAgentToReply] ' + emp.name + ' 已被 checkAgentInterest 标记，跳过轮询');
     return;
   }
   // 轮询触发优先级=2；如果本轮已有 @触发（0）或兴趣触发（1），则跳过
   if (_isTriggeredThisRound(pollKey, 2)) {
-    console.log('[askAgentToReply] ' + emp.name + ' 本轮已被更高优先级触发，跳过轮询');
+    console.debug('[askAgentToReply] ' + emp.name + ' 本轮已被更高优先级触发，跳过轮询');
     return;
   }
   _markTriggeredThisRound(pollKey, 2);
@@ -12913,8 +12881,8 @@ async function _askAgentToReply(mid, groupId, senderId, messageContent) {
     await ensureAgentRegistered(emp);
     var agentId = _resolveGroupAgentId(emp);
     var sessionKey = 'agent:' + emp.id + ':chat';
-    console.log('[askAgentToReply] 将向 agentId=' + agentId + ' 发送消息，员工=' + emp.name + '(' + emp.id + ')，openclawName=' + (emp.openclawName || '空') + '，sessionKey=' + sessionKey);
-    console.log('[askAgentToReply] 完整 prompt 开始 >>>\n' + prompt + '\n<<< 完整 prompt 结束');
+    console.debug('[askAgentToReply] 将向 agentId=' + agentId + ' 发送消息，员工=' + emp.name + '(' + emp.id + ')，openclawName=' + (emp.openclawName || '空') + '，sessionKey=' + sessionKey);
+    console.debug('[askAgentToReply] 完整 prompt 开始 >>>\n' + prompt + '\n<<< 完整 prompt 结束');
     var chatResult = await _sendChatWaitForLifecycle(sessionKey, prompt, {
       onStartThinking: function () {
         if (emp.status !== 'thinking') {
@@ -12924,7 +12892,7 @@ async function _askAgentToReply(mid, groupId, senderId, messageContent) {
       }
     });
     var reply = (chatResult.reply || '').trim();
-    console.log('[askAgentToReply] ' + emp.name + ' lifecycle结束，回复长度=' + reply.length + '，是否错误=' + chatResult.isError + '，前100字:', reply.substring(0, 100));
+    console.debug('[askAgentToReply] ' + emp.name + ' lifecycle结束，回复长度=' + reply.length + '，是否错误=' + chatResult.isError + '，前100字:', reply.substring(0, 100));
     emp.status = 'online';
     renderEmployeeList();
     // 回复 SKIP 则跳过：兼容 AI 返回 "SKIP。"、"SKIP\n" 等带标点的变体
@@ -12941,16 +12909,16 @@ async function _askAgentToReply(mid, groupId, senderId, messageContent) {
     }
     if (_isSkipReply(reply)) {
       if (isLead) {
-        console.log('[askAgentToReply] ' + emp.name + '（群主）返回 SKIP/无，强制替换为群主兜底回复');
+        console.debug('[askAgentToReply] ' + emp.name + '（群主）返回 SKIP/无，强制替换为群主兜底回复');
         reply = '我先看看大家在聊什么。';
       } else {
-        console.log('[askAgentToReply] ' + emp.name + ' 选择 SKIP，不显示回复');
+        console.debug('[askAgentToReply] ' + emp.name + ' 选择 SKIP，不显示回复');
         // 若本轮只是 SKIP，解除 poll 锁定，让后续 @触发 仍有机会调用该成员
         if (window._pollTriggered) delete window._pollTriggered[pollKey];
         return;
       }
     }
-    console.log('[askAgentToReply] ' + emp.name + ' 回复:', reply.substring(0, 50) + '...');
+    console.debug('[askAgentToReply] ' + emp.name + ' 回复:', reply.substring(0, 50) + '...');
     // 显示回复并保存历史（保存已在 displayGroupAIReply 中统一处理）
     displayGroupAIReply(groupId, mid, reply);
     notifyOfficeChatMessage(mid, 'incoming');
@@ -13089,7 +13057,7 @@ async function ensureAgentRegistered(emp) {
     emp._registeringPromise = registerOpenClawAgent(emp);
     try {
       var reg = await emp._registeringPromise;
-      console.log('[ensureAgentRegistered] ' + emp.name + ' 注册结果:', reg && reg.success, reg && reg.error);
+      console.debug('[ensureAgentRegistered] ' + emp.name + ' 注册结果:', reg && reg.success, reg && reg.error);
     } catch (e) {
       console.warn('[ensureAgentRegistered] ' + emp.name + ' 注册异常:', e);
     } finally {
@@ -13120,7 +13088,7 @@ function triggerInterestedAgents(groupId, senderId, messageContent) {
       return e && !e.archived && e.status !== 'thinking';
     });
     if (candidates.length === 0) return;
-    console.log('[triggerInterestedAgents] 候选成员:', candidates.map(function (mid) {
+    console.debug('[triggerInterestedAgents] 候选成员:', candidates.map(function (mid) {
       var e = findEmpByIdAcrossGroups(mid);
       return e ? e.name : mid;
     }).join(', '));
@@ -13168,7 +13136,7 @@ function checkAgentInterest(mid, groupId, senderId, messageContent) {
   // 如果该成员已被 pollAgentsForReply 轮询过，不再重复判断，避免并发冲突
   var pollKey = groupId + '_' + mid;
   if (window._pollTriggered && window._pollTriggered[pollKey]) {
-    console.log('[checkAgentInterest] ' + emp.name + ' 已被 pollAgentsForReply 轮询，跳过兴趣判断');
+    console.debug('[checkAgentInterest] ' + emp.name + ' 已被 pollAgentsForReply 轮询，跳过兴趣判断');
     return;
   }
   if (mentionTriggered && mentionTriggered[mid]) return;
@@ -13177,23 +13145,23 @@ function checkAgentInterest(mid, groupId, senderId, messageContent) {
     return g.id === groupId;
   });
   var isLead = group && group.leadAgentId === mid;
-  console.log('[checkAgentInterest] 判断 ' + emp.name + (isLead ? '（群主）' : '') + ' 是否对消息感兴趣');
+  console.debug('[checkAgentInterest] 判断 ' + emp.name + (isLead ? '（群主）' : '') + ' 是否对消息感兴趣');
 
   mentionTriggered = mentionTriggered || {};
   var isInterested = false;
   if (isLead) {
     // 群主/负责人默认永远参与
     isInterested = true;
-    console.log('[checkAgentInterest] ' + emp.name + '（群主）默认感兴趣');
+    console.debug('[checkAgentInterest] ' + emp.name + '（群主）默认感兴趣');
   } else {
     isInterested = _matchAgentInterestKeywords(emp, messageContent);
-    console.log('[checkAgentInterest] ' + emp.name + ' 关键词匹配结果:', isInterested, '消息:', messageContent.substring(0, 80));
+    console.debug('[checkAgentInterest] ' + emp.name + ' 关键词匹配结果:', isInterested, '消息:', messageContent.substring(0, 80));
   }
 
   if (isInterested) {
     // 兴趣触发优先级=1；如果本轮已有 @触发/用户触发（0）或更高/同级兴趣触发，则跳过
     if (_isTriggeredThisRound(pollKey, 1)) {
-      console.log('[checkAgentInterest] ' + emp.name + ' 本轮已被更高优先级触发，跳过兴趣触发');
+      console.debug('[checkAgentInterest] ' + emp.name + ' 本轮已被更高优先级触发，跳过兴趣触发');
       return;
     }
     mentionTriggered[mid] = true;
@@ -13213,12 +13181,12 @@ function triggerUserMentions(userMentions, groupId, senderId, originalMessage) {
 }
 async function _triggerMentionedAgent(emp, groupId, fromId, source, userMessage) {
   mentionChainDepth++;
-  console.log('[triggerMentionedAgent] 尝试触发 ' + (emp && emp.name || emp.id) + ' 回复，来源=' + fromId + '，depth=' + mentionChainDepth + '，source=' + source);
+  console.debug('[triggerMentionedAgent] 尝试触发 ' + (emp && emp.name || emp.id) + ' 回复，来源=' + fromId + '，depth=' + mentionChainDepth + '，source=' + source);
 
   // 防重：显式 @ 触发（ai/user）不应被 poll 标记拦截，避免 @ 丢失
   var pollKey = groupId + '_' + emp.id;
   if (source !== 'ai' && source !== 'user' && window._pollTriggered && window._pollTriggered[pollKey]) {
-    console.log('[triggerMentionedAgent] ' + emp.name + ' 已被 pollAgentsForReply 轮询，跳过重复触发');
+    console.debug('[triggerMentionedAgent] ' + emp.name + ' 已被 pollAgentsForReply 轮询，跳过重复触发');
     mentionChainDepth--;
     return;
   }
@@ -13226,7 +13194,7 @@ async function _triggerMentionedAgent(emp, groupId, fromId, source, userMessage)
   // 本轮已触发去重：@触发/用户触发=0，兴趣触发=1；高优先级可覆盖低优先级
   var triggerPriority = (source === 'ai' || source === 'user') ? 0 : 1;
   if (_isTriggeredThisRound(pollKey, triggerPriority)) {
-    console.log('[triggerMentionedAgent] ' + emp.name + ' 本轮已触发过（优先级≤' + triggerPriority + '），跳过重复触发');
+    console.debug('[triggerMentionedAgent] ' + emp.name + ' 本轮已触发过（优先级≤' + triggerPriority + '），跳过重复触发');
     mentionChainDepth--;
     return;
   }
@@ -13349,7 +13317,7 @@ async function _triggerMentionedAgent(emp, groupId, fromId, source, userMessage)
   await ensureAgentRegistered(emp);
   var agentId = _resolveGroupAgentId(emp);
   var sessionKey = 'agent:' + emp.id + ':chat';
-  console.log('[triggerMentionedAgent] 将向 agentId=' + agentId + ' 发送消息，员工=' + emp.name + '(' + emp.id + ')，openclawName=' + (emp.openclawName || '空') + '，sessionKey=' + sessionKey);
+  console.debug('[triggerMentionedAgent] 将向 agentId=' + agentId + ' 发送消息，员工=' + emp.name + '(' + emp.id + ')，openclawName=' + (emp.openclawName || '空') + '，sessionKey=' + sessionKey);
 
   // 显示"正在输入"（仅当仍在该群聊时才插入 DOM，避免切换后串渲染）
   if (currentGroupId === groupId) {
@@ -13367,7 +13335,7 @@ async function _triggerMentionedAgent(emp, groupId, fromId, source, userMessage)
       _mte.status = 'online';
       renderEmployeeList();
       notifyOfficeStatusChange(emp.id, 'online');
-      console.log('[Timeout] @mention ' + _mte.name + ' 思考超时，恢复在线');
+      console.debug('[Timeout] @mention ' + _mte.name + ' 思考超时，恢复在线');
     }
   }, 60000);
   try {
@@ -13392,7 +13360,7 @@ async function _triggerMentionedAgent(emp, groupId, fromId, source, userMessage)
         reply = _buildMentionFallbackReply();
       }
       if (isError) reply = '⚠️ 响应出错';
-      console.log('[triggerMentionedAgent] ' + emp.name + ' 最终回复长度=' + reply.length + '，是否错误=' + isError + '，传给parseAndTriggerMentions的文本前100字:', reply.substring(0, 100));
+      console.debug('[triggerMentionedAgent] ' + emp.name + ' 最终回复长度=' + reply.length + '，是否错误=' + isError + '，传给parseAndTriggerMentions的文本前100字:', reply.substring(0, 100));
       displayGroupAIReply(groupId, emp.id, reply);
       notifyOfficeStatusChange(emp.id, 'online');
       var _mse2 = findEmpByIdAcrossGroups(emp.id);
@@ -13432,7 +13400,7 @@ async function _triggerMentionedAgent(emp, groupId, fromId, source, userMessage)
       }
     });
     var finalReply = (chatResult.reply || '').trim();
-    console.log('[triggerMentionedAgent] ' + emp.name + ' lifecycle结束，回复长度=' + finalReply.length + '，是否错误=' + chatResult.isError + '，lifecycleEnded=' + chatResult.lifecycleEnded);
+    console.debug('[triggerMentionedAgent] ' + emp.name + ' lifecycle结束，回复长度=' + finalReply.length + '，是否错误=' + chatResult.isError + '，lifecycleEnded=' + chatResult.lifecycleEnded);
     if (!finalReply) {
       console.warn('[triggerMentionedAgent] ' + emp.name + ' 等待 lifecycle 后仍未获得内容');
     }
@@ -13469,10 +13437,10 @@ function triggerMentionedAgent(emp, groupId, fromId, source, userMessage) {
 // 在群聊中显示 AI 回复
 function displayGroupAIReply(groupId, senderId, replyText, chainDepth) {
   chainDepth = chainDepth || 0;
-  console.log('[displayGroupAIReply] 被调用 groupId=' + groupId + ' senderId=' + senderId + ' chainDepth=' + chainDepth + ' 文本长度=' + (replyText || '').length + ' 文本前100字:', (replyText || '').substring(0, 100));
+  console.debug('[displayGroupAIReply] 被调用 groupId=' + groupId + ' senderId=' + senderId + ' chainDepth=' + chainDepth + ' 文本长度=' + (replyText || '').length + ' 文本前100字:', (replyText || '').substring(0, 100));
   // 如果用户已切换出群聊，不再往当前 DOM 追加消息，避免串渲染
   if (currentGroupId !== groupId) {
-    console.log('[displayGroupAIReply] 当前不在该群聊，跳过渲染 currentGroupId=' + currentGroupId);
+    console.debug('[displayGroupAIReply] 当前不在该群聊，跳过渲染 currentGroupId=' + currentGroupId);
     return;
   }
 
@@ -13481,7 +13449,7 @@ function displayGroupAIReply(groupId, senderId, replyText, chainDepth) {
   window._groupReplyDedup = window._groupReplyDedup || {};
   var lastDedup = window._groupReplyDedup[dedupKey];
   if (lastDedup && Date.now() - lastDedup < 5000) {
-    console.log('[displayGroupAIReply] 5秒内重复消息防重命中，跳过:', dedupKey);
+    console.debug('[displayGroupAIReply] 5秒内重复消息防重命中，跳过:', dedupKey);
     return;
   }
   window._groupReplyDedup[dedupKey] = Date.now();
@@ -13508,7 +13476,7 @@ function displayGroupAIReply(groupId, senderId, replyText, chainDepth) {
     var bubbleEl = m.querySelector('.msg-bubble');
     if (nameEl && bubbleEl && nameEl.textContent === senderName && bubbleEl.textContent === cleanText) {
       isDuplicateDom = true;
-      console.log('[displayGroupAIReply] DOM 去重命中，跳过重复消息:', senderName);
+      console.debug('[displayGroupAIReply] DOM 去重命中，跳过重复消息:', senderName);
       break;
     }
   }
@@ -13538,7 +13506,7 @@ function displayGroupAIReply(groupId, senderId, replyText, chainDepth) {
       time: Date.now()
     })
   }).catch(function (err) {
-    console.log('[displayGroupAIReply] 同步后端失败:', err);
+    console.debug('[displayGroupAIReply] 同步后端失败:', err);
   });
 
   // 群聊 AI 回复只触发个人记忆提取；项目组公共记忆只在用户发消息时提取一次，避免每个 AI 回复都重复提取群记忆造成 409 冲突和 OpenClaw 调用浪费
@@ -14425,10 +14393,10 @@ async function syncLocalStorageDocsToBackend() {
     }
   }
   if (migrated > 0) {
-    console.log('[SyncDocs] 已从 localStorage 迁移 ' + migrated + ' 篇文档到后端知识库');
+    console.debug('[SyncDocs] 已从 localStorage 迁移 ' + migrated + ' 篇文档到后端知识库');
     showToast('📚 已同步 ' + migrated + ' 篇本地文档到后端知识库');
   } else {
-    console.log('[SyncDocs] 无需迁移（后端已存在或本地无文档）');
+    console.debug('[SyncDocs] 无需迁移（后端已存在或本地无文档）');
   }
   localStorage.removeItem('sb_docs');
 }
@@ -15116,7 +15084,7 @@ function _resetEmpOpenClawSessions(empId) {
   ];
   keys.forEach(function (sessionKey) {
     openclaw.resetSession(sessionKey).then(function (res) {
-      console.log('[resetContext] OpenClaw session reset ok:', sessionKey, res);
+      console.debug('[resetContext] OpenClaw session reset ok:', sessionKey, res);
     }).catch(function (e) {
       console.warn('[resetContext] OpenClaw session reset failed:', sessionKey, e);
     });
@@ -15164,7 +15132,6 @@ function compressContext() {
   }).then(function (r) {
     return r.json();
   }).then(function (data) {
-    console.log('[Chat] 摘要压缩完成:', data);
     showToast('\u{1F4E6} 上下文已压缩');
     renderMsgs('private');
   }).catch(function (e) {
@@ -16442,7 +16409,7 @@ function triggerSummarizeFromMemoryPanel() {
     showToast('✅ 记忆归纳完成');
     if (banner) banner.style.display = 'none';
     renderMemoryTab(empId);
-    console.log('[Memory] 归纳完成:', data);
+    console.debug('[Memory] 归纳完成:', data);
   }).catch(function (e) {
     showToast('❌ 归纳失败：' + (e.message || '请重试'));
     console.warn('[Memory] 归纳失败:', e);
@@ -17085,7 +17052,7 @@ function removeGroupMember(empId) {
   }
 }
 function showAddMemberModal() {
-  console.log('showAddMemberModal clicked, currentGroupDetailId:', currentGroupDetailId);
+  console.debug('showAddMemberModal clicked, currentGroupDetailId:', currentGroupDetailId);
   if (!currentGroupDetailId) return;
   var group = groups.find(function (g) {
     return g.id === currentGroupDetailId;
@@ -17174,7 +17141,7 @@ function confirmAddMembers() {
   if (count > 0) {
     saveGroups();
     mergeGroupMembersToEmps();
-    console.log('[confirmAddMembers] 已添加', count, '个成员:', newMemberIds, '到群组', group.id);
+    console.debug('[confirmAddMembers] 已添加', count, '个成员:', newMemberIds, '到群组', group.id);
     renderGroupDetailMembers(group);
     renderGroupItems();
 
@@ -17212,7 +17179,7 @@ function confirmAddMembers() {
       var notifyMsg = '【入职通知】你已被加入项目组「' + groupObj.name + '」。\n你的角色：' + emp.name + '（' + getEmpRoleDisplay(emp) + '）\n项目组成员：' + memberList + announcement + '\n\n请记住你在项目组中的身份，后续群聊中请以这个角色参与讨论。';
       if (typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated) {
         _sendChatWaitForLifecycle(sessionKey, notifyMsg).then(function () {
-          console.log('[Group] 入职通知已发送给', emp.name);
+          console.debug('[Group] 入职通知已发送给', emp.name);
         }).catch(function (e) {
           console.warn('[Group] 入职通知发送失败:', emp.name, e.message);
         });
@@ -17245,7 +17212,7 @@ function confirmAddMembers() {
         var welcomeNotifyMsg = '【项目组动态】有新同事加入了项目组「' + groupObj2.name + '」：' + newNamesForWelcome + '。\n\n请向新同事发送一条简短的欢迎消息，让TA感受到团队的温暖。';
         if (typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated) {
           _sendChatWaitForLifecycle(existingSessionKey, welcomeNotifyMsg).then(function () {
-            console.log('[Group] 欢迎通知已发送给', existingEmp.name);
+            console.debug('[Group] 欢迎通知已发送给', existingEmp.name);
           }).catch(function (e) {
             console.warn('[Group] 欢迎通知发送失败:', existingEmp.name, e.message);
           });
@@ -17307,7 +17274,7 @@ function addGroupMember(empId) {
     _refreshGroupMemberCount(group);
     closeModal();
     showToast('已添加成员');
-    console.log('[addGroupMember] 已添加成员:', empId, emp ? emp.name : 'unknown', '到群组', group.id);
+    console.debug('[addGroupMember] 已添加成员:', empId, emp ? emp.name : 'unknown', '到群组', group.id);
   }
 }
 
@@ -17614,14 +17581,14 @@ async function saveEmpConnect() {
   if (!emp) return;
   var selectedProvider = document.getElementById('empConnectAIProvider').value;
   var apiKeyVal = document.getElementById('empConnectApiKey').value.trim();
-  console.log('[saveEmpConnect] 准备保存 emp=' + emp.id + ' provider=' + selectedProvider + ' apiKey_len=' + apiKeyVal.length);
+  console.debug('[saveEmpConnect] 准备保存 emp=' + emp.id + ' provider=' + selectedProvider + ' apiKey_len=' + apiKeyVal.length);
   emp.apiProvider = selectedProvider;  // 同步为实际供应商，避免被硬编码为 'openclaw'
   emp.aiProvider = selectedProvider;
   emp.openclawName = document.getElementById('empConnectOpenclawName').value.trim() || 'main';
   emp.apiKey = apiKeyVal;
   emp.apiModel = document.getElementById('empConnectModel').value;
   emp.customEndpoint = document.getElementById('empConnectBaseUrl').value.trim();
-  console.log('[saveEmpConnect] emp.apiKey 已设置=' + (emp.apiKey ? '有值(' + emp.apiKey.length + ')' : '空'));
+  console.debug('[saveEmpConnect] emp.apiKey 已设置=' + (emp.apiKey ? '有值(' + emp.apiKey.length + ')' : '空'));
   saveEmployees(currentEmpId);  // 只同步当前员工，避免刷所有员工
 
   // 自动在 Gateway 注册/更新 Agent
@@ -17639,7 +17606,7 @@ async function saveEmpConnect() {
 async function registerOpenClawAgent(emp) {
   // 0. 检查 Gateway 连接状态
   if (!openclaw || !openclaw.connected) {
-    console.log('[registerAgent] Gateway 未连接');
+    console.debug('[registerAgent] Gateway 未连接');
     return {
       success: false,
       error: 'Gateway 未连接',
@@ -17663,25 +17630,25 @@ async function registerOpenClawAgent(emp) {
       workspace: workspacePath
     };
     if (emp.apiModel) createParams.model = emp.apiModel;
-    console.log('[OpenClaw] 创建 Agent:', JSON.stringify(createParams));
+    console.debug('[OpenClaw] 创建 Agent:', JSON.stringify(createParams));
     var result = await openclaw.send('agents.create', createParams);
-    console.log('[OpenClaw] Agent 创建成功:', JSON.stringify(result));
+    console.debug('[OpenClaw] Agent 创建成功:', JSON.stringify(result));
     emp._agentId = result && result.agentId || agentName;
     agentRegistered = true;
   } catch (e) {
     // create 失败（可能已存在），试 update
-    console.log('[OpenClaw] create 失败，尝试 update:', e.message);
+    console.debug('[OpenClaw] create 失败，尝试 update:', e.message);
     try {
       var updateParams = {
         agentId: agentName
       };
       if (emp.apiModel) updateParams.model = emp.apiModel;
       var result2 = await openclaw.send('agents.update', updateParams);
-      console.log('[OpenClaw] Agent 更新成功:', JSON.stringify(result2));
+      console.debug('[OpenClaw] Agent 更新成功:', JSON.stringify(result2));
       emp._agentId = agentName;
       agentRegistered = true;
     } catch (e2) {
-      console.log('[OpenClaw] update 也失败:', e2.message);
+      console.debug('[OpenClaw] update 也失败:', e2.message);
       emp._agentId = 'main';
     }
   }
@@ -17714,13 +17681,13 @@ async function registerOpenClawAgent(emp) {
       });
       if (wsResp && wsResp.ok) {
         var data = await wsResp.json();
-        console.log('[OpenClaw] 文档已写入:', JSON.stringify(data));
+        console.debug('[OpenClaw] 文档已写入:', JSON.stringify(data));
         docsWritten = true;
       } else {
-        console.log('[OpenClaw] 文档写入失败:', wsResp ? wsResp.status : 'no response');
+        console.debug('[OpenClaw] 文档写入失败:', wsResp ? wsResp.status : 'no response');
       }
     } catch (e3) {
-      console.log('[OpenClaw] 文档写入异常:', e3.message);
+      console.debug('[OpenClaw] 文档写入异常:', e3.message);
     }
   }
 
@@ -17750,12 +17717,12 @@ var openclawModels = null;
 var openclawModelsFetchedAt = 0;
 async function fetchOpenClawModels() {
   if (!openclaw || !openclaw.connected) {
-    console.log('[OpenClaw] 未连接，跳过获取模型列表');
+    console.debug('[OpenClaw] 未连接，跳过获取模型列表');
     return null;
   }
   try {
     var result = await openclaw.send('models.list', {});
-    console.log('[OpenClaw] models.list 返回:', JSON.stringify(result));
+    console.debug('[OpenClaw] models.list 返回:', JSON.stringify(result));
 
     // 解析模型列表 - 支持多种返回格式
     var models = [];
@@ -17772,7 +17739,7 @@ async function fetchOpenClawModels() {
     if (models.length > 0) {
       openclawModels = models;
       openclawModelsFetchedAt = Date.now();
-      console.log('[OpenClaw] 模型列表已缓存，共 ' + models.length + ' 个模型');
+      console.debug('[OpenClaw] 模型列表已缓存，共 ' + models.length + ' 个模型');
 
       // 触发模型列表更新事件
       window.dispatchEvent(new CustomEvent('openclawModelsUpdated', {
@@ -18591,7 +18558,7 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
   if (providerId === 'zhipu') {
     endpoint = baseUrl + '/chat/completions';
   }
-  console.log('[API] 发送请求 -> /api/proxy endpoint=' + endpoint + ' model=' + model + ' messages=' + messages.length);
+  console.debug('[API] 发送请求 -> /api/proxy endpoint=' + endpoint + ' model=' + model + ' messages=' + messages.length);
   apiFetch('/api/proxy', {
     method: 'POST',
     headers: {
@@ -18608,12 +18575,12 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
       max_tokens: 2000
     })
   }).then(function (res) {
-    console.log('[API] /api/proxy 响应 status=' + (res ? res.status : 'null') + ' ok=' + (res ? res.ok : 'null'));
+    console.debug('[API] /api/proxy 响应 status=' + (res ? res.status : 'null') + ' ok=' + (res ? res.ok : 'null'));
 
     if (t) t.remove();
     if (!res || !res.ok) {
       var status = res ? res.status : 0;
-      console.log('[API] /api/proxy 请求失败 status=' + status);
+      console.debug('[API] /api/proxy 请求失败 status=' + status);
       if (status === 401) {
         displayAIReply('⚠️ API Key 无效，请检查 ' + (provider ? provider.name : 'AI供应商') + ' 的 API Key 是否正确', docContext, timeStr, emp.id, []);
       } else if (status === 429) {
@@ -18628,16 +18595,16 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
   }).then(function (data) {
     if (data && data.choices && data.choices[0] && data.choices[0].message) {
       var reply = data.choices[0].message.content || '';
-      console.log('[API] AI回复 content_len=' + reply.length);
+      console.debug('[API] AI回复 content_len=' + reply.length);
       displayAIReply(reply, docContext, timeStr, emp.id, ragResult2.citations);
       saveChatHistory(emp.id, userMessage, reply, docContext, ragResult2.citations, images);
     } else if (data) {
-      console.log('[API] 返回格式异常 data=', JSON.stringify(data).substring(0, 200));
+      console.debug('[API] 返回格式异常 data=', JSON.stringify(data).substring(0, 200));
       displayAIReply('⚠️ ' + provider.name + ' 返回格式异常', docContext, timeStr, emp.id, []);
     }
     restoreOnline();
   }).catch(function (error) {
-    console.log('[API] /api/proxy 异常:', error.message || error);
+    console.debug('[API] /api/proxy 异常:', error.message || error);
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
     if (error.message && (error.message.indexOf('Failed to fetch') >= 0 || error.message.indexOf('NetworkError') >= 0 || error.message.indexOf('CORS') >= 0)) {
@@ -18746,7 +18713,7 @@ async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, i
     var msgs = await msgsResp.json();
     if (msgs && msgs.length > 0 && msgs.length % 15 === 0) {
       apiFetch('/api/chat/summarize/' + encodeURIComponent(projId), { method: 'POST' }).catch(function (e) {
-        console.log('[Summary] 摘要生成失败:', e);
+        console.debug('[Summary] 摘要生成失败:', e);
       });
     }
   } catch (e) {
@@ -18879,12 +18846,12 @@ function extractAndSaveMemory(empId, userMsg, aiReply, isGroupChat, msgId) {
 function _runExtractAndSaveMemory(empId, userMsg, aiReply, isGroupChat, msgId, done) {
   var extractKey = (empId || '') + '_' + (msgId || ('priv_' + Date.now()));
   if (_isMemoryExtracted(extractKey)) {
-    console.log('[Memory] extractAndSaveMemory 跳过，msgId 已提取过:', extractKey);
+    console.debug('[Memory] extractAndSaveMemory 跳过，msgId 已提取过:', extractKey);
     done();
     return;
   }
   _markMemoryExtracted(extractKey);
-  console.log('[Memory] extractAndSaveMemory 被调用:', empId, 'userMsg长度:', (userMsg || '').length, 'aiReply长度:', (aiReply || '').length, 'isGroupChat:', isGroupChat, 'msgId:', msgId);
+  console.debug('[Memory] extractAndSaveMemory 被调用:', empId, 'userMsg长度:', (userMsg || '').length, 'aiReply长度:', (aiReply || '').length, 'isGroupChat:', isGroupChat, 'msgId:', msgId);
   if (typeof apiFetch !== 'function') {
     console.warn('[Memory] apiFetch 不可用，跳过提取');
     done();
@@ -18900,12 +18867,12 @@ function _runExtractAndSaveMemory(empId, userMsg, aiReply, isGroupChat, msgId, d
 
   // 先加载已有记忆，避免重复提取
   apiFetch('/api/memory/' + empId).then(function (r) {
-    console.log('[Memory] 加载已有记忆响应状态:', r ? r.status : 'null', '员工:', emp.name);
+    console.debug('[Memory] 加载已有记忆响应状态:', r ? r.status : 'null', '员工:', emp.name);
     return r.json();
   }).then(function (data) {
     if (!data) data = {};
     var allMemories = data.memories || [];
-    console.log('[Memory] 已有记忆数量:', allMemories.length, '员工:', emp.name);
+    console.debug('[Memory] 已有记忆数量:', allMemories.length, '员工:', emp.name);
 
     // 构造提取 prompt：提供已有记忆上下文，要求提取带关系的事实
     var existingDaily = allMemories.filter(function (m) {
@@ -18927,13 +18894,13 @@ function _runExtractAndSaveMemory(empId, userMsg, aiReply, isGroupChat, msgId, d
       extractPrompt += '\n\n【本次对话】\n用户说：' + userMsg.substring(0, 800) + '\nAI回复：' + aiReply.substring(0, 800);
     }
 
-    console.log('[Memory] 提取方式判断 - openclaw.connected:', typeof openclaw !== 'undefined' && openclaw.connected, 'apiKey:', !!emp.apiKey, 'aiProvider:', !!emp.aiProvider);
+    console.debug('[Memory] 提取方式判断 - openclaw.connected:', typeof openclaw !== 'undefined' && openclaw.connected, 'apiKey:', !!emp.apiKey, 'aiProvider:', !!emp.aiProvider);
     // 根据实际连接状态选择提取方式（不按 connectionType 硬编码）
     if (typeof openclaw !== 'undefined' && openclaw.connected) {
-      console.log('[Memory] 使用 OpenClaw 提取:', emp.name);
+      console.debug('[Memory] 使用 OpenClaw 提取:', emp.name);
       _extractMemoryViaOpenClaw(empId, extractPrompt, allMemories, userMsg, done);
     } else if (emp.apiKey && emp.aiProvider) {
-      console.log('[Memory] 使用 API 提取:', emp.name);
+      console.debug('[Memory] 使用 API 提取:', emp.name);
       _extractMemoryViaAPI(empId, extractPrompt, allMemories, userMsg, done);
     } else {
       // 无 AI 可用时，将用户原话作为兜底记忆写入，确保测试环境也能看到记忆记录
@@ -18949,7 +18916,7 @@ function _runExtractAndSaveMemory(empId, userMsg, aiReply, isGroupChat, msgId, d
 
 // 通过 OpenClaw WebSocket 提取记忆
 function _extractMemoryViaOpenClaw(empId, extractPrompt, existing, userMsg, done) {
-  console.log('[Memory] _extractMemoryViaOpenClaw 开始:', empId);
+  console.debug('[Memory] _extractMemoryViaOpenClaw 开始:', empId);
   var emp = emps.find(function (e) { return e.id === empId; });
   if (!emp) {
     console.warn('[Memory] _extractMemoryViaOpenClaw 找不到员工:', empId);
@@ -18965,7 +18932,7 @@ function _extractMemoryViaOpenClaw(empId, extractPrompt, existing, userMsg, done
 
   _sendChatWaitForLifecycle(sessionKey, isolatedPrompt).then(function (chatResult) {
     var extractReply = chatResult.reply || '';
-    console.log('[Memory] OpenClaw 提取完成, 回复长度:', extractReply.length);
+    console.debug('[Memory] OpenClaw 提取完成, 回复长度:', extractReply.length);
     if (extractReply) {
       _processExtractedMemory(empId, extractReply, existing, userMsg);
     } else {
@@ -18977,7 +18944,7 @@ function _extractMemoryViaOpenClaw(empId, extractPrompt, existing, userMsg, done
     console.warn('[Memory] OpenClaw 提取失败:', e, '员工:', emp.name);
     // 发送失败也尝试 fallback
     if (emp.apiKey && emp.aiProvider) {
-      console.log('[Memory] OpenClaw 发送失败，fallback 到 API:', emp.name);
+      console.debug('[Memory] OpenClaw 发送失败，fallback 到 API:', emp.name);
       _extractMemoryViaAPI(empId, extractPrompt, existing, userMsg, done);
     } else {
       _saveMemoryFallback(empId, userMsg, existing);
@@ -18988,17 +18955,17 @@ function _extractMemoryViaOpenClaw(empId, extractPrompt, existing, userMsg, done
 
 // 通过 API 直接提取记忆
 function _extractMemoryViaAPI(empId, extractPrompt, existing, userMsg, done) {
-  console.log('[Memory] _extractMemoryViaAPI 开始:', empId);
+  console.debug('[Memory] _extractMemoryViaAPI 开始:', empId);
   apiFetch('/api/chat/' + empId, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content: extractPrompt, skipAI: false })
   }).then(function (r) {
-    console.log('[Memory] API 提取响应状态:', r ? r.status : 'null', '员工:', empId);
+    console.debug('[Memory] API 提取响应状态:', r ? r.status : 'null', '员工:', empId);
     return r.json();
   }).then(function (data) {
     var extracted = (data.aiMessage && data.aiMessage.content) || data.reply || '';
-    console.log('[Memory] API 提取结果长度:', extracted.length, '前100字:', extracted ? extracted.substring(0, 100) : '(空)');
+    console.debug('[Memory] API 提取结果长度:', extracted.length, '前100字:', extracted ? extracted.substring(0, 100) : '(空)');
     _processExtractedMemory(empId, extracted, existing, userMsg);
   }).catch(function (e) {
     console.warn('[Memory] API 提取失败:', e, '员工:', empId);
@@ -19103,10 +19070,10 @@ function _saveMemoryFallback(empId, userMsg, existing) {
   var memValue = userMsg.trim().substring(0, 200);
   if (memValue.length < 5) return;
   if (_isMemoryDuplicate(memValue, existing)) {
-    console.log('[Memory] 兜底记忆重复，跳过:', memValue.substring(0, 50));
+    console.debug('[Memory] 兜底记忆重复，跳过:', memValue.substring(0, 50));
     return;
   }
-  console.log('[Memory] 准备保存兜底记忆:', memValue.substring(0, 50));
+  console.debug('[Memory] 准备保存兜底记忆:', memValue.substring(0, 50));
   apiFetch('/api/memory/' + empId, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -19116,11 +19083,11 @@ function _saveMemoryFallback(empId, userMsg, existing) {
       source: '自动记录（无AI配置）'
     })
   }).then(function (r) {
-    console.log('[Memory] ✅ 兜底记忆保存成功:', memValue.substring(0, 50), '状态:', r ? r.status : 'null');
+    console.debug('[Memory] ✅ 兜底记忆保存成功:', memValue.substring(0, 50), '状态:', r ? r.status : 'null');
     _markMemorySaved(memValue);
   }).catch(function (e) {
     if (e && e.message && e.message.indexOf('409') > -1) {
-      console.log('[Memory] 兜底记忆 409 冲突，记忆已存在，静默跳过:', memValue.substring(0, 50));
+      console.debug('[Memory] 兜底记忆 409 冲突，记忆已存在，静默跳过:', memValue.substring(0, 50));
       return;
     }
     console.warn('[Memory] 兜底记忆保存失败:', e);
@@ -19129,10 +19096,10 @@ function _saveMemoryFallback(empId, userMsg, existing) {
 
 // 处理提取结果：拆分、去重、保存
 function _processExtractedMemory(empId, extracted, existing, userMsg) {
-  console.log('[Memory] _processExtractedMemory 开始, extracted长度:', (extracted || '').length, '前100字:', (extracted || '').substring(0, 100));
+  console.debug('[Memory] _processExtractedMemory 开始, extracted长度:', (extracted || '').length, '前100字:', (extracted || '').substring(0, 100));
   // OpenClaw 返回"无"或空时，不走跳过逻辑，而是兜底保存用户原话，确保每次对话至少一条记录
   if (!extracted || extracted === '无' || extracted.length < 3) {
-    console.log('[Memory] 提取结果为空或"无", 使用原话兜底');
+    console.debug('[Memory] 提取结果为空或"无", 使用原话兜底');
     _saveMemoryFallback(empId, userMsg, existing);
     return;
   }
@@ -19154,7 +19121,7 @@ function _processExtractedMemory(empId, extracted, existing, userMsg) {
       newMemories.push(memValue);
     }
   });
-  console.log('[Memory] 解析出列表项记忆数量:', newMemories.length, '样本:', newMemories.slice(0, 3));
+  console.debug('[Memory] 解析出列表项记忆数量:', newMemories.length, '样本:', newMemories.slice(0, 3));
 
   // 先对本次解析出的记忆内部去重
   var uniqueNewMemories = [];
@@ -19165,11 +19132,11 @@ function _processExtractedMemory(empId, extracted, existing, userMsg) {
       seenNormalized[norm] = true;
       uniqueNewMemories.push(memValue);
     } else {
-      console.log('[Memory] 本次解析内去重，跳过:', memValue.substring(0, 50));
+      console.debug('[Memory] 本次解析内去重，跳过:', memValue.substring(0, 50));
     }
   });
   newMemories = uniqueNewMemories;
-  console.log('[Memory] 本次解析去重后数量:', newMemories.length);
+  console.debug('[Memory] 本次解析去重后数量:', newMemories.length);
 
   // 单条消息提取的记忆数量超过50条直接截断，只保留前50条，避免炸内存
   if (newMemories.length > 50) {
@@ -19188,9 +19155,9 @@ function _processExtractedMemory(empId, extracted, existing, userMsg) {
       .trim();
     if (cleanText && cleanText !== '无' && cleanText.length > 5 && cleanText.indexOf('要求：') !== 0) {
       newMemories.push(cleanText);
-      console.log('[Memory] 无列表项, fallback 整段作为记忆:', cleanText.substring(0, 80));
+      console.debug('[Memory] 无列表项, fallback 整段作为记忆:', cleanText.substring(0, 80));
     } else {
-      console.log('[Memory] fallback 也不符合保存条件, 清理后文本:', cleanText.substring(0, 80));
+      console.debug('[Memory] fallback 也不符合保存条件, 清理后文本:', cleanText.substring(0, 80));
     }
   }
 
@@ -19198,16 +19165,16 @@ function _processExtractedMemory(empId, extracted, existing, userMsg) {
   var savedCount = 0;
   newMemories.forEach(function (memValue) {
     if (memValue.length < 5) {
-      console.log('[Memory] 记忆长度不足5, 跳过:', memValue);
+      console.debug('[Memory] 记忆长度不足5, 跳过:', memValue);
       return;
     }
 
     if (_isMemoryDuplicate(memValue, existing)) {
-      console.log('[Memory] 重复记忆, 跳过:', memValue.substring(0, 50));
+      console.debug('[Memory] 重复记忆, 跳过:', memValue.substring(0, 50));
       return;
     }
 
-    console.log('[Memory] 准备保存记忆:', memValue.substring(0, 50));
+    console.debug('[Memory] 准备保存记忆:', memValue.substring(0, 50));
     apiFetch('/api/memory/' + empId, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -19217,14 +19184,14 @@ function _processExtractedMemory(empId, extracted, existing, userMsg) {
         source: '自动提取'
       })
     }).then(function (r) {
-      console.log('[Memory] ✅ 保存记忆成功:', memValue.substring(0, 50), '状态:', r ? r.status : 'null');
+      console.debug('[Memory] ✅ 保存记忆成功:', memValue.substring(0, 50), '状态:', r ? r.status : 'null');
       _markMemorySaved(memValue);
       return r.json();
     }).then(function (saved) {
-      console.log('[Memory] 后端返回记忆ID:', saved && saved.id, '员工:', empId);
+      console.debug('[Memory] 后端返回记忆ID:', saved && saved.id, '员工:', empId);
     }).catch(function (e) {
       if (e && e.message && e.message.indexOf('409') > -1) {
-        console.log('[Memory] 409 冲突，记忆已存在，静默跳过:', memValue.substring(0, 50));
+        console.debug('[Memory] 409 冲突，记忆已存在，静默跳过:', memValue.substring(0, 50));
         return;
       }
       console.warn('[Memory] ❌ 保存记忆失败:', e);
@@ -19234,10 +19201,10 @@ function _processExtractedMemory(empId, extracted, existing, userMsg) {
 
   if (savedCount > 0) {
     updateMemoryTabTitle(empId);
-    console.log('[Memory] 共准备保存 ' + savedCount + ' 条新记忆');
+    console.debug('[Memory] 共准备保存 ' + savedCount + ' 条新记忆');
   } else {
     // 提取结果未解析出有效记忆时，兜底保存用户原话，确保每次对话至少一条记录
-    console.log('[Memory] 未解析出有效记忆，使用原话兜底');
+    console.debug('[Memory] 未解析出有效记忆，使用原话兜底');
     _saveMemoryFallback(empId, userMsg, existing);
   }
 }
@@ -19292,7 +19259,7 @@ function _processExtractedGroupMemory(groupId, extracted, existing) {
       _markMemorySaved(memValue);
     }).catch(function (e) {
       if (e && e.message && e.message.indexOf('409') > -1) {
-        console.log('[GroupMemory] 409 冲突，记忆已存在，静默跳过:', memValue.substring(0, 50));
+        console.debug('[GroupMemory] 409 冲突，记忆已存在，静默跳过:', memValue.substring(0, 50));
         return;
       }
       console.warn('[GroupMemory] 保存项目组记忆失败:', e);
@@ -19312,7 +19279,7 @@ function _runExtractAndSaveGroupMemory(groupId, userMsg, aiReply, msgId, done) {
   }
   var extractKey = (groupId || '') + '_' + (msgId || ('group_' + Date.now()));
   if (_isMemoryExtracted(extractKey)) {
-    console.log('[Memory] extractAndSaveGroupMemory 跳过，msgId 已提取过:', extractKey);
+    console.debug('[Memory] extractAndSaveGroupMemory 跳过，msgId 已提取过:', extractKey);
     done();
     return;
   }
@@ -20154,7 +20121,7 @@ async function finishWizard() {
 
   // 注册 OpenClaw Agent
   var regResult = await registerOpenClawAgent(newEmp);
-  console.log('[finishCreateEmployeeWizard] 新员工', newEmp.id, newEmp.name, 'openclawName=', newEmp.openclawName, '注册结果=', regResult);
+  console.debug('[finishCreateEmployeeWizard] 新员工', newEmp.id, newEmp.name, 'openclawName=', newEmp.openclawName, '注册结果=', regResult);
 
   // 根据注册结果处理
   if (regResult.success) {
@@ -20216,7 +20183,7 @@ async function finishWizard() {
       }).then(function (r) {
         return r.json();
       }).then(function (data) {
-        if (data.success) console.log('[Wizard] 技能安装成功:', slug);else console.warn('[Wizard] 技能安装失败:', slug, data.error);
+        if (data.success) console.debug('[Wizard] 技能安装成功:', slug);else console.warn('[Wizard] 技能安装失败:', slug, data.error);
       }).catch(function (e) {
         console.warn('[Wizard] 技能安装失败:', slug, e);
       });
@@ -24544,7 +24511,7 @@ function createNewKnowledge() {
   if (titleEl) {
     try { titleEl.focus(); } catch (e) {}
   }
-  console.log('[Knowledge] 新建知识，表单已清空');
+  console.debug('[Knowledge] 新建知识，表单已清空');
 }
 function updateKnowledgeEditorView() {
   var textarea = document.getElementById('knowledgeEditContent');
