@@ -2533,6 +2533,18 @@ def init_db():
             )
         ''')
 
+        # 违禁词表
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS forbidden_words (
+                id TEXT PRIMARY KEY,
+                word TEXT UNIQUE,
+                category TEXT DEFAULT 'general',
+                created_by TEXT,
+                created_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_forbidden_words_word ON forbidden_words(word)')
+
         # FIXME: 大脑知识中枢新增表（保留旧表，不删数据）
         _init_brain_tables(conn)
 
@@ -4274,6 +4286,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_account()
             return
 
+        # 违禁词 API
+        if path == '/api/forbidden-words':
+            self._handle_get_forbidden_words()
+            return
+
         # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
         if path == '/api/knowledge/entries':
             self._handle_get_kb_entries()
@@ -4524,6 +4541,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 通知 API
         if path == '/api/notifications':
             self._handle_post_notification()
+            return
+
+        # 违禁词 API（check 需先于 /api/forbidden-words 通用匹配）
+        if path == '/api/forbidden-words/check':
+            self._handle_forbidden_words_check()
+            return
+        if path == '/api/forbidden-words':
+            self._handle_post_forbidden_words()
             return
 
         # Proxy (requires auth)
@@ -4966,6 +4991,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _do_DELETE(self):
         path = self._normalize_path(self.path)
+
+        # 违禁词 API
+        if path.startswith('/api/forbidden-words/'):
+            word_id = path[len('/api/forbidden-words/'):]
+            if word_id and '/' not in word_id:
+                self._handle_delete_forbidden_word(word_id)
+                return
 
         # 通知 API
         if path.startswith('/api/notifications/'):
@@ -10885,6 +10917,108 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'theme': user.get('theme', 'light'),
             'language': user.get('language', '中文'),
         })
+
+    # ═══════════════════════════════════════════════════
+    # 违禁词 API
+    # ═══════════════════════════════════════════════════
+
+    def _forbidden_word_row_to_dict(self, row):
+        return {
+            'id': row['id'],
+            'word': row['word'],
+            'category': row['category'] or 'general',
+            'created_by': row['created_by'] or '',
+            'created_at': int(row['created_at'] or 0),
+        }
+
+    def _handle_get_forbidden_words(self):
+        """GET /api/forbidden-words — 违禁词列表（keyword 模糊搜索）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        keyword = (qs.get('keyword', [''])[0] or '').strip()
+        conn = _db_conn()
+        try:
+            if keyword:
+                rows = conn.execute(
+                    'SELECT * FROM forbidden_words WHERE word LIKE ? ORDER BY created_at DESC',
+                    (f'%{keyword}%',)
+                ).fetchall()
+            else:
+                rows = conn.execute('SELECT * FROM forbidden_words ORDER BY created_at DESC').fetchall()
+            self._send_json(200, {'items': [self._forbidden_word_row_to_dict(r) for r in rows]})
+        finally:
+            conn.close()
+
+    def _handle_post_forbidden_words(self):
+        """POST /api/forbidden-words — 添加违禁词（支持 {word} 单个或 {words: [...]} 批量，重复跳过）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body() or {}
+        words = []
+        if isinstance(body.get('words'), list):
+            words = body['words']
+        elif body.get('word'):
+            words = [body['word']]
+        words = [str(w).strip() for w in words if str(w).strip()]
+        if not words:
+            self._send_json_error(400, 'Missing word or words')
+            return
+        category = (body.get('category') or 'general').strip() or 'general'
+        now = int(time.time() * 1000)
+        added = 0
+        conn = _db_conn()
+        try:
+            for w in words:
+                cur = conn.execute(
+                    'INSERT OR IGNORE INTO forbidden_words (id, word, category, created_by, created_at) VALUES (?, ?, ?, ?, ?)',
+                    ('fw_' + uuid.uuid4().hex[:12], w, category, auth.user_id, now)
+                )
+                added += cur.rowcount
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'success': True, 'added': added})
+
+    def _handle_delete_forbidden_word(self, word_id):
+        """DELETE /api/forbidden-words/{id} — 删除违禁词"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        conn = _db_conn()
+        try:
+            cur = conn.execute('DELETE FROM forbidden_words WHERE id = ?', (word_id,))
+            conn.commit()
+            if cur.rowcount == 0:
+                self._send_json_error(404, 'Forbidden word not found')
+                return
+            self._send_json(200, {'success': True})
+        finally:
+            conn.close()
+
+    def _handle_forbidden_words_check(self):
+        """POST /api/forbidden-words/check — 检查文本是否命中违禁词（子串包含）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body() or {}
+        text = str(body.get('text') or '')
+        if not text:
+            self._send_json(200, {'hasViolation': False, 'words': []})
+            return
+        conn = _db_conn()
+        try:
+            rows = conn.execute('SELECT word FROM forbidden_words').fetchall()
+        finally:
+            conn.close()
+        hits = [r['word'] for r in rows if r['word'] and r['word'] in text]
+        self._send_json(200, {'hasViolation': len(hits) > 0, 'words': hits})
 
     # ═══════════════════════════════════════════════════
     # 商品库 API

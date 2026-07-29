@@ -8616,17 +8616,46 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
   textParts.push('【User Message】\n' + userMessage);
   var fullMessage = textParts.join('\n\n');
   
-  function _doHandle(reply, isError) {
+  async function _doHandle(reply, isError) {
+    // 违禁词检查：在渲染前调用后端检查，命中时在气泡上方显示警告条（不拦截，失败静默放行）
+    var fwWarning = '';
+    try {
+      if (reply && !isError && typeof apiFetch === 'function') {
+        var fwResp = await apiFetch('/api/forbidden-words/check', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ text: reply })
+        });
+        if (fwResp) {
+          var fwData = await fwResp.json();
+          if (fwData && fwData.hasViolation && fwData.words && fwData.words.length) {
+            fwWarning = '⚠️ 此回复包含违禁词：' + fwData.words.join('、');
+          }
+        }
+      }
+    } catch (fwErr) {
+      console.warn('[ForbiddenWords] 检查失败，静默放行:', fwErr);
+    }
     console.log('[OpenClaw] _doHandle 调用 reply_len=' + (reply || '').length + ' isError=' + isError + ' chainDepth=' + chainDepth + ' groupId=' + groupId);
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
     if (!reply) reply = '（AI 未返回内容）';
     if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
+    var msgArea = document.getElementById('messagesArea');
+    var msgCountBefore = msgArea ? msgArea.childElementCount : 0;
     if (groupId) {
       displayGroupAIReply(groupId, emp.id, reply, chainDepth);
     } else {
       displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations, chainDepth);
       saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images);
+    }
+    // 命中违禁词时在该消息气泡上方插入警告条
+    if (fwWarning && msgArea && msgArea.childElementCount > msgCountBefore) {
+      var lastMsg = msgArea.lastElementChild;
+      var contentEl = lastMsg && lastMsg.querySelector ? lastMsg.querySelector('.msg-content') : null;
+      if (contentEl) {
+        contentEl.insertAdjacentHTML('afterbegin', '<div class="forbidden-warning-bar" style="background:rgba(255,59,48,0.1);color:#ff3b30;border:0.5px solid rgba(255,59,48,0.3);padding:6px 10px;border-radius:8px;font-size:12px;margin-bottom:6px;">' + escapeHtml(fwWarning) + '</div>');
+      }
     }
   }
 
@@ -26637,16 +26666,40 @@ async function resetUserPermissions() {
 }
 
 // ========== 违禁词管理 ==========
-function getForbiddenWords() {
-  return JSON.parse(localStorage.getItem('sb_forbidden_words') || 'null') || ['色情', '暴力', '赌博', '毒品', '诈骗'];
+var _forbiddenWordsCache = [];
+async function fetchForbiddenWords(keyword) {
+  if (typeof apiFetch !== 'function') return [];
+  try {
+    var url = '/api/forbidden-words' + (keyword ? '?keyword=' + encodeURIComponent(keyword) : '');
+    var resp = await apiFetch(url);
+    if (!resp) return [];
+    var data = await resp.json();
+    return (data && Array.isArray(data.items)) ? data.items : [];
+  } catch (e) {
+    console.warn('[ForbiddenWords] 加载失败:', e);
+    return [];
+  }
 }
-function saveForbiddenWords(words) {
-  localStorage.setItem('sb_forbidden_words', JSON.stringify(words));
-}
-function loadForbiddenWords() {
+async function loadForbiddenWords() {
   var area = document.getElementById('forbiddenWordsArea');
   if (!area) return;
   area.innerHTML = renderForbiddenWordsUI();
+  var items = await fetchForbiddenWords('');
+  // 首次发现为空时批量导入默认违禁词（仅导入一次）
+  if (!items.length && !localStorage.getItem('sb_forbidden_words_seeded')) {
+    try {
+      await apiFetch('/api/forbidden-words', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ words: ['色情', '暴力', '赌博', '毒品', '诈骗'] })
+      });
+      localStorage.setItem('sb_forbidden_words_seeded', '1');
+      items = await fetchForbiddenWords('');
+    } catch (e) {
+      console.warn('[ForbiddenWords] 默认违禁词导入失败:', e);
+    }
+  }
+  _forbiddenWordsCache = items;
   renderForbiddenList();
 }
 function renderForbiddenWordsUI() {
@@ -26664,34 +26717,39 @@ function renderForbiddenWordsUI() {
 function renderForbiddenList() {
   var container = document.getElementById('forbiddenList');
   if (!container) return;
-  var allWords = getForbiddenWords();
-  var searchInput = document.getElementById('forbiddenSearchInput');
-  var search = searchInput ? searchInput.value : '';
-  var displayItems = allWords.map(function (w, i) { return { word: w, index: i }; });
-  if (search) displayItems = displayItems.filter(function (item) { return item.word.indexOf(search) >= 0; });
+  var displayItems = _forbiddenWordsCache;
   if (displayItems.length === 0) {
     container.innerHTML = '<div class="settings-empty"><div style="font-size:32px;margin-bottom:12px">🚫</div><div>暂无违禁词</div></div>';
     return;
   }
   container.innerHTML = displayItems.map(function (item) {
-    return '<div class="settings-list-row"><span>' + escapeHtml(item.word) + '</span><button class="module-action-btn danger" onclick="deleteForbiddenWord(' + item.index + ')">删除</button></div>';
+    return '<div class="settings-list-row"><span>' + escapeHtml(item.word) + '</span><button class="module-action-btn danger" onclick="deleteForbiddenWord(\'' + escapeAttr(item.id) + '\')">删除</button></div>';
   }).join('');
 }
-function filterForbiddenWords() {
+async function filterForbiddenWords() {
+  var searchInput = document.getElementById('forbiddenSearchInput');
+  var search = searchInput ? searchInput.value.trim() : '';
+  _forbiddenWordsCache = await fetchForbiddenWords(search);
   renderForbiddenList();
 }
 function showAddForbiddenWordModal() {
   var word = prompt('请输入要添加的违禁词：');
   if (word && word.trim()) {
-    var words = getForbiddenWords();
-    if (words.indexOf(word.trim()) >= 0) {
-      showToast('⚠️ 该违禁词已存在');
-      return;
-    }
-    words.push(word.trim());
-    saveForbiddenWords(words);
-    renderForbiddenList();
-    showToast('✅ 已添加违禁词');
+    apiFetch('/api/forbidden-words', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ word: word.trim() })
+    }).then(function (r) { return r ? r.json() : null; }).then(function (data) {
+      if (data && data.added === 0) {
+        showToast('⚠️ 该违禁词已存在');
+        return;
+      }
+      filterForbiddenWords();
+      showToast('✅ 已添加违禁词');
+    }).catch(function (e) {
+      console.warn('[ForbiddenWords] 添加失败:', e);
+      showToast('❌ 添加违禁词失败');
+    });
   }
 }
 function showBatchForbiddenWordModal() {
@@ -26699,22 +26757,29 @@ function showBatchForbiddenWordModal() {
   if (!text) return;
   var newWords = text.split(/\n/).map(function (s) { return s.trim(); }).filter(function (s) { return s; });
   if (!newWords.length) return;
-  var words = getForbiddenWords();
-  var added = 0;
-  newWords.forEach(function (w) {
-    if (words.indexOf(w) < 0) { words.push(w); added++; }
+  apiFetch('/api/forbidden-words', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ words: newWords })
+  }).then(function (r) { return r ? r.json() : null; }).then(function (data) {
+    filterForbiddenWords();
+    showToast('✅ 批量添加 ' + (data && typeof data.added === 'number' ? data.added : 0) + ' 个违禁词');
+  }).catch(function (e) {
+    console.warn('[ForbiddenWords] 批量添加失败:', e);
+    showToast('❌ 批量添加失败');
   });
-  saveForbiddenWords(words);
-  renderForbiddenList();
-  showToast('✅ 批量添加 ' + added + ' 个违禁词');
 }
-function deleteForbiddenWord(index) {
+function deleteForbiddenWord(id) {
   if (!confirm('确定要删除该违禁词吗？')) return;
-  var words = getForbiddenWords();
-  words.splice(index, 1);
-  saveForbiddenWords(words);
-  renderForbiddenList();
-  showToast('🗑️ 已删除违禁词');
+  apiFetch('/api/forbidden-words/' + encodeURIComponent(id), {
+    method: 'DELETE'
+  }).then(function () {
+    filterForbiddenWords();
+    showToast('🗑️ 已删除违禁词');
+  }).catch(function (e) {
+    console.warn('[ForbiddenWords] 删除失败:', e);
+    showToast('❌ 删除违禁词失败');
+  });
 }
 
 var _settingsSelectedCategory = 'compute';
