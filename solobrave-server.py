@@ -15865,10 +15865,10 @@ def main():
     ks.init_db()
     # 新版知识库表
     ks.init_kb_entries_db()
-    # 旧数据迁移（幂等，自动触发分段和向量化）
-    ks.knowledge_migrate_from_json(DATA_DIR, lambda eid: _get_agent_by_id(eid) or {})
+    # 旧数据迁移已停用（旧 knowledge 表/JSON 不再作为数据源，函数定义保留备查）
+    # ks.knowledge_migrate_from_json(DATA_DIR, lambda eid: _get_agent_by_id(eid) or {})
     # 旧 knowledge 表数据迁移到新版 kb_entries（幂等）
-    ks.kb_migrate_from_old_knowledge()
+    # ks.kb_migrate_from_old_knowledge()
 
     # 同步记忆服务 v3 配置（在 main() 中执行，避免模块导入时的 NameError）
     # 注意：v2 数据目录是 'memory'（单数），复用同一目录避免迁移
