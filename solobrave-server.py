@@ -78,6 +78,14 @@ PROXY_TIMEOUT = 60  # 秒
 ALLOWED_HTTP_METHODS = {'GET', 'HEAD', 'POST', 'OPTIONS', 'DELETE'}
 ALLOWED_DOMAINS = []  # 域名白名单，留空不限制
 
+# CORS Origin 白名单（启动时会按实际端口追加 localhost/127.0.0.1 来源）
+ALLOWED_ORIGINS = [
+    'http://localhost:8081',
+    'http://localhost:8080',
+    'http://127.0.0.1:8081',
+    'http://127.0.0.1:8080',
+]
+
 # OpenClaw CLI 路径（支持环境变量 / PATH 探测 / mac 默认回退）
 def _detect_openclaw_cli():
     env_cli = os.environ.get('OPENCLAW_CLI', '').strip()
@@ -4079,7 +4087,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     # ─── CORS ───────────────────────────────────────────
     def _add_cors_headers(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
+        # 白名单模式：仅对白名单内的 Origin 回显，其余（含无 Origin 的非浏览器请求）回空串
+        origin = self.headers.get('Origin', '')
+        self.send_header('Access-Control-Allow-Origin', origin if origin in ALLOWED_ORIGINS else '')
+        self.send_header('Vary', 'Origin')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS, HEAD, PUT')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Target-URL, X-AI-API-Key')
         self.send_header('Access-Control-Max-Age', '86400')
@@ -15845,6 +15856,11 @@ def main():
     args = parser.parse_args()
     PORT = args.port
     BIND = args.bind
+
+    # 按实际监听端口补充 CORS Origin 白名单
+    for _origin in (f'http://localhost:{PORT}', f'http://127.0.0.1:{PORT}'):
+        if _origin not in ALLOWED_ORIGINS:
+            ALLOWED_ORIGINS.append(_origin)
 
     # Override data directory if specified
     if args.data:
