@@ -4269,6 +4269,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_notification_settings()
             return
 
+        # 账号设置 API
+        if path == '/api/account':
+            self._handle_get_account()
+            return
+
         # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
         if path == '/api/knowledge/entries':
             self._handle_get_kb_entries()
@@ -4889,6 +4894,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if notif_id:
                     self._handle_notification_read(notif_id)
                     return
+
+        # 账号设置 API
+        if path == '/api/account':
+            self._handle_put_account()
+            return
 
         # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
         if path.startswith('/api/knowledge/entries/'):
@@ -10803,6 +10813,78 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         self._send_json(200, current)
+
+    def _handle_get_account(self):
+        """GET /api/account — 当前用户账号设置（用户数据存 users.json）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        user = _find_user(_load_users(), 'id', auth.user_id)
+        if not user:
+            self._send_json_error(404, 'User not found')
+            return
+        self._send_json(200, {
+            'displayName': user.get('displayName', ''),
+            'email': user.get('email', ''),
+            'theme': user.get('theme', 'light'),
+            'language': user.get('language', '中文'),
+        })
+
+    def _handle_put_account(self):
+        """PUT /api/account — 保存账号设置（仅更新传入的字段）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not isinstance(body, dict):
+            self._send_json_error(400, 'Invalid request body')
+            return
+        users = _load_users()
+        user = _find_user(users, 'id', auth.user_id)
+        if not user:
+            self._send_json_error(404, 'User not found')
+            return
+        updated = False
+        if 'displayName' in body:
+            display_name = str(body.get('displayName') or '').strip()
+            if not display_name:
+                self._send_json_error(400, 'displayName 不能为空')
+                return
+            user['displayName'] = display_name
+            updated = True
+        if 'email' in body:
+            email = str(body.get('email') or '').strip()
+            if email and ('@' not in email or len(email) > 100):
+                self._send_json_error(400, 'email 格式不正确')
+                return
+            user['email'] = email
+            updated = True
+        if 'theme' in body:
+            theme = str(body.get('theme') or '').strip()
+            if theme not in ('light', 'dark', 'auto'):
+                self._send_json_error(400, 'theme 仅支持 light/dark/auto')
+                return
+            user['theme'] = theme
+            updated = True
+        if 'language' in body:
+            language = str(body.get('language') or '').strip()
+            if language not in ('中文', 'English'):
+                self._send_json_error(400, 'language 仅支持 中文/English')
+                return
+            user['language'] = language
+            updated = True
+        if not updated:
+            self._send_json_error(400, 'No fields to update')
+            return
+        _save_users(users)
+        self._send_json(200, {
+            'displayName': user.get('displayName', ''),
+            'email': user.get('email', ''),
+            'theme': user.get('theme', 'light'),
+            'language': user.get('language', '中文'),
+        })
 
     # ═══════════════════════════════════════════════════
     # 商品库 API

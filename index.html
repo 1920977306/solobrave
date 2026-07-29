@@ -26294,6 +26294,54 @@ async function toggleNotificationSwitch(key, el) {
   }
 }
 
+// ========== 账号设置 ==========
+function applyAccountTheme(value) {
+  // 接入现有主题机制（themeScheme + applyTheme）
+  themeScheme = value === '深色' ? 'dark' : 'light';
+  localStorage.setItem('sb_theme', themeScheme);
+  applyTheme();
+}
+async function loadAccountSettings() {
+  if (typeof apiFetch !== 'function') return;
+  try {
+    var resp = await apiFetch('/api/account');
+    if (!resp) return;
+    var data = await resp.json();
+    if (!data || typeof data !== 'object') return;
+    var nameEl = document.getElementById('settingsDisplayName');
+    var emailEl = document.getElementById('settingsEmail');
+    var themeEl = document.getElementById('settingsTheme');
+    var langEl = document.getElementById('settingsLanguage');
+    if (nameEl) nameEl.value = data.displayName || '';
+    if (emailEl) emailEl.value = data.email || '';
+    if (themeEl) themeEl.value = data.theme === 'dark' ? '深色' : '浅色';
+    if (langEl) langEl.value = data.language || '中文';
+  } catch (e) {
+    console.warn('[Account] 加载账号设置失败:', e);
+  }
+}
+async function saveAccountSettings() {
+  if (typeof apiFetch !== 'function') return;
+  var themeVal = (document.getElementById('settingsTheme') || {}).value || '浅色';
+  try {
+    var resp = await apiFetch('/api/account', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        displayName: (document.getElementById('settingsDisplayName') || {}).value || '',
+        email: (document.getElementById('settingsEmail') || {}).value || '',
+        theme: themeVal === '深色' ? 'dark' : 'light',
+        language: (document.getElementById('settingsLanguage') || {}).value || '中文'
+      })
+    });
+    if (!resp) return;
+    showToast('✅ 账号设置已保存');
+  } catch (e) {
+    console.warn('[Account] 保存账号设置失败:', e);
+    showToast('❌ 账号设置保存失败');
+  }
+}
+
 // ========== 权限管理 ==========
 var _permissionConfig = null;
 var _permissionUsers = [];
@@ -26742,11 +26790,12 @@ function renderSettingsRight() {
     html += '</div>';
     html += '<div class="settings-card">';
     html += '<div class="settings-card-title">系统偏好</div>';
-    html += '<div class="settings-form-row"><label class="form-label">主题</label><select class="form-select" id="settingsTheme"><option>浅色</option><option>深色</option></select></div>';
+    html += '<div class="settings-form-row"><label class="form-label">主题</label><select class="form-select" id="settingsTheme" onchange="applyAccountTheme(this.value)"><option>浅色</option><option>深色</option></select></div>';
     html += '<div class="settings-form-row"><label class="form-label">语言</label><select class="form-select" id="settingsLanguage"><option>中文</option><option>English</option></select></div>';
     html += '</div>';
-    html += '<div class="settings-card" style="display:flex;justify-content:flex-end;">';
-    html += '<button class="module-action-btn primary" onclick="showUserProfile()">查看个人信息</button>';
+    html += '<div class="settings-card" style="display:flex;justify-content:flex-end;gap:8px;">';
+    html += '<button class="module-action-btn primary" onclick="saveAccountSettings()">保存</button>';
+    html += '<button class="module-action-btn" onclick="showUserProfile()">查看个人信息</button>';
     html += '</div>';
   } else if (_settingsSelectedCategory === 'permission') {
     html += '<div id="permissionSettingsArea"></div>';
@@ -26774,6 +26823,7 @@ function renderSettingsRight() {
   contentEl.innerHTML = html;
   if (_settingsSelectedCategory === 'compute') loadComputeStats();
   if (_settingsSelectedCategory === 'notification') { loadNotificationSwitches(); renderNotificationHistory(); }
+  if (_settingsSelectedCategory === 'account') loadAccountSettings();
   if (_settingsSelectedCategory === 'permission') loadPermissionSettings();
   if (_settingsSelectedCategory === 'forbidden') loadForbiddenWords();
   if (_settingsSelectedCategory === 'users') loadUserList();
