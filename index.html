@@ -11895,8 +11895,32 @@ function showConnectionDetails() {
   alert('连接详情:\n\n' + details.join('\n'));
 }
 
+// ========== 统一定时器调度器 ==========
+// 页面级常驻定时任务统一注册到这里：基础 1 秒节拍，按 interval(秒) 取模触发
+var TIMER_TASKS = [];
+var _globalTimerTick = 0;
+function registerTimerTask(fn, intervalSec) {
+  // 同一函数重复注册时忽略，避免 init 函数重复执行导致任务叠加
+  for (var i = 0; i < TIMER_TASKS.length; i++) {
+    if (TIMER_TASKS[i].fn === fn) return;
+  }
+  TIMER_TASKS.push({ fn: fn, interval: intervalSec, tick: 0 });
+}
+setInterval(function () {
+  _globalTimerTick++;
+  TIMER_TASKS.forEach(function (task) {
+    if (_globalTimerTick % task.interval !== 0) return;
+    task.tick++;
+    try {
+      task.fn();
+    } catch (e) {
+      console.error('[Timer] 定时任务执行失败:', e);
+    }
+  });
+}, 1000);
+
 // Update connection status every 5 seconds
-setInterval(updateConnectionStatus, 5000);
+registerTimerTask(updateConnectionStatus, 5);
 // Initial update
 document.addEventListener('DOMContentLoaded', updateConnectionStatus);
 
@@ -16186,12 +16210,12 @@ function startBrainRefreshPolling() {
 }
 
 // FIXME: 大脑知识中枢：每 30 秒刷新一次状态
-setInterval(function () {
+registerTimerTask(function () {
   if (currentMemoryTab === 'summary') {
     var empId = localStorage.getItem('sb_current_emp');
     if (empId) renderMemoryTab(empId);
   }
-}, 30000);
+}, 30);
 
 // FIXME: 记忆三级沉淀：前端辅助函数
 function _todayStr() {
@@ -16367,7 +16391,7 @@ function markMemoryToKnowledge(empId, memId, value) {
 function _scheduleDailyMemorySummary() {
   if (window._dailySummaryScheduled) return;
   window._dailySummaryScheduled = true;
-  setInterval(function () {
+  registerTimerTask(function () {
     var d = new Date();
     if (d.getHours() === 3 && d.getMinutes() === 0) {
       var last = localStorage.getItem('sb_daily_summary_date');
@@ -16386,7 +16410,7 @@ function _scheduleDailyMemorySummary() {
         }
       }
     }
-  }, 60000);
+  }, 60);
 }
 _scheduleDailyMemorySummary();
 
@@ -17971,7 +17995,7 @@ function toggleSettings() {
 
 // Activity Feed Auto Update
 const activities = ['完成了代码提交', '更新了文档', '通过了测试', '部署成功', '提交了 PR'];
-setInterval(function () {
+registerTimerTask(function () {
   const feed = document.getElementById('tab-activity');
   if (feed && feed.classList.contains('active')) {
     const emp = emps[Math.floor(Math.random() * emps.length)];
@@ -17984,7 +18008,7 @@ setInterval(function () {
     feed.insertAdjacentHTML('afterbegin', html);
     if (feed.children.length > 6) feed.lastElementChild.remove();
   }
-}, 15000);
+}, 15);
 
 // Init
 loadTasks();
@@ -18071,7 +18095,7 @@ function initGlobalSearch() {
 // 初始化统计卡片和通知
 function initStatsAndNotifications() {
   updateStats();
-  setInterval(updateStats, 30000); // 每30秒更新一次统计
+  registerTimerTask(updateStats, 30); // 每30秒更新一次统计
 }
 
 // 初始化浏览器通知权限
@@ -26279,7 +26303,7 @@ function refreshUnreadBadge() {
 }
 function initNotificationPolling() {
   refreshUnreadBadge();
-  setInterval(refreshUnreadBadge, 30 * 1000);
+  registerTimerTask(refreshUnreadBadge, 30);
 }
 
 // ========== 通知开关 ==========
