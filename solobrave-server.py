@@ -86,6 +86,10 @@ ALLOWED_ORIGINS = [
     'http://127.0.0.1:8080',
 ]
 
+# 请求体大小限制（抖音视频解析接口单独放宽）
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_VIDEO_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
+
 # OpenClaw CLI 路径（支持环境变量 / PATH 探测 / mac 默认回退）
 def _detect_openclaw_cli():
     env_cli = os.environ.get('OPENCLAW_CLI', '').strip()
@@ -4129,6 +4133,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(status, {'error': message})
 
     # ─── 读取请求体 ────────────────────────────────────
+    def _check_upload_size(self):
+        """请求体大小限制：超限返回 413；抖音视频解析接口放宽到 50MB"""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+        except (TypeError, ValueError):
+            content_length = 0
+        limit = MAX_VIDEO_UPLOAD_SIZE if self._normalize_path(self.path).startswith('/api/douyin/') else MAX_UPLOAD_SIZE
+        if content_length > limit:
+            self.send_error(413, 'File too large')
+            return False
+        return True
+
     def _read_body(self):
         if hasattr(self, 'cached_body'):
             return self.cached_body
@@ -4525,6 +4541,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         super().do_HEAD()
 
     def do_POST(self):
+        if not self._check_upload_size():
+            return
         try:
             self._do_POST()
         except Exception as e:
@@ -4840,6 +4858,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json_error(404, 'Not found')
 
     def do_PUT(self):
+        if not self._check_upload_size():
+            return
         try:
             self._do_PUT()
         except Exception as e:
@@ -4996,6 +5016,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json_error(404, 'Not found')
 
     def do_DELETE(self):
+        if not self._check_upload_size():
+            return
         try:
             self._do_DELETE()
         except Exception as e:
