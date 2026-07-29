@@ -8925,6 +8925,39 @@ const OPENCLAW_CONFIG = {
   gatewayUrl: 'ws://192.168.1.25:18789',
   defaultToken: '8606e4d80b1accfaa4e22729466c40003cd217ce2bda93f3'
 };
+
+// WebSocket 断线自动重连（阶梯延迟，最多 5 次）
+var wsReconnectAttempts = 0;
+var WS_MAX_RECONNECT = 5;
+var WS_RECONNECT_DELAYS = [3000, 6000, 9000, 12000, 15000];
+var _wsReconnectTimer = null;
+var _wsManualClose = false;       // 主动关闭（如切换配置）时不触发重连
+var _wsReconnectNotified = false; // 重连耗尽后只提示一次
+
+function tryReconnectOpenClaw() {
+  if (_wsManualClose) return;
+  if (typeof openclaw === 'undefined' || openclaw.connected || openclaw.mockMode) return;
+  if (wsReconnectAttempts >= WS_MAX_RECONNECT) {
+    if (!_wsReconnectNotified) {
+      _wsReconnectNotified = true;
+      showToast('❌ OpenClaw 连接已断开，自动重连 ' + WS_MAX_RECONNECT + ' 次均失败，请检查 Gateway 后刷新页面');
+    }
+    return;
+  }
+  var delay = WS_RECONNECT_DELAYS[Math.min(wsReconnectAttempts, WS_RECONNECT_DELAYS.length - 1)];
+  wsReconnectAttempts++;
+  // 抑制 openclaw-client.js 内置重连，统一由这里按 WS_RECONNECT_DELAYS 调度
+  openclaw._reconnectAttempts = openclaw._maxReconnectAttempts;
+  clearTimeout(_wsReconnectTimer);
+  _wsReconnectTimer = setTimeout(function () {
+    if (_wsManualClose || openclaw.connected) return;
+    console.debug('[OpenClaw] 自动重连 (' + wsReconnectAttempts + '/' + WS_MAX_RECONNECT + ')...');
+    openclaw.connect().catch(function (err) {
+      console.warn('[OpenClaw] 自动重连异常:', err);
+    });
+  }, delay);
+}
+
 function initOpenClaw() {
   if (typeof openclaw === 'undefined') {
     console.warn('[OpenClaw] openclaw-client.js 未加载，5秒后重试');
@@ -8942,6 +8975,10 @@ function initOpenClaw() {
   // 监听事件（事件名必须匹配 openclaw-client.js 的 emit 名称）
   openclaw.on('connected', function () {
     console.debug('[OpenClaw] WebSocket 已连接');
+    wsReconnectAttempts = 0;
+    _wsManualClose = false;
+    _wsReconnectNotified = false;
+    clearTimeout(_wsReconnectTimer);
     updateConnectionStatus();
   });
   openclaw.on('authenticated', function () {
@@ -8980,10 +9017,12 @@ function initOpenClaw() {
       empStatusEl.style.color = '#FF3B30';
     }
     updateConnectionStatus();
+    tryReconnectOpenClaw();
   });
   openclaw.on('error', function (err) {
     console.error('[OpenClaw] 连接错误:', err);
     updateConnectionStatus();
+    tryReconnectOpenClaw();
   });
   openclaw.on('mockMode', function () {
     console.warn('[OpenClaw] ⚠️ 连接失败，已降级到 Mock 模式');
