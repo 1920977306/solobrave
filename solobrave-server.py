@@ -2199,24 +2199,10 @@ def _add_column_if_not_exists(conn, table, column, def_type):
 
 
 def init_db():
-    """初始化数据库，创建 knowledge/products 表（启动时调用）"""
+    """初始化数据库，创建 products 等表（启动时调用）。旧 knowledge 表已废弃，不再建表。"""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = _db_conn()
     try:
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS knowledge (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                content TEXT NOT NULL,
-                category TEXT DEFAULT '',
-                embedding TEXT,
-                created_at INTEGER,
-                updated_at INTEGER
-            )
-        ''')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge(category)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_created ON knowledge(created_at)')
-
         # 项目组对话消息表（团队动态：同组 AI 互相可见）
         conn.execute('''
             CREATE TABLE IF NOT EXISTS group_messages (
