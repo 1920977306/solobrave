@@ -6563,7 +6563,7 @@ window.doLogin = function () {
 <!-- Settings Right -->
 <div class="module-right" id="settingsRight">
   <div class="module-right-header">
-    <div class="module-right-title" id="settingsRightTitle">算力统计</div>
+    <div class="module-right-title" id="settingsRightTitle">积分仪表盘</div>
     <div class="module-right-actions" id="settingsRightActions"></div>
   </div>
   <div class="module-right-content" id="settingsRightContent"></div>
@@ -8627,6 +8627,23 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
         contentEl.insertAdjacentHTML('afterbegin', '<div class="forbidden-warning-bar" style="background:rgba(255,59,48,0.1);color:#ff3b30;border:0.5px solid rgba(255,59,48,0.3);padding:6px 10px;border-radius:8px;font-size:12px;margin-bottom:6px;">' + escapeHtml(fwWarning) + '</div>');
       }
     }
+  }
+
+  // 积分检查（前端拦截）：发送前确认该员工积分余额充足，不足则阻止发送
+  try {
+    var creditResp = await apiFetch('/api/credits/check?agent_id=' + encodeURIComponent(emp.id));
+    if (creditResp) {
+      var creditInfo = await creditResp.json();
+      if (creditInfo && !Array.isArray(creditInfo) && creditInfo.has_credits === false) {
+        var _typing = document.getElementById('typingMsg');
+        if (_typing) _typing.remove();
+        restoreOnline();
+        showToast('❌ 积分不足，请联系管理员充值', 'error');
+        return;
+      }
+    }
+  } catch (creditErr) {
+    console.warn('[Credits] 积分检查失败，放行发送:', creditErr);
   }
 
   try {
@@ -26073,7 +26090,7 @@ function formatFollowers(n) {
   return formatNumber(num);
 }
 
-// ========== 算力统计 ==========
+// ========== 积分仪表盘 ==========
 function normalizeTokenUsageItem(item) {
   return {
     id: item.id || '',
@@ -26086,19 +26103,13 @@ function normalizeTokenUsageItem(item) {
     calls: item.calls || 0
   };
 }
-function getComputeStats(agentData, dayData) {
-  var summary = (agentData && agentData.summary) || {};
-  var employeeStats = ((agentData && agentData.items) || []).map(normalizeTokenUsageItem);
-  var timeStats = ((dayData && dayData.items) || []).map(normalizeTokenUsageItem);
-  return {
-    inputTokens: summary.inputTokens || 0,
-    outputTokens: summary.outputTokens || 0,
-    cacheReadTokens: summary.cacheReadTokens || 0,
-    totalTokens: summary.totalTokens || 0,
-    totalCalls: summary.calls || 0,
-    employeeStats: employeeStats,
-    timeStats: timeStats
-  };
+// ---- 积分仪表盘（1 积分 = 1000 tokens）----
+var _creditUsageExpanded = false;
+function _creditTodayStr() {
+  var d = new Date();
+  var m = String(d.getMonth() + 1);
+  var day = String(d.getDate());
+  return d.getFullYear() + '-' + (m.length < 2 ? '0' + m : m) + '-' + (day.length < 2 ? '0' + day : day);
 }
 async function syncTokenUsage() {
   try {
@@ -26117,90 +26128,191 @@ async function loadComputeStats() {
   if (!area) return;
   area.innerHTML = '<div class="settings-card"><div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div></div>';
   try {
-    var [agentResp, dayResp] = await Promise.all([
-      apiFetch('/api/token-usage?group_by=agent'),
-      apiFetch('/api/token-usage?group_by=day')
+    var todayStr = _creditTodayStr();
+    var results = await Promise.all([
+      apiFetch('/api/credits/balance'),
+      apiFetch('/api/credits/quotas'),
+      apiFetch('/api/credits/usage?start_date=' + todayStr + '&end_date=' + todayStr + '&page_size=200'),
+      apiFetch('/api/credits/usage/summary')
     ]);
-    var agentData = agentResp ? await agentResp.json() : {};
-    var dayData = dayResp ? await dayResp.json() : {};
-    area.innerHTML = renderComputeStats(getComputeStats(agentData, dayData));
+    var balances = results[0] ? await results[0].json() : [];
+    var quotas = results[1] ? await results[1].json() : [];
+    var todayUsage = results[2] ? await results[2].json() : {};
+    var summary = results[3] ? await results[3].json() : {};
+    area.innerHTML = renderCreditDashboard(
+      Array.isArray(balances) ? balances : [],
+      Array.isArray(quotas) ? quotas : [],
+      (todayUsage && todayUsage.data) || [],
+      summary || {}
+    );
   } catch (e) {
-    console.warn('[loadComputeStats] 获取算力统计失败', e);
-    area.innerHTML = renderComputeStats(getComputeStats({}, {}));
+    console.warn('[loadComputeStats] 获取积分数据失败', e);
+    area.innerHTML = '<div class="settings-card"><div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载失败，请稍后重试</div></div>';
   }
 }
-function renderComputeStats(stats) {
-  var hasData = stats.totalTokens > 0 || stats.totalCalls > 0;
-  var html = '<div class="settings-card">';
-  if (!hasData) {
-    html += '<div class="settings-stat-empty"><div class="settings-stat-empty-icon">📊</div><div>使用后自动统计，可点击右上角「同步 Token 数据」导入 OpenClaw 日志</div></div>';
+function _creditStatChip(label, value) {
+  return '<div style="flex:1;min-width:140px;border-radius:12px;background:rgba(0,122,255,0.06);padding:12px 14px;"><div style="font-size:12px;color:var(--text-secondary);">' + label + '</div><div style="font-size:20px;font-weight:700;color:#007AFF;margin-top:2px;">' + value + '</div></div>';
+}
+function renderCreditDashboard(balances, quotas, todayRecords, summary) {
+  var admin = isAdmin();
+  var balMap = {};
+  balances.forEach(function (b) { balMap[b.agent_id] = b; });
+  // 最新配额（后端按 id 倒序返回，首个即为最新）
+  var quotaMap = {};
+  quotas.forEach(function (q) { if (!quotaMap[q.agent_id]) quotaMap[q.agent_id] = q; });
+  // 今日消耗（按员工聚合）
+  var todayMap = {};
+  todayRecords.forEach(function (r) { todayMap[r.agent_id] = (todayMap[r.agent_id] || 0) + (r.credits_used || 0); });
+  // 员工列表：优先 emps 全量，再补充只有积分账户的员工
+  var agents = [];
+  var seen = {};
+  (typeof emps !== 'undefined' ? emps : []).forEach(function (e) {
+    if (!e || !e.id || seen[e.id]) return;
+    seen[e.id] = true;
+    agents.push({ id: e.id, name: e.name || e.id });
+  });
+  Object.keys(balMap).forEach(function (id) {
+    if (!seen[id]) { seen[id] = true; agents.push({ id: id, name: id }); }
+  });
+
+  var html = '';
+  // 总览
+  html += '<div class="settings-card"><div class="settings-card-title">总览（1 积分 = 1000 tokens）</div>';
+  html += '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
+  html += _creditStatChip('累计消耗积分', formatNumber(summary.total_credits_used || 0));
+  html += _creditStatChip('累计 Tokens', formatNumber(summary.total_tokens || 0));
+  html += _creditStatChip('日均消耗积分', formatNumber(summary.daily_avg_credits || 0));
+  html += _creditStatChip('消耗记录数', formatNumber(summary.records_count || 0));
+  html += '</div></div>';
+
+  // 员工积分卡片
+  html += '<div class="settings-card"><div class="settings-card-title">员工积分余额</div>';
+  if (!agents.length) {
+    html += '<div class="settings-empty" style="padding:20px;">暂无员工数据</div>';
   } else {
-    html += '<div class="settings-stats-grid">';
-    html += '<div class="settings-stat-card stat-token"><div class="settings-stat-label">输入 Tokens</div><div class="settings-stat-value">' + formatNumber(stats.inputTokens) + '<span class="settings-stat-unit">tokens</span></div></div>';
-    html += '<div class="settings-stat-card stat-calls"><div class="settings-stat-label">输出 Tokens</div><div class="settings-stat-value">' + formatNumber(stats.outputTokens) + '<span class="settings-stat-unit">tokens</span></div></div>';
-    html += '<div class="settings-stat-card stat-per-emp"><div class="settings-stat-label">缓存命中</div><div class="settings-stat-value">' + formatNumber(stats.cacheReadTokens) + '<span class="settings-stat-unit">tokens</span></div></div>';
-    html += '<div class="settings-stat-card stat-avg"><div class="settings-stat-label">Token 总量</div><div class="settings-stat-value">' + formatNumber(stats.totalTokens) + '<span class="settings-stat-unit">tokens</span></div></div>';
+    var maxToday = 1;
+    agents.forEach(function (a) { maxToday = Math.max(maxToday, todayMap[a.id] || 0); });
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;">';
+    agents.forEach(function (a) {
+      var acc = balMap[a.id] || { balance: 0, total_recharged: 0, total_consumed: 0 };
+      var quota = quotaMap[a.id];
+      var todayUsed = todayMap[a.id] || 0;
+      var denom = quota && quota.quota_amount > 0 ? quota.quota_amount : maxToday;
+      var pct = Math.min(Math.round(todayUsed / denom * 100), 100);
+      var lowBalance = (acc.balance || 0) <= 0;
+      var safeName = String(a.name).replace(/'/g, "\\'");
+      html += '<div style="border:0.5px solid rgba(0,0,0,0.08);border-radius:12px;padding:14px;background:#fff;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
+      html += '<div style="font-size:14px;font-weight:600;color:var(--text-primary);">' + escapeHtml(a.name) + '</div>';
+      if (admin) {
+        html += '<div style="display:flex;gap:6px;">';
+        html += '<button class="module-action-btn" style="padding:2px 10px;font-size:12px;" onclick="rechargeAgentCredits(\'' + a.id + '\', \'' + safeName + '\')">充值</button>';
+        html += '<button class="module-action-btn" style="padding:2px 10px;font-size:12px;background:rgba(0,122,255,0.08);color:#007AFF;" onclick="setAgentQuota(\'' + a.id + '\', \'' + safeName + '\')">配额</button>';
+        html += '</div>';
+      }
+      html += '</div>';
+      html += '<div style="font-size:26px;font-weight:700;color:' + (lowBalance ? '#FF3B30' : '#007AFF') + ';">' + formatNumber(acc.balance || 0) + '<span style="font-size:12px;font-weight:400;color:var(--text-tertiary);margin-left:4px;">积分</span></div>';
+      html += '<div style="font-size:12px;color:var(--text-secondary);margin:4px 0 8px;">累计充值 ' + formatNumber(acc.total_recharged || 0) + ' · 累计消耗 ' + formatNumber(acc.total_consumed || 0) + '</div>';
+      html += '<div style="font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between;"><span>今日消耗 ' + formatNumber(todayUsed) + ' 积分</span>' + (quota ? '<span>配额 ' + formatNumber(quota.quota_amount) + (quota.quota_type === 'daily' ? '（每日）' : '（每月）') + '</span>' : '') + '</div>';
+      html += '<div style="height:6px;border-radius:3px;background:rgba(0,122,255,0.12);margin-top:6px;overflow:hidden;"><div style="height:100%;width:' + pct + '%;background:#007AFF;border-radius:3px;"></div></div>';
+      html += '</div>';
+    });
     html += '</div>';
   }
   html += '</div>';
 
-  // 按员工统计（堆叠条形：输入+输出+缓存）
-  html += '<div class="settings-chart-card"><div class="settings-chart-title">按员工统计</div><div class="settings-bar-chart">';
-  if (!stats.employeeStats.length) {
-    html += '<div class="settings-empty" style="padding:20px;">暂无员工数据</div>';
-  } else {
-    var maxEmp = Math.max.apply(Math, stats.employeeStats.map(function (e) { return e.totalTokens; })) || 1;
-    stats.employeeStats.forEach(function (e) {
-      var inputPct = maxEmp ? Math.round(e.inputTokens / maxEmp * 100) : 0;
-      var outputPct = maxEmp ? Math.round(e.outputTokens / maxEmp * 100) : 0;
-      var cachePct = maxEmp ? Math.round(e.cacheReadTokens / maxEmp * 100) : 0;
-      html += '<div class="settings-bar-row">';
-      html += '<div class="settings-bar-label" title="输入: ' + formatNumber(e.inputTokens) + ' / 输出: ' + formatNumber(e.outputTokens) + ' / 缓存: ' + formatNumber(e.cacheReadTokens) + '">' + escapeHtml(e.name) + '</div>';
-      html += '<div class="settings-bar-track" style="display:flex;gap:2px;background:transparent;">';
-      html += '<div style="width:' + inputPct + '%;background:var(--accent);border-radius:2px 0 0 2px;" title="输入"></div>';
-      html += '<div style="width:' + outputPct + '%;background:#34C759;" title="输出"></div>';
-      html += '<div style="width:' + cachePct + '%;background:#FF9500;border-radius:0 2px 2px 0;" title="缓存命中"></div>';
-      html += '</div>';
-      html += '<div class="settings-bar-value" style="white-space:nowrap;">' + formatNumber(e.totalTokens) + '</div>';
-      html += '</div>';
+  // 使用记录明细（可展开）
+  html += '<div class="settings-card"><div class="settings-card-title" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="toggleCreditUsageList()">使用记录明细<span id="creditUsageToggleArrow" style="font-size:12px;color:#007AFF;font-weight:400;">展开 ▼</span></div>';
+  html += '<div id="creditUsageListArea" style="display:none;"></div></div>';
+  return html;
+}
+async function rechargeAgentCredits(agentId, agentName) {
+  var input = prompt('给「' + agentName + '」充值积分（1 积分 = 1000 tokens）：', '1000');
+  if (input === null) return;
+  var amount = parseInt(input, 10);
+  if (!amount || amount <= 0) { showToast('❌ 请输入有效的积分数', 'error'); return; }
+  try {
+    var resp = await apiFetch('/api/credits/recharge', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ agent_id: agentId, amount: amount })
     });
+    var data = await resp.json();
+    if (resp.ok) {
+      showToast('✅ 充值成功，「' + agentName + '」当前余额 ' + (data.new_balance || 0) + ' 积分');
+      loadComputeStats();
+    } else {
+      showToast('❌ ' + (data.error || '充值失败'), 'error');
+    }
+  } catch (e) {
+    console.warn('[Credits] 充值失败:', e);
+    showToast('❌ 充值失败', 'error');
   }
-  html += '</div></div>';
-
-  // 按天统计（多系列折线）
-  html += '<div class="settings-chart-card"><div class="settings-chart-title">按天统计</div>';
-  if (!stats.timeStats.length) {
-    html += '<div class="settings-empty" style="padding:20px;">暂无时间维度数据</div>';
-  } else {
-    html += '<div style="display:flex;gap:16px;justify-content:center;margin-bottom:8px;font-size:12px;color:var(--text-secondary);">';
-    html += '<span><span style="display:inline-block;width:8px;height:8px;background:var(--accent);border-radius:50%;margin-right:4px;"></span>输入</span>';
-    html += '<span><span style="display:inline-block;width:8px;height:8px;background:#34C759;border-radius:50%;margin-right:4px;"></span>输出</span>';
-    html += '<span><span style="display:inline-block;width:8px;height:8px;background:#FF9500;border-radius:50%;margin-right:4px;"></span>缓存命中</span>';
-    html += '</div>';
-    html += '<div class="settings-line-chart"><svg class="settings-line-svg" viewBox="0 0 600 160" preserveAspectRatio="none">';
-    var keys = ['inputTokens', 'outputTokens', 'cacheReadTokens'];
-    var colors = ['var(--accent)', '#34C759', '#FF9500'];
-    var maxTime = Math.max.apply(Math, stats.timeStats.map(function (t) { return Math.max(t.inputTokens, t.outputTokens, t.cacheReadTokens); })) || 1;
-    var n = stats.timeStats.length;
-    keys.forEach(function (key, ki) {
-      var points = stats.timeStats.map(function (t, i) {
-        var x = (n <= 1 ? 300 : (i / (n - 1)) * 600);
-        var y = 160 - (t[key] / maxTime) * 140 - 10;
-        return x + ',' + y;
-      });
-      html += '<polyline fill="none" stroke="' + colors[ki] + '" stroke-width="2" points="' + points.join(' ') + '" />';
-      stats.timeStats.forEach(function (t, i) {
-        var x = (n <= 1 ? 300 : (i / (n - 1)) * 600);
-        var y = 160 - (t[key] / maxTime) * 140 - 10;
-        html += '<circle cx="' + x + '" cy="' + y + '" r="3" fill="' + colors[ki] + '" />';
-      });
+}
+async function setAgentQuota(agentId, agentName) {
+  var type = prompt('配额类型（输入 daily 或 monthly）：', 'monthly');
+  if (type === null) return;
+  type = type.trim() === 'daily' ? 'daily' : 'monthly';
+  var input = prompt('给「' + agentName + '」充值配额积分（' + (type === 'daily' ? '每日' : '每月') + '）：', '3000');
+  if (input === null) return;
+  var amount = parseInt(input, 10);
+  if (!amount || amount <= 0) { showToast('❌ 请输入有效的积分数', 'error'); return; }
+  try {
+    var resp = await apiFetch('/api/credits/quotas/' + encodeURIComponent(agentId) + '/recharge', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ amount: amount, quota_type: type })
     });
-    stats.timeStats.forEach(function (t, i) {
-      var x = (n <= 1 ? 300 : (i / (n - 1)) * 600);
-      html += '<text x="' + x + '" y="155" text-anchor="middle" font-size="10" fill="var(--text-secondary)">' + escapeHtml(t.date.slice(5)) + '</text>';
-    });
-    html += '</svg></div>';
+    var data = await resp.json();
+    if (resp.ok) {
+      showToast('✅ 配额充值成功，「' + agentName + '」当前余额 ' + (data.new_balance || 0) + ' 积分');
+      loadComputeStats();
+    } else {
+      showToast('❌ ' + (data.error || '配额设置失败'), 'error');
+    }
+  } catch (e) {
+    console.warn('[Credits] 配额设置失败:', e);
+    showToast('❌ 配额设置失败', 'error');
   }
+}
+async function toggleCreditUsageList() {
+  _creditUsageExpanded = !_creditUsageExpanded;
+  var box = document.getElementById('creditUsageListArea');
+  var arrow = document.getElementById('creditUsageToggleArrow');
+  if (!box) return;
+  if (!_creditUsageExpanded) {
+    box.style.display = 'none';
+    if (arrow) arrow.textContent = '展开 ▼';
+    return;
+  }
+  box.style.display = '';
+  if (arrow) arrow.textContent = '收起 ▲';
+  box.innerHTML = '<div style="padding:12px;color:var(--text-tertiary);">加载中...</div>';
+  try {
+    var resp = await apiFetch('/api/credits/usage?page=1&page_size=20');
+    var data = await resp.json();
+    box.innerHTML = renderCreditUsageList((data && data.data) || []);
+  } catch (e) {
+    console.warn('[Credits] 使用记录加载失败:', e);
+    box.innerHTML = '<div style="padding:12px;color:var(--text-tertiary);">加载失败</div>';
+  }
+}
+function renderCreditUsageList(records) {
+  if (!records.length) return '<div style="padding:12px;color:var(--text-tertiary);">暂无使用记录</div>';
+  var nameMap = {};
+  (typeof emps !== 'undefined' ? emps : []).forEach(function (e) { if (e && e.id) nameMap[e.id] = e.name || e.id; });
+  var cols = '150px 1fr 90px 90px 90px 70px';
+  var html = '<div style="font-size:12px;overflow-x:auto;">';
+  html += '<div style="display:grid;grid-template-columns:' + cols + ';gap:8px;padding:8px 4px;color:var(--text-tertiary);border-bottom:0.5px solid rgba(0,0,0,0.08);"><span>时间</span><span>员工</span><span>输入</span><span>输出</span><span>缓存</span><span>积分</span></div>';
+  records.forEach(function (r) {
+    html += '<div style="display:grid;grid-template-columns:' + cols + ';gap:8px;padding:8px 4px;border-bottom:0.5px solid rgba(0,0,0,0.04);color:var(--text-secondary);">'
+      + '<span>' + escapeHtml((r.created_at || '').slice(5, 16)) + '</span>'
+      + '<span style="color:var(--text-primary);">' + escapeHtml(nameMap[r.agent_id] || r.agent_id) + '</span>'
+      + '<span>' + formatNumber(r.input_tokens || 0) + '</span>'
+      + '<span>' + formatNumber(r.output_tokens || 0) + '</span>'
+      + '<span>' + formatNumber(r.cache_read_tokens || 0) + '</span>'
+      + '<span style="color:#007AFF;font-weight:600;">' + formatNumber(r.credits_used || 0) + '</span></div>';
+  });
   html += '</div>';
   return html;
 }
@@ -26818,7 +26930,7 @@ function renderSettingsMid() {
   var list = document.getElementById('settingsMidList');
   if (!list) return;
   var categories = [
-    { id: 'compute', icon: '<path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/>', title: '算力统计' },
+    { id: 'compute', icon: '<path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/>', title: '积分仪表盘' },
     { id: 'notification', icon: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>', title: '通知' },
     { id: 'account', icon: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>', title: '账号' },
     { id: 'permission', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/>', title: '权限管理' },
@@ -26858,7 +26970,7 @@ function renderSettingsRight() {
   var contentEl = document.getElementById('settingsRightContent');
   var actionsEl = document.getElementById('settingsRightActions');
   if (titleEl) titleEl.textContent = {
-    compute: '算力统计', notification: '通知', account: '账号', permission: '权限管理', forbidden: '违禁词管理', users: '用户管理', teams: '团队管理', members: '成员管理'
+    compute: '积分仪表盘', notification: '通知', account: '账号', permission: '权限管理', forbidden: '违禁词管理', users: '用户管理', teams: '团队管理', members: '成员管理'
   }[_settingsSelectedCategory] || '设置';
   if (actionsEl) actionsEl.innerHTML = '';
   if (_settingsSelectedCategory === 'compute' && actionsEl) {

@@ -2198,6 +2198,21 @@ def _add_column_if_not_exists(conn, table, column, def_type):
             raise
 
 
+def _migrate_credit_tables(conn):
+    """积分制算力管控：旧版表结构（user_id/period 维度）与新结构不兼容，
+    检测到旧结构时重命名为 *_legacy 保留数据，再按新结构重建。"""
+    legacy_marks = {
+        'credit_accounts': 'balance',
+        'credit_quotas': 'quota_type',
+        'credit_usage_log': 'session_id',
+    }
+    for table, new_col in legacy_marks.items():
+        cols = [r[1] for r in conn.execute(f'PRAGMA table_info({table})').fetchall()]
+        if cols and new_col not in cols:
+            conn.execute(f'ALTER TABLE {table} RENAME TO {table}_legacy')
+            logger.info(f'  [Credits] 旧结构表 {table} 已重命名为 {table}_legacy')
+
+
 def init_db():
     """初始化数据库，创建 products 等表（启动时调用）。旧 knowledge 表已废弃，不再建表。"""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -2547,6 +2562,45 @@ def init_db():
             )
         ''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_forbidden_words_word ON forbidden_words(word)')
+
+        # 积分制算力管控：员工积分账户 / 配额充值记录 / 消耗明细（1 积分 = 1000 tokens）
+        _migrate_credit_tables(conn)
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS credit_accounts (
+                agent_id TEXT PRIMARY KEY,
+                balance INTEGER DEFAULT 0,
+                total_recharged INTEGER DEFAULT 0,
+                total_consumed INTEGER DEFAULT 0,
+                updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS credit_quotas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT NOT NULL,
+                quota_type TEXT NOT NULL,
+                quota_amount INTEGER DEFAULT 0,
+                effective_from TEXT,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                FOREIGN KEY (agent_id) REFERENCES credit_accounts(agent_id)
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS credit_usage_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT NOT NULL,
+                input_tokens INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                cache_read_tokens INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
+                credits_used INTEGER DEFAULT 0,
+                session_id TEXT,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                FOREIGN KEY (agent_id) REFERENCES credit_accounts(agent_id)
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_quotas_agent ON credit_quotas(agent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_usage_log_agent ON credit_usage_log(agent_id, created_at)')
 
         # FIXME: 大脑知识中枢新增表（保留旧表，不删数据）
         _init_brain_tables(conn)
@@ -4356,6 +4410,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_token_usage_sync()
             return
 
+        # 积分制算力管控 API（summary 精确匹配需放在 usage 之前）
+        if path == '/api/credits/balance':
+            self._handle_get_credit_balance()
+            return
+        if path == '/api/credits/quotas':
+            self._handle_get_credit_quotas()
+            return
+        if path == '/api/credits/usage/summary':
+            self._handle_get_credit_usage_summary()
+            return
+        if path == '/api/credits/usage':
+            self._handle_get_credit_usage()
+            return
+        if path == '/api/credits/check':
+            self._handle_get_credit_check()
+            return
+
         # Brand API
         if path == '/api/brands' or path == '/api/brands/':
             self._handle_get_brands()
@@ -4562,6 +4633,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/notifications':
             self._handle_post_notification()
             return
+
+        # 积分制算力管控：员工配额充值 / 管理员通用充值
+        if path == '/api/credits/recharge':
+            self._handle_credit_recharge_generic()
+            return
+        if path.startswith('/api/credits/quotas/') and path.endswith('/recharge'):
+            agent_id = path[len('/api/credits/quotas/'):-len('/recharge')]
+            if agent_id and '/' not in agent_id:
+                self._handle_credit_recharge(agent_id)
+                return
 
         # 违禁词 API（check 需先于 /api/forbidden-words 通用匹配）
         if path == '/api/forbidden-words/check':
@@ -10424,6 +10505,265 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'timeStats': time_stats,
         })
 
+    # ─── 积分制算力管控 API（1 积分 = 1000 tokens，字段统一 agent_id）───
+    def _handle_get_credit_balance(self):
+        """GET /api/credits/balance?agent_id=xxx — 查询积分余额（返回列表）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        agent_id = qs.get('agent_id', [''])[0].strip()
+        conn = _db_conn()
+        try:
+            if agent_id:
+                account = _ensure_credit_account(conn, agent_id)
+                conn.commit()
+                rows = [account]
+            else:
+                rows = conn.execute('SELECT * FROM credit_accounts ORDER BY updated_at DESC').fetchall()
+            items = [{
+                'agent_id': r['agent_id'],
+                'balance': r['balance'] or 0,
+                'total_recharged': r['total_recharged'] or 0,
+                'total_consumed': r['total_consumed'] or 0,
+                'updated_at': r['updated_at'] or '',
+            } for r in rows]
+            self._send_json(200, items)
+        finally:
+            conn.close()
+
+    def _handle_get_credit_quotas(self):
+        """GET /api/credits/quotas?agent_id=xxx — 查询配额/充值记录列表"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        agent_id = qs.get('agent_id', [''])[0].strip()
+        conn = _db_conn()
+        try:
+            if agent_id:
+                rows = conn.execute(
+                    'SELECT * FROM credit_quotas WHERE agent_id = ? ORDER BY id DESC', (agent_id,)
+                ).fetchall()
+            else:
+                rows = conn.execute('SELECT * FROM credit_quotas ORDER BY id DESC').fetchall()
+            items = [{
+                'id': r['id'],
+                'agent_id': r['agent_id'],
+                'quota_type': r['quota_type'] or '',
+                'quota_amount': r['quota_amount'] or 0,
+                'effective_from': r['effective_from'] or '',
+                'created_at': r['created_at'] or '',
+            } for r in rows]
+            self._send_json(200, items)
+        finally:
+            conn.close()
+
+    def _handle_credit_recharge(self, agent_id):
+        """POST /api/credits/quotas/:agentId/recharge — 给员工充值积分并写入配额记录 {amount, quota_type}"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_json_error(403, '仅管理员可充值积分')
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, '无效的请求体')
+            return
+        try:
+            amount = int(body.get('amount'))
+        except (TypeError, ValueError):
+            self._send_json_error(400, 'amount 必须是整数')
+            return
+        if amount <= 0:
+            self._send_json_error(400, 'amount 必须大于 0')
+            return
+        quota_type = body.get('quota_type') or 'monthly'
+        if quota_type not in ('daily', 'monthly'):
+            self._send_json_error(400, "quota_type 必须是 'daily' 或 'monthly'")
+            return
+        conn = _db_conn()
+        try:
+            new_balance = _recharge_credits(conn, agent_id, amount, operator=auth.user_id)
+            conn.execute(
+                'INSERT INTO credit_quotas (agent_id, quota_type, quota_amount, effective_from) VALUES (?, ?, ?, ?)',
+                (agent_id, quota_type, amount, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            )
+            conn.commit()
+            self._send_json(200, {'agent_id': agent_id, 'new_balance': new_balance, 'amount': amount})
+        finally:
+            conn.close()
+
+    def _handle_credit_recharge_generic(self):
+        """POST /api/credits/recharge — 通用充值接口（管理员用，不写配额记录）{agent_id, amount}"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_json_error(403, '仅管理员可充值积分')
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, '无效的请求体')
+            return
+        agent_id = (body.get('agent_id') or '').strip()
+        if not agent_id:
+            self._send_json_error(400, '缺少 agent_id')
+            return
+        try:
+            amount = int(body.get('amount'))
+        except (TypeError, ValueError):
+            self._send_json_error(400, 'amount 必须是整数')
+            return
+        if amount <= 0:
+            self._send_json_error(400, 'amount 必须大于 0')
+            return
+        conn = _db_conn()
+        try:
+            new_balance = _recharge_credits(conn, agent_id, amount, operator=auth.user_id)
+            conn.commit()
+            self._send_json(200, {'agent_id': agent_id, 'new_balance': new_balance, 'amount': amount})
+        finally:
+            conn.close()
+
+    def _handle_get_credit_usage(self):
+        """GET /api/credits/usage?agent_id=&start_date=&end_date=&page=&page_size= — 使用记录（分页+日期过滤）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        try:
+            page = max(int(qs.get('page', ['1'])[0] or 1), 1)
+        except ValueError:
+            page = 1
+        try:
+            page_size = min(max(int(qs.get('page_size', ['20'])[0] or 20), 1), 200)
+        except ValueError:
+            page_size = 20
+        agent_id = qs.get('agent_id', [''])[0].strip()
+        start_date = qs.get('start_date', [''])[0].strip()
+        end_date = qs.get('end_date', [''])[0].strip()
+
+        where = []
+        params = []
+        if agent_id:
+            where.append('agent_id = ?')
+            params.append(agent_id)
+        if start_date:
+            where.append("date(created_at) >= date(?)")
+            params.append(start_date)
+        if end_date:
+            where.append("date(created_at) <= date(?)")
+            params.append(end_date)
+        where_sql = 'WHERE ' + ' AND '.join(where) if where else ''
+
+        conn = _db_conn()
+        try:
+            total = conn.execute(
+                f'SELECT COUNT(*) AS c FROM credit_usage_log {where_sql}', tuple(params)
+            ).fetchone()['c'] or 0
+            rows = conn.execute(
+                f'SELECT * FROM credit_usage_log {where_sql} ORDER BY id DESC LIMIT ? OFFSET ?',
+                tuple(params) + (page_size, (page - 1) * page_size)
+            ).fetchall()
+            data = [{
+                'id': r['id'],
+                'agent_id': r['agent_id'],
+                'input_tokens': r['input_tokens'] or 0,
+                'output_tokens': r['output_tokens'] or 0,
+                'cache_read_tokens': r['cache_read_tokens'] or 0,
+                'total_tokens': r['total_tokens'] or 0,
+                'credits_used': r['credits_used'] or 0,
+                'session_id': r['session_id'] or '',
+                'created_at': r['created_at'] or '',
+            } for r in rows]
+            self._send_json(200, {'total': total, 'page': page, 'page_size': page_size, 'data': data})
+        finally:
+            conn.close()
+
+    def _handle_get_credit_usage_summary(self):
+        """GET /api/credits/usage/summary?agent_id=&start_date=&end_date= — 使用汇总"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        agent_id = qs.get('agent_id', [''])[0].strip()
+        start_date = qs.get('start_date', [''])[0].strip()
+        end_date = qs.get('end_date', [''])[0].strip()
+
+        where = []
+        params = []
+        if agent_id:
+            where.append('agent_id = ?')
+            params.append(agent_id)
+        if start_date:
+            where.append("date(created_at) >= date(?)")
+            params.append(start_date)
+        if end_date:
+            where.append("date(created_at) <= date(?)")
+            params.append(end_date)
+        where_sql = 'WHERE ' + ' AND '.join(where) if where else ''
+
+        conn = _db_conn()
+        try:
+            row = conn.execute(
+                f'''SELECT COALESCE(SUM(credits_used),0) AS credits,
+                           COALESCE(SUM(total_tokens),0) AS tokens,
+                           COUNT(*) AS records_count,
+                           COUNT(DISTINCT date(created_at)) AS active_days
+                    FROM credit_usage_log {where_sql}''',
+                tuple(params)
+            ).fetchone()
+            total_credits = row['credits'] or 0
+            total_tokens = row['tokens'] or 0
+            records_count = row['records_count'] or 0
+            # 日均分母：指定了日期范围则按范围天数，否则按有记录的天数，至少为 1
+            days = 0
+            if start_date and end_date:
+                try:
+                    days = (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(start_date, '%Y-%m-%d')).days + 1
+                except ValueError:
+                    days = 0
+            if days <= 0:
+                days = row['active_days'] or 0
+            days = max(days, 1)
+            self._send_json(200, {
+                'agent_id': agent_id,
+                'total_credits_used': total_credits,
+                'total_tokens': total_tokens,
+                'daily_avg_credits': round(total_credits / days, 2),
+                'daily_avg_tokens': round(total_tokens / days, 2),
+                'records_count': records_count,
+            })
+        finally:
+            conn.close()
+
+    def _handle_get_credit_check(self):
+        """GET /api/credits/check?agent_id=xxx — 发送前检查积分是否充足"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        agent_id = qs.get('agent_id', [''])[0].strip()
+        if not agent_id:
+            self._send_json_error(400, '缺少 agent_id 参数')
+            return
+        balance, has_credits = _check_credit_balance(agent_id)
+        self._send_json(200, {
+            'agent_id': agent_id,
+            'balance': balance,
+            'has_credits': has_credits,
+            'message': '积分充足' if has_credits else '积分不足',
+        })
+
     def _handle_get_token_usage_sync(self):
         """GET /api/token-usage/sync — 从 OpenClaw trajectory 同步 token 数据"""
         auth = _authenticate(self.headers, self.client_address[0], self)
@@ -13168,6 +13508,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         role = body.get('role', 'user')
         if role not in ('user', 'assistant', 'system'):
             role = 'user'
+
+        # 积分管控（后端拦截）：用户消息且需要后端实际调用 AI 时，先检查员工积分余额
+        # 积分不足直接返回，不转发给 OpenClaw / AI API
+        credit_info = None
+        if role == 'user' and not body.get('skipAI', False):
+            balance, has_credits = _check_credit_balance(agent_id)
+            credit_info = {'balance': balance, 'has_credits': has_credits}
+            if not has_credits:
+                self._send_json(429, {'error': '积分不足', 'balance': balance})
+                return
+
         msg = {
             'id': 'msg_' + uuid.uuid4().hex[:8],
             'role': role,
@@ -13319,7 +13670,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         (cleaned_reply or '')[:200],
                         agent_id
                     )
-                    self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message, 'archived': archived_count})
+                    resp_data = {'userMessage': msg, 'aiMessage': ai_message, 'archived': archived_count}
+                    if credit_info:
+                        resp_data['credit'] = credit_info
+                    self._send_json(200, resp_data)
                     return
 
             # OpenClaw 或其他
@@ -15124,6 +15478,78 @@ def _log_proxy_token_usage(auth, body_json, resp_body, provider, target_url, age
 
 
 # ═══════════════════════════════════════════════════
+# 积分制算力管控（1 积分 = 1000 tokens）
+# ═══════════════════════════════════════════════════
+
+CREDITS_PER_TOKENS = 1000          # 1 积分 = 1000 tokens
+
+
+def _ensure_credit_account(conn, agent_id):
+    """确保员工积分账户存在（首次使用按 0 余额创建），返回账户行"""
+    row = conn.execute('SELECT * FROM credit_accounts WHERE agent_id = ?', (agent_id,)).fetchone()
+    if row is None:
+        conn.execute(
+            'INSERT OR IGNORE INTO credit_accounts (agent_id, balance, total_recharged, total_consumed) VALUES (?, 0, 0, 0)',
+            (agent_id,)
+        )
+        row = conn.execute('SELECT * FROM credit_accounts WHERE agent_id = ?', (agent_id,)).fetchone()
+    return row
+
+
+def _check_credit_balance(agent_id):
+    """检查员工是否有足够积分发送消息。返回 (balance, has_credits)"""
+    conn = _db_conn()
+    try:
+        account = _ensure_credit_account(conn, agent_id)
+        conn.commit()
+        balance = account['balance'] or 0
+        return (balance, balance > 0)
+    finally:
+        conn.close()
+
+
+def _recharge_credits(conn, agent_id, amount, operator=''):
+    """给员工充值积分：余额与累计充值同时增加（调用方负责 commit）"""
+    _ensure_credit_account(conn, agent_id)
+    conn.execute(
+        "UPDATE credit_accounts SET balance = balance + ?, total_recharged = total_recharged + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
+        (amount, amount, agent_id)
+    )
+    row = conn.execute('SELECT balance FROM credit_accounts WHERE agent_id = ?', (agent_id,)).fetchone()
+    new_balance = row['balance'] or 0
+    logger.info(f'  [Credits] 充值 agent={agent_id} amount={amount} new_balance={new_balance} operator={operator}')
+    return new_balance
+
+
+def _record_credit_usage(conn, agent_id, input_tokens, output_tokens, cache_read_tokens, session_id='', created_at=None):
+    """记录一条算力消耗：写入 credit_usage_log 并扣减 credit_accounts.balance。
+    积分 = ceil(total_tokens / 1000)；余额可以扣到 0，但不为负数（调用方负责幂等与 commit）"""
+    total_tokens = int(input_tokens or 0) + int(output_tokens or 0) + int(cache_read_tokens or 0)
+    credits_used = int(math.ceil(total_tokens / float(CREDITS_PER_TOKENS))) if total_tokens > 0 else 0
+    if total_tokens <= 0:
+        return 0
+    _ensure_credit_account(conn, agent_id)
+    if created_at:
+        conn.execute(
+            '''INSERT INTO credit_usage_log (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id, created_at)
+        )
+    else:
+        conn.execute(
+            '''INSERT INTO credit_usage_log (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)''',
+            (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id)
+        )
+    # 扣减余额：允许透支到 0，但不能为负数
+    conn.execute(
+        "UPDATE credit_accounts SET balance = MAX(balance - ?, 0), total_consumed = total_consumed + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
+        (credits_used, credits_used, agent_id)
+    )
+    return credits_used
+
+
+# ═══════════════════════════════════════════════════
 # OpenClaw trajectory token usage 同步
 # ═══════════════════════════════════════════════════
 
@@ -15264,6 +15690,18 @@ def _sync_token_usage_from_trajectories():
                             ))
                             if conn.total_changes > before:
                                 inserted += 1
+                                # 积分制算力管控：1 积分=1000 tokens（向上取整），写入消耗明细并扣减余额
+                                # （仅在新插入时扣减，沿用 INSERT OR IGNORE 去重保证幂等）
+                                try:
+                                    if ev['agent_id']:
+                                        credit_created_at = datetime.fromtimestamp(ev['ts'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                                        _record_credit_usage(
+                                            conn, ev['agent_id'],
+                                            ev['input_tokens'], ev['output_tokens'], ev['cache_read_tokens'],
+                                            session_id=ev['session_key'], created_at=credit_created_at
+                                        )
+                                except Exception as credit_err:
+                                    logger.error(f'  [Credits] trajectory 积分扣减失败: {credit_err}')
                         except Exception as e:
                             logger.info(f'  [TrajectorySync] insert skipped: {e}')
             except Exception as e:
