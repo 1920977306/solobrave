@@ -48,6 +48,9 @@ from douyin_parser import *
 # 记忆服务 v3（新目录结构：data/memories/{empId}/）
 import memory_service_v3 as ms3
 
+import logging
+logger = logging.getLogger('solubrave')
+
 # 知识库服务（分段向量化 + 全局公共，独立模块避免循环导入）
 import knowledge_service as ks
 
@@ -2181,6 +2184,21 @@ def _add_column_if_not_exists(conn, table, column, def_type):
             raise
 
 
+def _migrate_credit_tables(conn):
+    """积分制算力管控：旧版表结构（user_id/period 维度）与新结构不兼容，
+    检测到旧结构时重命名为 *_legacy 保留数据，再按新结构重建。"""
+    legacy_marks = {
+        'credit_accounts': 'balance',
+        'credit_quotas': 'quota_type',
+        'credit_usage_log': 'session_id',
+    }
+    for table, new_col in legacy_marks.items():
+        cols = [r[1] for r in conn.execute(f'PRAGMA table_info({table})').fetchall()]
+        if cols and new_col not in cols:
+            conn.execute(f'ALTER TABLE {table} RENAME TO {table}_legacy')
+            logger.info(f'  [Credits] 旧结构表 {table} 已重命名为 {table}_legacy')
+
+
 def init_db():
     """初始化数据库，创建 knowledge/products 表（启动时调用）"""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -2366,6 +2384,16 @@ def init_db():
                 group_id TEXT DEFAULT '',
                 status TEXT DEFAULT 'active',
                 created_by TEXT DEFAULT '',
+                account_fans_profile TEXT DEFAULT '',
+                video_fans_profile TEXT DEFAULT '',
+                video_settlement_ratio TEXT DEFAULT '',
+                single_video_settlement TEXT DEFAULT '',
+                feishu_gpm TEXT DEFAULT '',
+                video_avg_price TEXT DEFAULT '',
+                feishu_shops TEXT DEFAULT '',
+                feishu_product_count TEXT DEFAULT '',
+                monthly_settlement TEXT DEFAULT '',
+                remark TEXT DEFAULT '',
                 created_at INTEGER,
                 updated_at INTEGER
             )
@@ -2393,6 +2421,16 @@ def init_db():
             ('ai_analysis', "TEXT DEFAULT ''"), ('ai_reason', "TEXT DEFAULT ''"), ('risk_rating', "TEXT DEFAULT ''"),
             ('group_id', "TEXT DEFAULT ''"), ('status', "TEXT DEFAULT 'active'"),
             ('created_by', "TEXT DEFAULT ''"),
+            ('account_fans_profile', "TEXT DEFAULT ''"),
+            ('video_fans_profile', "TEXT DEFAULT ''"),
+            ('video_settlement_ratio', "TEXT DEFAULT ''"),
+            ('single_video_settlement', "TEXT DEFAULT ''"),
+            ('feishu_gpm', "TEXT DEFAULT ''"),
+            ('video_avg_price', "TEXT DEFAULT ''"),
+            ('feishu_shops', "TEXT DEFAULT ''"),
+            ('feishu_product_count', "TEXT DEFAULT ''"),
+            ('monthly_settlement', "TEXT DEFAULT ''"),
+            ('remark', "TEXT DEFAULT ''"),
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
@@ -2401,6 +2439,18 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_category ON talents(category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_fan_category ON talents(fan_category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_group ON talents(group_id)')
+
+        # 用户飞书多维表格配置（每个员工绑定自己的飞书表格）
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_feishu_config (
+                user_id TEXT PRIMARY KEY,
+                app_id TEXT DEFAULT '',
+                app_secret TEXT DEFAULT '',
+                app_token TEXT DEFAULT '',
+                table_id TEXT DEFAULT '',
+                updated_at INTEGER DEFAULT 0
+            )
+        ''')
 
         # 商品-达人匹配关系
         conn.execute('''
@@ -2507,6 +2557,45 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tool_calls_agent ON tool_calls(agent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_call_id ON tool_calls(tool_call_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tool_calls_created_at ON tool_calls(created_at)')
+
+        # 积分制算力管控：员工积分账户 / 配额充值记录 / 消耗明细（1 积分 = 1000 tokens）
+        _migrate_credit_tables(conn)
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS credit_accounts (
+                agent_id TEXT PRIMARY KEY,
+                balance INTEGER DEFAULT 0,
+                total_recharged INTEGER DEFAULT 0,
+                total_consumed INTEGER DEFAULT 0,
+                updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS credit_quotas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT NOT NULL,
+                quota_type TEXT NOT NULL,
+                quota_amount INTEGER DEFAULT 0,
+                effective_from TEXT,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                FOREIGN KEY (agent_id) REFERENCES credit_accounts(agent_id)
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS credit_usage_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT NOT NULL,
+                input_tokens INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                cache_read_tokens INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
+                credits_used INTEGER DEFAULT 0,
+                session_id TEXT,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                FOREIGN KEY (agent_id) REFERENCES credit_accounts(agent_id)
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_quotas_agent ON credit_quotas(agent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_usage_log_agent ON credit_usage_log(agent_id, created_at)')
 
         # FIXME: 大脑知识中枢新增表（保留旧表，不删数据）
         _init_brain_tables(conn)
@@ -2736,7 +2825,11 @@ _TALENT_COLUMNS = [
     'live_ratio', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_gpm',
     'fan_gender', 'fan_age', 'fan_region', 'fan_crowd', 'fan_price_range',
     'fan_category', 'category', 'content_style', 'fans_profile', 'ai_tags', 'ai_rating', 'ai_summary',
-    'ai_analysis', 'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by', 'created_at', 'updated_at'
+    'ai_analysis', 'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by',
+    'account_fans_profile', 'video_fans_profile', 'video_settlement_ratio',
+    'single_video_settlement', 'feishu_gpm', 'video_avg_price',
+    'feishu_shops', 'feishu_product_count', 'monthly_settlement', 'remark',
+    'created_at', 'updated_at'
 ]
 
 _FOLLOW_UP_COLUMNS = [
@@ -2841,6 +2934,16 @@ def _talent_row_to_dict(row):
         'risk_rating': row['risk_rating'] or '',
         'group_id': row['group_id'] or '',
         'status': row['status'] or 'active',
+        'account_fans_profile': row['account_fans_profile'] or '',
+        'video_fans_profile': row['video_fans_profile'] or '',
+        'video_settlement_ratio': row['video_settlement_ratio'] or '',
+        'single_video_settlement': row['single_video_settlement'] or '',
+        'feishu_gpm': row['feishu_gpm'] or '',
+        'video_avg_price': row['video_avg_price'] or '',
+        'feishu_shops': row['feishu_shops'] or '',
+        'feishu_product_count': row['feishu_product_count'] or '',
+        'monthly_settlement': row['monthly_settlement'] or '',
+        'remark': row['remark'] or '',
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
@@ -2964,10 +3067,133 @@ def _dict_to_talent_row(t):
         'risk_rating': t.get('risk_rating') or t.get('riskRating') or '',
         'group_id': t.get('group_id') or t.get('groupId') or '',
         'status': t.get('status') or 'active',
+        'account_fans_profile': t.get('account_fans_profile') or '',
+        'video_fans_profile': t.get('video_fans_profile') or '',
+        'video_settlement_ratio': t.get('video_settlement_ratio') or '',
+        'single_video_settlement': t.get('single_video_settlement') or '',
+        'feishu_gpm': t.get('feishu_gpm') or '',
+        'video_avg_price': t.get('video_avg_price') or '',
+        'feishu_shops': t.get('feishu_shops') or '',
+        'feishu_product_count': t.get('feishu_product_count') or '',
+        'monthly_settlement': t.get('monthly_settlement') or '',
+        'remark': t.get('remark') or '',
         'created_by': t.get('created_by') or t.get('createdBy') or '',
         'created_at': t.get('created_at') or t.get('createdAt') or now,
         'updated_at': now,
     }
+
+
+# ===== 飞书多维表格同步 =====
+FEISHU_BITABLE_APP_ID = os.environ.get('FEISHU_BITABLE_APP_ID', '')
+FEISHU_BITABLE_APP_SECRET = os.environ.get('FEISHU_BITABLE_APP_SECRET', '')
+FEISHU_BITABLE_APP_TOKEN = os.environ.get('FEISHU_BITABLE_APP_TOKEN', 'QxARbgMSIaKcXxsoGEtcSJH2nvf')
+FEISHU_BITABLE_TABLE_ID = os.environ.get('FEISHU_BITABLE_TABLE_ID', 'tbl2OAYCIoV6Nko8')
+
+def _feishu_get_tenant_access_token(app_id=None, app_secret=None):
+    app_id = app_id or FEISHU_BITABLE_APP_ID
+    app_secret = app_secret or FEISHU_BITABLE_APP_SECRET
+    url = 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal'
+    data = json.dumps({'app_id': app_id, 'app_secret': app_secret}).encode('utf-8')
+    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json; charset=utf-8'})
+    resp = urllib.request.urlopen(req, timeout=10)
+    result = json.loads(resp.read().decode('utf-8'))
+    if result.get('code') != 0:
+        raise Exception(f"Feishu auth failed: {result}")
+    return result['tenant_access_token']
+
+def _feishu_extract_val(val):
+    if val is None:
+        return ''
+    if isinstance(val, (int, float)):
+        return val
+    if isinstance(val, str):
+        return val
+    if isinstance(val, list):
+        parts = []
+        for item in val:
+            if isinstance(item, dict):
+                parts.append(item.get('text', '') or item.get('name', ''))
+            elif isinstance(item, str):
+                parts.append(item)
+        return ','.join(parts) if parts else ''
+    if isinstance(val, dict):
+        return val.get('text', '') or val.get('name', '')
+    return str(val)
+
+def _parse_cn_number(val):
+    if not val:
+        return 0
+    s = str(val).strip().lower().replace(',', '')
+    if not s:
+        return 0
+    try:
+        mult = 1
+        if s.endswith('万') or s.endswith('w'):
+            mult = 10000
+            s = s[:-1]
+        elif s.endswith('亿'):
+            mult = 100000000
+            s = s[:-1]
+        return int(float(s) * mult)
+    except (ValueError, TypeError):
+        return 0
+
+def _feishu_record_to_talent(fields):
+    def _g(name):
+        return _feishu_extract_val(fields.get(name))
+    return {
+        'name': str(_g('达人名称') or ''),
+        'douyin_id': str(_g('抖音账号') or ''),
+        'real_name': '',
+        'wechat': '',
+        'phone': '',
+        'email': '',
+        'city': '',
+        'level': '',
+        'followers': _parse_cn_number(_g('粉丝量数')),
+        'talent_type': str(_g('内容类型') or ''),
+        'agency': '',
+        'tags': [],
+        'category': str(_g('类目') or ''),
+        'bio': '',
+        'contact_name': '',
+        'contact_phone': '',
+        'contact_wechat': '',
+        'cooperation_status': 'available',
+        'commission_requirement': 0,
+        'content_style': str(_g('内容风格') or ''),
+        'follow_up_note': '',
+        'account_fans_profile': str(_g('账号粉丝特征') or ''),
+        'video_fans_profile': str(_g('短视频粉丝特征') or ''),
+        'video_settlement_ratio': str(_g('视频结算额占比') or ''),
+        'single_video_settlement': str(_g('单视频结算额') or ''),
+        'feishu_gpm': str(_g('视频GPM') or ''),
+        'video_avg_price': str(_g('视频平均件单价') or ''),
+        'feishu_shops': str(_g('合作店铺数') or ''),
+        'feishu_product_count': str(_g('带货商品数') or ''),
+        'monthly_settlement': str(_g('月结算金额') or ''),
+        'remark': str(_g('备注') or ''),
+    }
+
+def _feishu_list_all_records(token, app_token=None, table_id=None):
+    app_token = app_token or FEISHU_BITABLE_APP_TOKEN
+    table_id = table_id or FEISHU_BITABLE_TABLE_ID
+    all_records = []
+    page_token = None
+    while True:
+        url = f'https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records?page_size=100'
+        if page_token:
+            url += f'&page_token={page_token}'
+        req = urllib.request.Request(url, headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json; charset=utf-8'})
+        resp = urllib.request.urlopen(req, timeout=15)
+        result = json.loads(resp.read().decode('utf-8'))
+        if result.get('code') != 0:
+            raise Exception(f"Feishu list records failed: {result}")
+        all_records.extend(result.get('data', {}).get('items', []))
+        page_token = result.get('data', {}).get('page_token', '')
+        if not result.get('data', {}).get('has_more', False):
+            break
+    return all_records
 
 
 def _sync_product_brand(conn, product):
@@ -3965,6 +4191,77 @@ def knowledge_migrate_from_json():
     return migrated
 
 
+# ═══════════════════════════════════════════════════
+# 积分制算力管控 helper 函数
+# ═══════════════════════════════════════════════════
+
+CREDITS_PER_TOKENS = 1000  # 1 积分 = 1000 tokens
+
+
+def _ensure_credit_account(conn, agent_id):
+    """确保员工积分账户存在（首次使用按 0 余额创建），返回账户行"""
+    row = conn.execute('SELECT * FROM credit_accounts WHERE agent_id = ?', (agent_id,)).fetchone()
+    if row is None:
+        conn.execute(
+            'INSERT OR IGNORE INTO credit_accounts (agent_id, balance, total_recharged, total_consumed) VALUES (?, 0, 0, 0)',
+            (agent_id,)
+        )
+        row = conn.execute('SELECT * FROM credit_accounts WHERE agent_id = ?', (agent_id,)).fetchone()
+    return row
+
+
+def _check_credit_balance(agent_id):
+    """检查员工是否有足够积分发送消息。返回 (balance, has_credits)"""
+    conn = _db_conn()
+    try:
+        account = _ensure_credit_account(conn, agent_id)
+        conn.commit()
+        balance = account['balance'] or 0
+        return (balance, balance > 0)
+    finally:
+        conn.close()
+
+
+def _recharge_credits(conn, agent_id, amount, operator=''):
+    """给员工充值积分：余额与累计充值同时增加（调用方负责 commit）"""
+    _ensure_credit_account(conn, agent_id)
+    conn.execute(
+        "UPDATE credit_accounts SET balance = balance + ?, total_recharged = total_recharged + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
+        (amount, amount, agent_id)
+    )
+    row = conn.execute('SELECT balance FROM credit_accounts WHERE agent_id = ?', (agent_id,)).fetchone()
+    new_balance = row['balance'] or 0
+    logger.info(f'  [Credits] 充值 agent={agent_id} amount={amount} new_balance={new_balance} operator={operator}')
+    return new_balance
+
+
+def _record_credit_usage(conn, agent_id, input_tokens, output_tokens, cache_read_tokens, session_id='', created_at=None):
+    """记录一条算力消耗：写入 credit_usage_log 并扣减 credit_accounts.balance。
+    积分 = ceil(total_tokens / 1000)；余额可以扣到 0，但不为负数（调用方负责幂等与 commit）"""
+    total_tokens = int(input_tokens or 0) + int(output_tokens or 0) + int(cache_read_tokens or 0)
+    credits_used = int(math.ceil(total_tokens / float(CREDITS_PER_TOKENS))) if total_tokens > 0 else 0
+    if total_tokens <= 0:
+        return 0
+    _ensure_credit_account(conn, agent_id)
+    if created_at:
+        conn.execute(
+            '''INSERT INTO credit_usage_log (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id, created_at)
+        )
+    else:
+        conn.execute(
+            '''INSERT INTO credit_usage_log (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)''',
+            (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id)
+        )
+    conn.execute(
+        "UPDATE credit_accounts SET balance = MAX(balance - ?, 0), total_consumed = total_consumed + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
+        (credits_used, credits_used, agent_id)
+    )
+    return credits_used
+
+
 # ─── 请求处理器 ────────────────────────────────────────
 
 class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
@@ -4180,6 +4477,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_settings()
             return
 
+        # 用户飞书配置
+        if path == '/api/user/feishu-config':
+            self._handle_get_feishu_config()
+            return
+
         # 新版知识库 API（重构后，需放在旧版 /api/knowledge/ 通配路由之前）
         if path == '/api/knowledge/entries':
             self._handle_get_kb_entries()
@@ -4225,6 +4527,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/token-usage/sync':
             self._handle_get_token_usage_sync()
+            return
+
+        # 积分制算力管控 API（summary 精确匹配需放在 usage 之前）
+        if path == '/api/credits/balance':
+            self._handle_get_credit_balance()
+            return
+        if path == '/api/credits/quotas':
+            self._handle_get_credit_quotas()
+            return
+        if path == '/api/credits/usage/summary':
+            self._handle_get_credit_usage_summary()
+            return
+        if path == '/api/credits/usage':
+            self._handle_get_credit_usage()
+            return
+        if path == '/api/credits/check':
+            self._handle_get_credit_check()
             return
 
         # Brand API
@@ -4650,6 +4969,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/talents':
             self._handle_post_talent()
             return
+        if path == '/api/talents/sync-feishu':
+            self._handle_sync_feishu_talents()
+            return
+        if path == '/api/user/feishu-config':
+            self._handle_save_feishu_config()
+            return
         if path.startswith('/api/talents/'):
             sub = path[len('/api/talents/'):]
             parts = sub.split('/')
@@ -4698,6 +5023,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/ai-match':
             self._handle_ai_match()
             return
+
+        # 积分制算力管控：员工配额充值 / 管理员通用充值
+        if path == '/api/credits/recharge':
+            self._handle_credit_recharge_generic()
+            return
+        if path.startswith('/api/credits/quotas/') and path.endswith('/recharge'):
+            agent_id = path[len('/api/credits/quotas/'):-len('/recharge')]
+            if agent_id and '/' not in agent_id:
+                self._handle_credit_recharge(agent_id)
+                return
 
         # Chat API
         if path.startswith('/api/chat/'):
@@ -10273,6 +10608,260 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             import traceback; traceback.print_exc()
             self._send_json_error(500, f'Sync failed: {str(e)}')
 
+    # ─── 积分制算力管控 API（1 积分 = 1000 tokens，字段统一 agent_id）───
+    def _handle_get_credit_balance(self):
+        """GET /api/credits/balance?agent_id=xxx — 查询积分余额（返回列表）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        agent_id = qs.get('agent_id', [''])[0].strip()
+        conn = _db_conn()
+        try:
+            if agent_id:
+                account = _ensure_credit_account(conn, agent_id)
+                conn.commit()
+                rows = [account]
+            else:
+                rows = conn.execute('SELECT * FROM credit_accounts ORDER BY updated_at DESC').fetchall()
+            items = [{
+                'agent_id': r['agent_id'],
+                'balance': r['balance'] or 0,
+                'total_recharged': r['total_recharged'] or 0,
+                'total_consumed': r['total_consumed'] or 0,
+                'updated_at': r['updated_at'] or '',
+            } for r in rows]
+            self._send_json(200, items)
+        finally:
+            conn.close()
+
+    def _handle_get_credit_quotas(self):
+        """GET /api/credits/quotas?agent_id=xxx — 查询配额/充值记录列表"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        agent_id = qs.get('agent_id', [''])[0].strip()
+        conn = _db_conn()
+        try:
+            if agent_id:
+                rows = conn.execute(
+                    'SELECT * FROM credit_quotas WHERE agent_id = ? ORDER BY id DESC', (agent_id,)
+                ).fetchall()
+            else:
+                rows = conn.execute('SELECT * FROM credit_quotas ORDER BY id DESC').fetchall()
+            items = [{
+                'id': r['id'],
+                'agent_id': r['agent_id'],
+                'quota_type': r['quota_type'] or '',
+                'quota_amount': r['quota_amount'] or 0,
+                'effective_from': r['effective_from'] or '',
+                'created_at': r['created_at'] or '',
+            } for r in rows]
+            self._send_json(200, items)
+        finally:
+            conn.close()
+
+    def _handle_credit_recharge(self, agent_id):
+        """POST /api/credits/quotas/:agentId/recharge — 给员工充值积分并写入配额记录 {amount, quota_type}"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_json_error(403, '仅管理员可充值积分')
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, '无效的请求体')
+            return
+        try:
+            amount = int(body.get('amount'))
+        except (TypeError, ValueError):
+            self._send_json_error(400, 'amount 必须是整数')
+            return
+        if amount <= 0:
+            self._send_json_error(400, 'amount 必须大于 0')
+            return
+        quota_type = body.get('quota_type') or 'monthly'
+        if quota_type not in ('daily', 'monthly'):
+            self._send_json_error(400, "quota_type 必须是 'daily' 或 'monthly'")
+            return
+        conn = _db_conn()
+        try:
+            new_balance = _recharge_credits(conn, agent_id, amount, operator=auth.user_id)
+            conn.execute(
+                'INSERT INTO credit_quotas (agent_id, quota_type, quota_amount, effective_from) VALUES (?, ?, ?, ?)',
+                (agent_id, quota_type, amount, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            )
+            conn.commit()
+            self._send_json(200, {'agent_id': agent_id, 'new_balance': new_balance, 'amount': amount})
+        finally:
+            conn.close()
+
+    def _handle_credit_recharge_generic(self):
+        """POST /api/credits/recharge — 通用充值接口（管理员用，不写配额记录）{agent_id, amount}"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_json_error(403, '仅管理员可充值积分')
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, '无效的请求体')
+            return
+        agent_id = (body.get('agent_id') or '').strip()
+        if not agent_id:
+            self._send_json_error(400, '缺少 agent_id')
+            return
+        try:
+            amount = int(body.get('amount'))
+        except (TypeError, ValueError):
+            self._send_json_error(400, 'amount 必须是整数')
+            return
+        if amount <= 0:
+            self._send_json_error(400, 'amount 必须大于 0')
+            return
+        conn = _db_conn()
+        try:
+            new_balance = _recharge_credits(conn, agent_id, amount, operator=auth.user_id)
+            conn.commit()
+            self._send_json(200, {'agent_id': agent_id, 'new_balance': new_balance, 'amount': amount})
+        finally:
+            conn.close()
+
+    def _handle_get_credit_usage(self):
+        """GET /api/credits/usage?agent_id=&start_date=&end_date=&page=&page_size= — 使用记录（分页+日期过滤）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        try:
+            page = max(int(qs.get('page', ['1'])[0] or 1), 1)
+        except ValueError:
+            page = 1
+        try:
+            page_size = min(max(int(qs.get('page_size', ['20'])[0] or 20), 1), 200)
+        except ValueError:
+            page_size = 20
+        agent_id = qs.get('agent_id', [''])[0].strip()
+        start_date = qs.get('start_date', [''])[0].strip()
+        end_date = qs.get('end_date', [''])[0].strip()
+        where = []
+        params = []
+        if agent_id:
+            where.append('agent_id = ?')
+            params.append(agent_id)
+        if start_date:
+            where.append("date(created_at) >= date(?)")
+            params.append(start_date)
+        if end_date:
+            where.append("date(created_at) <= date(?)")
+            params.append(end_date)
+        where_sql = 'WHERE ' + ' AND '.join(where) if where else ''
+        conn = _db_conn()
+        try:
+            total = conn.execute(
+                f'SELECT COUNT(*) AS c FROM credit_usage_log {where_sql}', tuple(params)
+            ).fetchone()['c'] or 0
+            rows = conn.execute(
+                f'SELECT * FROM credit_usage_log {where_sql} ORDER BY id DESC LIMIT ? OFFSET ?',
+                tuple(params) + (page_size, (page - 1) * page_size)
+            ).fetchall()
+            data = [{
+                'id': r['id'],
+                'agent_id': r['agent_id'],
+                'input_tokens': r['input_tokens'] or 0,
+                'output_tokens': r['output_tokens'] or 0,
+                'cache_read_tokens': r['cache_read_tokens'] or 0,
+                'total_tokens': r['total_tokens'] or 0,
+                'credits_used': r['credits_used'] or 0,
+                'session_id': r['session_id'] or '',
+                'created_at': r['created_at'] or '',
+            } for r in rows]
+            self._send_json(200, {'total': total, 'page': page, 'page_size': page_size, 'data': data})
+        finally:
+            conn.close()
+
+    def _handle_get_credit_usage_summary(self):
+        """GET /api/credits/usage/summary?agent_id=&start_date=&end_date= — 使用汇总"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        agent_id = qs.get('agent_id', [''])[0].strip()
+        start_date = qs.get('start_date', [''])[0].strip()
+        end_date = qs.get('end_date', [''])[0].strip()
+        where = []
+        params = []
+        if agent_id:
+            where.append('agent_id = ?')
+            params.append(agent_id)
+        if start_date:
+            where.append("date(created_at) >= date(?)")
+            params.append(start_date)
+        if end_date:
+            where.append("date(created_at) <= date(?)")
+            params.append(end_date)
+        where_sql = 'WHERE ' + ' AND '.join(where) if where else ''
+        conn = _db_conn()
+        try:
+            row = conn.execute(
+                f'''SELECT COALESCE(SUM(credits_used),0) AS credits,
+                           COALESCE(SUM(total_tokens),0) AS tokens,
+                           COUNT(*) AS records_count,
+                           COUNT(DISTINCT date(created_at)) AS active_days
+                    FROM credit_usage_log {where_sql}''',
+                tuple(params)
+            ).fetchone()
+            total_credits = row['credits'] or 0
+            total_tokens = row['tokens'] or 0
+            records_count = row['records_count'] or 0
+            days = 0
+            if start_date and end_date:
+                try:
+                    days = (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(start_date, '%Y-%m-%d')).days + 1
+                except ValueError:
+                    days = 0
+            if days <= 0:
+                days = row['active_days'] or 0
+            days = max(days, 1)
+            self._send_json(200, {
+                'agent_id': agent_id,
+                'total_credits_used': total_credits,
+                'total_tokens': total_tokens,
+                'daily_avg_credits': round(total_credits / days, 2),
+                'daily_avg_tokens': round(total_tokens / days, 2),
+                'records_count': records_count,
+            })
+        finally:
+            conn.close()
+
+    def _handle_get_credit_check(self):
+        """GET /api/credits/check?agent_id=xxx — 发送前检查积分是否充足"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        agent_id = qs.get('agent_id', [''])[0].strip()
+        if not agent_id:
+            self._send_json_error(400, '缺少 agent_id 参数')
+            return
+        balance, has_credits = _check_credit_balance(agent_id)
+        self._send_json(200, {
+            'agent_id': agent_id,
+            'balance': balance,
+            'has_credits': has_credits,
+            'message': '积分充足' if has_credits else '积分不足',
+        })
+
     def _handle_get_token_usage(self):
         """GET /api/token-usage — 按 agent/day 聚合 token 用量"""
         auth = _authenticate(self.headers, self.client_address[0], self)
@@ -11363,6 +11952,129 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         self._send_json(200, _talent_row_to_dict(row_out))
 
+    def _handle_sync_feishu_talents(self):
+        """POST /api/talents/sync-feishu — 从飞书多维表格同步达人数据"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        user_id = auth.user_info.get('userId', '')
+        _cfg_conn = _db_conn()
+        _cfg_row = _cfg_conn.execute('SELECT * FROM user_feishu_config WHERE user_id = ?', (user_id,)).fetchone()
+        _cfg_conn.close()
+        _fs_app_id = _cfg_row['app_id'] if _cfg_row and _cfg_row['app_id'] else FEISHU_BITABLE_APP_ID
+        _fs_app_secret = _cfg_row['app_secret'] if _cfg_row and _cfg_row['app_secret'] else FEISHU_BITABLE_APP_SECRET
+        _fs_app_token = _cfg_row['app_token'] if _cfg_row and _cfg_row['app_token'] else FEISHU_BITABLE_APP_TOKEN
+        _fs_table_id = _cfg_row['table_id'] if _cfg_row and _cfg_row['table_id'] else FEISHU_BITABLE_TABLE_ID
+        try:
+            token = _feishu_get_tenant_access_token(_fs_app_id, _fs_app_secret)
+            records = _feishu_list_all_records(token, _fs_app_token, _fs_table_id)
+        except Exception as e:
+            self._send_json_error(500, f'飞书API调用失败: {e}')
+            return
+        created = 0
+        updated = 0
+        skipped = 0
+        error_list = []
+        conn = _db_conn()
+        try:
+            for rec in records:
+                try:
+                    fields = rec.get('fields', {})
+                    talent_data = _feishu_record_to_talent(fields)
+                    if not talent_data['name']:
+                        skipped += 1
+                        continue
+                    douyin_id = talent_data['douyin_id']
+                    existing = None
+                    if douyin_id:
+                        existing = conn.execute(
+                            "SELECT * FROM talents WHERE LOWER(douyin_id) = LOWER(?) LIMIT 1",
+                            (douyin_id,)
+                        ).fetchone()
+                    if existing:
+                        existing_dict = _talent_row_to_dict(existing)
+                        existing_dict.update(talent_data)
+                        existing_dict['id'] = existing['id']
+                        row = _dict_to_talent_row(existing_dict)
+                        conn.execute(
+                            f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_COLUMNS)} WHERE id = ?",
+                            tuple(row[c] for c in _TALENT_COLUMNS) + (existing['id'],)
+                        )
+                        updated += 1
+                    else:
+                        row = _dict_to_talent_row(talent_data)
+                        if not row.get('created_by'):
+                            row['created_by'] = auth.user_info.get('userId', '')
+                        conn.execute(
+                            f"INSERT INTO talents ({', '.join(_TALENT_COLUMNS)}) VALUES ({', '.join('?' * len(_TALENT_COLUMNS))})",
+                            tuple(row[c] for c in _TALENT_COLUMNS)
+                        )
+                        created += 1
+                except Exception as e:
+                    error_list.append({'record_id': rec.get('record_id', ''), 'error': str(e)})
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            self._send_json_error(500, f'同步失败: {e}')
+            return
+        finally:
+            conn.close()
+        self._send_json(200, {
+            'success': True,
+            'total': len(records),
+            'created': created,
+            'updated': updated,
+            'skipped': skipped,
+            'errors': error_list
+        })
+
+    def _handle_get_feishu_config(self):
+        """GET /api/user/feishu-config — 获取当前用户的飞书多维表格配置"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        user_id = auth.user_info.get('userId', '')
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT app_id, app_token, table_id, updated_at FROM user_feishu_config WHERE user_id = ?', (user_id,)).fetchone()
+        finally:
+            conn.close()
+        if row:
+            self._send_json(200, {'configured': True, 'app_id': row['app_id'], 'app_token': row['app_token'], 'table_id': row['table_id'], 'updated_at': row['updated_at']})
+        else:
+            self._send_json(200, {'configured': False, 'app_id': '', 'app_token': '', 'table_id': '', 'updated_at': 0})
+
+    def _handle_save_feishu_config(self):
+        """POST /api/user/feishu-config — 保存当前用户的飞书多维表格配置"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        data = json.loads(body) if isinstance(body, str) else body
+        app_id = str(data.get('app_id', '')).strip()
+        app_secret = str(data.get('app_secret', '')).strip()
+        app_token = str(data.get('app_token', '')).strip()
+        table_id = str(data.get('table_id', '')).strip()
+        if not app_token or not table_id:
+            self._send_json_error(400, 'app_token 和 table_id 不能为空')
+            return
+        user_id = auth.user_info.get('userId', '')
+        now = int(time.time())
+        conn = _db_conn()
+        try:
+            conn.execute('INSERT OR REPLACE INTO user_feishu_config (user_id, app_id, app_secret, app_token, table_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)', (user_id, app_id, app_secret, app_token, table_id, now))
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'success': True, 'message': '飞书配置已保存'})
+
     def _handle_put_talent(self, talent_id):
         """PUT /api/talents/:id — 更新达人"""
         auth = _authenticate(self.headers, self.client_address[0], self)
@@ -11592,6 +12304,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
+        if not self._require_module_permission(auth, 'influencers'): return
         if not self._require_module_permission(auth, 'influencers'): return
         data = self._load_influencers()
         influencer = next((i for i in data.get('influencers', []) if i.get('id') == inf_id), None)
@@ -12889,9 +13602,9 @@ def _resolve_ai_model(api_provider, api_model=''):
 
 
 def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT, max_tokens=2000):
-    """底层 AI chat/completions 调用，返回字符串内容或 None（供聊天、定时任务复用）"""
+    """底层 AI chat/completions 调用，返回 (content, usage_dict) 元组（供聊天、定时任务复用）"""
     if not api_key:
-        return None
+        return None, None
     base_url = _resolve_ai_base_url(api_provider, custom_endpoint or '')
     if not base_url:
         return None
@@ -12922,8 +13635,9 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
         raw = resp.read().decode('utf-8', errors='replace')
         print(f'  [API] chat completion response: HTTP {status}', flush=True)
         resp_data = json.loads(raw)
+        usage = resp_data.get('usage', {})
         if resp_data.get('choices') and resp_data['choices'][0].get('message'):
-            return resp_data['choices'][0]['message'].get('content', '')
+            return resp_data['choices'][0]['message'].get('content', ''), usage
         print(f'  [API] chat completion unexpected format: {raw[:500]}', flush=True)
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8', errors='replace')
@@ -12934,7 +13648,7 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
     except Exception as e:
         print(f'  ❌ AI API call failed: {e}', flush=True)
         traceback.print_exc()
-    return None
+    return None, None
 
 
 # ═══ AI 员工自修改配置（SELF_UPDATE）══════════════════════════════════
@@ -13088,7 +13802,7 @@ def _extract_text_from_openclaw_output(obj):
     return None
 
 
-def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLAW_TIMEOUT):
+def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLAW_TIMEOUT, infer_only=False):
     """调用 OpenClaw CLI 并返回原始文本内容；失败返回 None
 
     兼容两种 CLI 形态：
@@ -13113,9 +13827,10 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
     # 新版 CLI：openclaw agent --message ... --json（项目环境更可能可用）
     # 旧版 CLI：openclaw infer model run --prompt ... --json（代码历史写法，保留兼容）
     variants = []
-    # 使用默认 OpenClaw agent 执行一次 agent turn；--timeout 避免无限等待
-    agent_args = [OPENCLAW_CLI, 'agent', '--agent', OPENCLAW_DEFAULT_AGENT, '--message', full_prompt, '--json', '--timeout', str(timeout)]
-    variants.append(('agent', agent_args))
+    if not infer_only:
+        # 使用默认 OpenClaw agent 执行一次 agent turn；--timeout 避免无限等待
+        agent_args = [OPENCLAW_CLI, 'agent', '--agent', OPENCLAW_DEFAULT_AGENT, '--message', full_prompt, '--json', '--timeout', str(timeout)]
+        variants.append(('agent', agent_args))
     infer_args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--prompt', full_prompt, '--json']
     if model:
         infer_args.extend(['--model', model])
@@ -13220,7 +13935,7 @@ def _call_ai_analysis(messages, cfg=None, context='', timeout=None, max_tokens=2
     # 2. 兜底：API 直连（需配置 API Key）
     if api_key:
         api_timeout = timeout if timeout is not None else PROXY_TIMEOUT
-        content = _call_chat_completion(provider, api_key, chat_model, base_url, messages, timeout=api_timeout, max_tokens=max_tokens)
+        content, _ = _call_chat_completion(provider, api_key, chat_model, base_url, messages, timeout=api_timeout, max_tokens=max_tokens)
         if content:
             return content
     else:
@@ -13376,8 +14091,8 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
         print(f'  [OpenClaw] WARNING: prompt too long ({len(full_prompt)}), truncating to {MAX_PROMPT_LEN}', flush=True)
         full_prompt = full_prompt[:MAX_PROMPT_LEN]
 
-    # 调用 OpenClaw CLI 并提取 JSON 数组
-    content = _call_openclaw_infer(full_prompt, model=api_model)
+    # 调用 OpenClaw CLI 并提取 JSON 数组（后台AI调用用infer模式，避免污染main agent会话历史）
+    content = _call_openclaw_infer(full_prompt, model=api_model, infer_only=True)
     if content is None:
         return None
     return _extract_json_array(content)
@@ -13537,7 +14252,21 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
 
     messages.append({'role': 'user', 'content': user_message})
 
-    return _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT)
+    content, usage = _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT)
+    # 记录积分消耗
+    if usage and agent_id:
+        try:
+            conn = _db_conn()
+            _record_credit_usage(conn, agent_id,
+                usage.get('prompt_tokens', 0),
+                usage.get('completion_tokens', 0),
+                0)
+            conn.commit()
+            conn.close()
+            print(f'  [Credits] {agent_id} consumed {usage.get("total_tokens", 0)} tokens', flush=True)
+        except Exception as e:
+            print(f'  [Credits] record usage failed: {e}', flush=True)
+    return content
 
 def _handle_delete_chat_message(self, agent_id, msg_id):
     """DELETE /api/chat/:agentId/:msgId?type=..."""
@@ -14811,6 +15540,13 @@ def _handle_proxy(self):
         host = urlparse(target_url).hostname or ''
         if not any(host == d or host.endswith('.' + d) for d in ALLOWED_DOMAINS):
             self._send_json_error(403, f'Domain {host} not in allowed list')
+            return
+
+    # 积分检查：余额为 0 时拦截 AI 请求
+    if agent_id:
+        balance, has_credits = _check_credit_balance(agent_id)
+        if not has_credits:
+            self._send_json_error(403, '积分余额不足，请联系管理员充值')
             return
 
     content_length = int(self.headers.get('Content-Length', 0))
