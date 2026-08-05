@@ -10003,7 +10003,7 @@ var draggingTask = null;
 function saveTasks() {
   localStorage.setItem('sb_tasks', JSON.stringify(tasksData));
 }
-function loadTasks() {
+function loadKanbanTasks() {
   const saved = localStorage.getItem('sb_tasks');
   if (saved) {
     try {
@@ -18134,7 +18134,7 @@ registerTimerTask(function () {
 }, 15);
 
 // Init
-loadTasks();
+loadKanbanTasks();
 initTaskTimeoutTimers();
 renderEmployeeList();
 renderTaskBoard();
