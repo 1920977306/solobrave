@@ -1292,6 +1292,10 @@ def _get_agent_by_id(agent_id):
             return a
     return None
 
+def _get_active_agent_ids():
+    """返回 agents.json 中所有正式员工的 ID 集合"""
+    return {a.get('id', '') for a in _load_agents() if a.get('id')}
+
 def _clean_agents_file():
     """主动清理 agents.json 中的历史遗留默认员工数据"""
     agents = _read_json(AGENTS_FILE, [])
@@ -1673,17 +1677,30 @@ def _get_localhost_auth_result(headers, parsed_body=None):
         if agent:
             created_by = agent.get('createdBy')
             if created_by:
-                return AuthResult(user_info={'userId': created_by, 'role': 'admin'})
+                result = AuthResult(user_info={'userId': created_by, 'role': 'admin'})
+                result.load_user_record()
+                if result.user_record:
+                    result.user_info['role'] = result.user_record.get('role', 'admin')
+                return result
     return AuthResult(user_info={'userId': 'localhost', 'role': 'admin'})
 
 
 def _authenticate(headers, client_ip=None, request_handler=None):
-    """从请求头中提取并验证 token；本地回环地址跳过鉴权，支持从 body 缓存中读取 agent_id"""
+    """从请求头中提取并验证 token；本地回环地址优先 Bearer token，其次 X-Agent-Id，最后受限回退"""
     if client_ip in ('127.0.0.1', 'localhost', '::1'):
+        # 优先检查 Bearer token（Web UI 本地访问）
+        auth_header = headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header[7:]
+            user_info = verify_token(token)
+            if user_info:
+                result = AuthResult(user_info=user_info)
+                result.load_user_record()
+                return result
+        # 其次检查 X-Agent-Id（AI 员工 curl 调用）
         parsed_body = None
         if request_handler is not None:
             parsed_body = getattr(request_handler, 'cached_body', None)
-            # 仅在未提供 X-Agent-Id 且请求可能带 body 时才读取，避免误消耗后续 handler 需要的 body
             if parsed_body is None and not headers.get('X-Agent-Id', '').strip():
                 method = getattr(request_handler, 'command', '')
                 if method in ('POST', 'PUT', 'PATCH'):
@@ -1695,7 +1712,12 @@ def _authenticate(headers, client_ip=None, request_handler=None):
                         except Exception:
                             parsed_body = None
                     request_handler.cached_body = parsed_body
-        return _get_localhost_auth_result(headers, parsed_body)
+        result = _get_localhost_auth_result(headers, parsed_body)
+        # 无 agent_id 回退时不给 admin
+        if not headers.get('X-Agent-Id', '').strip():
+            if not (isinstance(parsed_body, dict) and parsed_body.get('agent_id')):
+                result.user_info['role'] = 'employee'
+        return result
     auth_header = headers.get('Authorization', '')
     if not auth_header.startswith('Bearer '):
         return AuthResult(error='未登录或 token 已过期', status=401)
@@ -2596,6 +2618,30 @@ def init_db():
         ''')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_quotas_agent ON credit_quotas(agent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_usage_log_agent ON credit_usage_log(agent_id, created_at)')
+
+        # 任务管理表
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                assignee TEXT DEFAULT '',
+                assignee_name TEXT DEFAULT '',
+                creator TEXT DEFAULT '',
+                creator_name TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending',
+                priority TEXT DEFAULT 'normal',
+                deadline TEXT DEFAULT '',
+                project_id TEXT DEFAULT '',
+                progress TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+                completed_at TEXT DEFAULT ''
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_creator ON tasks(creator)')
 
         # FIXME: 大脑知识中枢新增表（保留旧表，不删数据）
         _init_brain_tables(conn)
@@ -4620,6 +4666,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_influencer(rest)
                 return
 
+        # Tasks API
+        if path == '/api/tasks':
+            self._handle_get_tasks()
+            return
+        if path.startswith('/api/tasks/'):
+            task_id = path[len('/api/tasks/'):]
+            if task_id:
+                self._handle_get_task(task_id)
+                return
+
         # Chat API
         if path.startswith('/api/chat/'):
             sub = path[len('/api/chat/'):]
@@ -5013,6 +5069,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_search_influencers()
             return
 
+        # Tasks API
+        if path == '/api/tasks':
+            self._handle_post_task()
+            return
+
         # Match API
         if path == '/api/match/product-to-influencer':
             self._handle_match_product_to_influencer()
@@ -5185,6 +5246,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_put_influencer(inf_id)
                 return
 
+        # Tasks API
+        if path.startswith('/api/tasks/'):
+            task_id = path[len('/api/tasks/'):]
+            if task_id:
+                self._handle_put_task(task_id)
+                return
+
         self._send_json_error(404, 'Not found')
 
     def do_DELETE(self):
@@ -5312,6 +5380,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             inf_id = path[len('/api/influencers/'):]
             if inf_id:
                 self._handle_delete_influencer(inf_id)
+                return
+
+        # Tasks API
+        if path.startswith('/api/tasks/'):
+            task_id = path[len('/api/tasks/'):]
+            if task_id:
+                self._handle_delete_task(task_id)
                 return
 
         # Chat API
@@ -10602,6 +10677,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         try:
             result = _sync_token_usage_from_trajectories()
+            credits_synced = _sync_credits_from_token_usage()
+            result['credits_synced'] = credits_synced
             self._send_json(200, result)
         except Exception as e:
             print(f'  [TokenUsageSync] failed: {e}', flush=True)
@@ -10625,6 +10702,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 rows = [account]
             else:
                 rows = conn.execute('SELECT * FROM credit_accounts ORDER BY updated_at DESC').fetchall()
+                active_ids = _get_active_agent_ids()
+                rows = [r for r in rows if r['agent_id'] in active_ids]
             items = [{
                 'agent_id': r['agent_id'],
                 'balance': r['balance'] or 0,
@@ -10754,6 +10833,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         end_date = qs.get('end_date', [''])[0].strip()
         where = []
         params = []
+        active_ids = list(_get_active_agent_ids())
+        if active_ids:
+            placeholders = ','.join('?' * len(active_ids))
+            where.append(f'agent_id IN ({placeholders})')
+            params.extend(active_ids)
         if agent_id:
             where.append('agent_id = ?')
             params.append(agent_id)
@@ -10800,6 +10884,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         end_date = qs.get('end_date', [''])[0].strip()
         where = []
         params = []
+        active_ids = list(_get_active_agent_ids())
+        if active_ids:
+            placeholders = ','.join('?' * len(active_ids))
+            where.append(f'agent_id IN ({placeholders})')
+            params.extend(active_ids)
         if agent_id:
             where.append('agent_id = ?')
             params.append(agent_id)
@@ -12093,6 +12182,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(404, 'Talent not found')
                 return
             existing = _talent_row_to_dict(row)
+            if not auth.is_admin and existing.get('created_by') != auth.user_info.get('userId', ''):
+                self._send_json_error(403, '无权修改他人创建的达人')
+                return
             existing.update(body)
             existing['id'] = talent_id
             existing['updated_at'] = int(time.time() * 1000)
@@ -12292,6 +12384,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if query.get('q'):
             kw = query['q'][0].lower()
             influencers = [i for i in influencers if kw in (i.get('id') or '').lower() or kw in (i.get('name') or '').lower() or kw in (i.get('accountId') or '').lower() or kw in (i.get('bio') or '').lower() or any(kw in t.lower() for t in (i.get('tags') or []))]
+        if not auth.is_admin:
+            influencers = [i for i in influencers if i.get('createdBy') == auth.user_info.get('userId', '')]
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
         total = len(influencers)
@@ -12369,6 +12463,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         updated = None
         for i in data.get('influencers', []):
             if i.get('id') == inf_id:
+                if not auth.is_admin and i.get('createdBy') != auth.user_info.get('userId', ''):
+                    self._send_json_error(403, '无权修改他人创建的达人')
+                    return
                 for field in ('name', 'avatar', 'platform', 'accountId', 'followerCount', 'category', 'tags', 'bio', 'contentStyle', 'cooperationPrice', 'priceUnit', 'contact', 'status', 'engagementRate', 'avgViews', 'lastCooperation', 'notes'):
                     if field in body:
                         i[field] = body[field]
@@ -12469,6 +12566,160 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         results.sort(key=lambda x: x['score'], reverse=True)
         limit = int(body.get('limit', 20))
         self._send_json(200, {'results': results[:limit], 'total': len(results)})
+
+    # ═══════════════════════════════════════════════════
+    # 任务管理 API
+    # ═══════════════════════════════════════════════════
+
+    def _handle_get_tasks(self):
+        """GET /api/tasks — 任务列表，支持status/assignee过滤"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        parsed = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed.query)
+        status_filter = qs.get('status', [None])[0]
+        assignee_filter = qs.get('assignee', [None])[0]
+        conn = _db_conn()
+        try:
+            sql = 'SELECT * FROM tasks WHERE 1=1'
+            params = []
+            if status_filter:
+                sql += ' AND status = ?'
+                params.append(status_filter)
+            if assignee_filter:
+                sql += ' AND assignee = ?'
+                params.append(assignee_filter)
+            if not auth.is_admin:
+                uid = auth.user_info.get('userId', '')
+                sql += ' AND (assignee = ? OR creator = ?)'
+                params.extend([uid, uid])
+            sql += ' ORDER BY created_at DESC'
+            rows = conn.execute(sql, params).fetchall()
+            tasks = [dict(r) for r in rows]
+        finally:
+            conn.close()
+        self._send_json(200, {'tasks': tasks})
+
+    def _handle_get_task(self, task_id):
+        """GET /api/tasks/:id — 单个任务详情"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            self._send_json_error(404, '任务不存在')
+            return
+        task = dict(row)
+        if not auth.is_admin:
+            uid = auth.user_info.get('userId', '')
+            if task.get('assignee') != uid and task.get('creator') != uid:
+                self._send_json_error(403, '无权查看此任务')
+                return
+        self._send_json(200, task)
+
+    def _handle_post_task(self):
+        """POST /api/tasks — 创建任务（仅管理员）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_json_error(403, '仅管理员可创建任务')
+            return
+        body = self._read_body()
+        if not body or not body.get('title'):
+            self._send_json_error(400, '任务标题不能为空')
+            return
+        task_id = f"task_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+        conn = _db_conn()
+        try:
+            conn.execute('''INSERT INTO tasks (id, title, description, assignee, assignee_name, creator, creator_name, status, priority, deadline, project_id, progress)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+                task_id,
+                body.get('title', '').strip(),
+                body.get('description', ''),
+                body.get('assignee', ''),
+                body.get('assigneeName', ''),
+                auth.user_info.get('userId', ''),
+                auth.user_info.get('displayName', ''),
+                body.get('status', 'pending'),
+                body.get('priority', 'normal'),
+                body.get('deadline', ''),
+                body.get('projectId', ''),
+                body.get('progress', '')
+            ))
+            conn.commit()
+            row = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(201, dict(row))
+
+    def _handle_put_task(self, task_id):
+        """PUT /api/tasks/:id — 更新任务（管理员可改全部，员工只能改status和progress）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, '任务不存在')
+                return
+            task = dict(row)
+            uid = auth.user_info.get('userId', '')
+            if not auth.is_admin:
+                if task.get('assignee') != uid and task.get('creator') != uid:
+                    self._send_json_error(403, '无权修改此任务')
+                    return
+            # 员工只能改 status 和 progress，管理员可改全部
+            allowed_fields = ['status', 'progress'] if not auth.is_admin else ['title', 'description', 'assignee', 'assignee_name', 'status', 'priority', 'deadline', 'project_id', 'progress']
+            updates = []
+            params = []
+            for field in allowed_fields:
+                if field in body:
+                    updates.append(f'{field} = ?')
+                    params.append(body[field])
+            if updates:
+                updates.append("updated_at = datetime('now', 'localtime')")
+                if body.get('status') == 'completed':
+                    updates.append("completed_at = datetime('now', 'localtime')")
+                params.append(task_id)
+                conn.execute(f'UPDATE tasks SET {", ".join(updates)} WHERE id = ?', params)
+                conn.commit()
+            row = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(200, dict(row))
+
+    def _handle_delete_task(self, task_id):
+        """DELETE /api/tasks/:id — 删除任务（仅管理员）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_json_error(403, '仅管理员可删除任务')
+            return
+        conn = _db_conn()
+        try:
+            cur = conn.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
+            conn.commit()
+            deleted = cur.rowcount > 0
+        finally:
+            conn.close()
+        self._send_json(200, {'deleted': deleted, 'id': task_id})
 
     # ═══════════════════════════════════════════════════
     # 匹配引擎
@@ -15473,6 +15724,7 @@ def _sync_token_usage_from_trajectories():
         return {'scannedFiles': 0, 'scannedEvents': 0, 'inserted': 0}
 
     conn = _db_conn()
+    active_ids = _get_active_agent_ids()
     try:
         for filepath in files:
             try:
@@ -15483,6 +15735,8 @@ def _sync_token_usage_from_trajectories():
                             continue
                         ev = _parse_trajectory_event(line)
                         if not ev:
+                            continue
+                        if ev['agent_id'] not in active_ids:
                             continue
                         scanned_events += 1
                         try:
@@ -15509,6 +15763,14 @@ def _sync_token_usage_from_trajectories():
                             ))
                             if conn.total_changes > before:
                                 inserted += 1
+                                # 同步记录积分扣除
+                                try:
+                                    _record_credit_usage(conn, ev['agent_id'],
+                                        ev['input_tokens'], ev['output_tokens'],
+                                        ev['cache_read_tokens'],
+                                        session_id=ev['session_key'], created_at=ev['ts'])
+                                except Exception as ce:
+                                    print(f'  [TrajectorySync] credit record skipped: {ce}', flush=True)
                         except Exception as e:
                             print(f'  [TrajectorySync] insert skipped: {e}', flush=True)
             except Exception as e:
@@ -15517,6 +15779,46 @@ def _sync_token_usage_from_trajectories():
     finally:
         conn.close()
     return {'scannedFiles': len(files), 'scannedEvents': scanned_events, 'inserted': inserted}
+
+
+def _sync_credits_from_token_usage():
+    """从 token_usage 表反向同步积分：为已有 token_usage 记录补充 credit_usage_log 条目。
+    匹配键：agent_id + ts + total_tokens，已存在则跳过。
+    跳过不在 agents.json 中的 agent，并清理其历史记录。"""
+    conn = _db_conn()
+    synced = 0
+    active_ids = _get_active_agent_ids()
+    try:
+        # 清理非正式 agent 的历史记录
+        for table in ('credit_usage_log', 'token_usage', 'credit_accounts'):
+            conn.execute(f'DELETE FROM {table} WHERE agent_id NOT IN ({",".join("?"*len(active_ids))})', tuple(active_ids))
+        cleaned = conn.total_changes
+        if cleaned:
+            print(f'  [CreditsSync] cleaned {cleaned} records for inactive agents', flush=True)
+        rows = conn.execute('''
+            SELECT agent_id, prompt_tokens, completion_tokens, cache_read_tokens, total_tokens, ts, session_key
+            FROM token_usage
+        ''').fetchall()
+        for r in rows:
+            if r['agent_id'] not in active_ids:
+                continue
+            existing = conn.execute(
+                'SELECT 1 FROM credit_usage_log WHERE agent_id=? AND created_at=? AND total_tokens=? LIMIT 1',
+                (r['agent_id'], r['ts'], r['total_tokens'])
+            ).fetchone()
+            if existing:
+                continue
+            try:
+                _record_credit_usage(conn, r['agent_id'],
+                    r['prompt_tokens'], r['completion_tokens'], r['cache_read_tokens'],
+                    session_id=r['session_key'] or '', created_at=r['ts'])
+                synced += 1
+            except Exception as ce:
+                print(f'  [CreditsSync] skip: {ce}', flush=True)
+        conn.commit()
+    finally:
+        conn.close()
+    return synced
 
 
 def _handle_proxy(self):

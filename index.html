@@ -6156,11 +6156,10 @@ window.doLogin = function () {
       <div class="user-dropdown-item" onclick="openGlobalSearch(); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> 全局搜索</div>
       <div class="user-dropdown-divider"></div>
       <div class="user-dropdown-item" onclick="showUserManagement(); closeUserDropdownDirect()" id="dropdownAdminItem" style="display:none;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></svg> 用户管理</div>
-      <div class="user-dropdown-item" onclick="showTeamManagement(); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><rect x="4" y="2" width="16" height="20" rx="2"/></svg> 团队管理</div>
-      <div class="user-dropdown-item" onclick="switchModule('settings'); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 设置</div>
-      <div class="user-dropdown-divider"></div>
-      <div class="user-dropdown-item" onclick="showTokenStats(); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></svg> Token统计</div>
-      <div class="user-dropdown-item" onclick="showChannelConfig(); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M15 8a3 3 0 0 1-3 3 3 3 0 0 0-3 3v4h6v-4a3 3 0 0 0-3-3 3 3 0 0 1-3-3V2"/><path d="M9 8V2"/><path d="M6 17h12"/></svg> 渠道配置</div>
+      <div class="user-dropdown-item" onclick="showTeamManagement(); closeUserDropdownDirect()" style="display:none;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><rect x="4" y="2" width="16" height="20" rx="2"/></svg> 团队管理</div>
+      <div class="user-dropdown-item" onclick="switchModule('settings'); closeUserDropdownDirect()" style="display:none;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 设置</div>
+      <div class="user-dropdown-item" onclick="showTokenStats(); closeUserDropdownDirect()" style="display:none;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></svg> Token统计</div>
+      <div class="user-dropdown-item" onclick="showChannelConfig(); closeUserDropdownDirect()" style="display:none;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M15 8a3 3 0 0 1-3 3 3 3 0 0 0-3 3v4h6v-4a3 3 0 0 0-3-3 3 3 0 0 1-3-3V2"/><path d="M9 8V2"/><path d="M6 17h12"/></svg> 渠道配置</div>
       <div class="user-dropdown-item" onclick="showUserProfile(); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> 个人信息</div>
       <div class="user-dropdown-divider"></div>
       <div class="user-dropdown-item danger" onclick="confirmLogout()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg> 退出登录</div>
@@ -22223,8 +22222,17 @@ function renderProductList(products) {
     html += '<div class="products-mid-card-metrics">';
     html += '<div class="products-mid-card-price-row">';
     html += '<span class="products-mid-card-price">¥' + (p.price || 0).toFixed(2) + '</span>';
-    var commissionUnset = p.commission_rate === null || p.commission_rate === undefined || Number(p.commission_rate) === 0;
-    html += '<span class="products-mid-card-commission' + (commissionUnset ? '' : ' commission-set') + '">' + (commissionUnset ? '佣金·待设置' : '佣金' + Number(p.commission_rate).toFixed(0) + '%') + '</span>';
+    var hasRates = p.commission_rates && Object.keys(p.commission_rates).length > 0;
+    var commissionUnset = !hasRates && (p.commission_rate === null || p.commission_rate === undefined || Number(p.commission_rate) === 0);
+    var commissionDisplay = '';
+    if (hasRates) {
+      commissionDisplay = '佣金 ' + Object.keys(p.commission_rates).map(function(k){ return p.commission_rates[k] + '%'; }).join('/');
+    } else if (!commissionUnset) {
+      commissionDisplay = '佣金' + Number(p.commission_rate).toFixed(0) + '%';
+    } else {
+      commissionDisplay = '佣金·待设置';
+    }
+    html += '<span class="products-mid-card-commission' + (commissionUnset ? '' : ' commission-set') + '">' + commissionDisplay + '</span>';
     html += '</div>';
     html += '<div class="products-mid-card-sales-row">';
     html += '<span class="products-mid-card-sales">月销 ' + formatNumber(p.monthly_sales || 0) + '</span>';
@@ -22345,7 +22353,13 @@ function renderProductPanelDetail(p) {
   html += '<div class="products-detail-item"><div class="products-detail-label">库存</div><div class="products-detail-value">' + (p.stock || 0) + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">状态</div><div class="products-detail-value"><span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status || '-') + '</span></div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">原价</div><div class="products-detail-value">¥' + (p.original_price || 0).toFixed(2) + '</div></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">佣金率</div><div class="products-detail-value">' + (p.commission_rate || 0) + '%</div></div>';
+  var commRateHtml = '';
+  if (p.commission_rates && Object.keys(p.commission_rates).length > 0) {
+    commRateHtml = Object.keys(p.commission_rates).map(function(k){ return escapeHtml(k) + ' ' + p.commission_rates[k] + '%'; }).join(' / ');
+  } else {
+    commRateHtml = (p.commission_rate || 0) + '%';
+  }
+  html += '<div class="products-detail-item"><div class="products-detail-label">佣金率</div><div class="products-detail-value">' + commRateHtml + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">发货地</div><div class="products-detail-value">' + escapeHtml(p.shipping_from || '-') + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">不发货地区</div><div class="products-detail-value">' + escapeHtml(p.shipping_note || '-') + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">SKU 编码</div><div class="products-detail-value">' + escapeHtml(p.sku_code || '-') + '</div></div>';
@@ -22540,35 +22554,47 @@ function renderProductPanelAudience(p) {
   var el = document.getElementById('productsPanelAudience');
   if (!el) return;
   var audience = p.audience || {};
-  var html = '';
-  function renderDistSection(title, obj) {
+  var inputStyle = 'width:100%;padding:6px 8px;border:1px solid #E0E0E0;border-radius:8px;font-size:13px;color:var(--text-primary);outline:none;background:#fff;box-sizing:border-box;font-family:inherit;';
+  function distToText(obj) {
     if (!obj || Object.keys(obj).length === 0) return '';
-    var total = Object.values(obj).reduce(function(a,b){return a + (parseFloat(b)||0);}, 0);
-    var sectionHtml = '<div class="products-panel-section">';
-    sectionHtml += '<div class="products-panel-title">' + title + '</div>';
-    Object.keys(obj).forEach(function(k){
-      var v = parseFloat(obj[k]) || 0;
-      var pct = total ? (v / total * 100) : 0;
-      sectionHtml += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(k) + '</span><span>' + (pct > 0 ? pct.toFixed(1) + '%' : v) + '</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(pct, 100) + '%"></div></div></div>';
-    });
-    sectionHtml += '</div>';
-    return sectionHtml;
+    return Object.keys(obj).map(function(k){ return k + ':' + obj[k]; }).join(', ');
   }
-  html += renderDistSection('性别分布', audience.gender);
-  html += renderDistSection('年龄分布', audience.age);
-  html += renderDistSection('地域分布', audience.region);
-  html += renderDistSection('职业分布', audience.occupation);
-  if (audience.interests && audience.interests.length > 0) {
-    html += '<div class="products-panel-section">';
-    html += '<div class="products-panel-title">兴趣标签</div>';
-    html += '<div class="products-tag-list">';
-    audience.interests.forEach(function(tag){ html += '<span class="products-tag">' + escapeHtml(tag) + '</span>'; });
-    html += '</div></div>';
-  }
-  if (!html) {
-    html = '<div class="products-empty"><div class="products-empty-text">暂无受众画像数据</div></div>';
-  }
+  var html = '<div class="products-panel-section">';
+  html += '<div class="products-panel-title"><span>受众画像</span><button class="ai-match-btn" style="padding:6px 12px;font-size:12px;margin-left:auto;" onclick="saveProductAudience()">保存</button></div>';
+  html += '<div class="products-detail-grid">';
+  html += '<div class="products-detail-item"><div class="products-detail-label">性别分布</div><input type="text" id="audience-gender" value="' + escapeAttr(distToText(audience.gender)) + '" placeholder="如: 女:60, 男:40" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">年龄分布</div><input type="text" id="audience-age" value="' + escapeAttr(distToText(audience.age)) + '" placeholder="如: 18-24:30, 25-34:50" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">地域分布</div><input type="text" id="audience-region" value="' + escapeAttr(distToText(audience.region)) + '" placeholder="如: 浙江:40, 广东:30" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">职业分布</div><input type="text" id="audience-occupation" value="' + escapeAttr(distToText(audience.occupation)) + '" placeholder="如: 学生:30, 上班族:50" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item" style="grid-column:1/-1;"><div class="products-detail-label">兴趣标签</div><input type="text" id="audience-interests" value="' + escapeAttr((audience.interests || []).join(', ')) + '" placeholder="多个标签用逗号分隔，如: 时尚, 穿搭, 女鞋" style="' + inputStyle + '"></div>';
+  html += '</div></div>';
   el.innerHTML = html;
+}
+function saveProductAudience() {
+  if (!_productCurrentId) { showToast('请选择商品'); return; }
+  function parseDist(text) {
+    var obj = {};
+    if (!text || !text.trim()) return obj;
+    text.split(',').forEach(function(pair) {
+      var parts = pair.trim().split(':');
+      if (parts.length >= 2) {
+        var k = parts[0].trim();
+        var v = parseFloat(parts.slice(1).join(':').trim()) || 0;
+        if (k) obj[k] = v;
+      }
+    });
+    return obj;
+  }
+  var body = {
+    audience: {
+      gender: parseDist(document.getElementById('audience-gender').value),
+      age: parseDist(document.getElementById('audience-age').value),
+      region: parseDist(document.getElementById('audience-region').value),
+      occupation: parseDist(document.getElementById('audience-occupation').value),
+      interests: document.getElementById('audience-interests').value.split(',').map(function(s){return s.trim();}).filter(Boolean)
+    }
+  };
+  apiFetch('/api/products/' + encodeURIComponent(_productCurrentId), {method:'PUT', body: JSON.stringify(body)}).then(function(){ showToast('✅ 受众画像已保存'); loadProducts().then(function(){ selectProductItem(_productCurrentId); }); }).catch(function(){ showToast('❌ 保存失败'); });
 }
 
 function analyzeProductAI() {
@@ -22723,50 +22749,22 @@ function _hashString(str) {
 }
 
 function _getTalentMockData(t) {
-  var seed = _hashString((t && (t.id || t.name)) || 'unknown');
-  var categories = ['鞋靴/凉鞋', '美妆/护肤', '服饰/女装', '食品/零食', '家居/日用', '数码/配件', '母婴/玩具'];
-  var cities = ['杭州', '广州', '深圳', '上海', '成都', '武汉', '北京', '郑州', '苏州'];
-  var riskRatings = ['low', 'medium', 'high'];
-  var levels = ['S', 'A', 'B', 'C'];
-  var aiTagPool = ['高性价比', '爆款潜力', '直播型达人', '短视频种草', '粉丝粘性强', '转化率高', '品类垂直', '全域带货', '新锐达人', '口碑优秀'];
-  var cat = t.category || t.fan_category;
-  if (!cat) cat = categories[seed % categories.length];
-  var city = t.city || cities[seed % cities.length];
-  var level = t.level || levels[seed % levels.length];
-  var risk = t.risk_rating || riskRatings[seed % riskRatings.length];
-  var aiTags = (t.ai_tags && t.ai_tags.length) ? t.ai_tags : aiTagPool.slice(seed % 5, seed % 5 + 3);
-  var realName = t.real_name || (t.name ? t.name.replace(/[a-zA-Z0-9_]+$/, '') : '');
-  var phone = t.phone || t.contact_phone || ('138' + String(seed).padStart(8, '0').slice(0, 8));
-  var wechat = t.wechat || t.contact_wechat || ('wx_' + (t.douyin_id || t.name || 'user') + seed.toString().slice(0, 3));
-  var email = t.email || t.contact_email || ((t.douyin_id || 'talent') + seed + '@example.com');
-  var productCount = t.product_count || t.total_products || Math.floor(20 + (seed % 180));
-  var averagePrice = t.average_price || (50 + (seed % 250));
-  var totalGmv = t.total_gmv || (productCount * averagePrice * (50 + seed % 150));
-  var aiAnalysis = t.ai_analysis || t.ai_summary || ('该达人主营' + cat + '，粉丝画像以' + (seed % 2 ? '女性' : '年轻群体') + '为主，内容风格' + (seed % 2 ? '真实接地气' : '精致专业') + '，适合' + (seed % 2 ? '直播带货' : '短视频种草') + '合作。建议重点关注其' + aiTags[0] + '优势，搭配' + cat.split('/')[0] + '类目商品进行测品。');
-  var fansProfile = t.fans_profile && Object.keys(t.fans_profile).length ? t.fans_profile : {
-    gender: { '女': 52 + seed % 35, '男': 13 + seed % 25 },
-    age: { '18-24岁': 15 + seed % 25, '25-34岁': 25 + seed % 30, '35-44岁': 10 + seed % 20, '45岁以上': 5 + seed % 10 },
-    cities: [city].concat(cities.slice((seed + 1) % cities.length, (seed + 4) % cities.length || cities.length)),
-    consumption: seed % 2 ? '中高消费' : '性价比敏感',
-    active_time: '20:00 - 23:00',
-    interest: [cat.split('/')[0], '穿搭', '生活方式']
-  };
   return {
-    category: cat,
-    city: city,
-    level: level,
-    risk_rating: risk,
-    ai_tags: aiTags,
-    real_name: realName,
-    phone: phone,
-    wechat: wechat,
-    email: email,
-    content_style: t.content_style || t.contentStyle || (seed % 2 ? '真实测评+日常vlog，语言幽默亲切' : '韩系简约风，搭配教程+场景展示'),
-    product_count: productCount,
-    average_price: averagePrice,
-    total_gmv: totalGmv,
-    ai_analysis: aiAnalysis,
-    fans_profile: fansProfile
+    category: t.category || t.fan_category || '',
+    city: t.city || '',
+    level: t.level || '',
+    risk_rating: t.risk_rating || '',
+    ai_tags: (t.ai_tags && t.ai_tags.length) ? t.ai_tags : [],
+    real_name: t.real_name || '',
+    phone: t.phone || t.contact_phone || '',
+    wechat: t.wechat || t.contact_wechat || '',
+    email: t.email || t.contact_email || '',
+    content_style: t.content_style || t.contentStyle || '',
+    product_count: t.product_count || t.total_products || 0,
+    average_price: t.average_price || 0,
+    total_gmv: t.total_gmv || 0,
+    ai_analysis: t.ai_analysis || t.ai_summary || '',
+    fans_profile: (t.fans_profile && Object.keys(t.fans_profile).length) ? t.fans_profile : {}
   };
 }
 
@@ -22868,7 +22866,8 @@ function renderTalentList(talents) {
     var aiScore = t.ai_rating ? (['S','A','B','C'].indexOf(t.ai_rating) >= 0 ? (4 - ['S','A','B','C'].indexOf(t.ai_rating)) * 25 : 0) : 0;
     var categories = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
     var followersText = formatFollowers(t.followers || 0).replace('w', '万');
-    var gmv = (t.total_gmv || mock.total_gmv || 0) >= 10000 ? (((t.total_gmv || mock.total_gmv) / 10000).toFixed(1).replace(/\.0$/, '') + 'w') : formatNumber(t.total_gmv || mock.total_gmv || 0);
+    var gmvRaw = t.total_gmv || mock.total_gmv || 0;
+    var gmv = gmvRaw >= 10000 ? ((gmvRaw / 10000).toFixed(1).replace(/\.0$/, '') + 'w') : (gmvRaw > 0 ? formatNumber(gmvRaw) : '-');
     var productCount = t.product_count || t.total_products || mock.product_count || 0;
     html += '<div class="talents-mid-card' + (_talentCurrentId === t.id ? ' active' : '') + '" data-id="' + escapeAttr(t.id) + '" onclick="selectTalentItem(\'' + escapeAttr(t.id).replace(/'/g,"\\'") + '\')">';
     html += '<div class="talents-mid-avatar" style="background:' + (t.avatar ? '#f5f7fa' : 'var(--accent)') + ';">' + avatar + '</div>';
@@ -22884,7 +22883,7 @@ function renderTalentList(talents) {
     }
     html += '</div>';
     html += '<div class="talents-mid-data-row">';
-    html += '<span>带货<strong>' + productCount + '款</strong></span>';
+    html += '<span>带货<strong>' + (productCount > 0 ? productCount + '款' : '-') + '</strong></span>';
     html += '<span class="gmv">GMV ' + gmv + '</span>';
     html += '</div>';
     if (tags.length) {
@@ -23181,28 +23180,30 @@ function renderTalentPanelOverview(t) {
   html += '</div>';
   html += '</div></div>';
 
-  // 核心数据
+  // 核心数据（飞书带货指标）
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">核心数据</div>';
   html += '<div class="talents-metric-grid">';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + formatFollowers(t.followers || 0) + '</div><div class="talents-metric-label">粉丝量</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(totalGmv) + '</div><div class="talents-metric-label">历史GMV</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + productCount + '</div><div class="talents-metric-label">带货商品数</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(averagePrice) + '</div><div class="talents-metric-label">平均客单价</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.fulfillment_score || 0).toFixed(1) + '</div><div class="talents-metric-label">履约分</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.rating_score || 0).toFixed(1) + '</div><div class="talents-metric-label">口碑分</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.followers ? formatFollowers(t.followers) : '-') + '</div><div class="talents-metric-label">粉丝量</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + escapeHtml(t.monthly_settlement || '-') + '</div><div class="talents-metric-label">月结算金额</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + escapeHtml(t.feishu_product_count || '-') + '</div><div class="talents-metric-label">带货商品数</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + escapeHtml(t.feishu_gpm || '-') + '</div><div class="talents-metric-label">视频GPM</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + escapeHtml(t.single_video_settlement || '-') + '</div><div class="talents-metric-label">单视频结算额</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + escapeHtml(t.feishu_shops || '-') + '</div><div class="talents-metric-label">合作店铺数</div></div>';
   html += '</div></div>';
 
-  // 基础信息
+  // 基础信息（飞书录入字段）
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">基础信息</div>';
   html += '<div class="talents-info-grid">';
-  html += '<div class="talents-info-item"><label>真实姓名</label><div class="value">' + escapeHtml(t.real_name || mock.real_name || '-') + '</div></div>';
-  html += '<div class="talents-info-item"><label>所在城市</label><div class="value">' + escapeHtml(t.city || mock.city || '-') + '</div></div>';
-  html += '<div class="talents-info-item"><label>手机号</label><div class="value">' + escapeHtml(t.phone || t.contact_phone || mock.phone || '-') + '</div></div>';
-  html += '<div class="talents-info-item"><label>微信号</label><div class="value">' + escapeHtml(t.wechat || t.contact_wechat || mock.wechat || '-') + '</div></div>';
-  html += '<div class="talents-info-item full-width"><label>短视频特征</label><div class="value">' + escapeHtml(t.content_style || t.contentStyle || mock.content_style || mock.contentStyle || '-') + '</div></div>';
-  html += '<div class="talents-info-item full-width"><label>邮箱</label><div class="value">' + escapeHtml(t.email || t.contact_email || mock.email || '-') + '</div></div>';
+  html += '<div class="talents-info-item"><label>内容类型</label><div class="value">' + escapeHtml(t.talent_type || '-') + '</div></div>';
+  html += '<div class="talents-info-item"><label>类目</label><div class="value">' + escapeHtml(t.category || mock.category || '-') + '</div></div>';
+  html += '<div class="talents-info-item"><label>内容风格</label><div class="value">' + escapeHtml(t.content_style || mock.content_style || '-') + '</div></div>';
+  html += '<div class="talents-info-item"><label>视频结算额占比</label><div class="value">' + escapeHtml(t.video_settlement_ratio || '-') + '</div></div>';
+  html += '<div class="talents-info-item"><label>视频平均件单价</label><div class="value">' + escapeHtml(t.video_avg_price || '-') + '</div></div>';
+  html += '<div class="talents-info-item full-width"><label>账号粉丝特征</label><div class="value">' + escapeHtml(t.account_fans_profile || '-') + '</div></div>';
+  html += '<div class="talents-info-item full-width"><label>短视频粉丝特征</label><div class="value">' + escapeHtml(t.video_fans_profile || '-') + '</div></div>';
+  html += '<div class="talents-info-item full-width"><label>备注</label><div class="value">' + escapeHtml(t.remark || '-') + '</div></div>';
   html += '</div></div>';
 
   // AI 分析摘要
@@ -23251,17 +23252,25 @@ function renderTalentPanelSales(t) {
   html += '<div class="talents-distribution-card">';
   html += '<div class="talents-distribution-title">价格带分布</div>';
   var priceDistribution = _getTalentPriceDistribution(t, mock);
-  priceDistribution.forEach(function(item, idx){
-    var colors = ['#0a84ff', '#36cfc9', '#73d13d', '#faad14', '#ff7875'];
-    html += '<div class="talents-price-bubble"><span class="talents-price-bubble-dot" style="background:' + colors[idx % colors.length] + ';"></span><span class="talents-price-bubble-label">' + escapeHtml(item.label) + '</span><span class="talents-price-bubble-value">' + item.value + '%</span></div>';
-  });
+  if (priceDistribution.length) {
+    priceDistribution.forEach(function(item, idx){
+      var colors = ['#0a84ff', '#36cfc9', '#73d13d', '#faad14', '#ff7875'];
+      html += '<div class="talents-price-bubble"><span class="talents-price-bubble-dot" style="background:' + colors[idx % colors.length] + ';"></span><span class="talents-price-bubble-label">' + escapeHtml(item.label) + '</span><span class="talents-price-bubble-value">' + item.value + '%</span></div>';
+    });
+  } else {
+    html += '<div class="products-empty-text" style="padding:12px 0;">暂无数据</div>';
+  }
   html += '</div>';
   html += '<div class="talents-distribution-card">';
   html += '<div class="talents-distribution-title">类目分布</div>';
   var catDistribution = _getTalentCategoryDistribution(t, mock);
-  catDistribution.forEach(function(item){
-    html += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(item.label) + '</span><span>' + item.value + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(item.value, 100) + '%"></div></div></div>';
-  });
+  if (catDistribution.length) {
+    catDistribution.forEach(function(item){
+      html += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(item.label) + '</span><span>' + item.value + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(item.value, 100) + '%"></div></div></div>';
+    });
+  } else {
+    html += '<div class="products-empty-text" style="padding:12px 0;">暂无数据</div>';
+  }
   html += '</div></div>';
 
   // 带货商品列表
@@ -23284,6 +23293,7 @@ function switchTalentGmvRange(btn, days) {
 }
 
 function _getTalentGmvTrend(mock, days) {
+  if (!mock.total_gmv) return new Array(days).fill(0);
   var seed = _hashString(mock.category + mock.city);
   var points = [];
   var base = (mock.total_gmv / days) * (0.6 + (seed % 80) / 100);
@@ -23370,6 +23380,7 @@ function _drawTalentGmvChart(t, mock, days) {
 }
 
 function _getTalentPriceDistribution(t, mock) {
+  if (!mock.average_price) return [];
   var seed = _hashString(t.id + 'price');
   var avg = mock.average_price || 100;
   return [
@@ -23381,7 +23392,8 @@ function _getTalentPriceDistribution(t, mock) {
 }
 
 function _getTalentCategoryDistribution(t, mock) {
-  var cats = (t.category || t.fan_category || mock.category || '未分类').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  var cats = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean);
+  if (!cats.length) return [];
   var seed = _hashString(t.id + 'cat');
   if (cats.length < 2) cats = [cats[0] || '主营类目', '相关类目1', '相关类目2'];
   var total = 0;
@@ -23443,18 +23455,21 @@ function renderTalentPanelFans(t) {
   }
 
   // 粉丝画像总览
-  html += '<div class="talents-panel-section">';
-  html += '<div class="talents-panel-title">粉丝画像</div>';
-  html += '<div class="talents-info-grid">';
-  html += '<div class="talents-info-item"><label>消费层级</label><div class="value">' + escapeHtml(fans.consumption || '中高消费') + '</div></div>';
-  html += '<div class="talents-info-item"><label>活跃时段</label><div class="value">' + escapeHtml(fans.active_time || '20:00 - 23:00') + '</div></div>';
-  if (fans.cities && fans.cities.length) {
-    html += '<div class="talents-info-item full-width"><label>TOP 城市</label><div class="value">' + fans.cities.slice(0, 5).map(function(c){ return escapeHtml(c); }).join('、') + '</div></div>';
+  var hasFansData = (fans.consumption || fans.active_time || (fans.cities && fans.cities.length) || (fans.interest && fans.interest.length) || (t.fan_gender && Object.keys(t.fan_gender).length) || (t.fan_age && Object.keys(t.fan_age).length) || (t.fan_region && Object.keys(t.fan_region).length));
+  if (hasFansData) {
+    html += '<div class="talents-panel-section">';
+    html += '<div class="talents-panel-title">粉丝画像</div>';
+    html += '<div class="talents-info-grid">';
+    html += '<div class="talents-info-item"><label>消费层级</label><div class="value">' + escapeHtml(fans.consumption || '-') + '</div></div>';
+    html += '<div class="talents-info-item"><label>活跃时段</label><div class="value">' + escapeHtml(fans.active_time || '-') + '</div></div>';
+    if (fans.cities && fans.cities.length) {
+      html += '<div class="talents-info-item full-width"><label>TOP 城市</label><div class="value">' + fans.cities.slice(0, 5).map(function(c){ return escapeHtml(c); }).join('、') + '</div></div>';
+    }
+    if (fans.interest && fans.interest.length) {
+      html += '<div class="talents-info-item full-width"><label>兴趣偏好</label><div class="value"><div class="talents-overview-tags" style="margin-top:0;">' + fans.interest.map(function(i){ return '<span class="talents-overview-tag">' + escapeHtml(i) + '</span>'; }).join('') + '</div></div></div>';
+    }
+    html += '</div></div>';
   }
-  if (fans.interest && fans.interest.length) {
-    html += '<div class="talents-info-item full-width"><label>兴趣偏好</label><div class="value"><div class="talents-overview-tags" style="margin-top:0;">' + fans.interest.map(function(i){ return '<span class="talents-overview-tag">' + escapeHtml(i) + '</span>'; }).join('') + '</div></div></div>';
-  }
-  html += '</div></div>';
 
   html += renderDist('性别分布', t.fan_gender && Object.keys(t.fan_gender).length ? t.fan_gender : fans.gender);
   html += renderDist('年龄分布', t.fan_age && Object.keys(t.fan_age).length ? t.fan_age : fans.age);
@@ -23550,7 +23565,8 @@ function _renderTalentProductMatches() {
     html += '<div class="ai-match-card-title">' + escapeHtml(p.name || '-') + '</div>';
     html += '<div class="ai-match-card-meta">' + escapeHtml(p.brand || '-') + ' · ' + escapeHtml(p.category || '未分类') + ' · ¥' + (p.price || 0).toFixed(2) + '</div>';
     html += '<div class="ai-match-card-tags">';
-    html += '<span class="ai-match-tag">佣金率 ' + (p.commission_rate || 0) + '%</span>';
+    var matchCommText = (p.commission_rates && Object.keys(p.commission_rates).length > 0) ? Object.keys(p.commission_rates).map(function(k){ return p.commission_rates[k] + '%'; }).join('/') : (p.commission_rate || 0) + '%';
+    html += '<span class="ai-match-tag">佣金率 ' + matchCommText + '</span>';
     html += '<span class="ai-match-tag">库存 ' + (p.stock || 0) + '</span>';
     html += '</div>';
     html += '<div class="ai-match-card-reason">' + escapeHtml(reason) + '</div>';
@@ -23755,7 +23771,7 @@ function createNewTalent() {
   document.getElementById('talentDouyinId').value = '';
   document.getElementById('talentRealName').value = '';
   document.getElementById('talentFollowers').value = '0';
-  document.getElementById('talentCategory').value = '鞋靴/凉鞋';
+  document.getElementById('talentCategory').value = '';
   document.getElementById('talentLevel').value = '';
   document.getElementById('talentRiskRating').value = '';
   document.getElementById('talentCity').value = '';
@@ -26203,7 +26219,8 @@ function renderCreditDashboard(balances, quotas, todayRecords, summary) {
   html += _creditStatChip('消耗记录数', formatNumber(summary.records_count || 0));
   html += '</div></div>';
 
-  // 员工积分卡片
+  // 员工积分卡片（仅管理员可见）
+  if (admin) {
   html += '<div class="settings-card"><div class="settings-card-title">员工积分余额</div>';
   if (!agents.length) {
     html += '<div class="settings-empty" style="padding:20px;">暂无员工数据</div>';
@@ -26238,6 +26255,7 @@ function renderCreditDashboard(balances, quotas, todayRecords, summary) {
     html += '</div>';
   }
   html += '</div>';
+  }
 
   // 使用记录明细（可展开）
   html += '<div class="settings-card"><div class="settings-card-title" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="toggleCreditUsageList()">使用记录明细<span id="creditUsageToggleArrow" style="font-size:12px;color:#007AFF;font-weight:400;">展开 ▼</span></div>';
@@ -26948,14 +26966,15 @@ function renderSettingsMid() {
   var list = document.getElementById('settingsMidList');
   if (!list) return;
   var categories = [
-    { id: 'compute', icon: '<path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/>', title: '积分仪表盘' },
+    { id: 'compute', icon: '<path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/>', title: isAdmin() ? '积分仪表盘' : '消耗统计' },
     { id: 'notification', icon: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>', title: '通知' },
     { id: 'account', icon: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>', title: '账号' },
     { id: 'permission', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/>', title: '权限管理' },
     { id: 'forbidden', icon: '<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>', title: '违禁词管理' },
     { id: 'users', icon: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/>', title: '用户管理' },
     { id: 'teams', icon: '<path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><rect x="4" y="2" width="16" height="20" rx="2"/>', title: '团队管理' },
-    { id: 'members', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', title: '成员管理' }
+    { id: 'members', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', title: '成员管理' },
+    { id: 'feishu', icon: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>', title: '飞书配置' }
   ];
   var html = '';
   categories.forEach(function (c) {
@@ -26988,10 +27007,10 @@ function renderSettingsRight() {
   var contentEl = document.getElementById('settingsRightContent');
   var actionsEl = document.getElementById('settingsRightActions');
   if (titleEl) titleEl.textContent = {
-    compute: '积分仪表盘', notification: '通知', account: '账号', permission: '权限管理', forbidden: '违禁词管理', users: '用户管理', teams: '团队管理', members: '成员管理'
+    compute: isAdmin() ? '积分仪表盘' : '消耗统计', notification: '通知', account: '账号', permission: '权限管理', forbidden: '违禁词管理', users: '用户管理', teams: '团队管理', members: '成员管理', feishu: '飞书配置'
   }[_settingsSelectedCategory] || '设置';
   if (actionsEl) actionsEl.innerHTML = '';
-  if (_settingsSelectedCategory === 'compute' && actionsEl) {
+  if (_settingsSelectedCategory === 'compute' && actionsEl && isAdmin()) {
     actionsEl.innerHTML = '<button class="module-action-btn" onclick="syncTokenUsage()">🔄 同步 Token 数据</button>';
   }
   if (!contentEl) return;
@@ -27044,6 +27063,27 @@ function renderSettingsRight() {
     html += '<div class="settings-list-searchbar"><input type="text" id="memberSearchInput" class="form-input" placeholder="搜索成员名字..." oninput="filterSettingsMemberList()"></div>';
     html += '<div id="settingsMemberList"></div>';
     html += '</div>';
+  } else if (_settingsSelectedCategory === 'feishu') {
+    html += '<div class="settings-card">';
+    html += '<div class="settings-card-title">飞书多维表格绑定</div>';
+    html += '<div class="settings-form-row"><label class="form-label">App ID</label><input type="text" id="feishuAppId" class="form-input" placeholder="飞书应用 App ID (cli_xxx)"></div>';
+    html += '<div class="settings-form-row"><label class="form-label">App Secret</label><input type="text" id="feishuAppSecret" class="form-input" placeholder="飞书应用 App Secret"></div>';
+    html += '<div class="settings-form-row"><label class="form-label">多维表格 Token</label><input type="text" id="feishuAppToken" class="form-input" placeholder="多维表格 App Token"></div>';
+    html += '<div class="settings-form-row"><label class="form-label">表格 Table ID</label><input type="text" id="feishuTableId" class="form-input" placeholder="表格 ID (tbl_xxx)"></div>';
+    html += '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">';
+    html += '<button class="module-action-btn primary" onclick="saveFeishuConfig()">保存配置</button>';
+    html += '<button class="module-action-btn" onclick="syncFeishuTalentsFromSettings()">🔄 立即同步达人</button>';
+    html += '</div>';
+    html += '</div>';
+    html += '<div class="settings-card">';
+    html += '<div class="settings-card-title">使用说明</div>';
+    html += '<div style="font-size:13px;color:var(--text-secondary);line-height:1.8;">';
+    html += '<p>1. 在飞书创建自己的多维表格，用于录入达人数据</p>';
+    html += '<p>2. 创建飞书应用并获取 App ID 和 App Secret</p>';
+    html += '<p>3. 多维表格 Token 和 Table ID 可从表格 URL 中获取</p>';
+    html += '<p>4. 保存后点击"立即同步达人"即可拉取飞书表格数据</p>';
+    html += '</div>';
+    html += '</div>';
   }
   contentEl.innerHTML = html;
   if (_settingsSelectedCategory === 'compute') loadComputeStats();
@@ -27054,6 +27094,52 @@ function renderSettingsRight() {
   if (_settingsSelectedCategory === 'users') loadUserList();
   if (_settingsSelectedCategory === 'teams') loadTeamList();
   if (_settingsSelectedCategory === 'members') renderSettingsMemberList();
+  if (_settingsSelectedCategory === 'feishu') loadFeishuConfig();
+}
+
+function loadFeishuConfig() {
+  var token = localStorage.getItem('sb_auth_token');
+  fetch('/api/user/feishu-config', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.configured) {
+        var el1 = document.getElementById('feishuAppId'); if (el1) el1.value = data.app_id || '';
+        var el2 = document.getElementById('feishuAppToken'); if (el2) el2.value = data.app_token || '';
+        var el3 = document.getElementById('feishuTableId'); if (el3) el3.value = data.table_id || '';
+      }
+    })
+    .catch(function(e) { console.error('load feishu config failed:', e); });
+}
+
+function saveFeishuConfig() {
+  var token = localStorage.getItem('sb_auth_token');
+  var body = JSON.stringify({
+    app_id: (document.getElementById('feishuAppId').value || '').trim(),
+    app_secret: (document.getElementById('feishuAppSecret').value || '').trim(),
+    app_token: (document.getElementById('feishuAppToken').value || '').trim(),
+    table_id: (document.getElementById('feishuTableId').value || '').trim()
+  });
+  fetch('/api/user/feishu-config', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: body })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) { alert('飞书配置已保存'); }
+      else { alert('保存失败: ' + (data.error || '未知错误')); }
+    })
+    .catch(function(e) { alert('网络错误: ' + e); });
+}
+
+function syncFeishuTalentsFromSettings() {
+  var token = localStorage.getItem('sb_auth_token');
+  fetch('/api/talents/sync-feishu', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        alert('同步完成：共' + data.total + '条，新增' + data.created + '条，更新' + data.updated + '条，跳过' + data.skipped + '条');
+      } else {
+        alert('同步失败: ' + (data.error || '未知错误'));
+      }
+    })
+    .catch(function(e) { alert('网络错误: ' + e); });
 }
 
 function toggleMidSidebar() {
