@@ -407,6 +407,55 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 #influencersMid.active { display: flex; }
 #influencersRight { flex: 1; order: 2; }
+.app-main.tasks-active { flex-direction: row; }
+#tasksMidList {
+  display: none;
+  width: 340px;
+  flex-shrink: 0;
+  background: #ffffff;
+  border-right: 1px solid var(--separator);
+  flex-direction: column;
+  overflow: hidden;
+  order: 1;
+}
+#tasksMidList.active { display: flex; }
+#tasksRight { flex: 1; order: 2; }
+
+/* ========================================
+   TASKS MODULE - 任务管理
+   ======================================== */
+.tasks-mid-header { padding: 12px 16px 10px; border-bottom: 0.5px solid var(--separator); flex-shrink: 0; }
+.tasks-mid-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.tasks-mid-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.tasks-mid-count { font-size: 12px; color: var(--text-tertiary); margin-left: 6px; }
+.tasks-mid-new { padding: 5px 12px; border-radius: 8px; border: none; background: #007AFF; color: #fff; font-size: 12px; cursor: pointer; transition: background 0.15s; }
+.tasks-mid-new:hover { background: #0066d6; }
+.tasks-mid-items { flex: 1; overflow-y: auto; padding: 8px 10px 28px; }
+.task-card { background: #ffffff; border: 0.5px solid var(--separator); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; cursor: pointer; transition: box-shadow 0.15s, border-color 0.15s; }
+.task-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-color: rgba(0,122,255,0.35); }
+.task-card.active { border-color: #007AFF; box-shadow: 0 0 0 1px #007AFF; }
+.task-card-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-card-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); }
+.task-card-assignee { display: flex; align-items: center; gap: 4px; }
+.task-card-deadline { color: var(--text-tertiary); }
+.task-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.task-badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 500; line-height: 1.5; }
+.task-badge-status-pending { background: rgba(142,142,147,0.12); color: #8E8E93; }
+.task-badge-status-in_progress { background: rgba(0,122,255,0.1); color: #007AFF; }
+.task-badge-status-completed { background: rgba(52,199,89,0.12); color: #34C759; }
+.task-badge-status-cancelled { background: rgba(255,59,48,0.1); color: #FF3B30; }
+.task-badge-priority-high { background: rgba(255,59,48,0.1); color: #FF3B30; }
+.task-badge-priority-normal { background: rgba(0,122,255,0.1); color: #007AFF; }
+.task-badge-priority-low { background: rgba(142,142,147,0.12); color: #8E8E93; }
+.task-detail-title { font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; }
+.task-detail-section { background: #ffffff; border: 0.5px solid var(--separator); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+.task-detail-row { display: flex; align-items: center; font-size: 13px; margin-bottom: 8px; }
+.task-detail-row:last-child { margin-bottom: 0; }
+.task-detail-label { width: 80px; flex-shrink: 0; color: var(--text-tertiary); }
+.task-detail-value { color: var(--text-primary); flex: 1; word-break: break-all; }
+.task-detail-desc { white-space: pre-wrap; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+.task-status-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.tasks-empty { padding: 40px 20px; text-align: center; color: var(--text-tertiary); font-size: 13px; }
 .app-main.settings-active { flex-direction: row; }
 
 /* Products Left Sidebar - brand/category nav (deprecated, kept hidden for compat) */
@@ -6139,6 +6188,9 @@ window.doLogin = function () {
     <div class="nav-item" id="navInfluencers" data-module="influencers" onclick="switchModule('influencers')" data-tooltip="达人库" title="达人库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
     </div>
+    <div class="nav-item" id="navTasks" data-module="tasks" onclick="switchModule('tasks')" data-tooltip="任务" title="任务管理">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>
+    </div>
     <div class="nav-item" id="navSettings" data-module="settings" onclick="switchModule('settings')" data-tooltip="设置" title="系统设置">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
     </div>
@@ -6568,6 +6620,23 @@ window.doLogin = function () {
   <div class="module-right-content" id="settingsRightContent"></div>
 </div>
 
+<!-- Tasks Right -->
+<div class="module-right tasks-right" id="tasksRight">
+  <div class="module-right-header">
+    <div class="module-right-title" id="tasksRightTitle">任务详情</div>
+    <div class="module-right-actions" id="tasksRightActions">
+      <button class="module-action-btn" onclick="closeTaskDetail()">返回</button>
+    </div>
+  </div>
+  <div class="module-right-content" id="tasksRightContent">
+    <div class="module-welcome" id="tasksEmptyState">
+      <div class="module-welcome-icon">✅</div>
+      <div class="module-welcome-title">任务管理</div>
+      <div class="module-welcome-subtitle">从左侧选择一个任务查看详情，或新建任务</div>
+    </div>
+  </div>
+</div>
+
 <!-- Products Middle List -->
 <div class="module-mid products-mid-list" id="productsMidList">
   <div class="products-mid-header">
@@ -6630,6 +6699,26 @@ window.doLogin = function () {
   </div>
   <div class="talents-mid-items" id="talentsMidItems"></div>
   <div class="talents-mid-pagination" id="talentsMidPagination"></div>
+</div>
+
+<!-- Tasks Middle List -->
+<div class="module-mid tasks-mid-list" id="tasksMidList">
+  <div class="tasks-mid-header">
+    <div class="tasks-mid-top">
+      <div style="display:flex;align-items:baseline;">
+        <div class="tasks-mid-title" id="tasksMidTitle">任务管理</div>
+        <div class="tasks-mid-count" id="tasksMidCount">共 0 条</div>
+      </div>
+      <button class="tasks-mid-new" data-admin-only onclick="openTaskForm()">+ 新建任务</button>
+    </div>
+    <div class="segmented-control" id="tasksStatusFilter">
+      <button class="segmented-item active" data-status="" onclick="filterTasks('')">全部</button>
+      <button class="segmented-item" data-status="pending" onclick="filterTasks('pending')">待处理</button>
+      <button class="segmented-item" data-status="in_progress" onclick="filterTasks('in_progress')">进行中</button>
+      <button class="segmented-item" data-status="completed" onclick="filterTasks('completed')">已完成</button>
+    </div>
+  </div>
+  <div class="tasks-mid-items" id="tasksListItems"></div>
 </div>
 
 <!-- Chat Area -->
@@ -22706,6 +22795,284 @@ function deleteCurrentProduct() {
   apiFetch('/api/products/' + encodeURIComponent(_productCurrentId), {method:'DELETE'}).then(function(){ showToast('✅ 已删除'); closeProductRight(); loadProducts(); }).catch(function(){ showToast('❌ 删除失败'); });
 }
 
+// ========== 任务管理 ==========
+var _tasksData = [];       // 当前任务列表缓存
+var _taskFilter = '';      // 当前筛选状态
+var _currentTaskId = null; // 当前查看的任务
+
+var _TASK_STATUS_MAP = {
+  pending: '待处理',
+  in_progress: '进行中',
+  completed: '已完成',
+  cancelled: '已取消'
+};
+var _TASK_PRIORITY_MAP = {
+  high: '高',
+  normal: '中',
+  low: '低'
+};
+
+function _taskStatusBadge(status) {
+  var s = status || 'pending';
+  return '<span class="task-badge task-badge-status-' + escapeAttr(s) + '">' + (_TASK_STATUS_MAP[s] || s) + '</span>';
+}
+
+function _taskPriorityBadge(priority) {
+  var p = priority || 'normal';
+  return '<span class="task-badge task-badge-priority-' + escapeAttr(p) + '">优先级:' + (_TASK_PRIORITY_MAP[p] || p) + '</span>';
+}
+
+function loadTasks() {
+  var qs = [];
+  if (_taskFilter) qs.push('status=' + encodeURIComponent(_taskFilter));
+  var url = '/api/tasks' + (qs.length ? '?' + qs.join('&') : '');
+  var itemsEl = document.getElementById('tasksListItems');
+  if (itemsEl) itemsEl.innerHTML = '<div class="tasks-empty">加载中...</div>';
+  apiFetch(url).then(function(r){return r.json();}).then(function(data){
+    var tasks = Array.isArray(data) ? data : (data.tasks || []);
+    _tasksData = tasks;
+    renderTaskList(tasks);
+    var countEl = document.getElementById('tasksMidCount');
+    if (countEl) countEl.textContent = '共 ' + tasks.length + ' 条';
+  }).catch(function(e){
+    if (itemsEl) itemsEl.innerHTML = '<div class="tasks-empty">加载失败</div>';
+  });
+}
+
+function renderTaskList(tasks) {
+  var itemsEl = document.getElementById('tasksListItems');
+  if (!itemsEl) return;
+  if (!tasks || !tasks.length) {
+    itemsEl.innerHTML = '<div class="tasks-empty">暂无任务</div>';
+    return;
+  }
+  var html = '';
+  tasks.forEach(function(t) {
+    html += '<div class="task-card' + (t.id === _currentTaskId ? ' active' : '') + '" onclick="showTaskDetail(\'' + escapeAttr(t.id) + '\')">'
+      + '<div class="task-card-title">' + escapeHtml(t.title) + '</div>'
+      + '<div class="task-card-meta">'
+      + '<span class="task-card-assignee">👤 ' + escapeHtml(t.assignee_name || t.assignee || '未指派') + '</span>'
+      + (t.deadline ? '<span class="task-card-deadline">📅 ' + escapeHtml(t.deadline) + '</span>' : '')
+      + '</div>'
+      + '<div class="task-card-footer">'
+      + _taskPriorityBadge(t.priority)
+      + _taskStatusBadge(t.status)
+      + '</div>'
+      + '</div>';
+  });
+  itemsEl.innerHTML = html;
+}
+
+function filterTasks(status) {
+  _taskFilter = status || '';
+  document.querySelectorAll('#tasksStatusFilter .segmented-item').forEach(function(el) {
+    el.classList.toggle('active', el.getAttribute('data-status') === _taskFilter);
+  });
+  loadTasks();
+}
+
+function showTaskDetail(id) {
+  if (!id) return;
+  _currentTaskId = id;
+  renderTaskList(_tasksData); // 刷新列表选中态
+  var contentEl = document.getElementById('tasksRightContent');
+  if (contentEl) contentEl.innerHTML = '<div class="tasks-empty">加载中...</div>';
+  apiFetch('/api/tasks/' + encodeURIComponent(id)).then(function(r){return r.json();}).then(function(t){
+    if (t && t.error) { showToast('❌ ' + t.error, 'error'); return; }
+    _currentTaskId = t.id;
+    renderTaskDetail(t);
+  }).catch(function(e){
+    if (contentEl) contentEl.innerHTML = '<div class="tasks-empty">加载失败</div>';
+  });
+}
+
+// 渲染任务详情（管理员可编辑，员工只改状态和进度）
+function renderTaskDetail(t) {
+  var contentEl = document.getElementById('tasksRightContent');
+  if (!contentEl) return;
+  var titleEl = document.getElementById('tasksRightTitle');
+  if (titleEl) titleEl.textContent = '任务详情';
+  var admin = isAdmin();
+  var status = t.status || 'pending';
+  var statusActions = '';
+  if (status === 'pending') {
+    statusActions = '<button class="module-action-btn primary" onclick="updateTaskStatus(\'' + escapeAttr(t.id) + '\', \'in_progress\')">开始处理</button>';
+  } else if (status === 'in_progress') {
+    statusActions = '<button class="module-action-btn primary" onclick="updateTaskStatus(\'' + escapeAttr(t.id) + '\', \'completed\')">标记完成</button>';
+  }
+  if (admin && status !== 'cancelled' && status !== 'completed') {
+    statusActions += '<button class="module-action-btn" onclick="updateTaskStatus(\'' + escapeAttr(t.id) + '\', \'cancelled\')">取消任务</button>';
+  }
+
+  var html = '';
+  if (admin) {
+    // 管理员：可编辑所有字段
+    html += '<div class="task-detail-section">'
+      + '<div class="task-detail-title">' + escapeHtml(t.title) + '</div>'
+      + '<div class="module-form-row"><label>标题</label><input type="text" id="taskEditTitle" value="' + escapeAttr(t.title) + '"></div>'
+      + '<div class="module-form-row"><label>描述</label><textarea id="taskEditDesc">' + escapeHtml(t.description || '') + '</textarea></div>'
+      + '<div class="module-form-row"><label>指派给</label><select id="taskEditAssignee"><option value="">加载中...</option></select></div>'
+      + '<div class="module-form-row"><label>优先级</label><select id="taskEditPriority">'
+      + '<option value="high"' + (t.priority === 'high' ? ' selected' : '') + '>高</option>'
+      + '<option value="normal"' + (!t.priority || t.priority === 'normal' ? ' selected' : '') + '>中</option>'
+      + '<option value="low"' + (t.priority === 'low' ? ' selected' : '') + '>低</option>'
+      + '</select></div>'
+      + '<div class="module-form-row"><label>截止日期</label><input type="date" id="taskEditDeadline" value="' + escapeAttr(t.deadline || '') + '"></div>'
+      + '<div class="module-form-row"><label>进度备注</label><textarea id="taskEditProgress" placeholder="填写进度说明">' + escapeHtml(t.progress || '') + '</textarea></div>'
+      + '<div class="task-status-actions">'
+      + '<button class="module-action-btn primary" onclick="saveTask(\'' + escapeAttr(t.id) + '\')">保存</button>'
+      + '<button class="module-action-btn danger" onclick="deleteTask(\'' + escapeAttr(t.id) + '\')">删除</button>'
+      + statusActions
+      + '</div></div>';
+  } else {
+    // 员工：只读信息 + 状态切换 + 进度备注
+    html += '<div class="task-detail-section">'
+      + '<div class="task-detail-title">' + escapeHtml(t.title) + '</div>'
+      + '<div class="task-detail-row"><div class="task-detail-label">状态</div><div class="task-detail-value">' + _taskStatusBadge(status) + '</div></div>'
+      + '<div class="task-detail-row"><div class="task-detail-label">优先级</div><div class="task-detail-value">' + _taskPriorityBadge(t.priority) + '</div></div>'
+      + '<div class="task-detail-row"><div class="task-detail-label">指派人</div><div class="task-detail-value">' + escapeHtml(t.assignee_name || t.assignee || '未指派') + '</div></div>'
+      + '<div class="task-detail-row"><div class="task-detail-label">创建人</div><div class="task-detail-value">' + escapeHtml(t.creator_name || t.creator || '-') + '</div></div>'
+      + (t.deadline ? '<div class="task-detail-row"><div class="task-detail-label">截止日期</div><div class="task-detail-value">' + escapeHtml(t.deadline) + '</div></div>' : '')
+      + '<div class="task-detail-row"><div class="task-detail-label">创建时间</div><div class="task-detail-value">' + escapeHtml(t.created_at || '-') + '</div></div>'
+      + (t.completed_at ? '<div class="task-detail-row"><div class="task-detail-label">完成时间</div><div class="task-detail-value">' + escapeHtml(t.completed_at) + '</div></div>' : '')
+      + '</div>';
+    if (t.description) {
+      html += '<div class="task-detail-section"><div class="task-detail-label" style="margin-bottom:6px;">描述</div><div class="task-detail-desc">' + escapeHtml(t.description) + '</div></div>';
+    }
+    html += '<div class="task-detail-section">'
+      + '<div class="module-form-row"><label>进度备注</label><textarea id="taskProgressInput" placeholder="填写进度说明">' + escapeHtml(t.progress || '') + '</textarea></div>'
+      + '<div class="task-status-actions">'
+      + '<button class="module-action-btn" onclick="submitTaskProgress(\'' + escapeAttr(t.id) + '\')">更新进度</button>'
+      + statusActions
+      + '</div></div>';
+  }
+  contentEl.innerHTML = html;
+  if (admin) loadTaskAssigneeOptions('taskEditAssignee', t.assignee);
+}
+
+// 加载AI员工列表到指派人下拉框
+function loadTaskAssigneeOptions(selectId, selectedId) {
+  var sel = document.getElementById(selectId);
+  if (!sel) return;
+  apiFetch('/api/agents').then(function(r){return r.json();}).then(function(data){
+    var agents = Array.isArray(data) ? data : (data.agents || []);
+    var html = '<option value="">未指派</option>';
+    agents.forEach(function(a) {
+      html += '<option value="' + escapeAttr(a.id) + '"' + (a.id === selectedId ? ' selected' : '') + '>' + escapeHtml(a.name || a.id) + '</option>';
+    });
+    sel.innerHTML = html;
+  }).catch(function(e){
+    sel.innerHTML = '<option value="">加载失败</option>';
+  });
+}
+
+function openTaskForm() {
+  if (!isAdmin()) { showToast('⛔ 仅管理员可新建任务', 'warning'); return; }
+  _currentTaskId = null;
+  renderTaskList(_tasksData);
+  var titleEl = document.getElementById('tasksRightTitle');
+  if (titleEl) titleEl.textContent = '新建任务';
+  var contentEl = document.getElementById('tasksRightContent');
+  if (!contentEl) return;
+  contentEl.innerHTML = '<div class="task-detail-section">'
+    + '<div class="task-detail-title">新建任务</div>'
+    + '<div class="module-form-row"><label>标题 *</label><input type="text" id="taskFormTitle" placeholder="请输入任务标题"></div>'
+    + '<div class="module-form-row"><label>描述</label><textarea id="taskFormDesc" placeholder="请输入任务描述"></textarea></div>'
+    + '<div class="module-form-row"><label>指派给</label><select id="taskFormAssignee"><option value="">加载中...</option></select></div>'
+    + '<div class="module-form-row"><label>优先级</label><select id="taskFormPriority">'
+    + '<option value="high">高</option><option value="normal" selected>中</option><option value="low">低</option>'
+    + '</select></div>'
+    + '<div class="module-form-row"><label>截止日期</label><input type="date" id="taskFormDeadline"></div>'
+    + '<div class="task-status-actions">'
+    + '<button class="module-action-btn primary" onclick="submitTask()">提交</button>'
+    + '<button class="module-action-btn" onclick="closeTaskDetail()">取消</button>'
+    + '</div></div>';
+  loadTaskAssigneeOptions('taskFormAssignee', '');
+}
+
+function submitTask() {
+  var title = document.getElementById('taskFormTitle').value.trim();
+  if (!title) { showToast('请输入任务标题', 'warning'); return; }
+  var body = {
+    title: title,
+    description: document.getElementById('taskFormDesc').value.trim(),
+    assignee: document.getElementById('taskFormAssignee').value,
+    priority: document.getElementById('taskFormPriority').value,
+    deadline: document.getElementById('taskFormDeadline').value
+  };
+  apiFetch('/api/tasks', {method: 'POST', body: JSON.stringify(body)}).then(function(r){return r.json();}).then(function(t){
+    showToast('✅ 任务已创建', 'success');
+    loadTasks();
+    if (t && t.id) showTaskDetail(t.id);
+  }).catch(function(e){ showToast('❌ 创建失败', 'error'); });
+}
+
+function updateTaskStatus(id, status) {
+  apiFetch('/api/tasks/' + encodeURIComponent(id), {method: 'PUT', body: JSON.stringify({status: status})}).then(function(r){return r.json();}).then(function(){
+    showToast('✅ 状态已更新', 'success');
+    loadTasks();
+    showTaskDetail(id);
+  }).catch(function(e){ showToast('❌ 更新失败', 'error'); });
+}
+
+function updateTaskProgress(id, progress) {
+  apiFetch('/api/tasks/' + encodeURIComponent(id), {method: 'PUT', body: JSON.stringify({progress: progress})}).then(function(r){return r.json();}).then(function(){
+    showToast('✅ 进度已更新', 'success');
+    loadTasks();
+    showTaskDetail(id);
+  }).catch(function(e){ showToast('❌ 更新失败', 'error'); });
+}
+
+// 员工更新进度备注
+function submitTaskProgress(id) {
+  var input = document.getElementById('taskProgressInput');
+  updateTaskProgress(id, input ? input.value.trim() : '');
+}
+
+// 管理员保存编辑（全部字段）
+function saveTask(id) {
+  var title = document.getElementById('taskEditTitle').value.trim();
+  if (!title) { showToast('请输入任务标题', 'warning'); return; }
+  var body = {
+    title: title,
+    description: document.getElementById('taskEditDesc').value.trim(),
+    assignee: document.getElementById('taskEditAssignee').value,
+    priority: document.getElementById('taskEditPriority').value,
+    deadline: document.getElementById('taskEditDeadline').value,
+    progress: document.getElementById('taskEditProgress').value.trim()
+  };
+  apiFetch('/api/tasks/' + encodeURIComponent(id), {method: 'PUT', body: JSON.stringify(body)}).then(function(r){return r.json();}).then(function(){
+    showToast('✅ 已保存', 'success');
+    loadTasks();
+    showTaskDetail(id);
+  }).catch(function(e){ showToast('❌ 保存失败', 'error'); });
+}
+
+function deleteTask(id) {
+  if (!confirm('确定删除此任务？')) return;
+  apiFetch('/api/tasks/' + encodeURIComponent(id), {method: 'DELETE'}).then(function(){
+    showToast('✅ 已删除', 'success');
+    _currentTaskId = null;
+    loadTasks();
+    closeTaskDetail();
+  }).catch(function(e){ showToast('❌ 删除失败', 'error'); });
+}
+
+function closeTaskDetail() {
+  _currentTaskId = null;
+  renderTaskList(_tasksData);
+  var titleEl = document.getElementById('tasksRightTitle');
+  if (titleEl) titleEl.textContent = '任务详情';
+  var contentEl = document.getElementById('tasksRightContent');
+  if (contentEl) {
+    contentEl.innerHTML = '<div class="module-welcome">'
+      + '<div class="module-welcome-icon">✅</div>'
+      + '<div class="module-welcome-title">任务管理</div>'
+      + '<div class="module-welcome-subtitle">从左侧选择一个任务查看详情，或新建任务</div>'
+      + '</div>';
+  }
+}
+
 // ========== 达人库 ==========
 var _talentData = { talents: [], total: 0 };
 var _talentCurrentId = null;
@@ -25672,7 +26039,8 @@ function getAllSidebars() {
   return [
     document.querySelector('.app-sidebar'),
     document.getElementById('productsMidList'),
-    document.getElementById('influencersMid')
+    document.getElementById('influencersMid'),
+    document.getElementById('tasksMidList')
   ].filter(Boolean);
 }
 
@@ -25746,8 +26114,8 @@ function switchModule(module) {
   resetGlobalSearch(module);
 
   // Registry of all module-scoped containers
-  var allMids = ['knowledgeMid', 'knowledgeMidList', 'productsMidList', 'influencersMid', 'settingsMid'];
-  var allRights = ['knowledgeRight', 'productsRight', 'influencersRight', 'settingsRight'];
+  var allMids = ['knowledgeMid', 'knowledgeMidList', 'productsMidList', 'influencersMid', 'settingsMid', 'tasksMidList'];
+  var allRights = ['knowledgeRight', 'productsRight', 'influencersRight', 'settingsRight', 'tasksRight'];
 
   // 1. Hide every module container first (strict mutual exclusion)
   allMids.forEach(function(id) {
@@ -25764,7 +26132,7 @@ function switchModule(module) {
   // 2. Layout root reset
   var appMain = document.querySelector('.app-main');
   if (appMain) {
-    appMain.classList.remove('knowledge-active', 'products-active', 'influencers-active', 'settings-active');
+    appMain.classList.remove('knowledge-active', 'products-active', 'influencers-active', 'settings-active', 'tasks-active');
   }
 
   // 3. Messages module: sidebar employee list + chat area (original two-column layout)
@@ -25799,12 +26167,14 @@ function switchModule(module) {
     knowledge: ['knowledgeMid', 'knowledgeMidList'],
     products: ['productsMidList'],
     influencers: ['influencersMid'],
-    settings: ['settingsMid']
+    settings: ['settingsMid'],
+    tasks: ['tasksMidList']
   };
   var moduleRightMap = {
     products: 'productsRight',
     influencers: 'influencersRight',
-    settings: 'settingsRight'
+    settings: 'settingsRight',
+    tasks: 'tasksRight'
     // knowledge right is a drawer opened by document selection, not shown by default
   };
 
@@ -25827,6 +26197,7 @@ function switchModule(module) {
   if (module === 'knowledge') { loadGroups(); loadKnowledgePage(); }
   else if (module === 'products') { loadProductBrands(); loadProducts(); }
   else if (module === 'influencers') loadTalents();
+  else if (module === 'tasks') loadTasks();
   else if (module === 'settings') renderSettingsMid();
   applySidebarWidth(getSidebarWidth());
 }
@@ -26553,10 +26924,10 @@ async function saveAccountSettings() {
 var _permissionConfig = null;
 var _permissionUsers = [];
 var _permissionCategories = [];
-var _availableModules = ['dashboard', 'messages', 'employees', 'groups', 'knowledge', 'products', 'influencers', 'matches', 'settings'];
+var _availableModules = ['dashboard', 'messages', 'employees', 'groups', 'knowledge', 'products', 'influencers', 'matches', 'tasks', 'settings'];
 var _permissionModuleLabels = {
   dashboard: '工作台', messages: '消息', employees: '员工', groups: '群组',
-  knowledge: '知识库', products: '商品库', influencers: '达人库', matches: '匹配', settings: '设置'
+  knowledge: '知识库', products: '商品库', influencers: '达人库', matches: '匹配', tasks: '任务', settings: '设置'
 };
 var _selectedPermissionRole = 'admin';
 var _selectedPermissionUser = '';
