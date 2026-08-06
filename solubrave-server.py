@@ -4824,6 +4824,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_proxy()
             return
 
+        # Kimi API 代理（OpenClaw/飞书链路积分管控，不做JWT认证，用proxy_<agent_id> key识别身份）
+        if path.startswith('/api/proxy/kimi'):
+            self._handle_proxy_kimi()
+            return
+
         # 抖音视频解析 (requires auth)
         if path == '/api/douyin/parse':
             self._handle_douyin_parse()
@@ -16014,6 +16019,163 @@ def _handle_proxy(self):
         print(f'  ❌ Proxy Unexpected Error: {e} <- {target_url}', flush=True)
         self._send_json_error(500, f'Internal proxy error: {str(e)}')
 
+# ═══════════════════════════════════════════════════
+# Kimi API 代理（积分管控）— 见 KIMI_API_PROXY_SPEC.md
+# ═══════════════════════════════════════════════════
+
+# 真实 Kimi API Key：优先环境变量 KIMI_API_KEY，fallback 到硬编码（按 spec）
+KIMI_PROXY_REAL_API_KEY = os.environ.get('KIMI_API_KEY', '').strip() or 'sk-02e90cc3c5b147fcb945c7334ed94008'
+# 上游 base url：可用环境变量覆盖（便于本地 mock 测试），默认真实 Kimi coding endpoint
+KIMI_PROXY_REAL_BASE_URL = os.environ.get('KIMI_PROXY_BASE_URL', '').strip() or 'https://api.kimi.com/coding'
+
+
+def _handle_proxy_kimi(self):
+    """POST /api/proxy/kimi/* — Kimi API代理，带积分管控（OpenClaw/飞书链路专用）"""
+
+    # 1. 从请求头提取API Key（anthropic格式用x-api-key）
+    proxy_key = self.headers.get('x-api-key', '') or ''
+    if not proxy_key:
+        auth_header = self.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            proxy_key = auth_header[7:]
+
+    # 2. 从proxy_key提取agent_id（格式: "proxy_<agent_id>"）
+    if proxy_key.startswith('proxy_'):
+        agent_id = proxy_key[6:]  # 去掉"proxy_"前缀
+    else:
+        # 非代理key，直接转发（兼容旧配置）
+        agent_id = None
+
+    # 3. 检查积分余额
+    if agent_id:
+        balance, has_credits = _check_credit_balance(agent_id)
+        if not has_credits:
+            # 返回anthropic格式错误
+            self.send_response(403)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'type': 'error',
+                'error': {
+                    'type': 'insufficient_credits',
+                    'message': '积分余额不足，请联系管理员充值'
+                }
+            }).encode())
+            return
+
+    # 4. 读取请求体
+    body = self._read_body()
+    if not body:
+        self._send_json_error(400, 'Empty body')
+        return
+
+    # 5. 构造转发请求到真实Kimi API
+    # 提取原始请求路径中的子路径（如/v1/messages）
+    path = self._normalize_path(self.path)
+    path_suffix = path[len('/api/proxy/kimi'):]
+    if not path_suffix:
+        path_suffix = '/v1/messages'
+    target_url = KIMI_PROXY_REAL_BASE_URL + path_suffix
+
+    # 构造请求头（用真实API Key替换proxy key）
+    forward_headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': KIMI_PROXY_REAL_API_KEY,
+        'anthropic-version': self.headers.get('anthropic-version', '2023-06-01'),
+    }
+
+    req_body = json.dumps(body).encode('utf-8')
+    forward_headers['Content-Length'] = str(len(req_body))
+
+    # 6. 判断是否为流式请求
+    is_streaming = body.get('stream', False)
+
+    # 7. 转发请求
+    req = urllib.request.Request(target_url, data=req_body, headers=forward_headers, method='POST')
+
+    try:
+        resp = urllib.request.urlopen(req, timeout=120)
+    except urllib.error.HTTPError as e:
+        # 转发Kimi的错误响应
+        self.send_response(e.code)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(e.read())
+        return
+    except Exception as e:
+        self._send_json_error(502, f'Proxy error: {str(e)}')
+        return
+
+    # 8. 处理响应
+    if is_streaming:
+        # 流式响应：逐行转发SSE，同时解析usage
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.end_headers()
+
+        input_tokens = 0
+        output_tokens = 0
+        buffer = b''
+
+        for chunk in iter(lambda: resp.read(4096), b''):
+            # 转发给客户端
+            self.wfile.write(chunk)
+            self.wfile.flush()
+
+            # 解析SSE事件提取usage
+            buffer += chunk
+            while b'\n\n' in buffer:
+                event_str, buffer = buffer.split(b'\n\n', 1)
+                try:
+                    event_text = event_str.decode('utf-8')
+                    if event_text.startswith('data: '):
+                        data_str = event_text[6:].strip()
+                        if data_str and data_str != '[DONE]':
+                            data_json = json.loads(data_str)
+                            if data_json.get('type') == 'message_start':
+                                usage = data_json.get('message', {}).get('usage', {})
+                                input_tokens = usage.get('input_tokens', 0)
+                            elif data_json.get('type') == 'message_delta':
+                                usage = data_json.get('usage', {})
+                                output_tokens = usage.get('output_tokens', output_tokens)
+                except Exception:
+                    pass
+
+        # 9. 扣减积分（响应完成后扣减，不阻塞响应）
+        if agent_id and (input_tokens or output_tokens):
+            conn = _db_conn()
+            try:
+                _record_credit_usage(conn, agent_id, input_tokens, output_tokens, 0)
+                conn.commit()
+            finally:
+                conn.close()
+
+    else:
+        # 非流式响应：读取完整响应，提取usage，扣减积分，返回
+        resp_body = resp.read()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(resp_body)
+
+        # 解析usage
+        try:
+            resp_json = json.loads(resp_body)
+            usage = resp_json.get('usage', {})
+            input_tokens = usage.get('input_tokens', 0)
+            output_tokens = usage.get('output_tokens', 0)
+
+            if agent_id and (input_tokens or output_tokens):
+                conn = _db_conn()
+                try:
+                    _record_credit_usage(conn, agent_id, input_tokens, output_tokens, 0)
+                    conn.commit()
+                finally:
+                    conn.close()
+        except Exception:
+            pass
+
 def _handle_douyin_parse(self):
     """POST /api/douyin/parse（需认证）
     请求体: {"url": "链接"} 或 {"text": "分享文本"}，可选 "transcribe": true
@@ -16171,6 +16333,7 @@ _MODULE_LEVEL_HANDLERS = (
     '_handle_skills_list', '_handle_skills_search', '_handle_skills_install', '_handle_skills_remove',
     '_handle_feishu_status', '_handle_feishu_config', '_handle_pairing_approve', '_handle_gateway_restart',
     '_handle_proxy', '_handle_douyin_parse', '_handle_douyin_transcribe',
+    '_handle_proxy_kimi',
 )
 for _h in _MODULE_LEVEL_HANDLERS:
     _fn = globals().get(_h)
