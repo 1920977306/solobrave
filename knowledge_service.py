@@ -2323,14 +2323,11 @@ def kb_entry_stats(allowed_categories=None, scope=None, team_id=None, user_id=No
         ).fetchall()
         by_category = [{'name': (r['cat'] or '未分类'), 'count': r['cnt']} for r in cat_rows]
 
-        pending_sql = '''SELECT COUNT(*) FROM kb_entry_chunks c
-                         JOIN kb_entries e ON c.entry_id = e.id
-                         WHERE c.embedding IS NULL'''
-        pending_where = [w for w in where if not w.startswith('status =')]
+        pending_sql = '''SELECT COUNT(*) FROM kb_entries e
+                         WHERE e.id IN (SELECT entry_id FROM kb_entry_chunks WHERE embedding IS NULL)'''
         pending_params = list(params)
-        # status 过滤已在 where 中；这里保留其余过滤条件
-        if pending_where:
-            pending_sql += ' AND ' + ' AND '.join(pending_where).replace('status = ?', 'e.status = ?')
+        if where:
+            pending_sql += ' AND ' + ' AND '.join(where)
         pending_chunks = conn.execute(pending_sql, tuple(pending_params)).fetchone()[0]
 
         return {

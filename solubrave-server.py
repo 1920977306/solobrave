@@ -1071,7 +1071,8 @@ def _ensure_knowledge_admin_agent():
 
 # 可用模块列表（与 switchModule 取值对齐）
 AVAILABLE_MODULES = [
-    'dashboard', 'messages', 'knowledge', 'settings', 'products', 'groups', 'influencers'
+    'dashboard', 'messages', 'knowledge', 'settings', 'products', 'groups', 'influencers',
+    'employees', 'matches', 'tasks'
 ]
 
 
@@ -1093,6 +1094,9 @@ def _default_permission_templates():
         'groups': True,
         'influencers': True,
         'settings': False,
+        'employees': False,
+        'matches': False,
+        'tasks': True,
     }
     return {
         'version': '1.0',
@@ -3978,6 +3982,11 @@ def _seed_coolchap_data(conn):
             'videos': json.dumps(make_videos(item['name']), ensure_ascii=False),
             'tags': json.dumps(item.get('tags', []), ensure_ascii=False),
             'selling_points': item.get('selling_points', ''),
+            'created_by': '',
+            'original_price': '',
+            'shipping_from': '',
+            'no_shipping_areas': '',
+            'sku_code': '',
             'created_at': now,
             'updated_at': now,
         }
@@ -7486,15 +7495,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not self._require_module_permission(auth, 'employees'): return
-
         agents = _load_agents()
         uid = auth.user_info['userId']
-
-        # 调试日志：打印 uid 和所有 agent 的 createdBy，排查过滤问题
-        print(f'  [DEBUG get_agents] uid={uid} role={auth.user_info.get("role")} is_admin={auth.is_admin} is_leader={auth.is_leader}')
-        for a in agents:
-            print(f'  [DEBUG get_agents] agent id={a.get("id")} name={a.get("name")} createdBy={repr(a.get("createdBy"))}')
 
         if auth.is_admin:
             result = agents
@@ -7551,8 +7553,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not self._require_module_permission(auth, 'employees'): return
-
         agents = _load_agents()
         agent = None
         for a in agents:
@@ -16129,9 +16129,12 @@ def _handle_proxy_kimi(self):
                 event_str, buffer = buffer.split(b'\n\n', 1)
                 try:
                     event_text = event_str.decode('utf-8')
-                    if event_text.startswith('data: '):
-                        data_str = event_text[6:].strip()
-                        if data_str and data_str != '[DONE]':
+                    data_str = None
+                    for line in event_text.split('\n'):
+                        if line.startswith('data: '):
+                            data_str = line[6:].strip()
+                            break
+                    if data_str and data_str != '[DONE]':
                             data_json = json.loads(data_str)
                             if data_json.get('type') == 'message_start':
                                 usage = data_json.get('message', {}).get('usage', {})
