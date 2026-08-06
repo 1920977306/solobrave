@@ -6451,14 +6451,10 @@ window.doLogin = function () {
       <div class="product-modal-field required"><label>价格</label><input type="number" id="productPrice" placeholder="0.00"></div>
       <div class="product-modal-field"><label>原价</label><input type="number" id="productOriginalPrice" placeholder="0.00"></div>
       <div class="product-modal-field"><label>佣金率</label><input type="number" id="productCommissionRate" placeholder="如20表示20%"></div>
-      <div class="product-modal-field"><label>库存</label><input type="number" id="productStock" value="0"></div>
       <div class="product-modal-field"><label>状态</label>
         <select id="productStatus"><option value="active">在售</option><option value="inactive">停售</option><option value="out_of_stock">缺货</option></select>
       </div>
-      <div class="product-modal-field"><label>发货地</label><input type="text" id="productShippingFrom" placeholder="如浙江温州"></div>
-      <div class="product-modal-field"><label>不发货地区</label><input type="text" id="productShippingNote" placeholder="如新疆西藏"></div>
       <div class="product-modal-field"><label>描述</label><textarea id="productDescription" placeholder="输入商品描述"></textarea></div>
-      <div class="product-modal-field"><label>SKU 编码</label><input type="text" id="productSkuCode" placeholder="如SB-001"></div>
       <div class="product-modal-field"><label>SKU 规格</label><textarea id="productSkuSpecs" placeholder='{"颜色":["米白"],"尺码":["36-40"]}'></textarea></div>
     </div>
     <div class="product-modal-footer">
@@ -22198,11 +22194,6 @@ function loadProducts(page) {
   if (itemsEl) itemsEl.innerHTML = '<div class="products-loading">加载中...</div>';
   apiFetch(url).then(function(r){return r.json();}).then(function(data){
     _productData.products = sortProductsLocally(data.products || [], _productCurrentSort);
-    _productData.products.forEach(function(p) {
-      if (p.stock === undefined || p.stock === null) {
-        p.stock = p.inventory !== undefined && p.inventory !== null ? p.inventory : 0;
-      }
-    });
     _productData.total = data.total || 0;
     renderProductList(_productData.products);
     renderProductPagination(_productData.total, _productPage, _productPageSize);
@@ -22302,7 +22293,6 @@ function renderProductList(products) {
     var isActive = p.id === _productCurrentId;
     var placeholder = getProductPlaceholder(p);
     var hasBrand = p.brand && p.brand !== '-';
-    var stock = p.stock !== undefined ? p.stock : (p.inventory !== undefined ? p.inventory : 0);
     html += '<div class="products-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(p.id) + '" onclick="selectProductItem(\'' + escapeAttr(p.id).replace(/'/g,"\\'") + '\')">';
     html += placeholder;
     html += '<div class="products-mid-card-info">';
@@ -22326,7 +22316,6 @@ function renderProductList(products) {
     html += '<div class="products-mid-card-sales-row">';
     html += '<span class="products-mid-card-sales">月销 ' + formatNumber(p.monthly_sales || 0) + '</span>';
     html += '<span class="products-mid-card-influencers">' + (p.influencer_count || 0) + '位达人带货</span>';
-    html += '<span class="products-mid-card-sales">库存 ' + formatNumber(stock) + '</span>';
     html += '<span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status) + '</span>';
     html += '</div></div></div></div>';
   });
@@ -22439,7 +22428,6 @@ function renderProductPanelDetail(p) {
   html += '<div class="products-detail-item"><div class="products-detail-label">品牌</div><div class="products-detail-value">' + escapeHtml(p.brand || '-') + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">类目</div><div class="products-detail-value">' + escapeHtml(p.category || '-') + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">价格</div><div class="products-detail-value">¥' + (p.price || 0).toFixed(2) + '</div></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">库存</div><div class="products-detail-value">' + (p.stock || 0) + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">状态</div><div class="products-detail-value"><span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status || '-') + '</span></div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">原价</div><div class="products-detail-value">¥' + (p.original_price || 0).toFixed(2) + '</div></div>';
   var commRateHtml = '';
@@ -22449,9 +22437,6 @@ function renderProductPanelDetail(p) {
     commRateHtml = (p.commission_rate || 0) + '%';
   }
   html += '<div class="products-detail-item"><div class="products-detail-label">佣金率</div><div class="products-detail-value">' + commRateHtml + '</div></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">发货地</div><div class="products-detail-value">' + escapeHtml(p.shipping_from || '-') + '</div></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">不发货地区</div><div class="products-detail-value">' + escapeHtml(p.shipping_note || '-') + '</div></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">SKU 编码</div><div class="products-detail-value">' + escapeHtml(p.sku_code || '-') + '</div></div>';
   html += '</div></div>';
   if (p.description || p.subtitle) {
     html += '<div class="products-panel-section">';
@@ -22477,6 +22462,30 @@ function renderProductPanelDetail(p) {
     p.tags.forEach(function(tag){ html += '<span class="products-tag">' + escapeHtml(tag) + '</span>'; });
     html += '</div></div>';
   }
+  // 带货案例视频（存储于 products.videos，JSON数组，元素格式 {title, cover, url, views, likes}）
+  html += '<div class="products-panel-section">';
+  html += '<div class="products-panel-title">带货案例视频</div>';
+  var videos = Array.isArray(p.videos) ? p.videos : [];
+  if (videos.length) {
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;">';
+    videos.forEach(function(v){
+      var hasUrl = v.url && /^https?:\/\//.test(v.url);
+      html += '<div style="border:1px solid #EBEBEB;border-radius:10px;overflow:hidden;background:#fff;' + (hasUrl ? 'cursor:pointer;' : '') + '"' + (hasUrl ? ' onclick="window.open(\'' + escapeAttr(v.url) + '\',\'_blank\')"' : '') + '>';
+      if (v.cover) {
+        html += '<div style="width:100%;aspect-ratio:16/9;background:#F5F5F5;"><img src="' + escapeAttr(v.cover) + '" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentNode.style.display=\'none\';"></div>';
+      } else {
+        html += '<div style="width:100%;aspect-ratio:16/9;background:#F5F5F5;display:flex;align-items:center;justify-content:center;font-size:28px;color:#C0C4CC;">▶</div>';
+      }
+      html += '<div style="padding:8px 10px;">';
+      html += '<div style="font-size:13px;font-weight:500;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(v.title || '未命名视频') + '</div>';
+      html += '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">播放 ' + formatNumber(v.views || 0) + ' · 点赞 ' + formatNumber(v.likes || 0) + '</div>';
+      html += '</div></div>';
+    });
+    html += '</div>';
+  } else {
+    html += '<div style="font-size:13px;color:var(--text-secondary);">暂无带货案例视频</div>';
+  }
+  html += '</div>';
   html += '<div style="display:flex;gap:10px;padding:0 4px;margin-top:8px;">';
   html += '<button class="product-modal-btn save" onclick="editCurrentProduct()" style="flex:1;padding:10px 16px;">编辑商品</button>';
   html += '<button class="product-modal-btn cancel" onclick="deleteCurrentProduct()" style="flex:1;padding:10px 16px;color:#FF3B30;">删除商品</button>';
@@ -22725,12 +22734,8 @@ function createNewProduct() {
   document.getElementById('productPrice').value = '';
   document.getElementById('productOriginalPrice').value = '';
   document.getElementById('productCommissionRate').value = '';
-  document.getElementById('productStock').value = '0';
   document.getElementById('productSkuSpecs').value = '';
   document.getElementById('productStatus').value = 'active';
-  document.getElementById('productShippingFrom').value = '';
-  document.getElementById('productShippingNote').value = '';
-  document.getElementById('productSkuCode').value = '';
   document.getElementById('productModalTitle').textContent = '录入商品';
   document.getElementById('productModalOverlay').classList.add('active');
 }
@@ -22747,12 +22752,8 @@ function editCurrentProduct() {
     document.getElementById('productPrice').value = p.price || '';
     document.getElementById('productOriginalPrice').value = p.original_price || '';
     document.getElementById('productCommissionRate').value = p.commission_rate || '';
-    document.getElementById('productStock').value = p.stock || 0;
     document.getElementById('productSkuSpecs').value = p.sku_specs ? JSON.stringify(p.sku_specs, null, 2) : '';
     document.getElementById('productStatus').value = p.status || 'active';
-    document.getElementById('productShippingFrom').value = p.shipping_from || '';
-    document.getElementById('productShippingNote').value = p.shipping_note || '';
-    document.getElementById('productSkuCode').value = p.sku_code || '';
     document.getElementById('productModalTitle').textContent = '编辑商品';
     document.getElementById('productModalOverlay').classList.add('active');
   });
@@ -22776,12 +22777,8 @@ function saveProduct() {
     price: parseFloat(document.getElementById('productPrice').value) || 0,
     original_price: parseFloat(document.getElementById('productOriginalPrice').value) || 0,
     commission_rate: parseFloat(document.getElementById('productCommissionRate').value) || 0,
-    stock: parseInt(document.getElementById('productStock').value) || 0,
     sku_specs: skuSpecs,
-    status: document.getElementById('productStatus').value,
-    shipping_from: document.getElementById('productShippingFrom').value.trim(),
-    shipping_note: document.getElementById('productShippingNote').value.trim(),
-    sku_code: document.getElementById('productSkuCode').value.trim()
+    status: document.getElementById('productStatus').value
   };
   if (!body.name) { showToast('请输入商品名称'); return; }
   var url = '/api/products' + (id ? '/' + encodeURIComponent(id) : '');
@@ -23934,7 +23931,6 @@ function _renderTalentProductMatches() {
     html += '<div class="ai-match-card-tags">';
     var matchCommText = (p.commission_rates && Object.keys(p.commission_rates).length > 0) ? Object.keys(p.commission_rates).map(function(k){ return p.commission_rates[k] + '%'; }).join('/') : (p.commission_rate || 0) + '%';
     html += '<span class="ai-match-tag">佣金率 ' + matchCommText + '</span>';
-    html += '<span class="ai-match-tag">库存 ' + (p.stock || 0) + '</span>';
     html += '</div>';
     html += '<div class="ai-match-card-reason">' + escapeHtml(reason) + '</div>';
     html += '</div>';

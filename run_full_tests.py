@@ -98,7 +98,6 @@ def test_products():
         'sku': 'SKU-' + uuid.uuid4().hex[:6].upper(),
         'category': '美妆护肤',
         'price': 129.0,
-        'stock': 100,
         'tags': ['测试', '自动'],
         'description': '自动测试创建的商品',
         'status': 'active',
@@ -122,7 +121,7 @@ def test_products():
 
     # PUT update
     if product_id:
-        code, data = request('PUT', f'/api/products/{product_id}', {'stock': 200, 'price': 139.0}, auth_headers())
+        code, data = request('PUT', f'/api/products/{product_id}', {'price': 139.0}, auth_headers())
         log('PUT', f'/api/products/{product_id}', 'PASS' if code == 200 else 'FAIL')
 
     # POST search
