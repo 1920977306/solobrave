@@ -6,5 +6,6 @@ test_*.py
 check_*.py
 *.docx
 *.exe
+*.env
 data/
 HEARTBEAT.md
