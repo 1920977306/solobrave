@@ -58,6 +58,9 @@ import knowledge_service as ks
 import topic_service as ts
 import brain_knowledge_service as bks
 
+# Memory Pipeline（L0-L3 分层记忆 + Token 预算召回）
+import memory_pipeline
+
 # 按 agent_id 细分的聊天写入锁，防止读-修改-写竞争导致消息丢失
 _chat_write_locks = {}
 _chat_locks_mutex = threading.Lock()
@@ -2643,6 +2646,9 @@ def init_db():
         # FIXME: 大脑知识中枢新增表（保留旧表，不删数据）
         _init_brain_tables(conn)
 
+        # Memory Pipeline L0-L3 分层记忆表 + Token 预算 + Pipeline 状态
+        memory_pipeline.create_memory_tables(conn)
+
         conn.commit()
 
         # 旧 JSON 数据迁移（幂等）
@@ -4465,6 +4471,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/brain/knowledge':
             self._handle_get_brain_knowledge()
+            return
+
+        # Memory Pipeline API（L0-L3 分层记忆）
+        if path == '/api/memory/atoms':
+            self._handle_memory_pipeline_atoms()
+            return
+        if path == '/api/memory/stats':
+            self._handle_memory_pipeline_stats()
+            return
+        if path == '/api/memory/pipeline':
+            self._handle_memory_pipeline_status()
             return
 
         # Memory API v2
@@ -8749,6 +8766,71 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'lastKnowledgeInductionAttemptAt': data.get('lastKnowledgeInductionAttemptAt', 0),
             }
         })
+
+    def _handle_memory_pipeline_atoms(self):
+        """GET /api/memory/atoms?agent_id=xxx&type=xxx&limit=50 — 获取 L1 事实原子列表"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        qs = parse_qs(urlparse(self.path).query)
+        agent_id = qs.get('agent_id', [''])[0]
+        if not agent_id:
+            self._send_json(400, {'success': False, 'error': '缺少 agent_id 参数'})
+            return
+        atom_type = qs.get('type', [None])[0]
+        try:
+            limit = max(1, min(200, int(qs.get('limit', ['50'])[0])))
+        except ValueError:
+            limit = 50
+
+        conn = _db_conn()
+        try:
+            atoms = memory_pipeline.get_agent_atoms(conn, agent_id, atom_type=atom_type, limit=limit)
+        finally:
+            conn.close()
+        # embedding 体积大且无前端用途，返回前剔除
+        for a in atoms:
+            a.pop('content_embedding', None)
+        self._send_json(200, {'success': True, 'data': atoms})
+
+    def _handle_memory_pipeline_stats(self):
+        """GET /api/memory/stats?agent_id=xxx — 获取记忆统计（agent_id 可选，缺省为全局）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        qs = parse_qs(urlparse(self.path).query)
+        agent_id = qs.get('agent_id', [None])[0]
+
+        conn = _db_conn()
+        try:
+            stats = memory_pipeline.get_memory_stats(conn, agent_id=agent_id)
+        finally:
+            conn.close()
+        self._send_json(200, {'success': True, 'data': stats})
+
+    def _handle_memory_pipeline_status(self):
+        """GET /api/memory/pipeline?agent_id=xxx — 获取 Pipeline 调度状态"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        qs = parse_qs(urlparse(self.path).query)
+        agent_id = qs.get('agent_id', [''])[0]
+        if not agent_id:
+            self._send_json(400, {'success': False, 'error': '缺少 agent_id 参数'})
+            return
+
+        conn = _db_conn()
+        try:
+            status = memory_pipeline.get_pipeline_status(conn, agent_id)
+        finally:
+            conn.close()
+        self._send_json(200, {'success': True, 'data': status})
 
     def _handle_get_archived_memories(self):
         """GET /api/memory/archived — 查看全局归档记忆（支持分页/搜索）"""
@@ -16052,6 +16134,58 @@ KIMI_PROXY_REAL_API_KEY = os.environ.get('KIMI_API_KEY', '').strip() or 'sk-02e9
 KIMI_PROXY_REAL_BASE_URL = os.environ.get('KIMI_PROXY_BASE_URL', '').strip() or 'https://api.kimi.com/coding'
 
 
+def _extract_last_user_message(body):
+    """从 Anthropic messages 请求体中提取最后一条用户消息的纯文本"""
+    messages = body.get('messages') or []
+    for msg in reversed(messages):
+        if not isinstance(msg, dict) or msg.get('role') != 'user':
+            continue
+        content = msg.get('content')
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            texts = [b.get('text', '') for b in content
+                     if isinstance(b, dict) and b.get('type') == 'text']
+            return '\n'.join(t for t in texts if t).strip()
+    return ''
+
+
+def _prepend_system_context(body, context_text):
+    """把记忆上下文注入到 Anthropic 请求体的 system prompt 前部"""
+    system = body.get('system')
+    if not system:
+        body['system'] = context_text
+    elif isinstance(system, str):
+        body['system'] = context_text + '\n\n' + system
+    elif isinstance(system, list):
+        body['system'] = [{'type': 'text', 'text': context_text}] + system
+
+
+def _memory_pipeline_llm_call(model=None):
+    """构造供 memory_pipeline 使用的 LLM 调用函数，签名 (prompt: str) -> str"""
+    def _call(prompt):
+        req_body = json.dumps({
+            'model': model or 'kimi-for-coding',
+            'max_tokens': 2000,
+            'messages': [{'role': 'user', 'content': prompt}],
+        }).encode('utf-8')
+        req = urllib.request.Request(
+            KIMI_PROXY_REAL_BASE_URL + '/v1/messages',
+            data=req_body,
+            headers={
+                'Content-Type': 'application/json',
+                'x-api-key': KIMI_PROXY_REAL_API_KEY,
+                'anthropic-version': '2023-06-01',
+            },
+            method='POST')
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read())
+        parts = data.get('content', [])
+        return ''.join(p.get('text', '') for p in parts
+                       if isinstance(p, dict) and p.get('type') == 'text')
+    return _call
+
+
 def _handle_proxy_kimi(self):
     """POST /api/proxy/kimi/* — Kimi API代理，带积分管控（OpenClaw/飞书链路专用）"""
 
@@ -16091,6 +16225,31 @@ def _handle_proxy_kimi(self):
     if not body:
         self._send_json_error(400, 'Empty body')
         return
+
+    # 4.5 Memory Pipeline：召回记忆注入 system prompt + 保存 L0 对话记录
+    #     （失败不阻断代理转发）
+    user_message = _extract_last_user_message(body)
+    if agent_id and user_message:
+        conn = _db_conn()
+        try:
+            # 召回相关记忆（L3画像/L2场景/L1事实原子，带Token预算控制）
+            recall = memory_pipeline.recall_with_budget(conn, agent_id, user_message)
+            memory_ctx = '\n\n'.join(p for p in (
+                recall.get('prepend_context', ''),
+                recall.get('append_system_context', ''),
+            ) if p)
+            if memory_ctx:
+                _prepend_system_context(body, memory_ctx)
+            # 保存 L0 结构化对话记录
+            memory_pipeline.save_conversation(
+                conn, agent_id,
+                session_id=agent_id,
+                turn_id=int(time.time()),
+                user_content=user_message)
+        except Exception as e:
+            print(f'  [MemoryPipeline] recall/save failed: {e}', flush=True)
+        finally:
+            conn.close()
 
     # 5. 构造转发请求到真实Kimi API
     # 提取原始请求路径中的子路径（如/v1/messages）
@@ -16201,6 +16360,18 @@ def _handle_proxy_kimi(self):
                     conn.close()
         except Exception:
             pass
+
+    # 10. Memory Pipeline：检查是否触发 L1 事实提取（响应已发出，失败不影响客户端）
+    if agent_id:
+        conn = _db_conn()
+        try:
+            memory_pipeline.check_and_run_pipeline(
+                conn, agent_id,
+                llm_call_func=_memory_pipeline_llm_call(body.get('model')))
+        except Exception as e:
+            print(f'  [MemoryPipeline] pipeline check failed: {e}', flush=True)
+        finally:
+            conn.close()
 
 def _handle_douyin_parse(self):
     """POST /api/douyin/parse（需认证）
