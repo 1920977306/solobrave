@@ -22379,7 +22379,7 @@ function selectProductItem(id) {
     document.querySelectorAll('.products-mid-card').forEach(function(el){el.classList.remove('active');});
     var activeEl = document.querySelector('.products-mid-card[data-id="' + escapeAttr(id) + '"]');
     if (activeEl) activeEl.classList.add('active');
-  }).catch(function(e){ showToast('加载失败'); });
+  }).catch(function(e){ console.error('[selectProductItem] 加载失败:', e); showToast('加载失败'); });
 }
 
 function renderProductDetail(p) {
@@ -22664,7 +22664,8 @@ function renderProductPanelAudience(p) {
   html += '<div class="products-detail-item"><div class="products-detail-label">年龄分布</div><input type="text" id="audience-age" value="' + escapeAttr(distToText(audience.age)) + '" placeholder="如: 18-24:30, 25-34:50" style="' + inputStyle + '"></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">地域分布</div><input type="text" id="audience-region" value="' + escapeAttr(distToText(audience.region)) + '" placeholder="如: 浙江:40, 广东:30" style="' + inputStyle + '"></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">职业分布</div><input type="text" id="audience-occupation" value="' + escapeAttr(distToText(audience.occupation)) + '" placeholder="如: 学生:30, 上班族:50" style="' + inputStyle + '"></div>';
-  html += '<div class="products-detail-item" style="grid-column:1/-1;"><div class="products-detail-label">兴趣标签</div><input type="text" id="audience-interests" value="' + escapeAttr((audience.interests || []).join(', ')) + '" placeholder="多个标签用逗号分隔，如: 时尚, 穿搭, 女鞋" style="' + inputStyle + '"></div>';
+  var _interests = audience.interests; if (typeof _interests === 'string') _interests = _interests.split(',').map(function(s){return s.trim();}).filter(Boolean); if (!Array.isArray(_interests)) _interests = [];
+  html += '<div class="products-detail-item" style="grid-column:1/-1;"><div class="products-detail-label">兴趣标签</div><input type="text" id="audience-interests" value="' + escapeAttr(_interests.join(', ')) + '" placeholder="多个标签用逗号分隔，如: 时尚, 穿搭, 女鞋" style="' + inputStyle + '"></div>';
   html += '</div></div>';
   el.innerHTML = html;
 }
@@ -26595,6 +26596,9 @@ function renderCreditDashboard(balances, quotas, todayRecords, summary) {
   var html = '';
   // 总览
   html += '<div class="settings-card"><div class="settings-card-title">总览（1 积分 = 1000 tokens）</div>';
+  html += '<div style="display:flex;gap:6px;margin-bottom:12px;">';
+  ['today:今日','yesterday:昨日','7d:近7天','30d:近30天'].forEach(function(r){ var kv=r.split(':'); html += '<button onclick="setCreditTimeRange(\''+kv[0]+'\')" style="padding:4px 12px;border-radius:8px;border:1px solid '+(kv[0]===_creditTimeRange?'#007AFF':'#E0E0E0')+';background:'+(kv[0]===_creditTimeRange?'#007AFF':'#fff')+';color:'+(kv[0]===_creditTimeRange?'#fff':'#333')+';font-size:12px;cursor:pointer;font-family:inherit;">'+kv[1]+'</button>'; });
+  html += '</div>';
   html += '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
   html += _creditStatChip('累计消耗积分', formatNumber(summary.total_credits_used || 0));
   html += _creditStatChip('累计 Tokens', formatNumber(summary.total_tokens || 0));

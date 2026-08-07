@@ -7,3 +7,4 @@ check_*.py
 *.docx
 *.exe
 data/
+HEARTBEAT.md
