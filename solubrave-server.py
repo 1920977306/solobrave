@@ -4636,24 +4636,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_product(rest)
                 return
 
-        # Influencer API (legacy JSON)
+        # Influencer API (legacy → redirect to Talents API)
         if path == '/api/influencers':
-            self._handle_get_influencers()
+            self._handle_get_talents()
             return
         if path == '/api/influencers/search':
-            self._handle_search_influencers()
+            self._handle_get_talents()
             return
         if path.startswith('/api/influencers/'):
             rest = path[len('/api/influencers/'):]
             if rest:
-                # 处理 /api/influencers/:id/matches
                 if '/' in rest:
                     parts = rest.split('/')
                     inf_id = parts[0]
                     if parts[1] == 'matches':
-                        self._handle_get_influencer_matches(inf_id)
+                        self._handle_get_talents()
                         return
-                self._handle_get_influencer(rest)
+                self._handle_get_talent(rest)
                 return
 
         # Tasks API
@@ -5056,12 +5055,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_match_product_talents(parts[0])
                 return
 
-        # Influencer API (legacy JSON)
+        # Influencer API (legacy → redirect to Talents API)
         if path == '/api/influencers':
-            self._handle_post_influencer()
+            self._handle_post_talent()
             return
         if path == '/api/influencers/search':
-            self._handle_search_influencers()
+            self._handle_get_talents()
+            return
+
+        # Forbidden words check API
+        if path == '/api/forbidden-words/check':
+            self._handle_check_forbidden_words()
             return
 
         # Tasks API
@@ -5234,11 +5238,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_put_product(product_id)
                 return
 
-        # Influencer API (legacy JSON)
+        # Influencer API (legacy → redirect to Talents API)
         if path.startswith('/api/influencers/'):
             inf_id = path[len('/api/influencers/'):]
             if inf_id:
-                self._handle_put_influencer(inf_id)
+                self._handle_put_talent(inf_id)
                 return
 
         # Tasks API
@@ -5370,11 +5374,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_delete_product(product_id)
                 return
 
-        # Influencer API (legacy JSON)
+        # Influencer API (legacy → redirect to Talents API)
         if path.startswith('/api/influencers/'):
             inf_id = path[len('/api/influencers/'):]
             if inf_id:
-                self._handle_delete_influencer(inf_id)
+                self._handle_delete_talent(inf_id)
                 return
 
         # Tasks API
@@ -12609,6 +12613,44 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(403, '无权查看此任务')
                 return
         self._send_json(200, task)
+
+    def _handle_check_forbidden_words(self):
+        """POST /api/forbidden-words/check — 违禁词检测"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Empty body')
+            return
+        text = body.get('text', '')
+        if not text:
+            self._send_json_error(400, 'Missing "text" field')
+            return
+
+        FORBIDDEN_WORDS = [
+            '最', '第一', '顶级', '极品', '万能', '完美', '绝对', '100%', '百分百',
+            '永久', '根治', '包治', '痊愈', '零风险', '无风险', '稳赚', '保本',
+            '日入', '月入', '年入', '躺赚', '暴富', '一夜暴富',
+            '微信', '支付宝', '加我', '私聊', '扫码', '二维码',
+            '假货', '高仿', 'A货', '原单', '尾单',
+            '最低价', '最便宜', '全网最低', '史上最低',
+            '国家级', '世界级', '顶尖', '第一品牌',
+        ]
+
+        found = []
+        text_lower = text.lower()
+        for word in FORBIDDEN_WORDS:
+            if word.lower() in text_lower:
+                found.append(word)
+
+        self._send_json(200, {
+            'has_forbidden': len(found) > 0,
+            'words': found,
+            'count': len(found),
+            'suggestion': '请替换以上违禁词后再发送' if found else '检测通过'
+        })
 
     def _handle_post_task(self):
         """POST /api/tasks — 创建任务（仅管理员）"""
