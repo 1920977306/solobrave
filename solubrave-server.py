@@ -2735,6 +2735,7 @@ def _product_row_to_dict(row):
         'selling_points': row['selling_points'] or '',
         'created_by': row['created_by'] or '',
         'original_price': row['original_price'] if row['original_price'] is not None else 0,
+        'created_by': row['created_by'] or '',
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
@@ -2985,6 +2986,7 @@ def _talent_row_to_dict(row):
         'feishu_product_count': row['feishu_product_count'] or '',
         'monthly_settlement': row['monthly_settlement'] or '',
         'remark': row['remark'] or '',
+        'created_by': row['created_by'] or '',
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
@@ -12254,9 +12256,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(404, 'Talent not found')
                 return
             existing = _talent_row_to_dict(row)
+
             if not auth.is_admin and existing.get('created_by') != auth.user_info.get('userId', ''):
                 self._send_json_error(403, '无权修改他人创建的达人')
                 return
+            print(f"[DEBUG PUT BODY] keys={list(body.keys())} body={body}", flush=True)
             existing.update(body)
             existing['id'] = talent_id
             existing['updated_at'] = int(time.time() * 1000)
@@ -16167,6 +16171,7 @@ def _talent_presearch(conn, user_message):
             matched.append(name)
     if not matched:
         return ''
+    print(f'  [TalentPreSearch] matched={matched}', flush=True)
 
     # 2. 对每个匹配到的达人名，按 /api/talents?q= 同款查询取完整信息
     lines = []
@@ -16189,7 +16194,8 @@ def _talent_presearch(conn, user_message):
 
         category = row['fan_category'] or row['category'] or '未知'
         lines.append(
-            f"【系统预查到达人信息】达人ID: {row['id']}, 名称: {row['name']}, "
+            f"【系统预查到达人信息-以下数据已由系统自动查到，无需再执行搜索，直接使用】"
+            f"达人ID: {row['id']}, 名称: {row['name']}, "
             f"粉丝: {row['followers'] or 0}, 品类: {category}, 粉丝画像: {fans_profile}"
         )
 
@@ -16297,14 +16303,32 @@ def _handle_proxy_kimi(self):
         finally:
             conn.close()
 
-    # 4.6 达人预搜索：用户消息提到达人名时，预查达人信息拼接到 system prompt 前面
-    #     （失败不阻断代理转发）
-    if user_message:
+    # 4.6 达人预搜索：搜索所有user消息中的达人名（OpenClaw会把用户消息包装在runtime context里）
+    all_user_text = user_message or ''
+    for m in (body.get('messages') or []):
+        if m.get('role') == 'user':
+            c = m.get('content')
+            if isinstance(c, str):
+                all_user_text += ' ' + c
+            elif isinstance(c, list):
+                for b in c:
+                    if isinstance(b, dict) and b.get('type') == 'text':
+                        all_user_text += ' ' + b.get('text', '')
+    if all_user_text.strip():
         conn = _db_conn()
         try:
-            talent_ctx = _talent_presearch(conn, user_message)
+            talent_ctx = _talent_presearch(conn, all_user_text)
             if talent_ctx:
                 _prepend_system_context(body, talent_ctx)
+                msgs = body.get('messages') or []
+                for m in reversed(msgs):
+                    if isinstance(m, dict) and m.get('role') == 'user':
+                        c = m.get('content')
+                        if isinstance(c, str):
+                            m['content'] = talent_ctx + '\n\n' + c
+                        elif isinstance(c, list):
+                            c.insert(0, {'type': 'text', 'text': talent_ctx})
+                        break
         except Exception as e:
             print(f'  [TalentPreSearch] failed: {e}', flush=True)
         finally:
