@@ -16150,6 +16150,52 @@ def _extract_last_user_message(body):
     return ''
 
 
+def _talent_presearch(conn, user_message):
+    """达人预搜索：用户消息中提及 active 达人名时，查询完整信息并格式化为简洁文本
+
+    查询逻辑与 GET /api/talents?q=达人名 一致（名称模糊匹配，按粉丝数排序取第一条）。
+    返回格式化文本，无匹配时返回空字符串。
+    """
+    # 1. 取出所有 active 达人名称，子串匹配用户消息（跳过过短名称避免误匹配）
+    names = conn.execute(
+        "SELECT id, name FROM talents WHERE status='active'"
+    ).fetchall()
+    matched = []
+    for r in names:
+        name = (r['name'] or '').strip()
+        if len(name) >= 2 and name in user_message and name not in matched:
+            matched.append(name)
+    if not matched:
+        return ''
+
+    # 2. 对每个匹配到的达人名，按 /api/talents?q= 同款查询取完整信息
+    lines = []
+    for name in matched[:3]:  # 最多3个达人，防止 prompt 膨胀
+        row = conn.execute(
+            "SELECT * FROM talents WHERE status='active' AND LOWER(name) LIKE ? "
+            "ORDER BY followers DESC LIMIT 1",
+            (f'%{name.lower()}%',)
+        ).fetchone()
+        if not row:
+            continue
+
+        # 3. 粉丝画像四字段（fan_gender/fan_age/fan_region/fan_price_range）是否为空
+        fan_fields = {
+            '性别': row['fan_gender'], '年龄': row['fan_age'],
+            '地域': row['fan_region'], '价格区间': row['fan_price_range'],
+        }
+        filled = [k for k, v in fan_fields.items() if v and v not in ('{}', '')]
+        fans_profile = '已填写(' + ','.join(filled) + ')' if filled else '未填写'
+
+        category = row['fan_category'] or row['category'] or '未知'
+        lines.append(
+            f"【系统预查到达人信息】达人ID: {row['id']}, 名称: {row['name']}, "
+            f"粉丝: {row['followers'] or 0}, 品类: {category}, 粉丝画像: {fans_profile}"
+        )
+
+    return '\n'.join(lines)
+
+
 def _prepend_system_context(body, context_text):
     """把记忆上下文注入到 Anthropic 请求体的 system prompt 前部"""
     system = body.get('system')
@@ -16248,6 +16294,19 @@ def _handle_proxy_kimi(self):
                 user_content=user_message)
         except Exception as e:
             print(f'  [MemoryPipeline] recall/save failed: {e}', flush=True)
+        finally:
+            conn.close()
+
+    # 4.6 达人预搜索：用户消息提到达人名时，预查达人信息拼接到 system prompt 前面
+    #     （失败不阻断代理转发）
+    if user_message:
+        conn = _db_conn()
+        try:
+            talent_ctx = _talent_presearch(conn, user_message)
+            if talent_ctx:
+                _prepend_system_context(body, talent_ctx)
+        except Exception as e:
+            print(f'  [TalentPreSearch] failed: {e}', flush=True)
         finally:
             conn.close()
 
