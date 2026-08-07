@@ -2149,7 +2149,7 @@ def _kb_category_descendant_ids(category_id):
         conn.close()
 
 
-def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, category=None, category_id=None, project_id=None, keyword=None, allowed_categories=None):
+def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False, user_team_ids=None, user_group_ids=None, emp_ids=None, created_by=None, category=None, category_id=None, project_id=None, keyword=None, allowed_categories=None, prefix=''):
     """构建 kb_entries 查询 WHERE 子句与参数"""
     if user_group_ids is None:
         user_group_ids = []
@@ -2158,30 +2158,31 @@ def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False
     if user_id and user_id not in emp_ids:
         emp_ids = list(emp_ids) + [user_id]
 
-    where = ["status IN ('ok', 'pending')"]
+    p = prefix
+    where = [f"{p}status IN ('ok', 'pending')"]
     params = []
 
     if scope == 'global':
-        where.append("(scope IS NULL OR scope = 'global')")
+        where.append(f"({p}scope IS NULL OR {p}scope = 'global')")
     elif scope == 'personal':
-        where.append("scope = 'personal'")
+        where.append(f"{p}scope = 'personal'")
         if emp_ids:
             placeholders = ', '.join('?' for _ in emp_ids)
-            where.append(f'emp_id IN ({placeholders})')
+            where.append(f'{p}emp_id IN ({placeholders})')
             params.extend(emp_ids)
     elif scope == 'team':
-        where.append("scope = 'team'")
+        where.append(f"{p}scope = 'team'")
         if team_id:
-            where.append('team_id = ?')
+            where.append(f'{p}team_id = ?')
             params.append(team_id)
         elif user_team_ids:
             placeholders = ', '.join('?' for _ in user_team_ids)
-            where.append(f'team_id IN ({placeholders})')
+            where.append(f'{p}team_id IN ({placeholders})')
             params.extend(user_team_ids)
         elif not is_admin:
             where.append('1 = 0')
     elif scope == 'group':
-        where.append("scope = 'group'")
+        where.append(f"{p}scope = 'group'")
         if not is_admin:
             group_clause, group_params = _kb_entry_group_where_clause(user_group_ids)
             if group_clause:
@@ -2191,45 +2192,45 @@ def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False
                 where.append('1 = 0')
     else:
         if not is_admin:
-            readable = ["(scope IS NULL OR scope = 'global')"]
+            readable = [f"({p}scope IS NULL OR {p}scope = 'global')"]
             if emp_ids:
                 placeholders = ', '.join('?' for _ in emp_ids)
-                readable.append(f"(scope = 'personal' AND emp_id IN ({placeholders}))")
+                readable.append(f"({p}scope = 'personal' AND {p}emp_id IN ({placeholders}))")
                 params.extend(emp_ids)
             group_clause, group_params = _kb_entry_group_where_clause(user_group_ids)
             if group_clause:
-                readable.append(f"(scope = 'group' AND {group_clause})")
+                readable.append(f"({p}scope = 'group' AND {group_clause})")
                 params.extend(group_params)
             where.append('(' + ' OR '.join(readable) + ')')
 
     if category:
-        where.append('category = ?')
+        where.append(f'{p}category = ?')
         params.append(category)
     if category_id:
         cat_ids = _kb_category_descendant_ids(category_id)
         if cat_ids:
             placeholders = ', '.join('?' for _ in cat_ids)
-            where.append(f'category_id IN ({placeholders})')
+            where.append(f'{p}category_id IN ({placeholders})')
             params.extend(cat_ids)
         else:
             where.append('1 = 0')
     if project_id is not None:
         project_id = (project_id or '').strip()
-        where.append('project_id = ?')
+        where.append(f'{p}project_id = ?')
         params.append(project_id)
     if allowed_categories is not None and '*' not in allowed_categories:
         if allowed_categories:
             placeholders = ', '.join('?' for _ in allowed_categories)
-            where.append(f'category IN ({placeholders})')
+            where.append(f'{p}category IN ({placeholders})')
             params.extend(allowed_categories)
         else:
             where.append('1 = 0')
     if keyword:
-        where.append('(title LIKE ? OR content LIKE ?)')
+        where.append(f'({p}title LIKE ? OR {p}content LIKE ?)')
         like = f'%{keyword}%'
         params.extend([like, like])
     if created_by:
-        where.append('created_by = ?')
+        where.append(f'{p}created_by = ?')
         params.append(created_by)
 
     return where, params
@@ -2362,7 +2363,7 @@ def kb_entry_search_semantic(query, limit=10, allowed_categories=None, scope=Non
         scope=scope, team_id=team_id, user_id=user_id, is_admin=is_admin,
         user_team_ids=user_team_ids, user_group_ids=user_group_ids, emp_ids=emp_ids,
         created_by=created_by, category=category, category_id=category_id, project_id=project_id,
-        keyword=None, allowed_categories=allowed_categories
+        keyword=None, allowed_categories=allowed_categories, prefix='e.'
     )
     if author_emp_id:
         where.append('e.emp_id = ?')
