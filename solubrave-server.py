@@ -2416,6 +2416,7 @@ def init_db():
                 feishu_product_count TEXT DEFAULT '',
                 monthly_settlement TEXT DEFAULT '',
                 price_distribution TEXT DEFAULT '{}',
+                category_distribution TEXT DEFAULT '{}',
                 remark TEXT DEFAULT '',
                 created_at INTEGER,
                 updated_at INTEGER
@@ -2454,6 +2455,7 @@ def init_db():
             ('feishu_product_count', "TEXT DEFAULT ''"),
             ('monthly_settlement', "TEXT DEFAULT ''"),
             ('price_distribution', "TEXT DEFAULT '{}'"),
+            ('category_distribution', "TEXT DEFAULT '{}'"),
             ('remark', "TEXT DEFAULT ''"),
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
@@ -2872,7 +2874,7 @@ _TALENT_COLUMNS = [
     'ai_analysis', 'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by',
     'account_fans_profile', 'video_fans_profile', 'video_settlement_ratio',
     'single_video_settlement', 'feishu_gpm', 'video_avg_price',
-    'feishu_shops', 'feishu_product_count', 'monthly_settlement', 'price_distribution', 'remark',
+    'feishu_shops', 'feishu_product_count', 'monthly_settlement', 'price_distribution', 'category_distribution', 'remark',
     'created_at', 'updated_at'
 ]
 
@@ -2988,6 +2990,7 @@ def _talent_row_to_dict(row):
         'feishu_product_count': row['feishu_product_count'] or '',
         'monthly_settlement': row['monthly_settlement'] or '',
         'price_distribution': _json_col('price_distribution', {}),
+        'category_distribution': _json_col('category_distribution', {}),
         'remark': row['remark'] or '',
         'created_by': row['created_by'] or '',
         'created_at': row['created_at'],
@@ -3124,6 +3127,7 @@ def _dict_to_talent_row(t):
         'monthly_settlement': t.get('monthly_settlement') or '',
         # 前端回传时 price_distribution 是解析后的 dict，直接绑定 sqlite 会报错，需重新序列化
         'price_distribution': t.get('price_distribution') if isinstance(t.get('price_distribution'), str) and t.get('price_distribution') else _dump(t.get('price_distribution') or {}),
+        'category_distribution': t.get('category_distribution') if isinstance(t.get('category_distribution'), str) and t.get('category_distribution') else _dump(t.get('category_distribution') or {}),
         'remark': t.get('remark') or '',
         'created_by': t.get('created_by') or t.get('createdBy') or '',
         'created_at': t.get('created_at') or t.get('createdAt') or now,

@@ -23771,6 +23771,12 @@ function _getTalentPriceDistribution(t, mock) {
 }
 
 function _getTalentCategoryDistribution(t, mock) {
+  // 优先使用达人真实的类目分布数据（key 为类目名称，value 为百分比数字）
+  if (t.category_distribution && typeof t.category_distribution === 'object' && Object.keys(t.category_distribution).length) {
+    return Object.keys(t.category_distribution).map(function(key){
+      return { label: key, value: t.category_distribution[key] };
+    });
+  }
   var cats = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean);
   if (!cats.length) return [];
   var seed = _hashString(t.id + 'cat');
