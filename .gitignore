@@ -9,3 +9,7 @@ check_*.py
 *.env
 data/
 HEARTBEAT.md
+
+create_product_table.py
+create_talent_table.py
+set_permission.py

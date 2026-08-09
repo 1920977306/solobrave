@@ -2479,6 +2479,7 @@ def init_db():
                 updated_at INTEGER DEFAULT 0
             )
         ''')
+        _add_column_if_not_exists(conn, 'user_feishu_config', 'product_table_id', 'TEXT DEFAULT ""')
 
         # 商品-达人匹配关系
         conn.execute('''
@@ -3228,6 +3229,8 @@ def _feishu_record_to_talent(fields):
         'feishu_shops': str(_g('合作店铺数') or ''),
         'feishu_product_count': str(_g('带货商品数') or ''),
         'monthly_settlement': str(_g('月结算金额') or ''),
+        'price_distribution': _g('价格带分布') or '{}',
+        'category_distribution': _g('类目分布') or '{}',
         'remark': str(_g('备注') or ''),
     }
 
@@ -4669,6 +4672,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/products/search':
             self._handle_search_products()
+            return
+        if path == '/api/products/sync-feishu':
+            self._handle_sync_feishu_products()
             return
         if path.startswith('/api/products/'):
             rest = path[len('/api/products/'):]
@@ -11335,7 +11341,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not self._require_module_permission(auth, 'products'): return
         data = self._load_products()
         products = data.get('products', [])
-        # 解析 query string 做筛选
+        # 解析 query string 做筛选（_parse_query 统一处理中文UTF-8编码）
         query = self._parse_query()
         if query.get('category'):
             cat = query['category'][0]
@@ -11355,8 +11361,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 ] + [str(t) for t in (p.get('tags') or [])]).lower()
                 return all(kw in fields for kw in kws)
             products = [p for p in products if _match_product(p)]
+        print(f'  [ProductGET-DEBUG] userId={auth.user_info.get("userId")} is_admin={auth.is_admin} total_before_filter={len(products)} created_by_values={[p.get("created_by") for p in products]}', flush=True)
         if not auth.is_admin:
             products = [p for p in products if p.get('created_by') == auth.user_info.get('userId', '')]
+        print(f'  [ProductGET-DEBUG] total_after_filter={len(products)}', flush=True)
         # 分页
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
@@ -12203,6 +12211,94 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'errors': error_list
         })
 
+    def _handle_sync_feishu_products(self):
+        """POST /api/products/sync-feishu — 从飞书多维表格同步商品数据"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        user_id = auth.user_info.get('userId', '')
+        _cfg_conn = _db_conn()
+        _cfg_row = _cfg_conn.execute('SELECT * FROM user_feishu_config WHERE user_id = ?', (user_id,)).fetchone()
+        _cfg_conn.close()
+        _fs_app_id = _cfg_row['app_id'] if _cfg_row and _cfg_row['app_id'] else FEISHU_BITABLE_APP_ID
+        _fs_app_secret = _cfg_row['app_secret'] if _cfg_row and _cfg_row['app_secret'] else FEISHU_BITABLE_APP_SECRET
+        _fs_app_token = _cfg_row['app_token'] if _cfg_row and _cfg_row['app_token'] else FEISHU_BITABLE_APP_TOKEN
+        _fs_product_table_id = ''
+        if _cfg_row:
+            try:
+                _fs_product_table_id = _cfg_row['product_table_id'] or ''
+            except (IndexError, KeyError):
+                _fs_product_table_id = ''
+        if not _fs_product_table_id:
+            _fs_product_table_id = _cfg_row['table_id'] if _cfg_row and _cfg_row['table_id'] else FEISHU_BITABLE_TABLE_ID
+        try:
+            token = _feishu_get_tenant_access_token(_fs_app_id, _fs_app_secret)
+            records = _feishu_list_all_records(token, _fs_app_token, _fs_product_table_id)
+        except Exception as e:
+            self._send_json_error(500, f'飞书API调用失败: {e}')
+            return
+        created = 0
+        updated = 0
+        skipped = 0
+        error_list = []
+        conn = _db_conn()
+        try:
+            for rec in records:
+                try:
+                    fields = rec.get('fields', {})
+                    product_data = _feishu_record_to_product(fields)
+                    if not product_data:
+                        skipped += 1
+                        continue
+                    existing = None
+                    if product_data.get('name'):
+                        existing = conn.execute(
+                            "SELECT * FROM products WHERE name = ? LIMIT 1",
+                            (product_data['name'],)
+                        ).fetchone()
+                    if existing:
+                        existing_dict = _product_row_to_dict(existing)
+                        for k, v in product_data.items():
+                            existing_dict[k] = v
+                        existing_dict['id'] = existing['id']
+                        row = _dict_to_product_row(existing_dict)
+                        conn.execute(
+                            f"UPDATE products SET {', '.join(f'{c} = ?' for c in _PRODUCT_COLUMNS)} WHERE id = ?",
+                            tuple(row[c] for c in _PRODUCT_COLUMNS) + (existing['id'],)
+                        )
+                        updated += 1
+                    else:
+                        import time as _t
+                        product_data['id'] = f"prod_{int(_t.time()*1000)}_{_t.time_ns()%1000000:06d}"
+                        product_data['created_by'] = auth.user_info.get('userId', '')
+                        product_data['created_at'] = int(_t.time() * 1000)
+                        product_data['updated_at'] = int(_t.time() * 1000)
+                        row = _dict_to_product_row(product_data)
+                        conn.execute(
+                            f"INSERT INTO products ({', '.join(_PRODUCT_COLUMNS)}) VALUES ({', '.join('?' * len(_PRODUCT_COLUMNS))})",
+                            tuple(row[c] for c in _PRODUCT_COLUMNS)
+                        )
+                        created += 1
+                except Exception as e:
+                    error_list.append({'record_id': rec.get('record_id', ''), 'error': str(e)})
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            self._send_json_error(500, f'同步失败: {e}')
+            return
+        finally:
+            conn.close()
+        self._send_json(200, {
+            'success': True,
+            'total': len(records),
+            'created': created,
+            'updated': updated,
+            'skipped': skipped,
+            'errors': error_list
+        })
+
     def _handle_get_feishu_config(self):
         """GET /api/user/feishu-config — 获取当前用户的飞书多维表格配置"""
         auth = _authenticate(self.headers, self.client_address[0], self)
@@ -12216,9 +12312,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         if row:
-            self._send_json(200, {'configured': True, 'app_id': row['app_id'], 'app_token': row['app_token'], 'table_id': row['table_id'], 'updated_at': row['updated_at']})
+            self._send_json(200, {'configured': True, 'app_id': row['app_id'], 'app_token': row['app_token'], 'table_id': row['table_id'], 'product_table_id': row['product_table_id'] if 'product_table_id' in row.keys() else '', 'updated_at': row['updated_at']})
         else:
-            self._send_json(200, {'configured': False, 'app_id': '', 'app_token': '', 'table_id': '', 'updated_at': 0})
+            self._send_json(200, {'configured': False, 'app_id': '', 'app_token': '', 'table_id': '', 'product_table_id': '', 'updated_at': 0})
 
     def _handle_save_feishu_config(self):
         """POST /api/user/feishu-config — 保存当前用户的飞书多维表格配置"""
@@ -12235,6 +12331,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         app_secret = str(data.get('app_secret', '')).strip()
         app_token = str(data.get('app_token', '')).strip()
         table_id = str(data.get('table_id', '')).strip()
+        product_table_id = str(data.get('product_table_id', '')).strip()
         if not app_token or not table_id:
             self._send_json_error(400, 'app_token 和 table_id 不能为空')
             return
@@ -12242,7 +12339,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         now = int(time.time())
         conn = _db_conn()
         try:
-            conn.execute('INSERT OR REPLACE INTO user_feishu_config (user_id, app_id, app_secret, app_token, table_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)', (user_id, app_id, app_secret, app_token, table_id, now))
+            conn.execute('INSERT OR REPLACE INTO user_feishu_config (user_id, app_id, app_secret, app_token, table_id, product_table_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', (user_id, app_id, app_secret, app_token, table_id, product_table_id, now))
             conn.commit()
         finally:
             conn.close()
@@ -16993,3 +17090,101 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+def _feishu_record_to_product(fields):
+    def _g(name):
+        return _feishu_extract_val(fields.get(name))
+    def _g_json(name, default=None):
+        v = _g(name)
+        if not v:
+            return default
+        if isinstance(v, (dict, list)):
+            return v
+        try:
+            return json.loads(v)
+        except Exception:
+            return default
+    name = str(_g('商品名称') or '')
+    if not name:
+        return None
+    commission_rates = _g_json('佣金率', {})
+    if not commission_rates:
+        cr = _g('佣金率')
+        if cr:
+            try:
+                commission_rates = float(cr)
+                commission_rates = {'自然流': commission_rates}
+            except (ValueError, TypeError):
+                commission_rates = {}
+    sku_specs = _g_json('SKU规格', {})
+    if not sku_specs:
+        ss = _g('SKU规格')
+        if ss and isinstance(ss, str):
+            parts = [p.strip() for p in ss.split(',') if p.strip()]
+            if parts:
+                sku_specs = {'规格': parts}
+    tags_raw = _g('标签')
+    if isinstance(tags_raw, list):
+        tags = tags_raw
+    elif tags_raw:
+        tags = [t.strip() for t in str(tags_raw).split(',') if t.strip()]
+    else:
+        tags = []
+    audience = {}
+    for key, col in [('gender', '购买性别'), ('age', '购买年龄'), ('region', '购买地区'), ('occupation', '购买人群')]:
+        val = _g_json(col)
+        if val:
+            audience[key] = val
+        else:
+            sv = _g(col)
+            if sv:
+                parts = {}
+                for pair in str(sv).split(','):
+                    pair = pair.strip()
+                    if ':' in pair:
+                        k, v = pair.split(':', 1)
+                        try:
+                            parts[k.strip()] = float(v.strip())
+                        except ValueError:
+                            parts[k.strip()] = v.strip()
+                if parts:
+                    audience[key] = parts
+    videos = _g_json('带货视频案例', [])
+    if not videos:
+        vv = _g('带货视频案例')
+        if vv and isinstance(vv, str):
+            try:
+                videos = json.loads(vv)
+            except Exception:
+                videos = []
+    return {
+        'name': name,
+        'subtitle': str(_g('商品描述') or ''),
+        'main_image': str(_g('主图URL') or ''),
+        'price': float(_g('价格') or 0),
+        'price_range': '',
+        'brand': str(_g('品牌') or ''),
+        'brand_id': '',
+        'category': str(_g('类目') or ''),
+        'scene': str(_g('穿搭场景') or ''),
+        'sku_specs': json.dumps(sku_specs, ensure_ascii=False) if sku_specs else '{}',
+        'status': 'active',
+        'monthly_sales': int(float(_g('月销量') or 0)),
+        'monthly_gmv': float(_g('月GMV') or 0),
+        'commission_rates': json.dumps(commission_rates, ensure_ascii=False) if commission_rates else '{}',
+        'commission_amount': float(_g('佣金金额') or 0),
+        'conversion_rate': float(_g('转化率') or 0),
+        'avg_order_value': 0,
+        'influencer_count': int(float(_g('合作达人数') or 0)),
+        'talent_count': int(float(_g('合作达人数') or 0)),
+        'video_count': int(float(_g('视频数') or 0)),
+        'live_count': int(float(_g('直播数') or 0)),
+        'channel_distribution': _g('渠道分布') or '{}',
+        'influencers': '[]',
+        'audience': json.dumps(audience, ensure_ascii=False) if audience else '{}',
+        'ai_analysis': '{}',
+        'videos': json.dumps(videos, ensure_ascii=False) if videos else '[]',
+        'tags': json.dumps(tags, ensure_ascii=False) if tags else '[]',
+        'selling_points': '',
+        'original_price': float(_g('原价') or 0),
+    }
