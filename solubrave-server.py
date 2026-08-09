@@ -2291,6 +2291,7 @@ def init_db():
                 videos TEXT DEFAULT '[]',
                 tags TEXT DEFAULT '[]',
                 selling_points TEXT DEFAULT '',
+                scene TEXT DEFAULT '',
                 created_by TEXT DEFAULT '',
                 created_at INTEGER,
                 updated_at INTEGER
@@ -2300,6 +2301,7 @@ def init_db():
         for _prod_col, _prod_dtype in [
             ('tags', "TEXT DEFAULT '[]'"),
             ('selling_points', "TEXT DEFAULT ''"),
+            ('scene', "TEXT DEFAULT ''"),
             ('brand_id', "TEXT DEFAULT ''"),
             ('talent_count', 'INTEGER DEFAULT 0'),
             ('created_by', "TEXT DEFAULT ''"),
@@ -2690,7 +2692,7 @@ _PRODUCT_COLUMNS = [
     'commission_rates', 'commission_amount', 'conversion_rate', 'avg_order_value',
     'influencer_count', 'talent_count', 'video_count', 'live_count', 'channel_distribution',
     'influencers', 'audience', 'ai_analysis', 'videos', 'tags', 'selling_points',
-    'created_by', 'original_price', 'created_at', 'updated_at'
+    'scene', 'created_by', 'original_price', 'created_at', 'updated_at'
 ]
 
 
@@ -2737,6 +2739,7 @@ def _product_row_to_dict(row):
         'videos': _json_col('videos', []),
         'tags': _json_col('tags', []),
         'selling_points': row['selling_points'] or '',
+        'scene': row['scene'] or '',
         'created_by': row['created_by'] or '',
         'original_price': row['original_price'] if row['original_price'] is not None else 0,
         'created_by': row['created_by'] or '',
@@ -2833,6 +2836,7 @@ def _dict_to_product_row(p):
         'videos': _dump(_get('videos', 'hot_videos', 'hotVideos', default=[])),
         'tags': _dump(_get('tags', default=[])),
         'selling_points': _get('selling_points', 'sellingPoints', default='') or '',
+        'scene': _get('scene', default='') or '',
         'created_by': _get('created_by', 'createdBy', default='') or '',
         'original_price': float(_get('original_price', 'originalPrice', default=0) or 0),
         'created_at': _get('created_at', 'createdAt'),

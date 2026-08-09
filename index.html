@@ -6448,6 +6448,7 @@ window.doLogin = function () {
       <input type="hidden" id="productBrandId">
       <div class="product-modal-field"><label>品牌</label><select id="productBrandSelect" onchange="onProductBrandChange(this.value)"><option value="">选择品牌</option></select></div>
       <div class="product-modal-field"><label>类目</label><input type="text" id="productCategory" value="拖鞋"></div>
+      <div class="product-modal-field"><label>穿搭场景</label><input type="text" id="productScene" placeholder="如：日常通勤、度假、居家"></div>
       <div class="product-modal-field required"><label>价格</label><input type="number" id="productPrice" placeholder="0.00"></div>
       <div class="product-modal-field"><label>原价</label><input type="number" id="productOriginalPrice" placeholder="0.00"></div>
       <div class="product-modal-field"><label>佣金率</label><input type="number" id="productCommissionRate" placeholder="如20表示20%"></div>
@@ -22427,6 +22428,7 @@ function renderProductPanelDetail(p) {
   html += '<div class="products-detail-item"><div class="products-detail-label">商品名称</div><div class="products-detail-value">' + escapeHtml(p.name || '-') + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">品牌</div><div class="products-detail-value">' + escapeHtml(p.brand || '-') + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">类目</div><div class="products-detail-value">' + escapeHtml(p.category || '-') + '</div></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">穿搭场景</div><div class="products-detail-value">' + escapeHtml(p.scene || '-') + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">价格</div><div class="products-detail-value">¥' + (p.price || 0).toFixed(2) + '</div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">状态</div><div class="products-detail-value"><span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status || '-') + '</span></div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">原价</div><div class="products-detail-value">¥' + (p.original_price || 0).toFixed(2) + '</div></div>';
@@ -22732,6 +22734,7 @@ function createNewProduct() {
   renderProductBrandOptions();
   document.getElementById('productBrandSelect').value = _productCurrentBrandName || '';
   document.getElementById('productCategory').value = '拖鞋';
+  document.getElementById('productScene').value = '';
   document.getElementById('productPrice').value = '';
   document.getElementById('productOriginalPrice').value = '';
   document.getElementById('productCommissionRate').value = '';
@@ -22750,6 +22753,7 @@ function editCurrentProduct() {
     renderProductBrandOptions();
     document.getElementById('productBrandSelect').value = p.brand || '';
     document.getElementById('productCategory').value = p.category || '';
+    document.getElementById('productScene').value = p.scene || '';
     document.getElementById('productPrice').value = p.price || '';
     document.getElementById('productOriginalPrice').value = p.original_price || '';
     document.getElementById('productCommissionRate').value = p.commission_rate || '';
@@ -22775,6 +22779,7 @@ function saveProduct() {
     brand_id: brandId,
     brand: b ? b.name : '',
     category: document.getElementById('productCategory').value.trim(),
+    scene: document.getElementById('productScene').value.trim(),
     price: parseFloat(document.getElementById('productPrice').value) || 0,
     original_price: parseFloat(document.getElementById('productOriginalPrice').value) || 0,
     commission_rate: parseFloat(document.getElementById('productCommissionRate').value) || 0,
