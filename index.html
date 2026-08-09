@@ -27798,13 +27798,27 @@ function permanentlyDeleteSettingsMember(empId) {
   </div>
 </div>
 
+<script>
+function syncFeishuProductsFromSettings() {
+  var token = localStorage.getItem('sb_auth_token');
+  fetch('/api/products/sync-feishu', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        alert('商品同步完成：共' + data.total + '条，新增' + data.created + '条，更新' + data.updated + '条，跳过' + data.skipped + '条');
+        if (typeof loadProducts === 'function') loadProducts();
+      } else {
+        alert('同步失败: ' + (data.error || '未知错误'));
+      }
+    })
+    .catch(function(e) { alert('网络错误: ' + e); });
+}
+</script>
 </body>
 </html>
 
 
-function syncFeishuProductsFromSettings() {
-  var token = localStorage.getItem('sb_auth_token');
-  fetch('/api/products/sync-feishu', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token } })
+ })
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.success) {

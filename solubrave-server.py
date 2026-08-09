@@ -5101,6 +5101,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/products/search':
             self._handle_search_products()
             return
+        if path == '/api/products/sync-feishu':
+            self._handle_sync_feishu_products()
+            return
         if path.startswith('/api/products/'):
             sub = path[len('/api/products/'):]
             parts = sub.split('/')
