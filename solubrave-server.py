@@ -4397,6 +4397,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             path = path[:-1]
         return path
 
+    def _parse_query(self):
+        """解析 query string，确保中文等 UTF-8 参数正确解码。
+
+        兼容两种情况：
+        1. 标准百分号编码（如 ?q=%E6%8B%96%E9%9E%8B）— parse_qs 默认按 UTF-8 解码；
+        2. 客户端直接发送未编码的 UTF-8 中文 — BaseHTTPRequestHandler 按 latin-1
+           解码 request line 产生乱码，这里将其还原为正确的 UTF-8 字符串。
+        """
+        qs = parse_qs(urlparse(self.path).query, encoding='utf-8', errors='replace')
+
+        def _fix(s):
+            try:
+                return s.encode('latin-1').decode('utf-8')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                return s
+
+        return {_fix(k): [_fix(v) for v in vals] for k, vals in qs.items()}
+
     def do_OPTIONS(self):
         self._send_cors_preflight()
 
@@ -6433,8 +6451,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
 
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         q = (qs.get('q', [''])[0] or '').strip().lower()
         scope = qs.get('scope', ['all'])[0] or 'all'
         try:
@@ -7251,8 +7268,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_json(status, {'error': err})
             return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         type_filter = qs.get('type', qs.get('pool', ['']))[0]
         keyword = qs.get('keyword', [''])[0].lower()
         include_archived = qs.get('include_archived', ['false'])[0].lower() in ('true', '1', 'yes')
@@ -7882,7 +7898,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not self._require_module_permission(auth, 'employees'): return
 
-        qs = parse_qs(urlparse(self.path).query)
+        qs = self._parse_query()
         permanent = qs.get('permanent', ['false'])[0].lower() in ('true', '1', 'yes')
 
         agents = _load_agents(include_archived=True)
@@ -8291,7 +8307,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         try:
-            qs = parse_qs(urlparse(self.path).query)
+            qs = self._parse_query()
             agent_id = qs.get('agentId', [''])[0]
             if not agent_id:
                 self._send_json(400, {'error': '缺少 agentId'})
@@ -8437,9 +8453,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        from urllib.parse import parse_qs, urlparse
-        parsed = urlparse(self.path)
-        query_params = parse_qs(parsed.query)
+        query_params = self._parse_query()
         doc_name = query_params.get('doc', ['SOUL.md'])[0]
 
         # 先从 agents.json 找 agent 数据
@@ -8620,8 +8634,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 解析查询参数
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         # type 优先，兼容旧版 pool 参数
         type_filter = qs.get('type', qs.get('pool', ['']))[0]
         key_filter = qs.get('key', [''])[0]
@@ -8789,7 +8802,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
 
-        qs = parse_qs(urlparse(self.path).query)
+        qs = self._parse_query()
         agent_id = qs.get('agent_id', [''])[0]
         if not agent_id:
             self._send_json(400, {'success': False, 'error': '缺少 agent_id 参数'})
@@ -8817,7 +8830,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
 
-        qs = parse_qs(urlparse(self.path).query)
+        qs = self._parse_query()
         agent_id = qs.get('agent_id', [None])[0]
 
         conn = _db_conn()
@@ -8834,7 +8847,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
 
-        qs = parse_qs(urlparse(self.path).query)
+        qs = self._parse_query()
         agent_id = qs.get('agent_id', [''])[0]
         if not agent_id:
             self._send_json(400, {'success': False, 'error': '缺少 agent_id 参数'})
@@ -8855,8 +8868,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 解析查询参数
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         keyword = qs.get('keyword', [''])[0].lower()
         reason_filter = qs.get('archived_reason', [''])[0]
         try:
@@ -8999,8 +9011,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 解析查询参数
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         keyword = qs.get('keyword', [''])[0].lower()
         tag_filter = qs.get('tag', [''])[0]
         type_filter = qs.get('type', [''])[0]
@@ -9517,8 +9528,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_json(status, {'error': err})
             return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         limit = max(1, min(200, int(qs.get('limit', ['50'])[0])))
         logs = ms3.get_duplicate_merge_logs(emp_id, limit=limit)
         self._send_json(200, {'success': True, 'empId': emp_id, 'merges': logs})
@@ -9627,8 +9637,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         emp_id = qs.get('empId', [''])[0]
         if not emp_id:
             self._send_json_error(400, 'Missing empId')
@@ -9646,8 +9655,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         topic_id = qs.get('topicId', [''])[0]
         if not topic_id:
             self._send_json_error(400, 'Missing topicId')
@@ -9685,8 +9693,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_json(status, {'error': err})
             return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         date = qs.get('date', [''])[0]
         keyword = qs.get('keyword', [''])[0]
         try:
@@ -9706,8 +9713,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_json(status, {'error': err})
             return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         project = qs.get('project', [''])[0]
         keyword = qs.get('keyword', [''])[0]
         try:
@@ -9750,8 +9756,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_json(status, {'error': err})
             return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         keyword = qs.get('keyword', [''])[0]
         status_filter = qs.get('status', [''])[0]
         try:
@@ -9833,8 +9838,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         offset = max(0, int(qs.get('offset', [0])[0]))
         limit = max(1, min(100, int(qs.get('limit', [20])[0])))  # 默认20条
         category = qs.get('category', [''])[0] or None
@@ -9900,8 +9904,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         query = qs.get('q', [''])[0]
         limit = min(10, max(1, int(qs.get('limit', [3])[0])))
         if not query:
@@ -10135,8 +10138,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not _can_access_knowledge_category(auth, doc.get('category', '')):
             self._send_auth_error('No permission for this knowledge category', 403)
             return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         offset = max(0, int(qs.get('offset', [0])[0]))
         limit = max(1, min(100, int(qs.get('limit', [20])[0])))
         result = ks.knowledge_get_versions(doc_id, offset, limit)
@@ -10278,8 +10280,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         offset = max(0, int(qs.get('offset', [0])[0]))
         limit = max(1, min(100, int(qs.get('limit', [20])[0])))
         category = qs.get('category', [''])[0] or None
@@ -10517,8 +10518,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         project_id = qs.get('projectId', [''])[0] or ''
         try:
             tree = ks.kb_category_tree(project_id=project_id)
@@ -10597,8 +10597,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'knowledge'): return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         scope = qs.get('scope', [''])[0] or None
         project_id = qs.get('projectId', [''])[0] or None
         allowed_cats = _allowed_knowledge_categories(auth)
@@ -10659,8 +10658,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         group_by = qs.get('groupBy', ['agent'])[0] or 'agent'
 
         user_emp_ids = _get_user_emp_ids(auth.user_id)
@@ -10779,7 +10777,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        qs = parse_qs(urlparse(self.path).query)
+        qs = self._parse_query()
         agent_id = qs.get('agent_id', [''])[0].strip()
         conn = _db_conn()
         try:
@@ -10808,7 +10806,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        qs = parse_qs(urlparse(self.path).query)
+        qs = self._parse_query()
         agent_id = qs.get('agent_id', [''])[0].strip()
         conn = _db_conn()
         try:
@@ -10906,7 +10904,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        qs = parse_qs(urlparse(self.path).query)
+        qs = self._parse_query()
         try:
             page = max(int(qs.get('page', ['1'])[0] or 1), 1)
         except ValueError:
@@ -10965,7 +10963,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        qs = parse_qs(urlparse(self.path).query)
+        qs = self._parse_query()
         agent_id = qs.get('agent_id', [''])[0].strip()
         start_date = qs.get('start_date', [''])[0].strip()
         end_date = qs.get('end_date', [''])[0].strip()
@@ -11025,7 +11023,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        qs = parse_qs(urlparse(self.path).query)
+        qs = self._parse_query()
         agent_id = qs.get('agent_id', [''])[0].strip()
         if not agent_id:
             self._send_json_error(400, '缺少 agent_id 参数')
@@ -11045,8 +11043,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
 
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
+        qs = self._parse_query()
         agent_id = qs.get('agent_id', [''])[0] or ''
         start_date = qs.get('start_date', [''])[0] or ''
         end_date = qs.get('end_date', [''])[0] or ''
@@ -11339,7 +11336,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         data = self._load_products()
         products = data.get('products', [])
         # 解析 query string 做筛选
-        query = parse_qs(urlparse(self.path).query)
+        query = self._parse_query()
         if query.get('category'):
             cat = query['category'][0]
             products = [p for p in products if p.get('category') == cat]
@@ -11403,7 +11400,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not product:
             self._send_json_error(404, 'Product not found')
             return
-        query = parse_qs(urlparse(self.path).query)
+        query = self._parse_query()
         limit = int(query.get('limit', [20])[0])
         now = int(time.time() * 1000)
         DAY_MS = 86400000
@@ -11476,7 +11473,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not influencer:
             self._send_json_error(404, 'Influencer not found')
             return
-        query = parse_qs(urlparse(self.path).query)
+        query = self._parse_query()
         limit = int(query.get('limit', [20])[0])
         now = int(time.time() * 1000)
         DAY_MS = 86400000
@@ -11857,7 +11854,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'): return
-        query = parse_qs(urlparse(self.path).query)
+        query = self._parse_query()
         status = query.get('status', ['active'])[0]
         q = query.get('q', [''])[0].lower()
         conn = _db_conn()
@@ -12026,7 +12023,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
-        query = parse_qs(urlparse(self.path).query)
+        query = self._parse_query()
         q = query.get('q', [''])[0].lower()
         cooperation = query.get('cooperation', [''])[0]
         category = query.get('category', [''])[0]
@@ -12460,7 +12457,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not self._require_module_permission(auth, 'influencers'): return
         data = self._load_influencers()
         influencers = data.get('influencers', [])
-        query = parse_qs(urlparse(self.path).query)
+        query = self._parse_query()
         if query.get('platform'):
             platform = query['platform'][0]
             influencers = [i for i in influencers if i.get('platform') == platform]
@@ -12666,8 +12663,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        parsed = urllib.parse.urlparse(self.path)
-        qs = urllib.parse.parse_qs(parsed.query)
+        qs = self._parse_query()
         status_filter = qs.get('status', [None])[0]
         assignee_filter = qs.get('assignee', [None])[0]
         conn = _db_conn()
@@ -13262,7 +13258,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'): return
-        query = parse_qs(urlparse(self.path).query)
+        query = self._parse_query()
         limit = int(query.get('limit', ['20'])[0])
         conn = _db_conn()
         try:
@@ -13293,7 +13289,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
-        query = parse_qs(urlparse(self.path).query)
+        query = self._parse_query()
         limit = int(query.get('limit', ['20'])[0])
         conn = _db_conn()
         try:
@@ -13716,8 +13712,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 解析 type 参数
-        query = urlparse(self.path).query
-        query_params = parse_qs(query) if query else {}
+        query_params = self._parse_query()
         chat_type = query_params.get('type', ['personal'])[0]
 
         messages = _load_chat(agent_id)
@@ -15115,8 +15110,7 @@ def _handle_skills_search(self):
 
     query = ''
     if '?' in self.path:
-        from urllib.parse import parse_qs, urlparse
-        qs = parse_qs(urlparse(self.path).query)
+        qs = self._parse_query()
         query = qs.get('q', [''])[0]
 
     if not query:
