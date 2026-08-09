@@ -1177,11 +1177,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 8px 10px;
   border-bottom: 0.5px solid var(--separator);
 }
-.products-sku-table th {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-weight: 500;
-}
+.products-sku-table .sku-spec-key { font-weight: 500; color: var(--text-primary); margin-right: 8px; }
+.products-sku-table .sku-spec-val { color: var(--text-secondary); }
 .products-rate-row {
   display: flex;
   align-items: center;
@@ -1387,6 +1384,15 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 #productModalOverlay .product-modal-field input:focus,
 #productModalOverlay .product-modal-field select:focus,
 #productModalOverlay .product-modal-field textarea:focus { border-color: var(--accent); background: #ffffff; }
+#productModalOverlay .sku-spec-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+#productModalOverlay .sku-spec-name { width:80px; flex-shrink:0; padding:6px 10px; border-radius:var(--radius-md); border:0.5px solid var(--separator); font-size:13px; background:var(--bg-primary); outline:none; box-sizing:border-box; }
+#productModalOverlay .sku-spec-name:focus { border-color:var(--accent); background:#fff; }
+#productModalOverlay .sku-spec-values { flex:1; padding:6px 10px; border-radius:var(--radius-md); border:0.5px solid var(--separator); font-size:13px; background:var(--bg-primary); outline:none; box-sizing:border-box; }
+#productModalOverlay .sku-spec-values:focus { border-color:var(--accent); background:#fff; }
+#productModalOverlay .sku-spec-remove { flex-shrink:0; width:28px; height:28px; border:none; background:transparent; color:var(--text-tertiary); font-size:18px; cursor:pointer; border-radius:50%; line-height:28px; text-align:center; }
+#productModalOverlay .sku-spec-remove:hover { color:#FF3B30; background:rgba(255,59,48,0.1); }
+#productModalOverlay .sku-add-spec-btn { margin-top:4px; padding:6px 14px; border-radius:var(--radius-md); border:0.5px dashed var(--separator); background:transparent; font-size:13px; color:var(--accent); cursor:pointer; }
+#productModalOverlay .sku-add-spec-btn:hover { background:var(--bg-tertiary); }
 #productModalOverlay .product-modal-footer {
   display: flex;
   justify-content: flex-end;
@@ -6445,18 +6451,20 @@ window.doLogin = function () {
     <div class="product-modal-body">
       <input type="hidden" id="productEditId">
       <div class="product-modal-field required"><label>商品名称</label><input type="text" id="productName" placeholder="输入商品名称"></div>
+      <div class="product-modal-field"><label>主图</label><div style="display:flex;gap:8px;align-items:center;"><input type="text" id="productMainImage" placeholder="粘贴图片URL" style="flex:1;" oninput="onProductMainImageInput()"><input type="file" id="productMainImageFile" accept="image/*" style="display:none;" onchange="uploadProductMainImage(this)"><button type="button" onclick="document.getElementById('productMainImageFile').click()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);font-size:13px;cursor:pointer;white-space:nowrap;">上传图片</button></div><div id="productMainImagePreview" style="margin-top:8px;"></div></div>
       <input type="hidden" id="productBrandId">
       <div class="product-modal-field"><label>品牌</label><select id="productBrandSelect" onchange="onProductBrandChange(this.value)"><option value="">选择品牌</option></select></div>
       <div class="product-modal-field"><label>类目</label><input type="text" id="productCategory" value="拖鞋"></div>
       <div class="product-modal-field"><label>穿搭场景</label><input type="text" id="productScene" placeholder="如：日常通勤、度假、居家"></div>
       <div class="product-modal-field required"><label>价格</label><input type="number" id="productPrice" placeholder="0.00"></div>
       <div class="product-modal-field"><label>原价</label><input type="number" id="productOriginalPrice" placeholder="0.00"></div>
-      <div class="product-modal-field"><label>佣金率</label><input type="number" id="productCommissionRate" placeholder="如20表示20%"></div>
+      <div class="product-modal-field"><label>自然流佣金%</label><input type="number" id="productCommissionRate1" placeholder="如20"></div>
+      <div class="product-modal-field"><label>投放期佣金%</label><input type="number" id="productCommissionRate2" placeholder="如8"></div>
       <div class="product-modal-field"><label>状态</label>
         <select id="productStatus"><option value="active">在售</option><option value="inactive">停售</option><option value="out_of_stock">缺货</option></select>
       </div>
       <div class="product-modal-field"><label>描述</label><textarea id="productDescription" placeholder="输入商品描述"></textarea></div>
-      <div class="product-modal-field"><label>SKU 规格</label><textarea id="productSkuSpecs" placeholder='{"颜色":["米白"],"尺码":["36-40"]}'></textarea></div>
+      <div class="product-modal-field"><label>SKU 规格</label><div id="productSkuSpecsContainer"></div><button type="button" class="sku-add-spec-btn" onclick="addSkuSpecRow()">+ 添加规格</button></div>
     </div>
     <div class="product-modal-footer">
       <button class="product-modal-btn cancel" onclick="closeProductModal()">取消</button>
@@ -22306,7 +22314,7 @@ function renderProductList(products) {
     var commissionUnset = !hasRates && (p.commission_rate === null || p.commission_rate === undefined || Number(p.commission_rate) === 0);
     var commissionDisplay = '';
     if (hasRates) {
-      commissionDisplay = '佣金 ' + Object.keys(p.commission_rates).map(function(k){ return p.commission_rates[k] + '%'; }).join('/');
+      commissionDisplay = '佣金 ' + Object.keys(p.commission_rates).map(function(k){ return k + p.commission_rates[k] + '%'; }).join('/');
     } else if (!commissionUnset) {
       commissionDisplay = '佣金' + Number(p.commission_rate).toFixed(0) + '%';
     } else {
@@ -22422,7 +22430,13 @@ function renderProductPanelDetail(p) {
   var el = document.getElementById('productsPanelDetail');
   if (!el) return;
   var statusMap = {active:'在售', inactive:'停售', out_of_stock:'缺货'};
-  var html = '<div class="products-panel-section">';
+  var html = '';
+  if (p.main_image) {
+    html += '<div class="products-panel-section" style="text-align:center;">';
+    html += '<img src="' + escapeAttr(p.main_image) + '" style="max-width:200px;max-height:200px;border-radius:12px;border:1px solid var(--border);" onerror="this.parentElement.style.display=\'none\'">';
+    html += '</div>';
+  }
+  html += '<div class="products-panel-section">';
   html += '<div class="products-panel-title">基本信息</div>';
   html += '<div class="products-detail-grid">';
   html += '<div class="products-detail-item"><div class="products-detail-label">商品名称</div><div class="products-detail-value">' + escapeHtml(p.name || '-') + '</div></div>';
@@ -22449,11 +22463,11 @@ function renderProductPanelDetail(p) {
   if (p.sku_specs && Object.keys(p.sku_specs).length > 0) {
     html += '<div class="products-panel-section">';
     html += '<div class="products-panel-title">SKU 规格</div>';
-    html += '<table class="products-sku-table"><thead><tr><th>规格项</th><th>选项</th></tr></thead><tbody>';
+    html += '<table class="products-sku-table"><tbody>';
     Object.keys(p.sku_specs).forEach(function(k){
       var vals = p.sku_specs[k];
       var valStr = Array.isArray(vals) ? vals.join(', ') : String(vals);
-      html += '<tr><td>' + escapeHtml(k) + '</td><td>' + escapeHtml(valStr) + '</td></tr>';
+      html += '<tr><td><span class="sku-spec-key">' + escapeHtml(k) + '</span><span class="sku-spec-val">' + escapeHtml(valStr) + '</span></td></tr>';
     });
     html += '</tbody></table></div>';
   }
@@ -22528,7 +22542,7 @@ function renderProductPanelSales(p) {
       if (k === 'brand_info') return;
       var v = parseFloat(channels[k]) || 0;
       var pct = total ? (v / total * 100) : 0;
-      html += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(k) + '</span><span>' + v + ' (' + pct.toFixed(1) + '%)</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + pct + '%"></div></div></div>';
+      html += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(k) + '</span><span>' + v + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + pct + '%"></div></div></div>';
     });
     html += '</div>';
   }
@@ -22727,9 +22741,32 @@ function onProductBrandChange(brandName) {
   document.getElementById('productBrandId').value = b ? b.id : '';
 }
 
+function uploadProductMainImage(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var url = e.target.result;
+    document.getElementById('productMainImage').value = url;
+    var prev = document.getElementById('productMainImagePreview');
+    prev.innerHTML = '<img src="' + url + '" style="max-width:120px;max-height:120px;border-radius:8px;border:1px solid var(--border);">';
+  };
+  reader.readAsDataURL(file);
+}
+function onProductMainImageInput() {
+  var url = document.getElementById('productMainImage').value.trim();
+  var prev = document.getElementById('productMainImagePreview');
+  if (url) {
+    prev.innerHTML = '<img src="' + escapeAttr(url) + '" style="max-width:120px;max-height:120px;border-radius:8px;border:1px solid var(--border);" onerror="this.style.display=\'none\'">';
+  } else {
+    prev.innerHTML = '';
+  }
+}
 function createNewProduct() {
   document.getElementById('productEditId').value = '';
   document.getElementById('productName').value = '';
+  document.getElementById('productMainImage').value = '';
+  document.getElementById('productMainImagePreview').innerHTML = '';
   document.getElementById('productDescription').value = '';
   renderProductBrandOptions();
   document.getElementById('productBrandSelect').value = _productCurrentBrandName || '';
@@ -22737,8 +22774,9 @@ function createNewProduct() {
   document.getElementById('productScene').value = '';
   document.getElementById('productPrice').value = '';
   document.getElementById('productOriginalPrice').value = '';
-  document.getElementById('productCommissionRate').value = '';
-  document.getElementById('productSkuSpecs').value = '';
+  document.getElementById('productCommissionRate1').value = '';
+  document.getElementById('productCommissionRate2').value = '';
+  renderSkuSpecs({});
   document.getElementById('productStatus').value = 'active';
   document.getElementById('productModalTitle').textContent = '录入商品';
   document.getElementById('productModalOverlay').classList.add('active');
@@ -22749,6 +22787,13 @@ function editCurrentProduct() {
   apiFetch('/api/products/' + encodeURIComponent(_productCurrentId)).then(function(r){return r.json();}).then(function(p){
     document.getElementById('productEditId').value = p.id;
     document.getElementById('productName').value = p.name || '';
+    document.getElementById('productMainImage').value = p.main_image || '';
+    var prevEl = document.getElementById('productMainImagePreview');
+    if (p.main_image) {
+      prevEl.innerHTML = '<img src="' + escapeAttr(p.main_image) + '" style="max-width:120px;max-height:120px;border-radius:8px;border:1px solid var(--border);" onerror="this.style.display=\'none\'">';
+    } else {
+      prevEl.innerHTML = '';
+    }
     document.getElementById('productDescription').value = p.description || p.subtitle || '';
     renderProductBrandOptions();
     document.getElementById('productBrandSelect').value = p.brand || '';
@@ -22756,8 +22801,9 @@ function editCurrentProduct() {
     document.getElementById('productScene').value = p.scene || '';
     document.getElementById('productPrice').value = p.price || '';
     document.getElementById('productOriginalPrice').value = p.original_price || '';
-    document.getElementById('productCommissionRate').value = p.commission_rate || '';
-    document.getElementById('productSkuSpecs').value = p.sku_specs ? JSON.stringify(p.sku_specs, null, 2) : '';
+    document.getElementById('productCommissionRate1').value = (p.commission_rates && p.commission_rates['自然流']) || p.commission_rate || '';
+    document.getElementById('productCommissionRate2').value = (p.commission_rates && p.commission_rates['投放期']) || '';
+    renderSkuSpecs(p.sku_specs);
     document.getElementById('productStatus').value = p.status || 'active';
     document.getElementById('productModalTitle').textContent = '编辑商品';
     document.getElementById('productModalOverlay').classList.add('active');
@@ -22766,15 +22812,49 @@ function editCurrentProduct() {
 
 function closeProductModal(e) { if (e && e.target !== e.currentTarget) return; document.getElementById('productModalOverlay').classList.remove('active'); }
 
+var _skuSpecsData = [];
+function renderSkuSpecs(specs) {
+  _skuSpecsData = [];
+  if (specs && typeof specs === 'object') {
+    Object.keys(specs).forEach(function(k) { _skuSpecsData.push({ name: k, values: specs[k].join(', ') }); });
+  }
+  _renderSkuSpecsUI();
+}
+function _renderSkuSpecsUI() {
+  var c = document.getElementById('productSkuSpecsContainer');
+  c.innerHTML = '';
+  _skuSpecsData.forEach(function(spec, idx) {
+    var row = document.createElement('div'); row.className = 'sku-spec-row';
+    var ni = document.createElement('input'); ni.className = 'sku-spec-name'; ni.value = spec.name; ni.placeholder = '规格名';
+    ni.oninput = function() { _skuSpecsData[idx].name = this.value; };
+    row.appendChild(ni);
+    var vi = document.createElement('input'); vi.className = 'sku-spec-values'; vi.value = spec.values; vi.placeholder = '选项，逗号分隔';
+    vi.oninput = function() { _skuSpecsData[idx].values = this.value; };
+    row.appendChild(vi);
+    var rb = document.createElement('button'); rb.className = 'sku-spec-remove'; rb.innerHTML = '×';
+    rb.onclick = function() { _skuSpecsData.splice(idx, 1); _renderSkuSpecsUI(); };
+    row.appendChild(rb); c.appendChild(row);
+  });
+}
+function addSkuSpecRow() {
+  _skuSpecsData.push({ name: '', values: '' }); _renderSkuSpecsUI();
+  var c = document.getElementById('productSkuSpecsContainer'); var lr = c.lastElementChild;
+  if (lr) { var ni = lr.querySelector('.sku-spec-name'); if (ni) ni.focus(); }
+}
+function collectSkuSpecs() {
+  var r = {}; _skuSpecsData.forEach(function(s) {
+    if (s.name.trim()) { var opts = s.values.split(',').map(function(v){ return v.trim(); }).filter(Boolean); if (opts.length) r[s.name.trim()] = opts; }
+  }); return r;
+}
+
 function saveProduct() {
   var id = document.getElementById('productEditId').value;
-  var skuSpecsRaw = document.getElementById('productSkuSpecs').value.trim();
-  var skuSpecs = {};
-  if (skuSpecsRaw) { try { skuSpecs = JSON.parse(skuSpecsRaw); } catch(e){ showToast('SKU 规格格式错误'); return; } }
+  var skuSpecs = collectSkuSpecs();
   var brandId = document.getElementById('productBrandSelect').value;
   var b = _productBrandData.brands.find(function(x){ return x.id === brandId; });
   var body = {
     name: document.getElementById('productName').value.trim(),
+    main_image: document.getElementById('productMainImage').value.trim(),
     description: document.getElementById('productDescription').value.trim(),
     brand_id: brandId,
     brand: b ? b.name : '',
@@ -22782,7 +22862,8 @@ function saveProduct() {
     scene: document.getElementById('productScene').value.trim(),
     price: parseFloat(document.getElementById('productPrice').value) || 0,
     original_price: parseFloat(document.getElementById('productOriginalPrice').value) || 0,
-    commission_rate: parseFloat(document.getElementById('productCommissionRate').value) || 0,
+    commission_rate: parseFloat(document.getElementById('productCommissionRate1').value) || 0,
+    commission_rates: { '自然流': parseFloat(document.getElementById('productCommissionRate1').value) || 0, '投放期': parseFloat(document.getElementById('productCommissionRate2').value) || 0 },
     sku_specs: skuSpecs,
     status: document.getElementById('productStatus').value
   };
@@ -23845,13 +23926,11 @@ function renderTalentPanelFans(t) {
   }
 
   // 粉丝画像总览
-  var hasFansData = (fans.consumption || fans.active_time || (fans.cities && fans.cities.length) || (fans.interest && fans.interest.length) || (t.fan_gender && Object.keys(t.fan_gender).length) || (t.fan_age && Object.keys(t.fan_age).length) || (t.fan_region && Object.keys(t.fan_region).length));
+  var hasFansData = ((fans.cities && fans.cities.length) || (fans.interest && fans.interest.length) || (t.fan_gender && Object.keys(t.fan_gender).length) || (t.fan_age && Object.keys(t.fan_age).length) || (t.fan_region && Object.keys(t.fan_region).length));
   if (hasFansData) {
     html += '<div class="talents-panel-section">';
     html += '<div class="talents-panel-title">粉丝画像</div>';
     html += '<div class="talents-info-grid">';
-    html += '<div class="talents-info-item"><label>消费层级</label><div class="value">' + escapeHtml(fans.consumption || '-') + '</div></div>';
-    html += '<div class="talents-info-item"><label>活跃时段</label><div class="value">' + escapeHtml(fans.active_time || '-') + '</div></div>';
     if (fans.cities && fans.cities.length) {
       html += '<div class="talents-info-item full-width"><label>TOP 城市</label><div class="value">' + fans.cities.slice(0, 5).map(function(c){ return escapeHtml(c); }).join('、') + '</div></div>';
     }
@@ -27482,19 +27561,22 @@ function renderSettingsRight() {
     html += '<div class="settings-form-row"><label class="form-label">App ID</label><input type="text" id="feishuAppId" class="form-input" placeholder="飞书应用 App ID (cli_xxx)"></div>';
     html += '<div class="settings-form-row"><label class="form-label">App Secret</label><input type="text" id="feishuAppSecret" class="form-input" placeholder="飞书应用 App Secret"></div>';
     html += '<div class="settings-form-row"><label class="form-label">多维表格 Token</label><input type="text" id="feishuAppToken" class="form-input" placeholder="多维表格 App Token"></div>';
-    html += '<div class="settings-form-row"><label class="form-label">表格 Table ID</label><input type="text" id="feishuTableId" class="form-input" placeholder="表格 ID (tbl_xxx)"></div>';
+    html += '<div class="settings-form-row"><label class="form-label">表格 Table ID（达人表）</label><input type="text" id="feishuTableId" class="form-input" placeholder="达人表 ID (tbl_xxx)"></div>';
+    html += '<div class="settings-form-row"><label class="form-label">商品表 Table ID</label><input type="text" id="feishuProductTableId" class="form-input" placeholder="商品表 ID (tbl_xxx)，留空则用达人表"></div>';
     html += '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">';
     html += '<button class="module-action-btn primary" onclick="saveFeishuConfig()">保存配置</button>';
-    html += '<button class="module-action-btn" onclick="syncFeishuTalentsFromSettings()">🔄 立即同步达人</button>';
+    html += '<button class="module-action-btn" onclick="syncFeishuTalentsFromSettings()">🔄 同步达人</button>';
+    html += '<button class="module-action-btn" onclick="syncFeishuProductsFromSettings()">📦 同步商品</button>';
     html += '</div>';
     html += '</div>';
     html += '<div class="settings-card">';
     html += '<div class="settings-card-title">使用说明</div>';
     html += '<div style="font-size:13px;color:var(--text-secondary);line-height:1.8;">';
-    html += '<p>1. 在飞书创建自己的多维表格，用于录入达人数据</p>';
+    html += '<p>1. 在飞书创建多维表格，分别建达人表和商品表</p>';
     html += '<p>2. 创建飞书应用并获取 App ID 和 App Secret</p>';
-    html += '<p>3. 多维表格 Token 和 Table ID 可从表格 URL 中获取</p>';
-    html += '<p>4. 保存后点击"立即同步达人"即可拉取飞书表格数据</p>';
+    html += '<p>3. 多维表格 Token 从 URL 获取，达人表和商品表各自有 Table ID</p>';
+    html += '<p>4. 保存后点"同步达人"或"同步商品"拉取飞书表格数据</p>';
+    html += '<p>5. 商品表字段：商品名称、品牌、类目、价格、原价、佣金率、商品描述、SKU规格、标签、月销量、月GMV、转化率、佣金金额、合作达人数、视频数、直播数、渠道分布、购买性别、购买年龄、购买地区、购买人群、带货视频案例</p>';
     html += '</div>';
     html += '</div>';
   }
@@ -27519,6 +27601,7 @@ function loadFeishuConfig() {
         var el1 = document.getElementById('feishuAppId'); if (el1) el1.value = data.app_id || '';
         var el2 = document.getElementById('feishuAppToken'); if (el2) el2.value = data.app_token || '';
         var el3 = document.getElementById('feishuTableId'); if (el3) el3.value = data.table_id || '';
+        var el4 = document.getElementById('feishuProductTableId'); if (el4) el4.value = data.product_table_id || '';
       }
     })
     .catch(function(e) { console.error('load feishu config failed:', e); });
@@ -27530,7 +27613,8 @@ function saveFeishuConfig() {
     app_id: (document.getElementById('feishuAppId').value || '').trim(),
     app_secret: (document.getElementById('feishuAppSecret').value || '').trim(),
     app_token: (document.getElementById('feishuAppToken').value || '').trim(),
-    table_id: (document.getElementById('feishuTableId').value || '').trim()
+    table_id: (document.getElementById('feishuTableId').value || '').trim(),
+    product_table_id: ((document.getElementById('feishuProductTableId') || {}).value || '').trim()
   });
   fetch('/api/user/feishu-config', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: body })
     .then(function(r) { return r.json(); })
@@ -27717,3 +27801,18 @@ function permanentlyDeleteSettingsMember(empId) {
 </body>
 </html>
 
+
+function syncFeishuProductsFromSettings() {
+  var token = localStorage.getItem('sb_auth_token');
+  fetch('/api/products/sync-feishu', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        alert('商品同步完成：共' + data.total + '条，新增' + data.created + '条，更新' + data.updated + '条，跳过' + data.skipped + '条');
+        if (typeof loadProducts === 'function') loadProducts();
+      } else {
+        alert('同步失败: ' + (data.error || '未知错误'));
+      }
+    })
+    .catch(function(e) { alert('网络错误: ' + e); });
+}
