@@ -10933,10 +10933,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             where.append('agent_id = ?')
             params.append(agent_id)
         if start_date:
-            where.append("date(created_at) >= date(?)")
+            where.append("date(created_at/1000, 'unixepoch') >= date(?)")
             params.append(start_date)
         if end_date:
-            where.append("date(created_at) <= date(?)")
+            where.append("date(created_at/1000, 'unixepoch') <= date(?)")
             params.append(end_date)
         where_sql = 'WHERE ' + ' AND '.join(where) if where else ''
         conn = _db_conn()
@@ -10984,10 +10984,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             where.append('agent_id = ?')
             params.append(agent_id)
         if start_date:
-            where.append("date(created_at) >= date(?)")
+            where.append("date(created_at/1000, 'unixepoch') >= date(?)")
             params.append(start_date)
         if end_date:
-            where.append("date(created_at) <= date(?)")
+            where.append("date(created_at/1000, 'unixepoch') <= date(?)")
             params.append(end_date)
         where_sql = 'WHERE ' + ' AND '.join(where) if where else ''
         conn = _db_conn()
@@ -10996,7 +10996,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 f'''SELECT COALESCE(SUM(credits_used),0) AS credits,
                            COALESCE(SUM(total_tokens),0) AS tokens,
                            COUNT(*) AS records_count,
-                           COUNT(DISTINCT date(created_at)) AS active_days
+                           COUNT(DISTINCT date(created_at/1000, 'unixepoch')) AS active_days
                     FROM credit_usage_log {where_sql}''',
                 tuple(params)
             ).fetchone()
@@ -16901,12 +16901,9 @@ def _induct_knowledge_for_agent(agent, owner_user_id=None):
     if not docs:
         return 0, '记忆内容不足以生成有价值的知识文档'
 
-    emb_cfg = get_embedding_config((agent or {}).get('id'))
-    api_key = emb_cfg['apiKey']
-    provider = emb_cfg['provider']
+    # kb_entry_create 内部通过 get_embedding_config 自行解析 embedding 配置，
+    # agent_config 仅用于 chunkSize / chunkOverlap
     agent_config = dict(agent) if agent else None
-    if agent_config and emb_cfg.get('model'):
-        agent_config['embeddingModel'] = emb_cfg['model']
     created_count = 0
     for d in docs:
         if not isinstance(d, dict):
@@ -16917,18 +16914,18 @@ def _induct_knowledge_for_agent(agent, owner_user_id=None):
             continue
         category = str(d.get('category', '')).strip()
         try:
-            ks.knowledge_create(
+            ks.kb_entry_create(
                 title=title,
                 content=content,
                 category=category,
-                emp_id=actual_owner,  # personal 所有者
-                api_key=api_key,
-                provider=provider,
-                agent_config=agent_config,
-                model=emb_cfg.get('model'),
-                base_url=emb_cfg.get('baseUrl'),
+                created_by=actual_owner,
                 scope='personal' if actual_owner else 'global',
                 team_id='',
+                group_ids=None,
+                emp_id=actual_owner,  # personal 所有者
+                agent_config=agent_config,
+                category_id=None,
+                project_id=None,
             )
             created_count += 1
         except Exception as e:
