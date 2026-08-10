@@ -3177,7 +3177,7 @@ def _feishu_extract_val(val):
         return val.get('text', '') or val.get('name', '')
     return str(val)
 
-def _parse_cn_number(val):
+def _parse_cn_number(val, default_wan=False):
     if not val:
         return 0
     s = str(val).strip().lower().replace(',', '')
@@ -3191,6 +3191,8 @@ def _parse_cn_number(val):
         elif s.endswith('亿'):
             mult = 100000000
             s = s[:-1]
+        elif default_wan and '.' in s:
+            mult = 10000
         return int(float(s) * mult)
     except (ValueError, TypeError):
         return 0
@@ -3207,7 +3209,7 @@ def _feishu_record_to_talent(fields):
         'email': '',
         'city': '',
         'level': '',
-        'followers': _parse_cn_number(_g('粉丝量数')),
+        'followers': _parse_cn_number(_g('粉丝量数'), default_wan=True),
         'talent_type': str(_g('内容类型') or ''),
         'agency': '',
         'tags': [],
@@ -5100,6 +5102,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/products/search':
             self._handle_search_products()
+            return
+        if path == '/api/products/sync-feishu':
+            self._handle_sync_feishu_products()
             return
         if path.startswith('/api/products/'):
             sub = path[len('/api/products/'):]
@@ -11361,10 +11366,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 ] + [str(t) for t in (p.get('tags') or [])]).lower()
                 return all(kw in fields for kw in kws)
             products = [p for p in products if _match_product(p)]
-        print(f'  [ProductGET-DEBUG] userId={auth.user_info.get("userId")} is_admin={auth.is_admin} total_before_filter={len(products)} created_by_values={[p.get("created_by") for p in products]}', flush=True)
         if not auth.is_admin:
             products = [p for p in products if p.get('created_by') == auth.user_info.get('userId', '')]
-        print(f'  [ProductGET-DEBUG] total_after_filter={len(products)}', flush=True)
         # 分页
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
@@ -11600,33 +11603,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_put_product(self, product_id):
         """PUT /api/products/{id} — 更新商品（同时同步 SQLite 与 data/products.json；SQLite 不存在时回退到 JSON）"""
-        print(f'  [ProductPUT] 入口 product_id={product_id}', flush=True)
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
-            print(f'  [ProductPUT] 返回 401: 未认证 product_id={product_id}', flush=True)
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'):
-            print(f'  [ProductPUT] 返回 403: 无 products 模块权限 product_id={product_id}', flush=True)
             return
         body = self._read_body()
-        print(f'  [ProductPUT] 请求体 product_id={product_id} body={repr(body)[:500]}', flush=True)
         if not body:
-            print(f'  [ProductPUT] 返回 400: 请求体为空 product_id={product_id}', flush=True)
             self._send_json_error(400, 'Missing body')
             return
 
-        print(f'  [ProductPUT] 查询SQLite前 product_id={product_id}', flush=True)
         conn = _db_conn()
         try:
             row = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
             existing = _product_row_to_dict(row)
         finally:
             conn.close()
-        print(f'  [ProductPUT] 查询SQLite后 product_id={product_id} existing={bool(existing)}', flush=True)
 
         if not existing:
-            print(f'  [ProductPUT] 返回 404: SQLite中未找到 product_id={product_id}', flush=True)
             self._send_json_error(404, 'Product not found')
             return
         exists_in_sql = True
@@ -11656,7 +11651,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         row['updated_at'] = now_ts
 
         old_brand_id = existing.get('brand_id')
-        print(f'  [ProductPUT] 写入SQLite前 product_id={product_id} op={"UPDATE" if exists_in_sql else "INSERT"}', flush=True)
         conn = _db_conn()
         try:
             _sync_product_brand(conn, row)
@@ -11676,7 +11670,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.commit()
         finally:
             conn.close()
-        print(f'  [ProductPUT] 写入SQLite完成 product_id={product_id}', flush=True)
 
         # 同步到 data/products.json
         json_data = _load_json_products()
@@ -11693,7 +11686,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         json_data['total'] = len(products)
         _save_json_products(json_data)
 
-        print(f'  [ProductPUT] 返回 200 product_id={product_id} name={updated.get("name", "")}', flush=True)
         self._send_json(200, updated)
 
     def _handle_delete_product(self, product_id):
@@ -12193,15 +12185,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             tuple(row[c] for c in _TALENT_COLUMNS)
                         )
                         created += 1
-                except Exception as e:
-                    error_list.append({'record_id': rec.get('record_id', ''), 'error': str(e)})
+                except BaseException as be:
+                    print('  [SyncProducts] EXCEPTION: ' + str(type(be).__name__) + ': ' + str(be), flush=True)
+                    error_list.append({'record_id': str(rec.get('record_id', '')), 'error': str(be)})
             conn.commit()
+            if error_list:
+                print(f'  [SyncProducts] {len(error_list)} errors: {error_list}', flush=True)
         except Exception as e:
             conn.rollback()
             self._send_json_error(500, f'同步失败: {e}')
             return
         finally:
             conn.close()
+        if error_list:
+            print(f'  [SyncProducts] {len(error_list)} errors: {error_list}', flush=True)
         self._send_json(200, {
             'success': True,
             'total': len(records),
@@ -16465,11 +16462,12 @@ def _handle_proxy_kimi(self):
     try:
         resp = urllib.request.urlopen(req, timeout=120)
     except urllib.error.HTTPError as e:
-        # 转发Kimi的错误响应
+        err_body = e.read()
+        print(f'  [KimiProxy] HTTP {e.code} error: {err_body[:500]}', flush=True)
         self.send_response(e.code)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
-        self.wfile.write(e.read())
+        self.wfile.write(err_body)
         return
     except Exception as e:
         self._send_json_error(502, f'Proxy error: {str(e)}')
@@ -17085,9 +17083,6 @@ def main():
         server.server_close()
 
 
-if __name__ == '__main__':
-    main()
-
 def _feishu_record_to_product(fields):
     def _g(name):
         return _feishu_extract_val(fields.get(name))
@@ -17112,38 +17107,74 @@ def _feishu_record_to_product(fields):
                 commission_rates = float(cr)
                 commission_rates = {'自然流': commission_rates}
             except (ValueError, TypeError):
-                commission_rates = {}
+                import re
+                pairs = re.findall(r'([\u4e00-\u9fa5a-zA-Z]+)(\d+(?:\.\d+)?)', str(cr))
+                if pairs:
+                    commission_rates = {name.strip(): float(val) for name, val in pairs}
+                else:
+                    commission_rates = {}
     sku_specs = _g_json('SKU规格', {})
     if not sku_specs:
         ss = _g('SKU规格')
         if ss and isinstance(ss, str):
-            parts = [p.strip() for p in ss.split(',') if p.strip()]
-            if parts:
-                sku_specs = {'规格': parts}
+            import re
+            sku_specs = {}
+            current_key = None
+            current_vals = []
+            for line in ss.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                if '：' in line or ':' in line:
+                    if current_key and current_vals:
+                        sku_specs[current_key] = current_vals
+                    sep = '：' if '：' in line else ':'
+                    key, _, vals = line.partition(sep)
+                    current_key = key.strip()
+                    vals = vals.strip()
+                    if vals:
+                        current_vals = [v.strip() for v in re.split(r'[、,，]', vals) if v.strip()]
+                    else:
+                        current_vals = []
+                else:
+                    if current_key:
+                        current_vals.extend([v.strip() for v in re.split(r'[、,，]', line) if v.strip()])
+            if current_key and current_vals:
+                sku_specs[current_key] = current_vals
+            if not sku_specs:
+                sku_specs = {'规格': ss}
     tags_raw = _g('标签')
     if isinstance(tags_raw, list):
         tags = tags_raw
     elif tags_raw:
-        tags = [t.strip() for t in str(tags_raw).split(',') if t.strip()]
+        import re
+        tags = [t.strip() for t in re.split(r'[、,，]', str(tags_raw)) if t.strip()]
     else:
         tags = []
     audience = {}
     for key, col in [('gender', '购买性别'), ('age', '购买年龄'), ('region', '购买地区'), ('occupation', '购买人群')]:
         val = _g_json(col)
-        if val:
+        if val and isinstance(val, dict):
             audience[key] = val
         else:
             sv = _g(col)
             if sv:
                 parts = {}
-                for pair in str(sv).split(','):
+                for pair in re.split(r'[、,，]', str(sv)):
                     pair = pair.strip()
-                    if ':' in pair:
+                    if not pair:
+                        continue
+                    m = re.match(r'^(.+?)(\d+(?:\.\d+)?)\s*%\Z', pair)
+                    if m:
+                        parts[m.group(1).strip()] = float(m.group(2))
+                    elif ':' in pair:
                         k, v = pair.split(':', 1)
                         try:
                             parts[k.strip()] = float(v.strip())
                         except ValueError:
                             parts[k.strip()] = v.strip()
+                    else:
+                        parts[pair] = 100
                 if parts:
                     audience[key] = parts
     videos = _g_json('带货视频案例', [])
@@ -17154,6 +17185,16 @@ def _feishu_record_to_product(fields):
                 videos = json.loads(vv)
             except Exception:
                 videos = []
+    channel_distribution = {}
+    cd_raw = _g('渠道分布')
+    if cd_raw:
+        for line in re.split(r'[\n、]', str(cd_raw).strip()):
+            line = line.strip()
+            if not line:
+                continue
+            m = re.match(r'^(.+?)(\d+(?:\.\d+)?)\s*%\Z', line)
+            if m:
+                channel_distribution[m.group(1).strip()] = float(m.group(2))
     return {
         'name': name,
         'subtitle': str(_g('商品描述') or ''),
@@ -17164,11 +17205,11 @@ def _feishu_record_to_product(fields):
         'brand_id': '',
         'category': str(_g('类目') or ''),
         'scene': str(_g('穿搭场景') or ''),
-        'sku_specs': json.dumps(sku_specs, ensure_ascii=False) if sku_specs else '{}',
+        'sku_specs': sku_specs if sku_specs else {},
         'status': 'active',
         'monthly_sales': int(float(_g('月销量') or 0)),
         'monthly_gmv': float(_g('月GMV') or 0),
-        'commission_rates': json.dumps(commission_rates, ensure_ascii=False) if commission_rates else '{}',
+        'commission_rates': commission_rates if commission_rates else {},
         'commission_amount': float(_g('佣金金额') or 0),
         'conversion_rate': float(_g('转化率') or 0),
         'avg_order_value': 0,
@@ -17176,12 +17217,15 @@ def _feishu_record_to_product(fields):
         'talent_count': int(float(_g('合作达人数') or 0)),
         'video_count': int(float(_g('视频数') or 0)),
         'live_count': int(float(_g('直播数') or 0)),
-        'channel_distribution': _g('渠道分布') or '{}',
-        'influencers': '[]',
-        'audience': json.dumps(audience, ensure_ascii=False) if audience else '{}',
-        'ai_analysis': '{}',
-        'videos': json.dumps(videos, ensure_ascii=False) if videos else '[]',
-        'tags': json.dumps(tags, ensure_ascii=False) if tags else '[]',
+        'channel_distribution': channel_distribution if channel_distribution else {},
+        'influencers': [],
+        'audience': audience if audience else {},
+        'ai_analysis': {},
+        'videos': videos if videos else [],
+        'tags': tags if tags else [],
         'selling_points': '',
         'original_price': float(_g('原价') or 0),
     }
+
+if __name__ == '__main__':
+    main()
