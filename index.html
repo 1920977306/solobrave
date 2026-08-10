@@ -6452,8 +6452,7 @@ window.doLogin = function () {
       <input type="hidden" id="productEditId">
       <div class="product-modal-field required"><label>商品名称</label><input type="text" id="productName" placeholder="输入商品名称"></div>
       <div class="product-modal-field"><label>主图</label><div style="display:flex;gap:8px;align-items:center;"><input type="text" id="productMainImage" placeholder="粘贴图片URL" style="flex:1;" oninput="onProductMainImageInput()"><input type="file" id="productMainImageFile" accept="image/*" style="display:none;" onchange="uploadProductMainImage(this)"><button type="button" onclick="document.getElementById('productMainImageFile').click()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);font-size:13px;cursor:pointer;white-space:nowrap;">上传图片</button></div><div id="productMainImagePreview" style="margin-top:8px;"></div></div>
-      <input type="hidden" id="productBrandId">
-      <div class="product-modal-field"><label>品牌</label><select id="productBrandSelect" onchange="onProductBrandChange(this.value)"><option value="">选择品牌</option></select></div>
+      <div class="product-modal-field"><label>品牌</label><input type="text" id="productBrandInput" placeholder="输入品牌名称"></div>
       <div class="product-modal-field"><label>类目</label><input type="text" id="productCategory" value="拖鞋"></div>
       <div class="product-modal-field"><label>穿搭场景</label><input type="text" id="productScene" placeholder="如：日常通勤、度假、居家"></div>
       <div class="product-modal-field required"><label>价格</label><input type="number" id="productPrice" placeholder="0.00"></div>
@@ -7592,9 +7591,13 @@ async function apiFetch(url, options = {}) {
       return null;
     }
     if (resp.status === 403) {
-      // 权限不足（如子账号访问其他用户的聊天记录），静默返回空数组，不报错
-      console.warn('[apiFetch] 403 Forbidden, skipping:', url);
-      return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      var method = (options.method || 'GET').toUpperCase();
+      if (method === 'GET') {
+        console.warn('[apiFetch] 403 Forbidden, skipping:', url);
+        return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      } else {
+        throw new Error('权限不足 (403)');
+      }
     }
     if (!resp.ok) {
       throw new Error('HTTP ' + resp.status + ' ' + resp.statusText);
@@ -8720,8 +8723,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
     console.debug('[OpenClaw] _doHandle 调用 reply_len=' + (reply || '').length + ' isError=' + isError + ' chainDepth=' + chainDepth + ' groupId=' + groupId);
     var t = document.getElementById('typingMsg');
     if (t) t.remove();
-    if (!reply) reply = '（AI 未返回内容）';
-    if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
+    if (!reply) reply = '抱歉，我暂时无法处理这个问题，请稍后重试或换一种方式提问。';
+    if (isError && !reply) reply = '⚠️ AI 回复出错: 未知错误';
     var msgArea = document.getElementById('messagesArea');
     var msgCountBefore = msgArea ? msgArea.childElementCount : 0;
     if (groupId) {
@@ -12550,7 +12553,8 @@ async function _sendGroupMessage(groupId, message, mentions, images) {
             console.warn('[sendGroupMessage] 群主 ' + leadEmp.name + ' 返回空/SKIP/过短回复，原始回复:', reply, '，强制使用兜底回复继续链式讨论');
             reply = _buildLeadFallbackReply(message);
           }
-          if (isError) reply = '⚠️ AI 回复出错: ' + (reply || '未知错误');
+          if (!reply) reply = '抱歉，我暂时无法处理这个问题，请稍后重试或换一种方式提问。';
+          if (isError && !reply) reply = '⚠️ AI 回复出错: 未知错误';
           console.debug('[sendGroupMessage] 群主最终回复长度=' + reply.length + '，是否错误=' + isError + '，传给parseAndTriggerMentions的文本前100字:', reply.substring(0, 100));
           displayGroupAIReply(groupId, group.leadAgentId, reply);
           // 保存已在 displayGroupAIReply 中统一处理，此处不再重复存储
@@ -22201,7 +22205,7 @@ function loadProducts(page) {
   var url = '/api/products?' + qs.join('&');
   var itemsEl = document.getElementById('productsMidItems');
   if (itemsEl) itemsEl.innerHTML = '<div class="products-loading">加载中...</div>';
-  apiFetch(url).then(function(r){return r.json();}).then(function(data){
+  return apiFetch(url).then(function(r){return r.json();}).then(function(data){
     _productData.products = sortProductsLocally(data.products || [], _productCurrentSort);
     _productData.total = data.total || 0;
     renderProductList(_productData.products);
@@ -22519,7 +22523,7 @@ function renderProductPanelSales(p) {
   html += '<div class="products-detail-item"><div class="products-detail-label">月销量</div><input type="number" id="productSales-monthly_sales" value="' + (p.monthly_sales || 0) + '" step="1" style="' + inputStyle + '"></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">月 GMV</div><input type="number" id="productSales-monthly_gmv" value="' + (p.monthly_gmv || 0) + '" step="0.01" style="' + inputStyle + '"></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">佣金金额</div><input type="number" id="productSales-commission_amount" value="' + (p.commission_amount || 0) + '" step="0.01" style="' + inputStyle + '"></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">转化率</div><input type="number" id="productSales-conversion_rate" value="' + (p.conversion_rate || 0) + '" step="0.01" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">转化率</div><div style="position:relative;"><input type="number" id="productSales-conversion_rate" value="' + (p.conversion_rate || 0) + '" step="0.01" style="' + inputStyle + 'padding-right:28px;"><span style="position:absolute;right:8px;top:50%;transform:translateY(-50%);color:var(--text-secondary);font-size:14px;pointer-events:none;">%</span></div></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">客单价</div><input type="number" id="productSales-avg_order_value" value="' + (p.avg_order_value || 0) + '" step="0.01" style="' + inputStyle + '"></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">合作达人数</div><input type="number" id="productSales-influencer_count" value="' + (p.influencer_count || 0) + '" step="1" style="' + inputStyle + '"></div>';
   html += '<div class="products-detail-item"><div class="products-detail-label">视频数</div><input type="number" id="productSales-video_count" value="' + (p.video_count || 0) + '" step="1" style="' + inputStyle + '"></div>';
@@ -22537,13 +22541,47 @@ function renderProductPanelSales(p) {
     html += '<div class="products-panel-section">';
     html += '<div class="products-panel-title">渠道分布</div>';
     var channels = p.channel_distribution;
-    var total = Object.keys(channels).reduce(function(a,k){ return k === 'brand_info' ? a : a + (parseFloat(channels[k])||0); }, 0);
-    Object.keys(channels).forEach(function(k){
-      if (k === 'brand_info') return;
-      var v = parseFloat(channels[k]) || 0;
-      var pct = total ? (v / total * 100) : 0;
-      html += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(k) + '</span><span>' + v + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + pct + '%"></div></div></div>';
-    });
+    if (typeof channels === 'string') {
+      var parsed = {};
+      channels.split(/[\n、]/).forEach(function(line) {
+        var m = line.match(/^(.+?)(\d+(?:\.\d+)?)\s*%$/);
+        if (m) parsed[m[1].trim()] = parseFloat(m[2]);
+      });
+      channels = parsed;
+    }
+    var cKeys = Object.keys(channels).filter(function(k){ return k !== 'brand_info' && (parseFloat(channels[k])||0) > 0; });
+    var cTotal = cKeys.reduce(function(a,k){ return a + (parseFloat(channels[k])||0); }, 0);
+    if (cTotal > 0) {
+      var cMaxKey = cKeys[0], cMaxVal = 0;
+      cKeys.forEach(function(k){ var v = parseFloat(channels[k])||0; if (v > cMaxVal) { cMaxVal = v; cMaxKey = k; } });
+      var cMaxPct = cTotal ? (cMaxVal / cTotal * 100) : 0;
+      html += '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:10px;">以' + escapeHtml(cMaxKey) + '为主，占比' + cMaxPct.toFixed(2) + '%</div>';
+      var cColors = ['#FF4D6D', '#007AFF', '#34C759', '#FF9500', '#AF52DE'];
+      var cRadius = 48, cCirc = 2 * Math.PI * cRadius, cOffset = 0;
+      html += '<div style="display:flex;align-items:center;justify-content:center;padding:4px 0 10px;">';
+      html += '<svg width="130" height="130" viewBox="0 0 130 130">';
+      html += '<circle cx="65" cy="65" r="' + cRadius + '" fill="none" stroke="var(--bg-tertiary)" stroke-width="9"/>';
+      cKeys.forEach(function(k, i) {
+        var v = parseFloat(channels[k]) || 0;
+        var pct = cTotal ? (v / cTotal * 100) : 0;
+        var dashLen = (pct / 100) * cCirc;
+        var color = cColors[i % cColors.length];
+        html += '<circle cx="65" cy="65" r="' + cRadius + '" fill="none" stroke="' + color + '" stroke-width="9" stroke-dasharray="' + dashLen.toFixed(2) + ' ' + (cCirc - dashLen).toFixed(2) + '" stroke-dashoffset="' + (-cOffset).toFixed(2) + '" transform="rotate(-90 65 65)"/>';
+        cOffset += dashLen;
+      });
+      html += '<text x="65" y="62" text-anchor="middle" font-size="19" font-weight="600" fill="var(--text-primary)">' + cMaxPct.toFixed(1) + '%</text>';
+      html += '<text x="65" y="80" text-anchor="middle" font-size="10" fill="var(--text-tertiary)">' + escapeHtml(cMaxKey.length > 6 ? cMaxKey.substring(0,6) + '…' : cMaxKey) + '</text>';
+      html += '</svg>';
+      html += '</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:10px 16px;justify-content:center;">';
+      cKeys.forEach(function(k, i) {
+        var v = parseFloat(channels[k]) || 0;
+        var pct = cTotal ? (v / cTotal * 100) : 0;
+        var color = cColors[i % cColors.length];
+        html += '<div style="display:flex;align-items:center;gap:5px;"><span style="width:7px;height:7px;border-radius:50%;background:' + color + ';display:inline-block;flex-shrink:0;"></span><span style="font-size:12px;color:var(--text-secondary);">' + escapeHtml(k) + ' ' + pct.toFixed(2) + '%</span></div>';
+      });
+      html += '</div>';
+    }
     html += '</div>';
   }
   el.innerHTML = html;
@@ -22671,15 +22709,15 @@ function renderProductPanelAudience(p) {
   var inputStyle = 'width:100%;padding:6px 8px;border:1px solid #E0E0E0;border-radius:8px;font-size:13px;color:var(--text-primary);outline:none;background:#fff;box-sizing:border-box;font-family:inherit;';
   function distToText(obj) {
     if (!obj || Object.keys(obj).length === 0) return '';
-    return Object.keys(obj).map(function(k){ return k + ':' + obj[k]; }).join(', ');
+    return Object.keys(obj).map(function(k){ return k + ':' + obj[k] + '%'; }).join(', ');
   }
   var html = '<div class="products-panel-section">';
   html += '<div class="products-panel-title"><span>受众画像</span><button class="ai-match-btn" style="padding:6px 12px;font-size:12px;margin-left:auto;" onclick="saveProductAudience()">保存</button></div>';
   html += '<div class="products-detail-grid">';
-  html += '<div class="products-detail-item"><div class="products-detail-label">性别分布</div><input type="text" id="audience-gender" value="' + escapeAttr(distToText(audience.gender)) + '" placeholder="如: 女:60, 男:40" style="' + inputStyle + '"></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">年龄分布</div><input type="text" id="audience-age" value="' + escapeAttr(distToText(audience.age)) + '" placeholder="如: 18-24:30, 25-34:50" style="' + inputStyle + '"></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">地域分布</div><input type="text" id="audience-region" value="' + escapeAttr(distToText(audience.region)) + '" placeholder="如: 浙江:40, 广东:30" style="' + inputStyle + '"></div>';
-  html += '<div class="products-detail-item"><div class="products-detail-label">职业分布</div><input type="text" id="audience-occupation" value="' + escapeAttr(distToText(audience.occupation)) + '" placeholder="如: 学生:30, 上班族:50" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">性别分布</div><input type="text" id="audience-gender" value="' + escapeAttr(distToText(audience.gender)) + '" placeholder="如: 女:60%, 男:40%" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">年龄分布</div><input type="text" id="audience-age" value="' + escapeAttr(distToText(audience.age)) + '" placeholder="如: 18-24:30%, 25-34:50%" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">地域分布</div><input type="text" id="audience-region" value="' + escapeAttr(distToText(audience.region)) + '" placeholder="如: 浙江:40%, 广东:30%" style="' + inputStyle + '"></div>';
+  html += '<div class="products-detail-item"><div class="products-detail-label">职业分布</div><input type="text" id="audience-occupation" value="' + escapeAttr(distToText(audience.occupation)) + '" placeholder="如: 学生:30%, 上班族:50%" style="' + inputStyle + '"></div>';
   var _interests = audience.interests; if (typeof _interests === 'string') _interests = _interests.split(',').map(function(s){return s.trim();}).filter(Boolean); if (!Array.isArray(_interests)) _interests = [];
   html += '<div class="products-detail-item" style="grid-column:1/-1;"><div class="products-detail-label">兴趣标签</div><input type="text" id="audience-interests" value="' + escapeAttr(_interests.join(', ')) + '" placeholder="多个标签用逗号分隔，如: 时尚, 穿搭, 女鞋" style="' + inputStyle + '"></div>';
   html += '</div></div>';
@@ -22687,6 +22725,8 @@ function renderProductPanelAudience(p) {
 }
 function saveProductAudience() {
   if (!_productCurrentId) { showToast('请选择商品'); return; }
+  var saveBtn = event && event.target ? event.target : null;
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '保存中...'; }
   function parseDist(text) {
     var obj = {};
     if (!text || !text.trim()) return obj;
@@ -22709,7 +22749,7 @@ function saveProductAudience() {
       interests: document.getElementById('audience-interests').value.split(',').map(function(s){return s.trim();}).filter(Boolean)
     }
   };
-  apiFetch('/api/products/' + encodeURIComponent(_productCurrentId), {method:'PUT', body: JSON.stringify(body)}).then(function(){ showToast('✅ 受众画像已保存'); loadProducts().then(function(){ selectProductItem(_productCurrentId); }); }).catch(function(){ showToast('❌ 保存失败'); });
+  apiFetch('/api/products/' + encodeURIComponent(_productCurrentId), {method:'PUT', body: JSON.stringify(body)}).then(function(){ showToast('✅ 受众画像已保存'); loadProducts().then(function(){ selectProductItem(_productCurrentId); }); }).catch(function(){ showToast('❌ 保存失败'); }).finally(function(){ if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '保存'; } });
 }
 
 function analyzeProductAI() {
@@ -22769,7 +22809,7 @@ function createNewProduct() {
   document.getElementById('productMainImagePreview').innerHTML = '';
   document.getElementById('productDescription').value = '';
   renderProductBrandOptions();
-  document.getElementById('productBrandSelect').value = _productCurrentBrandName || '';
+  document.getElementById('productBrandInput').value = _productCurrentBrandName || '';
   document.getElementById('productCategory').value = '拖鞋';
   document.getElementById('productScene').value = '';
   document.getElementById('productPrice').value = '';
@@ -22795,8 +22835,7 @@ function editCurrentProduct() {
       prevEl.innerHTML = '';
     }
     document.getElementById('productDescription').value = p.description || p.subtitle || '';
-    renderProductBrandOptions();
-    document.getElementById('productBrandSelect').value = p.brand || '';
+    document.getElementById('productBrandInput').value = p.brand || '';
     document.getElementById('productCategory').value = p.category || '';
     document.getElementById('productScene').value = p.scene || '';
     document.getElementById('productPrice').value = p.price || '';
@@ -22850,14 +22889,11 @@ function collectSkuSpecs() {
 function saveProduct() {
   var id = document.getElementById('productEditId').value;
   var skuSpecs = collectSkuSpecs();
-  var brandId = document.getElementById('productBrandSelect').value;
-  var b = _productBrandData.brands.find(function(x){ return x.id === brandId; });
   var body = {
     name: document.getElementById('productName').value.trim(),
     main_image: document.getElementById('productMainImage').value.trim(),
     description: document.getElementById('productDescription').value.trim(),
-    brand_id: brandId,
-    brand: b ? b.name : '',
+    brand: document.getElementById('productBrandInput').value.trim(),
     category: document.getElementById('productCategory').value.trim(),
     scene: document.getElementById('productScene').value.trim(),
     price: parseFloat(document.getElementById('productPrice').value) || 0,

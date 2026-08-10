@@ -3177,7 +3177,7 @@ def _feishu_extract_val(val):
         return val.get('text', '') or val.get('name', '')
     return str(val)
 
-def _parse_cn_number(val):
+def _parse_cn_number(val, default_wan=False):
     if not val:
         return 0
     s = str(val).strip().lower().replace(',', '')
@@ -3191,6 +3191,8 @@ def _parse_cn_number(val):
         elif s.endswith('亿'):
             mult = 100000000
             s = s[:-1]
+        elif default_wan and '.' in s:
+            mult = 10000
         return int(float(s) * mult)
     except (ValueError, TypeError):
         return 0
@@ -3207,7 +3209,7 @@ def _feishu_record_to_talent(fields):
         'email': '',
         'city': '',
         'level': '',
-        'followers': _parse_cn_number(_g('粉丝量数')),
+        'followers': _parse_cn_number(_g('粉丝量数'), default_wan=True),
         'talent_type': str(_g('内容类型') or ''),
         'agency': '',
         'tags': [],
@@ -16460,11 +16462,12 @@ def _handle_proxy_kimi(self):
     try:
         resp = urllib.request.urlopen(req, timeout=120)
     except urllib.error.HTTPError as e:
-        # 转发Kimi的错误响应
+        err_body = e.read()
+        print(f'  [KimiProxy] HTTP {e.code} error: {err_body[:500]}', flush=True)
         self.send_response(e.code)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
-        self.wfile.write(e.read())
+        self.wfile.write(err_body)
         return
     except Exception as e:
         self._send_json_error(502, f'Proxy error: {str(e)}')
@@ -17154,20 +17157,27 @@ def _feishu_record_to_product(fields):
     audience = {}
     for key, col in [('gender', '购买性别'), ('age', '购买年龄'), ('region', '购买地区'), ('occupation', '购买人群')]:
         val = _g_json(col)
-        if val:
+        if val and isinstance(val, dict):
             audience[key] = val
         else:
             sv = _g(col)
             if sv:
                 parts = {}
-                for pair in str(sv).split(','):
+                for pair in re.split(r'[、,，]', str(sv)):
                     pair = pair.strip()
-                    if ':' in pair:
+                    if not pair:
+                        continue
+                    m = re.match(r'^(.+?)(\d+(?:\.\d+)?)\s*%\Z', pair)
+                    if m:
+                        parts[m.group(1).strip()] = float(m.group(2))
+                    elif ':' in pair:
                         k, v = pair.split(':', 1)
                         try:
                             parts[k.strip()] = float(v.strip())
                         except ValueError:
                             parts[k.strip()] = v.strip()
+                    else:
+                        parts[pair] = 100
                 if parts:
                     audience[key] = parts
     videos = _g_json('带货视频案例', [])
@@ -17181,11 +17191,11 @@ def _feishu_record_to_product(fields):
     channel_distribution = {}
     cd_raw = _g('渠道分布')
     if cd_raw:
-        for line in str(cd_raw).strip().split('\n'):
+        for line in re.split(r'[\n、]', str(cd_raw).strip()):
             line = line.strip()
             if not line:
                 continue
-            m = re.search(r'(.+?)(\d+(?:\.\d+)?)\s*%', line)
+            m = re.match(r'^(.+?)(\d+(?:\.\d+)?)\s*%\Z', line)
             if m:
                 channel_distribution[m.group(1).strip()] = float(m.group(2))
     return {
