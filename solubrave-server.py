@@ -3104,9 +3104,10 @@ def _dict_to_talent_row(t):
         'avg_live_gmv': float(t.get('avg_live_gmv', 0) or 0),
         'live_gpm': float(t.get('live_gpm', 0) or 0),
         'video_gpm': float(t.get('video_gpm', 0) or 0),
-        'fan_gender': _dump(t.get('fan_gender', t.get('fanGender', {}))),
-        'fan_age': _dump(t.get('fan_age', t.get('fanAge', {}))),
-        'fan_region': _dump(t.get('fan_region', t.get('fanRegion', {}))),
+        # 飞书同步过来的是 JSON 字符串，前端回传是解析后的 dict，需区分处理避免二次编码
+        'fan_gender': t.get('fan_gender') if isinstance(t.get('fan_gender'), str) and t.get('fan_gender') else _dump(t.get('fan_gender', t.get('fanGender', {}))),
+        'fan_age': t.get('fan_age') if isinstance(t.get('fan_age'), str) and t.get('fan_age') else _dump(t.get('fan_age', t.get('fanAge', {}))),
+        'fan_region': t.get('fan_region') if isinstance(t.get('fan_region'), str) and t.get('fan_region') else _dump(t.get('fan_region', t.get('fanRegion', {}))),
         'fan_crowd': t.get('fan_crowd') or t.get('fanCrowd') or '',
         'fan_price_range': t.get('fan_price_range') or t.get('fanPriceRange') or '',
         'fan_category': t.get('fan_category') or t.get('fanCategory') or '',
@@ -3233,6 +3234,12 @@ def _feishu_record_to_talent(fields):
         'monthly_settlement': str(_g('月结算金额') or ''),
         'price_distribution': _g('价格带分布') or '{}',
         'category_distribution': _g('类目分布') or '{}',
+        'fan_gender': _g('粉丝性别') or '{}',
+        'fan_age': _g('粉丝年龄') or '{}',
+        'fan_region': _g('粉丝地域') or '{}',
+        'fan_crowd': str(_g('粉丝人群') or ''),
+        'fan_price_range': str(_g('粉丝价格带') or ''),
+        'fan_category': str(_g('粉丝类目偏好') or ''),
         'remark': str(_g('备注') or ''),
     }
 
