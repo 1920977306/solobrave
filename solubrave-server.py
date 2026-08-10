@@ -2419,6 +2419,7 @@ def init_db():
                 monthly_settlement TEXT DEFAULT '',
                 price_distribution TEXT DEFAULT '{}',
                 category_distribution TEXT DEFAULT '{}',
+                brand_distribution TEXT DEFAULT '{}',
                 remark TEXT DEFAULT '',
                 created_at INTEGER,
                 updated_at INTEGER
@@ -2458,6 +2459,7 @@ def init_db():
             ('monthly_settlement', "TEXT DEFAULT ''"),
             ('price_distribution', "TEXT DEFAULT '{}'"),
             ('category_distribution', "TEXT DEFAULT '{}'"),
+            ('brand_distribution', "TEXT DEFAULT '{}'"),
             ('remark', "TEXT DEFAULT ''"),
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
@@ -2879,7 +2881,7 @@ _TALENT_COLUMNS = [
     'ai_analysis', 'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by',
     'account_fans_profile', 'video_fans_profile', 'video_settlement_ratio',
     'single_video_settlement', 'feishu_gpm', 'video_avg_price',
-    'feishu_shops', 'feishu_product_count', 'monthly_settlement', 'price_distribution', 'category_distribution', 'remark',
+    'feishu_shops', 'feishu_product_count', 'monthly_settlement', 'price_distribution', 'category_distribution', 'brand_distribution', 'remark',
     'created_at', 'updated_at'
 ]
 
@@ -2996,6 +2998,7 @@ def _talent_row_to_dict(row):
         'monthly_settlement': row['monthly_settlement'] or '',
         'price_distribution': _json_col('price_distribution', {}),
         'category_distribution': _json_col('category_distribution', {}),
+        'brand_distribution': _json_col('brand_distribution', {}),
         'remark': row['remark'] or '',
         'created_by': row['created_by'] or '',
         'created_at': row['created_at'],
@@ -3134,6 +3137,7 @@ def _dict_to_talent_row(t):
         # 前端回传时 price_distribution 是解析后的 dict，直接绑定 sqlite 会报错，需重新序列化
         'price_distribution': t.get('price_distribution') if isinstance(t.get('price_distribution'), str) and t.get('price_distribution') else _dump(t.get('price_distribution') or {}),
         'category_distribution': t.get('category_distribution') if isinstance(t.get('category_distribution'), str) and t.get('category_distribution') else _dump(t.get('category_distribution') or {}),
+        'brand_distribution': t.get('brand_distribution') if isinstance(t.get('brand_distribution'), str) and t.get('brand_distribution') else _dump(t.get('brand_distribution') or {}),
         'remark': t.get('remark') or '',
         'created_by': t.get('created_by') or t.get('createdBy') or '',
         'created_at': t.get('created_at') or t.get('createdAt') or now,
@@ -3198,6 +3202,39 @@ def _parse_cn_number(val, default_wan=False):
     except (ValueError, TypeError):
         return 0
 
+def _parse_distribution_text(val):
+    """解析飞书分布列纯文本（如 "0~25 9.35%, 25~50 15.2%"）为 JSON 字符串 '{"0~25":9.35,"25~50":15.2}'；
+    已是合法 JSON 时原样返回；解析失败保留原始值。"""
+    if val is None or val == '':
+        return '{}'
+    if not isinstance(val, str):
+        return val
+    text = val.strip()
+    if not text:
+        return '{}'
+    if text.startswith('{'):
+        try:
+            if isinstance(json.loads(text), dict):
+                return text
+        except Exception:
+            pass
+    try:
+        result = {}
+        for part in _re.split(r'[,，、;；\n]+', text):
+            part = part.strip()
+            if not part:
+                continue
+            m = _re.match(r'^(.+?)[\s:：]+([0-9]+(?:\.[0-9]+)?)\s*%?$', part)
+            if not m:
+                raise ValueError(f'无法解析分布项: {part}')
+            result[m.group(1).strip()] = float(m.group(2))
+        if not result:
+            raise ValueError('分布为空')
+        return json.dumps(result, ensure_ascii=False)
+    except Exception:
+        return val
+
+
 def _feishu_record_to_talent(fields):
     def _g(name):
         return _feishu_extract_val(fields.get(name))
@@ -3232,8 +3269,9 @@ def _feishu_record_to_talent(fields):
         'feishu_shops': str(_g('合作店铺数') or ''),
         'feishu_product_count': str(_g('带货商品数') or ''),
         'monthly_settlement': str(_g('月结算金额') or ''),
-        'price_distribution': _g('价格带分布') or '{}',
-        'category_distribution': _g('类目分布') or '{}',
+        'price_distribution': _parse_distribution_text(_g('价格带分布')),
+        'category_distribution': _parse_distribution_text(_g('类目分布')),
+        'brand_distribution': _parse_distribution_text(_g('品牌集中度')) or '{}',
         'fan_gender': _g('粉丝性别') or '{}',
         'fan_age': _g('粉丝年龄') or '{}',
         'fan_region': _g('粉丝地域') or '{}',

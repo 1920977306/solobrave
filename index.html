@@ -2352,6 +2352,29 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: var(--text-primary);
   margin-bottom: 10px;
 }
+.talents-donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.talents-donut {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+}
+.talents-donut::after {
+  content: '';
+  position: absolute;
+  inset: 22px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+}
+.talents-donut-legend {
+  flex: 1;
+  min-width: 0;
+}
 .talents-price-bubble {
   display: flex;
   align-items: center;
@@ -23758,6 +23781,16 @@ function renderTalentPanelSales(t) {
   } else {
     html += '<div class="products-empty-text" style="padding:12px 0;">暂无数据</div>';
   }
+  html += '</div>';
+  // 品牌集中度环形图（与类目分布相同的数据解析逻辑）
+  html += '<div class="talents-distribution-card">';
+  html += '<div class="talents-distribution-title">品牌集中度</div>';
+  var brandDistribution = _getTalentBrandDistribution(t);
+  if (brandDistribution.length) {
+    html += _renderTalentDonut(brandDistribution);
+  } else {
+    html += '<div class="products-empty-text" style="padding:12px 0;">暂无数据</div>';
+  }
   html += '</div></div>';
 
   // 带货商品列表
@@ -23910,6 +23943,38 @@ function _getTalentCategoryDistribution(t, mock) {
     return { label: cat, raw: v };
   });
   return dist.map(function(item){ return { label: item.label, value: Math.round(item.raw / total * 100) }; });
+}
+
+function _getTalentBrandDistribution(t) {
+  // 与 category_distribution 相同的解析逻辑（key 为品牌名称，value 为百分比数字）
+  if (t.brand_distribution && typeof t.brand_distribution === 'object' && Object.keys(t.brand_distribution).length) {
+    return Object.keys(t.brand_distribution).map(function(key){
+      return { label: key, value: t.brand_distribution[key] };
+    });
+  }
+  return [];
+}
+
+function _renderTalentDonut(items) {
+  // 环形图：conic-gradient 扇区 + 图例，扇区角度按占比归一化
+  var colors = ['#0a84ff', '#36cfc9', '#73d13d', '#faad14', '#ff7875', '#b37feb'];
+  var total = items.reduce(function(a, b){ return a + (parseFloat(b.value) || 0); }, 0);
+  if (!total) return '';
+  var acc = 0;
+  var stops = items.map(function(item, idx){
+    var pct = (parseFloat(item.value) || 0) / total * 100;
+    var start = acc;
+    acc += pct;
+    return colors[idx % colors.length] + ' ' + start + '% ' + acc + '%';
+  });
+  var html = '<div class="talents-donut-wrap">';
+  html += '<div class="talents-donut" style="background:conic-gradient(' + stops.join(',') + ');"></div>';
+  html += '<div class="talents-donut-legend">';
+  items.forEach(function(item, idx){
+    html += '<div class="talents-price-bubble"><span class="talents-price-bubble-dot" style="background:' + colors[idx % colors.length] + ';"></span><span class="talents-price-bubble-label">' + escapeHtml(item.label) + '</span><span class="talents-price-bubble-value">' + item.value + '%</span></div>';
+  });
+  html += '</div></div>';
+  return html;
 }
 
 function _loadTalentSalesProducts(t) {
