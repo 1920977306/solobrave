@@ -10945,10 +10945,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             where.append('agent_id = ?')
             params.append(agent_id)
         if start_date:
-            where.append("date(created_at/1000, 'unixepoch') >= date(?)")
+            where.append("date(created_at/1000, 'unixepoch', 'localtime') >= date(?)")
             params.append(start_date)
         if end_date:
-            where.append("date(created_at/1000, 'unixepoch') <= date(?)")
+            where.append("date(created_at/1000, 'unixepoch', 'localtime') <= date(?)")
             params.append(end_date)
         where_sql = 'WHERE ' + ' AND '.join(where) if where else ''
         conn = _db_conn()
@@ -10996,10 +10996,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             where.append('agent_id = ?')
             params.append(agent_id)
         if start_date:
-            where.append("date(created_at/1000, 'unixepoch') >= date(?)")
+            where.append("date(created_at/1000, 'unixepoch', 'localtime') >= date(?)")
             params.append(start_date)
         if end_date:
-            where.append("date(created_at/1000, 'unixepoch') <= date(?)")
+            where.append("date(created_at/1000, 'unixepoch', 'localtime') <= date(?)")
             params.append(end_date)
         where_sql = 'WHERE ' + ' AND '.join(where) if where else ''
         conn = _db_conn()
@@ -11008,7 +11008,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 f'''SELECT COALESCE(SUM(credits_used),0) AS credits,
                            COALESCE(SUM(total_tokens),0) AS tokens,
                            COUNT(*) AS records_count,
-                           COUNT(DISTINCT date(created_at/1000, 'unixepoch')) AS active_days
+                           COUNT(DISTINCT date(created_at/1000, 'unixepoch', 'localtime')) AS active_days
                     FROM credit_usage_log {where_sql}''',
                 tuple(params)
             ).fetchone()
@@ -16442,6 +16442,118 @@ def _handle_proxy_kimi(self):
         finally:
             conn.close()
 
+    # 4.7 修补缺失的 tool response 消息
+    #     OpenClaw exec 工具执行后，有时不会在 messages 中附带 tool role 的 response，
+    #     导致 Kimi API 返回 400: "tool_call_ids did not have response messages: exec:0"
+    #     这里在转发前扫描 messages，为缺失的 tool_call 补全 response。
+    messages = body.get('messages') or []
+    if isinstance(messages, list) and agent_id:
+        print(f'  [KimiProxy] DEBUG: agent_id={agent_id} messages_count={len(messages)}', flush=True)
+        for idx, m in enumerate(messages):
+            if not isinstance(m, dict):
+                continue
+            role = m.get('role', '?')
+            tc = m.get('tool_calls')
+            content = m.get('content')
+            has_tool_use = isinstance(content, list) and any(isinstance(c, dict) and c.get('type') == 'tool_use' for c in content)
+            if role == 'assistant' and (tc or has_tool_use):
+                tc_ids = [t.get('id','') for t in tc] if tc else [c.get('id','') for c in content if isinstance(c, dict) and c.get('type') == 'tool_use']
+                print(f'  [KimiProxy] DEBUG: msg[{idx}] role=assistant has_tool_calls={bool(tc)} has_tool_use={has_tool_use} ids={tc_ids}', flush=True)
+            if role in ('tool', 'user') and isinstance(content, list):
+                for c in content:
+                    if isinstance(c, dict) and c.get('type') in ('tool_result',):
+                        print(f'  [KimiProxy] DEBUG: msg[{idx}] role={role} tool_result_id={c.get("tool_use_id","")}', flush=True)
+        patched = []
+        modified = False
+        for idx, m in enumerate(messages):
+            patched.append(m)
+            if not (isinstance(m, dict) and m.get('role') == 'assistant'):
+                continue
+            # OpenAI 格式：assistant.tool_calls
+            tool_calls = m.get('tool_calls') or []
+            for tc in tool_calls:
+                if not isinstance(tc, dict):
+                    continue
+                tc_id = tc.get('id', '')
+                if not tc_id:
+                    continue
+                has_resp = any(
+                    isinstance(rm, dict) and rm.get('role') == 'tool' and rm.get('tool_call_id') == tc_id
+                    for rm in messages[idx + 1:]
+                )
+                if has_resp:
+                    continue
+                # 查询 tool_calls 表获取结果
+                tool_output = None
+                try:
+                    conn = _db_conn()
+                    try:
+                        row = conn.execute(
+                            'SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1',
+                            (agent_id, tc_id)
+                        ).fetchone()
+                        if row:
+                            tool_output = row[0]
+                    finally:
+                        conn.close()
+                except Exception:
+                    pass
+                if not tool_output:
+                    tool_output = '[工具执行完成，无输出记录]'
+                patched.append({
+                    'role': 'tool',
+                    'tool_call_id': tc_id,
+                    'content': tool_output if isinstance(tool_output, str) else json.dumps(tool_output, ensure_ascii=False)
+                })
+                modified = True
+                print(f'  [KimiProxy] 补丁: tool_call_id={tc_id} 插入tool response', flush=True)
+            # Anthropic 格式：content 列表中含 tool_use
+            content = m.get('content')
+            if isinstance(content, list):
+                for item in content:
+                    if not (isinstance(item, dict) and item.get('type') == 'tool_use'):
+                        continue
+                    tu_id = item.get('id', '')
+                    if not tu_id:
+                        continue
+                    has_resp = False
+                    for rm in messages[idx + 1:]:
+                        rm_c = rm.get('content') if isinstance(rm, dict) else None
+                        if isinstance(rm_c, list):
+                            for rc in rm_c:
+                                if isinstance(rc, dict) and rc.get('type') == 'tool_result' and rc.get('tool_use_id') == tu_id:
+                                    has_resp = True
+                                    break
+                        if has_resp:
+                            break
+                    if has_resp:
+                        continue
+                    tool_output = None
+                    try:
+                        conn = _db_conn()
+                        try:
+                            row = conn.execute(
+                                'SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1',
+                                (agent_id, tu_id)
+                            ).fetchone()
+                            if row:
+                                tool_output = row[0]
+                        finally:
+                            conn.close()
+                    except Exception:
+                        pass
+                    if not tool_output:
+                        tool_output = '[工具执行完成，无输出记录]'
+                    patched.append({
+                        'role': 'user',
+                        'content': [{'type': 'tool_result', 'tool_use_id': tu_id, 'content': tool_output if isinstance(tool_output, str) else json.dumps(tool_output, ensure_ascii=False)}]
+                    })
+                    modified = True
+                    print(f'  [KimiProxy] 补丁: tool_use_id={tu_id} 插入tool_result (Anthropic格式)', flush=True)
+        if modified:
+            body['messages'] = patched
+            print(f'  [KimiProxy] 消息修补完成: {len(messages)} -> {len(patched)} 条', flush=True)
+
     # 5. 构造转发请求到真实Kimi API
     # 提取原始请求路径中的子路径（如/v1/messages）
     path = self._normalize_path(self.path)
@@ -16466,19 +16578,165 @@ def _handle_proxy_kimi(self):
     # 7. 转发请求
     req = urllib.request.Request(target_url, data=req_body, headers=forward_headers, method='POST')
 
-    try:
-        resp = urllib.request.urlopen(req, timeout=120)
-    except urllib.error.HTTPError as e:
-        err_body = e.read()
-        print(f'  [KimiProxy] HTTP {e.code} error: {err_body[:500]}', flush=True)
-        self.send_response(e.code)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(err_body)
-        return
-    except Exception as e:
-        self._send_json_error(502, f'Proxy error: {str(e)}')
-        return
+    retry_count = 0
+    MAX_RETRIES = 2
+    while True:
+        try:
+            resp = urllib.request.urlopen(req, timeout=120)
+            break
+        except urllib.error.HTTPError as e:
+            err_body = e.read()
+            err_text = err_body.decode('utf-8', errors='replace')
+            print(f'  [KimiProxy] HTTP {e.code} error: {err_text[:500]}', flush=True)
+
+            # 400时dump完整messages到文件用于调试
+            if e.code == 400:
+                try:
+                    dump_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', f'kimi_400_dump_{agent_id}_{int(time.time())}.json')
+                    with open(dump_path, 'w', encoding='utf-8') as df:
+                        json.dump({'error': err_text, 'messages': body.get('messages', []), 'agent_id': agent_id}, df, ensure_ascii=False, indent=2)
+                    print(f'  [KimiProxy] 400 dump saved: {dump_path}', flush=True)
+                except Exception:
+                    pass
+
+            if e.code == 400 and 'tool_call_ids did not have response' in err_text and retry_count < MAX_RETRIES:
+                retry_count += 1
+                import re as _re
+                match = _re.search(r"did not have response messages: ([^\"]+)", err_text)
+                if not match:
+                    self.send_response(e.code)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(err_body)
+                    return
+                missing_raw = match.group(1).strip().strip('"').strip("'")
+                missing_ids = [mid.strip() for mid in missing_raw.split(',') if mid.strip()]
+                print(f'  [KimiProxy] 400自动修复 (retry {retry_count}/{MAX_RETRIES}): 缺失={missing_ids}', flush=True)
+
+                msgs = body.get('messages', [])
+                exec_counter = 0
+                exec_map = {}
+                for m in msgs:
+                    if not isinstance(m, dict):
+                        continue
+                    content = m.get('content')
+                    if isinstance(content, list):
+                        for c in content:
+                            if isinstance(c, dict) and c.get('type') == 'tool_use':
+                                exec_map[f'exec:{exec_counter}'] = c.get('id', '')
+                                exec_counter += 1
+                    tc = m.get('tool_calls')
+                    if tc:
+                        for t in tc:
+                            if isinstance(t, dict):
+                                exec_map[f'exec:{exec_counter}'] = t.get('id', '')
+                                exec_counter += 1
+
+                patched_msgs = list(msgs)
+                any_fixed = False
+                for mid in missing_ids:
+                    target_id = exec_map.get(mid, mid)
+                    has_resp = False
+                    for rm in msgs:
+                        if not isinstance(rm, dict):
+                            continue
+                        rm_c = rm.get('content')
+                        if isinstance(rm_c, list):
+                            for rc in rm_c:
+                                if isinstance(rc, dict) and rc.get('type') == 'tool_result' and rc.get('tool_use_id') == target_id:
+                                    has_resp = True
+                                    break
+                        if has_resp:
+                            break
+                        if rm.get('role') == 'tool' and rm.get('tool_call_id') == target_id:
+                            has_resp = True
+                            break
+                    if has_resp:
+                        print(f'  [KimiProxy] 400自动修复: {mid} -> {target_id} 已有tool_result，尝试删除旧tool_use', flush=True)
+                        # 如果已有tool_result但API仍报缺失，可能是tool_use和tool_result之间有其他消息插入
+                        # 找到该tool_use所在的assistant消息，在它后面紧接着插入tool_result
+                        for i, m in enumerate(patched_msgs):
+                            if not isinstance(m, dict) or m.get('role') != 'assistant':
+                                continue
+                            mc = m.get('content')
+                            if not isinstance(mc, list):
+                                continue
+                            has_target = any(isinstance(c, dict) and c.get('type') == 'tool_use' and c.get('id') == target_id for c in mc)
+                            if has_target:
+                                # 检查下一条是否是对应的tool_result
+                                next_idx = i + 1
+                                if next_idx < len(patched_msgs):
+                                    next_msg = patched_msgs[next_idx]
+                                    next_c = next_msg.get('content') if isinstance(next_msg, dict) else None
+                                    if isinstance(next_c, list) and any(isinstance(c, dict) and c.get('type') == 'tool_result' and c.get('tool_use_id') == target_id for c in next_c):
+                                        # 已经紧挨着，不处理
+                                        pass
+                                    else:
+                                        # 需要插入一个tool_result
+                                        tool_output = None
+                                        try:
+                                            conn = _db_conn()
+                                            try:
+                                                row = conn.execute('SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1', (agent_id, target_id)).fetchone()
+                                                if row:
+                                                    tool_output = row[0]
+                                            finally:
+                                                conn.close()
+                                        except Exception:
+                                            pass
+                                        if not tool_output:
+                                            tool_output = '[工具执行完成]'
+                                        patched_msgs.insert(next_idx, {
+                                            'role': 'user',
+                                            'content': [{'type': 'tool_result', 'tool_use_id': target_id, 'content': tool_output if isinstance(tool_output, str) else json.dumps(tool_output, ensure_ascii=False)}]
+                                        })
+                                        any_fixed = True
+                                        print(f'  [KimiProxy] 400自动修复: 在msg[{next_idx}]位置插入tool_result for {target_id}', flush=True)
+                                break
+                    else:
+                        # 完全没有tool_result，从数据库补全
+                        tool_output = None
+                        try:
+                            conn = _db_conn()
+                            try:
+                                row = conn.execute('SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1', (agent_id, target_id)).fetchone()
+                                if row:
+                                    tool_output = row[0]
+                                if not tool_output:
+                                    row = conn.execute('SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1', (agent_id, mid)).fetchone()
+                                    if row:
+                                        tool_output = row[0]
+                            finally:
+                                conn.close()
+                        except Exception:
+                            pass
+                        if not tool_output:
+                            tool_output = '[工具执行完成，无输出记录]'
+                        patched_msgs.append({
+                            'role': 'user',
+                            'content': [{'type': 'tool_result', 'tool_use_id': target_id, 'content': tool_output if isinstance(tool_output, str) else json.dumps(tool_output, ensure_ascii=False)}]
+                        })
+                        any_fixed = True
+                        print(f'  [KimiProxy] 400自动修复: 追加tool_result for {mid} -> {target_id}', flush=True)
+
+                if any_fixed:
+                    body['messages'] = patched_msgs
+                    req_body = json.dumps(body).encode('utf-8')
+                    forward_headers['Content-Length'] = str(len(req_body))
+                    req = urllib.request.Request(target_url, data=req_body, headers=forward_headers, method='POST')
+                    print(f'  [KimiProxy] 400自动修复: 重试中... messages {len(msgs)} -> {len(patched_msgs)}', flush=True)
+                    continue
+                else:
+                    print(f'  [KimiProxy] 400自动修复: 无法修复，返回原始错误', flush=True)
+
+            self.send_response(e.code)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(err_body)
+            return
+        except Exception as e:
+            self._send_json_error(502, f'Proxy error: {str(e)}')
+            return
 
     # 8. 处理响应
     if is_streaming:
