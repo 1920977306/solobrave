@@ -48,6 +48,9 @@ from douyin_parser import *
 # 记忆服务 v3（新目录结构：data/memories/{empId}/）
 import memory_service_v3 as ms3
 
+# V3 商品评分模型（达人选品意愿 + 带货效果两层漏斗）
+import v3_scorer as v3
+
 # 知识库服务（分段向量化 + 全局公共，独立模块避免循环导入）
 import knowledge_service as ks
 
@@ -4478,6 +4481,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     if parts[1] == 'talents':
                         self._handle_get_product_talents(product_id)
                         return
+                    if parts[1] == 'score':
+                        self._handle_get_product_score(product_id)
+                        return
                 self._handle_get_product(rest)
                 return
 
@@ -4877,6 +4883,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/products/search':
             self._handle_search_products()
+            return
+        if path == '/api/products/score':
+            self._handle_score_product()
+            return
+        if path == '/api/products/batch-score':
+            self._handle_batch_score_products()
             return
         if path.startswith('/api/products/'):
             sub = path[len('/api/products/'):]
@@ -11457,6 +11469,76 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Product not found')
             return
         self._send_json(200, product)
+
+    # ─── V3 商品评分（v3_scorer 集成）────────────────────────────────
+
+    @staticmethod
+    def _product_to_v3_input(d):
+        """把商品 dict（前端/数据库字段）映射为 v3_scorer 的中文输入字段。"""
+        commission = d.get('commission_rate')
+        if commission is None:
+            rates = d.get('commission_rates') or {}
+            if isinstance(rates, dict):
+                commission = rates.get('default')
+        return {
+            '商品名称': d.get('name') or d.get('product_name') or '',
+            '品类': d.get('category') or '',
+            '价格': float(d.get('price') or 0),
+            '页面佣金率': float(commission or 0),
+            '好评率': float(d.get('review_rate') or d.get('好评率') or 95),
+            '店铺评分': float(d.get('store_score') or d.get('店铺评分') or 95),
+            '品牌类型': d.get('brand_type') or d.get('品牌类型') or '白牌/无品牌',
+            '月销量': float(d.get('monthly_sales') or 0),
+        }
+
+    def _handle_get_product_score(self, product_id):
+        """GET /api/products/:id/score — 用 V3 模型给已录入商品打分"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
+            product = _product_row_to_dict(row)
+        finally:
+            conn.close()
+        if not product:
+            self._send_json_error(404, 'Product not found')
+            return
+        result = v3.score_product(self._product_to_v3_input(product))
+        result['product_id'] = product_id
+        self._send_json(200, result)
+
+    def _handle_score_product(self):
+        """POST /api/products/score — 对请求体中的单个商品打分（不入库）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing product body')
+            return
+        result = v3.score_product(self._product_to_v3_input(body))
+        self._send_json(200, result)
+
+    def _handle_batch_score_products(self):
+        """POST /api/products/batch-score — 批量打分，body: {"products": [...]}"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        body = self._read_body()
+        products = (body or {}).get('products')
+        if not isinstance(products, list) or not products:
+            self._send_json_error(400, 'Missing products list')
+            return
+        results = [v3.score_product(self._product_to_v3_input(p)) for p in products]
+        self._send_json(200, {'results': results, 'total': len(results)})
 
     def _handle_get_product_matches(self, product_id):
         """GET /api/products/:id/matches — 获取商品的匹配达人列表
