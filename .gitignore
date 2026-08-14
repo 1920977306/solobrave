@@ -3,6 +3,7 @@ __pycache__/
 *.tmp
 *.pyc
 test_*.py
+!test_v3_scorer.py
 check_*.py
 *.docx
 *.exe
