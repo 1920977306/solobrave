@@ -17,7 +17,7 @@
 
 ## 需要修改的文件
 
-### 1. solubrave-server.py — 新增代理端点
+### 1. solobrave-server.py — 新增代理端点
 
 在路由分发中添加 `/api/proxy/kimi` 路径处理。
 

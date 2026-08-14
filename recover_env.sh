@@ -38,7 +38,7 @@ fi
 set -a
 source "$TEST_DIR/test.env"
 set +a
-nohup "$PYTHON" solubrave-server.py --data data 8081 > server.log 2>&1 &
+nohup "$PYTHON" solobrave-server.py --data data 8081 > server.log 2>&1 &
 
 echo "==> 4. 校验启动结果"
 sleep 2

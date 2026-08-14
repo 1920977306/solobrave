@@ -9,7 +9,7 @@ PROD_DIR=~/Developer/solubrave-prod
 PYTHON=/Library/Developer/CommandLineTools/usr/bin/python3
 
 FILES=(
-    solubrave-server.py
+    solobrave-server.py
     memory_pipeline.py
     knowledge_service.py
     index.html
@@ -52,7 +52,7 @@ fi
 set -a
 source "$PROD_DIR/prod.env"
 set +a
-nohup "$PYTHON" solubrave-server.py --data data 8080 > server.log 2>&1 &
+nohup "$PYTHON" solobrave-server.py --data data 8080 > server.log 2>&1 &
 
 echo "==> 4. 校验启动结果"
 sleep 2

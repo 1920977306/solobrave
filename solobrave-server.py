@@ -58,6 +58,9 @@ import knowledge_service as ks
 import topic_service as ts
 import brain_knowledge_service as bks
 
+# Memory Pipeline（L0-L3 分层记忆 + Token 预算召回）
+import memory_pipeline
+
 # 统一日志（替代散落的 print 调试输出）
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -1309,6 +1312,11 @@ def _get_agent_by_id(agent_id):
             return a
     return None
 
+def _get_active_agent_ids():
+    """返回 agents.json 中所有正式员工的 ID 集合"""
+    return {a.get('id', '') for a in _load_agents() if a.get('id')}
+
+
 def _clean_agents_file():
     """主动清理 agents.json 中的历史遗留默认员工数据"""
     agents = _read_json(AGENTS_FILE, [])
@@ -2423,6 +2431,19 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_fan_category ON talents(fan_category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_group ON talents(group_id)')
 
+        # 用户飞书多维表格配置（每个员工绑定自己的飞书表格）
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_feishu_config (
+                user_id TEXT PRIMARY KEY,
+                app_id TEXT DEFAULT '',
+                app_secret TEXT DEFAULT '',
+                app_token TEXT DEFAULT '',
+                table_id TEXT DEFAULT '',
+                updated_at INTEGER DEFAULT 0
+            )
+        ''')
+        _add_column_if_not_exists(conn, 'user_feishu_config', 'product_table_id', 'TEXT DEFAULT ""')
+
         # 商品-达人匹配关系
         conn.execute('''
             CREATE TABLE IF NOT EXISTS product_talent_match (
@@ -2631,6 +2652,9 @@ def init_db():
 
         # FIXME: 大脑知识中枢新增表（保留旧表，不删数据）
         _init_brain_tables(conn)
+
+        # Memory Pipeline L0-L3 分层记忆表 + Token 预算 + Pipeline 状态
+        memory_pipeline.create_memory_tables(conn)
 
         conn.commit()
 
@@ -3145,6 +3169,161 @@ def _dict_to_talent_row(t):
         'created_at': t.get('created_at') or t.get('createdAt') or now,
         'updated_at': now,
     }
+
+# ===== 飞书多维表格同步 =====
+FEISHU_BITABLE_APP_ID = os.environ.get('FEISHU_BITABLE_APP_ID', '')
+FEISHU_BITABLE_APP_SECRET = os.environ.get('FEISHU_BITABLE_APP_SECRET', '')
+FEISHU_BITABLE_APP_TOKEN = os.environ.get('FEISHU_BITABLE_APP_TOKEN', 'QxARbgMSIaKcXxsoGEtcSJH2nvf')
+FEISHU_BITABLE_TABLE_ID = os.environ.get('FEISHU_BITABLE_TABLE_ID', 'tbl2OAYCIoV6Nko8')
+
+def _feishu_get_tenant_access_token(app_id=None, app_secret=None):
+    app_id = app_id or FEISHU_BITABLE_APP_ID
+    app_secret = app_secret or FEISHU_BITABLE_APP_SECRET
+    url = 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal'
+    data = json.dumps({'app_id': app_id, 'app_secret': app_secret}).encode('utf-8')
+    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json; charset=utf-8'})
+    resp = urllib.request.urlopen(req, timeout=10)
+    result = json.loads(resp.read().decode('utf-8'))
+    if result.get('code') != 0:
+        raise Exception(f"Feishu auth failed: {result}")
+    return result['tenant_access_token']
+
+def _feishu_extract_val(val):
+    if val is None:
+        return ''
+    if isinstance(val, (int, float)):
+        return val
+    if isinstance(val, str):
+        return val
+    if isinstance(val, list):
+        parts = []
+        for item in val:
+            if isinstance(item, dict):
+                parts.append(item.get('text', '') or item.get('name', ''))
+            elif isinstance(item, str):
+                parts.append(item)
+        return ','.join(parts) if parts else ''
+    if isinstance(val, dict):
+        return val.get('text', '') or val.get('name', '')
+    return str(val)
+
+def _parse_cn_number(val, default_wan=False):
+    if not val:
+        return 0
+    s = str(val).strip().lower().replace(',', '')
+    if not s:
+        return 0
+    try:
+        mult = 1
+        if s.endswith('万') or s.endswith('w'):
+            mult = 10000
+            s = s[:-1]
+        elif s.endswith('亿'):
+            mult = 100000000
+            s = s[:-1]
+        elif default_wan and '.' in s:
+            mult = 10000
+        return int(float(s) * mult)
+    except (ValueError, TypeError):
+        return 0
+
+def _parse_distribution_text(val):
+    """解析飞书分布列纯文本（如 "0~25 9.35%, 25~50 15.2%"）为 JSON 字符串 '{"0~25":9.35,"25~50":15.2}'；
+    已是合法 JSON 时原样返回；解析失败保留原始值。"""
+    if val is None or val == '':
+        return '{}'
+    if not isinstance(val, str):
+        return val
+    text = val.strip()
+    if not text:
+        return '{}'
+    if text.startswith('{'):
+        try:
+            if isinstance(json.loads(text), dict):
+                return text
+        except Exception:
+            pass
+    try:
+        result = {}
+        for part in _re.split(r'[,，、;；\n]+', text):
+            part = part.strip()
+            if not part:
+                continue
+            m = _re.match(r'^(.+?)[\s:：]+([0-9]+(?:\.[0-9]+)?)\s*%?$', part)
+            if not m:
+                raise ValueError(f'无法解析分布项: {part}')
+            result[m.group(1).strip()] = float(m.group(2))
+        if not result:
+            raise ValueError('分布为空')
+        return json.dumps(result, ensure_ascii=False)
+    except Exception:
+        return val
+
+def _feishu_record_to_talent(fields):
+    def _g(name):
+        return _feishu_extract_val(fields.get(name))
+    return {
+        'name': str(_g('达人名称') or ''),
+        'douyin_id': str(_g('抖音账号') or ''),
+        'real_name': '',
+        'wechat': '',
+        'phone': '',
+        'email': '',
+        'city': '',
+        'level': '',
+        'followers': _parse_cn_number(_g('粉丝量数'), default_wan=True),
+        'talent_type': str(_g('内容类型') or ''),
+        'agency': '',
+        'tags': [],
+        'category': str(_g('类目') or ''),
+        'bio': '',
+        'contact_name': '',
+        'contact_phone': '',
+        'contact_wechat': '',
+        'cooperation_status': 'available',
+        'commission_requirement': 0,
+        'content_style': str(_g('内容风格') or ''),
+        'follow_up_note': '',
+        'account_fans_profile': str(_g('账号粉丝特征') or ''),
+        'video_fans_profile': str(_g('短视频粉丝特征') or ''),
+        'video_settlement_ratio': str(_g('视频结算额占比') or ''),
+        'single_video_settlement': str(_g('单视频结算额') or ''),
+        'feishu_gpm': str(_g('视频GPM') or ''),
+        'video_avg_price': str(_g('视频平均件单价') or ''),
+        'feishu_shops': str(_g('合作店铺数') or ''),
+        'feishu_product_count': str(_g('带货商品数') or ''),
+        'monthly_settlement': str(_g('月结算金额') or ''),
+        'price_distribution': _parse_distribution_text(_g('价格带分布')),
+        'category_distribution': _parse_distribution_text(_g('类目分布')),
+        'brand_distribution': _parse_distribution_text(_g('品牌集中度')) or '{}',
+        'fan_gender': _g('粉丝性别') or '{}',
+        'fan_age': _g('粉丝年龄') or '{}',
+        'fan_region': _g('粉丝地域') or '{}',
+        'fan_crowd': str(_g('粉丝人群') or ''),
+        'fan_price_range': str(_g('粉丝价格带') or ''),
+        'fan_category': str(_g('粉丝类目偏好') or ''),
+        'remark': str(_g('备注') or ''),
+    }
+
+def _feishu_list_all_records(token, app_token=None, table_id=None):
+    app_token = app_token or FEISHU_BITABLE_APP_TOKEN
+    table_id = table_id or FEISHU_BITABLE_TABLE_ID
+    all_records = []
+    page_token = None
+    while True:
+        url = f'https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records?page_size=100'
+        if page_token:
+            url += f'&page_token={page_token}'
+        req = urllib.request.Request(url, headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json; charset=utf-8'})
+        resp = urllib.request.urlopen(req, timeout=15)
+        result = json.loads(resp.read().decode('utf-8'))
+        if result.get('code') != 0:
+            raise Exception(f"Feishu list records failed: {result}")
+        all_records.extend(result.get('data', {}).get('items', []))
+        page_token = result.get('data', {}).get('page_token', '')
+        if not result.get('data', {}).get('has_more', False):
+            break
+    return all_records
 
 
 def _sync_product_brand(conn, product):
@@ -4235,6 +4414,25 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             path = path[:-1]
         return path
 
+    def _parse_query(self):
+        """解析 query string，确保中文等 UTF-8 参数正确解码。
+
+        兼容两种情况：
+        1. 标准百分号编码（如 ?q=%E6%8B%96%E9%9E%8B）— parse_qs 默认按 UTF-8 解码；
+        2. 客户端直接发送未编码的 UTF-8 中文 — BaseHTTPRequestHandler 按 latin-1
+           解码 request line 产生乱码，这里将其还原为正确的 UTF-8 字符串。
+        """
+        qs = parse_qs(urlparse(self.path).query, encoding='utf-8', errors='replace')
+
+        def _fix(s):
+            try:
+                return s.encode('latin-1').decode('utf-8')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                return s
+
+        return {_fix(k): [_fix(v) for v in vals] for k, vals in qs.items()}
+
+
     def do_OPTIONS(self):
         self._send_cors_preflight()
 
@@ -4326,6 +4524,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_brain_knowledge()
             return
 
+        # Memory Pipeline API（L0-L3 分层记忆）
+        if path == '/api/memory/atoms':
+            self._handle_memory_pipeline_atoms()
+            return
+        if path == '/api/memory/stats':
+            self._handle_memory_pipeline_stats()
+            return
+        if path == '/api/memory/pipeline':
+            self._handle_memory_pipeline_status()
+            return
+
         # Memory API v2
         if path == '/api/memory/archived':
             self._handle_get_archived_memories()
@@ -4370,6 +4579,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # Settings API
         if path == '/api/settings':
             self._handle_get_settings()
+            return
+
+        # 用户飞书配置
+        if path == '/api/user/feishu-config':
+            self._handle_get_feishu_config()
             return
 
         # 通知 API
@@ -4492,6 +4706,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/products/search':
             self._handle_search_products()
             return
+        if path == '/api/products/sync-feishu':
+            self._handle_sync_feishu_products()
+            return
         if path.startswith('/api/products/'):
             rest = path[len('/api/products/'):]
             if rest:
@@ -4554,6 +4771,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             agent_id = sub
             if agent_id:
                 self._handle_get_chat(agent_id)
+                return
+
+        # Team Feed API: /api/team-feed/:agentId
+        if path.startswith('/api/team-feed/'):
+            agent_id = path[len('/api/team-feed/'):]
+            print(f'  [TeamFeed] GET agent_id={agent_id!r}', flush=True)
+            if agent_id:
+                _feed = ''
+                try:
+                    _gid = _get_agent_group_id(agent_id)
+                    print(f'  [TeamFeed] GET gid={_gid!r} for agent={agent_id!r}', flush=True)
+                    if _gid:
+                        _feed = _build_team_feed(_gid, agent_id) or ''
+                        print(f'  [TeamFeed] GET feed_len={len(_feed)} for agent={agent_id!r}', flush=True)
+                except Exception as e:
+                    print(f'  [TeamFeed] GET 构建失败: {e}', flush=True)
+                self._send_json(200, {'teamFeed': _feed})
                 return
 
         # Global Search API
@@ -4695,6 +4929,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # Proxy (requires auth)
         if path == '/api/proxy':
             self._handle_proxy()
+            return
+
+        # Kimi API 代理（OpenClaw/飞书链路积分管控，不做JWT认证，用proxy_<agent_id> key识别身份）
+        if path.startswith('/api/proxy/kimi'):
+            self._handle_proxy_kimi()
             return
 
         # 抖音视频解析 (requires auth)
@@ -4898,6 +5137,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/talents':
             self._handle_post_talent()
             return
+        if path == '/api/talents/sync-feishu':
+            self._handle_sync_feishu_talents()
+            return
+        if path == '/api/user/feishu-config':
+            self._handle_save_feishu_config()
+            return
         if path.startswith('/api/talents/'):
             sub = path[len('/api/talents/'):]
             parts = sub.split('/')
@@ -4923,6 +5168,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/products/batch-score':
             self._handle_batch_score_products()
+            return
+        if path == '/api/products/sync-feishu':
+            self._handle_sync_feishu_products()
             return
         if path.startswith('/api/products/'):
             sub = path[len('/api/products/'):]
@@ -11744,6 +11992,334 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         self._send_json(200, {'deleted': deleted, 'id': task_id})
 
+    def _handle_memory_pipeline_atoms(self):
+        """GET /api/memory/atoms?agent_id=xxx&type=xxx&limit=50 — 获取 L1 事实原子列表"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        qs = self._parse_query()
+        agent_id = qs.get('agent_id', [''])[0]
+        if not agent_id:
+            self._send_json(400, {'success': False, 'error': '缺少 agent_id 参数'})
+            return
+        atom_type = qs.get('type', [None])[0]
+        try:
+            limit = max(1, min(200, int(qs.get('limit', ['50'])[0])))
+        except ValueError:
+            limit = 50
+
+        conn = _db_conn()
+        try:
+            atoms = memory_pipeline.get_agent_atoms(conn, agent_id, atom_type=atom_type, limit=limit)
+        finally:
+            conn.close()
+        # embedding 体积大且无前端用途，返回前剔除
+        for a in atoms:
+            a.pop('content_embedding', None)
+        self._send_json(200, {'success': True, 'data': atoms})
+
+
+    def _handle_memory_pipeline_stats(self):
+        """GET /api/memory/stats?agent_id=xxx — 获取记忆统计（agent_id 可选，缺省为全局）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        qs = self._parse_query()
+        agent_id = qs.get('agent_id', [None])[0]
+
+        conn = _db_conn()
+        try:
+            stats = memory_pipeline.get_memory_stats(conn, agent_id=agent_id)
+        finally:
+            conn.close()
+        self._send_json(200, {'success': True, 'data': stats})
+
+
+    def _handle_memory_pipeline_status(self):
+        """GET /api/memory/pipeline?agent_id=xxx — 获取 Pipeline 调度状态"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+
+        qs = self._parse_query()
+        agent_id = qs.get('agent_id', [''])[0]
+        if not agent_id:
+            self._send_json(400, {'success': False, 'error': '缺少 agent_id 参数'})
+            return
+
+        conn = _db_conn()
+        try:
+            status = memory_pipeline.get_pipeline_status(conn, agent_id)
+        finally:
+            conn.close()
+        self._send_json(200, {'success': True, 'data': status})
+
+
+    def _handle_sync_feishu_talents(self):
+        """POST /api/talents/sync-feishu — 从飞书多维表格同步达人数据"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        user_id = auth.user_info.get('userId', '')
+        _cfg_conn = _db_conn()
+        _cfg_row = _cfg_conn.execute('SELECT * FROM user_feishu_config WHERE user_id = ?', (user_id,)).fetchone()
+        _cfg_conn.close()
+        _fs_app_id = _cfg_row['app_id'] if _cfg_row and _cfg_row['app_id'] else FEISHU_BITABLE_APP_ID
+        _fs_app_secret = _cfg_row['app_secret'] if _cfg_row and _cfg_row['app_secret'] else FEISHU_BITABLE_APP_SECRET
+        _fs_app_token = _cfg_row['app_token'] if _cfg_row and _cfg_row['app_token'] else FEISHU_BITABLE_APP_TOKEN
+        _fs_table_id = _cfg_row['table_id'] if _cfg_row and _cfg_row['table_id'] else FEISHU_BITABLE_TABLE_ID
+        try:
+            token = _feishu_get_tenant_access_token(_fs_app_id, _fs_app_secret)
+            records = _feishu_list_all_records(token, _fs_app_token, _fs_table_id)
+        except Exception as e:
+            self._send_json_error(500, f'飞书API调用失败: {e}')
+            return
+        created = 0
+        updated = 0
+        skipped = 0
+        error_list = []
+        conn = _db_conn()
+        try:
+            for rec in records:
+                try:
+                    fields = rec.get('fields', {})
+                    talent_data = _feishu_record_to_talent(fields)
+                    if not talent_data['name']:
+                        skipped += 1
+                        continue
+                    douyin_id = talent_data['douyin_id']
+                    existing = None
+                    if douyin_id:
+                        existing = conn.execute(
+                            "SELECT * FROM talents WHERE LOWER(douyin_id) = LOWER(?) LIMIT 1",
+                            (douyin_id,)
+                        ).fetchone()
+                    if existing:
+                        existing_dict = _talent_row_to_dict(existing)
+                        existing_dict.update(talent_data)
+                        existing_dict['id'] = existing['id']
+                        row = _dict_to_talent_row(existing_dict)
+                        conn.execute(
+                            f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_COLUMNS)} WHERE id = ?",
+                            tuple(row[c] for c in _TALENT_COLUMNS) + (existing['id'],)
+                        )
+                        updated += 1
+                    else:
+                        row = _dict_to_talent_row(talent_data)
+                        if not row.get('created_by'):
+                            row['created_by'] = auth.user_info.get('userId', '')
+                        conn.execute(
+                            f"INSERT INTO talents ({', '.join(_TALENT_COLUMNS)}) VALUES ({', '.join('?' * len(_TALENT_COLUMNS))})",
+                            tuple(row[c] for c in _TALENT_COLUMNS)
+                        )
+                        created += 1
+                except BaseException as be:
+                    print('  [SyncProducts] EXCEPTION: ' + str(type(be).__name__) + ': ' + str(be), flush=True)
+                    error_list.append({'record_id': str(rec.get('record_id', '')), 'error': str(be)})
+            conn.commit()
+            if error_list:
+                print(f'  [SyncProducts] {len(error_list)} errors: {error_list}', flush=True)
+        except Exception as e:
+            conn.rollback()
+            self._send_json_error(500, f'同步失败: {e}')
+            return
+        finally:
+            conn.close()
+        if error_list:
+            print(f'  [SyncProducts] {len(error_list)} errors: {error_list}', flush=True)
+        self._send_json(200, {
+            'success': True,
+            'total': len(records),
+            'created': created,
+            'updated': updated,
+            'skipped': skipped,
+            'errors': error_list
+        })
+
+
+    def _handle_sync_feishu_products(self):
+        """POST /api/products/sync-feishu — 从飞书多维表格同步商品数据"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'products'): return
+        user_id = auth.user_info.get('userId', '')
+        _cfg_conn = _db_conn()
+        _cfg_row = _cfg_conn.execute('SELECT * FROM user_feishu_config WHERE user_id = ?', (user_id,)).fetchone()
+        _cfg_conn.close()
+        _fs_app_id = _cfg_row['app_id'] if _cfg_row and _cfg_row['app_id'] else FEISHU_BITABLE_APP_ID
+        _fs_app_secret = _cfg_row['app_secret'] if _cfg_row and _cfg_row['app_secret'] else FEISHU_BITABLE_APP_SECRET
+        _fs_app_token = _cfg_row['app_token'] if _cfg_row and _cfg_row['app_token'] else FEISHU_BITABLE_APP_TOKEN
+        _fs_product_table_id = ''
+        if _cfg_row:
+            try:
+                _fs_product_table_id = _cfg_row['product_table_id'] or ''
+            except (IndexError, KeyError):
+                _fs_product_table_id = ''
+        if not _fs_product_table_id:
+            _fs_product_table_id = _cfg_row['table_id'] if _cfg_row and _cfg_row['table_id'] else FEISHU_BITABLE_TABLE_ID
+        try:
+            token = _feishu_get_tenant_access_token(_fs_app_id, _fs_app_secret)
+            records = _feishu_list_all_records(token, _fs_app_token, _fs_product_table_id)
+        except Exception as e:
+            self._send_json_error(500, f'飞书API调用失败: {e}')
+            return
+        created = 0
+        updated = 0
+        skipped = 0
+        error_list = []
+        conn = _db_conn()
+        try:
+            for rec in records:
+                try:
+                    fields = rec.get('fields', {})
+                    product_data = _feishu_record_to_product(fields)
+                    if not product_data:
+                        skipped += 1
+                        continue
+                    existing = None
+                    if product_data.get('name'):
+                        existing = conn.execute(
+                            "SELECT * FROM products WHERE name = ? LIMIT 1",
+                            (product_data['name'],)
+                        ).fetchone()
+                    if existing:
+                        existing_dict = _product_row_to_dict(existing)
+                        for k, v in product_data.items():
+                            existing_dict[k] = v
+                        existing_dict['id'] = existing['id']
+                        row = _dict_to_product_row(existing_dict)
+                        conn.execute(
+                            f"UPDATE products SET {', '.join(f'{c} = ?' for c in _PRODUCT_COLUMNS)} WHERE id = ?",
+                            tuple(row[c] for c in _PRODUCT_COLUMNS) + (existing['id'],)
+                        )
+                        updated += 1
+                    else:
+                        import time as _t
+                        product_data['id'] = f"prod_{int(_t.time()*1000)}_{_t.time_ns()%1000000:06d}"
+                        product_data['created_by'] = auth.user_info.get('userId', '')
+                        product_data['created_at'] = int(_t.time() * 1000)
+                        product_data['updated_at'] = int(_t.time() * 1000)
+                        row = _dict_to_product_row(product_data)
+                        conn.execute(
+                            f"INSERT INTO products ({', '.join(_PRODUCT_COLUMNS)}) VALUES ({', '.join('?' * len(_PRODUCT_COLUMNS))})",
+                            tuple(row[c] for c in _PRODUCT_COLUMNS)
+                        )
+                        created += 1
+                except Exception as e:
+                    error_list.append({'record_id': rec.get('record_id', ''), 'error': str(e)})
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            self._send_json_error(500, f'同步失败: {e}')
+            return
+        finally:
+            conn.close()
+        self._send_json(200, {
+            'success': True,
+            'total': len(records),
+            'created': created,
+            'updated': updated,
+            'skipped': skipped,
+            'errors': error_list
+        })
+
+
+    def _handle_get_feishu_config(self):
+        """GET /api/user/feishu-config — 获取当前用户的飞书多维表格配置"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        user_id = auth.user_info.get('userId', '')
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT app_id, app_token, table_id, updated_at FROM user_feishu_config WHERE user_id = ?', (user_id,)).fetchone()
+        finally:
+            conn.close()
+        if row:
+            self._send_json(200, {'configured': True, 'app_id': row['app_id'], 'app_token': row['app_token'], 'table_id': row['table_id'], 'product_table_id': row['product_table_id'] if 'product_table_id' in row.keys() else '', 'updated_at': row['updated_at']})
+        else:
+            self._send_json(200, {'configured': False, 'app_id': '', 'app_token': '', 'table_id': '', 'product_table_id': '', 'updated_at': 0})
+
+
+    def _handle_save_feishu_config(self):
+        """POST /api/user/feishu-config — 保存当前用户的飞书多维表格配置"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        data = json.loads(body) if isinstance(body, str) else body
+        app_id = str(data.get('app_id', '')).strip()
+        app_secret = str(data.get('app_secret', '')).strip()
+        app_token = str(data.get('app_token', '')).strip()
+        table_id = str(data.get('table_id', '')).strip()
+        product_table_id = str(data.get('product_table_id', '')).strip()
+        if not app_token or not table_id:
+            self._send_json_error(400, 'app_token 和 table_id 不能为空')
+            return
+        user_id = auth.user_info.get('userId', '')
+        now = int(time.time())
+        conn = _db_conn()
+        try:
+            conn.execute('INSERT OR REPLACE INTO user_feishu_config (user_id, app_id, app_secret, app_token, table_id, product_table_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', (user_id, app_id, app_secret, app_token, table_id, product_table_id, now))
+            conn.commit()
+        finally:
+            conn.close()
+        self._send_json(200, {'success': True, 'message': '飞书配置已保存'})
+
+
+    def _handle_check_forbidden_words(self):
+        """POST /api/forbidden-words/check — 违禁词检测"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Empty body')
+            return
+        text = body.get('text', '')
+        if not text:
+            self._send_json_error(400, 'Missing "text" field')
+            return
+
+        FORBIDDEN_WORDS = [
+            '最', '第一', '顶级', '极品', '万能', '完美', '绝对', '100%', '百分百',
+            '永久', '根治', '包治', '痊愈', '零风险', '无风险', '稳赚', '保本',
+            '日入', '月入', '年入', '躺赚', '暴富', '一夜暴富',
+            '微信', '支付宝', '加我', '私聊', '扫码', '二维码',
+            '假货', '高仿', 'A货', '原单', '尾单',
+            '最低价', '最便宜', '全网最低', '史上最低',
+            '国家级', '世界级', '顶尖', '第一品牌',
+        ]
+
+        found = []
+        text_lower = text.lower()
+        for word in FORBIDDEN_WORDS:
+            if word.lower() in text_lower:
+                found.append(word)
+
+        self._send_json(200, {
+            'has_forbidden': len(found) > 0,
+            'words': found,
+            'count': len(found),
+            'suggestion': '请替换以上违禁词后再发送' if found else '检测通过'
+        })
+
+
     def _handle_get_product_matches(self, product_id):
         """GET /api/products/:id/matches — 获取商品的匹配达人列表
         优先读取商品自身的 matched_influencers，为空或超24小时则重新计算并缓存"""
@@ -15998,6 +16574,47 @@ def _sync_token_usage_from_trajectories():
     return {'scannedFiles': len(files), 'scannedEvents': scanned_events, 'inserted': inserted}
 
 
+def _sync_credits_from_token_usage():
+    """从 token_usage 表反向同步积分：为已有 token_usage 记录补充 credit_usage_log 条目。
+    匹配键：agent_id + ts + total_tokens，已存在则跳过。
+    跳过不在 agents.json 中的 agent，并清理其历史记录。"""
+    conn = _db_conn()
+    synced = 0
+    active_ids = _get_active_agent_ids()
+    try:
+        # 清理非正式 agent 的历史记录
+        for table in ('credit_usage_log', 'token_usage', 'credit_accounts'):
+            conn.execute(f'DELETE FROM {table} WHERE agent_id NOT IN ({",".join("?"*len(active_ids))})', tuple(active_ids))
+        cleaned = conn.total_changes
+        if cleaned:
+            print(f'  [CreditsSync] cleaned {cleaned} records for inactive agents', flush=True)
+        rows = conn.execute('''
+            SELECT agent_id, prompt_tokens, completion_tokens, cache_read_tokens, total_tokens, ts, session_key
+            FROM token_usage
+        ''').fetchall()
+        for r in rows:
+            if r['agent_id'] not in active_ids:
+                continue
+            existing = conn.execute(
+                'SELECT 1 FROM credit_usage_log WHERE agent_id=? AND created_at=? AND total_tokens=? LIMIT 1',
+                (r['agent_id'], r['ts'], r['total_tokens'])
+            ).fetchone()
+            if existing:
+                continue
+            try:
+                _record_credit_usage(conn, r['agent_id'],
+                    r['prompt_tokens'], r['completion_tokens'], r['cache_read_tokens'],
+                    session_id=r['session_key'] or '', created_at=r['ts'])
+                synced += 1
+            except Exception as ce:
+                print(f'  [CreditsSync] skip: {ce}', flush=True)
+        conn.commit()
+    finally:
+        conn.close()
+    return synced
+
+
+
 def _handle_proxy(self):
     """POST /api/proxy（需认证）"""
     auth = _authenticate(self.headers, self.client_address[0], self)
@@ -16184,6 +16801,594 @@ def _handle_proxy(self):
         logger.error(f'  ❌ Proxy Unexpected Error: {e} <- {target_url}')
         self._send_json_error(500, f'Internal proxy error: {str(e)}')
 
+# ═══════════════════════════════════════════════════
+# Kimi API 代理（积分管控）— 见 KIMI_API_PROXY_SPEC.md
+# ═══════════════════════════════════════════════════
+
+# 真实 Kimi API Key：优先环境变量 KIMI_API_KEY，fallback 到硬编码（按 spec）
+KIMI_PROXY_REAL_API_KEY = os.environ.get('KIMI_API_KEY', '').strip() or 'sk-02e90cc3c5b147fcb945c7334ed94008'
+# 上游 base url：可用环境变量覆盖（便于本地 mock 测试），默认真实 Kimi coding endpoint
+KIMI_PROXY_REAL_BASE_URL = os.environ.get('KIMI_PROXY_BASE_URL', '').strip() or 'https://api.kimi.com/coding'
+
+
+def _extract_last_user_message(body):
+    """从 Anthropic messages 请求体中提取最后一条用户消息的纯文本"""
+    messages = body.get('messages') or []
+    for msg in reversed(messages):
+        if not isinstance(msg, dict) or msg.get('role') != 'user':
+            continue
+        content = msg.get('content')
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            texts = [b.get('text', '') for b in content
+                     if isinstance(b, dict) and b.get('type') == 'text']
+            return '\n'.join(t for t in texts if t).strip()
+    return ''
+
+
+def _talent_presearch(conn, user_message):
+    """达人预搜索：用户消息中提及 active 达人名时，查询完整信息并格式化为简洁文本
+
+    查询逻辑与 GET /api/talents?q=达人名 一致（名称模糊匹配，按粉丝数排序取第一条）。
+    返回格式化文本，无匹配时返回空字符串。
+    """
+    # 1. 取出所有 active 达人名称，子串匹配用户消息（跳过过短名称避免误匹配）
+    names = conn.execute(
+        "SELECT id, name FROM talents WHERE status='active'"
+    ).fetchall()
+    matched = []
+    for r in names:
+        name = (r['name'] or '').strip()
+        if len(name) >= 2 and name in user_message and name not in matched:
+            matched.append(name)
+    if not matched:
+        return ''
+    print(f'  [TalentPreSearch] matched={matched}', flush=True)
+
+    # 2. 对每个匹配到的达人名，按 /api/talents?q= 同款查询取完整信息
+    lines = []
+    for name in matched[:3]:  # 最多3个达人，防止 prompt 膨胀
+        row = conn.execute(
+            "SELECT * FROM talents WHERE status='active' AND LOWER(name) LIKE ? "
+            "ORDER BY followers DESC LIMIT 1",
+            (f'%{name.lower()}%',)
+        ).fetchone()
+        if not row:
+            continue
+
+        # 3. 粉丝画像四字段（fan_gender/fan_age/fan_region/fan_price_range）是否为空
+        fan_fields = {
+            '性别': row['fan_gender'], '年龄': row['fan_age'],
+            '地域': row['fan_region'], '价格区间': row['fan_price_range'],
+        }
+        filled = [k for k, v in fan_fields.items() if v and v not in ('{}', '')]
+        fans_profile = '已填写(' + ','.join(filled) + ')' if filled else '未填写'
+
+        category = row['fan_category'] or row['category'] or '未知'
+        lines.append(
+            f"【系统预查到达人信息-以下数据已由系统自动查到，无需再执行搜索，直接使用】"
+            f"达人ID: {row['id']}, 名称: {row['name']}, "
+            f"粉丝: {row['followers'] or 0}, 品类: {category}, 粉丝画像: {fans_profile}"
+        )
+
+    return '\n'.join(lines)
+
+
+def _prepend_system_context(body, context_text):
+    """把记忆上下文注入到 Anthropic 请求体的 system prompt 前部"""
+    system = body.get('system')
+    if not system:
+        body['system'] = context_text
+    elif isinstance(system, str):
+        body['system'] = context_text + '\n\n' + system
+    elif isinstance(system, list):
+        body['system'] = [{'type': 'text', 'text': context_text}] + system
+
+
+def _memory_pipeline_llm_call(model=None):
+    """构造供 memory_pipeline 使用的 LLM 调用函数，签名 (prompt: str) -> str"""
+    def _call(prompt):
+        req_body = json.dumps({
+            'model': model or 'kimi-for-coding',
+            'max_tokens': 2000,
+            'messages': [{'role': 'user', 'content': prompt}],
+        }).encode('utf-8')
+        req = urllib.request.Request(
+            KIMI_PROXY_REAL_BASE_URL + '/v1/messages',
+            data=req_body,
+            headers={
+                'Content-Type': 'application/json',
+                'x-api-key': KIMI_PROXY_REAL_API_KEY,
+                'anthropic-version': '2023-06-01',
+            },
+            method='POST')
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read())
+        parts = data.get('content', [])
+        return ''.join(p.get('text', '') for p in parts
+                       if isinstance(p, dict) and p.get('type') == 'text')
+    return _call
+
+
+def _handle_proxy_kimi(self):
+    """POST /api/proxy/kimi/* — Kimi API代理，带积分管控（OpenClaw/飞书链路专用）"""
+
+    # 1. 从请求头提取API Key（anthropic格式用x-api-key）
+    proxy_key = self.headers.get('x-api-key', '') or ''
+    if not proxy_key:
+        auth_header = self.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            proxy_key = auth_header[7:]
+
+    # 2. 从proxy_key提取agent_id（格式: "proxy_<agent_id>"）
+    if proxy_key.startswith('proxy_'):
+        agent_id = proxy_key[6:]  # 去掉"proxy_"前缀
+    else:
+        # 非代理key，直接转发（兼容旧配置）
+        agent_id = None
+
+    # 3. 检查积分余额
+    if agent_id:
+        balance, has_credits = _check_credit_balance(agent_id)
+        if not has_credits:
+            # 返回anthropic格式错误
+            self.send_response(403)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'type': 'error',
+                'error': {
+                    'type': 'insufficient_credits',
+                    'message': '积分余额不足，请联系管理员充值'
+                }
+            }).encode())
+            return
+
+    # 4. 读取请求体
+    body = self._read_body()
+    if not body:
+        self._send_json_error(400, 'Empty body')
+        return
+
+    # 4.5 Memory Pipeline：召回记忆注入 system prompt + 保存 L0 对话记录
+    #     （失败不阻断代理转发）
+    user_message = _extract_last_user_message(body)
+    if agent_id and user_message:
+        conn = _db_conn()
+        try:
+            # 召回相关记忆（L3画像/L2场景/L1事实原子，带Token预算控制）
+            recall = memory_pipeline.recall_with_budget(conn, agent_id, user_message)
+            memory_ctx = '\n\n'.join(p for p in (
+                recall.get('prepend_context', ''),
+                recall.get('append_system_context', ''),
+            ) if p)
+            if memory_ctx:
+                _prepend_system_context(body, memory_ctx)
+            # 保存 L0 结构化对话记录
+            memory_pipeline.save_conversation(
+                conn, agent_id,
+                session_id=agent_id,
+                turn_id=int(time.time()),
+                user_content=user_message)
+        except Exception as e:
+            print(f'  [MemoryPipeline] recall/save failed: {e}', flush=True)
+        finally:
+            conn.close()
+
+    # 4.6 达人预搜索：搜索所有user消息中的达人名（OpenClaw会把用户消息包装在runtime context里）
+    all_user_text = user_message or ''
+    for m in (body.get('messages') or []):
+        if m.get('role') == 'user':
+            c = m.get('content')
+            if isinstance(c, str):
+                all_user_text += ' ' + c
+            elif isinstance(c, list):
+                for b in c:
+                    if isinstance(b, dict) and b.get('type') == 'text':
+                        all_user_text += ' ' + b.get('text', '')
+    if all_user_text.strip():
+        conn = _db_conn()
+        try:
+            talent_ctx = _talent_presearch(conn, all_user_text)
+            if talent_ctx:
+                _prepend_system_context(body, talent_ctx)
+                msgs = body.get('messages') or []
+                for m in reversed(msgs):
+                    if isinstance(m, dict) and m.get('role') == 'user':
+                        c = m.get('content')
+                        if isinstance(c, str):
+                            m['content'] = talent_ctx + '\n\n' + c
+                        elif isinstance(c, list):
+                            c.insert(0, {'type': 'text', 'text': talent_ctx})
+                        break
+        except Exception as e:
+            print(f'  [TalentPreSearch] failed: {e}', flush=True)
+        finally:
+            conn.close()
+
+    # 4.7 修补缺失的 tool response 消息
+    #     OpenClaw exec 工具执行后，有时不会在 messages 中附带 tool role 的 response，
+    #     导致 Kimi API 返回 400: "tool_call_ids did not have response messages: exec:0"
+    #     这里在转发前扫描 messages，为缺失的 tool_call 补全 response。
+    messages = body.get('messages') or []
+    if isinstance(messages, list) and agent_id:
+        print(f'  [KimiProxy] DEBUG: agent_id={agent_id} messages_count={len(messages)}', flush=True)
+        for idx, m in enumerate(messages):
+            if not isinstance(m, dict):
+                continue
+            role = m.get('role', '?')
+            tc = m.get('tool_calls')
+            content = m.get('content')
+            has_tool_use = isinstance(content, list) and any(isinstance(c, dict) and c.get('type') == 'tool_use' for c in content)
+            if role == 'assistant' and (tc or has_tool_use):
+                tc_ids = [t.get('id','') for t in tc] if tc else [c.get('id','') for c in content if isinstance(c, dict) and c.get('type') == 'tool_use']
+                print(f'  [KimiProxy] DEBUG: msg[{idx}] role=assistant has_tool_calls={bool(tc)} has_tool_use={has_tool_use} ids={tc_ids}', flush=True)
+            if role in ('tool', 'user') and isinstance(content, list):
+                for c in content:
+                    if isinstance(c, dict) and c.get('type') in ('tool_result',):
+                        print(f'  [KimiProxy] DEBUG: msg[{idx}] role={role} tool_result_id={c.get("tool_use_id","")}', flush=True)
+        patched = []
+        modified = False
+        for idx, m in enumerate(messages):
+            patched.append(m)
+            if not (isinstance(m, dict) and m.get('role') == 'assistant'):
+                continue
+            # OpenAI 格式：assistant.tool_calls
+            tool_calls = m.get('tool_calls') or []
+            for tc in tool_calls:
+                if not isinstance(tc, dict):
+                    continue
+                tc_id = tc.get('id', '')
+                if not tc_id:
+                    continue
+                has_resp = any(
+                    isinstance(rm, dict) and rm.get('role') == 'tool' and rm.get('tool_call_id') == tc_id
+                    for rm in messages[idx + 1:]
+                )
+                if has_resp:
+                    continue
+                # 查询 tool_calls 表获取结果
+                tool_output = None
+                try:
+                    conn = _db_conn()
+                    try:
+                        row = conn.execute(
+                            'SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1',
+                            (agent_id, tc_id)
+                        ).fetchone()
+                        if row:
+                            tool_output = row[0]
+                    finally:
+                        conn.close()
+                except Exception:
+                    pass
+                if not tool_output:
+                    tool_output = '[工具执行完成，无输出记录]'
+                patched.append({
+                    'role': 'tool',
+                    'tool_call_id': tc_id,
+                    'content': tool_output if isinstance(tool_output, str) else json.dumps(tool_output, ensure_ascii=False)
+                })
+                modified = True
+                print(f'  [KimiProxy] 补丁: tool_call_id={tc_id} 插入tool response', flush=True)
+            # Anthropic 格式：content 列表中含 tool_use
+            content = m.get('content')
+            if isinstance(content, list):
+                for item in content:
+                    if not (isinstance(item, dict) and item.get('type') == 'tool_use'):
+                        continue
+                    tu_id = item.get('id', '')
+                    if not tu_id:
+                        continue
+                    has_resp = False
+                    for rm in messages[idx + 1:]:
+                        rm_c = rm.get('content') if isinstance(rm, dict) else None
+                        if isinstance(rm_c, list):
+                            for rc in rm_c:
+                                if isinstance(rc, dict) and rc.get('type') == 'tool_result' and rc.get('tool_use_id') == tu_id:
+                                    has_resp = True
+                                    break
+                        if has_resp:
+                            break
+                    if has_resp:
+                        continue
+                    tool_output = None
+                    try:
+                        conn = _db_conn()
+                        try:
+                            row = conn.execute(
+                                'SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1',
+                                (agent_id, tu_id)
+                            ).fetchone()
+                            if row:
+                                tool_output = row[0]
+                        finally:
+                            conn.close()
+                    except Exception:
+                        pass
+                    if not tool_output:
+                        tool_output = '[工具执行完成，无输出记录]'
+                    patched.append({
+                        'role': 'user',
+                        'content': [{'type': 'tool_result', 'tool_use_id': tu_id, 'content': tool_output if isinstance(tool_output, str) else json.dumps(tool_output, ensure_ascii=False)}]
+                    })
+                    modified = True
+                    print(f'  [KimiProxy] 补丁: tool_use_id={tu_id} 插入tool_result (Anthropic格式)', flush=True)
+        if modified:
+            body['messages'] = patched
+            print(f'  [KimiProxy] 消息修补完成: {len(messages)} -> {len(patched)} 条', flush=True)
+
+    # 5. 构造转发请求到真实Kimi API
+    # 提取原始请求路径中的子路径（如/v1/messages）
+    path = self._normalize_path(self.path)
+    path_suffix = path[len('/api/proxy/kimi'):]
+    if not path_suffix:
+        path_suffix = '/v1/messages'
+    target_url = KIMI_PROXY_REAL_BASE_URL + path_suffix
+
+    # 构造请求头（用真实API Key替换proxy key）
+    forward_headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': KIMI_PROXY_REAL_API_KEY,
+        'anthropic-version': self.headers.get('anthropic-version', '2023-06-01'),
+    }
+
+    req_body = json.dumps(body).encode('utf-8')
+    forward_headers['Content-Length'] = str(len(req_body))
+
+    # 6. 判断是否为流式请求
+    is_streaming = body.get('stream', False)
+
+    # 7. 转发请求
+    req = urllib.request.Request(target_url, data=req_body, headers=forward_headers, method='POST')
+
+    retry_count = 0
+    MAX_RETRIES = 2
+    while True:
+        try:
+            resp = urllib.request.urlopen(req, timeout=120)
+            break
+        except urllib.error.HTTPError as e:
+            err_body = e.read()
+            err_text = err_body.decode('utf-8', errors='replace')
+            print(f'  [KimiProxy] HTTP {e.code} error: {err_text[:500]}', flush=True)
+
+            # 400时dump完整messages到文件用于调试
+            if e.code == 400:
+                try:
+                    dump_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', f'kimi_400_dump_{agent_id}_{int(time.time())}.json')
+                    with open(dump_path, 'w', encoding='utf-8') as df:
+                        json.dump({'error': err_text, 'messages': body.get('messages', []), 'agent_id': agent_id}, df, ensure_ascii=False, indent=2)
+                    print(f'  [KimiProxy] 400 dump saved: {dump_path}', flush=True)
+                except Exception:
+                    pass
+
+            if e.code == 400 and 'tool_call_ids did not have response' in err_text and retry_count < MAX_RETRIES:
+                retry_count += 1
+                import re as _re
+                match = _re.search(r"did not have response messages: ([^\"]+)", err_text)
+                if not match:
+                    self.send_response(e.code)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(err_body)
+                    return
+                missing_raw = match.group(1).strip().strip('"').strip("'")
+                missing_ids = [mid.strip() for mid in missing_raw.split(',') if mid.strip()]
+                print(f'  [KimiProxy] 400自动修复 (retry {retry_count}/{MAX_RETRIES}): 缺失={missing_ids}', flush=True)
+
+                msgs = body.get('messages', [])
+                exec_counter = 0
+                exec_map = {}
+                for m in msgs:
+                    if not isinstance(m, dict):
+                        continue
+                    content = m.get('content')
+                    if isinstance(content, list):
+                        for c in content:
+                            if isinstance(c, dict) and c.get('type') == 'tool_use':
+                                exec_map[f'exec:{exec_counter}'] = c.get('id', '')
+                                exec_counter += 1
+                    tc = m.get('tool_calls')
+                    if tc:
+                        for t in tc:
+                            if isinstance(t, dict):
+                                exec_map[f'exec:{exec_counter}'] = t.get('id', '')
+                                exec_counter += 1
+
+                patched_msgs = list(msgs)
+                any_fixed = False
+                for mid in missing_ids:
+                    target_id = exec_map.get(mid, mid)
+                    has_resp = False
+                    for rm in msgs:
+                        if not isinstance(rm, dict):
+                            continue
+                        rm_c = rm.get('content')
+                        if isinstance(rm_c, list):
+                            for rc in rm_c:
+                                if isinstance(rc, dict) and rc.get('type') == 'tool_result' and rc.get('tool_use_id') == target_id:
+                                    has_resp = True
+                                    break
+                        if has_resp:
+                            break
+                        if rm.get('role') == 'tool' and rm.get('tool_call_id') == target_id:
+                            has_resp = True
+                            break
+                    if has_resp:
+                        print(f'  [KimiProxy] 400自动修复: {mid} -> {target_id} 已有tool_result，尝试删除旧tool_use', flush=True)
+                        # 如果已有tool_result但API仍报缺失，可能是tool_use和tool_result之间有其他消息插入
+                        # 找到该tool_use所在的assistant消息，在它后面紧接着插入tool_result
+                        for i, m in enumerate(patched_msgs):
+                            if not isinstance(m, dict) or m.get('role') != 'assistant':
+                                continue
+                            mc = m.get('content')
+                            if not isinstance(mc, list):
+                                continue
+                            has_target = any(isinstance(c, dict) and c.get('type') == 'tool_use' and c.get('id') == target_id for c in mc)
+                            if has_target:
+                                # 检查下一条是否是对应的tool_result
+                                next_idx = i + 1
+                                if next_idx < len(patched_msgs):
+                                    next_msg = patched_msgs[next_idx]
+                                    next_c = next_msg.get('content') if isinstance(next_msg, dict) else None
+                                    if isinstance(next_c, list) and any(isinstance(c, dict) and c.get('type') == 'tool_result' and c.get('tool_use_id') == target_id for c in next_c):
+                                        # 已经紧挨着，不处理
+                                        pass
+                                    else:
+                                        # 需要插入一个tool_result
+                                        tool_output = None
+                                        try:
+                                            conn = _db_conn()
+                                            try:
+                                                row = conn.execute('SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1', (agent_id, target_id)).fetchone()
+                                                if row:
+                                                    tool_output = row[0]
+                                            finally:
+                                                conn.close()
+                                        except Exception:
+                                            pass
+                                        if not tool_output:
+                                            tool_output = '[工具执行完成]'
+                                        patched_msgs.insert(next_idx, {
+                                            'role': 'user',
+                                            'content': [{'type': 'tool_result', 'tool_use_id': target_id, 'content': tool_output if isinstance(tool_output, str) else json.dumps(tool_output, ensure_ascii=False)}]
+                                        })
+                                        any_fixed = True
+                                        print(f'  [KimiProxy] 400自动修复: 在msg[{next_idx}]位置插入tool_result for {target_id}', flush=True)
+                                break
+                    else:
+                        # 完全没有tool_result，从数据库补全
+                        tool_output = None
+                        try:
+                            conn = _db_conn()
+                            try:
+                                row = conn.execute('SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1', (agent_id, target_id)).fetchone()
+                                if row:
+                                    tool_output = row[0]
+                                if not tool_output:
+                                    row = conn.execute('SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1', (agent_id, mid)).fetchone()
+                                    if row:
+                                        tool_output = row[0]
+                            finally:
+                                conn.close()
+                        except Exception:
+                            pass
+                        if not tool_output:
+                            tool_output = '[工具执行完成，无输出记录]'
+                        patched_msgs.append({
+                            'role': 'user',
+                            'content': [{'type': 'tool_result', 'tool_use_id': target_id, 'content': tool_output if isinstance(tool_output, str) else json.dumps(tool_output, ensure_ascii=False)}]
+                        })
+                        any_fixed = True
+                        print(f'  [KimiProxy] 400自动修复: 追加tool_result for {mid} -> {target_id}', flush=True)
+
+                if any_fixed:
+                    body['messages'] = patched_msgs
+                    req_body = json.dumps(body).encode('utf-8')
+                    forward_headers['Content-Length'] = str(len(req_body))
+                    req = urllib.request.Request(target_url, data=req_body, headers=forward_headers, method='POST')
+                    print(f'  [KimiProxy] 400自动修复: 重试中... messages {len(msgs)} -> {len(patched_msgs)}', flush=True)
+                    continue
+                else:
+                    print(f'  [KimiProxy] 400自动修复: 无法修复，返回原始错误', flush=True)
+
+            self.send_response(e.code)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(err_body)
+            return
+        except Exception as e:
+            self._send_json_error(502, f'Proxy error: {str(e)}')
+            return
+
+    # 8. 处理响应
+    if is_streaming:
+        # 流式响应：逐行转发SSE，同时解析usage
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.end_headers()
+
+        input_tokens = 0
+        output_tokens = 0
+        buffer = b''
+
+        for chunk in iter(lambda: resp.read(4096), b''):
+            # 转发给客户端
+            self.wfile.write(chunk)
+            self.wfile.flush()
+
+            # 解析SSE事件提取usage
+            buffer += chunk
+            while b'\n\n' in buffer:
+                event_str, buffer = buffer.split(b'\n\n', 1)
+                try:
+                    event_text = event_str.decode('utf-8')
+                    data_str = None
+                    for line in event_text.split('\n'):
+                        if line.startswith('data: '):
+                            data_str = line[6:].strip()
+                            break
+                    if data_str and data_str != '[DONE]':
+                            data_json = json.loads(data_str)
+                            if data_json.get('type') == 'message_start':
+                                usage = data_json.get('message', {}).get('usage', {})
+                                input_tokens = usage.get('input_tokens', 0)
+                            elif data_json.get('type') == 'message_delta':
+                                usage = data_json.get('usage', {})
+                                output_tokens = usage.get('output_tokens', output_tokens)
+                except Exception:
+                    pass
+
+        # 9. 扣减积分（响应完成后扣减，不阻塞响应）
+        if agent_id and (input_tokens or output_tokens):
+            conn = _db_conn()
+            try:
+                _record_credit_usage(conn, agent_id, input_tokens, output_tokens, 0)
+                conn.commit()
+            finally:
+                conn.close()
+
+    else:
+        # 非流式响应：读取完整响应，提取usage，扣减积分，返回
+        resp_body = resp.read()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(resp_body)
+
+        # 解析usage
+        try:
+            resp_json = json.loads(resp_body)
+            usage = resp_json.get('usage', {})
+            input_tokens = usage.get('input_tokens', 0)
+            output_tokens = usage.get('output_tokens', 0)
+
+            if agent_id and (input_tokens or output_tokens):
+                conn = _db_conn()
+                try:
+                    _record_credit_usage(conn, agent_id, input_tokens, output_tokens, 0)
+                    conn.commit()
+                finally:
+                    conn.close()
+        except Exception:
+            pass
+
+    # 10. Memory Pipeline：检查是否触发 L1 事实提取（响应已发出，失败不影响客户端）
+    if agent_id:
+        conn = _db_conn()
+        try:
+            memory_pipeline.check_and_run_pipeline(
+                conn, agent_id,
+                llm_call_func=_memory_pipeline_llm_call(body.get('model')))
+        except Exception as e:
+            print(f'  [MemoryPipeline] pipeline check failed: {e}', flush=True)
+        finally:
+            conn.close()
+
+
 def _handle_douyin_parse(self):
     """POST /api/douyin/parse（需认证）
     请求体: {"url": "链接"} 或 {"text": "分享文本"}，可选 "transcribe": true
@@ -16341,6 +17546,7 @@ _MODULE_LEVEL_HANDLERS = (
     '_handle_skills_list', '_handle_skills_search', '_handle_skills_install', '_handle_skills_remove',
     '_handle_feishu_status', '_handle_feishu_config', '_handle_pairing_approve', '_handle_gateway_restart',
     '_handle_proxy', '_handle_douyin_parse', '_handle_douyin_transcribe',
+    '_handle_proxy_kimi',
 )
 for _h in _MODULE_LEVEL_HANDLERS:
     _fn = globals().get(_h)
@@ -16715,6 +17921,152 @@ def main():
         logger.info('\n\n  [STOP] 服务已停止')
         _brain_scheduler.stop()
         server.server_close()
+
+
+def _feishu_record_to_product(fields):
+    def _g(name):
+        return _feishu_extract_val(fields.get(name))
+    def _g_json(name, default=None):
+        v = _g(name)
+        if not v:
+            return default
+        if isinstance(v, (dict, list)):
+            return v
+        try:
+            return json.loads(v)
+        except Exception:
+            return default
+    name = str(_g('商品名称') or '')
+    if not name:
+        return None
+    commission_rates = _g_json('佣金率', {})
+    if not commission_rates:
+        cr = _g('佣金率')
+        if cr:
+            try:
+                commission_rates = float(cr)
+                commission_rates = {'自然流': commission_rates}
+            except (ValueError, TypeError):
+                import re
+                pairs = re.findall(r'([\u4e00-\u9fa5a-zA-Z]+)(\d+(?:\.\d+)?)', str(cr))
+                if pairs:
+                    commission_rates = {name.strip(): float(val) for name, val in pairs}
+                else:
+                    commission_rates = {}
+    sku_specs = _g_json('SKU规格', {})
+    if not sku_specs:
+        ss = _g('SKU规格')
+        if ss and isinstance(ss, str):
+            import re
+            sku_specs = {}
+            current_key = None
+            current_vals = []
+            for line in ss.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                if '：' in line or ':' in line:
+                    if current_key and current_vals:
+                        sku_specs[current_key] = current_vals
+                    sep = '：' if '：' in line else ':'
+                    key, _, vals = line.partition(sep)
+                    current_key = key.strip()
+                    vals = vals.strip()
+                    if vals:
+                        current_vals = [v.strip() for v in re.split(r'[、,，]', vals) if v.strip()]
+                    else:
+                        current_vals = []
+                else:
+                    if current_key:
+                        current_vals.extend([v.strip() for v in re.split(r'[、,，]', line) if v.strip()])
+            if current_key and current_vals:
+                sku_specs[current_key] = current_vals
+            if not sku_specs:
+                sku_specs = {'规格': ss}
+    tags_raw = _g('标签')
+    if isinstance(tags_raw, list):
+        tags = tags_raw
+    elif tags_raw:
+        import re
+        tags = [t.strip() for t in re.split(r'[、,，]', str(tags_raw)) if t.strip()]
+    else:
+        tags = []
+    audience = {}
+    for key, col in [('gender', '购买性别'), ('age', '购买年龄'), ('region', '购买地区'), ('occupation', '购买人群')]:
+        val = _g_json(col)
+        if val and isinstance(val, dict):
+            audience[key] = val
+        else:
+            sv = _g(col)
+            if sv:
+                parts = {}
+                for pair in re.split(r'[、,，]', str(sv)):
+                    pair = pair.strip()
+                    if not pair:
+                        continue
+                    m = re.match(r'^(.+?)(\d+(?:\.\d+)?)\s*%\Z', pair)
+                    if m:
+                        parts[m.group(1).strip()] = float(m.group(2))
+                    elif ':' in pair:
+                        k, v = pair.split(':', 1)
+                        try:
+                            parts[k.strip()] = float(v.strip())
+                        except ValueError:
+                            parts[k.strip()] = v.strip()
+                    else:
+                        parts[pair] = 100
+                if parts:
+                    audience[key] = parts
+    videos = _g_json('带货视频案例', [])
+    if not videos:
+        vv = _g('带货视频案例')
+        if vv and isinstance(vv, str):
+            try:
+                videos = json.loads(vv)
+            except Exception:
+                videos = []
+    channel_distribution = {}
+    cd_raw = _g('渠道分布')
+    if cd_raw:
+        for line in re.split(r'[\n、]', str(cd_raw).strip()):
+            line = line.strip()
+            if not line:
+                continue
+            m = re.match(r'^(.+?)(\d+(?:\.\d+)?)\s*%\Z', line)
+            if m:
+                channel_distribution[m.group(1).strip()] = float(m.group(2))
+    return {
+        'name': name,
+        'subtitle': str(_g('商品描述') or ''),
+        'main_image': str(_g('主图URL') or ''),
+        'price': float(_g('价格') or 0),
+        'price_range': '',
+        'brand': str(_g('品牌') or ''),
+        'brand_id': '',
+        'category': str(_g('类目') or ''),
+        'scene': str(_g('穿搭场景') or ''),
+        'sku_specs': sku_specs if sku_specs else {},
+        'status': 'active',
+        'monthly_sales': int(float(_g('月销量') or 0)),
+        'monthly_gmv': float(_g('月GMV') or 0),
+        'commission_rates': commission_rates if commission_rates else {},
+        'commission_amount': float(_g('佣金金额') or 0),
+        'conversion_rate': float(_g('转化率') or 0),
+        'avg_order_value': 0,
+        'influencer_count': int(float(_g('合作达人数') or 0)),
+        'talent_count': int(float(_g('合作达人数') or 0)),
+        'video_count': int(float(_g('视频数') or 0)),
+        'live_count': int(float(_g('直播数') or 0)),
+        'channel_distribution': channel_distribution if channel_distribution else {},
+        'influencers': [],
+        'audience': audience if audience else {},
+        'ai_analysis': {},
+        'videos': videos if videos else [],
+        'tags': tags if tags else [],
+        'selling_points': '',
+        'original_price': float(_g('原价') or 0),
+    }
+
 
 
 if __name__ == '__main__':
