@@ -2605,6 +2605,30 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_quotas_agent ON credit_quotas(agent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_usage_log_agent ON credit_usage_log(agent_id, created_at)')
 
+        # 任务管理表
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                assignee TEXT DEFAULT '',
+                assignee_name TEXT DEFAULT '',
+                creator TEXT DEFAULT '',
+                creator_name TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending',
+                priority TEXT DEFAULT 'normal',
+                deadline TEXT DEFAULT '',
+                project_id TEXT DEFAULT '',
+                progress TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+                completed_at TEXT DEFAULT ''
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_creator ON tasks(creator)')
+
         # FIXME: 大脑知识中枢新增表（保留旧表，不删数据）
         _init_brain_tables(conn)
 
@@ -4487,6 +4511,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_product(rest)
                 return
 
+        # Tasks API
+        if path == '/api/tasks':
+            self._handle_get_tasks()
+            return
+        if path.startswith('/api/tasks/'):
+            task_id = path[len('/api/tasks/'):]
+            if task_id:
+                self._handle_get_task(task_id)
+                return
+
         # Influencer API (legacy JSON)
         if path == '/api/influencers':
             self._handle_get_influencers()
@@ -4908,6 +4942,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_search_influencers()
             return
 
+        # Tasks API
+        if path == '/api/tasks':
+            self._handle_post_task()
+            return
+
         # Match API
         if path == '/api/match/product-to-influencer':
             self._handle_match_product_to_influencer()
@@ -5092,6 +5131,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_put_influencer(inf_id)
                 return
 
+        # Tasks API
+        if path.startswith('/api/tasks/'):
+            task_id = path[len('/api/tasks/'):]
+            if task_id:
+                self._handle_put_task(task_id)
+                return
+
         self._send_json_error(404, 'Not found')
 
     def do_DELETE(self):
@@ -5235,6 +5281,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             inf_id = path[len('/api/influencers/'):]
             if inf_id:
                 self._handle_delete_influencer(inf_id)
+                return
+
+        # Tasks API
+        if path.startswith('/api/tasks/'):
+            task_id = path[len('/api/tasks/'):]
+            if task_id:
+                self._handle_delete_task(task_id)
                 return
 
         # Chat API
@@ -11539,6 +11592,157 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         results = [v3.score_product(self._product_to_v3_input(p)) for p in products]
         self._send_json(200, {'results': results, 'total': len(results)})
+
+    # ─── 任务管理 API ────────────────────────────────────
+
+    def _handle_get_tasks(self):
+        """GET /api/tasks — 任务列表，支持status/assignee过滤"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        qs = parse_qs(urlparse(self.path).query)
+        status_filter = qs.get('status', [None])[0]
+        assignee_filter = qs.get('assignee', [None])[0]
+        conn = _db_conn()
+        try:
+            sql = 'SELECT * FROM tasks WHERE 1=1'
+            params = []
+            if status_filter:
+                sql += ' AND status = ?'
+                params.append(status_filter)
+            if assignee_filter:
+                sql += ' AND assignee = ?'
+                params.append(assignee_filter)
+            if not auth.is_admin:
+                uid = auth.user_info.get('userId', '')
+                sql += ' AND (assignee = ? OR creator = ?)'
+                params.extend([uid, uid])
+            sql += ' ORDER BY created_at DESC'
+            rows = conn.execute(sql, params).fetchall()
+            tasks = [dict(r) for r in rows]
+        finally:
+            conn.close()
+        self._send_json(200, {'tasks': tasks})
+
+    def _handle_get_task(self, task_id):
+        """GET /api/tasks/:id — 单个任务详情"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            self._send_json_error(404, '任务不存在')
+            return
+        task = dict(row)
+        if not auth.is_admin:
+            uid = auth.user_info.get('userId', '')
+            if task.get('assignee') != uid and task.get('creator') != uid:
+                self._send_json_error(403, '无权查看此任务')
+                return
+        self._send_json(200, task)
+
+    def _handle_post_task(self):
+        """POST /api/tasks — 创建任务（仅管理员）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_json_error(403, '仅管理员可创建任务')
+            return
+        body = self._read_body()
+        if not body or not body.get('title'):
+            self._send_json_error(400, '任务标题不能为空')
+            return
+        task_id = f"task_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+        conn = _db_conn()
+        try:
+            conn.execute('''INSERT INTO tasks (id, title, description, assignee, assignee_name, creator, creator_name, status, priority, deadline, project_id, progress)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+                task_id,
+                body.get('title', '').strip(),
+                body.get('description', ''),
+                body.get('assignee', ''),
+                body.get('assigneeName', ''),
+                auth.user_info.get('userId', ''),
+                auth.user_info.get('displayName', ''),
+                body.get('status', 'pending'),
+                body.get('priority', 'normal'),
+                body.get('deadline', ''),
+                body.get('projectId', ''),
+                body.get('progress', '')
+            ))
+            conn.commit()
+            row = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(201, dict(row))
+
+    def _handle_put_task(self, task_id):
+        """PUT /api/tasks/:id — 更新任务（管理员可改全部，员工只能改status和progress）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        body = self._read_body()
+        if not body:
+            self._send_json_error(400, 'Missing body')
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, '任务不存在')
+                return
+            task = dict(row)
+            uid = auth.user_info.get('userId', '')
+            if not auth.is_admin:
+                if task.get('assignee') != uid and task.get('creator') != uid:
+                    self._send_json_error(403, '无权修改此任务')
+                    return
+            # 员工只能改 status 和 progress，管理员可改全部
+            allowed_fields = ['status', 'progress'] if not auth.is_admin else ['title', 'description', 'assignee', 'assignee_name', 'status', 'priority', 'deadline', 'project_id', 'progress']
+            updates = []
+            params = []
+            for field in allowed_fields:
+                if field in body:
+                    updates.append(f'{field} = ?')
+                    params.append(body[field])
+            if updates:
+                updates.append("updated_at = datetime('now', 'localtime')")
+                if body.get('status') == 'completed':
+                    updates.append("completed_at = datetime('now', 'localtime')")
+                params.append(task_id)
+                conn.execute(f'UPDATE tasks SET {", ".join(updates)} WHERE id = ?', params)
+                conn.commit()
+            row = conn.execute('SELECT * FROM tasks WHERE id = ?', (task_id,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(200, dict(row))
+
+    def _handle_delete_task(self, task_id):
+        """DELETE /api/tasks/:id — 删除任务（仅管理员）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_json_error(403, '仅管理员可删除任务')
+            return
+        conn = _db_conn()
+        try:
+            cur = conn.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
+            conn.commit()
+            deleted = cur.rowcount > 0
+        finally:
+            conn.close()
+        self._send_json(200, {'deleted': deleted, 'id': task_id})
 
     def _handle_get_product_matches(self, product_id):
         """GET /api/products/:id/matches — 获取商品的匹配达人列表
