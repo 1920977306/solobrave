@@ -17458,7 +17458,7 @@ def _handle_proxy_kimi(self):
         _timing('tool_patch', _t)
 
     # 4.8 裁剪 messages：保留第一条 system（内容超 4000 字符截断并追加提示）
-    #     + 最近 15 条对话消息（user/assistant/tool），中间历史不发给 Kimi，
+    #     + 最近 14 条对话消息（user/assistant/tool），中间历史不发给 Kimi，
     #     控制 token 规模、降低响应延迟与 400 概率；任何异常降级为不裁剪
     try:
         _msgs = body.get('messages') or []
@@ -17479,7 +17479,7 @@ def _handle_proxy_kimi(self):
                 elif isinstance(_content, list):
                     _sys_chars = sum(len(c.get('text', '')) for c in _content if isinstance(c, dict))
                 _kept.append(_sys)
-            _kept.extend(_drop_orphan_tool_messages(_chat_msgs[-15:]))
+            _kept.extend(_drop_orphan_tool_messages(_chat_msgs[-14:]))
             logger.info(f'[KimiProxy] 裁剪前 messages={_orig_count} 裁剪后={len(_kept)} system_chars={_sys_chars}')
             body['messages'] = _kept
     except Exception as e:
