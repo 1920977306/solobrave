@@ -17095,9 +17095,20 @@ def _handle_proxy_kimi(self):
         self._send_json_error(400, 'Empty body')
         return
 
+    # 4.1 入口日志：记录请求关键信息（agent_id/messages 条数/最后一条用户消息/大小），
+    #     便于事后定位是哪一步、哪个请求出问题
+    user_message = _extract_last_user_message(body)
+    _msgs = body.get('messages') or []
+    _body_str = json.dumps(body, ensure_ascii=False)
+    logger.info(
+        f'[KimiProxy] 请求进入: agent_id={agent_id} '
+        f'messages={len(_msgs) if isinstance(_msgs, list) else "?"} '
+        f'last_user={(user_message or "")[:200]!r} '
+        f'body_bytes={len(_body_str.encode("utf-8"))} ~tokens={len(_body_str) // 4}'
+    )
+
     # 4.5 Memory Pipeline：召回记忆注入 system prompt + 保存 L0 对话记录
     #     （失败不阻断代理转发）
-    user_message = _extract_last_user_message(body)
     if agent_id and user_message:
         _t = time.perf_counter()
         conn = _db_conn()
@@ -17304,7 +17315,13 @@ def _handle_proxy_kimi(self):
         except urllib.error.HTTPError as e:
             err_body = e.read()
             err_text = err_body.decode('utf-8', errors='replace')
-            print(f'  [KimiProxy] HTTP {e.code} error: {err_text[:500]}', flush=True)
+            # ERROR 日志：脱敏后的转发 key + 状态码 + 响应 body 前 500 字符
+            _fwd_key = forward_headers.get('x-api-key', '')
+            _masked = (_fwd_key[:6] + '****' + _fwd_key[-4:]) if len(_fwd_key) > 10 else '****'
+            logger.error(
+                f'[KimiProxy] Kimi API 调用失败: agent_id={agent_id} status={e.code} '
+                f'x-api-key={_masked} resp_body[:500]={err_text[:500]!r}'
+            )
 
             # 400时dump完整messages到文件用于调试
             if e.code == 400:
