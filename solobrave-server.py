@@ -17002,6 +17002,81 @@ def _prepend_system_context(body, context_text):
         body['system'] = [{'type': 'text', 'text': context_text}] + system
 
 
+def _drop_orphan_tool_messages(msgs):
+    """清理裁剪后消息列表中孤立的 tool 调用，避免 Kimi 400（tool_call 无对应 response）。
+
+    1. 反复移除开头的 assistant+tool_calls/tool_use 消息（其 tool_result 可能已被截断），
+       直到第一条是 user 或不带 tool 调用的 assistant；
+    2. 扫描内部：assistant 带 tool 调用但后面没有紧跟对应 tool_result
+       （OpenAI: role=tool + tool_call_id；Anthropic: user 消息 content 中的
+       tool_result/tool_use_id），则删除该 assistant 及其孤立的部分 tool 响应。
+    """
+    def _tool_call_ids(m):
+        """提取 assistant 消息中的 tool 调用 id（OpenAI tool_calls / Anthropic tool_use）"""
+        ids = []
+        tc = m.get('tool_calls')
+        if isinstance(tc, list):
+            ids += [t.get('id', '') for t in tc if isinstance(t, dict)]
+        c = m.get('content')
+        if isinstance(c, list):
+            ids += [b.get('id', '') for b in c
+                    if isinstance(b, dict) and b.get('type') == 'tool_use']
+        return [i for i in ids if i]
+
+    def _tool_response_ids(m):
+        """提取消息中回答的 tool 调用 id（role=tool / user 消息里的 tool_result 块）"""
+        if not isinstance(m, dict):
+            return []
+        if m.get('role') == 'tool' and m.get('tool_call_id'):
+            return [m['tool_call_id']]
+        if m.get('role') == 'user' and isinstance(m.get('content'), list):
+            return [b['tool_use_id'] for b in m['content']
+                    if isinstance(b, dict) and b.get('type') == 'tool_result' and b.get('tool_use_id')]
+        return []
+
+    def _has_tool_calls(m):
+        return isinstance(m, dict) and m.get('role') == 'assistant' and bool(_tool_call_ids(m))
+
+    def _is_pure_tool_response(m):
+        """整条消息仅为 tool 响应（role=tool，或 content 全是 tool_result 块的 user 消息）"""
+        if not isinstance(m, dict):
+            return False
+        if m.get('role') == 'tool':
+            return True
+        c = m.get('content')
+        return (m.get('role') == 'user' and isinstance(c, list) and bool(c)
+                and all(isinstance(b, dict) and b.get('type') == 'tool_result' for b in c))
+
+    kept = list(msgs)
+
+    # 1. 开头清理：带 tool 调用的 assistant 及其孤立 tool 响应都移除，
+    #    直到第一条是 user 或不带 tool 调用的 assistant
+    while kept and (_has_tool_calls(kept[0]) or _is_pure_tool_response(kept[0])):
+        kept.pop(0)
+
+    # 2. 内部孤立调用清理
+    skip = set()
+    n = len(kept)
+    for idx, m in enumerate(kept):
+        if idx in skip or not _has_tool_calls(m):
+            continue
+        ids = set(_tool_call_ids(m))
+        answered = set()
+        followers = []
+        j = idx + 1
+        while j < n:
+            resp_ids = _tool_response_ids(kept[j])
+            if not resp_ids:
+                break
+            answered.update(resp_ids)
+            followers.append(j)
+            j += 1
+        if ids and not ids <= answered:
+            skip.update(followers)  # 一并移除其部分 tool 响应，避免留下孤立 tool_result
+            skip.add(idx)
+    return [m for idx, m in enumerate(kept) if idx not in skip]
+
+
 def _get_agent_api_key(agent_id):
     """从 data/agents.json 读取该员工的 apiKey；找不到或为空返回 None（调用方 fallback 全局 key）"""
     if not agent_id:
@@ -17303,7 +17378,7 @@ def _handle_proxy_kimi(self):
                 elif isinstance(_content, list):
                     _sys_chars = sum(len(c.get('text', '')) for c in _content if isinstance(c, dict))
                 _kept.append(_sys)
-            _kept.extend(_chat_msgs[-15:])
+            _kept.extend(_drop_orphan_tool_messages(_chat_msgs[-15:]))
             logger.info(f'[KimiProxy] 裁剪前 messages={_orig_count} 裁剪后={len(_kept)} system_chars={_sys_chars}')
             body['messages'] = _kept
     except Exception as e:
