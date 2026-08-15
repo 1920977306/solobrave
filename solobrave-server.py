@@ -17060,12 +17060,19 @@ def _handle_proxy_kimi(self):
         # 非代理key，直接转发（兼容旧配置）
         agent_id = None
 
+    # 计时工具：在关键步骤前后打点，日志可直接看出各环节耗时
+    _t_start = time.perf_counter()
+    def _timing(label, since):
+        print(f'  [KimiProxy] TIMING {label}: {time.perf_counter() - since:.3f}s', flush=True)
+
     # 2.5 优先使用该员工在 agents.json 中配置的 apiKey 转发，未配置则 fallback 全局 key
     agent_api_key = _get_agent_api_key(agent_id) if agent_id else None
 
     # 3. 检查积分余额
     if agent_id:
+        _t = time.perf_counter()
         balance, has_credits = _check_credit_balance(agent_id)
+        _timing('credit_check', _t)
         if not has_credits:
             # 返回anthropic格式错误
             self.send_response(403)
@@ -17081,7 +17088,9 @@ def _handle_proxy_kimi(self):
             return
 
     # 4. 读取请求体
+    _t = time.perf_counter()
     body = self._read_body()
+    _timing('read_body', _t)
     if not body:
         self._send_json_error(400, 'Empty body')
         return
@@ -17090,6 +17099,7 @@ def _handle_proxy_kimi(self):
     #     （失败不阻断代理转发）
     user_message = _extract_last_user_message(body)
     if agent_id and user_message:
+        _t = time.perf_counter()
         conn = _db_conn()
         try:
             # 召回相关记忆（L3画像/L2场景/L1事实原子，带Token预算控制）
@@ -17110,6 +17120,7 @@ def _handle_proxy_kimi(self):
             print(f'  [MemoryPipeline] recall/save failed: {e}', flush=True)
         finally:
             conn.close()
+        _timing('memory_recall', _t)
 
     # 4.6 达人预搜索：搜索所有user消息中的达人名（OpenClaw会把用户消息包装在runtime context里）
     all_user_text = user_message or ''
@@ -17123,6 +17134,7 @@ def _handle_proxy_kimi(self):
                     if isinstance(b, dict) and b.get('type') == 'text':
                         all_user_text += ' ' + b.get('text', '')
     if all_user_text.strip():
+        _t = time.perf_counter()
         conn = _db_conn()
         try:
             talent_ctx = _talent_presearch(conn, all_user_text)
@@ -17141,6 +17153,7 @@ def _handle_proxy_kimi(self):
             print(f'  [TalentPreSearch] failed: {e}', flush=True)
         finally:
             conn.close()
+        _timing('talent_presearch', _t)
 
     # 4.7 修补缺失的 tool response 消息
     #     OpenClaw exec 工具执行后，有时不会在 messages 中附带 tool role 的 response，
@@ -17148,6 +17161,7 @@ def _handle_proxy_kimi(self):
     #     这里在转发前扫描 messages，为缺失的 tool_call 补全 response。
     messages = body.get('messages') or []
     if isinstance(messages, list) and agent_id:
+        _t = time.perf_counter()
         print(f'  [KimiProxy] DEBUG: agent_id={agent_id} messages_count={len(messages)}', flush=True)
         for idx, m in enumerate(messages):
             if not isinstance(m, dict):
@@ -17253,6 +17267,7 @@ def _handle_proxy_kimi(self):
         if modified:
             body['messages'] = patched
             print(f'  [KimiProxy] 消息修补完成: {len(messages)} -> {len(patched)} 条', flush=True)
+        _timing('tool_patch', _t)
 
     # 5. 构造转发请求到真实Kimi API
     # 提取原始请求路径中的子路径（如/v1/messages）
@@ -17282,7 +17297,9 @@ def _handle_proxy_kimi(self):
     MAX_RETRIES = 2
     while True:
         try:
+            _t = time.perf_counter()
             resp = urllib.request.urlopen(req, timeout=120)
+            _timing('kimi_api_ttfb', _t)  # urlopen 返回即收到响应头（首字节）
             break
         except urllib.error.HTTPError as e:
             err_body = e.read()
@@ -17450,6 +17467,7 @@ def _handle_proxy_kimi(self):
         output_tokens = 0
         buffer = b''
 
+        _t = time.perf_counter()
         for chunk in iter(lambda: resp.read(4096), b''):
             # 转发给客户端
             self.wfile.write(chunk)
@@ -17478,6 +17496,7 @@ def _handle_proxy_kimi(self):
                     pass
 
         # 9. 扣减积分（响应完成后扣减，不阻塞响应）
+        _timing('stream_transfer', _t)
         if agent_id and (input_tokens or output_tokens):
             conn = _db_conn()
             try:
@@ -17488,7 +17507,9 @@ def _handle_proxy_kimi(self):
 
     else:
         # 非流式响应：读取完整响应，提取usage，扣减积分，返回
+        _t = time.perf_counter()
         resp_body = resp.read()
+        _timing('read_response', _t)
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
@@ -17513,6 +17534,7 @@ def _handle_proxy_kimi(self):
 
     # 10. Memory Pipeline：检查是否触发 L1 事实提取（响应已发出，失败不影响客户端）
     if agent_id:
+        _t = time.perf_counter()
         conn = _db_conn()
         try:
             memory_pipeline.check_and_run_pipeline(
@@ -17522,6 +17544,9 @@ def _handle_proxy_kimi(self):
             print(f'  [MemoryPipeline] pipeline check failed: {e}', flush=True)
         finally:
             conn.close()
+        _timing('pipeline_check', _t)
+
+    _timing('total', _t_start)
 
 
 def _handle_douyin_parse(self):
