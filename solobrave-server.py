@@ -2282,17 +2282,45 @@ def init_db():
                 updated_at INTEGER
             )
         ''')
-        # 兼容旧表：补充 products 可能缺失的新列（必须在 CREATE INDEX 之前）
+        # 兼容旧表：补充 products 可能缺失的列（必须在 CREATE INDEX 之前）
+        # 注意：需覆盖全部非主键列，旧库表结构不全时 _product_row_to_dict 会因缺列抛
+        # IndexError("No item with that key")（sqlite3.Row 按名取列的行为）
         for _prod_col, _prod_dtype in [
-            ('tags', "TEXT DEFAULT '[]'"),
-            ('selling_points', "TEXT DEFAULT ''"),
-            ('brand_id', "TEXT DEFAULT ''"),
-            ('talent_count', 'INTEGER DEFAULT 0'),
-            ('created_by', "TEXT DEFAULT ''"),
+            ('name', "TEXT NOT NULL DEFAULT ''"),
+            ('subtitle', "TEXT DEFAULT ''"),
+            ('main_image', "TEXT DEFAULT ''"),
+            ('price', 'REAL DEFAULT 0'),
+            ('price_range', "TEXT DEFAULT ''"),
             ('original_price', 'REAL DEFAULT 0'),
             ('shipping_from', "TEXT DEFAULT ''"),
             ('no_shipping_areas', "TEXT DEFAULT ''"),
             ('sku_code', "TEXT DEFAULT ''"),
+            ('brand', "TEXT DEFAULT ''"),
+            ('brand_id', "TEXT DEFAULT ''"),
+            ('category', "TEXT DEFAULT ''"),
+            ('sku_specs', "TEXT DEFAULT '{}'"),
+            ('stock', 'INTEGER DEFAULT 0'),
+            ('status', "TEXT DEFAULT 'active'"),
+            ('monthly_sales', 'INTEGER DEFAULT 0'),
+            ('monthly_gmv', 'REAL DEFAULT 0'),
+            ('commission_rates', "TEXT DEFAULT '{}'"),
+            ('commission_amount', 'REAL DEFAULT 0'),
+            ('conversion_rate', 'REAL DEFAULT 0'),
+            ('avg_order_value', 'REAL DEFAULT 0'),
+            ('influencer_count', 'INTEGER DEFAULT 0'),
+            ('talent_count', 'INTEGER DEFAULT 0'),
+            ('video_count', 'INTEGER DEFAULT 0'),
+            ('live_count', 'INTEGER DEFAULT 0'),
+            ('channel_distribution', "TEXT DEFAULT '{}'"),
+            ('influencers', "TEXT DEFAULT '[]'"),
+            ('audience', "TEXT DEFAULT '{}'"),
+            ('ai_analysis', "TEXT DEFAULT '{}'"),
+            ('videos', "TEXT DEFAULT '[]'"),
+            ('tags', "TEXT DEFAULT '[]'"),
+            ('selling_points', "TEXT DEFAULT ''"),
+            ('created_by', "TEXT DEFAULT ''"),
+            ('created_at', 'INTEGER'),
+            ('updated_at', 'INTEGER'),
         ]:
             _add_column_if_not_exists(conn, 'products', _prod_col, _prod_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)')
@@ -2754,12 +2782,17 @@ _PRODUCT_COLUMNS = [
 
 
 def _product_row_to_dict(row):
-    """将 products 表的 sqlite3.Row 转为前端兼容 dict"""
+    """将 products 表的 sqlite3.Row 转为前端兼容 dict（容忍旧库表缺列，缺列用默认值）"""
     if not row:
         return None
 
+    cols = set(row.keys())
+
+    def _col(col, default=None):
+        return row[col] if col in cols else default
+
     def _json_col(col, default=None):
-        val = row[col]
+        val = _col(col)
         if val is None:
             return default
         try:
@@ -2768,44 +2801,44 @@ def _product_row_to_dict(row):
             return default
 
     product = {
-        'id': row['id'],
-        'name': row['name'] or '',
-        'subtitle': row['subtitle'] or '',
-        'main_image': row['main_image'] or '',
-        'price': row['price'] if row['price'] is not None else 0,
-        'price_range': row['price_range'] or '',
-        'brand': row['brand'] or '',
-        'brand_id': row['brand_id'] or '',
-        'category': row['category'] or '',
+        'id': _col('id'),
+        'name': _col('name') or '',
+        'subtitle': _col('subtitle') or '',
+        'main_image': _col('main_image') or '',
+        'price': _col('price') if _col('price') is not None else 0,
+        'price_range': _col('price_range') or '',
+        'brand': _col('brand') or '',
+        'brand_id': _col('brand_id') or '',
+        'category': _col('category') or '',
         'sku_specs': _json_col('sku_specs', {}),
-        'stock': row['stock'] if row['stock'] is not None else 0,
-        'status': row['status'] or 'active',
-        'monthly_sales': row['monthly_sales'] if row['monthly_sales'] is not None else 0,
-        'monthly_gmv': row['monthly_gmv'] if row['monthly_gmv'] is not None else 0,
+        'stock': _col('stock') if _col('stock') is not None else 0,
+        'status': _col('status') or 'active',
+        'monthly_sales': _col('monthly_sales') if _col('monthly_sales') is not None else 0,
+        'monthly_gmv': _col('monthly_gmv') if _col('monthly_gmv') is not None else 0,
         'commission_rates': _json_col('commission_rates', {}),
-        'commission_amount': row['commission_amount'] if row['commission_amount'] is not None else 0,
-        'conversion_rate': row['conversion_rate'] if row['conversion_rate'] is not None else 0,
-        'avg_order_value': row['avg_order_value'] if row['avg_order_value'] is not None else 0,
-        'influencer_count': row['influencer_count'] if row['influencer_count'] is not None else 0,
-        'talent_count': row['talent_count'] if row['talent_count'] is not None else 0,
-        'video_count': row['video_count'] if row['video_count'] is not None else 0,
-        'live_count': row['live_count'] if row['live_count'] is not None else 0,
+        'commission_amount': _col('commission_amount') if _col('commission_amount') is not None else 0,
+        'conversion_rate': _col('conversion_rate') if _col('conversion_rate') is not None else 0,
+        'avg_order_value': _col('avg_order_value') if _col('avg_order_value') is not None else 0,
+        'influencer_count': _col('influencer_count') if _col('influencer_count') is not None else 0,
+        'talent_count': _col('talent_count') if _col('talent_count') is not None else 0,
+        'video_count': _col('video_count') if _col('video_count') is not None else 0,
+        'live_count': _col('live_count') if _col('live_count') is not None else 0,
         'channel_distribution': _json_col('channel_distribution', {}),
         'influencers': _json_col('influencers', []),
         'audience': _json_col('audience', {}),
         'ai_analysis': _json_col('ai_analysis', {}),
         'videos': _json_col('videos', []),
         'tags': _json_col('tags', []),
-        'selling_points': row['selling_points'] or '',
-        'created_by': row['created_by'] or '',
-        'original_price': row['original_price'] if row['original_price'] is not None else 0,
-        'shipping_from': row['shipping_from'] or '',
-        'shipping_note': row['no_shipping_areas'] or '',
-        'sku_code': row['sku_code'] or '',
-        'created_at': row['created_at'],
-        'updated_at': row['updated_at'],
-        'createdAt': row['created_at'],
-        'updatedAt': row['updated_at'],
+        'selling_points': _col('selling_points') or '',
+        'created_by': _col('created_by') or '',
+        'original_price': _col('original_price') if _col('original_price') is not None else 0,
+        'shipping_from': _col('shipping_from') or '',
+        'shipping_note': _col('no_shipping_areas') or '',
+        'sku_code': _col('sku_code') or '',
+        'created_at': _col('created_at'),
+        'updated_at': _col('updated_at'),
+        'createdAt': _col('created_at'),
+        'updatedAt': _col('updated_at'),
     }
 
     # 兼容旧代码/匹配逻辑/RAG 格式化的字段
