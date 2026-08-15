@@ -837,6 +837,20 @@ def _write_json(filepath, data):
         raise
 
 
+def _trash_file(path):
+    """删除文件前先备份到 data/backups/deleted/（时间戳前缀防重名），再删除原文件。
+
+    用于聊天记录等用户数据的删除场景，避免误删后无法恢复。
+    """
+    trash_dir = os.path.join(DATA_DIR, 'backups', 'deleted')
+    os.makedirs(trash_dir, exist_ok=True)
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    backup_path = os.path.join(trash_dir, f'{ts}_{os.path.basename(path)}')
+    shutil.copy2(path, backup_path)
+    os.remove(path)
+    logger.info(f'  [Trash] 已备份后删除: {path} -> {backup_path}')
+
+
 # ═══════════════════════════════════════════════════
 # 记忆系统 v3（使用 memory_service_v3 模块）
 # ═══════════════════════════════════════════════════
@@ -2222,6 +2236,42 @@ def _migrate_credit_tables(conn):
         if cols and new_col not in cols:
             conn.execute(f'ALTER TABLE {table} RENAME TO {table}_legacy')
             logger.info(f'  [Credits] 旧结构表 {table} 已重命名为 {table}_legacy')
+
+
+def _backup_data_dir():
+    """启动时将 data/ 快照到 data/backups/YYYYMMDD_HHMMSS/，只保留最近 7 份。
+
+    备份自身目录（backups/）会被排除，避免递归复制。
+    """
+    backups_root = os.path.join(DATA_DIR, 'backups')
+    os.makedirs(backups_root, exist_ok=True)
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    dst = os.path.join(backups_root, ts)
+    try:
+        shutil.copytree(DATA_DIR, dst, ignore=shutil.ignore_patterns('backups'))
+        logger.info(f'[Backup] 数据快照已保存: {os.path.abspath(dst)}')
+    except Exception as e:
+        logger.error(f'[Backup] 数据快照失败: {e}')
+        return
+
+    # 只保留最近 7 份快照（按目录名时间戳识别）
+    try:
+        snapshots = []
+        for name in os.listdir(backups_root):
+            full = os.path.join(backups_root, name)
+            if not os.path.isdir(full):
+                continue
+            try:
+                datetime.strptime(name, '%Y%m%d_%H%M%S')
+            except ValueError:
+                continue  # deleted/ 等非快照目录不参与轮换
+            snapshots.append(name)
+        snapshots.sort()
+        for old in snapshots[:-7]:
+            shutil.rmtree(os.path.join(backups_root, old), ignore_errors=True)
+            logger.info(f'[Backup] 已清理旧快照: {old}')
+    except Exception as e:
+        logger.error(f'[Backup] 清理旧快照失败: {e}')
 
 
 def init_db():
@@ -6568,11 +6618,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         groups = [g for g in groups if g.get('id') != group_id]
         _save_groups(groups)
 
-        # 删除群组聊天记录
+        # 删除群组聊天记录（先备份到 data/backups/deleted/ 再删除）
         chat_file = os.path.join(CHATS_DIR, f'group_{group_id}.json')
         if os.path.isfile(chat_file):
             try:
-                os.remove(chat_file)
+                _trash_file(chat_file)
             except OSError:
                 pass
 
@@ -8097,19 +8147,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _cleanup_agent_data(self, agent_id):
         """彻底删除员工时清理其聊天记录、记忆文件、归档文件、数据库沉淀及缓存等残留数据"""
-        # 清理聊天记录
+        # 清理聊天记录（先备份到 data/backups/deleted/ 再删除）
         chat_file = os.path.join(CHATS_DIR, f'{agent_id}.json')
         if os.path.isfile(chat_file):
             try:
-                os.remove(chat_file)
+                _trash_file(chat_file)
             except OSError as e:
                 logger.error(f'  [Cleanup] 删除聊天文件失败 {chat_file}: {e}')
 
-        # 清理聊天摘要
+        # 清理聊天摘要（先备份到 data/backups/deleted/ 再删除）
         summary_file = os.path.join(CHATS_DIR, f'{agent_id}_summary.json')
         if os.path.isfile(summary_file):
             try:
-                os.remove(summary_file)
+                _trash_file(summary_file)
             except OSError as e:
                 logger.error(f'  [Cleanup] 删除摘要文件失败 {summary_file}: {e}')
 
@@ -15314,8 +15364,8 @@ def _handle_clear_chat(self, agent_id):
     chat_file = os.path.join(CHATS_DIR, f'{agent_id}.json')
     if os.path.isfile(chat_file):
         try:
-            os.remove(chat_file)
-            logger.info(f'  [ChatCLEAR] {agent_id} 聊天记录已清空')
+            _trash_file(chat_file)
+            logger.info(f'  [ChatCLEAR] {agent_id} 聊天记录已清空（已备份到 backups/deleted/）')
         except OSError as e:
             logger.error(f'  [ChatCLEAR] {agent_id} 清空失败: {e}')
             pass
@@ -17851,6 +17901,9 @@ def main():
 
     # 确保数据目录
     _ensure_data_dir()
+
+    # 启动前快照 data/ 目录（保留最近 7 份，先于 init_db 以便保留迁移前状态）
+    _backup_data_dir()
 
     # 初始化 SQLite 数据库（知识库）
     init_db()  # 保留旧 init_db 兼容
