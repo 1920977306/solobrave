@@ -2238,6 +2238,32 @@ def _migrate_credit_tables(conn):
             logger.info(f'  [Credits] 旧结构表 {table} 已重命名为 {table}_legacy')
 
 
+def _backfill_openclaw_agents():
+    """启动时数据修复：Helen/貂蝉/上官婉儿/孔明 的 openclawAgent 为空时回填为其 id。
+
+    背景：这些员工在 OpenClaw 侧已存在同名 agent（agent 名 = 员工 id），
+    但 agents.json 中 openclawAgent 字段为空，导致未关联。
+    只在字段为空时回填，已有值不覆盖；幂等，可随每次启动重复执行。
+    """
+    target_ids = {'emp_1780199176680'}  # Helen
+    target_names = {'helen', '貂蝉', '上官婉儿', '孔明'}
+    agents = _read_json(AGENTS_FILE, None)
+    if not isinstance(agents, list):
+        return
+    changed = False
+    for a in agents:
+        if not isinstance(a, dict) or a.get('openclawAgent'):
+            continue
+        aid = a.get('id', '')
+        name = (a.get('name') or '').strip()
+        if aid in target_ids or name.lower() in target_names:
+            a['openclawAgent'] = aid
+            changed = True
+            logger.info(f'  [Backfill] openclawAgent 已回填: {name} ({aid})')
+    if changed:
+        _write_json(AGENTS_FILE, agents)
+
+
 def _backup_data_dir():
     """启动时将 data/ 快照到 data/backups/YYYYMMDD_HHMMSS/，只保留最近 7 份。
 
@@ -17904,6 +17930,9 @@ def main():
 
     # 启动前快照 data/ 目录（保留最近 7 份，先于 init_db 以便保留迁移前状态）
     _backup_data_dir()
+
+    # 数据修复：回填指定员工缺失的 openclawAgent（在快照之后执行，快照保留修复前状态）
+    _backfill_openclaw_agents()
 
     # 初始化 SQLite 数据库（知识库）
     init_db()  # 保留旧 init_db 兼容
