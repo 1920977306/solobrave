@@ -3156,6 +3156,7 @@ def _talent_row_to_dict(row):
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
         'updatedAt': row['updated_at'],
+        'created_by': row['created_by'] or '',
     }
 
 
