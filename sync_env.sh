@@ -4,8 +4,8 @@
 
 set -e
 
-TEST_DIR=~/Developer/solubrave-test
-PROD_DIR=~/Developer/solubrave-prod
+TEST_DIR=~/Developer/solobrave-test
+PROD_DIR=~/Developer/solobrave-prod
 PYTHON=/Library/Developer/CommandLineTools/usr/bin/python3
 
 FILES=(
@@ -16,7 +16,7 @@ FILES=(
     data/agents.json
     data/users.json
     data/groups.json
-    data/solubrave.db
+    data/solobrave.db
 )
 
 echo "==> 1. 停止 8080 进程"
@@ -35,10 +35,10 @@ for f in "${FILES[@]}"; do
 done
 # SQLite WAL 模式下的伴随文件（存在则一起复制，否则删除目标侧残留，避免新旧 WAL 混用）
 for ext in -wal -shm; do
-    if [ -f "$TEST_DIR/data/solubrave.db$ext" ]; then
-        cp -v "$TEST_DIR/data/solubrave.db$ext" "$PROD_DIR/data/solubrave.db$ext"
+    if [ -f "$TEST_DIR/data/solobrave.db$ext" ]; then
+        cp -v "$TEST_DIR/data/solobrave.db$ext" "$PROD_DIR/data/solobrave.db$ext"
     else
-        rm -f "$PROD_DIR/data/solubrave.db$ext"
+        rm -f "$PROD_DIR/data/solobrave.db$ext"
     fi
 done
 

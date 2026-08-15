@@ -64,7 +64,7 @@ import memory_pipeline
 # 统一日志（替代散落的 print 调试输出）
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
-logger = logging.getLogger('solubrave')
+logger = logging.getLogger('solobrave')
 
 # 按 agent_id 细分的聊天写入锁，防止读-修改-写竞争导致消息丢失
 _chat_write_locks = {}
@@ -2227,6 +2227,7 @@ def _migrate_credit_tables(conn):
 def init_db():
     """初始化数据库，创建 products 等表（启动时调用）。旧 knowledge 表已废弃，不再建表。"""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    logger.info(f'[DB] init_db 使用数据库文件: {os.path.abspath(DB_PATH)}')
     conn = _db_conn()
     try:
         # 项目组对话消息表（团队动态：同组 AI 互相可见）

@@ -4,8 +4,8 @@
 
 set -e
 
-TEST_DIR=~/Developer/solubrave-test
-PROD_DIR=~/Developer/solubrave-prod
+TEST_DIR=~/Developer/solobrave-test
+PROD_DIR=~/Developer/solobrave-prod
 PYTHON=/Library/Developer/CommandLineTools/usr/bin/python3
 
 echo "==> 1. 停止 8081 进程"
@@ -20,11 +20,11 @@ fi
 
 echo "==> 2. 从 prod 恢复数据库"
 # 先清除 test 侧残留的 WAL 伴随文件，避免与 prod 的 db 混用
-rm -f "$TEST_DIR/data/solubrave.db-wal" "$TEST_DIR/data/solubrave.db-shm"
-cp -v "$PROD_DIR/data/solubrave.db" "$TEST_DIR/data/solubrave.db"
+rm -f "$TEST_DIR/data/solobrave.db-wal" "$TEST_DIR/data/solobrave.db-shm"
+cp -v "$PROD_DIR/data/solobrave.db" "$TEST_DIR/data/solobrave.db"
 for ext in -wal -shm; do
-    if [ -f "$PROD_DIR/data/solubrave.db$ext" ]; then
-        cp -v "$PROD_DIR/data/solubrave.db$ext" "$TEST_DIR/data/solubrave.db$ext"
+    if [ -f "$PROD_DIR/data/solobrave.db$ext" ]; then
+        cp -v "$PROD_DIR/data/solobrave.db$ext" "$TEST_DIR/data/solobrave.db$ext"
     fi
 done
 

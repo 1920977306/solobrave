@@ -251,7 +251,7 @@ print('done')
 
 ```python
 import sqlite3
-conn = sqlite3.connect('data/solubrave.db')
+conn = sqlite3.connect('data/solobrave.db')
 agents = [
     'emp_1780199176680',  # Helen
     'emp_1779955656118',  # 上官婉儿
@@ -298,8 +298,8 @@ curl -X POST http://localhost:8081/api/proxy/kimi/v1/messages \
 
 2. 检查积分是否扣减：
 ```bash
-sqlite3 data/solubrave.db "SELECT * FROM credit_accounts WHERE agent_id='emp_1780199176680'"
-sqlite3 data/solubrave.db "SELECT * FROM credit_usage_log ORDER BY id DESC LIMIT 1"
+sqlite3 data/solobrave.db "SELECT * FROM credit_accounts WHERE agent_id='emp_1780199176680'"
+sqlite3 data/solobrave.db "SELECT * FROM credit_usage_log ORDER BY id DESC LIMIT 1"
 ```
 
 3. 积分为0时测试403拦截
