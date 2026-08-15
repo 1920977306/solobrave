@@ -17001,7 +17001,24 @@ def _prepend_system_context(body, context_text):
         body['system'] = [{'type': 'text', 'text': context_text}] + system
 
 
-def _memory_pipeline_llm_call(model=None):
+def _get_agent_api_key(agent_id):
+    """从 data/agents.json 读取该员工的 apiKey；找不到或为空返回 None（调用方 fallback 全局 key）"""
+    if not agent_id:
+        return None
+    try:
+        agents = _read_json(AGENTS_FILE, [])
+        if not isinstance(agents, list):
+            return None
+        for a in agents:
+            if isinstance(a, dict) and a.get('id') == agent_id:
+                key = (a.get('apiKey') or '').strip()
+                return key or None
+    except Exception as e:
+        logger.error(f'  [KimiProxy] 读取 agent apiKey 失败 {agent_id}: {e}')
+    return None
+
+
+def _memory_pipeline_llm_call(model=None, api_key=None):
     """构造供 memory_pipeline 使用的 LLM 调用函数，签名 (prompt: str) -> str"""
     def _call(prompt):
         req_body = json.dumps({
@@ -17014,7 +17031,7 @@ def _memory_pipeline_llm_call(model=None):
             data=req_body,
             headers={
                 'Content-Type': 'application/json',
-                'x-api-key': KIMI_PROXY_REAL_API_KEY,
+                'x-api-key': api_key or KIMI_PROXY_REAL_API_KEY,
                 'anthropic-version': '2023-06-01',
             },
             method='POST')
@@ -17042,6 +17059,9 @@ def _handle_proxy_kimi(self):
     else:
         # 非代理key，直接转发（兼容旧配置）
         agent_id = None
+
+    # 2.5 优先使用该员工在 agents.json 中配置的 apiKey 转发，未配置则 fallback 全局 key
+    agent_api_key = _get_agent_api_key(agent_id) if agent_id else None
 
     # 3. 检查积分余额
     if agent_id:
@@ -17242,10 +17262,10 @@ def _handle_proxy_kimi(self):
         path_suffix = '/v1/messages'
     target_url = KIMI_PROXY_REAL_BASE_URL + path_suffix
 
-    # 构造请求头（用真实API Key替换proxy key）
+    # 构造请求头（用员工自己的 apiKey 替换 proxy key，未配置时用全局真实 key）
     forward_headers = {
         'Content-Type': 'application/json',
-        'x-api-key': KIMI_PROXY_REAL_API_KEY,
+        'x-api-key': agent_api_key or KIMI_PROXY_REAL_API_KEY,
         'anthropic-version': self.headers.get('anthropic-version', '2023-06-01'),
     }
 
@@ -17497,7 +17517,7 @@ def _handle_proxy_kimi(self):
         try:
             memory_pipeline.check_and_run_pipeline(
                 conn, agent_id,
-                llm_call_func=_memory_pipeline_llm_call(body.get('model')))
+                llm_call_func=_memory_pipeline_llm_call(body.get('model'), api_key=agent_api_key))
         except Exception as e:
             print(f'  [MemoryPipeline] pipeline check failed: {e}', flush=True)
         finally:
