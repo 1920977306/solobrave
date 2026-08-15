@@ -17500,6 +17500,31 @@ def _handle_proxy_kimi(self):
     except Exception as e:
         logger.error(f'[KimiProxy] 裁剪后校验失败，跳过: {e}')
 
+    # 4.95 拆分混合 user 消息：content 同时含 tool_result 和 text 块时拆成两条
+    #     （第一条全 tool_result，第二条全 text），其他消息不动
+    try:
+        _msgs3 = body.get('messages') or []
+        if isinstance(_msgs3, list):
+            _split_count = 0
+            _new_msgs = []
+            for m in _msgs3:
+                if isinstance(m, dict) and m.get('role') == 'user' and isinstance(m.get('content'), list):
+                    _content = m['content']
+                    _tr = [b for b in _content if isinstance(b, dict) and b.get('type') == 'tool_result']
+                    _tx = [b for b in _content if isinstance(b, dict) and b.get('type') == 'text']
+                    # 仅当整条消息恰好由 text+tool_result 组成且两者都有时拆分
+                    if _tr and _tx and len(_tr) + len(_tx) == len(_content):
+                        _split_count += 1
+                        _new_msgs.append({'role': 'user', 'content': _tr})
+                        _new_msgs.append({'role': 'user', 'content': _tx})
+                        continue
+                _new_msgs.append(m)
+            if _split_count:
+                body['messages'] = _new_msgs
+            logger.info(f'[KimiProxy] 拆分混合消息: {_split_count}条')
+    except Exception as e:
+        logger.error(f'[KimiProxy] 拆分混合消息失败，跳过: {e}')
+
     # 5. 构造转发请求到真实Kimi API
     # 提取原始请求路径中的子路径（如/v1/messages）
     path = self._normalize_path(self.path)
