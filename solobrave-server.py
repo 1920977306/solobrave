@@ -17074,7 +17074,49 @@ def _drop_orphan_tool_messages(msgs):
         if ids and not ids <= answered:
             skip.update(followers)  # 一并移除其部分 tool 响应，避免留下孤立 tool_result
             skip.add(idx)
-    return [m for idx, m in enumerate(kept) if idx not in skip]
+    kept = [m for idx, m in enumerate(kept) if idx not in skip]
+
+    # 3. 反向验证：user 消息中的 tool_result 必须对应某个 assistant 的 tool_use，
+    #    否则为孤立块（如截断残留的 "process:3"），整条或按块移除
+    all_tool_use_ids = set()
+    for m in kept:
+        if _has_tool_calls(m):
+            all_tool_use_ids.update(_tool_call_ids(m))
+    orphan_ids = []
+    drop_idx = set()
+    for idx, m in enumerate(kept):
+        if not (isinstance(m, dict) and m.get('role') == 'user' and isinstance(m.get('content'), list)):
+            continue
+        content = m['content']
+        if not content:
+            continue
+
+        def _is_orphan_tr(b):
+            return (isinstance(b, dict) and b.get('type') == 'tool_result'
+                    and b.get('tool_use_id') not in all_tool_use_ids)
+
+        orphans = [b for b in content if _is_orphan_tr(b)]
+        if not orphans:
+            continue
+        orphan_ids.extend(b.get('tool_use_id') for b in orphans)
+        all_tr = all(isinstance(b, dict) and b.get('type') == 'tool_result' for b in content)
+        if all_tr and len(orphans) == len(content):
+            drop_idx.add(idx)  # 整条全是孤立 tool_result → 删除
+        else:
+            # 混合了 text 等正常块：只移除孤立 tool_result 块，保留其余内容（拷贝不改原对象）
+            new_m = dict(m)
+            new_m['content'] = [b for b in content if not _is_orphan_tr(b)]
+            kept[idx] = new_m
+    if drop_idx:
+        kept = [m for idx, m in enumerate(kept) if idx not in drop_idx]
+    if orphan_ids:
+        logger.info(f'  [KimiProxy] 移除孤立 tool_result, tool_use_id={orphan_ids}')
+
+    # 4. 反向清理后再做一轮开头检查，移除新暴露的头部孤立消息
+    while kept and (_has_tool_calls(kept[0]) or _is_pure_tool_response(kept[0])):
+        kept.pop(0)
+
+    return kept
 
 
 def _get_agent_api_key(agent_id):
