@@ -4172,6 +4172,11 @@ def _seed_coolchap_data(conn):
             'videos': json.dumps(make_videos(item['name']), ensure_ascii=False),
             'tags': json.dumps(item.get('tags', []), ensure_ascii=False),
             'selling_points': item.get('selling_points', ''),
+            'created_by': 'system',
+            'original_price': price,
+            'shipping_from': '',
+            'no_shipping_areas': '',
+            'sku_code': '',
             'created_at': now,
             'updated_at': now,
         }
