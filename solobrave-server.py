@@ -17119,6 +17119,65 @@ def _drop_orphan_tool_messages(msgs):
     return kept
 
 
+def _strip_unpaired_tool_assistants(msgs):
+    """发送前完整性校验：assistant 的每个 tool 调用必须由紧跟的 tool 响应全部回答，
+    否则删除该 assistant 及其部分响应（不追加假 tool_result）。
+
+    返回 (cleaned_msgs, removed_ids)。正常路径下 _drop_orphan_tool_messages 已清理过，
+    本函数是裁剪后发送前的最后一道防线。
+    """
+    def _call_ids(m):
+        ids = []
+        tc = m.get('tool_calls')
+        if isinstance(tc, list):
+            ids += [t.get('id', '') for t in tc if isinstance(t, dict)]
+        c = m.get('content')
+        if isinstance(c, list):
+            ids += [b.get('id', '') for b in c
+                    if isinstance(b, dict) and b.get('type') == 'tool_use']
+        return [i for i in ids if i]
+
+    def _resp_ids(m):
+        if not isinstance(m, dict):
+            return []
+        if m.get('role') == 'tool' and m.get('tool_call_id'):
+            return [m['tool_call_id']]
+        if m.get('role') == 'user' and isinstance(m.get('content'), list):
+            return [b['tool_use_id'] for b in m['content']
+                    if isinstance(b, dict) and b.get('type') == 'tool_result' and b.get('tool_use_id')]
+        return []
+
+    skip = set()
+    removed = []
+    n = len(msgs)
+    for idx, m in enumerate(msgs):
+        if idx in skip:
+            continue
+        if not (isinstance(m, dict) and m.get('role') == 'assistant'):
+            continue
+        ids = _call_ids(m)
+        if not ids:
+            continue
+        answered = set()
+        followers = []
+        j = idx + 1
+        while j < n:
+            rids = _resp_ids(msgs[j])
+            if not rids:
+                break
+            answered.update(rids)
+            followers.append(j)
+            j += 1
+        missing = [i for i in ids if i not in answered]
+        if missing:
+            removed.extend(missing)
+            skip.add(idx)
+            skip.update(followers)  # 部分响应一并移除，避免留下孤立 tool_result
+    if not skip:
+        return msgs, []
+    return [m for i, m in enumerate(msgs) if i not in skip], removed
+
+
 def _get_agent_api_key(agent_id):
     """从 data/agents.json 读取该员工的 apiKey；找不到或为空返回 None（调用方 fallback 全局 key）"""
     if not agent_id:
@@ -17426,6 +17485,21 @@ def _handle_proxy_kimi(self):
     except Exception as e:
         logger.error(f'[KimiProxy] 消息裁剪失败，降级为不裁剪: {e}')
 
+    # 4.9 裁剪后完整性校验：assistant 的 tool 调用必须由紧跟的响应全部回答，
+    #     配对缺失则删除该 assistant 及其部分响应（不追加假 tool_result）
+    try:
+        _final_msgs = body.get('messages') or []
+        if isinstance(_final_msgs, list):
+            _cleaned, _removed_ids = _strip_unpaired_tool_assistants(_final_msgs)
+            if _removed_ids:
+                body['messages'] = _cleaned
+                logger.info(
+                    f'[KimiProxy] 裁剪后校验: 移除配对缺失消息, '
+                    f'tool_call_ids={_removed_ids} messages={len(_final_msgs)} -> {len(_cleaned)}'
+                )
+    except Exception as e:
+        logger.error(f'[KimiProxy] 裁剪后校验失败，跳过: {e}')
+
     # 5. 构造转发请求到真实Kimi API
     # 提取原始请求路径中的子路径（如/v1/messages）
     path = self._normalize_path(self.path)
@@ -17532,47 +17606,14 @@ def _handle_proxy_kimi(self):
                             has_resp = True
                             break
                     if has_resp:
-                        print(f'  [KimiProxy] 400自动修复: {mid} -> {target_id} 已有tool_result，尝试删除旧tool_use', flush=True)
-                        # 如果已有tool_result但API仍报缺失，可能是tool_use和tool_result之间有其他消息插入
-                        # 找到该tool_use所在的assistant消息，在它后面紧接着插入tool_result
-                        for i, m in enumerate(patched_msgs):
-                            if not isinstance(m, dict) or m.get('role') != 'assistant':
-                                continue
-                            mc = m.get('content')
-                            if not isinstance(mc, list):
-                                continue
-                            has_target = any(isinstance(c, dict) and c.get('type') == 'tool_use' and c.get('id') == target_id for c in mc)
-                            if has_target:
-                                # 检查下一条是否是对应的tool_result
-                                next_idx = i + 1
-                                if next_idx < len(patched_msgs):
-                                    next_msg = patched_msgs[next_idx]
-                                    next_c = next_msg.get('content') if isinstance(next_msg, dict) else None
-                                    if isinstance(next_c, list) and any(isinstance(c, dict) and c.get('type') == 'tool_result' and c.get('tool_use_id') == target_id for c in next_c):
-                                        # 已经紧挨着，不处理
-                                        pass
-                                    else:
-                                        # 需要插入一个tool_result
-                                        tool_output = None
-                                        try:
-                                            conn = _db_conn()
-                                            try:
-                                                row = conn.execute('SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1', (agent_id, target_id)).fetchone()
-                                                if row:
-                                                    tool_output = row[0]
-                                            finally:
-                                                conn.close()
-                                        except Exception:
-                                            pass
-                                        if not tool_output:
-                                            tool_output = '[工具执行完成]'
-                                        patched_msgs.insert(next_idx, {
-                                            'role': 'user',
-                                            'content': [{'type': 'tool_result', 'tool_use_id': target_id, 'content': tool_output if isinstance(tool_output, str) else json.dumps(tool_output, ensure_ascii=False)}]
-                                        })
-                                        any_fixed = True
-                                        print(f'  [KimiProxy] 400自动修复: 在msg[{next_idx}]位置插入tool_result for {target_id}', flush=True)
-                                break
+                        # 配对已存在却仍报缺失：说明问题不在消息配对（可能是 id 映射或格式问题），
+                        # 继续删改消息只会越修越坏，直接返回原始错误让上层重试
+                        print(f'  [KimiProxy] 400自动修复: {mid} -> {target_id} 已有配对 tool_result，放弃修复，返回原始错误', flush=True)
+                        self.send_response(e.code)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(err_body)
+                        return
                     else:
                         # 完全没有tool_result，从数据库补全
                         tool_output = None
