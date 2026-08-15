@@ -17280,6 +17280,34 @@ def _handle_proxy_kimi(self):
             print(f'  [KimiProxy] 消息修补完成: {len(messages)} -> {len(patched)} 条', flush=True)
         _timing('tool_patch', _t)
 
+    # 4.8 裁剪 messages：保留第一条 system（内容超 4000 字符截断并追加提示）
+    #     + 最近 15 条对话消息（user/assistant/tool），中间历史不发给 Kimi，
+    #     控制 token 规模、降低响应延迟与 400 概率；任何异常降级为不裁剪
+    try:
+        _msgs = body.get('messages') or []
+        if isinstance(_msgs, list):
+            _orig_count = len(_msgs)
+            _sys_msgs = [m for m in _msgs if isinstance(m, dict) and m.get('role') == 'system']
+            _chat_msgs = [m for m in _msgs if isinstance(m, dict) and m.get('role') != 'system']
+            _kept = []
+            _sys_chars = 0
+            if _sys_msgs:
+                _sys = _sys_msgs[0]
+                _content = _sys.get('content')
+                if isinstance(_content, str):
+                    _sys_chars = len(_content)
+                    if _sys_chars > 4000:
+                        _sys = dict(_sys)
+                        _sys['content'] = _content[:4000] + '......[系统提示已截断]'
+                elif isinstance(_content, list):
+                    _sys_chars = sum(len(c.get('text', '')) for c in _content if isinstance(c, dict))
+                _kept.append(_sys)
+            _kept.extend(_chat_msgs[-15:])
+            logger.info(f'[KimiProxy] 裁剪前 messages={_orig_count} 裁剪后={len(_kept)} system_chars={_sys_chars}')
+            body['messages'] = _kept
+    except Exception as e:
+        logger.error(f'[KimiProxy] 消息裁剪失败，降级为不裁剪: {e}')
+
     # 5. 构造转发请求到真实Kimi API
     # 提取原始请求路径中的子路径（如/v1/messages）
     path = self._normalize_path(self.path)
