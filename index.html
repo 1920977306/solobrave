@@ -8790,9 +8790,26 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
     var hasSentCoding = false;
     var lifecycleOptions = {};
     
-    // 有图片时通过 attachments 参数传递（OpenClaw WebSocket 原生支持）
+    // 有图片时：先调后端 vision 接口转成文字描述拼进消息文本，
+    // OpenClaw 网关只收纯文本，不依赖网关的多模态能力（attachments 参数会被网关丢弃）
     if (images && images.length > 0) {
-      lifecycleOptions.images = images;
+      try {
+        var visionResp = await apiFetch('/api/vision/describe', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ images: images })
+        });
+        if (visionResp && visionResp.ok) {
+          var visionData = await visionResp.json();
+          if (visionData && visionData.text) {
+            fullMessage += '\n\n' + visionData.text;
+          }
+        } else {
+          console.warn('[Vision] 图片描述接口返回异常:', visionResp && visionResp.status);
+        }
+      } catch (visionErr) {
+        console.warn('[Vision] 图片描述获取失败，按纯文本发送:', visionErr);
+      }
     }
     
     // 更新打字状态气泡文字

@@ -5062,6 +5062,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_douyin_transcribe()
             return
 
+        # 图片转文字描述（多模态降级：OpenClaw 链路只收纯文本）
+        if path == '/api/vision/describe':
+            self._handle_vision_describe()
+            return
+
         # Write SOUL.md/IDENTITY.md to OpenClaw agent workspace
         if path == '/api/openclaw/write-agent-docs':
             self._handle_write_agent_docs()
@@ -14753,6 +14758,61 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
     return None
 
 
+# ═══ Kimi 多模态图片识别（图片转文字，供 OpenClaw 纯文本链路使用）═══
+KIMI_VISION_API_KEY = os.environ.get('KIMI_VISION_API_KEY', '').strip() or 'sk-kimi-fnJUJFCR6ccgPUhiEBm42pZop4jvGYzrVFvqt5XL12asJOuwbjJTDuEKyIhomCD9'
+KIMI_VISION_URL = 'https://api.kimi.com/coding/v1/messages'
+KIMI_VISION_MODEL = 'kimi-for-coding'
+
+
+def _call_kimi_vision(image_base64):
+    """调用 Kimi Code（Anthropic Messages）端点将图片转成文字描述；成功返回描述文字，失败返回 None。
+    image_base64 可传完整 data URL（data:image/...;base64,...）或纯 base64 串。"""
+    if not image_base64:
+        return None
+    media_type = 'image/jpeg'
+    data = image_base64
+    if image_base64.startswith('data:'):
+        try:
+            header, data = image_base64.split(',', 1)
+            media_type = header.split(';')[0].split(':')[1]
+        except Exception:
+            logger.error('  [Vision] data URL 解析失败')
+            return None
+    req_body = json.dumps({
+        'model': KIMI_VISION_MODEL,
+        'max_tokens': 1024,
+        'messages': [{
+            'role': 'user',
+            'content': [
+                {'type': 'image', 'source': {'type': 'base64', 'media_type': media_type, 'data': data}},
+                {'type': 'text', 'text': '请描述这张图片的内容'}
+            ]
+        }]
+    }).encode('utf-8')
+    headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': KIMI_VISION_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Length': str(len(req_body))
+    }
+    try:
+        req = urllib.request.Request(KIMI_VISION_URL, data=req_body, headers=headers, method='POST')
+        ctx = ssl.create_default_context()
+        resp = urllib.request.urlopen(req, timeout=60, context=ctx)
+        resp_data = json.loads(resp.read().decode('utf-8', errors='replace'))
+        for block in resp_data.get('content') or []:
+            if isinstance(block, dict) and block.get('type') == 'text' and block.get('text'):
+                logger.info(f'  [Vision] 图片描述成功 len={len(block["text"])}')
+                return block['text']
+        logger.error(f'  [Vision] 响应格式异常: {str(resp_data)[:300]}')
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode('utf-8', errors='replace')
+        logger.error(f'  [Vision] Kimi vision 调用失败: HTTP {e.code} {err_body[:300]}')
+    except Exception as e:
+        logger.error(f'  [Vision] Kimi vision 调用异常: {e}')
+    return None
+
+
 # ═══ AI 员工自修改配置（SELF_UPDATE）══════════════════════════════════
 _SELF_UPDATE_ALLOWED_FIELDS = {
     'description': 'description',
@@ -17220,6 +17280,35 @@ def _memory_pipeline_llm_call(model=None, api_key=None):
     return _call
 
 
+def _handle_vision_describe(self):
+    """POST /api/vision/describe — 图片转文字描述。
+    body: {images: [{base64}|{url}|string, ...]}（最多3张，与前端发图上限一致）
+    返回: {text: "【图片1描述】xxx\n【图片2描述】xxx"}，供前端拼进纯文本消息后再走 OpenClaw。"""
+    auth = _authenticate(self.headers, self.client_address[0], self)
+    if not auth.is_authenticated:
+        self._send_auth_error(auth.error, auth.status)
+        return
+
+    body = self._read_body()
+    if not body:
+        self._send_json(400, {'error': '无效的请求体'})
+        return
+    images = body.get('images') or []
+    if not isinstance(images, list) or not images:
+        self._send_json(400, {'error': '缺少 images 字段'})
+        return
+
+    parts = []
+    for idx, img in enumerate(images[:3], 1):
+        if isinstance(img, dict):
+            b64 = img.get('base64') or img.get('url') or ''
+        else:
+            b64 = str(img)
+        desc = _call_kimi_vision(b64)
+        parts.append(f'【图片{idx}描述】{desc if desc else "（图片识别失败）"}')
+    self._send_json(200, {'text': '\n'.join(parts)})
+
+
 def _handle_proxy_kimi(self):
     """POST /api/proxy/kimi/* — Kimi API代理，带积分管控（OpenClaw/飞书链路专用）"""
 
@@ -17935,7 +18024,7 @@ _MODULE_LEVEL_HANDLERS = (
     '_handle_skills_list', '_handle_skills_search', '_handle_skills_install', '_handle_skills_remove',
     '_handle_feishu_status', '_handle_feishu_config', '_handle_pairing_approve', '_handle_gateway_restart',
     '_handle_proxy', '_handle_douyin_parse', '_handle_douyin_transcribe',
-    '_handle_proxy_kimi',
+    '_handle_proxy_kimi', '_handle_vision_describe',
 )
 for _h in _MODULE_LEVEL_HANDLERS:
     _fn = globals().get(_h)
