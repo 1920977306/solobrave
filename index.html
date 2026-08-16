@@ -8797,7 +8797,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
         var visionResp = await apiFetch('/api/vision/describe', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ images: images })
+          body: JSON.stringify({ images: images, agent_id: emp.id })
         });
         if (visionResp && visionResp.ok) {
           var visionData = await visionResp.json();

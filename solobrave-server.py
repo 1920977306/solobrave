@@ -14759,16 +14759,22 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
 
 
 # ═══ Kimi 多模态图片识别（图片转文字，供 OpenClaw 纯文本链路使用）═══
-KIMI_VISION_API_KEY = os.environ.get('KIMI_VISION_API_KEY', '').strip() or 'sk-kimi-fnJUJFCR6ccgPUhiEBm42pZop4jvGYzrVFvqt5XL12asJOuwbjJTDuEKyIhomCD9'
+# key 解析与 _handle_proxy_kimi 完全一致：环境变量优先，fallback 同一把全局 key
+KIMI_VISION_API_KEY = (os.environ.get('KIMI_VISION_API_KEY', '').strip()
+                       or os.environ.get('KIMI_API_KEY', '').strip()
+                       or 'sk-02e90cc3c5b147fcb945c7334ed94008')
 KIMI_VISION_URL = 'https://api.kimi.com/coding/v1/messages'
 KIMI_VISION_MODEL = 'kimi-for-coding'
 
 
-def _call_kimi_vision(image_base64):
+def _call_kimi_vision(image_base64, agent_id=None):
     """调用 Kimi Code（Anthropic Messages）端点将图片转成文字描述；成功返回描述文字，失败返回 None。
+    认证方式与 _handle_proxy_kimi 一致：x-api-key + anthropic-version，直连 api.kimi.com；
+    key 优先取该员工在 agents.json 配置的 apiKey（同 proxy 逻辑），未配置用全局 key。
     image_base64 可传完整 data URL（data:image/...;base64,...）或纯 base64 串。"""
     if not image_base64:
         return None
+    api_key = _get_agent_api_key(agent_id) or KIMI_VISION_API_KEY
     media_type = 'image/jpeg'
     data = image_base64
     if image_base64.startswith('data:'):
@@ -14791,7 +14797,7 @@ def _call_kimi_vision(image_base64):
     }).encode('utf-8')
     headers = {
         'Content-Type': 'application/json',
-        'x-api-key': KIMI_VISION_API_KEY,
+        'x-api-key': api_key,
         'anthropic-version': '2023-06-01',
         'Content-Length': str(len(req_body))
     }
@@ -17297,6 +17303,7 @@ def _handle_vision_describe(self):
     if not isinstance(images, list) or not images:
         self._send_json(400, {'error': '缺少 images 字段'})
         return
+    agent_id = body.get('agent_id')  # 可选：传入则优先用该员工自己的 apiKey（同 Kimi proxy 逻辑）
 
     parts = []
     for idx, img in enumerate(images[:3], 1):
@@ -17304,7 +17311,7 @@ def _handle_vision_describe(self):
             b64 = img.get('base64') or img.get('url') or ''
         else:
             b64 = str(img)
-        desc = _call_kimi_vision(b64)
+        desc = _call_kimi_vision(b64, agent_id=agent_id)
         parts.append(f'【图片{idx}描述】{desc if desc else "（图片识别失败）"}')
     self._send_json(200, {'text': '\n'.join(parts)})
 
