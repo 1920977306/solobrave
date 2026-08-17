@@ -17288,7 +17288,7 @@ def _memory_pipeline_llm_call(model=None, api_key=None):
 
 def _handle_vision_describe(self):
     """POST /api/vision/describe — 图片转文字描述。
-    body: {images: [{base64}|{url}|string, ...]}（最多3张，与前端发图上限一致）
+    body: {images: [{base64}|{url}|string, ...]}（最多9张，与前端发图上限一致）
     返回: {text: "【图片1描述】xxx\n【图片2描述】xxx"}，供前端拼进纯文本消息后再走 OpenClaw。"""
     auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
@@ -17306,7 +17306,7 @@ def _handle_vision_describe(self):
     agent_id = body.get('agent_id')  # 可选：传入则优先用该员工自己的 apiKey（同 Kimi proxy 逻辑）
 
     parts = []
-    for idx, img in enumerate(images[:3], 1):
+    for idx, img in enumerate(images[:9], 1):
         if isinstance(img, dict):
             b64 = img.get('base64') or img.get('url') or ''
         else:

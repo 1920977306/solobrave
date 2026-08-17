@@ -8231,9 +8231,9 @@ function compressImageToBase64(file) {
 }
 function handleImageFiles(files) {
   if (!files || files.length === 0) return;
-  var remaining = 3 - window._pendingImages.length;
+  var remaining = 9 - window._pendingImages.length;
   if (remaining <= 0) {
-    showToast('最多只能选择3张图片');
+    showToast('最多只能选择9张图片');
     return;
   }
   var toProcess = Array.prototype.slice.call(files, 0, remaining);
