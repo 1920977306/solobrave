@@ -15538,6 +15538,13 @@ function openEmpDetail(empId) {
   if (!emp) return;
   inductBannerSuppressed = false;
   currentEmpId = empId;
+  // 切换员工时先清空记忆面板的旧数据，避免短暂显示上一位员工的记忆
+  var memContentEl = document.getElementById('memoryContent');
+  if (memContentEl) memContentEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
+  var memEmptyEl = document.getElementById('memoryEmpty');
+  if (memEmptyEl) memEmptyEl.style.display = 'none';
+  var memTabBtn = document.querySelector('.emp-detail-tab[data-etab="memory"]');
+  if (memTabBtn) memTabBtn.textContent = '记忆';
   selectedAvatar = emp.avatar || '🦞';
   selectedColor = emp.color || '#FF6B35';
   document.getElementById('empDetailAvatar').innerHTML = renderAvatar(emp, 80);
@@ -15799,7 +15806,7 @@ function switchMemoryTab(tab) {
   document.querySelectorAll('.memory-tab').forEach(function (t) {
     return t.classList.toggle('active', t.dataset.mtab === tab);
   });
-  var empId = localStorage.getItem("sb_current_emp");
+  var empId = getCurrentEmpId();
   if (empId) renderMemoryTab(empId);
 }
 function renderMemoryTab(empId) {
@@ -15848,6 +15855,8 @@ function renderMemoryTab(empId) {
       projectSummaryPromise,
       agentKbPromise
     ]).then(function (results) {
+      // 异步返回时若已切换到其他员工，丢弃这次过期结果，防止写回旧员工的记忆
+      if (empId !== getCurrentEmpId()) return;
       var data = results[0];
       var kbResult = results[1] || {docs: []};
       var kbDocs = kbResult.docs || [];
@@ -17671,6 +17680,8 @@ function updateMemoryTabTitle(empId) {
   apiFetch('/api/memory/' + encodeURIComponent(empId)).then(function (r) {
     return r.json();
   }).then(function (data) {
+    // 异步返回时若已切换到其他员工，不更新标题计数
+    if (empId !== getCurrentEmpId()) return;
     var core = (data && data.core) || [];
     var daily = (data && data.daily) || [];
     var archive = (data && data.archive) || [];
