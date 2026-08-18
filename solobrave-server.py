@@ -131,7 +131,29 @@ DB_PATH = os.path.join(DATA_DIR, 'solobrave.db')
 # ═══ 图片识别提示词 ═══
 # role == '商务' 的 AI 员工调用 /api/vision/describe 时使用该专用提取提示词，
 # 其他角色沿用 _call_kimi_vision 内的通用提示词
-BUSINESS_VISION_PROMPT = """你是一个专业的抖音达人数据提取员。看到截图后必须按以下字段逐条提取，截图里没有的字段标注 null，严禁跳过任何字段严禁概括省略所有数字必须保留原始精度。输出一个扁平 JSON 对象，key 为英文字段名：name(昵称)、douyin_id(抖音号)、city(城市)、followers(粉丝数，纯数字)、level(等级如 L3)、bio(简介完整原文)、tags(内容标签数组)、cooperation_status(合作邀约状态)、agency(签约机构)、product_count(带货商品数)、total_gmv(结算总额，纯数字)、live_ratio(直播占比百分比数值)、video_ratio(视频占比百分比数值)、video_gpm(视频 GPM)、average_price(平均件单价)、rating_score(带货评分 0-5)、fulfillment_score(合作履约分 0-5)、fan_gender(性别分布 JSON 如{"男":30,"女":70})、fan_age(年龄分布 JSON)、fan_region(城市分布 JSON)、fan_crowd(人群标签)、fan_price_range(客单价偏好)、fan_category(品类偏好)。热卖商品 TOP3 用 top_products 数组，每条含 name、price、gmv_range、video_count、shop_name。热卖类目 TOP3 用 top_categories 数组，每条含 name、avg_price、gmv、ratio。热卖品牌 TOP3 用 top_brands 数组，每条含 name、avg_price、gmv、ratio。所有字段名必须严格使用上述英文名。"""
+BUSINESS_VISION_PROMPT = """你是一个专业的抖音达人数据提取员。看到截图后按以下分组逐条提取，截图里没有的字段标注null，严禁跳过字段严禁概括省略，数字保留原始精度和原始格式（允许范围值如50万-100万）。输出一个扁平JSON对象：
+
+【总览基本信息】name(昵称)、douyin_id(抖音号)、city(城市)、followers(粉丝数)、level(等级)、bio(简介完整原文)、tags(内容标签数组)、cooperation_status(合作邀约状态)、agency(签约机构)；
+
+【带货核心数据】product_count(带货商品数)、total_history_days(历史带货天数)、total_shops(合作店铺数)、total_gmv(结算总额保留原始格式如50万-100万)、live_ratio(直播占比百分比数值如0)、live_sessions(带货直播场次)、live_views(直播观看人数)、video_ratio(视频占比百分比数值如99.16)、video_count(带货视频数量)、video_plays(视频播放量)、single_video_settlement(单视频结算额保留原始格式)、video_gpm(视频GPM保留原始格式)、average_price(平均件单价保留原始格式)、rating_score(带货评分0-5)、fulfillment_score(合作履约分0-5)；
+
+【带货商品列表】top_products数组，不限数量按截图列出，每条含name(商品名)、shop_name(店铺名)、price(到手价)、gmv_range(结算额区间如5万-10万)、video_count(关联短视频数)；
+
+【热卖类目TOP3】top_categories数组，每条含name(类目名)、avg_price(均价)、gmv(结算额)、ratio(占比百分比)；
+
+【热卖品牌TOP3】top_brands数组，每条含name(品牌名)、avg_price(均价)、gmv(结算额)、ratio(占比百分比)；
+
+【短视频详细指标】video_completion_rate(完播率百分比)、video_likes(点赞数)、video_comments(评论数)、video_shares(转发数)、video_interaction_rate(互动率百分比)、video_avg_price(视频平均件单价)；
+
+【粉丝分析】fan_gender(性别分布JSON如{"男":50,"女":50})、fan_age(年龄分布JSON如{"31-40":43})、fan_city_tier(城市等级分布JSON如{"三线城市":24})、fan_crowd(人群标签如都市银发23%)、fan_price_range(客单价偏好如50到100元30%)、fan_category(品类偏好如服装23%)；
+
+【粉丝团分析】fan_group_gender(性别分布JSON)、fan_group_age(年龄分布JSON如{"18-23":x,"24-30":x,"31-40":x,"41-50":x,"50+":x})、fan_group_crowd(八大消费人群占比JSON)、fan_group_activity(活跃度分布JSON)、fan_group_device(设备分布JSON)、fan_group_price(客单价水平JSON)、fan_group_category(类目分布JSON)；
+
+【直播间观众】live_audience_region(省份分布JSON含城市和占比)、live_audience_city_tier(城市等级分布JSON)；
+
+【短视频观众】video_audience_region(省份分布JSON含城市和占比)、video_audience_city_tier(城市等级分布JSON)；
+
+所有字段名必须严格使用上述英文名，数组和分布类字段输出为JSON对象或数组。"""
 
 # ═══════════════════════════════════════════════════
 # Embedding 配置（RAG 向量检索）
@@ -2532,6 +2554,17 @@ def init_db():
             ('ai_analysis', "TEXT DEFAULT ''"), ('ai_reason', "TEXT DEFAULT ''"), ('risk_rating', "TEXT DEFAULT ''"),
             ('group_id', "TEXT DEFAULT ''"), ('status', "TEXT DEFAULT 'active'"),
             ('created_by', "TEXT DEFAULT ''"),
+            # 达人数据提取（商务 vision）新增字段，全部 TEXT
+            ('total_history_days', "TEXT DEFAULT ''"), ('live_sessions', "TEXT DEFAULT ''"), ('live_views', "TEXT DEFAULT ''"),
+            ('video_plays', "TEXT DEFAULT ''"), ('single_video_settlement', "TEXT DEFAULT ''"),
+            ('video_completion_rate', "TEXT DEFAULT ''"), ('video_likes', "TEXT DEFAULT ''"), ('video_comments', "TEXT DEFAULT ''"),
+            ('video_shares', "TEXT DEFAULT ''"), ('video_interaction_rate', "TEXT DEFAULT ''"), ('video_avg_price', "TEXT DEFAULT ''"),
+            ('top_products', "TEXT DEFAULT '[]'"), ('top_categories', "TEXT DEFAULT '[]'"), ('top_brands', "TEXT DEFAULT '[]'"),
+            ('fan_city_tier', "TEXT DEFAULT '{}'"), ('fan_group_gender', "TEXT DEFAULT '{}'"), ('fan_group_age', "TEXT DEFAULT '{}'"),
+            ('fan_group_crowd', "TEXT DEFAULT '{}'"), ('fan_group_activity', "TEXT DEFAULT '{}'"), ('fan_group_device', "TEXT DEFAULT '{}'"),
+            ('fan_group_price', "TEXT DEFAULT '{}'"), ('fan_group_category', "TEXT DEFAULT '{}'"),
+            ('live_audience_region', "TEXT DEFAULT '{}'"), ('live_audience_city_tier', "TEXT DEFAULT '{}'"),
+            ('video_audience_region', "TEXT DEFAULT '{}'"), ('video_audience_city_tier', "TEXT DEFAULT '{}'"),
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
@@ -3052,7 +3085,16 @@ _TALENT_COLUMNS = [
     'live_ratio', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_gpm',
     'fan_gender', 'fan_age', 'fan_region', 'fan_crowd', 'fan_price_range',
     'fan_category', 'category', 'content_style', 'fans_profile', 'ai_tags', 'ai_rating', 'ai_summary',
-    'ai_analysis', 'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by', 'created_at', 'updated_at'
+    'ai_analysis',
+    'total_history_days', 'live_sessions', 'live_views', 'video_plays',
+    'single_video_settlement', 'video_completion_rate', 'video_likes', 'video_comments',
+    'video_shares', 'video_interaction_rate', 'video_avg_price',
+    'top_products', 'top_categories', 'top_brands',
+    'fan_city_tier', 'fan_group_gender', 'fan_group_age', 'fan_group_crowd',
+    'fan_group_activity', 'fan_group_device', 'fan_group_price', 'fan_group_category',
+    'live_audience_region', 'live_audience_city_tier',
+    'video_audience_region', 'video_audience_city_tier',
+    'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by', 'created_at', 'updated_at'
 ]
 
 _FOLLOW_UP_COLUMNS = [
@@ -3153,6 +3195,32 @@ def _talent_row_to_dict(row):
         'ai_rating': row['ai_rating'] or '',
         'ai_summary': row['ai_summary'] or '',
         'ai_analysis': row['ai_analysis'] or row['ai_summary'] or '',
+        'total_history_days': row['total_history_days'] or '',
+        'live_sessions': row['live_sessions'] or '',
+        'live_views': row['live_views'] or '',
+        'video_plays': row['video_plays'] or '',
+        'single_video_settlement': row['single_video_settlement'] or '',
+        'video_completion_rate': row['video_completion_rate'] or '',
+        'video_likes': row['video_likes'] or '',
+        'video_comments': row['video_comments'] or '',
+        'video_shares': row['video_shares'] or '',
+        'video_interaction_rate': row['video_interaction_rate'] or '',
+        'video_avg_price': row['video_avg_price'] or '',
+        'top_products': _json_col('top_products', []),
+        'top_categories': _json_col('top_categories', []),
+        'top_brands': _json_col('top_brands', []),
+        'fan_city_tier': _json_col('fan_city_tier', {}),
+        'fan_group_gender': _json_col('fan_group_gender', {}),
+        'fan_group_age': _json_col('fan_group_age', {}),
+        'fan_group_crowd': _json_col('fan_group_crowd', {}),
+        'fan_group_activity': _json_col('fan_group_activity', {}),
+        'fan_group_device': _json_col('fan_group_device', {}),
+        'fan_group_price': _json_col('fan_group_price', {}),
+        'fan_group_category': _json_col('fan_group_category', {}),
+        'live_audience_region': _json_col('live_audience_region', {}),
+        'live_audience_city_tier': _json_col('live_audience_city_tier', {}),
+        'video_audience_region': _json_col('video_audience_region', {}),
+        'video_audience_city_tier': _json_col('video_audience_city_tier', {}),
         'ai_reason': row['ai_reason'] or '',
         'risk_rating': row['risk_rating'] or '',
         'group_id': row['group_id'] or '',
@@ -3277,6 +3345,32 @@ def _dict_to_talent_row(t):
         'ai_rating': t.get('ai_rating') or t.get('aiRating') or '',
         'ai_summary': t.get('ai_summary') or t.get('aiSummary') or '',
         'ai_analysis': t.get('ai_analysis') or t.get('aiAnalysis') or t.get('ai_summary') or t.get('aiSummary') or '',
+        'total_history_days': t.get('total_history_days') or t.get('totalHistoryDays') or '',
+        'live_sessions': t.get('live_sessions') or t.get('liveSessions') or '',
+        'live_views': t.get('live_views') or t.get('liveViews') or '',
+        'video_plays': t.get('video_plays') or t.get('videoPlays') or '',
+        'single_video_settlement': t.get('single_video_settlement') or t.get('singleVideoSettlement') or '',
+        'video_completion_rate': t.get('video_completion_rate') or t.get('videoCompletionRate') or '',
+        'video_likes': t.get('video_likes') or t.get('videoLikes') or '',
+        'video_comments': t.get('video_comments') or t.get('videoComments') or '',
+        'video_shares': t.get('video_shares') or t.get('videoShares') or '',
+        'video_interaction_rate': t.get('video_interaction_rate') or t.get('videoInteractionRate') or '',
+        'video_avg_price': t.get('video_avg_price') or t.get('videoAvgPrice') or '',
+        'top_products': _dump(t.get('top_products', t.get('topProducts', []))),
+        'top_categories': _dump(t.get('top_categories', t.get('topCategories', []))),
+        'top_brands': _dump(t.get('top_brands', t.get('topBrands', []))),
+        'fan_city_tier': _dump(t.get('fan_city_tier', t.get('fanCityTier', {}))),
+        'fan_group_gender': _dump(t.get('fan_group_gender', t.get('fanGroupGender', {}))),
+        'fan_group_age': _dump(t.get('fan_group_age', t.get('fanGroupAge', {}))),
+        'fan_group_crowd': _dump(t.get('fan_group_crowd', t.get('fanGroupCrowd', {}))),
+        'fan_group_activity': _dump(t.get('fan_group_activity', t.get('fanGroupActivity', {}))),
+        'fan_group_device': _dump(t.get('fan_group_device', t.get('fanGroupDevice', {}))),
+        'fan_group_price': _dump(t.get('fan_group_price', t.get('fanGroupPrice', {}))),
+        'fan_group_category': _dump(t.get('fan_group_category', t.get('fanGroupCategory', {}))),
+        'live_audience_region': _dump(t.get('live_audience_region', t.get('liveAudienceRegion', {}))),
+        'live_audience_city_tier': _dump(t.get('live_audience_city_tier', t.get('liveAudienceCityTier', {}))),
+        'video_audience_region': _dump(t.get('video_audience_region', t.get('videoAudienceRegion', {}))),
+        'video_audience_city_tier': _dump(t.get('video_audience_city_tier', t.get('videoAudienceCityTier', {}))),
         'ai_reason': t.get('ai_reason') or t.get('aiReason') or '',
         'risk_rating': t.get('risk_rating') or t.get('riskRating') or '',
         'group_id': t.get('group_id') or t.get('groupId') or '',
