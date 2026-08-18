@@ -14794,6 +14794,8 @@ def _call_kimi_vision(image_base64, agent_id=None, role=None):
     body = {
         'model': KIMI_VISION_MODEL,
         'max_tokens': 1024,
+        # 关闭 extended thinking，强制模型只输出 text 块，不输出 thinking 块
+        'thinking': {'type': 'disabled'},
         'messages': [{
             'role': 'user',
             'content': [
