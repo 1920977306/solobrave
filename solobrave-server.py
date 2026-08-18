@@ -14816,10 +14816,21 @@ def _call_kimi_vision(image_base64, agent_id=None, role=None):
         ctx = ssl.create_default_context()
         resp = urllib.request.urlopen(req, timeout=60, context=ctx)
         resp_data = json.loads(resp.read().decode('utf-8', errors='replace'))
+        # content 数组可能以 thinking 思考块开头（无 text 字段）：跳过 thinking 块，
+        # 取第一个 type 为 text 的块；若全部为 thinking 块，则拼接所有 thinking 内容降级输出
+        thinking_parts = []
         for block in resp_data.get('content') or []:
-            if isinstance(block, dict) and block.get('type') == 'text' and block.get('text'):
+            if not isinstance(block, dict):
+                continue
+            if block.get('type') == 'text' and block.get('text'):
                 logger.info(f'  [Vision] 图片描述成功 len={len(block["text"])}')
                 return block['text']
+            if block.get('type') == 'thinking' and block.get('thinking'):
+                thinking_parts.append(block['thinking'])
+        if thinking_parts:
+            fallback = '\n'.join(thinking_parts)
+            logger.info(f'  [Vision] 响应无 text 块，降级返回 thinking 内容 len={len(fallback)}')
+            return fallback
         logger.error(f'  [Vision] 响应格式异常: {str(resp_data)[:300]}')
     except urllib.error.HTTPError as e:
         err_body = e.read().decode('utf-8', errors='replace')
