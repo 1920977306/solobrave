@@ -8797,7 +8797,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
         var visionResp = await apiFetch('/api/vision/describe', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ images: images, agent_id: emp.id })
+          body: JSON.stringify({ images: images, agent_id: emp.id, role: emp.role || '' })
         });
         if (visionResp && visionResp.ok) {
           var visionData = await visionResp.json();
@@ -20030,8 +20030,7 @@ function updateWizardUI() {
 }
 function updateWizConfirm() {
   var name = document.getElementById('wizName').value.trim() || '未命名';
-  var roleSel = document.getElementById('wizRole').value;
-  var role = roleSel === '' ? document.getElementById('wizOtherRole').value.trim() || '未设置' : roleSel;
+  var role = document.getElementById('wizRole').value;
   var avatarEl = document.querySelector('.wiz-avatar-opt.selected');
   var avatar = avatarEl ? avatarEl.dataset.avatar : '';
   var group = document.getElementById('wizGroup').value;
@@ -20067,6 +20066,18 @@ function selectWizAvatar(el) {
   });
   el.classList.add('selected');
 }
+// 员工创建向导：角色预设及对应 systemPrompt 模板（选择预设时自动填充，可自行编辑；选"自定义"则清空手填）
+const ROLE_TEMPLATES = {
+  '商务': '# 你是谁\n你是一名商务，负责商务拓展、客户合作与商机跟进。\n\n# 核心职责\n- 挖掘潜在客户与合作机会，推进商务洽谈\n- 维护客户关系，跟进合作进度与回款\n- 记录客户信息与商机进展，及时同步给老板\n\n# 说话风格\n- 专业、热情、有分寸，以达成合作和维护关系为目标\n- 涉及报价、合同等关键承诺时，必须先向老板确认',
+  '运营': '# 你是谁\n你是一名运营，负责用户运营、活动策划与内容运营。\n\n# 核心职责\n- 策划并执行运营活动，跟进活动数据与复盘\n- 负责内容选题、发布与日常维护\n- 关注用户反馈与增长数据，提出优化建议\n\n# 说话风格\n- 积极主动，数据说话，结论先行\n- 不确定的数据不乱报，如实说明来源',
+  '客服': '# 你是谁\n你是一名客服，负责客户咨询、问题解答与售后服务。\n\n# 核心职责\n- 及时、耐心地解答客户问题\n- 记录客户反馈与投诉，分类整理并上报\n- 跟进售后问题直到闭环\n\n# 说话风格\n- 礼貌、耐心、情绪稳定，不与客户争执\n- 无法解决的问题如实说明并升级给老板',
+  '助理': '# 你是谁\n你是一名助理，负责日程安排、事务协调与文档处理。\n\n# 核心职责\n- 协助老板安排日程、提醒重要事项\n- 整理文档、会议纪要等资料\n- 协调各部门/各同事之间的事务对接\n\n# 说话风格\n- 简洁、周到、有条理，多想一步\n- 不确定的安排先确认再执行',
+  '自定义': ''
+};
+function onWizRoleChange() {
+  var role = document.getElementById('wizRole').value;
+  document.getElementById('wizSystemPrompt').value = ROLE_TEMPLATES[role] || '';
+}
 function selectRoleTemplate(el) {
   document.querySelectorAll('.role-template-card').forEach(function (o) {
     o.classList.remove('selected');
@@ -20075,6 +20086,7 @@ function selectRoleTemplate(el) {
   var role = el.dataset.role;
   var desc = el.dataset.desc;
   document.getElementById('wizRole').value = role;
+  document.getElementById('wizSystemPrompt').value = ROLE_TEMPLATES[role] || '';
   document.getElementById('wizName').value = '';
   document.getElementById('wizName').placeholder = '给' + role + '起个名字...';
   var avatarIndex = parseInt(el.dataset.avatarIndex) || 0;
@@ -20187,7 +20199,6 @@ function skipSoulQuestion() {
 function finishSoulConfig() {
   var name = document.getElementById('wizName').value.trim() || '员工';
   var role = document.getElementById('wizRole').value;
-  if (role === '') role = document.getElementById('wizOtherRole').value.trim() || '未设置';
 
   // 生成 IDENTITY.md
   var identity = '# 身份\n\n';
@@ -20294,7 +20305,6 @@ async function finishWizard() {
     return;
   }
   var role = document.getElementById('wizRole').value;
-  if (role === '') role = document.getElementById('wizOtherRole').value.trim() || '未设置';
   var avatarEl = document.querySelector('.wiz-avatar-opt.selected');
   var avatarIndex = 0;
   if (avatarEl) {
@@ -20337,8 +20347,8 @@ async function finishWizard() {
   var newEmp = {
     id: _newId,
     name: name,
-    role: document.getElementById('wizRole').value === '' ? '__custom__' : role,
-    subCategory: document.getElementById('wizRole').value === '' ? role : '',
+    role: role,
+    subCategory: '',
     avatar: avatarIndex,
     bg: colors[emps.length % colors.length],
     status: status,
@@ -20898,45 +20908,30 @@ function doReset() {
 <div class="form-group">
 <label class="form-label">选择角色模板</label>
 <div class="role-template-grid" id="roleTemplateGrid">
-<div class="role-template-card" data-role="CEO助理" data-avatar-index="0" data-desc="协助CEO处理日常事务、安排日程、撰写邮件" onclick="selectRoleTemplate(this)">
-<div class="role-template-emoji">👔</div>
-<div class="role-template-name">CEO助理</div>
-<div class="role-template-desc">高管助手</div>
+<div class="role-template-card" data-role="商务" data-avatar-index="0" data-desc="商务拓展、客户合作、商机跟进" onclick="selectRoleTemplate(this)">
+<div class="role-template-emoji">💼</div>
+<div class="role-template-name">商务</div>
+<div class="role-template-desc">商务拓展</div>
 </div>
-<div class="role-template-card" data-role="前端工程师" data-avatar-index="1" data-desc="负责Web界面开发、用户体验优化" onclick="selectRoleTemplate(this)">
-<div class="role-template-emoji">💻</div>
-<div class="role-template-name">前端工程师</div>
-<div class="role-template-desc">界面开发</div>
-</div>
-<div class="role-template-card" data-role="后端工程师" data-avatar-index="2" data-desc="负责服务器端开发、数据库设计、API接口" onclick="selectRoleTemplate(this)">
-<div class="role-template-emoji">⚙️</div>
-<div class="role-template-name">后端工程师</div>
-<div class="role-template-desc">服务端开发</div>
-</div>
-<div class="role-template-card" data-role="设计师" data-avatar-index="3" data-desc="负责UI/UX设计、视觉创意、品牌设计" onclick="selectRoleTemplate(this)">
-<div class="role-template-emoji">🎨</div>
-<div class="role-template-name">设计师</div>
-<div class="role-template-desc">视觉创意</div>
-</div>
-<div class="role-template-card" data-role="产品经理" data-avatar-index="4" data-desc="负责产品规划、需求分析、项目管理" onclick="selectRoleTemplate(this)">
-<div class="role-template-emoji">📊</div>
-<div class="role-template-name">产品经理</div>
-<div class="role-template-desc">产品规划</div>
-</div>
-<div class="role-template-card" data-role="运营" data-avatar-index="5" data-desc="负责用户运营、活动策划、内容运营" onclick="selectRoleTemplate(this)">
+<div class="role-template-card" data-role="运营" data-avatar-index="1" data-desc="用户运营、活动策划、内容运营" onclick="selectRoleTemplate(this)">
 <div class="role-template-emoji">📢</div>
 <div class="role-template-name">运营</div>
 <div class="role-template-desc">用户增长</div>
 </div>
-<div class="role-template-card" data-role="客服" data-avatar-index="6" data-desc="负责客户咨询、问题解答、售后服务" onclick="selectRoleTemplate(this)">
+<div class="role-template-card" data-role="客服" data-avatar-index="2" data-desc="客户咨询、问题解答、售后服务" onclick="selectRoleTemplate(this)">
 <div class="role-template-emoji">🎧</div>
 <div class="role-template-name">客服</div>
 <div class="role-template-desc">客户服务</div>
 </div>
-<div class="role-template-card" data-role="数据分析师" data-avatar-index="7" data-desc="负责数据分析、报表制作、商业洞察" onclick="selectRoleTemplate(this)">
-<div class="role-template-emoji">📈</div>
-<div class="role-template-name">数据分析师</div>
-<div class="role-template-desc">数据洞察</div>
+<div class="role-template-card" data-role="助理" data-avatar-index="3" data-desc="日程安排、事务协调、文档处理" onclick="selectRoleTemplate(this)">
+<div class="role-template-emoji">👔</div>
+<div class="role-template-name">助理</div>
+<div class="role-template-desc">事务协助</div>
+</div>
+<div class="role-template-card" data-role="自定义" data-avatar-index="4" data-desc="自定义角色，手动填写人格设定" onclick="selectRoleTemplate(this)">
+<div class="role-template-emoji">✏️</div>
+<div class="role-template-name">自定义</div>
+<div class="role-template-desc">手动定义</div>
 </div>
 </div>
 </div>
@@ -20947,20 +20942,13 @@ function doReset() {
 </div>
 <div class="form-group">
 <label class="form-label">职位</label>
-<select class="form-select" id="wizRole" onchange="if(this.value===''){document.getElementById('wizOtherRoleWrap').style.display='block';document.getElementById('wizOtherRole').focus();}else{document.getElementById('wizOtherRoleWrap').style.display='none';}">
-<option>CEO助理</option>
-<option>前端工程师</option>
-<option>后端工程师</option>
-<option>设计师</option>
-<option>产品经理</option>
-<option>运营</option>
-<option>客服</option>
-<option>数据分析师</option>
-<option value="">✏️ 其他职位...</option>
+<select class="form-select" id="wizRole" onchange="onWizRoleChange()">
+<option value="商务">💼 商务</option>
+<option value="运营">📢 运营</option>
+<option value="客服">🎧 客服</option>
+<option value="助理">👔 助理</option>
+<option value="自定义">✏️ 自定义</option>
 </select>
-<div id="wizOtherRoleWrap" style="display:none;margin-top:8px;">
-<input type="text" class="form-input" id="wizOtherRole" placeholder="输入职位名称，如：全栈开发、架构师...">
-</div>
 </div>
 </div>
 <div id="wiz2" style="display:none">

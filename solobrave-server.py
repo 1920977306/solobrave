@@ -128,6 +128,11 @@ INFLUENCER_DIR = os.path.join(DATA_DIR, 'influencers')
 EMBEDDING_DIR = os.path.join(DATA_DIR, 'embeddings')
 DB_PATH = os.path.join(DATA_DIR, 'solobrave.db')
 
+# ═══ 图片识别提示词 ═══
+# role == '商务' 的 AI 员工调用 /api/vision/describe 时使用该专用提取提示词，
+# 其他角色沿用 _call_kimi_vision 内的通用提示词
+BUSINESS_VISION_PROMPT = """你是一个专业的抖音达人数据提取员。看到截图后必须按以下字段逐条提取，截图里没有的字段标注未提供，严禁跳过任何字段严禁概括省略所有数字必须保留原始精度。提取字段：【达人基础信息】昵称、抖音号、城市、粉丝数、等级L几、简介完整原文、内容标签、带货口碑分、合作邀约状态、关联企业、签约机构【核心带货数据含统计时间】带货商品数、历史带货天数、结算总额、结算总额近7天、带货形式（视频百分比和直播百分比）、视频总播放量、单视频结算额、视频GPM、发布内容总数、带货视频播放量、带货视频数量、平均件单价【带货评分5分制】带货评分、带货效果、合作履约、沟通态度、履约次数、评级（高中低）、合作态度标签【热卖商品TOP逐条列出】每条含商品名称完整、到手价、结算额区间、关联短视频数、店铺名称【热卖类目TOP逐条列出】每条含类目名称、均价、结算额、占比百分比【热卖品牌TOP逐条列出】每条含品牌名称、均价、结算额、占比百分比【粉丝画像每张截图分别提取】性别分布、年龄分布、城市分布、人群标签、客单价偏好、品类偏好，多张粉丝画像截图要分别标注来源维度（如短视频维度/总体维度），数据不同时都要保留。输出JSON格式，顶层key为上述分类名。"""
+
 # ═══════════════════════════════════════════════════
 # Embedding 配置（RAG 向量检索）
 # ═══════════════════════════════════════════════════
@@ -14767,11 +14772,13 @@ KIMI_VISION_URL = 'https://api.kimi.com/coding/v1/messages'
 KIMI_VISION_MODEL = 'kimi-for-coding'
 
 
-def _call_kimi_vision(image_base64, agent_id=None):
+def _call_kimi_vision(image_base64, agent_id=None, role=None):
     """调用 Kimi Code（Anthropic Messages）端点将图片转成文字描述；成功返回描述文字，失败返回 None。
     认证方式与 _handle_proxy_kimi 一致：x-api-key + anthropic-version，直连 api.kimi.com；
     key 优先取该员工在 agents.json 配置的 apiKey（同 proxy 逻辑），未配置用全局 key。
-    image_base64 可传完整 data URL（data:image/...;base64,...）或纯 base64 串。"""
+    image_base64 可传完整 data URL（data:image/...;base64,...）或纯 base64 串。
+    role 为该 AI 员工的角色：role == '商务' 时 system 提示词替换为 BUSINESS_VISION_PROMPT，
+    其他 role 沿用原有通用提示词（不加 system 字段）。"""
     if not image_base64:
         return None
     api_key = _get_agent_api_key(agent_id) or KIMI_VISION_API_KEY
@@ -14784,7 +14791,7 @@ def _call_kimi_vision(image_base64, agent_id=None):
         except Exception:
             logger.error('  [Vision] data URL 解析失败')
             return None
-    req_body = json.dumps({
+    body = {
         'model': KIMI_VISION_MODEL,
         'max_tokens': 1024,
         'messages': [{
@@ -14794,7 +14801,10 @@ def _call_kimi_vision(image_base64, agent_id=None):
                 {'type': 'text', 'text': '请描述这张图片的内容'}
             ]
         }]
-    }).encode('utf-8')
+    }
+    if role == '商务':
+        body['system'] = BUSINESS_VISION_PROMPT
+    req_body = json.dumps(body).encode('utf-8')
     headers = {
         'Content-Type': 'application/json',
         'x-api-key': api_key,
@@ -17261,6 +17271,22 @@ def _get_agent_api_key(agent_id):
     return None
 
 
+def _get_agent_role(agent_id):
+    """从 data/agents.json 读取该员工的 role 字段；找不到返回 None"""
+    if not agent_id:
+        return None
+    try:
+        agents = _read_json(AGENTS_FILE, [])
+        if not isinstance(agents, list):
+            return None
+        for a in agents:
+            if isinstance(a, dict) and a.get('id') == agent_id:
+                return a.get('role') or None
+    except Exception as e:
+        logger.error(f'  [Vision] 读取 agent role 失败 {agent_id}: {e}')
+    return None
+
+
 def _memory_pipeline_llm_call(model=None, api_key=None):
     """构造供 memory_pipeline 使用的 LLM 调用函数，签名 (prompt: str) -> str"""
     def _call(prompt):
@@ -17304,6 +17330,7 @@ def _handle_vision_describe(self):
         self._send_json(400, {'error': '缺少 images 字段'})
         return
     agent_id = body.get('agent_id')  # 可选：传入则优先用该员工自己的 apiKey（同 Kimi proxy 逻辑）
+    agent_role = _get_agent_role(agent_id)  # 查询该员工角色：'商务' 走专用提取提示词
 
     parts = []
     for idx, img in enumerate(images[:9], 1):
@@ -17311,7 +17338,7 @@ def _handle_vision_describe(self):
             b64 = img.get('base64') or img.get('url') or ''
         else:
             b64 = str(img)
-        desc = _call_kimi_vision(b64, agent_id=agent_id)
+        desc = _call_kimi_vision(b64, agent_id=agent_id, role=agent_role)
         parts.append(f'【图片{idx}描述】{desc if desc else "（图片识别失败）"}')
     self._send_json(200, {'text': '\n'.join(parts)})
 
