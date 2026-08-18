@@ -131,7 +131,7 @@ DB_PATH = os.path.join(DATA_DIR, 'solobrave.db')
 # ═══ 图片识别提示词 ═══
 # role == '商务' 的 AI 员工调用 /api/vision/describe 时使用该专用提取提示词，
 # 其他角色沿用 _call_kimi_vision 内的通用提示词
-BUSINESS_VISION_PROMPT = """你是一个专业的抖音达人数据提取员。看到截图后必须按以下字段逐条提取，截图里没有的字段标注未提供，严禁跳过任何字段严禁概括省略所有数字必须保留原始精度。提取字段：【达人基础信息】昵称、抖音号、城市、粉丝数、等级L几、简介完整原文、内容标签、带货口碑分、合作邀约状态、关联企业、签约机构【核心带货数据含统计时间】带货商品数、历史带货天数、结算总额、结算总额近7天、带货形式（视频百分比和直播百分比）、视频总播放量、单视频结算额、视频GPM、发布内容总数、带货视频播放量、带货视频数量、平均件单价【带货评分5分制】带货评分、带货效果、合作履约、沟通态度、履约次数、评级（高中低）、合作态度标签【热卖商品TOP逐条列出】每条含商品名称完整、到手价、结算额区间、关联短视频数、店铺名称【热卖类目TOP逐条列出】每条含类目名称、均价、结算额、占比百分比【热卖品牌TOP逐条列出】每条含品牌名称、均价、结算额、占比百分比【粉丝画像每张截图分别提取】性别分布、年龄分布、城市分布、人群标签、客单价偏好、品类偏好，多张粉丝画像截图要分别标注来源维度（如短视频维度/总体维度），数据不同时都要保留。输出JSON格式，顶层key为上述分类名。"""
+BUSINESS_VISION_PROMPT = """你是一个专业的抖音达人数据提取员。看到截图后必须按以下字段逐条提取，截图里没有的字段标注 null，严禁跳过任何字段严禁概括省略所有数字必须保留原始精度。输出一个扁平 JSON 对象，key 为英文字段名：name(昵称)、douyin_id(抖音号)、city(城市)、followers(粉丝数，纯数字)、level(等级如 L3)、bio(简介完整原文)、tags(内容标签数组)、cooperation_status(合作邀约状态)、agency(签约机构)、product_count(带货商品数)、total_gmv(结算总额，纯数字)、live_ratio(直播占比百分比数值)、video_ratio(视频占比百分比数值)、video_gpm(视频 GPM)、average_price(平均件单价)、rating_score(带货评分 0-5)、fulfillment_score(合作履约分 0-5)、fan_gender(性别分布 JSON 如{"男":30,"女":70})、fan_age(年龄分布 JSON)、fan_region(城市分布 JSON)、fan_crowd(人群标签)、fan_price_range(客单价偏好)、fan_category(品类偏好)。热卖商品 TOP3 用 top_products 数组，每条含 name、price、gmv_range、video_count、shop_name。热卖类目 TOP3 用 top_categories 数组，每条含 name、avg_price、gmv、ratio。热卖品牌 TOP3 用 top_brands 数组，每条含 name、avg_price、gmv、ratio。所有字段名必须严格使用上述英文名。"""
 
 # ═══════════════════════════════════════════════════
 # Embedding 配置（RAG 向量检索）
