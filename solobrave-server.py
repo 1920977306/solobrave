@@ -3804,6 +3804,36 @@ def _load_knowledge_base(emp_id, keyword=None, status=None, limit=200):
         conn.close()
 
 
+# 知识库自动分类规则：(内容关键词组, 分类名包含字)
+_KB_CATEGORY_RULES = [
+    (('达人', '带货', '粉丝', '人群分析'), '达人'),
+    (('商品', '选品', '开衫', 'SKU'), '商品'),
+    (('投流', '自然流', '流量', 'ROI'), '流量'),
+]
+
+
+def _guess_kb_category_id(conn, content):
+    """根据内容关键词匹配 knowledge_categories 现有分类，返回 category_id；匹配不到返回 None。"""
+    try:
+        cats = conn.execute('SELECT id, name FROM knowledge_categories').fetchall()
+    except Exception:
+        return None
+    if not cats:
+        return None
+    text = content or ''
+    for keywords, name_hint in _KB_CATEGORY_RULES:
+        if any(kw in text for kw in keywords):
+            for c in cats:
+                if name_hint in (c['name'] or ''):
+                    return c['id']
+    # 兜底：名为“通用”或“其他”的分类
+    for fallback in ('通用', '其他'):
+        for c in cats:
+            if fallback in (c['name'] or ''):
+                return c['id']
+    return None
+
+
 def _upsert_knowledge_base(kb):
     """插入或更新 kb_entries（新版知识库表）；status='active' 映射为 'ok'，其余为 'pending'。
     旧表 knowledge_base 已废弃，不再写入。"""
@@ -3815,6 +3845,9 @@ def _upsert_knowledge_base(kb):
         # 状态映射：active → ok；决策关键词触发也直接 ok；其余 pending
         new_status = 'ok' if kb.get('status') == 'active' or _contains_decision_keyword(content) else 'pending'
         category_id = int(kb.get('categoryId') or kb.get('category_id')) if kb.get('categoryId') or kb.get('category_id') else None
+        # 未显式指定分类时按内容关键词自动分类
+        if category_id is None:
+            category_id = _guess_kb_category_id(conn, content)
         project_id = (kb.get('projectId') or kb.get('project_id') or '').strip()
         emp_id = kb.get('empId') or kb.get('emp_id') or ''
         # 按 id 更新
@@ -3867,7 +3900,11 @@ def _upsert_knowledge_base(kb):
 _KB_LOW_QUALITY_KEYWORDS = [
     '未能识别', '提取为空', '未能提取', '请用户重新发送', '请用户重发',
     '无法识别', '识别失败',
+    '你识别一下', '帮我看看', '你看一下', '分析一下',
 ]
+
+# 有效数据字段/线索：短内容中不含这些则判为低质量
+_KB_DATA_FIELD_HINTS = ['product_count', 'total_gmv', 'gmv', '达人', '粉丝']
 
 
 def _is_low_quality_knowledge(content, title=''):
@@ -3889,6 +3926,12 @@ def _is_low_quality_knowledge(content, title=''):
                         return True
         except Exception:
             pass
+    # 短内容且无有效数据字段/数字 → 视为无信息量的指令或寒暄
+    stripped = (content or '').strip()
+    if 0 < len(stripped) < 30:
+        has_data = any(h in stripped for h in _KB_DATA_FIELD_HINTS) or any(ch.isdigit() for ch in stripped)
+        if not has_data:
+            return True
     return False
 
 
