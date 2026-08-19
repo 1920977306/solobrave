@@ -17445,6 +17445,23 @@ def _memory_pipeline_llm_call(model=None, api_key=None):
     return _call
 
 
+def _parse_vision_description(raw_desc):
+    """解析 vision 响应：兼容 markdown 代码块包裹的 JSON 和纯文本"""
+    if not raw_desc:
+        return raw_desc
+    import re
+    # 去掉 ```json ... ``` 包裹
+    m = re.search(r'```(?:json)?\s*\n?(.*?)\n?\s*```', raw_desc, re.DOTALL)
+    if m:
+        json_str = m.group(1).strip()
+        try:
+            obj = json.loads(json_str)
+            return obj.get('description', json_str)
+        except (json.JSONDecodeError, AttributeError):
+            return json_str
+    return raw_desc
+
+
 def _handle_vision_describe(self):
     """POST /api/vision/describe — 图片转文字描述。
     body: {images: [{base64}|{url}|string, ...]}（最多9张，与前端发图上限一致）
@@ -17472,6 +17489,7 @@ def _handle_vision_describe(self):
         else:
             b64 = str(img)
         desc = _call_kimi_vision(b64, agent_id=agent_id, role=agent_role)
+        desc = _parse_vision_description(desc)  # 新增：清理格式
         parts.append(f'【图片{idx}描述】{desc if desc else "（图片识别失败）"}')
     logger.info(f'[Vision] 图片描述内容: {chr(10).join(parts)[:500]}')
     self._send_json(200, {'text': '\n'.join(parts)})
