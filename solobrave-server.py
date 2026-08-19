@@ -17945,17 +17945,23 @@ def _handle_proxy_kimi(self):
                             break
                     if data_str and data_str != '[DONE]':
                             data_json = json.loads(data_str)
-                            if data_json.get('type') == 'message_start':
+                            evt_type = data_json.get('type', '')
+                            if evt_type == 'message_start':
                                 usage = data_json.get('message', {}).get('usage', {})
                                 input_tokens = usage.get('input_tokens', 0)
-                            elif data_json.get('type') == 'message_delta':
+                            elif evt_type == 'message_delta':
                                 usage = data_json.get('usage', {})
                                 output_tokens = usage.get('output_tokens', output_tokens)
-                except Exception:
-                    pass
+                            elif evt_type == 'message_stop':
+                                pass
+                            else:
+                                print(f'  [KimiProxy] SSE未识别事件type={evt_type!r} keys={list(data_json.keys())}', flush=True)
+                except Exception as sse_err:
+                    print(f'  [KimiProxy] SSE解析异常: {sse_err}', flush=True)
 
         # 9. 扣减积分（响应完成后扣减，不阻塞响应）
         _timing('stream_transfer', _t)
+        print(f'  [KimiProxy] 流式结束: agent_id={agent_id} input_tokens={input_tokens} output_tokens={output_tokens}', flush=True)
         if agent_id and (input_tokens or output_tokens):
             conn = _db_conn()
             try:
@@ -17981,6 +17987,7 @@ def _handle_proxy_kimi(self):
             input_tokens = usage.get('input_tokens', 0)
             output_tokens = usage.get('output_tokens', 0)
 
+            print(f'  [KimiProxy] 非流式结束: agent_id={agent_id} input_tokens={input_tokens} output_tokens={output_tokens}', flush=True)
             if agent_id and (input_tokens or output_tokens):
                 conn = _db_conn()
                 try:
@@ -17988,8 +17995,8 @@ def _handle_proxy_kimi(self):
                     conn.commit()
                 finally:
                     conn.close()
-        except Exception:
-            pass
+        except Exception as ns_err:
+            print(f'  [KimiProxy] 非流式usage解析异常: {ns_err}', flush=True)
 
     # 10. Memory Pipeline：检查是否触发 L1 事实提取（响应已发出，失败不影响客户端）
     if agent_id:
