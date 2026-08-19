@@ -17504,6 +17504,22 @@ def _handle_proxy_kimi(self):
 
     # 4.1 入口日志：记录请求关键信息（agent_id/messages 条数/最后一条用户消息/大小），
     #     便于事后定位是哪一步、哪个请求出问题
+    # DIAG: 打印最后一条 user 消息的完整 content 结构
+    try:
+        _diag_last_user = None
+        for _m in (body.get('messages') or []):
+            if isinstance(_m, dict) and _m.get('role') == 'user':
+                _diag_last_user = _m
+        if _diag_last_user is not None:
+            _diag_content = _diag_last_user.get('content')
+            _diag_json = json.dumps(_diag_content, ensure_ascii=False)[:500]
+            if isinstance(_diag_content, list):
+                _diag_types = [b.get('type', '?') if isinstance(b, dict) else type(b).__name__ for b in _diag_content]
+            else:
+                _diag_types = type(_diag_content).__name__
+            print(f'  [KimiProxy] DIAG last_user content_types={_diag_types} content={_diag_json!r}', flush=True)
+    except Exception as _diag_err:
+        print(f'  [KimiProxy] DIAG异常: {_diag_err}', flush=True)
     user_message = _extract_last_user_message(body)
     _msgs = body.get('messages') or []
     _img_info = []
