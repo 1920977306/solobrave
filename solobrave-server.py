@@ -17949,8 +17949,8 @@ def _handle_proxy_kimi(self):
                     event_text = event_str.decode('utf-8')
                     data_str = None
                     for line in event_text.split('\n'):
-                        if line.startswith('data: '):
-                            data_str = line[6:].strip()
+                        if line.startswith('data:'):
+                            data_str = line[5:].strip()
                             break
                     if data_str and data_str != '[DONE]':
                             data_json = json.loads(data_str)
