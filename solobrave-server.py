@@ -17925,9 +17925,18 @@ def _handle_proxy_kimi(self):
         input_tokens = 0
         output_tokens = 0
         buffer = b''
+        _chunk_count = 0
+        _first_chunk_logged = False
 
         _t = time.perf_counter()
         for chunk in iter(lambda: resp.read(4096), b''):
+            _chunk_count += 1
+            # 前3个chunk打样本日志
+            if not _first_chunk_logged and _chunk_count <= 3:
+                sample = chunk[:300].decode('utf-8', errors='replace')
+                print(f'  [KimiProxy] SSE chunk#{_chunk_count} len={len(chunk)} sample={sample!r}', flush=True)
+                if _chunk_count == 3:
+                    _first_chunk_logged = True
             # 转发给客户端
             self.wfile.write(chunk)
             self.wfile.flush()
@@ -17961,7 +17970,7 @@ def _handle_proxy_kimi(self):
 
         # 9. 扣减积分（响应完成后扣减，不阻塞响应）
         _timing('stream_transfer', _t)
-        print(f'  [KimiProxy] 流式结束: agent_id={agent_id} input_tokens={input_tokens} output_tokens={output_tokens}', flush=True)
+        print(f'  [KimiProxy] 流式结束: agent_id={agent_id} input_tokens={input_tokens} output_tokens={output_tokens} chunks={_chunk_count}', flush=True)
         if agent_id and (input_tokens or output_tokens):
             conn = _db_conn()
             try:
