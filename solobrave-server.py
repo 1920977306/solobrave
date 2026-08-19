@@ -3863,11 +3863,44 @@ def _upsert_knowledge_base(kb):
         conn.close()
 
 
+# 知识库写入质量过滤：命中以下任一关键词的内容视为系统操作反馈（识别失败/数据为空等），不写入知识库
+_KB_LOW_QUALITY_KEYWORDS = [
+    '未能识别', '提取为空', '未能提取', '请用户重新发送', '请用户重发',
+    '无法识别', '识别失败',
+]
+
+
+def _is_low_quality_knowledge(content, title=''):
+    """判断内容是否为无价值的操作反馈，命中则不应写入知识库（过滤条件集中在此，便于扩展）。"""
+    text = (title or '') + '\n' + (content or '')
+    for kw in _KB_LOW_QUALITY_KEYWORDS:
+        if kw in text:
+            return True
+    # vision 数据提取流程：输出扁平 JSON，若提取字段全为空（null/0/''）则视为无效提取
+    if 'product_count' in text or 'total_gmv' in text:
+        try:
+            m = re.search(r'\{.*\}', text, re.S)
+            if m:
+                data = json.loads(m.group(0))
+                if isinstance(data, dict) and data:
+                    def _empty(v):
+                        return v is None or v in ('', 0, '0', 'null')
+                    if all(_empty(v) for v in data.values()):
+                        return True
+        except Exception:
+            pass
+    return False
+
+
 def _auto_check_knowledge(emp_id, mem_id, value, tags=None):
     """保存记忆时自动检查是否应沉淀到知识库（决策直接 active；重复>=阈值）"""
     if not value:
         return None
     content = str(value)
+    # 质量过滤：识别失败/数据为空等操作反馈不写入知识库
+    if _is_low_quality_knowledge(content):
+        logger.info(f'  [KnowledgeBase] {emp_id} 跳过低质量内容写入: {content[:60]}...')
+        return None
     # 决策触发：直接沉淀为 active
     if _contains_decision_keyword(content):
         title = content[:40] + ('...' if len(content) > 40 else '')
@@ -10062,6 +10095,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 self._send_json_error(400, 'Missing title/content or memId')
                 return
+        # 质量过滤：识别失败/数据为空等操作反馈不写入知识库
+        if _is_low_quality_knowledge(content, title):
+            logger.info(f'  [KnowledgeBase] {emp_id} 手动标记跳过低质量内容: {str(content)[:60]}...')
+            self._send_json(200, {'success': True, 'empId': emp_id, 'knowledgeId': None, 'filtered': True})
+            return
         try:
             kb_id = _upsert_knowledge_base({
                 'empId': emp_id,
