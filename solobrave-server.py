@@ -17447,7 +17447,9 @@ def _handle_vision_describe(self):
             b64 = str(img)
         desc = _call_kimi_vision(b64, agent_id=agent_id, role=agent_role)
         parts.append(f'【图片{idx}描述】{desc if desc else "（图片识别失败）"}')
+    logger.info(f'[Vision] 图片描述内容: {chr(10).join(parts)[:500]}')
     self._send_json(200, {'text': '\n'.join(parts)})
+    logger.info(f'[Vision] 图片描述内容: {chr(10).join(parts)[:500]}')
 
 
 def _handle_proxy_kimi(self):
