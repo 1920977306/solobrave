@@ -3805,69 +3805,57 @@ def _load_knowledge_base(emp_id, keyword=None, status=None, limit=200):
 
 
 def _upsert_knowledge_base(kb):
-    """插入或更新 knowledge_base；evidence_count>=阈值 或决策触发时标记 active"""
+    """插入或更新 kb_entries（新版知识库表）；status='active' 映射为 'ok'，其余为 'pending'。
+    旧表 knowledge_base 已废弃，不再写入。"""
     conn = _db_conn()
     try:
         now = int(time.time() * 1000)
         kb_id = kb.get('id') or ('kb_' + str(uuid.uuid4())[:8])
+        content = kb.get('content', '')
+        # 状态映射：active → ok；决策关键词触发也直接 ok；其余 pending
+        new_status = 'ok' if kb.get('status') == 'active' or _contains_decision_keyword(content) else 'pending'
+        category_id = int(kb.get('categoryId') or kb.get('category_id')) if kb.get('categoryId') or kb.get('category_id') else None
+        project_id = (kb.get('projectId') or kb.get('project_id') or '').strip()
+        emp_id = kb.get('empId') or kb.get('emp_id') or ''
         # 按 id 更新
         existing = conn.execute(
-            'SELECT evidence_count, related_mem_ids, status FROM knowledge_base WHERE id = ?', (kb_id,)
+            'SELECT status, category_id, project_id FROM kb_entries WHERE id = ?', (kb_id,)
         ).fetchone()
         if existing:
-            old_ids = _parse_json_col(existing['related_mem_ids'], [])
-            new_ids = list(dict.fromkeys(old_ids + _parse_json_col(kb.get('relatedMemIds') or kb.get('related_mem_ids'), [])))
-            count = existing['evidence_count'] + int(kb.get('evidenceCount') or 1)
-            kb_min = MEMORY_INDUCTION_THRESHOLDS['knowledge_repeat_min']
-            new_status = 'active' if count >= kb_min or kb.get('status') == 'active' or existing['status'] == 'active' else existing['status']
-            category_id = int(kb.get('categoryId') or kb.get('category_id')) if kb.get('categoryId') or kb.get('category_id') else existing.get('category_id')
-            project_id = (kb.get('projectId') or kb.get('project_id') or existing.get('project_id') or '').strip()
+            if existing['status'] == 'ok':
+                new_status = 'ok'
             conn.execute('''
-                UPDATE knowledge_base SET title=?, content=?, source=?, tags=?,
-                evidence_count=?, related_mem_ids=?, category_id=?, project_id=?, status=?, updated_at=?
+                UPDATE kb_entries SET title=?, content=?, category_id=?, project_id=?, status=?, updated_at=?
                 WHERE id=?
             ''', (
-                kb.get('title', ''), kb.get('content', ''), kb.get('source', 'manual'),
-                _dump_json_col(kb.get('tags')), count, _dump_json_col(new_ids),
-                category_id, project_id, new_status, now, kb_id
+                kb.get('title', ''), content,
+                category_id if category_id is not None else existing['category_id'],
+                project_id or existing['project_id'],
+                new_status, now, kb_id
             ))
             conn.commit()
             return kb_id
-        # 按内容相似合并（简单子串匹配）
+        # 按内容相似合并（简单子串匹配），避免重复条目
         candidates = conn.execute(
-            "SELECT id, title, content, evidence_count, related_mem_ids, status FROM knowledge_base WHERE (emp_id=? OR emp_id IS NULL) AND status='active'",
-            (kb.get('empId') or kb.get('emp_id'),)
+            "SELECT id, title, content, status FROM kb_entries WHERE (emp_id=? OR emp_id='' OR emp_id IS NULL) AND status='ok'",
+            (emp_id,)
         ).fetchall()
-        content = kb.get('content', '')
-        kb_min = MEMORY_INDUCTION_THRESHOLDS['knowledge_repeat_min']
         for cand in candidates:
             if content and (content in cand['content'] or cand['content'] in content or content in cand['title']):
-                old_ids = _parse_json_col(cand['related_mem_ids'], [])
-                new_ids = list(dict.fromkeys(old_ids + _parse_json_col(kb.get('relatedMemIds') or kb.get('related_mem_ids'), [])))
-                count = cand['evidence_count'] + int(kb.get('evidenceCount') or 1)
-                new_status = 'active' if count >= kb_min or kb.get('status') == 'active' or cand['status'] == 'active' else cand['status']
                 conn.execute(
-                    'UPDATE knowledge_base SET evidence_count=?, related_mem_ids=?, status=?, updated_at=? WHERE id=?',
-                    (count, _dump_json_col(new_ids), new_status, now, cand['id'])
+                    'UPDATE kb_entries SET status=?, updated_at=? WHERE id=?',
+                    ('ok' if new_status == 'ok' else cand['status'], now, cand['id'])
                 )
                 conn.commit()
                 return cand['id']
         created_at = kb.get('createdAt') or kb.get('created_at') or now
-        status = kb.get('status', 'pending')
-        if _contains_decision_keyword(content):
-            status = 'active'
-        category_id = int(kb.get('categoryId') or kb.get('category_id')) if kb.get('categoryId') or kb.get('category_id') else None
-        project_id = (kb.get('projectId') or kb.get('project_id') or '').strip()
         conn.execute('''
-            INSERT INTO knowledge_base (id, emp_id, title, content, source, tags, evidence_count, related_mem_ids, category_id, project_id, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO kb_entries (id, title, content, category_id, project_id, scope, emp_id, status, chunk_count, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'global', ?, ?, 0, '', ?, ?)
         ''', (
-            kb_id, kb.get('empId') or kb.get('emp_id'), kb.get('title', ''), kb.get('content', ''),
-            kb.get('source', 'manual'), _dump_json_col(kb.get('tags')),
-            int(kb.get('evidenceCount') or 1),
-            _dump_json_col(kb.get('relatedMemIds') or kb.get('related_mem_ids')),
-            category_id, project_id,
-            status, created_at, now
+            kb_id, kb.get('title', ''), content,
+            category_id, project_id, emp_id,
+            new_status, created_at, now
         ))
         conn.commit()
         return kb_id
