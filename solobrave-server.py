@@ -17506,9 +17506,18 @@ def _handle_proxy_kimi(self):
     #     便于事后定位是哪一步、哪个请求出问题
     user_message = _extract_last_user_message(body)
     _msgs = body.get('messages') or []
+    _img_info = []
+    for _m in (_msgs if isinstance(_msgs, list) else []):
+        _content = _m.get('content')
+        if isinstance(_content, list):
+            for _block in _content:
+                if isinstance(_block, dict) and _block.get('type') == 'image':
+                    _src = _block.get('source', {})
+                    _data = _src.get('data', '')
+                    _img_info.append(f'type={_src.get("type","?")} media={_src.get("media_type","?")} size={len(_data)}chars')
     _body_str = json.dumps(body, ensure_ascii=False)
     logger.info(
-        f'[KimiProxy] 请求进入: agent_id={agent_id} '
+        f'[KimiProxy] 请求进入: agent_id={agent_id} images={_img_info} '
         f'messages={len(_msgs) if isinstance(_msgs, list) else "?"} '
         f'last_user={(user_message or "")[:200]!r} '
         f'body_bytes={len(_body_str.encode("utf-8"))} ~tokens={len(_body_str) // 4}'
