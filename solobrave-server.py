@@ -1132,7 +1132,7 @@ def _ensure_knowledge_admin_agent():
 
 # 可用模块列表（与 switchModule 取值对齐）
 AVAILABLE_MODULES = [
-    'dashboard', 'messages', 'knowledge', 'settings', 'products', 'groups', 'influencers'
+    'dashboard', 'messages', 'knowledge', 'settings', 'products', 'groups', 'influencers', 'employees'
 ]
 
 
@@ -1140,7 +1140,7 @@ def _default_permission_templates():
     """默认角色权限模板
 
     角色：超级管理员 / 管理员 / 普通用户
-    模块 key：dashboard/messages/knowledge/settings/products/groups/influencers
+    模块 key：dashboard/messages/knowledge/settings/products/groups/influencers/employees
     """
     superadmin_modules = {m: True for m in AVAILABLE_MODULES}
     admin_modules = {m: True for m in AVAILABLE_MODULES}
@@ -1154,6 +1154,7 @@ def _default_permission_templates():
         'groups': True,
         'influencers': True,
         'settings': False,
+        'employees': False,
     }
     return {
         'version': '1.0',
