@@ -3860,6 +3860,17 @@ def _guess_kb_category_id(conn, content):
     return _resolve('公共', '公共知识')
 
 
+def _kb_category_name_by_id(conn, category_id):
+    """按 id 查 knowledge_categories 名称，查不到返回空串（用于同步 kb_entries.category 冗余字段）"""
+    if not category_id:
+        return ''
+    try:
+        row = conn.execute('SELECT name FROM knowledge_categories WHERE id = ?', (category_id,)).fetchone()
+        return (row['name'] or '') if row else ''
+    except Exception:
+        return ''
+
+
 def _upsert_knowledge_base(kb):
     """插入或更新 kb_entries（新版知识库表）；status='active' 映射为 'ok'，其余为 'pending'。
     旧表 knowledge_base 已废弃，不再写入。"""
@@ -3874,6 +3885,8 @@ def _upsert_knowledge_base(kb):
         # 未显式指定分类时按内容关键词自动分类
         if category_id is None:
             category_id = _guess_kb_category_id(conn, content)
+        # category 冗余名称字段始终与 category_id 同步
+        category_name = _kb_category_name_by_id(conn, category_id)
         project_id = (kb.get('projectId') or kb.get('project_id') or '').strip()
         emp_id = kb.get('empId') or kb.get('emp_id') or ''
         # 按 id 更新
@@ -3883,12 +3896,14 @@ def _upsert_knowledge_base(kb):
         if existing:
             if existing['status'] == 'ok':
                 new_status = 'ok'
+            final_category_id = category_id if category_id is not None else existing['category_id']
+            final_category_name = category_name if category_id is not None else _kb_category_name_by_id(conn, existing['category_id'])
             conn.execute('''
-                UPDATE kb_entries SET title=?, content=?, category_id=?, project_id=?, status=?, updated_at=?
+                UPDATE kb_entries SET title=?, content=?, category_id=?, category=?, project_id=?, status=?, updated_at=?
                 WHERE id=?
             ''', (
                 kb.get('title', ''), content,
-                category_id if category_id is not None else existing['category_id'],
+                final_category_id, final_category_name,
                 project_id or existing['project_id'],
                 new_status, now, kb_id
             ))
@@ -3901,20 +3916,26 @@ def _upsert_knowledge_base(kb):
         ).fetchall()
         for cand in candidates:
             if content and (content in cand['content'] or cand['content'] in content or content in cand['title']):
-                # 回填自动匹配到的 category_id（原条目已有分类时保留）
-                conn.execute(
-                    'UPDATE kb_entries SET status=?, updated_at=?, category_id=COALESCE(?, category_id) WHERE id=?',
-                    ('ok' if new_status == 'ok' else cand['status'], now, category_id, cand['id'])
-                )
+                # 回填自动匹配到的 category_id 及分类名称（原条目已有分类时保留）
+                if category_id is not None:
+                    conn.execute(
+                        'UPDATE kb_entries SET status=?, updated_at=?, category_id=?, category=? WHERE id=?',
+                        ('ok' if new_status == 'ok' else cand['status'], now, category_id, category_name, cand['id'])
+                    )
+                else:
+                    conn.execute(
+                        'UPDATE kb_entries SET status=?, updated_at=? WHERE id=?',
+                        ('ok' if new_status == 'ok' else cand['status'], now, cand['id'])
+                    )
                 conn.commit()
                 return cand['id']
         created_at = kb.get('createdAt') or kb.get('created_at') or now
         conn.execute('''
-            INSERT INTO kb_entries (id, title, content, category_id, project_id, scope, emp_id, status, chunk_count, created_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'global', ?, ?, 0, '', ?, ?)
+            INSERT INTO kb_entries (id, title, content, category, category_id, project_id, scope, emp_id, status, chunk_count, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'global', ?, ?, 0, '', ?, ?)
         ''', (
             kb_id, kb.get('title', ''), content,
-            category_id, project_id, emp_id,
+            category_name, category_id, project_id, emp_id,
             new_status, created_at, now
         ))
         conn.commit()
