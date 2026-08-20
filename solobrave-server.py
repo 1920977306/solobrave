@@ -4017,6 +4017,146 @@ def _auto_check_knowledge(emp_id, mem_id, value, tags=None):
     })
 
 
+# ═══ AI 分析结论自动入库 ═══
+# 判定为“分析结论”的标记词（结论四选一 + 常见分析收口语）
+_ANALYSIS_CONCLUSION_MARKERS = ('建议合作', '建议测试', '建议观望', '不建议', '分析结论', '综合建议', '分析结果')
+_ANALYSIS_MIN_LENGTH = 80          # 低于该长度不可能是完整分析
+_ANALYSIS_DEDUP_THRESHOLD = 0.92   # 语义相似度 ≥ 该值视为重复，不再写入
+
+
+def _auto_save_analysis_enabled():
+    """分析结论自动入库开关：settings.json 中 auto_save_analysis，默认开启；设为 false 关闭"""
+    try:
+        settings = _read_json(SETTINGS_FILE, {}) or {}
+    except Exception:
+        return True
+    value = settings.get('auto_save_analysis', True)
+    if isinstance(value, str):
+        return value.strip().lower() not in ('0', 'false', 'no', 'off')
+    return bool(value)
+
+
+def _is_analysis_conclusion(text):
+    """粗判 AI 回复是否为数据分析结论（长度 + 结论标记词）"""
+    if not text or len(text) < _ANALYSIS_MIN_LENGTH:
+        return False
+    return any(m in text for m in _ANALYSIS_CONCLUSION_MARKERS)
+
+
+def _extract_analysis_title(content, user_text=''):
+    """生成分析结论条目标题：业务前缀 + 结论句摘要（如“达人分析：建议合作，…”）"""
+    prefix = '分析结论'
+    for keywords, hint in _KB_CATEGORY_RULES:
+        if any(kw in (content or '') for kw in keywords):
+            prefix = hint + '分析'
+            break
+    for line in (content or '').split('\n'):
+        for m in ('建议合作', '建议测试', '建议观望', '不建议'):
+            idx = line.find(m)
+            if idx >= 0:
+                # 从结论标记词起截取（而非行首），避免长行截到无关开头
+                seg = line[idx:idx + 24].strip().rstrip('。，,')
+                if seg:
+                    return f'{prefix}：{seg}'
+    base = ((user_text or '').strip() or (content or '').strip()).split('\n')[0][:24]
+    return f'{prefix}：{base}'
+
+
+def _find_similar_kb_entry(conn, content, threshold=_ANALYSIS_DEDUP_THRESHOLD):
+    """语义去重：与已有 kb_entry_chunks 的向量做余弦相似度，>= threshold 视为重复。
+    返回 (entry_id, similarity)；无 embedding 配置/无任何向量/异常时返回 None（不去重）。"""
+    emb_cfg = get_embedding_config()
+    api_key = emb_cfg.get('apiKey')
+    if not api_key:
+        return None
+    try:
+        query_emb = get_embedding(content[:2000], api_key, emb_cfg.get('provider', 'openai'),
+                                  model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
+    except Exception as e:
+        logger.warning(f'  [AutoSaveAnalysis] 去重 embedding 获取失败: {e}')
+        return None
+    if not query_emb:
+        return None
+    try:
+        import struct
+        rows = conn.execute(
+            'SELECT entry_id, embedding FROM kb_entry_chunks WHERE embedding IS NOT NULL AND embedding_model = ?',
+            (emb_cfg.get('model') or '',)
+        ).fetchall()
+    except Exception:
+        return None
+    best_id, best_sim = None, 0.0
+    for row in rows:
+        try:
+            emb = struct.unpack(f'{len(row["embedding"]) // 4}f', row['embedding'])
+            sim = cosine_similarity(query_emb, emb)
+            if sim > best_sim:
+                best_id, best_sim = row['entry_id'], sim
+        except Exception:
+            continue
+    if best_id and best_sim >= threshold:
+        return best_id, best_sim
+    return None
+
+
+def _vectorize_kb_entry(kb_id, content):
+    """为入库的分析结论条目分段并生成 embedding（走 settings.json 配置的 embedding API，如硅基流动）。
+    仅当条目内容与本次结论一致（新插入/同 id 更新）时才重建分段，避免覆盖被合并旧条目的分段。"""
+    emb_cfg = get_embedding_config()
+    api_key = emb_cfg.get('apiKey')
+    if not api_key:
+        logger.info('  [AutoSaveAnalysis] 未配置 embedding API Key，跳过向量化')
+        return
+    ks._save_kb_chunks_without_embedding(kb_id, '', content, 500, 100)
+    ks._vectorize_kb_chunks(kb_id, '', api_key, emb_cfg.get('provider', 'openai'),
+                            emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
+
+
+def _maybe_auto_save_analysis(agent_id, reply, user_text=''):
+    """AI 员工完成分析类回答后，自动把分析结论写入知识库（kb_entries，scope=global，emp_id 留空）。
+    开关：settings.json auto_save_analysis（默认开启）。全流程异常兜底，不影响聊天主流程。"""
+    try:
+        if not _auto_save_analysis_enabled():
+            return
+        if not _is_analysis_conclusion(reply):
+            return
+        if _is_low_quality_knowledge(reply):
+            return
+        # 语义去重：与已有条目高度相似则不再写入
+        conn = _db_conn()
+        try:
+            dup = _find_similar_kb_entry(conn, reply)
+        finally:
+            conn.close()
+        if dup:
+            logger.info(f'  [AutoSaveAnalysis] {agent_id} 与已有条目 {dup[0]} 相似度 {dup[1]:.3f}，跳过写入')
+            return
+        title = _extract_analysis_title(reply, user_text)
+        kb_id = _upsert_knowledge_base({
+            'title': title,
+            'content': reply,
+            'source': 'auto_analysis',
+            'status': 'active',
+        })
+        if not kb_id:
+            return
+        # 仅当条目内容就是本次结论（新插入/同 id 更新）时才生成 embedding；
+        # 若被合并进内容不同的旧条目，其分段/向量保持不变
+        try:
+            conn = _db_conn()
+            try:
+                row = conn.execute('SELECT content FROM kb_entries WHERE id = ?', (kb_id,)).fetchone()
+            finally:
+                conn.close()
+            if row and (row['content'] or '') == reply:
+                _vectorize_kb_entry(kb_id, reply)
+        except Exception as e:
+            logger.error(f'  [AutoSaveAnalysis] {agent_id} 向量化失败: {e}')
+        logger.info(f'  [AutoSaveAnalysis] {agent_id} 分析结论已入库: {kb_id} title={title!r}')
+    except Exception as e:
+        logger.error(f'  [AutoSaveAnalysis] {agent_id} failed: {e}')
+
+
 def _count_memories_by_tag(emp_id, tag):
     """统计某员工含指定标签的记忆数量及 ID 列表"""
     data = ms3.load_memory(emp_id)
@@ -14853,6 +14993,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     messages.append(ai_message)
                     _save_chat(agent_id, messages)
                     logger.info(f'  [ChatPOST] {agent_id} API代理 保存 {len(messages)} 条消息 ai_content_len={len(ai_message["content"])}')
+                    # 分析结论自动入库（默认开启，settings.json auto_save_analysis: false 可关闭）
+                    if not is_extract:
+                        _maybe_auto_save_analysis(agent_id, cleaned_reply, content)
                     # 记录项目组对话到 group_messages（供同组其他 AI 感知团队动态；记忆提取任务不记录）
                     if not is_extract:
                         try:
@@ -14878,6 +15021,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # OpenClaw 或其他
             _save_chat(agent_id, messages)
             logger.info(f'  [ChatPOST] {agent_id} role={role} skipAI={skip_ai} 保存后共 {len(messages)} 条消息')
+            # OpenClaw 链路：AI 回复由前端回传（role=assistant），同样做分析结论自动入库
+            if role == 'assistant':
+                _maybe_auto_save_analysis(agent_id, msg.get('content', ''))
 
         if connection_type == 'openclaw':
             self._send_json(200, {
