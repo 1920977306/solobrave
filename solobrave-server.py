@@ -3813,35 +3813,51 @@ _KB_CATEGORY_RULES = [
 
 
 def _guess_kb_category_id(conn, content):
-    """根据内容关键词匹配 knowledge_categories 现有分类，返回 category_id；匹配不到返回 None。
-    优先级：命中业务关键词 → “抖音团长”父分类下名称匹配的子分类；否则（含未命中业务词）→ “公共知识”
-    （name 含“公共”/“通用”/“其他”）。只查已有分类，不自动创建。"""
+    """根据内容关键词在 knowledge_categories 全表按名称匹配分类，返回 category_id。
+    命中业务关键词 → name 含对应字（达人/商品/流量）的分类，不存在则自动创建对应分类；
+    未命中任何业务词 → name 含“公共”的分类，不存在则自动创建“公共知识”。
+    不再依赖“抖音团长”父分类；匹配/创建成功后返回分类 id。"""
     try:
-        cats = conn.execute('SELECT id, name, parent_id FROM knowledge_categories').fetchall()
+        cats = conn.execute('SELECT id, name FROM knowledge_categories').fetchall()
     except Exception:
-        return None
-    if not cats:
         return None
     text = content or ''
 
-    def _find_public():
-        for hint in ('公共', '通用', '其他'):
-            for c in cats:
-                if hint in (c['name'] or ''):
-                    return c['id']
+    def _find_by_name(hint):
+        for c in cats:
+            if hint in (c['name'] or ''):
+                return c['id']
         return None
 
-    # “抖音团长”父分类下的子分类
-    dy_parent_ids = [c['id'] for c in cats if '抖音团长' in (c['name'] or '')]
-    dy_children = [c for c in cats if c['parent_id'] in dy_parent_ids] if dy_parent_ids else []
+    def _create_category(name):
+        try:
+            row = conn.execute(
+                'SELECT COALESCE(MAX(sort_order), 0) AS max_sort FROM knowledge_categories '
+                'WHERE parent_id IS NULL AND project_id = ?',
+                ('',)
+            ).fetchone()
+            sort_order = (row['max_sort'] or 0) + 1
+            cur = conn.execute(
+                'INSERT INTO knowledge_categories (name, parent_id, project_id, sort_order) VALUES (?, NULL, ?, ?)',
+                (name, '', sort_order)
+            )
+            conn.commit()
+            return cur.lastrowid
+        except Exception:
+            return None
+
+    def _resolve(hint, create_name):
+        cid = _find_by_name(hint)
+        if cid is None:
+            cid = _create_category(create_name)
+        return cid
+
+    # 命中业务关键词 → 对应名称分类，不存在则自动创建
     for keywords, name_hint in _KB_CATEGORY_RULES:
         if any(kw in text for kw in keywords):
-            for c in dy_children:
-                if name_hint in (c['name'] or ''):
-                    return c['id']
-            return _find_public()
-    # 未命中任何业务关键词 → 公共知识
-    return _find_public()
+            return _resolve(name_hint, name_hint + '知识')
+    # 未命中任何业务关键词 → 公共知识，不存在则自动创建
+    return _resolve('公共', '公共知识')
 
 
 def _upsert_knowledge_base(kb):
@@ -3885,9 +3901,10 @@ def _upsert_knowledge_base(kb):
         ).fetchall()
         for cand in candidates:
             if content and (content in cand['content'] or cand['content'] in content or content in cand['title']):
+                # 回填自动匹配到的 category_id（原条目已有分类时保留）
                 conn.execute(
-                    'UPDATE kb_entries SET status=?, updated_at=? WHERE id=?',
-                    ('ok' if new_status == 'ok' else cand['status'], now, cand['id'])
+                    'UPDATE kb_entries SET status=?, updated_at=?, category_id=COALESCE(?, category_id) WHERE id=?',
+                    ('ok' if new_status == 'ok' else cand['status'], now, category_id, cand['id'])
                 )
                 conn.commit()
                 return cand['id']
