@@ -7609,8 +7609,21 @@ async function apiFetch(url, options = {}) {
       headers
     });
     if (resp.status === 401) {
-      // token 过期，跳转登录
-      doLogout();
+      // 登录接口的 401 由 _fullLogin 处理（提示用户名或密码错误），此处只返回 null
+      if (url.indexOf('/api/auth/login') !== -1) {
+        return null;
+      }
+      // 其他接口 401 表示会话失效：清除本地会话并回到登录页
+      currentUser = null;
+      authToken = null;
+      localStorage.removeItem('sb_current_user');
+      localStorage.removeItem('sb_auth_token');
+      // 已在登录页时不重复跳转，避免循环
+      var loginOverlay = document.getElementById('loginOverlay');
+      if (!loginOverlay || loginOverlay.style.display !== 'flex') {
+        showLogin();
+        showToast('⚠️ 登录已过期，请重新登录');
+      }
       return null;
     }
     if (resp.status === 403) {
@@ -7827,7 +7840,7 @@ async function _fullLogin() {
       permissions: {
         modules: {
           dashboard: true, messages: true, employees: true, groups: true,
-          knowledge: true, products: true, influencers: true, matches: true, settings: isAdminUser
+          knowledge: true, products: true, influencers: true, matches: true, settings: true
         },
         knowledgeCategories: ['*']
       }
@@ -22350,7 +22363,7 @@ function renderProductList(products) {
     html += placeholder;
     html += '<div class="products-mid-card-info">';
     html += '<div style="display:flex;align-items:center;gap:6px;">' + (hasBrand ? '<div class="products-brand-block" style="background:' + getBrandGradient(p.brand) + ';"></div>' : '') + '<div class="products-mid-card-title">' + escapeHtml(p.name) + '</div></div>';
-    html += '<div class="products-mid-card-subtitle">' + (hasBrand ? escapeHtml(p.brand) + ' · ' : '') + escapeHtml(p.category || '-') + '</div>';
+    html += '<div class="products-mid-card-subtitle">' + (hasBrand ? escapeHtml(p.brand) + ' · ' : '') + escapeHtml(p.category || '-') + (isAdmin() && p.createdByName ? ' · 👤 ' + escapeHtml(p.createdByName) : '') + '</div>';
     html += '<div class="products-mid-card-metrics">';
     html += '<div class="products-mid-card-price-row">';
     html += '<span class="products-mid-card-price">¥' + (p.price || 0).toFixed(2) + '</span>';
@@ -23405,6 +23418,9 @@ function renderTalentList(talents) {
     html += '</div>';
     html += '<div class="talents-mid-stats-row">';
     html += '<span class="talents-mid-followers">' + followersText + '粉丝</span>';
+    if (isAdmin() && t.createdByName) {
+      html += '<span style="font-size:12px;color:var(--text-tertiary);">👤 ' + escapeHtml(t.createdByName) + '</span>';
+    }
     if (categories.length) {
       html += '<div class="talents-mid-categories">' + categories.map(function(cat){ return '<span class="talents-mid-category-tag">' + escapeHtml(cat) + '</span>'; }).join('') + '</div>';
     }
@@ -27157,6 +27173,38 @@ async function saveAccountSettings() {
     showToast('❌ 账号设置保存失败');
   }
 }
+// 修改自己的密码（子账号也可用）
+async function changeOwnPassword() {
+  if (!currentUser) return;
+  var oldPwd = (document.getElementById('settingsOldPassword') || {}).value || '';
+  var pwd = (document.getElementById('settingsNewPassword') || {}).value || '';
+  var pwd2 = (document.getElementById('settingsNewPassword2') || {}).value || '';
+  if (!oldPwd) { showToast('⚠️ 请输入旧密码'); return; }
+  if (!pwd) { showToast('⚠️ 请输入新密码'); return; }
+  if (pwd !== pwd2) { showToast('⚠️ 两次输入的密码不一致'); return; }
+  try {
+    var resp = await apiFetch('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ oldPassword: oldPwd, newPassword: pwd })
+    });
+    if (!resp) return;
+    var data = await resp.json();
+    if (resp.ok) {
+      showToast('✅ 密码已修改');
+      var el0 = document.getElementById('settingsOldPassword');
+      var el1 = document.getElementById('settingsNewPassword');
+      var el2 = document.getElementById('settingsNewPassword2');
+      if (el0) el0.value = '';
+      if (el1) el1.value = '';
+      if (el2) el2.value = '';
+    } else {
+      showToast('⚠️ ' + (data && data.error || '密码修改失败'));
+    }
+  } catch (e) {
+    console.warn('[Account] 修改密码失败:', e);
+    showToast('❌ 密码修改失败，请检查网络');
+  }
+}
 
 // ========== 权限管理 ==========
 var _permissionConfig = null;
@@ -27586,6 +27634,10 @@ function renderSettingsMid() {
     { id: 'feishu', icon: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>', title: '飞书配置' }
   ];
   if (!isAdmin()) { categories = categories.filter(function(c) { return ['compute','notification','account','feishu'].indexOf(c.id) >= 0; }); }
+  // 非管理员停留在管理员专属分类（用户/团队/成员/权限/违禁词管理）时，回退到默认分类
+  if (!isAdmin() && ['permission', 'forbidden', 'users', 'teams', 'members'].indexOf(_settingsSelectedCategory) >= 0) {
+    _settingsSelectedCategory = 'compute';
+  }
   var html = '';
   categories.forEach(function (c) {
     var isActive = _settingsSelectedCategory === c.id;
@@ -27599,6 +27651,8 @@ function renderSettingsMid() {
 }
 
 function selectSettingsCategory(id) {
+  // 用户/团队/成员/权限/违禁词管理仅管理员可见
+  if (!isAdmin() && ['permission', 'forbidden', 'users', 'teams', 'members'].indexOf(id) >= 0) return;
   _settingsSelectedCategory = id;
   renderSettingsMid();
 }
@@ -27641,6 +27695,13 @@ function renderSettingsRight() {
     html += '<div class="settings-card-title">账号信息</div>';
     html += '<div class="settings-form-row"><label class="form-label">显示名称</label><input type="text" id="settingsDisplayName" class="form-input" placeholder="输入显示名称"></div>';
     html += '<div class="settings-form-row"><label class="form-label">邮箱</label><input type="email" id="settingsEmail" class="form-input" placeholder="输入邮箱"></div>';
+    html += '</div>';
+    html += '<div class="settings-card">';
+    html += '<div class="settings-card-title">修改密码</div>';
+    html += '<div class="settings-form-row"><label class="form-label">旧密码</label><input type="password" id="settingsOldPassword" class="form-input" placeholder="输入当前密码"></div>';
+    html += '<div class="settings-form-row"><label class="form-label">新密码</label><input type="password" id="settingsNewPassword" class="form-input" placeholder="输入新密码"></div>';
+    html += '<div class="settings-form-row"><label class="form-label">确认新密码</label><input type="password" id="settingsNewPassword2" class="form-input" placeholder="再次输入新密码"></div>';
+    html += '<div style="display:flex;justify-content:flex-end;"><button class="module-action-btn primary" onclick="changeOwnPassword()">修改密码</button></div>';
     html += '</div>';
     html += '<div class="settings-card">';
     html += '<div class="settings-card-title">系统偏好</div>';

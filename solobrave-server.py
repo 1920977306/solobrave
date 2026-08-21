@@ -1153,7 +1153,7 @@ def _default_permission_templates():
         'products': True,
         'groups': True,
         'influencers': True,
-        'settings': False,
+        'settings': True,
         'employees': False,
     }
     return {
@@ -1440,6 +1440,11 @@ def _get_user_emp_ids(user_id):
         return []
     agents = _load_agents()
     return [a.get('id') for a in agents if a.get('createdBy') == user_id and a.get('id')]
+
+
+def _user_display_name_map():
+    """返回 userId -> 显示名 映射（displayName 优先，退回 username；不含敏感字段）"""
+    return {u.get('id'): (u.get('displayName') or u.get('username') or '') for u in _load_users() if u.get('id')}
 
 
 def _get_user_group_ids(user_id):
@@ -8129,6 +8134,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # 返回员工完整数据（包含 apiKey，前端需要它来显示和保存）
         safe_result = []
+        name_map = _user_display_name_map()
         for a in result:
             safe_result.append({
                 'id': a.get('id', ''),
@@ -8142,7 +8148,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'permission': a.get('permission', 'dev'),
                 'visibility': a.get('visibility', 'creator'),
                 'createdBy': a.get('createdBy', ''),
-                'createdByName': a.get('createdByName', ''),
+                'createdByName': name_map.get(a.get('createdBy'), ''),
                 'createdAt': a.get('createdAt', ''),
                 'connectionType': a.get('connectionType', ''),
                 'apiProvider': a.get('apiProvider', ''),
@@ -8211,15 +8217,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'error': '无效的请求体'})
             return
 
-        # employee 配额检查
+        # employee 配额检查（硬上限 3，与 agentQuota 取更严格者）
         if not auth.is_admin:
             auth.load_user_record()
             user = auth.user_record
             if user:
                 agents = _load_agents()
                 my_count = len([a for a in agents if a.get('createdBy') == auth.user_info['userId']])
-                if my_count >= user.get('agentQuota', 10):
-                    self._send_json(403, {'error': f'已达到 Agent 配额上限 ({user.get("agentQuota", 10)})'})
+                quota = min(int(user.get('agentQuota', 10) or 10), 3)
+                if my_count >= quota:
+                    self._send_json(403, {'error': '子账号最多创建 3 个 AI 员工'})
                     return
 
         new_agent = {
@@ -10409,7 +10416,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             scope=scope, team_id=team_id, user_id=auth.user_id,
             is_admin=auth.is_admin, user_team_ids=auth.team_ids,
             user_group_ids=effective_group_ids,
-            emp_id=target_emp_id
+            emp_id=target_emp_id,
+            emp_ids=_get_user_emp_ids(auth.user_id)
         )
         self._send_json(200, result)
 
@@ -10425,7 +10433,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(404, 'Knowledge not found')
             return
         # 权限检查
-        if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids, user_group_ids=auth.group_ids):
+        if not ks.can_read_knowledge(doc, auth.user_id, is_admin=auth.is_admin, user_team_ids=auth.team_ids, user_group_ids=auth.group_ids, emp_ids=_get_user_emp_ids(auth.user_id)):
             self._send_auth_error('Permission denied', 403)
             return
         if not _can_access_knowledge_category(auth, doc.get('category', '')):
@@ -12223,12 +12231,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return all(kw in fields for kw in kws)
             products = [p for p in products if _match_product(p)]
         if not auth.is_admin:
-            products = [p for p in products if p.get('created_by') == auth.user_info.get('userId', '')]
+            uid = auth.user_info.get('userId', '')
+            ids = {uid} | set(_get_user_emp_ids(uid))
+            products = [p for p in products if (p.get('created_by') or p.get('createdBy') or '') in ids]
         # 分页
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
         total = len(products)
         products = products[offset:offset + limit]
+        name_map = _user_display_name_map()
+        for p in products:
+            p['createdByName'] = name_map.get(p.get('created_by') or p.get('createdBy'), '')
         self._send_json(200, {'products': products, 'total': total, 'offset': offset, 'limit': limit})
 
     def _handle_get_product(self, product_id):
@@ -13755,7 +13768,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if query.get('status'):
             status = query['status'][0]
             influencers = [i for i in influencers if i.get('status') == status]
-        if not auth.is_admin: uid = auth.user_info.get('userId'); influencers = [i for i in influencers if i.get('createdBy') == uid]
+        if not auth.is_admin: uid = auth.user_info.get('userId'); ids = {uid} | set(_get_user_emp_ids(uid)); influencers = [i for i in influencers if i.get('createdBy') in ids]
         if query.get('q'):
             kw = query['q'][0].lower()
             influencers = [i for i in influencers if kw in (i.get('id') or '').lower() or kw in (i.get('name') or '').lower() or kw in (i.get('accountId') or '').lower() or kw in (i.get('bio') or '').lower() or any(kw in t.lower() for t in (i.get('tags') or []))]
@@ -13763,6 +13776,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         limit = int(query.get('limit', [50])[0])
         total = len(influencers)
         influencers = influencers[offset:offset + limit]
+        name_map = _user_display_name_map()
+        for i in influencers:
+            i['createdByName'] = name_map.get(i.get('createdBy'), '')
         self._send_json(200, {'influencers': influencers, 'total': total, 'offset': offset, 'limit': limit})
 
     def _handle_get_influencer(self, inf_id):
