@@ -5071,6 +5071,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/account':
             self._handle_get_account()
             return
+        if path == '/api/settings/account':
+            self._handle_get_account()
+            return
 
         # 违禁词 API
         if path == '/api/forbidden-words':
@@ -5802,6 +5805,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # 账号设置 API
         if path == '/api/account':
+            self._handle_put_account()
+            return
+        if path == '/api/settings/account':
             self._handle_put_account()
             return
 
@@ -12021,6 +12027,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         self._send_json(200, {
             'displayName': user.get('displayName', ''),
+            'username': user.get('username', ''),
+            'role': user.get('role', 'employee'),
+            'avatar': user.get('avatar', 0),
             'email': user.get('email', ''),
             'theme': user.get('theme', 'light'),
             'language': user.get('language', '中文'),
@@ -12070,12 +12079,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
             user['language'] = language
             updated = True
+        if 'avatar' in body:
+            avatar = body.get('avatar')
+            if not isinstance(avatar, int) or avatar < 0:
+                self._send_json_error(400, 'avatar 必须为非负整数')
+                return
+            user['avatar'] = avatar
+            updated = True
         if not updated:
             self._send_json_error(400, 'No fields to update')
             return
         _save_users(users)
         self._send_json(200, {
             'displayName': user.get('displayName', ''),
+            'username': user.get('username', ''),
+            'role': user.get('role', 'employee'),
+            'avatar': user.get('avatar', 0),
             'email': user.get('email', ''),
             'theme': user.get('theme', 'light'),
             'language': user.get('language', '中文'),
@@ -13477,12 +13496,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 params.extend([f'%{q}%', f'%{q}%', f'%{q}%'])
             sql += " ORDER BY followers DESC"
             rows = conn.execute(sql, params).fetchall()
-            total = len(rows)
-            talents = [_talent_row_to_dict(r) for r in rows[offset:offset + limit]]
+            talents = [_talent_row_to_dict(r) for r in rows]
         finally:
             conn.close()
         if not auth.is_admin:
-            talents = [t for t in talents if t.get('created_by') == auth.user_info.get('userId', '')]
+            # 非管理员可见：自己录入的 + 自己创建的 AI 员工录入的
+            uid = auth.user_info.get('userId', '')
+            visible_ids = {uid} | set(_get_user_emp_ids(uid))
+            talents = [t for t in talents if (t.get('created_by') or '') in visible_ids]
+        total = len(talents)
+        talents = talents[offset:offset + limit]
         self._send_json(200, {'talents': talents, 'total': total, 'offset': offset, 'limit': limit})
 
     def _handle_get_talent(self, talent_id):
