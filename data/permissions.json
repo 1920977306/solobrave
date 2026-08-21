@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "roleTemplates": [
+    {
+      "id": "admin",
+      "name": "超级管理员",
+      "modules": {
+        "dashboard": true,
+        "messages": true,
+        "knowledge": true,
+        "settings": true,
+        "products": true
+      },
+      "knowledgeCategories": [
+        "*"
+      ]
+    },
+    {
+      "id": "employee",
+      "name": "普通用户",
+      "modules": {
+        "dashboard": true,
+        "messages": true,
+        "knowledge": true,
+        "products": true,
+        "settings": true
+      },
+      "knowledgeCategories": [
+        "*"
+      ]
+    }
+  ],
+  "userOverrides": {
+    "user_c6eac88f": {
+      "modules": {
+        "dashboard": true,
+        "messages": true,
+        "knowledge": false,
+        "settings": true,
+        "products": false,
+        "groups": true,
+        "influencers": true,
+        "employees": true
+      },
+      "knowledgeCategories": [
+        "*"
+      ]
+    }
+  }
+}
