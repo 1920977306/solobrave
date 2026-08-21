@@ -18772,6 +18772,9 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
 
   // 注入商品库/达人库/匹配引擎工具说明（主大脑管控）
   systemPrompt += buildAgentToolsContext();
+  if (images && images.length > 0) {
+    systemPrompt += '\n\n【图片识别指令】当用户发送图片时，请直接识别并描述图片内容，不要调用任何工具。';
+  }
 
   // 注入 RAG 检索结果（产品知识库）
   var ragResult2 = { context: '', citations: [] };
