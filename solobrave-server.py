@@ -1750,8 +1750,10 @@ def _get_localhost_auth_result(headers, parsed_body=None):
 
 
 def _authenticate(headers, client_ip=None, request_handler=None):
-    """从请求头中提取并验证 token；本地回环地址跳过鉴权，支持从 body 缓存中读取 agent_id"""
-    if client_ip in ('127.0.0.1', 'localhost', '::1'):
+    """从请求头中提取并验证 token；本地回环地址仅在无 Bearer token 时走内部快捷通道（agent 调用），
+    携带 Authorization: Bearer 的请求即使在 localhost 也必须走正常 JWT 验证"""
+    auth_header = headers.get('Authorization', '')
+    if client_ip in ('127.0.0.1', 'localhost', '::1') and not auth_header.startswith('Bearer '):
         parsed_body = None
         if request_handler is not None:
             parsed_body = getattr(request_handler, 'cached_body', None)
@@ -1768,7 +1770,6 @@ def _authenticate(headers, client_ip=None, request_handler=None):
                             parsed_body = None
                     request_handler.cached_body = parsed_body
         return _get_localhost_auth_result(headers, parsed_body)
-    auth_header = headers.get('Authorization', '')
     if not auth_header.startswith('Bearer '):
         return AuthResult(error='未登录或 token 已过期', status=401)
     token = auth_header[7:]
