@@ -13755,6 +13755,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if query.get('status'):
             status = query['status'][0]
             influencers = [i for i in influencers if i.get('status') == status]
+        if not auth.is_admin: uid = auth.user_info.get('userId'); influencers = [i for i in influencers if i.get('createdBy') == uid]
         if query.get('q'):
             kw = query['q'][0].lower()
             influencers = [i for i in influencers if kw in (i.get('id') or '').lower() or kw in (i.get('name') or '').lower() or kw in (i.get('accountId') or '').lower() or kw in (i.get('bio') or '').lower() or any(kw in t.lower() for t in (i.get('tags') or []))]

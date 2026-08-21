@@ -7779,6 +7779,7 @@ async function _fullLogin() {
         password
       })
     });
+    if (!resp) { if (errorDiv) { errorDiv.textContent = '用户名或密码错误'; errorDiv.style.display = 'block'; } var btn = document.getElementById('loginBtn'); if (btn) btn.disabled = false; return; }
     const data = await resp.json();
     if (data.token) {
       currentUser = {
