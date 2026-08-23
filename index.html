@@ -24460,12 +24460,17 @@ function saveTalent() {
   };
   var url = id ? '/api/talents/' + encodeURIComponent(id) : '/api/talents';
   var method = id ? 'PUT' : 'POST';
+  // 防重复提交：请求完成前禁用保存按钮并显示 loading
+  var btn = document.querySelector('#talentModalOverlay .product-modal-btn.save');
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+  var restoreBtn = function () { if (btn) { btn.disabled = false; btn.textContent = '保存'; } };
   apiFetch(url, {method: method, body: JSON.stringify(body)}).then(function(){
     showToast(id ? '✅ 已更新' : '✅ 达人已录入');
     closeTalentModal();
     loadTalents();
     if (id && _talentCurrentId === id) selectTalentItem(id);
-  }).catch(function(){ showToast('❌ 保存失败'); });
+  }).catch(function(){ showToast('❌ 保存失败'); }).finally(restoreBtn);
 }
 
 function deleteCurrentTalent() {

@@ -13531,7 +13531,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, _talent_row_to_dict(row))
 
     def _handle_post_talent(self):
-        """POST /api/talents — 录入达人（仅当 douyin_id 完全一致时算重复）"""
+        """POST /api/talents — 录入达人（douyin_id 完全一致时报重复；同用户同名时合并更新原记录）"""
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -13569,6 +13569,32 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             row['created_by'] = auth.user_info.get('userId', '')
         conn = _db_conn()
         try:
+            # 同一用户下已存在同名达人：更新原记录而非新建，防止重复创建
+            same_name = conn.execute(
+                'SELECT * FROM talents WHERE created_by = ? AND name = ? LIMIT 1',
+                (row['created_by'], name)
+            ).fetchone()
+            if same_name:
+                merged = _talent_row_to_dict(same_name)
+                merged.update(body)
+                merged['id'] = same_name['id']
+                merged['created_by'] = same_name['created_by']
+                merged['updated_at'] = int(time.time() * 1000)
+                upd_row = _dict_to_talent_row(merged)
+                conn.execute(
+                    f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_COLUMNS)} WHERE id = ?",
+                    tuple(upd_row[c] for c in _TALENT_COLUMNS) + (same_name['id'],)
+                )
+                conn.commit()
+                if upd_row.get('group_id'):
+                    _update_brand_product_stats(conn, upd_row['group_id'])
+                    conn.commit()
+                merged_out = conn.execute('SELECT * FROM talents WHERE id = ?', (same_name['id'],)).fetchone()
+                result = _talent_row_to_dict(merged_out)
+                result['merged'] = True
+                result['message'] = f'已存在同名达人「{name}」，已更新原记录'
+                self._send_json(200, result)
+                return
             conn.execute(
                 f"INSERT INTO talents ({', '.join(_TALENT_COLUMNS)}) VALUES ({', '.join('?' * len(_TALENT_COLUMNS))})",
                 tuple(row[c] for c in _TALENT_COLUMNS)
