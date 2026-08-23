@@ -2380,27 +2380,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
           <span style="width:8px;height:8px;background:var(--green);border-radius:50%;display:inline-block"></span> 动态
         </h3>
         <div class="timeline-list" id="timelineList">
-          <div class="timeline-item">
-            <div class="timeline-avatar"><img src="avatars/avatar-1.png" style="width:100%;height:100%;object-fit:cover;display:block;"></div>
-            <div class="timeline-content">
-              <div class="timeline-text"><b>Grace</b> 执行 <span style="color:var(--blue)">is_open</span> 等 3 个操作</div>
-              <div class="timeline-time">15:37</div>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-avatar"><img src="avatars/avatar-2.png" style="width:100%;height:100%;object-fit:cover;display:block;"></div>
-            <div class="timeline-content">
-              <div class="timeline-text"><b>Emily</b> memory_search</div>
-              <div class="timeline-time">15:37</div>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-avatar"><img src="avatars/avatar-3.png" style="width:100%;height:100%;object-fit:cover;display:block;"></div>
-            <div class="timeline-content">
-              <div class="timeline-text"><b>Cynthia</b> 执行 <span style="color:var(--blue)">is_open</span></div>
-              <div class="timeline-time">15:37</div>
-            </div>
-          </div>
+          <div class="timeline-empty" style="padding:24px 0;text-align:center;color:var(--gray-4);font-size:12px">暂无动态</div>
         </div>
       </div><div class="task-section"><h3>定时任务</h3><div id="taskList"></div></div></aside></div><div class="bottom-bar"><div class="status-bar-inner"><span class="status-item"><span class="status-dot online"></span><span class="status-label">在线</span><span class="status-num" id="statusOnline">0</span></span><span class="status-item"><span class="status-dot working"></span><span class="status-label">工作中</span><span class="status-num" id="statusWorking">0</span></span><span class="status-item"><span class="status-dot idle"></span><span class="status-label">空闲</span><span class="status-num" id="statusIdle">0</span></span><span class="status-item"><span class="status-dot task"></span><span class="status-label">待处理</span><span class="status-num" id="statusPending">0</span></span></div><span class="bottom-time" id="statusTime">--:--</span></div>
 
@@ -2423,8 +2403,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
         <div style="font-size:36px;margin-bottom:12px">🔎</div>
         <p style="margin-bottom:16px">输入关键词开始搜索</p>
         <div style="display:flex;justify-content:center;gap:6px;flex-wrap:wrap">
-          <span class="skill-preset" onclick="document.getElementById('searchInput').value='Lucy';performSearch('Lucy')">Lucy</span>
-          <span class="skill-preset" onclick="document.getElementById('searchInput').value='Gates';performSearch('Gates')">Gates</span>
           <span class="skill-preset" onclick="document.getElementById('searchInput').value='PRD';performSearch('PRD')">PRD</span>
           <span class="skill-preset" onclick="document.getElementById('searchInput').value='配置';performSearch('配置')">配置</span>
         </div>
@@ -2560,67 +2538,51 @@ function updateOpenClawStatus(connected){
 }
 
 
-// ===== 数据定义 (支持 Mock 和 Real) =====
+// ===== 数据定义（全部来自后端 API，不再使用 mock 数据） =====
 var employees = [];
 var activities = [];
-
-var activitiesFallback = [
-  { id:1, name:'Lucy', initial:'L', gradient:['#FF6B9D','#C44FE2'], status:'thinking', text:'正在分析用户需求...', time:'刚刚' },
-  { id:2, name:'Cute', initial:'C', gradient:['#FF9500','#FF2D55'], status:'thinking', text:'设计评审进行中...', time:'刚刚' },
-  { id:3, name:'Eric', initial:'E', gradient:['#5AC8FA','#34C759'], status:'done', text:'✅ 前端组件库更新完成', time:'2分钟前' },
-  { id:4, name:'Gates', initial:'G', gradient:['#5856D6','#007AFF'], status:'done', text:'✅ API 接口文档已同步', time:'5分钟前' },
-  { id:5, name:'Nova', initial:'N', gradient:['#AF52DE','#FF375F'], status:'idle', text:'💤 等待测试任务分配', time:'10分钟前' },
-  { id:6, name:'Mike', initial:'M', gradient:['#00C7BE','#30D158'], status:'p1', text:'⚠️ 服务器负载告警', time:'15分钟前' },
-];
-
-var employeesFallback = [
-  { id:'lucy', name:'Lucy', role:'产品经理', initial:'L', gradient:['#FF6B9D','#C44FE2'], status:'online', avatar:0 },
-  { id:'gates', name:'Gates', role:'架构师', initial:'G', gradient:['#5856D6','#007AFF'], status:'busy', avatar:1 },
-  { id:'eric', name:'Eric', role:'前端开发', initial:'E', gradient:['#5AC8FA','#34C759'], status:'online', avatar:2 },
-  { id:'cute', name:'Cute', role:'UI设计', initial:'C', gradient:['#FF9500','#FF2D55'], status:'idle', avatar:3 },
-  { id:'alex', name:'Alex', role:'后端开发', initial:'A', gradient:['#30B0C7','#5856D6'], status:'offline', avatar:4 },
-  { id:'nova', name:'Nova', role:'测试工程师', initial:'N', gradient:['#AF52DE','#FF375F'], status:'online', avatar:5 },
-  { id:'mike', name:'Mike', role:'DevOps', initial:'M', gradient:['#00C7BE','#30D158'], status:'busy', avatar:6 },
-  { id:'lisa', name:'Lisa', role:'运营', initial:'I', gradient:['#FF6B35','#FFD60A'], status:'idle', avatar:7 },
-];
-
-function initMockData() {
-  employees = [...employeesFallback];
-  activities = [...activitiesFallback];
-}
 
 // ===== 数据打通：加载员工数据 =====
 function loadEmployeesFromStorage() {
   return new Promise(function(resolve) {
     var token = localStorage.getItem('sb_auth_token');
     if (!token) {
-      console.warn('[Office] No auth token, using mock data');
-      initMockData();
+      console.warn('[Office] No auth token, showing empty state');
+      employees = [];
       resolve();
       return;
     }
-    
+
     // V2: 直接从后端获取，后端已按当前用户角色过滤
     fetch('/api/agents', {
       headers: { 'Authorization': 'Bearer ' + token }
     })
     .then(function(res) {
       if (res.ok) return res.json();
+      if (res.status === 403) {
+        // 无员工管理权限：提示并显示空状态，不降级 mock
+        if (typeof showToast === 'function') showToast('无员工管理权限', 'error');
+        employees = [];
+        resolve();
+        return null;
+      }
       throw new Error('API error: ' + res.status);
     })
     .then(function(data) {
+      if (data === null) return; // 403 已处理
       if (data && Array.isArray(data) && data.length > 0) {
         employees = data;
         console.log('[Office] Loaded ' + employees.length + ' employees from API (role-filtered)');
       } else {
-        console.warn('[Office] API returned empty, using mock data');
-        initMockData();
+        // API 返回空数组：显示"暂无员工"空状态
+        employees = [];
+        console.log('[Office] API returned empty employee list');
       }
       resolve();
     })
     .catch(function(err) {
-      console.warn('[Office] API failed, using mock data:', err);
-      initMockData();
+      console.warn('[Office] API failed, showing empty state:', err);
+      employees = [];
       resolve();
     });
   });
@@ -3227,12 +3189,14 @@ function updateStats(){
   animateNumber(document.getElementById('statIdle'),idle);
   animateNumber(document.getElementById('statPending'),pending);
 
-  // 更新百分比
+  // 更新百分比（空数据时显示 0%，避免除零产生 NaN）
+  var empTotal = employees.length || 1;
+  var actTotal = activities.length || 1;
   var elPct;
-  elPct = document.getElementById('statOnlinePct'); if(elPct) elPct.textContent = Math.round(online/employees.length*100)+'%';
-  elPct = document.getElementById('statWorkingPct'); if(elPct) elPct.textContent = Math.round(working/employees.length*100)+'%';
-  elPct = document.getElementById('statIdlePct'); if(elPct) elPct.textContent = Math.round(idle/employees.length*100)+'%';
-  elPct = document.getElementById('statPendingPct'); if(elPct) elPct.textContent = Math.round(pending/activities.length*100)+'%';
+  elPct = document.getElementById('statOnlinePct'); if(elPct) elPct.textContent = (employees.length ? Math.round(online/empTotal*100) : 0)+'%';
+  elPct = document.getElementById('statWorkingPct'); if(elPct) elPct.textContent = (employees.length ? Math.round(working/empTotal*100) : 0)+'%';
+  elPct = document.getElementById('statIdlePct'); if(elPct) elPct.textContent = (employees.length ? Math.round(idle/empTotal*100) : 0)+'%';
+  elPct = document.getElementById('statPendingPct'); if(elPct) elPct.textContent = (activities.length ? Math.round(pending/actTotal*100) : 0)+'%';
 
   // 更新底部状态栏 - 彩色统计
   var elOnline = document.getElementById('statusOnline');
@@ -3272,10 +3236,14 @@ function _renderEmpCard(emp, isArchived){
   var statusText = emp.status==='online'?'● 在线':emp.status==='busy'?'● 忙碌':emp.status==='offline'?'● 离线':'● 空闲';
   var urgentBadge = (emp.badge === 'urgent') ? '<span class="emp-urgent-badge">⚠️ 紧急</span>' : '';
   var archivedClass = isArchived ? ' archived' : '';
+  // 背景色：优先 API 返回的 bg 字段，兼容旧 gradient 字段
+  var bgStyle = emp.gradient
+    ? 'background:linear-gradient(135deg,'+(emp.gradient[0] || '#FFD60A')+' 0%,'+(emp.gradient[1] || '#FFB800')+' 100%);'
+    : 'background:'+(emp.bg || '#FFD60A')+';';
   return '<div class="emp-card' + archivedClass + '" onclick="openDetailPanel(\'' + escapeAttr(emp.id) + '\')" style="cursor:pointer" title="点击查看 ' + escapeAttr(emp.name) + ' 的详情">' +
     urgentBadge +
     '<button class="emp-card-gear" onclick="event.stopPropagation();openGearMenu(event,\'' + escapeAttr(emp.id) + '\')" title="更多操作">⚙</button>' +
-    '<div class="emp-avatar" style="background:linear-gradient(135deg,'+(emp.gradient && emp.gradient[0] || '#FFD60A')+' 0%,'+(emp.gradient && emp.gradient[1] || '#FFB800')+' 100%);overflow:hidden;">'+avatarHtml+'</div>' +
+    '<div class="emp-avatar" style="'+bgStyle+'overflow:hidden;">'+avatarHtml+'</div>' +
     '<div class="emp-name">'+escapeHtml(emp.name)+(emp.pinned ? '<span style="font-size:12px;margin-left:3px">📌</span>' : '')+'</div>' +
     '<div class="emp-role">'+escapeHtml(emp.role)+'</div>' +
     '<div class="emp-status '+escapeAttr(emp.status)+'">'+escapeHtml(statusText)+'</div>' +
@@ -3292,6 +3260,15 @@ function renderEmployees(){
     if(e.archived) archived.push(e);
     else active.push(e);
   });
+  // 空状态：API 返回空或无权限时显示提示，不渲染 mock 数据
+  if (active.length === 0 && archived.length === 0) {
+    grid.innerHTML = '<div style="grid-column:1/-1;padding:48px 20px;text-align:center;color:var(--gray-4)">' +
+      '<div style="font-size:36px;margin-bottom:10px">🦞</div>' +
+      '<div style="font-size:14px;font-weight:600;margin-bottom:4px">暂无员工</div>' +
+      '<div style="font-size:12px">还没有可见的 AI 员工，请联系管理员分配或前往主页创建</div>' +
+    '</div>';
+    return;
+  }
   active.sort(function(a, b){ return (b.pinned?1:0) - (a.pinned?1:0); });
   archived.sort(function(a, b){ return (b.pinned?1:0) - (a.pinned?1:0); });
   var html = active.map(function(emp){ return _renderEmpCard(emp, false); }).join('');
@@ -3479,8 +3456,11 @@ function renderAvatar(emp, size, radius, wrapperClass){
   } else if(emp.avatar && typeof emp.avatar === 'string' && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0 || emp.avatar.indexOf('avatars/') === 0)){
     // 2. Image path or data URL
     inner = '<img src="' + escapeAttr(emp.avatar) + '" style="' + style + '">';
+  } else if(emp.avatar && typeof emp.avatar === 'string'){
+    // 3. Emoji/文本头像（API 返回的真实 avatar 字段，如 🦞）直接渲染
+    inner = '<span style="font-size:' + Math.floor(size * 0.55) + 'px;display:flex;align-items:center;justify-content:center;width:' + size + 'px;height:' + size + 'px;border-radius:' + radius + ';">' + escapeHtml(emp.avatar) + '</span>';
   } else if(typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS.length > 0){
-    // 3. Letter/emoji string or any unknown -> use name hash to pick a preset avatar
+    // 4. 无 avatar 字段 -> 用 name hash 分配一个预设头像
     var hash = 0;
     var name = emp.name || emp.id || '';
     for(var c = 0; c < name.length; c++){
@@ -4171,6 +4151,7 @@ async function openDetailPanel(empId){
         emp.bg = serverEmp.bg || emp.bg;
         emp.avatar = serverEmp.avatar !== undefined ? serverEmp.avatar : emp.avatar;
         emp.status = serverEmp.status || emp.status;
+        emp.msg = serverEmp.msg !== undefined ? serverEmp.msg : emp.msg;
         emp.model = serverEmp.model || emp.model;
         emp.subCategory = serverEmp.subCategory || emp.subCategory;
         // Update display
@@ -4209,6 +4190,14 @@ async function openDetailPanel(empId){
     gridHtml += '<div class="info-value" style="color:'+(statusColor[emp.status]||'var(--gray-4)')+'">'+statusMap[emp.status]+'</div>';
     gridHtml += '<div class="info-sub">'+identity.lastActive+'</div>';
     gridHtml += '</div>';
+
+    // 状态消息（API 返回的 msg 字段）
+    if (emp.msg) {
+      gridHtml += '<div class="detail-info-item">';
+      gridHtml += '<div class="info-label">状态消息</div>';
+      gridHtml += '<div class="info-value">'+escapeHtml(emp.msg)+'</div>';
+      gridHtml += '</div>';
+    }
     
     gridHtml += '<div class="detail-info-item">';
     gridHtml += '<div class="info-label">上下文</div>';
@@ -5317,20 +5306,7 @@ function updateStatusTime(){
   }
 }
 
-// ===== Live 更新模拟 =====
-function startLiveUpdates(){
-  setInterval(function(){
-    if (employees.length === 0) return;
-    var idx = Math.floor(Math.random()*activities.length);
-    var statuses = ['thinking','done','idle','p1'];
-    var texts = ['正在处理任务...','✅ 任务完成','💤 等待中','⚠️ 发现问题'];
-    if (activities[idx]) {
-      activities[idx].status = statuses[Math.floor(Math.random()*statuses.length)];
-      activities[idx].time = '刚刚';
-    }
-    renderActivities();
-  },8000);
-}
+// ===== Live 更新模拟（已移除：动态完全来自 BroadcastChannel 真实事件） =====
 
 // ===== 实时插入机制 =====
 function moveToChatFront(empId){
@@ -5353,6 +5329,9 @@ function moveToChatFront(empId){
 function addTimelineEvent(name, action){
   var list = document.querySelector('.timeline-list');
   if(!list) return;
+  // 有真实动态时移除"暂无动态"空状态
+  var emptyEl = list.querySelector('.timeline-empty');
+  if (emptyEl) emptyEl.remove();
   var time = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
   var item = document.createElement('div');
   item.className = 'timeline-item';
@@ -5422,7 +5401,6 @@ document.addEventListener('DOMContentLoaded', async function(){
   renderEmployees();
   renderSkills();
   renderDocs();
-  startLiveUpdates();
   renderChatZone();
   renderWorkZone();
   renderLoungeZone();
@@ -5433,18 +5411,9 @@ document.addEventListener('DOMContentLoaded', async function(){
 
 // Backup renderActivities for fallback
 function renderActivitiesFallback(){
+  // 已废弃：时间线只展示 BroadcastChannel 推送的真实动态，无数据时保留"暂无动态"空状态
   var container = document.getElementById('liveActivities');
   if(!container) return;
-  container.innerHTML = activitiesFallback.map(function(a){
-    return '<div class="activity-item">' +
-      '<div class="activity-avatar" style="background:' + a.gradient[0] + '">' + a.initial + '</div>' +
-      '<div class="activity-content">' +
-      '<div class="activity-name">' + a.name + '</div>' +
-      '<div class="activity-status">' +
-      '<span class="status-badge ' + a.status + '">' + a.text + '</span>' +
-      '</div></div>' +
-      '<div class="activity-time">' + a.time + '</div></div>';
-  }).join('');
 }
 
 // ====== 创建龙虾向导 ======
