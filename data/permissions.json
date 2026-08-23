@@ -45,6 +45,21 @@
       "knowledgeCategories": [
         "*"
       ]
+    },
+    "user_30f05078": {
+      "modules": {
+        "dashboard": true,
+        "messages": true,
+        "knowledge": false,
+        "settings": true,
+        "products": false,
+        "groups": true,
+        "influencers": true,
+        "employees": true
+      },
+      "knowledgeCategories": [
+        "*"
+      ]
     }
   }
 }
