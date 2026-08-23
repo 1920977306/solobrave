@@ -2331,10 +2331,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
       <button class="nav-action-btn" onclick="document.getElementById('searchModal').classList.add('show');document.getElementById('searchInput').focus();">🔍 搜索</button>
       <button class="nav-action-btn" onclick="openCreateGroupInMain()">➕ 添加项目组</button>
       <button class="nav-action-btn" onclick="openCreateEmployeeInMain()">👤 新增员工</button>
-      <button class="nav-action-btn lounge-btn" onclick="toggleLounge()" id="loungeNavBtn" style="display:none !important;">🏖️ 休闲区</button>
       <a href="./index.html" class="nav-action-btn" style="text-decoration:none;">🏠 返回主页</a>
       <button class="nav-action-btn" onclick="restartGateway()">🔄 重启网关</button>
-      <button class="nav-action-btn" onclick="showToast('模型配置')">🤖 模型配置</button>
       <span class="nav-status" id="navStatus"><span class="status-dot" id="wsStatusDot"></span>AI状态:<span id="wsStatusText">连接中...</span></span>
     </div>
   </div>
@@ -2366,8 +2364,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 </div><div class="zone-section lounge">
   <div class="zone-header-row">
     <div class="zone-title-wrap">
-      <span class="zone-title">休闲区</span>
-      <span class="zone-title-label">Lounge</span>
+      <span class="zone-title">休息中</span>
+      <span class="zone-title-label">Resting</span>
     </div>
     <div class="zone-stat online-count" id="loungeBadge">
       <span class="stat-dot"></span>
@@ -2382,7 +2380,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
         <div class="timeline-list" id="timelineList">
           <div class="timeline-empty" style="padding:24px 0;text-align:center;color:var(--gray-4);font-size:12px">暂无动态</div>
         </div>
-      </div><div class="task-section"><h3>定时任务</h3><div id="taskList"></div></div></aside></div><div class="bottom-bar"><div class="status-bar-inner"><span class="status-item"><span class="status-dot online"></span><span class="status-label">在线</span><span class="status-num" id="statusOnline">0</span></span><span class="status-item"><span class="status-dot working"></span><span class="status-label">工作中</span><span class="status-num" id="statusWorking">0</span></span><span class="status-item"><span class="status-dot idle"></span><span class="status-label">空闲</span><span class="status-num" id="statusIdle">0</span></span><span class="status-item"><span class="status-dot task"></span><span class="status-label">待处理</span><span class="status-num" id="statusPending">0</span></span></div><span class="bottom-time" id="statusTime">--:--</span></div>
+      </div><div class="task-section"><h3>定时任务</h3><div id="taskList"></div></div></aside></div><div class="bottom-bar"><span class="bottom-time" id="statusTime">--:--</span></div>
 
 <!-- ====== 导航栏 ====== -->
 
@@ -3197,16 +3195,6 @@ function updateStats(){
   elPct = document.getElementById('statWorkingPct'); if(elPct) elPct.textContent = (employees.length ? Math.round(working/empTotal*100) : 0)+'%';
   elPct = document.getElementById('statIdlePct'); if(elPct) elPct.textContent = (employees.length ? Math.round(idle/empTotal*100) : 0)+'%';
   elPct = document.getElementById('statPendingPct'); if(elPct) elPct.textContent = (activities.length ? Math.round(pending/actTotal*100) : 0)+'%';
-
-  // 更新底部状态栏 - 彩色统计
-  var elOnline = document.getElementById('statusOnline');
-  var elWorking = document.getElementById('statusWorking');
-  var elIdle = document.getElementById('statusIdle');
-  var elPending = document.getElementById('statusPending');
-  if(elOnline) elOnline.textContent = online;
-  if(elWorking) elWorking.textContent = working;
-  if(elIdle) elIdle.textContent = idle;
-  if(elPending) elPending.textContent = pending;
 }
 
 // ===== 渲染活动列表 =====
@@ -3681,9 +3669,8 @@ function renderWorkZone() {
     var badgeClass = cfg.badge;
     var statusText = cfg.icon + ' ' + cfg.text;
     
-    // 生成随机时长（用于演示）
-    var minutes = Math.floor(Math.random() * 120) + 5;
-    var durationText = formatDuration(minutes);
+    // 最近活跃时间：使用真实 lastActive 字段，无数据则不显示
+    var durationHtml = e.lastActive ? '<div class="work-duration">活跃于 ' + formatTimeAgo(e.lastActive) + '</div>' : '';
     
     // 从localStorage读取最后一条AI消息作为当前任务描述
     var taskDesc = getLastAIMessage(e.id);
@@ -3722,7 +3709,7 @@ function renderWorkZone() {
     // 右侧状态
     html += '<div class="work-meta">';
     html += '<div class="work-badge ' + badgeClass + '">' + statusText + '</div>';
-    html += '<div class="work-duration">' + durationText + '</div>';
+    html += durationHtml;
     html += '</div>';
     
     html += '</div>';
@@ -3749,14 +3736,6 @@ function startChat(empId) {
     // 切换到聊天标签
     var chatTab = document.querySelector('[data-tab="chat"]');
     if (chatTab) chatTab.click();
-  }
-}
-
-// 检查进度
-function checkProgress(empId) {
-  var emp = employees.find(function(e) { return e.id === empId; });
-  if (emp) {
-    showToast(emp.name + ' 的工作进度：' + Math.floor(Math.random() * 40 + 50) + '%');
   }
 }
 
@@ -4038,12 +4017,6 @@ function selectAIMode(el){
   var mode = el.dataset.mode;
   document.getElementById('openaiConfigPanel').style.display = mode==='openai'?'block':'none';
   if(mode!=='openai') showToast('已切换到 '+el.querySelector('.mode-name').textContent);
-}
-
-// ===== 网关控制 =====
-function restartGateway(){
-  showToast('🔄 正在重启网关...', 'loading');
-  setTimeout(function(){ showToast('✅ 网关重启成功', 'success'); },1500);
 }
 
 // ===== 员工详情 =====
@@ -4609,10 +4582,18 @@ async function approveFeishuPairing(){
   }
 }
 
-// 重启 Gateway
+// 重启 Gateway（带二次确认 + 按钮 loading，详情面板入口也走这里）
 async function restartGateway(){
+  if(!confirm('确定要重启网关吗？所有 AI 员工将断开重连，期间消息可能延迟几秒')) return;
+
+  // 调用期间置灰触发按钮，完成后恢复
+  var btn = (typeof event !== 'undefined' && event && event.currentTarget) ? event.currentTarget : null;
+  var origText = btn ? btn.textContent : '';
+  if(btn && btn.tagName === 'BUTTON'){ btn.disabled = true; btn.textContent = '重启中...'; }
+  var restore = function(){ if(btn && btn.tagName === 'BUTTON'){ btn.disabled = false; btn.textContent = origText; } };
+
   showToast('🔄 正在重启 Gateway...');
-  
+
   try{
     var resp = await authFetch('/api/openclaw/gateway/restart', {method: 'POST'});
     if(resp && resp.ok){
@@ -4623,6 +4604,8 @@ async function restartGateway(){
   } catch(err){
     console.error('[Gateway] 重启失败:', err);
     showToast('❌ Gateway 重启失败: ' + err.message);
+  } finally {
+    restore();
   }
 }
 
@@ -5129,123 +5112,6 @@ function detailViewProjects(){
   }
 }
 
-// ===== Lounge Drawer 休闲区抽屉 =====
-// 切换休闲区抽屉开关
-function toggleLounge(){
-  var drawer = document.getElementById('loungeDrawer');
-  var btn = document.getElementById('loungeNavBtn');
-  if(!drawer) return;
-  drawer.classList.toggle('open');
-  if(btn){
-    btn.classList.toggle('active');
-  }
-  // 打开时渲染内容
-  if(drawer.classList.contains('open')){
-    renderLounge();
-  }
-}
-
-// 渲染休闲区抽屉内容
-function renderLounge(){
-  var content = document.getElementById('loungeDrawerContent');
-  if(!content) return;
-  
-  // 统计各状态员工数
-  var total = employees.length;
-  var online = 0;
-  var busy = 0;
-  var thinking = 0;
-  var idle = 0;
-  var offline = 0;
-  
-  for(var i=0; i<employees.length; i++){
-    var emp = employees[i];
-    var status = emp.status || 'offline';
-    if(status === 'online') online++;
-    else if(status === 'busy' || status === 'working') busy++;
-    else if(status === 'thinking') thinking++;
-    else if(status === 'idle') idle++;
-    else offline++;
-  }
-  
-  var html = '';
-  
-  // 统计栏
-  html += '<div class="lounge-stat-bar">';
-  html += '<span>🟢 在线 <strong style="color:var(--green)">' + online + '</strong></span>';
-  html += '<span>🟠 工作中 <strong style="color:var(--orange)">' + busy + '</strong></span>';
-  html += '<span>🟡 思考中 <strong style="color:var(--yellow)">' + thinking + '</strong></span>';
-  html += '<span>⚪ 离线 <strong style="color:var(--gray-4)">' + offline + '</strong></span>';
-  html += '</div>';
-  
-  // 员工列表 - 显示所有员工
-  if(employees.length === 0){
-    html += '<div class="lounge-drawer-empty">';
-    html += '<div class="lounge-drawer-empty-icon">🦞</div>';
-    html += '<div class="lounge-drawer-empty-text">暂无员工</div>';
-    html += '</div>';
-  } else {
-    html += '<div class="lounge-employee-list">';
-    
-    for(var j=0; j<employees.length; j++){
-      var e = employees[j];
-      var bg = (e.gradient && e.gradient[0]) || e.bg || '#FFD60A';
-      var statusClass = e.status || 'offline';
-      var statusText = statusClass === 'online' ? '在线' : statusClass === 'busy' || statusClass === 'working' ? '工作中' : statusClass === 'thinking' ? '思考中' : statusClass === 'idle' ? '空闲' : '离线';
-      
-      // 获取当前任务（如果有）
-      var currentTask = '';
-      if(e.currentTask){
-        currentTask = e.currentTask;
-      } else if(e.task){
-        currentTask = e.task;
-      }
-      
-      // 获取今日对话数
-      var dialogueCount = e.dialogueCount || e.sessions || Math.floor(Math.random() * 15);
-      
-      html += '<div class="lounge-employee-item" onclick="openDetailPanel(\'' + escapeAttr(e.id) + '\')">';
-      html += '<div class="lounge-avatar-wrap">';
-      html += '<div class="lounge-avatar-badge ' + statusClass + '"></div>';
-      html += '</div>';
-      html += '<div class="lounge-employee-info">';
-      html += '<div class="lounge-employee-name">' + escapeHtml(e.name || '') + ' <span class="lounge-role-tag">' + escapeHtml(e.role || '员工') + '</span></div>';
-      if(currentTask){
-        html += '<div class="lounge-employee-task">📋 ' + escapeHtml(currentTask) + '</div>';
-      }
-      html += '<div class="lounge-employee-meta">最后活跃: ' + escapeHtml(e.lastActive || '刚刚') + ' · 今日对话: ' + dialogueCount + '条</div>';
-      html += '</div>';
-      
-      // Hover 预览卡
-      html += '<div class="lounge-preview-card">';
-      html += '<div class="lounge-preview-header">';
-      html += '<div class="lounge-preview-avatar" style="background:' + bg + '">' + (e.name ? e.name[0] : '?') + '</div>';
-      html += '<div>';
-      html += '<div class="lounge-preview-name">' + escapeHtml(e.name || '') + '</div>';
-      html += '<div class="lounge-preview-role">' + escapeHtml(e.role || '员工') + '</div>';
-      html += '</div>';
-      html += '</div>';
-      if(currentTask){
-        html += '<div class="lounge-preview-task">📋 当前任务: <strong>' + escapeHtml(currentTask) + '</strong></div>';
-      }
-      html += '<div class="lounge-preview-dialogue">💬 今日对话: ' + dialogueCount + '条</div>';
-      html += '</div>';
-      
-      html += '</div>';
-    }
-    
-    html += '</div>';
-  }
-  
-  content.innerHTML = html;
-}
-
-// HTML 转义函数
-function escapeHtml(str){
-  if(!str) return '';
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
-}
-
 // ===== Lounge Zone 渲染 =====
 function renderLoungeZone(){
   var loungeZone = document.getElementById('loungeZone');
@@ -5354,7 +5220,8 @@ function addTimelineEvent(name, action){
   }
   item.innerHTML = avatarHtml+'<div class="timeline-content"><div class="timeline-text"><b>'+name+'</b> '+action+'</div><div class="timeline-time">'+time+'</div></div>';
   list.insertBefore(item, list.firstChild);
-  while(list.children.length > 10){
+  // 上限 50 条，超出删除最旧的，防止长时间运行膨胀
+  while(list.children.length > 50){
     list.removeChild(list.lastChild);
   }
 }
@@ -6100,21 +5967,5 @@ async function confirmCreateAgent() {
   </div>
 </div>
 
-
-<!-- Lounge Drawer 休闲区抽屉 — 已废弃，直接隐藏 -->
-<div class="lounge-drawer" id="loungeDrawer" style="display:none !important;">
-  <div class="lounge-drawer-header">
-    <div class="lounge-drawer-title">🏖️ 休闲区 Lounge</div>
-    <button class="lounge-drawer-close" onclick="toggleLounge()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="18" y1="6" x2="6" y2="18"></line>
-        <line x1="6" y1="6" x2="18" y2="18"></line>
-      </svg>
-    </button>
-  </div>
-  <div class="lounge-drawer-content" id="loungeDrawerContent">
-    <!-- JS 渲染内容 -->
-  </div>
-</div>
 
 </body></html>
