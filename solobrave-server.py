@@ -8132,8 +8132,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             result = [a for a in agents
                       if a.get('id') in accessible_ids or a.get('createdBy') == uid]
         else:
-            # employee: 严格只返回自己创建的 agents，侧边栏不显示其他人的 AI
-            result = [a for a in agents if a.get('createdBy') == uid]
+            # employee: 自己创建的 + visibility=all 公开的 + 同团队共享的
+            accessible_ids = set(_get_accessible_agent_ids(auth) or [])
+            result = [a for a in agents
+                      if a.get('createdBy') == uid
+                      or a.get('visibility') == 'all'
+                      or a.get('id') in accessible_ids]
 
         logger.info(f'  [DEBUG get_agents] 过滤后返回 {len(result)} 个 agents')
         for a in result:

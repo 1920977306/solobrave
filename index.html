@@ -27636,10 +27636,20 @@ function renderSettingsMid() {
     { id: 'members', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', title: '成员管理' },
     { id: 'feishu', icon: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>', title: '飞书配置' }
   ];
-  if (!isAdmin()) { categories = categories.filter(function(c) { return ['compute','notification','account','feishu'].indexOf(c.id) >= 0; }); }
-  // 非管理员停留在管理员专属分类（用户/团队/成员/权限/违禁词管理）时，回退到默认分类
-  if (!isAdmin() && ['permission', 'forbidden', 'users', 'teams', 'members'].indexOf(_settingsSelectedCategory) >= 0) {
-    _settingsSelectedCategory = 'compute';
+  if (!isAdmin()) {
+    var allowed = ['compute','notification','account','feishu'];
+    if (hasModulePermission('employees')) {
+      allowed = allowed.concat(['users','members']);
+    }
+    categories = categories.filter(function(c) { return allowed.indexOf(c.id) >= 0; });
+  }
+  // 非管理员停留在无权限的分类（权限/违禁词/团队管理，及无 employees 权限时的用户/成员管理）时，回退到默认分类
+  if (!isAdmin()) {
+    var blockedCats = ['permission', 'forbidden', 'teams'];
+    if (!hasModulePermission('employees')) blockedCats = blockedCats.concat(['users', 'members']);
+    if (blockedCats.indexOf(_settingsSelectedCategory) >= 0) {
+      _settingsSelectedCategory = 'compute';
+    }
   }
   var html = '';
   categories.forEach(function (c) {
@@ -27654,8 +27664,13 @@ function renderSettingsMid() {
 }
 
 function selectSettingsCategory(id) {
-  // 用户/团队/成员/权限/违禁词管理仅管理员可见
-  if (!isAdmin() && ['permission', 'forbidden', 'users', 'teams', 'members'].indexOf(id) >= 0) return;
+  // 权限/违禁词/团队管理仅管理员可见；用户/成员管理需要 employees 模块权限
+  var adminOnlyCats = ['permission','forbidden','teams'];
+  var empCats = ['users','members'];
+  if (!isAdmin()) {
+    if (adminOnlyCats.indexOf(id) >= 0) return;
+    if (empCats.indexOf(id) >= 0 && !hasModulePermission('employees')) return;
+  }
   _settingsSelectedCategory = id;
   renderSettingsMid();
 }
