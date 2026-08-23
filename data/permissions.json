@@ -9,7 +9,12 @@
         "messages": true,
         "knowledge": true,
         "settings": true,
-        "products": true
+        "products": true,
+        "groups": true,
+        "influencers": true,
+        "employees": true,
+        "tasks": true,
+        "matches": true
       },
       "knowledgeCategories": [
         "*"
