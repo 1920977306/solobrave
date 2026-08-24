@@ -870,10 +870,20 @@ def _write_json(filepath, data):
                         if _is_log_polluted(ak):
                             logger.info(f'  [WRITE_GUARD] 写入前发现 apiKey 被污染: {agent.get("id")} len={len(ak)} 已清空')
                             agent['apiKey'] = ''
+            # 第一层防护：落盘前把序列化结果 loads 回来校验，不合法则拒绝写入，
+            # 防止损坏数据落盘（同时提前暴露不可序列化对象）
+            try:
+                payload = json.dumps(data, ensure_ascii=False, indent=2)
+                json.loads(payload)
+            except (json.JSONDecodeError, TypeError, ValueError) as e:
+                logger.error(
+                    f'  [WRITE_JSON] 写入前校验失败，已拒绝写入: file={filepath} '
+                    f'err_type={type(e).__name__} err={e}\n{traceback.format_exc()}')
+                raise ValueError(f'写入前 JSON 校验失败: {filepath}: {e}')
             with open(tmp_path, 'w', encoding='utf-8') as f:
                 if fcntl:
                     fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-                json.dump(data, f, ensure_ascii=False, indent=2)
+                f.write(payload)
                 if fcntl:
                     fcntl.flock(f.fileno(), fcntl.LOCK_UN)
             # Windows 上若其他进程/线程正打开目标文件读取，os.replace 会抛
@@ -1096,6 +1106,56 @@ def _find_user(users, key, value):
         if u.get(key) == value:
             return u
     return None
+
+
+def _validate_agents_json():
+    """第三层防护（启动保险）：agents.json 损坏时自动从最近的可用备份恢复
+
+    启动快照（_backup_data_dir）会把整个 data/ 复制到 data/backups/<时间戳>/，
+    这里按时间戳倒序找第一个能正常解析的 agents.json 恢复；损坏现场保留为
+    agents.json.corrupt.<时间戳> 供排查。
+    """
+    if not os.path.isfile(AGENTS_FILE):
+        return
+    try:
+        with open(AGENTS_FILE, 'r', encoding='utf-8') as f:
+            json.load(f)
+        return  # 文件正常，无需修复
+    except (json.JSONDecodeError, OSError) as e:
+        logger.error(
+            f'  [Repair] agents.json 损坏: err_type={type(e).__name__} err={e}\n'
+            f'{traceback.format_exc()}')
+
+    # 保留损坏现场
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    corrupt_path = AGENTS_FILE + f'.corrupt.{ts}'
+    try:
+        shutil.copy2(AGENTS_FILE, corrupt_path)
+    except OSError:
+        pass
+
+    # 从 data/backups/ 快照中找最近一个可正常解析的 agents.json
+    backups_root = os.path.join(DATA_DIR, 'backups')
+    if os.path.isdir(backups_root):
+        for name in sorted(os.listdir(backups_root), reverse=True):
+            cand = os.path.join(backups_root, name, 'agents.json')
+            if not os.path.isfile(cand):
+                continue
+            try:
+                with open(cand, 'r', encoding='utf-8') as f:
+                    json.load(f)
+            except (json.JSONDecodeError, OSError):
+                continue  # 该备份也损坏，尝试更早的
+            try:
+                shutil.copy2(cand, AGENTS_FILE)
+                logger.warning(
+                    f'  [Repair] agents.json 已从备份恢复: {cand}'
+                    f'（损坏现场保留在 {corrupt_path}）')
+            except OSError as e:
+                logger.error(f'  [Repair] 备份恢复失败: {cand} err={e}')
+            return
+    logger.error('  [Repair] 未找到可用备份，agents.json 保持损坏状态'
+                 '（启动保护逻辑将跳过覆盖，不会丢更多数据）')
 
 
 def _init_default_admin():
@@ -15374,7 +15434,7 @@ def _detect_self_update_intent(text):
 _INFLUENCER_DATA_CONSTRAINT = (
     '\n\n【数据源强制约束】\n'
     '1. 达人数据只能从 /api/influencers 接口读取，禁止编造不存在的达人\n'
-    '2. 如果 API 返回空列表，必须如实告知用户"当前没有达人数据"，不能编造\n'
+    '2. 如果 API 返回空列表，必须如实告知用户「当前没有达人数据」，不能编造\n'
     '3. 分析报告中提到的每个达人必须能在 API 返回的数据中找到对应记录\n'
     '4. 禁止使用知识库或本地缓存中的旧数据替代 API 实时数据'
 )
@@ -18995,6 +19055,9 @@ def main():
     ms3.MEMORY_V3_CONFIG['inject_daily_max'] = MEMORY_CONFIG['inject_daily_max']
     ms3.MEMORY_V3_CONFIG['inject_value_max'] = MEMORY_CONFIG['inject_value_max']
     ms3.MEMORY_V3_CONFIG['store_value_max'] = MEMORY_CONFIG['store_value_max']
+
+    # 第三层防护：agents.json 损坏时先从启动快照自动恢复，再走后续初始化
+    _validate_agents_json()
 
     # 启动时主动清理历史遗留默认员工数据
     _clean_agents_file()
