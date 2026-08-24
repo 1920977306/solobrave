@@ -8139,6 +8139,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                       or a.get('visibility') == 'all'
                       or a.get('id') in accessible_ids]
 
+        # 过滤掉系统级管理员
+        result = [a for a in result if a.get('id') != 'knowledge_admin']
+
         logger.info(f'  [DEBUG get_agents] 过滤后返回 {len(result)} 个 agents')
         for a in result:
             logger.info(f'  [DEBUG get_agents] -> result id={a.get("id")} name={a.get("name")} createdBy={repr(a.get("createdBy"))}')
