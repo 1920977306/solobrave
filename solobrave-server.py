@@ -15035,6 +15035,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if role not in ('user', 'assistant', 'system'):
             role = 'user'
 
+        # 达人相关提问：强制走 Python 后端 _call_ai_api（含达人数据实时注入），
+        # 不能让前端直连 OpenClaw（skipAI=True）跳过注入
+        if role == 'user' and body.get('skipAI', False):
+            _content_for_check = body.get('content', '')
+            if isinstance(_content_for_check, str) and any(
+                    k in _content_for_check.upper() for k in _TALENT_INJECT_KEYWORDS):
+                body['skipAI'] = False
+                logger.info(f'  [TalentInject] {agent_id} 命中达人关键词，skipAI 强制改为 False，走后端注入路径')
+
         # 积分管控（后端拦截）：用户消息且需要后端实际调用 AI 时，先检查员工积分余额
         # 积分不足直接返回，不转发给 OpenClaw / AI API
         credit_info = None
