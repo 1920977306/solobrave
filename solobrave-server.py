@@ -15318,6 +15318,25 @@ def _detect_self_update_intent(text):
     return []
 
 
+# 达人分析类员工的强制数据源约束（防止编造不存在的达人数据）
+_INFLUENCER_DATA_CONSTRAINT = (
+    '\n\n【数据源强制约束】\n'
+    '1. 达人数据只能从 /api/influencers 接口读取，禁止编造不存在的达人\n'
+    '2. 如果 API 返回空列表，必须如实告知用户"当前没有达人数据"，不能编造\n'
+    '3. 分析报告中提到的每个达人必须能在 API 返回的数据中找到对应记录\n'
+    '4. 禁止使用知识库或本地缓存中的旧数据替代 API 实时数据'
+)
+
+
+def _append_influencer_data_constraint(agent, system_prompt):
+    """达人分析相关员工（role 含 达人/数据分析/analyst）的 systemPrompt 末尾自动追加数据源约束"""
+    role = (agent.get('role', '') or '').lower()
+    if '达人' in role or '数据分析' in role or 'analyst' in role:
+        if '【数据源强制约束】' not in system_prompt:
+            return system_prompt + _INFLUENCER_DATA_CONSTRAINT
+    return system_prompt
+
+
 def _append_self_update_prompt(system_prompt):
     """在 system_prompt 末尾追加自修改工具声明"""
     if not system_prompt:
@@ -15745,6 +15764,8 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
         system_prompt += '\n\n' + soul_doc
     elif sys_prompt_field:
         system_prompt += '\n\n' + sys_prompt_field
+    # 达人分析类员工自动追加数据源强制约束，防止编造达人数据
+    system_prompt = _append_influencer_data_constraint(agent, system_prompt)
     # 注入层级关系约束，防止 AI 把老板当学生/下属
     if user_info:
         user_name = user_info.get('name') or user_info.get('displayName') or '用户'
