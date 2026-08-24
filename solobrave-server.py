@@ -15144,8 +15144,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 else:
                     user_payload = content
                 allowed_cats = _allowed_knowledge_categories(auth)
+                # 达人相关提问：实时注入当前用户可见的达人数据，防止 AI 编造
+                # 注意用 agent 副本拼接 systemPrompt，不修改原始 dict
+                talent_injection = _build_talent_injection(content, auth)
+                agent_for_call = agent
+                if talent_injection:
+                    agent_for_call = dict(agent)
+                    if agent_for_call.get('soulDoc'):
+                        agent_for_call['soulDoc'] = agent_for_call['soulDoc'] + talent_injection
+                    else:
+                        agent_for_call['systemPrompt'] = (agent_for_call.get('systemPrompt', '') or '') + talent_injection
+                    logger.info(f'  [TalentInject] {agent_id} 命中达人关键词，注入数据 len={len(talent_injection)}')
                 api_reply = _call_ai_api(
-                    agent, user_payload, auth.user_info, include_history=not is_extract,
+                    agent_for_call, user_payload, auth.user_info, include_history=not is_extract,
                     allowed_knowledge_categories=allowed_cats,
                     requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
                     group_ids=auth.group_ids
@@ -15447,6 +15458,50 @@ def _append_influencer_data_constraint(agent, system_prompt):
         if '【数据源强制约束】' not in system_prompt:
             return system_prompt + _INFLUENCER_DATA_CONSTRAINT
     return system_prompt
+
+
+# 达人相关提问的关键词（任一命中即触发实时数据注入）
+_TALENT_INJECT_KEYWORDS = ('达人', '网红', 'KOL', '主播', '带货', '分析', '报告')
+_TALENT_INJECT_LIMIT = 50
+
+
+def _build_talent_injection(user_text, auth):
+    """用户消息命中达人相关关键词时，查询当前用户可见的达人数据并格式化为注入文本；
+    未命中或查询失败返回 ''。数据隔离规则与 GET /api/talents 一致：
+    管理员看全部，非管理员只看自己及自己 AI 员工录入的。
+    """
+    if not user_text or not isinstance(user_text, str):
+        return ''
+    if not any(k in user_text.upper() for k in _TALENT_INJECT_KEYWORDS):
+        return ''
+    try:
+        conn = _db_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM talents WHERE status = 'active' ORDER BY followers DESC LIMIT ?",
+                (_TALENT_INJECT_LIMIT,)).fetchall()
+            talents = [_talent_row_to_dict(r) for r in rows]
+        finally:
+            conn.close()
+        if not auth.is_admin:
+            uid = auth.user_info.get('userId', '')
+            visible_ids = {uid} | set(_get_user_emp_ids(uid))
+            talents = [t for t in talents if (t.get('created_by') or '') in visible_ids]
+    except Exception as e:
+        logger.error(
+            f'  [TalentInject] 查询达人数据失败: err_type={type(e).__name__} err={e}\n'
+            f'{traceback.format_exc()}')
+        return ''
+    if not talents:
+        return ('\n\n【当前达人数据：系统中暂无达人记录，请如实告知用户当前没有达人数据，'
+                '严禁编造任何达人信息】\n\n')
+    lines = ['\n\n【当前达人数据（系统实时注入，严格以此为准，禁止使用此范围外的任何达人）】']
+    for t in talents:
+        price = t.get('single_video_settlement') or t.get('video_avg_price') or t.get('average_price') or '-'
+        rate = t.get('video_interaction_rate') or '-'
+        status = t.get('cooperation_status') or t.get('status') or '-'
+        lines.append(f"{t.get('name') or '-'} | 抖音 | 粉丝:{t.get('followers') or 0} | 报价:{price} | 互动率:{rate} | 状态:{status}")
+    return '\n'.join(lines) + '\n\n'
 
 
 def _append_self_update_prompt(system_prompt):
