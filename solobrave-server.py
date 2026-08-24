@@ -15539,50 +15539,76 @@ def _strip_talent_block(text):
     return cleaned.rstrip() + ('\n' if cleaned.strip() else '')
 
 
+def _openclaw_workspaces_for_agent(agent):
+    """返回该 agent 在 OpenClaw 侧可能使用的 workspace 目录列表。
+
+    前端调 OpenClaw 推理时 sessionKey 用的是员工 id（agent:emp_xxx:chat），
+    因此 workspace 按员工 id 优先解析，openclawName（降级时可能是 'main'）作为回退；
+    兼容三种历史布局：agents/<n>、<n>、workspace-<n>。
+    所有已存在的候选目录都会返回（注入会写入每一个）；
+    都不存在时返回默认布局 agents/<员工id>（与 openclaw agents add 一致，调用方会创建）。
+    """
+    home = os.path.expanduser('~')
+    names = []
+    aid = (agent.get('id') or '').strip()
+    oc_name = (agent.get('openclawName') or '').strip()
+    if aid:
+        names.append(aid)
+    if oc_name and oc_name not in names:
+        names.append(oc_name)
+    if not names:
+        return []
+    existing = []
+    for n in names:
+        for d in (os.path.join(home, '.openclaw', 'agents', n),
+                  os.path.join(home, '.openclaw', n),
+                  os.path.join(home, '.openclaw', 'workspace-' + n)):
+            if os.path.isdir(d) and d not in existing:
+                existing.append(d)
+    if existing:
+        return existing
+    return [os.path.join(home, '.openclaw', 'agents', names[0])]
+
+
 def _update_openclaw_talent_block(agent, injection):
     """把达人数据注入块写入该 agent 的 OpenClaw workspace SOUL.md（系统管理块）。
 
-    injection 为空时仅移除旧注入块（恢复原始 prompt）；当前文件无注入块且
-    injection 为空时不做任何写操作。前端直连 OpenClaw 的场景下，OpenClaw
-    读取的就是这份 SOUL.md，因此注入后 AI 拿到的就是带真实数据的 prompt。
-    逻辑复用 _handle_openclaw_update_agent 的 workspace 定位方式。
+    injection 为空时仅移除旧注入块（恢复原始 prompt）；某目录下无旧注入块且
+    injection 为空时跳过该目录。前端直连 OpenClaw 的场景下，OpenClaw 读取的
+    就是这份 SOUL.md，因此注入后 AI 拿到的就是带真实数据的 prompt。
     """
-    name = (agent.get('openclawName') or '').strip()
-    if not name:
+    workspaces = _openclaw_workspaces_for_agent(agent)
+    if not workspaces:
         return False
-    home = os.path.expanduser('~')
-    candidates = [
-        os.path.join(home, '.openclaw', 'agents', name),
-        os.path.join(home, '.openclaw', name),
-    ]
-    ws = next((d for d in candidates if os.path.isdir(d)), candidates[0])
-    soul_path = os.path.join(ws, 'SOUL.md')
-    try:
-        base = ''
-        if os.path.isfile(soul_path):
-            with open(soul_path, 'r', encoding='utf-8') as f:
-                base = f.read()
-        if not base.strip():
-            base = (agent.get('soulDoc') or agent.get('systemPrompt') or '')
-        if not injection and _TALENT_BLOCK_START not in base:
-            return False  # 无注入需求且无旧注入块，无需写文件
-        base = _strip_talent_block(base)
-        content = base
-        if injection:
-            content = (base.rstrip() + '\n\n' + _TALENT_BLOCK_START + '\n'
-                       + injection.strip() + '\n' + _TALENT_BLOCK_END + '\n')
-        os.makedirs(ws, exist_ok=True)
-        tmp_path = soul_path + '.tmp.' + uuid.uuid4().hex[:8]
-        with open(tmp_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        os.replace(tmp_path, soul_path)
-        logger.info(f'  [TalentInject] OpenClaw SOUL.md 已更新: {soul_path} inject={bool(injection)}')
-        return True
-    except OSError as e:
-        logger.error(
-            f'  [TalentInject] 更新 OpenClaw SOUL.md 失败: {soul_path} '
-            f'err_type={type(e).__name__} err={e}\n{traceback.format_exc()}')
-        return False
+    updated = False
+    for ws in workspaces:
+        soul_path = os.path.join(ws, 'SOUL.md')
+        try:
+            base = ''
+            if os.path.isfile(soul_path):
+                with open(soul_path, 'r', encoding='utf-8') as f:
+                    base = f.read()
+            if not base.strip():
+                base = (agent.get('soulDoc') or agent.get('systemPrompt') or '')
+            if not injection and _TALENT_BLOCK_START not in base:
+                continue  # 无注入需求且无旧注入块，跳过该目录
+            base = _strip_talent_block(base)
+            content = base
+            if injection:
+                content = (base.rstrip() + '\n\n' + _TALENT_BLOCK_START + '\n'
+                           + injection.strip() + '\n' + _TALENT_BLOCK_END + '\n')
+            os.makedirs(ws, exist_ok=True)
+            tmp_path = soul_path + '.tmp.' + uuid.uuid4().hex[:8]
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            os.replace(tmp_path, soul_path)
+            updated = True
+            logger.info(f'  [TalentInject] OpenClaw SOUL.md 已更新: {soul_path} inject={bool(injection)}')
+        except OSError as e:
+            logger.error(
+                f'  [TalentInject] 更新 OpenClaw SOUL.md 失败: {soul_path} '
+                f'err_type={type(e).__name__} err={e}\n{traceback.format_exc()}')
+    return updated
 
 
 def _append_self_update_prompt(system_prompt):
