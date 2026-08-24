@@ -12985,6 +12985,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'): return
+        if not auth.is_admin:
+            self._send_json_error(403, 'Only admin can create products')
+            return
         body = self._read_body()
         if not body or 'name' not in body:
             self._send_json_error(400, 'Missing name')
