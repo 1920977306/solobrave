@@ -822,14 +822,33 @@ def _ensure_data_dir():
 
 
 def _read_json(filepath, default=None):
-    """读取 JSON 文件"""
+    """读取 JSON 文件；读取/解析失败时记录完整异常堆栈（文件路径、异常类型、错误信息）
+
+    并发说明：写方走 唯一tmp文件+os.replace 原子替换，读方不会看到半截内容；
+    但 Windows 上读方与另一进程的 replace 竞争可能出现瞬时 PermissionError，
+    因此对 OSError 做短重试；JSONDecodeError 属于真实损坏，不重试直接报错。
+    """
     if not os.path.isfile(filepath):
         return default if default is not None else None
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return default if default is not None else None
+    file_lock = _get_memory_file_lock(filepath)
+    for attempt in range(3):
+        try:
+            with file_lock:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except json.JSONDecodeError as e:
+            logger.error(
+                f'  [READ_JSON] JSON 解析失败: file={filepath} '
+                f'err_type={type(e).__name__} err={e}\n{traceback.format_exc()}')
+            return default if default is not None else None
+        except OSError as e:
+            if attempt < 2:
+                time.sleep(0.05 * (attempt + 1))
+                continue
+            logger.error(
+                f'  [READ_JSON] 读取失败（重试3次后放弃）: file={filepath} '
+                f'err_type={type(e).__name__} err={e}\n{traceback.format_exc()}')
+            return default if default is not None else None
 
 
 def _write_json(filepath, data):
@@ -857,7 +876,23 @@ def _write_json(filepath, data):
                 json.dump(data, f, ensure_ascii=False, indent=2)
                 if fcntl:
                     fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-            os.replace(tmp_path, filepath)
+            # Windows 上若其他进程/线程正打开目标文件读取，os.replace 会抛
+            # 瞬时 PermissionError，短重试可避开；重试仍失败则抛出并记录堆栈
+            last_err = None
+            for attempt in range(3):
+                try:
+                    os.replace(tmp_path, filepath)
+                    last_err = None
+                    break
+                except OSError as e:
+                    last_err = e
+                    if attempt < 2:
+                        time.sleep(0.05 * (attempt + 1))
+            if last_err is not None:
+                logger.error(
+                    f'  [WRITE_JSON] os.replace 失败（重试3次后放弃）: file={filepath} '
+                    f'err_type={type(last_err).__name__} err={last_err}\n{traceback.format_exc()}')
+                raise last_err
     except OSError:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
