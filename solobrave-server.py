@@ -1093,10 +1093,24 @@ def _init_default_admin():
 
 
 def _ensure_knowledge_admin_agent():
-    """确保存在系统知识库管理员 AI 员工"""
-    agents = _load_agents(include_archived=True)
+    """确保存在系统知识库管理员 AI 员工
+
+    注意：必须基于原始文件内容追加，不能用 _load_agents() 的过滤结果写回；
+    且 agents.json 存在但读取/解析失败时必须中止，否则会把 [knowledge_admin]
+    覆盖写回，导致用户创建的员工全部丢失。
+    """
+    raw = _read_json(AGENTS_FILE, None)
+    if raw is None:
+        if os.path.isfile(AGENTS_FILE):
+            logger.error('  [System] agents.json 读取/解析失败，跳过 knowledge_admin 初始化以保护现有数据')
+            return
+        raw = []
+    if not isinstance(raw, list):
+        logger.error('  [System] agents.json 格式异常（非列表），跳过 knowledge_admin 初始化以保护现有数据')
+        return
+    agents = raw
     for a in agents:
-        if a.get('id') == 'knowledge_admin':
+        if isinstance(a, dict) and a.get('id') == 'knowledge_admin':
             return
     admin = {
         'id': 'knowledge_admin',
@@ -6589,7 +6603,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         conn.execute('UPDATE talents SET created_by=? WHERE created_by=?', (admin_id, user_id))
         conn.commit()
         conn.close()
-        agents = _load_agents()
+        agents = _load_agents(include_archived=True)  # 必须包含已归档员工，否则写回时会物理清除他们
         for a in agents:
             if a.get('createdBy') == user_id:
                 a['createdBy'] = admin_id
@@ -8948,7 +8962,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not agent_id or enabled is None:
                 self._send_json(400, {'error': '缺少 agentId 或 enabled'})
                 return
-            agents = _load_agents()
+            agents = _load_agents(include_archived=True)  # 必须包含已归档员工，否则写回时会物理清除他们
             agent = None
             for a in agents:
                 if a.get('id') == agent_id:
