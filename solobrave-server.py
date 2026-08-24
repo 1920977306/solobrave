@@ -15035,12 +15035,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if role not in ('user', 'assistant', 'system'):
             role = 'user'
 
-        # 达人相关提问：强制走 Python 后端 _call_ai_api（含达人数据实时注入），
-        # 不能让前端直连 OpenClaw（skipAI=True）跳过注入
-        if role == 'user' and body.get('skipAI', False):
+        # 达人相关提问的处理（防止 AI 编造达人数据）：
+        # - OpenClaw 员工（前端直连 OpenClaw，skipAI 拦截无效）：把达人数据写入其
+        #   workspace SOUL.md 的系统管理块，OpenClaw 读取的就是带真实数据的 prompt；
+        #   未命中关键词时清除旧注入块，恢复原始 prompt
+        # - 其他员工：skipAI=True 时强制置 False，改走后端 _call_ai_api 注入路径
+        if role == 'user':
             _content_for_check = body.get('content', '')
-            if isinstance(_content_for_check, str) and any(
-                    k in _content_for_check.upper() for k in _TALENT_INJECT_KEYWORDS):
+            _talent_hit = isinstance(_content_for_check, str) and any(
+                k in _content_for_check.upper() for k in _TALENT_INJECT_KEYWORDS)
+            if agent.get('openclawName') or agent.get('connectionType') == 'openclaw':
+                _injection = _build_talent_injection(_content_for_check, auth) if _talent_hit else ''
+                _update_openclaw_talent_block(agent, _injection)
+            elif _talent_hit and body.get('skipAI', False):
                 body['skipAI'] = False
                 logger.info(f'  [TalentInject] {agent_id} 命中达人关键词，skipAI 强制改为 False，走后端注入路径')
 
@@ -15231,6 +15238,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # OpenClaw 链路：AI 回复由前端回传（role=assistant），同样做分析结论自动入库
             if role == 'assistant':
                 _maybe_auto_save_analysis(agent_id, msg.get('content', ''))
+                # AI 回复完成，恢复 OpenClaw workspace 的原始 prompt（清除达人注入块）
+                if agent.get('openclawName') or agent.get('connectionType') == 'openclaw':
+                    _update_openclaw_talent_block(agent, '')
 
         if connection_type == 'openclaw':
             self._send_json(200, {
@@ -15511,6 +15521,68 @@ def _build_talent_injection(user_text, auth):
         status = t.get('cooperation_status') or t.get('status') or '-'
         lines.append(f"{t.get('name') or '-'} | 抖音 | 粉丝:{t.get('followers') or 0} | 报价:{price} | 互动率:{rate} | 状态:{status}")
     return '\n'.join(lines) + '\n\n'
+
+
+# OpenClaw workspace SOUL.md 中由系统管理的达人数据注入块标记
+_TALENT_BLOCK_START = '<!-- TALENT_DATA_INJECT_START -->'
+_TALENT_BLOCK_END = '<!-- TALENT_DATA_INJECT_END -->'
+
+
+def _strip_talent_block(text):
+    """移除 SOUL.md 内容中系统管理的达人注入块，返回清理后的内容"""
+    if not text:
+        return ''
+    pattern = _re.compile(
+        r'\n*\s*' + _re.escape(_TALENT_BLOCK_START) + r'.*?'
+        + _re.escape(_TALENT_BLOCK_END) + r'\n?', _re.S)
+    cleaned = pattern.sub('', text)
+    return cleaned.rstrip() + ('\n' if cleaned.strip() else '')
+
+
+def _update_openclaw_talent_block(agent, injection):
+    """把达人数据注入块写入该 agent 的 OpenClaw workspace SOUL.md（系统管理块）。
+
+    injection 为空时仅移除旧注入块（恢复原始 prompt）；当前文件无注入块且
+    injection 为空时不做任何写操作。前端直连 OpenClaw 的场景下，OpenClaw
+    读取的就是这份 SOUL.md，因此注入后 AI 拿到的就是带真实数据的 prompt。
+    逻辑复用 _handle_openclaw_update_agent 的 workspace 定位方式。
+    """
+    name = (agent.get('openclawName') or '').strip()
+    if not name:
+        return False
+    home = os.path.expanduser('~')
+    candidates = [
+        os.path.join(home, '.openclaw', 'agents', name),
+        os.path.join(home, '.openclaw', name),
+    ]
+    ws = next((d for d in candidates if os.path.isdir(d)), candidates[0])
+    soul_path = os.path.join(ws, 'SOUL.md')
+    try:
+        base = ''
+        if os.path.isfile(soul_path):
+            with open(soul_path, 'r', encoding='utf-8') as f:
+                base = f.read()
+        if not base.strip():
+            base = (agent.get('soulDoc') or agent.get('systemPrompt') or '')
+        if not injection and _TALENT_BLOCK_START not in base:
+            return False  # 无注入需求且无旧注入块，无需写文件
+        base = _strip_talent_block(base)
+        content = base
+        if injection:
+            content = (base.rstrip() + '\n\n' + _TALENT_BLOCK_START + '\n'
+                       + injection.strip() + '\n' + _TALENT_BLOCK_END + '\n')
+        os.makedirs(ws, exist_ok=True)
+        tmp_path = soul_path + '.tmp.' + uuid.uuid4().hex[:8]
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        os.replace(tmp_path, soul_path)
+        logger.info(f'  [TalentInject] OpenClaw SOUL.md 已更新: {soul_path} inject={bool(injection)}')
+        return True
+    except OSError as e:
+        logger.error(
+            f'  [TalentInject] 更新 OpenClaw SOUL.md 失败: {soul_path} '
+            f'err_type={type(e).__name__} err={e}\n{traceback.format_exc()}')
+        return False
 
 
 def _append_self_update_prompt(system_prompt):
