@@ -8800,6 +8800,16 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
   try {
     // 私聊回复使用独立 chat session，避免与记忆提取 session 冲突
     var sessionKey = 'agent:' + emp.id + ':chat';
+    // 达人相关提问：后端已把实时达人数据注入 SOUL.md，但 OpenClaw 在 session 创建时
+    // 缓存 prompt，运行中的 session 不会重读文件；先 reset 让网关重载 SOUL.md
+    if (/达人|网红|kol|主播|带货|分析|报告/i.test(userMessage || '')) {
+      try {
+        await openclaw.resetSession(sessionKey);
+        console.debug('[TalentInject] 命中达人关键词，已 reset session:', sessionKey);
+      } catch (resetErr) {
+        console.warn('[TalentInject] resetSession 失败，继续发送:', resetErr);
+      }
+    }
     var hasSentWorking = false;
     var hasSentCoding = false;
     var lifecycleOptions = {};
