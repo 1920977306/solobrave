@@ -13642,7 +13642,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
-        self._send_json(200, {'text': _build_talent_injection_text()})
+        self._send_json(200, {'text': _build_talent_injection_text(auth)})
 
     def _handle_get_talent(self, talent_id):
         """GET /api/talents/:id — 获取达人详情"""
@@ -15495,22 +15495,17 @@ _TALENT_INJECT_LIMIT = 50
 
 
 def _build_talent_injection(user_text, auth):
-    """用户消息命中达人相关关键词时返回达人数据注入文本，否则返回 ''。
-
-    auth 参数仅为兼容既有调用方保留；达人库为共享数据，注入不按用户过滤。
-    """
+    """用户消息命中达人相关关键词时返回达人数据注入文本，否则返回 ''"""
     if not user_text or not isinstance(user_text, str):
         return ''
     if not any(k in user_text.upper() for k in _TALENT_INJECT_KEYWORDS):
         return ''
-    return _build_talent_injection_text()
+    return _build_talent_injection_text(auth)
 
 
-def _build_talent_injection_text():
-    """直查 talents 表全部 active 达人并格式化为注入文本（供消息内联注入，含禁止编造约束）。
-
-    不按 created_by 过滤：达人库是公司共享数据，注入目的是让 AI 看到全部真实数据，
-    避免按用户过滤后返回空导致 AI 编造。
+def _build_talent_injection_text(auth):
+    """查询当前登录用户的达人数据并格式化为注入文本（供消息内联注入，含禁止编造约束）。
+    数据隔离规则：管理员（is_admin）看全部，非管理员只看自己（created_by=user_id）录入的。
     """
     try:
         conn = _db_conn()
@@ -15521,21 +15516,23 @@ def _build_talent_injection_text():
             talents = [_talent_row_to_dict(r) for r in rows]
         finally:
             conn.close()
+        if not auth.is_admin:
+            uid = auth.user_info.get('userId', '')
+            talents = [t for t in talents if (t.get('created_by') or '') == uid]
     except Exception as e:
         logger.error(
             f'  [TalentInject] 查询达人数据失败: err_type={type(e).__name__} err={e}\n'
             f'{traceback.format_exc()}')
         return ''
     if not talents:
-        return ('\n\n【当前达人数据：系统中暂无达人记录，请如实告知用户当前没有达人数据，'
-                '严禁编造任何达人信息】\n\n')
+        return ('\n\n【当前达人数据（系统实时注入）】\n'
+                '系统中暂无达人记录，严禁编造任何达人信息，必须如实告知用户。\n\n')
     lines = ['\n\n【当前达人数据（系统实时注入，严格以此为准，禁止使用此范围外的任何达人）】']
     for t in talents:
-        tags = t.get('tags') or []
-        tags_text = '、'.join(str(x) for x in tags) if isinstance(tags, list) and tags else '-'
-        category = t.get('fan_category') or t.get('category') or '-'
+        price = t.get('single_video_settlement') or t.get('video_avg_price') or t.get('average_price') or '-'
+        rate = t.get('video_interaction_rate') or '-'
         status = t.get('cooperation_status') or t.get('status') or '-'
-        lines.append(f"{t.get('name') or '-'} | 粉丝:{t.get('followers') or 0} | 品类:{category} | 合作状态:{status} | 标签:{tags_text}")
+        lines.append(f"{t.get('name') or '-'} | 抖音 | 粉丝:{t.get('followers') or 0} | 报价:{price} | 互动率:{rate} | 状态:{status}")
     return '\n'.join(lines) + '\n\n'
 
 
