@@ -5067,6 +5067,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/agents':
             self._handle_get_agents()
             return
+        if path == '/api/employee-templates':
+            self._handle_get_employee_templates()
+            return
         if path.startswith('/api/agents/'):
             agent_id = path[len('/api/agents/'):]
             if agent_id:
@@ -8221,6 +8224,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # Agent API
     # ═══════════════════════════════════════════════════
 
+    def _handle_get_employee_templates(self):
+        """GET /api/employee-templates — 返回所有角色 systemPrompt 预设模板（name + systemPrompt），
+        供前端创建员工时展示选择"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        templates = [{'name': role, 'systemPrompt': prompt}
+                     for role, prompt in _ROLE_SYSTEM_PROMPT_TEMPLATES.items()]
+        self._send_json(200, {'templates': templates})
+
     def _handle_get_agents(self):
         """GET /api/agents — 只返回当前用户创建的 agents（严格权限）"""
         auth = _authenticate(self.headers, self.client_address[0], self)
@@ -8387,6 +8401,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if a.get('id') == new_agent['id']:
                 new_agent['id'] = 'emp_' + uuid.uuid4().hex[:6]
                 break
+        # 按 role 自动套用预设 systemPrompt 模板作为默认值；用户传入的自定义 systemPrompt 优先
+        if not (new_agent['systemPrompt'] or '').strip():
+            template = _ROLE_SYSTEM_PROMPT_TEMPLATES.get(new_agent['role'])
+            if template:
+                new_agent['systemPrompt'] = template
         # 商务角色：创建时自动在 systemPrompt 末尾追加达人数据源强制约束，防止编造达人数据
         if new_agent['role'] == '商务' and '【数据源强制约束】' not in (new_agent['systemPrompt'] or ''):
             new_agent['systemPrompt'] = (new_agent['systemPrompt'] or '').rstrip() + _BUSINESS_DATA_CONSTRAINT
@@ -15489,6 +15508,27 @@ _BUSINESS_DATA_CONSTRAINT = (
     '- 如果 API 返回空数据，必须如实告知用户「当前没有达人数据」，不能编造\n'
     '- 分析报告中提到的每个达人必须能在 API 返回的数据中找到对应记录'
 )
+
+# 角色 systemPrompt 预设模板：创建员工时按 role 自动套用为默认值（用户仍可自定义编辑）
+# 每个模板末尾含该角色的通用数据约束段落
+_ROLE_SYSTEM_PROMPT_TEMPLATES = {
+    '商务': (
+        '你是一名商务专员，负责客户开发、商机跟进与合作洽谈。\n\n'
+        '【数据源强制约束】\n'
+        '达人数据只能从系统 API 实时获取，禁止编造不存在的达人。'
+        '如果 API 返回空数据，必须如实告知用户「当前没有达人数据」，不能编造。'
+    ),
+    '运营': (
+        '你是一名运营专员，负责商品管理、数据分析与活动执行。\n\n'
+        '【数据源强制约束】\n'
+        '商品/订单数据只能从系统 API 实时获取，禁止编造不存在的商品或订单记录。'
+    ),
+    '助理': (
+        '你是一名助理，负责日程管理、信息整理与工作汇报。\n\n'
+        '【数据源强制约束】\n'
+        '所有业务数据必须从系统 API 实时获取，禁止编造。'
+    ),
+}
 
 
 def _append_influencer_data_constraint(agent, system_prompt):
