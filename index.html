@@ -8800,14 +8800,22 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
   try {
     // 私聊回复使用独立 chat session，避免与记忆提取 session 冲突
     var sessionKey = 'agent:' + emp.id + ':chat';
-    // 达人相关提问：后端已把实时达人数据注入 SOUL.md，但 OpenClaw 在 session 创建时
-    // 缓存 prompt，运行中的 session 不会重读文件；先 reset 让网关重载 SOUL.md
+    // 达人数据消息内联注入：命中关键词时调后端接口取实时注入文本，拼到 fullMessage 末尾，
+    // OpenClaw 直接从消息体看到真实数据，不依赖 SOUL.md 缓存
     if (/达人|网红|kol|主播|带货|分析|报告/i.test(userMessage || '')) {
       try {
-        await openclaw.resetSession(sessionKey);
-        console.debug('[TalentInject] 命中达人关键词，已 reset session:', sessionKey);
-      } catch (resetErr) {
-        console.warn('[TalentInject] resetSession 失败，继续发送:', resetErr);
+        var injRes = await apiFetch('/api/talents/injection-text');
+        if (injRes && injRes.ok) {
+          var injData = await injRes.json();
+          if (injData && injData.text) {
+            fullMessage += '\n\n' + injData.text;
+            console.debug('[TalentInject] 命中达人关键词，已内联注入达人数据 len=' + injData.text.length);
+          }
+        } else {
+          console.warn('[TalentInject] 注入文本接口返回异常:', injRes && injRes.status);
+        }
+      } catch (injErr) {
+        console.warn('[TalentInject] 获取注入文本失败，继续发送:', injErr);
       }
     }
     var hasSentWorking = false;
