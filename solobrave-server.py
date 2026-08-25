@@ -8387,6 +8387,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if a.get('id') == new_agent['id']:
                 new_agent['id'] = 'emp_' + uuid.uuid4().hex[:6]
                 break
+        # 商务角色：创建时自动在 systemPrompt 末尾追加达人数据源强制约束，防止编造达人数据
+        if new_agent['role'] == '商务' and '【数据源强制约束】' not in (new_agent['systemPrompt'] or ''):
+            new_agent['systemPrompt'] = (new_agent['systemPrompt'] or '').rstrip() + _BUSINESS_DATA_CONSTRAINT
         agents.append(new_agent)
         _save_agents(agents)
         # 自动同步 API Key 到 OpenClaw
@@ -15477,6 +15480,14 @@ _INFLUENCER_DATA_CONSTRAINT = (
     '2. 如果 API 返回空列表，必须如实告知用户「当前没有达人数据」，不能编造\n'
     '3. 分析报告中提到的每个达人必须能在 API 返回的数据中找到对应记录\n'
     '4. 禁止使用知识库或本地缓存中的旧数据替代 API 实时数据'
+)
+
+# 商务角色员工创建时自动追加的达人数据源约束（防止编造不存在的达人数据）
+_BUSINESS_DATA_CONSTRAINT = (
+    '\n\n【数据源强制约束】\n'
+    '- 达人数据只能从系统 API 实时获取，禁止编造不存在的达人\n'
+    '- 如果 API 返回空数据，必须如实告知用户「当前没有达人数据」，不能编造\n'
+    '- 分析报告中提到的每个达人必须能在 API 返回的数据中找到对应记录'
 )
 
 
