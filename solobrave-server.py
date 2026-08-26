@@ -1854,7 +1854,11 @@ def _get_localhost_auth_result(headers, parsed_body=None):
         if agent:
             created_by = agent.get('createdBy')
             if created_by:
-                return AuthResult(user_info={'userId': created_by, 'role': 'admin'})
+                result = AuthResult(user_info={'userId': created_by, 'role': 'admin'})
+                # 标记为 AI 员工的本地调用：数据接口（如达人列表）需按创建者过滤，
+                # 不能让 AI 员工以 admin 身份绕过权限拉取全量数据
+                result.localhost_agent_id = agent_id
+                return result
     return AuthResult(user_info={'userId': 'localhost', 'role': 'admin'})
 
 
@@ -13977,7 +13981,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if query.get('status'):
             status = query['status'][0]
             influencers = [i for i in influencers if i.get('status') == status]
-        if not auth.is_admin: uid = auth.user_info.get('userId'); ids = {uid} | set(_get_user_emp_ids(uid)); influencers = [i for i in influencers if i.get('createdBy') in ids]
+        # 权限过滤：非管理员只看自己（含自己的 AI 员工）录入的达人；
+        # AI 员工本地调用（localhost 快捷通道带 X-Agent-Id，auth 被标记为 admin）同样按创建者过滤，
+        # 防止员工绕过注入机制直接拉取全量达人数据
+        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+            uid = auth.user_info.get('userId')
+            ids = {uid} | set(_get_user_emp_ids(uid))
+            influencers = [i for i in influencers if i.get('createdBy') in ids]
         if query.get('q'):
             kw = query['q'][0].lower()
             influencers = [i for i in influencers if kw in (i.get('id') or '').lower() or kw in (i.get('name') or '').lower() or kw in (i.get('accountId') or '').lower() or kw in (i.get('bio') or '').lower() or any(kw in t.lower() for t in (i.get('tags') or []))]

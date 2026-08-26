@@ -8648,6 +8648,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
   // 1. sendMsg 保存用户消息时后端随响应返回的 talentInjection（参数传入）；
   // 2. 下方兜底：命中关键词时前端直接调 /api/talents/injection-text 获取。
   systemData = systemData || '';
+  // 调试日志①：函数入口，确认注入前置条件的实际取值
+  console.log('[TalentInject] sendViaOpenClaw 入口: systemData=' + (systemData ? 'len=' + systemData.length : '(空)') + ', hasTalentKeyword=' + hasTalentKeyword(userMessage) + ', userMessage前20字=' + String(userMessage || '').slice(0, 20));
 
   // 达人防编造（注入点在发送前）：聊天走 OpenClaw WebSocket，不经过后端
   // _handle_post_chat，后端注入没机会执行，所以命中达人关键词时由前端直接调
@@ -8655,17 +8657,24 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
   // 把后端直查 talents 表生成的【系统数据】拼到消息末尾再发出；
   // 空数据时接口返回带"严禁编造"约束的文本。systemData 已有值时跳过，避免重复注入。
   if (!systemData && hasTalentKeyword(userMessage)) {
+    // 调试日志②：确认进入了注入分支
+    console.log('[TalentInject] 命中达人关键词，开始获取注入文本...');
     try {
       var injResp = await apiFetch('/api/talents/injection-text');
+      // 调试日志③：确认接口响应状态
+      console.log('[TalentInject] /api/talents/injection-text 响应: ' + (injResp ? 'status=' + injResp.status : 'null（401或网络失败）'));
       if (injResp && injResp.ok) {
         var injData = await injResp.json();
         if (injData && typeof injData.text === 'string' && injData.text) {
           systemData = injData.text;
-          console.debug('[TalentInject] sendViaOpenClaw 直接获取注入文本 len=' + systemData.length);
+          console.log('[TalentInject] sendViaOpenClaw 直接获取注入文本 len=' + systemData.length);
+        } else {
+          console.warn('[TalentInject] 响应无 text 字段（可能是403被转为空数组）:', injData);
         }
       }
     } catch (injErr) {
-      console.warn('[TalentInject] 注入文本获取失败，按无注入发送:', injErr);
+      // 调试日志④：打印具体错误（含堆栈）
+      console.error('[TalentInject] 注入文本获取异常:', injErr && injErr.stack ? injErr.stack : injErr);
     }
   }
 
@@ -8852,7 +8861,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
     // /api/talents/injection-text 接口获得），拼到消息末尾，LLM 只负责分析不负责查询
     if (systemData) {
       fullMessage += systemData;
-      console.debug('[TalentInject] 已拼接后端系统数据 len=' + systemData.length);
+      console.log('[TalentInject] 已拼接后端系统数据 len=' + systemData.length);
     }
     var hasSentWorking = false;
     var hasSentCoding = false;
