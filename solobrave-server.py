@@ -1862,6 +1862,28 @@ def _get_localhost_auth_result(headers, parsed_body=None):
     return AuthResult(user_info={'userId': 'localhost', 'role': 'admin'})
 
 
+def _check_agent_write_permission(auth):
+    """AI 员工本地调用（OpenClaw 工具调用，localhost + X-Agent-Id）的达人数据写权限校验。
+
+    返回 None 表示放行；否则返回 (error_message, status)。
+    规则：追溯到该 AI 员工的创建者，创建者不是 admin 则拒绝写入——
+    防止 LLM 编造的假达人数据经工具调用直接污染达人库。
+    注意：创建者是 admin 时仍放行（视同管理员操作）；非 agent 调用不拦截。
+    """
+    agent_id = getattr(auth, 'localhost_agent_id', None)
+    if not agent_id:
+        return None
+    agent = _get_agent_by_id(agent_id)
+    creator_id = (agent or {}).get('createdBy')
+    creator = _find_user(_load_users(), 'id', creator_id) if creator_id else None
+    if not creator or creator.get('role') != 'admin':
+        logger.warning(
+            f'  [WriteGuard] 拒绝 AI 员工 {agent_id} 的达人数据写入'
+            f'（创建者 {creator_id or "未知"} 非 admin）')
+        return ('AI 员工无达人数据写入权限，仅管理员可通过前端录入', 403)
+    return None
+
+
 def _authenticate(headers, client_ip=None, request_handler=None):
     """从请求头中提取并验证 token；本地回环地址仅在无 Bearer token 时走内部快捷通道（agent 调用），
     携带 Authorization: Bearer 的请求即使在 localhost 也必须走正常 JWT 验证"""
@@ -13696,6 +13718,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # AI 员工本地工具调用写入管控：创建者非 admin 拒绝，防止假数据污染达人库
+        write_guard = _check_agent_write_permission(auth)
+        if write_guard:
+            self._send_json(write_guard[1], {'error': write_guard[0]})
+            return
         body = self._read_body()
         if not body or not body.get('name'):
             self._send_json_error(400, 'Missing name')
@@ -13774,6 +13801,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # AI 员工本地工具调用写入管控：创建者非 admin 拒绝，防止假数据污染达人库
+        write_guard = _check_agent_write_permission(auth)
+        if write_guard:
+            self._send_json(write_guard[1], {'error': write_guard[0]})
+            return
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Missing body')
@@ -13809,6 +13841,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # AI 员工本地工具调用写入管控：创建者非 admin 拒绝，防止假数据污染达人库
+        write_guard = _check_agent_write_permission(auth)
+        if write_guard:
+            self._send_json(write_guard[1], {'error': write_guard[0]})
+            return
         conn = _db_conn()
         try:
             talent = conn.execute('SELECT group_id FROM talents WHERE id = ?', (talent_id,)).fetchone()
@@ -14021,6 +14058,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # AI 员工本地工具调用写入管控：创建者非 admin 拒绝，防止假数据污染达人库
+        write_guard = _check_agent_write_permission(auth)
+        if write_guard:
+            self._send_json(write_guard[1], {'error': write_guard[0]})
+            return
         body = self._read_body()
         if not body or 'name' not in body:
             self._send_json_error(400, 'Missing name')
@@ -14062,6 +14104,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # AI 员工本地工具调用写入管控：创建者非 admin 拒绝，防止假数据污染达人库
+        write_guard = _check_agent_write_permission(auth)
+        if write_guard:
+            self._send_json(write_guard[1], {'error': write_guard[0]})
+            return
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Missing body')
@@ -14094,6 +14141,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # AI 员工本地工具调用写入管控：创建者非 admin 拒绝，防止假数据污染达人库
+        write_guard = _check_agent_write_permission(auth)
+        if write_guard:
+            self._send_json(write_guard[1], {'error': write_guard[0]})
+            return
         data = self._load_influencers()
         original = len(data.get('influencers', []))
         data['influencers'] = [i for i in data.get('influencers', []) if i.get('id') != inf_id]
