@@ -17252,6 +17252,7 @@ def _log_proxy_token_usage(auth, body_json, resp_body, provider, target_url, age
 # ═══════════════════════════════════════════════════
 
 CREDITS_PER_TOKENS = 1000          # 1 积分 = 1000 tokens
+CREDIT_SYNC_INTERVAL_S = 300       # OpenClaw 聊天积分定时同步间隔（秒）
 
 
 def _ensure_credit_account(conn, agent_id):
@@ -17372,10 +17373,18 @@ def _ts_to_millis(ts):
 
 
 def _agent_id_from_session_key(session_key):
-    """从 sessionKey 提取 agent/empId，格式 agent:empId:chat 或 agent:empId:memory_extract"""
+    """从 sessionKey 提取 agent/empId。
+    支持格式：
+      agent:empId:chat / agent:empId:memory_extract → empId
+      agent:main:chat-empId（员工 agent 不存在时降级 main，前端仍按员工隔离 session）→ empId
+      agent:main:main → main（平台主会话，非员工）
+    """
     if not session_key or not isinstance(session_key, str):
         return ''
     parts = session_key.split(':')
+    if len(parts) >= 3 and parts[1] == 'main' and parts[2].startswith('chat-'):
+        # 降级到 main 的员工会话：真实员工 id 在第三段 chat- 前缀之后
+        return parts[2][len('chat-'):]
     if len(parts) >= 2:
         return parts[1]
     return session_key
@@ -17415,16 +17424,69 @@ def _parse_trajectory_event(line):
     }
 
 
+def _repair_misattributed_credits(conn, active_ids):
+    """修复历史错记：聊天降级到 main 时 sessionKey 为 agent:main:chat-<empId>，
+    旧版归属逻辑把积分记到了 main 名下，导致总览有消耗记录但员工余额未扣。
+    这里按 sessionKey 重新解析归属到正式员工并补扣余额。
+    幂等：修复后 agent_id 已变为员工 id，重复执行不会再次命中。
+    （调用方负责 commit）"""
+    if not active_ids:
+        return 0
+    fixed = 0
+    placeholders = ','.join('?' * len(active_ids))
+    active_tuple = tuple(active_ids)
+    # credit_usage_log：agent_id 非正式员工、但 sessionKey 能解析出正式员工的记录重新归属
+    rows = conn.execute(
+        f'SELECT id, agent_id, session_id, credits_used FROM credit_usage_log WHERE agent_id NOT IN ({placeholders})',
+        active_tuple
+    ).fetchall()
+    for r in rows:
+        emp_id = _agent_id_from_session_key(r['session_id'])
+        if not emp_id or emp_id == r['agent_id'] or emp_id not in active_ids:
+            continue
+        credits = r['credits_used'] or 0
+        conn.execute('UPDATE credit_usage_log SET agent_id = ? WHERE id = ?', (emp_id, r['id']))
+        _ensure_credit_account(conn, emp_id)
+        conn.execute(
+            "UPDATE credit_accounts SET balance = MAX(balance - ?, 0), total_consumed = total_consumed + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
+            (credits, credits, emp_id)
+        )
+        fixed += 1
+        logger.info(f'  [Credits] 错记归属修复: {r["agent_id"]} -> {emp_id} credits={credits} session={r["session_id"]}')
+    # token_usage 同步修复归属，保证按员工统计一致
+    rows2 = conn.execute(
+        f'SELECT id, agent_id, session_key FROM token_usage WHERE agent_id NOT IN ({placeholders})',
+        active_tuple
+    ).fetchall()
+    for r in rows2:
+        emp_id = _agent_id_from_session_key(r['session_key'])
+        if emp_id and emp_id != r['agent_id'] and emp_id in active_ids:
+            conn.execute('UPDATE token_usage SET agent_id = ? WHERE id = ?', (emp_id, r['id']))
+            fixed += 1
+    # 清理从未充值过的非员工垃圾账户（纯由错记产生）
+    conn.execute(
+        f'DELETE FROM credit_accounts WHERE agent_id NOT IN ({placeholders}) AND total_recharged = 0',
+        active_tuple
+    )
+    return fixed
+
+
 def _sync_token_usage_from_trajectories():
     """扫描 trajectory 文件并写入 token_usage 表，按 ts+session_key 去重"""
     files = _glob_trajectory_files()
     scanned_events = 0
     inserted = 0
-    if not files:
-        return {'scannedFiles': 0, 'scannedEvents': 0, 'inserted': 0}
 
     conn = _db_conn()
     try:
+        # 先修复历史错记归属（降级 main 的会话被记到 main 名下）；即使没有新 trajectory 也要执行
+        active_ids = _get_active_agent_ids()
+        repaired = _repair_misattributed_credits(conn, active_ids)
+        if repaired:
+            logger.info(f'  [Credits] 错记归属修复完成: {repaired} 条')
+            conn.commit()
+        if not files:
+            return {'scannedFiles': 0, 'scannedEvents': 0, 'inserted': 0, 'repaired': repaired}
         for filepath in files:
             try:
                 with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
@@ -17463,13 +17525,16 @@ def _sync_token_usage_from_trajectories():
                                 # 积分制算力管控：1 积分=1000 tokens（向上取整），写入消耗明细并扣减余额
                                 # （仅在新插入时扣减，沿用 INSERT OR IGNORE 去重保证幂等）
                                 try:
-                                    if ev['agent_id']:
+                                    # 只给正式员工扣积分；main 等非员工会话只记 token_usage，不产生积分账户
+                                    if ev['agent_id'] and ev['agent_id'] in active_ids:
                                         credit_created_at = datetime.fromtimestamp(ev['ts'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
                                         _record_credit_usage(
                                             conn, ev['agent_id'],
                                             ev['input_tokens'], ev['output_tokens'], ev['cache_read_tokens'],
                                             session_id=ev['session_key'], created_at=credit_created_at
                                         )
+                                    elif ev['agent_id']:
+                                        logger.info(f'  [Credits] 跳过非员工会话积分扣减: agent_id={ev["agent_id"]} session={ev["session_key"]}')
                                 except Exception as credit_err:
                                     logger.error(f'  [Credits] trajectory 积分扣减失败: {credit_err}')
                         except Exception as e:
@@ -19238,6 +19303,20 @@ def main():
 
     # FIXME: 大脑知识中枢：OpenClaw 队列保持运行，后台 BrainScheduler 已停用
     _openclaw_queue.start()
+
+    # OpenClaw 聊天积分同步：聊天走 WebSocket 直连网关、不经过 KimiProxy，
+    # 积分只能靠 trajectory 回放补扣；除手动 /api/token-usage/sync 外，启动即跑一次并定时巡检
+    def _credit_sync_loop():
+        while True:
+            try:
+                result = _sync_token_usage_from_trajectories()
+                if result.get('inserted') or result.get('repaired'):
+                    logger.info(f'  [CreditsSync] trajectory 定时同步: {result}')
+            except Exception as e:
+                logger.error(f'  [CreditsSync] trajectory 定时同步失败: {e}')
+            time.sleep(CREDIT_SYNC_INTERVAL_S)
+    threading.Thread(target=_credit_sync_loop, daemon=True, name='CreditSyncLoop').start()
+    logger.info(f'  [CreditsSync] 积分定时同步已启动（每 {CREDIT_SYNC_INTERVAL_S} 秒）')
     # _brain_scheduler.start()
     # def _brain_migrate_job():
     #     time.sleep(5)
