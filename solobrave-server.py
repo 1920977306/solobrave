@@ -2662,6 +2662,13 @@ def init_db():
                 group_id TEXT DEFAULT '',
                 status TEXT DEFAULT 'active',
                 created_by TEXT DEFAULT '',
+                platform TEXT DEFAULT '抖音',
+                price_unit TEXT DEFAULT '元/条',
+                avg_views INTEGER DEFAULT 0,
+                last_cooperation TEXT DEFAULT '',
+                notes TEXT DEFAULT '',
+                matched_products TEXT DEFAULT '[]',
+                matched_products_updated_at INTEGER DEFAULT 0,
                 created_at INTEGER,
                 updated_at INTEGER
             )
@@ -2689,6 +2696,11 @@ def init_db():
             ('ai_analysis', "TEXT DEFAULT ''"), ('ai_reason', "TEXT DEFAULT ''"), ('risk_rating', "TEXT DEFAULT ''"),
             ('group_id', "TEXT DEFAULT ''"), ('status', "TEXT DEFAULT 'active'"),
             ('created_by', "TEXT DEFAULT ''"),
+            # legacy JSON 达人库（/api/influencers）统一数据源对齐字段
+            ('platform', "TEXT DEFAULT '抖音'"), ('price_unit', "TEXT DEFAULT '元/条'"),
+            ('avg_views', 'INTEGER DEFAULT 0'), ('last_cooperation', "TEXT DEFAULT ''"),
+            ('notes', "TEXT DEFAULT ''"),
+            ('matched_products', "TEXT DEFAULT '[]'"), ('matched_products_updated_at', 'INTEGER DEFAULT 0'),
             # 达人数据提取（商务 vision）新增字段，全部 TEXT
             ('total_history_days', "TEXT DEFAULT ''"), ('live_sessions', "TEXT DEFAULT ''"), ('live_views', "TEXT DEFAULT ''"),
             ('video_plays', "TEXT DEFAULT ''"), ('single_video_settlement', "TEXT DEFAULT ''"),
@@ -3229,7 +3241,10 @@ _TALENT_COLUMNS = [
     'fan_group_activity', 'fan_group_device', 'fan_group_price', 'fan_group_category',
     'live_audience_region', 'live_audience_city_tier',
     'video_audience_region', 'video_audience_city_tier',
-    'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by', 'created_at', 'updated_at'
+    'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by',
+    'platform', 'price_unit', 'avg_views', 'last_cooperation', 'notes',
+    'matched_products', 'matched_products_updated_at',
+    'created_at', 'updated_at'
 ]
 
 _FOLLOW_UP_COLUMNS = [
@@ -3360,6 +3375,13 @@ def _talent_row_to_dict(row):
         'risk_rating': row['risk_rating'] or '',
         'group_id': row['group_id'] or '',
         'status': row['status'] or 'active',
+        'platform': row['platform'] or '抖音',
+        'price_unit': row['price_unit'] or '元/条',
+        'avg_views': row['avg_views'] if row['avg_views'] is not None else 0,
+        'last_cooperation': row['last_cooperation'] or '',
+        'notes': row['notes'] or '',
+        'matched_products': _json_col('matched_products', []),
+        'matched_products_updated_at': row['matched_products_updated_at'] if row['matched_products_updated_at'] is not None else 0,
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
@@ -3511,9 +3533,142 @@ def _dict_to_talent_row(t):
         'group_id': t.get('group_id') or t.get('groupId') or '',
         'status': t.get('status') or 'active',
         'created_by': t.get('created_by') or t.get('createdBy') or '',
+        'platform': t.get('platform') or '抖音',
+        'price_unit': t.get('price_unit') or t.get('priceUnit') or '元/条',
+        'avg_views': int(t.get('avg_views', t.get('avgViews', 0)) or 0),
+        'last_cooperation': t.get('last_cooperation') or t.get('lastCooperation') or '',
+        'notes': t.get('notes') or '',
+        'matched_products': _dump(t.get('matched_products', t.get('matchedProducts', []))),
+        'matched_products_updated_at': int(t.get('matched_products_updated_at', t.get('matchedProductsUpdatedAt', 0)) or 0),
         'created_at': t.get('created_at') or t.get('createdAt') or now,
         'updated_at': now,
     }
+
+
+def _parse_engagement_rate(val):
+    """video_interaction_rate 可能是 '5.2%' 或 '5.2' 或数值，统一解析为 float"""
+    if val is None or val == '':
+        return 0
+    if isinstance(val, (int, float)):
+        return float(val)
+    try:
+        return float(str(val).replace('%', '').strip())
+    except (TypeError, ValueError):
+        return 0
+
+
+def _talent_dict_to_influencer(t):
+    """把 talents 表记录（_talent_row_to_dict 输出）转换为 legacy /api/influencers 的 JSON 字段形状。
+    统一数据源后 /api/influencers 系列接口直查 SQLite，仅字段形状保持 legacy 兼容。"""
+    return {
+        'id': t.get('id') or '',
+        'name': t.get('name') or '',
+        'avatar': t.get('avatar') or '',
+        'platform': t.get('platform') or '抖音',
+        'accountId': t.get('douyin_id') or '',
+        'followerCount': t.get('followers') or 0,
+        'category': t.get('category') or '',
+        'tags': t.get('tags') or [],
+        'bio': t.get('bio') or '',
+        'contentStyle': t.get('content_style') or '',
+        'cooperationPrice': t.get('average_price') or 0,
+        'priceUnit': t.get('price_unit') or '元/条',
+        'contact': t.get('contact') or '',
+        'status': t.get('cooperation_status') or 'available',
+        'engagementRate': _parse_engagement_rate(t.get('video_interaction_rate')),
+        'avgViews': t.get('avg_views') or 0,
+        'lastCooperation': t.get('last_cooperation') or None,
+        'notes': t.get('notes') or '',
+        'createdBy': t.get('created_by') or '',
+        'createdAt': t.get('created_at') or 0,
+        'updatedAt': t.get('updated_at') or 0,
+        'matched_products': t.get('matched_products') or [],
+        'matched_products_updated_at': t.get('matched_products_updated_at') or 0,
+    }
+
+
+def _influencer_body_to_talent(body):
+    """把 legacy /api/influencers 请求体/JSON 记录映射为 talents 表字段（供 _dict_to_talent_row 使用）"""
+    return {
+        'id': body.get('id'),
+        'name': body.get('name'),
+        'avatar': body.get('avatar', ''),
+        'platform': body.get('platform') or '抖音',
+        'douyin_id': body.get('accountId', ''),
+        'followers': body.get('followerCount', 0),
+        'category': body.get('category', ''),
+        'tags': body.get('tags', []),
+        'bio': body.get('bio', ''),
+        'content_style': body.get('contentStyle', ''),
+        'average_price': body.get('cooperationPrice', 0),
+        'price_unit': body.get('priceUnit') or '元/条',
+        'contact': body.get('contact', ''),
+        'cooperation_status': body.get('status', 'available'),
+        'video_interaction_rate': str(body.get('engagementRate', '') or ''),
+        'avg_views': body.get('avgViews', 0),
+        'last_cooperation': body.get('lastCooperation') or '',
+        'notes': body.get('notes', ''),
+    }
+
+
+def _insert_talent_row(conn, row):
+    """按 _TALENT_COLUMNS 插入一条 talents 记录"""
+    conn.execute(
+        f"INSERT INTO talents ({', '.join(_TALENT_COLUMNS)}) VALUES ({', '.join('?' * len(_TALENT_COLUMNS))})",
+        tuple(row[c] for c in _TALENT_COLUMNS))
+
+
+def _migrate_influencers_json_to_sqlite():
+    """把 data/influencers/index.json 里的 legacy 达人记录幂等导入 talents 表（跳过 id 已存在的）。
+    统一数据源迁移：导入后 JSON 仅作启动导出的只读缓存，不再是数据源。返回 (导入数, 跳过数)。"""
+    index_path = os.path.join(INFLUENCER_DIR, 'index.json')
+    data = _read_json(index_path, None)
+    if not data or not isinstance(data.get('influencers'), list):
+        return (0, 0)
+    imported = skipped = 0
+    conn = _db_conn()
+    try:
+        existing_ids = {r[0] for r in conn.execute('SELECT id FROM talents').fetchall()}
+        for inf in data['influencers']:
+            inf_id = inf.get('id')
+            if not inf_id or not inf.get('name'):
+                continue
+            if inf_id in existing_ids:
+                skipped += 1
+                continue
+            talent = _influencer_body_to_talent(inf)
+            talent['id'] = inf_id
+            talent['status'] = 'active'
+            talent['created_by'] = inf.get('createdBy') or ''
+            talent['created_at'] = inf.get('createdAt') or int(time.time() * 1000)
+            _insert_talent_row(conn, _dict_to_talent_row(talent))
+            imported += 1
+        conn.commit()
+    finally:
+        conn.close()
+    if imported or skipped:
+        logger.info(f'  [Influencer] JSON→SQLite 迁移: 导入 {imported} 条, 跳过已存在 {skipped} 条')
+    return (imported, skipped)
+
+
+def _export_influencers_json_cache():
+    """把 SQLite talents 表导出为 data/influencers/ 下的 JSON 只读缓存（index.json + 详情文件）。
+    统一数据源后 JSON 仅供旧工具/调试查看，不再作为写入目标。"""
+    try:
+        os.makedirs(INFLUENCER_DIR, exist_ok=True)
+        conn = _db_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM talents WHERE COALESCE(status, 'active') != 'archived'").fetchall()
+        finally:
+            conn.close()
+        influencers = [_talent_dict_to_influencer(_talent_row_to_dict(r)) for r in rows]
+        _write_json(os.path.join(INFLUENCER_DIR, 'index.json'),
+                    {'version': '1.0', 'influencers': influencers})
+        for inf in influencers:
+            _write_json(os.path.join(INFLUENCER_DIR, f"{inf['id']}.json"), inf)
+    except Exception as e:
+        logger.error(f'  [Influencer] 导出 JSON 缓存失败: {e}')
 
 # ===== 飞书多维表格同步 =====
 FEISHU_BITABLE_APP_ID = os.environ.get('FEISHU_BITABLE_APP_ID', '')
@@ -13078,10 +13233,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         data = self._load_influencers()
         influencer = next((i for i in data.get('influencers', []) if i.get('id') == inf_id), None)
         if not influencer:
-            detail_path = os.path.join(INFLUENCER_DIR, f'{inf_id}.json')
-            if os.path.exists(detail_path):
-                influencer = _read_json(detail_path, None)
-        if not influencer:
             self._send_json_error(404, 'Influencer not found')
             return
         query = parse_qs(urlparse(self.path).query)
@@ -13113,7 +13264,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             score, reasons = self._calculate_match_score(prod, influencer)
             results.append({'product': prod, 'score': score, 'reasons': reasons})
         results.sort(key=lambda x: x['score'], reverse=True)
-        # 保存计算结果到达人（用于缓存）
+        # 保存计算结果到达人（用于缓存；统一数据源后写入 SQLite talents 表，不再写 JSON）
         cached_matches = []
         for r in results:
             prod = r['product']
@@ -13126,11 +13277,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'matchPercent': r['score'],
                 'reasons': r['reasons']
             })
-        influencer['matched_products'] = cached_matches
-        influencer['matched_products_updated_at'] = now
-        influencer['updatedAt'] = now
-        self._save_influencers(data)
-        self._sync_influencer_file(influencer)
+        conn = _db_conn()
+        try:
+            conn.execute(
+                'UPDATE talents SET matched_products = ?, matched_products_updated_at = ?, updated_at = ? WHERE id = ?',
+                (json.dumps(cached_matches, ensure_ascii=False), now, now, inf_id))
+            conn.commit()
+        finally:
+            conn.close()
         self._send_json(200, {'influencer_id': inf_id, 'matches': results[:limit], 'total': len(results), 'source': 'live'})
 
     def _handle_post_product(self):
@@ -13971,26 +14125,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ═══════════════════════════════════════════════════
 
     def _load_influencers(self):
-        """加载达人库索引"""
-        filepath = os.path.join(INFLUENCER_DIR, 'index.json')
-        return _read_json(filepath, {'influencers': [], 'version': '1.0'})
-
-    def _save_influencers(self, data):
-        """保存达人库索引"""
-        filepath = os.path.join(INFLUENCER_DIR, 'index.json')
-        data['version'] = '1.0'
-        _write_json(filepath, data)
-
-    def _sync_influencer_file(self, influencer):
-        """同步单个达人详情到独立文件 {id}.json"""
-        filepath = os.path.join(INFLUENCER_DIR, f'{influencer["id"]}.json')
-        _write_json(filepath, influencer)
-
-    def _remove_influencer_file(self, inf_id):
-        """删除单个达人详情文件"""
-        filepath = os.path.join(INFLUENCER_DIR, f'{inf_id}.json')
-        if os.path.exists(filepath):
-            os.remove(filepath)
+        """加载达人列表（legacy JSON 字段形状）。
+        统一数据源后直查 SQLite talents 表并映射为 legacy 形状返回；
+        data/influencers/*.json 仅为启动时导出的只读缓存，不再作为数据源。
+        """
+        conn = _db_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM talents WHERE COALESCE(status, 'active') != 'archived'").fetchall()
+        finally:
+            conn.close()
+        return {'version': '1.0',
+                'influencers': [_talent_dict_to_influencer(_talent_row_to_dict(r)) for r in rows]}
 
     def _handle_get_influencers(self):
         """GET /api/influencers — 获取达人列表（支持 query 筛选）"""
@@ -14060,33 +14206,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not body or 'name' not in body:
             self._send_json_error(400, 'Missing name')
             return
-        data = self._load_influencers()
-        influencer = {
-            'id': body.get('id') or f'inf_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}',
-            'name': body['name'],
-            'avatar': body.get('avatar', ''),
-            'platform': body.get('platform', '抖音'),
-            'accountId': body.get('accountId', ''),
-            'followerCount': int(body.get('followerCount', 0)),
-            'category': body.get('category', '未分类'),
-            'tags': body.get('tags', []),
-            'bio': body.get('bio', ''),
-            'contentStyle': body.get('contentStyle', ''),
-            'cooperationPrice': float(body.get('cooperationPrice', 0)),
-            'priceUnit': body.get('priceUnit', '元/条'),
-            'contact': body.get('contact', ''),
-            'status': body.get('status', 'available'),
-            'engagementRate': float(body.get('engagementRate', 0)),
-            'avgViews': int(body.get('avgViews', 0)),
-            'lastCooperation': body.get('lastCooperation'),
-            'notes': body.get('notes', ''),
-            'createdBy': auth.user_info.get('userId'),
-            'createdAt': int(time.time() * 1000),
-            'updatedAt': int(time.time() * 1000)
-        }
-        data['influencers'].append(influencer)
-        self._save_influencers(data)
-        self._sync_influencer_file(influencer)
+        # 统一数据源：录入只写 SQLite talents 表，JSON 文件不再作为写入目标
+        now = int(time.time() * 1000)
+        talent = _influencer_body_to_talent(body)
+        talent['id'] = body.get('id') or f'inf_{now}_{uuid.uuid4().hex[:6]}'
+        talent['status'] = 'active'
+        talent['created_by'] = auth.user_info.get('userId')
+        talent['created_at'] = now
+        row = _dict_to_talent_row(talent)
+        conn = _db_conn()
+        try:
+            _insert_talent_row(conn, row)
+            conn.commit()
+        finally:
+            conn.close()
+        influencer = _talent_dict_to_influencer(_talent_row_to_dict(row))
         logger.info(f'  [Influencer] 录入达人: {influencer["name"]} ({influencer["id"]})')
         self._send_json(200, influencer)
 
@@ -14106,26 +14240,34 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not body:
             self._send_json_error(400, 'Missing body')
             return
-        data = self._load_influencers()
-        updated = None
-        for i in data.get('influencers', []):
-            if i.get('id') == inf_id:
-                for field in ('name', 'avatar', 'platform', 'accountId', 'followerCount', 'category', 'tags', 'bio', 'contentStyle', 'cooperationPrice', 'priceUnit', 'contact', 'status', 'engagementRate', 'avgViews', 'lastCooperation', 'notes'):
-                    if field in body:
-                        i[field] = body[field]
-                        if field in ('followerCount', 'avgViews'):
-                            i[field] = int(body[field])
-                        if field in ('cooperationPrice', 'engagementRate'):
-                            i[field] = float(body[field])
-                i['updatedAt'] = int(time.time() * 1000)
-                updated = i
-                break
-        if not updated:
-            self._send_json_error(404, 'Influencer not found')
-            return
-        self._save_influencers(data)
-        self._sync_influencer_file(updated)
-        self._send_json(200, updated)
+        # 统一数据源：更新只写 SQLite talents 表（legacy 字段经映射落到对应列）
+        field_map = {'name': 'name', 'avatar': 'avatar', 'platform': 'platform',
+                     'accountId': 'douyin_id', 'followerCount': 'followers', 'category': 'category',
+                     'tags': 'tags', 'bio': 'bio', 'contentStyle': 'content_style',
+                     'cooperationPrice': 'average_price', 'priceUnit': 'price_unit', 'contact': 'contact',
+                     'status': 'cooperation_status', 'engagementRate': 'video_interaction_rate',
+                     'avgViews': 'avg_views', 'lastCooperation': 'last_cooperation', 'notes': 'notes'}
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM talents WHERE id = ?', (inf_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Influencer not found')
+                return
+            existing = _talent_row_to_dict(row)
+            for legacy_field, talent_field in field_map.items():
+                if legacy_field in body:
+                    existing[talent_field] = body[legacy_field]
+            existing['id'] = inf_id
+            existing['updated_at'] = int(time.time() * 1000)
+            new_row = _dict_to_talent_row(existing)
+            conn.execute(
+                f"UPDATE talents SET {', '.join(f'{c} = ?' for c in _TALENT_COLUMNS)} WHERE id = ?",
+                tuple(new_row[c] for c in _TALENT_COLUMNS) + (inf_id,))
+            conn.commit()
+            row_out = conn.execute('SELECT * FROM talents WHERE id = ?', (inf_id,)).fetchone()
+        finally:
+            conn.close()
+        self._send_json(200, _talent_dict_to_influencer(_talent_row_to_dict(row_out)))
 
     def _handle_delete_influencer(self, inf_id):
         """DELETE /api/influencers/{id} — 删除达人"""
@@ -14139,13 +14281,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if write_guard:
             self._send_json(write_guard[1], {'error': write_guard[0]})
             return
-        data = self._load_influencers()
-        original = len(data.get('influencers', []))
-        data['influencers'] = [i for i in data.get('influencers', []) if i.get('id') != inf_id]
-        removed = original - len(data['influencers'])
-        self._save_influencers(data)
-        if removed > 0:
-            self._remove_influencer_file(inf_id)
+        # 统一数据源：删除只操作 SQLite talents 表
+        conn = _db_conn()
+        try:
+            cur = conn.execute('DELETE FROM talents WHERE id = ?', (inf_id,))
+            conn.execute('DELETE FROM product_talent_match WHERE talent_id = ?', (inf_id,))
+            conn.commit()
+            removed = cur.rowcount
+        finally:
+            conn.close()
         self._send_json(200, {'deleted': removed > 0, 'id': inf_id})
 
     def _handle_search_influencers(self):
@@ -19299,7 +19443,7 @@ def main():
 
     # Override data directory if specified
     if args.data:
-        global DATA_DIR, SECRET_FILE, USERS_FILE, AGENTS_FILE, GROUPS_FILE, CHATS_DIR, SETTINGS_FILE, TEAMS_FILE, PERMISSIONS_FILE, MEMORY_DIR, DB_PATH
+        global DATA_DIR, SECRET_FILE, USERS_FILE, AGENTS_FILE, GROUPS_FILE, CHATS_DIR, SETTINGS_FILE, TEAMS_FILE, PERMISSIONS_FILE, MEMORY_DIR, DB_PATH, INFLUENCER_DIR
         DATA_DIR = os.path.abspath(args.data)
         SECRET_FILE = os.path.join(DATA_DIR, '.secret')
         USERS_FILE = os.path.join(DATA_DIR, 'users.json')
@@ -19311,6 +19455,7 @@ def main():
         PERMISSIONS_FILE = os.path.join(DATA_DIR, 'permissions.json')
         MEMORY_DIR = os.path.join(DATA_DIR, 'memory')
         DB_PATH = os.path.join(DATA_DIR, 'solobrave.db')
+        INFLUENCER_DIR = os.path.join(DATA_DIR, 'influencers')
 
     # 确保数据目录
     _ensure_data_dir()
@@ -19327,6 +19472,12 @@ def main():
     ks.init_db()
     # 新版知识库表
     ks.init_kb_entries_db()
+
+    # 达人库统一数据源：先把 legacy JSON（data/influencers/）幂等迁入 SQLite talents 表
+    # （跳过 id 已存在的），再把 SQLite 导出回 JSON 作为只读缓存。顺序不能反，
+    # 否则未迁移的 JSON 数据会被导出覆盖。
+    _migrate_influencers_json_to_sqlite()
+    _export_influencers_json_cache()
     # 旧数据迁移已停用（旧 knowledge 表/JSON 不再作为数据源，函数定义保留备查）
     # ks.knowledge_migrate_from_json(DATA_DIR, lambda eid: _get_agent_by_id(eid) or {})
     # 旧 knowledge 表数据迁移到新版 kb_entries（幂等）
