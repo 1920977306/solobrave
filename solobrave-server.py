@@ -13847,12 +13847,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
-            # 两层架构可见性：自己子库（自己录入 + 自己的 AI 员工录入）+ 主库（created_by 为空）。
-            # AI 员工本地调用同样按创建者子库过滤，不能以 admin 身份看全量
+            # 两层架构可见性：仅自己子库（自己录入 + 自己的 AI 员工录入）。
+            # 主库（created_by 为空）只有管理员可见；AI 员工本地调用同样按创建者子库过滤
             uid = _resolve_talent_owner_id(auth)
             visible_ids = {uid} | set(_get_user_emp_ids(uid))
-            talents = [t for t in talents
-                       if not (t.get('created_by') or '') or (t.get('created_by') or '') in visible_ids]
+            talents = [t for t in talents if (t.get('created_by') or '') in visible_ids]
         total = len(talents)
         talents = talents[offset:offset + limit]
         self._send_json(200, {'talents': talents, 'total': total, 'offset': offset, 'limit': limit})
@@ -13970,7 +13969,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_promote_talent(self, talent_id):
         """POST /api/talents/:id/promote — 管理员把子库达人提升到主库。
 
-        提升后 created_by 置空，所有账号可见（两层架构：主库全账号可见，子库仅归属者可见）。
+        提升后 created_by 置空，收归主库由管理员统一管理（主库仅管理员可见）。
         仅限真实管理员前端操作，AI 员工本地调用无权提升。
         """
         auth = _authenticate(self.headers, self.client_address[0], self)
@@ -14214,13 +14213,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if query.get('status'):
             status = query['status'][0]
             influencers = [i for i in influencers if i.get('status') == status]
-        # 两层架构可见性：自己子库（自己 + 自己的 AI 员工录入的）+ 主库（createdBy 为空）；
-        # AI 员工本地调用（localhost 快捷通道带 X-Agent-Id，auth 被标记为 admin）同样按创建者子库过滤
+        # 两层架构可见性：仅自己子库（自己 + 自己的 AI 员工录入的）；
+        # 主库（createdBy 为空）只有管理员可见；AI 员工本地调用同样按创建者子库过滤
         if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
             uid = _resolve_talent_owner_id(auth)
             ids = {uid} | set(_get_user_emp_ids(uid))
-            influencers = [i for i in influencers
-                           if not (i.get('createdBy') or '') or (i.get('createdBy') or '') in ids]
+            influencers = [i for i in influencers if (i.get('createdBy') or '') in ids]
         if query.get('q'):
             kw = query['q'][0].lower()
             influencers = [i for i in influencers if kw in (i.get('id') or '').lower() or kw in (i.get('name') or '').lower() or kw in (i.get('accountId') or '').lower() or kw in (i.get('bio') or '').lower() or any(kw in t.lower() for t in (i.get('tags') or []))]
@@ -15844,10 +15842,9 @@ def _build_talent_injection_text(auth):
         finally:
             conn.close()
         if not auth.is_admin:
-            # 两层架构：自己子库（自己录入的）+ 主库（created_by 为空）
+            # 两层架构：仅自己子库（自己录入的）；主库（created_by 为空）只有管理员可见
             uid = auth.user_info.get('userId', '')
-            talents = [t for t in talents
-                       if not (t.get('created_by') or '') or (t.get('created_by') or '') == uid]
+            talents = [t for t in talents if (t.get('created_by') or '') == uid]
     except Exception as e:
         logger.error(
             f'  [TalentInject] 查询达人数据失败: err_type={type(e).__name__} err={e}\n'

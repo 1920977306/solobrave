@@ -24552,10 +24552,10 @@ function deleteCurrentTalent() {
   apiFetch('/api/talents/' + encodeURIComponent(_talentCurrentId), {method:'DELETE'}).then(function(){ showToast('✅ 已删除'); _talentCurrentId = null; showTalentEmptyState(); loadTalents(); }).catch(function(){ showToast('❌ 删除失败'); });
 }
 
-// 两层架构：管理员把子库达人提升到主库（created_by 置空，所有账号可见）
+// 两层架构：管理员把子库达人提升到主库（created_by 置空，收归主库仅管理员可见）
 function promoteCurrentTalent() {
   if (!_talentCurrentId) { showToast('请选择达人'); return; }
-  if (!confirm('提升到主库后，所有账号都能看到该达人。确认提升？')) return;
+  if (!confirm('提升到主库后，该达人将从子账号的子库收归主库，仅管理员可见和管理。确认提升？')) return;
   apiFetch('/api/talents/' + encodeURIComponent(_talentCurrentId) + '/promote', {method: 'POST'}).then(function(r){
     if (!r || !r.ok) throw new Error('promote failed');
     showToast('✅ 已提升到主库');
