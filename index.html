@@ -8232,8 +8232,12 @@ function compressImageToBase64(file) {
         canvas.width = width;
         canvas.height = height;
         var ctx = canvas.getContext('2d');
+        // JPEG 不支持透明通道，先铺白底避免透明图转黑
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
-        var base64 = canvas.toDataURL('image/png');
+        // JPEG 0.9 比 PNG 小 5-10 倍，9 张图才不会把请求体撑爆（后端 413）
+        var base64 = canvas.toDataURL('image/jpeg', 0.9);
         resolve({base64: base64, filename: file.name});
       };
       img.onerror = reject;
@@ -8437,10 +8441,19 @@ async function sendMsg() {
   userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + formatMessageContent(text || '') + '</div>' + imagesHtml + '</div>';
   area.appendChild(userMsg);
   // 立即保存用户消息到服务器，避免切换员工时消息丢失（AI 回复由 saveChatToServer 再存）
-  apiFetch('/api/chat/' + encodeURIComponent(emp.id), {
-    method: 'POST',
-    body: JSON.stringify({ role: 'user', content: text, skipAI: true, empId: emp.id, images: pendingImages })
-  }).catch(function (e) { console.error('[Chat] 用户消息即时保存失败:', e); });
+  // 达人防编造（架构级）：后端保存消息时检测达人关键词，命中则直查 talents 表并随响应返回
+  // talentInjection（【系统数据】），由前端拼进发给 OpenClaw 的消息，LLM 不参与数据查询
+  var talentInjection = '';
+  try {
+    var saveResp = await apiFetch('/api/chat/' + encodeURIComponent(emp.id), {
+      method: 'POST',
+      body: JSON.stringify({ role: 'user', content: text, skipAI: true, empId: emp.id, images: pendingImages })
+    });
+    if (saveResp && saveResp.ok) {
+      var saveData = await saveResp.json();
+      if (saveData && saveData.talentInjection) talentInjection = saveData.talentInjection;
+    }
+  } catch (e) { console.error('[Chat] 用户消息即时保存失败:', e); }
   input.value = '';
   clearPendingImages();
   updateSendButtonState();
@@ -8469,7 +8482,7 @@ async function sendMsg() {
 
   if (ocOk) {
     // 所有消息统一走 OpenClaw 主干道（图片已提前转成文字描述）
-    sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages);
+    sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages, 0, null, talentInjection);
   } else if (emp.apiKey && emp.aiProvider) {
     // OpenClaw 不可用时降级到 API 直连
     sendViaAPI(emp, text, docContext, timeStr, pendingImages);
@@ -8477,7 +8490,7 @@ async function sendMsg() {
     // 即使没有配置AI，也用 OpenClaw main agent 兜底
     if (typeof openclaw !== 'undefined' && openclaw.connected) {
       emp.openclawName = emp.openclawName || 'main';
-      sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages);
+      sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages, 0, null, talentInjection);
     } else {
       setTimeout(function () {
         var t = document.getElementById('typingMsg');
@@ -8617,9 +8630,10 @@ async function probeOpenClawMultimodal() {
 }
 
 // 通过 OpenClaw WS 发送消息
-async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, chainDepth, groupId) {
+async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, chainDepth, groupId, systemData) {
   images = images || [];
   chainDepth = chainDepth || 0;
+  systemData = systemData || '';  // 后端 _handle_post_chat 直查 talents 表返回的【系统数据】注入文本
 
   // OpenClaw 直连不经过后端 /api/proxy，在后端无 WebSocket 回调可拦截，
   // 因此先调用后端意图检测接口，在消息到达 OpenClaw 前完成自修改并追加确认句。
@@ -8800,23 +8814,11 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
   try {
     // 私聊回复使用独立 chat session，避免与记忆提取 session 冲突
     var sessionKey = 'agent:' + emp.id + ':chat';
-    // 达人数据消息内联注入：命中关键词时调后端接口取实时注入文本，拼到 fullMessage 末尾，
-    // OpenClaw 直接从消息体看到真实数据，不依赖 SOUL.md 缓存
-    if (/达人|网红|kol|主播|带货|分析|报告/i.test(userMessage || '')) {
-      try {
-        var injRes = await apiFetch('/api/talents/injection-text');
-        if (injRes && injRes.ok) {
-          var injData = await injRes.json();
-          if (injData && injData.text) {
-            fullMessage += '\n\n' + injData.text;
-            console.debug('[TalentInject] 命中达人关键词，已内联注入达人数据 len=' + injData.text.length);
-          }
-        } else {
-          console.warn('[TalentInject] 注入文本接口返回异常:', injRes && injRes.status);
-        }
-      } catch (injErr) {
-        console.warn('[TalentInject] 获取注入文本失败，继续发送:', injErr);
-      }
+    // 达人系统数据由后端 _handle_post_chat 直查 talents 表生成（talentInjection），
+    // 前端不再自行调注入接口；有数据时拼到消息末尾，LLM 只负责分析不负责查询
+    if (systemData) {
+      fullMessage += systemData;
+      console.debug('[TalentInject] 已拼接后端系统数据 len=' + systemData.length);
     }
     var hasSentWorking = false;
     var hasSentCoding = false;
@@ -8836,11 +8838,17 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
           if (visionData && visionData.text) {
             fullMessage += '\n\n' + visionData.text;
           }
+          // 识别失败要显式提示用户，不能静默降级成纯文本
+          if (visionData && visionData.failed > 0) {
+            showToast('⚠️ ' + visionData.failed + ' 张图片识别失败（识别服务不可用），已按纯文本发送', 'error');
+          }
         } else {
           console.warn('[Vision] 图片描述接口返回异常:', visionResp && visionResp.status);
+          showToast('⚠️ 图片识别服务异常（HTTP ' + (visionResp && visionResp.status) + '），已按纯文本发送', 'error');
         }
       } catch (visionErr) {
         console.warn('[Vision] 图片描述获取失败，按纯文本发送:', visionErr);
+        showToast('⚠️ 图片识别失败，已按纯文本发送', 'error');
       }
     }
     

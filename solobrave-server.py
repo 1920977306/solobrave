@@ -4963,12 +4963,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     # ─── 读取请求体 ────────────────────────────────────
     def _check_upload_size(self):
-        """请求体大小限制：超限返回 413；抖音视频解析接口放宽到 50MB"""
+        """请求体大小限制：超限返回 413；抖音视频解析、图片识别接口放宽到 50MB"""
         try:
             content_length = int(self.headers.get('Content-Length', 0))
         except (TypeError, ValueError):
             content_length = 0
-        limit = MAX_VIDEO_UPLOAD_SIZE if self._normalize_path(self.path).startswith('/api/douyin/') else MAX_UPLOAD_SIZE
+        path = self._normalize_path(self.path)
+        # /api/vision/describe 最多承载 9 张 1920px 图片的 base64，10MB 容易不够
+        limit = MAX_VIDEO_UPLOAD_SIZE if path.startswith(('/api/douyin/', '/api/vision/')) else MAX_UPLOAD_SIZE
         if content_length > limit:
             self.send_error(413, 'File too large')
             return False
@@ -15073,14 +15075,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if role not in ('user', 'assistant', 'system'):
             role = 'user'
 
-        # 达人相关提问的处理（防止 AI 编造达人数据）：
-        # - OpenClaw 员工：前端 sendViaOpenClaw 命中关键词时调 GET /api/talents/injection-text
-        #   把实时达人数据拼进消息体，OpenClaw 直接从消息读取，后端不再写 SOUL.md；
-        # - 其他员工：skipAI=True 时强制置 False，改走后端 _call_ai_api 注入路径
+        # 达人相关提问的处理（架构级防编造，不依赖 LLM 自觉）：
+        # 命中关键词时后端直接查 SQLite talents 表（按当前用户权限过滤），
+        # 以【系统数据】标签包裹的查询结果由后端生成——
+        # - OpenClaw 员工（skipAI=True）：注入文本随响应返回（talentInjection），
+        #   由前端拼进发给 OpenClaw 的用户消息末尾；
+        # - 其他员工：skipAI=True 强制置 False，后端调 AI 时把系统数据拼到用户消息末尾。
+        talent_injection = ''
         if role == 'user':
             _content_for_check = body.get('content', '')
-            _talent_hit = isinstance(_content_for_check, str) and any(
-                k in _content_for_check.upper() for k in _TALENT_INJECT_KEYWORDS)
+            talent_injection = _build_talent_injection(_content_for_check, auth)
+            _talent_hit = bool(talent_injection)
             _is_openclaw = bool(agent.get('openclawName') or agent.get('connectionType') == 'openclaw')
             if _talent_hit and not _is_openclaw and body.get('skipAI', False):
                 body['skipAI'] = False
@@ -15188,6 +15193,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             logger.error(f'  [ChatPOST] {agent_id} self-update intent apply failed: {su_msg}')
 
                 images = body.get('images', [])
+                # 达人相关提问：把后端直查的【系统数据】拼到用户消息末尾，
+                # LLM 只做分析和润色，不负责数据查询，从架构上杜绝编造
+                if talent_injection:
+                    content = content + talent_injection
+                    logger.info(f'  [TalentInject] {agent_id} 命中达人关键词，系统数据拼入用户消息 len={len(talent_injection)}')
                 if images:
                     user_payload = [{'type': 'text', 'text': content}]
                     for img in images:
@@ -15195,19 +15205,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 else:
                     user_payload = content
                 allowed_cats = _allowed_knowledge_categories(auth)
-                # 达人相关提问：实时注入当前用户可见的达人数据，防止 AI 编造
-                # 注意用 agent 副本拼接 systemPrompt，不修改原始 dict
-                talent_injection = _build_talent_injection(content, auth)
-                agent_for_call = agent
-                if talent_injection:
-                    agent_for_call = dict(agent)
-                    if agent_for_call.get('soulDoc'):
-                        agent_for_call['soulDoc'] = agent_for_call['soulDoc'] + talent_injection
-                    else:
-                        agent_for_call['systemPrompt'] = (agent_for_call.get('systemPrompt', '') or '') + talent_injection
-                    logger.info(f'  [TalentInject] {agent_id} 命中达人关键词，注入数据 len={len(talent_injection)}')
                 api_reply = _call_ai_api(
-                    agent_for_call, user_payload, auth.user_info, include_history=not is_extract,
+                    agent, user_payload, auth.user_info, include_history=not is_extract,
                     allowed_knowledge_categories=allowed_cats,
                     requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
                     group_ids=auth.group_ids
@@ -15277,10 +15276,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if connection_type == 'openclaw':
             self._send_json(200, {
                 'userMessage': msg,
-                'hint': '请通过 WebSocket 连接获取 AI 回复'
+                'hint': '请通过 WebSocket 连接获取 AI 回复',
+                'talentInjection': talent_injection
             })
         else:
-            self._send_json(200, {'userMessage': msg})
+            self._send_json(200, {'userMessage': msg, 'talentInjection': talent_injection})
 
 def _resolve_ai_base_url(api_provider, custom_endpoint=''):
     """根据 provider 和自定义 endpoint 返回 base URL（不含 /chat/completions）"""
@@ -15378,16 +15378,39 @@ KIMI_VISION_URL = 'https://api.kimi.com/coding/v1/messages'
 KIMI_VISION_MODEL = 'kimi-for-coding'
 
 
+def _get_settings_vision_config():
+    """读取 settings.json 中的 vision 配置（管理后台可配）。
+    返回 {'apiKey','model','baseUrl'}；占位符/空值自动忽略。"""
+    try:
+        settings = _read_json(SETTINGS_FILE, {}) or {}
+        vision = settings.get('vision', {}) or {}
+        api_key = (vision.get('apiKey', '') or '').strip()
+        # 占位符（非 sk- 开头）视为未配置
+        if api_key and not api_key.startswith('sk-'):
+            api_key = ''
+        return {
+            'apiKey': api_key,
+            'model': (vision.get('model', '') or '').strip(),
+            'baseUrl': (vision.get('baseUrl', '') or '').strip(),
+        }
+    except Exception:
+        return {'apiKey': '', 'model': '', 'baseUrl': ''}
+
+
 def _call_kimi_vision(image_base64, agent_id=None, role=None):
     """调用 Kimi Code（Anthropic Messages）端点将图片转成文字描述；成功返回描述文字，失败返回 None。
     认证方式与 _handle_proxy_kimi 一致：x-api-key + anthropic-version，直连 api.kimi.com；
-    key 优先取该员工在 agents.json 配置的 apiKey（同 proxy 逻辑），未配置用全局 key。
+    key 优先级：员工 apiKey > settings.json vision.apiKey > 环境变量/全局 key（同 proxy 逻辑）。
+    model/baseUrl 同样优先取 settings.json vision 配置。
     image_base64 可传完整 data URL（data:image/...;base64,...）或纯 base64 串。
     role 为该 AI 员工的角色：role == '商务' 时 system 提示词替换为 BUSINESS_VISION_PROMPT，
     其他 role 沿用原有通用提示词（不加 system 字段）。"""
     if not image_base64:
         return None
-    api_key = _get_agent_api_key(agent_id) or KIMI_VISION_API_KEY
+    vision_cfg = _get_settings_vision_config()
+    api_key = _get_agent_api_key(agent_id) or vision_cfg['apiKey'] or KIMI_VISION_API_KEY
+    vision_model = vision_cfg['model'] or KIMI_VISION_MODEL
+    vision_url = _resolve_kimi_coding_target_url('kimi')
     media_type = 'image/jpeg'
     data = image_base64
     if image_base64.startswith('data:'):
@@ -15398,7 +15421,7 @@ def _call_kimi_vision(image_base64, agent_id=None, role=None):
             logger.error('  [Vision] data URL 解析失败')
             return None
     body = {
-        'model': KIMI_VISION_MODEL,
+        'model': vision_model,
         'max_tokens': 1024,
         # 关闭 extended thinking，强制模型只输出 text 块，不输出 thinking 块
         'thinking': {'type': 'disabled'},
@@ -15420,7 +15443,7 @@ def _call_kimi_vision(image_base64, agent_id=None, role=None):
         'Content-Length': str(len(req_body))
     }
     try:
-        req = urllib.request.Request(KIMI_VISION_URL, data=req_body, headers=headers, method='POST')
+        req = urllib.request.Request(vision_url, data=req_body, headers=headers, method='POST')
         ctx = ssl.create_default_context()
         resp = urllib.request.urlopen(req, timeout=60, context=ctx)
         resp_data = json.loads(resp.read().decode('utf-8', errors='replace'))
@@ -15576,11 +15599,11 @@ def _build_talent_injection_text(auth):
             f'{traceback.format_exc()}')
         return ''
     if not talents:
-        return ('\n\n【系统指令 - 必须严格遵守】\n'
-                '当前系统中没有任何达人数据。\n'
-                '当用户询问达人相关话题时，你必须直接回复："目前系统中暂无达人数据，无法提供达人分析。"\n'
+        return ('\n\n【系统数据 - 达人数据查询结果】\n'
+                '系统查询结果：当前没有任何达人数据。你必须如实告知用户暂无数据。\n'
                 '严禁编造任何达人姓名、平台、粉丝数等信息。如果你编造了达人数据，将导致严重后果。\n\n')
-    lines = ['\n\n【当前达人数据（系统实时注入，严格以此为准，禁止使用此范围外的任何达人）】']
+    lines = ['\n\n【系统数据 - 达人数据查询结果】',
+             '以下是系统查询的真实达人数据，你必须基于这些数据分析和回复。禁止编造任何不在列表中的达人。']
     for t in talents:
         price = t.get('single_video_settlement') or t.get('video_avg_price') or t.get('average_price') or '-'
         rate = t.get('video_interaction_rate') or '-'
@@ -18193,6 +18216,7 @@ def _handle_vision_describe(self):
     agent_role = _get_agent_role(agent_id)  # 查询该员工角色：'商务' 走专用提取提示词
 
     parts = []
+    failed = 0
     for idx, img in enumerate(images[:9], 1):
         if isinstance(img, dict):
             b64 = img.get('base64') or img.get('url') or ''
@@ -18200,10 +18224,12 @@ def _handle_vision_describe(self):
             b64 = str(img)
         desc = _call_kimi_vision(b64, agent_id=agent_id, role=agent_role)
         desc = _parse_vision_description(desc)  # 新增：清理格式
+        if not desc:
+            failed += 1
         parts.append(f'【图片{idx}描述】{desc if desc else "（图片识别失败）"}')
-    logger.info(f'[Vision] 图片描述内容: {chr(10).join(parts)[:500]}')
-    self._send_json(200, {'text': '\n'.join(parts)})
-    logger.info(f'[Vision] 图片描述内容: {chr(10).join(parts)[:500]}')
+    total = len(images[:9])
+    logger.info(f'[Vision] 图片描述完成 total={total} failed={failed}: {chr(10).join(parts)[:500]}')
+    self._send_json(200, {'text': '\n'.join(parts), 'total': total, 'failed': failed})
 
 
 def _handle_proxy_kimi(self):
