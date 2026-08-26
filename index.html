@@ -8629,11 +8629,45 @@ async function probeOpenClawMultimodal() {
   
 }
 
+// 达人相关关键词（与后端 _TALENT_INJECT_KEYWORDS 保持一致，任一命中即触发数据注入）
+var TALENT_INJECT_KEYWORDS = ['达人', '网红', 'KOL', '主播', '带货', '分析', '报告'];
+function hasTalentKeyword(text) {
+  if (!text) return false;
+  var upper = String(text).toUpperCase();
+  for (var i = 0; i < TALENT_INJECT_KEYWORDS.length; i++) {
+    if (upper.indexOf(TALENT_INJECT_KEYWORDS[i]) !== -1) return true;
+  }
+  return false;
+}
+
 // 通过 OpenClaw WS 发送消息
 async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, chainDepth, groupId, systemData) {
   images = images || [];
   chainDepth = chainDepth || 0;
-  systemData = systemData || '';  // 后端 _handle_post_chat 直查 talents 表返回的【系统数据】注入文本
+  // 达人【系统数据】注入文本，两个来源：
+  // 1. sendMsg 保存用户消息时后端随响应返回的 talentInjection（参数传入）；
+  // 2. 下方兜底：命中关键词时前端直接调 /api/talents/injection-text 获取。
+  systemData = systemData || '';
+
+  // 达人防编造（注入点在发送前）：聊天走 OpenClaw WebSocket，不经过后端
+  // _handle_post_chat，后端注入没机会执行，所以命中达人关键词时由前端直接调
+  // /api/talents/injection-text（apiFetch 自动带当前用户 auth token），
+  // 把后端直查 talents 表生成的【系统数据】拼到消息末尾再发出；
+  // 空数据时接口返回带"严禁编造"约束的文本。systemData 已有值时跳过，避免重复注入。
+  if (!systemData && hasTalentKeyword(userMessage)) {
+    try {
+      var injResp = await apiFetch('/api/talents/injection-text');
+      if (injResp && injResp.ok) {
+        var injData = await injResp.json();
+        if (injData && typeof injData.text === 'string' && injData.text) {
+          systemData = injData.text;
+          console.debug('[TalentInject] sendViaOpenClaw 直接获取注入文本 len=' + systemData.length);
+        }
+      }
+    } catch (injErr) {
+      console.warn('[TalentInject] 注入文本获取失败，按无注入发送:', injErr);
+    }
+  }
 
   // OpenClaw 直连不经过后端 /api/proxy，在后端无 WebSocket 回调可拦截，
   // 因此先调用后端意图检测接口，在消息到达 OpenClaw 前完成自修改并追加确认句。
@@ -8814,8 +8848,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
   try {
     // 私聊回复使用独立 chat session，避免与记忆提取 session 冲突
     var sessionKey = 'agent:' + emp.id + ':chat';
-    // 达人系统数据由后端 _handle_post_chat 直查 talents 表生成（talentInjection），
-    // 前端不再自行调注入接口；有数据时拼到消息末尾，LLM 只负责分析不负责查询
+    // 达人系统数据由后端直查 talents 表生成（经 talentInjection 响应或
+    // /api/talents/injection-text 接口获得），拼到消息末尾，LLM 只负责分析不负责查询
     if (systemData) {
       fullMessage += systemData;
       console.debug('[TalentInject] 已拼接后端系统数据 len=' + systemData.length);
