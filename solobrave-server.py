@@ -1862,19 +1862,43 @@ def _get_localhost_auth_result(headers, parsed_body=None):
     return AuthResult(user_info={'userId': 'localhost', 'role': 'admin'})
 
 
-def _check_agent_write_permission(auth):
-    """AI 员工本地调用（OpenClaw 工具调用，localhost + X-Agent-Id）的达人数据写权限校验。
-
-    返回 None 表示放行；否则返回 (error_message, status)。
-    规则：AI 员工一律禁止写入达人库——达人录入只允许管理员通过前端表单操作。
-    LLM 可能编造数据，agent 持有写入权限就会导致假数据污染真实数据库（木木事件），
-    与创建者是否为 admin 无关。非 agent 调用（前端 Bearer、服务器内部纯 localhost 调用）不拦截。
-    """
+def _resolve_talent_owner_id(auth):
+    """达人数据归属：返回写入操作应归属的用户 ID（两层架构的子库归属）。
+    AI 员工本地调用（localhost_agent_id）归属到该员工的创建者（子账号），
+    其余情况归属当前登录用户。"""
     agent_id = getattr(auth, 'localhost_agent_id', None)
-    if not agent_id:
+    if agent_id:
+        agent = _get_agent_by_id(agent_id)
+        if agent and agent.get('createdBy'):
+            return agent['createdBy']
+    return auth.user_info.get('userId', '')
+
+
+def _check_talent_write_permission(auth, talent_id=None):
+    """达人库两层架构（主库 + 子账号子库）的写权限校验。返回 None 放行，否则 (error, status)。
+
+    - 录入（talent_id=None）：管理员、子账号、AI 员工都可录入，
+      归属由 _resolve_talent_owner_id 决定（agent 录入自动进创建者的子库，不污染主库）。
+    - 更新/删除：管理员不限；子账号及其 AI 员工只能操作自己子库
+      （created_by ∈ {owner} ∪ owner 的 AI 员工 ID）；主库（created_by 为空）仅管理员可动。
+    """
+    if auth.is_admin and not getattr(auth, 'localhost_agent_id', None):
         return None
-    logger.warning(f'  [WriteGuard] 拒绝 AI 员工 {agent_id} 的达人数据写入（员工无录入权限）')
-    return ('AI 员工无达人数据写入权限，达人录入仅支持管理员通过前端表单操作', 403)
+    if talent_id is None:
+        return None
+    owner_id = _resolve_talent_owner_id(auth)
+    ids = {owner_id} | set(_get_user_emp_ids(owner_id))
+    conn = _db_conn()
+    try:
+        row = conn.execute('SELECT created_by FROM talents WHERE id = ?', (talent_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None  # 记录不存在，交给后续 404
+    if (row['created_by'] or '') in ids:
+        return None
+    logger.warning(f'  [SubpoolGuard] 拒绝 {owner_id} 修改/删除他人子库或主库达人 {talent_id}')
+    return ('只能操作自己子库的达人数据，主库数据仅管理员可修改', 403)
 
 
 def _authenticate(headers, client_ip=None, request_handler=None):
@@ -5927,6 +5951,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
             if len(parts) == 2 and parts[1] == 'follow-ups':
                 self._handle_post_talent_follow_up(parts[0])
+                return
+            if len(parts) == 2 and parts[1] == 'promote':
+                self._handle_promote_talent(parts[0])
                 return
 
         # Product API
@@ -13819,11 +13846,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             talents = [_talent_row_to_dict(r) for r in rows]
         finally:
             conn.close()
-        if not auth.is_admin:
-            # 非管理员可见：自己录入的 + 自己创建的 AI 员工录入的
-            uid = auth.user_info.get('userId', '')
+        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+            # 两层架构可见性：自己子库（自己录入 + 自己的 AI 员工录入）+ 主库（created_by 为空）。
+            # AI 员工本地调用同样按创建者子库过滤，不能以 admin 身份看全量
+            uid = _resolve_talent_owner_id(auth)
             visible_ids = {uid} | set(_get_user_emp_ids(uid))
-            talents = [t for t in talents if (t.get('created_by') or '') in visible_ids]
+            talents = [t for t in talents
+                       if not (t.get('created_by') or '') or (t.get('created_by') or '') in visible_ids]
         total = len(talents)
         talents = talents[offset:offset + limit]
         self._send_json(200, {'talents': talents, 'total': total, 'offset': offset, 'limit': limit})
@@ -13865,11 +13894,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
-        # AI 员工本地工具调用一律禁止写入达人库（与创建者角色无关），防止假数据污染
-        write_guard = _check_agent_write_permission(auth)
-        if write_guard:
-            self._send_json(write_guard[1], {'error': write_guard[0]})
-            return
+        # 两层架构：录入对所有身份开放，AI 员工录入自动归属创建者子库（见下方 created_by 强制归属）
         body = self._read_body()
         if not body or not body.get('name'):
             self._send_json_error(400, 'Missing name')
@@ -13898,8 +13923,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
 
         row = _dict_to_talent_row(body)
-        if not row.get('created_by'):
-            row['created_by'] = auth.user_info.get('userId', '')
+        # 两层架构：created_by 强制归属当前操作者（AI 员工录入归属其创建者子库），
+        # 不允许请求体伪造 created_by（否则 agent 可传空值直接写进主库）
+        row['created_by'] = _resolve_talent_owner_id(auth)
         conn = _db_conn()
         try:
             # 同一用户下已存在同名达人：更新原记录而非新建，防止重复创建
@@ -13941,6 +13967,37 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
         self._send_json(200, _talent_row_to_dict(row_out))
 
+    def _handle_promote_talent(self, talent_id):
+        """POST /api/talents/:id/promote — 管理员把子库达人提升到主库。
+
+        提升后 created_by 置空，所有账号可见（两层架构：主库全账号可见，子库仅归属者可见）。
+        仅限真实管理员前端操作，AI 员工本地调用无权提升。
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+            self._send_json(403, {'error': '仅管理员可提升达人到主库'})
+            return
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT created_by, name FROM talents WHERE id = ?', (talent_id,)).fetchone()
+            if not row:
+                self._send_json_error(404, 'Talent not found')
+                return
+            conn.execute("UPDATE talents SET created_by = '', updated_at = ? WHERE id = ?",
+                         (int(time.time() * 1000), talent_id))
+            conn.commit()
+            row_out = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
+        finally:
+            conn.close()
+        logger.info(f'  [Talent] 达人提升到主库: {row["name"]} ({talent_id})，原归属 {row["created_by"] or "主库"}')
+        result = _talent_row_to_dict(row_out)
+        result['promoted'] = True
+        self._send_json(200, result)
+
     def _handle_put_talent(self, talent_id):
         """PUT /api/talents/:id — 更新达人"""
         auth = _authenticate(self.headers, self.client_address[0], self)
@@ -13948,8 +14005,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
-        # AI 员工本地工具调用一律禁止写入达人库（与创建者角色无关），防止假数据污染
-        write_guard = _check_agent_write_permission(auth)
+        # 两层架构：非管理员（含 AI 员工）只能操作自己子库的达人，主库仅管理员可动
+        write_guard = _check_talent_write_permission(auth, talent_id)
         if write_guard:
             self._send_json(write_guard[1], {'error': write_guard[0]})
             return
@@ -13988,8 +14045,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
-        # AI 员工本地工具调用一律禁止写入达人库（与创建者角色无关），防止假数据污染
-        write_guard = _check_agent_write_permission(auth)
+        # 两层架构：非管理员（含 AI 员工）只能操作自己子库的达人，主库仅管理员可动
+        write_guard = _check_talent_write_permission(auth, talent_id)
         if write_guard:
             self._send_json(write_guard[1], {'error': write_guard[0]})
             return
@@ -14157,13 +14214,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if query.get('status'):
             status = query['status'][0]
             influencers = [i for i in influencers if i.get('status') == status]
-        # 权限过滤：非管理员只看自己（含自己的 AI 员工）录入的达人；
-        # AI 员工本地调用（localhost 快捷通道带 X-Agent-Id，auth 被标记为 admin）同样按创建者过滤，
-        # 防止员工绕过注入机制直接拉取全量达人数据
+        # 两层架构可见性：自己子库（自己 + 自己的 AI 员工录入的）+ 主库（createdBy 为空）；
+        # AI 员工本地调用（localhost 快捷通道带 X-Agent-Id，auth 被标记为 admin）同样按创建者子库过滤
         if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
-            uid = auth.user_info.get('userId')
+            uid = _resolve_talent_owner_id(auth)
             ids = {uid} | set(_get_user_emp_ids(uid))
-            influencers = [i for i in influencers if i.get('createdBy') in ids]
+            influencers = [i for i in influencers
+                           if not (i.get('createdBy') or '') or (i.get('createdBy') or '') in ids]
         if query.get('q'):
             kw = query['q'][0].lower()
             influencers = [i for i in influencers if kw in (i.get('id') or '').lower() or kw in (i.get('name') or '').lower() or kw in (i.get('accountId') or '').lower() or kw in (i.get('bio') or '').lower() or any(kw in t.lower() for t in (i.get('tags') or []))]
@@ -14197,11 +14254,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
-        # AI 员工本地工具调用一律禁止写入达人库（与创建者角色无关），防止假数据污染
-        write_guard = _check_agent_write_permission(auth)
-        if write_guard:
-            self._send_json(write_guard[1], {'error': write_guard[0]})
-            return
+        # 两层架构：录入对所有身份开放，AI 员工录入自动归属创建者子库（见下方 created_by 强制归属）
         body = self._read_body()
         if not body or 'name' not in body:
             self._send_json_error(400, 'Missing name')
@@ -14211,7 +14264,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         talent = _influencer_body_to_talent(body)
         talent['id'] = body.get('id') or f'inf_{now}_{uuid.uuid4().hex[:6]}'
         talent['status'] = 'active'
-        talent['created_by'] = auth.user_info.get('userId')
+        # 两层架构：created_by 强制归属当前操作者（AI 员工录入归属其创建者子库）
+        talent['created_by'] = _resolve_talent_owner_id(auth)
         talent['created_at'] = now
         row = _dict_to_talent_row(talent)
         conn = _db_conn()
@@ -14231,8 +14285,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
-        # AI 员工本地工具调用一律禁止写入达人库（与创建者角色无关），防止假数据污染
-        write_guard = _check_agent_write_permission(auth)
+        # 两层架构：非管理员（含 AI 员工）只能操作自己子库的达人，主库仅管理员可动
+        write_guard = _check_talent_write_permission(auth, inf_id)
         if write_guard:
             self._send_json(write_guard[1], {'error': write_guard[0]})
             return
@@ -14276,8 +14330,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
-        # AI 员工本地工具调用一律禁止写入达人库（与创建者角色无关），防止假数据污染
-        write_guard = _check_agent_write_permission(auth)
+        # 两层架构：非管理员（含 AI 员工）只能操作自己子库的达人，主库仅管理员可动
+        write_guard = _check_talent_write_permission(auth, inf_id)
         if write_guard:
             self._send_json(write_guard[1], {'error': write_guard[0]})
             return
@@ -15790,8 +15844,10 @@ def _build_talent_injection_text(auth):
         finally:
             conn.close()
         if not auth.is_admin:
+            # 两层架构：自己子库（自己录入的）+ 主库（created_by 为空）
             uid = auth.user_info.get('userId', '')
-            talents = [t for t in talents if (t.get('created_by') or '') == uid]
+            talents = [t for t in talents
+                       if not (t.get('created_by') or '') or (t.get('created_by') or '') == uid]
     except Exception as e:
         logger.error(
             f'  [TalentInject] 查询达人数据失败: err_type={type(e).__name__} err={e}\n'
