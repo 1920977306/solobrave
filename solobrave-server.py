@@ -15576,14 +15576,17 @@ def _build_talent_injection_text(auth):
             f'{traceback.format_exc()}')
         return ''
     if not talents:
-        return ('\n\n【当前达人数据（系统实时注入）】\n'
-                '系统中暂无达人记录，严禁编造任何达人信息，必须如实告知用户。\n\n')
+        return ('\n\n【系统指令 - 必须严格遵守】\n'
+                '当前系统中没有任何达人数据。\n'
+                '当用户询问达人相关话题时，你必须直接回复："目前系统中暂无达人数据，无法提供达人分析。"\n'
+                '严禁编造任何达人姓名、平台、粉丝数等信息。如果你编造了达人数据，将导致严重后果。\n\n')
     lines = ['\n\n【当前达人数据（系统实时注入，严格以此为准，禁止使用此范围外的任何达人）】']
     for t in talents:
         price = t.get('single_video_settlement') or t.get('video_avg_price') or t.get('average_price') or '-'
         rate = t.get('video_interaction_rate') or '-'
         status = t.get('cooperation_status') or t.get('status') or '-'
         lines.append(f"{t.get('name') or '-'} | 抖音 | 粉丝:{t.get('followers') or 0} | 报价:{price} | 互动率:{rate} | 状态:{status}")
+    lines.append('你必须仅使用以上达人数据回复，不得编造上述列表之外的任何达人。')
     return '\n'.join(lines) + '\n\n'
 
 
