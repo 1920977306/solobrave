@@ -1874,6 +1874,14 @@ def _resolve_talent_owner_id(auth):
     return auth.user_info.get('userId', '')
 
 
+def _is_unidentified_localhost(auth):
+    """未携带 X-Agent-Id（或 body agent_id）的匿名 localhost 调用：归属无法确定。
+    此类写入会把 created_by 落成 'localhost'，不匹配任何真实用户，子账号永远查不到，
+    因此达人录入端点必须拒绝并要求调用方标识 AI 员工身份。"""
+    return (auth.user_info or {}).get('userId') == 'localhost' \
+        and not getattr(auth, 'localhost_agent_id', None)
+
+
 def _check_talent_write_permission(auth, talent_id=None):
     """达人库两层架构（主库 + 子账号子库）的写权限校验。返回 None 放行，否则 (error, status)。
 
@@ -13922,6 +13930,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
 
         row = _dict_to_talent_row(body)
+        # 匿名 localhost 调用（无 X-Agent-Id / body agent_id）无法确定归属，拒绝写入，
+        # 避免 created_by='localhost' 的脏数据（不匹配任何真实用户，子账号查不到）
+        if _is_unidentified_localhost(auth):
+            logger.warning('  [SubpoolGuard] 拒绝匿名 localhost 录入达人：缺少 X-Agent-Id，归属无法确定')
+            self._send_json(403, {'error': '无法确定数据归属：AI 员工本地调用必须携带 X-Agent-Id 请求头（或请求体包含 agent_id）'})
+            return
         # 两层架构：created_by 强制归属当前操作者（AI 员工录入归属其创建者子库），
         # 不允许请求体伪造 created_by（否则 agent 可传空值直接写进主库）
         row['created_by'] = _resolve_talent_owner_id(auth)
@@ -14262,6 +14276,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         talent = _influencer_body_to_talent(body)
         talent['id'] = body.get('id') or f'inf_{now}_{uuid.uuid4().hex[:6]}'
         talent['status'] = 'active'
+        # 匿名 localhost 调用（无 X-Agent-Id / body agent_id）无法确定归属，拒绝写入，
+        # 避免 created_by='localhost' 的脏数据（不匹配任何真实用户，子账号查不到）
+        if _is_unidentified_localhost(auth):
+            logger.warning('  [SubpoolGuard] 拒绝匿名 localhost 录入达人：缺少 X-Agent-Id，归属无法确定')
+            self._send_json(403, {'error': '无法确定数据归属：AI 员工本地调用必须携带 X-Agent-Id 请求头（或请求体包含 agent_id）'})
+            return
         # 两层架构：created_by 强制归属当前操作者（AI 员工录入归属其创建者子库）
         talent['created_by'] = _resolve_talent_owner_id(auth)
         talent['created_at'] = now
