@@ -8602,6 +8602,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'openclawName': body.get('openclawName', ''),
             'aiProvider': body.get('aiProvider', ''),
             'systemPrompt': body.get('systemPrompt', ''),
+            'toolsDoc': body.get('toolsDoc', ''),
             'department': body.get('department', ''),
             'customEndpoint': body.get('customEndpoint', ''),
         }
@@ -8620,6 +8621,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 商务角色：创建时自动在 systemPrompt 末尾追加达人数据源强制约束，防止编造达人数据
         if new_agent['role'] == '商务' and '【数据源强制约束】' not in (new_agent['systemPrompt'] or ''):
             new_agent['systemPrompt'] = (new_agent['systemPrompt'] or '').rstrip() + _BUSINESS_DATA_CONSTRAINT
+        # 工具使用铁律：所有新员工必须包含（角色模板/自定义/空白一视同仁），防止口头"已录入"不实际调用工具
+        if '【工具使用铁律】' not in (new_agent['systemPrompt'] or ''):
+            new_agent['systemPrompt'] = (new_agent['systemPrompt'] or '').rstrip() + _ANTI_FABRICATION_RULES
+        # 默认工具配置：X-Agent-Id 硬编码进 TOOLS.md，不依赖 LLM 自觉携带
+        if not (new_agent.get('toolsDoc') or '').strip():
+            new_agent['toolsDoc'] = _build_agent_tools_doc(new_agent['id'])
         agents.append(new_agent)
         _save_agents(agents)
         # 自动同步 API Key 到 OpenClaw
@@ -9387,6 +9394,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 with open(os.path.join(workspace_path, 'TOOLS.md'), 'w', encoding='utf-8') as f:
                     f.write(tools_doc)
                 written.append('TOOLS.md')
+            else:
+                # 注册时未提供 toolsDoc：自动写入默认工具配置（X-Agent-Id 硬编码），
+                # 已有定制化 TOOLS.md 不覆盖
+                tools_path = os.path.join(workspace_path, 'TOOLS.md')
+                if not os.path.exists(tools_path):
+                    with open(tools_path, 'w', encoding='utf-8') as f:
+                        f.write(_build_agent_tools_doc(agent_id))
+                    written.append('TOOLS.md')
 
             self._send_json(200, {
                 'ok': True,
@@ -15805,6 +15820,12 @@ _BUSINESS_DATA_CONSTRAINT = (
 
 # 角色 systemPrompt 预设模板：创建员工时按 role 自动套用为默认值（用户仍可自定义编辑）
 # 每个模板末尾含该角色的通用数据约束段落
+_ANTI_FABRICATION_RULES = (
+    '\n\n【工具使用铁律】\n'
+    '- 你没有录入达人的记忆能力，所有数据必须通过调用工具写入系统，严禁口头回复"已录入"而不实际调用工具\n'
+    '- 如果你没有某个工具权限，必须如实告知用户，严禁假装已完成'
+)
+
 _ROLE_SYSTEM_PROMPT_TEMPLATES = {
     '商务': (
         '你是一名商务专员，负责客户开发、商机跟进与合作洽谈。\n\n'
@@ -15862,6 +15883,49 @@ def _append_influencer_data_constraint(agent, system_prompt):
         if '【数据源强制约束】' not in system_prompt:
             return system_prompt + _INFLUENCER_DATA_CONSTRAINT
     return system_prompt
+
+
+def _build_agent_tools_doc(agent_id):
+    """生成 AI 员工的 TOOLS.md（OpenClaw 工具配置）：所有 curl 命令硬编码 X-Agent-Id。
+
+    创建/注册 agent 时自动写入 workspace，不依赖 LLM 自己记得带 header——
+    达人录入等写入接口缺 X-Agent-Id 会被服务端 SubpoolGuard 拒绝（归属无法确定）。
+    """
+    base = f'http://localhost:{PORT}'
+    return f'''# 工具能力（SoloBrave 本地 API）
+
+用 exec 工具执行 curl 调用本地 API。**所有请求必须携带 X-Agent-Id 请求头**（已固定为你的员工 ID，照抄即可，不要改成别的值）：
+- Content-Type: application/json
+- X-Agent-Id: {agent_id}
+
+## 达人录入（收到达人资料必须实际调用，严禁口头回复"已录入"）
+curl -s -X POST {base}/api/talents \\
+  -H "Content-Type: application/json" \\
+  -H "X-Agent-Id: {agent_id}" \\
+  -d '{{"name":"达人昵称","douyin_id":"抖音号","followers":500000,"category":"美妆"}}'
+
+兼容旧接口（等价）：POST {base}/api/influencers，同样必须带 X-Agent-Id。
+
+## 数据查询
+- 达人列表: curl -s {base}/api/talents -H "X-Agent-Id: {agent_id}"
+- 商品列表: curl -s {base}/api/products -H "X-Agent-Id: {agent_id}"
+- 项目组列表: curl -s {base}/api/groups -H "X-Agent-Id: {agent_id}"
+
+## 知识库
+先查分类：
+curl -s {base}/api/knowledge/categories -H "X-Agent-Id: {agent_id}"
+
+再存储：
+curl -s -X POST {base}/api/knowledge/entries \\
+  -H "Content-Type: application/json" \\
+  -H "X-Agent-Id: {agent_id}" \\
+  -d '{{"title":"标题","content":"内容...","categoryId":1}}'
+
+## 使用规则
+1. 所有请求必须携带 X-Agent-Id: {agent_id}，缺了会被服务端拒绝（归属无法确定）
+2. 数据写入必须实际调用 API，成功后才可回复"已录入"；调用失败要如实告知用户
+3. 查询结果以 API 返回为准，禁止编造不存在的数据
+'''
 
 
 # 达人相关提问的关键词（任一命中即触发实时数据注入）
@@ -16753,6 +16817,15 @@ def _handle_openclaw_create_agent(self):
                 f.write(soul)
         except OSError as e:
             logging.warning(f"Failed to write SOUL.md: {e}")
+
+    # 写入默认 TOOLS.md（X-Agent-Id 硬编码进 curl 命令），已有定制化文件不覆盖
+    tools_path = os.path.join(workspace, 'TOOLS.md')
+    if not os.path.exists(tools_path):
+        try:
+            with open(tools_path, 'w', encoding='utf-8') as f:
+                f.write(_build_agent_tools_doc(name))
+        except OSError as e:
+            logging.warning(f"Failed to write TOOLS.md: {e}")
 
     self._send_json(200, {
         'success': True,

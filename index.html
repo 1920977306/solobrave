@@ -8756,8 +8756,8 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
     if (summaryText) systemPrompt += summaryText;
   }
 
-  // 注入商品库/达人库/匹配引擎工具说明（主大脑管控）
-  systemPrompt += buildAgentToolsContext();
+  // 注入商品库/达人库/匹配引擎工具说明（主大脑管控，X-Agent-Id 硬编码为员工ID）
+  systemPrompt += buildAgentToolsContext(emp.id);
   if (ragResult.context) systemPrompt += '\n\n' + ragResult.context;
 
   // 注入团队动态（同项目组其他 AI 最近对话摘要）
@@ -18841,8 +18841,8 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
     systemPrompt += summaryText;
   }
 
-  // 注入商品库/达人库/匹配引擎工具说明（主大脑管控）
-  systemPrompt += buildAgentToolsContext();
+  // 注入商品库/达人库/匹配引擎工具说明（主大脑管控，X-Agent-Id 硬编码为员工ID）
+  systemPrompt += buildAgentToolsContext(emp.id);
   if (images && images.length > 0) {
     systemPrompt += '\n\n【图片识别指令】当用户发送图片时，请直接识别并描述图片内容，不要调用任何工具。';
   }
@@ -19735,16 +19735,18 @@ function toggleToolCard(toolCallId) {
   if (area) area.scrollTop = area.scrollHeight;
 }
 
-function buildAgentToolsContext() {
+function buildAgentToolsContext(empId) {
   var port = window.location.port || '8080';
   var baseUrl = 'http://localhost:' + port;
+  // X-Agent-Id 在工具层硬编码：服务端按它追溯数据归属（达人录入缺 header 会被拒绝），不依赖 LLM 自觉
+  var agentId = empId || '<你的员工ID>';
   return '\n\n【系统资源（通过本地 API 访问）】\n' +
     '你作为AI员工，可以使用 OpenClaw 原生工具完成任务。\n\n' +
     '当需要查询商品、达人、订单等业务数据时，使用 exec 工具执行 curl 命令调用本地 API，例如：\n' +
-    "exec(command='curl -s " + baseUrl + "/api/products?q=关键词')\n" +
-    '当需要修改业务数据时，同样通过 curl POST/PUT/DELETE 调用对应 API 接口，例如：\n' +
-    "exec(command=\"curl -s -X POST -H 'Content-Type: application/json' -d '{\\\"name\\\":\\\"新商品\\\",\\\"price\\\":199}' " + baseUrl + "/api/products\")\n" +
-    '本地 API 无需认证 token，可直接调用。\n' +
+    "exec(command='curl -s -H \"X-Agent-Id: " + agentId + "\" \"" + baseUrl + "/api/products?q=关键词\"')\n" +
+    '当需要修改业务数据时，同样通过 curl POST/PUT/DELETE 调用对应 API 接口，例如达人录入：\n' +
+    "exec(command=\"curl -s -X POST -H 'Content-Type: application/json' -H 'X-Agent-Id: " + agentId + "' -d '{\\\"name\\\":\\\"达人昵称\\\",\\\"douyin_id\\\":\\\"抖音号\\\"}' " + baseUrl + "/api/talents\")\n" +
+    '【必须】所有本地 API 请求都必须携带 X-Agent-Id: ' + agentId + ' 请求头，否则服务端无法确定数据归属，写入会被拒绝。\n' +
     '【注意】禁止编造不存在的商品或达人信息，所有数据以本地 API 返回结果为准。\n' +
     '【禁止】不要使用 [TOOL_CALL] 格式，所有操作必须通过 exec 工具执行 curl 命令完成。';
 }
@@ -20439,6 +20441,10 @@ async function finishWizard() {
     var _userName = currentUser && (currentUser.name || currentUser.displayName) || '用户';
     var _prefix = sysPrompt ? sysPrompt + '\n\n' : '';
     sysPrompt = _prefix + '【层级关系（必须遵守）】\n- 管理员是你的老板，你需要服从管理员的指令和安排。\n- ' + _userName + ' 是你的上级、主人，你是他雇佣的AI员工和下属。\n- 你必须绝对服从老板的指令，以尊敬、服从的态度回复。\n- 严禁以教导者、导师、师傅、老师的身份对老板说话。\n- 严禁质疑老板的能力、经验或判断。';
+  }
+  // 强制注入工具使用铁律（防编造）：所有新员工必须包含，不选角色模板也会有；服务端创建时同样会兜底追加
+  if (sysPrompt.indexOf('【工具使用铁律】') < 0) {
+    sysPrompt += '\n\n【工具使用铁律】\n- 你没有录入达人的记忆能力，所有数据必须通过调用工具写入系统，严禁口头回复"已录入"而不实际调用工具\n- 如果你没有某个工具权限，必须如实告知用户，严禁假装已完成';
   }
   var apiKey = document.getElementById('wizApiKey').value.trim();
   var aiProvider = empSelectedAIProvider || 'kimi';
