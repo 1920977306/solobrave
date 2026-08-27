@@ -14447,7 +14447,7 @@ function renderMsgs(type) {
 
 // ============ 聊天区空状态 - 欢迎态 ============
 function getChatEmptyStateHtml() {
-  return '<div class="chat-empty-state"><div class="welcome-title">全可AI</div><div class="welcome-subtitle">你的AI协作伙伴</div><div class="welcome-cards"><div class="welcome-card" onclick="onWelcomeNewChat()"><span class="welcome-card-icon">💬</span><span class="welcome-card-text">新建对话</span></div><div class="welcome-card" onclick="onWelcomeProducts()"><span class="welcome-card-icon">📦</span><span class="welcome-card-text">商品录入</span></div><div class="welcome-card" onclick="onWelcomeTalents()"><span class="welcome-card-icon">👥</span><span class="welcome-card-text">达人搜索</span></div></div></div>';
+  return '<div class="chat-empty-state"><div class="welcome-title">全可AI</div><div class="welcome-subtitle">你的AI协作伙伴</div><div class="welcome-cards"><div class="welcome-card" onclick="onWelcomeNewChat()"><span class="welcome-card-icon">💬</span><span class="welcome-card-text">新建对话</span></div><div class="welcome-card" onclick="onWelcomeTalentCreate()"><span class="welcome-card-icon">🎙️</span><span class="welcome-card-text">达人录入</span></div><div class="welcome-card" onclick="onWelcomeTalents()"><span class="welcome-card-icon">👥</span><span class="welcome-card-text">达人搜索</span></div></div></div>';
 }
 
 function onWelcomeNewChat() {
@@ -14455,9 +14455,10 @@ function onWelcomeNewChat() {
   setTimeout(function () { openWizard(); }, 50);
 }
 
-function onWelcomeProducts() {
-  switchModule('products');
-  setTimeout(function () { createNewProduct(); }, 50);
+// 首页快捷操作：达人录入（非管理员/子账号也可用——录入接口带 Bearer token，归属当前用户子库）
+function onWelcomeTalentCreate() {
+  switchModule('influencers');
+  setTimeout(function () { createNewTalent(); }, 50);
 }
 
 function onWelcomeTalents() {
@@ -20034,6 +20035,7 @@ function openWizard() {
   renderWizSkillGrid();
   renderAvatarPicker();
   loadWizardTeams();
+  loadWizPromptTemplates();
   updateWizardUI();
   document.getElementById('wizardOverlay').classList.add('show');
 }
@@ -20164,6 +20166,29 @@ const ROLE_TEMPLATES = {
 function onWizRoleChange() {
   var role = document.getElementById('wizRole').value;
   document.getElementById('wizSystemPrompt').value = ROLE_TEMPLATES[role] || '';
+}
+// 角色模板下拉：选项来自服务端 /api/employee-templates（name + systemPrompt），
+// 选择后填充 SOUL.md 输入框，用户仍可手动修改；不选（空值）保持原有逻辑不动输入框
+var _wizPromptTemplates = [];
+function loadWizPromptTemplates() {
+  var select = document.getElementById('wizPromptTemplate');
+  if (!select) return;
+  apiFetch('/api/employee-templates').then(function (res) {
+    if (res && res.ok) return res.json();
+    return null;
+  }).then(function (data) {
+    _wizPromptTemplates = (data && data.templates) || [];
+    select.innerHTML = '<option value="">不使用模板（空白 SOUL.md）</option>' + _wizPromptTemplates.map(function (t, i) {
+      return '<option value="' + i + '">' + escapeHtml(t.name) + '</option>';
+    }).join('');
+  }).catch(function () { _wizPromptTemplates = []; });
+}
+function applyWizPromptTemplate(value) {
+  if (value === '' || value == null) return;  // 不选模板：保持输入框现状（默认空白）
+  var tmpl = _wizPromptTemplates[parseInt(value)];
+  if (tmpl && tmpl.systemPrompt) {
+    document.getElementById('wizSystemPrompt').value = tmpl.systemPrompt;
+  }
 }
 function selectRoleTemplate(el) {
   document.querySelectorAll('.role-template-card').forEach(function (o) {
@@ -21145,6 +21170,13 @@ function doReset() {
 <div class="form-group" id="wizCustomEndpointGroup" style="display:none">
 <label class="form-label">自定义 Base URL</label>
 <input type="text" class="form-input" id="wizCustomEndpoint" placeholder="https://api.example.com/v1">
+</div>
+<div class="form-group">
+<label class="form-label">🎭 角色模板</label>
+<select class="form-select" id="wizPromptTemplate" onchange="applyWizPromptTemplate(this.value)">
+<option value="">不使用模板（空白 SOUL.md）</option>
+</select>
+<div style="font-size:11px;color:var(--text-tertiary);margin-top:4px">选择模板后自动填充下方 SOUL.md，仍可手动修改</div>
 </div>
 <div class="form-group">
 <label class="form-label">🧠 SOUL.md（人格设定）</label>
