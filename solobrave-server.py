@@ -1882,6 +1882,35 @@ def _is_unidentified_localhost(auth):
         and not getattr(auth, 'localhost_agent_id', None)
 
 
+# AI 员工 role → 可写入资源：商务=达人侧，运营=商品侧（与角色模板的【权限边界】一致）。
+# prompt 约束不可靠，这里在服务端硬拦截——LLM 不遵守 prompt 也越不了权。
+_AGENT_ROLE_WRITE_SCOPE = {
+    '商务': {'talent'},
+    '运营': {'product'},
+}
+
+
+def _check_agent_role_write_scope(auth, resource):
+    """AI 员工（localhost_agent_id）按 role 硬拦截写入权限。返回 None 放行，否则 (error, status)。
+
+    - resource: 'talent'（达人录入/修改/删除）或 'product'（商品录入/修改/删除）
+    - 真实用户（含管理员、子账号本人）不受此限制，走原有权限体系
+    - agent role='admin' 不限；其他 role 只放行 _AGENT_ROLE_WRITE_SCOPE 规定的资源
+    """
+    agent_id = getattr(auth, 'localhost_agent_id', None)
+    if not agent_id:
+        return None  # 非 AI 员工调用
+    agent = _get_agent_by_id(agent_id)
+    role = ((agent or {}).get('role') or '').strip()
+    if role == 'admin':
+        return None
+    if resource in _AGENT_ROLE_WRITE_SCOPE.get(role, set()):
+        return None
+    label = '达人' if resource == 'talent' else '商品'
+    logger.warning(f'  [RoleGuard] 拒绝 agent {agent_id}（role={role or "未设置"}）写入{label}数据')
+    return (f'你的角色（{role or "未设置"}）无此权限：{label}数据的录入/修改不属于你的职责范围', 403)
+
+
 def _check_talent_write_permission(auth, talent_id=None):
     """达人库两层架构（主库 + 子账号子库）的写权限校验。返回 None 放行，否则 (error, status)。
 
@@ -13347,6 +13376,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_admin:
             self._send_json_error(403, 'Only admin can create products')
             return
+        # 角色硬拦截：AI 员工仅 role='运营'（或 admin）可录入商品，商务等其他角色 403
+        role_guard = _check_agent_role_write_scope(auth, 'product')
+        if role_guard:
+            self._send_json(role_guard[1], {'error': role_guard[0]})
+            return
         body = self._read_body()
         if not body or 'name' not in body:
             self._send_json_error(400, 'Missing name')
@@ -13418,6 +13452,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not self._require_module_permission(auth, 'products'):
             logger.info(f'  [ProductPUT] 返回 403: 无 products 模块权限 product_id={product_id}')
+            return
+        # 角色硬拦截：AI 员工仅 role='运营'（或 admin）可修改商品
+        role_guard = _check_agent_role_write_scope(auth, 'product')
+        if role_guard:
+            self._send_json(role_guard[1], {'error': role_guard[0]})
             return
         body = self._read_body()
         logger.info(f'  [ProductPUT] 请求体 product_id={product_id} body={repr(body)[:500]}')
@@ -13513,6 +13552,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'products'): return
+        # 角色硬拦截：AI 员工仅 role='运营'（或 admin）可删除商品
+        role_guard = _check_agent_role_write_scope(auth, 'product')
+        if role_guard:
+            self._send_json(role_guard[1], {'error': role_guard[0]})
+            return
         conn = _db_conn()
         try:
             cur = conn.execute('DELETE FROM products WHERE id = ?', (product_id,))
@@ -13917,6 +13961,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not self._require_module_permission(auth, 'influencers'): return
         # 两层架构：录入对所有身份开放，AI 员工录入自动归属创建者子库（见下方 created_by 强制归属）
+        # 角色硬拦截：AI 员工仅 role='商务'（或 admin）可录入达人，运营等其他角色 403
+        role_guard = _check_agent_role_write_scope(auth, 'talent')
+        if role_guard:
+            self._send_json(role_guard[1], {'error': role_guard[0]})
+            return
         body = self._read_body()
         if not body or not body.get('name'):
             self._send_json_error(400, 'Missing name')
@@ -14033,6 +14082,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # 角色硬拦截：AI 员工仅 role='商务'（或 admin）可修改达人
+        role_guard = _check_agent_role_write_scope(auth, 'talent')
+        if role_guard:
+            self._send_json(role_guard[1], {'error': role_guard[0]})
+            return
         # 两层架构：非管理员（含 AI 员工）只能操作自己子库的达人，主库仅管理员可动
         write_guard = _check_talent_write_permission(auth, talent_id)
         if write_guard:
@@ -14073,6 +14127,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # 角色硬拦截：AI 员工仅 role='商务'（或 admin）可删除达人
+        role_guard = _check_agent_role_write_scope(auth, 'talent')
+        if role_guard:
+            self._send_json(role_guard[1], {'error': role_guard[0]})
+            return
         # 两层架构：非管理员（含 AI 员工）只能操作自己子库的达人，主库仅管理员可动
         write_guard = _check_talent_write_permission(auth, talent_id)
         if write_guard:
@@ -14282,6 +14341,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not self._require_module_permission(auth, 'influencers'): return
         # 两层架构：录入对所有身份开放，AI 员工录入自动归属创建者子库（见下方 created_by 强制归属）
+        # 角色硬拦截：AI 员工仅 role='商务'（或 admin）可录入达人，运营等其他角色 403
+        role_guard = _check_agent_role_write_scope(auth, 'talent')
+        if role_guard:
+            self._send_json(role_guard[1], {'error': role_guard[0]})
+            return
         body = self._read_body()
         if not body or 'name' not in body:
             self._send_json_error(400, 'Missing name')
@@ -14318,6 +14382,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # 角色硬拦截：AI 员工仅 role='商务'（或 admin）可修改达人
+        role_guard = _check_agent_role_write_scope(auth, 'talent')
+        if role_guard:
+            self._send_json(role_guard[1], {'error': role_guard[0]})
+            return
         # 两层架构：非管理员（含 AI 员工）只能操作自己子库的达人，主库仅管理员可动
         write_guard = _check_talent_write_permission(auth, inf_id)
         if write_guard:
@@ -14363,6 +14432,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # 角色硬拦截：AI 员工仅 role='商务'（或 admin）可删除达人
+        role_guard = _check_agent_role_write_scope(auth, 'talent')
+        if role_guard:
+            self._send_json(role_guard[1], {'error': role_guard[0]})
+            return
         # 两层架构：非管理员（含 AI 员工）只能操作自己子库的达人，主库仅管理员可动
         write_guard = _check_talent_write_permission(auth, inf_id)
         if write_guard:
