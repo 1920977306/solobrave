@@ -39,6 +39,7 @@ try:
     import fcntl
 except ImportError:
     fcntl = None
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, unquote, parse_qs
 
@@ -4339,6 +4340,13 @@ def _auto_check_knowledge(emp_id, mem_id, value, tags=None):
     if not value:
         return None
     content = str(value)
+    # 去重护栏：近期已完整入库的分析结论不再拆成碎片写入
+    try:
+        if _is_recent_saved_analysis(content):
+            logger.info(f'  [KnowledgeBase] {emp_id} 跳过已完整保存的分析内容碎片: {content[:60]}...')
+            return None
+    except Exception:
+        pass
     # 质量过滤：识别失败/数据为空等操作反馈不写入知识库
     if _is_low_quality_knowledge(content):
         logger.info(f'  [KnowledgeBase] {emp_id} 跳过低质量内容写入: {content[:60]}...')
@@ -4369,10 +4377,72 @@ def _auto_check_knowledge(emp_id, mem_id, value, tags=None):
 
 
 # ═══ AI 分析结论自动入库 ═══
-# 判定为“分析结论”的标记词（结论四选一 + 常见分析收口语）
-_ANALYSIS_CONCLUSION_MARKERS = ('建议合作', '建议测试', '建议观望', '不建议', '分析结论', '综合建议', '分析结果')
+# 判定为“分析结论”的强标记词（命中即判定 True）：原结论四选一 + 常见分析收口语 + 结论/推荐类措辞
+_ANALYSIS_CONCLUSION_MARKERS = (
+    '建议合作', '建议测试', '建议观望', '不建议', '分析结论', '综合建议', '分析结果',
+    '合作建议', '匹配建议', '投放建议', '推荐合作', '推荐测试', '首选', '次选',
+    '优先推荐', '合作方案', '打法建议', '综合判断', '综上', '总结',
+)
 _ANALYSIS_MIN_LENGTH = 80          # 低于该长度不可能是完整分析
 _ANALYSIS_DEDUP_THRESHOLD = 0.92   # 语义相似度 ≥ 该值视为重复，不再写入
+# 组合信号判定：长文本（≥300字）含 ≥2 个业务指标词 + ≥1 个判断/推荐词 → 视为分析结论
+_ANALYSIS_COMBO_MIN_LENGTH = 300
+_ANALYSIS_METRIC_WORDS = (
+    '粉丝', 'GMV', '转化率', '客单价', 'ROI', 'GPM', '完播率', '互动率', '类目',
+    '价格带', '画像', '复购', '坑产', '佣金', '坑位费', '爆款', '带货', '涨粉',
+    '粉丝量', '播放量', '点赞',
+)
+_ANALYSIS_JUDGMENT_WORDS = (
+    '建议', '推荐', '适合', '不适合', '首选', '次选', '优先', '打法', '方案',
+    '策略', '结论', '判断', '预计', '预估',
+)
+
+# 近期已完整入库的分析结论指纹缓存（TTL 去重护栏）：
+# _maybe_auto_save_analysis 成功保存后记录 reply 前500字符的 md5；
+# _auto_check_knowledge 命中则跳过，避免同一内容再被拆成碎片 pending 条目。
+# 进程重启缓存清空可接受（极端 case 最多多几条碎片）。
+_RECENT_SAVED_ANALYSIS = OrderedDict()
+_RECENT_SAVED_ANALYSIS_LOCK = threading.Lock()
+_RECENT_SAVED_ANALYSIS_TTL = 30 * 60   # 30 分钟
+_RECENT_SAVED_ANALYSIS_MAX = 200       # 容量上限
+
+
+def _analysis_fingerprint(text):
+    """内容指纹：前 500 字符的 md5"""
+    return hashlib.md5((text or '')[:500].encode('utf-8')).hexdigest()
+
+
+def _remember_saved_analysis(text):
+    """记录已完整入库的分析结论指纹（异常静默，不影响主流程）"""
+    try:
+        fp = _analysis_fingerprint(text)
+        now = time.time()
+        with _RECENT_SAVED_ANALYSIS_LOCK:
+            for k in [k for k, t in _RECENT_SAVED_ANALYSIS.items() if now - t > _RECENT_SAVED_ANALYSIS_TTL]:
+                _RECENT_SAVED_ANALYSIS.pop(k, None)
+            _RECENT_SAVED_ANALYSIS[fp] = now
+            _RECENT_SAVED_ANALYSIS.move_to_end(fp)
+            while len(_RECENT_SAVED_ANALYSIS) > _RECENT_SAVED_ANALYSIS_MAX:
+                _RECENT_SAVED_ANALYSIS.popitem(last=False)
+    except Exception:
+        pass
+
+
+def _is_recent_saved_analysis(text):
+    """判断内容是否命中近期已完整入库的分析结论（异常时返回 False，不误拦）"""
+    try:
+        fp = _analysis_fingerprint(text)
+        now = time.time()
+        with _RECENT_SAVED_ANALYSIS_LOCK:
+            ts = _RECENT_SAVED_ANALYSIS.get(fp)
+            if ts is None:
+                return False
+            if now - ts > _RECENT_SAVED_ANALYSIS_TTL:
+                _RECENT_SAVED_ANALYSIS.pop(fp, None)
+                return False
+            return True
+    except Exception:
+        return False
 
 
 def _auto_save_analysis_enabled():
@@ -4388,10 +4458,18 @@ def _auto_save_analysis_enabled():
 
 
 def _is_analysis_conclusion(text):
-    """粗判 AI 回复是否为数据分析结论（长度 + 结论标记词）"""
+    """粗判 AI 回复是否为数据分析结论（长度 + 结论标记词 / 长文本组合信号）"""
     if not text or len(text) < _ANALYSIS_MIN_LENGTH:
         return False
-    return any(m in text for m in _ANALYSIS_CONCLUSION_MARKERS)
+    # 强标记词命中即判定
+    if any(m in text for m in _ANALYSIS_CONCLUSION_MARKERS):
+        return True
+    # 组合信号：长文本 + ≥2 个业务指标词 + ≥1 个判断/推荐词
+    if len(text) >= _ANALYSIS_COMBO_MIN_LENGTH:
+        metric_hits = sum(1 for w in _ANALYSIS_METRIC_WORDS if w in text)
+        if metric_hits >= 2 and any(w in text for w in _ANALYSIS_JUDGMENT_WORDS):
+            return True
+    return False
 
 
 def _extract_analysis_title(content, user_text=''):
@@ -4401,15 +4479,31 @@ def _extract_analysis_title(content, user_text=''):
         if any(kw in (content or '') for kw in keywords):
             prefix = hint + '分析'
             break
+    # 1) 命中结论标记词的行：从标记词起截取（而非行首），避免长行截到无关开头
     for line in (content or '').split('\n'):
-        for m in ('建议合作', '建议测试', '建议观望', '不建议'):
+        for m in _ANALYSIS_CONCLUSION_MARKERS:
             idx = line.find(m)
             if idx >= 0:
-                # 从结论标记词起截取（而非行首），避免长行截到无关开头
                 seg = line[idx:idx + 24].strip().rstrip('。，,')
                 if seg:
                     return f'{prefix}：{seg}'
-    base = ((user_text or '').strip() or (content or '').strip()).split('\n')[0][:24]
+    # 2) 组合信号判定（无标记词）：找中文序号开头的行或加粗标题作摘要
+    for line in (content or '').split('\n'):
+        s = line.strip()
+        if not s:
+            continue
+        if re.match(r'^[一二三四五六七八九十]+、', s):
+            return f'{prefix}：{s[:24].rstrip("。，,")}'
+        if '**' in s:
+            seg = s.replace('*', '').strip()[:24].rstrip('。，,')
+            if seg:
+                return f'{prefix}：{seg}'
+    # 3) 兜底：正文第一行非空内容前 24 字
+    for line in (content or '').split('\n'):
+        s = line.strip()
+        if s:
+            return f'{prefix}：{s[:24]}'
+    base = (user_text or '').strip().split('\n')[0][:24]
     return f'{prefix}：{base}'
 
 
@@ -4491,6 +4585,8 @@ def _maybe_auto_save_analysis(agent_id, reply, user_text=''):
         })
         if not kb_id:
             return
+        # 记录指纹：后续记忆管线收到同一内容时不再拆成碎片 pending 条目
+        _remember_saved_analysis(reply)
         # 仅当条目内容就是本次结论（新插入/同 id 更新）时才生成 embedding；
         # 若被合并进内容不同的旧条目，其分段/向量保持不变
         try:
