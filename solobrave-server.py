@@ -5638,6 +5638,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/knowledge-events/stats':
             self._handle_get_knowledge_events_stats()
             return
+        if path == '/api/knowledge-events/search':
+            self._handle_search_knowledge_events()
+            return
         if path.startswith('/api/knowledge-events/'):
             sub = path[len('/api/knowledge-events/'):]
             if sub:
@@ -11855,6 +11858,32 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'  [KnowledgeEvents] stats failed: {e}')
             self._send_json_error(500, f'Stats failed: {str(e)}')
 
+    def _handle_search_knowledge_events(self):
+        """GET /api/knowledge-events/search?q=&entity_type=&limit= — 语义搜索分析档案。
+        embedding 可用时按余弦相似度排序；不可用时降级为 title+content_full LIKE 模糊匹配。
+        返回列表（不含 content_full，附 score）。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        qs = parse_qs(urlparse(self.path).query)
+        query = qs.get('q', [''])[0].strip()
+        entity_type = qs.get('entity_type', [''])[0].strip()
+        if not query:
+            self._send_json_error(400, 'Missing q')
+            return
+        try:
+            limit = max(1, min(50, int(qs.get('limit', [5])[0] or 5)))
+        except (TypeError, ValueError):
+            limit = 5
+        try:
+            results = _search_knowledge_events(query, entity_type=entity_type, limit=limit)
+            self._send_json(200, {'events': results, 'total': len(results)})
+        except Exception as e:
+            logger.error(f'  [KnowledgeEvents] search failed: {e}')
+            self._send_json_error(500, f'Search failed: {str(e)}')
+
     def _handle_post_kb_search(self):
         """POST /api/knowledge/search — 新版语义搜索"""
         auth = _authenticate(self.headers, self.client_address[0], self)
@@ -16330,6 +16359,265 @@ def _build_talent_injection_text(auth):
     return '\n'.join(lines) + '\n\n'
 
 
+# ═══ 知识事件检索注入（分析档案召回）═══
+# user_text 命中以下关键词时才执行检索（在 _TALENT_INJECT_KEYWORDS 基础上扩展）
+_KE_INJECT_KEYWORDS = _TALENT_INJECT_KEYWORDS + ('匹配', '推荐', '选品', '商品', '合作', '评估')
+_KE_CONTEXT_MAX_LEN = 1500      # 注入文本总长度上限
+_KE_EVENT_SNIPPET_LEN = 200     # 每条事件 content_full 截取长度
+_KE_SAME_ENTITY_LIMIT = 3       # 同实体历史取最近 N 条
+_KE_SAME_CATEGORY_LIMIT = 2     # 同类目其他达人分析取最近 N 条
+_KE_SEMANTIC_LIMIT = 3          # embedding 语义兜底取 top N
+
+
+def _extract_entities_from_text(text):
+    """提取文本中提到的所有达人/商品实体。
+    返回 [(entity_type, entity_id, name, category), ...]，名称最长优先；
+    已被更长名称覆盖的短名跳过（如文本含"赵西瓜"时不再匹配"赵西"）。"""
+    if not text or not text.strip():
+        return []
+    try:
+        conn = _db_conn()
+        try:
+            talents = conn.execute(
+                "SELECT id, name, category FROM talents WHERE status='active'").fetchall()
+            products = conn.execute(
+                "SELECT id, name FROM products WHERE status='active'").fetchall()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f'  [KnowledgeInject] 实体提取查询失败: {e}')
+        return []
+    found = []
+    for row in talents:
+        name = (row['name'] or '').strip()
+        if name and name in text:
+            found.append(('talent', row['id'], name, row['category'] or ''))
+    for row in products:
+        name = (row['name'] or '').strip()
+        if name and name in text:
+            found.append(('product', row['id'], name, ''))
+    found.sort(key=lambda x: len(x[2]), reverse=True)
+    result = []
+    for item in found:
+        if any(item[2] != kept[2] and item[2] in kept[2] for kept in result):
+            continue
+        result.append(item)
+    return result
+
+
+def _ke_time_ago(created_at_ms):
+    """毫秒时间戳 -> 'N天前/N小时前/N分钟前'"""
+    if not created_at_ms:
+        return '时间未知'
+    delta = time.time() - created_at_ms / 1000.0
+    if delta < 3600:
+        return f'{max(1, int(delta // 60))}分钟前'
+    if delta < 86400:
+        return f'{int(delta // 3600)}小时前'
+    return f'{int(delta // 86400)}天前'
+
+
+def _ke_entity_names(conn, entity_refs):
+    """批量查实体名称：{(entity_type, entity_id): name}"""
+    names = {}
+    for etype, eid in entity_refs:
+        if (etype, eid) in names:
+            continue
+        try:
+            table = 'talents' if etype == 'talent' else 'products'
+            row = conn.execute(f'SELECT name FROM {table} WHERE id = ?', (eid,)).fetchone()
+            names[(etype, eid)] = (row['name'] if row else '') or ''
+        except Exception:
+            names[(etype, eid)] = ''
+    return names
+
+
+def _retrieve_knowledge_context(user_text, agent_id='', auth=None):
+    """检索 knowledge_events 中与本次提问相关的历史分析结论，格式化为注入文本。
+    策略优先级：同实体历史 > 同类目相似分析 > embedding 语义兜底。
+    无匹配或异常时返回 ''（不注入任何内容）。"""
+    try:
+        if not user_text or not isinstance(user_text, str):
+            return ''
+        if not any(k in user_text.upper() for k in _KE_INJECT_KEYWORDS):
+            return ''
+        entities = _extract_entities_from_text(user_text)
+        picked = []        # [(event_row, label_prefix)]
+        seen_ids = set()
+        conn = _db_conn()
+        try:
+            # 1) 同实体历史：每个识别到的实体取最近 N 条
+            for etype, eid, name, _cat in entities:
+                rows = conn.execute(
+                    'SELECT * FROM knowledge_events WHERE entity_type = ? AND entity_id = ? '
+                    'ORDER BY created_at DESC LIMIT ?',
+                    (etype, eid, _KE_SAME_ENTITY_LIMIT)).fetchall()
+                label = '达人' if etype == 'talent' else '商品'
+                for r in rows:
+                    if r['id'] in seen_ids:
+                        continue
+                    seen_ids.add(r['id'])
+                    picked.append((r, f"{label}「{name}」分析"))
+            # 2) 同类目相似分析：同 category 的其他达人，取最近 N 条
+            category_queries = []  # (category, exclude_entity_id)
+            for etype, eid, name, category in entities:
+                if etype == 'talent' and category:
+                    category_queries.append((category, eid))
+            if not category_queries:
+                # 无具体达人实体时，用类目关键词直接匹配 talents.category
+                try:
+                    cat_rows = conn.execute(
+                        "SELECT DISTINCT category FROM talents WHERE status='active' AND category != ''").fetchall()
+                    for cr in cat_rows:
+                        if cr['category'] and cr['category'] in user_text:
+                            category_queries.append((cr['category'], ''))
+                except Exception:
+                    pass
+            for category, exclude_id in category_queries:
+                if exclude_id:
+                    rows = conn.execute(
+                        "SELECT ke.* FROM knowledge_events ke "
+                        "JOIN talents t ON ke.entity_type = 'talent' AND ke.entity_id = t.id "
+                        "WHERE t.category = ? AND ke.entity_id != ? "
+                        "ORDER BY ke.created_at DESC LIMIT ?",
+                        (category, exclude_id, _KE_SAME_CATEGORY_LIMIT * 3)).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT ke.* FROM knowledge_events ke "
+                        "JOIN talents t ON ke.entity_type = 'talent' AND ke.entity_id = t.id "
+                        "WHERE t.category = ? "
+                        "ORDER BY ke.created_at DESC LIMIT ?",
+                        (category, _KE_SAME_CATEGORY_LIMIT * 3)).fetchall()
+                count = 0
+                for r in rows:
+                    if r['id'] in seen_ids or count >= _KE_SAME_CATEGORY_LIMIT:
+                        continue
+                    seen_ids.add(r['id'])
+                    other = conn.execute('SELECT name FROM talents WHERE id = ?', (r['entity_id'],)).fetchone()
+                    other_name = (other['name'] if other else '') or '未知达人'
+                    picked.append((r, f'同类目达人「{other_name}」分析'))
+                    count += 1
+            # 3) 兜底语义检索：embedding 可用时按余弦相似度取 top N
+            try:
+                emb_cfg = get_embedding_config((agent_id or None))
+                api_key = emb_cfg.get('apiKey')
+                if api_key:
+                    query_emb = get_embedding(user_text[:2000], api_key, emb_cfg.get('provider', 'openai'),
+                                              model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
+                    if query_emb:
+                        import struct
+                        rows = conn.execute(
+                            'SELECT * FROM knowledge_events WHERE embedding IS NOT NULL').fetchall()
+                        scored = []
+                        for r in rows:
+                            if r['id'] in seen_ids:
+                                continue
+                            try:
+                                emb = struct.unpack(f'{len(r["embedding"]) // 4}f', r['embedding'])
+                                scored.append((cosine_similarity(query_emb, emb), r))
+                            except Exception:
+                                continue
+                        scored.sort(key=lambda x: x[0], reverse=True)
+                        if scored:
+                            names = _ke_entity_names(conn, [(r['entity_type'], r['entity_id']) for _, r in scored[:_KE_SEMANTIC_LIMIT]])
+                            for _sim, r in scored[:_KE_SEMANTIC_LIMIT]:
+                                seen_ids.add(r['id'])
+                                ename = names.get((r['entity_type'], r['entity_id']), '')
+                                label = f"达人「{ename}」分析" if r['entity_type'] == 'talent' and ename else '相关历史分析'
+                                picked.append((r, label))
+            except Exception as e:
+                logger.warning(f'  [KnowledgeInject] 语义检索失败，跳过: {e}')
+        finally:
+            conn.close()
+        if not picked:
+            return ''
+        # 格式化输出 + 截断控制
+        header = '【相关分析参考 - 仅供分析参考，不要直接复述】'
+        footer = '以上为历史分析记录，请结合当前达人实际情况判断。'
+        blocks = []
+        used = len(header) + len(footer) + 2
+        for r, label in picked:
+            snippet = (r['content_full'] or '')[:_KE_EVENT_SNIPPET_LEN]
+            block = f"▶ {label}（{_ke_time_ago(r['created_at'])}）：\n"
+            if r['title']:
+                block += f"{r['title']}\n"
+            block += snippet
+            if used + len(block) + 1 > _KE_CONTEXT_MAX_LEN:
+                break
+            blocks.append(block)
+            used += len(block) + 1
+        if not blocks:
+            return ''
+        return header + '\n' + '\n'.join(blocks) + '\n' + footer
+    except Exception as e:
+        logger.error(f'  [KnowledgeInject] 检索失败: {e}')
+        return ''
+
+
+def _ke_event_to_list_item(r, score=None):
+    """knowledge_events 行 -> 列表项 dict（不含 content_full / embedding）"""
+    item = {
+        'id': r['id'],
+        'entity_type': r['entity_type'],
+        'entity_id': r['entity_id'],
+        'agent_id': r['agent_id'],
+        'event_type': r['event_type'],
+        'title': r['title'],
+        'content_summary': r['content_summary'],
+        'user_query': r['user_query'],
+        'created_at': r['created_at'],
+    }
+    if score is not None:
+        item['score'] = round(score, 4)
+    return item
+
+
+def _search_knowledge_events(query, entity_type='', limit=5):
+    """语义搜索分析档案：embedding 可用按余弦相似度排序；不可用降级为 title+content_full LIKE。
+    返回列表项（不含 content_full，语义检索附 score）。异常时返回 []。"""
+    try:
+        conn = _db_conn()
+        try:
+            if entity_type:
+                rows = conn.execute(
+                    'SELECT * FROM knowledge_events WHERE entity_type = ?', (entity_type,)).fetchall()
+            else:
+                rows = conn.execute('SELECT * FROM knowledge_events').fetchall()
+            # 优先语义检索
+            emb_cfg = get_embedding_config()
+            api_key = emb_cfg.get('apiKey')
+            if api_key:
+                try:
+                    query_emb = get_embedding(query[:2000], api_key, emb_cfg.get('provider', 'openai'),
+                                              model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
+                    if query_emb:
+                        import struct
+                        scored = []
+                        for r in rows:
+                            if not r['embedding']:
+                                continue
+                            try:
+                                emb = struct.unpack(f'{len(r["embedding"]) // 4}f', r['embedding'])
+                                scored.append((cosine_similarity(query_emb, emb), r))
+                            except Exception:
+                                continue
+                        scored.sort(key=lambda x: x[0], reverse=True)
+                        return [_ke_event_to_list_item(r, score=s) for s, r in scored[:limit]]
+                except Exception as e:
+                    logger.warning(f'  [KnowledgeEvents] 语义搜索失败，降级模糊匹配: {e}')
+            # 降级：LIKE 模糊匹配
+            like = f'%{query}%'
+            matched = [r for r in rows if like.strip('%') and
+                       (like.strip('%') in (r['title'] or '') or like.strip('%') in (r['content_full'] or ''))]
+            matched.sort(key=lambda r: r['created_at'] or 0, reverse=True)
+            return [_ke_event_to_list_item(r) for r in matched[:limit]]
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error(f'  [KnowledgeEvents] search failed: {e}')
+        return []
+
+
 def _append_self_update_prompt(system_prompt):
     """在 system_prompt 末尾追加自修改工具声明"""
     if not system_prompt:
@@ -16840,6 +17128,16 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                     system_prompt += f'\n\n【产品知识库】\n{rag_result["context"]}'
         except Exception as e:
             logger.error(f'  [RAG] {agent_id} 注入失败: {e}')
+
+        # 注入知识事件检索结果（分析档案历史结论召回）
+        if include_history:
+            try:
+                ke_context = _retrieve_knowledge_context(user_text, agent_id, None)
+                if ke_context:
+                    system_prompt += f'\n\n{ke_context}'
+                    logger.info(f'  [KnowledgeInject] {agent_id} 注入知识事件上下文 {len(ke_context)} 字')
+            except Exception as e:
+                logger.error(f'  [KnowledgeInject] {agent_id} 注入失败: {e}')
 
     system_prompt = _append_self_update_prompt(system_prompt)
 
