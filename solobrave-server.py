@@ -16428,9 +16428,15 @@ def _call_kimicode_messages(base_url, model, api_key, messages, timeout, max_tok
         raw = resp.read().decode('utf-8', errors='replace')
         logger.info(f'  [API] kimicode messages response: HTTP {resp.status}')
         resp_data = json.loads(raw)
+        thinking_text = ''
         for block in resp_data.get('content') or []:
             if isinstance(block, dict) and block.get('type') == 'text' and block.get('text'):
                 return block['text']
+            if isinstance(block, dict) and block.get('type') == 'thinking' and block.get('thinking'):
+                thinking_text = block['thinking']
+        if thinking_text:
+            logger.info('  [API] kimicode messages 无 text 块，兜底返回 thinking 内容')
+            return thinking_text
         logger.info(f'  [API] kimicode messages unexpected format: {raw[:500]}')
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8', errors='replace')
@@ -17147,9 +17153,10 @@ def _induce_knowledge_patterns(category, llm_config, created_by=''):
                                           '输出 JSON 数组，每条包含 pattern_text(规律描述)、evidence_event_ids(支撑的事件ID列表)、confidence(置信度0-1)。'},
             {'role': 'user', 'content': user_prompt},
         ]
+        # kimi-for-coding 是推理模型，thinking 块会先消耗 max_tokens，需要给足余量
         raw = _call_chat_completion(llm_config.get('apiProvider', ''), llm_config.get('apiKey', ''),
                                     llm_config.get('apiModel', ''), llm_config.get('customEndpoint', ''),
-                                    messages, max_tokens=2000)
+                                    messages, max_tokens=8000)
         if not raw:
             return False, {'error': 'LLM调用失败'}
         m = re.search(r'\[.*\]', raw.strip(), re.S)
