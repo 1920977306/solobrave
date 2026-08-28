@@ -6378,6 +6378,26 @@ window.doLogin = function () {
   </div>
 </div>
 
+<!-- Pattern Induce Modal (触发规律归纳) -->
+<div class="product-modal-overlay" id="patternInduceModalOverlay" onclick="closePatternInduceModal(event)">
+  <div class="product-modal" onclick="event.stopPropagation()">
+    <div class="product-modal-header">
+      <div class="product-modal-title">触发规律归纳</div>
+      <button class="product-modal-close" onclick="closePatternInduceModal()">×</button>
+    </div>
+    <div class="product-modal-body">
+      <div class="product-modal-tip">从该类目的历史分析事件中提炼跨达人共性规律，结果进入规律库「待确认」。</div>
+      <div class="product-modal-field required"><label>类目</label>
+        <select id="patternInduceCategory"><option value="">加载中...</option></select>
+      </div>
+    </div>
+    <div class="product-modal-footer">
+      <button class="product-modal-btn cancel" onclick="closePatternInduceModal()">取消</button>
+      <button class="product-modal-btn save" onclick="confirmPatternInduce()">确定</button>
+    </div>
+  </div>
+</div>
+
 <!-- Knowledge Right -->
 <div class="module-right" id="knowledgeRight">
   <!-- 详情面板（默认） -->
@@ -24628,23 +24648,50 @@ function setPatternStatus(pid, status) {
 }
 
 function triggerPatternInduce() {
+  var sel = document.getElementById('patternInduceCategory');
+  sel.innerHTML = '<option value="">加载中...</option>';
+  document.getElementById('patternInduceModalOverlay').classList.add('active');
   apiFetch('/api/knowledge/categories').then(function(r){ return r.json(); }).then(function(data){
     var cats = data.categories || data.docs || data || [];
-    var names = [];
-    cats.forEach(function(c){
-      var n = (typeof c === 'string') ? c : (c.name || '');
-      if (n && names.indexOf(n) < 0) names.push(n);
+    _patternInduceCats = cats.map(function(c){
+      return (typeof c === 'string') ? { id: c, name: c } : { id: c.id || c.name || '', name: c.name || '' };
+    }).filter(function(c){ return c.name; });
+    if (_patternInduceCats.length === 0) {
+      sel.innerHTML = '<option value="">（暂无类目，请先在知识库创建分类）</option>';
+      return;
+    }
+    var html = '<option value="">请选择类目</option>';
+    _patternInduceCats.forEach(function(c){
+      html += '<option value="' + escapeAttr(c.id) + '">' + escapeHtml(c.name) + '</option>';
     });
-    var input = prompt('输入要归纳的类目' + (names.length ? '（已有：' + names.join('、') + '）' : '') + '：', names[0] || '');
-    if (!input || !input.trim()) return;
-    showToast('正在归纳「' + input.trim() + '」类目的规律...', 'info');
-    apiFetch('/api/knowledge-patterns/induce', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category: input.trim() })
-    }).then(function(r){ return r.json(); }).then(function(res){
-      if (res && res.ok) { showToast('归纳完成，新增 ' + res.induced + ' 条规律', 'success'); loadPatternsPage(); }
-      else { showToast('归纳失败: ' + ((res && res.error) || '未知错误'), 'error'); }
-    }).catch(function(e){ showToast('归纳请求失败', 'error'); });
-  }).catch(function(e){ showToast('获取类目失败', 'error'); });
+    sel.innerHTML = html;
+  }).catch(function(e){
+    sel.innerHTML = '<option value="">类目加载失败</option>';
+  });
+}
+
+var _patternInduceCats = [];
+
+function closePatternInduceModal(e) {
+  if (e && e.target !== e.currentTarget) return;
+  document.getElementById('patternInduceModalOverlay').classList.remove('active');
+}
+
+function confirmPatternInduce() {
+  var sel = document.getElementById('patternInduceCategory');
+  var categoryId = sel.value;
+  if (!categoryId) { showToast('请选择类目', 'warning'); return; }
+  var cat = _patternInduceCats.find(function(c){ return String(c.id) === String(categoryId); }) || {};
+  var categoryName = cat.name || categoryId;
+  closePatternInduceModal();
+  showToast('正在归纳「' + categoryName + '」类目的规律...', 'info');
+  apiFetch('/api/knowledge-patterns/induce', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ categoryId: categoryId, category: categoryName })
+  }).then(function(r){ return r.json(); }).then(function(res){
+    if (res && res.ok) { showToast('归纳完成，新增 ' + res.induced + ' 条规律', 'success'); loadPatternsPage(); }
+    else { showToast('归纳失败: ' + ((res && res.error) || '未知错误'), 'error'); }
+  }).catch(function(e){ showToast('归纳请求失败', 'error'); });
 }
 
 
