@@ -3529,6 +3529,67 @@ def _dict_to_brand_row(b):
     }
 
 
+def _parse_number_tolerant(val, is_int=False):
+    """数值字段容错解析：'100-500' 区间格式取两个端点平均值；支持 %、逗号。
+    返回 (ok, number)；无法解析时返回 (False, None)，由调用方跳过该字段。"""
+    if val is None or val == '':
+        return True, 0 if is_int else 0.0
+    if isinstance(val, bool):
+        return False, None
+    if isinstance(val, (int, float)):
+        return True, int(val) if is_int else float(val)
+    s = str(val).replace('%', '').replace(',', '').strip()
+    if not s:
+        return True, 0 if is_int else 0.0
+    try:
+        return True, int(float(s)) if is_int else float(s)
+    except ValueError:
+        pass
+    # 区间格式：取两个端点的平均值
+    if '-' in s:
+        parts = s.split('-')
+        if len(parts) == 2:
+            try:
+                lo, hi = float(parts[0].strip()), float(parts[1].strip())
+                avg = (lo + hi) / 2
+                return True, int(avg) if is_int else avg
+            except ValueError:
+                pass
+    return False, None
+
+
+# PUT /api/talents 数值字段容错：区间值取均值，无法解析的字段跳过（不更新），不返回 500
+_TALENT_FLOAT_FIELDS = ('commission_requirement', 'fulfillment_score', 'rating_score', 'total_gmv',
+                        'average_price', 'live_ratio', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_gpm')
+_TALENT_INT_FIELDS = ('followers', 'next_follow_up_at', 'total_products', 'product_count',
+                      'total_shops', 'avg_views', 'matched_products_updated_at',
+                      'nextFollowUpAt', 'avgViews', 'matchedProductsUpdatedAt')
+
+
+def _sanitize_talent_numeric_fields(body, talent_id=''):
+    """在合并 body 前把数值字段规范化；无法解析的字段从 body 移除（保留原值）。"""
+    try:
+        for f in _TALENT_FLOAT_FIELDS:
+            if f in body:
+                ok, num = _parse_number_tolerant(body[f], is_int=False)
+                if ok:
+                    body[f] = num
+                else:
+                    logger.warning(f'  [Talents] PUT {talent_id} 字段 {f} 无法解析为数值: {body[f]!r}，跳过更新')
+                    body.pop(f, None)
+        for f in _TALENT_INT_FIELDS:
+            if f in body:
+                ok, num = _parse_number_tolerant(body[f], is_int=True)
+                if ok:
+                    body[f] = num
+                else:
+                    logger.warning(f'  [Talents] PUT {talent_id} 字段 {f} 无法解析为数值: {body[f]!r}，跳过更新')
+                    body.pop(f, None)
+    except Exception as e:
+        logger.warning(f'  [Talents] PUT {talent_id} 数值字段容错处理异常: {e}')
+    return body
+
+
 def _dict_to_talent_row(t):
     def _dump(val):
         if val is None:
@@ -4643,37 +4704,44 @@ def _save_knowledge_event(reply, agent_id, title, user_text=''):
         return None
 
 
-def _maybe_auto_save_analysis(agent_id, reply, user_text=''):
+def _maybe_auto_save_analysis(agent_id, reply, user_text='', tool_results=None):
     """AI 员工完成分析类回答后，自动把分析结论写入知识库（kb_entries，scope=global，emp_id 留空）。
     同时双写 knowledge_events（实体档案时间线）。
+    OpenClaw 路径最终回复可能只是"建档成功"等操作短语，真正的分析在 tool_result 里：
+    reply 不命中时，拼接 tool_results 的 content 再检测，命中则用拼接内容入库。
     开关：settings.json auto_save_analysis（默认开启）。全流程异常兜底，不影响聊天主流程。"""
     try:
         if not _auto_save_analysis_enabled():
             return
-        if not _is_analysis_conclusion(reply):
+        analysis_text = reply or ''
+        if not _is_analysis_conclusion(analysis_text) and tool_results:
+            combined = '\n'.join(str(r) for r in tool_results if r)
+            if _is_analysis_conclusion(combined):
+                analysis_text = combined
+        if not _is_analysis_conclusion(analysis_text):
             return
-        if _is_low_quality_knowledge(reply):
+        if _is_low_quality_knowledge(analysis_text):
             return
         # 语义去重：与已有条目高度相似则不再写入
         conn = _db_conn()
         try:
-            dup = _find_similar_kb_entry(conn, reply)
+            dup = _find_similar_kb_entry(conn, analysis_text)
         finally:
             conn.close()
         if dup:
             logger.info(f'  [AutoSaveAnalysis] {agent_id} 与已有条目 {dup[0]} 相似度 {dup[1]:.3f}，跳过写入')
             return
-        title = _extract_analysis_title(reply, user_text)
+        title = _extract_analysis_title(analysis_text, user_text)
         kb_id = _upsert_knowledge_base({
             'title': title,
-            'content': reply,
+            'content': analysis_text,
             'source': 'auto_analysis',
             'status': 'active',
         })
         if not kb_id:
             return
         # 记录指纹：后续记忆管线收到同一内容时不再拆成碎片 pending 条目
-        _remember_saved_analysis(reply)
+        _remember_saved_analysis(analysis_text)
         # 仅当条目内容就是本次结论（新插入/同 id 更新）时才生成 embedding；
         # 若被合并进内容不同的旧条目，其分段/向量保持不变
         try:
@@ -4682,12 +4750,12 @@ def _maybe_auto_save_analysis(agent_id, reply, user_text=''):
                 row = conn.execute('SELECT content FROM kb_entries WHERE id = ?', (kb_id,)).fetchone()
             finally:
                 conn.close()
-            if row and (row['content'] or '') == reply:
-                _vectorize_kb_entry(kb_id, reply)
+            if row and (row['content'] or '') == analysis_text:
+                _vectorize_kb_entry(kb_id, analysis_text)
         except Exception as e:
             logger.error(f'  [AutoSaveAnalysis] {agent_id} 向量化失败: {e}')
         # 双写实体档案：knowledge_events 时间线（含实体关联 + embedding）
-        _save_knowledge_event(reply, agent_id, title, user_text)
+        _save_knowledge_event(analysis_text, agent_id, title, user_text)
         logger.info(f'  [AutoSaveAnalysis] {agent_id} 分析结论已入库: {kb_id} title={title!r}')
     except Exception as e:
         logger.error(f'  [AutoSaveAnalysis] {agent_id} failed: {e}')
@@ -14414,6 +14482,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not body:
             self._send_json_error(400, 'Missing body')
             return
+        # 数值字段容错：'100-500' 区间取均值，无法解析的字段跳过（不更新），不返回 500
+        body = _sanitize_talent_numeric_fields(body, talent_id)
         conn = _db_conn()
         try:
             row = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
@@ -15948,8 +16018,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             _save_chat(agent_id, messages)
             logger.info(f'  [ChatPOST] {agent_id} role={role} skipAI={skip_ai} 保存后共 {len(messages)} 条消息')
             # OpenClaw 链路：AI 回复由前端回传（role=assistant），同样做分析结论自动入库
+            # 注意：最终回复可能只是"建档成功"，真正的分析在 tool_result 里，
+            # 收集当前 turn（assistant 之前连续 role=tool 的消息）的 content 一并检测
             if role == 'assistant':
-                _maybe_auto_save_analysis(agent_id, msg.get('content', ''))
+                tool_results = []
+                for m in reversed(messages[:-1]):
+                    if m.get('role') == 'tool':
+                        tool_results.append(m.get('content', ''))
+                    elif m.get('role') == 'user':
+                        break
+                tool_results.reverse()
+                _maybe_auto_save_analysis(agent_id, msg.get('content', ''), tool_results=tool_results)
 
         if connection_type == 'openclaw':
             self._send_json(200, {
