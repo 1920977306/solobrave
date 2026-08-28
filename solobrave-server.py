@@ -16352,6 +16352,11 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
 
     # kimi-for-coding / kimicode 只接受 temperature=1，其他模型保持 0.8
     temperature = 1 if (resolved_model == 'kimi-for-coding' or api_provider == 'kimicode') else 0.8
+
+    # kimicode（kimi-for-coding）走 Anthropic Messages API（/messages），非 OpenAI chat/completions 格式
+    if api_provider == 'kimicode':
+        return _call_kimicode_messages(base_url, resolved_model, api_key, messages, timeout, max_tokens)
+
     req_body = json.dumps({
         'model': resolved_model,
         'messages': messages,
@@ -16387,6 +16392,52 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
         logger.error(f'      Response: {error_body}')
     except Exception as e:
         logger.error(f'  ❌ AI API call failed: {e}')
+        traceback.print_exc()
+    return None
+
+
+def _call_kimicode_messages(base_url, model, api_key, messages, timeout, max_tokens):
+    """kimicode（kimi-for-coding）的 Anthropic Messages API 调用，返回字符串内容或 None。
+    POST {base_url}/messages，认证用 x-api-key + anthropic-version（不用 Authorization Bearer）；
+    不传 temperature；system 消息转为顶层 system 字段；响应从 content 数组的 text 块取文本。"""
+    system_parts = []
+    chat_messages = []
+    for m in messages or []:
+        if m.get('role') == 'system':
+            if m.get('content'):
+                system_parts.append(m['content'])
+        else:
+            chat_messages.append({'role': m.get('role', 'user'), 'content': m.get('content', '')})
+    body = {'model': model, 'max_tokens': max_tokens, 'messages': chat_messages}
+    if system_parts:
+        body['system'] = '\n\n'.join(system_parts)
+    req_body = json.dumps(body).encode('utf-8')
+    headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': api_key,
+        'anthropic-version': '2023-06-01',
+        'Content-Length': str(len(req_body)),
+    }
+    target_url = base_url + '/messages'
+    masked_key = f'{api_key[:4]}...' if api_key and len(api_key) > 4 else '(none)'
+    logger.info(f'  [API] kimicode messages request: model={model} url={target_url} key={masked_key}')
+    try:
+        req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
+        ctx = ssl.create_default_context()
+        resp = urllib.request.urlopen(req, timeout=timeout, context=ctx)
+        raw = resp.read().decode('utf-8', errors='replace')
+        logger.info(f'  [API] kimicode messages response: HTTP {resp.status}')
+        resp_data = json.loads(raw)
+        for block in resp_data.get('content') or []:
+            if isinstance(block, dict) and block.get('type') == 'text' and block.get('text'):
+                return block['text']
+        logger.info(f'  [API] kimicode messages unexpected format: {raw[:500]}')
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8', errors='replace')
+        logger.error(f'  ❌ kimicode messages call failed: HTTP {e.code} {e.reason}')
+        logger.error(f'      Response: {error_body}')
+    except Exception as e:
+        logger.error(f'  ❌ kimicode messages call failed: {e}')
         traceback.print_exc()
     return None
 
