@@ -16350,10 +16350,12 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
     target_url = base_url + '/chat/completions'
     resolved_model = _resolve_ai_model(api_provider, api_model or '')
 
+    # kimi-for-coding / kimicode 只接受 temperature=1，其他模型保持 0.8
+    temperature = 1 if (resolved_model == 'kimi-for-coding' or api_provider == 'kimicode') else 0.8
     req_body = json.dumps({
         'model': resolved_model,
         'messages': messages,
-        'temperature': 0.8,
+        'temperature': temperature,
         'max_tokens': max_tokens,
         'stream': False
     }).encode('utf-8')
