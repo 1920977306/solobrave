@@ -39,6 +39,47 @@ check('4. top_categories JSON 字符串兜底',
 r = srv._dict_to_talent_row({'name': 'x', 'fan_category': '服装23%'})
 check('5. 全空不回退 fan_category', r['category'] == '', repr(r['category']))
 
+# 强制优先级：top_categories 有数据时不信任客户端传入的 category
+check('6. category=时尚 + top_categories 有数据 -> 强制取带货类目',
+      srv._dict_to_talent_row({'name': 'x', 'category': '时尚',
+                               'top_categories': [{'name': '服饰内衣', 'ratio': 87}]})['category'] == '服饰内衣')
+check('7. category=时尚 + 无带货数据 -> 保持原值不猜测',
+      srv._dict_to_talent_row({'name': 'x', 'category': '时尚'})['category'] == '时尚')
+check('8. main_category 最优先（高于 top_categories）',
+      srv._dict_to_talent_row({'name': 'x', 'main_category': '鞋靴箱包',
+                               'top_categories': [{'name': '服饰内衣'}]})['category'] == '鞋靴箱包')
+
+# 存量修复：top_categories 有数据但 category 不一致 -> 启动时自动修正
+import sqlite3
+import tempfile
+tmpdir = tempfile.mkdtemp(prefix='sb_test_cat_')
+srv.DB_PATH = os.path.join(tmpdir, 'test.db')
+srv.init_db()
+conn = sqlite3.connect(srv.DB_PATH)
+now = 1700000000000
+conn.execute("INSERT INTO talents (id, name, category, top_categories, status, created_at, updated_at) "
+             "VALUES ('t_bad', '污染达人', '时尚', '[{\"name\": \"服饰内衣\", \"ratio\": 87}]', 'active', ?, ?)", (now, now))
+conn.execute("INSERT INTO talents (id, name, category, top_categories, status, created_at, updated_at) "
+             "VALUES ('t_nodata', '无数据达人', '时尚', '[]', 'active', ?, ?)", (now, now))
+conn.execute("INSERT INTO talents (id, name, category, top_categories, status, created_at, updated_at) "
+             "VALUES ('t_ok', '正常达人', '鞋靴', '[{\"name\": \"鞋靴\"}]', 'active', ?, ?)", (now, now))
+conn.commit()
+conn.close()
+mconn = srv._db_conn()
+srv._migrate_talent_categories(mconn)
+mconn.close()
+# 用独立连接读（迁移内部已 commit）
+conn = sqlite3.connect(srv.DB_PATH)
+bad = conn.execute("SELECT category FROM talents WHERE id='t_bad'").fetchone()[0]
+nodata = conn.execute("SELECT category FROM talents WHERE id='t_nodata'").fetchone()[0]
+okk = conn.execute("SELECT category FROM talents WHERE id='t_ok'").fetchone()[0]
+conn.close()
+check('9. 存量修复：污染记录被修正', bad == '服饰内衣', bad)
+check('9b. 无带货数据的不动', nodata == '时尚', nodata)
+check('9c. 一致的不动', okk == '鞋靴', okk)
+import shutil
+shutil.rmtree(tmpdir, ignore_errors=True)
+
 print()
 if failures:
     print(f'共 {failures} 项失败')

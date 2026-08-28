@@ -2525,6 +2525,35 @@ def _backup_data_dir():
         logger.error(f'[Backup] 清理旧快照失败: {e}')
 
 
+def _migrate_talent_categories(conn):
+    """存量修复：talents 中 top_categories 非空但 category 与 top_categories[0].name 不一致的记录，
+    强制更新为 top_categories[0].name（带货实际数据优先于可能污染的内容标签）。
+    top_categories 无数据的不动。幂等，每次启动执行。"""
+    try:
+        rows = conn.execute(
+            "SELECT id, category, top_categories FROM talents "
+            "WHERE top_categories IS NOT NULL AND top_categories NOT IN ('', '[]', '{}')").fetchall()
+        fixed = 0
+        for r in rows:
+            try:
+                cats = json.loads(r['top_categories'])
+                if not isinstance(cats, list) or not cats:
+                    continue
+                first = cats[0]
+                name = first.get('name', '') if isinstance(first, dict) else (first if isinstance(first, str) else '')
+                name = (name or '').strip()
+                if name and (r['category'] or '') != name:
+                    conn.execute('UPDATE talents SET category = ? WHERE id = ?', (name, r['id']))
+                    fixed += 1
+            except Exception:
+                continue
+        if fixed:
+            conn.commit()
+        logger.info(f'  [TalentCategoryFix] 存量类目修正 {fixed} 条')
+    except Exception as e:
+        logger.warning(f'  [TalentCategoryFix] 存量类目修正失败: {e}')
+
+
 def init_db():
     """初始化数据库，创建 products 等表（启动时调用）。旧 knowledge 表已废弃，不再建表。"""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -3060,6 +3089,9 @@ def init_db():
 
         # 空表时写入 COOLCHAP 示例数据
         _seed_coolchap_data(conn)
+
+        # 存量修复：top_categories 有数据的达人，category 强制对齐 top_categories[0].name
+        _migrate_talent_categories(conn)
     finally:
         conn.close()
 
@@ -3444,7 +3476,7 @@ def _talent_row_to_dict(row):
         'fan_crowd': row['fan_crowd'] or '',
         'fan_price_range': row['fan_price_range'] or '',
         'fan_category': row['fan_category'] or '',
-        'category': row['category'] or row['fan_category'] or '',
+        'category': row['category'] or '',
         'content_style': row['content_style'] or '',
         'contentStyle': row['content_style'] or '',
         'fans_profile': _json_col('fans_profile', {}),
@@ -3618,10 +3650,11 @@ def _dict_to_talent_row(t):
             return '{}'
         return json.dumps(val, ensure_ascii=False)
     now = int(time.time() * 1000)
-    # category 取值：main_category(主推带货类目) 优先，其次 category；不再回退 fan_category（粉丝视角品类偏好 ≠ 主推类目）
-    _category = t.get('main_category') or t.get('mainCategory') or t.get('category') or ''
+    # category 强制优先级：main_category > top_categories[0].name > category > ''
+    # top_categories 是带货实际数据，比客户端/LLM 传入的 category（可能是内容标签）可靠
+    _category = t.get('main_category') or t.get('mainCategory') or ''
     if not _category:
-        # 兜底：top_categories 第一条的类目名（兼容 JSON 字符串 / list）
+        # top_categories 有数据时强制取第一条类目名（兼容 JSON 字符串 / list，元素兼容 dict / str）
         _top_cats = t.get('top_categories') or t.get('topCategories') or []
         if isinstance(_top_cats, str):
             try:
@@ -3634,6 +3667,8 @@ def _dict_to_talent_row(t):
                 _category = _first['name']
             elif isinstance(_first, str):
                 _category = _first
+    if not _category:
+        _category = t.get('category') or ''
     return {
         'id': t.get('id') or ('tal_' + str(now) + '_' + uuid.uuid4().hex[:6]),
         'name': t.get('name') or '',
@@ -15348,7 +15383,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         # 1. 类目匹配 (40分)
         p_cat = (product.get('category') or '').strip()
-        t_cat = (talent.get('fan_category') or talent.get('category') or '').strip()
+        t_cat = (talent.get('category') or talent.get('fan_category') or '').strip()
         if p_cat and t_cat:
             if p_cat == t_cat:
                 score += 40
