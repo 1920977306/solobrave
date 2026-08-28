@@ -2834,6 +2834,29 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tfu_talent_id ON talent_follow_ups(talent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_tfu_follow_up_at ON talent_follow_ups(follow_up_at)')
 
+        # 知识事件表：分析结论归属到具体达人/商品（实体档案时间线）
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS knowledge_events (
+                id TEXT PRIMARY KEY,
+                entity_type TEXT DEFAULT '',
+                entity_id TEXT DEFAULT '',
+                agent_id TEXT DEFAULT '',
+                event_type TEXT DEFAULT 'analysis',
+                title TEXT DEFAULT '',
+                content_full TEXT NOT NULL,
+                content_summary TEXT DEFAULT '',
+                conclusions TEXT DEFAULT '{}',
+                embedding BLOB,
+                source_msg_id TEXT DEFAULT '',
+                user_query TEXT DEFAULT '',
+                created_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_ke_entity ON knowledge_events(entity_type, entity_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_ke_agent ON knowledge_events(agent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_ke_type ON knowledge_events(event_type)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_ke_created ON knowledge_events(created_at DESC)')
+
         # FIXME: 新增记忆三级沉淀表（二级归纳、三级知识库），保持原有 knowledge/products 表不变
         conn.execute('''
             CREATE TABLE IF NOT EXISTS memory_summary (
@@ -4557,8 +4580,72 @@ def _vectorize_kb_entry(kb_id, content):
                             emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
 
 
+def _extract_entity_from_analysis(reply, user_text=''):
+    """从分析回复+用户提问中提取归属实体（达人/商品）。
+    在 talents/products 表的 active 记录名称中做包含匹配，取最长匹配；
+    无法确定归属时返回 ('', '')（事件仍写入，entity 留空）。"""
+    text = (user_text or '') + '\n' + (reply or '')
+    if not text.strip():
+        return '', ''
+    try:
+        conn = _db_conn()
+        try:
+            talents = conn.execute("SELECT id, name FROM talents WHERE status='active'").fetchall()
+            products = conn.execute("SELECT id, name FROM products WHERE status='active'").fetchall()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f'  [KnowledgeEvents] 实体提取查询失败: {e}')
+        return '', ''
+    best_type, best_id, best_len = '', '', 0
+    for entity_type, rows in (('talent', talents), ('product', products)):
+        for row in rows:
+            name = (row['name'] or '').strip()
+            if name and name in text and len(name) > best_len:
+                best_type, best_id, best_len = entity_type, row['id'], len(name)
+    return best_type, best_id
+
+
+def _save_knowledge_event(reply, agent_id, title, user_text=''):
+    """把分析结论原文写入 knowledge_events（实体档案时间线，原文不截断）。
+    同时生成 embedding 存入 embedding 列（API 不可用时留 NULL）。异常兜底返回 None。"""
+    try:
+        entity_type, entity_id = _extract_entity_from_analysis(reply, user_text)
+        embedding_blob = None
+        try:
+            emb_cfg = get_embedding_config()
+            api_key = emb_cfg.get('apiKey')
+            if api_key:
+                emb = get_embedding(reply[:2000], api_key, emb_cfg.get('provider', 'openai'),
+                                    model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
+                if emb:
+                    import struct
+                    embedding_blob = struct.pack(f'{len(emb)}f', *emb)
+        except Exception as e:
+            logger.warning(f'  [KnowledgeEvents] embedding 生成失败: {e}')
+        event_id = 'ke_' + uuid.uuid4().hex[:12]
+        conn = _db_conn()
+        try:
+            conn.execute('''
+                INSERT INTO knowledge_events
+                (id, entity_type, entity_id, agent_id, event_type, title, content_full,
+                 content_summary, conclusions, embedding, source_msg_id, user_query, created_at)
+                VALUES (?, ?, ?, ?, 'analysis', ?, ?, '', '{}', ?, '', ?, ?)
+            ''', (event_id, entity_type, entity_id, agent_id or '', title, reply,
+                  embedding_blob, user_text or '', int(time.time() * 1000)))
+            conn.commit()
+        finally:
+            conn.close()
+        logger.info(f'  [KnowledgeEvents] 分析事件已入库: {event_id} entity={entity_type}:{entity_id}')
+        return event_id
+    except Exception as e:
+        logger.error(f'  [KnowledgeEvents] 写入失败: {e}')
+        return None
+
+
 def _maybe_auto_save_analysis(agent_id, reply, user_text=''):
     """AI 员工完成分析类回答后，自动把分析结论写入知识库（kb_entries，scope=global，emp_id 留空）。
+    同时双写 knowledge_events（实体档案时间线）。
     开关：settings.json auto_save_analysis（默认开启）。全流程异常兜底，不影响聊天主流程。"""
     try:
         if not _auto_save_analysis_enabled():
@@ -4599,6 +4686,8 @@ def _maybe_auto_save_analysis(agent_id, reply, user_text=''):
                 _vectorize_kb_entry(kb_id, reply)
         except Exception as e:
             logger.error(f'  [AutoSaveAnalysis] {agent_id} 向量化失败: {e}')
+        # 双写实体档案：knowledge_events 时间线（含实体关联 + embedding）
+        _save_knowledge_event(reply, agent_id, title, user_text)
         logger.info(f'  [AutoSaveAnalysis] {agent_id} 分析结论已入库: {kb_id} title={title!r}')
     except Exception as e:
         logger.error(f'  [AutoSaveAnalysis] {agent_id} failed: {e}')
@@ -5541,6 +5630,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/knowledge/stats':
             self._handle_get_kb_stats()
             return
+
+        # 知识事件（实体档案时间线）API
+        if path == '/api/knowledge-events':
+            self._handle_get_knowledge_events()
+            return
+        if path == '/api/knowledge-events/stats':
+            self._handle_get_knowledge_events_stats()
+            return
+        if path.startswith('/api/knowledge-events/'):
+            sub = path[len('/api/knowledge-events/'):]
+            if sub:
+                self._handle_get_knowledge_event_detail(sub)
+                return
 
         # Knowledge API
         if path == '/api/knowledge':
@@ -11660,6 +11762,97 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'stats': stats})
         except Exception as e:
             logger.error(f'  [KBStats] failed: {e}')
+            self._send_json_error(500, f'Stats failed: {str(e)}')
+
+    def _handle_get_knowledge_events(self):
+        """GET /api/knowledge-events?entity_type=&entity_id= — 实体分析事件列表（不含 content_full）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        qs = parse_qs(urlparse(self.path).query)
+        entity_type = qs.get('entity_type', [''])[0].strip()
+        entity_id = qs.get('entity_id', [''])[0].strip()
+        try:
+            limit = max(1, min(200, int(qs.get('limit', [50])[0] or 50)))
+        except (TypeError, ValueError):
+            limit = 50
+        try:
+            sql = ('SELECT id, entity_type, entity_id, agent_id, event_type, title, '
+                   'content_summary, user_query, created_at FROM knowledge_events')
+            conds, params = [], []
+            if entity_type:
+                conds.append('entity_type = ?')
+                params.append(entity_type)
+            if entity_id:
+                conds.append('entity_id = ?')
+                params.append(entity_id)
+            if conds:
+                sql += ' WHERE ' + ' AND '.join(conds)
+            sql += ' ORDER BY created_at DESC LIMIT ?'
+            params.append(limit)
+            conn = _db_conn()
+            try:
+                rows = conn.execute(sql, params).fetchall()
+            finally:
+                conn.close()
+            events = [dict(r) for r in rows]
+            self._send_json(200, {'events': events, 'total': len(events)})
+        except Exception as e:
+            logger.error(f'  [KnowledgeEvents] list failed: {e}')
+            self._send_json_error(500, f'List failed: {str(e)}')
+
+    def _handle_get_knowledge_event_detail(self, event_id):
+        """GET /api/knowledge-events/<id> — 单条完整事件（含 content_full，不含 embedding）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        try:
+            conn = _db_conn()
+            try:
+                row = conn.execute(
+                    'SELECT id, entity_type, entity_id, agent_id, event_type, title, '
+                    'content_full, content_summary, conclusions, source_msg_id, user_query, created_at '
+                    'FROM knowledge_events WHERE id = ?', (event_id,)).fetchone()
+            finally:
+                conn.close()
+            if not row:
+                self._send_json_error(404, 'Knowledge event not found')
+                return
+            self._send_json(200, dict(row))
+        except Exception as e:
+            logger.error(f'  [KnowledgeEvents] detail failed: {e}')
+            self._send_json_error(500, f'Detail failed: {str(e)}')
+
+    def _handle_get_knowledge_events_stats(self):
+        """GET /api/knowledge-events/stats — 总数 / 各 entity_type 计数 / 最近7天新增数"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        try:
+            since_7d = int((time.time() - 7 * 86400) * 1000)
+            conn = _db_conn()
+            try:
+                total = conn.execute('SELECT COUNT(*) FROM knowledge_events').fetchone()[0]
+                by_type_rows = conn.execute(
+                    'SELECT entity_type, COUNT(*) AS c FROM knowledge_events GROUP BY entity_type').fetchall()
+                recent_7d = conn.execute(
+                    'SELECT COUNT(*) FROM knowledge_events WHERE created_at >= ?', (since_7d,)).fetchone()[0]
+            finally:
+                conn.close()
+            by_entity_type = {(r['entity_type'] or 'unknown'): r['c'] for r in by_type_rows}
+            self._send_json(200, {
+                'total': total,
+                'byEntityType': by_entity_type,
+                'recent7d': recent_7d,
+            })
+        except Exception as e:
+            logger.error(f'  [KnowledgeEvents] stats failed: {e}')
             self._send_json_error(500, f'Stats failed: {str(e)}')
 
     def _handle_post_kb_search(self):

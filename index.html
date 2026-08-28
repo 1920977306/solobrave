@@ -6627,6 +6627,7 @@ window.doLogin = function () {
       <button class="talents-tab" data-tab="products" onclick="switchTalentTab('products')">匹配商品</button>
       <button class="talents-tab" data-tab="records" onclick="switchTalentTab('records')">合作记录</button>
       <button class="talents-tab" data-tab="followups" onclick="switchTalentTab('followups')">跟进记录</button>
+      <button class="talents-tab" data-tab="knowledge" onclick="switchTalentTab('knowledge')">分析档案</button>
     </div>
     <div class="talents-tab-panels" id="talentsTabPanels">
       <div class="talents-tab-panel active" data-panel="overview" id="talentsPanelOverview"></div>
@@ -6635,6 +6636,7 @@ window.doLogin = function () {
       <div class="talents-tab-panel" data-panel="products" id="talentsPanelProducts"></div>
       <div class="talents-tab-panel" data-panel="records" id="talentsPanelRecords"></div>
       <div class="talents-tab-panel" data-panel="followups" id="talentsPanelFollowUps"></div>
+      <div class="talents-tab-panel" data-panel="knowledge" id="talentsPanelKnowledge"></div>
     </div>
   </div>
 </div>
@@ -23642,6 +23644,7 @@ function renderTalentDetail(t) {
   renderTalentPanelProducts(t);
   renderTalentPanelRecords(t);
   renderTalentPanelFollowUps(t);
+  renderTalentPanelKnowledge(t);
 }
 
 function showTalentEmptyState() {
@@ -24395,7 +24398,69 @@ function _renderTalentFollowUpsHTML(t, followUps) {
   return html;
 }
 
+// ═══ 达人详情 - 分析档案（knowledge_events 时间线）═══
+function renderTalentPanelKnowledge(t) {
+  var el = document.getElementById('talentsPanelKnowledge');
+  if (!el || !t || !t.id) return;
+  el.innerHTML = '<div class="talents-panel-section"><div class="talents-panel-title">分析档案</div><div class="products-loading">加载中...</div></div>';
+  apiFetch('/api/knowledge-events?entity_type=talent&entity_id=' + encodeURIComponent(t.id))
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      var events = data.events || [];
+      if (events.length === 0) {
+        el.innerHTML = '<div class="talents-panel-section"><div class="talents-panel-title">分析档案</div><div class="products-empty"><div class="products-empty-text">暂无分析记录</div></div></div>';
+        return;
+      }
+      var html = '<div class="talents-panel-section"><div class="talents-panel-title">分析档案 (' + events.length + ')</div>';
+      html += '<div class="talents-timeline">';
+      events.forEach(function(ev){
+        var time = ev.created_at ? new Date(ev.created_at).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
+        html += '<div class="talents-timeline-item">';
+        html += '<div class="talents-timeline-dot completed"></div>';
+        html += '<div class="talents-timeline-card" style="cursor:pointer;" onclick="toggleKnowledgeEventCard(this, \'' + escapeAttr(ev.id) + '\')">';
+        html += '<div class="talents-timeline-meta">';
+        html += '<div class="talents-timeline-time">' + escapeHtml(time) + '</div>';
+        html += '<div class="talents-timeline-by">' + escapeHtml(ev.agent_id || '') + '</div>';
+        html += '</div>';
+        html += '<div class="talents-timeline-content" style="font-weight:600;">' + escapeHtml(ev.title || '分析结论') + '</div>';
+        if (ev.user_query) html += '<div class="talents-timeline-result">提问：' + escapeHtml(ev.user_query.length > 60 ? ev.user_query.slice(0, 60) + '…' : ev.user_query) + '</div>';
+        html += '<div class="ke-full-content" style="display:none;white-space:pre-wrap;margin-top:8px;font-size:12px;color:var(--text-secondary);"></div>';
+        html += '</div></div>';
+      });
+      html += '</div></div>';
+      el.innerHTML = html;
+    })
+    .catch(function(e){
+      el.innerHTML = '<div class="talents-panel-section"><div class="talents-panel-title">分析档案</div><div class="products-empty"><div class="products-empty-text">加载失败</div></div></div>';
+    });
+}
+
+function toggleKnowledgeEventCard(cardEl, eventId) {
+  var body = cardEl.querySelector('.ke-full-content');
+  if (!body) return;
+  if (body.style.display !== 'none') {
+    body.style.display = 'none';
+    return;
+  }
+  if (body.dataset.loaded === '1') {
+    body.style.display = '';
+    return;
+  }
+  body.textContent = '加载中...';
+  body.style.display = '';
+  apiFetch('/api/knowledge-events/' + encodeURIComponent(eventId))
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      body.textContent = data.content_full || '（无内容）';
+      body.dataset.loaded = '1';
+    })
+    .catch(function(e){
+      body.textContent = '加载失败';
+    });
+}
+
 var _currentTalentFollowUps = [];
+
 
 function createNewTalentFollowUp() {
   if (!_talentCurrentId) return;
