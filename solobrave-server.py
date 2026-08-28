@@ -41,6 +41,7 @@ except ImportError:
     fcntl = None
 from collections import OrderedDict
 from datetime import datetime, timedelta
+import re
 from urllib.parse import urlparse, unquote, parse_qs
 
 # 抖音视频解析模块（拆分到独立文件）
@@ -2856,6 +2857,27 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_ke_agent ON knowledge_events(agent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_ke_type ON knowledge_events(event_type)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_ke_created ON knowledge_events(created_at DESC)')
+
+        # 规律表（L3）：从同类目分析事件中归纳的跨达人共性规律
+        # status 状态机：draft → confirmed/rejected → deprecated；只有 confirmed 进入检索注入
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS knowledge_patterns (
+                id TEXT PRIMARY KEY,
+                category TEXT NOT NULL,
+                entity_type TEXT DEFAULT '',
+                pattern_text TEXT NOT NULL,
+                evidence TEXT DEFAULT '[]',
+                confidence REAL DEFAULT 0.5,
+                status TEXT DEFAULT 'draft',
+                source_event_ids TEXT DEFAULT '[]',
+                created_by TEXT DEFAULT '',
+                created_at INTEGER,
+                updated_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kp_category ON knowledge_patterns(category)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kp_status ON knowledge_patterns(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_kp_entity_type ON knowledge_patterns(entity_type)')
 
         # FIXME: 新增记忆三级沉淀表（二级归纳、三级知识库），保持原有 knowledge/products 表不变
         conn.execute('''
@@ -5709,6 +5731,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/knowledge-events/search':
             self._handle_search_knowledge_events()
             return
+
+        # 规律库 API（L3）
+        if path == '/api/knowledge-patterns':
+            self._handle_get_knowledge_patterns()
+            return
+        if path.startswith('/api/knowledge-patterns/'):
+            sub = path[len('/api/knowledge-patterns/'):]
+            if sub and '/' not in sub:
+                self._handle_get_knowledge_pattern_detail(sub)
+                return
         if path.startswith('/api/knowledge-events/'):
             sub = path[len('/api/knowledge-events/'):]
             if sub:
@@ -6217,6 +6249,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_post_kb_categories()
             return
 
+        # 规律库：触发归纳
+        if path == '/api/knowledge-patterns/induce':
+            self._handle_post_induce_knowledge_patterns()
+            return
+
         # Knowledge API
         if path == '/api/knowledge':
             self._handle_post_knowledge()
@@ -6413,6 +6450,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_put_settings()
             return
 
+        # 规律库：状态流转
+        if path.startswith('/api/knowledge-patterns/'):
+            sub = path[len('/api/knowledge-patterns/'):]
+            if sub and '/' not in sub:
+                self._handle_put_knowledge_pattern(sub)
+                return
+
         # 通知 API（read-all 需先于 /api/notifications/{id} 通配匹配）
         if path == '/api/notifications/read-all':
             self._handle_notifications_read_all()
@@ -6511,6 +6555,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     def _do_DELETE(self):
         path = self._normalize_path(self.path)
+
+        # 规律库：硬删除
+        if path.startswith('/api/knowledge-patterns/'):
+            sub = path[len('/api/knowledge-patterns/'):]
+            if sub and '/' not in sub:
+                self._handle_delete_knowledge_pattern(sub)
+                return
 
         # 违禁词 API
         if path.startswith('/api/forbidden-words/'):
@@ -11952,6 +12003,142 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'  [KnowledgeEvents] search failed: {e}')
             self._send_json_error(500, f'Search failed: {str(e)}')
 
+    # ═══ 规律库（knowledge_patterns，L3）═══
+    def _handle_post_induce_knowledge_patterns(self):
+        """POST /api/knowledge-patterns/induce — 触发同类目规律归纳（LLM），结果存 draft"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body()
+        category = ((body or {}).get('category') or '').strip()
+        if not category:
+            self._send_json_error(400, 'Missing category')
+            return
+        try:
+            llm_config = _resolve_induce_llm_config((body or {}).get('agentId', '') or '')
+            if not llm_config:
+                self._send_json(200, {'ok': False, 'error': '未配置可用的 LLM API Key'})
+                return
+            ok, result = _induce_knowledge_patterns(category, llm_config, created_by=auth.user_id or '')
+            payload = {'ok': ok}
+            payload.update(result)
+            self._send_json(200, payload)
+        except Exception as e:
+            logger.error(f'  [KnowledgePatterns] induce failed: {e}')
+            self._send_json(200, {'ok': False, 'error': str(e)})
+
+    def _handle_get_knowledge_patterns(self):
+        """GET /api/knowledge-patterns?status=&category=&limit= — 规律列表（不含 evidence）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        qs = parse_qs(urlparse(self.path).query)
+        status = qs.get('status', [''])[0].strip()
+        category = qs.get('category', [''])[0].strip()
+        try:
+            limit = max(1, min(200, int(qs.get('limit', [50])[0] or 50)))
+        except (TypeError, ValueError):
+            limit = 50
+        try:
+            sql = 'SELECT * FROM knowledge_patterns'
+            conds, params = [], []
+            if status:
+                conds.append('status = ?')
+                params.append(status)
+            if category:
+                conds.append('category = ?')
+                params.append(category)
+            if conds:
+                sql += ' WHERE ' + ' AND '.join(conds)
+            sql += ' ORDER BY confidence DESC, updated_at DESC LIMIT ?'
+            params.append(limit)
+            conn = _db_conn()
+            try:
+                rows = conn.execute(sql, params).fetchall()
+            finally:
+                conn.close()
+            patterns = [_kp_row_to_dict(r) for r in rows]
+            self._send_json(200, {'patterns': patterns, 'total': len(patterns)})
+        except Exception as e:
+            logger.error(f'  [KnowledgePatterns] list failed: {e}')
+            self._send_json_error(500, f'List failed: {str(e)}')
+
+    def _handle_get_knowledge_pattern_detail(self, pattern_id):
+        """GET /api/knowledge-patterns/<id> — 完整记录（含 evidence）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        try:
+            conn = _db_conn()
+            try:
+                row = conn.execute('SELECT * FROM knowledge_patterns WHERE id = ?', (pattern_id,)).fetchone()
+            finally:
+                conn.close()
+            if not row:
+                self._send_json_error(404, 'Pattern not found')
+                return
+            self._send_json(200, _kp_row_to_dict(row, with_evidence=True))
+        except Exception as e:
+            logger.error(f'  [KnowledgePatterns] detail failed: {e}')
+            self._send_json_error(500, f'Detail failed: {str(e)}')
+
+    def _handle_put_knowledge_pattern(self, pattern_id):
+        """PUT /api/knowledge-patterns/<id> — 状态流转：draft→confirmed/rejected→deprecated"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body()
+        new_status = ((body or {}).get('status') or '').strip()
+        try:
+            conn = _db_conn()
+            try:
+                row = conn.execute('SELECT * FROM knowledge_patterns WHERE id = ?', (pattern_id,)).fetchone()
+                if not row:
+                    self._send_json_error(404, 'Pattern not found')
+                    return
+                cur_status = row['status'] or 'draft'
+                allowed = _KP_STATUS_FLOW.get(cur_status, ())
+                if new_status not in allowed:
+                    self._send_json_error(400, f'非法状态转换: {cur_status} -> {new_status}')
+                    return
+                conn.execute('UPDATE knowledge_patterns SET status = ?, updated_at = ? WHERE id = ?',
+                             (new_status, int(time.time()), pattern_id))
+                conn.commit()
+                row = conn.execute('SELECT * FROM knowledge_patterns WHERE id = ?', (pattern_id,)).fetchone()
+            finally:
+                conn.close()
+            self._send_json(200, _kp_row_to_dict(row, with_evidence=True))
+        except Exception as e:
+            logger.error(f'  [KnowledgePatterns] update failed: {e}')
+            self._send_json_error(500, f'Update failed: {str(e)}')
+
+    def _handle_delete_knowledge_pattern(self, pattern_id):
+        """DELETE /api/knowledge-patterns/<id> — 硬删除"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        try:
+            conn = _db_conn()
+            try:
+                cur = conn.execute('DELETE FROM knowledge_patterns WHERE id = ?', (pattern_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            self._send_json(200, {'deleted': cur.rowcount > 0, 'id': pattern_id})
+        except Exception as e:
+            logger.error(f'  [KnowledgePatterns] delete failed: {e}')
+            self._send_json_error(500, f'Delete failed: {str(e)}')
+
     def _handle_post_kb_search(self):
         """POST /api/knowledge/search — 新版语义搜索"""
         auth = _authenticate(self.headers, self.client_address[0], self)
@@ -16441,7 +16628,7 @@ def _build_talent_injection_text(auth):
 # ═══ 知识事件检索注入（分析档案召回）═══
 # user_text 命中以下关键词时才执行检索（在 _TALENT_INJECT_KEYWORDS 基础上扩展）
 _KE_INJECT_KEYWORDS = _TALENT_INJECT_KEYWORDS + ('匹配', '推荐', '选品', '商品', '合作', '评估')
-_KE_CONTEXT_MAX_LEN = 1500      # 注入文本总长度上限
+_KE_CONTEXT_MAX_LEN = 2000      # 注入文本总长度上限（含历史规律参考段）
 _KE_EVENT_SNIPPET_LEN = 200     # 每条事件 content_full 截取长度
 _KE_SAME_ENTITY_LIMIT = 3       # 同实体历史取最近 N 条
 _KE_SAME_CATEGORY_LIMIT = 2     # 同类目其他达人分析取最近 N 条
@@ -16523,6 +16710,7 @@ def _retrieve_knowledge_context(user_text, agent_id='', auth=None):
         entities = _extract_entities_from_text(user_text)
         picked = []        # [(event_row, label_prefix)]
         seen_ids = set()
+        patterns = []      # 第四级：confirmed 规律
         conn = _db_conn()
         try:
             # 1) 同实体历史：每个识别到的实体取最近 N 条
@@ -16606,28 +16794,61 @@ def _retrieve_knowledge_context(user_text, agent_id='', auth=None):
                                 picked.append((r, label))
             except Exception as e:
                 logger.warning(f'  [KnowledgeInject] 语义检索失败，跳过: {e}')
+            # 4) 历史规律：status=confirmed，category 匹配当前实体类目 OR entity_type 匹配，置信度降序取 top 2
+            try:
+                p_cats = {c for c, _ in category_queries if c}
+                p_cats.update(cat for et, _id, _n, cat in entities if et == 'talent' and cat)
+                p_types = {et for et, _id, _n, _c in entities}
+                sub_conds, p_params = [], []
+                if p_cats:
+                    sub_conds.append('category IN (%s)' % ','.join('?' * len(p_cats)))
+                    p_params.extend(sorted(p_cats))
+                if p_types:
+                    sub_conds.append('entity_type IN (%s)' % ','.join('?' * len(p_types)))
+                    p_params.extend(sorted(p_types))
+                if sub_conds:
+                    patterns = conn.execute(
+                        "SELECT * FROM knowledge_patterns WHERE status = 'confirmed' AND ("
+                        + ' OR '.join(sub_conds) + ') ORDER BY confidence DESC LIMIT 2',
+                        p_params).fetchall()
+            except Exception as e:
+                logger.warning(f'  [KnowledgeInject] 规律查询失败，跳过: {e}')
         finally:
             conn.close()
-        if not picked:
-            return ''
         # 格式化输出 + 截断控制
-        header = '【相关分析参考 - 仅供分析参考，不要直接复述】'
-        footer = '以上为历史分析记录，请结合当前达人实际情况判断。'
-        blocks = []
-        used = len(header) + len(footer) + 2
-        for r, label in picked:
-            snippet = (r['content_full'] or '')[:_KE_EVENT_SNIPPET_LEN]
-            block = f"▶ {label}（{_ke_time_ago(r['created_at'])}）：\n"
-            if r['title']:
-                block += f"{r['title']}\n"
-            block += snippet
-            if used + len(block) + 1 > _KE_CONTEXT_MAX_LEN:
-                break
-            blocks.append(block)
-            used += len(block) + 1
-        if not blocks:
+        parts = []
+        if picked:
+            header = '【相关分析参考 - 仅供分析参考，不要直接复述】'
+            footer = '以上为历史分析记录，请结合当前达人实际情况判断。'
+            blocks = []
+            used = len(header) + len(footer) + 2
+            for r, label in picked:
+                snippet = (r['content_full'] or '')[:_KE_EVENT_SNIPPET_LEN]
+                block = f"▶ {label}（{_ke_time_ago(r['created_at'])}）：\n"
+                if r['title']:
+                    block += f"{r['title']}\n"
+                block += snippet
+                if used + len(block) + 1 > _KE_CONTEXT_MAX_LEN:
+                    break
+                blocks.append(block)
+                used += len(block) + 1
+            if blocks:
+                parts.append(header + '\n' + '\n'.join(blocks) + '\n' + footer)
+        if patterns:
+            plines = ['【历史规律参考】']
+            for p in patterns:
+                try:
+                    conf = float(p['confidence'] or 0)
+                except (TypeError, ValueError):
+                    conf = 0.0
+                plines.append(f"▶ {p['pattern_text']}（置信度: {conf:.0%}）")
+            parts.append('\n'.join(plines))
+        if not parts:
             return ''
-        return header + '\n' + '\n'.join(blocks) + '\n' + footer
+        result = '\n\n'.join(parts)
+        if len(result) > _KE_CONTEXT_MAX_LEN:
+            result = result[:_KE_CONTEXT_MAX_LEN - 3] + '...'
+        return result
     except Exception as e:
         logger.error(f'  [KnowledgeInject] 检索失败: {e}')
         return ''
@@ -16695,6 +16916,141 @@ def _search_knowledge_events(query, entity_type='', limit=5):
     except Exception as e:
         logger.error(f'  [KnowledgeEvents] search failed: {e}')
         return []
+
+
+# ═══ 规律归纳（L3）：跨达人共性规律 ═══
+_KP_INDUCE_MIN_EVENTS = 5       # 归纳所需最少同类目事件数
+_KP_INDUCE_MAX_EVENTS = 20      # 归纳取最近 N 条事件
+_KP_EVENT_SNIPPET_LEN = 300     # 每条事件 content_full 截取长度
+# 状态机：draft → confirmed/rejected → deprecated
+_KP_STATUS_FLOW = {
+    'draft': ('confirmed', 'rejected'),
+    'confirmed': ('deprecated',),
+    'rejected': ('deprecated',),
+}
+
+
+def _kp_row_to_dict(r, with_evidence=False):
+    """knowledge_patterns 行 -> dict。列表不含 evidence，详情才含。"""
+    item = {
+        'id': r['id'],
+        'category': r['category'],
+        'entity_type': r['entity_type'],
+        'pattern_text': r['pattern_text'],
+        'confidence': r['confidence'],
+        'status': r['status'],
+        'source_event_ids': json.loads(r['source_event_ids'] or '[]'),
+        'created_by': r['created_by'],
+        'created_at': r['created_at'],
+        'updated_at': r['updated_at'],
+    }
+    if with_evidence:
+        try:
+            item['evidence'] = json.loads(r['evidence'] or '[]')
+        except Exception:
+            item['evidence'] = []
+    return item
+
+
+def _resolve_induce_llm_config(agent_id=''):
+    """解析规律归纳用 LLM 配置：优先指定 agent，否则第一个配置了 apiKey 的员工。返回 dict 或 None。"""
+    try:
+        agents = _read_json(AGENTS_FILE, []) or []
+        candidates = []
+        if agent_id:
+            candidates = [a for a in agents if a.get('id') == agent_id]
+        candidates += [a for a in agents if a.get('id') != agent_id]
+        for a in candidates:
+            key = (a.get('apiKey') or '').strip()
+            if key:
+                return {
+                    'apiProvider': a.get('aiProvider', '') or a.get('apiProvider', ''),
+                    'apiKey': key,
+                    'apiModel': a.get('apiModel', ''),
+                    'customEndpoint': a.get('customEndpoint', ''),
+                }
+    except Exception as e:
+        logger.warning(f'  [KnowledgePatterns] LLM 配置解析失败: {e}')
+    return None
+
+
+def _induce_knowledge_patterns(category, llm_config, created_by=''):
+    """对指定类目的分析事件做 LLM 规律归纳，结果写入 knowledge_patterns（status=draft）。
+    返回 (ok, result_dict)；数据不足 / LLM 失败 / JSON 非法时返回 (False, {error})。全流程异常兜底。"""
+    try:
+        conn = _db_conn()
+        try:
+            # knowledge_events 无 category 列，通过 entity_id JOIN talents 关联类目
+            rows = conn.execute(
+                "SELECT ke.id, ke.title, ke.content_full, ke.created_at FROM knowledge_events ke "
+                "JOIN talents t ON ke.entity_type = 'talent' AND ke.entity_id = t.id "
+                "WHERE t.category = ? ORDER BY ke.created_at DESC LIMIT ?",
+                (category, _KP_INDUCE_MAX_EVENTS)).fetchall()
+        finally:
+            conn.close()
+        if len(rows) < _KP_INDUCE_MIN_EVENTS:
+            return False, {'error': f'数据不足，至少需要{_KP_INDUCE_MIN_EVENTS}条同类目分析事件',
+                           'current_count': len(rows)}
+        event_ids = [r['id'] for r in rows]
+        lines = []
+        for i, r in enumerate(rows, 1):
+            snippet = (r['content_full'] or '')[:_KP_EVENT_SNIPPET_LEN]
+            lines.append(f'事件{i}（ID: {r["id"]}）\n标题: {r["title"] or ""}\n内容: {snippet}')
+        user_prompt = f'以下是「{category}」类目的 {len(rows)} 条达人分析事件：\n\n' + '\n\n'.join(lines)
+        messages = [
+            {'role': 'system', 'content': '你是达人撮合业务的知识归纳专家。请从以下多条分析事件中提炼跨达人的共性规律。'
+                                          '每条规律要具体、可操作，包含适用条件和预期效果。'
+                                          '输出 JSON 数组，每条包含 pattern_text(规律描述)、evidence_event_ids(支撑的事件ID列表)、confidence(置信度0-1)。'},
+            {'role': 'user', 'content': user_prompt},
+        ]
+        raw = _call_chat_completion(llm_config.get('apiProvider', ''), llm_config.get('apiKey', ''),
+                                    llm_config.get('apiModel', ''), llm_config.get('customEndpoint', ''),
+                                    messages, max_tokens=2000)
+        if not raw:
+            return False, {'error': 'LLM调用失败'}
+        m = re.search(r'\[.*\]', raw.strip(), re.S)
+        patterns = None
+        if m:
+            try:
+                patterns = json.loads(m.group(0))
+            except Exception:
+                patterns = None
+        if not isinstance(patterns, list):
+            logger.warning(f'  [KnowledgePatterns] LLM 返回非法 JSON: {(raw or "")[:200]}')
+            return False, {'error': 'LLM解析失败'}
+        now = int(time.time())
+        saved = []
+        conn = _db_conn()
+        try:
+            for p in patterns:
+                if not isinstance(p, dict) or not (p.get('pattern_text') or '').strip():
+                    continue
+                ev_ids = p.get('evidence_event_ids')
+                if not isinstance(ev_ids, list):
+                    ev_ids = []
+                try:
+                    conf = float(p.get('confidence', 0.5))
+                except (TypeError, ValueError):
+                    conf = 0.5
+                pid = 'kp_' + uuid.uuid4().hex[:12]
+                conn.execute(
+                    "INSERT INTO knowledge_patterns (id, category, entity_type, pattern_text, evidence, "
+                    "confidence, status, source_event_ids, created_by, created_at, updated_at) "
+                    "VALUES (?, ?, 'talent', ?, ?, ?, 'draft', ?, ?, ?, ?)",
+                    (pid, category, p['pattern_text'].strip(), json.dumps(ev_ids, ensure_ascii=False),
+                     conf, json.dumps(event_ids, ensure_ascii=False), created_by, now, now))
+                saved.append({'id': pid, 'category': category, 'entity_type': 'talent',
+                              'pattern_text': p['pattern_text'].strip(), 'confidence': conf,
+                              'status': 'draft', 'source_event_ids': event_ids,
+                              'created_at': now, 'updated_at': now})
+            conn.commit()
+        finally:
+            conn.close()
+        logger.info(f'  [KnowledgePatterns] {category} 归纳出 {len(saved)} 条规律')
+        return True, {'induced': len(saved), 'patterns': saved}
+    except Exception as e:
+        logger.error(f'  [KnowledgePatterns] 归纳失败: {e}')
+        return False, {'error': str(e)}
 
 
 def _append_self_update_prompt(system_prompt):

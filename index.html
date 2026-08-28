@@ -350,6 +350,36 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   overflow: hidden;
 }
 #knowledgeMidList.active { display: flex; }
+
+/* Patterns (规律库) */
+.patterns-mid { display: none; flex: 1; min-width: 0; max-width: 100%; background: #ffffff; border-right: 1px solid var(--separator); overflow: hidden; }
+.patterns-mid.active { display: flex; }
+.patterns-cat-sidebar { width: 180px; flex-shrink: 0; border-right: 1px solid var(--separator); padding: 12px 8px; overflow-y: auto; }
+.patterns-cat-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text-secondary); margin-bottom: 2px; }
+.patterns-cat-item.active, .patterns-cat-item:hover { background: rgba(0,0,0,0.05); color: var(--text-primary); }
+.patterns-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.patterns-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; }
+.patterns-title { font-size: 17px; font-weight: 600; }
+.patterns-tabs { display: flex; gap: 6px; padding: 0 16px 10px; border-bottom: 1px solid var(--separator); flex-wrap: wrap; }
+.patterns-tab { border: none; background: none; padding: 6px 12px; border-radius: 14px; cursor: pointer; font-size: 13px; color: var(--text-secondary); }
+.patterns-tab.active { background: #007aff; color: #fff; }
+.patterns-list { flex: 1; overflow-y: auto; padding: 12px 16px; }
+.pattern-card { border: 1px solid var(--separator); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; }
+.pattern-card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.pattern-card-text { font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+.pattern-card-meta { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; }
+.pattern-cat-tag { background: rgba(0,0,0,0.06); border-radius: 10px; padding: 2px 8px; font-size: 12px; }
+.pattern-status-badge { border-radius: 10px; padding: 2px 8px; font-size: 11px; }
+.pattern-status-badge.draft { background: #fff7e0; color: #a05a00; }
+.pattern-status-badge.confirmed { background: #e3f6e8; color: #1a7f37; }
+.pattern-status-badge.rejected { background: #fdecea; color: #c62828; }
+.pattern-status-badge.deprecated { background: #ececec; color: #777; }
+.pattern-conf-bar { width: 80px; height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
+.pattern-conf-fill { height: 100%; background: #007aff; }
+.pattern-card-actions { display: flex; gap: 6px; }
+.pattern-action-btn { border: 1px solid var(--separator); background: #fff; border-radius: 8px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.pattern-evidence { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--separator); font-size: 12px; color: var(--text-secondary); }
+.patterns-empty, .patterns-loading { padding: 40px; text-align: center; color: var(--text-secondary); font-size: 13px; }
 #knowledgeRight {
   position: fixed;
   right: 0;
@@ -6211,6 +6241,9 @@ window.doLogin = function () {
     <div class="nav-item" id="navKnowledge" data-module="knowledge" onclick="switchModule('knowledge')" data-tooltip="知识库" title="知识库">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/></svg>
     </div>
+    <div class="nav-item" id="navPatterns" data-module="patterns" onclick="switchModule('patterns')" data-tooltip="规律库" title="规律库">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2V17h6v-.3c0-.8.4-1.5 1-2A7 7 0 0 0 12 2z"/></svg>
+    </div>
     <div class="nav-item" id="navProducts" data-module="products" onclick="switchModule('products')" data-tooltip="商品库" title="商品管理">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
     </div>
@@ -6324,6 +6357,25 @@ window.doLogin = function () {
   <div class="knowledge-mid-stats" id="knowledgeMidStats"></div>
   <div class="knowledge-mid-items" id="knowledgeMidItems"></div>
   <div class="knowledge-mid-pagination" id="knowledgeMidPagination"></div>
+</div>
+
+<!-- Patterns Mid (规律库) -->
+<div class="patterns-mid" id="patternsMid">
+  <div class="patterns-cat-sidebar" id="patternsCats"></div>
+  <div class="patterns-main">
+    <div class="patterns-header">
+      <div class="patterns-title">规律库</div>
+      <button class="knowledge-mid-new" onclick="triggerPatternInduce()">⚡ 触发归纳</button>
+    </div>
+    <div class="patterns-tabs" id="patternsTabs">
+      <button class="patterns-tab active" data-status="" onclick="switchPatternsTab('')">全部</button>
+      <button class="patterns-tab" data-status="draft" onclick="switchPatternsTab('draft')">待确认</button>
+      <button class="patterns-tab" data-status="confirmed" onclick="switchPatternsTab('confirmed')">已确认</button>
+      <button class="patterns-tab" data-status="rejected" onclick="switchPatternsTab('rejected')">已拒绝</button>
+      <button class="patterns-tab" data-status="deprecated" onclick="switchPatternsTab('deprecated')">已废弃</button>
+    </div>
+    <div class="patterns-list" id="patternsList"></div>
+  </div>
 </div>
 
 <!-- Knowledge Right -->
@@ -24461,6 +24513,141 @@ function toggleKnowledgeEventCard(cardEl, eventId) {
 
 var _currentTalentFollowUps = [];
 
+// ═══ 规律库（knowledge_patterns，L3）═══
+var _patternsStatus = '';
+var _patternsCategory = '';
+var _patternsCache = [];
+
+function switchPatternsTab(status) {
+  _patternsStatus = status;
+  document.querySelectorAll('.patterns-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.status === status); });
+  loadPatternsPage();
+}
+
+function selectPatternCategory(cat) {
+  _patternsCategory = cat;
+  document.querySelectorAll('.patterns-cat-item').forEach(function(el){ el.classList.toggle('active', el.dataset.cat === cat); });
+  renderPatternsList();
+}
+
+function loadPatternsPage() {
+  var listEl = document.getElementById('patternsList');
+  if (listEl) listEl.innerHTML = '<div class="patterns-loading">加载中...</div>';
+  var url = '/api/knowledge-patterns?limit=100';
+  if (_patternsStatus) url += '&status=' + encodeURIComponent(_patternsStatus);
+  apiFetch(url).then(function(r){ return r.json(); }).then(function(data){
+    _patternsCache = data.patterns || [];
+    renderPatternsCats();
+    renderPatternsList();
+  }).catch(function(e){
+    if (listEl) listEl.innerHTML = '<div class="patterns-empty">加载失败</div>';
+  });
+}
+
+function renderPatternsCats() {
+  var el = document.getElementById('patternsCats');
+  if (!el) return;
+  var cats = [];
+  _patternsCache.forEach(function(p){ if (p.category && cats.indexOf(p.category) < 0) cats.push(p.category); });
+  var html = '<div class="patterns-cat-item' + (_patternsCategory === '' ? ' active' : '') + '" data-cat="" onclick="selectPatternCategory(\'\')">全部类目</div>';
+  cats.forEach(function(c){
+    html += '<div class="patterns-cat-item' + (_patternsCategory === c ? ' active' : '') + '" data-cat="' + escapeAttr(c) + '" onclick="selectPatternCategory(\'' + escapeAttr(c).replace(/'/g, "\\'") + '\')">' + escapeHtml(c) + '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function renderPatternsList() {
+  var el = document.getElementById('patternsList');
+  if (!el) return;
+  var list = _patternsCache.filter(function(p){ return !_patternsCategory || p.category === _patternsCategory; });
+  if (list.length === 0) {
+    el.innerHTML = '<div class="patterns-empty">暂无规律记录</div>';
+    return;
+  }
+  var statusLabel = { draft: '待确认', confirmed: '已确认', rejected: '已拒绝', deprecated: '已废弃' };
+  var html = '';
+  list.forEach(function(p){
+    var conf = Math.round((p.confidence || 0) * 100);
+    var time = p.created_at ? new Date(p.created_at * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
+    var pid = escapeAttr(p.id);
+    html += '<div class="pattern-card" onclick="togglePatternEvidence(\'' + pid + '\')">';
+    html += '<div class="pattern-card-top">';
+    html += '<span class="pattern-cat-tag">' + escapeHtml(p.category || '未分类') + '</span>';
+    html += '<span class="pattern-status-badge ' + escapeAttr(p.status || 'draft') + '">' + (statusLabel[p.status] || p.status || '待确认') + '</span>';
+    html += '</div>';
+    html += '<div class="pattern-card-text">' + escapeHtml(p.pattern_text || '') + '</div>';
+    html += '<div class="pattern-card-meta">';
+    html += '<span>置信度</span><div class="pattern-conf-bar"><div class="pattern-conf-fill" style="width:' + conf + '%"></div></div><span>' + conf + '%</span>';
+    html += '<span style="margin-left:auto;">' + escapeHtml(time) + '</span>';
+    if (p.status === 'draft') {
+      html += '<span class="pattern-card-actions">';
+      html += '<button class="pattern-action-btn" onclick="event.stopPropagation(); setPatternStatus(\'' + pid + '\', \'confirmed\')">✓ 确认</button>';
+      html += '<button class="pattern-action-btn" onclick="event.stopPropagation(); setPatternStatus(\'' + pid + '\', \'rejected\')">✗ 拒绝</button>';
+      html += '</span>';
+    }
+    html += '</div>';
+    html += '<div class="pattern-evidence" id="patternEvidence_' + pid + '" style="display:none;"></div>';
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function togglePatternEvidence(pid) {
+  var box = document.getElementById('patternEvidence_' + pid);
+  if (!box) return;
+  if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+  if (box.dataset.loaded === '1') { box.style.display = ''; return; }
+  box.textContent = '加载中...';
+  box.style.display = '';
+  apiFetch('/api/knowledge-patterns/' + encodeURIComponent(pid)).then(function(r){ return r.json(); }).then(function(data){
+    var ev = data.evidence || [];
+    if (ev.length === 0) { box.textContent = '无支撑事件'; box.dataset.loaded = '1'; return; }
+    // evidence 是事件ID列表，逐个取事件标题和时间
+    Promise.all(ev.map(function(eid){
+      return apiFetch('/api/knowledge-events/' + encodeURIComponent(eid)).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    })).then(function(events){
+      var valid = events.filter(Boolean);
+      var html = '<div style="margin-bottom:4px;">支撑事件 (' + valid.length + ')</div>';
+      valid.forEach(function(ev2){
+        var t = ev2.created_at ? new Date(ev2.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit' }) : '-';
+        html += '<div>· ' + escapeHtml(ev2.title || ev2.id) + '（' + t + '）</div>';
+      });
+      box.innerHTML = html;
+      box.dataset.loaded = '1';
+    });
+  }).catch(function(e){ box.textContent = '加载失败'; });
+}
+
+function setPatternStatus(pid, status) {
+  apiFetch('/api/knowledge-patterns/' + encodeURIComponent(pid), {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: status })
+  }).then(function(r){ return r.json(); }).then(function(data){
+    if (data && data.id) { showToast(status === 'confirmed' ? '已确认' : '已拒绝', 'success'); loadPatternsPage(); }
+    else { showToast('操作失败: ' + ((data && data.error) || ''), 'error'); }
+  }).catch(function(e){ showToast('操作失败', 'error'); });
+}
+
+function triggerPatternInduce() {
+  apiFetch('/api/knowledge/categories').then(function(r){ return r.json(); }).then(function(data){
+    var cats = data.categories || data.docs || data || [];
+    var names = [];
+    cats.forEach(function(c){
+      var n = (typeof c === 'string') ? c : (c.name || '');
+      if (n && names.indexOf(n) < 0) names.push(n);
+    });
+    var input = prompt('输入要归纳的类目' + (names.length ? '（已有：' + names.join('、') + '）' : '') + '：', names[0] || '');
+    if (!input || !input.trim()) return;
+    showToast('正在归纳「' + input.trim() + '」类目的规律...', 'info');
+    apiFetch('/api/knowledge-patterns/induce', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category: input.trim() })
+    }).then(function(r){ return r.json(); }).then(function(res){
+      if (res && res.ok) { showToast('归纳完成，新增 ' + res.induced + ' 条规律', 'success'); loadPatternsPage(); }
+      else { showToast('归纳失败: ' + ((res && res.error) || '未知错误'), 'error'); }
+    }).catch(function(e){ showToast('归纳请求失败', 'error'); });
+  }).catch(function(e){ showToast('获取类目失败', 'error'); });
+}
+
+
 
 function createNewTalentFollowUp() {
   if (!_talentCurrentId) return;
@@ -26545,7 +26732,7 @@ function switchModule(module) {
   resetGlobalSearch(module);
 
   // Registry of all module-scoped containers
-  var allMids = ['knowledgeMid', 'knowledgeMidList', 'productsMidList', 'influencersMid', 'settingsMid', 'tasksMidList'];
+  var allMids = ['knowledgeMid', 'knowledgeMidList', 'patternsMid', 'productsMidList', 'influencersMid', 'settingsMid', 'tasksMidList'];
   var allRights = ['knowledgeRight', 'productsRight', 'influencersRight', 'settingsRight', 'tasksRight'];
 
   // 1. Hide every module container first (strict mutual exclusion)
@@ -26563,7 +26750,7 @@ function switchModule(module) {
   // 2. Layout root reset
   var appMain = document.querySelector('.app-main');
   if (appMain) {
-    appMain.classList.remove('knowledge-active', 'products-active', 'influencers-active', 'settings-active', 'tasks-active');
+    appMain.classList.remove('knowledge-active', 'patterns-active', 'products-active', 'influencers-active', 'settings-active', 'tasks-active');
   }
 
   // 3. Messages module: sidebar employee list + chat area (original two-column layout)
@@ -26596,6 +26783,7 @@ function switchModule(module) {
 
   var moduleMidMap = {
     knowledge: ['knowledgeMid', 'knowledgeMidList'],
+    patterns: ['patternsMid'],
     products: ['productsMidList'],
     influencers: ['influencersMid'],
     settings: ['settingsMid'],
@@ -26626,6 +26814,7 @@ function switchModule(module) {
   }
 
   if (module === 'knowledge') { loadGroups(); loadKnowledgePage(); }
+  else if (module === 'patterns') loadPatternsPage();
   else if (module === 'products') { loadProductBrands(); loadProducts(); }
   else if (module === 'influencers') loadTalents();
   else if (module === 'tasks') loadTasks();
