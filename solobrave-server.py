@@ -16396,7 +16396,7 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
     return None
 
 
-def _call_kimicode_messages(base_url, model, api_key, messages, timeout, max_tokens):
+def _call_kimicode_messages(base_url, model, api_key, messages, timeout=300, max_tokens=2000):
     """kimicode（kimi-for-coding）的 Anthropic Messages API 调用，返回字符串内容或 None。
     POST {base_url}/messages，认证用 x-api-key + anthropic-version（不用 Authorization Bearer）；
     不传 temperature；system 消息转为顶层 system 字段；响应从 content 数组的 text 块取文本。"""
@@ -17153,10 +17153,10 @@ def _induce_knowledge_patterns(category, llm_config, created_by=''):
                                           '输出 JSON 数组，每条包含 pattern_text(规律描述)、evidence_event_ids(支撑的事件ID列表)、confidence(置信度0-1)。'},
             {'role': 'user', 'content': user_prompt},
         ]
-        # kimi-for-coding 是推理模型，thinking 块会先消耗 max_tokens，需要给足余量
+        # kimi-for-coding 是推理模型，thinking 块会先消耗 max_tokens，需要给足余量；推理耗时长，timeout 放宽到 300s
         raw = _call_chat_completion(llm_config.get('apiProvider', ''), llm_config.get('apiKey', ''),
                                     llm_config.get('apiModel', ''), llm_config.get('customEndpoint', ''),
-                                    messages, max_tokens=8000)
+                                    messages, timeout=300, max_tokens=8000)
         if not raw:
             return False, {'error': 'LLM调用失败'}
         m = re.search(r'\[.*\]', raw.strip(), re.S)
