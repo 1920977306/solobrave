@@ -135,7 +135,7 @@ DB_PATH = os.path.join(DATA_DIR, 'solobrave.db')
 # 其他角色沿用 _call_kimi_vision 内的通用提示词
 BUSINESS_VISION_PROMPT = """你是一个专业的抖音达人数据提取员。看到截图后按以下分组逐条提取，截图里没有的字段标注null，严禁跳过字段严禁概括省略，数字保留原始精度和原始格式（允许范围值如50万-100万）。输出一个扁平JSON对象：
 
-【总览基本信息】name(昵称)、douyin_id(抖音号)、city(城市)、followers(粉丝数)、level(等级)、bio(简介完整原文)、tags(内容标签数组)、cooperation_status(合作邀约状态)、agency(签约机构)；
+【总览基本信息】name(昵称)、douyin_id(抖音号)、city(城市)、followers(粉丝数)、level(等级)、bio(简介完整原文)、tags(内容标签数组)、main_category(主推带货类目，取热卖类目TOP3中占比最高的那个类目名，如"服饰内衣"，不要取内容标签)、cooperation_status(合作邀约状态)、agency(签约机构)；
 
 【带货核心数据】product_count(带货商品数)、total_history_days(历史带货天数)、total_shops(合作店铺数)、total_gmv(结算总额保留原始格式如50万-100万)、live_ratio(直播占比百分比数值如0)、live_sessions(带货直播场次)、live_views(直播观看人数)、video_ratio(视频占比百分比数值如99.16)、video_count(带货视频数量)、video_plays(视频播放量)、single_video_settlement(单视频结算额保留原始格式)、video_gpm(视频GPM保留原始格式)、average_price(平均件单价保留原始格式)、rating_score(带货评分0-5)、fulfillment_score(合作履约分0-5)；
 
@@ -3618,6 +3618,22 @@ def _dict_to_talent_row(t):
             return '{}'
         return json.dumps(val, ensure_ascii=False)
     now = int(time.time() * 1000)
+    # category 取值：main_category(主推带货类目) 优先，其次 category；不再回退 fan_category（粉丝视角品类偏好 ≠ 主推类目）
+    _category = t.get('main_category') or t.get('mainCategory') or t.get('category') or ''
+    if not _category:
+        # 兜底：top_categories 第一条的类目名（兼容 JSON 字符串 / list）
+        _top_cats = t.get('top_categories') or t.get('topCategories') or []
+        if isinstance(_top_cats, str):
+            try:
+                _top_cats = json.loads(_top_cats)
+            except Exception:
+                _top_cats = []
+        if isinstance(_top_cats, list) and _top_cats:
+            _first = _top_cats[0]
+            if isinstance(_first, dict) and _first.get('name'):
+                _category = _first['name']
+            elif isinstance(_first, str):
+                _category = _first
     return {
         'id': t.get('id') or ('tal_' + str(now) + '_' + uuid.uuid4().hex[:6]),
         'name': t.get('name') or '',
@@ -3663,7 +3679,7 @@ def _dict_to_talent_row(t):
         'fan_crowd': t.get('fan_crowd') or t.get('fanCrowd') or '',
         'fan_price_range': t.get('fan_price_range') or t.get('fanPriceRange') or '',
         'fan_category': t.get('fan_category') or t.get('fanCategory') or '',
-        'category': t.get('category') or t.get('fan_category') or t.get('fanCategory') or '',
+        'category': _category,
         'content_style': t.get('content_style') or t.get('contentStyle') or '',
         'fans_profile': _dump(t.get('fans_profile', t.get('fansProfile', {}))),
         'ai_tags': _dump(t.get('ai_tags', t.get('aiTags', []))),
