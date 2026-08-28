@@ -5867,6 +5867,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/talents/injection-text':
             self._handle_get_talent_injection_text()
             return
+        if path == '/api/talents/categories':
+            self._handle_get_talent_categories()
+            return
         if path.startswith('/api/talents/'):
             rest = path[len('/api/talents/'):]
             if rest:
@@ -14549,6 +14552,26 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         talents = talents[offset:offset + limit]
         self._send_json(200, {'talents': talents, 'total': total, 'offset': offset, 'limit': limit})
 
+    def _handle_get_talent_categories(self):
+        """GET /api/talents/categories — 返回 active 达人的去重类目列表（供规律归纳弹窗下拉）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        try:
+            conn = _db_conn()
+            try:
+                rows = conn.execute(
+                    "SELECT DISTINCT category FROM talents WHERE category != '' AND status = 'active' "
+                    "ORDER BY category").fetchall()
+            finally:
+                conn.close()
+            self._send_json(200, {'categories': [r['category'] for r in rows]})
+        except Exception as e:
+            logger.error(f'  [Talents] categories failed: {e}')
+            self._send_json_error(500, f'Categories failed: {str(e)}')
+
     def _handle_get_talent_injection_text(self):
         """GET /api/talents/injection-text — 返回达人数据注入文本（含禁止编造约束）。
 
@@ -17006,7 +17029,22 @@ def _kp_row_to_dict(r, with_evidence=False):
 
 
 def _resolve_induce_llm_config(agent_id=''):
-    """解析规律归纳用 LLM 配置：优先指定 agent，否则第一个配置了 apiKey 的员工。返回 dict 或 None。"""
+    """解析规律归纳用 LLM 配置。
+    优先读 settings.json 的 llm 字段（provider/apiKey/baseUrl/model，映射为 apiProvider/apiKey/customEndpoint/apiModel）；
+    不存在或 apiKey 为空时 fallback 到 agents.json：优先指定 agent，否则第一个配置了 apiKey 的员工。
+    返回 dict 或 None。"""
+    try:
+        settings = _read_json(SETTINGS_FILE, {}) or {}
+        llm = settings.get('llm') or {}
+        if isinstance(llm, dict) and (llm.get('apiKey') or '').strip():
+            return {
+                'apiProvider': (llm.get('provider') or '').strip(),
+                'apiKey': llm['apiKey'].strip(),
+                'apiModel': (llm.get('model') or '').strip(),
+                'customEndpoint': (llm.get('baseUrl') or '').strip(),
+            }
+    except Exception as e:
+        logger.warning(f'  [KnowledgePatterns] settings.llm 读取失败: {e}')
     try:
         agents = _read_json(AGENTS_FILE, []) or []
         candidates = []

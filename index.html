@@ -24651,7 +24651,7 @@ function triggerPatternInduce() {
   var sel = document.getElementById('patternInduceCategory');
   sel.innerHTML = '<option value="">加载中...</option>';
   document.getElementById('patternInduceModalOverlay').classList.add('active');
-  apiFetch('/api/knowledge/categories').then(function(r){ return r.json(); }).then(function(data){
+  apiFetch('/api/talents/categories').then(function(r){ return r.json(); }).then(function(data){
     var cats = data.categories || data.docs || data || [];
     _patternInduceCats = cats.map(function(c){
       return (typeof c === 'string') ? { id: c, name: c } : { id: c.id || c.name || '', name: c.name || '' };
