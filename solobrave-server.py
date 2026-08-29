@@ -2908,6 +2908,34 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kp_status ON knowledge_patterns(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kp_entity_type ON knowledge_patterns(entity_type)')
 
+        # 合作单表（Deal）：达人-商品合作全流程跟踪
+        # status 状态机：pending → negotiating → sample_sent → approved → live → completed/failed
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS deals (
+                id TEXT PRIMARY KEY,
+                talent_id TEXT NOT NULL,
+                product_id TEXT DEFAULT '',
+                product_name TEXT DEFAULT '',
+                deal_type TEXT DEFAULT '',
+                commission_rate REAL DEFAULT 0,
+                status TEXT DEFAULT 'pending',
+                scheduled_at INTEGER DEFAULT 0,
+                actual_gmv REAL DEFAULT 0,
+                actual_roi REAL DEFAULT 0,
+                actual_units INTEGER DEFAULT 0,
+                result_note TEXT DEFAULT '',
+                predicted_conclusion TEXT DEFAULT '',
+                predicted_event_id TEXT DEFAULT '',
+                verification TEXT DEFAULT '',
+                created_by TEXT DEFAULT '',
+                created_at INTEGER,
+                updated_at INTEGER
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_deals_talent ON deals(talent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_deals_status ON deals(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_deals_product ON deals(product_id)')
+
         # FIXME: 新增记忆三级沉淀表（二级归纳、三级知识库），保持原有 knowledge/products 表不变
         conn.execute('''
             CREATE TABLE IF NOT EXISTS memory_summary (
@@ -4742,11 +4770,75 @@ def _extract_entity_from_analysis(reply, user_text=''):
     return best_type, best_id
 
 
+def _extract_predicted_match(text):
+    """从分析原文中提取商品推荐预测结论（predicted_match）。
+
+    匹配「适合带X / 推荐X / 匹配X / 建议合作X / 可以推X」句式，X 为商品名。
+    命中后到 products 表模糊匹配 product_id（精确相等优先，其次互相包含，取最长）。
+    返回 {'product_name', 'product_id', 'confidence', 'raw_quote'} 或 None。异常兜底返回 None。"""
+    try:
+        text = (text or '').strip()
+        if not text:
+            return None
+        m = re.search(r'(适合带|推荐|匹配|建议合作|可以推)([^\n，。,；;！!？?]{2,30})', text)
+        if not m:
+            return None
+        keyword = m.group(1)
+        product_name = m.group(2).strip()
+        if not product_name:
+            return None
+        # 取含关键词的整句作为 raw_quote
+        raw_quote = ''
+        for sent in re.split(r'[\n。！？!?.]', text):
+            if keyword in sent:
+                raw_quote = sent.strip()
+                break
+        if not raw_quote:
+            raw_quote = m.group(0)
+        # confidence：强烈推荐/非常适合 = 0.8；可以试试/可以推 = 0.4；其余 = 0.6
+        if '强烈推荐' in text or '非常适合' in text:
+            confidence = 0.8
+        elif '可以试试' in raw_quote or keyword == '可以推':
+            confidence = 0.4
+        else:
+            confidence = 0.6
+        # 商品名模糊匹配 product_id
+        product_id = ''
+        conn = _db_conn()
+        try:
+            rows = conn.execute("SELECT id, name FROM products WHERE status='active'").fetchall()
+        finally:
+            conn.close()
+        best_id, best_len = '', 0
+        for row in rows:
+            name = (row['name'] or '').strip()
+            if not name:
+                continue
+            if name == product_name:
+                best_id, best_len = row['id'], len(name)
+                break
+            if (name in product_name or product_name in name) and len(name) > best_len:
+                best_id, best_len = row['id'], len(name)
+        product_id = best_id
+        return {'product_name': product_name, 'product_id': product_id,
+                'confidence': confidence, 'raw_quote': raw_quote}
+    except Exception as e:
+        logger.warning(f'  [Deals] 预测结论提取失败: {e}')
+        return None
+
+
 def _save_knowledge_event(reply, agent_id, title, user_text=''):
     """把分析结论原文写入 knowledge_events（实体档案时间线，原文不截断）。
     同时生成 embedding 存入 embedding 列（API 不可用时留 NULL）。异常兜底返回 None。"""
     try:
         entity_type, entity_id = _extract_entity_from_analysis(reply, user_text)
+        conclusions = {}
+        try:
+            pm = _extract_predicted_match(reply)
+            if pm:
+                conclusions['predicted_match'] = pm
+        except Exception as e:
+            logger.warning(f'  [Deals] 预测结论提取失败，不影响事件入库: {e}')
         embedding_blob = None
         try:
             emb_cfg = get_embedding_config()
@@ -4766,8 +4858,9 @@ def _save_knowledge_event(reply, agent_id, title, user_text=''):
                 INSERT INTO knowledge_events
                 (id, entity_type, entity_id, agent_id, event_type, title, content_full,
                  content_summary, conclusions, embedding, source_msg_id, user_query, created_at)
-                VALUES (?, ?, ?, ?, 'analysis', ?, ?, '', '{}', ?, '', ?, ?)
+                VALUES (?, ?, ?, ?, 'analysis', ?, ?, '', ?, ?, '', ?, ?)
             ''', (event_id, entity_type, entity_id, agent_id or '', title, reply,
+                  json.dumps(conclusions, ensure_ascii=False),
                   embedding_blob, user_text or '', int(time.time() * 1000)))
             conn.commit()
         finally:
@@ -5794,6 +5887,15 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if sub and '/' not in sub:
                 self._handle_get_knowledge_pattern_detail(sub)
                 return
+        # 合作单 API
+        if path == '/api/deals':
+            self._handle_get_deals()
+            return
+        if path.startswith('/api/deals/'):
+            sub = path[len('/api/deals/'):]
+            if sub and '/' not in sub:
+                self._handle_get_deal_detail(sub)
+                return
         if path.startswith('/api/knowledge-events/'):
             sub = path[len('/api/knowledge-events/'):]
             if sub:
@@ -6310,6 +6412,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_post_induce_knowledge_patterns()
             return
 
+        # 合作单：创建
+        if path == '/api/deals':
+            self._handle_post_deal()
+            return
+
         # Knowledge API
         if path == '/api/knowledge':
             self._handle_post_knowledge()
@@ -6513,6 +6620,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_put_knowledge_pattern(sub)
                 return
 
+        # 合作单：更新（含状态流转）
+        if path.startswith('/api/deals/'):
+            sub = path[len('/api/deals/'):]
+            if sub and '/' not in sub:
+                self._handle_put_deal(sub)
+                return
+
         # 通知 API（read-all 需先于 /api/notifications/{id} 通配匹配）
         if path == '/api/notifications/read-all':
             self._handle_notifications_read_all()
@@ -6617,6 +6731,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             sub = path[len('/api/knowledge-patterns/'):]
             if sub and '/' not in sub:
                 self._handle_delete_knowledge_pattern(sub)
+                return
+
+        # 合作单：硬删除
+        if path.startswith('/api/deals/'):
+            sub = path[len('/api/deals/'):]
+            if sub and '/' not in sub:
+                self._handle_delete_deal(sub)
                 return
 
         # 违禁词 API
@@ -11958,7 +12079,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             limit = 50
         try:
             sql = ('SELECT id, entity_type, entity_id, agent_id, event_type, title, '
-                   'content_summary, user_query, created_at FROM knowledge_events')
+                   'content_summary, conclusions, user_query, created_at FROM knowledge_events')
             conds, params = [], []
             if entity_type:
                 conds.append('entity_type = ?')
@@ -12193,6 +12314,230 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'deleted': cur.rowcount > 0, 'id': pattern_id})
         except Exception as e:
             logger.error(f'  [KnowledgePatterns] delete failed: {e}')
+            self._send_json_error(500, f'Delete failed: {str(e)}')
+
+    # ═══ 合作单（deals）═══
+    def _handle_post_deal(self):
+        """POST /api/deals — 创建合作单"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        deny = _check_agent_role_write_scope(auth, 'talent')
+        if deny:
+            self._send_json_error(deny[1], deny[0])
+            return
+        body = self._read_body() or {}
+        talent_id = (body.get('talent_id') or '').strip()
+        if not talent_id:
+            self._send_json_error(400, 'Missing talent_id')
+            return
+        deny = _check_talent_write_permission(auth, talent_id)
+        if deny:
+            self._send_json_error(deny[1], deny[0])
+            return
+        status = (body.get('status') or 'pending').strip()
+        if status not in _DEAL_STATUS_FLOW:
+            self._send_json_error(400, f'非法状态: {status}')
+            return
+        try:
+            conn = _db_conn()
+            try:
+                row = conn.execute('SELECT id FROM talents WHERE id = ?', (talent_id,)).fetchone()
+                if not row:
+                    self._send_json_error(404, 'Talent not found')
+                    return
+                deal_id = 'deal_' + uuid.uuid4().hex[:12]
+                now = int(time.time())
+                conn.execute('''
+                    INSERT INTO deals
+                    (id, talent_id, product_id, product_name, deal_type, commission_rate,
+                     status, scheduled_at, predicted_conclusion, predicted_event_id,
+                     created_by, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (deal_id, talent_id,
+                      body.get('product_id') or '', body.get('product_name') or '',
+                      body.get('deal_type') or '', body.get('commission_rate') or 0,
+                      status, body.get('scheduled_at') or 0,
+                      body.get('predicted_conclusion') or '', body.get('predicted_event_id') or '',
+                      _resolve_talent_owner_id(auth), now, now))
+                conn.commit()
+                row = conn.execute('SELECT * FROM deals WHERE id = ?', (deal_id,)).fetchone()
+            finally:
+                conn.close()
+            self._send_json(200, _deal_row_to_dict(row))
+        except Exception as e:
+            logger.error(f'  [Deals] create failed: {e}')
+            self._send_json_error(500, f'Create failed: {str(e)}')
+
+    def _handle_get_deals(self):
+        """GET /api/deals?talent_id=&status=&limit=&offset= — 合作单列表（子账号隔离）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        qs = parse_qs(urlparse(self.path).query)
+        talent_id = qs.get('talent_id', [''])[0].strip()
+        status = qs.get('status', [''])[0].strip()
+        try:
+            limit = max(1, min(200, int(qs.get('limit', [50])[0] or 50)))
+        except (TypeError, ValueError):
+            limit = 50
+        try:
+            offset = max(0, int(qs.get('offset', [0])[0] or 0))
+        except (TypeError, ValueError):
+            offset = 0
+        try:
+            sql = 'SELECT d.* FROM deals d JOIN talents t ON d.talent_id = t.id'
+            count_sql = 'SELECT COUNT(*) FROM deals d JOIN talents t ON d.talent_id = t.id'
+            conds, params = [], []
+            # 子账号隔离：只能看到自己子库达人的合作单；管理员看全部
+            if not auth.is_admin:
+                owner = _resolve_talent_owner_id(auth)
+                ids = sorted({owner} | set(_get_user_emp_ids(owner)))
+                conds.append(f"t.created_by IN ({','.join('?' * len(ids))})")
+                params.extend(ids)
+            if talent_id:
+                conds.append('d.talent_id = ?')
+                params.append(talent_id)
+            if status:
+                conds.append('d.status = ?')
+                params.append(status)
+            if conds:
+                sql += ' WHERE ' + ' AND '.join(conds)
+                count_sql += ' WHERE ' + ' AND '.join(conds)
+            sql += ' ORDER BY d.updated_at DESC LIMIT ? OFFSET ?'
+            conn = _db_conn()
+            try:
+                total = conn.execute(count_sql, params).fetchone()[0]
+                rows = conn.execute(sql, params + [limit, offset]).fetchall()
+            finally:
+                conn.close()
+            self._send_json(200, {'deals': [_deal_row_to_dict(r) for r in rows], 'total': total})
+        except Exception as e:
+            logger.error(f'  [Deals] list failed: {e}')
+            self._send_json_error(500, f'List failed: {str(e)}')
+
+    def _handle_get_deal_detail(self, deal_id):
+        """GET /api/deals/<id> — 完整记录"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        try:
+            conn = _db_conn()
+            try:
+                row = conn.execute('SELECT * FROM deals WHERE id = ?', (deal_id,)).fetchone()
+            finally:
+                conn.close()
+            if not row:
+                self._send_json_error(404, 'Deal not found')
+                return
+            self._send_json(200, _deal_row_to_dict(row))
+        except Exception as e:
+            logger.error(f'  [Deals] detail failed: {e}')
+            self._send_json_error(500, f'Detail failed: {str(e)}')
+
+    def _handle_put_deal(self, deal_id):
+        """PUT /api/deals/<id> — 更新合作单（含状态流转）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        deny = _check_agent_role_write_scope(auth, 'talent')
+        if deny:
+            self._send_json_error(deny[1], deny[0])
+            return
+        body = self._read_body() or {}
+        try:
+            conn = _db_conn()
+            try:
+                row = conn.execute('SELECT * FROM deals WHERE id = ?', (deal_id,)).fetchone()
+                if not row:
+                    self._send_json_error(404, 'Deal not found')
+                    return
+                deny = _check_talent_write_permission(auth, row['talent_id'])
+                if deny:
+                    self._send_json_error(deny[1], deny[0])
+                    return
+                cur_status = row['status'] or 'pending'
+                # 终态（completed/failed）不允许任何修改
+                if cur_status in ('completed', 'failed'):
+                    self._send_json_error(400, f'合作单已终态（{cur_status}），不可修改')
+                    return
+                new_status = (body.get('status') or '').strip()
+                if new_status and new_status != cur_status:
+                    if new_status not in _DEAL_STATUS_FLOW:
+                        self._send_json_error(400, f'非法状态: {new_status}')
+                        return
+                    allowed = _DEAL_STATUS_FLOW.get(cur_status, ())
+                    if new_status not in allowed:
+                        self._send_json_error(400, f'非法状态转换: {cur_status} -> {new_status}')
+                        return
+                    # 切 completed 要求 actual_gmv(>0) 或 result_note 至少填一个
+                    if new_status == 'completed':
+                        gmv = body.get('actual_gmv', row['actual_gmv']) or 0
+                        note = (body.get('result_note') if 'result_note' in body else row['result_note']) or ''
+                        if not gmv or float(gmv) <= 0:
+                            if not str(note).strip():
+                                self._send_json_error(400, '切为 completed 需填写 actual_gmv 或 result_note')
+                                return
+                # 只更新 body 里出现的白名单字段
+                updatable = ('product_id', 'product_name', 'deal_type', 'commission_rate',
+                             'status', 'scheduled_at', 'actual_gmv', 'actual_roi',
+                             'actual_units', 'result_note', 'predicted_conclusion',
+                             'predicted_event_id')
+                sets, params = [], []
+                for field in updatable:
+                    if field in body:
+                        sets.append(f'{field} = ?')
+                        params.append(body[field])
+                sets.append('updated_at = ?')
+                params.append(int(time.time()))
+                params.append(deal_id)
+                conn.execute(f'UPDATE deals SET {", ".join(sets)} WHERE id = ?', params)
+                conn.commit()
+                row = conn.execute('SELECT * FROM deals WHERE id = ?', (deal_id,)).fetchone()
+            finally:
+                conn.close()
+            self._send_json(200, _deal_row_to_dict(row))
+        except Exception as e:
+            logger.error(f'  [Deals] update failed: {e}')
+            self._send_json_error(500, f'Update failed: {str(e)}')
+
+    def _handle_delete_deal(self, deal_id):
+        """DELETE /api/deals/<id> — 硬删除"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        deny = _check_agent_role_write_scope(auth, 'talent')
+        if deny:
+            self._send_json_error(deny[1], deny[0])
+            return
+        try:
+            conn = _db_conn()
+            try:
+                row = conn.execute('SELECT talent_id FROM deals WHERE id = ?', (deal_id,)).fetchone()
+                if not row:
+                    self._send_json_error(404, 'Deal not found')
+                    return
+                deny = _check_talent_write_permission(auth, row['talent_id'])
+                if deny:
+                    self._send_json_error(deny[1], deny[0])
+                    return
+                cur = conn.execute('DELETE FROM deals WHERE id = ?', (deal_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            self._send_json(200, {'deleted': cur.rowcount > 0, 'id': deal_id})
+        except Exception as e:
+            logger.error(f'  [Deals] delete failed: {e}')
             self._send_json_error(500, f'Delete failed: {str(e)}')
 
     def _handle_post_kb_search(self):
@@ -17085,6 +17430,43 @@ def _kp_row_to_dict(r, with_evidence=False):
         except Exception:
             item['evidence'] = []
     return item
+
+
+# ═══ 合作单（deals）：达人-商品合作全流程 ═══
+# 状态机：pending → negotiating → sample_sent → approved → live → completed/failed
+_DEAL_STATUS_FLOW = {
+    'pending': ('negotiating', 'failed'),
+    'negotiating': ('sample_sent', 'failed'),
+    'sample_sent': ('approved', 'failed'),
+    'approved': ('live', 'failed'),
+    'live': ('completed', 'failed'),
+    'completed': (),
+    'failed': (),
+}
+
+
+def _deal_row_to_dict(r):
+    """deals 行 -> dict"""
+    return {
+        'id': r['id'],
+        'talent_id': r['talent_id'],
+        'product_id': r['product_id'],
+        'product_name': r['product_name'],
+        'deal_type': r['deal_type'],
+        'commission_rate': r['commission_rate'],
+        'status': r['status'],
+        'scheduled_at': r['scheduled_at'],
+        'actual_gmv': r['actual_gmv'],
+        'actual_roi': r['actual_roi'],
+        'actual_units': r['actual_units'],
+        'result_note': r['result_note'],
+        'predicted_conclusion': r['predicted_conclusion'],
+        'predicted_event_id': r['predicted_event_id'],
+        'verification': r['verification'],
+        'created_by': r['created_by'],
+        'created_at': r['created_at'],
+        'updated_at': r['updated_at'],
+    }
 
 
 def _resolve_induce_llm_config(agent_id=''):

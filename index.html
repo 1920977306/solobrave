@@ -2251,6 +2251,18 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: var(--text-secondary);
   margin-top: 2px;
 }
+/* 合作记录（deals）状态徽章 */
+.deal-status-badge { display: inline-flex; padding: 2px 8px; border-radius: var(--radius-full); font-size: 11px; font-weight: 500; margin-right: 6px; vertical-align: 1px; }
+.deal-status-badge.pending { background: rgba(134,144,156,0.12); color: #86909c; }
+.deal-status-badge.negotiating { background: rgba(22,93,255,0.12); color: #165DFF; }
+.deal-status-badge.sample_sent { background: rgba(250,173,20,0.12); color: #faad14; }
+.deal-status-badge.approved { background: rgba(19,194,194,0.12); color: #13c2c2; }
+.deal-status-badge.live { background: rgba(82,196,26,0.12); color: #52c41a; }
+.deal-status-badge.completed { background: rgba(35,120,4,0.12); color: #237804; }
+.deal-status-badge.failed { background: rgba(255,59,48,0.12); color: #FF3B30; }
+.deal-meta { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+.deal-predicted { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+.deal-predicted-tag { display: inline-flex; padding: 1px 6px; border-radius: var(--radius-full); font-size: 10px; font-weight: 500; background: rgba(114,46,209,0.1); color: #722ed1; margin-right: 4px; }
 
 /* 达人详情页增强样式 */
 .talents-info-grid {
@@ -6661,6 +6673,59 @@ window.doLogin = function () {
     <div class="product-modal-footer">
       <button class="product-modal-btn cancel" onclick="closeTalentFollowUpModal()">取消</button>
       <button class="product-modal-btn save" onclick="saveTalentFollowUp()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Deal Modal -->
+<div class="product-modal-overlay" id="dealModalOverlay" onclick="closeDealModal(event)">
+  <div class="product-modal" onclick="event.stopPropagation()">
+    <div class="product-modal-header">
+      <div class="product-modal-title" id="dealModalTitle">新增合作</div>
+      <button class="product-modal-close" onclick="closeDealModal()">×</button>
+    </div>
+    <div class="product-modal-body">
+      <input type="hidden" id="dealEditId">
+      <input type="hidden" id="dealPredictedEventId">
+      <input type="hidden" id="dealPredictedConclusion">
+      <div class="product-modal-field required"><label>商品</label><select id="dealProduct"><option value="">加载中...</option></select></div>
+      <div class="product-modal-field"><label>合作形式</label>
+        <select id="dealType">
+          <option value="">不指定</option>
+          <option value="纯佣">纯佣</option>
+          <option value="寄样">寄样</option>
+          <option value="付费">付费</option>
+          <option value="混合">混合</option>
+        </select>
+      </div>
+      <div class="product-modal-field"><label>佣金比例（%）</label><input type="number" id="dealCommissionRate" min="0" max="100" step="0.1" placeholder="如 20"></div>
+      <div class="product-modal-field"><label>状态</label>
+        <select id="dealStatus" onchange="onDealStatusChange()">
+          <option value="pending">待推进</option>
+          <option value="negotiating">洽谈中</option>
+          <option value="sample_sent">已寄样</option>
+          <option value="approved">已确认</option>
+          <option value="live">已上播</option>
+          <option value="completed">已完成</option>
+          <option value="failed">已失败</option>
+        </select>
+      </div>
+      <div class="product-modal-field"><label>排期日期</label><input type="date" id="dealScheduledAt"></div>
+      <div class="product-modal-field" id="dealPredictedField" style="display:none;">
+        <label>关联 AI 预测</label>
+        <select id="dealPredictedSelect" onchange="onDealPredictedSelect()"><option value="">不关联</option></select>
+      </div>
+      <div id="dealResultArea" style="display:none;">
+        <div class="product-modal-section-title">结果录入</div>
+        <div class="product-modal-field"><label>实际 GMV（元）</label><input type="number" id="dealActualGmv" min="0" step="0.01" placeholder="如 120000"></div>
+        <div class="product-modal-field"><label>实际 ROI</label><input type="number" id="dealActualRoi" min="0" step="0.01" placeholder="如 3.5"></div>
+        <div class="product-modal-field"><label>实际销量</label><input type="number" id="dealActualUnits" min="0" step="1" placeholder="如 800"></div>
+        <div class="product-modal-field"><label>结果备注</label><textarea id="dealResultNote" placeholder="GMV 与备注至少填写一项"></textarea></div>
+      </div>
+    </div>
+    <div class="product-modal-footer">
+      <button class="product-modal-btn cancel" onclick="closeDealModal()">取消</button>
+      <button class="product-modal-btn save" onclick="saveDeal()">保存</button>
     </div>
   </div>
 </div>
@@ -24371,28 +24436,219 @@ function _renderTalentProductMatches() {
   body.innerHTML = html;
 }
 
+// ═══ 达人详情 - 合作记录（deals API）═══
+var _currentTalentDeals = [];
+
+function _dealStatusLabel(s) {
+  return { pending: '待推进', negotiating: '洽谈中', sample_sent: '已寄样', approved: '已确认', live: '已上播', completed: '已完成', failed: '已失败' }[s] || s || '待推进';
+}
+
 function renderTalentPanelRecords(t) {
   var el = document.getElementById('talentsPanelRecords');
   if (!el) return;
-  var mock = _getTalentMockData(t);
-  var seed = _hashString(t.id + 'records');
-  var records = [
-    { date: '2024-06', title: '【' + (t.name || '-') + '】带货合作沟通', note: '沟通佣金与排期，双方初步达成合作意向。' },
-    { date: '2024-05', title: '历史合作商品：' + mock.category.split('/')[0] + '热销款', note: '直播带货 2 场，累计 GMV ¥' + formatNumber(Math.round(mock.total_gmv * 0.15)) + '。' },
-    { date: '2024-03', title: '样品寄送与试用反馈', note: '达人收到样品，反馈产品质量良好，适合粉丝群体。' }
-  ];
-  if (seed % 2 === 0) records.push({ date: '2024-01', title: '首次建联', note: '通过抖音私信建立联系，发送品牌介绍与货盘表。' });
-  var html = '<div class="talents-panel-section"><div class="talents-panel-title">合作记录</div>';
-  records.forEach(function(rec){
-    html += '<div class="talents-record-item">';
-    html += '<div class="talents-record-date">' + escapeHtml(rec.date) + '</div>';
-    html += '<div class="talents-record-body">';
-    html += '<div class="talents-record-title">' + escapeHtml(rec.title) + '</div>';
-    html += '<div class="talents-record-note">' + escapeHtml(rec.note) + '</div>';
-    html += '</div></div>';
+  var header = '<div class="talents-follow-up-header"><div class="talents-panel-title" style="margin:0;padding:0;border:none;">合作记录</div><button class="talents-follow-up-add" onclick="createNewDeal()">+ 新增合作</button></div>';
+  el.innerHTML = '<div class="talents-panel-section">' + header + '<div class="products-loading">加载中...</div></div>';
+  apiFetch('/api/deals?talent_id=' + encodeURIComponent(t.id) + '&limit=50').then(function(r){return r.json();}).then(function(data){
+    var deals = data.deals || [];
+    _currentTalentDeals = deals;
+    var html = '<div class="talents-panel-section">' + header;
+    if (deals.length === 0) {
+      html += '<div class="products-empty"><div class="products-empty-text">暂无合作记录，点击新增</div></div></div>';
+      el.innerHTML = html;
+      return;
+    }
+    deals.forEach(function(d){ html += _renderDealCardHTML(d); });
+    html += '</div>';
+    el.innerHTML = html;
+  }).catch(function(e){
+    el.innerHTML = '<div class="talents-panel-section">' + header + '<div class="products-empty"><div class="products-empty-text">加载失败</div></div></div>';
   });
+}
+
+function _renderDealCardHTML(d) {
+  var status = d.status || 'pending';
+  var isTerminal = (status === 'completed' || status === 'failed');
+  var dateStr = '-';
+  if (d.created_at) {
+    var dt = new Date(d.created_at * 1000);
+    dateStr = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0');
+  }
+  var html = '<div class="talents-record-item">';
+  html += '<div class="talents-record-date">' + escapeHtml(dateStr) + '</div>';
+  html += '<div class="talents-record-body">';
+  var title = '<span class="deal-status-badge ' + escapeAttr(status) + '">' + escapeHtml(_dealStatusLabel(status)) + '</span>' + escapeHtml(d.product_name || '未关联商品');
+  if (d.deal_type) title += ' · ' + escapeHtml(d.deal_type);
+  if (d.commission_rate) title += ' · 佣金 ' + escapeHtml(String(d.commission_rate)) + '%';
+  html += '<div class="talents-record-title">' + title + '</div>';
+  if (d.scheduled_at) html += '<div class="deal-meta">排期：' + escapeHtml(new Date(d.scheduled_at * 1000).toLocaleDateString('zh-CN')) + '</div>';
+  if (status === 'completed') {
+    var parts = [];
+    if (d.actual_gmv) parts.push('GMV ¥' + formatNumber(d.actual_gmv));
+    if (d.actual_roi) parts.push('ROI ' + d.actual_roi);
+    if (d.actual_units) parts.push('销量 ' + formatNumber(d.actual_units));
+    if (parts.length) html += '<div class="deal-meta">成果：' + escapeHtml(parts.join(' / ')) + '</div>';
+  }
+  if (d.result_note) html += '<div class="talents-record-note">' + escapeHtml(d.result_note) + '</div>';
+  if (d.predicted_conclusion) html += '<div class="deal-predicted"><span class="deal-predicted-tag">AI预测</span>' + escapeHtml(d.predicted_conclusion) + '</div>';
+  html += '<div class="talents-timeline-actions" style="margin-top:6px;">';
+  if (!isTerminal) html += '<button onclick="editDeal(\'' + escapeAttr(String(d.id)).replace(/'/g,"\\'") + '\')">编辑</button>';
+  html += '<button class="delete" onclick="deleteDeal(\'' + escapeAttr(String(d.id)).replace(/'/g,"\\'") + '\')">删除</button>';
   html += '</div>';
-  el.innerHTML = html;
+  html += '</div></div>';
+  return html;
+}
+
+function createNewDeal() {
+  if (!_currentTalent || !_currentTalent.id) { showToast('请先选择达人'); return; }
+  openDealModal(_currentTalent.id, null);
+}
+
+function editDeal(dealId) {
+  var d = (_currentTalentDeals || []).find(function(x){ return String(x.id) === String(dealId); });
+  if (!d) return;
+  openDealModal(d.talent_id || (_currentTalent && _currentTalent.id), d);
+}
+
+function _tsToDateInput(ts) {
+  var dt = new Date(ts * 1000);
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+
+function openDealModal(talentId, deal) {
+  if (!talentId) return;
+  document.getElementById('dealModalOverlay').dataset.talentId = talentId;
+  document.getElementById('dealEditId').value = deal ? deal.id : '';
+  document.getElementById('dealPredictedEventId').value = deal ? (deal.predicted_event_id || '') : '';
+  document.getElementById('dealPredictedConclusion').value = deal ? (deal.predicted_conclusion || '') : '';
+  document.getElementById('dealType').value = deal ? (deal.deal_type || '') : '';
+  document.getElementById('dealCommissionRate').value = (deal && deal.commission_rate != null) ? deal.commission_rate : '';
+  document.getElementById('dealStatus').value = deal ? (deal.status || 'pending') : 'pending';
+  document.getElementById('dealScheduledAt').value = (deal && deal.scheduled_at) ? _tsToDateInput(deal.scheduled_at) : '';
+  document.getElementById('dealActualGmv').value = (deal && deal.actual_gmv != null) ? deal.actual_gmv : '';
+  document.getElementById('dealActualRoi').value = (deal && deal.actual_roi != null) ? deal.actual_roi : '';
+  document.getElementById('dealActualUnits').value = (deal && deal.actual_units != null) ? deal.actual_units : '';
+  document.getElementById('dealResultNote').value = deal ? (deal.result_note || '') : '';
+  document.getElementById('dealModalTitle').textContent = deal ? '编辑合作' : '新增合作';
+  onDealStatusChange();
+  _loadDealProductOptions(deal ? deal.product_id : '');
+  _loadDealPredictions(talentId, deal ? (deal.predicted_event_id || '') : '');
+  document.getElementById('dealModalOverlay').classList.add('active');
+}
+
+function closeDealModal(e) { if (e && e.target !== e.currentTarget) return; document.getElementById('dealModalOverlay').classList.remove('active'); }
+
+function onDealStatusChange() {
+  var st = document.getElementById('dealStatus').value;
+  document.getElementById('dealResultArea').style.display = (st === 'completed') ? '' : 'none';
+}
+
+function _loadDealProductOptions(selectedId) {
+  var sel = document.getElementById('dealProduct');
+  sel.innerHTML = '<option value="">加载中...</option>';
+  apiFetch('/api/products?limit=100').then(function(r){return r.json();}).then(function(data){
+    var products = data.products || (Array.isArray(data) ? data : []);
+    var html = '<option value="">请选择商品</option>';
+    products.forEach(function(p){
+      html += '<option value="' + escapeAttr(String(p.id)) + '"' + (String(p.id) === String(selectedId) ? ' selected' : '') + '>' + escapeHtml(p.name || String(p.id)) + '</option>';
+    });
+    sel.innerHTML = html;
+  }).catch(function(){
+    sel.innerHTML = '<option value="">加载失败</option>';
+  });
+}
+
+function _loadDealPredictions(talentId, selectedEventId) {
+  var field = document.getElementById('dealPredictedField');
+  var sel = document.getElementById('dealPredictedSelect');
+  field.style.display = 'none';
+  sel.innerHTML = '<option value="">不关联</option>';
+  sel._dealPredictedItems = [];
+  apiFetch('/api/knowledge-events?entity_type=talent&entity_id=' + encodeURIComponent(talentId)).then(function(r){return r.json();}).then(function(data){
+    var events = data.events || [];
+    var items = [];
+    events.forEach(function(ev){
+      var concl = ev.conclusions;
+      if (typeof concl === 'string') { try { concl = JSON.parse(concl); } catch(e) { concl = null; } }
+      if (concl && concl.predicted_match) items.push({ id: ev.id, title: ev.title || 'AI 预测', match: concl.predicted_match });
+    });
+    if (items.length === 0) return;
+    var html = '<option value="">不关联</option>';
+    items.forEach(function(it){
+      var label = it.title + '：' + (it.match.product_name || '');
+      if (it.match.confidence != null) label += '（置信度 ' + it.match.confidence + '）';
+      html += '<option value="' + escapeAttr(String(it.id)) + '"' + (String(it.id) === String(selectedEventId) ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+    });
+    sel._dealPredictedItems = items;
+    sel.innerHTML = html;
+    field.style.display = '';
+  }).catch(function(){ /* 无预测事件则保持隐藏 */ });
+}
+
+function onDealPredictedSelect() {
+  var sel = document.getElementById('dealPredictedSelect');
+  var items = sel._dealPredictedItems || [];
+  var it = items.find(function(x){ return String(x.id) === sel.value; });
+  document.getElementById('dealPredictedEventId').value = it ? it.id : '';
+  var concl = '';
+  if (it) {
+    concl = '推荐商品：' + (it.match.product_name || '-');
+    if (it.match.confidence != null) concl += '，置信度 ' + it.match.confidence;
+    if (it.match.raw_quote) concl += '。依据：' + String(it.match.raw_quote).slice(0, 80);
+  }
+  document.getElementById('dealPredictedConclusion').value = concl;
+}
+
+function saveDeal() {
+  var overlay = document.getElementById('dealModalOverlay');
+  var talentId = overlay.dataset.talentId;
+  if (!talentId) return;
+  var id = document.getElementById('dealEditId').value;
+  var productSel = document.getElementById('dealProduct');
+  var productId = productSel.value;
+  if (!productId) { showToast('请选择商品'); return; }
+  var productName = productSel.options[productSel.selectedIndex] ? productSel.options[productSel.selectedIndex].textContent : '';
+  var status = document.getElementById('dealStatus').value;
+  var dateVal = document.getElementById('dealScheduledAt').value;
+  var commissionVal = document.getElementById('dealCommissionRate').value;
+  var body = {
+    talent_id: talentId,
+    product_id: productId,
+    product_name: productName,
+    deal_type: document.getElementById('dealType').value,
+    commission_rate: commissionVal === '' ? 0 : parseFloat(commissionVal),
+    status: status,
+    scheduled_at: dateVal ? Math.floor(new Date(dateVal + 'T00:00:00').getTime() / 1000) : 0,
+    predicted_event_id: document.getElementById('dealPredictedEventId').value,
+    predicted_conclusion: document.getElementById('dealPredictedConclusion').value
+  };
+  if (status === 'completed') {
+    var gmv = document.getElementById('dealActualGmv').value;
+    var roi = document.getElementById('dealActualRoi').value;
+    var units = document.getElementById('dealActualUnits').value;
+    var note = document.getElementById('dealResultNote').value.trim();
+    if ((gmv === '' || parseFloat(gmv) <= 0) && !note) { showToast('标记为已完成需填写 GMV 或结果备注'); return; }
+    body.actual_gmv = gmv === '' ? 0 : parseFloat(gmv);
+    body.actual_roi = roi === '' ? 0 : parseFloat(roi);
+    body.actual_units = units === '' ? 0 : parseInt(units, 10);
+    body.result_note = note;
+  }
+  var url = id ? '/api/deals/' + encodeURIComponent(id) : '/api/deals';
+  var method = id ? 'PUT' : 'POST';
+  apiFetch(url, { method: method, body: JSON.stringify(body) }).then(function(r){return r.json();}).then(function(res){
+    if (res && res.error) { showToast('保存失败: ' + (res.error.message || res.error), 'error'); return; }
+    showToast(id ? '✅ 已更新' : '✅ 已新增合作');
+    closeDealModal();
+    if (_currentTalent) renderTalentPanelRecords(_currentTalent);
+  }).catch(function(){ showToast('❌ 保存失败'); });
+}
+
+function deleteDeal(dealId) {
+  if (!confirm('确定删除此合作记录？')) return;
+  apiFetch('/api/deals/' + encodeURIComponent(dealId), { method: 'DELETE' }).then(function(r){return r.json();}).then(function(res){
+    if (res && res.error) { showToast('删除失败: ' + (res.error.message || res.error), 'error'); return; }
+    showToast('✅ 已删除');
+    if (_currentTalent) renderTalentPanelRecords(_currentTalent);
+  }).catch(function(){ showToast('❌ 删除失败'); });
 }
 
 function renderTalentPanelFollowUps(t) {
