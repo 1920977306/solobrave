@@ -2886,6 +2886,31 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_ke_agent ON knowledge_events(agent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_ke_type ON knowledge_events(event_type)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_ke_created ON knowledge_events(created_at DESC)')
+        # 阶段4B-P0：事件重要度评分（启发式）与最近检索命中时间
+        _add_column_if_not_exists(conn, 'knowledge_events', 'importance_score', 'REAL DEFAULT 5')
+        _add_column_if_not_exists(conn, 'knowledge_events', 'last_accessed_at', "TEXT DEFAULT ''")
+        # 阶段4B-P0：FTS5 全文索引（三信号混合检索之 BM25 路；FTS5 不可用时置标志降级跳过）
+        global _KE_FTS_ENABLED
+        try:
+            conn.execute('''
+                CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_events_fts USING fts5(
+                    event_id UNINDEXED, title, summary, conclusions_text)
+            ''')
+        except Exception as e:
+            _KE_FTS_ENABLED = False
+            logger.warning(f'  [KnowledgeEvents] FTS5 不可用，全文检索路将跳过: {e}')
+        else:
+            # 一次性回填：knowledge_events 有而 fts 缺失的行
+            try:
+                missing = conn.execute(
+                    'SELECT ke.id, ke.title, ke.content_summary, ke.conclusions FROM knowledge_events ke '
+                    'LEFT JOIN knowledge_events_fts f ON f.event_id = ke.id WHERE f.event_id IS NULL').fetchall()
+                for r in missing:
+                    conn.execute(
+                        'INSERT INTO knowledge_events_fts (event_id, title, summary, conclusions_text) VALUES (?, ?, ?, ?)',
+                        (r['id'], r['title'] or '', r['content_summary'] or '', r['conclusions'] or ''))
+            except Exception as e:
+                logger.warning(f'  [KnowledgeEvents] FTS 回填失败（不影响主流程）: {e}')
 
         # 规律表（L3）：从同类目分析事件中归纳的跨达人共性规律
         # status 状态机：draft → confirmed/rejected → deprecated；只有 confirmed 进入检索注入
@@ -2907,6 +2932,20 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kp_category ON knowledge_patterns(category)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kp_status ON knowledge_patterns(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kp_entity_type ON knowledge_patterns(entity_type)')
+        # 阶段4B：规律置信度体系（confidence_score 0-100；verification_level 五级）
+        _add_column_if_not_exists(conn, 'knowledge_patterns', 'confidence_score', 'REAL DEFAULT 50')
+        _add_column_if_not_exists(conn, 'knowledge_patterns', 'evidence_count', 'INTEGER DEFAULT 0')
+        _add_column_if_not_exists(conn, 'knowledge_patterns', 'hit_count', 'INTEGER DEFAULT 0')
+        _add_column_if_not_exists(conn, 'knowledge_patterns', 'miss_count', 'INTEGER DEFAULT 0')
+        _add_column_if_not_exists(conn, 'knowledge_patterns', 'verification_level', "TEXT DEFAULT 'hypothesis'")
+        # 存量迁移（幂等）：只回填仍为默认 hypothesis 的行，按旧 status 映射等级
+        try:
+            conn.execute("UPDATE knowledge_patterns SET verification_level = 'verified' "
+                         "WHERE verification_level = 'hypothesis' AND status IN ('confirmed', 'active')")
+            conn.execute("UPDATE knowledge_patterns SET verification_level = 'deprecated' "
+                         "WHERE verification_level = 'hypothesis' AND status IN ('rejected', 'deprecated')")
+        except Exception as e:
+            logger.warning(f'  [KnowledgePatterns] verification_level 迁移跳过: {e}')
 
         # 合作单表（Deal）：达人-商品合作全流程跟踪
         # status 状态机：pending → negotiating → sample_sent → approved → live → completed/failed
@@ -2935,6 +2974,10 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_deals_talent ON deals(talent_id)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_deals_status ON deals(status)')
         conn.execute('CREATE INDEX IF NOT EXISTS idx_deals_product ON deals(product_id)')
+        # 结构化归因字段（终态复盘）：成败原因 / 问题阶段 / 达人方反馈
+        _add_column_if_not_exists(conn, 'deals', 'win_loss_category', "TEXT DEFAULT ''")
+        _add_column_if_not_exists(conn, 'deals', 'key_moment', "TEXT DEFAULT ''")
+        _add_column_if_not_exists(conn, 'deals', 'decision_maker_feedback', "TEXT DEFAULT ''")
 
         # FIXME: 新增记忆三级沉淀表（二级归纳、三级知识库），保持原有 knowledge/products 表不变
         conn.execute('''
@@ -4827,6 +4870,58 @@ def _extract_predicted_match(text):
         return None
 
 
+def _ke_fts_upsert(conn, event_id, title, summary, conclusions_text):
+    """同步 knowledge_events_fts（先删后插，兼容将来更新路径）。
+    FTS 不可用或失败仅记日志，绝不影响事件保存。"""
+    if not _KE_FTS_ENABLED:
+        return
+    try:
+        conn.execute('DELETE FROM knowledge_events_fts WHERE event_id = ?', (event_id,))
+        conn.execute(
+            'INSERT INTO knowledge_events_fts (event_id, title, summary, conclusions_text) VALUES (?, ?, ?, ?)',
+            (event_id, title or '', summary or '', conclusions_text or ''))
+    except Exception as e:
+        logger.warning(f'  [KnowledgeEvents] FTS 同步失败（不影响事件保存）: {e}')
+
+
+def _ke_compute_importance(conn, entity_type, entity_id, content_full, conclusions_dict):
+    """启发式计算事件重要度（1-10，不调 LLM）：
+    基准 5；该实体首个分析事件且正文 >800 字 → 8；非首个事件且正文 <300 字（例行跟进短分析）→ 4；
+    conclusions 含 predicted_match → +1；关联 deal（talent 按 talent_id / product 按 product_id）→ +1。
+    上限 10、下限 1，异常落默认 5。"""
+    try:
+        score = 5.0
+        content_len = len(content_full or '')
+        is_first = True
+        if entity_type and entity_id:
+            row = conn.execute(
+                'SELECT COUNT(*) AS c FROM knowledge_events WHERE entity_type = ? AND entity_id = ?',
+                (entity_type, entity_id)).fetchone()
+            is_first = not row or int(row['c'] or 0) == 0
+        if is_first and content_len > 800:
+            score = 8.0
+        elif not is_first and content_len < 300:
+            score = 4.0
+        if conclusions_dict and conclusions_dict.get('predicted_match'):
+            score += 1
+        try:
+            has_deal = False
+            if entity_type == 'talent' and entity_id:
+                has_deal = conn.execute(
+                    'SELECT 1 FROM deals WHERE talent_id = ? LIMIT 1', (entity_id,)).fetchone() is not None
+            elif entity_type == 'product' and entity_id:
+                has_deal = conn.execute(
+                    'SELECT 1 FROM deals WHERE product_id = ? LIMIT 1', (entity_id,)).fetchone() is not None
+            if has_deal:
+                score += 1
+        except Exception:
+            pass
+        return max(1.0, min(10.0, score))
+    except Exception as e:
+        logger.warning(f'  [KnowledgeEvents] 重要度计算失败，落默认5: {e}')
+        return 5.0
+
+
 def _save_knowledge_event(reply, agent_id, title, user_text=''):
     """把分析结论原文写入 knowledge_events（实体档案时间线，原文不截断）。
     同时生成 embedding 存入 embedding 列（API 不可用时留 NULL）。异常兜底返回 None。"""
@@ -4854,14 +4949,19 @@ def _save_knowledge_event(reply, agent_id, title, user_text=''):
         event_id = 'ke_' + uuid.uuid4().hex[:12]
         conn = _db_conn()
         try:
+            importance = _ke_compute_importance(conn, entity_type, entity_id, reply, conclusions)
+            conclusions_text = json.dumps(conclusions, ensure_ascii=False)
             conn.execute('''
                 INSERT INTO knowledge_events
                 (id, entity_type, entity_id, agent_id, event_type, title, content_full,
-                 content_summary, conclusions, embedding, source_msg_id, user_query, created_at)
-                VALUES (?, ?, ?, ?, 'analysis', ?, ?, '', ?, ?, '', ?, ?)
+                 content_summary, conclusions, embedding, source_msg_id, user_query, created_at,
+                 importance_score)
+                VALUES (?, ?, ?, ?, 'analysis', ?, ?, '', ?, ?, '', ?, ?, ?)
             ''', (event_id, entity_type, entity_id, agent_id or '', title, reply,
-                  json.dumps(conclusions, ensure_ascii=False),
-                  embedding_blob, user_text or '', int(time.time() * 1000)))
+                  conclusions_text,
+                  embedding_blob, user_text or '', int(time.time() * 1000), importance))
+            # 同步 FTS 全文索引（失败不影响事件保存）
+            _ke_fts_upsert(conn, event_id, title, '', conclusions_text)
             conn.commit()
         finally:
             conn.close()
@@ -12155,8 +12255,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(500, f'Stats failed: {str(e)}')
 
     def _handle_search_knowledge_events(self):
-        """GET /api/knowledge-events/search?q=&entity_type=&limit= — 语义搜索分析档案。
-        embedding 可用时按余弦相似度排序；不可用时降级为 title+content_full LIKE 模糊匹配。
+        """GET /api/knowledge-events/search?q=&entity_type=&limit= — 三信号混合检索分析档案。
+        向量 + FTS5 BM25 + 实体精确匹配 RRF 融合，叠加重要度/新鲜度打分（阶段4B-P0）。
         返回列表（不含 content_full，附 score）。"""
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
@@ -12174,7 +12274,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except (TypeError, ValueError):
             limit = 5
         try:
-            results = _search_knowledge_events(query, entity_type=entity_type, limit=limit)
+            results = _hybrid_retrieve_events(query, entity_type=entity_type, limit=limit)
             self._send_json(200, {'events': results, 'total': len(results)})
         except Exception as e:
             logger.error(f'  [KnowledgeEvents] search failed: {e}')
@@ -12286,8 +12386,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if new_status not in allowed:
                     self._send_json_error(400, f'非法状态转换: {cur_status} -> {new_status}')
                     return
-                conn.execute('UPDATE knowledge_patterns SET status = ?, updated_at = ? WHERE id = ?',
-                             (new_status, int(time.time()), pattern_id))
+                # 同步 verification_level：确认时尝试 hypothesis→candidate 晋升（不满足则保留 hypothesis）；
+                # 拒绝/废弃统一降级为 deprecated
+                cur_level = row['verification_level'] or 'hypothesis'
+                new_level = cur_level
+                if new_status == 'confirmed' and cur_level == 'hypothesis':
+                    if _kp_can_promote('hypothesis', 'candidate', row['confidence_score'],
+                                       row['evidence_count'], approved=True):
+                        new_level = 'candidate'
+                elif new_status in ('rejected', 'deprecated'):
+                    new_level = 'deprecated'
+                conn.execute('UPDATE knowledge_patterns SET status = ?, verification_level = ?, updated_at = ? WHERE id = ?',
+                             (new_status, new_level, int(time.time()), pattern_id))
                 conn.commit()
                 row = conn.execute('SELECT * FROM knowledge_patterns WHERE id = ?', (pattern_id,)).fetchone()
             finally:
@@ -12478,6 +12588,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     if new_status not in allowed:
                         self._send_json_error(400, f'非法状态转换: {cur_status} -> {new_status}')
                         return
+                    # 切终态（completed/failed）必填 win_loss_category（body 未传则用库里现值）
+                    if new_status in ('completed', 'failed'):
+                        wlc = body.get('win_loss_category') if 'win_loss_category' in body else (row['win_loss_category'] or '')
+                        wlc = str(wlc or '').strip()
+                        if not wlc:
+                            self._send_json_error(400, f'切为 {new_status} 需填写 win_loss_category（成败原因）')
+                            return
+                        if wlc not in _DEAL_WIN_LOSS_CATEGORIES:
+                            self._send_json_error(400, f'非法 win_loss_category: {wlc}')
+                            return
                     # 切 completed 要求 actual_gmv(>0) 或 result_note 至少填一个
                     if new_status == 'completed':
                         gmv = body.get('actual_gmv', row['actual_gmv']) or 0
@@ -12486,11 +12606,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             if not str(note).strip():
                                 self._send_json_error(400, '切为 completed 需填写 actual_gmv 或 result_note')
                                 return
+                # key_moment 非必填，但传了非空值必须在枚举内
+                if 'key_moment' in body:
+                    km = str(body.get('key_moment') or '').strip()
+                    if km and km not in _DEAL_KEY_MOMENTS:
+                        self._send_json_error(400, f'非法 key_moment: {km}')
+                        return
                 # 只更新 body 里出现的白名单字段
                 updatable = ('product_id', 'product_name', 'deal_type', 'commission_rate',
                              'status', 'scheduled_at', 'actual_gmv', 'actual_roi',
                              'actual_units', 'result_note', 'predicted_conclusion',
-                             'predicted_event_id')
+                             'predicted_event_id', 'win_loss_category', 'key_moment',
+                             'decision_maker_feedback')
                 sets, params = [], []
                 for field in updatable:
                     if field in body:
@@ -17113,6 +17240,13 @@ _KE_EVENT_SNIPPET_LEN = 200     # 每条事件 content_full 截取长度
 _KE_SAME_ENTITY_LIMIT = 3       # 同实体历史取最近 N 条
 _KE_SAME_CATEGORY_LIMIT = 2     # 同类目其他达人分析取最近 N 条
 _KE_SEMANTIC_LIMIT = 3          # embedding 语义兜底取 top N
+_KE_FTS_ENABLED = True          # FTS5 可用标志（init_db 探测失败时置 False，FTS 路直接跳过）
+# 阶段4B-P0 可调参：混合检索最终打分权重 final = 0.6*hybrid_norm + 0.25*(importance/10) + 0.15*recency
+_KE_W_HYBRID = 0.6              # 三路 RRF 融合分（批内归一化）权重
+_KE_W_IMPORTANCE = 0.25         # 事件重要度（importance_score/10）权重
+_KE_W_RECENCY = 0.15            # 新鲜度（30 天线性衰减）权重
+_KE_RRF_K = 60                  # RRF 平滑常数
+_KE_RECENCY_WINDOW_MS = 30 * 24 * 3600 * 1000  # 新鲜度线性衰减窗口（30 天，毫秒）
 
 
 def _extract_entities_from_text(text):
@@ -17244,37 +17378,25 @@ def _retrieve_knowledge_context(user_text, agent_id='', auth=None):
                     other_name = (other['name'] if other else '') or '未知达人'
                     picked.append((r, f'同类目达人「{other_name}」分析'))
                     count += 1
-            # 3) 兜底语义检索：embedding 可用时按余弦相似度取 top N
+            # 3) 兜底混合检索：向量 + FTS5 BM25 + 实体精确匹配三路 RRF 融合（阶段4B-P0，
+            # 替代原纯 embedding 语义检索，embedding 不可用时 FTS/实体路仍可召回）
             try:
-                emb_cfg = get_embedding_config((agent_id or None))
-                api_key = emb_cfg.get('apiKey')
-                if api_key:
-                    query_emb = get_embedding(user_text[:2000], api_key, emb_cfg.get('provider', 'openai'),
-                                              model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
-                    if query_emb:
-                        import struct
-                        rows = conn.execute(
-                            'SELECT * FROM knowledge_events WHERE embedding IS NOT NULL').fetchall()
-                        scored = []
-                        for r in rows:
-                            if r['id'] in seen_ids:
-                                continue
-                            try:
-                                emb = struct.unpack(f'{len(r["embedding"]) // 4}f', r['embedding'])
-                                scored.append((cosine_similarity(query_emb, emb), r))
-                            except Exception:
-                                continue
-                        scored.sort(key=lambda x: x[0], reverse=True)
-                        if scored:
-                            names = _ke_entity_names(conn, [(r['entity_type'], r['entity_id']) for _, r in scored[:_KE_SEMANTIC_LIMIT]])
-                            for _sim, r in scored[:_KE_SEMANTIC_LIMIT]:
-                                seen_ids.add(r['id'])
-                                ename = names.get((r['entity_type'], r['entity_id']), '')
-                                label = f"达人「{ename}」分析" if r['entity_type'] == 'talent' and ename else '相关历史分析'
-                                picked.append((r, label))
+                hy_items = [it for it in _hybrid_retrieve_events(user_text, '', _KE_SEMANTIC_LIMIT * 3)
+                            if it.get('id') not in seen_ids][:_KE_SEMANTIC_LIMIT]
+                if hy_items:
+                    names = _ke_entity_names(conn, [(it['entity_type'], it['entity_id']) for it in hy_items])
+                    for it in hy_items:
+                        row = conn.execute('SELECT * FROM knowledge_events WHERE id = ?', (it['id'],)).fetchone()
+                        if not row:
+                            continue
+                        seen_ids.add(it['id'])
+                        ename = names.get((it['entity_type'], it['entity_id']), '')
+                        label = f"达人「{ename}」分析" if it['entity_type'] == 'talent' and ename else '相关历史分析'
+                        picked.append((row, label))
             except Exception as e:
-                logger.warning(f'  [KnowledgeInject] 语义检索失败，跳过: {e}')
-            # 4) 历史规律：status=confirmed，category 匹配当前实体类目 OR entity_type 匹配，置信度降序取 top 2
+                logger.warning(f'  [KnowledgeInject] 混合检索失败，跳过: {e}')
+            # 4) 历史规律：proven/verified/candidate 正常注入；兼容旧数据（level=hypothesis 且 status=confirmed
+            # 按 verified 待遇注入）；category 匹配当前实体类目 OR entity_type 匹配，置信度降序取 top 2
             try:
                 p_cats = {c for c, _ in category_queries if c}
                 p_cats.update(cat for et, _id, _n, cat in entities if et == 'talent' and cat)
@@ -17288,8 +17410,9 @@ def _retrieve_knowledge_context(user_text, agent_id='', auth=None):
                     p_params.extend(sorted(p_types))
                 if sub_conds:
                     patterns = conn.execute(
-                        "SELECT * FROM knowledge_patterns WHERE status = 'confirmed' AND ("
-                        + ' OR '.join(sub_conds) + ') ORDER BY confidence DESC LIMIT 2',
+                        "SELECT * FROM knowledge_patterns WHERE (verification_level IN ('proven','verified','candidate')"
+                        " OR (verification_level = 'hypothesis' AND status = 'confirmed')) AND ("
+                        + ' OR '.join(sub_conds) + ') ORDER BY confidence_score DESC LIMIT 2',
                         p_params).fetchall()
             except Exception as e:
                 logger.warning(f'  [KnowledgeInject] 规律查询失败，跳过: {e}')
@@ -17318,10 +17441,18 @@ def _retrieve_knowledge_context(user_text, agent_id='', auth=None):
             plines = ['【历史规律参考】']
             for p in patterns:
                 try:
-                    conf = float(p['confidence'] or 0)
+                    conf = float(p['confidence_score'] or 0)
                 except (TypeError, ValueError):
                     conf = 0.0
-                plines.append(f"▶ {p['pattern_text']}（置信度: {conf:.0%}）")
+                level = p['verification_level'] or 'hypothesis'
+                if level == 'hypothesis' and p['status'] == 'confirmed':
+                    level = 'verified'  # 旧数据兼容：按 verified 待遇注入、不加标注
+                mark = ''
+                if level == 'proven':
+                    mark = '【高置信规律】'
+                elif level == 'candidate':
+                    mark = '【待更多验证】'
+                plines.append(f"▶ {mark}{p['pattern_text']}（置信度: {conf:.0f}%）")
             parts.append('\n'.join(plines))
         if not parts:
             return ''
@@ -17398,6 +17529,249 @@ def _search_knowledge_events(query, entity_type='', limit=5):
         return []
 
 
+# ═══ 三信号混合检索（阶段4B-P0）：向量 + FTS5 BM25 + 实体精确匹配，RRF 融合 ═══
+_KE_LIST_COLS = 'id, entity_type, entity_id, agent_id, event_type, title, content_summary, user_query, created_at'
+
+
+def _ke_fts_escape_query(query):
+    """把用户 query 转成安全的 FTS5 MATCH 表达式：去特殊字符，
+    拉丁/数字按原词、中文按 bigram 切分，OR 连接（quoted 防注入）。处理后为空返回 ''。"""
+    try:
+        query = (query or '').strip()
+        if not query:
+            return ''
+        terms = []
+        for seg in re.findall(r'[一-鿿]+|[A-Za-z0-9_]+', query):
+            if re.match(r'[A-Za-z0-9_]', seg):
+                terms.append(seg)
+            elif len(seg) == 1:
+                terms.append(seg)
+            else:
+                terms.extend(seg[i:i + 2] for i in range(len(seg) - 1))
+        terms = [t.replace('"', '') for t in terms if t.strip('"')]
+        if not terms:
+            return ''
+        return ' OR '.join(f'"{t}"' for t in terms[:20])
+    except Exception:
+        return ''
+
+
+def _ke_extract_query_entities(query):
+    """路3 实体提取：达人ID（inf_/tal_ 前缀正则）、active 商品名、达人名
+    （名称出现在 query 中，最长优先，各最多取3个）、类目词（talents/products.category distinct 值）。
+    返回 {'entity_refs': [(entity_type, entity_id), ...], 'categories': [...]}。异常返回空结构。"""
+    result = {'entity_refs': [], 'categories': []}
+    try:
+        text = (query or '').strip()
+        if not text:
+            return result
+        refs = []
+        cats = []
+        conn = _db_conn()
+        try:
+            # 显式达人 ID（不校验存在性，事件表按 entity_id 直接查即可）
+            for m in re.findall(r'(inf_[a-zA-Z0-9_]+|tal_[a-zA-Z0-9_]+)', text):
+                refs.append(('talent', m))
+            # 商品名（status='active'，出现在 query 中，最长优先，最多3个）
+            prows = conn.execute("SELECT id, name FROM products WHERE status='active'").fetchall()
+            p_hits = sorted(((r['id'], r['name'].strip()) for r in prows
+                             if r['name'] and r['name'].strip() and r['name'].strip() in text),
+                            key=lambda x: len(x[1]), reverse=True)[:3]
+            refs.extend(('product', pid) for pid, _n in p_hits)
+            # 达人名同理
+            trows = conn.execute("SELECT id, name FROM talents WHERE status='active'").fetchall()
+            t_hits = sorted(((r['id'], r['name'].strip()) for r in trows
+                             if r['name'] and r['name'].strip() and r['name'].strip() in text),
+                            key=lambda x: len(x[1]), reverse=True)[:3]
+            refs.extend(('talent', tid) for tid, _n in t_hits)
+            # 类目词：talents.category / products.category distinct 值出现在 query 中
+            crows = conn.execute(
+                "SELECT DISTINCT category FROM talents WHERE status='active' AND category != ''").fetchall()
+            crows += conn.execute(
+                "SELECT DISTINCT category FROM products WHERE status='active' AND category != ''").fetchall()
+            cats = sorted({r['category'].strip() for r in crows
+                           if r['category'] and r['category'].strip() and r['category'].strip() in text},
+                          key=len, reverse=True)[:3]
+        finally:
+            conn.close()
+        seen = set()
+        for ref in refs:
+            if ref not in seen:
+                seen.add(ref)
+                result['entity_refs'].append(ref)
+        result['categories'] = cats
+    except Exception as e:
+        logger.warning(f'  [HybridRetrieve] query 实体提取失败: {e}')
+    return result
+
+
+def _ke_entity_match_events(query, entity_type='', limit=5):
+    """路3 实体精确匹配：收 query 命中实体（及命中类目下）的最近事件（created_at DESC，每实体/类目最多 limit 条）。
+    返回 (ranked_ids, {id: list_item})。异常返回 ([], {})。"""
+    ids, items, seen = [], {}, set()
+    try:
+        found = _ke_extract_query_entities(query)
+        refs = [(et, eid) for et, eid in found['entity_refs'] if not entity_type or et == entity_type]
+        cats = found['categories']
+        if not refs and not cats:
+            return ids, items
+        conn = _db_conn()
+        try:
+            def _add_rows(rows):
+                for r in rows:
+                    if r['id'] in seen:
+                        continue
+                    seen.add(r['id'])
+                    ids.append(r['id'])
+                    items[r['id']] = _ke_event_to_list_item(r)
+
+            for et, eid in refs:
+                rows = conn.execute(
+                    f'SELECT {_KE_LIST_COLS} FROM knowledge_events WHERE entity_type = ? AND entity_id = ? '
+                    'ORDER BY created_at DESC LIMIT ?', (et, eid, limit)).fetchall()
+                _add_rows(rows)
+            for cat in cats:
+                if entity_type in ('', 'talent'):
+                    rows = conn.execute(
+                        f"SELECT ke.{', ke.'.join(_KE_LIST_COLS.split(', '))} FROM knowledge_events ke "
+                        "JOIN talents t ON ke.entity_type = 'talent' AND ke.entity_id = t.id "
+                        'WHERE t.category = ? ORDER BY ke.created_at DESC LIMIT ?', (cat, limit)).fetchall()
+                    _add_rows(rows)
+                if entity_type in ('', 'product'):
+                    rows = conn.execute(
+                        f"SELECT ke.{', ke.'.join(_KE_LIST_COLS.split(', '))} FROM knowledge_events ke "
+                        "JOIN products p ON ke.entity_type = 'product' AND ke.entity_id = p.id "
+                        'WHERE p.category = ? ORDER BY ke.created_at DESC LIMIT ?', (cat, limit)).fetchall()
+                    _add_rows(rows)
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f'  [HybridRetrieve] 实体匹配路失败: {e}')
+    return ids, items
+
+
+def _hybrid_retrieve_events(query, entity_type='', limit=5):
+    """三信号混合检索：路1 向量语义（复用 _search_knowledge_events，内部 LIKE 降级）、
+    路2 FTS5 BM25、路3 实体精确匹配；RRF 融合（score = Σ 1/(60+rank)）后叠加
+    final = 0.6*hybrid_norm + 0.25*(importance_score/10) + 0.15*recency（30天线性衰减），
+    按 final 降序取 top limit，返回 item 结构同 _ke_event_to_list_item（score 为 final，round 4 位）。
+    任一路失败记日志降级为其余路；三路全失败返回 []。整体绝不抛异常。"""
+    try:
+        query = (query or '').strip()
+        if not query:
+            return []
+        limit = max(1, int(limit or 5))
+        ranked_lists = []   # 各路名次 id 列表（名次从 1 开始）
+        items = {}          # id -> list item dict
+        # 路1：向量语义检索（内部逻辑不动，embedding 不可用时其自身降级 LIKE）
+        try:
+            v_items = _search_knowledge_events(query, entity_type, limit)
+            if v_items:
+                ranked_lists.append([it['id'] for it in v_items])
+                for it in v_items:
+                    items.setdefault(it['id'], it)
+        except Exception as e:
+            logger.warning(f'  [HybridRetrieve] 向量路失败，跳过: {e}')
+        # 路2：FTS5 BM25（FTS5 不可用时跳过）
+        try:
+            if _KE_FTS_ENABLED:
+                match_q = _ke_fts_escape_query(query)
+                if match_q:
+                    conn = _db_conn()
+                    try:
+                        fts_rows = conn.execute(
+                            'SELECT event_id, bm25(knowledge_events_fts) AS bm FROM knowledge_events_fts '
+                            'WHERE knowledge_events_fts MATCH ? ORDER BY bm LIMIT ?',
+                            (match_q, limit)).fetchall()
+                        fids = [r['event_id'] for r in fts_rows]
+                        if fids and entity_type:
+                            ph = ','.join('?' * len(fids))
+                            ok = {r['id'] for r in conn.execute(
+                                f'SELECT id FROM knowledge_events WHERE entity_type = ? AND id IN ({ph})',
+                                [entity_type] + fids).fetchall()}
+                            fids = [i for i in fids if i in ok]
+                        if fids:
+                            ph = ','.join('?' * len(fids))
+                            rows = conn.execute(
+                                f'SELECT {_KE_LIST_COLS} FROM knowledge_events WHERE id IN ({ph})', fids).fetchall()
+                            by_id = {r['id']: r for r in rows}
+                            fids = [i for i in fids if i in by_id]
+                            if fids:
+                                ranked_lists.append(fids)
+                                for i in fids:
+                                    items.setdefault(i, _ke_event_to_list_item(by_id[i]))
+                    finally:
+                        conn.close()
+        except Exception as e:
+            logger.warning(f'  [HybridRetrieve] FTS 路失败，跳过: {e}')
+        # 路3：实体精确匹配
+        try:
+            e_ids, e_items = _ke_entity_match_events(query, entity_type, limit)
+            if e_ids:
+                ranked_lists.append(e_ids)
+                for k, v in e_items.items():
+                    items.setdefault(k, v)
+        except Exception as e:
+            logger.warning(f'  [HybridRetrieve] 实体匹配路失败，跳过: {e}')
+        if not ranked_lists:
+            return []
+        # RRF 融合（按 id 去重合并）
+        rrf = {}
+        for id_list in ranked_lists:
+            for rank, eid in enumerate(id_list, 1):
+                rrf[eid] = rrf.get(eid, 0.0) + 1.0 / (_KE_RRF_K + rank)
+        # 取重要度/时间做最终打分
+        cand_ids = list(rrf.keys())
+        ph = ','.join('?' * len(cand_ids))
+        conn = _db_conn()
+        try:
+            meta = {r['id']: r for r in conn.execute(
+                f'SELECT id, importance_score, created_at FROM knowledge_events WHERE id IN ({ph})',
+                cand_ids).fetchall()}
+        finally:
+            conn.close()
+        max_rrf = max(rrf.values())
+        now_ms = int(time.time() * 1000)
+        finals = []
+        for eid, rrf_s in rrf.items():
+            m = meta.get(eid)
+            if not m or eid not in items:
+                continue
+            hybrid_norm = rrf_s / max_rrf if max_rrf > 0 else 0.0
+            try:
+                imp = float(m['importance_score']) if m['importance_score'] is not None else 5.0
+            except (TypeError, ValueError):
+                imp = 5.0
+            age_ms = max(0, now_ms - int(m['created_at'] or 0))
+            recency = max(0.0, 1.0 - age_ms / _KE_RECENCY_WINDOW_MS)
+            final = _KE_W_HYBRID * hybrid_norm + _KE_W_IMPORTANCE * (imp / 10.0) + _KE_W_RECENCY * recency
+            finals.append((final, eid))
+        finals.sort(key=lambda x: (-x[0], -(meta[x[1]]['created_at'] or 0)))
+        out = []
+        for final, eid in finals[:limit]:
+            item = dict(items[eid])
+            item['score'] = round(final, 4)
+            out.append(item)
+        # 检索命中批量更新 last_accessed_at（失败不影响返回）
+        if out:
+            try:
+                conn = _db_conn()
+                try:
+                    ph2 = ','.join('?' * len(out))
+                    conn.execute(
+                        f'UPDATE knowledge_events SET last_accessed_at = ? WHERE id IN ({ph2})',
+                        [str(now_ms)] + [it['id'] for it in out])
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as e:
+                logger.warning(f'  [HybridRetrieve] last_accessed_at 更新失败: {e}')
+        return out
+    except Exception as e:
+        logger.error(f'  [HybridRetrieve] 混合检索失败: {e}')
+        return []
+
+
 # ═══ 规律归纳（L3）：跨达人共性规律 ═══
 _KP_INDUCE_MIN_EVENTS = 5       # 归纳所需最少同类目事件数
 _KP_INDUCE_MAX_EVENTS = 20      # 归纳取最近 N 条事件
@@ -17408,6 +17782,26 @@ _KP_STATUS_FLOW = {
     'confirmed': ('deprecated',),
     'rejected': ('deprecated',),
 }
+# 置信等级枚举：hypothesis(假设) → candidate(候选) → verified(已验证) → proven(成熟)；deprecated 为终态
+_KP_LEVELS = ('hypothesis', 'candidate', 'verified', 'proven', 'deprecated')
+
+
+def _kp_can_promote(cur_level, target_level, confidence_score, evidence_count, approved=False):
+    """规律置信等级晋升门槛校验（只做校验，不做自动晋升）：
+    hypothesis→candidate 需审核通过且证据≥3；candidate→verified 需置信度≥70且证据≥10；
+    verified→proven 需置信度≥85且证据≥30；其余组合不允许。"""
+    try:
+        confidence_score = float(confidence_score or 0)
+        evidence_count = int(evidence_count or 0)
+    except (TypeError, ValueError):
+        return False
+    if cur_level == 'hypothesis' and target_level == 'candidate':
+        return approved and evidence_count >= 3
+    if cur_level == 'candidate' and target_level == 'verified':
+        return confidence_score >= 70 and evidence_count >= 10
+    if cur_level == 'verified' and target_level == 'proven':
+        return confidence_score >= 85 and evidence_count >= 30
+    return False
 
 
 def _kp_row_to_dict(r, with_evidence=False):
@@ -17419,6 +17813,9 @@ def _kp_row_to_dict(r, with_evidence=False):
         'pattern_text': r['pattern_text'],
         'confidence': r['confidence'],
         'status': r['status'],
+        'confidence_score': r['confidence_score'],
+        'evidence_count': r['evidence_count'],
+        'verification_level': r['verification_level'] or 'hypothesis',
         'source_event_ids': json.loads(r['source_event_ids'] or '[]'),
         'created_by': r['created_by'],
         'created_at': r['created_at'],
@@ -17443,6 +17840,11 @@ _DEAL_STATUS_FLOW = {
     'completed': (),
     'failed': (),
 }
+# 终态归因枚举：成败原因 / 问题阶段
+_DEAL_WIN_LOSS_CATEGORIES = ('price_commission', 'tone_mismatch', 'product_weak',
+                             'experience', 'competitor', 'schedule', 'other')
+_DEAL_KEY_MOMENTS = ('first_contact', 'negotiating', 'sample_sent',
+                     'pre_live', 'during_live', 'post_live')
 
 
 def _deal_row_to_dict(r):
@@ -17463,6 +17865,9 @@ def _deal_row_to_dict(r):
         'predicted_conclusion': r['predicted_conclusion'],
         'predicted_event_id': r['predicted_event_id'],
         'verification': r['verification'],
+        'win_loss_category': r['win_loss_category'] if 'win_loss_category' in r.keys() else '',
+        'key_moment': r['key_moment'] if 'key_moment' in r.keys() else '',
+        'decision_maker_feedback': r['decision_maker_feedback'] if 'decision_maker_feedback' in r.keys() else '',
         'created_by': r['created_by'],
         'created_at': r['created_at'],
         'updated_at': r['updated_at'],
@@ -17568,13 +17973,17 @@ def _induce_knowledge_patterns(category, llm_config, created_by=''):
                 pid = 'kp_' + uuid.uuid4().hex[:12]
                 conn.execute(
                     "INSERT INTO knowledge_patterns (id, category, entity_type, pattern_text, evidence, "
-                    "confidence, status, source_event_ids, created_by, created_at, updated_at) "
-                    "VALUES (?, ?, 'talent', ?, ?, ?, 'draft', ?, ?, ?, ?)",
+                    "confidence, status, source_event_ids, created_by, created_at, updated_at, "
+                    "confidence_score, evidence_count, verification_level) "
+                    "VALUES (?, ?, 'talent', ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, 'hypothesis')",
                     (pid, category, p['pattern_text'].strip(), json.dumps(ev_ids, ensure_ascii=False),
-                     conf, json.dumps(event_ids, ensure_ascii=False), created_by, now, now))
+                     conf, json.dumps(event_ids, ensure_ascii=False), created_by, now, now,
+                     round(conf * 100, 1), len(ev_ids)))
                 saved.append({'id': pid, 'category': category, 'entity_type': 'talent',
                               'pattern_text': p['pattern_text'].strip(), 'confidence': conf,
                               'status': 'draft', 'source_event_ids': event_ids,
+                              'confidence_score': round(conf * 100, 1), 'evidence_count': len(ev_ids),
+                              'verification_level': 'hypothesis',
                               'created_at': now, 'updated_at': now})
             conn.commit()
         finally:

@@ -145,7 +145,7 @@ for nxt in ('negotiating', 'sample_sent', 'approved', 'live'):
         flow_ok = False
         break
 check('5a. pending->negotiating->sample_sent->approved->live 逐步成功', flow_ok, repr(h.resp)[:200])
-h = MockHandler(body={'status': 'completed', 'actual_gmv': 50000, 'actual_roi': 3.2, 'actual_units': 500})
+h = MockHandler(body={'status': 'completed', 'actual_gmv': 50000, 'actual_roi': 3.2, 'actual_units': 500, 'win_loss_category': 'other'})
 srv.SoloBraveHandler._handle_put_deal(h, deal_id)
 ok5b = h.resp and h.resp[0] == 200 and h.resp[1]['status'] == 'completed' \
     and h.resp[1]['actual_gmv'] == 50000

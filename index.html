@@ -374,6 +374,12 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .pattern-status-badge.confirmed { background: #e3f6e8; color: #1a7f37; }
 .pattern-status-badge.rejected { background: #fdecea; color: #c62828; }
 .pattern-status-badge.deprecated { background: #ececec; color: #777; }
+.pattern-level-badge { border-radius: 10px; padding: 2px 8px; font-size: 11px; }
+.pattern-level-badge.hypothesis { background: #ececec; color: #777; }
+.pattern-level-badge.candidate { background: #e3f0ff; color: #1565c0; }
+.pattern-level-badge.verified { background: #e3f6e8; color: #1a7f37; }
+.pattern-level-badge.proven { background: #fff3d6; color: #b8860b; }
+.pattern-level-badge.deprecated { background: #ececec; color: #777; text-decoration: line-through; }
 .pattern-conf-bar { width: 80px; height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
 .pattern-conf-fill { height: 100%; background: #007aff; }
 .pattern-card-actions { display: flex; gap: 6px; }
@@ -6721,6 +6727,30 @@ window.doLogin = function () {
         <div class="product-modal-field"><label>实际 ROI</label><input type="number" id="dealActualRoi" min="0" step="0.01" placeholder="如 3.5"></div>
         <div class="product-modal-field"><label>实际销量</label><input type="number" id="dealActualUnits" min="0" step="1" placeholder="如 800"></div>
         <div class="product-modal-field"><label>结果备注</label><textarea id="dealResultNote" placeholder="GMV 与备注至少填写一项"></textarea></div>
+        <div class="product-modal-field required"><label>成败原因</label>
+          <select id="dealWinLossCategory">
+            <option value="">请选择</option>
+            <option value="price_commission">价格佣金</option>
+            <option value="tone_mismatch">调性不符</option>
+            <option value="product_weak">商品力不足</option>
+            <option value="experience">对接体验</option>
+            <option value="competitor">竞品截胡</option>
+            <option value="schedule">档期问题</option>
+            <option value="other">其他</option>
+          </select>
+        </div>
+        <div class="product-modal-field"><label>问题阶段</label>
+          <select id="dealKeyMoment">
+            <option value="">不指定</option>
+            <option value="first_contact">首次接触</option>
+            <option value="negotiating">谈判中</option>
+            <option value="sample_sent">寄样</option>
+            <option value="pre_live">直播前</option>
+            <option value="during_live">直播中</option>
+            <option value="post_live">直播后</option>
+          </select>
+        </div>
+        <div class="product-modal-field"><label>达人方反馈</label><textarea id="dealDecisionMakerFeedback" placeholder="选填，记录达人/决策人的关键反馈"></textarea></div>
       </div>
     </div>
     <div class="product-modal-footer">
@@ -24443,6 +24473,10 @@ function _dealStatusLabel(s) {
   return { pending: '待推进', negotiating: '洽谈中', sample_sent: '已寄样', approved: '已确认', live: '已上播', completed: '已完成', failed: '已失败' }[s] || s || '待推进';
 }
 
+function _dealWinLossLabel(c) {
+  return { price_commission: '价格佣金', tone_mismatch: '调性不符', product_weak: '商品力不足', experience: '对接体验', competitor: '竞品截胡', schedule: '档期问题', other: '其他' }[c] || '';
+}
+
 function renderTalentPanelRecords(t) {
   var el = document.getElementById('talentsPanelRecords');
   if (!el) return;
@@ -24489,6 +24523,10 @@ function _renderDealCardHTML(d) {
     if (parts.length) html += '<div class="deal-meta">成果：' + escapeHtml(parts.join(' / ')) + '</div>';
   }
   if (d.result_note) html += '<div class="talents-record-note">' + escapeHtml(d.result_note) + '</div>';
+  if (isTerminal && d.win_loss_category) {
+    var wlcLabel = _dealWinLossLabel(d.win_loss_category) || d.win_loss_category;
+    html += '<div class="deal-meta">成败原因：<span class="deal-status-badge ' + escapeAttr(status) + '">' + escapeHtml(wlcLabel) + '</span></div>';
+  }
   if (d.predicted_conclusion) html += '<div class="deal-predicted"><span class="deal-predicted-tag">AI预测</span>' + escapeHtml(d.predicted_conclusion) + '</div>';
   html += '<div class="talents-timeline-actions" style="margin-top:6px;">';
   if (!isTerminal) html += '<button onclick="editDeal(\'' + escapeAttr(String(d.id)).replace(/'/g,"\\'") + '\')">编辑</button>';
@@ -24528,6 +24566,9 @@ function openDealModal(talentId, deal) {
   document.getElementById('dealActualRoi').value = (deal && deal.actual_roi != null) ? deal.actual_roi : '';
   document.getElementById('dealActualUnits').value = (deal && deal.actual_units != null) ? deal.actual_units : '';
   document.getElementById('dealResultNote').value = deal ? (deal.result_note || '') : '';
+  document.getElementById('dealWinLossCategory').value = deal ? (deal.win_loss_category || '') : '';
+  document.getElementById('dealKeyMoment').value = deal ? (deal.key_moment || '') : '';
+  document.getElementById('dealDecisionMakerFeedback').value = deal ? (deal.decision_maker_feedback || '') : '';
   document.getElementById('dealModalTitle').textContent = deal ? '编辑合作' : '新增合作';
   onDealStatusChange();
   _loadDealProductOptions(deal ? deal.product_id : '');
@@ -24539,7 +24580,7 @@ function closeDealModal(e) { if (e && e.target !== e.currentTarget) return; docu
 
 function onDealStatusChange() {
   var st = document.getElementById('dealStatus').value;
-  document.getElementById('dealResultArea').style.display = (st === 'completed') ? '' : 'none';
+  document.getElementById('dealResultArea').style.display = (st === 'completed' || st === 'failed') ? '' : 'none';
 }
 
 function _loadDealProductOptions(selectedId) {
@@ -24621,16 +24662,21 @@ function saveDeal() {
     predicted_event_id: document.getElementById('dealPredictedEventId').value,
     predicted_conclusion: document.getElementById('dealPredictedConclusion').value
   };
-  if (status === 'completed') {
+  if (status === 'completed' || status === 'failed') {
     var gmv = document.getElementById('dealActualGmv').value;
     var roi = document.getElementById('dealActualRoi').value;
     var units = document.getElementById('dealActualUnits').value;
     var note = document.getElementById('dealResultNote').value.trim();
-    if ((gmv === '' || parseFloat(gmv) <= 0) && !note) { showToast('标记为已完成需填写 GMV 或结果备注'); return; }
+    if (status === 'completed' && (gmv === '' || parseFloat(gmv) <= 0) && !note) { showToast('标记为已完成需填写 GMV 或结果备注'); return; }
+    var wlc = document.getElementById('dealWinLossCategory').value;
+    if (!wlc) { showToast('请选择成败原因'); return; }
     body.actual_gmv = gmv === '' ? 0 : parseFloat(gmv);
     body.actual_roi = roi === '' ? 0 : parseFloat(roi);
     body.actual_units = units === '' ? 0 : parseInt(units, 10);
     body.result_note = note;
+    body.win_loss_category = wlc;
+    body.key_moment = document.getElementById('dealKeyMoment').value;
+    body.decision_maker_feedback = document.getElementById('dealDecisionMakerFeedback').value.trim();
   }
   var url = id ? '/api/deals/' + encodeURIComponent(id) : '/api/deals';
   var method = id ? 'PUT' : 'POST';
@@ -24841,19 +24887,24 @@ function renderPatternsList() {
     return;
   }
   var statusLabel = { draft: '待确认', confirmed: '已确认', rejected: '已拒绝', deprecated: '已废弃' };
+  var levelLabel = { hypothesis: '假设', candidate: '候选', verified: '已验证', proven: '成熟', deprecated: '已废弃' };
   var html = '';
   list.forEach(function(p){
-    var conf = Math.round((p.confidence || 0) * 100);
+    var conf = Math.round(p.confidence_score != null ? p.confidence_score : (p.confidence || 0) * 100);
+    var level = p.verification_level || 'hypothesis';
+    if (level === 'hypothesis' && p.status === 'confirmed') level = 'verified'; // 与后端注入兼容规则一致
     var time = p.created_at ? new Date(p.created_at * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
     var pid = escapeAttr(p.id);
     html += '<div class="pattern-card" onclick="togglePatternEvidence(\'' + pid + '\')">';
     html += '<div class="pattern-card-top">';
     html += '<span class="pattern-cat-tag">' + escapeHtml(p.category || '未分类') + '</span>';
+    html += '<span class="pattern-level-badge ' + escapeAttr(level) + '">' + (levelLabel[level] || level) + '</span>';
     html += '<span class="pattern-status-badge ' + escapeAttr(p.status || 'draft') + '">' + (statusLabel[p.status] || p.status || '待确认') + '</span>';
     html += '</div>';
     html += '<div class="pattern-card-text">' + escapeHtml(p.pattern_text || '') + '</div>';
     html += '<div class="pattern-card-meta">';
     html += '<span>置信度</span><div class="pattern-conf-bar"><div class="pattern-conf-fill" style="width:' + conf + '%"></div></div><span>' + conf + '%</span>';
+    html += '<span>支撑案例 ' + (p.evidence_count || 0) + '</span>';
     html += '<span style="margin-left:auto;">' + escapeHtml(time) + '</span>';
     if (p.status === 'draft') {
       html += '<span class="pattern-card-actions">';
