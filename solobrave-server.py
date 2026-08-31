@@ -16787,6 +16787,7 @@ def _resolve_ai_base_url(api_provider, custom_endpoint=''):
         'zhipu': 'https://open.bigmodel.cn/api/paas/v4',
         'anthropic': 'https://api.anthropic.com/v1',
         'siliconflow': 'https://api.siliconflow.cn/v1',
+        'minimax': 'https://api.minimax.chat/v1/text',
     }
     if api_provider in mapping:
         return mapping[api_provider]
@@ -16808,6 +16809,7 @@ def _resolve_ai_model(api_provider, api_model=''):
         'zhipu': 'glm-4-flash',
         'anthropic': 'claude-3-5-sonnet-20241022',
         'siliconflow': 'deepseek-ai/DeepSeek-V3',
+        'minimax': 'MiniMax-Text-01',
     }
     return default_models.get(api_provider, 'gpt-4o-mini')
 
@@ -16917,6 +16919,140 @@ def _call_kimicode_messages(base_url, model, api_key, messages, timeout=300, max
     except Exception as e:
         logger.error(f'  ❌ kimicode messages call failed: {e}')
         traceback.print_exc()
+    return None
+
+
+def _call_minimax_messages(base_url, model, api_key, messages, timeout=300, max_tokens=4096):
+    """MiniMax chat completion API 调用（OpenAI 兼容格式）。
+    POST {base_url}/chatcompletion_v2，认证用 Authorization: Bearer。
+    响应取 choices[0].message.content。"""
+    body = {'model': model, 'messages': messages, 'max_tokens': max_tokens, 'stream': False}
+    req_body = json.dumps(body).encode('utf-8')
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {api_key}',
+        'Content-Length': str(len(req_body)),
+    }
+    target_url = base_url + '/chatcompletion_v2'
+    masked_key = f'{api_key[:8]}...' if api_key and len(api_key) > 8 else '(none)'
+    logger.info(f'  [API] minimax request: model={model} url={target_url} key={masked_key}')
+    try:
+        req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
+        ctx = ssl.create_default_context()
+        resp = urllib.request.urlopen(req, timeout=timeout, context=ctx)
+        raw = resp.read().decode('utf-8', errors='replace')
+        logger.info(f'  [API] minimax response: HTTP {resp.status}')
+        resp_data = json.loads(raw)
+        if resp_data.get('choices') and resp_data['choices'][0].get('message'):
+            return resp_data['choices'][0]['message'].get('content', '')
+        logger.info(f'  [API] minimax unexpected format: {raw[:500]}')
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8', errors='replace')
+        logger.error(f'  ❌ minimax call failed: HTTP {e.code} {e.reason}')
+        logger.error(f'      Response: {error_body}')
+    except Exception as e:
+        logger.error(f'  ❌ minimax call failed: {e}')
+        traceback.print_exc()
+    return None
+
+
+# ═══ Provider 降级计数器 + 多 provider 降级调用 ═══
+# 当某个 provider 连续失败 _PROVIDER_DEGRADED_THRESHOLD 次后，降级调用会跳过该 provider，
+# 避免每个请求都白白等超时。成功一次后自动重置计数。
+_PROVIDER_FAIL_COUNTS = {}
+_PROVIDER_DEGRADED_THRESHOLD = 3
+
+
+def _mark_provider_failed(provider_name):
+    _PROVIDER_FAIL_COUNTS[provider_name] = _PROVIDER_FAIL_COUNTS.get(provider_name, 0) + 1
+    count = _PROVIDER_FAIL_COUNTS[provider_name]
+    if count >= _PROVIDER_DEGRADED_THRESHOLD:
+        logger.warning(f'  [Fallback] Provider "{provider_name}" degraded after {count} consecutive failures, skipping')
+
+
+def _is_provider_degraded(provider_name):
+    return _PROVIDER_FAIL_COUNTS.get(provider_name, 0) >= _PROVIDER_DEGRADED_THRESHOLD
+
+
+def _mark_provider_ok(provider_name):
+    if provider_name in _PROVIDER_FAIL_COUNTS:
+        del _PROVIDER_FAIL_COUNTS[provider_name]
+
+
+def _call_chat_completion_with_fallback(messages, timeout=PROXY_TIMEOUT, max_tokens=2000):
+    """多 provider 降级调用：按 settings.json 中 providers 数组的 priority 顺序尝试。
+    优先调用 priority 最小的；该 provider 失败则按 priority 递增依次降级；
+    已降级（连续失败 >= 阈值）的 provider 直接跳过。任一 provider 成功即返回其内容；全部失败返回 None。
+    兼容旧单 provider 格式（无 providers 数组，只有 apiKey/baseUrl/model 字段）。"""
+    try:
+        settings = _read_json(SETTINGS_FILE, {}) or {}
+    except Exception:
+        settings = {}
+    llm = settings.get('llm') or {}
+
+    # 构建 provider 列表（兼容旧单 provider 格式）
+    providers_to_try = []
+    if isinstance(llm.get('providers'), list) and llm['providers']:
+        providers_to_try = sorted(llm['providers'], key=lambda p: p.get('priority', 99))
+    elif llm.get('apiKey'):
+        providers_to_try = [{
+            'name': llm.get('provider', 'default'),
+            'apiKey': llm['apiKey'],
+            'baseUrl': llm.get('baseUrl', ''),
+            'model': llm.get('model', ''),
+            'priority': 1,
+        }]
+
+    if not providers_to_try:
+        logger.info('  [Fallback] settings.json llm 无可用 provider 配置，跳过降级')
+        return None
+
+    for p in providers_to_try:
+        name = p.get('name', 'unknown')
+        if _is_provider_degraded(name):
+            logger.info(f'  [Fallback] skip degraded provider: {name}')
+            continue
+        api_key = (p.get('apiKey', '') or '').strip()
+        base_url = (p.get('baseUrl', '') or '').strip()
+        model = p.get('model', '') or ''
+        if not api_key or not base_url:
+            logger.info(f'  [Fallback] provider {name} 缺 apiKey/baseUrl，跳过')
+            continue
+        logger.info(f'  [Fallback] trying provider: {name} (priority={p.get("priority", 99)})')
+        try:
+            if name == 'minimax':
+                content = _call_minimax_messages(base_url, model, api_key, messages, timeout=timeout, max_tokens=max_tokens)
+            elif name == 'kimicode':
+                content = _call_kimicode_messages(base_url, model, api_key, messages, timeout=timeout, max_tokens=max_tokens)
+            else:
+                # 其他 provider 走通用 OpenAI chat/completions 路径
+                req_body = json.dumps({
+                    'model': model, 'messages': messages, 'max_tokens': max_tokens, 'stream': False,
+                }).encode('utf-8')
+                headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': f'Bearer {api_key}',
+                    'Content-Length': str(len(req_body)),
+                }
+                masked_key = f'{api_key[:8]}...' if api_key and len(api_key) > 8 else '(none)'
+                logger.info(f'  [API] {name} request: model={model} url={base_url}/chat/completions key={masked_key}')
+                req = urllib.request.Request(base_url + '/chat/completions', data=req_body, headers=headers, method='POST')
+                ctx = ssl.create_default_context()
+                resp = urllib.request.urlopen(req, timeout=timeout, context=ctx)
+                raw = resp.read().decode('utf-8', errors='replace')
+                resp_data = json.loads(raw)
+                content = resp_data['choices'][0]['message'].get('content', '') if resp_data.get('choices') else None
+        except Exception as e:
+            logger.error(f'  ❌ {name} call raised: {e}')
+            content = None
+        if content:
+            _mark_provider_ok(name)
+            logger.info(f'  ✅ [Fallback] provider {name} succeeded')
+            return content
+        _mark_provider_failed(name)
+        logger.info(f'  ⚠️ [Fallback] provider {name} failed, trying next')
+
+    logger.info('  [Fallback] all providers failed')
     return None
 
 
@@ -18563,7 +18699,13 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
 
     messages.append({'role': 'user', 'content': user_message})
 
-    return _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT)
+    # 优先尝试 agent 自己的 provider 配置；如果失败，走 settings.json 多 provider 降级
+    result = _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT)
+    if result is None and not custom_endpoint:
+        # agent 级别调用失败，尝试 settings.json 的 provider 列表降级
+        logger.info(f'  [Fallback] Agent provider "{api_provider}" failed, trying settings.json fallback')
+        result = _call_chat_completion_with_fallback(messages, timeout=PROXY_TIMEOUT)
+    return result
 
 def _handle_delete_chat_message(self, agent_id, msg_id):
     """DELETE /api/chat/:agentId/:msgId?type=..."""
