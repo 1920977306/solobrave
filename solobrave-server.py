@@ -17056,10 +17056,11 @@ def _call_chat_completion_with_fallback(messages, timeout=PROXY_TIMEOUT, max_tok
     return None
 
 
-def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy'):
+def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy', request_format='anthropic'):
     """代理转发失败时（典型 403）尝试 minimax 兜底。
-    输入：body_json 是 Anthropic Messages 格式的 dict（来自 /api/proxy 转发到 kimi 的请求体）。
-    返回：minimax 响应已转为 Anthropic Messages 格式的 JSON 字节流；失败返回 None。
+    输入：body_json 是 Anthropic Messages 或 OpenAI chat/completions 格式的 dict。
+    request_format: 'anthropic' 或 'openai'，决定返回的响应格式（与前端原始请求一致）。
+    返回：minimax 响应已转为对应格式的 JSON 字节流；失败返回 None。
     不修改输入。调 minimax 失败会更新 _PROVIDER_FAIL_COUNTS，连续失败 3 次后跳过。"""
     if not isinstance(body_json, dict):
         return None
@@ -17089,32 +17090,52 @@ def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy'):
         logger.error(f'  [{log_prefix}Fallback] 读 settings.json 失败: {e}')
         return None
 
-    # 转换 Anthropic Messages -> OpenAI chat/completions（仅文本块，图片块丢弃并警告）
+    # 把请求归一为 OpenAI chat/completions 消息列表（minimax 后端吃 OpenAI 格式）
+    # 输入 body_json 可能是 OpenAI 或 Anthropic 格式（_handle_proxy 在请求侧已可能做过转换）
     try:
         oai_messages = []
-        system_text = body_json.get('system', '')
-        if isinstance(system_text, str) and system_text:
-            oai_messages.append({'role': 'system', 'content': system_text})
-        elif isinstance(system_text, list):
-            sys_texts = [b.get('text', '') for b in system_text if isinstance(b, dict) and b.get('type') == 'text']
-            if sys_texts:
-                oai_messages.append({'role': 'system', 'content': '\n'.join(sys_texts)})
-        for msg in body_json.get('messages', []) or []:
-            if not isinstance(msg, dict):
-                continue
-            role = msg.get('role')
-            if role == 'system':
-                continue
-            content = msg.get('content')
-            if isinstance(content, str):
-                oai_messages.append({'role': role, 'content': content})
-            elif isinstance(content, list):
-                texts = []
-                for item in content:
-                    if isinstance(item, dict) and item.get('type') == 'text':
-                        texts.append(item.get('text', ''))
-                if texts:
-                    oai_messages.append({'role': role, 'content': '\n'.join(texts)})
+        # 判定输入 body 是 Anthropic 还是 OpenAI：顶层有 'system' 字段或 'max_tokens' 视为 Anthropic
+        input_is_anthropic = isinstance(body_json, dict) and (
+            'system' in body_json or 'max_tokens' in body_json
+        )
+        if input_is_anthropic:
+            system_text = body_json.get('system', '')
+            if isinstance(system_text, str) and system_text:
+                oai_messages.append({'role': 'system', 'content': system_text})
+            elif isinstance(system_text, list):
+                sys_texts = [b.get('text', '') for b in system_text if isinstance(b, dict) and b.get('type') == 'text']
+                if sys_texts:
+                    oai_messages.append({'role': 'system', 'content': '\n'.join(sys_texts)})
+            for msg in body_json.get('messages', []) or []:
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get('role')
+                if role == 'system':
+                    continue
+                content = msg.get('content')
+                if isinstance(content, str):
+                    oai_messages.append({'role': role, 'content': content})
+                elif isinstance(content, list):
+                    texts = []
+                    for item in content:
+                        if isinstance(item, dict) and item.get('type') == 'text':
+                            texts.append(item.get('text', ''))
+                    if texts:
+                        oai_messages.append({'role': role, 'content': '\n'.join(texts)})
+        else:
+            # OpenAI chat/completions: system 在 messages 第一个，user/assistant 顺序
+            for msg in body_json.get('messages', []) or []:
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get('role')
+                content = msg.get('content')
+                if isinstance(content, str):
+                    oai_messages.append({'role': role, 'content': content})
+                elif isinstance(content, list):
+                    texts = [item.get('text', '') for item in content
+                             if isinstance(item, dict) and item.get('type') == 'text']
+                    if texts:
+                        oai_messages.append({'role': role, 'content': '\n'.join(texts)})
         if not oai_messages:
             logger.info(f'  [{log_prefix}Fallback] 没有可转换的文本消息，跳过')
             return None
@@ -17133,7 +17154,7 @@ def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy'):
             'Content-Length': str(len(req_body)),
         }
         masked_key = f'{api_key[:8]}...' if api_key and len(api_key) > 8 else '(none)'
-        logger.info(f'  [{log_prefix}Fallback] 上游失败 → 尝试 minimax 兜底: model={model} url={target_url} key={masked_key}')
+        logger.info(f'  [{log_prefix}Fallback] 上游失败 → 尝试 minimax 兜底: model={model} url={target_url} key={masked_key} request_format={request_format}')
 
         req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
         ctx = ssl.create_default_context()
@@ -17150,19 +17171,46 @@ def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy'):
             _mark_provider_failed('minimax')
             return None
 
-        # 转换为 Anthropic Messages 格式（client 期望的格式）
-        anthropic_resp = {
-            'id': resp_data.get('id', f'minimax_{int(time.time() * 1000)}'),
-            'type': 'message',
-            'role': 'assistant',
-            'content': [{'type': 'text', 'text': content_text}],
-            'model': model,
-            'stop_reason': 'end_turn',
-            'usage': resp_data.get('usage', {'input_tokens': 0, 'output_tokens': 0}),
-        }
-        _mark_provider_ok('minimax')
-        logger.info(f'  ✅ [{log_prefix}Fallback] minimax 兜底成功, content_len={len(content_text)}')
-        return json.dumps(anthropic_resp, ensure_ascii=False).encode('utf-8')
+        # 按 request_format 构造响应
+        if request_format == 'openai':
+            # OpenAI chat.completion 格式
+            usage_raw = resp_data.get('usage') or {}
+            prompt_tokens = usage_raw.get('prompt_tokens') or usage_raw.get('input_tokens') or 0
+            completion_tokens = usage_raw.get('completion_tokens') or usage_raw.get('output_tokens') or 0
+            total_tokens = usage_raw.get('total_tokens') or (prompt_tokens + completion_tokens)
+            openai_resp = {
+                'id': resp_data.get('id', f'minimax_{int(time.time() * 1000)}'),
+                'object': 'chat.completion',
+                'created': int(time.time()),
+                'model': model,
+                'choices': [{
+                    'index': 0,
+                    'message': {'role': 'assistant', 'content': content_text},
+                    'finish_reason': 'stop',
+                }],
+                'usage': {
+                    'prompt_tokens': prompt_tokens,
+                    'completion_tokens': completion_tokens,
+                    'total_tokens': total_tokens,
+                },
+            }
+            _mark_provider_ok('minimax')
+            logger.info(f'  ✅ [{log_prefix}Fallback] minimax 兜底成功(OpenAI格式), content_len={len(content_text)}')
+            return json.dumps(openai_resp, ensure_ascii=False).encode('utf-8')
+        else:
+            # Anthropic Messages 格式（保持向后兼容）
+            anthropic_resp = {
+                'id': resp_data.get('id', f'minimax_{int(time.time() * 1000)}'),
+                'type': 'message',
+                'role': 'assistant',
+                'content': [{'type': 'text', 'text': content_text}],
+                'model': model,
+                'stop_reason': 'end_turn',
+                'usage': resp_data.get('usage', {'input_tokens': 0, 'output_tokens': 0}),
+            }
+            _mark_provider_ok('minimax')
+            logger.info(f'  ✅ [{log_prefix}Fallback] minimax 兜底成功(Anthropic格式), content_len={len(content_text)}')
+            return json.dumps(anthropic_resp, ensure_ascii=False).encode('utf-8')
     except urllib.error.HTTPError as e:
         try:
             err_body_text = e.read().decode('utf-8', errors='replace')[:300]
@@ -19644,6 +19692,24 @@ def _resolve_kimi_coding_target_url(provider):
     return KIMI_CODING_DEFAULT_ENDPOINT
 
 
+def _detect_request_format(target_url, body_json):
+    """根据目标 URL path 和 body 结构判断前端期望的请求格式。
+    返回 'openai' 或 'anthropic'。默认 anthropic（Kimi coding 兼容）。"""
+    if target_url:
+        url_lower = target_url.lower()
+        # OpenAI 风格 path
+        if '/chat/completions' in url_lower or '/v1/completions' in url_lower:
+            return 'openai'
+        # Anthropic 风格 path
+        if '/v1/messages' in url_lower or url_lower.endswith('/messages'):
+            return 'anthropic'
+    # body 兜底：Anthropic 通常带 system + max_tokens 顶层字段
+    if isinstance(body_json, dict):
+        if 'system' in body_json and 'max_tokens' in body_json:
+            return 'anthropic'
+    return 'anthropic'
+
+
 def _openai_content_to_anthropic(content):
     """将单条 OpenAI message.content 转成 Anthropic Messages API 格式。
     如果 content 里已经包含 Anthropic 原生格式（type='image' + source），直接透传，避免重复转换或丢失。"""
@@ -20315,6 +20381,10 @@ def _handle_proxy(self):
     provider = self.headers.get('X-AI-Provider', '').lower()
     is_kimi_coding = _is_kimi_coding_request(provider, target_url)
 
+    # 检测请求格式（OpenAI / Anthropic）。前端发到 /v1/chat/completions 是 OpenAI；
+    # 后续 URL 可能被改写成 /v1/messages（Anthropic），但最终响应要还原成前端期望的格式。
+    request_format = _detect_request_format(target_url, body_json)
+
     # 检测并处理 AI 自修改自然语言意图（在消息到达上游 AI 前拦截）
     if agent_id and body_json:
         try:
@@ -20361,25 +20431,30 @@ def _handle_proxy(self):
 
     forward_headers = {}
     if is_kimi_coding and body_json:
-        # Kimi coding API 是 Anthropic 原生端点，直接透传原生 Anthropic Messages 格式。
-        # 前端已负责构造 Anthropic 格式（含 image.source base64），后端不再做 OpenAI 转换。
+        # Kimi coding API 是 Anthropic 原生端点。请求体若是 OpenAI 格式（含或不含 image_url），
+        # 都统一转成 Anthropic Messages 再转发；响应回前端时再按 request_format 还原。
         target_url = _resolve_kimi_coding_target_url(provider)
 
-        # 如果前端仍发来 OpenAI 格式（含 image_url），为兼容做一次兜底转换
-        has_openai_image = False
-        for msg in body_json.get('messages', []):
-            content = msg.get('content', '')
-            if isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict) and item.get('type') == 'image_url':
-                        has_openai_image = True
-                        break
-            if has_openai_image:
-                break
-        if has_openai_image:
-            logger.info('  [Proxy] 警告: 收到含 image_url 的 OpenAI 格式，正在转换为 Anthropic Messages 格式')
+        if request_format == 'openai':
+            logger.info('  [Proxy] OpenAI 格式请求 → 转为 Anthropic Messages 格式后转发给 kimi coding')
             body_json = _transform_openai_to_anthropic(body_json)
-            body = json.dumps(body_json).encode('utf-8')
+            body = json.dumps(body_json, ensure_ascii=False).encode('utf-8')
+        else:
+            # 兼容旧路径：仅在含 image_url 时兜底转换
+            has_openai_image = False
+            for msg in body_json.get('messages', []):
+                content = msg.get('content', '')
+                if isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict) and item.get('type') == 'image_url':
+                            has_openai_image = True
+                            break
+                if has_openai_image:
+                    break
+            if has_openai_image:
+                logger.info('  [Proxy] 警告: 收到含 image_url 的 OpenAI 格式，正在转换为 Anthropic Messages 格式')
+                body_json = _transform_openai_to_anthropic(body_json)
+                body = json.dumps(body_json).encode('utf-8')
 
         ai_api_key = self.headers.get('X-AI-API-Key', '')
         if ai_api_key:
@@ -20451,6 +20526,17 @@ def _handle_proxy(self):
                         logger.info(f'  [Proxy] Anthropic tool_use 续调用完成 <- {target_url}')
             except Exception as e:
                 logger.error(f'  [Proxy] Anthropic 响应解析失败: {e}')
+
+            # 若前端是 OpenAI 格式请求，把 Anthropic 响应转回 OpenAI 透传
+            if request_format == 'openai':
+                try:
+                    anthropic_parsed = json.loads(resp_body.decode('utf-8', errors='replace'))
+                    if isinstance(anthropic_parsed, dict) and anthropic_parsed.get('type') == 'message':
+                        openai_parsed = _transform_anthropic_to_openai(anthropic_parsed)
+                        resp_body = json.dumps(openai_parsed, ensure_ascii=False).encode('utf-8')
+                        logger.info('  [Proxy] 响应已从 Anthropic 转换为 OpenAI 格式')
+                except Exception as conv_err:
+                    logger.error(f'  [Proxy] Anthropic -> OpenAI 响应转换失败: {conv_err}')
         else:
             # 解析响应中的 choices 长度用于日志
             choices_info = ''
@@ -20485,7 +20571,7 @@ def _handle_proxy(self):
         fallback_body = None
         if status == 403 and is_kimi_coding and body_json:
             try:
-                fallback_body = _try_minimax_proxy_fallback(body_json, log_prefix='Proxy')
+                fallback_body = _try_minimax_proxy_fallback(body_json, log_prefix='Proxy', request_format=request_format)
             except Exception as fb_err:
                 logger.error(f'  [Proxy] minimax fallback exception: {fb_err}')
 
