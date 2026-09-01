@@ -17056,6 +17056,126 @@ def _call_chat_completion_with_fallback(messages, timeout=PROXY_TIMEOUT, max_tok
     return None
 
 
+def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy'):
+    """代理转发失败时（典型 403）尝试 minimax 兜底。
+    输入：body_json 是 Anthropic Messages 格式的 dict（来自 /api/proxy 转发到 kimi 的请求体）。
+    返回：minimax 响应已转为 Anthropic Messages 格式的 JSON 字节流；失败返回 None。
+    不修改输入。调 minimax 失败会更新 _PROVIDER_FAIL_COUNTS，连续失败 3 次后跳过。"""
+    if not isinstance(body_json, dict):
+        return None
+    if _is_provider_degraded('minimax'):
+        logger.info(f'  [{log_prefix}Fallback] minimax 已 degraded，跳过')
+        return None
+
+    # 读 settings.json 拿 minimax 配置
+    try:
+        settings = _read_json(SETTINGS_FILE, {}) or {}
+        llm = settings.get('llm') or {}
+        minimax_cfg = None
+        for p in (llm.get('providers') or []):
+            if isinstance(p, dict) and p.get('name') == 'minimax':
+                minimax_cfg = p
+                break
+        if not minimax_cfg:
+            logger.info(f'  [{log_prefix}Fallback] settings.json 无 minimax 配置，跳过')
+            return None
+        api_key = (minimax_cfg.get('apiKey', '') or '').strip()
+        base_url = (minimax_cfg.get('baseUrl', '') or '').strip()
+        model = minimax_cfg.get('model', '') or 'MiniMax-Text-01'
+        if not api_key or not base_url:
+            logger.info(f'  [{log_prefix}Fallback] minimax 配置缺 apiKey/baseUrl，跳过')
+            return None
+    except Exception as e:
+        logger.error(f'  [{log_prefix}Fallback] 读 settings.json 失败: {e}')
+        return None
+
+    # 转换 Anthropic Messages -> OpenAI chat/completions（仅文本块，图片块丢弃并警告）
+    try:
+        oai_messages = []
+        system_text = body_json.get('system', '')
+        if isinstance(system_text, str) and system_text:
+            oai_messages.append({'role': 'system', 'content': system_text})
+        elif isinstance(system_text, list):
+            sys_texts = [b.get('text', '') for b in system_text if isinstance(b, dict) and b.get('type') == 'text']
+            if sys_texts:
+                oai_messages.append({'role': 'system', 'content': '\n'.join(sys_texts)})
+        for msg in body_json.get('messages', []) or []:
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get('role')
+            if role == 'system':
+                continue
+            content = msg.get('content')
+            if isinstance(content, str):
+                oai_messages.append({'role': role, 'content': content})
+            elif isinstance(content, list):
+                texts = []
+                for item in content:
+                    if isinstance(item, dict) and item.get('type') == 'text':
+                        texts.append(item.get('text', ''))
+                if texts:
+                    oai_messages.append({'role': role, 'content': '\n'.join(texts)})
+        if not oai_messages:
+            logger.info(f'  [{log_prefix}Fallback] 没有可转换的文本消息，跳过')
+            return None
+
+        minimax_body = {
+            'model': model,
+            'messages': oai_messages,
+            'max_tokens': body_json.get('max_tokens', 4096),
+            'stream': False,
+        }
+        req_body = json.dumps(minimax_body, ensure_ascii=False).encode('utf-8')
+        target_url = base_url + '/chatcompletion_v2'
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {api_key}',
+            'Content-Length': str(len(req_body)),
+        }
+        masked_key = f'{api_key[:8]}...' if api_key and len(api_key) > 8 else '(none)'
+        logger.info(f'  [{log_prefix}Fallback] 上游失败 → 尝试 minimax 兜底: model={model} url={target_url} key={masked_key}')
+
+        req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
+        ctx = ssl.create_default_context()
+        resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+        raw = resp.read().decode('utf-8', errors='replace')
+        logger.info(f'  [{log_prefix}Fallback] minimax response: HTTP {resp.status}')
+        resp_data = json.loads(raw)
+        if not resp_data.get('choices') or not resp_data['choices'][0].get('message'):
+            logger.error(f'  [{log_prefix}Fallback] minimax unexpected format: {raw[:500]}')
+            _mark_provider_failed('minimax')
+            return None
+        content_text = resp_data['choices'][0]['message'].get('content', '')
+        if not content_text:
+            _mark_provider_failed('minimax')
+            return None
+
+        # 转换为 Anthropic Messages 格式（client 期望的格式）
+        anthropic_resp = {
+            'id': resp_data.get('id', f'minimax_{int(time.time() * 1000)}'),
+            'type': 'message',
+            'role': 'assistant',
+            'content': [{'type': 'text', 'text': content_text}],
+            'model': model,
+            'stop_reason': 'end_turn',
+            'usage': resp_data.get('usage', {'input_tokens': 0, 'output_tokens': 0}),
+        }
+        _mark_provider_ok('minimax')
+        logger.info(f'  ✅ [{log_prefix}Fallback] minimax 兜底成功, content_len={len(content_text)}')
+        return json.dumps(anthropic_resp, ensure_ascii=False).encode('utf-8')
+    except urllib.error.HTTPError as e:
+        try:
+            err_body_text = e.read().decode('utf-8', errors='replace')[:300]
+        except Exception:
+            err_body_text = ''
+        logger.error(f'  [{log_prefix}Fallback] minimax HTTP {e.code}: {err_body_text}')
+        _mark_provider_failed('minimax')
+    except Exception as e:
+        logger.error(f'  [{log_prefix}Fallback] minimax 调用异常: {e}')
+        _mark_provider_failed('minimax')
+    return None
+
+
 # ═══ Kimi 多模态图片识别（图片转文字，供 OpenClaw 纯文本链路使用）═══
 # key 解析与 _handle_proxy_kimi 完全一致：环境变量优先，fallback 同一把全局 key
 KIMI_VISION_API_KEY = (os.environ.get('KIMI_VISION_API_KEY', '').strip()
@@ -20361,6 +20481,22 @@ def _handle_proxy(self):
         except Exception:
             err_body = b'{}'
 
+        # 兜底：kimi coding 403 时尝试 minimax 降级
+        fallback_body = None
+        if status == 403 and is_kimi_coding and body_json:
+            try:
+                fallback_body = _try_minimax_proxy_fallback(body_json, log_prefix='Proxy')
+            except Exception as fb_err:
+                logger.error(f'  [Proxy] minimax fallback exception: {fb_err}')
+
+        if fallback_body is not None:
+            self.send_response(200)
+            self._add_cors_headers()
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(fallback_body)
+            return
+
         error_messages = {
             401: 'API Key 无效或认证失败',
             403: 'API 访问被拒绝',
@@ -21254,6 +21390,20 @@ def _handle_proxy_kimi(self):
                     continue
                 else:
                     print(f'  [KimiProxy] 400自动修复: 无法修复，返回原始错误', flush=True)
+
+            # 兜底：上游 403 时尝试 minimax 降级
+            fallback_body = None
+            if e.code == 403 and not is_streaming:
+                try:
+                    fallback_body = _try_minimax_proxy_fallback(body, log_prefix='KimiProxy')
+                except Exception as fb_err:
+                    logger.error(f'  [KimiProxy] minimax fallback exception: {fb_err}')
+            if fallback_body is not None:
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(fallback_body)
+                return
 
             self.send_response(e.code)
             self.send_header('Content-Type', 'application/json')
