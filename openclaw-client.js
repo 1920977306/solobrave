@@ -2,12 +2,117 @@
  * OpenClaw WebSocket Client
  * 连接地址: ws://192.168.1.25:18789
  * 协议版本: v3 (Challenge/Connect Auth)
- * 
+ *
  * 消息格式:
  * - req: {type: "req", id: string, method: string, params: object}
  * - res: {type: "res", id: string, ok: boolean, payload|error: object}
  * - event: {type: "event", event: string, payload: object}
  */
+
+// ===== Device Identity (Ed25519) =====
+// OpenClaw 网关 v3 协议要求 connect params 中包含 device 字段（Ed25519 签名的设备身份证明），
+// 否则会被拒绝（CONTROL_UI_DEVICE_IDENTITY_REQUIRED）。密钥在浏览器内生成、pkcs8 私钥只
+// 存 localStorage（按 v1 命名空间），保证同一浏览器重连时 deviceId 稳定。
+const DEVICE_IDENTITY_STORAGE_KEY = 'openclaw_device_identity_v1';
+
+async function _ensureDeviceIdentity() {
+  // 1) localStorage 缓存命中且字段齐全则直接复用
+  try {
+    const cached = localStorage.getItem(DEVICE_IDENTITY_STORAGE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && parsed.publicKeyRaw && parsed.privateKeyPkcs8 && parsed.deviceId) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('[OpenClaw] 读取设备身份缓存失败，将重新生成:', e);
+  }
+
+  // 2) WebCrypto 不可用（非 https / 非安全上下文）→ 抛错让上层走 mock 降级
+  if (!window.crypto || !window.crypto.subtle || typeof window.crypto.subtle.generateKey !== 'function') {
+    throw new Error('WebCrypto.subtle 不可用，无法生成 Ed25519 设备身份');
+  }
+
+  // 3) 生成 Ed25519 密钥对
+  const keyPair = await crypto.subtle.generateKey(
+    { name: 'Ed25519' },
+    true,
+    ['sign', 'verify']
+  );
+
+  // 4) 导出 raw public key（32 字节，给网关校验签名用）
+  const publicKeyRaw = new Uint8Array(
+    await crypto.subtle.exportKey('raw', keyPair.publicKey)
+  );
+  // 导出 pkcs8 私钥（本地签名复用）
+  const privateKeyPkcs8 = new Uint8Array(
+    await crypto.subtle.exportKey('pkcs8', keyPair.privateKey)
+  );
+
+  // 5) deviceId = SHA256(raw publicKey) 的 hex 串
+  const deviceIdHash = new Uint8Array(
+    await crypto.subtle.digest('SHA-256', publicKeyRaw)
+  );
+  const deviceId = Array.from(deviceIdHash)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  // 6) base64url 编码（localStorage / JSON 传输更稳）
+  const publicKeyRawB64 = _base64UrlEncode(publicKeyRaw);
+  const privateKeyPkcs8B64 = _base64UrlEncode(privateKeyPkcs8);
+
+  const identity = {
+    deviceId,
+    publicKeyRaw: publicKeyRawB64,
+    privateKeyPkcs8: privateKeyPkcs8B64
+  };
+
+  // 7) 写回 localStorage（写失败不影响本次连接，只是下次会重新生成）
+  try {
+    localStorage.setItem(DEVICE_IDENTITY_STORAGE_KEY, JSON.stringify(identity));
+  } catch (e) {
+    console.warn('[OpenClaw] 写入设备身份缓存失败:', e);
+  }
+  return identity;
+}
+
+function _base64UrlEncode(uint8Array) {
+  let binary = '';
+  for (let i = 0; i < uint8Array.length; i++) {
+    binary += String.fromCharCode(uint8Array[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function _base64UrlDecode(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  const binary = atob(str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function _signDevicePayload(privateKeyPkcs8B64, payload) {
+  const privateKeyData = _base64UrlDecode(privateKeyPkcs8B64);
+  const privateKey = await crypto.subtle.importKey(
+    'pkcs8',
+    privateKeyData,
+    { name: 'Ed25519' },
+    false,
+    ['sign']
+  );
+  const encoder = new TextEncoder();
+  const signature = await crypto.subtle.sign(
+    'Ed25519',
+    privateKey,
+    encoder.encode(payload)
+  );
+  return _base64UrlEncode(new Uint8Array(signature));
+}
 
 class OpenClawClient {
   constructor() {
@@ -47,6 +152,9 @@ class OpenClawClient {
         resolve(true);
         return;
       }
+
+      // 预生成 device identity，让首次密钥生成不阻塞 connect 流程
+      _ensureDeviceIdentity().catch(e => console.warn('[OpenClaw] device identity pre-gen failed:', e));
 
       try {
         this._clearReconnectTimer();
@@ -185,26 +293,57 @@ class OpenClawClient {
   }
 
   // 构建标准的 v3 connect 参数
-  _buildConnectParams(nonce) {
+  async _buildConnectParams(nonce) {
+    const identity = await _ensureDeviceIdentity();
+    const signedAtMs = Date.now();
+    // v3 auth payload（与网关侧校验逻辑一致：v3|deviceId|clientId|clientMode|role|scopes|signedAt|token|nonce|platform|deviceFamily）
+    const role = 'operator';
+    const scopes = ['operator.read', 'operator.write', 'operator.admin'];
+    const clientId = 'openclaw-control-ui';
+    const clientMode = 'webchat';
+    const platform = (navigator.platform || 'web').trim().toLowerCase();
+    const deviceFamily = '';
+    const payload = [
+      'v3',
+      identity.deviceId,
+      clientId,
+      clientMode,
+      role,
+      scopes.join(','),
+      String(signedAtMs),
+      this._token || '',
+      nonce || '',
+      platform,
+      deviceFamily
+    ].join('|');
+    const signature = await _signDevicePayload(identity.privateKeyPkcs8, payload);
+
     const params = {
       minProtocol: 4,
       maxProtocol: 4,
       client: {
-        id: 'openclaw-control-ui',
+        id: clientId,
         version: '1.0.0',
         platform: navigator.platform || 'web',
-        mode: 'webchat'
+        mode: clientMode
       },
-      role: 'operator',
-      scopes: ['operator.read', 'operator.write', 'operator.admin'],
+      role: role,
+      scopes: scopes,
       caps: [],
       commands: [],
       permissions: {},
       auth: { token: this._token },
       locale: 'zh-CN',
-      userAgent: 'SoloBrave/1.0.0 ' + navigator.userAgent
+      userAgent: 'SoloBrave/1.0.0 ' + navigator.userAgent,
+      device: {
+        id: identity.deviceId,
+        publicKey: identity.publicKeyRaw,
+        signature: signature,
+        signedAt: signedAtMs,
+        nonce: nonce || ''
+      }
     };
-    
+
     return params;
   }
 
@@ -216,7 +355,7 @@ class OpenClawClient {
         type: 'req',
         id: id,
         method: 'connect',
-        params: this._buildConnectParams()
+        params: await this._buildConnectParams()
       });
       
       const authPromise = new Promise((resolve, reject) => {
@@ -260,7 +399,7 @@ class OpenClawClient {
         type: 'req',
         id: id,
         method: 'connect',
-        params: this._buildConnectParams(nonce)
+        params: await this._buildConnectParams(nonce)
       });
       
       const authPromise = new Promise((resolve, reject) => {
