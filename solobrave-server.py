@@ -21477,14 +21477,57 @@ def _handle_proxy_kimi(self):
                 else:
                     print(f'  [KimiProxy] 400自动修复: 无法修复，返回原始错误', flush=True)
 
-            # 兜底：上游 403 时尝试 minimax 降级
+            # 兜底：上游 403 时尝试 minimax 降级（支持流式和非流式；流式场景拿 minimax
+            # 的非流式完整回复后包装成 SSE chunk 返回给 OpenClaw 网关）
             fallback_body = None
-            if e.code == 403 and not is_streaming:
+            if e.code == 403:
                 try:
-                    fallback_body = _try_minimax_proxy_fallback(body, log_prefix='KimiProxy')
+                    # 强制 request_format='openai'，让 fallback 返回 OpenAI 格式 JSON；
+                    # 这样下面 SSE 包装能直接复用 choices[0].message.content 提取文本
+                    fallback_body = _try_minimax_proxy_fallback(body, log_prefix='KimiProxy', request_format='openai')
                 except Exception as fb_err:
                     logger.error(f'  [KimiProxy] minimax fallback exception: {fb_err}')
             if fallback_body is not None:
+                if is_streaming:
+                    # 把非流式 minimax 响应包装为 OpenAI 风格 SSE 流式
+                    try:
+                        fb_data = json.loads(fallback_body.decode('utf-8', errors='replace'))
+                        fb_text = ''
+                        if isinstance(fb_data, dict) and fb_data.get('choices'):
+                            fb_text = (fb_data['choices'][0].get('message') or {}).get('content', '') or ''
+                        chunk_id = 'chatcmpl-minimax-fallback-' + str(int(time.time() * 1000))
+                        created_ts = int(time.time())
+                        # 1) 带 role + 完整 content 的 delta
+                        head_chunk = {
+                            'id': chunk_id,
+                            'object': 'chat.completion.chunk',
+                            'created': created_ts,
+                            'model': 'minimax-fallback',
+                            'choices': [{'index': 0, 'delta': {'role': 'assistant', 'content': fb_text}, 'finish_reason': None}]
+                        }
+                        # 2) finish_reason=stop 的结束 chunk
+                        end_chunk = {
+                            'id': chunk_id,
+                            'object': 'chat.completion.chunk',
+                            'created': created_ts,
+                            'model': 'minimax-fallback',
+                            'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]
+                        }
+                        sse_payload = (
+                            f'data: {json.dumps(head_chunk, ensure_ascii=False)}\n\n'
+                            f'data: {json.dumps(end_chunk, ensure_ascii=False)}\n\n'
+                            'data: [DONE]\n\n'
+                        ).encode('utf-8')
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'text/event-stream')
+                        self.send_header('Cache-Control', 'no-cache')
+                        self.end_headers()
+                        self.wfile.write(sse_payload)
+                        print(f'  [KimiProxy] 403 minimax降级(流式包装): text_len={len(fb_text)}', flush=True)
+                        return
+                    except Exception as sse_err:
+                        logger.error(f'  [KimiProxy] minimax SSE 包装失败，降级为非流式返回: {sse_err}')
+                        # 包装失败时退回到原始非流式响应（仍能让 OpenClaw 拿到内容）
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
