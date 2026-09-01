@@ -19080,6 +19080,10 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
   }).then(function (res) {
     console.debug('[API] /api/proxy 响应 status=' + (res ? res.status : 'null') + ' ok=' + (res ? res.ok : 'null'));
 
+    // 这里 t 是 sendViaAPI 函数作用域的变量，但只在 if 早退分支里被赋值过；
+    // 走正常 success 路径时 t 仍是 undefined，所以 loading 状态不会被清除
+    // ——导致 Helen 显示一条转圈 + 一条实际回复。改为局部声明。
+    var t = document.getElementById('typingMsg');
     if (t) t.remove();
     if (!res || !res.ok) {
       var status = res ? res.status : 0;
