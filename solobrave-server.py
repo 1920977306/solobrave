@@ -86,6 +86,17 @@ PROXY_TIMEOUT = 60  # 秒
 ALLOWED_HTTP_METHODS = {'GET', 'HEAD', 'POST', 'OPTIONS', 'DELETE'}
 ALLOWED_DOMAINS = []  # 域名白名单，留空不限制
 
+# HTTPS / TLS 配置：给 SoloBrave 后端套 https，让前端能进入安全上下文（crypto.subtle 可用），
+# WebSocket 也能用 wss://。证书优先用 mkcert 生成（带本地 CA，浏览器免警告），
+# 不可用时 fallback 到 openssl 自签，最后兜底跳过 HTTPS 仅跑 HTTP。
+HTTPS_PORT = 8443
+HTTPS_ENABLED = True  # 总开关：False 时不启动 https server
+TLS_CERT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'certs')
+TLS_CERT_FILE = os.path.join(TLS_CERT_DIR, 'cert.pem')
+TLS_KEY_FILE = os.path.join(TLS_CERT_DIR, 'key.pem')
+# 证书里要包含的 SAN（覆盖 127.0.0.1、局域网 IP、local 主机名）；新增机器时改这里即可
+TLS_CERT_HOSTS = ['127.0.0.1', 'localhost', '192.168.1.25', '*.local']
+
 # CORS Origin 白名单（启动时会按实际端口追加 localhost/127.0.0.1 来源）
 ALLOWED_ORIGINS = [
     'http://localhost:8081',
@@ -22145,6 +22156,85 @@ def _induct_knowledge_for_agent(agent, owner_user_id=None):
     return 0, 'AI 返回的文档未通过校验（缺少标题或正文），未生成知识文档'
 
 
+def _ensure_tls_cert():
+    """确保 TLS 证书存在。优先用 mkcert（带本地 CA），其次 openssl 自签，最后抛错。
+    返回 (cert_path, key_path) 或 None（应跳过 HTTPS）。"""
+    if os.path.isfile(TLS_CERT_FILE) and os.path.isfile(TLS_KEY_FILE):
+        # 已存在证书：检查有效期，太短就重新生成
+        try:
+            import datetime as _dt
+            proc = subprocess.run(
+                ['openssl', 'x509', '-enddate', '-noout', '-in', TLS_CERT_FILE],
+                capture_output=True, text=True, timeout=5
+            )
+            if proc.returncode == 0:
+                # 输出形如 "notAfter=May  1 12:00:00 2027 GMT"
+                line = proc.stdout.strip()
+                if 'notAfter=' in line:
+                    end_str = line.split('notAfter=', 1)[1].strip()
+                    end_dt = _dt.datetime.strptime(end_str, '%b %d %H:%M:%S %Y %Z')
+                    if end_dt > _dt.datetime.now() + _dt.timedelta(days=7):
+                        logger.info(f'  [TLS] 复用已有证书: {TLS_CERT_FILE} (到期 {end_str})')
+                        return TLS_CERT_FILE, TLS_KEY_FILE
+                    logger.info(f'  [TLS] 证书即将到期 ({end_str})，重新生成')
+        except Exception as e:
+            logger.warning(f'  [TLS] 证书有效期检查失败: {e}，将重新生成')
+
+    os.makedirs(TLS_CERT_DIR, exist_ok=True)
+
+    # 1) 优先 mkcert
+    mkcert_path = shutil.which('mkcert')
+    if mkcert_path:
+        try:
+            cmd = [mkcert_path, '-cert-file', TLS_CERT_FILE, '-key-file', TLS_KEY_FILE] + TLS_CERT_HOSTS
+            logger.info(f'  [TLS] 用 mkcert 生成证书: {" ".join(cmd)}')
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if proc.returncode == 0 and os.path.isfile(TLS_CERT_FILE):
+                logger.info(f'  [TLS] mkcert 证书生成成功: {TLS_CERT_FILE}')
+                return TLS_CERT_FILE, TLS_KEY_FILE
+            logger.warning(f'  [TLS] mkcert 失败: {proc.stderr.strip() or proc.stdout.strip()}')
+        except Exception as e:
+            logger.warning(f'  [TLS] mkcert 异常: {e}')
+
+    # 2) fallback: openssl 自签（覆盖同样 SAN 列表）
+    openssl_path = shutil.which('openssl')
+    if openssl_path:
+        try:
+            san = 'DNS:localhost,IP:127.0.0.1' + ''.join(f',IP:{h}' for h in TLS_CERT_HOSTS if h.count('.') == 3 and not h.startswith('*'))
+            cmd = [
+                openssl_path, 'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+                '-keyout', TLS_KEY_FILE, '-out', TLS_CERT_FILE, '-days', '365',
+                '-subj', '/CN=solobrave-local',
+                '-addext', f'subjectAltName={san}'
+            ]
+            logger.info(f'  [TLS] 用 openssl 生成自签证书 (SAN={san})')
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if proc.returncode == 0 and os.path.isfile(TLS_CERT_FILE):
+                logger.info(f'  [TLS] openssl 自签证书生成成功: {TLS_CERT_FILE}')
+                logger.warning('  [TLS] 自签证书需用户在浏览器手动信任，否则会有警告')
+                return TLS_CERT_FILE, TLS_KEY_FILE
+            logger.warning(f'  [TLS] openssl 失败: {proc.stderr.strip() or proc.stdout.strip()}')
+        except Exception as e:
+            logger.warning(f'  [TLS] openssl 异常: {e}')
+
+    # 3) 都不可用：跳过 HTTPS
+    logger.error('  [TLS] mkcert 和 openssl 都不可用，跳过 HTTPS（仅 HTTP）')
+    return None
+
+
+def _make_https_server(http_server_cls, handler_cls, bind, port, cert_file, key_file):
+    """在 http_server_cls 基础上包一层 SSLContext，端口绑定后启动 serve_forever。
+    返回 (server, thread) — thread 已在 daemon 模式跑 serve_forever。"""
+    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ssl_ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
+    ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    server = http_server_cls((bind, port), handler_cls)
+    server.socket = ssl_ctx.wrap_socket(server.socket, server_side=True)
+    t = threading.Thread(target=server.serve_forever, daemon=True, name=f'HTTPS-{port}')
+    t.start()
+    return server, t
+
+
 def main():
     global PORT, BIND
     # Windows 控制台/日志文件默认 GBK 编码，含 emoji 的日志会导致 UnicodeEncodeError 崩溃
@@ -22295,13 +22385,51 @@ def main():
         daemon_threads = True
     server = ReuseHTTPServer((BIND, PORT), SoloBraveHandler)
 
+    # HTTPS：让前端进安全上下文（crypto.subtle 可用，wss:// 也能用）
+    https_server = None
+    https_thread = None
+    if HTTPS_ENABLED:
+        try:
+            tls_paths = _ensure_tls_cert()
+            if tls_paths:
+                cert_file, key_file = tls_paths
+                # 选个未占用的 HTTPS 端口
+                https_port = HTTPS_PORT
+                try:
+                    https_server, https_thread = _make_https_server(
+                        ReuseHTTPServer, SoloBraveHandler, BIND, https_port, cert_file, key_file
+                    )
+                except OSError as bind_err:
+                    # 8443 被占了，试 8444/8445…
+                    if 'Address already in use' in str(bind_err) or getattr(bind_err, 'errno', None) == 10048:
+                        for alt_port in range(HTTPS_PORT + 1, HTTPS_PORT + 20):
+                            try:
+                                https_port = alt_port
+                                https_server, https_thread = _make_https_server(
+                                    ReuseHTTPServer, SoloBraveHandler, BIND, alt_port, cert_file, key_file
+                                )
+                                break
+                            except OSError:
+                                continue
+                    if https_server is None:
+                        raise bind_err
+        except Exception as tls_err:
+            logger.error(f'  [TLS] HTTPS 启动失败，回退到仅 HTTP: {tls_err}')
+            https_server = None
+
     logger.info('=' * 56)
     logger.info('  [SOLO] SoloBrave Server (Auth Enabled)')
     logger.info('=' * 56)
     logger.info(f'  [DIR] 静态文件:  {STATIC_DIR}')
     logger.info(f'  [DIR] 数据目录:  {DATA_DIR}')
-    logger.info(f'  [URL] 本机访问:  http://localhost:{PORT}')
-    logger.info(f'  [URL] 局域网:    http://0.0.0.0:{PORT}')
+    logger.info(f'  [URL] 本机 HTTP:  http://localhost:{PORT}')
+    logger.info(f'  [URL] 局域网 HTTP: http://{BIND}:{PORT}')
+    if https_server is not None:
+        logger.info(f'  [URL] 本机 HTTPS: https://localhost:{https_port}')
+        logger.info(f'  [URL] 局域网 HTTPS: https://{BIND}:{https_port}')
+        logger.info(f'  [TLS] 证书: {TLS_CERT_FILE}')
+    else:
+        logger.info(f'  [URL] HTTPS:      (未启用，仅 HTTP)')
     logger.info(f'  [API] 认证:      /api/auth/*')
     logger.info(f'  [API] 用户管理:  /api/users/*')
     logger.info(f'  [API] Agent:     /api/agents/*')
@@ -22323,6 +22451,11 @@ def main():
         logger.info('\n\n  [STOP] 服务已停止')
         _brain_scheduler.stop()
         server.server_close()
+        if https_server is not None:
+            try:
+                https_server.server_close()
+            except Exception:
+                pass
 
 
 def _feishu_record_to_product(fields):

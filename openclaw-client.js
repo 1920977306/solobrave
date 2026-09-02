@@ -236,7 +236,11 @@ async function _signDevicePayload(privateKeyPkcs8B64, payload) {
 class OpenClawClient {
   constructor() {
     this.ws = null;
-    this.url = 'ws://192.168.1.25:18789';
+    // 当前页是 https 上下文时强制 wss，否则 ws；地址里手写过的协议也按这个规则覆盖
+    // （crypto.subtle 需要安全上下文才可用，wss 是 device identity 配对的前置条件）
+    var _baseUrl = '192.168.1.25:18789';
+    var _pageIsSecure = (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:');
+    this.url = (_pageIsSecure ? 'wss://' : 'ws://') + _baseUrl;
     this.connected = false;
     this.authenticated = false;
     this.mockMode = false;
