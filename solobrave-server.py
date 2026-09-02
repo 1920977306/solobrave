@@ -22246,7 +22246,12 @@ def _make_https_server(http_server_cls, handler_cls, bind, port, cert_file, key_
 def _start_wss_proxy(cert_file, key_file, bind, port, target_host, target_port):
     """在独立 daemon 线程里跑 asyncio 事件循环，启 wss://{bind}:{port} server，
     把每条进来的连接双向透传到 ws://{target_host}:{target_port}（OpenClaw Gateway）。
-    依赖 websockets 库（pip install websockets）。库缺失时返回 None 并打 warning。"""
+    依赖 websockets 库（pip install websockets）。库缺失时返回 None 并打 warning。
+
+    关键：process_request 拦截握手把客户端 Origin 头存到 ws._client_origin；
+    _proxy_handler 再把它原样传给 websockets.connect(uri, origin=...) 拼到上游 Origin 头。
+    网关（OpenClaw v3）以 Origin 头做允许列表判定 + device identity 校验，缺了会
+    直接拒绝（CONTROL_UI_ORIGIN_NOT_ALLOWED / "origin missing or invalid"）。"""
     try:
         import asyncio
         import websockets
@@ -22255,12 +22260,55 @@ def _start_wss_proxy(cert_file, key_file, bind, port, target_host, target_port):
         logger.warning('        安装: pip install websockets')
         return None, None
 
-    async def _proxy_handler(client_ws, path=None):
-        # 兼容不同 websockets 版本：有的带 path 参数，有的不带
+    def _extract_origin(request_headers):
+        """从客户端握手 headers 里抠出 Origin。websockets 16+ 的 request.headers 是
+        websockets.datastructures.Headers（大小写不敏感、MultiDict-like）。"""
+        try:
+            # 新版 Headers 支持 .get(None, 'Origin') 这种大小写不敏感查找
+            for key in ('Origin', 'origin', 'ORIGIN'):
+                v = request_headers.get(key)
+                if v:
+                    return v
+        except Exception:
+            pass
+        # 兜底：手动遍历 items
+        try:
+            for k, v in request_headers.raw_items():
+                if k.lower() == 'origin':
+                    return v
+        except Exception:
+            pass
+        return None
+
+    async def _process_request(ws, request):
+        """拦截握手：把客户端 Origin 头挂到 ws 实例上，供后续 _proxy_handler 读取。
+        返回 None 让握手继续。"""
+        origin = _extract_origin(request.headers)
+        ws._client_origin = origin
+        # 关闭 websockets 库自带的 Origin 校验（库默认会按 origins 参数拒掉没在白名单里的 origin，
+        # 我们自己控制转发逻辑）
+        return None
+
+    async def _proxy_handler(client_ws):
         target_uri = f'ws://{target_host}:{target_port}'
+        # 取出客户端 Origin；缺失时给个默认值（网关 allowedOrigins=*，任意值都行，关键是别空着）
+        client_origin = getattr(client_ws, '_client_origin', None) or f'https://{bind}:{port}'
+        # 兼容新旧 websockets：origin 参数在 13+ 才有；旧版用 additional_headers
+        connect_kwargs = {
+            'max_size': 64 * 1024 * 1024,
+            'origin': client_origin,
+        }
         upstream = None
         try:
-            upstream = await websockets.connect(target_uri, max_size=64 * 1024 * 1024)
+            try:
+                upstream = await websockets.connect(target_uri, **connect_kwargs)
+            except TypeError:
+                # 旧版 websockets 没有 origin 参数；用 additional_headers 兜底
+                upstream = await websockets.connect(
+                    target_uri,
+                    max_size=64 * 1024 * 1024,
+                    additional_headers={'Origin': client_origin} if client_origin else None,
+                )
         except Exception as e:
             logger.error(f'  [WSS] 转发到 {target_uri} 失败: {e}')
             try:
@@ -22268,7 +22316,7 @@ def _start_wss_proxy(cert_file, key_file, bind, port, target_host, target_port):
             except Exception:
                 pass
             return
-        logger.info(f'  [WSS] 客户端已连接，转发到 {target_uri}')
+        logger.info(f'  [WSS] 客户端已连接 (Origin={client_origin})，转发到 {target_uri}')
 
         async def _c2u():
             try:
@@ -22303,8 +22351,13 @@ def _start_wss_proxy(cert_file, key_file, bind, port, target_host, target_port):
         ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
         ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        server = await websockets.serve(_proxy_handler, bind, port, ssl=ssl_ctx)
-        logger.info(f'  [WSS] 代理已启动: wss://{bind}:{port} → ws://{target_host}:{target_port}')
+        server = await websockets.serve(
+            _proxy_handler, bind, port, ssl=ssl_ctx,
+            process_request=_process_request,
+            # origins=None 关闭库的 origin 校验，让我们完全交给上游网关判
+            origins=None,
+        )
+        logger.info(f'  [WSS] 代理已启动: wss://{bind}:{port} → ws://{target_host}:{target_port}（含 Origin 透传）')
         await asyncio.Future()  # 永远等待
 
     def _thread_main():
