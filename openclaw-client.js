@@ -413,30 +413,11 @@ class OpenClawClient {
 
   // 构建标准的 v3 connect 参数
   async _buildConnectParams(nonce) {
-    const identity = await _ensureDeviceIdentity();
-    const signedAtMs = Date.now();
-    // v3 auth payload（与网关侧校验逻辑一致：v3|deviceId|clientId|clientMode|role|scopes|signedAt|token|nonce|platform|deviceFamily）
     const role = 'operator';
     const scopes = ['operator.read', 'operator.write', 'operator.admin'];
     const clientId = 'openclaw-control-ui';
     const clientMode = 'webchat';
     const platform = (navigator.platform || 'web').trim().toLowerCase();
-    const deviceFamily = '';
-    const payload = [
-      'v3',
-      identity.deviceId,
-      clientId,
-      clientMode,
-      role,
-      scopes.join(','),
-      String(signedAtMs),
-      this._token || '',
-      nonce || '',
-      platform,
-      deviceFamily
-    ].join('|');
-    const signature = await _signDevicePayload(identity.privateKeyPkcs8, payload);
-
     const params = {
       minProtocol: 4,
       maxProtocol: 4,
@@ -453,14 +434,43 @@ class OpenClawClient {
       permissions: {},
       auth: { token: this._token },
       locale: 'zh-CN',
-      userAgent: 'SoloBrave/1.0.0 ' + navigator.userAgent,
-      device: {
-        id: identity.deviceId,
-        publicKey: identity.publicKeyRaw,
-        signature: signature,
-        signedAt: signedAtMs,
-        nonce: nonce || ''
-      }
+      userAgent: 'SoloBrave/1.0.0 ' + navigator.userAgent
+    };
+
+    // 非安全上下文（crypto.subtle 不可用）→ 不带 device 字段，让网关走 token-only 流程
+    // 或进入 pending 审批队列。FNV-1a / 指纹派生签名的 fallback 方案网关不认，
+    // 反而会因为伪造签名 / 错配 ID 直接拒接，比"少带字段"更糟。
+    if (!_hasSubtleCrypto()) {
+      console.warn('[OpenClaw] 非安全上下文，跳过设备身份认证（仅凭 token 连接，网关可能进入待审批）');
+      return params;
+    }
+
+    // 安全上下文 → 走 Ed25519 设备身份
+    const identity = await _ensureDeviceIdentity();
+    const signedAtMs = Date.now();
+    // v3 auth payload（与网关侧校验逻辑一致：v3|deviceId|clientId|clientMode|role|scopes|signedAt|token|nonce|platform|deviceFamily）
+    const deviceFamily = '';
+    const payload = [
+      'v3',
+      identity.deviceId,
+      clientId,
+      clientMode,
+      role,
+      scopes.join(','),
+      String(signedAtMs),
+      this._token || '',
+      nonce || '',
+      platform,
+      deviceFamily
+    ].join('|');
+    const signature = await _signDevicePayload(identity.privateKeyPkcs8, payload);
+
+    params.device = {
+      id: identity.deviceId,
+      publicKey: identity.publicKeyRaw,
+      signature: signature,
+      signedAt: signedAtMs,
+      nonce: nonce || ''
     };
 
     return params;
