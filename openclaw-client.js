@@ -635,22 +635,63 @@ class OpenClawClient {
     return this._defaultAgentId;
   }
 
-  // 拉取网关上的 agent 列表（多 agent 部署时让前端选默认）
+  // 拉取网关上的 agent 列表（多 agent 部署时让前端选默认）。
+  // 网关 v3 实际返回结构是 { defaultId, agents: [...] }，但版本/配置差异可能输出别的形状；
+  // 这里把 normalize 写厚一点：接受数组、{agents|items|data|list|results: []}、{agentId: ...} 单对象。
+  _normalizeAgentsList(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw !== 'object') return [];
+    // 常见容器 key
+    const containerKeys = ['agents', 'items', 'data', 'list', 'results', 'records'];
+    for (const k of containerKeys) {
+      if (Array.isArray(raw[k])) return raw[k];
+    }
+    // 单个 agent 对象（看起来像 agent）→ 包成数组
+    if (raw.agentId || raw.id || raw.name) {
+      return [raw];
+    }
+    // 最后兜底：把所有数组值合并
+    const collected = [];
+    for (const v of Object.values(raw)) {
+      if (Array.isArray(v)) collected.push(...v);
+    }
+    return collected;
+  }
+
+  _extractAgentId(agentObj) {
+    if (!agentObj || typeof agentObj !== 'object') return null;
+    return agentObj.agentId || agentObj.id || agentObj.name || null;
+  }
+
   async listAgents(force = false) {
     if (!force && this._agentsCache && this._agentsCache.length) {
       return this._agentsCache;
     }
     try {
       const resp = await this.send('agents.list', {});
-      // 不同网关版本返回结构可能略不同：尝试多种字段
-      const list = (resp && (resp.agents || resp.items || (Array.isArray(resp) ? resp : null))) || [];
-      this._agentsCache = list;
-      if (!force && list.length && !localStorage.getItem('openclaw_default_agent_id')) {
+      // 调试：把原始 payload 打出来，方便以后格式变动时排查
+      try {
+        const sample = JSON.stringify(resp).slice(0, 400);
+        console.debug('[OpenClaw] agents.list 原始响应:', sample);
+      } catch (e) { /* 序列化失败不影响主流程 */ }
+      const list = this._normalizeAgentsList(resp);
+      // 归一化每个元素，确保至少 {agentId, name} 都有
+      const normalized = list
+        .filter(a => a && typeof a === 'object')
+        .map(a => ({
+          agentId: this._extractAgentId(a),
+          name: a.name || a.label || a.displayName || a.agentId || a.id || '(unnamed)',
+          raw: a
+        }))
+        .filter(a => !!a.agentId);
+      this._agentsCache = normalized;
+      console.log('[OpenClaw] agents.list 解析到', normalized.length, '个 agent:', normalized.map(a => a.agentId).join(', '));
+      if (!force && normalized.length && !localStorage.getItem('openclaw_default_agent_id')) {
         // 首次拉取且用户没显式选过 → 自动选第一个
-        const first = list[0].id || list[0].agentId || list[0].name;
-        if (first) this.setDefaultAgentId(first);
+        this.setDefaultAgentId(normalized[0].agentId);
       }
-      return list;
+      return normalized;
     } catch (e) {
       console.warn('[OpenClaw] listAgents 失败:', e && e.message || e);
       return this._agentsCache || [];

@@ -9421,8 +9421,9 @@ function initOpenClaw() {
     // 首次拉取且用户没显式选过默认 agent 时，自动选 list 里的第一个。
     if (typeof openclaw.listAgents === 'function') {
       openclaw.listAgents().then(function (list) {
-        console.debug('[OpenClaw] 网关 agent 列表 (' + list.length + '):',
-          list.map(function (a) { return a.id || a.agentId || a.name; }).join(', '));
+        var arr = Array.isArray(list) ? list : [];
+        var names = arr.map(function (a) { return (a && (a.agentId || a.id || a.name)) || '?'; });
+        console.debug('[OpenClaw] 网关 agent 列表 (' + arr.length + '):', names.join(', '));
         console.debug('[OpenClaw] 当前默认 agentId =', openclaw.getDefaultAgentId && openclaw.getDefaultAgentId());
       }).catch(function (e) {
         console.warn('[OpenClaw] 拉取 agent 列表失败:', e && e.message || e);
