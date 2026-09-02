@@ -14,11 +14,89 @@
 // 否则会被拒绝（CONTROL_UI_DEVICE_IDENTITY_REQUIRED）。密钥在浏览器内生成、pkcs8 私钥只
 // 存 localStorage（按 v1 命名空间），保证同一浏览器重连时 deviceId 稳定。
 const DEVICE_IDENTITY_STORAGE_KEY = 'openclaw_device_identity_v1';
+// 非安全上下文（http://，或本地 file://）下 crypto.subtle 不可用时用的 fallback 缓存。
+// 单独 namespace 避免污染 Ed25519 缓存，也方便两种身份独立迁移。
+const DEVICE_IDENTITY_FALLBACK_KEY = 'openclaw_device_identity';
+
+// 检测 WebCrypto.subtle 是否真正可用（不仅是存在性，还要看 generateKey/sign 都在）
+function _hasSubtleCrypto() {
+  return !!(window.crypto && window.crypto.subtle
+    && typeof window.crypto.subtle.generateKey === 'function'
+    && typeof window.crypto.subtle.sign === 'function'
+    && typeof window.crypto.subtle.digest === 'function');
+}
 
 async function _ensureDeviceIdentity() {
-  // 1) localStorage 缓存命中且字段齐全则直接复用
+  const useSubtle = _hasSubtleCrypto();
+
+  if (useSubtle) {
+    // ===== Ed25519 主路径 =====
+    // 1) localStorage 缓存命中且字段齐全则直接复用
+    try {
+      const cached = localStorage.getItem(DEVICE_IDENTITY_STORAGE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.publicKeyRaw && parsed.privateKeyPkcs8 && parsed.deviceId) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('[OpenClaw] 读取设备身份缓存失败，将重新生成:', e);
+    }
+
+    // 2) 生成 Ed25519 密钥对
+    const keyPair = await crypto.subtle.generateKey(
+      { name: 'Ed25519' },
+      true,
+      ['sign', 'verify']
+    );
+
+    // 3) 导出 raw public key（32 字节，给网关校验签名用）
+    const publicKeyRaw = new Uint8Array(
+      await crypto.subtle.exportKey('raw', keyPair.publicKey)
+    );
+    // 导出 pkcs8 私钥（本地签名复用）
+    const privateKeyPkcs8 = new Uint8Array(
+      await crypto.subtle.exportKey('pkcs8', keyPair.privateKey)
+    );
+
+    // 4) deviceId = SHA256(raw publicKey) 的 hex 串
+    const deviceIdHash = new Uint8Array(
+      await crypto.subtle.digest('SHA-256', publicKeyRaw)
+    );
+    const deviceId = Array.from(deviceIdHash)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    // 5) base64url 编码（localStorage / JSON 传输更稳）
+    const publicKeyRawB64 = _base64UrlEncode(publicKeyRaw);
+    const privateKeyPkcs8B64 = _base64UrlEncode(privateKeyPkcs8);
+
+    const identity = {
+      deviceId,
+      publicKeyRaw: publicKeyRawB64,
+      privateKeyPkcs8: privateKeyPkcs8B64,
+      algo: 'ed25519'
+    };
+
+    // 6) 写回 localStorage（写失败不影响本次连接，只是下次会重新生成）
+    try {
+      localStorage.setItem(DEVICE_IDENTITY_STORAGE_KEY, JSON.stringify(identity));
+    } catch (e) {
+      console.warn('[OpenClaw] 写入设备身份缓存失败:', e);
+    }
+    return identity;
+  }
+
+  // ===== Fallback 路径：WebCrypto.subtle 不可用 =====
+  // 非安全上下文（http://，或本地 file://）下 chrome://flags 不生效时的兜底。
+  // 安全模型：基于随机生成的 32 字节私钥 + payload 派生一个稳定的"签名"值。
+  // 安全性比 Ed25519 弱（私钥明文存 localStorage），但能让连接建立起来。
+  console.log('[OpenClaw] WebCrypto.subtle 不可用，使用 localStorage 降级设备身份');
+
+  // 1) 优先复用已有 fallback 缓存
   try {
-    const cached = localStorage.getItem(DEVICE_IDENTITY_STORAGE_KEY);
+    const cached = localStorage.getItem(DEVICE_IDENTITY_FALLBACK_KEY);
     if (cached) {
       const parsed = JSON.parse(cached);
       if (parsed && parsed.publicKeyRaw && parsed.privateKeyPkcs8 && parsed.deviceId) {
@@ -26,53 +104,41 @@ async function _ensureDeviceIdentity() {
       }
     }
   } catch (e) {
-    console.warn('[OpenClaw] 读取设备身份缓存失败，将重新生成:', e);
+    console.warn('[OpenClaw] 读取 fallback 设备身份缓存失败，将重新生成:', e);
   }
 
-  // 2) WebCrypto 不可用（非 https / 非安全上下文）→ 抛错让上层走 mock 降级
-  if (!window.crypto || !window.crypto.subtle || typeof window.crypto.subtle.generateKey !== 'function') {
-    throw new Error('WebCrypto.subtle 不可用，无法生成 Ed25519 设备身份');
+  // 2) crypto.getRandomValues 在非安全上下文仍然可用（与 subtle 不同），
+  // 用它生成 32 字节随机私钥。公钥直接复用私钥——这里只是标识 + 派生签名，
+  // 不是真正的 Ed25519 验证，所以公私钥不必数学相关。
+  if (!window.crypto || typeof window.crypto.getRandomValues !== 'function') {
+    // 极端情况：连 getRandomValues 都没有（极老浏览器），用 Math.random 兜底
+    var buf = new Uint8Array(32);
+    for (var i = 0; i < 32; i++) buf[i] = Math.floor(Math.random() * 256);
+    var privKeyBytes = buf;
+  } else {
+    var privKeyBytes = new Uint8Array(32);
+    window.crypto.getRandomValues(privKeyBytes);
   }
+  // 公钥 = 私钥（仅用于标识 + 派生签名，不是真正的 Ed25519 验证）
+  const publicKeyRaw = new Uint8Array(privKeyBytes);
 
-  // 3) 生成 Ed25519 密钥对
-  const keyPair = await crypto.subtle.generateKey(
-    { name: 'Ed25519' },
-    true,
-    ['sign', 'verify']
-  );
-
-  // 4) 导出 raw public key（32 字节，给网关校验签名用）
-  const publicKeyRaw = new Uint8Array(
-    await crypto.subtle.exportKey('raw', keyPair.publicKey)
-  );
-  // 导出 pkcs8 私钥（本地签名复用）
-  const privateKeyPkcs8 = new Uint8Array(
-    await crypto.subtle.exportKey('pkcs8', keyPair.privateKey)
-  );
-
-  // 5) deviceId = SHA256(raw publicKey) 的 hex 串
-  const deviceIdHash = new Uint8Array(
-    await crypto.subtle.digest('SHA-256', publicKeyRaw)
-  );
-  const deviceId = Array.from(deviceIdHash)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-
-  // 6) base64url 编码（localStorage / JSON 传输更稳）
-  const publicKeyRawB64 = _base64UrlEncode(publicKeyRaw);
-  const privateKeyPkcs8B64 = _base64UrlEncode(privateKeyPkcs8);
+  // 3) deviceId = base64url(privateKey) 的前 43 字符（≈32 字节原始），稳定且较短
+  const privateKeyB64 = _base64UrlEncode(privKeyBytes);
+  const publicKeyB64 = _base64UrlEncode(publicKeyRaw);
+  const deviceId = privateKeyB64.substring(0, 43);
 
   const identity = {
-    deviceId,
-    publicKeyRaw: publicKeyRawB64,
-    privateKeyPkcs8: privateKeyPkcs8B64
+    deviceId: deviceId,
+    publicKeyRaw: publicKeyB64,
+    privateKeyPkcs8: privateKeyB64,
+    algo: 'fallback'
   };
 
-  // 7) 写回 localStorage（写失败不影响本次连接，只是下次会重新生成）
+  // 4) 写回 localStorage（与 Ed25519 缓存不同 namespace，独立管理）
   try {
-    localStorage.setItem(DEVICE_IDENTITY_STORAGE_KEY, JSON.stringify(identity));
+    localStorage.setItem(DEVICE_IDENTITY_FALLBACK_KEY, JSON.stringify(identity));
   } catch (e) {
-    console.warn('[OpenClaw] 写入设备身份缓存失败:', e);
+    console.warn('[OpenClaw] 写入 fallback 设备身份缓存失败:', e);
   }
   return identity;
 }
@@ -96,7 +162,37 @@ function _base64UrlDecode(str) {
   return bytes;
 }
 
+// 纯 JS 派生签名：把 privateKey 字节与 payload 字节拼接后跑 16 轮 FNV-1a（不同 salt），
+// 拼出 64 字节。**不是密码学安全的签名**——只是给服务端一个稳定、可复现的 device
+// 身份校验值（用户在已知 fallback 模式的网关侧做对应校验时能通过）。
+function _fallbackSignDevicePayload(privateKeyB64, payload) {
+  const privKeyBytes = _base64UrlDecode(privateKeyB64);
+  const payloadBytes = new TextEncoder().encode(payload);
+  const combined = new Uint8Array(privKeyBytes.length + payloadBytes.length);
+  combined.set(privKeyBytes, 0);
+  combined.set(payloadBytes, privKeyBytes.length);
+
+  const out = new Uint8Array(64);
+  for (let i = 0; i < 16; i++) {
+    // 16 个 salt 让 16 轮 FNV-1a 各自得到不同的 4 字节，凑齐 64 字节
+    let h = (0x811c9dc5 ^ (i * 0x9e3779b9)) >>> 0;
+    for (let j = 0; j < combined.length; j++) {
+      h ^= combined[j];
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    out[i * 4] = h & 0xff;
+    out[i * 4 + 1] = (h >>> 8) & 0xff;
+    out[i * 4 + 2] = (h >>> 16) & 0xff;
+    out[i * 4 + 3] = (h >>> 24) & 0xff;
+  }
+  return _base64UrlEncode(out);
+}
+
 async function _signDevicePayload(privateKeyPkcs8B64, payload) {
+  // crypto.subtle 不可用时（fallback 身份）走纯 JS 派生签名
+  if (!_hasSubtleCrypto()) {
+    return _fallbackSignDevicePayload(privateKeyPkcs8B64, payload);
+  }
   const privateKeyData = _base64UrlDecode(privateKeyPkcs8B64);
   const privateKey = await crypto.subtle.importKey(
     'pkcs8',
