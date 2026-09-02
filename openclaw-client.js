@@ -276,9 +276,11 @@ class OpenClawClient {
 
     // 默认 agentId：网关配置了多个 agent 时，每个请求必须显式带 agentId（"Multiple agents
     // are configured, but this Gateway request has no explicit owner"）。先从 localStorage
-    // 读上次选中的，没设置就默认 'main'（OpenClaw gateway 内置的 default agent）。
-    this._defaultAgentId = localStorage.getItem('openclaw_default_agent_id') || 'main';
+    // 读上次选中的；没有就让 listAgents() 用网关返回的 defaultId 填充；都没有就空着，
+    // send() 就不注入，让网关按"未指定"处理（避免硬编码 'main' 命中错误的 session）。
+    this._defaultAgentId = localStorage.getItem('openclaw_default_agent_id') || '';
     this._agentsCache = null;        // 缓存 list_agents 结果（供 index.html 选默认用）
+    this._gatewayDefaultId = null;   // 网关在 agents.list 响应里告诉我们的默认 agent
 
     if (!this._token) {
       console.warn('[OpenClaw] 未设置 token，请在控制台运行: openclaw.setToken("your-token")');
@@ -598,9 +600,10 @@ class OpenClawClient {
       }
 
       // 自动注入 agentId：网关配了多个 agent 时，每条请求必须显式带 agentId。
-      // 调用方已显式传了就尊重；否则用 _defaultAgentId（默认 'main'）。
+      // 调用方已显式传了就尊重；否则用 _defaultAgentId；如果默认是空（还没拉到
+      // agents.list 或没 defaultId），就跳过注入，让网关按"未指定"处理。
       // connect 握手 / 自身认证类请求跳过注入。
-      if (!SKIP_AGENTID_METHODS.has(method) && params && !params.agentId) {
+      if (!SKIP_AGENTID_METHODS.has(method) && params && !params.agentId && this._defaultAgentId) {
         params = Object.assign({}, params, { agentId: this._defaultAgentId });
       }
 
@@ -664,19 +667,36 @@ class OpenClawClient {
     return agentObj.agentId || agentObj.id || agentObj.name || null;
   }
 
+  // 从 agents.list 原始响应里抠 defaultId（可能挂在顶层 / 容器对象内 / 单 agent 上）
+  _extractDefaultId(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const candidateKeys = ['defaultId', 'default_id', 'defaultAgentId', 'default_agent', 'activeId', 'currentId'];
+    for (const k of candidateKeys) {
+      if (typeof raw[k] === 'string' && raw[k]) return raw[k];
+    }
+    return null;
+  }
+
   async listAgents(force = false) {
     if (!force && this._agentsCache && this._agentsCache.length) {
       return this._agentsCache;
     }
     try {
       const resp = await this.send('agents.list', {});
-      // 调试：把原始 payload 打出来，方便以后格式变动时排查
-      try {
-        const sample = JSON.stringify(resp).slice(0, 400);
-        console.debug('[OpenClaw] agents.list 原始响应:', sample);
-      } catch (e) { /* 序列化失败不影响主流程 */ }
+      // 调试：完整打印原始 payload（不截断），方便后续格式变化时快速对照
+      let pretty = '(unserializable)';
+      try { pretty = JSON.stringify(resp, null, 2); } catch (e) {}
+      console.log('[OpenClaw] agents.list 原始响应（完整）:\n' + pretty);
+
+      // 1) 抽 defaultId（网关告诉我们的默认 agent）
+      const gatewayDefaultId = this._extractDefaultId(resp);
+      if (gatewayDefaultId) {
+        this._gatewayDefaultId = gatewayDefaultId;
+        console.log('[OpenClaw] agents.list 返回 defaultId =', gatewayDefaultId);
+      }
+
+      // 2) 抽 agents 列表
       const list = this._normalizeAgentsList(resp);
-      // 归一化每个元素，确保至少 {agentId, name} 都有
       const normalized = list
         .filter(a => a && typeof a === 'object')
         .map(a => ({
@@ -687,15 +707,33 @@ class OpenClawClient {
         .filter(a => !!a.agentId);
       this._agentsCache = normalized;
       console.log('[OpenClaw] agents.list 解析到', normalized.length, '个 agent:', normalized.map(a => a.agentId).join(', '));
-      if (!force && normalized.length && !localStorage.getItem('openclaw_default_agent_id')) {
-        // 首次拉取且用户没显式选过 → 自动选第一个
-        this.setDefaultAgentId(normalized[0].agentId);
+
+      // 3) 自动选默认：用户没显式存过 → 优先网关 defaultId，没有再选列表第一个
+      if (!force && !localStorage.getItem('openclaw_default_agent_id')) {
+        let chosen = null;
+        if (gatewayDefaultId && normalized.some(a => a.agentId === gatewayDefaultId)) {
+          chosen = gatewayDefaultId;
+          console.log('[OpenClaw] 自动选用网关 defaultId:', chosen);
+        } else if (normalized.length) {
+          chosen = normalized[0].agentId;
+          console.log('[OpenClaw] 网关未指定 defaultId，自动选用列表第一个:', chosen);
+        } else {
+          console.warn('[OpenClaw] 没有任何 agent 可选，agentId 注入会跳过');
+        }
+        if (chosen) this.setDefaultAgentId(chosen);
+      } else {
+        console.log('[OpenClaw] 用户已选过 defaultAgentId:', this._defaultAgentId, '（尊重，不覆盖）');
       }
       return normalized;
     } catch (e) {
       console.warn('[OpenClaw] listAgents 失败:', e && e.message || e);
       return this._agentsCache || [];
     }
+  }
+
+  // 暴露给 index.html / office-v3.html 调试或 UI 切换用
+  getGatewayDefaultId() {
+    return this._gatewayDefaultId;
   }
 
   _generateId() {
