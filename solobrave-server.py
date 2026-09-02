@@ -17321,8 +17321,116 @@ def _call_kimi_vision(image_base64, agent_id=None, role=None):
     except urllib.error.HTTPError as e:
         err_body = e.read().decode('utf-8', errors='replace')
         logger.error(f'  [Vision] Kimi vision 调用失败: HTTP {e.code} {err_body[:300]}')
+        # 403 时尝试 minimax 视觉降级（用 minimax 自身的多模态 chat/completions 能力）
+        if e.code == 403:
+            try:
+                fb_text = _call_minimax_vision_fallback(image_base64, media_type, role)
+                if fb_text:
+                    return fb_text
+            except Exception as fb_err:
+                logger.error(f'  [Vision] minimax vision 降级异常: {fb_err}')
     except Exception as e:
         logger.error(f'  [Vision] Kimi vision 调用异常: {e}')
+    return None
+
+
+def _call_minimax_vision_fallback(image_base64, media_type='image/jpeg', role=None):
+    """Kimi vision 403 时的 minimax 降级。复用 minimax 的 OpenAI 兼容 chat/completions
+    多模态能力（image_url），失败返回 None。连续失败 3 次后 provider 走 degraded 跳过。"""
+    if _is_provider_degraded('minimax'):
+        logger.info('  [Vision] minimax 已 degraded，跳过 vision 降级')
+        return None
+
+    # 读 minimax 配置
+    try:
+        settings = _read_json(SETTINGS_FILE, {}) or {}
+        llm = settings.get('llm') or {}
+        minimax_cfg = None
+        for p in (llm.get('providers') or []):
+            if isinstance(p, dict) and p.get('name') == 'minimax':
+                minimax_cfg = p
+                break
+        if not minimax_cfg:
+            logger.info('  [Vision] settings.json 无 minimax 配置，跳过 vision 降级')
+            return None
+        api_key = (minimax_cfg.get('apiKey', '') or '').strip()
+        base_url = (minimax_cfg.get('baseUrl', '') or '').strip()
+        model = minimax_cfg.get('model', '') or 'MiniMax-Text-01'
+        if not api_key or not base_url:
+            logger.info('  [Vision] minimax 配置缺 apiKey/baseUrl，跳过 vision 降级')
+            return None
+    except Exception as e:
+        logger.error(f'  [Vision] 读 settings.json 失败: {e}')
+        return None
+
+    # 处理 data URL → 纯 base64
+    data = image_base64
+    if image_base64.startswith('data:'):
+        try:
+            header, data = image_base64.split(',', 1)
+            media_type = header.split(';')[0].split(':')[1] or media_type
+        except Exception:
+            logger.error('  [Vision] minimax 降级 data URL 解析失败')
+            return None
+
+    image_data_url = f'data:{media_type};base64,{data}'
+
+    # 构造 OpenAI 多模态 messages
+    messages = []
+    if role == '商务':
+        messages.append({'role': 'system', 'content': BUSINESS_VISION_PROMPT})
+    messages.append({
+        'role': 'user',
+        'content': [
+            {'type': 'image_url', 'image_url': {'url': image_data_url}},
+            {'type': 'text', 'text': '请描述这张图片的内容'}
+        ]
+    })
+
+    body = {
+        'model': model,
+        'messages': messages,
+        'max_tokens': 1024,
+        'stream': False
+    }
+
+    try:
+        req_body = json.dumps(body, ensure_ascii=False).encode('utf-8')
+        target_url = base_url + '/chatcompletion_v2'
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {api_key}',
+            'Content-Length': str(len(req_body))
+        }
+        masked_key = f'{api_key[:8]}...' if api_key and len(api_key) > 8 else '(none)'
+        logger.info(f'  [Vision] Kimi 403 → 尝试 minimax vision 降级: model={model} url={target_url} key={masked_key} role={role or "(default)"}')
+
+        req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
+        ctx = ssl.create_default_context()
+        resp = urllib.request.urlopen(req, timeout=60, context=ctx)
+        resp_data = json.loads(resp.read().decode('utf-8', errors='replace'))
+        if not resp_data.get('choices') or not resp_data['choices'][0].get('message'):
+            logger.error(f'  [Vision] minimax vision 降级失败: 响应格式异常 {str(resp_data)[:300]}')
+            _mark_provider_failed('minimax')
+            return None
+        text = (resp_data['choices'][0].get('message') or {}).get('content', '') or ''
+        if not text:
+            logger.error('  [Vision] minimax vision 降级失败: 响应 content 为空')
+            _mark_provider_failed('minimax')
+            return None
+        _mark_provider_ok('minimax')
+        logger.info(f'  [Vision] minimax vision 降级成功: text_len={len(text)}')
+        return text
+    except urllib.error.HTTPError as e:
+        try:
+            err_text = e.read().decode('utf-8', errors='replace')[:300]
+        except Exception:
+            err_text = ''
+        logger.error(f'  [Vision] minimax vision 降级失败: HTTP {e.code} {err_text}')
+        _mark_provider_failed('minimax')
+    except Exception as e:
+        logger.error(f'  [Vision] minimax vision 降级失败: {e}')
+        _mark_provider_failed('minimax')
     return None
 
 
