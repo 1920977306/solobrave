@@ -236,11 +236,21 @@ async function _signDevicePayload(privateKeyPkcs8B64, payload) {
 class OpenClawClient {
   constructor() {
     this.ws = null;
-    // 当前页是 https 上下文时强制 wss，否则 ws；地址里手写过的协议也按这个规则覆盖
-    // （crypto.subtle 需要安全上下文才可用，wss 是 device identity 配对的前置条件）
-    var _baseUrl = '192.168.1.25:18789';
+    // 协议自适应：https 页面下用 wss，http 页面下用 ws。
+    // 远程访问时 OpenClaw Gateway（18789）只支持 ws://，所以 https 页面下不走直连 18789，
+    // 而是连到 SoloBrave HTTPS 8443 同源下的 wss 代理端口 8444，由后端透传到 18789。
+    // 同机 localhost / 127.0.0.1 访问（http 页面）仍直连 Gateway：浏览器已经把 localhost
+    // 视为安全上下文，crypto.subtle 可用，wss 不必要。
     var _pageIsSecure = (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:');
-    this.url = (_pageIsSecure ? 'wss://' : 'ws://') + _baseUrl;
+    var _host = (typeof window !== 'undefined' && window.location && window.location.hostname) || '192.168.1.25';
+    var _port = (typeof window !== 'undefined' && window.location && window.location.port) || '';
+    if (_pageIsSecure) {
+      // 走 SoloBrave WSS 代理：同主机 + 8444 端口（与 HTTPS 8443 同源，证书一致）
+      this.url = 'wss://' + _host + ':8444';
+    } else {
+      // 走 OpenClaw Gateway 直连：18789
+      this.url = 'ws://' + _host + ':18789';
+    }
     this.connected = false;
     this.authenticated = false;
     this.mockMode = false;

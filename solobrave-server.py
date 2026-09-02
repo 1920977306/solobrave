@@ -97,6 +97,14 @@ TLS_KEY_FILE = os.path.join(TLS_CERT_DIR, 'key.pem')
 # 证书里要包含的 SAN（覆盖 127.0.0.1、局域网 IP、local 主机名）；新增机器时改这里即可
 TLS_CERT_HOSTS = ['127.0.0.1', 'localhost', '192.168.1.25', '*.local']
 
+# WSS 代理：HTTPS 页面下浏览器强制 wss，但 OpenClaw Gateway（18789）只支持 ws://。
+# 解决：在另一个端口用 SSLContext 包一个 wss server，把所有连接双向透传到 ws://127.0.0.1:18789。
+# 端口默认 8444，复用上面同一份证书。
+WSS_PROXY_PORT = 8444
+WSS_PROXY_ENABLED = True
+WSS_PROXY_TARGET_HOST = '127.0.0.1'  # 转发到的 Gateway 地址
+WSS_PROXY_TARGET_PORT = 18789        # 转发到的 Gateway 端口
+
 # CORS Origin 白名单（启动时会按实际端口追加 localhost/127.0.0.1 来源）
 ALLOWED_ORIGINS = [
     'http://localhost:8081',
@@ -22235,6 +22243,85 @@ def _make_https_server(http_server_cls, handler_cls, bind, port, cert_file, key_
     return server, t
 
 
+def _start_wss_proxy(cert_file, key_file, bind, port, target_host, target_port):
+    """在独立 daemon 线程里跑 asyncio 事件循环，启 wss://{bind}:{port} server，
+    把每条进来的连接双向透传到 ws://{target_host}:{target_port}（OpenClaw Gateway）。
+    依赖 websockets 库（pip install websockets）。库缺失时返回 None 并打 warning。"""
+    try:
+        import asyncio
+        import websockets
+    except ImportError:
+        logger.warning('  [WSS] websockets 库未安装，跳过 WSS 代理；前端 wss:// 连接会失败')
+        logger.warning('        安装: pip install websockets')
+        return None, None
+
+    async def _proxy_handler(client_ws, path=None):
+        # 兼容不同 websockets 版本：有的带 path 参数，有的不带
+        target_uri = f'ws://{target_host}:{target_port}'
+        upstream = None
+        try:
+            upstream = await websockets.connect(target_uri, max_size=64 * 1024 * 1024)
+        except Exception as e:
+            logger.error(f'  [WSS] 转发到 {target_uri} 失败: {e}')
+            try:
+                await client_ws.close()
+            except Exception:
+                pass
+            return
+        logger.info(f'  [WSS] 客户端已连接，转发到 {target_uri}')
+
+        async def _c2u():
+            try:
+                async for msg in client_ws:
+                    await upstream.send(msg)
+            except websockets.ConnectionClosed:
+                pass
+            except Exception as e:
+                logger.warning(f'  [WSS] client→upstream 异常: {e}')
+
+        async def _u2c():
+            try:
+                async for msg in upstream:
+                    await client_ws.send(msg)
+            except websockets.ConnectionClosed:
+                pass
+            except Exception as e:
+                logger.warning(f'  [WSS] upstream→client 异常: {e}')
+
+        try:
+            await asyncio.gather(_c2u(), _u2c())
+        finally:
+            for ws in (client_ws, upstream):
+                if ws is None:
+                    continue
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+
+    async def _serve():
+        ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
+        ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        server = await websockets.serve(_proxy_handler, bind, port, ssl=ssl_ctx)
+        logger.info(f'  [WSS] 代理已启动: wss://{bind}:{port} → ws://{target_host}:{target_port}')
+        await asyncio.Future()  # 永远等待
+
+    def _thread_main():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(_serve())
+        except Exception as e:
+            logger.error(f'  [WSS] 事件循环异常: {e}')
+        finally:
+            loop.close()
+
+    t = threading.Thread(target=_thread_main, daemon=True, name=f'WSSProxy-{port}')
+    t.start()
+    return t, None
+
+
 def main():
     global PORT, BIND
     # Windows 控制台/日志文件默认 GBK 编码，含 emoji 的日志会导致 UnicodeEncodeError 崩溃
@@ -22388,13 +22475,13 @@ def main():
     # HTTPS：让前端进安全上下文（crypto.subtle 可用，wss:// 也能用）
     https_server = None
     https_thread = None
+    https_port = HTTPS_PORT
     if HTTPS_ENABLED:
         try:
             tls_paths = _ensure_tls_cert()
             if tls_paths:
                 cert_file, key_file = tls_paths
                 # 选个未占用的 HTTPS 端口
-                https_port = HTTPS_PORT
                 try:
                     https_server, https_thread = _make_https_server(
                         ReuseHTTPServer, SoloBraveHandler, BIND, https_port, cert_file, key_file
@@ -22417,6 +22504,25 @@ def main():
             logger.error(f'  [TLS] HTTPS 启动失败，回退到仅 HTTP: {tls_err}')
             https_server = None
 
+    # WSS 代理：HTTPS 页面下浏览器强制 wss://，但 OpenClaw Gateway（ws://18789）不支持 TLS。
+    # 在 wss://{BIND}:{WSS_PROXY_PORT} 启一个反向代理，把所有连接双向透传到 ws://Gateway。
+    wss_thread = None
+    if WSS_PROXY_ENABLED and https_server is not None:
+        try:
+            # 用同一份证书（前面 _ensure_tls_cert 已经写过）
+            cert_path = TLS_CERT_FILE
+            key_path = TLS_KEY_FILE
+            if not (os.path.isfile(cert_path) and os.path.isfile(key_path)):
+                cert_path = None  # _start_wss_proxy 内部会再尝试
+            wss_thread, _ = _start_wss_proxy(
+                cert_path or TLS_CERT_FILE,
+                key_path or TLS_KEY_FILE,
+                BIND, WSS_PROXY_PORT,
+                WSS_PROXY_TARGET_HOST, WSS_PROXY_TARGET_PORT
+            )
+        except Exception as wss_err:
+            logger.error(f'  [WSS] WSS 代理启动失败: {wss_err}')
+
     logger.info('=' * 56)
     logger.info('  [SOLO] SoloBrave Server (Auth Enabled)')
     logger.info('=' * 56)
@@ -22430,6 +22536,10 @@ def main():
         logger.info(f'  [TLS] 证书: {TLS_CERT_FILE}')
     else:
         logger.info(f'  [URL] HTTPS:      (未启用，仅 HTTP)')
+    if wss_thread is not None:
+        logger.info(f'  [URL] WSS 代理:   wss://{BIND}:{WSS_PROXY_PORT} → ws://{WSS_PROXY_TARGET_HOST}:{WSS_PROXY_TARGET_PORT}')
+    else:
+        logger.info(f'  [WSS] 代理:       (未启用)')
     logger.info(f'  [API] 认证:      /api/auth/*')
     logger.info(f'  [API] 用户管理:  /api/users/*')
     logger.info(f'  [API] Agent:     /api/agents/*')
