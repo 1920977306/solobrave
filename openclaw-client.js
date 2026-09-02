@@ -90,11 +90,13 @@ async function _ensureDeviceIdentity() {
 
   // ===== Fallback 路径：WebCrypto.subtle 不可用 =====
   // 非安全上下文（http://，或本地 file://）下 chrome://flags 不生效时的兜底。
-  // 安全模型：基于随机生成的 32 字节私钥 + payload 派生一个稳定的"签名"值。
-  // 安全性比 Ed25519 弱（私钥明文存 localStorage），但能让连接建立起来。
+  // 关键：deviceId 必须是确定性的——同浏览器同 origin 每次产出同一 ID，让网关能"认住"；
+  // 因此私钥不再用 crypto.getRandomValues（每次都不同），而是从浏览器指纹派生。
+  // 公钥 = 私钥（仅用于标识 + 派生签名，不是真正的 Ed25519 验证）。
+  // 安全模型：私钥派生自浏览器指纹，跨设备/跨浏览器自然不同；同设备同浏览器稳定。
   console.log('[OpenClaw] WebCrypto.subtle 不可用，使用 localStorage 降级设备身份');
 
-  // 1) 优先复用已有 fallback 缓存
+  // 1) 优先复用已有 fallback 缓存（用户已经在该浏览器/设备上绑定过 ID）
   try {
     const cached = localStorage.getItem(DEVICE_IDENTITY_FALLBACK_KEY);
     if (cached) {
@@ -107,19 +109,18 @@ async function _ensureDeviceIdentity() {
     console.warn('[OpenClaw] 读取 fallback 设备身份缓存失败，将重新生成:', e);
   }
 
-  // 2) crypto.getRandomValues 在非安全上下文仍然可用（与 subtle 不同），
-  // 用它生成 32 字节随机私钥。公钥直接复用私钥——这里只是标识 + 派生签名，
-  // 不是真正的 Ed25519 验证，所以公私钥不必数学相关。
-  if (!window.crypto || typeof window.crypto.getRandomValues !== 'function') {
-    // 极端情况：连 getRandomValues 都没有（极老浏览器），用 Math.random 兜底
-    var buf = new Uint8Array(32);
-    for (var i = 0; i < 32; i++) buf[i] = Math.floor(Math.random() * 256);
-    var privKeyBytes = buf;
-  } else {
-    var privKeyBytes = new Uint8Array(32);
-    window.crypto.getRandomValues(privKeyBytes);
-  }
-  // 公钥 = 私钥（仅用于标识 + 派生签名，不是真正的 Ed25519 验证）
+  // 2) 浏览器指纹 → 32 字节确定性种子
+  const fingerprint = [
+    navigator.userAgent || '',
+    String(screen && screen.width || 0),
+    String(screen && screen.height || 0),
+    String(screen && screen.colorDepth || 0),
+    navigator.language || '',
+    String(new Date().getFullYear()),
+    String(window.location && window.location.origin || '')
+  ].join('|');
+  const privKeyBytes = _fingerprintToBytes(fingerprint, 32);
+  // 公钥 = 私钥（仅用于标识 + 派生签名，不是真正的 Ed25519 验证对）
   const publicKeyRaw = new Uint8Array(privKeyBytes);
 
   // 3) deviceId = base64url(privateKey) 的前 43 字符（≈32 字节原始），稳定且较短
@@ -186,6 +187,28 @@ function _fallbackSignDevicePayload(privateKeyB64, payload) {
     out[i * 4 + 3] = (h >>> 24) & 0xff;
   }
   return _base64UrlEncode(out);
+}
+
+// 把任意字符串确定性映射成 N 字节——纯 JS、不依赖 WebCrypto。
+// 与 _fallbackSignDevicePayload 用同样的 8 轮（产生 32 字节）或 N/4 轮带不同 salt 的 FNV-1a，
+// 让相同输入每次产出完全一致的字节序列。同浏览器同 origin 拿到的就是同一组字节。
+function _fingerprintToBytes(input, byteLen) {
+  const enc = new TextEncoder().encode(String(input));
+  const out = new Uint8Array(byteLen);
+  const rounds = Math.ceil(byteLen / 4);
+  for (let i = 0; i < rounds; i++) {
+    let h = (0x811c9dc5 ^ (i * 0x9e3779b9)) >>> 0;
+    for (let j = 0; j < enc.length; j++) {
+      h ^= enc[j];
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    const base = i * 4;
+    out[base] = h & 0xff;
+    if (base + 1 < byteLen) out[base + 1] = (h >>> 8) & 0xff;
+    if (base + 2 < byteLen) out[base + 2] = (h >>> 16) & 0xff;
+    if (base + 3 < byteLen) out[base + 3] = (h >>> 24) & 0xff;
+  }
+  return out;
 }
 
 async function _signDevicePayload(privateKeyPkcs8B64, payload) {
