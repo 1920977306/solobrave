@@ -2486,6 +2486,16 @@ async function initOpenClaw() {
   openclaw.on('authenticated', function(){
     console.log('[Office] OpenClaw 已认证');
     updateOpenClawStatus(true);
+    // 认证后拉取可用 agent 列表：多 agent 部署下，openclaw-client.send 会自动注入
+    // agentId 到每条请求；首次拉取且用户没显式选过，就用 list 返回的第一个。
+    if (typeof openclaw.listAgents === 'function') {
+      openclaw.listAgents().then(function(list){
+        console.log('[Office] 网关 agent 列表 (', list.length, '个):', list.map(function(a){return a.id || a.agentId || a.name;}).join(', '));
+        console.log('[Office] 当前默认 agentId =', openclaw.getDefaultAgentId && openclaw.getDefaultAgentId());
+      }).catch(function(e){
+        console.warn('[Office] 拉取 agent 列表失败:', e && e.message || e);
+      });
+    }
     // 认证成功后重新加载员工数据（可能之前401）
     loadEmployeesFromStorage().then(function(){
       renderChatZone();

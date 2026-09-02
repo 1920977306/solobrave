@@ -14,6 +14,9 @@
 // 否则会被拒绝（CONTROL_UI_DEVICE_IDENTITY_REQUIRED）。密钥在浏览器内生成、pkcs8 私钥只
 // 存 localStorage（按 v1 命名空间），保证同一浏览器重连时 deviceId 稳定。
 const DEVICE_IDENTITY_STORAGE_KEY = 'openclaw_device_identity_v1';
+
+// 不需要 agentId 注入的方法（认证 / 控制类请求自己处理 owner 字段）
+const SKIP_AGENTID_METHODS = new Set(['connect', 'auth', 'disconnect', 'agents.list', 'health']);
 // 非安全上下文（http://，或本地 file://）下 crypto.subtle 不可用时用的 fallback 缓存。
 // 单独 namespace 避免污染 Ed25519 缓存，也方便两种身份独立迁移。
 const DEVICE_IDENTITY_FALLBACK_KEY = 'openclaw_device_identity';
@@ -260,17 +263,23 @@ class OpenClawClient {
     this._reconnectAttempts = 0;
     this._maxReconnectAttempts = 5;
     this._reconnectTimer = null;
-    
+
     // 稳定的设备 ID（存 localStorage 保持不变）
     this._deviceId = localStorage.getItem('openclaw_device_id');
     if (!this._deviceId) {
       this._deviceId = 'solobrave-' + Math.random().toString(36).substring(2, 10);
       localStorage.setItem('openclaw_device_id', this._deviceId);
     }
-    
+
     // Token 管理
     this._token = localStorage.getItem('openclaw_token') || '';
-    
+
+    // 默认 agentId：网关配置了多个 agent 时，每个请求必须显式带 agentId（"Multiple agents
+    // are configured, but this Gateway request has no explicit owner"）。先从 localStorage
+    // 读上次选中的，没设置就默认 'main'（OpenClaw gateway 内置的 default agent）。
+    this._defaultAgentId = localStorage.getItem('openclaw_default_agent_id') || 'main';
+    this._agentsCache = null;        // 缓存 list_agents 结果（供 index.html 选默认用）
+
     if (!this._token) {
       console.warn('[OpenClaw] 未设置 token，请在控制台运行: openclaw.setToken("your-token")');
     }
@@ -588,6 +597,13 @@ class OpenClawClient {
         return;
       }
 
+      // 自动注入 agentId：网关配了多个 agent 时，每条请求必须显式带 agentId。
+      // 调用方已显式传了就尊重；否则用 _defaultAgentId（默认 'main'）。
+      // connect 握手 / 自身认证类请求跳过注入。
+      if (!SKIP_AGENTID_METHODS.has(method) && params && !params.agentId) {
+        params = Object.assign({}, params, { agentId: this._defaultAgentId });
+      }
+
       const id = this._generateId();
       const msg = {
         type: 'req',
@@ -605,6 +621,40 @@ class OpenClawClient {
       this._pending.set(id, { resolve, reject, timeout });
       this.ws.send(JSON.stringify(msg));
     });
+  }
+
+  // 切换默认 agentId 并持久化（用户手动选了某个 agent 后调）
+  setDefaultAgentId(agentId) {
+    if (!agentId || typeof agentId !== 'string') return;
+    this._defaultAgentId = agentId;
+    try { localStorage.setItem('openclaw_default_agent_id', agentId); } catch (e) {}
+    console.log('[OpenClaw] 默认 agentId 已切换为:', agentId);
+  }
+
+  getDefaultAgentId() {
+    return this._defaultAgentId;
+  }
+
+  // 拉取网关上的 agent 列表（多 agent 部署时让前端选默认）
+  async listAgents(force = false) {
+    if (!force && this._agentsCache && this._agentsCache.length) {
+      return this._agentsCache;
+    }
+    try {
+      const resp = await this.send('agents.list', {});
+      // 不同网关版本返回结构可能略不同：尝试多种字段
+      const list = (resp && (resp.agents || resp.items || (Array.isArray(resp) ? resp : null))) || [];
+      this._agentsCache = list;
+      if (!force && list.length && !localStorage.getItem('openclaw_default_agent_id')) {
+        // 首次拉取且用户没显式选过 → 自动选第一个
+        const first = list[0].id || list[0].agentId || list[0].name;
+        if (first) this.setDefaultAgentId(first);
+      }
+      return list;
+    } catch (e) {
+      console.warn('[OpenClaw] listAgents 失败:', e && e.message || e);
+      return this._agentsCache || [];
+    }
   }
 
   _generateId() {
