@@ -7805,6 +7805,14 @@ async function apiFetch(url, options = {}) {
         throw new Error('权限不足 (403)');
       }
     }
+    // 409 静默：业务上通常是"池子满"（记忆池、知识池等），不影响聊天主流程，
+    // 只在控制台 warn 一行避免污染 UX。
+    if (resp.status === 409) {
+      console.warn('[apiFetch] 409 Conflict, silently ignoring:', url);
+      return new Response('{"ok":false,"reason":"conflict"}', {
+        status: 200, headers: { 'Content-Type': 'application/json' }
+      });
+    }
     if (!resp.ok) {
       throw new Error('HTTP ' + resp.status + ' ' + resp.statusText);
     }

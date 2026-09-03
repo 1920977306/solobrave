@@ -305,7 +305,7 @@ def _get_knowledge_mock_mode():
 # ═══════════════════════════════════════════════════
 MEMORY_CONFIG = {
     'core_max': 100,           # 核心记忆池上限
-    'daily_max': 100,          # 日常记录池上限
+    'daily_max': 200,          # 日常记录池上限（从 100 提到 200，缓解 409 满池问题）
     'daily_ttl_days': 30,      # 日常记录过期天数
     'inject_core_max': 5,      # 注入时核心记忆条数
     'inject_daily_max': 5,     # 注入时日常记忆条数
