@@ -21605,52 +21605,97 @@ def _handle_proxy_kimi(self):
                     print(f'  [KimiProxy] 400自动修复: 无法修复，返回原始错误', flush=True)
 
             # 兜底：上游 403 时尝试 minimax 降级（支持流式和非流式；流式场景拿 minimax
-            # 的非流式完整回复后包装成 SSE chunk 返回给 OpenClaw 网关）
+            # 的非流式完整回复后包装成 Anthropic messages 流式 SSE 返回给 OpenClaw 网关）
+            # OpenClaw 的 kimi_proxy_* provider 都配的 api: 'anthropic-messages'，必须吐
+            # Anthropic 风格的 SSE（message_start / content_block_* / message_delta / message_stop），
+            # 而不是 OpenAI 的 chat.completion.chunk。格式对不上 OpenClaw 解析不了。
             fallback_body = None
             if e.code == 403:
                 try:
-                    # 强制 request_format='openai'，让 fallback 返回 OpenAI 格式 JSON；
-                    # 这样下面 SSE 包装能直接复用 choices[0].message.content 提取文本
-                    fallback_body = _try_minimax_proxy_fallback(body, log_prefix='KimiProxy', request_format='openai')
+                    # 强制 request_format='anthropic'，让 fallback 返回 Anthropic 格式 JSON；
+                    # 下面 SSE 包装从 content[0].text 提取文本
+                    fallback_body = _try_minimax_proxy_fallback(body, log_prefix='KimiProxy', request_format='anthropic')
                 except Exception as fb_err:
                     logger.error(f'  [KimiProxy] minimax fallback exception: {fb_err}')
             if fallback_body is not None:
                 if is_streaming:
-                    # 把非流式 minimax 响应包装为 OpenAI 风格 SSE 流式
+                    # 把非流式 minimax Anthropic 响应包装为 Anthropic messages 流式 SSE
                     try:
                         fb_data = json.loads(fallback_body.decode('utf-8', errors='replace'))
+                        # 从 Anthropic 格式里抠文本：data.content[0].text
                         fb_text = ''
-                        if isinstance(fb_data, dict) and fb_data.get('choices'):
-                            fb_text = (fb_data['choices'][0].get('message') or {}).get('content', '') or ''
-                        chunk_id = 'chatcmpl-minimax-fallback-' + str(int(time.time() * 1000))
-                        created_ts = int(time.time())
-                        # 1) 带 role + 完整 content 的 delta
-                        head_chunk = {
-                            'id': chunk_id,
-                            'object': 'chat.completion.chunk',
-                            'created': created_ts,
-                            'model': 'minimax-fallback',
-                            'choices': [{'index': 0, 'delta': {'role': 'assistant', 'content': fb_text}, 'finish_reason': None}]
-                        }
-                        # 2) finish_reason=stop 的结束 chunk
-                        end_chunk = {
-                            'id': chunk_id,
-                            'object': 'chat.completion.chunk',
-                            'created': created_ts,
-                            'model': 'minimax-fallback',
-                            'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]
-                        }
-                        sse_payload = (
-                            f'data: {json.dumps(head_chunk, ensure_ascii=False)}\n\n'
-                            f'data: {json.dumps(end_chunk, ensure_ascii=False)}\n\n'
-                            'data: [DONE]\n\n'
-                        ).encode('utf-8')
+                        if isinstance(fb_data, dict) and isinstance(fb_data.get('content'), list) and fb_data['content']:
+                            for blk in fb_data['content']:
+                                if isinstance(blk, dict) and blk.get('type') == 'text' and blk.get('text'):
+                                    fb_text = blk['text']
+                                    break
+                        # 输出 token 数（minimax 给的可能叫 input_tokens / output_tokens）
+                        in_tok = 0
+                        out_tok = 0
+                        if isinstance(fb_data.get('usage'), dict):
+                            in_tok = fb_data['usage'].get('input_tokens', 0) or 0
+                            out_tok = fb_data['usage'].get('output_tokens', 0) or 0
+                        msg_id = 'msg-minimax-fallback-' + str(int(time.time() * 1000))
+                        model_name = 'minimax-fallback'
+
+                        # Anthropic messages streaming event 序列
+                        def _sse_event(event_name, data_obj):
+                            return f'event: {event_name}\ndata: {json.dumps(data_obj, ensure_ascii=False)}\n\n'
+
+                        sse_parts = []
+                        # 1) message_start
+                        sse_parts.append(_sse_event('message_start', {
+                            'type': 'message_start',
+                            'message': {
+                                'id': msg_id,
+                                'type': 'message',
+                                'role': 'assistant',
+                                'content': [],
+                                'model': model_name,
+                                'stop_reason': None,
+                                'stop_sequence': None,
+                                'usage': {'input_tokens': in_tok, 'output_tokens': 0}
+                            }
+                        }))
+                        # 2) content_block_start
+                        sse_parts.append(_sse_event('content_block_start', {
+                            'type': 'content_block_start',
+                            'index': 0,
+                            'content_block': {'type': 'text', 'text': ''}
+                        }))
+                        # 3) content_block_delta（把整段文本一次推过去）
+                        if fb_text:
+                            sse_parts.append(_sse_event('content_block_delta', {
+                                'type': 'content_block_delta',
+                                'index': 0,
+                                'delta': {'type': 'text_delta', 'text': fb_text}
+                            }))
+                        # 4) content_block_stop
+                        sse_parts.append(_sse_event('content_block_stop', {
+                            'type': 'content_block_stop',
+                            'index': 0
+                        }))
+                        # 5) message_delta
+                        sse_parts.append(_sse_event('message_delta', {
+                            'type': 'message_delta',
+                            'delta': {
+                                'stop_reason': 'end_turn',
+                                'stop_sequence': None
+                            },
+                            'usage': {'output_tokens': out_tok}
+                        }))
+                        # 6) message_stop
+                        sse_parts.append(_sse_event('message_stop', {
+                            'type': 'message_stop'
+                        }))
+
+                        sse_payload = ''.join(sse_parts).encode('utf-8')
                         self.send_response(200)
                         self.send_header('Content-Type', 'text/event-stream')
                         self.send_header('Cache-Control', 'no-cache')
                         self.end_headers()
                         self.wfile.write(sse_payload)
-                        print(f'  [KimiProxy] 403 minimax降级(流式包装): text_len={len(fb_text)}', flush=True)
+                        print(f'  [KimiProxy] 403 minimax降级(Anthropic流式包装): text_len={len(fb_text)}', flush=True)
                         return
                     except Exception as sse_err:
                         logger.error(f'  [KimiProxy] minimax SSE 包装失败，降级为非流式返回: {sse_err}')
