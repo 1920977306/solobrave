@@ -788,7 +788,9 @@ class OpenClawClient {
       return this._agentsCache;
     }
     try {
-      const resp = await this.send('agents.list', {});
+      const pendingPromise = this.send('agents.list', {});
+      console.log('[OpenClaw] listAgents: send() 返回, promise存在=' + (pendingPromise && typeof pendingPromise.then === 'function'));
+      const resp = await pendingPromise;
       try {
         console.log('[OpenClaw] listAgents then 入口, arg前200=' + JSON.stringify(resp).slice(0, 200));
       } catch (e) { /* 序列化失败不影响主流程 */ }
@@ -1002,11 +1004,8 @@ class OpenClawClient {
   }
 
   // ========== API 方法 ==========
-
-  // 获取 agent 列表
-  async listAgents() {
-    return this.send('agents.list', {});
-  }
+  // 注：listAgents 的完整实现（含解析 / 缓存 / 自动选默认）见类中前面的位置。
+  // 之前在 1007 行附近有个简单 stub 会覆盖那个实现——已删除，这里只保留别的 API 方法。
 
   // 获取 session 列表
   async listSessions() {
