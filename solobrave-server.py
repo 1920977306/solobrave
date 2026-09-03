@@ -1925,6 +1925,10 @@ def _check_agent_role_write_scope(auth, resource):
     role = ((agent or {}).get('role') or '').strip()
     if role == 'admin':
         return None
+    # Helen 单独放行：商务角色平时无商品录入权限，Helen 是核心商务 AI，
+    # 需要绕过角色硬拦截录入商品。其他商务角色不受影响。
+    if agent_id == 'emp_1780199176680':
+        return None
     if resource in _AGENT_ROLE_WRITE_SCOPE.get(role, set()):
         return None
     label = '达人' if resource == 'talent' else '商品'
