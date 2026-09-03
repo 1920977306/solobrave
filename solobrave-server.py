@@ -17248,10 +17248,7 @@ def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy', request_format='a
 
 
 # ═══ Kimi 多模态图片识别（图片转文字，供 OpenClaw 纯文本链路使用）═══
-# key 解析与 _handle_proxy_kimi 完全一致：环境变量优先，fallback 同一把全局 key
-KIMI_VISION_API_KEY = (os.environ.get('KIMI_VISION_API_KEY', '').strip()
-                       or os.environ.get('KIMI_API_KEY', '').strip()
-                       or 'sk-02e90cc3c5b147fcb945c7334ed94008')
+# key 解析与 _handle_proxy_kimi 一致：员工 apiKey > settings.json vision.apiKey > KIMI_KEY_POOL 轮询
 KIMI_VISION_URL = 'https://api.kimi.com/coding/v1/messages'
 KIMI_VISION_MODEL = 'kimi-for-coding'
 
@@ -17278,7 +17275,7 @@ def _get_settings_vision_config():
 def _call_kimi_vision(image_base64, agent_id=None, role=None):
     """调用 Kimi Code（Anthropic Messages）端点将图片转成文字描述；成功返回描述文字，失败返回 None。
     认证方式与 _handle_proxy_kimi 一致：x-api-key + anthropic-version，直连 api.kimi.com；
-    key 优先级：员工 apiKey > settings.json vision.apiKey > 环境变量/全局 key（同 proxy 逻辑）。
+    key 优先级：员工 apiKey > settings.json vision.apiKey > KIMI_KEY_POOL 轮询（同 proxy 逻辑）。
     model/baseUrl 同样优先取 settings.json vision 配置。
     image_base64 可传完整 data URL（data:image/...;base64,...）或纯 base64 串。
     role 为该 AI 员工的角色：role == '商务' 时 system 提示词替换为 BUSINESS_VISION_PROMPT，
@@ -17286,7 +17283,10 @@ def _call_kimi_vision(image_base64, agent_id=None, role=None):
     if not image_base64:
         return None
     vision_cfg = _get_settings_vision_config()
-    api_key = _get_agent_api_key(agent_id) or vision_cfg['apiKey'] or KIMI_VISION_API_KEY
+    api_key = _get_agent_api_key(agent_id) or vision_cfg['apiKey'] or KIMI_KEY_POOL.get_key()
+    if not api_key:
+        logger.error('  [Vision] Kimi Key 池已空，无可用 key，跳过图片识别')
+        return None
     vision_model = vision_cfg['model'] or KIMI_VISION_MODEL
     vision_url = _resolve_kimi_coding_target_url('kimi')
     media_type = 'image/jpeg'
@@ -20759,8 +20759,48 @@ def _handle_proxy(self):
 # Kimi API 代理（积分管控）— 见 KIMI_API_PROXY_SPEC.md
 # ═══════════════════════════════════════════════════
 
-# 真实 Kimi API Key：优先环境变量 KIMI_API_KEY，fallback 到硬编码（按 spec）
-KIMI_PROXY_REAL_API_KEY = os.environ.get('KIMI_API_KEY', '').strip() or 'sk-02e90cc3c5b147fcb945c7334ed94008'
+# ═══ Kimi API Key 池：多 key 轮询 + 401/429 失败拉黑自动轮换 ═══
+class KimiKeyPool:
+    """多 key 轮询；key 被拉黑（默认 30 分钟）期间不参与分配，到期自动恢复。"""
+
+    def __init__(self, keys):
+        self._keys = list(keys)
+        self._lock = threading.Lock()
+        self._index = 0
+        self._blocked = {}
+
+    @property
+    def size(self):
+        return len(self._keys)
+
+    def get_key(self):
+        with self._lock:
+            now = time.time()
+            expired = [k for k, t in self._blocked.items() if now >= t]
+            for k in expired:
+                del self._blocked[k]
+            active_keys = [k for k in self._keys if k not in self._blocked]
+            if not active_keys:
+                return None
+            key = active_keys[self._index % len(active_keys)]
+            self._index = (self._index + 1) % len(active_keys)
+            return key
+
+    def mark_failed(self, key, block_seconds=1800):
+        with self._lock:
+            self._blocked[key] = time.time() + block_seconds
+            # key 日志脱敏：只显示前10后4位
+            masked = f'{key[:10]}...{key[-4:]}' if key and len(key) > 14 else '****'
+            logger.warning(f'[KimiKeyPool] Key blocked: {masked}, recover in {block_seconds}s')
+
+
+# 真实 Kimi API Key 池：环境变量 KIMI_API_KEY（逗号分隔可配多个）优先，否则用内置 key 列表
+_env_kimi_keys = [k.strip() for k in os.environ.get('KIMI_API_KEY', '').split(',') if k.strip()]
+KIMI_KEY_POOL = KimiKeyPool(_env_kimi_keys or [
+    "sk-kimi-o35k9gcgprEzAZ0Q9Kw9bqiPGJyD66qXbe2biTZoZKaBm9DEszUQnSGML7qJBfaE",
+    "sk-kimi-EEcskfgXT82jqiOLenbK6x1diNxalfzqnAoX2zajMzfPdvjh16RTLXHjPOZKJ90j",
+    "sk-kimi-nl2dFFqoGPKpA6boPerKqeFtaQKySphOnVQ6mLtbrITg5ivOygnh5dtFMDayoqtx",
+])
 # 上游 base url：可用环境变量覆盖（便于本地 mock 测试），默认真实 Kimi coding endpoint
 KIMI_PROXY_REAL_BASE_URL = os.environ.get('KIMI_PROXY_BASE_URL', '').strip() or 'https://api.kimi.com/coding'
 
@@ -21052,6 +21092,9 @@ def _get_agent_role(agent_id):
 def _memory_pipeline_llm_call(model=None, api_key=None):
     """构造供 memory_pipeline 使用的 LLM 调用函数，签名 (prompt: str) -> str"""
     def _call(prompt):
+        effective_key = api_key or KIMI_KEY_POOL.get_key()
+        if not effective_key:
+            raise RuntimeError('Kimi API Key 池已空，无法调用 LLM')
         req_body = json.dumps({
             'model': model or 'kimi-for-coding',
             'max_tokens': 2000,
@@ -21062,7 +21105,7 @@ def _memory_pipeline_llm_call(model=None, api_key=None):
             data=req_body,
             headers={
                 'Content-Type': 'application/json',
-                'x-api-key': api_key or KIMI_PROXY_REAL_API_KEY,
+                'x-api-key': effective_key,
                 'anthropic-version': '2023-06-01',
             },
             method='POST')
@@ -21150,8 +21193,24 @@ def _handle_proxy_kimi(self):
     def _timing(label, since):
         print(f'  [KimiProxy] TIMING {label}: {time.perf_counter() - since:.3f}s', flush=True)
 
-    # 2.5 优先使用该员工在 agents.json 中配置的 apiKey 转发，未配置则 fallback 全局 key
+    # 2.5 优先使用该员工在 agents.json 中配置的 apiKey 转发，未配置则从 key 池轮询取一个
     agent_api_key = _get_agent_api_key(agent_id) if agent_id else None
+    if not agent_api_key:
+        agent_api_key = KIMI_KEY_POOL.get_key()
+    if agent_api_key is None:
+        # key 池全部处于拉黑冷却期，无可用 key
+        logger.error('[KimiProxy] Key 池已空，返回 503')
+        self.send_response(503)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({
+            'type': 'error',
+            'error': {
+                'type': 'api_key_pool_exhausted',
+                'message': 'Kimi API Key 池暂时全部不可用，请稍后重试'
+            }
+        }).encode())
+        return
 
     # 3. 检查积分余额
     if agent_id:
@@ -21466,10 +21525,11 @@ def _handle_proxy_kimi(self):
         path_suffix = '/v1/messages'
     target_url = KIMI_PROXY_REAL_BASE_URL + path_suffix
 
-    # 构造请求头（用员工自己的 apiKey 替换 proxy key，未配置时用全局真实 key）
+    # 构造请求头（用员工自己的 apiKey 或 key 池取到的 key 替换 proxy key；
+    # agent_api_key 在步骤 2.5 已保证非 None）
     forward_headers = {
         'Content-Type': 'application/json',
-        'x-api-key': agent_api_key or KIMI_PROXY_REAL_API_KEY,
+        'x-api-key': agent_api_key,
         'anthropic-version': self.headers.get('anthropic-version', '2023-06-01'),
     }
 
@@ -21484,6 +21544,8 @@ def _handle_proxy_kimi(self):
 
     retry_count = 0
     MAX_RETRIES = 2
+    current_key = agent_api_key  # 当前转发使用的 key，401/429 时轮换
+    key_retry_count = 0
     while True:
         try:
             _t = time.perf_counter()
@@ -21493,13 +21555,38 @@ def _handle_proxy_kimi(self):
         except urllib.error.HTTPError as e:
             err_body = e.read()
             err_text = err_body.decode('utf-8', errors='replace')
-            # ERROR 日志：脱敏后的转发 key + 状态码 + 响应 body 前 500 字符
+            # ERROR 日志：脱敏后的转发 key（前10后4位）+ 状态码 + 响应 body 前 500 字符
             _fwd_key = forward_headers.get('x-api-key', '')
-            _masked = (_fwd_key[:6] + '****' + _fwd_key[-4:]) if len(_fwd_key) > 10 else '****'
+            _masked = (_fwd_key[:10] + '...' + _fwd_key[-4:]) if len(_fwd_key) > 14 else '****'
             logger.error(
                 f'[KimiProxy] Kimi API 调用失败: agent_id={agent_id} status={e.code} '
                 f'x-api-key={_masked} resp_body[:500]={err_text[:500]!r}'
             )
+
+            # 401/429：当前 key 失效或被限流，拉黑后取池内下一个 key 重试，
+            # 最多重试 key 池大小次；员工自带 key 失败时也会借此回落到池内 key
+            if e.code in (401, 429) and key_retry_count < KIMI_KEY_POOL.size:
+                key_retry_count += 1
+                KIMI_KEY_POOL.mark_failed(current_key)
+                next_key = KIMI_KEY_POOL.get_key()
+                if next_key is None:
+                    logger.error('[KimiProxy] Key 池已空，返回 503')
+                    self.send_response(503)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        'type': 'error',
+                        'error': {
+                            'type': 'api_key_pool_exhausted',
+                            'message': 'Kimi API Key 池暂时全部不可用，请稍后重试'
+                        }
+                    }).encode())
+                    return
+                current_key = next_key
+                forward_headers['x-api-key'] = current_key
+                req = urllib.request.Request(target_url, data=req_body, headers=forward_headers, method='POST')
+                logger.info(f'[KimiProxy] {e.code} 轮换 key 重试 ({key_retry_count}/{KIMI_KEY_POOL.size})')
+                continue
 
             # 400时dump完整messages到文件用于调试
             if e.code == 400:
