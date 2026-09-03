@@ -395,10 +395,13 @@ class OpenClawClient {
     try {
       const pendingExists = id ? this._pending.has(id) : false;
       const payloadSample = payload ? JSON.stringify(payload).slice(0, 200) : '';
+      const errSample = msg && msg.error ? (typeof msg.error === 'string' ? msg.error : JSON.stringify(msg.error).slice(0, 200)) : '';
       console.log('[OpenClaw] _handleMessage 路由: type=' + type +
         ' method=' + (method || '') +
         ' event=' + (event || '') +
         ' id=' + (id || '') +
+        ' ok=' + JSON.stringify(msg && msg.ok) +
+        (errSample ? ' error=' + errSample : ' error=(空)') +
         ' pending=' + (pendingExists ? '存在' : '无') +
         (payloadSample ? ' payload前200=' + payloadSample : ''));
     } catch (e) { /* 调试日志不影响主流程 */ }
@@ -424,7 +427,21 @@ class OpenClawClient {
       if (pending) {
         clearTimeout(pending.timeout);
         this._pending.delete(id);
-        if (msg.error || msg.ok === false) {
+
+        // 判断是否真的错误：
+        // 1) msg.ok === false（强信号：协议层面的失败）
+        // 2) msg.error 是带 code/message 的真错误对象（兜底：有些实现不严格设 ok）
+        // 3) msg.error 是非空字符串（旧实现可能把错误直接当字符串返回）
+        // **不能**用 `msg.error` 的真值判断——OpenClaw gateway 在 ok=true 的响应里也会
+        // 带 error: null / {} 这种占位对象，truthy 判断会把成功响应误判为错误，导致
+        // listAgents 之类的成功响应被 reject、.then 永远不执行。
+        const hasRealError = msg.error && (
+          typeof msg.error !== 'object' ||
+          msg.error.code ||
+          msg.error.message
+        );
+        const isError = msg.ok === false || hasRealError;
+        if (isError) {
           var errObj = msg.error || { code: 'UNKNOWN', message: 'request failed' };
           var errMsg = typeof errObj === 'string' ? errObj : (errObj.message || JSON.stringify(errObj));
           var errCode = (errObj && errObj.code) || '';
@@ -499,7 +516,12 @@ class OpenClawClient {
           pending.reject(new Error(errMsg));
         } else {
           // v3 format: payload contains the actual result
-          pending.resolve(payload || msg);
+          const resolveValue = payload || msg;
+          try {
+            console.log('[OpenClaw] 即将 resolve pending id=' + id + ' method=' + (pending.method || '?') +
+              ' value前200=' + JSON.stringify(resolveValue).slice(0, 200));
+          } catch (e) {}
+          pending.resolve(resolveValue);
         }
       }
       return;
@@ -768,7 +790,7 @@ class OpenClawClient {
     try {
       const resp = await this.send('agents.list', {});
       try {
-        console.log('[OpenClaw] listAgents .then() 收到:', JSON.stringify(resp).slice(0, 400));
+        console.log('[OpenClaw] listAgents then 入口, arg前200=' + JSON.stringify(resp).slice(0, 200));
       } catch (e) { /* 序列化失败不影响主流程 */ }
       // 调试：完整打印原始 payload（不截断），方便后续格式变化时快速对照
       let pretty = '(unserializable)';
