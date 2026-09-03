@@ -380,7 +380,7 @@ class OpenClawClient {
 
   // ========== 消息处理 ==========
 
-  _handleMessage(data) {
+  async _handleMessage(data) {
     let msg;
     try {
       msg = JSON.parse(data);
@@ -390,6 +390,18 @@ class OpenClawClient {
     }
 
     const { type, method, event, id, payload, params } = msg;
+
+    // 调试：打印响应路由关键信息，方便定位 pending 匹配 / 解析不到等问题
+    try {
+      const pendingExists = id ? this._pending.has(id) : false;
+      const payloadSample = payload ? JSON.stringify(payload).slice(0, 200) : '';
+      console.log('[OpenClaw] _handleMessage 路由: type=' + type +
+        ' method=' + (method || '') +
+        ' event=' + (event || '') +
+        ' id=' + (id || '') +
+        ' pending=' + (pendingExists ? '存在' : '无') +
+        (payloadSample ? ' payload前200=' + payloadSample : ''));
+    } catch (e) { /* 调试日志不影响主流程 */ }
 
     // 1. 服务端推送: connect.challenge (v3 格式用 event 字段)
     if (type === 'event' && (event === 'connect.challenge' || method === 'connect.challenge')) {
@@ -417,19 +429,45 @@ class OpenClawClient {
           var errMsg = typeof errObj === 'string' ? errObj : (errObj.message || JSON.stringify(errObj));
           var errCode = (errObj && errObj.code) || '';
 
-          // 自动纠错：session 与 agentId 不匹配时，从错误消息里抠出网关真正期望的
-          // agentId（例如 "does not match session key agent 'emp_xxx'"），切过去并重试。
-          // 每个 id 只重试一次，避免死循环。
-          if (errCode === 'INVALID_REQUEST' && /does not match session key agent\s+"([^"]+)"/i.test(errMsg || '')) {
-            var m = errMsg.match(/does not match session key agent\s+"([^"]+)"/i);
-            var correctId = m && m[1];
-            if (correctId && correctId !== this._defaultAgentId && !pending._retried) {
-              console.warn('[OpenClaw] agentId 不匹配，自动切换: ' + this._defaultAgentId + ' → ' + correctId);
+          // 自动纠错：网关返回 INVALID_REQUEST 里有两种典型"agentId 不对"的消息：
+          //   (a) "does not match session key agent \"emp_xxx\"" → 引号里直接给正确 id
+          //   (b) "no explicit owner"                            → 网关没选过 default，要我们自选
+          // 两种都通过同一个 setDefaultAgentId + 重发路径处理，逻辑共用避免漂移。
+          // 每个 pending 只重试一次（_retried 标记），避免死循环。
+          const needsRecovery =
+            errCode === 'INVALID_REQUEST' ||
+            /does not match session key agent\s+"([^"]+)"/i.test(errMsg || '') ||
+            /no explicit owner/i.test(errMsg || '');
+          if (needsRecovery && !pending._retried) {
+            let correctId = null;
+            const m = (errMsg || '').match(/does not match session key agent\s+"([^"]+)"/i);
+            if (m) {
+              correctId = m[1];
+            } else if (/no explicit owner/i.test(errMsg || '')) {
+              // 没拿到 defaultId / 列表还没就绪：先从缓存取第一个；缓存空就主动 listAgents 一次
+              if (this._agentsCache && this._agentsCache.length) {
+                correctId = this._agentsCache[0].agentId;
+                console.log('[OpenClaw] no explicit owner，从 _agentsCache 选第一个:', correctId);
+              } else {
+                console.log('[OpenClaw] no explicit owner，缓存空，临时调 listAgents 拿 agent 列表...');
+                try {
+                  const list = await this.listAgents();
+                  if (list && list.length) {
+                    correctId = list[0].agentId;
+                    console.log('[OpenClaw] listAgents 临时返回第一个:', correctId);
+                  }
+                } catch (e) {
+                  console.warn('[OpenClaw] 临时 listAgents 失败:', e && e.message || e);
+                }
+              }
+            }
+            if (correctId && correctId !== this._defaultAgentId) {
+              console.warn('[OpenClaw] agentId 自动恢复: ' + (this._defaultAgentId || '(空)') + ' → ' + correctId);
               this.setDefaultAgentId(correctId);
               try { localStorage.setItem('openclaw_default_agent_id', correctId); } catch (e) {}
               // 用新 agentId 重新发原请求（用新 id，旧的 _pending 已经被删了）
               try {
-                var newMsg = {
+                const newMsg = {
                   type: 'req',
                   id: this._generateId(),
                   method: pending.method,
@@ -437,8 +475,7 @@ class OpenClawClient {
                 };
                 if (this.ws && this.ws.readyState === 1 /* OPEN */) {
                   this.ws.send(JSON.stringify(newMsg));
-                  // 给重发的请求也建一个 pending，超时单独挂
-                  var newTimeout = setTimeout(function(self, mid) {
+                  const newTimeout = setTimeout(function(self, mid) {
                     return function() {
                       self._pending.delete(mid);
                       pending.reject(new Error('请求超时: ' + pending.method + ' (retry)'));
@@ -723,11 +760,16 @@ class OpenClawClient {
   }
 
   async listAgents(force = false) {
+    console.log('[OpenClaw] listAgents 被调用，发送请求...');
     if (!force && this._agentsCache && this._agentsCache.length) {
+      console.log('[OpenClaw] listAgents 命中缓存，返回', this._agentsCache.length, '个');
       return this._agentsCache;
     }
     try {
       const resp = await this.send('agents.list', {});
+      try {
+        console.log('[OpenClaw] listAgents .then() 收到:', JSON.stringify(resp).slice(0, 400));
+      } catch (e) { /* 序列化失败不影响主流程 */ }
       // 调试：完整打印原始 payload（不截断），方便后续格式变化时快速对照
       let pretty = '(unserializable)';
       try { pretty = JSON.stringify(resp, null, 2); } catch (e) {}
