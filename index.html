@@ -8562,6 +8562,50 @@ async function sendMsg() {
     }
   }
 
+  // 多图重任务旁路等待：后端 HeavyPipe（Python 线程）正在做 vision 识别+达人预查+深度分析，
+  // 不占用 OpenClaw gateway；每 5s 轮询 heavy-status，done 则刷新聊天记录，
+  // failed/超时则降级回 OpenClaw 主干道重发
+  function _waitHeavyPipe(empInfo, jobId) {
+    var _tp = document.getElementById('typingMsg');
+    if (_tp) {
+      var bubble = _tp.querySelector('.msg-bubble');
+      if (bubble) bubble.innerHTML = '<span style="color:#888">🔬 正在深度分析 ' + pendingImages.length + ' 张图片（专属通道，不影响其他对话）…</span>';
+    }
+    // 旁路分析可能跑几分钟，清掉 60s 思考超时保护
+    if (window._thinkingTimeouts && window._thinkingTimeouts[_curEmpId]) {
+      clearTimeout(window._thinkingTimeouts[_curEmpId]);
+      delete window._thinkingTimeouts[_curEmpId];
+    }
+    var polls = 0;
+    var maxPolls = 120; // 5s × 120 = 10 分钟
+    var timer = setInterval(async function () {
+      polls++;
+      var status = null, errMsg = '';
+      try {
+        var resp = await apiFetch('/api/chat/' + encodeURIComponent(empInfo.id) + '/heavy-status?jobId=' + encodeURIComponent(jobId));
+        if (resp && resp.ok) {
+          var data = await resp.json();
+          status = data && data.status;
+          errMsg = (data && data.error) || '';
+        }
+      } catch (e) {
+        console.warn('[HeavyPipe] 状态轮询异常（继续等待）:', e);
+      }
+      if (status === 'analyzing' && polls < maxPolls) return;
+      clearInterval(timer);
+      if (status === 'done') {
+        var t = document.getElementById('typingMsg');
+        if (t) t.remove();
+        renderMsgs('private'); // 重新加载聊天记录（含 HeavyPipe 落库的 assistant 回复）
+        restoreOnline();
+        console.log('[HeavyPipe] 分析完成 jobId=' + jobId);
+      } else {
+        console.warn('[HeavyPipe] 旁路失败（' + (errMsg || (polls >= maxPolls ? 'timeout' : '状态丢失')) + '），降级回 OpenClaw 主干道 jobId=' + jobId);
+        sendViaOpenClaw(empInfo, text, docContext, timeStr, pendingImages, 0, null, talentInjection);
+      }
+    }, 5000);
+  }
+
   // 通知龙虾办公室用户发送了消息
   notifyOfficeChatMessage(_curEmpId, 'outgoing');
   // 标记员工为思考中
@@ -8622,6 +8666,7 @@ async function sendMsg() {
   // 达人防编造（架构级）：后端保存消息时检测达人关键词，命中则直查 talents 表并随响应返回
   // talentInjection（【系统数据】），由前端拼进发给 OpenClaw 的消息，LLM 不参与数据查询
   var talentInjection = '';
+  var heavyJobId = null;
   try {
     var saveResp = await apiFetch('/api/chat/' + encodeURIComponent(emp.id), {
       method: 'POST',
@@ -8630,6 +8675,8 @@ async function sendMsg() {
     if (saveResp && saveResp.ok) {
       var saveData = await saveResp.json();
       if (saveData && saveData.talentInjection) talentInjection = saveData.talentInjection;
+      // 多图（>=3）重任务被后端旁路：不再走 OpenClaw chat.send，改为轮询旁路任务状态
+      if (saveData && saveData.heavyPipe) heavyJobId = saveData.jobId || null;
     }
   } catch (e) { console.error('[Chat] 用户消息即时保存失败:', e); }
   input.value = '';
@@ -8647,6 +8694,13 @@ async function sendMsg() {
 
   // 获取文档上下文
   const docContext = await getDocContextForChat();
+
+  // 多图（>=3）重任务旁路：后端 HeavyPipe 已在 Python 线程里做分析，
+  // 不进 OpenClaw gateway（重活会把 gateway 调度队列堵死）；轮询任务状态取结果
+  if (heavyJobId) {
+    _waitHeavyPipe(emp, heavyJobId);
+    return;
+  }
 
   // 路由策略：
   // 1. 优先走 OpenClaw 网关（支持纯文本和多模态图片）

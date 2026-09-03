@@ -39,9 +39,10 @@ try:
     import fcntl
 except ImportError:
     fcntl = None
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from datetime import datetime, timedelta
 import re
+import socket
 from urllib.parse import urlparse, unquote, parse_qs
 
 # 抖音视频解析模块（拆分到独立文件）
@@ -6177,6 +6178,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 agent_id = sub[len('summarize/'):]
                 if agent_id:
                     self._handle_get_summarize(agent_id)
+                    return
+            # /api/chat/:agentId/heavy-status
+            if sub.endswith('/heavy-status'):
+                agent_id = sub[:-len('/heavy-status')]
+                if agent_id:
+                    self._handle_get_heavy_status(agent_id)
                     return
             # /api/chat/:agentId
             agent_id = sub
@@ -16558,6 +16565,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         logger.info(f'  [ChatGET] {agent_id} type={chat_type} 返回 {len(messages)} 条消息, 角色分布: {role_counts}')
         self._send_json(200, messages)
 
+    def _handle_get_heavy_status(self, agent_id):
+        """GET /api/chat/:agentId/heavy-status?jobId=xxx - 查询多图旁路任务状态"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        _, err, status = self._check_agent_access(auth, agent_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
+        query = parse_qs(urlparse(self.path).query)
+        job_id = query.get('jobId', [''])[0]
+        job = _heavy_job_get(job_id)
+        if not job or job.get('agent_id') != agent_id:
+            self._send_json(404, {'error': '任务不存在'})
+            return
+        self._send_json(200, {'status': job['status'], 'error': job.get('error', '')})
+
     def _handle_post_chat(self, agent_id):
         """POST /api/chat/:agentId"""
         logger.info(f'  [ChatPOST] 收到请求: {agent_id} path={self.path}')
@@ -16787,6 +16812,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         break
                 tool_results.reverse()
                 _maybe_auto_save_analysis(agent_id, msg.get('content', ''), tool_results=tool_results)
+
+        # 多图重任务旁路：>=3 张图片的 OpenClaw 消息不进入 gateway（重活会把调度队列堵死），
+        # 由后端 Python 线程完成 vision+分析后落库；前端凭 heavyPipe+jobId 轮询结果，
+        # 失败时回落 OpenClaw 主干道重发
+        if _should_heavy_bypass(role, images, agent):
+            job_id = _heavy_job_create(agent_id)
+            threading.Thread(
+                target=_heavy_pipe_worker,
+                args=(job_id, agent, body.get('content', ''), images, auth.user_id),
+                daemon=True, name=f'HeavyPipe-{job_id}',
+            ).start()
+            logger.info(f'  [HeavyPipe] {job_id} 已旁路: {agent_id} images={len(images)}')
+            self._send_json(200, {'userMessage': msg, 'heavyPipe': True, 'jobId': job_id})
+            return
 
         if connection_type == 'openclaw':
             self._send_json(200, {
@@ -17474,6 +17513,246 @@ def _call_minimax_vision_fallback(image_base64, media_type='image/jpeg', role=No
         logger.error(f'  [Vision] minimax vision 降级失败: {e}')
         _mark_provider_failed('minimax')
     return None
+
+
+# ═══ 多图重任务旁路管道（HeavyPipe）═══════════════════════════════════
+# 背景：OpenClaw gateway 是单 Node 进程，多图（>=3 张）重分析会把它的调度队列堵死
+# （health 还活着但消息不再 dispatch）。多图消息在 POST /api/chat 处旁路：
+# 后端 Python 线程串行完成 vision 识别 → 达人名提取 → 达人库预查 → 单次 Kimi 深度分析，
+# 落库后由前端轮询 heavy-status 取结果；任何阶段失败置 failed，前端降级回 OpenClaw 主干道。
+
+_HEAVY_JOBS = {}
+_heavy_jobs_lock = threading.Lock()
+_HEAVY_JOB_MAX = 100     # 任务注册表保留上限（超出淘汰最旧的）
+_HEAVY_IMAGE_MIN = 3     # 触发旁路的最小图片数
+_HEAVY_IMAGE_MAX = 9     # 单条消息图片上限（与前端发图上限一致）
+
+_HEAVY_TALENT_EXTRACT_PROMPT = '从以下达人数据截图识别结果中提取所有出现的达人名称/抖音昵称，只输出名称列表每行一个，无则输出无'
+
+
+def _heavy_job_create(agent_id):
+    job_id = 'heavy_' + uuid.uuid4().hex[:8]
+    with _heavy_jobs_lock:
+        if len(_HEAVY_JOBS) >= _HEAVY_JOB_MAX:
+            oldest = min(_HEAVY_JOBS.items(), key=lambda kv: kv[1].get('created_at', 0))[0]
+            _HEAVY_JOBS.pop(oldest, None)
+        _HEAVY_JOBS[job_id] = {
+            'agent_id': agent_id,
+            'status': 'analyzing',
+            'error': '',
+            'created_at': int(time.time() * 1000),
+        }
+    return job_id
+
+
+def _heavy_job_set(job_id, **fields):
+    with _heavy_jobs_lock:
+        job = _HEAVY_JOBS.get(job_id)
+        if job is not None:
+            job.update(fields)
+
+
+def _heavy_job_get(job_id):
+    with _heavy_jobs_lock:
+        job = _HEAVY_JOBS.get(job_id)
+        return dict(job) if job else None
+
+
+def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
+    """内部单次 Kimi 调用（anthropic messages 格式）。key 走 KIMI_KEY_POOL 轮询，
+    401/429 拉黑换 key 重试（上限=池大小）；全部失败返回 None。"""
+    req_body = json.dumps({
+        'model': 'kimi-for-coding',
+        'max_tokens': max_tokens,
+        'system': system_prompt,
+        'messages': [{'role': 'user', 'content': user_text}],
+    }, ensure_ascii=False).encode('utf-8')
+    current_key = KIMI_KEY_POOL.get_key()
+    if not current_key:
+        logger.error('  [HeavyPipe] Key 池已空，无法调用 LLM')
+        return None
+    key_retry_count = 0
+    while True:
+        req = urllib.request.Request(
+            KIMI_PROXY_REAL_BASE_URL + '/v1/messages',
+            data=req_body,
+            headers={
+                'Content-Type': 'application/json',
+                'x-api-key': current_key,
+                'anthropic-version': '2023-06-01',
+            },
+            method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                data = json.loads(resp.read().decode('utf-8', errors='replace'))
+            return ''.join(p.get('text', '') for p in data.get('content', [])
+                           if isinstance(p, dict) and p.get('type') == 'text')
+        except urllib.error.HTTPError as e:
+            err_text = e.read().decode('utf-8', errors='replace')[:300]
+            _masked = (current_key[:10] + '...' + current_key[-4:]) if len(current_key) > 14 else '****'
+            logger.error(f'  [HeavyPipe] Kimi 调用失败: HTTP {e.code} key={_masked} {err_text}')
+            if e.code in (401, 429) and key_retry_count < KIMI_KEY_POOL.size:
+                key_retry_count += 1
+                KIMI_KEY_POOL.mark_failed(current_key)
+                next_key = KIMI_KEY_POOL.get_key()
+                if next_key is None:
+                    logger.error('  [HeavyPipe] Key 池已空，放弃重试')
+                    return None
+                current_key = next_key
+                logger.info(f'  [HeavyPipe] {e.code} 轮换 key 重试 ({key_retry_count}/{KIMI_KEY_POOL.size})')
+                continue
+            return None
+        except Exception as e:
+            logger.error(f'  [HeavyPipe] Kimi 调用异常: {e}')
+            return None
+
+
+def _resolve_agent_soul(agent):
+    """读取员工灵魂全文：优先 OpenClaw workspace 的 SOUL.md（与 _handle_get_agent_docs 一致），
+    文件不存在时回落 agents.json 的 soulDoc/systemPrompt。"""
+    openclaw_name = (agent.get('openclawName') or '').strip()
+    if openclaw_name:
+        soul_path = os.path.join(os.path.expanduser('~/.openclaw/workspace-' + openclaw_name), 'SOUL.md')
+        try:
+            if os.path.isfile(soul_path):
+                with open(soul_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                if content:
+                    return content
+        except Exception as e:
+            logger.warning(f'  [HeavyPipe] 读取 workspace SOUL.md 失败: {e}')
+    return (agent.get('soulDoc') or agent.get('systemPrompt') or '').strip()
+
+
+def _heavy_fetch_talents(names):
+    """按达人名批量预查达人库（与 GET /api/talents?q= 同款 SQL：名称模糊匹配、粉丝数倒序取第一）。"""
+    talents = []
+    if not names:
+        return talents
+    conn = _db_conn()
+    try:
+        for name in names[:10]:  # 最多查 10 个，防止 prompt 膨胀
+            row = conn.execute(
+                "SELECT * FROM talents WHERE status='active' AND LOWER(name) LIKE ? "
+                "ORDER BY followers DESC LIMIT 1",
+                (f'%{name.lower()}%',)
+            ).fetchone()
+            if row:
+                talents.append(_talent_row_to_dict(row))
+    finally:
+        conn.close()
+    return talents
+
+
+def _should_heavy_bypass(role, images, agent):
+    """多图旁路触发条件：用户消息 + 图片数 >= _HEAVY_IMAGE_MIN + OpenClaw 链路员工"""
+    return (role == 'user'
+            and len(images or []) >= _HEAVY_IMAGE_MIN
+            and bool(agent.get('openclawName') or agent.get('connectionType') == 'openclaw'))
+
+
+def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
+    """多图重分析管道（后台 daemon 线程）。任何阶段失败都把 job 置 failed，
+    由前端降级回 OpenClaw 主干道重发。"""
+    agent_id = agent.get('id', '')
+    agent_name = agent.get('name', agent_id)
+    t0 = time.perf_counter()
+
+    def _stage(label, since):
+        logger.info(f'  [HeavyPipe] {job_id} {label}: {time.perf_counter() - since:.1f}s')
+
+    try:
+        # Stage 1：逐张 vision 识别（走 KIMI_KEY_POOL）
+        _t = time.perf_counter()
+        vision_texts = []
+        for idx, img in enumerate(images[:_HEAVY_IMAGE_MAX], 1):
+            b64 = img.get('base64', '') if isinstance(img, dict) else str(img)
+            desc = _call_kimi_vision(b64, agent_id=agent_id, role=agent.get('role'))
+            if desc:
+                vision_texts.append(f'【图片{idx}识别结果】\n{desc}')
+            else:
+                logger.warning(f'  [HeavyPipe] {job_id} 第 {idx} 张图片识别失败，跳过')
+        _stage(f'stage1 vision（{len(vision_texts)}/{len(images)} 张成功）', _t)
+        if not vision_texts:
+            raise RuntimeError('vision 识别全部失败')
+
+        # Stage 2：提取达人名（单次 LLM 调用）
+        _t = time.perf_counter()
+        vision_all = '\n\n'.join(vision_texts)
+        names_text = _heavy_llm_call(_HEAVY_TALENT_EXTRACT_PROMPT, vision_all, max_tokens=1024) or ''
+        talent_names = [ln.strip() for ln in names_text.splitlines()
+                        if ln.strip() and ln.strip() != '无']
+        _stage(f'stage2 达人名提取（{talent_names}）', _t)
+
+        # Stage 3：达人库预查
+        _t = time.perf_counter()
+        talents = _heavy_fetch_talents(talent_names)
+        _stage(f'stage3 达人预查（命中 {len(talents)}/{len(talent_names)}）', _t)
+
+        # Stage 4：单次 Kimi 深度分析（灵魂人格 + vision 全文 + 达人详情 + 用户原始指令）
+        _t = time.perf_counter()
+        soul = _resolve_agent_soul(agent)
+        system_prompt = (
+            f'你是 {agent_name}，一个 {agent.get("role", "助手")}。请用第一人称回复，保持角色一致性。'
+            + ('\n\n' + soul if soul else '')
+        )
+        user_parts = []
+        if talents:
+            user_parts.append('【系统预查到达人信息-以下数据已由系统自动查到，无需再执行搜索，直接使用】\n'
+                              + json.dumps(talents, ensure_ascii=False, indent=1))
+        user_parts.append('【达人数据截图识别结果】\n' + vision_all)
+        user_parts.append('【用户原始指令】\n' + (user_content or ''))
+        reply = _heavy_llm_call(system_prompt, '\n\n'.join(user_parts), max_tokens=4096)
+        _stage('stage4 深度分析', _t)
+        if not reply:
+            raise RuntimeError('Kimi 深度分析调用失败')
+
+        # Stage 5：落库（等价 skipAI=True 直接保存，不再触发 AI）+ 通知
+        _t = time.perf_counter()
+        ai_message = {
+            'id': 'msg_' + uuid.uuid4().hex[:8],
+            'role': 'assistant',
+            'content': reply,
+            'timestamp': datetime.now().isoformat(),
+            'heavyPipe': True,
+        }
+        with _get_chat_lock(agent_id):
+            messages = _load_chat(agent_id)
+            if not isinstance(messages, list):
+                messages = []
+            messages.append(ai_message)
+            _save_chat(agent_id, messages)
+        _maybe_auto_save_analysis(agent_id, reply, user_content or '')
+        try:
+            agent_group_id = _get_agent_group_id(agent_id)
+            if agent_group_id:
+                _record_group_message(agent_group_id, agent_id, 'user', user_content or '')
+                _record_group_message(agent_group_id, agent_id, 'assistant', reply)
+        except Exception as feed_err:
+            logger.error(f'  [HeavyPipe] {job_id} TeamFeed 记录失败: {feed_err}')
+        _push_notification(user_id, 'message', f'{agent_name} 的图像分析已完成', (reply or '')[:200], agent_id)
+        _stage('stage5 落库+通知', _t)
+
+        # Stage 6：记忆沉淀（复用 memory pipeline L0，失败不阻断）
+        _t = time.perf_counter()
+        try:
+            conn = _db_conn()
+            try:
+                memory_pipeline.save_conversation(
+                    conn, agent_id, session_id=agent_id,
+                    turn_id=int(time.time()),
+                    user_content=user_content or '', assistant_content=reply)
+            finally:
+                conn.close()
+        except Exception as mem_err:
+            logger.error(f'  [HeavyPipe] {job_id} 记忆沉淀失败（不阻断）: {mem_err}')
+        _stage('stage6 记忆沉淀', _t)
+
+        _heavy_job_set(job_id, status='done')
+        logger.info(f'  [HeavyPipe] {job_id} 完成，总耗时 {time.perf_counter() - t0:.1f}s')
+    except Exception as e:
+        logger.error(f'  [HeavyPipe] {job_id} 降级原因: {type(e).__name__}: {e}（前端将回落 OpenClaw 主干道）')
+        _heavy_job_set(job_id, status='failed', error=str(e))
 
 
 # ═══ AI 员工自修改配置（SELF_UPDATE）══════════════════════════════════
@@ -22476,6 +22755,7 @@ def _start_wss_proxy(cert_file, key_file, bind, port, target_host, target_port):
         async def _c2u():
             try:
                 async for msg in client_ws:
+                    _openclaw_sniff_c2u(msg)  # 看门狗：登记 chat.send run 开始
                     await upstream.send(msg)
             except websockets.ConnectionClosed:
                 pass
@@ -22485,6 +22765,7 @@ def _start_wss_proxy(cert_file, key_file, bind, port, target_host, target_port):
         async def _u2c():
             try:
                 async for msg in upstream:
+                    _openclaw_sniff_u2c(msg)  # 看门狗：lifecycle end/error 清除 run
                     await client_ws.send(msg)
             except websockets.ConnectionClosed:
                 pass
@@ -22528,6 +22809,162 @@ def _start_wss_proxy(cert_file, key_file, bind, port, target_host, target_port):
     t = threading.Thread(target=_thread_main, daemon=True, name=f'WSSProxy-{port}')
     t.start()
     return t, None
+
+
+# ═══ OpenClaw 看门狗：health 探测 + dispatch 停滞检测 ═══
+# 背景：gateway 是单 Node 进程，重活会把调度队列堵死——health 探活还活着，
+# 但消息不再 dispatch（假死）。光看 health 发现不了，所以增加 dispatch 停滞检测：
+# 经 WSS 透传代理嗅探 chat.send / lifecycle 帧，登记每个 run 的起止时间；
+# run 超 150s 未结束、或 10 分钟内累计 2 次超时，判定假死并 kickstart 重启。
+
+_OPENCLAW_RUNS = {}                    # sessionKey -> start_ts（嗅探 chat.send 登记）
+_openclaw_runs_lock = threading.Lock()
+_OPENCLAW_TIMEOUTS = deque()           # run 超时事件时间戳（10 分钟窗口）
+_openclaw_health_fails = 0             # health 连续失败计数
+
+WATCHDOG_INTERVAL_S = 30               # 巡检周期
+WATCHDOG_RUN_STALL_S = 150             # 单 run 停滞阈值
+WATCHDOG_TIMEOUT_WINDOW_S = 600        # 超时事件统计窗口
+WATCHDOG_TIMEOUT_COUNT = 2             # 窗口内超时次数阈值
+WATCHDOG_HEALTH_FAIL_LIMIT = 3         # health 连续异常次数阈值
+
+
+def _openclaw_note_run_start(session_key, now=None):
+    with _openclaw_runs_lock:
+        _OPENCLAW_RUNS[session_key] = now if now is not None else time.time()
+
+
+def _openclaw_note_run_end(session_key):
+    """lifecycle end/error 时清除 run。payload 没带 sessionKey 且只剩一个活跃 run 时，
+    按单活跃 run 推断清除（gateway 同 session 串行，这是安全的近似）。"""
+    with _openclaw_runs_lock:
+        if session_key and session_key in _OPENCLAW_RUNS:
+            _OPENCLAW_RUNS.pop(session_key, None)
+        elif not session_key and len(_OPENCLAW_RUNS) == 1:
+            _OPENCLAW_RUNS.clear()
+
+
+def _openclaw_sniff_c2u(msg):
+    """嗅探 client→gateway 帧：chat.send 登记 run 开始。永不抛异常、绝不影响透传。"""
+    try:
+        if not isinstance(msg, str) or 'chat.send' not in msg:
+            return
+        data = json.loads(msg)
+        if data.get('type') != 'req' or data.get('method') != 'chat.send':
+            return
+        params = data.get('params') or {}
+        key = params.get('sessionKey') or params.get('idempotencyKey')
+        if key:
+            _openclaw_note_run_start(key)
+    except Exception:
+        pass
+
+
+def _openclaw_sniff_u2c(msg):
+    """嗅探 gateway→client 帧：lifecycle end/error 清除 run。永不抛异常。"""
+    try:
+        if not isinstance(msg, str) or 'lifecycle' not in msg:
+            return
+        data = json.loads(msg)
+        if data.get('type') != 'event':
+            return
+        payload = data.get('payload') or data.get('params') or {}
+        if payload.get('stream') != 'lifecycle':
+            return
+        phase = (payload.get('data') or {}).get('phase')
+        if phase in ('end', 'error'):
+            _openclaw_note_run_end(payload.get('sessionKey'))
+    except Exception:
+        pass
+
+
+def _watchdog_check(now=None):
+    """dispatch 停滞检测。返回重启原因字符串，不需要重启返回 None。
+
+    - 存在 run 持续超过 WATCHDOG_RUN_STALL_S 未结束 → 假死（记录超时事件后重启）
+    - 最近 WATCHDOG_TIMEOUT_WINDOW_S 内累计 >= WATCHDOG_TIMEOUT_COUNT 次超时 → 假死
+    """
+    now = now if now is not None else time.time()
+    with _openclaw_runs_lock:
+        stalled_keys = [k for k, ts in _OPENCLAW_RUNS.items()
+                        if now - ts > WATCHDOG_RUN_STALL_S]
+        for k in stalled_keys:
+            _OPENCLAW_TIMEOUTS.append(now)
+            _OPENCLAW_RUNS.pop(k, None)
+        while _OPENCLAW_TIMEOUTS and now - _OPENCLAW_TIMEOUTS[0] > WATCHDOG_TIMEOUT_WINDOW_S:
+            _OPENCLAW_TIMEOUTS.popleft()
+        if stalled_keys:
+            return f'run 持续超过 {WATCHDOG_RUN_STALL_S}s 未结束: {stalled_keys}'
+        if len(_OPENCLAW_TIMEOUTS) >= WATCHDOG_TIMEOUT_COUNT:
+            return (f'{WATCHDOG_TIMEOUT_WINDOW_S // 60} 分钟内 '
+                    f'{len(_OPENCLAW_TIMEOUTS)} 次 run 未收到 lifecycle end')
+    return None
+
+
+def _watchdog_probe_health():
+    """TCP 探测 gateway 端口存活（health 探活）"""
+    try:
+        with socket.create_connection((WSS_PROXY_TARGET_HOST, WSS_PROXY_TARGET_PORT), timeout=5):
+            return True
+    except Exception:
+        return False
+
+
+def _restart_openclaw_gateway(reason):
+    """重启 OpenClaw gateway 并清空停滞记录。生产机是 macOS（launchctl）；
+    其他平台只记录不执行。重启后通过通知让前端刷新重连。"""
+    with _openclaw_runs_lock:
+        _OPENCLAW_RUNS.clear()
+        _OPENCLAW_TIMEOUTS.clear()
+    global _openclaw_health_fails
+    _openclaw_health_fails = 0
+    if sys.platform == 'darwin':
+        try:
+            subprocess.run(
+                ['/bin/sh', '-c', 'launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway'],
+                timeout=30, capture_output=True)
+            logger.info('  [Watchdog] launchctl kickstart 已执行')
+        except Exception as e:
+            logger.error(f'  [Watchdog] launchctl kickstart 执行失败: {e}')
+    else:
+        logger.warning('  [Watchdog] 非 macOS 环境，跳过 launchctl 重启（仅记录）')
+    try:
+        users = _read_json(USERS_FILE, []) or []
+        admin = next((u for u in users if u.get('role') == 'admin'), None)
+        if admin:
+            _push_notification(admin.get('userId') or admin.get('id'), 'message',
+                               'OpenClaw 网关已自动重启', f'原因: {reason}。请刷新页面重连。')
+    except Exception as e:
+        logger.error(f'  [Watchdog] 重启通知失败: {e}')
+
+
+def _openclaw_watchdog_tick(restart_fn=None, health_probe=None):
+    """单次巡检：health 探测 + dispatch 停滞检测。返回触发原因或 None（可注入 mock 便于测试）。"""
+    global _openclaw_health_fails
+    restart_fn = restart_fn or _restart_openclaw_gateway
+    health_probe = health_probe or _watchdog_probe_health
+    reason = None
+    if health_probe():
+        _openclaw_health_fails = 0
+    else:
+        _openclaw_health_fails += 1
+        if _openclaw_health_fails >= WATCHDOG_HEALTH_FAIL_LIMIT:
+            reason = f'health 连续 {_openclaw_health_fails} 次异常'
+    if reason is None:
+        reason = _watchdog_check()
+    if reason:
+        logger.warning(f'  [Watchdog] 检测到dispatch停滞触发重启: {reason}')
+        restart_fn(reason)
+    return reason
+
+
+def _openclaw_watchdog_loop():
+    while True:
+        try:
+            _openclaw_watchdog_tick()
+        except Exception as e:
+            logger.error(f'  [Watchdog] 巡检异常: {e}')
+        time.sleep(WATCHDOG_INTERVAL_S)
 
 
 def main():
@@ -22668,6 +23105,10 @@ def main():
             time.sleep(CREDIT_SYNC_INTERVAL_S)
     threading.Thread(target=_credit_sync_loop, daemon=True, name='CreditSyncLoop').start()
     logger.info(f'  [CreditsSync] 积分定时同步已启动（每 {CREDIT_SYNC_INTERVAL_S} 秒）')
+
+    # OpenClaw 看门狗：health 探测 + dispatch 停滞检测（假死自愈）
+    threading.Thread(target=_openclaw_watchdog_loop, daemon=True, name='OpenClawWatchdog').start()
+    logger.info(f'  [Watchdog] OpenClaw 看门狗已启动（每 {WATCHDOG_INTERVAL_S}s 巡检）')
     # _brain_scheduler.start()
     # def _brain_migrate_job():
     #     time.sleep(5)
