@@ -404,10 +404,10 @@ class OpenClawClient {
 
     // 2. 普通响应: 匹配 pending 请求
     if (type === 'res' && id) {
-      console.log('[OpenClaw] 收到响应 id=' + id + ' ok=' + msg.ok + 
+      console.log('[OpenClaw] 收到响应 id=' + id + ' ok=' + msg.ok +
         (msg.error ? ' error=' + JSON.stringify(msg.error) : '') +
         (payload ? ' payload_type=' + (payload.type || 'unknown') : ''));
-      
+
       const pending = this._pending.get(id);
       if (pending) {
         clearTimeout(pending.timeout);
@@ -415,6 +415,50 @@ class OpenClawClient {
         if (msg.error || msg.ok === false) {
           var errObj = msg.error || { code: 'UNKNOWN', message: 'request failed' };
           var errMsg = typeof errObj === 'string' ? errObj : (errObj.message || JSON.stringify(errObj));
+          var errCode = (errObj && errObj.code) || '';
+
+          // 自动纠错：session 与 agentId 不匹配时，从错误消息里抠出网关真正期望的
+          // agentId（例如 "does not match session key agent 'emp_xxx'"），切过去并重试。
+          // 每个 id 只重试一次，避免死循环。
+          if (errCode === 'INVALID_REQUEST' && /does not match session key agent\s+"([^"]+)"/i.test(errMsg || '')) {
+            var m = errMsg.match(/does not match session key agent\s+"([^"]+)"/i);
+            var correctId = m && m[1];
+            if (correctId && correctId !== this._defaultAgentId && !pending._retried) {
+              console.warn('[OpenClaw] agentId 不匹配，自动切换: ' + this._defaultAgentId + ' → ' + correctId);
+              this.setDefaultAgentId(correctId);
+              try { localStorage.setItem('openclaw_default_agent_id', correctId); } catch (e) {}
+              // 用新 agentId 重新发原请求（用新 id，旧的 _pending 已经被删了）
+              try {
+                var newMsg = {
+                  type: 'req',
+                  id: this._generateId(),
+                  method: pending.method,
+                  params: Object.assign({}, pending.params || {}, { agentId: correctId })
+                };
+                if (this.ws && this.ws.readyState === 1 /* OPEN */) {
+                  this.ws.send(JSON.stringify(newMsg));
+                  // 给重发的请求也建一个 pending，超时单独挂
+                  var newTimeout = setTimeout(function(self, mid) {
+                    return function() {
+                      self._pending.delete(mid);
+                      pending.reject(new Error('请求超时: ' + pending.method + ' (retry)'));
+                    };
+                  }(this, newMsg.id), 30000);
+                  this._pending.set(newMsg.id, {
+                    resolve: pending.resolve,
+                    reject: pending.reject,
+                    timeout: newTimeout,
+                    method: pending.method,
+                    params: newMsg.params,
+                    _retried: true
+                  });
+                  return; // 不 reject，等重试结果
+                }
+              } catch (e) {
+                console.error('[OpenClaw] 重试发送失败:', e);
+              }
+            }
+          }
           pending.reject(new Error(errMsg));
         } else {
           // v3 format: payload contains the actual result
@@ -621,7 +665,8 @@ class OpenClawClient {
         reject(new Error(`请求超时: ${method}`));
       }, 30000);
 
-      this._pending.set(id, { resolve, reject, timeout });
+      // 把 method/params 一起存到 pending，方便错误重试时知道原请求是什么
+      this._pending.set(id, { resolve, reject, timeout, method, params });
       this.ws.send(JSON.stringify(msg));
     });
   }
