@@ -17275,7 +17275,9 @@ def _get_settings_vision_config():
 def _call_kimi_vision(image_base64, agent_id=None, role=None):
     """调用 Kimi Code（Anthropic Messages）端点将图片转成文字描述；成功返回描述文字，失败返回 None。
     认证方式与 _handle_proxy_kimi 一致：x-api-key + anthropic-version，直连 api.kimi.com；
-    key 优先级：员工 apiKey > settings.json vision.apiKey > KIMI_KEY_POOL 轮询（同 proxy 逻辑）。
+    key 来源：KIMI_KEY_POOL 轮询；401/429 时拉黑当前 key 并取池内下一个重建请求重试，
+    重试上限为池大小，全部失败返回 None（403 仍走 minimax 视觉降级）。
+    agent_id 参数仅为兼容调用方保留，不再参与 key 选择。
     model/baseUrl 同样优先取 settings.json vision 配置。
     image_base64 可传完整 data URL（data:image/...;base64,...）或纯 base64 串。
     role 为该 AI 员工的角色：role == '商务' 时 system 提示词替换为 BUSINESS_VISION_PROMPT，
@@ -17283,8 +17285,8 @@ def _call_kimi_vision(image_base64, agent_id=None, role=None):
     if not image_base64:
         return None
     vision_cfg = _get_settings_vision_config()
-    api_key = _get_agent_api_key(agent_id) or vision_cfg['apiKey'] or KIMI_KEY_POOL.get_key()
-    if not api_key:
+    current_key = KIMI_KEY_POOL.get_key()
+    if not current_key:
         logger.error('  [Vision] Kimi Key 池已空，无可用 key，跳过图片识别')
         return None
     vision_model = vision_cfg['model'] or KIMI_VISION_MODEL
@@ -17314,47 +17316,64 @@ def _call_kimi_vision(image_base64, agent_id=None, role=None):
     if role == '商务':
         body['system'] = BUSINESS_VISION_PROMPT
     req_body = json.dumps(body).encode('utf-8')
-    headers = {
-        'Content-Type': 'application/json',
-        'x-api-key': api_key,
-        'anthropic-version': '2023-06-01',
-        'Content-Length': str(len(req_body))
-    }
-    try:
-        req = urllib.request.Request(vision_url, data=req_body, headers=headers, method='POST')
-        ctx = ssl.create_default_context()
-        resp = urllib.request.urlopen(req, timeout=60, context=ctx)
-        resp_data = json.loads(resp.read().decode('utf-8', errors='replace'))
-        # content 数组可能以 thinking 思考块开头（无 text 字段）：跳过 thinking 块，
-        # 取第一个 type 为 text 的块；若全部为 thinking 块，则拼接所有 thinking 内容降级输出
-        thinking_parts = []
-        for block in resp_data.get('content') or []:
-            if not isinstance(block, dict):
+    ctx = ssl.create_default_context()
+    key_retry_count = 0
+    while True:
+        headers = {
+            'Content-Type': 'application/json',
+            'x-api-key': current_key,
+            'anthropic-version': '2023-06-01',
+            'Content-Length': str(len(req_body))
+        }
+        try:
+            req = urllib.request.Request(vision_url, data=req_body, headers=headers, method='POST')
+            resp = urllib.request.urlopen(req, timeout=60, context=ctx)
+            resp_data = json.loads(resp.read().decode('utf-8', errors='replace'))
+            # content 数组可能以 thinking 思考块开头（无 text 字段）：跳过 thinking 块，
+            # 取第一个 type 为 text 的块；若全部为 thinking 块，则拼接所有 thinking 内容降级输出
+            thinking_parts = []
+            for block in resp_data.get('content') or []:
+                if not isinstance(block, dict):
+                    continue
+                if block.get('type') == 'text' and block.get('text'):
+                    logger.info(f'  [Vision] 图片描述成功 len={len(block["text"])}')
+                    return block['text']
+                if block.get('type') == 'thinking' and block.get('thinking'):
+                    thinking_parts.append(block['thinking'])
+            if thinking_parts:
+                fallback = '\n'.join(thinking_parts)
+                logger.info(f'  [Vision] 响应无 text 块，降级返回 thinking 内容 len={len(fallback)}')
+                return fallback
+            logger.error(f'  [Vision] 响应格式异常: {str(resp_data)[:300]}')
+            return None
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode('utf-8', errors='replace')
+            # key 日志脱敏：只显示前10后4位
+            _masked = (current_key[:10] + '...' + current_key[-4:]) if len(current_key) > 14 else '****'
+            logger.error(f'  [Vision] Kimi vision 调用失败: HTTP {e.code} key={_masked} {err_body[:300]}')
+            # 401/429：当前 key 失效或被限流，拉黑后取池内下一个 key 重试，上限为池大小
+            if e.code in (401, 429) and key_retry_count < KIMI_KEY_POOL.size:
+                key_retry_count += 1
+                KIMI_KEY_POOL.mark_failed(current_key)
+                next_key = KIMI_KEY_POOL.get_key()
+                if next_key is None:
+                    logger.error('  [Vision] Key 池已空，放弃重试')
+                    return None
+                current_key = next_key
+                logger.info(f'  [Vision] {e.code} 轮换 key 重试 ({key_retry_count}/{KIMI_KEY_POOL.size})')
                 continue
-            if block.get('type') == 'text' and block.get('text'):
-                logger.info(f'  [Vision] 图片描述成功 len={len(block["text"])}')
-                return block['text']
-            if block.get('type') == 'thinking' and block.get('thinking'):
-                thinking_parts.append(block['thinking'])
-        if thinking_parts:
-            fallback = '\n'.join(thinking_parts)
-            logger.info(f'  [Vision] 响应无 text 块，降级返回 thinking 内容 len={len(fallback)}')
-            return fallback
-        logger.error(f'  [Vision] 响应格式异常: {str(resp_data)[:300]}')
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode('utf-8', errors='replace')
-        logger.error(f'  [Vision] Kimi vision 调用失败: HTTP {e.code} {err_body[:300]}')
-        # 403 时尝试 minimax 视觉降级（用 minimax 自身的多模态 chat/completions 能力）
-        if e.code == 403:
-            try:
-                fb_text = _call_minimax_vision_fallback(image_base64, media_type, role)
-                if fb_text:
-                    return fb_text
-            except Exception as fb_err:
-                logger.error(f'  [Vision] minimax vision 降级异常: {fb_err}')
-    except Exception as e:
-        logger.error(f'  [Vision] Kimi vision 调用异常: {e}')
-    return None
+            # 403 时尝试 minimax 视觉降级（用 minimax 自身的多模态 chat/completions 能力）
+            if e.code == 403:
+                try:
+                    fb_text = _call_minimax_vision_fallback(image_base64, media_type, role)
+                    if fb_text:
+                        return fb_text
+                except Exception as fb_err:
+                    logger.error(f'  [Vision] minimax vision 降级异常: {fb_err}')
+            return None
+        except Exception as e:
+            logger.error(f'  [Vision] Kimi vision 调用异常: {e}')
+            return None
 
 
 def _call_minimax_vision_fallback(image_base64, media_type='image/jpeg', role=None):
