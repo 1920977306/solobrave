@@ -21095,23 +21095,21 @@ def _handle_proxy(self):
         body_info = f'body_len={len(body)}'
     logger.info(f'  [Proxy] 收到请求 -> {target_url} {body_info}')
 
-    # Kimi coding：构建 key 轮询列表（agent 自己的 key 优先 → KIMI_KEY_POOL 兜底）
-    # 401/429 时 mark_failed 当前 key 换下一个；池空返回 503；任何重试都在返回响应头之前完成
-    keys_to_try = None
+    # Kimi coding：优先 key（前端 X-AI-API-Key、agent 配置的 apiKey，去重保序）先按序尝试，
+    # 全部失败后进入池 key 循环：每次 401/429 mark_failed 当前 key 后重新 get_key() 取下一个
+    # （与 _handle_proxy_kimi 的轮换行为一致）；无 key 可用返回 503；重试都在响应头发送前完成
+    priority_keys = None
     if is_kimi_coding:
-        keys_to_try = []
+        priority_keys = []
         # 1) 前端直接传过来的 X-AI-API-Key
         if ai_api_key:
-            keys_to_try.append(ai_api_key)
+            priority_keys.append(ai_api_key)
         # 2) agent 在 agents.json 里配置的 apiKey（兼容没传 X-AI-API-Key 的情况）
         agent_stored_key = _get_agent_api_key(agent_id) if agent_id else None
-        if agent_stored_key and agent_stored_key not in keys_to_try:
-            keys_to_try.append(agent_stored_key)
-        # 3) 池里取一个（池空则 None，循环会自动到 503）
-        pool_key = KIMI_KEY_POOL.get_key()
-        if pool_key and pool_key not in keys_to_try:
-            keys_to_try.append(pool_key)
-        if not keys_to_try:
+        if agent_stored_key and agent_stored_key not in priority_keys:
+            priority_keys.append(agent_stored_key)
+        # 优先 key 一个都没有且池空 → 503（Anthropic 错误体）
+        if not priority_keys and KIMI_KEY_POOL.get_key() is None:
             logger.error('[Proxy] Kimi coding 请求无可用 key（agent 无 key + 池空），返回 503')
             self.send_response(503)
             self.send_header('Content-Type', 'application/json')
@@ -21124,7 +21122,7 @@ def _handle_proxy(self):
                 }
             }).encode('utf-8'))
             return
-        logger.info(f'  [Proxy] Kimi coding 准备 {len(keys_to_try)} 个 key 用于轮询')
+        logger.info(f'  [Proxy] Kimi coding 准备 {len(priority_keys)} 个优先 key，池内存活 key 按需轮询')
 
     try:
         resp = None
@@ -21133,8 +21131,23 @@ def _handle_proxy(self):
         last_http_error = None
 
         if is_kimi_coding:
-            # Key 轮询：每个 key 一次 urlopen，401/429 拉黑换下一个
-            for key_idx, current_key in enumerate(keys_to_try):
+            # Key 轮询：优先 key 按序尝试 → 池 key 循环 get_key()（池内自动轮询并跳过 blocked key），
+            # 每个 key 一次 urlopen，401/429 mark_failed 后继续取下一个，直到 get_key() 返回 None 池空；
+            # tried 集合去重避免重复试同一个 key（含优先 key 与池 key 重复的情况）
+            tried = set()
+            prio_idx = 0
+            while True:
+                if prio_idx < len(priority_keys):
+                    current_key = priority_keys[prio_idx]
+                    prio_idx += 1
+                else:
+                    pool_key = KIMI_KEY_POOL.get_key()
+                    if pool_key is None or pool_key in tried:
+                        break  # 池空（或轮完一整圈）：所有 key 已耗尽
+                    current_key = pool_key
+                if current_key in tried:
+                    continue
+                tried.add(current_key)
                 forward_headers['x-api-key'] = current_key
                 masked = (current_key[:10] + '...' + current_key[-4:]) if current_key and len(current_key) > 14 else '****'
                 try:
@@ -21144,20 +21157,17 @@ def _handle_proxy(self):
                     resp_body = resp.read()
                     resp_content_type = resp.headers.get('Content-Type', 'application/json')
                     last_http_error = None
-                    logger.info(f'  [Proxy] Kimi coding key #{key_idx+1} 命中: {masked}')
+                    logger.info(f'  [Proxy] Kimi coding key #{len(tried)} 命中: {masked}')
                     break
                 except urllib.error.HTTPError as e:
-                    # 任何 HTTPError 都先记下来；401/429 走轮换，其他直接抛给外层
+                    # 任何 HTTPError 都先记下来；401/429 走轮换，400/500 等业务错误直接抛给外层
                     last_http_error = e
                     if e.code in (401, 429):
                         KIMI_KEY_POOL.mark_failed(current_key)
-                        logger.warning(f'  [Proxy] Kimi coding {e.code} 轮换 key ({key_idx+1}/{len(keys_to_try)}): {masked}')
-                        # 池大到 size 上限时跳出循环，让外层用 last_http_error 走降级
-                        if key_idx >= KIMI_KEY_POOL.size:
-                            break
+                        logger.warning(f'  [Proxy] Kimi coding {e.code} 轮换 key (第{len(tried)}个): {masked}')
                         continue
                     raise
-            # 全部 key 用完还没成功 → 把最后一次错误抛给外层 except 走降级
+            # 全部 key 用完还没成功 → 把最后一次错误抛给外层 except 走 minimax 降级
             if resp is None and last_http_error is not None:
                 raise last_http_error
         else:
