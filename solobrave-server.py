@@ -17560,7 +17560,8 @@ def _heavy_job_get(job_id):
 
 def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
     """内部单次 Kimi 调用（anthropic messages 格式）。key 走 KIMI_KEY_POOL 轮询，
-    401/429 拉黑换 key 重试（上限=池大小）；全部失败返回 None。"""
+    401/429 拉黑换 key 重试（上限=池大小）；全部失败返回 None。
+    成功时返回 dict：{'text', 'stop_reason', 'input_tokens', 'output_tokens'}。"""
     req_body = json.dumps({
         'model': 'kimi-for-coding',
         'max_tokens': max_tokens,
@@ -17585,8 +17586,14 @@ def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
         try:
             with urllib.request.urlopen(req, timeout=180) as resp:
                 data = json.loads(resp.read().decode('utf-8', errors='replace'))
-            return ''.join(p.get('text', '') for p in data.get('content', [])
-                           if isinstance(p, dict) and p.get('type') == 'text')
+            usage = data.get('usage') or {}
+            return {
+                'text': ''.join(p.get('text', '') for p in data.get('content', [])
+                                if isinstance(p, dict) and p.get('type') == 'text'),
+                'stop_reason': data.get('stop_reason'),
+                'input_tokens': usage.get('input_tokens'),
+                'output_tokens': usage.get('output_tokens'),
+            }
         except urllib.error.HTTPError as e:
             err_text = e.read().decode('utf-8', errors='replace')[:300]
             _masked = (current_key[:10] + '...' + current_key[-4:]) if len(current_key) > 14 else '****'
@@ -17669,6 +17676,7 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
             b64 = img.get('base64', '') if isinstance(img, dict) else str(img)
             desc = _call_kimi_vision(b64, agent_id=agent_id, role=agent.get('role'))
             if desc:
+                logger.info(f'  [HeavyPipe] {job_id} 图片{idx}识别结果（{len(desc)}字）: {desc}')
                 vision_texts.append(f'【图片{idx}识别结果】\n{desc}')
             else:
                 logger.warning(f'  [HeavyPipe] {job_id} 第 {idx} 张图片识别失败，跳过')
@@ -17679,7 +17687,13 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         # Stage 2：提取达人名（单次 LLM 调用）
         _t = time.perf_counter()
         vision_all = '\n\n'.join(vision_texts)
-        names_text = _heavy_llm_call(_HEAVY_TALENT_EXTRACT_PROMPT, vision_all, max_tokens=1024) or ''
+        logger.info(f'  [HeavyPipe] {job_id} vision 内容预览（前500字）: {vision_all[:500]}')
+        names_result = _heavy_llm_call(_HEAVY_TALENT_EXTRACT_PROMPT, vision_all, max_tokens=1024)
+        names_text = (names_result or {}).get('text', '')
+        if names_result and names_result.get('stop_reason') not in (None, 'end_turn', 'stop_sequence'):
+            logger.warning(f'  [HeavyPipe] {job_id} stage2 达人名提取可能被截断: '
+                           f'stop_reason={names_result.get("stop_reason")} '
+                           f'output_tokens={names_result.get("output_tokens")}')
         talent_names = [ln.strip() for ln in names_text.splitlines()
                         if ln.strip() and ln.strip() != '无']
         _stage(f'stage2 达人名提取（{talent_names}）', _t)
@@ -17695,6 +17709,7 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         system_prompt = (
             f'你是 {agent_name}，一个 {agent.get("role", "助手")}。请用第一人称回复，保持角色一致性。'
             + ('\n\n' + soul if soul else '')
+            + '\n\n你必须输出完整的达人数据分析报告，包括数据解读、达人对比、组合建议。不得只回复一句话。'
         )
         user_parts = []
         if talents:
@@ -17702,8 +17717,16 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
                               + json.dumps(talents, ensure_ascii=False, indent=1))
         user_parts.append('【达人数据截图识别结果】\n' + vision_all)
         user_parts.append('【用户原始指令】\n' + (user_content or ''))
-        reply = _heavy_llm_call(system_prompt, '\n\n'.join(user_parts), max_tokens=4096)
+        result = _heavy_llm_call(system_prompt, '\n\n'.join(user_parts), max_tokens=4096)
         _stage('stage4 深度分析', _t)
+        if result:
+            logger.info(f'  [HeavyPipe] {job_id} stage4 stop_reason={result.get("stop_reason")} '
+                        f'input_tokens={result.get("input_tokens")} '
+                        f'output_tokens={result.get("output_tokens")} '
+                        f'reply_len={len(result.get("text") or "")}')
+            if result.get('stop_reason') in ('length', 'max_tokens'):
+                raise RuntimeError(f'stage4 输出被截断（stop_reason={result.get("stop_reason")}），降级回 OpenClaw 主干道')
+        reply = (result or {}).get('text', '')
         if not reply:
             raise RuntimeError('Kimi 深度分析调用失败')
 
