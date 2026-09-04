@@ -16813,9 +16813,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 tool_results.reverse()
                 _maybe_auto_save_analysis(agent_id, msg.get('content', ''), tool_results=tool_results)
 
-        # 多图重任务旁路：>=3 张图片的 OpenClaw 消息不进入 gateway（重活会把调度队列堵死），
+        # 多图重任务旁路：>=2 张图片的 OpenClaw 消息不进入 gateway（重活会把调度队列堵死），
         # 由后端 Python 线程完成 vision+分析后落库；前端凭 heavyPipe+jobId 轮询结果，
-        # 失败时回落 OpenClaw 主干道重发
+        # 失败时回落 OpenClaw 主干道重发。立即返回占位提示并落库，让用户知道系统在干活。
         if _should_heavy_bypass(role, images, agent):
             job_id = _heavy_job_create(agent_id)
             threading.Thread(
@@ -16823,8 +16823,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 args=(job_id, agent, body.get('content', ''), images, auth.user_id),
                 daemon=True, name=f'HeavyPipe-{job_id}',
             ).start()
+            placeholder_msg = {
+                'id': 'msg_' + uuid.uuid4().hex[:8],
+                'role': 'assistant',
+                'content': f'正在分析 {len(images)} 张截图数据，预计需要 3-5 分钟，完成后会发送完整分析报告。',
+                'timestamp': datetime.now().isoformat(),
+                'heavyPipePlaceholder': True,
+            }
+            with _get_chat_lock(agent_id):
+                messages = _load_chat(agent_id)
+                if not isinstance(messages, list):
+                    messages = []
+                messages.append(placeholder_msg)
+                _save_chat(agent_id, messages)
             logger.info(f'  [HeavyPipe] {job_id} 已旁路: {agent_id} images={len(images)}')
-            self._send_json(200, {'userMessage': msg, 'heavyPipe': True, 'jobId': job_id})
+            self._send_json(200, {
+                'userMessage': msg, 'aiMessage': placeholder_msg,
+                'heavyPipe': True, 'jobId': job_id,
+            })
             return
 
         if connection_type == 'openclaw':
@@ -17524,7 +17540,7 @@ def _call_minimax_vision_fallback(image_base64, media_type='image/jpeg', role=No
 _HEAVY_JOBS = {}
 _heavy_jobs_lock = threading.Lock()
 _HEAVY_JOB_MAX = 100     # 任务注册表保留上限（超出淘汰最旧的）
-_HEAVY_IMAGE_MIN = 3     # 触发旁路的最小图片数
+_HEAVY_IMAGE_MIN = 2     # 触发旁路的最小图片数
 _HEAVY_IMAGE_MAX = 9     # 单条消息图片上限（与前端发图上限一致）
 
 _HEAVY_TALENT_EXTRACT_PROMPT = '从以下达人数据截图识别结果中提取所有出现的达人名称/抖音昵称，只输出名称列表每行一个，无则输出无'
