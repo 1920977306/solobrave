@@ -8596,25 +8596,28 @@ async function sendMsg() {
       } catch (e) {
         console.warn('[HeavyPipe] 状态轮询异常（继续等待）:', e);
       }
-      // 占位不是回复，是状态提示：轮询期间保持思考中提示条，实时刷新阶段文案
-      if (status === 'analyzing' && polls < maxPolls) {
-        if (stageText) {
-          var tp2 = document.getElementById('typingMsg');
-          var bubble2 = tp2 && tp2.querySelector('.msg-bubble');
-          if (bubble2) bubble2.innerHTML = '<span style="color:#888">' + escapeHtml(stageText) + '</span>';
-        }
-        return;
-      }
-      clearInterval(timer);
+      // 只有明确 failed 或轮询超时才降级；status 为 null（网络抖动/服务重启后任务丢失）
+      // 时继续等待，避免误触发 OpenClaw 主干道重发导致重复回复
       if (status === 'done') {
+        clearInterval(timer);
         var t = document.getElementById('typingMsg');
         if (t) t.remove();
         renderMsgs('private'); // 重新加载聊天记录（含 HeavyPipe 落库的 assistant 回复）
         restoreOnline();
         console.log('[HeavyPipe] 分析完成 jobId=' + jobId);
-      } else {
+        return;
+      }
+      if (status === 'failed' || polls >= maxPolls) {
+        clearInterval(timer);
         console.warn('[HeavyPipe] 旁路失败（' + (errMsg || (polls >= maxPolls ? 'timeout' : '状态丢失')) + '），降级回 OpenClaw 主干道 jobId=' + jobId);
         sendViaOpenClaw(empInfo, text, docContext, timeStr, pendingImages, 0, null, talentInjection);
+        return;
+      }
+      // analyzing / null：占位不是回复，是状态提示——保持思考中提示条，实时刷新阶段文案
+      if (stageText) {
+        var tp2 = document.getElementById('typingMsg');
+        var bubble2 = tp2 && tp2.querySelector('.msg-bubble');
+        if (bubble2) bubble2.innerHTML = '<span style="color:#888">' + escapeHtml(stageText) + '</span>';
       }
     }, 5000);
   }
