@@ -21094,14 +21094,81 @@ def _handle_proxy(self):
     elif body:
         body_info = f'body_len={len(body)}'
     logger.info(f'  [Proxy] 收到请求 -> {target_url} {body_info}')
-    try:
-        req = urllib.request.Request(target_url, data=body, headers=forward_headers, method='POST')
-        ctx = ssl.create_default_context()
-        resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
 
-        resp_body = resp.read()
+    # Kimi coding：构建 key 轮询列表（agent 自己的 key 优先 → KIMI_KEY_POOL 兜底）
+    # 401/429 时 mark_failed 当前 key 换下一个；池空返回 503；任何重试都在返回响应头之前完成
+    keys_to_try = None
+    if is_kimi_coding:
+        keys_to_try = []
+        # 1) 前端直接传过来的 X-AI-API-Key
+        if ai_api_key:
+            keys_to_try.append(ai_api_key)
+        # 2) agent 在 agents.json 里配置的 apiKey（兼容没传 X-AI-API-Key 的情况）
+        agent_stored_key = _get_agent_api_key(agent_id) if agent_id else None
+        if agent_stored_key and agent_stored_key not in keys_to_try:
+            keys_to_try.append(agent_stored_key)
+        # 3) 池里取一个（池空则 None，循环会自动到 503）
+        pool_key = KIMI_KEY_POOL.get_key()
+        if pool_key and pool_key not in keys_to_try:
+            keys_to_try.append(pool_key)
+        if not keys_to_try:
+            logger.error('[Proxy] Kimi coding 请求无可用 key（agent 无 key + 池空），返回 503')
+            self.send_response(503)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'type': 'error',
+                'error': {
+                    'type': 'api_key_pool_exhausted',
+                    'message': 'Kimi API Key 池暂时全部不可用，请稍后重试'
+                }
+            }).encode('utf-8'))
+            return
+        logger.info(f'  [Proxy] Kimi coding 准备 {len(keys_to_try)} 个 key 用于轮询')
+
+    try:
+        resp = None
+        resp_body = None
+        resp_content_type = 'application/json'
+        last_http_error = None
+
+        if is_kimi_coding:
+            # Key 轮询：每个 key 一次 urlopen，401/429 拉黑换下一个
+            for key_idx, current_key in enumerate(keys_to_try):
+                forward_headers['x-api-key'] = current_key
+                masked = (current_key[:10] + '...' + current_key[-4:]) if current_key and len(current_key) > 14 else '****'
+                try:
+                    req = urllib.request.Request(target_url, data=body, headers=forward_headers, method='POST')
+                    ctx = ssl.create_default_context()
+                    resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+                    resp_body = resp.read()
+                    resp_content_type = resp.headers.get('Content-Type', 'application/json')
+                    last_http_error = None
+                    logger.info(f'  [Proxy] Kimi coding key #{key_idx+1} 命中: {masked}')
+                    break
+                except urllib.error.HTTPError as e:
+                    # 任何 HTTPError 都先记下来；401/429 走轮换，其他直接抛给外层
+                    last_http_error = e
+                    if e.code in (401, 429):
+                        KIMI_KEY_POOL.mark_failed(current_key)
+                        logger.warning(f'  [Proxy] Kimi coding {e.code} 轮换 key ({key_idx+1}/{len(keys_to_try)}): {masked}')
+                        # 池大到 size 上限时跳出循环，让外层用 last_http_error 走降级
+                        if key_idx >= KIMI_KEY_POOL.size:
+                            break
+                        continue
+                    raise
+            # 全部 key 用完还没成功 → 把最后一次错误抛给外层 except 走降级
+            if resp is None and last_http_error is not None:
+                raise last_http_error
+        else:
+            # 非 Kimi coding：单次调用，行为不变
+            req = urllib.request.Request(target_url, data=body, headers=forward_headers, method='POST')
+            ctx = ssl.create_default_context()
+            resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+            resp_body = resp.read()
+            resp_content_type = resp.headers.get('Content-Type', 'application/json')
+
         print(f"[Proxy] 原始响应前200字符: {resp_body[:200].decode('utf-8', errors='replace')}", flush=True)
-        resp_content_type = resp.headers.get('Content-Type', 'application/json')
 
         # Kimi coding 返回 Anthropic Messages 格式，前端已原生解析，后端直接透传。
         if is_kimi_coding:
@@ -21168,9 +21235,10 @@ def _handle_proxy(self):
         except Exception:
             err_body = b'{}'
 
-        # 兜底：kimi coding 403 时尝试 minimax 降级
+        # 兜底：kimi coding 失败时（403 配额、401/429 key 全失效）尝试 minimax 降级
+        # 401/429 走完 key 轮询还是 401/429，说明所有可用 key 都失效，再降级才有意义
         fallback_body = None
-        if status == 403 and is_kimi_coding and body_json:
+        if is_kimi_coding and body_json and status in (401, 403, 429):
             try:
                 fallback_body = _try_minimax_proxy_fallback(body_json, log_prefix='Proxy', request_format=request_format)
             except Exception as fb_err:
