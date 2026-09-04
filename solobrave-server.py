@@ -17587,6 +17587,9 @@ def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
             with urllib.request.urlopen(req, timeout=180) as resp:
                 data = json.loads(resp.read().decode('utf-8', errors='replace'))
             usage = data.get('usage') or {}
+            logger.info(f'  [HeavyPipe] LLM响应: stop_reason={data.get("stop_reason")} '
+                        f'content_types={[p.get("type") for p in data.get("content", []) if isinstance(p, dict)]} '
+                        f'usage={data.get("usage", {})}')
             return {
                 'text': ''.join(p.get('text', '') for p in data.get('content', [])
                                 if isinstance(p, dict) and p.get('type') == 'text'),
@@ -17717,7 +17720,7 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
                               + json.dumps(talents, ensure_ascii=False, indent=1))
         user_parts.append('【达人数据截图识别结果】\n' + vision_all)
         user_parts.append('【用户原始指令】\n' + (user_content or ''))
-        result = _heavy_llm_call(system_prompt, '\n\n'.join(user_parts), max_tokens=4096)
+        result = _heavy_llm_call(system_prompt, '\n\n'.join(user_parts), max_tokens=8192)
         _stage('stage4 深度分析', _t)
         if result:
             logger.info(f'  [HeavyPipe] {job_id} stage4 stop_reason={result.get("stop_reason")} '
