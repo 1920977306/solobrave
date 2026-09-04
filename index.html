@@ -8713,6 +8713,12 @@ async function sendMsg() {
     if (saveResp && saveResp.ok) {
       var saveData = await saveResp.json();
       if (saveData && saveData.talentInjection) talentInjection = saveData.talentInjection;
+      // 回填消息 id 到刚插入的用户气泡（右键引用依赖 data-msg-id + _msgQuotePool）
+      // pendingImages 在函数开头已 slice 快照，此处引用不受后面 clearPendingImages() 影响
+      var savedMsgId = (saveData && saveData.userMessage && saveData.userMessage.id) || (saveData && saveData.id) || null;
+      if (savedMsgId) {
+        _registerMsgDom(userMsg, { id: savedMsgId, role: 'user', content: text, images: pendingImages, reply_to: replyToId || null });
+      }
       // 多图（>=2）重任务被后端旁路：不再走 OpenClaw chat.send，改为轮询旁路任务状态
       if (saveData && saveData.heavyPipe) {
         heavyJobId = saveData.jobId || null;
@@ -12015,6 +12021,13 @@ document.addEventListener('DOMContentLoaded', function () {
 window._pendingQuote = null;   // 待发送的引用消息 {id, role, content, images}
 window._msgQuotePool = {};     // 渲染时缓存的消息数据 id -> message，供右键引用取数
 
+// 统一注册消息：回填 DOM 的 data-msg-id 并把消息数据写入引用缓存池（el 可为 null，仅写缓存）
+function _registerMsgDom(el, msgObj) {
+  if (!msgObj || !msgObj.id) return;
+  if (el) el.dataset.msgId = msgObj.id;
+  window._msgQuotePool[msgObj.id] = msgObj;
+}
+
 function buildQuoteBlockHtml(rm) {
   // 气泡顶部的引用块：左侧蓝色竖线 + 灰字摘要/缩略图，点击滚动定位原消息
   var thumbHtml = '';
@@ -14779,7 +14792,7 @@ function renderMsgs(type) {
         minute: '2-digit'
       });
       // 缓存消息数据供右键「引用」取数
-      if (m.id) window._msgQuotePool[m.id] = m;
+      _registerMsgDom(null, m);
       var quoteHtml2 = m.reply_to_message ? buildQuoteBlockHtml(m.reply_to_message) : '';
       var imagesHtml2 = own ? buildChatImagesHtml(m.images) : '';
       var citationHtml2 = '';
@@ -19415,6 +19428,18 @@ async function saveChatToServer(projId, userMsg, aiMsg, docContext, citations, i
       body: JSON.stringify(assistantBody)
     });
     if (!resp) throw new Error('Assistant message POST returned null');
+    // 回填 AI 消息 id 到 displayAIReply 刚插入的气泡节点，供右键「引用」取数
+    try {
+      var aiSaveData = await resp.json();
+      var aiMsgId = aiSaveData && aiSaveData.userMessage && aiSaveData.userMessage.id;
+      var aiEl = window._lastAiMsgEl;
+      window._lastAiMsgEl = null;
+      if (aiMsgId && aiEl && aiEl.isConnected) {
+        _registerMsgDom(aiEl, { id: aiMsgId, role: 'assistant', content: aiMsg });
+      }
+    } catch (e) {
+      console.debug('[ChatSync] AI 消息 id 回填失败:', e);
+    }
 
     // 3. 检查是否需要触发摘要生成（每15条消息触发一次）
     var msgsResp = await apiFetch(baseUrl);
@@ -19449,12 +19474,15 @@ function loadChatFromServer(id, type, callback) {
     if (data && Array.isArray(data)) {
       msgs = data.map(function (m) {
         return {
+          id: m.id || null,
           role: m.role || 'user',
           content: m.content || '',
           groupId: m.groupId || null,
           time: m.timestamp || Date.now(),
           images: m.images || null,
-          citations: m.citations || []
+          citations: m.citations || [],
+          reply_to: m.reply_to || null,
+          reply_to_message: m.reply_to_message || null
         };
       });
       // 按时间升序排序（旧消息在前，新消息在后）
@@ -20317,6 +20345,8 @@ function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations
   if (citationHtml) html += citationHtml;
   html += '</div></div>';
   area.insertAdjacentHTML('beforeend', html);
+  // 记录刚插入的 AI 气泡节点，saveChatToServer 拿到后端保存返回的 id 后回填（供右键引用取数）
+  window._lastAiMsgEl = area.lastElementChild;
   area.scrollTop = area.scrollHeight;
 
   window._lastAIReplyText = cleanText;
