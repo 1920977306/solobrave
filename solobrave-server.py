@@ -17567,6 +17567,7 @@ def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
         'max_tokens': max_tokens,
         'system': system_prompt,
         'messages': [{'role': 'user', 'content': user_text}],
+        'thinking': {'type': 'disabled'},
     }, ensure_ascii=False).encode('utf-8')
     current_key = KIMI_KEY_POOL.get_key()
     if not current_key:
@@ -17587,9 +17588,9 @@ def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
             with urllib.request.urlopen(req, timeout=180) as resp:
                 data = json.loads(resp.read().decode('utf-8', errors='replace'))
             usage = data.get('usage') or {}
-            logger.info(f'  [HeavyPipe] LLM响应: stop_reason={data.get("stop_reason")} '
-                        f'content_types={[p.get("type") for p in data.get("content", []) if isinstance(p, dict)]} '
-                        f'usage={data.get("usage", {})}')
+            logger.info(f'  [HeavyPipe] stage4_meta: stop_reason={data.get("stop_reason")} '
+                        f'content_types={[p.get("type") for p in data.get("content", [])]} '
+                        f'usage={data.get("usage")}')
             return {
                 'text': ''.join(p.get('text', '') for p in data.get('content', [])
                                 if isinstance(p, dict) and p.get('type') == 'text'),
@@ -17713,6 +17714,8 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
             f'你是 {agent_name}，一个 {agent.get("role", "助手")}。请用第一人称回复，保持角色一致性。'
             + ('\n\n' + soul if soul else '')
             + '\n\n你必须输出完整的达人数据分析报告，包括数据解读、达人对比、组合建议。不得只回复一句话。'
+            + '\n\n这是一次性分析任务，你没有搜索工具可用。你必须根据上述截图识别结果和达人数据，'
+              '直接输出完整的达人分析报告。禁止说"我先查一下"或"让我看看"等执行意图的话，直接输出分析结论。'
         )
         user_parts = []
         if talents:
