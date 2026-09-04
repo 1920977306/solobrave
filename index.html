@@ -8582,18 +8582,27 @@ async function sendMsg() {
     var maxPolls = 120; // 5s × 120 = 10 分钟
     var timer = setInterval(async function () {
       polls++;
-      var status = null, errMsg = '';
+      var status = null, errMsg = '', stageText = '';
       try {
         var resp = await apiFetch('/api/chat/' + encodeURIComponent(empInfo.id) + '/heavy-status?jobId=' + encodeURIComponent(jobId));
         if (resp && resp.ok) {
           var data = await resp.json();
           status = data && data.status;
           errMsg = (data && data.error) || '';
+          stageText = (data && data.stage) || '';
         }
       } catch (e) {
         console.warn('[HeavyPipe] 状态轮询异常（继续等待）:', e);
       }
-      if (status === 'analyzing' && polls < maxPolls) return;
+      // 占位不是回复，是状态提示：轮询期间保持思考中提示条，实时刷新阶段文案
+      if (status === 'analyzing' && polls < maxPolls) {
+        if (stageText) {
+          var tp2 = document.getElementById('typingMsg');
+          var bubble2 = tp2 && tp2.querySelector('.msg-bubble');
+          if (bubble2) bubble2.innerHTML = '<span style="color:#888">' + escapeHtml(stageText) + '</span>';
+        }
+        return;
+      }
       clearInterval(timer);
       if (status === 'done') {
         var t = document.getElementById('typingMsg');

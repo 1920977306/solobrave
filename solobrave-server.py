@@ -16604,7 +16604,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not job or job.get('agent_id') != agent_id:
             self._send_json(404, {'error': '任务不存在'})
             return
-        self._send_json(200, {'status': job['status'], 'error': job.get('error', '')})
+        self._send_json(200, {'status': job['status'], 'error': job.get('error', ''), 'stage': job.get('stage', '')})
 
     def _handle_post_chat(self, agent_id):
         """POST /api/chat/:agentId"""
@@ -17774,7 +17774,9 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         # Stage 1：逐张 vision 识别（走 KIMI_KEY_POOL）
         _t = time.perf_counter()
         vision_texts = []
+        _img_total = min(len(images), _HEAVY_IMAGE_MAX)
         for idx, img in enumerate(images[:_HEAVY_IMAGE_MAX], 1):
+            _heavy_job_set(job_id, stage=f'正在识别截图（{idx}/{_img_total}）…')
             b64 = img.get('base64', '') if isinstance(img, dict) else str(img)
             desc = _call_kimi_vision(b64, agent_id=agent_id, role=agent.get('role'))
             if desc:
@@ -17787,6 +17789,7 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
             raise RuntimeError('vision 识别全部失败')
 
         # Stage 2：提取达人名（单次 LLM 调用）
+        _heavy_job_set(job_id, stage='正在提取达人名称…')
         _t = time.perf_counter()
         vision_all = '\n\n'.join(vision_texts)
         logger.info(f'  [HeavyPipe] {job_id} vision 内容预览（前500字）: {vision_all[:500]}')
@@ -17801,11 +17804,13 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         _stage(f'stage2 达人名提取（{talent_names}）', _t)
 
         # Stage 3：达人库预查
+        _heavy_job_set(job_id, stage='正在检索达人数据…')
         _t = time.perf_counter()
         talents = _heavy_fetch_talents(talent_names)
         _stage(f'stage3 达人预查（命中 {len(talents)}/{len(talent_names)}）', _t)
 
         # Stage 4：单次 Kimi 深度分析（灵魂人格 + vision 全文 + 达人详情 + 用户原始指令）
+        _heavy_job_set(job_id, stage='正在深度分析…')
         _t = time.perf_counter()
         soul = _resolve_agent_soul(agent)
         system_prompt = (
@@ -17850,6 +17855,7 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
             raise RuntimeError('Kimi 深度分析调用失败')
 
         # Stage 5：落库（等价 skipAI=True 直接保存，不再触发 AI）+ 通知
+        _heavy_job_set(job_id, stage='正在保存分析结果…')
         _t = time.perf_counter()
         ai_message = {
             'id': 'msg_' + uuid.uuid4().hex[:8],
