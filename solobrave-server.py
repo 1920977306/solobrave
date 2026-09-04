@@ -17685,12 +17685,14 @@ def _heavy_kimi_call(system_prompt, user_text, max_tokens=4096):
             with urllib.request.urlopen(req, timeout=180) as resp:
                 data = json.loads(resp.read().decode('utf-8', errors='replace'))
             usage = data.get('usage') or {}
+            text_val = ''.join(p.get('text', '') for p in data.get('content', [])
+                               if isinstance(p, dict) and p.get('type') == 'text')
+            logger.info(f'  [HeavyPipe] kimi_call 返回 text_len={len(text_val)} stop_reason={data.get("stop_reason")}')
             logger.info(f'  [HeavyPipe] stage4_meta: stop_reason={data.get("stop_reason")} '
                         f'content_types={[p.get("type") for p in data.get("content", [])]} '
                         f'usage={data.get("usage")}')
             return {
-                'text': ''.join(p.get('text', '') for p in data.get('content', [])
-                                if isinstance(p, dict) and p.get('type') == 'text'),
+                'text': text_val,
                 'stop_reason': data.get('stop_reason'),
                 'input_tokens': usage.get('input_tokens'),
                 'output_tokens': usage.get('output_tokens'),
