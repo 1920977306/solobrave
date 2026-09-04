@@ -17597,13 +17597,17 @@ def _heavy_job_get(job_id):
 def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
     """内部单次 Kimi 调用（anthropic messages 格式）。key 走 KIMI_KEY_POOL 轮询，
     401/429 拉黑换 key 重试（上限=池大小）；全部失败返回 None。
-    成功时返回 dict：{'text', 'stop_reason', 'input_tokens', 'output_tokens'}。"""
-    req_body = json.dumps({
+    默认禁用 extended thinking（thinking 块会吃掉 max_tokens 导致 text 为空），
+    若 API 返回 400 不认 thinking 参数则去掉后重试一次。
+    成功时返回 dict：{'text', 'stop_reason', 'input_tokens', 'output_tokens', 'content_types'}。"""
+    req_payload = {
         'model': 'kimi-for-coding',
         'max_tokens': max_tokens,
         'system': system_prompt,
         'messages': [{'role': 'user', 'content': user_text}],
-    }, ensure_ascii=False).encode('utf-8')
+        'thinking': {'type': 'disabled'},
+    }
+    req_body = json.dumps(req_payload, ensure_ascii=False).encode('utf-8')
     current_key = KIMI_KEY_POOL.get_key()
     if not current_key:
         logger.error('  [HeavyPipe] Key 池已空，无法调用 LLM')
@@ -17632,11 +17636,17 @@ def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
                 'stop_reason': data.get('stop_reason'),
                 'input_tokens': usage.get('input_tokens'),
                 'output_tokens': usage.get('output_tokens'),
+                'content_types': [p.get('type') for p in data.get('content', [])
+                                  if isinstance(p, dict)],
             }
         except urllib.error.HTTPError as e:
             err_text = e.read().decode('utf-8', errors='replace')[:300]
             _masked = (current_key[:10] + '...' + current_key[-4:]) if len(current_key) > 14 else '****'
             logger.error(f'  [HeavyPipe] Kimi 调用失败: HTTP {e.code} key={_masked} {err_text}')
+            if e.code == 400 and 'thinking' in err_text.lower() and req_payload.pop('thinking', None):
+                req_body = json.dumps(req_payload, ensure_ascii=False).encode('utf-8')
+                logger.warning('  [HeavyPipe] API 不支持 thinking 参数，去掉后重试一次')
+                continue
             if e.code in (401, 429) and key_retry_count < KIMI_KEY_POOL.size:
                 key_retry_count += 1
                 KIMI_KEY_POOL.mark_failed(current_key)
@@ -17649,7 +17659,7 @@ def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
                 continue
             return None
         except Exception as e:
-            logger.error(f'  [HeavyPipe] Kimi 调用异常: {e}')
+            logger.error(f'  [HeavyPipe] Kimi 调用异常: {type(e).__name__}: {e}')
             return None
 
 
@@ -17772,6 +17782,7 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         user_parts.append('【用户原始指令】\n' + (user_content or ''))
         result = _heavy_llm_call(system_prompt, '\n\n'.join(user_parts), max_tokens=8192)
         _stage('stage4 深度分析', _t)
+        logger.info(f'  [HeavyPipe] {job_id} stage4 result: {repr(result)[:500]}')
         if isinstance(result, dict):
             logger.info(f'  [HeavyPipe] {job_id} stage4 stop_reason={result.get("stop_reason")} '
                         f'input_tokens={result.get("input_tokens")} '
@@ -17779,6 +17790,8 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
                         f'reply_len={len(result.get("text") or "")}')
             if result.get('stop_reason') in ('length', 'max_tokens'):
                 raise RuntimeError(f'stage4 输出被截断（stop_reason={result.get("stop_reason")}），降级回 OpenClaw 主干道')
+            if not (result.get('text') or '').strip() and 'thinking' in (result.get('content_types') or []):
+                raise RuntimeError('stage4 模型只返回 thinking 块没有 text，降级回 OpenClaw 主干道')
         reply = result.get('text', '') if isinstance(result, dict) else (result or '')
         if not reply:
             raise RuntimeError('Kimi 深度分析调用失败')
