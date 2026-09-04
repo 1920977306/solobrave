@@ -5981,6 +5981,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path.startswith('/api/knowledge/entries/'):
             sub = path[len('/api/knowledge/entries/'):]
+            if sub == 'reindex':
+                self._send_json_error(405, 'Use POST /api/knowledge/entries/reindex')
+                return
             if sub:
                 self._handle_get_kb_entry_detail(sub)
                 return
@@ -17594,7 +17597,57 @@ def _heavy_job_get(job_id):
         return dict(job) if job else None
 
 
+def _heavy_minimax_fallback(system_prompt, user_text, max_tokens):
+    """Kimi 全部失败后的降级通道：读 settings.json 的 minimax provider 配置，
+    走 _call_minimax_messages（OpenAI 兼容格式）。返回与 _heavy_kimi_call 同构的 dict，失败返回 None。"""
+    try:
+        settings = _read_json(SETTINGS_FILE, {}) or {}
+        llm = settings.get('llm') or {}
+        minimax_cfg = None
+        for p in (llm.get('providers') or []):
+            if isinstance(p, dict) and p.get('name') == 'minimax':
+                minimax_cfg = p
+                break
+        if not minimax_cfg:
+            logger.warning('  [HeavyPipe] settings.json 无 minimax 配置，无法降级')
+            return None
+        api_key = (minimax_cfg.get('apiKey', '') or '').strip()
+        base_url = (minimax_cfg.get('baseUrl', '') or '').strip()
+        model = minimax_cfg.get('model', '') or 'MiniMax-Text-01'
+        if not api_key or not base_url:
+            logger.warning('  [HeavyPipe] minimax 配置缺 apiKey/baseUrl，无法降级')
+            return None
+    except Exception as e:
+        logger.error(f'  [HeavyPipe] 读 minimax 配置失败: {e}')
+        return None
+    messages = [
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'user', 'content': user_text},
+    ]
+    content = _call_minimax_messages(base_url, model, api_key, messages,
+                                     timeout=180, max_tokens=max_tokens)
+    if not content:
+        return None
+    return {
+        'text': content,
+        'stop_reason': None,
+        'input_tokens': None,
+        'output_tokens': None,
+        'content_types': ['text'],
+        'provider': 'minimax',
+    }
+
+
 def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
+    """HeavyPipe LLM 调用入口：先走 Kimi（key 池轮询重试），全部失败自动降级 MiniMax。"""
+    result = _heavy_kimi_call(system_prompt, user_text, max_tokens)
+    if result is not None:
+        return result
+    logger.warning('  [HeavyPipe] Kimi 全部失败，降级到 MiniMax')
+    return _heavy_minimax_fallback(system_prompt, user_text, max_tokens)
+
+
+def _heavy_kimi_call(system_prompt, user_text, max_tokens=4096):
     """内部单次 Kimi 调用（anthropic messages 格式）。key 走 KIMI_KEY_POOL 轮询，
     401/429 拉黑换 key 重试（上限=池大小）；全部失败返回 None。
     默认禁用 extended thinking（thinking 块会吃掉 max_tokens 导致 text 为空），
