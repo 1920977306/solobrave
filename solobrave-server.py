@@ -17567,7 +17567,6 @@ def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
         'max_tokens': max_tokens,
         'system': system_prompt,
         'messages': [{'role': 'user', 'content': user_text}],
-        'thinking': {'type': 'disabled'},
     }, ensure_ascii=False).encode('utf-8')
     current_key = KIMI_KEY_POOL.get_key()
     if not current_key:
@@ -17693,8 +17692,8 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         vision_all = '\n\n'.join(vision_texts)
         logger.info(f'  [HeavyPipe] {job_id} vision 内容预览（前500字）: {vision_all[:500]}')
         names_result = _heavy_llm_call(_HEAVY_TALENT_EXTRACT_PROMPT, vision_all, max_tokens=1024)
-        names_text = (names_result or {}).get('text', '')
-        if names_result and names_result.get('stop_reason') not in (None, 'end_turn', 'stop_sequence'):
+        names_text = names_result.get('text', '') if isinstance(names_result, dict) else (names_result or '')
+        if isinstance(names_result, dict) and names_result.get('stop_reason') not in (None, 'end_turn', 'stop_sequence'):
             logger.warning(f'  [HeavyPipe] {job_id} stage2 达人名提取可能被截断: '
                            f'stop_reason={names_result.get("stop_reason")} '
                            f'output_tokens={names_result.get("output_tokens")}')
@@ -17725,14 +17724,14 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         user_parts.append('【用户原始指令】\n' + (user_content or ''))
         result = _heavy_llm_call(system_prompt, '\n\n'.join(user_parts), max_tokens=8192)
         _stage('stage4 深度分析', _t)
-        if result:
+        if isinstance(result, dict):
             logger.info(f'  [HeavyPipe] {job_id} stage4 stop_reason={result.get("stop_reason")} '
                         f'input_tokens={result.get("input_tokens")} '
                         f'output_tokens={result.get("output_tokens")} '
                         f'reply_len={len(result.get("text") or "")}')
             if result.get('stop_reason') in ('length', 'max_tokens'):
                 raise RuntimeError(f'stage4 输出被截断（stop_reason={result.get("stop_reason")}），降级回 OpenClaw 主干道')
-        reply = (result or {}).get('text', '')
+        reply = result.get('text', '') if isinstance(result, dict) else (result or '')
         if not reply:
             raise RuntimeError('Kimi 深度分析调用失败')
 
