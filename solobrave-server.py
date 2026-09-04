@@ -21253,6 +21253,7 @@ KIMI_KEY_POOL = KimiKeyPool(_env_kimi_keys or [
     "sk-kimi-o35k9gcgprEzAZ0Q9Kw9bqiPGJyD66qXbe2biTZoZKaBm9DEszUQnSGML7qJBfaE",
     "sk-kimi-EEcskfgXT82jqiOLenbK6x1diNxalfzqnAoX2zajMzfPdvjh16RTLXHjPOZKJ90j",
     "sk-kimi-nl2dFFqoGPKpA6boPerKqeFtaQKySphOnVQ6mLtbrITg5ivOygnh5dtFMDayoqtx",
+    "sk-kimi-EKcvRlizd3g4TggDDHOlCyTfOtvr9nTWc47FPKK1uaddgTOojXM2IUpYmfhR4ybN",
 ])
 # 上游 base url：可用环境变量覆盖（便于本地 mock 测试），默认真实 Kimi coding endpoint
 KIMI_PROXY_REAL_BASE_URL = os.environ.get('KIMI_PROXY_BASE_URL', '').strip() or 'https://api.kimi.com/coding'
