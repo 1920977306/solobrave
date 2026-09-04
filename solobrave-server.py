@@ -17639,11 +17639,16 @@ def _heavy_minimax_fallback(system_prompt, user_text, max_tokens):
 
 
 def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
-    """HeavyPipe LLM 调用入口：先走 Kimi（key 池轮询重试），全部失败自动降级 MiniMax。"""
+    """HeavyPipe LLM 调用入口：先走 Kimi（key 池轮询重试），全部失败或返回空 text
+    （thinking 块吃光额度 / content 为空）时自动降级 MiniMax。"""
     result = _heavy_kimi_call(system_prompt, user_text, max_tokens)
-    if result is not None:
+    if result is not None and (result.get('text') or '').strip():
         return result
-    logger.warning('  [HeavyPipe] Kimi 全部失败，降级到 MiniMax')
+    if result is not None:
+        logger.warning(f'  [HeavyPipe] Kimi 返回空 text（stop_reason={result.get("stop_reason")} '
+                       f'content_types={result.get("content_types")}），降级到 MiniMax')
+    else:
+        logger.warning('  [HeavyPipe] Kimi 全部失败，降级到 MiniMax')
     return _heavy_minimax_fallback(system_prompt, user_text, max_tokens)
 
 
