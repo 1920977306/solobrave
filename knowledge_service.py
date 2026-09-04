@@ -2096,6 +2096,57 @@ def kb_entry_update(entry_id, title=None, content=None, category=None, category_
     return kb_entry_get_by_id(entry_id)
 
 
+def kb_entries_reindex_pending():
+    """批量重建未向量化的知识条目（status='pending' 或 chunk_count=0）：
+    重新分段 + 向量化，成功置 status='ok'，失败置 'error'，无 API key 保持 pending。
+    返回 {'total', 'ok', 'noKey', 'failed', 'errors'} 统计。"""
+    conn = _db_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, emp_id, title, content FROM kb_entries "
+            "WHERE status = 'pending' OR chunk_count = 0"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    stats = {'total': len(rows), 'ok': 0, 'noKey': 0, 'failed': 0, 'errors': []}
+    for row in rows:
+        entry_id = row['id']
+        emp_id = row['emp_id'] or ''
+        content = row['content'] or ''
+        try:
+            _save_kb_chunks_without_embedding(entry_id, emp_id, content, 500, 100)
+            emb_cfg = get_embedding_config(emp_id or None)
+            api_key = emb_cfg.get('apiKey')
+            if not api_key:
+                stats['noKey'] += 1
+                print(f'  [KBEntry] reindex {entry_id} ({row["title"]}): 无 embedding API key，跳过向量化', flush=True)
+                continue
+            _vectorize_kb_chunks(entry_id, emp_id, api_key,
+                                 emb_cfg.get('provider', 'openai'), emb_cfg.get('model'),
+                                 base_url=emb_cfg.get('baseUrl'))
+            conn = _db_conn()
+            try:
+                conn.execute('UPDATE kb_entries SET status="ok", updated_at=? WHERE id=?',
+                             (_now_ms(), entry_id))
+                conn.commit()
+            finally:
+                conn.close()
+            stats['ok'] += 1
+            print(f'  [KBEntry] reindex {entry_id} ({row["title"]}): ok', flush=True)
+        except Exception as e:
+            stats['failed'] += 1
+            stats['errors'].append(f'{entry_id}: {e}')
+            print(f'  [KBEntry] reindex {entry_id} ({row["title"]}) failed: {e}', flush=True)
+            conn = _db_conn()
+            try:
+                conn.execute('UPDATE kb_entries SET status="error" WHERE id=?', (entry_id,))
+                conn.commit()
+            finally:
+                conn.close()
+    return stats
+
+
 def kb_entry_delete(entry_id, is_admin=False):
     """删除新版知识条目，级联删除 chunks 与操作日志"""
     conn = _db_conn()

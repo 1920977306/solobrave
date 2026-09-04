@@ -6530,6 +6530,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/knowledge/entries':
             self._handle_post_kb_entry()
             return
+        if path == '/api/knowledge/entries/reindex':
+            self._handle_post_kb_reindex()
+            return
         if path == '/api/knowledge/search':
             self._handle_post_kb_search()
             return
@@ -11988,6 +11991,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [KBEntry] create failed: {e}')
             self._send_json_error(500, f'Create failed: {str(e)}')
+
+    def _handle_post_kb_reindex(self):
+        """POST /api/knowledge/entries/reindex — 批量重建 pending/未向量化条目的分段与向量（管理员）"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        if not auth.is_admin:
+            self._send_auth_error('Admin only', 403)
+            return
+        try:
+            stats = ks.kb_entries_reindex_pending()
+            self._send_json(200, stats)
+        except Exception as e:
+            logger.error(f'  [KBEntry] reindex failed: {e}')
+            self._send_json_error(500, f'Reindex failed: {str(e)}')
 
     def _handle_put_kb_entry(self, entry_id):
         """PUT /api/knowledge/entries/<id> — 更新新版知识"""
