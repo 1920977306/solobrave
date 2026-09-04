@@ -16580,6 +16580,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if len(messages) < original_len:
                 logger.info(f'  [ChatFilter] {agent_id}: 过滤了 {original_len - len(messages)} 条群聊消息')
 
+        # 引用消息展开：带 reply_to 的消息附带被引用消息摘要，被删/不存在时为 null
+        id_map = {m.get('id'): m for m in messages if isinstance(m, dict) and m.get('id')}
+        for m in messages:
+            if isinstance(m, dict) and m.get('reply_to'):
+                src = id_map.get(m['reply_to'])
+                m['reply_to_message'] = ({
+                    'id': src.get('id'),
+                    'role': src.get('role'),
+                    'content': src.get('content', ''),
+                    'images': src.get('images') or [],
+                    'created_at': src.get('timestamp') or src.get('created_at') or '',
+                } if src else None)
+
         # 统计角色分布，便于排查 user 消息是否丢失
         role_counts = {}
         for m in messages:
@@ -16679,6 +16692,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         images = body.get('images', [])
         if images:
             msg['images'] = images
+        # 引用消息：记录被引用消息 id（回复/转发场景）
+        _reply_to = body.get('reply_to') or body.get('replyTo')
+        if _reply_to:
+            msg['reply_to'] = _reply_to
 
         with _get_chat_lock(agent_id):
             messages = _load_chat(agent_id)

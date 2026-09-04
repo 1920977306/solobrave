@@ -4041,6 +4041,22 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .msg-sender-time { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
 .msg-bubble { padding: 10px 14px; border-radius: 18px; background: #f2f3f5; font-size: 14px; line-height: 1.5; word-break: break-word; white-space: pre-wrap; color: var(--text-primary); }
 .msg-bubble table { display: block; max-width: 100%; overflow-x: auto; }
+/* 消息引用块（气泡顶部） */
+.msg-quote-block { display: flex; gap: 8px; align-items: center; background: #f5f5f5; border-left: 2px solid #2563eb; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 12px; color: #999; cursor: pointer; max-width: 100%; }
+.msg-quote-block:hover { background: #ececec; }
+.msg-quote-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.msg-quote-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+/* 引用预览条（输入框上方） */
+.quote-preview-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; margin-bottom: 6px; background: #f5f5f5; border-left: 2px solid #2563eb; border-radius: 6px; font-size: 12px; color: #999; }
+.quote-preview-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quote-preview-thumb-wrap { position: relative; flex-shrink: 0; }
+.quote-preview-thumb { width: 60px; height: 60px; object-fit: cover; border-radius: 4px; display: block; }
+.quote-preview-badge { position: absolute; right: -4px; bottom: -4px; background: #2563eb; color: #fff; font-size: 10px; border-radius: 8px; padding: 0 5px; line-height: 16px; }
+.quote-preview-close { flex-shrink: 0; cursor: pointer; color: #999; font-size: 14px; padding: 2px 6px; border-radius: 4px; }
+.quote-preview-close:hover { background: #e5e5e5; color: #333; }
+/* 被引用消息定位高亮闪烁 */
+.msg.quote-flash .msg-bubble { animation: quoteFlash 1.2s ease; }
+@keyframes quoteFlash { 0%, 60% { background: #dbe7fd; } 100% { background: #f2f3f5; } }
 
 /* Apple 风格 - 用户消息（右侧，浅蓝色） */
 .msg.own .msg-bubble {
@@ -6155,6 +6171,7 @@ window.doLogin = function () {
 <body>
 <!-- Message Context Menu (right-click on chat bubbles) -->
 <div id="msgCtxMenu" class="ctx-menu">
+  <div class="menu-item" onclick="msgCtxAction('quote')">↩️ 引用</div>
   <div class="menu-item" onclick="msgCtxAction('copy')">📋 复制文本</div>
   <div class="menu-divider"></div>
   <div class="menu-item" onclick="msgCtxAction('delete')">🗑️ 删除消息</div>
@@ -7105,6 +7122,7 @@ window.doLogin = function () {
 <div class="mention-list" id="mentionList" style="padding:4px 0;"></div>
 </div>
 <div class="chat-image-preview-bar" id="imagePreviewBar" style="display:none;"></div>
+<div class="quote-preview-bar" id="quotePreviewBar" style="display:none;"></div>
 <div class="input-toolbar-left">
   <button class="input-tool-btn" type="button" onclick="document.getElementById('imageFileInput').click()" title="附件"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
   <button class="input-tool-btn" type="button" onclick="insertTextAtCursor('😊')" title="表情"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/></svg></button>
@@ -8676,7 +8694,9 @@ async function sendMsg() {
   const userMsg = document.createElement('div');
   userMsg.className = 'msg own';
   var imagesHtml = buildChatImagesHtml(pendingImages);
-  userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + formatMessageContent(text || '') + '</div>' + imagesHtml + '</div>';
+  // 引用块：发送时把待引用消息渲染到气泡顶部，并随消息体携带 reply_to
+  var ownQuoteHtml = window._pendingQuote ? buildQuoteBlockHtml(window._pendingQuote) : '';
+  userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + ownQuoteHtml + formatMessageContent(text || '') + '</div>' + imagesHtml + '</div>';
   area.appendChild(userMsg);
   // 立即保存用户消息到服务器，避免切换员工时消息丢失（AI 回复由 saveChatToServer 再存）
   // 达人防编造（架构级）：后端保存消息时检测达人关键词，命中则直查 talents 表并随响应返回
@@ -8684,10 +8704,11 @@ async function sendMsg() {
   var talentInjection = '';
   var heavyJobId = null;
   var heavyPlaceholder = '';
+  var replyToId = window._pendingQuote ? window._pendingQuote.id : null;
   try {
     var saveResp = await apiFetch('/api/chat/' + encodeURIComponent(emp.id), {
       method: 'POST',
-      body: JSON.stringify({ role: 'user', content: text, skipAI: true, empId: emp.id, images: pendingImages })
+      body: JSON.stringify({ role: 'user', content: text, skipAI: true, empId: emp.id, images: pendingImages, reply_to: replyToId || undefined })
     });
     if (saveResp && saveResp.ok) {
       var saveData = await saveResp.json();
@@ -8701,6 +8722,7 @@ async function sendMsg() {
   } catch (e) { console.error('[Chat] 用户消息即时保存失败:', e); }
   input.value = '';
   clearPendingImages();
+  clearQuotePreview();
   updateSendButtonState();
   area.scrollTop = area.scrollHeight;
 
@@ -11989,6 +12011,77 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 });
 
+// ===== 消息引用（quote）=====
+window._pendingQuote = null;   // 待发送的引用消息 {id, role, content, images}
+window._msgQuotePool = {};     // 渲染时缓存的消息数据 id -> message，供右键引用取数
+
+function buildQuoteBlockHtml(rm) {
+  // 气泡顶部的引用块：左侧蓝色竖线 + 灰字摘要/缩略图，点击滚动定位原消息
+  var thumbHtml = '';
+  var imgs = rm.images || [];
+  if (imgs.length > 0) {
+    var src = imgs[0].base64 || imgs[0];
+    thumbHtml = '<img class="msg-quote-thumb" src="' + src + '">';
+  }
+  var text = (rm.content || '').replace(/\s+/g, ' ').trim();
+  if (text.length > 50) text = text.slice(0, 50) + '…';
+  if (!text && imgs.length > 0) text = '[图片' + (imgs.length > 1 ? ' x' + imgs.length : '') + ']';
+  var who = rm.role === 'user' ? '你' : 'AI';
+  return '<div class="msg-quote-block" onclick="event.stopPropagation();scrollToQuotedMsg(\'' + escapeAttr(rm.id || '') + '\')">'
+    + thumbHtml
+    + '<span class="msg-quote-text">' + escapeHtml(who + '：' + text) + '</span></div>';
+}
+
+function scrollToQuotedMsg(msgId) {
+  if (!msgId) return;
+  var target = document.querySelector('#messagesArea .msg[data-msg-id="' + msgId + '"]');
+  if (!target) {
+    showToast('⚠️ 原消息不在当前聊天记录中');
+    return;
+  }
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  target.classList.remove('quote-flash');
+  void target.offsetWidth; // 重触发动画
+  target.classList.add('quote-flash');
+}
+
+function setQuotePreview(qmsg) {
+  window._pendingQuote = {
+    id: qmsg.id,
+    role: qmsg.role,
+    content: qmsg.content || '',
+    images: qmsg.images || [],
+  };
+  var bar = document.getElementById('quotePreviewBar');
+  if (!bar) return;
+  var inner = '';
+  var imgs = window._pendingQuote.images;
+  if (imgs.length > 0) {
+    var src = imgs[0].base64 || imgs[0];
+    inner += '<span class="quote-preview-thumb-wrap"><img class="quote-preview-thumb" src="' + src + '">'
+      + (imgs.length > 1 ? '<span class="quote-preview-badge">+' + (imgs.length - 1) + '张</span>' : '') + '</span>';
+  }
+  var text = window._pendingQuote.content.replace(/\s+/g, ' ').trim();
+  if (text.length > 50) text = text.slice(0, 50) + '…';
+  if (!text && imgs.length > 0) text = '[图片]';
+  var who = window._pendingQuote.role === 'user' ? '你' : 'AI';
+  inner += '<span class="quote-preview-text">引用 ' + escapeHtml(who + '：' + text) + '</span>';
+  inner += '<span class="quote-preview-close" onclick="clearQuotePreview()">×</span>';
+  bar.innerHTML = inner;
+  bar.style.display = 'flex';
+  var input = document.getElementById('msgInput');
+  if (input) input.focus();
+}
+
+function clearQuotePreview() {
+  window._pendingQuote = null;
+  var bar = document.getElementById('quotePreviewBar');
+  if (bar) {
+    bar.innerHTML = '';
+    bar.style.display = 'none';
+  }
+}
+
 // Message context menu actions
 function msgCtxAction(action) {
   if (!msgCtxTarget || !msgCtxTarget.element) {
@@ -11998,6 +12091,16 @@ function msgCtxAction(action) {
   var el = msgCtxTarget.element;
   var bubble = el.querySelector('.msg-bubble');
   switch (action) {
+    case 'quote': {
+      var qid = el.dataset.msgId || '';
+      var qmsg = (window._msgQuotePool || {})[qid];
+      if (!qmsg) {
+        showToast('⚠️ 无法引用：未找到消息数据');
+        break;
+      }
+      setQuotePreview(qmsg);
+      break;
+    }
     case 'copy':
       if (bubble) {
         var text = bubble.textContent || bubble.innerText || '';
@@ -14675,6 +14778,9 @@ function renderMsgs(type) {
         hour: '2-digit',
         minute: '2-digit'
       });
+      // 缓存消息数据供右键「引用」取数
+      if (m.id) window._msgQuotePool[m.id] = m;
+      var quoteHtml2 = m.reply_to_message ? buildQuoteBlockHtml(m.reply_to_message) : '';
       var imagesHtml2 = own ? buildChatImagesHtml(m.images) : '';
       var citationHtml2 = '';
       if (!own && m.citations && m.citations.length > 0) {
@@ -14686,7 +14792,7 @@ function renderMsgs(type) {
         citationHtml2 = '<div class="citation-bar" onclick="toggleCitationPanel(\'' + citeId2 + '\')">📚 引用了 ' + m.citations.length + ' 条知识 <span class="citation-toggle">▼</span></div>' +
           '<div class="citation-panel hidden" id="' + citeId2 + '">' + citeItems2 + '</div>';
       }
-      return '<div class="msg ' + (own ? 'own' : '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '</div></div>';
+      return '<div class="msg ' + (own ? 'own' : '') + '" data-msg-id="' + escapeAttr(m.id || '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + quoteHtml2 + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
     if (typingMsg) {
       area.appendChild(typingMsg);
@@ -26618,6 +26724,7 @@ function closeMatchModal() {
 
 <!-- Message Context Menu (right-click on chat bubbles) -->
 <div id="msgCtxMenu" class="ctx-menu">
+  <div class="menu-item" onclick="msgCtxAction('quote')">↩️ 引用</div>
   <div class="menu-item" onclick="msgCtxAction('copy')">📋 复制文本</div>
   <div class="menu-divider"></div>
   <div class="menu-item" onclick="msgCtxAction('delete')">🗑️ 删除消息</div>
