@@ -2106,6 +2106,24 @@ def _require_admin(auth):
 # Embedding / RAG 向量检索（纯 Python 标准库实现）
 # ═══════════════════════════════════════════════════
 
+# 各 embedding 模型的输入 token 上限差异大，按模型名限制输入字符数（中文约 1 字 ≈ 1 token，留安全余量）：
+# bge-large / bce-embedding 上限 512 tokens；bge-m3 8192；Qwen3-Embedding 系列 32768
+_EMBEDDING_MODEL_MAX_CHARS = (
+    ('bge-large', 450),
+    ('bce-embedding', 450),
+    ('bge-m3', 6000),
+)
+_EMBEDDING_DEFAULT_MAX_CHARS = 8000
+
+
+def _embedding_max_input_chars(model):
+    m = (model or '').lower()
+    for pat, cap in _EMBEDDING_MODEL_MAX_CHARS:
+        if pat in m:
+            return cap
+    return _EMBEDDING_DEFAULT_MAX_CHARS
+
+
 def get_embedding(text, api_key, provider='openai', model=None, base_url=None):
     """调用 Embedding API 获取向量，纯 urllib 实现"""
     if not text or not text.strip():
@@ -2113,12 +2131,14 @@ def get_embedding(text, api_key, provider='openai', model=None, base_url=None):
     cfg = EMBEDDING_PROVIDERS.get(provider, EMBEDDING_PROVIDERS['openai'])
     target_url = base_url or cfg['url']
     target_model = model or cfg['model']
+    # 按模型 token 上限截断，避免超长输入被上游 400 拒绝（如硅基流动 bge-large 限 512 tokens）
+    text = text[:_embedding_max_input_chars(target_model)]
     headers = {
         'Content-Type': 'application/json',
         'Authorization': f'Bearer {api_key}',
     }
     body = json.dumps({
-        'input': text[:8000],  # 限制长度，避免超长
+        'input': text,
         'model': target_model,
         'encoding_format': 'float',
     }).encode('utf-8')
@@ -2127,12 +2147,19 @@ def get_embedding(text, api_key, provider='openai', model=None, base_url=None):
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
-    with urllib.request.urlopen(req, timeout=30, context=ssl_ctx) as resp:
-        data = json.loads(resp.read().decode('utf-8'))
-        if data.get('data') and len(data['data']) > 0:
-            emb = data['data'][0].get('embedding')
-            if emb and isinstance(emb, list):
-                return emb
+    try:
+        with urllib.request.urlopen(req, timeout=30, context=ssl_ctx) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            if data.get('data') and len(data['data']) > 0:
+                emb = data['data'][0].get('embedding')
+                if emb and isinstance(emb, list):
+                    return emb
+    except urllib.error.HTTPError as e:
+        # 输入仍超模型 token 上限（如混杂文本估算偏差）时，硬性截断后重试一次
+        if e.code == 400 and len(text) > 450:
+            logger.warning(f'  [Embedding] HTTP 400（疑似输入超长），截断到 450 字符重试一次: model={target_model}')
+            return get_embedding(text[:450], api_key, provider=provider, model=model, base_url=base_url)
+        raise
     return None
 
 
@@ -4484,7 +4511,11 @@ def _upsert_knowledge_base(kb):
         kb_id = kb.get('id') or ('kb_' + str(uuid.uuid4())[:8])
         content = kb.get('content', '')
         # 状态映射：active → ok；决策关键词触发也直接 ok；其余 pending
-        new_status = 'ok' if kb.get('status') == 'active' or _contains_decision_keyword(content) else 'pending'
+        # review_required=True（自动分析入库）强制 pending，等管理员审核通过才进 RAG
+        if kb.get('review_required'):
+            new_status = 'pending'
+        else:
+            new_status = 'ok' if kb.get('status') == 'active' or _contains_decision_keyword(content) else 'pending'
         category_id = int(kb.get('categoryId') or kb.get('category_id')) if kb.get('categoryId') or kb.get('category_id') else None
         # 未显式指定分类时按内容关键词自动分类
         if category_id is None:
@@ -4778,8 +4809,11 @@ def _find_similar_kb_entry(conn, content, threshold=_ANALYSIS_DEDUP_THRESHOLD):
         return None
     try:
         import struct
+        # 只与已过审（status='ok'）条目的 chunks 比对；pending（待审核）/已删除条目不参与去重判定
         rows = conn.execute(
-            'SELECT entry_id, embedding FROM kb_entry_chunks WHERE embedding IS NOT NULL AND embedding_model = ?',
+            'SELECT c.entry_id, c.embedding FROM kb_entry_chunks c '
+            'JOIN kb_entries e ON c.entry_id = e.id '
+            "WHERE c.embedding IS NOT NULL AND c.embedding_model = ? AND e.status = 'ok'",
             (emb_cfg.get('model') or '',)
         ).fetchall()
     except Exception:
@@ -4996,6 +5030,47 @@ def _save_knowledge_event(reply, agent_id, title, user_text=''):
         return None
 
 
+def _save_vision_data_event(agent_id, summary_text, title, user_text=''):
+    """HeavyPipe 截图识别原始数据入库 knowledge_events（event_type='vision_data'）。
+    与分析报告分开存储，供聊天链路按实体/全文检索拿到报告所依据的截图数据。异常兜底返回 None。"""
+    try:
+        entity_type, entity_id = _extract_entity_from_analysis(summary_text, user_text)
+        embedding_blob = None
+        try:
+            emb_cfg = get_embedding_config()
+            api_key = emb_cfg.get('apiKey')
+            if api_key:
+                emb = get_embedding(summary_text[:2000], api_key, emb_cfg.get('provider', 'openai'),
+                                    model=emb_cfg.get('model'), base_url=emb_cfg.get('baseUrl'))
+                if emb:
+                    import struct
+                    embedding_blob = struct.pack(f'{len(emb)}f', *emb)
+        except Exception as e:
+            logger.warning(f'  [KnowledgeEvents] vision_data embedding 生成失败: {e}')
+        event_id = 'ke_' + uuid.uuid4().hex[:12]
+        conn = _db_conn()
+        try:
+            importance = _ke_compute_importance(conn, entity_type, entity_id, summary_text, {})
+            conn.execute('''
+                INSERT INTO knowledge_events
+                (id, entity_type, entity_id, agent_id, event_type, title, content_full,
+                 content_summary, conclusions, embedding, source_msg_id, user_query, created_at,
+                 importance_score)
+                VALUES (?, ?, ?, ?, 'vision_data', ?, ?, '', '{}', ?, '', ?, ?, ?)
+            ''', (event_id, entity_type, entity_id, agent_id or '', title, summary_text,
+                  embedding_blob, user_text or '', int(time.time() * 1000), importance))
+            # FTS 摘要截断，避免超长文本拖慢索引
+            _ke_fts_upsert(conn, event_id, title, (summary_text or '')[:2000], '')
+            conn.commit()
+        finally:
+            conn.close()
+        logger.info(f'  [KnowledgeEvents] 截图原始数据已入库: {event_id} entity={entity_type}:{entity_id}')
+        return event_id
+    except Exception as e:
+        logger.error(f'  [KnowledgeEvents] vision_data 写入失败: {e}')
+        return None
+
+
 def _maybe_auto_save_analysis(agent_id, reply, user_text='', tool_results=None):
     """AI 员工完成分析类回答后，自动把分析结论写入知识库（kb_entries，scope=global，emp_id 留空）。
     同时双写 knowledge_events（实体档案时间线）。
@@ -5024,11 +5099,12 @@ def _maybe_auto_save_analysis(agent_id, reply, user_text='', tool_results=None):
             logger.info(f'  [AutoSaveAnalysis] {agent_id} 与已有条目 {dup[0]} 相似度 {dup[1]:.3f}，跳过写入')
             return
         title = _extract_analysis_title(analysis_text, user_text)
+        # 审核闸：自动入库的分析结论一律先 status=pending，管理员在知识库页面确认后才转 ok 进 RAG
         kb_id = _upsert_knowledge_base({
             'title': title,
             'content': analysis_text,
             'source': 'auto_analysis',
-            'status': 'active',
+            'review_required': True,
         })
         if not kb_id:
             return
@@ -12063,6 +12139,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
         title = body.get('title') or body.get('name')
+        # 审核闸：status 只允许 ok（确认通过）/ pending（打回待审核），其余值拒绝
+        new_status = body.get('status')
+        if new_status is not None and new_status not in ('ok', 'pending'):
+            self._send_json_error(400, f'Invalid status: {new_status}')
+            return
         agent = _get_agent_by_id(auth.user_id)
         agent_config = dict(agent) if agent else None
         try:
@@ -12077,6 +12158,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 team_id=new_team_id,
                 group_ids=group_ids,
                 emp_id=body.get('empId'),
+                status=new_status,
                 created_by=auth.user_id,
                 agent_config=agent_config,
                 is_admin=auth.is_admin,
@@ -12105,7 +12187,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error('Permission denied', 403)
             return
         try:
-            deleted = ks.kb_entry_delete(entry_id, is_admin=auth.is_admin)
+            deleted = ks.kb_entry_delete(entry_id, is_admin=auth.is_admin, operator_id=auth.user_id)
             self._send_json(200, {'success': deleted, 'id': entry_id})
         except Exception as e:
             logger.error(f'  [KBEntry] delete failed: {e}')
@@ -16617,7 +16699,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not job or job.get('agent_id') != agent_id:
             self._send_json(404, {'error': '任务不存在'})
             return
-        self._send_json(200, {'status': job['status'], 'error': job.get('error', ''), 'stage': job.get('stage', '')})
+        self._send_json(200, {'status': job['status'], 'error': job.get('error', ''), 'stage': job.get('stage', ''),
+                              'warning': job.get('warning', '')})
 
     def _handle_post_chat(self, agent_id):
         """POST /api/chat/:agentId"""
@@ -17784,6 +17867,60 @@ def _should_heavy_bypass(role, images, agent):
             and bool(agent.get('openclawName') or agent.get('connectionType') == 'openclaw'))
 
 
+# HeavyPipe 反幻觉：stage4 输入覆盖率检查 + vision 结构化摘要
+_HEAVY_CORE_FIELDS = ('followers', 'main_category', 'total_gmv', 'video_ratio', 'live_ratio',
+                      'product_count', 'average_price', 'rating_score')
+_HEAVY_LOW_COVERAGE_THRESHOLD = 0.2
+
+
+def _parse_vision_json(desc):
+    """从单张图片的 vision 识别文本中提取扁平 JSON 对象（兼容 markdown 代码围栏/前后杂文本）。
+    解析失败返回 None。"""
+    if not desc:
+        return None
+    start = desc.find('{')
+    if start < 0:
+        return None
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(desc[start:])
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
+
+
+def _heavy_vision_coverage(vision_texts):
+    """解析每张图的 vision JSON，统计核心字段非 null 覆盖率。
+    返回 (coverage_ratio, per_image_fields)：per_image_fields 为每张图提取到的非 null 字段 dict（无则 None）。"""
+    per_image_fields = []
+    total = 0
+    nonnull = 0
+    for text in vision_texts:
+        obj = _parse_vision_json(text)
+        if not obj:
+            per_image_fields.append(None)
+            total += len(_HEAVY_CORE_FIELDS)
+            continue
+        fields = {k: v for k, v in obj.items() if v is not None and v != '' and v != 'null'}
+        per_image_fields.append(fields)
+        for f in _HEAVY_CORE_FIELDS:
+            total += 1
+            if f in fields:
+                nonnull += 1
+    ratio = (nonnull / total) if total else 0.0
+    return ratio, per_image_fields
+
+
+def _heavy_vision_struct_summary(per_image_fields):
+    """生成每张图提取到的非 null 字段 JSON 摘要（与报告绑定存储，供聊天链路检索）。"""
+    parts = []
+    for idx, fields in enumerate(per_image_fields, 1):
+        if fields:
+            parts.append(f'【图片{idx}提取字段】' + json.dumps(fields, ensure_ascii=False))
+        else:
+            parts.append(f'【图片{idx}提取字段】（未提取到结构化字段）')
+    return '\n'.join(parts)
+
+
 def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
     """多图重分析管道（后台 daemon 线程）。任何阶段失败都把 job 置 failed，
     由前端降级回 OpenClaw 主干道重发。"""
@@ -17811,6 +17948,15 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         _stage(f'stage1 vision（{len(vision_texts)}/{len(images)} 张成功）', _t)
         if not vision_texts:
             raise RuntimeError('vision 识别全部失败')
+
+        # 反幻觉覆盖率检查：核心字段非 null 比例低于阈值时，标注"截图数据不足，结论可信度低"，
+        # 不静默出报告（warning 透传到 job 状态 + 报告开头）
+        coverage, vision_field_maps = _heavy_vision_coverage(vision_texts)
+        low_confidence = coverage < _HEAVY_LOW_COVERAGE_THRESHOLD
+        if low_confidence:
+            logger.warning(f'  [HeavyPipe] {job_id} 截图核心字段覆盖率 {coverage:.1%} 低于 '
+                           f'{_HEAVY_LOW_COVERAGE_THRESHOLD:.0%}，结论可信度低')
+            _heavy_job_set(job_id, warning='截图数据不足，结论可信度低')
 
         # Stage 2：提取达人名（单次 LLM 调用）
         _heavy_job_set(job_id, stage='正在提取达人名称…')
@@ -17855,6 +18001,10 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
               '关键：你是商务专家，输出的是合作决策建议，不是数据搬运。每个结论都要有判断，不是描述数据就完事。\n'
               '这是一次性分析任务，你没有搜索工具可用。必须根据截图识别结果和达人数据，直接输出完整分析报告。'
               '禁止说"我先查一下"或"让我看看"等执行意图的话，直接输出分析结论。'
+              '\n\n## 数据真实性硬约束（违反即不合格）\n'
+              '1. 截图识别结果JSON中为null或未提及的字段，报告中必须标注"截图未提供"，表格缺失数据写"—"\n'
+              '2. 严禁根据行业常识、账号量级或数字合理性猜测补全任何具体数字\n'
+              '3. 报告中每个具体数字必须能在【达人数据截图识别结果】中找到原文依据\n'
         )
         user_parts = []
         if talents:
@@ -17877,16 +18027,24 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         reply = result.get('text', '') if isinstance(result, dict) else (result or '')
         if not reply:
             raise RuntimeError('Kimi 深度分析调用失败')
+        # 覆盖率不足时在报告开头显式标注，不让低可信度结论静默流出
+        if low_confidence:
+            reply = (f'⚠️ 截图数据不足，结论可信度低（核心字段覆盖率 {coverage:.0%}，'
+                     f'缺失数据已按"截图未提供"标注）\n\n') + reply
 
         # Stage 5：落库（等价 skipAI=True 直接保存，不再触发 AI）+ 通知
         _heavy_job_set(job_id, stage='正在保存分析结果…')
         _t = time.perf_counter()
+        # vision 结构化摘要与报告绑定：随聊天消息持久化 + 入库 knowledge_events（event_type=vision_data），
+        # 确保聊天链路（代理层实体检索注入 / RAG）能拿到报告所依据的截图数据
+        vision_summary = _heavy_vision_struct_summary(vision_field_maps)
         ai_message = {
             'id': 'msg_' + uuid.uuid4().hex[:8],
             'role': 'assistant',
             'content': reply,
             'timestamp': datetime.now().isoformat(),
             'heavyPipe': True,
+            'vision_data': vision_summary,
         }
         with _get_chat_lock(agent_id):
             messages = _load_chat(agent_id)
@@ -17895,6 +18053,10 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
             messages.append(ai_message)
             _save_chat(agent_id, messages)
         _maybe_auto_save_analysis(agent_id, reply, user_content or '')
+        _save_vision_data_event(
+            agent_id, vision_summary,
+            '截图识别原始数据：' + ('、'.join(talent_names) or agent_name),
+            user_content or '')
         try:
             agent_group_id = _get_agent_group_id(agent_id)
             if agent_group_id:
@@ -18215,6 +18377,60 @@ def _ke_entity_names(conn, entity_refs):
         except Exception:
             names[(etype, eid)] = ''
     return names
+
+
+def _retrieve_entity_report_context(user_text, max_events=4, max_chars=6000):
+    """按实体/全文检索 knowledge_events 中最近的分析结论与截图原始数据（vision_data），
+    格式化为注入文本——代理层组装上下文时让模型拿到报告所依据的截图数据。
+    无匹配或异常返回 ''。"""
+    try:
+        if not user_text or not user_text.strip():
+            return ''
+        entities = _extract_entities_from_text(user_text)
+        picked = []   # [(row, label)]
+        seen = set()
+        conn = _db_conn()
+        try:
+            for etype, eid, name, _cat in entities[:2]:
+                rows = conn.execute(
+                    'SELECT id, event_type, title, content_full FROM knowledge_events '
+                    'WHERE entity_type = ? AND entity_id = ? ORDER BY created_at DESC LIMIT ?',
+                    (etype, eid, max_events)).fetchall()
+                label = f'达人「{name}」' if etype == 'talent' else f'商品「{name}」'
+                for r in rows:
+                    if r['id'] in seen:
+                        continue
+                    seen.add(r['id'])
+                    picked.append((r, label))
+            if not picked and any(k in user_text for k in ('报告', '截图', '依据', '数据', '分析')):
+                # 实体未命中时的全文兜底：FTS/向量混合检索
+                for it in _hybrid_retrieve_events(user_text, '', max_events):
+                    if it.get('id') in seen:
+                        continue
+                    row = conn.execute(
+                        'SELECT id, event_type, title, content_full FROM knowledge_events WHERE id = ?',
+                        (it['id'],)).fetchone()
+                    if row:
+                        seen.add(it['id'])
+                        picked.append((row, '相关历史'))
+        finally:
+            conn.close()
+        if not picked:
+            return ''
+        parts = []
+        used = 0
+        for r, label in picked:
+            kind = '截图识别原始数据' if r['event_type'] == 'vision_data' else '分析结论'
+            chunk = f"--- {label}{kind}：{r['title'] or ''} ---\n{r['content_full'] or ''}"
+            remain = max_chars - used
+            if remain <= 0:
+                break
+            parts.append(chunk[:remain])
+            used += len(parts[-1])
+        return '【系统检索注入：相关历史分析与截图原始数据，可作为回答依据】\n' + '\n\n'.join(parts)
+    except Exception as e:
+        logger.warning(f'  [ReportCtx] 检索注入失败: {e}')
+        return ''
 
 
 def _retrieve_knowledge_context(user_text, agent_id='', auth=None):
@@ -19007,7 +19223,26 @@ def _extract_text_from_openclaw_output(obj):
     return None
 
 
-def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLAW_TIMEOUT):
+def _openclaw_model_ref(model, provider=''):
+    """把内部模型名转成 openclaw infer --model 要求的 <provider>/<model> 格式。
+    openclaw.json 中员工链路为 kimi_proxy_<emp>/k3，全局兜底 kimi/k3；
+    kimi-for-coding 在网关中对应 kimi/k3。已是 <provider>/<model> 形式的原样返回。"""
+    m = (model or '').strip()
+    if not m:
+        return None
+    if '/' in m:
+        return m
+    if m in ('kimi-for-coding', 'k3'):
+        return 'kimi/k3'
+    p = (provider or '').strip()
+    if p in ('kimi', 'kimicode', 'moonshot'):
+        return f'kimi/{m}'
+    if p:
+        return f'{p}/{m}'
+    return m
+
+
+def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLAW_TIMEOUT, provider=''):
     """调用 OpenClaw CLI 并返回原始文本内容；失败返回 None
 
     兼容两种 CLI 形态：
@@ -19036,8 +19271,9 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
     agent_args = [OPENCLAW_CLI, 'agent', '--agent', OPENCLAW_DEFAULT_AGENT, '--message', full_prompt, '--json', '--timeout', str(timeout)]
     variants.append(('agent', agent_args))
     infer_args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--prompt', full_prompt, '--json']
-    if model:
-        infer_args.extend(['--model', model])
+    model_ref = _openclaw_model_ref(model, provider)
+    if model_ref:
+        infer_args.extend(['--model', model_ref])
     variants.append(('infer', infer_args))
 
     for name, args in variants:
@@ -19129,7 +19365,7 @@ def _call_ai_analysis(messages, cfg=None, context='', timeout=None, max_tokens=2
     # 1. 优先 OpenClaw（项目主推的 AI 网关）
     if os.path.isfile(OPENCLAW_CLI):
         oc_timeout = timeout if timeout is not None else OPENCLAW_TIMEOUT
-        content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=oc_timeout)
+        content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=oc_timeout, provider=provider)
         if content:
             return content
         logger.error(f'  [AI] OpenClaw failed for {context}, will try direct API fallback')
@@ -19296,7 +19532,7 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
         full_prompt = full_prompt[:MAX_PROMPT_LEN]
 
     # 调用 OpenClaw CLI 并提取 JSON 数组
-    content = _call_openclaw_infer(full_prompt, model=api_model)
+    content = _call_openclaw_infer(full_prompt, model=api_model, provider=api_provider)
     if content is None:
         return None
     return _extract_json_array(content)
@@ -21546,6 +21782,87 @@ def _drop_orphan_tool_messages(msgs):
     return kept
 
 
+def _shrink_oversized_user_msg(msg, limit=30000):
+    """最后一条 user 消息本身体量超限时，只截中段历史对话段，
+    保留开头提问与尾部注入数据段（vision 描述/【系统数据】等注入内容位于首尾两端）。"""
+    def _shrink_text(t):
+        if len(t) <= limit:
+            return t
+        head_len = 2000
+        tail_len = limit - head_len - 32
+        return t[:head_len] + '\n......[历史对话已截断]......\n' + t[-tail_len:]
+
+    content = msg.get('content')
+    if isinstance(content, str):
+        if len(content) <= limit:
+            return msg
+        msg = dict(msg)
+        msg['content'] = _shrink_text(content)
+        return msg
+    if isinstance(content, list):
+        total = sum(len(b.get('text', '')) for b in content
+                    if isinstance(b, dict) and b.get('type') == 'text')
+        if total <= limit:
+            return msg
+        msg = dict(msg)
+        msg['content'] = [
+            (dict(b, text=_shrink_text(b['text']))
+             if isinstance(b, dict) and b.get('type') == 'text' and isinstance(b.get('text'), str) else b)
+            for b in content
+        ]
+        return msg
+    return msg
+
+
+def _trim_proxy_messages_keep_current_turn(msgs, history_limit=14, sys_char_limit=4000,
+                                           current_turn_char_limit=30000):
+    """裁剪 messages：保留第一条 system（内容超 sys_char_limit 截断并追加提示）
+    + 最近 history_limit 条历史 + 当前轮完整消息（最后一条含文本的 user 消息及其后的
+    tool/assistant 永不裁剪——它承载当前轮注入的 vision 描述/系统数据）；
+    最后一条 user 消息本身体量超限时只截中段历史对话段，保留注入数据段。"""
+    sys_msgs = [m for m in msgs if isinstance(m, dict) and m.get('role') == 'system']
+    chat_msgs = [m for m in msgs if isinstance(m, dict) and m.get('role') != 'system']
+    kept = []
+    sys_chars = 0
+    if sys_msgs:
+        sys_m = sys_msgs[0]
+        content = sys_m.get('content')
+        if isinstance(content, str):
+            sys_chars = len(content)
+            if sys_chars > sys_char_limit:
+                sys_m = dict(sys_m)
+                sys_m['content'] = content[:sys_char_limit] + '......[系统提示已截断]'
+        elif isinstance(content, list):
+            sys_chars = sum(len(c.get('text', '')) for c in content if isinstance(c, dict))
+        kept.append(sys_m)
+    # 定位最后一条「含文本」的 user 消息（跳过纯 tool_result 载体的 user 消息）
+    last_user_idx = -1
+    for i in range(len(chat_msgs) - 1, -1, -1):
+        m = chat_msgs[i]
+        if not (isinstance(m, dict) and m.get('role') == 'user'):
+            continue
+        c = m.get('content')
+        if isinstance(c, str) and c.strip():
+            last_user_idx = i
+            break
+        if isinstance(c, list) and any(
+                isinstance(b, dict) and b.get('type') == 'text' and (b.get('text') or '').strip()
+                for b in c):
+            last_user_idx = i
+            break
+    if last_user_idx >= 0:
+        history = chat_msgs[:last_user_idx]
+        current_turn = list(chat_msgs[last_user_idx:])
+        current_turn[0] = _shrink_oversized_user_msg(current_turn[0], current_turn_char_limit)
+    else:
+        history = chat_msgs
+        current_turn = []
+    kept.extend(_drop_orphan_tool_messages(history[-history_limit:] + current_turn))
+    logger.info(f'[KimiProxy] 裁剪: system_chars={sys_chars} 历史={min(len(history), history_limit)}/{len(history)} '
+                f'当前轮={len(current_turn)}条(完整保留)')
+    return kept
+
+
 def _strip_unpaired_tool_assistants(msgs):
     """发送前完整性校验：assistant 的每个 tool 调用必须由紧跟的 tool 响应全部回答，
     否则删除该 assistant 及其部分响应（不追加假 tool_result）。
@@ -21716,6 +22033,12 @@ def _handle_vision_describe(self):
             failed += 1
         parts.append(f'【图片{idx}描述】{desc if desc else "（图片识别失败）"}')
     total = len(images[:9])
+    # 无数据硬拦截：所有图片识别都失败时返回 502，前端据此阻断发送——
+    # 禁止把不含图片数据的请求发给模型（不靠 AI 自觉，系统层焊死）
+    if failed >= total:
+        logger.error(f'[Vision] 图片描述全部失败 total={total}，返回 502 阻止无数据发送')
+        self._send_json(502, {'error': '未收到图片数据，请重发', 'total': total, 'failed': failed})
+        return
     logger.info(f'[Vision] 图片描述完成 total={total} failed={failed}: {chr(10).join(parts)[:500]}')
     self._send_json(200, {'text': '\n'.join(parts), 'total': total, 'failed': failed})
 
@@ -21884,6 +22207,20 @@ def _handle_proxy_kimi(self):
             conn.close()
         _timing('talent_presearch', _t)
 
+    # 4.65 报告依据注入：用户追问某个达人/报告时，把该实体最近的分析结论与
+    #     HeavyPipe 截图原始数据（knowledge_events，含 vision_data）注入上下文，
+    #     避免模型在无数据时凭印象回答（幻觉根因之一）
+    if agent_id and all_user_text.strip():
+        _t = time.perf_counter()
+        try:
+            _report_ctx = _retrieve_entity_report_context(all_user_text)
+            if _report_ctx:
+                _prepend_system_context(body, _report_ctx)
+                logger.info(f'  [ReportCtx] 注入报告依据 len={len(_report_ctx)}')
+        except Exception as e:
+            print(f'  [ReportCtx] failed: {e}', flush=True)
+        _timing('report_ctx', _t)
+
     # 4.7 修补缺失的 tool response 消息
     #     OpenClaw exec 工具执行后，有时不会在 messages 中附带 tool role 的 response，
     #     导致 Kimi API 返回 400: "tool_call_ids did not have response messages: exec:0"
@@ -21998,31 +22335,16 @@ def _handle_proxy_kimi(self):
             print(f'  [KimiProxy] 消息修补完成: {len(messages)} -> {len(patched)} 条', flush=True)
         _timing('tool_patch', _t)
 
-    # 4.8 裁剪 messages：保留第一条 system（内容超 4000 字符截断并追加提示）
-    #     + 最近 14 条对话消息（user/assistant/tool），中间历史不发给 Kimi，
+    # 4.8 裁剪 messages：保留第一条 system + 最近 14 条历史 + 当前轮完整消息
+    #     （最后一条 user 消息承载当前轮注入的 vision/系统数据，永不裁剪——
+    #     曾因 _chat_msgs[-14:] 把含图片描述的当前轮消息裁掉导致模型无数据幻觉）；
     #     控制 token 规模、降低响应延迟与 400 概率；任何异常降级为不裁剪
     try:
         _msgs = body.get('messages') or []
         if isinstance(_msgs, list):
             _orig_count = len(_msgs)
-            _sys_msgs = [m for m in _msgs if isinstance(m, dict) and m.get('role') == 'system']
-            _chat_msgs = [m for m in _msgs if isinstance(m, dict) and m.get('role') != 'system']
-            _kept = []
-            _sys_chars = 0
-            if _sys_msgs:
-                _sys = _sys_msgs[0]
-                _content = _sys.get('content')
-                if isinstance(_content, str):
-                    _sys_chars = len(_content)
-                    if _sys_chars > 4000:
-                        _sys = dict(_sys)
-                        _sys['content'] = _content[:4000] + '......[系统提示已截断]'
-                elif isinstance(_content, list):
-                    _sys_chars = sum(len(c.get('text', '')) for c in _content if isinstance(c, dict))
-                _kept.append(_sys)
-            _kept.extend(_drop_orphan_tool_messages(_chat_msgs[-14:]))
-            logger.info(f'[KimiProxy] 裁剪前 messages={_orig_count} 裁剪后={len(_kept)} system_chars={_sys_chars}')
-            body['messages'] = _kept
+            body['messages'] = _trim_proxy_messages_keep_current_turn(_msgs)
+            logger.info(f'[KimiProxy] 裁剪前 messages={_orig_count} 裁剪后={len(body["messages"])}')
     except Exception as e:
         logger.error(f'[KimiProxy] 消息裁剪失败，降级为不裁剪: {e}')
 

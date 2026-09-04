@@ -2008,8 +2008,10 @@ def kb_entry_get_by_id(entry_id):
         conn.close()
 
 
-def kb_entry_update(entry_id, title=None, content=None, category=None, category_id=None, project_id=None, scope=None, team_id=None, group_ids=None, emp_id=None, created_by=None, agent_config=None, is_admin=False):
-    """更新新版知识条目；内容变更时重新分段向量化"""
+def kb_entry_update(entry_id, title=None, content=None, category=None, category_id=None, project_id=None, scope=None, team_id=None, group_ids=None, emp_id=None, status=None, created_by=None, agent_config=None, is_admin=False):
+    """更新新版知识条目；内容变更时重新分段向量化。
+    status 仅允许 'ok'/'pending'（审核闸：确认通过/打回）；pending 条目重新向量化后保持 pending，
+    不因向量化成功自动过审。"""
     conn = _db_conn()
     try:
         row = conn.execute('SELECT * FROM kb_entries WHERE id = ?', (entry_id,)).fetchone()
@@ -2047,6 +2049,8 @@ def kb_entry_update(entry_id, title=None, content=None, category=None, category_
         updates['group_ids'] = _kb_entry_group_ids_json(group_ids)
     if emp_id is not None:
         updates['emp_id'] = emp_id
+    if status is not None and status in ('ok', 'pending'):
+        updates['status'] = status
     updates['updated_at'] = _now_ms()
 
     if not updates:
@@ -2077,7 +2081,13 @@ def kb_entry_update(entry_id, title=None, content=None, category=None, category_
                 _vectorize_kb_chunks(entry_id, actual_emp_id, api_key, provider, model, base_url=base_url)
                 conn = _db_conn()
                 try:
-                    conn.execute('UPDATE kb_entries SET status="ok" WHERE id=?', (entry_id,))
+                    # 审核闸：pending（待审核）条目向量化成功后仍保持 pending，不自动过审；
+                    # 显式传入的 status（如管理员确认 ok）优先
+                    if status in ('ok', 'pending'):
+                        new_status = status
+                    else:
+                        new_status = 'pending' if row['status'] == 'pending' else 'ok'
+                    conn.execute('UPDATE kb_entries SET status=? WHERE id=?', (new_status, entry_id))
                     conn.commit()
                 finally:
                     conn.close()
@@ -2098,8 +2108,8 @@ def kb_entry_update(entry_id, title=None, content=None, category=None, category_
 
 def kb_entries_reindex_pending():
     """批量重建未向量化的知识条目（status='pending' 或 chunk_count=0）：
-    重新分段 + 向量化，成功置 status='ok'，失败置 'error'，无 API key 保持 pending。
-    返回 {'total', 'ok', 'noKey', 'failed', 'errors'} 统计。"""
+    重新分段 + 向量化；成功时 ok/error 条目恢复 ok，pending（待审核）条目保持 pending 不自动过审；
+    失败置 'error'，无 API key 保持原状态。返回 {'total', 'ok', 'noKey', 'failed', 'errors'} 统计。"""
     conn = _db_conn()
     try:
         rows = conn.execute(
@@ -2127,8 +2137,10 @@ def kb_entries_reindex_pending():
                                  base_url=emb_cfg.get('baseUrl'))
             conn = _db_conn()
             try:
-                conn.execute('UPDATE kb_entries SET status="ok", updated_at=? WHERE id=?',
-                             (_now_ms(), entry_id))
+                conn.execute(
+                    "UPDATE kb_entries SET status = CASE WHEN status = 'pending' THEN 'pending' ELSE 'ok' END, "
+                    'updated_at=? WHERE id=?',
+                    (_now_ms(), entry_id))
                 conn.commit()
             finally:
                 conn.close()
@@ -2147,11 +2159,12 @@ def kb_entries_reindex_pending():
     return stats
 
 
-def kb_entry_delete(entry_id, is_admin=False):
-    """删除新版知识条目，级联删除 chunks 与操作日志"""
+def kb_entry_delete(entry_id, is_admin=False, operator_id=''):
+    """删除新版知识条目，级联删除 chunks（该表无 status，物理删除保证已删条目的 chunks 绝不进 RAG），
+    并在 kb_operation_log 留下 delete 审计记录（历史日志保留，不连带删除）"""
     conn = _db_conn()
     try:
-        row = conn.execute('SELECT scope FROM kb_entries WHERE id = ?', (entry_id,)).fetchone()
+        row = conn.execute('SELECT scope, title FROM kb_entries WHERE id = ?', (entry_id,)).fetchone()
     finally:
         conn.close()
     if not row:
@@ -2163,12 +2176,17 @@ def kb_entry_delete(entry_id, is_admin=False):
     conn = _db_conn()
     try:
         conn.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
-        conn.execute('DELETE FROM kb_operation_log WHERE entry_id = ?', (entry_id,))
         cur = conn.execute('DELETE FROM kb_entries WHERE id = ?', (entry_id,))
         conn.commit()
-        return cur.rowcount > 0
+        deleted = cur.rowcount > 0
     finally:
         conn.close()
+    if deleted:
+        try:
+            kb_entry_log_operation(entry_id, 'delete', operator_id, {'title': row['title'], 'scope': doc_scope})
+        except Exception as e:
+            print(f'  [KBEntry] delete 日志写入失败（不影响删除）: {e}', flush=True)
+    return deleted
 
 
 def _kb_entry_group_where_clause(user_group_ids):
@@ -2419,6 +2437,9 @@ def kb_entry_search_semantic(query, limit=10, allowed_categories=None, scope=Non
     if author_emp_id:
         where.append('e.emp_id = ?')
         params.append(author_emp_id)
+
+    # 审核闸：RAG 语义检索只放行已过审（status='ok'）的条目，pending/error 不进检索结果
+    where.append("e.status = 'ok'")
 
     import struct
     conn = _db_conn()

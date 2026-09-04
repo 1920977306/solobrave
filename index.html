@@ -3000,6 +3000,31 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-radius: 999px;
   font-size: 12px;
 }
+.kb-pending-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  background: rgba(255,149,0,0.12);
+  color: #FF9500;
+  border-radius: 999px;
+  font-size: 11px;
+  vertical-align: middle;
+}
+.kb-review-btn {
+  border: 1px solid var(--separator);
+  background: #fff;
+  border-radius: 8px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.kb-review-approve { color: #28a745; }
+.kb-review-reject { color: #ff3b30; }
+.kb-card-review-actions {
+  display: flex;
+  gap: 8px;
+  padding: 4px 12px 8px;
+}
 .knowledge-mid-card-title-wrap {
   flex: 1;
   display: flex;
@@ -9150,6 +9175,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
     // 有图片时：先调后端 vision 接口转成文字描述拼进消息文本，
     // OpenClaw 网关只收纯文本，不依赖网关的多模态能力（attachments 参数会被网关丢弃）
     if (images && images.length > 0) {
+      var visionFailed = false;
       try {
         var visionResp = await apiFetch('/api/vision/describe', {
           method: 'POST',
@@ -9161,17 +9187,26 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
           if (visionData && visionData.text) {
             fullMessage += '\n\n' + visionData.text;
           }
-          // 识别失败要显式提示用户，不能静默降级成纯文本
+          // 部分识别失败要显式提示用户，不能静默降级成纯文本
           if (visionData && visionData.failed > 0) {
-            showToast('⚠️ ' + visionData.failed + ' 张图片识别失败（识别服务不可用），已按纯文本发送', 'error');
+            showToast('⚠️ ' + visionData.failed + ' 张图片识别失败（识别服务不可用），其余图片已正常注入', 'error');
           }
         } else {
+          // 后端 502 = 全部识别失败（无数据硬拦截），其他异常同样按无数据处理
           console.warn('[Vision] 图片描述接口返回异常:', visionResp && visionResp.status);
-          showToast('⚠️ 图片识别服务异常（HTTP ' + (visionResp && visionResp.status) + '），已按纯文本发送', 'error');
+          visionFailed = true;
         }
       } catch (visionErr) {
-        console.warn('[Vision] 图片描述获取失败，按纯文本发送:', visionErr);
-        showToast('⚠️ 图片识别失败，已按纯文本发送', 'error');
+        console.warn('[Vision] 图片描述获取失败:', visionErr);
+        visionFailed = true;
+      }
+      if (visionFailed) {
+        // 无数据硬拦截：不把不含图片数据的请求发给模型，避免 AI 凭幻觉编造
+        var _t0 = document.getElementById('typingMsg');
+        if (_t0) _t0.remove();
+        restoreOnline();
+        showToast('⚠️ 未收到图片数据，请重发', 'error');
+        return;
       }
     }
     
@@ -25957,12 +25992,16 @@ function renderKnowledgeList(docs) {
       html += '<div class="knowledge-list-item' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';">';
       html += '<div class="knowledge-list-cat-line"></div>';
       html += '<div class="knowledge-list-main" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
-      html += '<div class="knowledge-list-title-row"><div class="knowledge-list-title">' + escapeHtml(d.title || d.name || '未命名') + '</div><span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
+      html += '<div class="knowledge-list-title-row"><div class="knowledge-list-title">' + escapeHtml(d.title || d.name || '未命名') + (d.status === 'pending' ? '<span class="kb-pending-badge">待审核</span>' : '') + '</div><span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
       html += '<div class="knowledge-list-meta">';
       html += '<span class="knowledge-view-scope ' + (scopeClassMap[scope] || 'scope-global') + '">' + (scopeNameMap[scope] || '全局') + '</span>';
       html += '<span>' + formatRelativeTime(d.updatedAt) + '</span>';
       html += '</div></div>';
       html += '<div class="knowledge-list-actions">';
+      if (d.status === 'pending') {
+        html += '<button class="kb-review-btn kb-review-approve" onclick="event.stopPropagation();approveKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="确认通过">✓</button>';
+        html += '<button class="kb-review-btn kb-review-reject" onclick="event.stopPropagation();rejectKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="驳回">✗</button>';
+      }
       html += '<button onclick="event.stopPropagation();editKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="编辑">✏️</button>';
       html += '<button onclick="event.stopPropagation();deleteKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="删除">🗑️</button>';
       html += '</div>';
@@ -25975,9 +26014,15 @@ function renderKnowledgeList(docs) {
       var scope = d.scope || 'global';
       html += '<div class="knowledge-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
       html += '<div class="knowledge-mid-card-header">';
-      html += '<div class="knowledge-mid-card-title-wrap"><div class="knowledge-mid-card-title">' + escapeHtml(d.title || d.name || '未命名') + '</div></div>';
+      html += '<div class="knowledge-mid-card-title-wrap"><div class="knowledge-mid-card-title">' + escapeHtml(d.title || d.name || '未命名') + (d.status === 'pending' ? '<span class="kb-pending-badge">待审核</span>' : '') + '</div></div>';
       html += '<span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
       html += '<div class="knowledge-mid-card-body">' + escapeHtml(preview) + (preview.length >= 100 ? '...' : '') + '</div>';
+      if (d.status === 'pending') {
+        html += '<div class="kb-card-review-actions">';
+        html += '<button class="kb-review-btn kb-review-approve" onclick="event.stopPropagation();approveKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">✓ 确认通过</button>';
+        html += '<button class="kb-review-btn kb-review-reject" onclick="event.stopPropagation();rejectKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">✗ 驳回</button>';
+        html += '</div>';
+      }
       html += '<div class="knowledge-mid-card-meta">';
       html += '<span class="knowledge-view-scope ' + (scopeClassMap[scope] || 'scope-global') + '">' + (scopeNameMap[scope] || '全局') + '</span>';
       if (scope === 'group' && d.groupIds && d.groupIds.length > 0) {
@@ -26014,6 +26059,39 @@ function editKnowledgeDoc(docId) {
   if (contentEl) {
     contentEl.focus();
     contentEl.setSelectionRange(contentEl.value.length, contentEl.value.length);
+  }
+}
+
+// 知识审核闸：pending 条目确认通过（→ok 进 RAG）/ 驳回（→删除并级联清理 chunks）
+async function approveKnowledgeDoc(docId) {
+  try {
+    var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(docId), {
+      method: 'PUT',
+      body: JSON.stringify({ status: 'ok' })
+    });
+    if (resp && resp.ok) {
+      showToast('✓ 已通过审核，条目进入可检索状态', 'success');
+      await loadKnowledgePage();
+    } else {
+      showToast('❌ 审核操作失败（HTTP ' + (resp && resp.status) + '）', 'error');
+    }
+  } catch (e) {
+    showToast('❌ 审核操作失败: ' + e.message, 'error');
+  }
+}
+
+async function rejectKnowledgeDoc(docId) {
+  if (!confirm('确认驳回该条目？驳回后将被删除，不再进入检索。')) return;
+  try {
+    var resp = await apiFetch('/api/knowledge/entries/' + encodeURIComponent(docId), { method: 'DELETE' });
+    if (resp && resp.ok) {
+      showToast('✗ 已驳回并删除', 'success');
+      await loadKnowledgePage();
+    } else {
+      showToast('❌ 驳回失败（HTTP ' + (resp && resp.status) + '）', 'error');
+    }
+  } catch (e) {
+    showToast('❌ 驳回失败: ' + e.message, 'error');
   }
 }
 
