@@ -2951,15 +2951,27 @@ def init_db():
             _KE_FTS_ENABLED = False
             logger.warning(f'  [KnowledgeEvents] FTS5 不可用，全文检索路将跳过: {e}')
         else:
+            # 中文 bigram 索引重建（一次性，marker 幂等）：旧行是 unicode61 整段中文单 token，
+            # 查询侧 bigram 命中不了，需按 _ke_fts_expand_text 重建后才能支持中文全文检索
+            try:
+                conn.execute('CREATE TABLE IF NOT EXISTS ke_fts_meta (k TEXT PRIMARY KEY, v TEXT)')
+                if not conn.execute("SELECT v FROM ke_fts_meta WHERE k = 'bigram_v1'").fetchone():
+                    conn.execute('DELETE FROM knowledge_events_fts')
+                    all_rows = conn.execute(
+                        'SELECT id, title, content_summary, conclusions FROM knowledge_events').fetchall()
+                    for r in all_rows:
+                        _ke_fts_upsert(conn, r['id'], r['title'], r['content_summary'], r['conclusions'])
+                    conn.execute("INSERT INTO ke_fts_meta (k, v) VALUES ('bigram_v1', '1')")
+                    logger.info(f'  [KnowledgeEvents] FTS 中文 bigram 重建完成: {len(all_rows)} 条')
+            except Exception as e:
+                logger.warning(f'  [KnowledgeEvents] FTS bigram 重建失败（不影响主流程）: {e}')
             # 一次性回填：knowledge_events 有而 fts 缺失的行
             try:
                 missing = conn.execute(
                     'SELECT ke.id, ke.title, ke.content_summary, ke.conclusions FROM knowledge_events ke '
                     'LEFT JOIN knowledge_events_fts f ON f.event_id = ke.id WHERE f.event_id IS NULL').fetchall()
                 for r in missing:
-                    conn.execute(
-                        'INSERT INTO knowledge_events_fts (event_id, title, summary, conclusions_text) VALUES (?, ?, ?, ?)',
-                        (r['id'], r['title'] or '', r['content_summary'] or '', r['conclusions'] or ''))
+                    _ke_fts_upsert(conn, r['id'], r['title'], r['content_summary'], r['conclusions'])
             except Exception as e:
                 logger.warning(f'  [KnowledgeEvents] FTS 回填失败（不影响主流程）: {e}')
 
@@ -4928,8 +4940,27 @@ def _extract_predicted_match(text):
         return None
 
 
+def _ke_fts_expand_text(text):
+    """FTS5 默认 unicode61 分词器会把整段中文当成一个 token，导致查询侧 bigram 永远命中不了。
+    索引前把中文连续段展开为空格分隔的 bigram（与 _ke_fts_escape_query 查询侧切分一致），
+    拉丁/数字原样保留，标点丢弃（unicode61 本就视其为分隔符）。"""
+    if not text:
+        return ''
+    parts = []
+    for seg in re.findall(r'[一-鿿]+|[A-Za-z0-9_]+', text):
+        if re.match(r'[一-鿿]', seg):
+            if len(seg) == 1:
+                parts.append(seg)
+            else:
+                parts.extend(seg[i:i + 2] for i in range(len(seg) - 1))
+        else:
+            parts.append(seg)
+    return ' '.join(parts)
+
+
 def _ke_fts_upsert(conn, event_id, title, summary, conclusions_text):
     """同步 knowledge_events_fts（先删后插，兼容将来更新路径）。
+    中文按 bigram 展开后入库（见 _ke_fts_expand_text）。
     FTS 不可用或失败仅记日志，绝不影响事件保存。"""
     if not _KE_FTS_ENABLED:
         return
@@ -4937,7 +4968,8 @@ def _ke_fts_upsert(conn, event_id, title, summary, conclusions_text):
         conn.execute('DELETE FROM knowledge_events_fts WHERE event_id = ?', (event_id,))
         conn.execute(
             'INSERT INTO knowledge_events_fts (event_id, title, summary, conclusions_text) VALUES (?, ?, ?, ?)',
-            (event_id, title or '', summary or '', conclusions_text or ''))
+            (event_id, _ke_fts_expand_text(title), _ke_fts_expand_text(summary),
+             _ke_fts_expand_text(conclusions_text)))
     except Exception as e:
         logger.warning(f'  [KnowledgeEvents] FTS 同步失败（不影响事件保存）: {e}')
 
@@ -17919,6 +17951,18 @@ def _heavy_vision_coverage(vision_texts):
     return ratio, per_image_fields
 
 
+def _heavy_entity_hint(talent_names, talents):
+    """stage5 事件落库的实体归属（entity_hint）：
+    优先 stage3 达人库预查命中的真实 tal_id；达人未入库（预查命中 0）时用
+    name:达人名 虚拟 id 绑定（检索端按达人名直接匹配 entity_id），保证库外达人
+    的分析/截图事件不再 entity 留空；talent_names 也为空返回 None。"""
+    if talents and talents[0].get('id'):
+        return ('talent', talents[0]['id'])
+    if talent_names:
+        return ('talent', 'name:' + talent_names[0])
+    return None
+
+
 def _heavy_vision_struct_summary(per_image_fields):
     """生成每张图提取到的非 null 字段 JSON 摘要（与报告绑定存储，供聊天链路检索）。"""
     parts = []
@@ -18061,9 +18105,9 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
                 messages = []
             messages.append(ai_message)
             _save_chat(agent_id, messages)
-        # 实体归属兜底：stage2 提取的达人名经 stage3 达人库预查命中时，显式传入实体绑定，
-        # 避免正文/摘要是模糊称呼（未逐字包含达人库名称）导致 entity 留空、后续按达人名检索不到事件
-        entity_hint = ('talent', talents[0]['id']) if talents and talents[0].get('id') else None
+        # 实体归属兜底：stage2 提取的达人名经 stage3 达人库预查命中时绑真实 tal_id，
+        # 未入库（命中 0）时绑 name:达人名 虚拟 id，避免 entity 留空、后续按达人名检索不到事件
+        entity_hint = _heavy_entity_hint(talent_names, talents)
         _maybe_auto_save_analysis(agent_id, reply, user_content or '', entity_hint=entity_hint)
         _save_vision_data_event(
             agent_id, vision_summary,
@@ -18328,8 +18372,24 @@ _KE_RRF_K = 60                  # RRF 平滑常数
 _KE_RECENCY_WINDOW_MS = 30 * 24 * 3600 * 1000  # 新鲜度线性衰减窗口（30 天，毫秒）
 
 
+def _ke_virtual_entity_rows(conn):
+    """查 knowledge_events 中库外达人的虚拟实体（entity_id 形如 name:达人名）。
+    返回 [(entity_type, entity_id, name), ...]；表不存在等异常返回 []。"""
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT entity_type, entity_id FROM knowledge_events WHERE entity_id LIKE 'name:%'").fetchall()
+        out = []
+        for r in rows:
+            name = (r['entity_id'] or '')[5:].strip()
+            if name:
+                out.append((r['entity_type'] or 'talent', r['entity_id'], name))
+        return out
+    except Exception:
+        return []
+
+
 def _extract_entities_from_text(text):
-    """提取文本中提到的所有达人/商品实体。
+    """提取文本中提到的所有达人/商品实体（含 name:达人名 虚拟实体——库外达人事件的绑定标识）。
     返回 [(entity_type, entity_id, name, category), ...]，名称最长优先；
     已被更长名称覆盖的短名跳过（如文本含"赵西瓜"时不再匹配"赵西"）。"""
     if not text or not text.strip():
@@ -18341,6 +18401,7 @@ def _extract_entities_from_text(text):
                 "SELECT id, name, category FROM talents WHERE status='active'").fetchall()
             products = conn.execute(
                 "SELECT id, name FROM products WHERE status='active'").fetchall()
+            virtuals = _ke_virtual_entity_rows(conn)
         finally:
             conn.close()
     except Exception as e:
@@ -18355,6 +18416,9 @@ def _extract_entities_from_text(text):
         name = (row['name'] or '').strip()
         if name and name in text:
             found.append(('product', row['id'], name, ''))
+    for etype, eid, name in virtuals:
+        if name in text:
+            found.append((etype, eid, name, ''))
     found.sort(key=lambda x: len(x[2]), reverse=True)
     result = []
     for item in found:
@@ -18717,6 +18781,10 @@ def _ke_extract_query_entities(query):
                              if r['name'] and r['name'].strip() and r['name'].strip() in text),
                             key=lambda x: len(x[1]), reverse=True)[:3]
             refs.extend(('talent', tid) for tid, _n in t_hits)
+            # 库外达人虚拟实体（entity_id 形如 name:达人名）：名称出现在 query 中即按 entity_id 精确命中
+            for etype, eid, vname in _ke_virtual_entity_rows(conn):
+                if vname in text:
+                    refs.append((etype, eid))
             # 类目词：talents.category / products.category distinct 值出现在 query 中
             crows = conn.execute(
                 "SELECT DISTINCT category FROM talents WHERE status='active' AND category != ''").fetchall()
