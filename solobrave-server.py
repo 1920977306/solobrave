@@ -2951,27 +2951,27 @@ def init_db():
             _KE_FTS_ENABLED = False
             logger.warning(f'  [KnowledgeEvents] FTS5 不可用，全文检索路将跳过: {e}')
         else:
-            # 中文 bigram 索引重建（一次性，marker 幂等）：旧行是 unicode61 整段中文单 token，
-            # 查询侧 bigram 命中不了，需按 _ke_fts_expand_text 重建后才能支持中文全文检索
+            # FTS 索引重建（一次性，marker 幂等）：v1 把整段中文按 bigram 展开对齐查询侧；
+            # v2 把 content_full 正文纳入索引——分析/vision 事件正文都在 content_full
+            # （content_summary 恒空），v1 重建后它们在 FTS 里只剩标题空壳，按正文词 MATCH 永不命中
             try:
                 conn.execute('CREATE TABLE IF NOT EXISTS ke_fts_meta (k TEXT PRIMARY KEY, v TEXT)')
-                if not conn.execute("SELECT v FROM ke_fts_meta WHERE k = 'bigram_v1'").fetchone():
-                    conn.execute('DELETE FROM knowledge_events_fts')
-                    all_rows = conn.execute(
-                        'SELECT id, title, content_summary, conclusions FROM knowledge_events').fetchall()
-                    for r in all_rows:
-                        _ke_fts_upsert(conn, r['id'], r['title'], r['content_summary'], r['conclusions'])
-                    conn.execute("INSERT INTO ke_fts_meta (k, v) VALUES ('bigram_v1', '1')")
-                    logger.info(f'  [KnowledgeEvents] FTS 中文 bigram 重建完成: {len(all_rows)} 条')
+                if not conn.execute("SELECT v FROM ke_fts_meta WHERE k = 'bigram_v2'").fetchone():
+                    n_rebuilt = _ke_fts_rebuild_all(conn)
+                    conn.execute("INSERT OR REPLACE INTO ke_fts_meta (k, v) VALUES ('bigram_v2', '1')")
+                    logger.info(f'  [KnowledgeEvents] FTS 重建完成(bigram_v2 含正文): {n_rebuilt} 条')
             except Exception as e:
-                logger.warning(f'  [KnowledgeEvents] FTS bigram 重建失败（不影响主流程）: {e}')
+                logger.warning(f'  [KnowledgeEvents] FTS 重建失败（不影响主流程）: {e}')
             # 一次性回填：knowledge_events 有而 fts 缺失的行
             try:
                 missing = conn.execute(
-                    'SELECT ke.id, ke.title, ke.content_summary, ke.conclusions FROM knowledge_events ke '
+                    'SELECT ke.id, ke.title, ke.content_summary, ke.content_full, ke.conclusions '
+                    'FROM knowledge_events ke '
                     'LEFT JOIN knowledge_events_fts f ON f.event_id = ke.id WHERE f.event_id IS NULL').fetchall()
                 for r in missing:
-                    _ke_fts_upsert(conn, r['id'], r['title'], r['content_summary'], r['conclusions'])
+                    _ke_fts_upsert(conn, r['id'], r['title'],
+                                   _ke_fts_index_summary(r['content_summary'], r['content_full']),
+                                   r['conclusions'])
             except Exception as e:
                 logger.warning(f'  [KnowledgeEvents] FTS 回填失败（不影响主流程）: {e}')
 
@@ -4940,6 +4940,10 @@ def _extract_predicted_match(text):
         return None
 
 
+# FTS 索引侧正文长度上限（content_full 原文不截断入库，仅索引侧截断防爆）
+_KE_FTS_CONTENT_CAP = 8000
+
+
 def _ke_fts_expand_text(text):
     """FTS5 默认 unicode61 分词器会把整段中文当成一个 token，导致查询侧 bigram 永远命中不了。
     索引前把中文连续段展开为空格分隔的 bigram（与 _ke_fts_escape_query 查询侧切分一致），
@@ -4972,6 +4976,28 @@ def _ke_fts_upsert(conn, event_id, title, summary, conclusions_text):
              _ke_fts_expand_text(conclusions_text)))
     except Exception as e:
         logger.warning(f'  [KnowledgeEvents] FTS 同步失败（不影响事件保存）: {e}')
+
+
+def _ke_fts_index_summary(summary, content_full):
+    """FTS summary 列取值：优先 content_summary；为空时（分析/vision 事件正文都在
+    content_full，content_summary 恒空）回退 content_full 截断，保证按正文词可检索。"""
+    if summary:
+        return summary
+    return (content_full or '')[:_KE_FTS_CONTENT_CAP]
+
+
+def _ke_fts_rebuild_all(conn):
+    """全量重建 knowledge_events_fts（marker 幂等由调用方负责）。
+    正文经 _ke_fts_index_summary 纳入索引，vision/分析事件不再是只有标题的空壳。
+    返回重建条数。"""
+    conn.execute('DELETE FROM knowledge_events_fts')
+    rows = conn.execute(
+        'SELECT id, title, content_summary, content_full, conclusions FROM knowledge_events').fetchall()
+    for r in rows:
+        _ke_fts_upsert(conn, r['id'], r['title'],
+                       _ke_fts_index_summary(r['content_summary'], r['content_full']),
+                       r['conclusions'])
+    return len(rows)
 
 
 def _ke_compute_importance(conn, entity_type, entity_id, content_full, conclusions_dict):
@@ -5054,8 +5080,8 @@ def _save_knowledge_event(reply, agent_id, title, user_text='', entity_hint=None
             ''', (event_id, entity_type, entity_id, agent_id or '', title, reply,
                   conclusions_text,
                   embedding_blob, user_text or '', int(time.time() * 1000), importance))
-            # 同步 FTS 全文索引（失败不影响事件保存）
-            _ke_fts_upsert(conn, event_id, title, '', conclusions_text)
+            # 同步 FTS 全文索引（失败不影响事件保存）；正文在 content_full，经回退纳入索引
+            _ke_fts_upsert(conn, event_id, title, _ke_fts_index_summary('', reply), conclusions_text)
             conn.commit()
         finally:
             conn.close()
@@ -5098,8 +5124,8 @@ def _save_vision_data_event(agent_id, summary_text, title, user_text='', entity_
                 VALUES (?, ?, ?, ?, 'vision_data', ?, ?, '', '{}', ?, '', ?, ?, ?)
             ''', (event_id, entity_type, entity_id, agent_id or '', title, summary_text,
                   embedding_blob, user_text or '', int(time.time() * 1000), importance))
-            # FTS 摘要截断，避免超长文本拖慢索引
-            _ke_fts_upsert(conn, event_id, title, (summary_text or '')[:2000], '')
+            # FTS 正文截断后入索引，避免超长文本拖慢索引
+            _ke_fts_upsert(conn, event_id, title, _ke_fts_index_summary('', summary_text), '')
             conn.commit()
         finally:
             conn.close()
