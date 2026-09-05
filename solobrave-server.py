@@ -4978,12 +4978,36 @@ def _ke_fts_upsert(conn, event_id, title, summary, conclusions_text):
         logger.warning(f'  [KnowledgeEvents] FTS 同步失败（不影响事件保存）: {e}')
 
 
+# vision 截图 JSON 英文字段键 -> 中文检索标签：用户查询词是中文（"完播率"），
+# 英文字段键（video_completion_rate）经 unicode61 拆分后中文查询永远匹配不到，
+# 索引时按出现的字段键追加中文标签词（只影响索引文本，不改 content_full 原文）
+_VISION_FIELD_CN_LABELS = {
+    'name': '达人昵称', 'douyin_id': '抖音号', 'followers': '粉丝数', 'main_category': '主推类目',
+    'total_gmv': '结算总额', 'video_ratio': '视频占比', 'live_ratio': '直播占比',
+    'product_count': '带货商品数', 'average_price': '平均件单价', 'rating_score': '带货评分',
+    'video_completion_rate': '完播率', 'video_gpm': '视频GPM', 'video_plays': '视频播放量',
+    'video_likes': '点赞数', 'video_comments': '评论数', 'video_shares': '转发数',
+    'video_interaction_rate': '互动率', 'live_sessions': '直播场次', 'live_views': '直播观看人数',
+    'single_video_settlement': '单视频结算额', 'top_products': '带货商品',
+    'top_categories': '热卖类目', 'top_brands': '热卖品牌',
+}
+
+
+def _ke_fts_vision_cn_labels(text):
+    """按文本中出现的 vision JSON 英文字段键（带引号匹配，防误伤普通英文正文里的单词）
+    生成中文标签词，供 FTS 索引文本追加。无命中返回 ''。"""
+    if not text:
+        return ''
+    return ' '.join(cn for en, cn in _VISION_FIELD_CN_LABELS.items() if f'"{en}"' in text)
+
+
 def _ke_fts_index_summary(summary, content_full):
     """FTS summary 列取值：优先 content_summary；为空时（分析/vision 事件正文都在
-    content_full，content_summary 恒空）回退 content_full 截断，保证按正文词可检索。"""
-    if summary:
-        return summary
-    return (content_full or '')[:_KE_FTS_CONTENT_CAP]
+    content_full，content_summary 恒空）回退 content_full 截断，保证按正文词可检索。
+    vision 事件追加中文字段标签，"完播率"等中文查询词可命中英文键的截图 JSON。"""
+    base = summary if summary else (content_full or '')[:_KE_FTS_CONTENT_CAP]
+    labels = _ke_fts_vision_cn_labels(base)
+    return (base + ' ' + labels) if labels else base
 
 
 def _ke_fts_rebuild_all(conn):
@@ -18879,7 +18903,8 @@ def _ke_entity_match_events(query, entity_type='', limit=5):
 
 def _hybrid_retrieve_events(query, entity_type='', limit=5):
     """三信号混合检索：路1 向量语义（复用 _search_knowledge_events，内部 LIKE 降级）、
-    路2 FTS5 BM25、路3 实体精确匹配；RRF 融合（score = Σ 1/(60+rank)）后叠加
+    路2 FTS5 BM25（OR 连接 + 最少命中 min(3, 查询词数) 个不同 token 门槛，防跨达人误召回）、
+    路3 实体精确匹配；RRF 融合（score = Σ 1/(60+rank)）后叠加
     final = 0.6*hybrid_norm + 0.25*(importance_score/10) + 0.15*recency（30天线性衰减），
     按 final 降序取 top limit，返回 item 结构同 _ke_event_to_list_item（score 为 final，round 4 位）。
     任一路失败记日志降级为其余路；三路全失败返回 []。整体绝不抛异常。"""
@@ -18904,13 +18929,33 @@ def _hybrid_retrieve_events(query, entity_type='', limit=5):
             if _KE_FTS_ENABLED:
                 match_q = _ke_fts_escape_query(query)
                 if match_q:
+                    # 最少命中词数门槛：查询侧是 OR 连接，只含个别热词（如"完播率"）的
+                    # 其他达人旧事件也会被命中；要求至少命中 min(3, 查询词数) 个不同
+                    # 查询 token 才入候选，防跨达人误召回（短查询不受影响）。
+                    # offsets()/matchinfo() 在部分 SQLite 构建上不可用（unable to use function），
+                    # 改为取回索引文本在 Python 侧按空格分词计数（下划线按 unicode61 语义再拆分）
+                    terms = [t.strip('"') for t in match_q.split(' OR ')]
+                    min_terms = min(3, len(terms))
                     conn = _db_conn()
                     try:
                         fts_rows = conn.execute(
-                            'SELECT event_id, bm25(knowledge_events_fts) AS bm FROM knowledge_events_fts '
+                            'SELECT event_id, title, summary, conclusions_text, '
+                            'bm25(knowledge_events_fts) AS bm FROM knowledge_events_fts '
                             'WHERE knowledge_events_fts MATCH ? ORDER BY bm LIMIT ?',
-                            (match_q, limit)).fetchall()
-                        fids = [r['event_id'] for r in fts_rows]
+                            (match_q, max(limit * 4, 20))).fetchall()
+                        fids = []
+                        for r in fts_rows:
+                            toks = set()
+                            text = f"{r['title'] or ''} {r['summary'] or ''} {r['conclusions_text'] or ''}"
+                            for w in text.split():
+                                if re.match(r'^[A-Za-z0-9_]+$', w):
+                                    toks.update(p for p in w.split('_') if p)
+                                else:
+                                    toks.add(w)
+                            if sum(1 for t in terms if t in toks) >= min_terms:
+                                fids.append(r['event_id'])
+                            if len(fids) >= limit:
+                                break
                         if fids and entity_type:
                             ph = ','.join('?' * len(fids))
                             ok = {r['id'] for r in conn.execute(
