@@ -2082,9 +2082,12 @@ def kb_entry_update(entry_id, title=None, content=None, category=None, category_
                 conn = _db_conn()
                 try:
                     # 审核闸：pending（待审核）条目向量化成功后仍保持 pending，不自动过审；
-                    # 显式传入的 status（如管理员确认 ok）优先
+                    # 显式传入的 status（如管理员确认 ok）优先；
+                    # superseded（重分析软留档）条目不因编辑自动复活，需显式审核恢复
                     if status in ('ok', 'pending'):
                         new_status = status
+                    elif row['status'] == 'superseded':
+                        new_status = 'superseded'
                     else:
                         new_status = 'pending' if row['status'] == 'pending' else 'ok'
                     conn.execute('UPDATE kb_entries SET status=? WHERE id=?', (new_status, entry_id))
@@ -2228,6 +2231,7 @@ def _kb_entry_build_where(scope=None, team_id=None, user_id=None, is_admin=False
         emp_ids = list(emp_ids) + [user_id]
 
     p = prefix
+    # 闭集过滤：superseded（重分析软留档）/error 等状态不在列，列表自动不展示
     where = [f"{p}status IN ('ok', 'pending')"]
     params = []
 
@@ -2438,7 +2442,8 @@ def kb_entry_search_semantic(query, limit=10, allowed_categories=None, scope=Non
         where.append('e.emp_id = ?')
         params.append(author_emp_id)
 
-    # 审核闸：RAG 语义检索只放行已过审（status='ok'）的条目，pending/error 不进检索结果
+    # 审核闸：RAG 语义检索只放行已过审（status='ok'）的条目，pending/error 不进检索结果；
+    # superseded（重分析软留档）同样被闭集过滤自动排除
     where.append("e.status = 'ok'")
 
     import struct

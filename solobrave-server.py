@@ -16906,6 +16906,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     logger.error(f'  [ChatArchive] {agent_id} 归档失败: {e}，回退到静默截断')
                     messages = messages[-cfg["chat_store_max"]:]
 
+            # 达人重新分析意图拦截（正则不靠 LLM，优先于一切 AI 分发）：
+            # 命中后后端直接接管回复，并视存量截图数据建异步重分析任务，不让员工自由发挥
+            if role == 'user' and not body.get('images'):
+                re_intent = _detect_reanalysis_intent(msg.get('content', ''))
+                if re_intent:
+                    _save_chat(agent_id, messages)
+                    logger.info(f'  [Reanalysis] {agent_id} 命中重新分析意图: {re_intent}')
+                    self._handle_reanalysis_request(agent, agent_id, msg.get('content', ''), re_intent, msg, auth)
+                    return
+
             # 如果前端标记 skipAI（AI已通过OpenClaw回复），跳过API代理
             skip_ai = body.get('skipAI', False)
             connection_type = agent.get('connectionType', '')
@@ -16975,6 +16985,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                         logger.info(f'  [ChatPOST] {agent_id} cleaned_reply is empty, falling back to original api_reply')
                         cleaned_reply = api_reply
 
+                    # 剥离伪工具调用文本（exec(command=/tool_call( 等模型演戏输出）
+                    cleaned_reply = _strip_fake_tool_calls(cleaned_reply)
+
                     ai_message = {
                         'id': 'msg_' + uuid.uuid4().hex[:8],
                         'role': 'assistant',
@@ -17012,6 +17025,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
             # OpenClaw 或其他
+            # OpenClaw 回传的 assistant 回复：先剥离伪工具调用文本（模型无真实工具时的
+            # 演戏输出，exec(command= / tool_call( 等）再落库，不让用户看到技术噪音
+            if role == 'assistant':
+                stripped = _strip_fake_tool_calls(msg.get('content', ''))
+                if stripped != msg.get('content', ''):
+                    msg['content'] = stripped
+                    logger.info(f'  [ChatPOST] {agent_id} 已剥离伪工具调用文本')
             _save_chat(agent_id, messages)
             logger.info(f'  [ChatPOST] {agent_id} role={role} skipAI={skip_ai} 保存后共 {len(messages)} 条消息')
             # OpenClaw 链路：AI 回复由前端回传（role=assistant），同样做分析结论自动入库
@@ -17065,6 +17085,44 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             })
         else:
             self._send_json(200, {'userMessage': msg, 'talentInjection': talent_injection})
+
+    def _handle_reanalysis_request(self, agent, agent_id, content, intent, msg, auth):
+        """达人重新分析意图接管回复：存量 vision_data 截图事件存在则创建异步重分析任务
+        （复用 HeavyPipe job 进度机制，前端凭 heavyPipe+jobId 轮询 heavy-status），
+        不存在则直接回复引导重发截图。两种情况都不再把消息转给 AI/员工。"""
+        name = intent['name']
+        reply_text, vision_event = _reanalysis_plan(intent)
+        extra = {}
+        if vision_event:
+            job_id = _heavy_job_create(agent_id)
+            threading.Thread(
+                target=_reanalysis_worker,
+                args=(job_id, agent, content, name, intent['entity_id'], vision_event, auth.user_id),
+                daemon=True, name=f'Reanalysis-{job_id}',
+            ).start()
+            extra = {'heavyPipe': True, 'jobId': job_id}
+            logger.info(f'  [Reanalysis] {job_id} 任务已创建: {agent_id} 达人={name} '
+                        f'entity={intent["entity_id"]} vision_event={vision_event["id"]}')
+        else:
+            logger.info(f'  [Reanalysis] {agent_id} 达人={name} 无存量 vision_data，引导重发截图')
+        ai_message = {
+            'id': 'msg_' + uuid.uuid4().hex[:8],
+            'role': 'assistant',
+            'content': reply_text,
+            'timestamp': datetime.now().isoformat(),
+            'reanalysis': True,
+        }
+        if extra:
+            ai_message['heavyPipePlaceholder'] = True
+        with _get_chat_lock(agent_id):
+            messages = _load_chat(agent_id)
+            if not isinstance(messages, list):
+                messages = []
+            messages.append(ai_message)
+            _save_chat(agent_id, messages)
+        resp = {'userMessage': msg, 'aiMessage': ai_message}
+        resp.update(extra)
+        self._send_json(200, resp)
 
 def _resolve_ai_base_url(api_provider, custom_endpoint=''):
     """根据 provider 和自定义 endpoint 返回 base URL（不含 /chat/completions）"""
@@ -18024,6 +18082,56 @@ def _heavy_vision_struct_summary(per_image_fields):
     return '\n'.join(parts)
 
 
+def _heavy_stage4_analyze(agent, agent_name, talents, vision_all, user_content, job_id):
+    """stage4 单次 Kimi 深度分析（灵魂人格 + vision 全文 + 达人详情 + 用户原始指令）。
+    HeavyPipe 多图管道与达人重新分析任务共用。失败抛异常由调用方置 job failed。"""
+    soul = _resolve_agent_soul(agent)
+    system_prompt = (
+        f'你是 {agent_name}，一个 {agent.get("role", "助手")}。请用第一人称回复，保持角色一致性。'
+        + ('\n\n' + soul if soul else '')
+        + '\n\n## 分析输出要求（必须严格遵守，缺一项就是不合格）\n'
+          '1. 达人评级：开头必须给出明确评级（A/B/C 或 推荐/观望/放弃），附一句话理由\n'
+          '2. 核心结论：一句话概括这个达人的商业价值定位\n'
+          '3. 基本面：粉丝量级、增长趋势、带货方式、经验值，用表格呈现\n'
+          '4. 带货结构：类目集中度、价格带分布、代表品牌/商品，必须指出哪类商品出单率最高\n'
+          '5. 流量效率：视频 vs 直播的播放、互动、转化率对比，判断是爆款驱动型还是稳定型\n'
+          '6. 人群画像：粉丝画像与短视频观众画像分开，必须指出差异点和营销启示\n'
+          '7. 选品建议：必须具体到品类+价格带+风格方向，举例适合推的品（如"30-80元基础款女装"），不要说"女性向商品"这种泛话\n'
+          '8. 合作策略：给出试水方案建议（建议投几条、预估单条GMV区间、风险对冲方式）\n'
+          '9. 风险提示：最多3条关键风险，每条附应对策略\n'
+          '10. 末尾给出明确的下一步建议（如"建议录入档案，优先级B，适合XX类品测试"），不要问老板"要不要录入"\n'
+          '\n'
+          '关键：你是商务专家，输出的是合作决策建议，不是数据搬运。每个结论都要有判断，不是描述数据就完事。\n'
+          '这是一次性分析任务，你没有搜索工具可用。必须根据截图识别结果和达人数据，直接输出完整分析报告。'
+          '禁止说"我先查一下"或"让我看看"等执行意图的话，直接输出分析结论。'
+          '\n\n## 数据真实性硬约束（违反即不合格）\n'
+          '1. 截图识别结果JSON中为null或未提及的字段，报告中必须标注"截图未提供"，表格缺失数据写"—"\n'
+          '2. 严禁根据行业常识、账号量级或数字合理性猜测补全任何具体数字\n'
+          '3. 报告中每个具体数字必须能在【达人数据截图识别结果】中找到原文依据\n'
+    )
+    user_parts = []
+    if talents:
+        user_parts.append('【系统预查到达人信息-以下数据已由系统自动查到，无需再执行搜索，直接使用】\n'
+                          + json.dumps(talents, ensure_ascii=False, indent=1))
+    user_parts.append('【达人数据截图识别结果】\n' + vision_all)
+    user_parts.append('【用户原始指令】\n' + (user_content or ''))
+    result = _heavy_llm_call(system_prompt, '\n\n'.join(user_parts), max_tokens=8192)
+    logger.info(f'  [HeavyPipe] {job_id} stage4 result: {repr(result)[:500]}')
+    if isinstance(result, dict):
+        logger.info(f'  [HeavyPipe] {job_id} stage4 stop_reason={result.get("stop_reason")} '
+                    f'input_tokens={result.get("input_tokens")} '
+                    f'output_tokens={result.get("output_tokens")} '
+                    f'reply_len={len(result.get("text") or "")}')
+        if result.get('stop_reason') in ('length', 'max_tokens'):
+            raise RuntimeError(f'stage4 输出被截断（stop_reason={result.get("stop_reason")}），降级回 OpenClaw 主干道')
+        if not (result.get('text') or '').strip() and 'thinking' in (result.get('content_types') or []):
+            raise RuntimeError('stage4 模型只返回 thinking 块没有 text，降级回 OpenClaw 主干道')
+    reply = result.get('text', '') if isinstance(result, dict) else (result or '')
+    if not reply:
+        raise RuntimeError('Kimi 深度分析调用失败')
+    return reply
+
+
 def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
     """多图重分析管道（后台 daemon 线程）。任何阶段失败都把 job 置 failed，
     由前端降级回 OpenClaw 主干道重发。"""
@@ -18085,51 +18193,8 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         # Stage 4：单次 Kimi 深度分析（灵魂人格 + vision 全文 + 达人详情 + 用户原始指令）
         _heavy_job_set(job_id, stage='正在深度分析…')
         _t = time.perf_counter()
-        soul = _resolve_agent_soul(agent)
-        system_prompt = (
-            f'你是 {agent_name}，一个 {agent.get("role", "助手")}。请用第一人称回复，保持角色一致性。'
-            + ('\n\n' + soul if soul else '')
-            + '\n\n## 分析输出要求（必须严格遵守，缺一项就是不合格）\n'
-              '1. 达人评级：开头必须给出明确评级（A/B/C 或 推荐/观望/放弃），附一句话理由\n'
-              '2. 核心结论：一句话概括这个达人的商业价值定位\n'
-              '3. 基本面：粉丝量级、增长趋势、带货方式、经验值，用表格呈现\n'
-              '4. 带货结构：类目集中度、价格带分布、代表品牌/商品，必须指出哪类商品出单率最高\n'
-              '5. 流量效率：视频 vs 直播的播放、互动、转化率对比，判断是爆款驱动型还是稳定型\n'
-              '6. 人群画像：粉丝画像与短视频观众画像分开，必须指出差异点和营销启示\n'
-              '7. 选品建议：必须具体到品类+价格带+风格方向，举例适合推的品（如"30-80元基础款女装"），不要说"女性向商品"这种泛话\n'
-              '8. 合作策略：给出试水方案建议（建议投几条、预估单条GMV区间、风险对冲方式）\n'
-              '9. 风险提示：最多3条关键风险，每条附应对策略\n'
-              '10. 末尾给出明确的下一步建议（如"建议录入档案，优先级B，适合XX类品测试"），不要问老板"要不要录入"\n'
-              '\n'
-              '关键：你是商务专家，输出的是合作决策建议，不是数据搬运。每个结论都要有判断，不是描述数据就完事。\n'
-              '这是一次性分析任务，你没有搜索工具可用。必须根据截图识别结果和达人数据，直接输出完整分析报告。'
-              '禁止说"我先查一下"或"让我看看"等执行意图的话，直接输出分析结论。'
-              '\n\n## 数据真实性硬约束（违反即不合格）\n'
-              '1. 截图识别结果JSON中为null或未提及的字段，报告中必须标注"截图未提供"，表格缺失数据写"—"\n'
-              '2. 严禁根据行业常识、账号量级或数字合理性猜测补全任何具体数字\n'
-              '3. 报告中每个具体数字必须能在【达人数据截图识别结果】中找到原文依据\n'
-        )
-        user_parts = []
-        if talents:
-            user_parts.append('【系统预查到达人信息-以下数据已由系统自动查到，无需再执行搜索，直接使用】\n'
-                              + json.dumps(talents, ensure_ascii=False, indent=1))
-        user_parts.append('【达人数据截图识别结果】\n' + vision_all)
-        user_parts.append('【用户原始指令】\n' + (user_content or ''))
-        result = _heavy_llm_call(system_prompt, '\n\n'.join(user_parts), max_tokens=8192)
+        reply = _heavy_stage4_analyze(agent, agent_name, talents, vision_all, user_content, job_id)
         _stage('stage4 深度分析', _t)
-        logger.info(f'  [HeavyPipe] {job_id} stage4 result: {repr(result)[:500]}')
-        if isinstance(result, dict):
-            logger.info(f'  [HeavyPipe] {job_id} stage4 stop_reason={result.get("stop_reason")} '
-                        f'input_tokens={result.get("input_tokens")} '
-                        f'output_tokens={result.get("output_tokens")} '
-                        f'reply_len={len(result.get("text") or "")}')
-            if result.get('stop_reason') in ('length', 'max_tokens'):
-                raise RuntimeError(f'stage4 输出被截断（stop_reason={result.get("stop_reason")}），降级回 OpenClaw 主干道')
-            if not (result.get('text') or '').strip() and 'thinking' in (result.get('content_types') or []):
-                raise RuntimeError('stage4 模型只返回 thinking 块没有 text，降级回 OpenClaw 主干道')
-        reply = result.get('text', '') if isinstance(result, dict) else (result or '')
-        if not reply:
-            raise RuntimeError('Kimi 深度分析调用失败')
         # 覆盖率不足时在报告开头显式标注，不让低可信度结论静默流出
         if low_confidence:
             reply = (f'⚠️ 截图数据不足，结论可信度低（核心字段覆盖率 {coverage:.0%}，'
@@ -18192,6 +18257,168 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         logger.info(f'  [HeavyPipe] {job_id} 完成，总耗时 {time.perf_counter() - t0:.1f}s')
     except Exception as e:
         logger.error(f'  [HeavyPipe] {job_id} 降级原因: {type(e).__name__}: {e}（前端将回落 OpenClaw 主干道）')
+        _heavy_job_set(job_id, status='failed', error=str(e))
+
+
+# ═══ 达人重新分析聊天闭环 ═══════════════════════════════════════════════
+# 场景：用户对已分析达人的结果不满意，在聊天里发"XX这个达人重新分析，重新分析的结果发给我"。
+# 意图命中后后端直接接管（不让员工自由发挥），复用存量 vision_data 事件的截图 JSON
+# 走 stage4 同款分析逻辑异步重出报告，无需用户重发截图。
+_REANALYSIS_INTENT_RE = re.compile(r'(?<!别)(?:重新|再).{0,4}(?:分析|报告)')
+
+
+def _detect_reanalysis_intent(text):
+    """重新分析意图识别（正则不靠 LLM）+ 目标达人定位。
+    命中返回 {'name': 达人名, 'entity_id': knowledge_events 里的 entity_id}，否则 None。
+    达人提取：优先 _extract_entities_from_text（达人库 tal_id / name: 虚拟实体均可）；
+    提取不到时按消息文本对 knowledge_events 达人实体名做包含匹配，取最近活跃达人。"""
+    text = (text or '').strip()
+    if not text or not _REANALYSIS_INTENT_RE.search(text):
+        return None
+    # 1) 常规实体提取（库内达人 → 真实 tal_id；库外达人历史事件 → name: 虚拟 id）
+    try:
+        for etype, eid, name, _cat in _extract_entities_from_text(text):
+            if etype == 'talent' and name:
+                return {'name': name, 'entity_id': eid}
+    except Exception as e:
+        logger.warning(f'  [Reanalysis] 实体提取失败: {e}')
+    # 2) 兜底：knowledge_events 达人实体名模糊匹配（含已下架达人），取最近活跃
+    try:
+        conn = _db_conn()
+        try:
+            rows = conn.execute(
+                "SELECT entity_id, MAX(created_at) AS last_ts FROM knowledge_events "
+                "WHERE entity_type = 'talent' AND entity_id != '' "
+                "GROUP BY entity_id ORDER BY last_ts DESC").fetchall()
+            tmap = {r['name']: r['id'] for r in
+                    conn.execute('SELECT id, name FROM talents').fetchall()}
+        finally:
+            conn.close()
+        id_to_name = {v: k for k, v in tmap.items()}
+        for r in rows:
+            eid = r['entity_id']
+            name = eid[5:] if eid.startswith('name:') else id_to_name.get(eid, '')
+            if name and name in text:
+                return {'name': name, 'entity_id': eid}
+    except Exception as e:
+        logger.warning(f'  [Reanalysis] 达人模糊匹配失败: {e}')
+    return None
+
+
+def _find_latest_vision_event(entity_id):
+    """按实体查 knowledge_events 最新一条 vision_data 事件（content_full 为完整截图 JSON）。
+    无则返回 None。"""
+    conn = _db_conn()
+    try:
+        r = conn.execute(
+            "SELECT id, title, content_full, created_at FROM knowledge_events "
+            "WHERE entity_type = 'talent' AND entity_id = ? AND event_type = 'vision_data' "
+            "ORDER BY created_at DESC LIMIT 1", (entity_id,)).fetchone()
+        return dict(r) if r else None
+    finally:
+        conn.close()
+
+
+def _reanalysis_plan(intent):
+    """重新分析计划：查存量 vision_data 截图事件。
+    返回 (reply_text, vision_event or None)；无存量时 reply_text 为引导重发截图文案。"""
+    name = intent['name']
+    ev = _find_latest_vision_event(intent['entity_id'])
+    if ev:
+        return f'收到，正在重新分析「{name}」，完成后发您', ev
+    return (f'未找到「{name}」的截图数据，请重新发送该达人的数据截图，我会立即重新分析', None)
+
+
+def _supersede_prev_analysis_entry(talent_name):
+    """把该达人上一版分析 kb_entry 置为 superseded（软留档不删）。
+    kb_entries 状态读取侧是闭集过滤（RAG 只放行 status='ok'，列表只展示 ok/pending），
+    置 superseded 后检索与列表自动不再召回，无需改各过滤点。
+    必须在 _maybe_auto_save_analysis 之前调用：语义去重/子串合并只认 status='ok'，
+    先置 superseded 避免新版报告被旧版吞掉。返回被置 superseded 的 kb_id 或 None。"""
+    if not talent_name:
+        return None
+    conn = _db_conn()
+    try:
+        row = conn.execute(
+            "SELECT id, status FROM kb_entries "
+            "WHERE status IN ('ok', 'pending') AND (title LIKE ? OR content LIKE ?) "
+            "ORDER BY updated_at DESC LIMIT 1",
+            (f'%{talent_name}%', f'%{talent_name}%')).fetchone()
+        if not row:
+            return None
+        conn.execute('UPDATE kb_entries SET status = ?, updated_at = ? WHERE id = ?',
+                     ('superseded', int(time.time() * 1000), row['id']))
+        conn.commit()
+        logger.info(f'  [Reanalysis] 上一版分析 {row["id"]}（{talent_name}）已置 superseded')
+        return row['id']
+    finally:
+        conn.close()
+
+
+def _reanalysis_worker(job_id, agent, user_content, talent_name, entity_id, vision_event, user_id):
+    """达人重新分析任务（后台 daemon 线程）：复用存量 vision_data 事件的截图 JSON
+    （跳过 HeavyPipe stage1-3 的截图识别/达人名提取，无需用户重发图），达人档案照常
+    _heavy_fetch_talents 预查，stage4 分析逻辑与 HeavyPipe 共用（_heavy_stage4_analyze）。
+    完成后新分析经 _maybe_auto_save_analysis 入库（pending 审核闸 + 新 analysis 事件，
+    实体绑定该达人），上一版分析 kb_entry 置 superseded 软留档。"""
+    agent_id = agent.get('id', '')
+    agent_name = agent.get('name', agent_id)
+    t0 = time.perf_counter()
+    try:
+        _heavy_job_set(job_id, stage='正在读取历史截图数据…')
+        vision_summary = vision_event.get('content_full') or ''
+        if not vision_summary.strip():
+            raise RuntimeError('存量截图数据为空')
+        # 达人档案照常预查（库内命中拿全量字段；未入库空列表不阻断，分析仍基于截图 JSON）
+        _heavy_job_set(job_id, stage='正在检索达人数据…')
+        talents = _heavy_fetch_talents([talent_name])
+        # 覆盖率检查沿用反幻觉口径（存量 content_full 按行拆回每图字段块）
+        vision_parts = [ln for ln in vision_summary.split('\n') if ln.strip()]
+        coverage, _maps = _heavy_vision_coverage(vision_parts)
+        low_confidence = coverage < _HEAVY_LOW_COVERAGE_THRESHOLD
+        if low_confidence:
+            _heavy_job_set(job_id, warning=f'截图核心字段覆盖率仅 {coverage:.0%}，结论可信度低')
+
+        _heavy_job_set(job_id, stage='正在深度分析…')
+        reply = _heavy_stage4_analyze(agent, agent_name, talents, vision_summary, user_content, job_id)
+        if low_confidence:
+            reply = (f'⚠️ 截图数据不足，结论可信度低（核心字段覆盖率 {coverage:.0%}，'
+                     f'缺失数据已按"截图未提供"标注）\n\n') + reply
+
+        _heavy_job_set(job_id, stage='正在保存分析结果…')
+        ai_message = {
+            'id': 'msg_' + uuid.uuid4().hex[:8],
+            'role': 'assistant',
+            'content': reply,
+            'timestamp': datetime.now().isoformat(),
+            'heavyPipe': True,
+            'reanalysis': True,
+            'vision_data': vision_summary,
+        }
+        with _get_chat_lock(agent_id):
+            messages = _load_chat(agent_id)
+            if not isinstance(messages, list):
+                messages = []
+            messages.append(ai_message)
+            _save_chat(agent_id, messages)
+        # 实体绑定沿用意图识别阶段定位到的 entity_id（与存量事件同一实体，真实 tal_id
+        # 或 name: 虚拟 id），保证新旧分析/截图事件在同一实体时间线上
+        entity_hint = ('talent', entity_id) if entity_id else _heavy_entity_hint([talent_name], talents)
+        # 先 supersede 旧版分析再入库新版（去重/合并只认 status='ok'，顺序不能反）
+        _supersede_prev_analysis_entry(talent_name)
+        _maybe_auto_save_analysis(agent_id, reply, user_content or '', entity_hint=entity_hint)
+        try:
+            agent_group_id = _get_agent_group_id(agent_id)
+            if agent_group_id:
+                _record_group_message(agent_group_id, agent_id, 'user', user_content or '')
+                _record_group_message(agent_group_id, agent_id, 'assistant', reply)
+        except Exception as feed_err:
+            logger.error(f'  [Reanalysis] {job_id} TeamFeed 记录失败: {feed_err}')
+        _push_notification(user_id, 'message', f'{agent_name} 的重新分析已完成', (reply or '')[:200], agent_id)
+        _heavy_job_set(job_id, status='done')
+        logger.info(f'  [Reanalysis] {job_id} 完成（达人={talent_name}），总耗时 {time.perf_counter() - t0:.1f}s')
+    except Exception as e:
+        logger.error(f'  [Reanalysis] {job_id} 失败: {type(e).__name__}: {e}')
         _heavy_job_set(job_id, status='failed', error=str(e))
 
 
@@ -19285,6 +19512,25 @@ def _append_self_update_prompt(system_prompt):
         '---'
     )
     return system_prompt + declaration
+
+
+# 伪工具调用剥离：员工无真实工具时模型会在正文里演戏，输出 exec(command="curl ...")、
+# tool_call(...) 等伪命令行工具调用文本。正则剥离替换为占位文案，不让用户看到技术噪音。
+_FAKE_TOOL_CALL_RE = re.compile(
+    r'(?:exec\s*\(\s*command\s*=|tool_call\s*\(|tool_use\s*\(|function_call\s*\()[^\n]*')
+_FAKE_TOOL_PLACEHOLDER = '（正在查询系统数据…）'
+_FAKE_TOOL_PLACEHOLDER_RUN_RE = re.compile(
+    r'（正在查询系统数据…）(?:\s*（正在查询系统数据…）)+')
+
+
+def _strip_fake_tool_calls(text):
+    """剥离回复正文里的伪工具调用文本（exec(command=.../tool_call(...) 等，至行尾），
+    替换为"（正在查询系统数据…）"，连续多个占位合并为一个。无命中返回原文。"""
+    if not text or not isinstance(text, str):
+        return text
+    cleaned = _FAKE_TOOL_CALL_RE.sub(_FAKE_TOOL_PLACEHOLDER, text)
+    cleaned = _FAKE_TOOL_PLACEHOLDER_RUN_RE.sub(_FAKE_TOOL_PLACEHOLDER, cleaned)
+    return cleaned.strip()
 
 
 def _parse_self_updates(text):
