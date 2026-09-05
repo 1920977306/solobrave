@@ -19242,12 +19242,17 @@ def _openclaw_model_ref(model, provider=''):
     return m
 
 
-def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLAW_TIMEOUT, provider=''):
+def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLAW_TIMEOUT, provider='', agent_name=None):
     """调用 OpenClaw CLI 并返回原始文本内容；失败返回 None
 
     兼容两种 CLI 形态：
       - 新版：openclaw agent --message <prompt> --json
       - 旧版：openclaw infer model run --prompt <prompt> --json
+
+    agent_name：调用方指定的目标 agent（通常是员工 ID，如 emp_1780199176680）。
+    4 名员工 agent 在 OpenClaw gateway 配了 kimi_proxy_* provider；default 'main' 只继承
+    直连官方账号（kimi/k3），配额耗尽会让知识归纳彻底失败。显式传 --agent 走代理
+    provider 才是正确路径。agent_name=None 时回退到 OPENCLAW_DEFAULT_AGENT（保持原行为）。
     """
     if not os.path.isfile(OPENCLAW_CLI):
         logger.info(f'  [OpenClaw] CLI not found at {OPENCLAW_CLI}')
@@ -19264,13 +19269,17 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
         logger.info(f'  [OpenClaw] WARNING: prompt too long ({len(full_prompt)}), truncating to {MAX_PROMPT_LEN}')
         full_prompt = full_prompt[:MAX_PROMPT_LEN]
 
+    # 优先使用调用方指定的 agent_name（员工 ID），fallback 到 OPENCLAW_DEFAULT_AGENT
+    target_agent = agent_name or OPENCLAW_DEFAULT_AGENT
+
     # 新版 CLI：openclaw agent --message ... --json（项目环境更可能可用）
     # 旧版 CLI：openclaw infer model run --prompt ... --json（代码历史写法，保留兼容）
     variants = []
-    # 使用默认 OpenClaw agent 执行一次 agent turn；--timeout 避免无限等待
-    agent_args = [OPENCLAW_CLI, 'agent', '--agent', OPENCLAW_DEFAULT_AGENT, '--message', full_prompt, '--json', '--timeout', str(timeout)]
+    # 使用目标 agent 执行一次 agent turn；--timeout 避免无限等待
+    agent_args = [OPENCLAW_CLI, 'agent', '--agent', target_agent, '--message', full_prompt, '--json', '--timeout', str(timeout)]
     variants.append(('agent', agent_args))
-    infer_args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--prompt', full_prompt, '--json']
+    # 旧版 CLI 同样显式带 --agent 走代理 provider（4 名员工的 kimi_proxy_* 路由都挂在 agent 上）
+    infer_args = [OPENCLAW_CLI, 'infer', 'model', 'run', '--agent', target_agent, '--prompt', full_prompt, '--json']
     model_ref = _openclaw_model_ref(model, provider)
     if model_ref:
         infer_args.extend(['--model', model_ref])
@@ -19531,8 +19540,11 @@ def _call_ai_for_json(prompt, agent, system_prompt=None):
         logger.info(f'  [OpenClaw] WARNING: prompt too long ({len(full_prompt)}), truncating to {MAX_PROMPT_LEN}')
         full_prompt = full_prompt[:MAX_PROMPT_LEN]
 
-    # 调用 OpenClaw CLI 并提取 JSON 数组
-    content = _call_openclaw_infer(full_prompt, model=api_model, provider=api_provider)
+    # 调用 OpenClaw CLI 并提取 JSON 数组。
+    # 显式传 agent_name（员工 ID）让 OpenClaw gateway 用员工配的 kimi_proxy_* provider，
+    # 避免走 main agent 的直连官方账号（kimi/k3，配额已耗尽）。
+    agent_id = agent.get('id', '') if isinstance(agent, dict) else ''
+    content = _call_openclaw_infer(full_prompt, model=api_model, provider=api_provider, agent_name=agent_id)
     if content is None:
         return None
     return _extract_json_array(content)
