@@ -4980,11 +4980,15 @@ def _ke_compute_importance(conn, entity_type, entity_id, content_full, conclusio
         return 5.0
 
 
-def _save_knowledge_event(reply, agent_id, title, user_text=''):
+def _save_knowledge_event(reply, agent_id, title, user_text='', entity_hint=None):
     """把分析结论原文写入 knowledge_events（实体档案时间线，原文不截断）。
+    entity_hint：可选 (entity_type, entity_id)，正文/提问文本匹配不到实体时的兜底归属
+    （HeavyPipe 用 stage2 提取的达人名经达人库预查结果传入，避免实体留空无法按达人名检索）。
     同时生成 embedding 存入 embedding 列（API 不可用时留 NULL）。异常兜底返回 None。"""
     try:
         entity_type, entity_id = _extract_entity_from_analysis(reply, user_text)
+        if not entity_id and entity_hint:
+            entity_type, entity_id = entity_hint
         conclusions = {}
         try:
             pm = _extract_predicted_match(reply)
@@ -5030,11 +5034,14 @@ def _save_knowledge_event(reply, agent_id, title, user_text=''):
         return None
 
 
-def _save_vision_data_event(agent_id, summary_text, title, user_text=''):
+def _save_vision_data_event(agent_id, summary_text, title, user_text='', entity_hint=None):
     """HeavyPipe 截图识别原始数据入库 knowledge_events（event_type='vision_data'）。
+    entity_hint：可选 (entity_type, entity_id)，文本匹配不到实体时的兜底归属（同 _save_knowledge_event）。
     与分析报告分开存储，供聊天链路按实体/全文检索拿到报告所依据的截图数据。异常兜底返回 None。"""
     try:
         entity_type, entity_id = _extract_entity_from_analysis(summary_text, user_text)
+        if not entity_id and entity_hint:
+            entity_type, entity_id = entity_hint
         embedding_blob = None
         try:
             emb_cfg = get_embedding_config()
@@ -5071,9 +5078,11 @@ def _save_vision_data_event(agent_id, summary_text, title, user_text=''):
         return None
 
 
-def _maybe_auto_save_analysis(agent_id, reply, user_text='', tool_results=None):
+def _maybe_auto_save_analysis(agent_id, reply, user_text='', tool_results=None, entity_hint=None):
     """AI 员工完成分析类回答后，自动把分析结论写入知识库（kb_entries，scope=global，emp_id 留空）。
     同时双写 knowledge_events（实体档案时间线）。
+    entity_hint：可选 (entity_type, entity_id)，透传给 knowledge_events 落库做实体兜底归属
+    （HeavyPipe 用 stage2 达人名预查结果传入）。
     OpenClaw 路径最终回复可能只是"建档成功"等操作短语，真正的分析在 tool_result 里：
     reply 不命中时，拼接 tool_results 的 content 再检测，命中则用拼接内容入库。
     开关：settings.json auto_save_analysis（默认开启）。全流程异常兜底，不影响聊天主流程。"""
@@ -5123,7 +5132,7 @@ def _maybe_auto_save_analysis(agent_id, reply, user_text='', tool_results=None):
         except Exception as e:
             logger.error(f'  [AutoSaveAnalysis] {agent_id} 向量化失败: {e}')
         # 双写实体档案：knowledge_events 时间线（含实体关联 + embedding）
-        _save_knowledge_event(analysis_text, agent_id, title, user_text)
+        _save_knowledge_event(analysis_text, agent_id, title, user_text, entity_hint=entity_hint)
         logger.info(f'  [AutoSaveAnalysis] {agent_id} 分析结论已入库: {kb_id} title={title!r}')
     except Exception as e:
         logger.error(f'  [AutoSaveAnalysis] {agent_id} failed: {e}')
@@ -17890,23 +17899,23 @@ def _parse_vision_json(desc):
 
 def _heavy_vision_coverage(vision_texts):
     """解析每张图的 vision JSON，统计核心字段非 null 覆盖率。
+    分母固定为核心字段全集（不按图片数放大）：跨页截图各自承载不同字段，
+    全部图片字段合并后统计非空率，避免多图场景被误判为低覆盖率。
     返回 (coverage_ratio, per_image_fields)：per_image_fields 为每张图提取到的非 null 字段 dict（无则 None）。"""
     per_image_fields = []
-    total = 0
-    nonnull = 0
+    merged = {}
     for text in vision_texts:
         obj = _parse_vision_json(text)
         if not obj:
             per_image_fields.append(None)
-            total += len(_HEAVY_CORE_FIELDS)
             continue
         fields = {k: v for k, v in obj.items() if v is not None and v != '' and v != 'null'}
         per_image_fields.append(fields)
-        for f in _HEAVY_CORE_FIELDS:
-            total += 1
-            if f in fields:
-                nonnull += 1
-    ratio = (nonnull / total) if total else 0.0
+        for k, v in fields.items():
+            if k not in merged:
+                merged[k] = v
+    nonnull = sum(1 for f in _HEAVY_CORE_FIELDS if f in merged)
+    ratio = (nonnull / len(_HEAVY_CORE_FIELDS)) if _HEAVY_CORE_FIELDS else 0.0
     return ratio, per_image_fields
 
 
@@ -18052,11 +18061,14 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
                 messages = []
             messages.append(ai_message)
             _save_chat(agent_id, messages)
-        _maybe_auto_save_analysis(agent_id, reply, user_content or '')
+        # 实体归属兜底：stage2 提取的达人名经 stage3 达人库预查命中时，显式传入实体绑定，
+        # 避免正文/摘要是模糊称呼（未逐字包含达人库名称）导致 entity 留空、后续按达人名检索不到事件
+        entity_hint = ('talent', talents[0]['id']) if talents and talents[0].get('id') else None
+        _maybe_auto_save_analysis(agent_id, reply, user_content or '', entity_hint=entity_hint)
         _save_vision_data_event(
             agent_id, vision_summary,
             '截图识别原始数据：' + ('、'.join(talent_names) or agent_name),
-            user_content or '')
+            user_content or '', entity_hint=entity_hint)
         try:
             agent_group_id = _get_agent_group_id(agent_id)
             if agent_group_id:
