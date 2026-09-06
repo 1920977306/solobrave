@@ -19423,10 +19423,36 @@ def _force_inject_entity_events(query, recent_messages=None, entity_type='talent
                         break
             except Exception:
                 pass
+        # 3) 虚拟实体兜底：entity_id 为 name:XXX 格式的库外达人 _extract_entities_from_text
+        #    定位不到，按 knowledge_events 实体名子串匹配（写法对齐 _detect_reanalysis_intent）
+        if not target:
+            try:
+                texts = [query or '']
+                for msg in (recent_messages or [])[:6]:  # 最多看最近 6 轮
+                    content = msg if isinstance(msg, str) else (msg.get('content') or msg.get('text') or '')
+                    if content:
+                        texts.append(content)
+                haystack = '\n'.join(texts)
+                conn = _db_conn()
+                try:
+                    rows = conn.execute(
+                        "SELECT DISTINCT entity_id FROM knowledge_events "
+                        "WHERE entity_type = ? AND entity_id LIKE 'name:%'",
+                        (entity_type,)).fetchall()
+                finally:
+                    conn.close()
+                for r in rows:
+                    eid = r['entity_id']
+                    name = eid[5:]
+                    if len(name) >= 2 and name in haystack:
+                        target = (entity_type, eid, name)
+                        break
+            except Exception as e:
+                logger.warning(f'  [HybridRetrieve] force-inject 虚拟实体兜底失败: {e}')
         if not target:
             return []
         etype, eid, name = target
-        # 3) 取该实体最新一条 vision_data 和最新一条 analysis
+        # 4) 取该实体最新一条 vision_data 和最新一条 analysis
         conn = _db_conn()
         try:
             latest = {}
@@ -19444,7 +19470,7 @@ def _force_inject_entity_events(query, recent_messages=None, entity_type='talent
                     latest[ev_type] = row
         finally:
             conn.close()
-        # 4) 拼成 list_item 列表，vision 在前（先看原始数据）→ analysis（结论）次之
+        # 5) 拼成 list_item 列表，vision 在前（先看原始数据）→ analysis（结论）次之
         out = []
         for ev_type in ('vision_data', 'analysis'):
             r = latest.get(ev_type)
