@@ -19399,7 +19399,8 @@ def _force_inject_entity_events(query, recent_messages=None, entity_type='talent
     """实体精确匹配强制注入：定位到 talent 实体时，把该实体最新一条 vision_data +
     最新一条 analysis 事件返回。
     当前轮优先 + 多候选依次试事件：先在 current_query 短文本上提候选（tal_id 提取 +
-    name: 虚拟实体子串匹配合并，按名字在文本中首次出现位置排序、按 eid 去重）；
+    name: 虚拟实体子串匹配合并，按名字在文本中最后出现位置排序——越晚出现的达人
+    越是当前话题，按 eid 去重）；
     当前轮无候选才退回长 query 文本与 recent_messages 最近6条做同样提取。
     对每个候选依次查 knowledge_events 最新事件，第一个查到事件的候选命中即返回；
     查无事件继续下一候选（不占位静默返回——长文本历史里的达人会抢走 target 导致
@@ -19425,7 +19426,7 @@ def _force_inject_entity_events(query, recent_messages=None, entity_type='talent
 
         def _cands_from_text(text):
             """从单段文本提候选：tal_id 提取 + name: 子串匹配，
-            按名字在文本中首次出现位置排序、按 eid 去重"""
+            按名字在文本中最后出现位置排序（当前轮话题优先）、按 eid 去重"""
             text = text or ''
             cands = []
             try:
@@ -19437,7 +19438,7 @@ def _force_inject_entity_events(query, recent_messages=None, entity_type='talent
             for eid, name in name_entities:
                 if len(name) >= 2 and name in text:
                     cands.append((entity_type, eid, name))
-            cands.sort(key=lambda c: text.find(c[2]) if text.find(c[2]) >= 0 else 1 << 30)
+            cands.sort(key=lambda c: text.rfind(c[2]), reverse=True)
             seen_eid = set()
             uniq = []
             for c in cands:
