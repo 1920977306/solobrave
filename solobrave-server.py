@@ -70,13 +70,14 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger('solobrave')
 
 # 按 agent_id 细分的聊天写入锁，防止读-修改-写竞争导致消息丢失
+# RLock 可重入：同线程嵌套获取（如锁内调用需再次进锁的接管函数）不会自死锁
 _chat_write_locks = {}
 _chat_locks_mutex = threading.Lock()
 
 def _get_chat_lock(agent_id):
     with _chat_locks_mutex:
         if agent_id not in _chat_write_locks:
-            _chat_write_locks[agent_id] = threading.Lock()
+            _chat_write_locks[agent_id] = threading.RLock()
         return _chat_write_locks[agent_id]
 
 # ─── 配置 ───────────────────────────────────────────────
@@ -8882,10 +8883,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         }
 
         chat_key = f'group_{group_id}'
-        with _get_chat_lock(chat_key):
+        lock = _get_chat_lock(chat_key)
+        if not lock.acquire(timeout=30):
+            logger.error(f'  [GroupChat] {chat_key} 聊天锁获取超时(30s)，返回500')
+            self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
+            return
+        try:
             messages = _load_chat(chat_key)
             messages.append(user_message)
             _save_chat(chat_key, messages)
+        finally:
+            lock.release()
 
         # 返回消息和群组 session 信息，前端通过 WS 发送到 leadAgent
         lead_agent = group.get('leadAgentId', '')
@@ -16949,7 +16957,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if _reply_to:
             msg['reply_to'] = _reply_to
 
-        with _get_chat_lock(agent_id):
+        # 如果前端标记 skipAI（AI已通过OpenClaw回复），跳过API代理
+        skip_ai = body.get('skipAI', False)
+        connection_type = agent.get('connectionType', '')
+
+        # P0 防挂死：锁内只做聊天消息的读-改-写落盘（_load_chat/append/_save_chat），
+        # AI/HTTP/通知/auto_save 等慢操作一律锁外执行；锁获取带 30s 超时，拒绝无限等待
+        reanalysis_hit = False
+        re_intent = None
+        user_content = msg.get('content', '')
+        lock = _get_chat_lock(agent_id)
+        if not lock.acquire(timeout=30):
+            logger.error(f'  [ChatPOST] {agent_id} 聊天锁获取超时(30s)，返回500')
+            self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
+            return
+        try:
             messages = _load_chat(agent_id)
             if not isinstance(messages, list):
                 messages = []
@@ -16987,145 +17009,191 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 达人重新分析意图拦截（正则不靠 LLM，优先于一切 AI 分发）：
             # 命中后后端直接接管回复，并视存量截图数据建异步重分析任务，不让员工自由发挥
             if role == 'user' and not body.get('images'):
-                user_content = msg.get('content', '')
                 if _has_reanalysis_intent(user_content):
                     re_intent = _detect_reanalysis_intent(user_content)
+                    reanalysis_hit = True
                     _save_chat(agent_id, messages)
                     # 正则命中 → 一律进意图接管（intent 非空走重分析任务；空走引导问达人名）
                     logger.info(f'  [Reanalysis] {agent_id} 命中重新分析意图: intent={re_intent}')
-                    self._handle_reanalysis_request(agent, agent_id, user_content, re_intent, msg, auth)
+            # 归档发生时立即落盘截断后的列表，避免锁外流程 reload 到未截断的旧列表导致重复归档
+            if archived_count > 0 and not reanalysis_hit:
+                _save_chat(agent_id, messages)
+        finally:
+            lock.release()
+
+        # 意图接管必须在锁外执行：handler 内部还要再进锁落库接管回复
+        if reanalysis_hit:
+            self._handle_reanalysis_request(agent, agent_id, user_content, re_intent, msg, auth)
+            return
+
+        # 当 skipAI=false 时，无论 connectionType 是什么，都调用 AI API
+        # 这样 memory 提取等场景（_extractMemoryViaAPI）才能正常工作
+        if not skip_ai:
+            # AI 调用前校验：员工状态 + systemPrompt 身份约束（仅实际调用 AI 时检查）
+            ok, ai_err = _validate_agent_for_ai(agent)
+            if not ok:
+                code = 404 if ai_err == '员工不存在' else 400
+                self._send_json(code, {'error': ai_err})
+                return
+
+            content = body.get('content', '')
+            # 记忆提取场景不需要加载历史记录，避免 token 超限和干扰
+            is_extract = '【记忆提取任务】' in content
+
+            # 后端拦截自然语言自修改指令，不依赖 AI 输出 [SELF_UPDATE] 标记
+            if role == 'user':
+                intent_updates = _detect_self_update_intent(content)
+                if intent_updates:
+                    ok, su_msg, _ = _apply_agent_self_update(agent_id, intent_updates, source=f'chat:{auth.user_id}')
+                    if ok:
+                        field_name, new_value = intent_updates[0]
+                        confirmation = f'（系统已根据你的指令更新了你的{field_name}为{new_value}，请在回复中确认已更新）'
+                        content = confirmation + '\n\n' + content
+                        msg['content'] = content
+                        logger.info(f'  [ChatPOST] {agent_id} self-update intent applied: {field_name}={new_value}')
+                    else:
+                        logger.error(f'  [ChatPOST] {agent_id} self-update intent apply failed: {su_msg}')
+
+            images = body.get('images', [])
+            # 达人相关提问：把后端直查的【系统数据】拼到用户消息末尾，
+            # LLM 只做分析和润色，不负责数据查询，从架构上杜绝编造
+            if talent_injection:
+                content = content + talent_injection
+                logger.info(f'  [TalentInject] {agent_id} 命中达人关键词，系统数据拼入用户消息 len={len(talent_injection)}')
+            if images:
+                user_payload = [{'type': 'text', 'text': content}]
+                for img in images:
+                    user_payload.append({'type': 'image_url', 'image_url': {'url': img.get('base64', '')}})
+            else:
+                user_payload = content
+            allowed_cats = _allowed_knowledge_categories(auth)
+            api_reply = _call_ai_api(
+                agent, user_payload, auth.user_info, include_history=not is_extract,
+                allowed_knowledge_categories=allowed_cats,
+                requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
+                group_ids=auth.group_ids
+            )
+            if api_reply:
+                logger.info(f'  [ChatPOST] {agent_id} api_reply_len={len(api_reply)} preview={repr(api_reply[:200])}')
+                # 解析并应用 AI 自修改标记，移除后保存到聊天记录
+                try:
+                    self_updates, cleaned_reply = _parse_self_updates(api_reply)
+                    logger.info(f'  [ChatPOST] {agent_id} self_updates={self_updates} cleaned_len={len(cleaned_reply)}')
+                    if self_updates:
+                        ok, su_msg, _ = _apply_agent_self_update(agent_id, self_updates, source=f'chat:{auth.user_id}')
+                        logger.info(f'  [ChatPOST] {agent_id} apply_self_update ok={ok} msg={su_msg}')
+                except Exception as self_update_err:
+                    logger.error(f'  [ChatPOST] {agent_id} self_update processing error: {self_update_err}')
+                    import traceback
+                    traceback.print_exc()
+                    cleaned_reply = api_reply
+
+                if not cleaned_reply:
+                    logger.info(f'  [ChatPOST] {agent_id} cleaned_reply is empty, falling back to original api_reply')
+                    cleaned_reply = api_reply
+
+                # 剥离伪工具调用文本（exec(command=/tool_call( 等模型演戏输出）
+                cleaned_reply = _strip_fake_tool_calls(cleaned_reply)
+
+                ai_message = {
+                    'id': 'msg_' + uuid.uuid4().hex[:8],
+                    'role': 'assistant',
+                    'content': cleaned_reply,
+                    'timestamp': datetime.now().isoformat()
+                }
+                if _emp_id:
+                    ai_message['empId'] = _emp_id
+                # AI 回复落盘：锁内仅 reload+append+save（reload 防止锁外 AI 调用期间的新消息被覆盖；
+                # 用户消息此前未落盘时在此一并补上，self-update 确认语等 msg 变更也在此同步）
+                lock = _get_chat_lock(agent_id)
+                if not lock.acquire(timeout=30):
+                    logger.error(f'  [ChatPOST] {agent_id} AI回复落盘锁获取超时(30s)，返回500')
+                    self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
                     return
-
-            # 如果前端标记 skipAI（AI已通过OpenClaw回复），跳过API代理
-            skip_ai = body.get('skipAI', False)
-            connection_type = agent.get('connectionType', '')
-            # 当 skipAI=false 时，无论 connectionType 是什么，都调用 AI API
-            # 这样 memory 提取等场景（_extractMemoryViaAPI）才能正常工作
-            if not skip_ai:
-                # AI 调用前校验：员工状态 + systemPrompt 身份约束（仅实际调用 AI 时检查）
-                ok, ai_err = _validate_agent_for_ai(agent)
-                if not ok:
-                    code = 404 if ai_err == '员工不存在' else 400
-                    self._send_json(code, {'error': ai_err})
-                    return
-
-                content = body.get('content', '')
-                # 记忆提取场景不需要加载历史记录，避免 token 超限和干扰
-                is_extract = '【记忆提取任务】' in content
-
-                # 后端拦截自然语言自修改指令，不依赖 AI 输出 [SELF_UPDATE] 标记
-                if role == 'user':
-                    intent_updates = _detect_self_update_intent(content)
-                    if intent_updates:
-                        ok, su_msg, _ = _apply_agent_self_update(agent_id, intent_updates, source=f'chat:{auth.user_id}')
-                        if ok:
-                            field_name, new_value = intent_updates[0]
-                            confirmation = f'（系统已根据你的指令更新了你的{field_name}为{new_value}，请在回复中确认已更新）'
-                            content = confirmation + '\n\n' + content
-                            msg['content'] = content
-                            logger.info(f'  [ChatPOST] {agent_id} self-update intent applied: {field_name}={new_value}')
-                        else:
-                            logger.error(f'  [ChatPOST] {agent_id} self-update intent apply failed: {su_msg}')
-
-                images = body.get('images', [])
-                # 达人相关提问：把后端直查的【系统数据】拼到用户消息末尾，
-                # LLM 只做分析和润色，不负责数据查询，从架构上杜绝编造
-                if talent_injection:
-                    content = content + talent_injection
-                    logger.info(f'  [TalentInject] {agent_id} 命中达人关键词，系统数据拼入用户消息 len={len(talent_injection)}')
-                if images:
-                    user_payload = [{'type': 'text', 'text': content}]
-                    for img in images:
-                        user_payload.append({'type': 'image_url', 'image_url': {'url': img.get('base64', '')}})
-                else:
-                    user_payload = content
-                allowed_cats = _allowed_knowledge_categories(auth)
-                api_reply = _call_ai_api(
-                    agent, user_payload, auth.user_info, include_history=not is_extract,
-                    allowed_knowledge_categories=allowed_cats,
-                    requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
-                    group_ids=auth.group_ids
-                )
-                if api_reply:
-                    logger.info(f'  [ChatPOST] {agent_id} api_reply_len={len(api_reply)} preview={repr(api_reply[:200])}')
-                    # 解析并应用 AI 自修改标记，移除后保存到聊天记录
-                    try:
-                        self_updates, cleaned_reply = _parse_self_updates(api_reply)
-                        logger.info(f'  [ChatPOST] {agent_id} self_updates={self_updates} cleaned_len={len(cleaned_reply)}')
-                        if self_updates:
-                            ok, su_msg, _ = _apply_agent_self_update(agent_id, self_updates, source=f'chat:{auth.user_id}')
-                            logger.info(f'  [ChatPOST] {agent_id} apply_self_update ok={ok} msg={su_msg}')
-                    except Exception as self_update_err:
-                        logger.error(f'  [ChatPOST] {agent_id} self_update processing error: {self_update_err}')
-                        import traceback
-                        traceback.print_exc()
-                        cleaned_reply = api_reply
-
-                    if not cleaned_reply:
-                        logger.info(f'  [ChatPOST] {agent_id} cleaned_reply is empty, falling back to original api_reply')
-                        cleaned_reply = api_reply
-
-                    # 剥离伪工具调用文本（exec(command=/tool_call( 等模型演戏输出）
-                    cleaned_reply = _strip_fake_tool_calls(cleaned_reply)
-
-                    ai_message = {
-                        'id': 'msg_' + uuid.uuid4().hex[:8],
-                        'role': 'assistant',
-                        'content': cleaned_reply,
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    if _emp_id:
-                        ai_message['empId'] = _emp_id
+                try:
+                    messages = _load_chat(agent_id)
+                    if not isinstance(messages, list):
+                        messages = []
+                    _msg_on_disk = False
+                    for m in messages:
+                        if m.get('id') == msg['id']:
+                            m['content'] = msg['content']
+                            _msg_on_disk = True
+                            break
+                    if not _msg_on_disk:
+                        messages.append(msg)
                     messages.append(ai_message)
                     _save_chat(agent_id, messages)
-                    logger.info(f'  [ChatPOST] {agent_id} API代理 保存 {len(messages)} 条消息 ai_content_len={len(ai_message["content"])}')
-                    # 分析结论自动入库（默认开启，settings.json auto_save_analysis: false 可关闭）
-                    if not is_extract:
-                        _maybe_auto_save_analysis(agent_id, cleaned_reply, content)
-                    # 记录项目组对话到 group_messages（供同组其他 AI 感知团队动态；记忆提取任务不记录）
-                    if not is_extract:
-                        try:
-                            agent_group_id = _get_agent_group_id(agent_id)
-                            if agent_group_id:
-                                _record_group_message(agent_group_id, agent_id, 'user', content)
-                                _record_group_message(agent_group_id, agent_id, 'assistant', ai_message['content'])
-                        except Exception as feed_err:
-                            logger.error(f'  [TeamFeed] {agent_id} 记录失败: {feed_err}')
-                    # 推送 AI 回复通知（受用户 message_notify 开关控制）
-                    _push_notification(
-                        auth.user_id, 'message',
-                        f'{agent.get("name", agent_id)} 回复了你',
-                        (cleaned_reply or '')[:200],
-                        agent_id
-                    )
-                    resp_data = {'userMessage': msg, 'aiMessage': ai_message, 'archived': archived_count}
-                    if credit_info:
-                        resp_data['credit'] = credit_info
-                    self._send_json(200, resp_data)
-                    return
+                finally:
+                    lock.release()
+                logger.info(f'  [ChatPOST] {agent_id} API代理 保存 ai_content_len={len(ai_message["content"])}')
+                # 分析结论自动入库（默认开启，settings.json auto_save_analysis: false 可关闭）
+                if not is_extract:
+                    _maybe_auto_save_analysis(agent_id, cleaned_reply, content)
+                # 记录项目组对话到 group_messages（供同组其他 AI 感知团队动态；记忆提取任务不记录）
+                if not is_extract:
+                    try:
+                        agent_group_id = _get_agent_group_id(agent_id)
+                        if agent_group_id:
+                            _record_group_message(agent_group_id, agent_id, 'user', content)
+                            _record_group_message(agent_group_id, agent_id, 'assistant', ai_message['content'])
+                    except Exception as feed_err:
+                        logger.error(f'  [TeamFeed] {agent_id} 记录失败: {feed_err}')
+                # 推送 AI 回复通知（受用户 message_notify 开关控制）
+                _push_notification(
+                    auth.user_id, 'message',
+                    f'{agent.get("name", agent_id)} 回复了你',
+                    (cleaned_reply or '')[:200],
+                    agent_id
+                )
+                resp_data = {'userMessage': msg, 'aiMessage': ai_message, 'archived': archived_count}
+                if credit_info:
+                    resp_data['credit'] = credit_info
+                self._send_json(200, resp_data)
+                return
 
-            # OpenClaw 或其他
-            # OpenClaw 回传的 assistant 回复：先剥离伪工具调用文本（模型无真实工具时的
-            # 演戏输出，exec(command= / tool_call( 等）再落库，不让用户看到技术噪音
-            if role == 'assistant':
-                stripped = _strip_fake_tool_calls(msg.get('content', ''))
-                if stripped != msg.get('content', ''):
-                    msg['content'] = stripped
-                    logger.info(f'  [ChatPOST] {agent_id} 已剥离伪工具调用文本')
+        # OpenClaw 或其他（skipAI，或 AI 调用无回复时仅落盘用户消息）
+        # OpenClaw 回传的 assistant 回复：先剥离伪工具调用文本（模型无真实工具时的
+        # 演戏输出，exec(command= / tool_call( 等）再落库，不让用户看到技术噪音
+        if role == 'assistant':
+            stripped = _strip_fake_tool_calls(msg.get('content', ''))
+            if stripped != msg.get('content', ''):
+                msg['content'] = stripped
+                logger.info(f'  [ChatPOST] {agent_id} 已剥离伪工具调用文本')
+        tool_results = []
+        lock = _get_chat_lock(agent_id)
+        if not lock.acquire(timeout=30):
+            logger.error(f'  [ChatPOST] {agent_id} 消息落盘锁获取超时(30s)，返回500')
+            self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
+            return
+        try:
+            messages = _load_chat(agent_id)
+            if not isinstance(messages, list):
+                messages = []
+            _msg_on_disk = False
+            for m in messages:
+                if m.get('id') == msg['id']:
+                    m['content'] = msg['content']
+                    _msg_on_disk = True
+                    break
+            if not _msg_on_disk:
+                messages.append(msg)
             _save_chat(agent_id, messages)
             logger.info(f'  [ChatPOST] {agent_id} role={role} skipAI={skip_ai} 保存后共 {len(messages)} 条消息')
-            # OpenClaw 链路：AI 回复由前端回传（role=assistant），同样做分析结论自动入库
-            # 注意：最终回复可能只是"建档成功"，真正的分析在 tool_result 里，
-            # 收集当前 turn（assistant 之前连续 role=tool 的消息）的 content 一并检测
+            # 收集当前 turn（assistant 之前连续 role=tool 的消息）的 content，供锁外 auto_save 一并检测
             if role == 'assistant':
-                tool_results = []
                 for m in reversed(messages[:-1]):
                     if m.get('role') == 'tool':
                         tool_results.append(m.get('content', ''))
                     elif m.get('role') == 'user':
                         break
                 tool_results.reverse()
-                _maybe_auto_save_analysis(agent_id, msg.get('content', ''), tool_results=tool_results)
+        finally:
+            lock.release()
+        # OpenClaw 链路：AI 回复由前端回传（role=assistant），同样做分析结论自动入库（锁外执行）
+        # 注意：最终回复可能只是"建档成功"，真正的分析在 tool_result 里
+        if role == 'assistant':
+            _maybe_auto_save_analysis(agent_id, msg.get('content', ''), tool_results=tool_results)
 
         # 多图重任务旁路：>=2 张图片的 OpenClaw 消息不进入 gateway（重活会把调度队列堵死），
         # 由后端 Python 线程完成 vision+分析后落库；前端凭 heavyPipe+jobId 轮询结果，
@@ -17144,12 +17212,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'timestamp': datetime.now().isoformat(),
                 'heavyPipePlaceholder': True,
             }
-            with _get_chat_lock(agent_id):
+            lock = _get_chat_lock(agent_id)
+            if not lock.acquire(timeout=30):
+                logger.error(f'  [HeavyPipe] {job_id} 占位消息落盘锁获取超时(30s)，返回500')
+                self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
+                return
+            try:
                 messages = _load_chat(agent_id)
                 if not isinstance(messages, list):
                     messages = []
                 messages.append(placeholder_msg)
                 _save_chat(agent_id, messages)
+            finally:
+                lock.release()
             logger.info(f'  [HeavyPipe] {job_id} 已旁路: {agent_id} images={len(images)}')
             self._send_json(200, {
                 'userMessage': msg, 'aiMessage': placeholder_msg,
@@ -17184,12 +17259,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'timestamp': datetime.now().isoformat(),
                 'reanalysis': True,
             }
-            with _get_chat_lock(agent_id):
+            lock = _get_chat_lock(agent_id)
+            if not lock.acquire(timeout=30):
+                logger.error(f'  [Reanalysis] {agent_id} 引导回复落盘锁获取超时(30s)，返回500')
+                self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
+                return
+            try:
                 messages = _load_chat(agent_id)
                 if not isinstance(messages, list):
                     messages = []
                 messages.append(ai_message)
                 _save_chat(agent_id, messages)
+            finally:
+                lock.release()
+            # _send_json 必须在锁外执行，避免持锁做网络写
             self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message})
             return
         name = intent['name']
@@ -17216,14 +17299,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         }
         if extra:
             ai_message['heavyPipePlaceholder'] = True
-        with _get_chat_lock(agent_id):
+        lock = _get_chat_lock(agent_id)
+        if not lock.acquire(timeout=30):
+            logger.error(f'  [Reanalysis] {agent_id} 接管回复落盘锁获取超时(30s)，返回500')
+            self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
+            return
+        try:
             messages = _load_chat(agent_id)
             if not isinstance(messages, list):
                 messages = []
             messages.append(ai_message)
             _save_chat(agent_id, messages)
+        finally:
+            lock.release()
         resp = {'userMessage': msg, 'aiMessage': ai_message}
         resp.update(extra)
+        # _send_json 必须在锁外执行，避免持锁做网络写
         self._send_json(200, resp)
 
 def _resolve_ai_base_url(api_provider, custom_endpoint=''):
@@ -18316,12 +18407,17 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
             'heavyPipe': True,
             'vision_data': vision_summary,
         }
-        with _get_chat_lock(agent_id):
+        lock = _get_chat_lock(agent_id)
+        if not lock.acquire(timeout=30):
+            raise RuntimeError('聊天写入锁获取超时(30s)，拒绝无限等待')
+        try:
             messages = _load_chat(agent_id)
             if not isinstance(messages, list):
                 messages = []
             messages.append(ai_message)
             _save_chat(agent_id, messages)
+        finally:
+            lock.release()
         # 实体归属兜底：stage2 提取的达人名经 stage3 达人库预查命中时绑真实 tal_id，
         # 未入库（命中 0）时绑 name:达人名 虚拟 id，避免 entity 留空、后续按达人名检索不到事件
         entity_hint = _heavy_entity_hint(talent_names, talents)
@@ -18511,18 +18607,31 @@ def _reanalysis_worker(job_id, agent, user_content, talent_name, entity_id, visi
             'reanalysis': True,
             'vision_data': vision_summary,
         }
-        with _get_chat_lock(agent_id):
+        logger.info(f'  [Reanalysis] {job_id} stage4完成，准备进锁落盘（累计 {time.perf_counter() - t0:.1f}s）')
+        _t = time.perf_counter()
+        lock = _get_chat_lock(agent_id)
+        if not lock.acquire(timeout=30):
+            raise RuntimeError('聊天写入锁获取超时(30s)，拒绝无限等待')
+        try:
             messages = _load_chat(agent_id)
             if not isinstance(messages, list):
                 messages = []
             messages.append(ai_message)
             _save_chat(agent_id, messages)
+        finally:
+            lock.release()
+        logger.info(f'  [Reanalysis] {job_id} 消息落盘完成: {time.perf_counter() - _t:.1f}s')
         # 实体绑定沿用意图识别阶段定位到的 entity_id（与存量事件同一实体，真实 tal_id
         # 或 name: 虚拟 id），保证新旧分析/截图事件在同一实体时间线上
         entity_hint = ('talent', entity_id) if entity_id else _heavy_entity_hint([talent_name], talents)
         # 先 supersede 旧版分析再入库新版（去重/合并只认 status='ok'，顺序不能反）
+        _t = time.perf_counter()
         _supersede_prev_analysis_entry(talent_name)
+        logger.info(f'  [Reanalysis] {job_id} auto_save前（旧版已置superseded）: {time.perf_counter() - _t:.1f}s')
+        _t = time.perf_counter()
         _maybe_auto_save_analysis(agent_id, reply, user_content or '', entity_hint=entity_hint)
+        logger.info(f'  [Reanalysis] {job_id} auto_save完成: {time.perf_counter() - _t:.1f}s')
+        _t = time.perf_counter()
         try:
             agent_group_id = _get_agent_group_id(agent_id)
             if agent_group_id:
@@ -18530,7 +18639,11 @@ def _reanalysis_worker(job_id, agent, user_content, talent_name, entity_id, visi
                 _record_group_message(agent_group_id, agent_id, 'assistant', reply)
         except Exception as feed_err:
             logger.error(f'  [Reanalysis] {job_id} TeamFeed 记录失败: {feed_err}')
+        logger.info(f'  [Reanalysis] {job_id} TeamFeed完成: {time.perf_counter() - _t:.1f}s')
+        _t = time.perf_counter()
         _push_notification(user_id, 'message', f'{agent_name} 的重新分析已完成', (reply or '')[:200], agent_id)
+        logger.info(f'  [Reanalysis] {job_id} 通知完成: {time.perf_counter() - _t:.1f}s')
+        logger.info(f'  [Reanalysis] {job_id} 准备置job done（累计 {time.perf_counter() - t0:.1f}s）')
         _heavy_job_set(job_id, status='done')
         logger.info(f'  [Reanalysis] {job_id} 完成（达人={talent_name}），总耗时 {time.perf_counter() - t0:.1f}s')
     except Exception as e:
@@ -20316,18 +20429,27 @@ def _handle_delete_chat_message(self, agent_id, msg_id):
         self._send_json(status, {'error': err})
         return
 
-    with _get_chat_lock(agent_id):
+    lock = _get_chat_lock(agent_id)
+    if not lock.acquire(timeout=30):
+        logger.error(f'  [ChatDELETE] {agent_id} 聊天锁获取超时(30s)，返回500')
+        self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
+        return
+    deleted = False
+    try:
         messages = _load_chat(agent_id)
         if not isinstance(messages, list):
             messages = []
         original_len = len(messages)
         messages = [m for m in messages if m.get('id') != msg_id]
-        if len(messages) == original_len:
-            self._send_json(404, {'error': '消息不存在'})
-            return
-
-        _save_chat(agent_id, messages)
-        logger.info(f'  [ChatDELETE] {agent_id} 删除消息 {msg_id}，剩余 {len(messages)} 条')
+        deleted = len(messages) != original_len
+        if deleted:
+            _save_chat(agent_id, messages)
+            logger.info(f'  [ChatDELETE] {agent_id} 删除消息 {msg_id}，剩余 {len(messages)} 条')
+    finally:
+        lock.release()
+    if not deleted:
+        self._send_json(404, {'error': '消息不存在'})
+        return
     self._send_json(200, {'message': '消息已删除'})
 
 def _handle_clear_chat(self, agent_id):
