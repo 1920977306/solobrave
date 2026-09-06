@@ -16987,11 +16987,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 达人重新分析意图拦截（正则不靠 LLM，优先于一切 AI 分发）：
             # 命中后后端直接接管回复，并视存量截图数据建异步重分析任务，不让员工自由发挥
             if role == 'user' and not body.get('images'):
-                re_intent = _detect_reanalysis_intent(msg.get('content', ''))
-                if re_intent:
+                user_content = msg.get('content', '')
+                if _has_reanalysis_intent(user_content):
+                    re_intent = _detect_reanalysis_intent(user_content)
                     _save_chat(agent_id, messages)
-                    logger.info(f'  [Reanalysis] {agent_id} 命中重新分析意图: {re_intent}')
-                    self._handle_reanalysis_request(agent, agent_id, msg.get('content', ''), re_intent, msg, auth)
+                    # 正则命中 → 一律进意图接管（intent 非空走重分析任务；空走引导问达人名）
+                    logger.info(f'  [Reanalysis] {agent_id} 命中重新分析意图: intent={re_intent}')
+                    self._handle_reanalysis_request(agent, agent_id, user_content, re_intent, msg, auth)
                     return
 
             # 如果前端标记 skipAI（AI已通过OpenClaw回复），跳过API代理
@@ -17167,7 +17169,29 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_reanalysis_request(self, agent, agent_id, content, intent, msg, auth):
         """达人重新分析意图接管回复：存量 vision_data 截图事件存在则创建异步重分析任务
         （复用 HeavyPipe job 进度机制，前端凭 heavyPipe+jobId 轮询 heavy-status），
-        不存在则直接回复引导重发截图。两种情况都不再把消息转给 AI/员工。"""
+        不存在则直接回复引导重发截图。两种情况都不再把消息转给 AI/员工。
+
+        intent=None：正则命中但消息里没明确达人名——回复引导文案问用户要重分析谁，
+        不建任务、不臆测取最近活跃达人（避免给错的达人跑重分析）。"""
+        if intent is None:
+            # 正则命中但没明确达人名：引导问
+            reply_text = '请告诉我要重新分析哪位达人，我会用TA的已有截图重新分析'
+            logger.info(f'  [Reanalysis] {agent_id} 正则命中但未提取到达人名，引导用户补充')
+            ai_message = {
+                'id': 'msg_' + uuid.uuid4().hex[:8],
+                'role': 'assistant',
+                'content': reply_text,
+                'timestamp': datetime.now().isoformat(),
+                'reanalysis': True,
+            }
+            with _get_chat_lock(agent_id):
+                messages = _load_chat(agent_id)
+                if not isinstance(messages, list):
+                    messages = []
+                messages.append(ai_message)
+                _save_chat(agent_id, messages)
+            self._send_json(200, {'userMessage': msg, 'aiMessage': ai_message})
+            return
         name = intent['name']
         reply_text, vision_event = _reanalysis_plan(intent)
         extra = {}
@@ -18345,11 +18369,24 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
 _REANALYSIS_INTENT_RE = re.compile(r'(?<!别)(?:重新|再).{0,4}(?:分析|报告)')
 
 
+def _has_reanalysis_intent(text):
+    """仅做正则层面的"重新分析"意图检测，不解析达人名。
+    供调用方在 _detect_reanalysis_intent 之前先判断要不要走"意图接管"分支；
+    如果正则命中但 _detect_reanalysis_intent 返回 None（消息里没明确达人名），
+    也要走意图接管回复引导文案，而不是放给 AI 自由发挥。"""
+    text = (text or '').strip()
+    if not text:
+        return False
+    return bool(_REANALYSIS_INTENT_RE.search(text))
+
+
 def _detect_reanalysis_intent(text):
     """重新分析意图识别（正则不靠 LLM）+ 目标达人定位。
     命中返回 {'name': 达人名, 'entity_id': knowledge_events 里的 entity_id}，否则 None。
-    达人提取：优先 _extract_entities_from_text（达人库 tal_id / name: 虚拟实体均可）；
-    提取不到时按消息文本对 knowledge_events 达人实体名做包含匹配，取最近活跃达人。"""
+    严格模式：正则必须命中，消息文本里必须能提取到明确的达人名（_extract_entities_from_text
+    的 talent 命中，或 knowledge_events 达人实体名包含匹配），才会返回 intent。
+    没有达人名 → 返回 None（调用方走"请告诉我要重新分析哪位达人"引导）。
+    注意：原"取最近活跃达人"的兜底猜测已删除——避免给错的达人跑重分析。"""
     text = (text or '').strip()
     if not text or not _REANALYSIS_INTENT_RE.search(text):
         return None
@@ -18360,7 +18397,7 @@ def _detect_reanalysis_intent(text):
                 return {'name': name, 'entity_id': eid}
     except Exception as e:
         logger.warning(f'  [Reanalysis] 实体提取失败: {e}')
-    # 2) 兜底：knowledge_events 达人实体名模糊匹配（含已下架达人），取最近活跃
+    # 2) knowledge_events 达人实体名包含匹配（_extract_entities_from_text 漏掉的情况兜底）
     try:
         conn = _db_conn()
         try:
@@ -18380,6 +18417,7 @@ def _detect_reanalysis_intent(text):
                 return {'name': name, 'entity_id': eid}
     except Exception as e:
         logger.warning(f'  [Reanalysis] 达人模糊匹配失败: {e}')
+    # 正则命中但消息里没有任何明确达人名 → 不臆测，让调用方走引导
     return None
 
 
