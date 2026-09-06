@@ -85,6 +85,10 @@ PORT = 8080
 BIND = '0.0.0.0'
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 PROXY_TIMEOUT = 60  # 秒
+# 代理转发 read timeout：截图 base64+长上下文 payload 大、Kimi 处理慢，
+# 60s 易触发 "The read operation timed out"（请求实际已到达 Kimi），放宽到 180s。
+# urllib 的 timeout 是 connect+read 统一值（无元组写法），转发链路统一改用此值。
+PROXY_READ_TIMEOUT = 180  # 秒
 ALLOWED_HTTP_METHODS = {'GET', 'HEAD', 'POST', 'OPTIONS', 'DELETE'}
 ALLOWED_DOMAINS = []  # 域名白名单，留空不限制
 
@@ -19047,7 +19051,12 @@ def _retrieve_entity_report_context(user_text, max_events=4, max_chars=6000, rec
                 break
             parts.append(chunk[:remain])
             used += len(parts[-1])
-        return '【系统检索注入：相关历史分析与截图原始数据，可作为回答依据】\n' + '\n\n'.join(parts)
+        return ('【系统档案注入：以下为最高优先级事实，优先级高于对话历史中的一切说法】\n'
+                '以下内容为系统档案中的真实记录（含达人截图原始识别字段与历史分析结论）。'
+                '当它与对话历史中的任何说法冲突时——包括你此前回复过的"没有该达人档案"'
+                '"未读到截图""数据无来源/已作废"等否认表述——必须以本档案数据为准直接回答用户问题；'
+                '严禁否认档案中已存在的数据，严禁要求用户重新提供截图或数字；'
+                '回答时直接引用档案中的字段值。\n') + '\n\n'.join(parts)
     except Exception as e:
         logger.warning(f'  [ReportCtx] 检索注入失败: {e}')
         return ''
@@ -21505,7 +21514,7 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
             headers['Content-Length'] = str(len(new_body))
             req = urllib.request.Request(target_url, data=new_body, headers=headers, method='POST')
             ctx = ssl.create_default_context()
-            resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+            resp = urllib.request.urlopen(req, timeout=PROXY_READ_TIMEOUT, context=ctx)
             resp_body = resp.read()
             resp_json = json.loads(resp_body.decode('utf-8', errors='replace'))
 
@@ -21565,7 +21574,7 @@ def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthrop
         headers['Content-Length'] = str(len(new_body))
         req = urllib.request.Request(target_url, data=new_body, headers=headers, method='POST')
         ctx = ssl.create_default_context()
-        resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+        resp = urllib.request.urlopen(req, timeout=PROXY_READ_TIMEOUT, context=ctx)
         resp_body = resp.read()
         current_resp = json.loads(resp_body.decode('utf-8', errors='replace'))
 
@@ -22188,7 +22197,7 @@ def _handle_proxy(self):
                 try:
                     req = urllib.request.Request(target_url, data=body, headers=forward_headers, method='POST')
                     ctx = ssl.create_default_context()
-                    resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+                    resp = urllib.request.urlopen(req, timeout=PROXY_READ_TIMEOUT, context=ctx)
                     resp_body = resp.read()
                     resp_content_type = resp.headers.get('Content-Type', 'application/json')
                     last_http_error = None
@@ -22209,7 +22218,7 @@ def _handle_proxy(self):
             # 非 Kimi coding：单次调用，行为不变
             req = urllib.request.Request(target_url, data=body, headers=forward_headers, method='POST')
             ctx = ssl.create_default_context()
-            resp = urllib.request.urlopen(req, timeout=PROXY_TIMEOUT, context=ctx)
+            resp = urllib.request.urlopen(req, timeout=PROXY_READ_TIMEOUT, context=ctx)
             resp_body = resp.read()
             resp_content_type = resp.headers.get('Content-Type', 'application/json')
 
@@ -22331,8 +22340,8 @@ def _handle_proxy(self):
         self._send_json_error(502, f'Network error: {reason}')
 
     except TimeoutError:
-        logger.error(f'  ❌ Proxy Timeout ({PROXY_TIMEOUT}s) <- {target_url}')
-        self._send_json_error(504, f'Request timed out after {PROXY_TIMEOUT}s')
+        logger.error(f'  ❌ Proxy Timeout ({PROXY_READ_TIMEOUT}s) <- {target_url}')
+        self._send_json_error(504, f'Request timed out after {PROXY_READ_TIMEOUT}s')
 
     except Exception as e:
         logger.error(f'  ❌ Proxy Unexpected Error: {e} <- {target_url}')
@@ -24582,7 +24591,7 @@ def main():
     logger.info(f'  [API] 抖音转写:  POST /api/douyin/transcribe')
     logger.info(f'  [API] OpenClaw:  /api/openclaw/*')
     logger.info(f'  [API] 技能:      /api/openclaw/skills/*')
-    logger.info(f'  [CFG] 超时设置:  {PROXY_TIMEOUT}s')
+    logger.info(f'  [CFG] 超时设置:  转发read={PROXY_READ_TIMEOUT}s 通用={PROXY_TIMEOUT}s')
     logger.info('=' * 56)
     logger.info('  Ctrl+C 停止服务\n')
 
