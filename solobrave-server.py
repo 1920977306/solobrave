@@ -12569,10 +12569,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             limit = max(1, min(50, int(qs.get('limit', [5])[0] or 5)))
         except (TypeError, ValueError):
             limit = 5
+        # 最近会话上下文：query 无达人名时供 force_inject 兜底定位实体。
+        # 取 agentId 参数对应聊天记录最近 6 条 user+assistant 内容，取不到传空列表（禁止 None）
+        _recent_msgs = []
+        _agent_id = (qs.get('agentId', [''])[0] or qs.get('agent_id', [''])[0]).strip()
+        if _agent_id:
+            try:
+                _hist = _load_chat(_agent_id) or []
+                _recent_msgs = [m.get('content', '') for m in _hist
+                                if isinstance(m, dict) and m.get('role') in ('user', 'assistant')
+                                and isinstance(m.get('content'), str) and m.get('content')][-6:]
+            except Exception as _e:
+                logger.warning(f'  [KnowledgeEvents] search 读取最近会话失败: {_e}')
+                _recent_msgs = []
         try:
             # 实体精确匹配强制注入：query 命中 talent 时直接拿该实体最新 vision_data + analysis，
             # 不经 FTS 最少命中词数门槛（防"完播率"等热词被其他达人事件跨实体召回）
-            force_injected = _force_inject_entity_events(query, recent_messages=None, entity_type='talent')
+            force_injected = _force_inject_entity_events(query, recent_messages=_recent_msgs, entity_type='talent')
             results = _hybrid_retrieve_events(query, entity_type=entity_type, limit=limit)
             # 合并：force-injected 排前，hybrid 结果去重追加；按 limit 截断
             seen = set()
@@ -18961,9 +18974,11 @@ def _ke_entity_names(conn, entity_refs):
     return names
 
 
-def _retrieve_entity_report_context(user_text, max_events=4, max_chars=6000):
+def _retrieve_entity_report_context(user_text, max_events=4, max_chars=6000, recent_messages=None):
     """按实体/全文检索 knowledge_events 中最近的分析结论与截图原始数据（vision_data），
     格式化为注入文本——代理层组装上下文时让模型拿到报告所依据的截图数据。
+    recent_messages：最近会话消息内容列表（user+assistant），供 force_inject 在
+    user_text 无达人名时兜底定位实体；调用方禁止传 None（无则传 []）。
     无匹配或异常返回 ''。"""
     try:
         if not user_text or not user_text.strip():
@@ -18995,6 +19010,27 @@ def _retrieve_entity_report_context(user_text, max_events=4, max_chars=6000):
                     if row:
                         seen.add(it['id'])
                         picked.append((row, '相关历史'))
+            # 实体精确匹配强制注入（P0：聊天追问召回失败病根——追问不带达人名时
+            # FTS 最少命中词数门槛会把目标实体事件滤掉）：query 或最近会话能定位到
+            # 达人时，该实体最新 vision_data + analysis 强制并入，按 event id 去重、
+            # 排最前优先占注入字符预算，不经 FTS 门槛
+            try:
+                fi_picked = []
+                for it in _force_inject_entity_events(user_text, recent_messages=recent_messages or [], entity_type='talent'):
+                    feid = it.get('id')
+                    if not feid or feid in seen:
+                        continue
+                    row = conn.execute(
+                        'SELECT id, event_type, title, content_full FROM knowledge_events WHERE id = ?',
+                        (feid,)).fetchone()
+                    if row:
+                        seen.add(feid)
+                        fname = it.get('_entityName') or ''
+                        fi_picked.append((row, f'达人「{fname}」' if fname else '强制注入'))
+                if fi_picked:
+                    picked = fi_picked + picked
+            except Exception as fi_err:
+                logger.warning(f'  [ReportCtx] force-inject 合并失败: {fi_err}')
         finally:
             conn.close()
         if not picked:
@@ -19415,6 +19451,7 @@ def _force_inject_entity_events(query, recent_messages=None, entity_type='talent
             if r:
                 item = _ke_event_to_list_item(r)
                 item['_forceInjected'] = True  # 标记让前端知道是强制注入的
+                item['_entityName'] = name     # 供 ReportCtx 合并时生成可读标签
                 out.append(item)
         if out:
             logger.info(f'  [HybridRetrieve] force-inject entity {etype}:{eid} ({name}) → {len(out)} events')
@@ -22927,7 +22964,17 @@ def _handle_proxy_kimi(self):
     if agent_id and all_user_text.strip():
         _t = time.perf_counter()
         try:
-            _report_ctx = _retrieve_entity_report_context(all_user_text)
+            # 最近会话消息（最近6条 user+assistant 内容）供 force_inject 在追问
+            # 不带达人名时兜底定位实体；取不到传空列表（禁止 None）
+            _recent_msgs = []
+            try:
+                _hist = _load_chat(agent_id) or []
+                _recent_msgs = [m.get('content', '') for m in _hist
+                                if isinstance(m, dict) and m.get('role') in ('user', 'assistant')
+                                and isinstance(m.get('content'), str) and m.get('content')][-6:]
+            except Exception:
+                _recent_msgs = []
+            _report_ctx = _retrieve_entity_report_context(all_user_text, recent_messages=_recent_msgs)
             if _report_ctx:
                 _prepend_system_context(body, _report_ctx)
                 logger.info(f'  [ReportCtx] 注入报告依据 len={len(_report_ctx)}')
