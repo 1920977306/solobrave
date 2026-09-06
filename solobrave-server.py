@@ -4769,6 +4769,59 @@ def _is_analysis_conclusion(text):
     return False
 
 
+# 拒绝/作废类元对话回复关键词：AI 明确告知"我撤回/未识别/作废"等，回复没有任何业务参考价值，
+# 不能入库知识库或分析事件。匹配任一即视为否认/作废。
+_DENIAL_CLASS_PATTERNS = [
+    '没有来源',
+    '我撤回',
+    '未识别成功',
+    '从未识别',
+    '无法核实',
+    '报告作废',
+    '整体作废',
+    '哪张截图都不是',
+    '未读取到截图',
+    '没读到截图',
+    '不作为任何决策依据',
+]
+
+
+def _is_denial_class_reply(text):
+    """AI 回复是否属于"否认/作废"类元对话（撤回/未识别/作废等）。
+    命中任一 _DENIAL_CLASS_PATTERNS 关键词即返回 True。
+    业务上：这种回复没有任何分析价值，不应进 kb_entries / knowledge_events。"""
+    if not text:
+        return False
+    return any(p in text for p in _DENIAL_CLASS_PATTERNS)
+
+
+def _has_analysis_structure(text):
+    """分析结论的最小结构：要么含"评级"类措辞，要么含 Markdown 表格（任意行有 |）。
+    两条都不满足说明 AI 这次输出根本没形成可入库的分析（即使 _is_analysis_conclusion 误判）。"""
+    if not text:
+        return False
+    if '评级' in text:
+        return True
+    # Markdown 表格：至少一行含 | 且不全是空格 + |  + 空格的退化形式
+    for line in text.split('\n'):
+        s = line.strip()
+        if '|' in s and len(s) >= 3:
+            # 简单表格特征：含 | 且左右两侧都有非空内容，或含 --- 分隔行
+            if '---' in s or s.count('|') >= 2:
+                return True
+    return False
+
+
+def _passes_auto_save_gate(text):
+    """自动入库闸门：拒绝类元对话 或 完全没有分析结构时返回 False。
+    调用方在满足 _is_analysis_conclusion 后再调本函数二次过滤。"""
+    if _is_denial_class_reply(text):
+        return False
+    if not _has_analysis_structure(text):
+        return False
+    return True
+
+
 def _extract_analysis_title(content, user_text=''):
     """生成分析结论条目标题：业务前缀 + 结论句摘要（如“达人分析：建议合作，…”）"""
     prefix = '分析结论'
@@ -5066,8 +5119,13 @@ def _save_knowledge_event(reply, agent_id, title, user_text='', entity_hint=None
     """把分析结论原文写入 knowledge_events（实体档案时间线，原文不截断）。
     entity_hint：可选 (entity_type, entity_id)，正文/提问文本匹配不到实体时的兜底归属
     （HeavyPipe 用 stage2 提取的达人名经达人库预查结果传入，避免实体留空无法按达人名检索）。
-    同时生成 embedding 存入 embedding 列（API 不可用时留 NULL）。异常兜底返回 None。"""
+    同时生成 embedding 存入 embedding 列（API 不可用时留 NULL）。异常兜底返回 None。
+
+    闸门：拒绝/作废类元对话 或 完全没有分析结构时直接 return None，不入库。"""
     try:
+        if not _passes_auto_save_gate(reply or ''):
+            logger.info(f'  [KnowledgeEvents] {agent_id} 命中闸门（否认类元对话或缺分析结构），跳过事件入库')
+            return None
         entity_type, entity_id = _extract_entity_from_analysis(reply, user_text)
         if not entity_id and entity_hint:
             entity_type, entity_id = entity_hint
@@ -5177,6 +5235,10 @@ def _maybe_auto_save_analysis(agent_id, reply, user_text='', tool_results=None, 
             if _is_analysis_conclusion(combined):
                 analysis_text = combined
         if not _is_analysis_conclusion(analysis_text):
+            return
+        if not _passes_auto_save_gate(analysis_text):
+            # 闸门拦截：拒绝/作废类元对话 或 缺分析结构；记 INFO 留痕不入库
+            logger.info(f'  [AutoSaveAnalysis] {agent_id} 命中闸门（否认类元对话或缺分析结构），跳过入库')
             return
         if _is_low_quality_knowledge(analysis_text):
             return
@@ -12500,8 +12562,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except (TypeError, ValueError):
             limit = 5
         try:
+            # 实体精确匹配强制注入：query 命中 talent 时直接拿该实体最新 vision_data + analysis，
+            # 不经 FTS 最少命中词数门槛（防"完播率"等热词被其他达人事件跨实体召回）
+            force_injected = _force_inject_entity_events(query, recent_messages=None, entity_type='talent')
             results = _hybrid_retrieve_events(query, entity_type=entity_type, limit=limit)
-            self._send_json(200, {'events': results, 'total': len(results)})
+            # 合并：force-injected 排前，hybrid 结果去重追加；按 limit 截断
+            seen = set()
+            merged = []
+            for it in force_injected:
+                if it.get('id') and it['id'] not in seen:
+                    seen.add(it['id'])
+                    merged.append(it)
+            for it in results:
+                if it.get('id') and it['id'] not in seen:
+                    seen.add(it['id'])
+                    merged.append(it)
+                if len(merged) >= limit:
+                    break
+            self._send_json(200, {'events': merged, 'total': len(merged)})
         except Exception as e:
             logger.error(f'  [KnowledgeEvents] search failed: {e}')
             self._send_json_error(500, f'Search failed: {str(e)}')
@@ -19126,6 +19204,73 @@ def _ke_entity_match_events(query, entity_type='', limit=5):
     except Exception as e:
         logger.warning(f'  [HybridRetrieve] 实体匹配路失败: {e}')
     return ids, items
+
+
+def _force_inject_entity_events(query, recent_messages=None, entity_type='talent'):
+    """实体精确匹配强制注入：query 命中 talent 实体，或 recent_messages 最近几轮能定位到达人时，
+    直接把该实体最新一条 vision_data + 最新一条 analysis 事件返回。
+    不经 FTS 最少命中词数门槛过滤——门槛只作用跨实体泛化召回（_hybrid_retrieve_events 路2），
+    实体精确匹配路结果一律保留。返回 list of list_item dict（与 _hybrid_retrieve_events 一致结构）。"""
+    try:
+        target = None  # (entity_type, entity_id, name)
+        # 1) query 提取
+        try:
+            for etype, eid, name, _cat in _extract_entities_from_text(query or ''):
+                if etype == entity_type and name:
+                    target = (etype, eid, name)
+                    break
+        except Exception:
+            pass
+        # 2) recent_messages 兜底（按从新到旧顺序扫，命中即停）
+        if not target and recent_messages:
+            try:
+                for msg in (recent_messages or [])[:6]:  # 最多看最近 6 轮
+                    content = msg if isinstance(msg, str) else (msg.get('content') or msg.get('text') or '')
+                    if not content:
+                        continue
+                    for etype, eid, name, _cat in _extract_entities_from_text(content):
+                        if etype == entity_type and name:
+                            target = (etype, eid, name)
+                            break
+                    if target:
+                        break
+            except Exception:
+                pass
+        if not target:
+            return []
+        etype, eid, name = target
+        # 3) 取该实体最新一条 vision_data 和最新一条 analysis
+        conn = _db_conn()
+        try:
+            latest = {}
+            for ev_type in ('vision_data', 'analysis'):
+                row = conn.execute(
+                    'SELECT id, entity_type, entity_id, agent_id, event_type, title, '
+                    'content_full, content_summary, conclusions, importance_score, '
+                    'source_msg_id, user_query, created_at '
+                    'FROM knowledge_events '
+                    'WHERE entity_type = ? AND entity_id = ? AND event_type = ? '
+                    'ORDER BY created_at DESC LIMIT 1',
+                    (etype, eid, ev_type)
+                ).fetchone()
+                if row:
+                    latest[ev_type] = row
+        finally:
+            conn.close()
+        # 4) 拼成 list_item 列表，vision 在前（先看原始数据）→ analysis（结论）次之
+        out = []
+        for ev_type in ('vision_data', 'analysis'):
+            r = latest.get(ev_type)
+            if r:
+                item = _ke_event_to_list_item(r)
+                item['_forceInjected'] = True  # 标记让前端知道是强制注入的
+                out.append(item)
+        if out:
+            logger.info(f'  [HybridRetrieve] force-inject entity {etype}:{eid} ({name}) → {len(out)} events')
+        return out
+    except Exception as e:
+        logger.error(f'  [HybridRetrieve] force-inject 失败: {e}')
+        return []
 
 
 def _hybrid_retrieve_events(query, entity_type='', limit=5):
