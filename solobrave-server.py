@@ -12585,7 +12585,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         try:
             # 实体精确匹配强制注入：query 命中 talent 时直接拿该实体最新 vision_data + analysis，
             # 不经 FTS 最少命中词数门槛（防"完播率"等热词被其他达人事件跨实体召回）
-            force_injected = _force_inject_entity_events(query, recent_messages=_recent_msgs, entity_type='talent')
+            force_injected = _force_inject_entity_events(query, recent_messages=_recent_msgs, entity_type='talent', current_query=query)
             results = _hybrid_retrieve_events(query, entity_type=entity_type, limit=limit)
             # 合并：force-injected 排前，hybrid 结果去重追加；按 limit 截断
             seen = set()
@@ -18974,11 +18974,13 @@ def _ke_entity_names(conn, entity_refs):
     return names
 
 
-def _retrieve_entity_report_context(user_text, max_events=4, max_chars=6000, recent_messages=None):
+def _retrieve_entity_report_context(user_text, max_events=4, max_chars=6000, recent_messages=None, current_query=None):
     """按实体/全文检索 knowledge_events 中最近的分析结论与截图原始数据（vision_data），
     格式化为注入文本——代理层组装上下文时让模型拿到报告所依据的截图数据。
     recent_messages：最近会话消息内容列表（user+assistant），供 force_inject 在
     user_text 无达人名时兜底定位实体；调用方禁止传 None（无则传 []）。
+    current_query：当前轮用户消息原文短文本，force_inject 实体定位优先用它
+    （user_text 常是多轮历史拼接长文本，历史达人会抢占候选）。
     无匹配或异常返回 ''。"""
     try:
         if not user_text or not user_text.strip():
@@ -19016,7 +19018,7 @@ def _retrieve_entity_report_context(user_text, max_events=4, max_chars=6000, rec
             # 排最前优先占注入字符预算，不经 FTS 门槛
             try:
                 fi_picked = []
-                for it in _force_inject_entity_events(user_text, recent_messages=recent_messages or [], entity_type='talent'):
+                for it in _force_inject_entity_events(user_text, recent_messages=recent_messages or [], entity_type='talent', current_query=current_query):
                     feid = it.get('id')
                     if not feid or feid in seen:
                         continue
@@ -19393,95 +19395,114 @@ def _ke_entity_match_events(query, entity_type='', limit=5):
     return ids, items
 
 
-def _force_inject_entity_events(query, recent_messages=None, entity_type='talent'):
-    """实体精确匹配强制注入：query 命中 talent 实体，或 recent_messages 最近几轮能定位到达人时，
-    直接把该实体最新一条 vision_data + 最新一条 analysis 事件返回。
+def _force_inject_entity_events(query, recent_messages=None, entity_type='talent', current_query=None):
+    """实体精确匹配强制注入：定位到 talent 实体时，把该实体最新一条 vision_data +
+    最新一条 analysis 事件返回。
+    当前轮优先 + 多候选依次试事件：先在 current_query 短文本上提候选（tal_id 提取 +
+    name: 虚拟实体子串匹配合并，按名字在文本中首次出现位置排序、按 eid 去重）；
+    当前轮无候选才退回长 query 文本与 recent_messages 最近6条做同样提取。
+    对每个候选依次查 knowledge_events 最新事件，第一个查到事件的候选命中即返回；
+    查无事件继续下一候选（不占位静默返回——长文本历史里的达人会抢走 target 导致
+    当前轮真正问的库外达人永远无法注入），全部候选均无事件才返回 [] 并记日志。
     不经 FTS 最少命中词数门槛过滤——门槛只作用跨实体泛化召回（_hybrid_retrieve_events 路2），
     实体精确匹配路结果一律保留。返回 list of list_item dict（与 _hybrid_retrieve_events 一致结构）。"""
     try:
-        target = None  # (entity_type, entity_id, name)
-        # 1) query 提取
+        # 0) name: 虚拟实体清单（库外达人，_extract_entities_from_text 定位不到，靠子串匹配）
+        name_entities = []  # [(entity_id, name)]
         try:
-            for etype, eid, name, _cat in _extract_entities_from_text(query or ''):
-                if etype == entity_type and name:
-                    target = (etype, eid, name)
-                    break
-        except Exception:
-            pass
-        # 2) recent_messages 兜底（按从新到旧顺序扫，命中即停）
-        if not target and recent_messages:
+            conn = _db_conn()
+            try:
+                rows = conn.execute(
+                    "SELECT DISTINCT entity_id FROM knowledge_events "
+                    "WHERE entity_type = ? AND entity_id LIKE 'name:%'",
+                    (entity_type,)).fetchall()
+            finally:
+                conn.close()
+            name_entities = [(r['entity_id'], r['entity_id'][5:]) for r in rows
+                             if r['entity_id'] and len(r['entity_id']) > 5]
+        except Exception as e:
+            logger.warning(f'  [HybridRetrieve] force-inject 虚拟实体清单加载失败: {e}')
+
+        def _cands_from_text(text):
+            """从单段文本提候选：tal_id 提取 + name: 子串匹配，
+            按名字在文本中首次出现位置排序、按 eid 去重"""
+            text = text or ''
+            cands = []
+            try:
+                for etype, eid, name, _cat in _extract_entities_from_text(text):
+                    if etype == entity_type and name:
+                        cands.append((etype, eid, name))
+            except Exception:
+                pass
+            for eid, name in name_entities:
+                if len(name) >= 2 and name in text:
+                    cands.append((entity_type, eid, name))
+            cands.sort(key=lambda c: text.find(c[2]) if text.find(c[2]) >= 0 else 1 << 30)
+            seen_eid = set()
+            uniq = []
+            for c in cands:
+                if c[1] in seen_eid:
+                    continue
+                seen_eid.add(c[1])
+                uniq.append(c)
+            return uniq
+
+        # 1) 当前轮短文本优先
+        candidates = _cands_from_text(current_query) if current_query else []
+        # 2) 当前轮无候选 → 退回长 query 文本
+        if not candidates:
+            candidates = _cands_from_text(query)
+        # 3) 再退回 recent_messages 最近6条（逐条提取，命中即停）
+        if not candidates and recent_messages:
             try:
                 for msg in (recent_messages or [])[:6]:  # 最多看最近 6 轮
                     content = msg if isinstance(msg, str) else (msg.get('content') or msg.get('text') or '')
                     if not content:
                         continue
-                    for etype, eid, name, _cat in _extract_entities_from_text(content):
-                        if etype == entity_type and name:
-                            target = (etype, eid, name)
-                            break
-                    if target:
+                    candidates = _cands_from_text(content)
+                    if candidates:
                         break
             except Exception:
                 pass
-        # 3) 虚拟实体兜底：entity_id 为 name:XXX 格式的库外达人 _extract_entities_from_text
-        #    定位不到，按 knowledge_events 实体名子串匹配（写法对齐 _detect_reanalysis_intent）
-        if not target:
-            try:
-                texts = [query or '']
-                for msg in (recent_messages or [])[:6]:  # 最多看最近 6 轮
-                    content = msg if isinstance(msg, str) else (msg.get('content') or msg.get('text') or '')
-                    if content:
-                        texts.append(content)
-                haystack = '\n'.join(texts)
-                conn = _db_conn()
-                try:
-                    rows = conn.execute(
-                        "SELECT DISTINCT entity_id FROM knowledge_events "
-                        "WHERE entity_type = ? AND entity_id LIKE 'name:%'",
-                        (entity_type,)).fetchall()
-                finally:
-                    conn.close()
-                for r in rows:
-                    eid = r['entity_id']
-                    name = eid[5:]
-                    if len(name) >= 2 and name in haystack:
-                        target = (entity_type, eid, name)
-                        break
-            except Exception as e:
-                logger.warning(f'  [HybridRetrieve] force-inject 虚拟实体兜底失败: {e}')
-        if not target:
+        if not candidates:
             return []
-        etype, eid, name = target
-        # 4) 取该实体最新一条 vision_data 和最新一条 analysis
+
+        # 4) 多候选依次试事件：取该实体最新一条 vision_data 和最新一条 analysis，
+        #    第一个查到事件的候选命中即返回；查无事件继续下一候选，不得静默返回
         conn = _db_conn()
         try:
-            latest = {}
-            for ev_type in ('vision_data', 'analysis'):
-                row = conn.execute(
-                    'SELECT id, entity_type, entity_id, agent_id, event_type, title, '
-                    'content_full, content_summary, conclusions, importance_score, '
-                    'source_msg_id, user_query, created_at '
-                    'FROM knowledge_events '
-                    'WHERE entity_type = ? AND entity_id = ? AND event_type = ? '
-                    'ORDER BY created_at DESC LIMIT 1',
-                    (etype, eid, ev_type)
-                ).fetchone()
-                if row:
-                    latest[ev_type] = row
+            tried = []
+            for etype, eid, name in candidates:
+                tried.append(f'{eid}({name})')
+                latest = {}
+                for ev_type in ('vision_data', 'analysis'):
+                    row = conn.execute(
+                        'SELECT id, entity_type, entity_id, agent_id, event_type, title, '
+                        'content_full, content_summary, conclusions, importance_score, '
+                        'source_msg_id, user_query, created_at '
+                        'FROM knowledge_events '
+                        'WHERE entity_type = ? AND entity_id = ? AND event_type = ? '
+                        'ORDER BY created_at DESC LIMIT 1',
+                        (etype, eid, ev_type)
+                    ).fetchone()
+                    if row:
+                        latest[ev_type] = row
+                # 拼成 list_item 列表，vision 在前（先看原始数据）→ analysis（结论）次之
+                out = []
+                for ev_type in ('vision_data', 'analysis'):
+                    r = latest.get(ev_type)
+                    if r:
+                        item = _ke_event_to_list_item(r)
+                        item['_forceInjected'] = True  # 标记让前端知道是强制注入的
+                        item['_entityName'] = name     # 供 ReportCtx 合并时生成可读标签
+                        out.append(item)
+                if out:
+                    logger.info(f'  [HybridRetrieve] force-inject entity {etype}:{eid} ({name}) → {len(out)} events')
+                    return out
+            logger.warning(f'  [HybridRetrieve] force-inject 候选均无事件: {", ".join(tried)}')
+            return []
         finally:
             conn.close()
-        # 5) 拼成 list_item 列表，vision 在前（先看原始数据）→ analysis（结论）次之
-        out = []
-        for ev_type in ('vision_data', 'analysis'):
-            r = latest.get(ev_type)
-            if r:
-                item = _ke_event_to_list_item(r)
-                item['_forceInjected'] = True  # 标记让前端知道是强制注入的
-                item['_entityName'] = name     # 供 ReportCtx 合并时生成可读标签
-                out.append(item)
-        if out:
-            logger.info(f'  [HybridRetrieve] force-inject entity {etype}:{eid} ({name}) → {len(out)} events')
-        return out
     except Exception as e:
         logger.error(f'  [HybridRetrieve] force-inject 失败: {e}')
         return []
@@ -23000,7 +23021,7 @@ def _handle_proxy_kimi(self):
                                 and isinstance(m.get('content'), str) and m.get('content')][-6:]
             except Exception:
                 _recent_msgs = []
-            _report_ctx = _retrieve_entity_report_context(all_user_text, recent_messages=_recent_msgs)
+            _report_ctx = _retrieve_entity_report_context(all_user_text, recent_messages=_recent_msgs, current_query=user_message)
             if _report_ctx:
                 _prepend_system_context(body, _report_ctx)
                 logger.info(f'  [ReportCtx] 注入报告依据 len={len(_report_ctx)}')
