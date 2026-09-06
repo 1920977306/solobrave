@@ -5120,6 +5120,28 @@ def _ke_compute_importance(conn, entity_type, entity_id, content_full, conclusio
         return 5.0
 
 
+# knowledge_events 入库实体校验：实体事件（vision_data/analysis）必须绑定实体，
+# entity_id 为空会产生无法按达人检索的孤儿事件（AutoSaveAnalysis 链路曾入库
+# 11 条 entity_id 为空的 analysis 孤儿事件，含"无法直接查看图片内容"否认污染）。
+_KE_ENTITY_REQUIRED_EVENT_TYPES = ('vision_data', 'analysis')
+# 白名单：允许 entity_id 为空的事件类型。逐一排查现有入库点后确认当前无合法的
+# 无实体事件类型（knowledge_events 定位为实体档案时间线），保持为空；
+# 后续若新增合法的无实体事件类型（如全局公告类），在此登记并注释说明原因。
+_KE_ENTITY_OPTIONAL_EVENT_TYPES = ()
+
+
+def _ke_reject_empty_entity_event(event_type, entity_id, title='', source_msg_id=''):
+    """实体事件入库前校验：event_type 属于实体事件且 entity_id 为 NULL/空串时拒绝入库。
+    返回 True 表示应拒绝（调用方跳过 INSERT），并 logger.warning 留痕便于排障。"""
+    if event_type in _KE_ENTITY_OPTIONAL_EVENT_TYPES:
+        return False
+    if event_type in _KE_ENTITY_REQUIRED_EVENT_TYPES and not (entity_id or '').strip():
+        logger.warning(f'  [KnowledgeEvents] 拒绝空实体事件入库: event_type={event_type} '
+                       f'title={title!r} source_msg_id={source_msg_id!r}')
+        return True
+    return False
+
+
 def _save_knowledge_event(reply, agent_id, title, user_text='', entity_hint=None):
     """把分析结论原文写入 knowledge_events（实体档案时间线，原文不截断）。
     entity_hint：可选 (entity_type, entity_id)，正文/提问文本匹配不到实体时的兜底归属
@@ -5134,6 +5156,8 @@ def _save_knowledge_event(reply, agent_id, title, user_text='', entity_hint=None
         entity_type, entity_id = _extract_entity_from_analysis(reply, user_text)
         if not entity_id and entity_hint:
             entity_type, entity_id = entity_hint
+        if _ke_reject_empty_entity_event('analysis', entity_id, title):
+            return None
         conclusions = {}
         try:
             pm = _extract_predicted_match(reply)
@@ -5187,6 +5211,8 @@ def _save_vision_data_event(agent_id, summary_text, title, user_text='', entity_
         entity_type, entity_id = _extract_entity_from_analysis(summary_text, user_text)
         if not entity_id and entity_hint:
             entity_type, entity_id = entity_hint
+        if _ke_reject_empty_entity_event('vision_data', entity_id, title):
+            return None
         embedding_blob = None
         try:
             emb_cfg = get_embedding_config()
@@ -18978,6 +19004,24 @@ def _ke_entity_names(conn, entity_refs):
     return names
 
 
+# fail-loud 兜底声明：检索落空/异常时注入，防止模型把系统故障说成数据不存在。
+# 检索未命中≠档案不存在——严禁据此断言"没有该达人/截图从未读到/数据已作废"。
+_REPORT_CTX_FAULT_NOTICE = (
+    '【系统故障声明：以下为最高优先级事实，本轮回答必须遵守】\n'
+    '系统当前暂时调取不到该达人的档案数据（检索过程发生异常，并非数据不存在）。'
+    '请如实告知用户：系统暂时调取不到该达人档案数据，请稍后重试。\n'
+    '严禁断言"系统里没有该达人""档案不存在""截图从未读到""数据无来源或已作废"'
+    '——检索未命中≠档案不存在，把系统故障说成数据不存在是被禁止的；'
+    '严禁编造任何数字或数据。')
+
+_REPORT_CTX_NOT_ANALYZED_NOTICE = (
+    '【系统状态声明：以下为最高优先级事实，本轮回答必须遵守】\n'
+    '用户询问的达人已识别，但系统中尚未为该达人生成分析报告。'
+    '请如实告知用户：该达人尚未生成分析报告，请上传达人数据截图发起分析。\n'
+    '严禁断言"系统里没有该达人""档案不存在""截图从未读到""数据无来源或已作废"'
+    '——检索未命中≠档案不存在；严禁编造任何数字或数据。')
+
+
 def _retrieve_entity_report_context(user_text, max_events=4, max_chars=6000, recent_messages=None, current_query=None):
     """按实体/全文检索 knowledge_events 中最近的分析结论与截图原始数据（vision_data），
     格式化为注入文本——代理层组装上下文时让模型拿到报告所依据的截图数据。
@@ -18985,7 +19029,8 @@ def _retrieve_entity_report_context(user_text, max_events=4, max_chars=6000, rec
     user_text 无达人名时兜底定位实体；调用方禁止传 None（无则传 []）。
     current_query：当前轮用户消息原文短文本，force_inject 实体定位优先用它
     （user_text 常是多轮历史拼接长文本，历史达人会抢占候选）。
-    无匹配或异常返回 ''。"""
+    fail-loud：无匹配时若候选非空返回"未分析引导声明"、检索异常且候选非空返回
+    "故障声明"（防模型把系统故障说成数据不存在）；纯闲聊无候选才返回 ''。"""
     try:
         if not user_text or not user_text.strip():
             return ''
@@ -19040,6 +19085,18 @@ def _retrieve_entity_report_context(user_text, max_events=4, max_chars=6000, rec
         finally:
             conn.close()
         if not picked:
+            # fail-loud：检索全落空时区分三种情况——
+            # 候选非空（用户确在问某达人）但零事件 → 未分析引导声明；候选为空（纯闲聊）→ 不注入
+            try:
+                cands = _collect_entity_candidates(user_text, recent_messages=recent_messages or [],
+                                                   current_query=current_query, entity_type='talent')
+            except Exception as ce:
+                logger.warning(f'  [ReportCtx] fail-loud 候选提取异常: {ce}')
+                return _REPORT_CTX_FAULT_NOTICE
+            if cands:
+                tried = ', '.join(f'{eid}({name})' for _et, eid, name in cands)
+                logger.warning(f'  [ReportCtx] fail-loud 零事件: 候选非空但无任何事件: {tried}')
+                return _REPORT_CTX_NOT_ANALYZED_NOTICE
             return ''
         parts = []
         used = 0
@@ -19059,6 +19116,16 @@ def _retrieve_entity_report_context(user_text, max_events=4, max_chars=6000, rec
                 '回答时直接引用档案中的字段值。\n') + '\n\n'.join(parts)
     except Exception as e:
         logger.warning(f'  [ReportCtx] 检索注入失败: {e}')
+        # fail-loud：检索异常时若用户确在问某达人，注入故障声明而非静默返回空
+        try:
+            cands = _collect_entity_candidates(user_text, recent_messages=recent_messages or [],
+                                               current_query=current_query, entity_type='talent')
+        except Exception:
+            cands = []
+        if cands:
+            tried = ', '.join(f'{eid}({name})' for _et, eid, name in cands)
+            logger.warning(f'  [ReportCtx] fail-loud 故障声明: 检索异常且候选非空: {tried}')
+            return _REPORT_CTX_FAULT_NOTICE
         return ''
 
 
@@ -19404,18 +19471,14 @@ def _ke_entity_match_events(query, entity_type='', limit=5):
     return ids, items
 
 
-def _force_inject_entity_events(query, recent_messages=None, entity_type='talent', current_query=None):
-    """实体精确匹配强制注入：定位到 talent 实体时，把该实体最新一条 vision_data +
-    最新一条 analysis 事件返回。
-    当前轮优先 + 多候选依次试事件：先在 current_query 短文本上提候选（tal_id 提取 +
-    name: 虚拟实体子串匹配合并，按名字在文本中最后出现位置排序——越晚出现的达人
-    越是当前话题，按 eid 去重）；
+def _collect_entity_candidates(query, recent_messages=None, current_query=None, entity_type='talent'):
+    """实体候选提取（不查事件）：当前轮优先 + 多候选 rfind 排序去重。
+    先在 current_query 短文本上提候选（tal_id 提取 + name: 虚拟实体子串匹配合并，
+    按名字在文本中最后出现位置排序——越晚出现的达人越是当前话题，按 eid 去重）；
     当前轮无候选才退回长 query 文本与 recent_messages 最近6条做同样提取。
-    对每个候选依次查 knowledge_events 最新事件，第一个查到事件的候选命中即返回；
-    查无事件继续下一候选（不占位静默返回——长文本历史里的达人会抢走 target 导致
-    当前轮真正问的库外达人永远无法注入），全部候选均无事件才返回 [] 并记日志。
-    不经 FTS 最少命中词数门槛过滤——门槛只作用跨实体泛化召回（_hybrid_retrieve_events 路2），
-    实体精确匹配路结果一律保留。返回 list of list_item dict（与 _hybrid_retrieve_events 一致结构）。"""
+    返回 [(entity_type, entity_id, name), ...]；异常兜底返回 []。
+    供 _force_inject_entity_events 逐候选查事件，也供 _retrieve_entity_report_context
+    在零事件时区分"用户确在问某达人"与"纯闲聊"。"""
     try:
         # 0) name: 虚拟实体清单（库外达人，_extract_entities_from_text 定位不到，靠子串匹配）
         name_entities = []  # [(entity_id, name)]
@@ -19474,10 +19537,28 @@ def _force_inject_entity_events(query, recent_messages=None, entity_type='talent
                         break
             except Exception:
                 pass
+        return candidates
+    except Exception as e:
+        logger.error(f'  [HybridRetrieve] 候选提取失败: {e}')
+        return []
+
+
+def _force_inject_entity_events(query, recent_messages=None, entity_type='talent', current_query=None):
+    """实体精确匹配强制注入：定位到 talent 实体时，把该实体最新一条 vision_data +
+    最新一条 analysis 事件返回。
+    候选提取逻辑见 _collect_entity_candidates（当前轮优先 + rfind 排序去重）。
+    对每个候选依次查 knowledge_events 最新事件，第一个查到事件的候选命中即返回；
+    查无事件继续下一候选（不占位静默返回——长文本历史里的达人会抢走 target 导致
+    当前轮真正问的库外达人永远无法注入），全部候选均无事件才返回 [] 并记日志。
+    不经 FTS 最少命中词数门槛过滤——门槛只作用跨实体泛化召回（_hybrid_retrieve_events 路2），
+    实体精确匹配路结果一律保留。返回 list of list_item dict（与 _hybrid_retrieve_events 一致结构）。"""
+    try:
+        candidates = _collect_entity_candidates(query, recent_messages=recent_messages,
+                                                current_query=current_query, entity_type=entity_type)
         if not candidates:
             return []
 
-        # 4) 多候选依次试事件：取该实体最新一条 vision_data 和最新一条 analysis，
+        # 多候选依次试事件：取该实体最新一条 vision_data 和最新一条 analysis，
         #    第一个查到事件的候选命中即返回；查无事件继续下一候选，不得静默返回
         conn = _db_conn()
         try:
