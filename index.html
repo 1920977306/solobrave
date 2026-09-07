@@ -24255,7 +24255,8 @@ function loadAnalyzedTalents() {
     events.forEach(function(ev){
       if (ev.event_type !== 'analysis') return;
       var key = ev.entity_id || '';
-      if (!key || byEntity[key]) return;
+      if (!key || key.indexOf('name:') !== 0) return;  // 只保留 name:XXX 实体，过滤 inf_*/tal_* 等脏数据
+      if (byEntity[key]) return;
       byEntity[key] = ev;
     });
     _analyzedList = Object.keys(byEntity).map(function(k){ return byEntity[k]; });
