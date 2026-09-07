@@ -9416,6 +9416,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         safe_result = []
         name_map = _user_display_name_map()
         for a in result:
+            # is_ai：AI 员工判定（OpenClaw/API 连接或有 API Key），真人成员为 False，前端欢迎页/徽章统一以此为准
+            is_ai = bool(a.get('connectionType') in ('openclaw', 'api') or a.get('openclawName') or a.get('apiKey'))
             safe_result.append({
                 'id': a.get('id', ''),
                 'name': a.get('name', ''),
@@ -9445,6 +9447,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'badge': a.get('badge'),
                 'category': a.get('category', ''),
                 'subCategory': a.get('subCategory', ''),
+                'description': a.get('description', ''),
+                'tagline': a.get('tagline', ''),
+                'is_ai': is_ai,
             })
         self._send_json(200, safe_result)
 
@@ -9534,6 +9539,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'toolsDoc': body.get('toolsDoc', ''),
             'department': body.get('department', ''),
             'customEndpoint': body.get('customEndpoint', ''),
+            'description': body.get('description', ''),
+            'tagline': body.get('tagline', ''),
         }
 
         agents = _load_agents(include_archived=True)
@@ -9618,7 +9625,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                          'openclawName', 'aiProvider',
                          'systemPrompt', 'department', 'customEndpoint',
                          'group', 'pinned', 'idDoc', 'soulDoc', 'toolsDoc', 'userDoc',
-                         'badge', 'createdBy', 'createdByName']
+                         'badge', 'createdBy', 'createdByName', 'description', 'tagline']
             saved_keys = []
             for key in updatable:
                 if key in body:

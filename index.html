@@ -10801,6 +10801,8 @@ function checkTaskDeadlinesAndNotify() {
 // 判断员工是否为 AI（有 OpenClaw/API 连接配置）
 function isAIEmp(emp) {
   if (!emp) return false;
+  // 服务端 /api/agents 返回的权威字段优先；本地/旧数据回退到连接方式启发式
+  if (typeof emp.is_ai === 'boolean') return emp.is_ai;
   return emp.connectionType === 'openclaw' || emp.connectionType === 'api' || emp.openclawName || emp.apiKey;
 }
 
@@ -15024,7 +15026,7 @@ function getChatEmptyStateHtml() {
   var empRow = '';
   if (aiEmps.length) {
     empRow = '<div class="welcome-emp-row">' + aiEmps.map(function (e) {
-      var desc = (e.description || '').trim() || getEmpRoleDisplay(e) || 'AI 协作员工';
+      var desc = (e.tagline || '').trim() || (e.description || '').trim() || getEmpRoleDisplay(e) || 'AI 协作员工';
       return '<div class="welcome-emp-card" onclick="onWelcomeEmpChat(\'' + escapeAttr(e.id) + '\')">'
         + '<div class="welcome-emp-avatar-wrap"><div class="welcome-emp-ring">' + renderAvatar(e, 56) + '</div><div class="welcome-ai-badge">AI</div></div>'
         + '<div class="welcome-emp-name">' + escapeHtml(e.name || '') + '</div>'
@@ -24500,8 +24502,22 @@ function _extractAnalysisMetrics(text) {
   return res;
 }
 
+// 分析事件文本数据源：content_full > content_summary > 非空 conclusions
+// （conclusions 常为 '{}' 空 JSON 字符串，truthy 但无内容，不能直接参与回退）
+function _analyzedEventText(ev) {
+  if (!ev) return '';
+  if (ev.content_full) return ev.content_full;
+  if (ev.content_summary) return ev.content_summary;
+  var c = ev.conclusions;
+  if (!c) return '';
+  if (typeof c !== 'string') { try { c = JSON.stringify(c); } catch (e) { return ''; } }
+  var t = String(c).trim();
+  if (!t || t === '{}' || t === '[]' || t === 'null') return '';
+  return t;
+}
+
 function renderAnalyzedTalentCard(item) {
-  var text = item.content_full || item.conclusions || item.content_summary || '';
+  var text = _analyzedEventText(item);
   var metrics = _extractAnalysisMetrics(text);
   var rating = metrics.rating;
   // 名称优先取 entity_id 的 'name:XXX' 部分；title 需去掉「截图识别原始数据：」前缀
@@ -24558,15 +24574,21 @@ function openAnalyzedTalentDetail(entityId, name) {
     // 主库查不到：用 knowledge_events 聚合数据构造最小达人对象渲染右侧面板
     var ev = _analyzedList.find(function(it){ return String(it.entity_id || '') === String(entityId || ''); })
           || _analyzedList.find(function(it){ return String(it.entity_id || '').replace(/^name:/, '') === key; });
-    var stub = _buildAnalyzedTalentStub(entityId, name, ev);
-    _talentCurrentId = stub.id;
-    renderTalentDetail(stub);
+    // 列表接口不含 content_full，缺全文时先拉详情再构造 stub，保证评级/粉丝等指标可提取
+    var withFull = (ev && !ev.content_full && ev.id)
+      ? apiFetch('/api/knowledge-events/' + encodeURIComponent(ev.id)).then(function(r){ return r.json(); }).then(function(full){ ev.content_full = full.content_full || ''; return ev; }).catch(function(){ return ev; })
+      : Promise.resolve(ev);
+    withFull.then(function(fullEv){
+      var stub = _buildAnalyzedTalentStub(entityId, name, fullEv);
+      _talentCurrentId = stub.id;
+      renderTalentDetail(stub);
+    });
   }).catch(function(){ showToast('加载失败'); });
 }
 
 // 从最新 analysis 事件提取字段，构造兼容右侧面板的最小达人对象（_analyzedOnly 标记非主库来源）
 function _buildAnalyzedTalentStub(entityId, name, ev) {
-  var text = (ev && (ev.content_full || ev.conclusions || ev.content_summary)) || '';
+  var text = _analyzedEventText(ev);
   var metrics = _extractAnalysisMetrics(text);
   return {
     id: String(entityId || ''),  // 分析档案面板用 entity_id 反查 knowledge_events
