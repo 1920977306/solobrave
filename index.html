@@ -24237,10 +24237,12 @@ function switchTalentMidTab(tab) {
   var filterRow = document.querySelector('.talents-mid-header .talents-filter-row');
   if (headerSearch) headerSearch.style.display = isAnalyzed ? 'none' : '';
   if (filterRow) filterRow.style.display = isAnalyzed ? 'none' : '';
+  // 切换Tab即清空右侧详情，只有主动点击卡片才展示
+  _talentCurrentId = null;
+  _currentTalent = null;
+  showTalentEmptyState();
   if (isAnalyzed) loadAnalyzedTalents();
   else loadTalents();
-  // 未选中达人时右侧只显示空状态引导，不渲染详情子Tab
-  if (!_talentCurrentId) showTalentEmptyState();
 }
 
 function loadAnalyzedTalents() {
@@ -24375,9 +24377,42 @@ function openAnalyzedTalentDetail(entityId, name) {
     var t = list.find(function(x){ return x.id === entityId; })
          || list.find(function(x){ return x.name === key || x.name === name; })
          || list[0];
-    if (t) selectTalentItem(t.id);
-    else showToast('该达人不在主库，暂无详情');
+    if (t) { selectTalentItem(t.id); return; }
+    // 主库查不到：用 knowledge_events 聚合数据构造最小达人对象渲染右侧面板
+    var ev = _analyzedList.find(function(it){ return String(it.entity_id || '') === String(entityId || ''); })
+          || _analyzedList.find(function(it){ return String(it.entity_id || '').replace(/^name:/, '') === key; });
+    var stub = _buildAnalyzedTalentStub(entityId, name, ev);
+    _talentCurrentId = stub.id;
+    renderTalentDetail(stub);
   }).catch(function(){ showToast('加载失败'); });
+}
+
+// 从最新 analysis 事件提取字段，构造兼容右侧面板的最小达人对象（_analyzedOnly 标记非主库来源）
+function _buildAnalyzedTalentStub(entityId, name, ev) {
+  var text = (ev && (ev.content_full || ev.conclusions || ev.content_summary)) || '';
+  var ratingM = text.match(/评级[：:]\s*"?([SABCD])\s*级?"?/i) || text.match(/\b([ABCD])\s*级/);
+  var followersM = text.match(/粉丝(?:量|数)[^0-9]{0,10}(\d+(?:\.\d+)?\s*万?)/);
+  var interactM = text.match(/互动率[^0-9]{0,10}(\d+\.?\d*\s*%)/);
+  var rating = ratingM ? ratingM[1].toUpperCase() : '';
+  var followers = 0;
+  if (followersM) {
+    var n = parseFloat(followersM[1]);
+    if (!isNaN(n)) followers = /万/.test(followersM[1]) ? Math.round(n * 10000) : Math.round(n);
+  }
+  return {
+    id: String(entityId || ''),  // 分析档案面板用 entity_id 反查 knowledge_events
+    name: name || String(entityId || '').replace(/^name:/, '') || '未知达人',
+    followers: followers,
+    level: rating,
+    ai_rating: rating,
+    ai_analysis: text,
+    video_interaction_rate: interactM ? interactM[1].replace(/\s+/g, '') : '',
+    cooperation_status: '',
+    category: '',
+    ai_tags: [],
+    event_type: ev ? ev.event_type : 'analysis',
+    _analyzedOnly: true
+  };
 }
 
 function selectTalentItem(id) {
@@ -24398,6 +24433,9 @@ function renderTalentDetail(t) {
   // 两层架构：管理员可对子库达人（created_by 非空）执行"提升到主库"
   var promoteBtn = document.getElementById('talentPromoteBtn');
   if (promoteBtn) promoteBtn.style.display = (isAdmin() && t.created_by) ? '' : 'none';
+  // 分析达人（仅 knowledge_events 有记录、不在主库）隐藏主库操作按钮
+  var actionsEl = document.getElementById('talentsRightActions');
+  if (actionsEl) actionsEl.style.display = t._analyzedOnly ? 'none' : '';
   // Reset tab
   _talentTab = 'overview';
   document.querySelectorAll('.talents-tab').forEach(function(tab){ tab.classList.toggle('active', tab.dataset.tab === 'overview'); });
