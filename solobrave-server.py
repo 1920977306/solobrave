@@ -15335,7 +15335,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ═══════════════════════════════════════════════════
 
     def _handle_get_talents(self):
-        """GET /api/talents — 获取达人列表"""
+        """GET /api/talents — 获取达人列表
+        include_demo: 是否包含 status='demo' 的演示种子数据
+          - 0（默认）: 主库 Tab 不显示演示数据；显式 status='demo' 仍可查（管理用）
+          - 1: 把演示数据也纳入（按 status='active' 过滤时同时 OR status='demo'）"""
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -15345,7 +15348,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         q = query.get('q', [''])[0].lower()
         cooperation = query.get('cooperation', [''])[0]
         category = query.get('category', [''])[0]
+        talent_category = query.get('talent_category', [''])[0]  # 主营类目筛选（与 fans 类目 category 区分）
+        rating = query.get('rating', [''])[0].upper()  # 评级筛选：A/B/C/D/'NONE'(空值)
         status = query.get('status', ['active'])[0]
+        include_demo = query.get('include_demo', ['0'])[0] == '1'
         offset = int(query.get('offset', ['0'])[0])
         limit = int(query.get('limit', ['50'])[0])
         conn = _db_conn()
@@ -15353,14 +15359,33 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             sql = "SELECT * FROM talents WHERE 1=1"
             params = []
             if status:
-                sql += " AND status = ?"
-                params.append(status)
+                if include_demo and status == 'active':
+                    # 开关开启时主列表并入演示数据
+                    sql += " AND (status = ? OR status = 'demo')"
+                    params.append(status)
+                else:
+                    sql += " AND status = ?"
+                    params.append(status)
+            elif include_demo:
+                # 没有 status 过滤但开了开关：仅排除归档
+                sql += " AND COALESCE(status, 'active') != 'archived'"
             if cooperation:
                 sql += " AND cooperation_status = ?"
                 params.append(cooperation)
             if category:
                 sql += " AND fan_category = ?"
                 params.append(category)
+            if talent_category:
+                # 主营类目精确匹配（与 fans 偏好类目区分）
+                sql += " AND category = ?"
+                params.append(talent_category)
+            if rating:
+                # A/B/C/D 按首字符匹配 level（演示数据 level 形如 L3/L4/L5，不在此映射内，按字段原值匹配）
+                if rating == 'NONE':
+                    sql += " AND (level = '' OR level IS NULL)"
+                else:
+                    sql += " AND UPPER(COALESCE(SUBSTR(level, 1, 1), '')) = ?"
+                    params.append(rating)
             if q:
                 sql += " AND (LOWER(name) LIKE ? OR LOWER(douyin_id) LIKE ? OR LOWER(bio) LIKE ?)"
                 params.extend([f'%{q}%', f'%{q}%', f'%{q}%'])

@@ -1511,6 +1511,27 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-bottom: 0.5px solid var(--separator);
   flex-shrink: 0;
 }
+.talent-tab-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  background: #F3F4F6;
+  color: #374151;
+  transition: background 0.15s, color 0.15s;
+}
+.talent-tab-btn.active {
+  background: #3B82F6;
+  color: #ffffff;
+}
+.talents-tab-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .talents-mid-title {
   font-size: 15px;
   font-weight: 600;
@@ -1605,6 +1626,25 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: var(--accent);
 }
 .talents-mid-btn.secondary:hover { background: var(--accent-light); }
+/* "含演示数据" 开关：白底胶囊，勾选时变橙强调态 */
+.talents-demo-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--separator, #e5e7eb);
+  background: #ffffff;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.talents-demo-toggle:hover { background: var(--bg-tertiary, #f5f7fa); }
+.talents-demo-toggle input { margin: 0; cursor: pointer; accent-color: #F59E0B; }
+.talents-demo-toggle input:checked + span { color: #F59E0B; font-weight: 600; }
 .talents-mid-items {
   flex: 1;
   overflow-y: auto;
@@ -1726,6 +1766,37 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .talents-mid-score-label {
   font-size: 11px;
   color: var(--text-secondary);
+}
+/* 评级徽章（A/B/C/D 彩色 chip，紧贴达人名右侧） */
+.talent-rating-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1.4;
+  vertical-align: 1px;
+  letter-spacing: 0.5px;
+}
+/* 关键数据行的"互动率"颜色与其他指标一致——稍加重 */
+.talents-mid-data-row .engagement strong {
+  color: #3B82F6;
+}
+/* 卡片底部合作建议条：虚线分割 + 小标签 + 状态色块 */
+.talent-cooperation-advice {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--separator, #e5e7eb);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.talent-cooperation-advice-label {
+  color: var(--text-secondary);
+  font-weight: 500;
 }
 .talents-status-tag {
   display: inline-flex;
@@ -6928,6 +6999,23 @@ window.doLogin = function () {
         <button class="segmented-item" data-cooperation="communicating" onclick="selectTalentCooperation('communicating')">沟通中</button>
         <button class="segmented-item" data-cooperation="blacklist" onclick="selectTalentCooperation('blacklist')">黑名单</button>
       </div>
+      <select class="products-mid-filter" id="talentsRatingFilter" onchange="filterTalentsByRating(this.value)" title="评级筛选">
+        <option value="">全部评级</option>
+        <option value="A">A级</option>
+        <option value="B">B级</option>
+        <option value="C">C级</option>
+        <option value="D">D级</option>
+        <option value="none">未评级</option>
+      </select>
+      <select class="products-mid-filter" id="talentsCategoryFilter" onchange="filterTalentsByCategory(this.value)" title="类目筛选">
+        <option value="">全部类目</option>
+        <option value="服饰">服饰</option>
+        <option value="美妆">美妆</option>
+        <option value="运动">运动</option>
+        <option value="食品">食品</option>
+        <option value="户外">户外</option>
+        <option value="生活方式">生活方式</option>
+      </select>
       <select class="products-mid-filter" id="talentsMidSort" onchange="selectTalentSort(this.value)" title="排序">
         <option value="">默认排序</option>
         <option value="followers_desc">粉丝数从高到低</option>
@@ -6936,10 +7024,30 @@ window.doLogin = function () {
       </select>
       <button class="talents-mid-btn secondary" onclick="recommendTalentsAI()">✨ AI推荐达人</button>
       <button class="talents-mid-new" onclick="createNewTalent()">+ 录入达人</button>
+      <label class="talents-demo-toggle" title="开启后主库列表会包含演示种子数据(status=demo)，默认关闭以保持主库纯净">
+        <input type="checkbox" id="talentsIncludeDemo" onchange="onTalentIncludeDemoChange(this.checked)">
+        <span>含演示数据</span>
+      </label>
     </div>
   </div>
-  <div class="talents-mid-items" id="talentsMidItems"></div>
-  <div class="talents-mid-pagination" id="talentsMidPagination"></div>
+  <div class="talents-mid-tabs" style="display:flex;gap:8px;margin-bottom:16px;padding:0 8px;">
+    <button class="talent-tab-btn active" data-tab="analyzed" onclick="switchTalentTab('analyzed')">📊 已分析达人</button>
+    <button class="talent-tab-btn" data-tab="main" onclick="switchTalentTab('main')">👥 达人主库</button>
+  </div>
+  <div class="talents-tab-pane" id="talentsAnalyzedItems" style="display:flex;">
+    <div style="padding:0 14px 10px;flex-shrink:0;">
+      <div class="talents-mid-search">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" placeholder="搜索已分析达人..." id="talentsAnalyzedSearch" oninput="onAnalyzedTalentSearch(this.value)">
+      </div>
+    </div>
+    <div class="talents-mid-items" id="talentsAnalyzedList" style="padding-top:0;"></div>
+    <div class="talents-mid-pagination" id="talentsAnalyzedPagination"></div>
+  </div>
+  <div class="talents-tab-pane" id="talentsMainItems" style="display:none;">
+    <div class="talents-mid-items" id="talentsMidItems"></div>
+    <div class="talents-mid-pagination" id="talentsMidPagination"></div>
+  </div>
 </div>
 
 <!-- Tasks Middle List -->
@@ -23808,6 +23916,15 @@ var _talentPageSize = 20;
 var _talentTab = 'overview';
 var _talentSearchTimer = null;
 var _talentAllCategories = [];
+var _talentActiveTab = 'analyzed';
+var _talentIncludeDemo = false;  // 主库 Tab 是否包含演示种子数据(status='demo')，默认 false
+var _talentRatingFilter = '';    // 评级筛选：''/A/B/C/D/none
+var _talentCategoryFilter = '';  // 类目筛选：''/服饰/美妆/运动/食品/户外/生活方式
+var _analyzedList = [];
+var _analyzedPage = 1;
+var _analyzedPageSize = 20;
+var _analyzedSearchKw = '';
+var _analyzedSearchTimer = null;
 
 function openInfluencerLibrary() { switchModule('influencers'); }
 function closeInfluencerLibrary() { switchModule('messages'); }
@@ -23826,6 +23943,28 @@ var _TALENT_STATUS_OPTIONS = [
   { value: 'cooperating', label: '已合作' },
   { value: 'blacklist', label: '黑名单' }
 ];
+
+// 评级徽章色板：A 绿 / B 蓝 / C 灰 / D 红；其他值降级为灰并展示原文
+var _TALENT_RATING_COLORS = { A: '#10B981', B: '#3B82F6', C: '#6B7280', D: '#EF4444' };
+function _renderTalentRatingBadge(rating) {
+  if (!rating) return '';
+  var r = String(rating).trim().toUpperCase();
+  if (!r) return '';
+  var first = r.charAt(0);
+  var bg = _TALENT_RATING_COLORS[first] || '#6B7280';
+  var label = _TALENT_RATING_COLORS[first] ? (first + '级') : r;
+  return '<span class="talent-rating-badge" style="background:' + bg + ';" title="评级 ' + escapeAttr(r) + '">' + escapeHtml(label) + '</span>';
+}
+
+// 卡片底部合作建议条：取自 cooperation_status，有值则彩色高亮，无值不渲染
+function _renderTalentCooperationAdvice(status) {
+  if (!status) return '';
+  var st = _TALENT_STATUS_MAP[status] || _TALENT_STATUS_MAP['available'];
+  return '<div class="talent-cooperation-advice">'
+    + '<span class="talent-cooperation-advice-label">合作建议</span>'
+    + '<span class="talents-status-tag ' + st.cls + '">' + escapeHtml(st.label) + '</span>'
+    + '</div>';
+}
 
 function _hashString(str) {
   var hash = 0;
@@ -23879,6 +24018,10 @@ function loadTalents(page) {
   if (_talentCategory) qs.push('category=' + encodeURIComponent(_talentCategory));
   if (_talentSearchKw) qs.push('q=' + encodeURIComponent(_talentSearchKw));
   if (_talentCurrentSort) qs.push('sort=' + encodeURIComponent(_talentCurrentSort));
+  if (_talentRatingFilter) qs.push('rating=' + encodeURIComponent(_talentRatingFilter));
+  if (_talentCategoryFilter) qs.push('talent_category=' + encodeURIComponent(_talentCategoryFilter));
+  // 演示种子数据开关：默认关，UI 勾选时传 1，后端把 status='demo' 也纳入
+  qs.push('include_demo=' + (_talentIncludeDemo ? '1' : '0'));
   var url = '/api/talents?' + qs.join('&');
   var itemsEl = document.getElementById('talentsMidItems');
   if (itemsEl) itemsEl.innerHTML = '<div class="products-loading">加载中...</div>';
@@ -23927,6 +24070,27 @@ function onTalentSearch(val) {
   }, 250);
 }
 
+// "含演示数据" 开关：勾选时主库列表把 status='demo' 也纳入；用于搜索演示种子
+function onTalentIncludeDemoChange(checked) {
+  _talentIncludeDemo = !!checked;
+  _talentPage = 1;
+  loadTalents();
+}
+
+// 评级筛选：A/B/C/D 命中 level 字段首字符；'none' 命中空值；'' 不过滤
+function filterTalentsByRating(val) {
+  _talentRatingFilter = val || '';
+  _talentPage = 1;
+  loadTalents();
+}
+
+// 类目筛选：精确匹配 talents.category 字段（服饰/美妆/运动/食品/户外/生活方式）；'' 不过滤
+function filterTalentsByCategory(val) {
+  _talentCategoryFilter = val || '';
+  _talentPage = 1;
+  loadTalents();
+}
+
 function selectTalentCooperation(status) {
   _talentCooperation = status;
   _talentPage = 1;
@@ -23950,43 +24114,41 @@ function renderTalentList(talents) {
   var html = '';
   talents.forEach(function(t){
     var mock = _getTalentMockData(t);
-    var st = _TALENT_STATUS_MAP[t.cooperation_status] || _TALENT_STATUS_MAP['available'];
     var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:20px;font-weight:600;">' + (t.name || '?').charAt(0) + '</span>';
     var tags = (t.ai_tags && t.ai_tags.length ? t.ai_tags : mock.ai_tags).slice(0, 2);
-    var aiScore = t.ai_rating ? (['S','A','B','C'].indexOf(t.ai_rating) >= 0 ? (4 - ['S','A','B','C'].indexOf(t.ai_rating)) * 25 : 0) : 0;
     var categories = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
     var followersText = formatFollowers(t.followers || 0).replace('w', '万');
-    var gmvRaw = t.total_gmv || mock.total_gmv || 0;
-    var gmv = gmvRaw >= 10000 ? ((gmvRaw / 10000).toFixed(1).replace(/\.0$/, '') + 'w') : (gmvRaw > 0 ? formatNumber(gmvRaw) : '-');
-    var productCount = t.product_count || t.total_products || mock.product_count || 0;
     html += '<div class="talents-mid-card' + (_talentCurrentId === t.id ? ' active' : '') + '" data-id="' + escapeAttr(t.id) + '" onclick="selectTalentItem(\'' + escapeAttr(t.id).replace(/'/g,"\\'") + '\')">';
     html += '<div class="talents-mid-avatar" style="background:' + (t.avatar ? '#f5f7fa' : 'var(--accent)') + ';">' + avatar + '</div>';
     html += '<div class="talents-mid-info">';
     html += '<div class="talents-mid-header-row">';
-    html += '<div class="talents-mid-name">' + escapeHtml(t.name) + '</div>';
+    html += '<div class="talents-mid-name">' + escapeHtml(t.name) + _renderTalentRatingBadge(t.level) + '</div>';
     html += _renderTalentStatusDropdown(t.id, t.cooperation_status, true);
     html += '</div>';
     html += '<div class="talents-mid-stats-row">';
-    html += '<span class="talents-mid-followers">' + followersText + '粉丝</span>';
-    if (isAdmin() && t.createdByName) {
-      html += '<span style="font-size:12px;color:var(--text-tertiary);">👤 ' + escapeHtml(t.createdByName) + '</span>';
-    }
     if (categories.length) {
       html += '<div class="talents-mid-categories">' + categories.map(function(cat){ return '<span class="talents-mid-category-tag">' + escapeHtml(cat) + '</span>'; }).join('') + '</div>';
     }
+    if (isAdmin() && t.createdByName) {
+      html += '<span style="font-size:12px;color:var(--text-tertiary);">👤 ' + escapeHtml(t.createdByName) + '</span>';
+    }
     html += '</div>';
+    // 关键数据行：粉丝数 + 等级 + 互动率(有则加)；无值字段一律不渲染占位
     html += '<div class="talents-mid-data-row">';
-    html += '<span>带货<strong>' + (productCount > 0 ? productCount + '款' : '-') + '</strong></span>';
-    html += '<span class="gmv">GMV ' + gmv + '</span>';
+    html += '<span>粉丝<strong>' + followersText + '</strong></span>';
+    if (t.level) {
+      html += '<span>等级<strong>' + escapeHtml(String(t.level)) + '</strong></span>';
+    }
+    var _engagementStr = (t.video_interaction_rate || '').toString().replace(/[^\d.]/g, '');
+    if (_engagementStr) {
+      html += '<span class="engagement">互动率<strong>' + _engagementStr + '%</strong></span>';
+    }
     html += '</div>';
     if (tags.length) {
       html += '<div class="talents-overview-tags" style="margin-top:6px;">' + tags.map(function(tag){ return '<span class="talents-overview-tag">' + escapeHtml(tag) + '</span>'; }).join('') + '</div>';
     }
-    html += '</div>';
-    html += '<div class="talents-mid-score">';
-    html += '<div class="talents-mid-score-value">' + (aiScore ? '推荐指数 ' + aiScore : '-') + '</div>';
-    html += '<div class="talents-mid-score-label">AI推荐</div>';
-    html += '</div>';
+    // 卡片底部合作建议（独立小条，分割线区分）
+    html += _renderTalentCooperationAdvice(t.cooperation_status);
     html += '</div>';
   });
   el.innerHTML = html;
@@ -24051,6 +24213,141 @@ function renderTalentPagination(total, page, pageSize) {
   }
   html += '<button onclick="loadTalents(' + (page + 1) + ')" ' + (page >= totalPages ? 'disabled' : '') + '>下一页</button>';
   el.innerHTML = html;
+}
+
+// ===== 达人库 Tab 切换：已分析达人 / 达人主库 =====
+function switchTalentTab(tab) {
+  _talentActiveTab = tab === 'main' ? 'main' : 'analyzed';
+  var isAnalyzed = _talentActiveTab === 'analyzed';
+  document.querySelectorAll('.talent-tab-btn').forEach(function(btn){
+    btn.classList.toggle('active', btn.dataset.tab === _talentActiveTab);
+  });
+  var analyzedEl = document.getElementById('talentsAnalyzedItems');
+  var mainEl = document.getElementById('talentsMainItems');
+  if (analyzedEl) analyzedEl.style.display = isAnalyzed ? 'flex' : 'none';
+  if (mainEl) mainEl.style.display = isAnalyzed ? 'none' : 'flex';
+  // 头部的搜索框/合作状态筛选/排序只适用于达人主库
+  var headerSearch = document.querySelector('.talents-mid-header .talents-mid-search');
+  var filterRow = document.querySelector('.talents-mid-header .talents-filter-row');
+  if (headerSearch) headerSearch.style.display = isAnalyzed ? 'none' : '';
+  if (filterRow) filterRow.style.display = isAnalyzed ? 'none' : '';
+  if (isAnalyzed) loadAnalyzedTalents();
+  else loadTalents();
+}
+
+function loadAnalyzedTalents() {
+  var listEl = document.getElementById('talentsAnalyzedList');
+  if (listEl) listEl.innerHTML = '<div class="products-loading">加载中...</div>';
+  apiFetch('/api/knowledge-events?entity_type=talent&limit=200').then(function(r){return r.json();}).then(function(data){
+    var events = data.events || [];
+    // 列表按 created_at DESC 返回，每个 entity_id 的首条 analysis 事件即最新一条
+    var byEntity = {};
+    events.forEach(function(ev){
+      if (ev.event_type !== 'analysis') return;
+      var key = ev.entity_id || '';
+      if (!key || byEntity[key]) return;
+      byEntity[key] = ev;
+    });
+    _analyzedList = Object.keys(byEntity).map(function(k){ return byEntity[k]; });
+    renderAnalyzedPage();
+  }).catch(function(){
+    if (listEl) listEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
+  });
+}
+
+function _filteredAnalyzedList() {
+  var kw = (_analyzedSearchKw || '').trim().toLowerCase();
+  if (!kw) return _analyzedList;
+  return _analyzedList.filter(function(it){
+    var hay = [it.entity_id, it.title, it.conclusions, it.content_summary].join('\n').toLowerCase();
+    return hay.indexOf(kw) >= 0;
+  });
+}
+
+function onAnalyzedTalentSearch(val) {
+  clearTimeout(_analyzedSearchTimer);
+  _analyzedSearchTimer = setTimeout(function(){
+    _analyzedSearchKw = val;
+    _analyzedPage = 1;
+    renderAnalyzedPage();
+  }, 250);
+}
+
+function loadAnalyzedPage(page) {
+  _analyzedPage = page;
+  renderAnalyzedPage();
+}
+
+function renderAnalyzedPage() {
+  var listEl = document.getElementById('talentsAnalyzedList');
+  var countEl = document.getElementById('talentsMidCount');
+  if (!listEl) return;
+  var filtered = _filteredAnalyzedList();
+  if (countEl) countEl.textContent = '共 ' + filtered.length + ' 条';
+  var totalPages = Math.ceil(filtered.length / _analyzedPageSize) || 1;
+  if (_analyzedPage > totalPages) _analyzedPage = totalPages;
+  var start = (_analyzedPage - 1) * _analyzedPageSize;
+  var pageItems = filtered.slice(start, start + _analyzedPageSize);
+  renderAnalyzedPagination(filtered.length, _analyzedPage, _analyzedPageSize);
+  if (!pageItems.length) {
+    listEl.innerHTML = '<div class="products-empty"><div class="products-empty-icon">📊</div><div class="products-empty-text">暂无已分析达人</div></div>';
+    return;
+  }
+  // 列表接口不含 content_full，先并发拉取本页事件详情再渲染
+  Promise.all(pageItems.map(function(it){
+    if (it.content_full) return Promise.resolve(it);
+    return apiFetch('/api/knowledge-events/' + encodeURIComponent(it.id)).then(function(r){return r.json();}).then(function(full){
+      it.content_full = full.content_full || '';
+      return it;
+    }).catch(function(){ return it; });
+  })).then(function(items){
+    listEl.innerHTML = items.map(renderAnalyzedTalentCard).join('');
+  });
+}
+
+function renderAnalyzedPagination(total, page, pageSize) {
+  var el = document.getElementById('talentsAnalyzedPagination');
+  if (!el) return;
+  var totalPages = Math.ceil(total / pageSize) || 1;
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  var html = '';
+  html += '<button onclick="loadAnalyzedPage(' + (page - 1) + ')" ' + (page <= 1 ? 'disabled' : '') + '>上一页</button>';
+  for (var i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) {
+      html += '<button class="' + (i === page ? 'active' : '') + '" onclick="loadAnalyzedPage(' + i + ')">' + i + '</button>';
+    } else if (i === page - 2 || i === page + 2) {
+      html += '<span style="color:#86909c;font-size:13px;">...</span>';
+    }
+  }
+  html += '<button onclick="loadAnalyzedPage(' + (page + 1) + ')" ' + (page >= totalPages ? 'disabled' : '') + '>下一页</button>';
+  el.innerHTML = html;
+}
+
+function renderAnalyzedTalentCard(item) {
+  var text = item.content_full || item.conclusions || item.content_summary || '';
+  var ratingM = text.match(/评级[：:]\s*"?([SABCD])\s*级?"?/i) || text.match(/\b([ABCD])\s*级/);
+  var rating = ratingM ? ratingM[1].toUpperCase() : '';
+  var followersM = text.match(/粉丝(?:量|数)[^0-9]{0,10}(\d+(?:\.\d+)?\s*万?)/);
+  var interactM = text.match(/互动率[^0-9]{0,10}(\d+\.?\d*\s*%)/);
+  var adviceM = text.match(/合作建议[：:]\s*([^\n。；;]{2,60})/);
+  var badgeColors = { A: '#10B981', B: '#3B82F6', C: '#6B7280', D: '#EF4444' };
+  var name = item.title || item.entity_id || '未知达人';
+  var html = '<div class="talents-mid-card" style="cursor:default;">';
+  html += '<div class="talents-mid-avatar" style="background:var(--accent);"><span style="font-size:20px;font-weight:600;">' + escapeHtml(name.charAt(0) || '?') + '</span></div>';
+  html += '<div class="talents-mid-info">';
+  html += '<div class="talents-mid-header-row">';
+  html += '<div class="talents-mid-name">' + escapeHtml(name) + '</div>';
+  if (rating) html += '<span class="talent-rating-badge" style="background:' + (badgeColors[rating] || '#6B7280') + ';">' + rating + '级</span>';
+  html += '</div>';
+  html += '<div class="talents-mid-stats-row">';
+  html += '<span class="talents-mid-followers">' + (followersM ? escapeHtml(followersM[1].replace(/\s+/g, '')) + '粉丝' : '粉丝数未知') + '</span>';
+  if (interactM) html += '<span style="font-size:12px;color:var(--text-tertiary);">互动率 ' + escapeHtml(interactM[1].replace(/\s+/g, '')) + '</span>';
+  html += '</div>';
+  if (adviceM) html += '<div style="font-size:12px;color:var(--text-secondary);">💡 合作建议：' + escapeHtml(adviceM[1].trim()) + '</div>';
+  if (item.entity_id && item.entity_id !== name) html += '<div style="font-size:11px;color:var(--text-tertiary);">ID：' + escapeHtml(item.entity_id) + '</div>';
+  html += '<div style="font-size:11px;color:var(--text-tertiary);">分析时间 ' + escapeHtml((item.created_at || '').slice(0, 10)) + '</div>';
+  html += '</div></div>';
+  return html;
 }
 
 function selectTalentItem(id) {
@@ -25052,7 +25349,13 @@ function renderTalentPanelKnowledge(t) {
     .then(function(data){
       var events = data.events || [];
       if (events.length === 0) {
-        el.innerHTML = '<div class="talents-panel-section"><div class="talents-panel-title">分析档案</div><div class="products-empty"><div class="products-empty-text">暂无分析记录</div></div></div>';
+        el.innerHTML = '<div class="talents-panel-section"><div class="talents-panel-title">分析档案</div>'
+          + '<div class="talent-empty-guide" style="text-align:center;padding:40px 20px;background:#F9FAFB;border-radius:12px;margin:20px;">'
+          + '<div style="font-size:48px;margin-bottom:16px;">📊</div>'
+          + '<div style="font-size:16px;font-weight:600;color:#111827;margin-bottom:8px;">该达人尚未生成分析报告</div>'
+          + '<div style="font-size:14px;color:#6B7280;margin-bottom:20px;">上传达人数据截图，AI 自动分析粉丝画像、带货结构、合作建议</div>'
+          + '<button onclick="triggerTalentAnalysis()" style="background:#3B82F6;color:white;border:none;padding:10px 24px;border-radius:8px;font-size:14px;cursor:pointer;">上传截图分析</button>'
+          + '</div></div>';
         return;
       }
       var html = '<div class="talents-panel-section"><div class="talents-panel-title">分析档案 (' + events.length + ')</div>';
@@ -25100,6 +25403,69 @@ function toggleKnowledgeEventCard(cardEl, eventId) {
     })
     .catch(function(e){
       body.textContent = '加载失败';
+    });
+}
+
+// ═══ 达人分析引导：上传截图触发 Helen 分析流程 ═══
+function _findHelenEmp() {
+  var list = (typeof emps !== 'undefined' && emps) || [];
+  var hit = list.find(function(e){
+    var label = ((e.name || '') + ' ' + (getEmpRoleDisplay(e) || '')).toLowerCase();
+    return label.indexOf('helen') !== -1;
+  });
+  if (hit) return hit;
+  return list.find(function(e){
+    var label = ((e.name || '') + ' ' + (getEmpRoleDisplay(e) || '')).toLowerCase();
+    return /商务|bd|合作/.test(label);
+  }) || null;
+}
+
+function triggerTalentAnalysis() {
+  if (!_currentTalent || !_currentTalent.id) { showToast('请先选择达人'); return; }
+  var input = document.getElementById('talentAnalysisFileInput');
+  if (!input) {
+    input = document.createElement('input');
+    input.type = 'file';
+    input.id = 'talentAnalysisFileInput';
+    input.accept = 'image/*';
+    input.multiple = true;
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.addEventListener('change', function(){
+      var files = Array.prototype.slice.call(input.files || []);
+      input.value = '';
+      if (files.length) _uploadTalentAnalysisImages(files);
+    });
+  }
+  input.click();
+}
+
+function _uploadTalentAnalysisImages(files) {
+  var t = _currentTalent;
+  var helen = _findHelenEmp();
+  if (!helen) { showToast('❌ 未找到 Helen（商务）员工，请先在员工列表中配置'); return; }
+  showToast('📤 正在上传 ' + files.length + ' 张截图...');
+  Promise.all(files.map(function(f){ return compressImageToBase64(f); }))
+    .then(function(images){
+      var text = '请分析达人「' + (t.name || '') + '」的数据截图，生成达人分析报告（粉丝画像、带货结构、合作建议）。';
+      return apiFetch('/api/chat/' + encodeURIComponent(helen.id), {
+        method: 'POST',
+        body: JSON.stringify({ role: 'user', content: text, skipAI: true, empId: helen.id, images: images })
+      });
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data && data.heavyPipe) {
+        showToast('🔬 Helen 正在深度分析截图，完成后可在分析档案查看');
+      } else {
+        showToast('✅ 已提交给 Helen 分析');
+      }
+      // HeavyPipe 分析耗时较长，延迟刷新分析档案面板
+      setTimeout(function(){ if (_currentTalent) renderTalentPanelKnowledge(_currentTalent); }, 30000);
+    })
+    .catch(function(e){
+      console.error('[TalentAnalysis] 上传失败:', e);
+      showToast('❌ 上传失败');
     });
 }
 
@@ -26562,7 +26928,7 @@ async function deleteKnowledgeFromEditor() {
   }
 }
 // (旧达人库表单函数已移除，兼容别名指向新达人库)
-function searchInfluencers() { loadTalents(1); }
+function searchInfluencers() { if (_talentActiveTab === 'analyzed') { _analyzedPage = 1; renderAnalyzedPage(); } else loadTalents(1); }
 function renderInfluencerList() {}
 function createNewInfluencer() { createNewTalent(); }
 function deleteInfluencer(infId) {
@@ -27484,7 +27850,7 @@ function switchModule(module) {
   if (module === 'knowledge') { loadGroups(); loadKnowledgePage(); }
   else if (module === 'patterns') loadPatternsPage();
   else if (module === 'products') { loadProductBrands(); loadProducts(); }
-  else if (module === 'influencers') loadTalents();
+  else if (module === 'influencers') switchTalentTab(_talentActiveTab);
   else if (module === 'tasks') loadTasks();
   else if (module === 'settings') renderSettingsMid();
   applySidebarWidth(getSidebarWidth());
