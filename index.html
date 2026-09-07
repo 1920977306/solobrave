@@ -15017,15 +15017,16 @@ function renderMsgs(type) {
 
 // ============ 聊天区空状态 - 欢迎态 ============
 function getChatEmptyStateHtml() {
-  // AI 员工卡片：取前 4 位员工，渐变描边 + AI 徽章（真人员工不在此列表，无光晕）
-  var aiEmps = (typeof emps !== 'undefined' ? emps : []).filter(function (e) { return e && !e.isProject; }).slice(0, 4);
+  // AI 员工卡片：只列 AI 员工（isAIEmp 判定，真人员工如 Ray 不出现），渐变描边 + AI 徽章
+  var aiEmps = (typeof emps !== 'undefined' ? emps : []).filter(function (e) { return e && !e.isProject && isAIEmp(e); }).slice(0, 4);
   var empRow = '';
   if (aiEmps.length) {
     empRow = '<div class="welcome-emp-row">' + aiEmps.map(function (e) {
+      var desc = (e.description || '').trim() || getEmpRoleDisplay(e) || 'AI 协作员工';
       return '<div class="welcome-emp-card" onclick="onWelcomeEmpChat(\'' + escapeAttr(e.id) + '\')">'
         + '<div class="welcome-emp-avatar-wrap"><div class="welcome-emp-ring">' + renderAvatar(e, 56) + '</div><div class="welcome-ai-badge">AI</div></div>'
         + '<div class="welcome-emp-name">' + escapeHtml(e.name || '') + '</div>'
-        + '<div class="welcome-emp-desc">' + escapeHtml(getEmpRoleDisplay(e) || 'AI 协作员工') + '</div>'
+        + '<div class="welcome-emp-desc">' + escapeHtml(desc) + '</div>'
         + '</div>';
     }).join('') + '</div>';
   }
@@ -15035,7 +15036,6 @@ function getChatEmptyStateHtml() {
   }).join('');
   return '<div class="chat-empty-state">'
     + '<div class="welcome-title">挑一位 AI 员工开始协作吧</div>'
-    + '<div class="welcome-subtitle">每位 AI 员工都有专属能力，点击头像即可发起对话</div>'
     + empRow
     + '<div class="welcome-prompt-hint">不知道怎么开口？可以直接这样问：</div>'
     + '<div class="welcome-prompt-chips">' + chips + '</div>'
@@ -24434,13 +24434,73 @@ function renderAnalyzedPagination(total, page, pageSize) {
   el.innerHTML = html;
 }
 
+// 从分析文本提取结构化指标：关键词与数字严格邻接 + 多候选 + 合理性校验，
+// 避免抓到「粉丝量、互动率等5个维度」「涨粉1.01万」这类干扰数字；校验不过一律留空显示 '-'
+var _ANALYZED_PLATFORM_MAP = { douyin: ['🎵', '抖音'], xiaohongshu: ['📕', '小红书'], bilibili: ['📺', 'B站'], kuaishou: ['⚡', '快手'], shipinhao: ['🎬', '视频号'], weibo: ['🔥', '微博'] };
+function _extractAnalysisMetrics(text) {
+  var res = { rating: '', followers: 0, followersText: '', interaction: '', gmv: 0, gmvText: '', category: '', platform: '' };
+  text = String(text || '');
+  var m;
+  var ratingM = text.match(/评级[：:]\s*"?([SABCD])\s*级?"?/i) || text.match(/\b([ABCD])\s*级/);
+  if (ratingM) res.rating = ratingM[1].toUpperCase();
+  function cnNum(num, unit) {
+    var v = parseFloat(String(num).replace(/,/g, ''));
+    if (isNaN(v)) return 0;
+    if (unit === '亿') v *= 100000000;
+    else if (unit === '万') v *= 10000;
+    return v;
+  }
+  function fmtCn(v) {
+    if (v >= 100000000) return (v / 100000000).toFixed(2).replace(/\.?0+$/, '') + '亿';
+    if (v >= 10000) return (v / 10000).toFixed(2).replace(/\.?0+$/, '') + '万';
+    return String(Math.round(v));
+  }
+  // 粉丝量：严格邻接（冒号/空白/约近超达等修饰词），<1000 视为提取失败
+  var fanRe = /粉丝(?:量|数)[：:\s]*(?:约|近|超过|超|达|已有|有|为)?\s*([\d,]+(?:\.\d+)?)\s*(亿|万)?/g;
+  while ((m = fanRe.exec(text))) {
+    var fv = cnNum(m[1], m[2]);
+    if (fv >= 1000 && fv < 1e11) { res.followers = Math.round(fv); res.followersText = fmtCn(fv); break; }
+  }
+  if (!res.followers) {
+    // 宽松回退：必须带 万/亿 单位（过滤「等5个维度」这类无单位干扰）
+    var fanLoose = /粉丝(?:量|数)[^\d]{0,15}([\d,]+(?:\.\d+)?)\s*(亿|万)/g;
+    while ((m = fanLoose.exec(text))) {
+      var fv2 = cnNum(m[1], m[2]);
+      if (fv2 >= 1000 && fv2 < 1e11) { res.followers = Math.round(fv2); res.followersText = fmtCn(fv2); break; }
+    }
+  }
+  // 互动率：优先冒号邻接的结构化写法，其次排除「行业均值/基准」语境的候选
+  var irCands = [];
+  var irRe = /互动率([：:]?)\s*(?:约|近|达|为|平均|高达)?\s*([\d.]+)\s*%/g;
+  while ((m = irRe.exec(text))) {
+    var iv = parseFloat(m[2]);
+    if (!(iv > 0 && iv <= 100)) continue;
+    var ctx = text.slice(Math.max(0, m.index - 6), m.index);
+    irCands.push({ v: m[2].replace(/\.$/, ''), colon: !!m[1], benchmark: !m[1] && /均值|行业|基准|大盘|同类|平均/.test(ctx) });
+  }
+  var irPick = irCands.filter(function (c) { return c.colon; })[0]
+            || irCands.filter(function (c) { return !c.benchmark; })[0]
+            || irCands[0];
+  if (irPick) res.interaction = irPick.v + '%';
+  // 带货GMV：<100 视为提取失败（过滤「场次10」「商品8」这类错位数字）
+  var gmvRe = /(?:GMV|结算额|带货额|销售额)[：:\s]*(?:约|近|达|累计|月均|为)?\s*([\d,]+(?:\.\d+)?)\s*(亿|万|元)?/gi;
+  while ((m = gmvRe.exec(text))) {
+    var gv = cnNum(m[1], m[2] === '元' ? '' : m[2]);
+    if (gv >= 100 && gv < 1e12) { res.gmv = Math.round(gv); res.gmvText = fmtCn(gv); break; }
+  }
+  var catM = text.match(/(?:类目|赛道|领域|垂类)[：:\s]+([^\s，,。；;：:、|（(]{2,10})/);
+  if (catM) res.category = catM[1];
+  var platKeys = [['抖音', 'douyin'], ['小红书', 'xiaohongshu'], ['哔哩哔哩', 'bilibili'], ['B站', 'bilibili'], ['快手', 'kuaishou'], ['视频号', 'shipinhao'], ['微博', 'weibo']];
+  for (var i = 0; i < platKeys.length; i++) {
+    if (text.indexOf(platKeys[i][0]) >= 0) { res.platform = platKeys[i][1]; break; }
+  }
+  return res;
+}
+
 function renderAnalyzedTalentCard(item) {
   var text = item.content_full || item.conclusions || item.content_summary || '';
-  var ratingM = text.match(/评级[：:]\s*"?([SABCD])\s*级?"?/i) || text.match(/\b([ABCD])\s*级/);
-  var rating = ratingM ? ratingM[1].toUpperCase() : '';
-  var followersM = text.match(/粉丝(?:量|数)[^0-9]{0,10}(\d+(?:\.\d+)?\s*万?)/);
-  var interactM = text.match(/互动率[^0-9]{0,10}(\d+\.?\d*\s*%)/);
-  var gmvM = text.match(/(?:GMV|结算额|带货额|销售额)[^0-9]{0,8}(\d+(?:\.\d+)?\s*万?)/i);
+  var metrics = _extractAnalysisMetrics(text);
+  var rating = metrics.rating;
   // 名称优先取 entity_id 的 'name:XXX' 部分；title 需去掉「截图识别原始数据：」前缀
   var rawId = String(item.entity_id || '');
   var name = '';
@@ -24454,17 +24514,28 @@ function renderAnalyzedTalentCard(item) {
   var timeText = item.created_at ? new Date(item.created_at).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
   var html = '<div class="talents-mid-card" onclick="openAnalyzedTalentDetail(\'' + escapeAttr(String(item.entity_id || '')).replace(/'/g, "\\'") + '\', \'' + escapeAttr(String(name)).replace(/'/g, "\\'") + '\')">';
   if (rating) html += '<div class="talent-rating-bar rating-' + rating + '"></div>';
+  var platInfo = metrics.platform ? _ANALYZED_PLATFORM_MAP[metrics.platform] : null;
+  html += '<div style="position:relative;flex-shrink:0;">';
   html += '<div class="talents-mid-avatar" style="width:48px;height:48px;font-size:18px;background:' + avBg + ';color:' + avFg + ';"><span style="font-size:20px;font-weight:600;color:' + avFg + ';">' + escapeHtml(name.charAt(0) || '?') + '</span></div>';
+  if (platInfo) html += '<div style="position:absolute;right:-2px;bottom:-2px;width:18px;height:18px;border-radius:50%;background:#fff;border:1px solid #e5e5ea;display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1;" title="' + escapeAttr(platInfo[1]) + '">' + platInfo[0] + '</div>';
+  html += '</div>';
   html += '<div class="talents-mid-info">';
   html += '<div class="talents-mid-header-row">';
   html += '<div class="talents-mid-name" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;">' + escapeHtml(name) + '</div>';
   html += '</div>';
-  // 核心数据行：粉丝量 / 互动率 / 带货GMV
+  // 核心数据行：粉丝量 / 互动率 / 带货GMV（校验不过显示 '-'）
   html += '<div class="tcard-metrics">';
-  html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (followersM ? escapeHtml(followersM[1].replace(/\s+/g, '')) : '-') + '</div><div class="tcard-metric-label">粉丝量</div></div>';
-  html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (interactM ? escapeHtml(interactM[1].replace(/\s+/g, '')) : '-') + '</div><div class="tcard-metric-label">互动率</div></div>';
-  html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (gmvM ? escapeHtml(gmvM[1].replace(/\s+/g, '')) : '-') + '</div><div class="tcard-metric-label">带货GMV</div></div>';
+  html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (metrics.followersText ? escapeHtml(metrics.followersText) : '-') + '</div><div class="tcard-metric-label">粉丝量</div></div>';
+  html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (metrics.interaction ? escapeHtml(metrics.interaction) : '-') + '</div><div class="tcard-metric-label">互动率</div></div>';
+  html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (metrics.gmvText ? escapeHtml(metrics.gmvText) : '-') + '</div><div class="tcard-metric-label">带货GMV</div></div>';
   html += '</div>';
+  // 类目 + 平台 chip
+  if (metrics.category || platInfo) {
+    html += '<div class="tcard-chips">';
+    if (metrics.category) html += '<span class="tcard-chip">' + escapeHtml(metrics.category) + '</span>';
+    if (platInfo) html += '<span class="tcard-chip">' + platInfo[0] + ' ' + escapeHtml(platInfo[1]) + '</span>';
+    html += '</div>';
+  }
   // 底部：AI 分析标记 + 分析时间
   html += '<div class="tcard-bottom"><span class="tcard-chip">🤖 AI 分析</span><span class="tcard-time">' + escapeHtml(timeText) + '</span></div>';
   html += '</div></div>';
@@ -24493,25 +24564,18 @@ function openAnalyzedTalentDetail(entityId, name) {
 // 从最新 analysis 事件提取字段，构造兼容右侧面板的最小达人对象（_analyzedOnly 标记非主库来源）
 function _buildAnalyzedTalentStub(entityId, name, ev) {
   var text = (ev && (ev.content_full || ev.conclusions || ev.content_summary)) || '';
-  var ratingM = text.match(/评级[：:]\s*"?([SABCD])\s*级?"?/i) || text.match(/\b([ABCD])\s*级/);
-  var followersM = text.match(/粉丝(?:量|数)[^0-9]{0,10}(\d+(?:\.\d+)?\s*万?)/);
-  var interactM = text.match(/互动率[^0-9]{0,10}(\d+\.?\d*\s*%)/);
-  var rating = ratingM ? ratingM[1].toUpperCase() : '';
-  var followers = 0;
-  if (followersM) {
-    var n = parseFloat(followersM[1]);
-    if (!isNaN(n)) followers = /万/.test(followersM[1]) ? Math.round(n * 10000) : Math.round(n);
-  }
+  var metrics = _extractAnalysisMetrics(text);
   return {
     id: String(entityId || ''),  // 分析档案面板用 entity_id 反查 knowledge_events
     name: name || String(entityId || '').replace(/^name:/, '') || '未知达人',
-    followers: followers,
-    level: rating,
-    ai_rating: rating,
+    followers: metrics.followers,
+    level: metrics.rating,
+    ai_rating: metrics.rating,
     ai_analysis: text,
-    video_interaction_rate: interactM ? interactM[1].replace(/\s+/g, '') : '',
+    video_interaction_rate: metrics.interaction,
+    total_gmv: metrics.gmv,
     cooperation_status: '',
-    category: '',
+    category: metrics.category,
     ai_tags: [],
     event_type: ev ? ev.event_type : 'analysis',
     _analyzedOnly: true
