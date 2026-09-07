@@ -1723,6 +1723,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   object-fit: cover;
   background: #f5f7fa;
   flex-shrink: 0;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4032,7 +4033,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 
 
-.avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; color: white; flex-shrink: 0; transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; color: white; flex-shrink: 0; overflow: hidden; transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s; }
 .avatar.small { width: 28px; height: 28px; font-size: 12px; }
 .list-item:hover .avatar { 
   transform: scale(1.08); 
@@ -4544,7 +4545,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   .emp-detail-panel { width: 95%; max-height: 90vh; }
 }
 .emp-detail-header { display: flex; align-items: center; gap: 12px; padding: 20px; border-bottom: 0.5px solid var(--separator); }
-.emp-detail-avatar { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
+.emp-detail-avatar { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; overflow: hidden; }
 .emp-detail-info { flex: 1; min-width: 0; }
 .emp-detail-name { font-size: 18px; font-weight: 600; margin-bottom: 2px; }
 .emp-detail-role { font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
@@ -7119,7 +7120,7 @@ window.doLogin = function () {
 <button class="mid-toggle-btn" onclick="toggleMidSidebar()" aria-label="切换列表">
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
 </button>
-<div class="avatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
+<div class="avatar" style="display:none;background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
 <div class="chat-header-info">
 <div class="chat-header-name"></div>
 <div class="chat-header-role"></div>
@@ -12769,6 +12770,7 @@ function openChat(id) {
     if (chatHeaderName) chatHeaderName.textContent = emp.name;
     if (chatHeaderSub) chatHeaderSub.textContent = '在线 · ' + getEmpRoleDisplay(emp);
     if (chatHeaderAvatar) {
+      chatHeaderAvatar.style.display = '';
       chatHeaderAvatar.innerHTML = renderAvatar(emp, 36);
       var _isImg = typeof emp.avatar === 'number' && typeof AVATAR_PRESETS !== 'undefined' && AVATAR_PRESETS[emp.avatar] || emp.avatar && (emp.avatar.indexOf('data:image') === 0 || emp.avatar.indexOf('.png') > 0 || emp.avatar.indexOf('.jpg') > 0 || emp.avatar.indexOf('.jpeg') > 0);
       chatHeaderAvatar.style.background = _isImg ? 'transparent' : 'linear-gradient(135deg,' + emp.bg + ',' + emp.bg + 'dd)';
@@ -15103,6 +15105,7 @@ function renderEmptyChat() {
   if (chatHeaderAvatar) {
     chatHeaderAvatar.innerHTML = '🦞';
     chatHeaderAvatar.style.background = 'linear-gradient(135deg,#FF6B35,#E55A2B)';
+    chatHeaderAvatar.style.display = 'none';  // 未选中会话时不显示默认龙虾头像（橙色圆底+在线点，空状态下突兀）
   }
   var messagesArea = document.getElementById('messagesArea');
   if (messagesArea) messagesArea.innerHTML = getChatEmptyStateHtml();
@@ -16257,7 +16260,7 @@ function openEmpDetail(empId) {
   if (memTabBtn) memTabBtn.textContent = '记忆';
   selectedAvatar = emp.avatar || '🦞';
   selectedColor = emp.color || '#FF6B35';
-  document.getElementById('empDetailAvatar').innerHTML = renderAvatar(emp, 80);
+  document.getElementById('empDetailAvatar').innerHTML = renderAvatar(emp, 56);
   document.getElementById('empDetailAvatar').style.background = `linear-gradient(135deg,${emp.color || '#FF6B35'},${emp.color || '#FF6B35'}dd)`;
   document.getElementById('empDetailName').textContent = emp.name;
   document.getElementById('empDetailRole').textContent = getEmpRoleDisplay(emp);
@@ -18440,7 +18443,7 @@ function saveEmpAvatar() {
       emp.bg = selectedColor;
     }
     saveEmployees();
-    document.getElementById('empDetailAvatar').innerHTML = renderAvatar(emp, 80);
+    document.getElementById('empDetailAvatar').innerHTML = renderAvatar(emp, 56);
     document.getElementById('empDetailAvatar').style.background = `linear-gradient(135deg,${emp.color},${emp.color}dd)`;
     renderEmployeeList();
     // Also update chat header avatar if this emp is currently in chat
