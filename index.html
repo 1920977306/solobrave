@@ -1579,6 +1579,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 10px;
   flex: 1 1 100%;
   min-width: 0;
+  flex-wrap: wrap;
   overflow-x: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(0,0,0,0.12) transparent;
@@ -24345,7 +24346,8 @@ function renderAnalyzedTalentCard(item) {
   html += '</div>';
   if (adviceM) html += '<div style="font-size:12px;color:var(--text-secondary);">💡 合作建议：' + escapeHtml(adviceM[1].trim()) + '</div>';
   if (item.entity_id && item.entity_id !== name) html += '<div style="font-size:11px;color:var(--text-tertiary);">ID：' + escapeHtml(item.entity_id) + '</div>';
-  html += '<div style="font-size:11px;color:var(--text-tertiary);">分析时间 ' + escapeHtml((item.created_at || '').slice(0, 10)) + '</div>';
+  var timeText = item.created_at ? new Date(item.created_at).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
+  html += '<div style="font-size:11px;color:var(--text-tertiary);">分析时间 ' + escapeHtml(timeText) + '</div>';
   html += '</div></div>';
   return html;
 }
