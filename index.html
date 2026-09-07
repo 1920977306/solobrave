@@ -6992,6 +6992,10 @@ window.doLogin = function () {
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       <input type="text" placeholder="搜索达人昵称/关键词..." id="talentsMidSearch" oninput="onTalentSearch(this.value)">
     </div>
+    <div class="talents-mid-tabs" style="display:flex;gap:8px;margin-bottom:0;padding:0 8px;flex:1 1 100%;">
+      <button class="talent-tab-btn active" data-tab="analyzed" onclick="switchTalentMidTab('analyzed')">📊 已分析达人</button>
+      <button class="talent-tab-btn" data-tab="main" onclick="switchTalentMidTab('main')">👥 达人主库</button>
+    </div>
     <div class="talents-filter-row">
       <div class="segmented-control" id="talentsCooperationFilter">
         <button class="segmented-item active" data-cooperation="" onclick="selectTalentCooperation('')">全部</button>
@@ -7030,10 +7034,6 @@ window.doLogin = function () {
         <span>含演示数据</span>
       </label>
     </div>
-  </div>
-  <div class="talents-mid-tabs" style="display:flex;gap:8px;margin-bottom:16px;padding:0 8px;">
-    <button class="talent-tab-btn active" data-tab="analyzed" onclick="switchTalentTab('analyzed')">📊 已分析达人</button>
-    <button class="talent-tab-btn" data-tab="main" onclick="switchTalentTab('main')">👥 达人主库</button>
   </div>
   <div class="talents-tab-pane" id="talentsAnalyzedItems" style="display:flex;">
     <div style="padding:0 14px 10px;flex-shrink:0;">
@@ -24217,7 +24217,7 @@ function renderTalentPagination(total, page, pageSize) {
 }
 
 // ===== 达人库 Tab 切换：已分析达人 / 达人主库 =====
-function switchTalentTab(tab) {
+function switchTalentMidTab(tab) {
   _talentActiveTab = tab === 'main' ? 'main' : 'analyzed';
   var isAnalyzed = _talentActiveTab === 'analyzed';
   document.querySelectorAll('.talent-tab-btn').forEach(function(btn){
@@ -24234,6 +24234,8 @@ function switchTalentTab(tab) {
   if (filterRow) filterRow.style.display = isAnalyzed ? 'none' : '';
   if (isAnalyzed) loadAnalyzedTalents();
   else loadTalents();
+  // 未选中达人时右侧只显示空状态引导，不渲染详情子Tab
+  if (!_talentCurrentId) showTalentEmptyState();
 }
 
 function loadAnalyzedTalents() {
@@ -24251,6 +24253,7 @@ function loadAnalyzedTalents() {
     });
     _analyzedList = Object.keys(byEntity).map(function(k){ return byEntity[k]; });
     renderAnalyzedPage();
+    if (!_talentCurrentId) showTalentEmptyState();
   }).catch(function(){
     if (listEl) listEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
   });
@@ -27852,7 +27855,7 @@ function switchModule(module) {
   if (module === 'knowledge') { loadGroups(); loadKnowledgePage(); }
   else if (module === 'patterns') loadPatternsPage();
   else if (module === 'products') { loadProductBrands(); loadProducts(); }
-  else if (module === 'influencers') switchTalentTab(_talentActiveTab);
+  else if (module === 'influencers') switchTalentMidTab(_talentActiveTab);
   else if (module === 'tasks') loadTasks();
   else if (module === 'settings') renderSettingsMid();
   applySidebarWidth(getSidebarWidth());
