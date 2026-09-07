@@ -1650,7 +1650,12 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   flex: 1;
   overflow-y: auto;
   padding: 12px 14px 28px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 12px;
+  align-content: start;
 }
+.talents-mid-items > .talents-mid-card { margin-bottom: 0; }
 .talents-mid-card {
   display: flex;
   align-items: flex-start;
@@ -24150,7 +24155,7 @@ function renderTalentList(talents) {
     }
     // 卡片底部合作建议（独立小条，分割线区分）
     html += _renderTalentCooperationAdvice(t.cooperation_status);
-    html += '</div>';
+    html += '</div></div>';
   });
   el.innerHTML = html;
 }
@@ -24335,8 +24340,14 @@ function renderAnalyzedTalentCard(item) {
   var interactM = text.match(/互动率[^0-9]{0,10}(\d+\.?\d*\s*%)/);
   var adviceM = text.match(/合作建议[：:]\s*([^\n。；;]{2,60})/);
   var badgeColors = { A: '#10B981', B: '#3B82F6', C: '#6B7280', D: '#EF4444' };
-  var name = item.title || item.entity_id || '未知达人';
-  var html = '<div class="talents-mid-card" style="cursor:default;">';
+  // 名称优先取 entity_id 的 'name:XXX' 部分；title 需去掉「截图识别原始数据：」前缀
+  var rawId = String(item.entity_id || '');
+  var name = '';
+  if (rawId.indexOf('name:') === 0) name = rawId.slice(5).trim();
+  if (!name && item.title) name = String(item.title).replace(/^截图识别原始数据[：:]\s*/, '').trim();
+  if (!name) name = rawId || '未知达人';
+  var dispId = rawId.replace(/^name:/, '');
+  var html = '<div class="talents-mid-card" onclick="openAnalyzedTalentDetail(\'' + escapeAttr(String(item.entity_id || '')).replace(/'/g, "\\'") + '\', \'' + escapeAttr(String(name)).replace(/'/g, "\\'") + '\')">';
   html += '<div class="talents-mid-avatar" style="background:var(--accent);"><span style="font-size:20px;font-weight:600;">' + escapeHtml(name.charAt(0) || '?') + '</span></div>';
   html += '<div class="talents-mid-info">';
   html += '<div class="talents-mid-header-row">';
@@ -24348,11 +24359,25 @@ function renderAnalyzedTalentCard(item) {
   if (interactM) html += '<span style="font-size:12px;color:var(--text-tertiary);">互动率 ' + escapeHtml(interactM[1].replace(/\s+/g, '')) + '</span>';
   html += '</div>';
   if (adviceM) html += '<div style="font-size:12px;color:var(--text-secondary);">💡 合作建议：' + escapeHtml(adviceM[1].trim()) + '</div>';
-  if (item.entity_id && item.entity_id !== name) html += '<div style="font-size:11px;color:var(--text-tertiary);">ID：' + escapeHtml(item.entity_id) + '</div>';
+  if (dispId && dispId !== name) html += '<div style="font-size:11px;color:var(--text-tertiary);">ID：' + escapeHtml(dispId) + '</div>';
   var timeText = item.created_at ? new Date(item.created_at).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
   html += '<div style="font-size:11px;color:var(--text-tertiary);">分析时间 ' + escapeHtml(timeText) + '</div>';
   html += '</div></div>';
   return html;
+}
+
+// 点击已分析达人卡片：entity_id 可能是达人 id、达人名或 'name:xxx' 形式，先解析到主库达人再加载详情
+function openAnalyzedTalentDetail(entityId, name) {
+  var key = String(entityId || '').replace(/^name:/, '') || name || '';
+  if (!key) return;
+  apiFetch('/api/talents?q=' + encodeURIComponent(key) + '&limit=50').then(function(r){ return r.json(); }).then(function(data){
+    var list = data.talents || [];
+    var t = list.find(function(x){ return x.id === entityId; })
+         || list.find(function(x){ return x.name === key || x.name === name; })
+         || list[0];
+    if (t) selectTalentItem(t.id);
+    else showToast('该达人不在主库，暂无详情');
+  }).catch(function(){ showToast('加载失败'); });
 }
 
 function selectTalentItem(id) {
