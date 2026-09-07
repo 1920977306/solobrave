@@ -1652,10 +1652,46 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 12px 14px 28px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
-  gap: 12px;
+  gap: 16px;
   align-content: start;
 }
 .talents-mid-items > .talents-mid-card { margin-bottom: 0; }
+
+/* ═══ 达人卡片 V3：评级色条 / 指标行 / 类目chip / 单状态徽章 ═══ */
+.talents-mid-card { position: relative; padding-left: 18px; }
+.talent-rating-bar { position: absolute; left: 0; top: 14px; bottom: 14px; width: 6px; border-radius: 0 3px 3px 0; }
+.talent-rating-bar.rating-A { background: #34C759; }
+.talent-rating-bar.rating-B { background: #007AFF; }
+.talent-rating-bar.rating-C { background: #FFCC00; }
+.talent-rating-bar.rating-D { background: #8E8E93; }
+.tcard-metrics { display: flex; gap: 8px; padding: 10px 0; border-top: 0.5px solid var(--separator); border-bottom: 0.5px solid var(--separator); }
+.tcard-metric { flex: 1; min-width: 0; text-align: center; }
+.tcard-metric-value { font-size: 17px; font-weight: 700; letter-spacing: -0.2px; color: var(--text-primary); }
+.tcard-metric-value .unit { font-size: 11px; font-weight: 500; color: var(--text-secondary); margin-left: 1px; }
+.tcard-metric-label { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
+.tcard-chips { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 10px; }
+.tcard-chip { font-size: 11px; color: var(--text-secondary); background: rgba(142,142,147,0.12); padding: 2px 8px; border-radius: 999px; }
+.tcard-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; min-height: 30px; }
+.tcard-time { font-size: 11px; color: var(--text-tertiary); }
+
+/* ═══ 聊天欢迎页 V3 + AI 员工渐变描边（真人无描边无徽章） ═══ */
+.chat-empty-state .welcome-emp-row { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 28px; }
+.chat-empty-state .welcome-emp-card { width: 148px; padding: 18px 12px 14px; border-radius: 12px; border: 0.5px solid var(--separator); background: var(--surface, #fff); cursor: pointer; transition: box-shadow 0.18s ease, transform 0.18s ease; }
+.chat-empty-state .welcome-emp-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.10); transform: translateY(-1px); }
+.chat-empty-state .welcome-emp-avatar-wrap { position: relative; width: 63px; height: 63px; margin: 0 auto 10px; }
+.chat-empty-state .welcome-emp-ring { width: 63px; height: 63px; border-radius: 50%; padding: 3.5px; background: linear-gradient(135deg, #8ec5ff 0%, #007AFF 100%); box-shadow: 0 0 16px rgba(0,122,255,0.5); display: flex; align-items: center; justify-content: center; }
+.chat-empty-state .welcome-ai-badge { position: absolute; right: -4px; bottom: -4px; font-size: 9px; font-weight: 700; color: #fff; background: var(--accent); padding: 2px 5px; border-radius: 6px; border: 2px solid #fff; letter-spacing: 0.3px; }
+.chat-empty-state .welcome-emp-name { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+.chat-empty-state .welcome-emp-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+.chat-empty-state .welcome-prompt-hint { font-size: 12px; color: var(--text-tertiary); margin-bottom: 10px; }
+.chat-empty-state .welcome-prompt-chips { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; max-width: 640px; }
+.chat-empty-state .welcome-prompt-chip { font-size: 12px; color: var(--text-secondary); background: var(--surface, #fff); border: 0.5px solid var(--separator); border-radius: 999px; padding: 6px 14px; cursor: pointer; transition: color 0.15s ease, border-color 0.15s ease; }
+.chat-empty-state .welcome-prompt-chip:hover { color: var(--accent); border-color: rgba(0,122,255,0.4); }
+.chat-empty-state .welcome-cta { display: inline-block; background: var(--accent); color: #fff; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; padding: 11px 36px; cursor: pointer; transition: background 0.15s ease; }
+.chat-empty-state .welcome-cta:hover { background: #0066d6; }
+.chat-empty-state .welcome-links { margin-top: 16px; display: flex; justify-content: center; gap: 24px; }
+.chat-empty-state .welcome-link { font-size: 13px; color: var(--text-secondary); background: none; border: none; cursor: pointer; padding: 0; }
+.chat-empty-state .welcome-link:hover { color: var(--accent); text-decoration: underline; }
 .talents-mid-card {
   display: flex;
   align-items: flex-start;
@@ -4320,8 +4356,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .tool-output { font-family: monospace; max-height: 200px; overflow: auto; margin-top: 8px; font-size: 12px; color: #666; display: none; }
 
 /* Chat Empty State - Welcome */
-.chat-empty-state { display: flex; flex-direction: column; align-items: center; width: 100%; padding-top: 30vh; text-align: center; color: var(--text-secondary); }
-.chat-empty-state .welcome-title { font-size: 28px; font-weight: bold; color: var(--accent); margin-bottom: 8px; }
+.chat-empty-state { display: flex; flex-direction: column; align-items: center; width: 100%; padding-top: 12vh; text-align: center; color: var(--text-secondary); }
+.chat-empty-state .welcome-title { font-size: 24px; font-weight: 600; letter-spacing: -0.3px; color: var(--text-primary); margin-bottom: 8px; }
 .chat-empty-state .welcome-subtitle { font-size: 14px; color: var(--text-muted); margin-bottom: 32px; }
 .chat-empty-state .welcome-cards { display: flex; gap: 16px; justify-content: center; }
 .chat-empty-state .welcome-card { width: 120px; height: 80px; background: var(--surface); border-radius: var(--card-radius); box-shadow: var(--card-shadow); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: all 0.2s ease; user-select: none; }
@@ -10532,6 +10568,7 @@ async function loadEmployees() {
           });
           // 重新合并项目组成员，防止 emps 被清空后丢失群内 AI 的 @提及匹配能力
           mergeGroupMembersToEmps();
+          refreshChatEmptyStateIfVisible();
 
           // 不再存localStorage，避免不同用户数据混淆
 
@@ -10562,6 +10599,7 @@ async function loadEmployees() {
   }
   // 后端加载失败或本地模式时，也尝试合并项目组成员
   mergeGroupMembersToEmps();
+  refreshChatEmptyStateIfVisible();
 }
 
 // Tasks data with drag support
@@ -14979,7 +15017,62 @@ function renderMsgs(type) {
 
 // ============ 聊天区空状态 - 欢迎态 ============
 function getChatEmptyStateHtml() {
-  return '<div class="chat-empty-state"><div class="welcome-title">全可AI</div><div class="welcome-subtitle">你的AI协作伙伴</div><div class="welcome-cards"><div class="welcome-card" onclick="onWelcomeNewChat()"><span class="welcome-card-icon">💬</span><span class="welcome-card-text">新建对话</span></div><div class="welcome-card" onclick="onWelcomeTalentCreate()"><span class="welcome-card-icon">🎙️</span><span class="welcome-card-text">达人录入</span></div><div class="welcome-card" onclick="onWelcomeTalents()"><span class="welcome-card-icon">👥</span><span class="welcome-card-text">达人搜索</span></div></div></div>';
+  // AI 员工卡片：取前 4 位员工，渐变描边 + AI 徽章（真人员工不在此列表，无光晕）
+  var aiEmps = (typeof emps !== 'undefined' ? emps : []).filter(function (e) { return e && !e.isProject; }).slice(0, 4);
+  var empRow = '';
+  if (aiEmps.length) {
+    empRow = '<div class="welcome-emp-row">' + aiEmps.map(function (e) {
+      return '<div class="welcome-emp-card" onclick="onWelcomeEmpChat(\'' + escapeAttr(e.id) + '\')">'
+        + '<div class="welcome-emp-avatar-wrap"><div class="welcome-emp-ring">' + renderAvatar(e, 56) + '</div><div class="welcome-ai-badge">AI</div></div>'
+        + '<div class="welcome-emp-name">' + escapeHtml(e.name || '') + '</div>'
+        + '<div class="welcome-emp-desc">' + escapeHtml(getEmpRoleDisplay(e) || 'AI 协作员工') + '</div>'
+        + '</div>';
+    }).join('') + '</div>';
+  }
+  var prompts = ['帮我分析一位达人的带货数据', '筛选粉丝 50 万以上的服饰达人', '汇总这周的达人合作进展'];
+  var chips = prompts.map(function (p) {
+    return '<button class="welcome-prompt-chip" onclick="onWelcomePrompt(\'' + escapeAttr(p) + '\')">' + escapeHtml(p) + '</button>';
+  }).join('');
+  return '<div class="chat-empty-state">'
+    + '<div class="welcome-title">挑一位 AI 员工开始协作吧</div>'
+    + '<div class="welcome-subtitle">每位 AI 员工都有专属能力，点击头像即可发起对话</div>'
+    + empRow
+    + '<div class="welcome-prompt-hint">不知道怎么开口？可以直接这样问：</div>'
+    + '<div class="welcome-prompt-chips">' + chips + '</div>'
+    + '<div><button class="welcome-cta" onclick="onWelcomeNewChat()">新建对话</button></div>'
+    + '<div class="welcome-links"><button class="welcome-link" onclick="onWelcomeTalentCreate()">达人录入</button><button class="welcome-link" onclick="onWelcomeTalents()">达人搜索</button></div>'
+    + '</div>';
+}
+
+// 欢迎页：点击 AI 员工头像直接进入单聊
+function onWelcomeEmpChat(empId) {
+  switchModule('messages');
+  setTimeout(function () { openChat(empId); }, 50);
+}
+
+// 欢迎页：示例 prompt 填入输入框，教育用户怎么开口
+function onWelcomePrompt(text) {
+  switchModule('messages');
+  setTimeout(function () {
+    var input = document.getElementById('msgInput');
+    if (input) {
+      input.value = text;
+      input.focus();
+      if (typeof handleInput === 'function') handleInput();
+    }
+  }, 50);
+}
+
+// 员工列表异步加载完成后，若聊天区仍是欢迎空状态则重渲染（让员工卡片出现）
+function refreshChatEmptyStateIfVisible() {
+  var els = document.querySelectorAll('.chat-empty-state');
+  if (!els.length) return;
+  var html = getChatEmptyStateHtml();
+  els.forEach(function (el) {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    if (tmp.firstChild && el.parentNode) el.parentNode.replaceChild(tmp.firstChild, el);
+  });
 }
 
 function onWelcomeNewChat() {
@@ -23952,6 +24045,13 @@ var _TALENT_STATUS_OPTIONS = [
 
 // 评级徽章色板：A 绿 / B 蓝 / C 灰 / D 红；其他值降级为灰并展示原文
 var _TALENT_RATING_COLORS = { A: '#10B981', B: '#3B82F6', C: '#6B7280', D: '#EF4444' };
+// 卡片 V3 评级配色：色条 + 头像底色（C 黄底配深色字，未评级中性灰）
+var _CARD_RATING_STYLE = {
+  A: { bg: '#34C759', fg: '#ffffff' },
+  B: { bg: '#007AFF', fg: '#ffffff' },
+  C: { bg: '#FFCC00', fg: '#3a3000' },
+  D: { bg: '#8E8E93', fg: '#ffffff' }
+};
 function _renderTalentRatingBadge(rating) {
   if (!rating) return '';
   var r = String(rating).trim().toUpperCase();
@@ -24120,41 +24220,40 @@ function renderTalentList(talents) {
   var html = '';
   talents.forEach(function(t){
     var mock = _getTalentMockData(t);
-    var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:20px;font-weight:600;">' + (t.name || '?').charAt(0) + '</span>';
-    var tags = (t.ai_tags && t.ai_tags.length ? t.ai_tags : mock.ai_tags).slice(0, 2);
+    var rating = String(t.level || t.ai_rating || '').trim().charAt(0).toUpperCase();
+    if ('SABCD'.indexOf(rating) < 0) rating = '';
+    // 头像底色绑评级：A绿/B蓝/C黄(深色字)/D灰，未评级中性灰；评级同时靠左侧色条传递
+    var avStyle = rating ? (_CARD_RATING_STYLE[rating] || { bg: '#c7c7cc', fg: '#ffffff' }) : { bg: '#c7c7cc', fg: '#ffffff' };
+    var avBg = t.avatar ? '#f5f7fa' : avStyle.bg;
+    var avFg = avStyle.fg;
+    var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:20px;font-weight:600;color:' + avFg + ';">' + (t.name || '?').charAt(0) + '</span>';
     var categories = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
     var followersText = formatFollowers(t.followers || 0).replace('w', '万');
+    var gmvRaw = t.total_gmv || mock.total_gmv || 0;
+    var gmvText = gmvRaw >= 10000 ? ((gmvRaw / 10000).toFixed(1).replace(/\.0$/, '') + '万') : (gmvRaw > 0 ? formatNumber(gmvRaw) : '');
+    var engagement = (t.video_interaction_rate || '').toString().replace(/[^\d.]/g, '');
     html += '<div class="talents-mid-card' + (_talentCurrentId === t.id ? ' active' : '') + '" data-id="' + escapeAttr(t.id) + '" onclick="selectTalentItem(\'' + escapeAttr(t.id).replace(/'/g,"\\'") + '\')">';
-    html += '<div class="talents-mid-avatar" style="background:' + (t.avatar ? '#f5f7fa' : 'var(--accent)') + ';">' + avatar + '</div>';
+    if (rating) html += '<div class="talent-rating-bar rating-' + rating + '"></div>';
+    html += '<div class="talents-mid-avatar" style="width:48px;height:48px;font-size:18px;background:' + avBg + ';">' + avatar + '</div>';
     html += '<div class="talents-mid-info">';
     html += '<div class="talents-mid-header-row">';
-    html += '<div class="talents-mid-name">' + escapeHtml(t.name) + _renderTalentRatingBadge(t.level) + '</div>';
-    html += _renderTalentStatusDropdown(t.id, t.cooperation_status, true);
+    html += '<div class="talents-mid-name" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;">' + escapeHtml(t.name) + '</div>';
     html += '</div>';
-    html += '<div class="talents-mid-stats-row">';
-    if (categories.length) {
-      html += '<div class="talents-mid-categories">' + categories.map(function(cat){ return '<span class="talents-mid-category-tag">' + escapeHtml(cat) + '</span>'; }).join('') + '</div>';
-    }
     if (isAdmin() && t.createdByName) {
-      html += '<span style="font-size:12px;color:var(--text-tertiary);">👤 ' + escapeHtml(t.createdByName) + '</span>';
+      html += '<div style="font-size:12px;color:var(--text-tertiary);">👤 ' + escapeHtml(t.createdByName) + '</div>';
     }
+    // 核心数据行：粉丝量 / 互动率 / 带货GMV，数字下方中文小标签
+    html += '<div class="tcard-metrics">';
+    html += '<div class="tcard-metric"><div class="tcard-metric-value">' + followersText + '</div><div class="tcard-metric-label">粉丝量</div></div>';
+    html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (engagement ? engagement + '<span class="unit">%</span>' : '-') + '</div><div class="tcard-metric-label">互动率</div></div>';
+    html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (gmvText || '-') + '</div><div class="tcard-metric-label">带货GMV</div></div>';
     html += '</div>';
-    // 关键数据行：粉丝数 + 等级 + 互动率(有则加)；无值字段一律不渲染占位
-    html += '<div class="talents-mid-data-row">';
-    html += '<span>粉丝<strong>' + followersText + '</strong></span>';
-    if (t.level) {
-      html += '<span>等级<strong>' + escapeHtml(String(t.level)) + '</strong></span>';
+    // 类目标签 chip
+    if (categories.length) {
+      html += '<div class="tcard-chips">' + categories.map(function(cat){ return '<span class="tcard-chip">' + escapeHtml(cat) + '</span>'; }).join('') + '</div>';
     }
-    var _engagementStr = (t.video_interaction_rate || '').toString().replace(/[^\d.]/g, '');
-    if (_engagementStr) {
-      html += '<span class="engagement">互动率<strong>' + _engagementStr + '%</strong></span>';
-    }
-    html += '</div>';
-    if (tags.length) {
-      html += '<div class="talents-overview-tags" style="margin-top:6px;">' + tags.map(function(tag){ return '<span class="talents-overview-tag">' + escapeHtml(tag) + '</span>'; }).join('') + '</div>';
-    }
-    // 卡片底部合作建议（独立小条，分割线区分）
-    html += _renderTalentCooperationAdvice(t.cooperation_status);
+    // 底部只保留 1 个状态徽章（可点击切换合作状态）
+    html += '<div class="tcard-bottom">' + _renderTalentStatusDropdown(t.id, t.cooperation_status, true) + '</div>';
     html += '</div></div>';
   });
   el.innerHTML = html;
@@ -24341,30 +24440,33 @@ function renderAnalyzedTalentCard(item) {
   var rating = ratingM ? ratingM[1].toUpperCase() : '';
   var followersM = text.match(/粉丝(?:量|数)[^0-9]{0,10}(\d+(?:\.\d+)?\s*万?)/);
   var interactM = text.match(/互动率[^0-9]{0,10}(\d+\.?\d*\s*%)/);
-  var adviceM = text.match(/合作建议[：:]\s*([^\n。；;]{2,60})/);
-  var badgeColors = { A: '#10B981', B: '#3B82F6', C: '#6B7280', D: '#EF4444' };
+  var gmvM = text.match(/(?:GMV|结算额|带货额|销售额)[^0-9]{0,8}(\d+(?:\.\d+)?\s*万?)/i);
   // 名称优先取 entity_id 的 'name:XXX' 部分；title 需去掉「截图识别原始数据：」前缀
   var rawId = String(item.entity_id || '');
   var name = '';
   if (rawId.indexOf('name:') === 0) name = rawId.slice(5).trim();
   if (!name && item.title) name = String(item.title).replace(/^截图识别原始数据[：:]\s*/, '').trim();
   if (!name) name = rawId || '未知达人';
-  var dispId = rawId.replace(/^name:/, '');
+  // 头像底色绑评级，评级同时靠左侧色条传递
+  var badgeColors = { A: '#34C759', B: '#007AFF', C: '#FFCC00', D: '#8E8E93' };
+  var avBg = rating ? (badgeColors[rating] || '#c7c7cc') : '#c7c7cc';
+  var avFg = rating === 'C' ? '#3a3000' : '#ffffff';
+  var timeText = item.created_at ? new Date(item.created_at).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
   var html = '<div class="talents-mid-card" onclick="openAnalyzedTalentDetail(\'' + escapeAttr(String(item.entity_id || '')).replace(/'/g, "\\'") + '\', \'' + escapeAttr(String(name)).replace(/'/g, "\\'") + '\')">';
-  html += '<div class="talents-mid-avatar" style="background:var(--accent);"><span style="font-size:20px;font-weight:600;">' + escapeHtml(name.charAt(0) || '?') + '</span></div>';
+  if (rating) html += '<div class="talent-rating-bar rating-' + rating + '"></div>';
+  html += '<div class="talents-mid-avatar" style="width:48px;height:48px;font-size:18px;background:' + avBg + ';color:' + avFg + ';"><span style="font-size:20px;font-weight:600;color:' + avFg + ';">' + escapeHtml(name.charAt(0) || '?') + '</span></div>';
   html += '<div class="talents-mid-info">';
   html += '<div class="talents-mid-header-row">';
-  html += '<div class="talents-mid-name">' + escapeHtml(name) + '</div>';
-  if (rating) html += '<span class="talent-rating-badge" style="background:' + (badgeColors[rating] || '#6B7280') + ';">' + rating + '级</span>';
+  html += '<div class="talents-mid-name" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;">' + escapeHtml(name) + '</div>';
   html += '</div>';
-  html += '<div class="talents-mid-stats-row">';
-  html += '<span class="talents-mid-followers">' + (followersM ? escapeHtml(followersM[1].replace(/\s+/g, '')) + '粉丝' : '粉丝数未知') + '</span>';
-  if (interactM) html += '<span style="font-size:12px;color:var(--text-tertiary);">互动率 ' + escapeHtml(interactM[1].replace(/\s+/g, '')) + '</span>';
+  // 核心数据行：粉丝量 / 互动率 / 带货GMV
+  html += '<div class="tcard-metrics">';
+  html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (followersM ? escapeHtml(followersM[1].replace(/\s+/g, '')) : '-') + '</div><div class="tcard-metric-label">粉丝量</div></div>';
+  html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (interactM ? escapeHtml(interactM[1].replace(/\s+/g, '')) : '-') + '</div><div class="tcard-metric-label">互动率</div></div>';
+  html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (gmvM ? escapeHtml(gmvM[1].replace(/\s+/g, '')) : '-') + '</div><div class="tcard-metric-label">带货GMV</div></div>';
   html += '</div>';
-  if (adviceM) html += '<div style="font-size:12px;color:var(--text-secondary);">💡 合作建议：' + escapeHtml(adviceM[1].trim()) + '</div>';
-  if (dispId && dispId !== name) html += '<div style="font-size:11px;color:var(--text-tertiary);">ID：' + escapeHtml(dispId) + '</div>';
-  var timeText = item.created_at ? new Date(item.created_at).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
-  html += '<div style="font-size:11px;color:var(--text-tertiary);">分析时间 ' + escapeHtml(timeText) + '</div>';
+  // 底部：AI 分析标记 + 分析时间
+  html += '<div class="tcard-bottom"><span class="tcard-chip">🤖 AI 分析</span><span class="tcard-time">' + escapeHtml(timeText) + '</span></div>';
   html += '</div></div>';
   return html;
 }
