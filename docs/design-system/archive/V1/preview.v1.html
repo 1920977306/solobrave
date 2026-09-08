@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SoloBrave Design System — Visual Preview</title>
+  <link rel="stylesheet" href="tokens.css" />
+  <style>
+    /* Preview-only styles, 不会污染产品 */
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      background: var(--color-bg-soft);
+      color: var(--color-text-primary);
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: var(--space-8) var(--space-6);
+    }
+    .section {
+      background: var(--color-bg);
+      border-radius: var(--radius-lg);
+      padding: var(--space-6);
+      margin-bottom: var(--space-6);
+    }
+    .section-title {
+      font-size: var(--fs-h1);
+      font-weight: var(--fw-semibold);
+      letter-spacing: var(--tracking-tight);
+      margin: 0 0 var(--space-2);
+    }
+    .section-desc {
+      font-size: var(--fs-body);
+      color: var(--color-text-secondary);
+      margin: 0 0 var(--space-6);
+    }
+    .subsection-title {
+      font-size: var(--fs-h3);
+      font-weight: var(--fw-semibold);
+      margin: var(--space-6) 0 var(--space-3);
+      padding-bottom: var(--space-2);
+      border-bottom: 1px solid var(--color-border-subtle);
+    }
+    .subsection-title:first-child { margin-top: 0; }
+
+    /* Color swatch grid */
+    .swatch-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: var(--space-3);
+    }
+    .swatch {
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    .swatch-color {
+      height: 72px;
+      display: flex;
+      align-items: flex-end;
+      padding: var(--space-2);
+      color: white;
+      font-size: var(--fs-micro);
+      font-family: var(--font-num);
+    }
+    .swatch-color.dark-text { color: var(--color-text-primary); }
+    .swatch-info {
+      padding: var(--space-3);
+    }
+    .swatch-name {
+      font-size: var(--fs-caption);
+      font-weight: var(--fw-semibold);
+      margin-bottom: 2px;
+    }
+    .swatch-value {
+      font-size: var(--fs-micro);
+      color: var(--color-text-tertiary);
+      font-family: var(--font-num);
+    }
+
+    /* Type scale */
+    .type-row {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-4);
+      padding: var(--space-3) 0;
+      border-bottom: 1px dashed var(--color-border-subtle);
+    }
+    .type-row:last-child { border-bottom: 0; }
+    .type-label {
+      flex: 0 0 140px;
+      font-family: var(--font-num);
+      font-size: var(--fs-caption);
+      color: var(--color-text-tertiary);
+    }
+    .type-sample { color: var(--color-text-primary); }
+
+    /* Spacing */
+    .spacing-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-2) 0;
+    }
+    .spacing-bar {
+      background: var(--color-ai-accent);
+      height: 12px;
+      border-radius: 2px;
+    }
+    .spacing-label {
+      font-family: var(--font-num);
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+      min-width: 100px;
+    }
+
+    /* Radius */
+    .radius-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: var(--space-4);
+    }
+    .radius-demo {
+      height: 80px;
+      background: var(--color-ai-bg-softer);
+      border: 2px dashed var(--color-ai-accent);
+    }
+    .radius-label {
+      text-align: center;
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+      margin-top: var(--space-2);
+      font-family: var(--font-num);
+    }
+
+    /* Card demo grid */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: var(--space-4);
+    }
+
+    /* Component showcase */
+    .showcase-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-3);
+      align-items: center;
+    }
+    .showcase-block {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+    .showcase-block > label {
+      font-size: var(--fs-micro);
+      color: var(--color-text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+    }
+
+    /* AI pulse */
+    @keyframes ai-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(94, 92, 230, 0.6); }
+      70%  { box-shadow: 0 0 0 8px rgba(94, 92, 230, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(94, 92, 230, 0); }
+    }
+    .ai-pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--color-ai-accent);
+      animation: ai-pulse 2s infinite;
+    }
+
+    /* Empty state */
+    .empty-demo {
+      max-width: 480px;
+      margin: 0 auto;
+      text-align: center;
+      padding: var(--space-12) var(--space-6);
+    }
+    .empty-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto var(--space-4);
+      border-radius: var(--radius-full);
+      background: var(--color-ai-bg-soft);
+      color: var(--color-ai-accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+    }
+    .empty-title {
+      font-size: var(--fs-h2);
+      font-weight: var(--fw-semibold);
+      margin: 0 0 var(--space-2);
+    }
+    .empty-desc {
+      font-size: var(--fs-body);
+      color: var(--color-text-secondary);
+      margin: 0 0 var(--space-6);
+    }
+    .empty-ctas {
+      display: flex;
+      gap: var(--space-3);
+      justify-content: center;
+    }
+
+    /* Welcome preview */
+    .welcome-demo {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: var(--space-10);
+      background: var(--color-bg);
+      border-radius: var(--radius-2xl);
+      text-align: center;
+    }
+    .welcome-title {
+      font-size: var(--fs-display);
+      font-weight: var(--fw-semibold);
+      letter-spacing: var(--tracking-tight);
+      margin: 0 0 var(--space-2);
+    }
+    .welcome-sub {
+      font-size: var(--fs-body);
+      color: var(--color-text-secondary);
+      margin: 0 0 var(--space-8);
+    }
+    .ai-roster {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: var(--space-3);
+      margin-bottom: var(--space-6);
+    }
+    .ai-card-mini {
+      padding: var(--space-3);
+      border-radius: var(--radius-md);
+      background: var(--color-ai-bg-soft);
+      text-align: center;
+    }
+    .ai-avatar-mini {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto var(--space-2);
+      border-radius: var(--radius-full);
+      background: var(--color-primary);
+      color: white;
+      font-size: var(--fs-h3);
+      font-weight: var(--fw-semibold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: var(--shadow-ai);
+      position: relative;
+    }
+    .ai-avatar-mini::after {
+      content: "AI";
+      position: absolute;
+      right: -3px;
+      bottom: -3px;
+      min-width: 18px;
+      height: 14px;
+      padding: 0 4px;
+      border-radius: var(--radius-full);
+      background: var(--color-ai-accent);
+      color: white;
+      font-size: 9px;
+      font-weight: var(--fw-bold);
+      line-height: 14px;
+      border: 2px solid var(--color-bg);
+    }
+    .ai-card-mini .name {
+      font-size: var(--fs-body);
+      font-weight: var(--fw-semibold);
+    }
+    .ai-card-mini .role {
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+      margin-top: 2px;
+    }
+    .prompt-row {
+      display: flex;
+      gap: var(--space-2);
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: var(--space-4);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="section">
+      <h1 class="section-title">SoloBrave 设计系统 · V3</h1>
+      <p class="section-desc">
+        Apple HIG + 飞书克制感。两个产品级视觉协议：<strong>AI 员工光晕</strong> + <strong>评级色签名</strong>。
+        配套文档：<code>design-tokens.md</code> · 配套 CSS：<code>tokens.css</code>
+      </p>
+    </header>
+
+    <!-- 1. 品牌主色 -->
+    <section class="section">
+      <h2 class="section-title">1. 颜色 · 品牌 & AI 协议</h2>
+      <p class="section-desc">主色是 Apple 蓝 #007AFF，AI 用 Indigo #5E5CE6（与主色刻意区分，AI 不允许用主色）。</p>
+
+      <h3 class="subsection-title">品牌主色</h3>
+      <div class="swatch-grid">
+        <div class="swatch">
+          <div class="swatch-color" style="background:#007AFF">primary</div>
+          <div class="swatch-info">
+            <div class="swatch-name">--color-primary</div>
+            <div class="swatch-value">#007AFF</div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#0066D6">primary-hover</div>
+          <div class="swatch-info">
+            <div class="swatch-name">--color-primary-hover</div>
+            <div class="swatch-value">#0066D6</div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color dark-text" style="background:rgba(0,122,255,0.10)">primary-soft</div>
+          <div class="swatch-info">
+            <div class="swatch-name">--color-primary-soft</div>
+            <div class="swatch-value">rgba(0,122,255,0.10)</div>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="subsection-title">AI 视觉协议（产品签名）</h3>
+      <div class="swatch-grid">
+        <div class="swatch">
+          <div class="swatch-color" style="background:#5E5CE6">ai-accent</div>
+          <div class="swatch-info">
+            <div class="swatch-name">--color-ai-accent</div>
+            <div class="swatch-value">#5E5CE6</div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color dark-text" style="background:rgba(94,92,230,0.05)">ai-bg-soft</div>
+          <div class="swatch-info">
+            <div class="swatch-name">--color-ai-bg-soft</div>
+            <div class="swatch-value">rgba(94,92,230,0.05)</div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color dark-text" style="background:rgba(94,92,230,0.08)">ai-bg-softer</div>
+          <div class="swatch-info">
+            <div class="swatch-name">--color-ai-bg-softer</div>
+            <div class="swatch-value">rgba(94,92,230,0.08)</div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:rgba(94,92,230,0.40)">ai-glow</div>
+          <div class="swatch-info">
+            <div class="swatch-name">--color-ai-glow</div>
+            <div class="swatch-value">rgba(94,92,230,0.40)</div>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="subsection-title">中性色</h3>
+      <div class="swatch-grid">
+        <div class="swatch">
+          <div class="swatch-color dark-text" style="background:#FFFFFF; border-bottom:1px solid var(--color-border-subtle)">bg</div>
+          <div class="swatch-info"><div class="swatch-name">--color-bg</div><div class="swatch-value">#FFFFFF</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color dark-text" style="background:#F5F5F7">bg-soft</div>
+          <div class="swatch-info"><div class="swatch-name">--color-bg-soft</div><div class="swatch-value">#F5F5F7</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color dark-text" style="background:#F2F2F7">bg-softer</div>
+          <div class="swatch-info"><div class="swatch-name">--color-bg-softer</div><div class="swatch-value">#F2F2F7</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#1C1C1E">sidebar</div>
+          <div class="swatch-info"><div class="swatch-name">--color-sidebar</div><div class="swatch-value">#1C1C1E</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color dark-text" style="background:#E5E5EA">border</div>
+          <div class="swatch-info"><div class="swatch-name">--color-border</div><div class="swatch-value">#E5E5EA</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. 评级色 -->
+    <section class="section">
+      <h2 class="section-title">2. 评级色 · 产品视觉签名</h2>
+      <p class="section-desc">A/B/C/D 四个等级，每个有独立的色值。卡片左色条 + 头像底色 = 评级色，<strong>必须保持一致</strong>。</p>
+
+      <div class="swatch-grid">
+        <div class="swatch">
+          <div class="swatch-color" style="background:#34C759">A</div>
+          <div class="swatch-info">
+            <div class="swatch-name">A 级 · 头部 / 高 ROI</div>
+            <div class="swatch-value">#34C759</div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#007AFF">B</div>
+          <div class="swatch-info">
+            <div class="swatch-name">B 级 · 优质 / 主推</div>
+            <div class="swatch-value">#007AFF</div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color dark-text" style="background:#FFCC00">C</div>
+          <div class="swatch-info">
+            <div class="swatch-name">C 级 · 一般 / 观察</div>
+            <div class="swatch-value">#FFCC00</div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background:#8E8E93">D</div>
+          <div class="swatch-info">
+            <div class="swatch-name">D 级 · 边缘 / 待复评</div>
+            <div class="swatch-value">#8E8E93</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. 状态色 -->
+    <section class="section">
+      <h2 class="section-title">3. 合作状态色</h2>
+      <p class="section-desc">合作生命周期用统一的状态色。徽章自动用 12% 透明度背景 + 全饱和文字。</p>
+
+      <div class="showcase-row" style="gap: var(--space-2);">
+        <span class="badge-status" data-status="pending">待跟进</span>
+        <span class="badge-status" data-status="talking">沟通中</span>
+        <span class="badge-status" data-status="active">合作中</span>
+        <span class="badge-status" data-status="paused">暂停</span>
+        <span class="badge-status" data-status="lost">已流失</span>
+      </div>
+    </section>
+
+    <!-- 4. 字体 -->
+    <section class="section">
+      <h2 class="section-title">4. 字体阶梯</h2>
+      <p class="section-desc">Apple HIG 风格，display 用负字间距 + semibold；正文用 regular。</p>
+
+      <div class="type-row">
+        <div class="type-label">display 32/40 600</div>
+        <div class="type-sample" style="font-size:32px; line-height:40px; font-weight:600; letter-spacing:-0.02em;">挑一位 AI 员工</div>
+      </div>
+      <div class="type-row">
+        <div class="type-label">h1 24/32 600</div>
+        <div class="type-sample" style="font-size:24px; line-height:32px; font-weight:600;">达人库</div>
+      </div>
+      <div class="type-row">
+        <div class="type-label">h2 20/28 600</div>
+        <div class="type-sample" style="font-size:20px; line-height:28px; font-weight:600;">板块标题</div>
+      </div>
+      <div class="type-row">
+        <div class="type-label">h3 17/24 600</div>
+        <div class="type-sample" style="font-size:17px; line-height:24px; font-weight:600;">卡片标题</div>
+      </div>
+      <div class="type-row">
+        <div class="type-label">body-lg 16/24 400</div>
+        <div class="type-sample" style="font-size:16px; line-height:24px;">主指标正文，120 万粉丝量</div>
+      </div>
+      <div class="type-row">
+        <div class="type-label">body 14/20 400</div>
+        <div class="type-sample" style="font-size:14px; line-height:20px;">标准正文，用于卡片副指标</div>
+      </div>
+      <div class="type-row">
+        <div class="type-label">caption 12/18 500</div>
+        <div class="type-sample" style="font-size:12px; line-height:18px; font-weight:500;">chip 文字 / 辅助说明</div>
+      </div>
+      <div class="type-row">
+        <div class="type-label">micro 11/16 500</div>
+        <div class="type-sample" style="font-size:11px; line-height:16px; font-weight:500; color: var(--color-text-tertiary);">3 天前 · 时间戳</div>
+      </div>
+    </section>
+
+    <!-- 5. 间距 -->
+    <section class="section">
+      <h2 class="section-title">5. 间距 / 圆角</h2>
+
+      <h3 class="subsection-title">间距（4 / 8 基准）</h3>
+      <div class="spacing-row"><div class="spacing-bar" style="width: 4px;"></div><div class="spacing-label">--space-1 · 4px</div></div>
+      <div class="spacing-row"><div class="spacing-bar" style="width: 8px;"></div><div class="spacing-label">--space-2 · 8px</div></div>
+      <div class="spacing-row"><div class="spacing-bar" style="width: 12px;"></div><div class="spacing-label">--space-3 · 12px</div></div>
+      <div class="spacing-row"><div class="spacing-bar" style="width: 16px;"></div><div class="spacing-label">--space-4 · 16px</div></div>
+      <div class="spacing-row"><div class="spacing-bar" style="width: 20px;"></div><div class="spacing-label">--space-5 · 20px</div></div>
+      <div class="spacing-row"><div class="spacing-bar" style="width: 24px;"></div><div class="spacing-label">--space-6 · 24px</div></div>
+      <div class="spacing-row"><div class="spacing-bar" style="width: 32px;"></div><div class="spacing-label">--space-8 · 32px</div></div>
+
+      <h3 class="subsection-title">圆角</h3>
+      <div class="radius-grid">
+        <div>
+          <div class="radius-demo" style="border-radius: 6px;"></div>
+          <div class="radius-label">sm · 6px</div>
+        </div>
+        <div>
+          <div class="radius-demo" style="border-radius: 8px;"></div>
+          <div class="radius-label">md · 8px</div>
+        </div>
+        <div>
+          <div class="radius-demo" style="border-radius: 12px;"></div>
+          <div class="radius-label">lg · 12px</div>
+        </div>
+        <div>
+          <div class="radius-demo" style="border-radius: 16px;"></div>
+          <div class="radius-label">xl · 16px</div>
+        </div>
+        <div>
+          <div class="radius-demo" style="border-radius: 9999px;"></div>
+          <div class="radius-label">full · pill</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. 达人卡片 - 核心展示 -->
+    <section class="section">
+      <h2 class="section-title">6. 达人卡片 · 4 个评级</h2>
+      <p class="section-desc">左色条 + 头像底色 = 评级色。状态徽章只一个。粉丝量是主指标，字号最大。</p>
+
+      <div class="card-grid">
+        <div class="talent-card" data-rating="A" data-status="active">
+          <div style="display:flex; align-items:center; gap: 12px; margin-bottom: 12px;">
+            <div class="avatar">头</div>
+            <div>
+              <div style="font-size:var(--fs-h3); font-weight:var(--fw-semibold);">头部达人·示例</div>
+              <div style="display:flex; gap: 6px; margin-top: 4px;">
+                <span class="chip chip-platform" data-platform="douyin">抖音</span>
+                <span class="chip">美妆</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 8px 0;">
+            <div>
+              <div class="metric-primary">230<span style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary);">万</span></div>
+              <div class="metric-label">粉丝量</div>
+            </div>
+            <div>
+              <div class="metric-secondary">5.8%</div>
+              <div class="metric-label">互动率</div>
+            </div>
+            <div>
+              <div class="metric-secondary">52<span style="font-size: 12px; color: var(--color-text-secondary);">万</span></div>
+              <div class="metric-label">带货 GMV</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-border-subtle);">
+            <span style="font-size:var(--fs-caption); color:var(--color-text-tertiary);">AI 匹配 92% · 3 天前</span>
+            <span class="badge-status" data-status="active">合作中</span>
+          </div>
+        </div>
+
+        <div class="talent-card" data-rating="B" data-status="talking">
+          <div style="display:flex; align-items:center; gap: 12px; margin-bottom: 12px;">
+            <div class="avatar">优</div>
+            <div>
+              <div style="font-size:var(--fs-h3); font-weight:var(--fw-semibold);">优质达人·示例</div>
+              <div style="display:flex; gap: 6px; margin-top: 4px;">
+                <span class="chip chip-platform" data-platform="xiaohongshu">小红书</span>
+                <span class="chip">服饰</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 8px 0;">
+            <div>
+              <div class="metric-primary">85<span style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary);">万</span></div>
+              <div class="metric-label">粉丝量</div>
+            </div>
+            <div>
+              <div class="metric-secondary">4.1%</div>
+              <div class="metric-label">互动率</div>
+            </div>
+            <div>
+              <div class="metric-secondary">8.6<span style="font-size: 12px; color: var(--color-text-secondary);">万</span></div>
+              <div class="metric-label">带货 GMV</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-border-subtle);">
+            <span style="font-size:var(--fs-caption); color:var(--color-text-tertiary);">AI 匹配 78% · 昨天</span>
+            <span class="badge-status" data-status="talking">沟通中</span>
+          </div>
+        </div>
+
+        <div class="talent-card" data-rating="C" data-status="pending">
+          <div style="display:flex; align-items:center; gap: 12px; margin-bottom: 12px;">
+            <div class="avatar">观</div>
+            <div>
+              <div style="font-size:var(--fs-h3); font-weight:var(--fw-semibold);">观察达人·示例</div>
+              <div style="display:flex; gap: 6px; margin-top: 4px;">
+                <span class="chip chip-platform" data-platform="bilibili">B 站</span>
+                <span class="chip">户外</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 8px 0;">
+            <div>
+              <div class="metric-primary">15<span style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary);">万</span></div>
+              <div class="metric-label">粉丝量</div>
+            </div>
+            <div>
+              <div class="metric-secondary">6.2%</div>
+              <div class="metric-label">互动率</div>
+            </div>
+            <div>
+              <div class="data-missing">未采集</div>
+              <div class="metric-label">带货 GMV</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-border-subtle);">
+            <span style="font-size:var(--fs-caption); color:var(--color-text-tertiary);">AI 匹配 56% · 1 周前</span>
+            <span class="badge-status" data-status="pending">待跟进</span>
+          </div>
+        </div>
+
+        <div class="talent-card" data-rating="D" data-status="lost">
+          <div style="display:flex; align-items:center; gap: 12px; margin-bottom: 12px;">
+            <div class="avatar">低</div>
+            <div>
+              <div style="font-size:var(--fs-h3); font-weight:var(--fw-semibold);">边缘达人·示例</div>
+              <div style="display:flex; gap: 6px; margin-top: 4px;">
+                <span class="chip chip-platform" data-platform="wechat">视频号</span>
+                <span class="chip">生活</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 8px 0;">
+            <div>
+              <div class="metric-primary">3.2<span style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary);">万</span></div>
+              <div class="metric-label">粉丝量</div>
+            </div>
+            <div>
+              <div class="data-missing">未采集</div>
+              <div class="metric-label">互动率</div>
+            </div>
+            <div>
+              <div class="data-missing">未采集</div>
+              <div class="metric-label">带货 GMV</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-border-subtle);">
+            <span style="font-size:var(--fs-caption); color:var(--color-text-tertiary);">AI 匹配 31% · 2 周前</span>
+            <span class="badge-status" data-status="lost">已流失</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7. AI 员工 vs 真人员工 对比 -->
+    <section class="section">
+      <h2 class="section-title">7. AI 员工 vs 真人员工 · 视觉协议</h2>
+      <p class="section-desc"><strong>这是产品最核心的差异化</strong>。AI 必须有光晕+徽章，真人无任何装饰。混排时一眼能分。</p>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6);">
+        <!-- AI 员工示例 -->
+        <div>
+          <h3 class="subsection-title" style="color: var(--color-ai-accent);">AI 员工（indigo 光晕 + AI 徽章）</h3>
+          <div class="talent-card ai-employee" data-rating="B" style="background: var(--color-ai-bg-soft);">
+            <div style="display:flex; align-items:center; gap: 12px;">
+              <div class="avatar">Helen</div>
+              <div>
+                <div style="font-size:var(--fs-h3); font-weight:var(--fw-semibold);">Helen</div>
+                <div style="font-size:var(--fs-body); color:var(--color-text-secondary); margin-top: 2px;">商务拓展，达人建联与合作洽谈</div>
+              </div>
+            </div>
+            <div style="margin-top: 12px; display: flex; gap: 8px;">
+              <span class="badge-status" data-status="active">在线</span>
+              <span class="ai-pulse-dot"></span>
+              <span style="font-size: var(--fs-caption); color: var(--color-ai-accent); align-self: center;">持续工作中</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 真人员工示例 -->
+        <div>
+          <h3 class="subsection-title">真人员工（无光晕，干净头像）</h3>
+          <div class="talent-card" data-rating="B" style="background: var(--color-bg);">
+            <div style="display:flex; align-items:center; gap: 12px;">
+              <div class="avatar">张</div>
+              <div>
+                <div style="font-size:var(--fs-h3); font-weight:var(--fw-semibold);">张伟</div>
+                <div style="font-size:var(--fs-body); color:var(--color-text-secondary); margin-top: 2px;">项目负责人</div>
+              </div>
+            </div>
+            <div style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
+              <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #34C759;"></span>
+              <span style="font-size: var(--fs-caption); color: var(--color-text-secondary);">在线</span>
+              <span style="font-size: var(--fs-caption); color: var(--color-text-tertiary);">·</span>
+              <span style="font-size: var(--fs-caption); color: var(--color-text-tertiary);">5 分钟前活跃</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8. 按钮 / Chip / 空状态 -->
+    <section class="section">
+      <h2 class="section-title">8. 按钮 / Chip</h2>
+
+      <h3 class="subsection-title">按钮</h3>
+      <div class="showcase-row" style="margin-bottom: var(--space-4);">
+        <button class="btn btn-primary">新建对话</button>
+        <button class="btn btn-secondary">取消</button>
+        <button class="btn btn-danger">删除达人</button>
+        <button class="btn btn-ghost">达人录入 →</button>
+      </div>
+      <div class="showcase-row" style="margin-bottom: var(--space-6);">
+        <button class="btn btn-primary btn-sm">主按钮 · 小</button>
+        <button class="btn btn-secondary btn-sm">次按钮 · 小</button>
+      </div>
+
+      <h3 class="subsection-title">平台 / 类目 chip</h3>
+      <div class="showcase-row" style="margin-bottom: var(--space-6);">
+        <span class="chip">户外</span>
+        <span class="chip">服饰</span>
+        <span class="chip">美妆</span>
+        <span class="chip">生活方式</span>
+        <span class="chip chip-platform" data-platform="douyin">🎵 抖音</span>
+        <span class="chip chip-platform" data-platform="xiaohongshu">📕 小红书</span>
+        <span class="chip chip-platform" data-platform="bilibili">📺 B 站</span>
+        <span class="chip chip-platform" data-platform="wechat">💬 视频号</span>
+      </div>
+
+      <h3 class="subsection-title">示例 prompt chip（AI 入口）</h3>
+      <div class="showcase-row">
+        <span class="prompt-chip">帮我分析一位达人的带货数据</span>
+        <span class="prompt-chip">筛选粉丝 50 万以上的服饰达人</span>
+        <span class="prompt-chip">汇总这周的达人合作进展</span>
+      </div>
+    </section>
+
+    <!-- 9. 空状态 -->
+    <section class="section">
+      <h2 class="section-title">9. 空状态 · 三段式</h2>
+      <p class="section-desc">图标 + 标题 + 解释 + 主/次 CTA。<strong>禁用</strong>"暂无 XX"这种数据库式语言。</p>
+
+      <div class="empty-demo">
+        <div class="empty-icon">🎯</div>
+        <h3 class="empty-title">开始搭建你的达人矩阵</h3>
+        <p class="empty-desc">从抖音链接录入达人，AI 自动分析 6 维度匹配度</p>
+        <div class="empty-ctas">
+          <button class="btn btn-primary">批量导入达人</button>
+          <button class="btn btn-secondary">搜索达人</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10. 欢迎页总览 -->
+    <section class="section">
+      <h2 class="section-title">10. 欢迎页（实战组合）</h2>
+      <p class="section-desc">AI 员工卡 + 示例 prompt + 主 CTA + 文字链接。所有 token 协同的样子。</p>
+
+      <div class="welcome-demo">
+        <h2 class="welcome-title">挑一位 AI 员工开始协作吧</h2>
+        <p class="welcome-sub">每位 AI 员工都有专属能力，点击头像即可发起对话</p>
+
+        <div class="ai-roster">
+          <div class="ai-card-mini">
+            <div class="ai-avatar-mini" style="background: #34C759;">H</div>
+            <div class="name">Helen</div>
+            <div class="role">商务拓展</div>
+          </div>
+          <div class="ai-card-mini">
+            <div class="ai-avatar-mini" style="background: #FF9500;">孔</div>
+            <div class="name">孔明</div>
+            <div class="role">策略分析</div>
+          </div>
+          <div class="ai-card-mini">
+            <div class="ai-avatar-mini" style="background: #AF52DE;">上</div>
+            <div class="name">上官婉儿</div>
+            <div class="role">内容策划</div>
+          </div>
+          <div class="ai-card-mini">
+            <div class="ai-avatar-mini" style="background: #5E5CE6;">张</div>
+            <div class="name">张伟</div>
+            <div class="role">真人 · 负责人</div>
+          </div>
+        </div>
+
+        <div class="prompt-row">
+          <span class="prompt-chip">帮我分析一位达人的带货数据</span>
+          <span class="prompt-chip">筛选粉丝 50 万以上的服饰达人</span>
+          <span class="prompt-chip">汇总这周的达人合作进展</span>
+        </div>
+
+        <button class="btn btn-primary" style="margin-top: var(--space-4);">新建对话</button>
+
+        <div style="margin-top: var(--space-3); display: flex; gap: var(--space-4); justify-content: center;">
+          <button class="btn btn-ghost">达人录入</button>
+          <button class="btn btn-ghost">达人搜索</button>
+        </div>
+      </div>
+    </section>
+
+    <footer class="section" style="text-align: center; color: var(--color-text-tertiary); font-size: var(--fs-caption);">
+      SoloBrave Design System V3 · 2026-09-08 · 维护者：设计组
+    </footer>
+
+  </div>
+</body>
+</html>
