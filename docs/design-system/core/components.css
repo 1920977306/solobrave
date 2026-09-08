@@ -1,0 +1,620 @@
+/* ============================================================
+ * SoloBrave Components — CORE
+ * 通用组件类。**不含** 平台/品牌/项目级内容
+ * 用法：先 link tokens.css，再 link components.css
+ * ============================================================ */
+
+/* ============================================================
+ * 达人卡片（Talent Card）
+ * 用法：<div class="talent-card" data-rating="A" data-status="active">
+ *        <div class="avatar">姓</div>
+ *        <div class="meta">
+ *          <div class="name">姓名</div>
+ *          <div class="chips">
+ *            <span class="chip chip-platform" data-color="#FE2C55">抖音</span>
+ *            <span class="chip">户外</span>
+ *          </div>
+ *        </div>
+ *        <div class="metrics">
+ *          <div class="metric"><span class="metric-primary">120</span><span class="unit">万</span><div class="metric-label">粉丝量</div></div>
+ *          ...
+ *        </div>
+ *        <div class="footer">
+ *          <span class="meta-text">AI 匹配 87% · 3 天前</span>
+ *          <span class="badge-status" data-status="active">合作中</span>
+ *        </div>
+ *      </div>
+ * ============================================================ */
+
+.talent-card {
+  --rating-color: var(--color-rating-d);
+  --status-color: var(--color-status-pending);
+  --status-bg: var(--color-status-pending-bg);
+
+  position: relative;
+  display: block;
+  padding: var(--space-4);
+  padding-left: calc(var(--space-4) + 4px);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-normal) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.talent-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--rating-color);
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+}
+
+.talent-card:hover {
+  border-color: var(--color-border);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.talent-card[data-rating="A"] { --rating-color: var(--color-rating-a); }
+.talent-card[data-rating="B"] { --rating-color: var(--color-rating-b); }
+.talent-card[data-rating="C"] { --rating-color: var(--color-rating-c); }
+.talent-card[data-rating="D"] { --rating-color: var(--rating-color-d, var(--color-rating-d)); }
+
+.talent-card[data-status="pending"] { --status-color: var(--color-status-pending); --status-bg: var(--color-status-pending-bg); }
+.talent-card[data-status="talking"] { --status-color: var(--color-status-talking); --status-bg: var(--color-status-talking-bg); }
+.talent-card[data-status="active"]  { --status-color: var(--color-status-active);  --status-bg: var(--color-status-active-bg); }
+.talent-card[data-status="lost"]    { --status-color: var(--color-status-lost);    --status-bg: var(--color-status-lost-bg); }
+.talent-card[data-status="paused"]  { --status-color: var(--color-status-paused);  --status-bg: var(--color-status-paused-bg); }
+
+/* 头像：强制绑评级色 */
+.talent-card .avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full);
+  background: var(--rating-color);
+  color: white;
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* 卡片内布局辅助 */
+.talent-card .meta { flex: 1; min-width: 0; }
+.talent-card .name {
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.talent-card .chips { display: flex; gap: var(--space-1); margin-top: var(--space-1); flex-wrap: wrap; }
+
+.talent-card .metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+.talent-card .metric-primary {
+  font-size: var(--fs-body-lg);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.talent-card .unit {
+  font-size: var(--fs-caption);
+  color: var(--color-text-secondary);
+  font-weight: var(--fw-medium);
+  margin-left: 1px;
+}
+.talent-card .metric-secondary {
+  font-size: var(--fs-body);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.talent-card .metric-label {
+  font-size: var(--fs-caption);
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+}
+
+.talent-card .footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+}
+.talent-card .meta-text {
+  font-size: var(--fs-caption);
+  color: var(--color-text-tertiary);
+}
+
+/* 数据陈旧降级（30 天+ 未更新） */
+.talent-card[data-stale="true"] {
+  opacity: 0.7;
+}
+.talent-card[data-stale="true"]::after {
+  content: "数据陈旧";
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  font-size: var(--fs-micro);
+  color: var(--color-freshness-stale);
+  background: var(--color-bg-softer);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+/* ============================================================
+ * AI 员工卡（叠加在 talent-card 上）
+ * 用法：<div class="talent-card ai-employee">
+ * ============================================================ */
+
+.talent-card.ai-employee {
+  background: var(--color-ai-bg-soft);
+}
+
+.talent-card.ai-employee .avatar {
+  box-shadow: var(--shadow-ai);
+  position: relative;
+}
+
+.talent-card.ai-employee .avatar::after {
+  content: "AI";
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  min-width: 18px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-ai-accent);
+  color: white;
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  line-height: 14px;
+  text-align: center;
+  border: 2px solid var(--color-bg);
+  box-sizing: content-box;
+}
+
+/* ======================================
+ * 员工头像包装：相对定位容器 + AI 标识
+ * 用法：<span class="emp-avatar-wrap ai-employee">{avatar}</span>
+ * ====================================== */
+.emp-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+.emp-avatar-wrap.ai-employee::after {
+  content: "AI";
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  min-width: 16px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-ai-accent);
+  color: white;
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  line-height: 14px;
+  text-align: center;
+  border: 1.5px solid var(--color-bg);
+  box-sizing: content-box;
+  z-index: 2;
+}
+.emp-avatar-wrap.ai-employee > img,
+.emp-avatar-wrap.ai-employee > div {
+  box-shadow: 0 0 0 2px var(--color-ai-accent), 0 0 8px var(--color-ai-glow);
+}
+
+/* ============================================================
+ * 状态徽章
+ * 用法：<span class="badge-status" data-status="active">合作中</span>
+ * ============================================================ */
+
+.badge-status {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-medium);
+  background: var(--status-bg, var(--color-status-pending-bg));
+  color: var(--status-color, var(--color-status-pending));
+  white-space: nowrap;
+}
+
+/* ============================================================
+ * 计划徽章（会员制）
+ * 用法：<span class="badge-plan" data-plan="pro">Pro</span>
+ * ============================================================ */
+
+.badge-plan {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+.badge-plan[data-plan="free"]       { background: var(--color-bg-softer); color: var(--color-text-secondary); }
+.badge-plan[data-plan="pro"]        { background: var(--color-primary); color: white; }
+.badge-plan[data-plan="enterprise"] { background: var(--color-ai-accent); color: white; }
+
+/* ============================================================
+ * 平台 / 类目 chip
+ * 用法：<span class="chip chip-platform" data-color="#FE2C55">抖音</span>
+ * ============================================================ */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 20px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-caption);
+  background: var(--color-bg-softer);
+  color: var(--chip-color, var(--color-text-secondary));
+}
+
+.chip-platform[data-color] {
+  color: var(--chip-color);
+}
+
+/* ============================================================
+ * 按钮
+ * ============================================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-5);
+  border: 0;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+  user-select: none;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn-sm { height: 28px; padding: 0 var(--space-3); font-size: var(--fs-caption); }
+.btn-lg { height: 44px; padding: 0 var(--space-6); font-size: var(--fs-body-lg); }
+
+.btn-primary    { background: var(--color-primary);      color: white; }
+.btn-primary:hover { background: var(--color-primary-hover); }
+
+.btn-secondary  { background: var(--color-bg-soft);      color: var(--color-text-primary); }
+.btn-secondary:hover { background: var(--color-border); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-primary);
+  height: auto;
+  padding: 0;
+  font-weight: var(--fw-medium);
+}
+.btn-ghost:hover { color: var(--color-primary-hover); }
+
+.btn-ai {
+  background: var(--color-ai-bg-strong);
+  color: var(--color-ai-accent);
+}
+.btn-ai:hover { background: rgba(94, 92, 230, 0.22); }
+
+.btn-danger     { background: var(--color-status-lost);  color: white; }
+
+.btn:disabled, .btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================================
+ * 锁定 / 升级（会员制）
+ * ============================================================ */
+
+.lock-feature {
+  position: relative;
+  pointer-events: none;
+  filter: grayscale(0.4) opacity(0.6);
+}
+.lock-feature::after {
+  content: "🔒 升级到 Pro 解锁";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(4px);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  color: var(--color-primary);
+  border-radius: inherit;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.upgrade-cta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: linear-gradient(135deg, var(--color-ai-bg-soft), var(--color-primary-soft));
+  border: 1px solid var(--color-ai-bg-strong);
+  border-radius: var(--radius-lg);
+}
+.upgrade-cta-text { flex: 1; }
+.upgrade-cta-title { font-size: var(--fs-body-lg); font-weight: var(--fw-semibold); }
+.upgrade-cta-desc { font-size: var(--fs-caption); color: var(--color-text-secondary); margin-top: 2px; }
+
+/* ============================================================
+ * AI 配额（用量）
+ * 用法：<div class="quota-meter" data-usage="0.7">
+ *          <div class="quota-bar"></div>
+ *          <div class="quota-label">今日已用 7/10</div>
+ *        </div>
+ * ============================================================ */
+
+.quota-meter {
+  display: block;
+  width: 100%;
+}
+.quota-bar {
+  height: 6px;
+  background: var(--color-bg-softer);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  position: relative;
+}
+.quota-bar::after {
+  content: "";
+  display: block;
+  height: 100%;
+  width: calc(var(--usage, 0) * 100%);
+  background: var(--color-primary);
+  border-radius: inherit;
+  transition: width var(--duration-slow) var(--ease-out);
+}
+.quota-meter[data-usage^="0.9"] .quota-bar::after,
+.quota-meter[data-usage="1"] .quota-bar::after {
+  background: var(--color-status-lost);
+}
+.quota-label {
+  font-size: var(--fs-caption);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-1);
+}
+
+/* ============================================================
+ * 示例 prompt chip（AI 入口）
+ * ============================================================ */
+
+.prompt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: var(--color-ai-bg-softer);
+  color: var(--color-text-primary);
+  font-size: var(--fs-body);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.prompt-chip:hover {
+  background: var(--color-ai-bg-strong);
+  transform: translateY(-1px);
+}
+.prompt-chip:active { transform: translateY(0); }
+
+/* ============================================================
+ * 缺数据 / 置信度
+ * ============================================================ */
+
+.data-missing {
+  display: inline-block;
+  padding: 1px 6px;
+  background: var(--color-bg-softer);
+  color: var(--color-text-tertiary);
+  font-size: var(--fs-caption);
+  border-radius: var(--radius-sm);
+}
+
+.field-confidence {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-caption);
+}
+.field-confidence::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.field-confidence[data-confidence="high"]   { color: var(--color-confidence-high); }
+.field-confidence[data-confidence="high"]::before   { background: var(--color-confidence-high); }
+.field-confidence[data-confidence="medium"] { color: var(--color-confidence-medium); }
+.field-confidence[data-confidence="medium"]::before { background: var(--color-confidence-medium); }
+.field-confidence[data-confidence="low"]    { color: var(--color-confidence-low); }
+.field-confidence[data-confidence="low"]::before    { background: var(--color-confidence-low); }
+
+/* AI 推荐值（虚线边框） */
+.field-ai-suggested {
+  border: 1px dashed var(--color-ai-accent);
+  background: var(--color-ai-bg-soft);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+}
+
+/* ============================================================
+ * 截图录入（数据通道 / 通用上传）
+ * 用法：<div class="screenshot-drop">...</div>
+ * ============================================================ */
+
+.screenshot-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-10) var(--space-6);
+  background: var(--color-bg-soft);
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.screenshot-drop:hover, .screenshot-drop[data-drag-over="true"] {
+  background: var(--color-ai-bg-soft);
+  border-color: var(--color-ai-accent);
+  border-style: solid;
+}
+.screenshot-drop-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-full);
+  background: var(--color-ai-bg-strong);
+  color: var(--color-ai-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+.screenshot-drop-title {
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+}
+.screenshot-drop-hint {
+  font-size: var(--fs-caption);
+  color: var(--color-text-secondary);
+}
+
+/* 截图处理进度 */
+.screenshot-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-ai-bg-soft);
+  border: 1px solid var(--color-ai-bg-strong);
+  border-radius: var(--radius-md);
+}
+.screenshot-progress-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-ai-bg-strong);
+  border-top-color: var(--color-ai-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.screenshot-progress-text { font-size: var(--fs-body); }
+.screenshot-progress-meta { font-size: var(--fs-caption); color: var(--color-text-secondary); margin-top: 2px; }
+
+/* ============================================================
+ * FAB（悬浮操作按钮）
+ * ============================================================ */
+
+.fab {
+  position: fixed;
+  right: var(--space-6);
+  bottom: var(--space-6);
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-full);
+  background: var(--color-ai-accent);
+  color: white;
+  border: 0;
+  font-size: 24px;
+  cursor: pointer;
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration-fast) var(--ease-spring);
+}
+.fab:hover { transform: translateY(-2px) scale(1.05); }
+
+/* ============================================================
+ * Onboarding 引导步骤
+ * ============================================================ */
+
+.onboarding-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+}
+.onboarding-step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--color-ai-bg-strong);
+  color: var(--color-ai-accent);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-bold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.onboarding-step-content { flex: 1; }
+.onboarding-step-title { font-size: var(--fs-body-lg); font-weight: var(--fw-semibold); }
+.onboarding-step-desc { font-size: var(--fs-caption); color: var(--color-text-secondary); margin-top: 2px; }
+
+/* ============================================================
+ * AI 在线脉冲点
+ * ============================================================ */
+
+@keyframes ai-pulse {
+  0%   { box-shadow: 0 0 0 0 var(--color-ai-pulse); }
+  70%  { box-shadow: 0 0 0 8px rgba(94, 92, 230, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(94, 92, 230, 0); }
+}
+.ai-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-ai-accent);
+  animation: ai-pulse 2s infinite;
+  flex-shrink: 0;
+}

@@ -1,0 +1,46 @@
+/* ============================================================
+ * Theme: SoloBrave（抖音团长工具）
+ * 品牌层：覆盖 core 的 --color-primary 等
+ * 新增项目时，复制本文件改 3 个颜色即可换皮
+ * 用法：<html data-project="solobrave">
+ *      或直接 <link> 在 core 之后
+ * ============================================================ */
+
+:root,
+:root[data-project="solobrave"] {
+  /* 主色：Apple 蓝 */
+  --theme-primary: #007AFF;
+  --theme-primary-hover: #0066D6;
+  --theme-primary-soft: rgba(0, 122, 255, 0.10);
+
+  /* 项目识别色（用于 footer / 关于页） */
+  --project-name: "SoloBrave";
+  --project-tagline: "你的虚拟团长团队";
+
+  /* 数据平台默认色（V1 仅抖音；未来新项目覆盖这里） */
+  --platform-default-color: var(--color-text-secondary);
+  --platform-douyin: #FE2C55;
+}
+
+/* 抖音团长特有组件补充（项目级，不进 core） */
+
+/* 团长角色徽章 */
+.badge-role-affiliate {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-medium);
+  background: var(--theme-primary-soft);
+  color: var(--theme-primary);
+}
+
+/* "团长"标识（区分于其他 sister 项目的角色） */
+.affiliate-mark {
+  font-size: var(--fs-caption);
+  color: var(--theme-primary);
+  font-weight: var(--fw-semibold);
+}
