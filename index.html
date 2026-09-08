@@ -1629,27 +1629,6 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .talents-mid-btn.secondary:hover { background: var(--accent-light); }
 
 /* AI 推荐达人按钮:fill 主色蓝,不和 C 级评级色(#FFCC00 黄)冲突 */
-.talents-ai-recommend-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid transparent;
-  background: var(--color-primary, #007AFF);
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-.talents-ai-recommend-btn:hover {
-  background: var(--color-primary-hover, #0066D6);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25);
-}
-.talents-ai-recommend-icon { font-size: 14px; }
 /* "含演示数据" 开关：白底胶囊，勾选时变橙强调态 */
 .talents-demo-toggle {
   display: inline-flex;
@@ -1678,24 +1657,20 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 16px;
   align-content: start;
 }
-.talents-mid-items > .talents-mid-card { margin-bottom: 0; }
-
-/* ═══ 达人卡片 V3：评级色条 / 指标行 / 类目chip / 单状态徽章 ═══ */
-.talents-mid-card { position: relative; padding-left: 18px; }
-.talent-rating-bar { position: absolute; left: 0; top: 14px; bottom: 14px; width: 6px; border-radius: 0 3px 3px 0; }
+.talents-mid-items > /* ═══ 达人卡片 V3：评级色条 / 指标行 / 类目chip / 单状态徽章 ═══ */
 .talent-rating-bar.rating-A { background: #34C759; }
 .talent-rating-bar.rating-B { background: #007AFF; }
 .talent-rating-bar.rating-C { background: #FFCC00; }
 .talent-rating-bar.rating-D { background: #8E8E93; }
-.tcard-metrics { display: flex; gap: 8px; padding: 10px 0; border-top: 0.5px solid var(--separator); border-bottom: 0.5px solid var(--separator); }
-.tcard-metric { flex: 1; min-width: 0; text-align: center; }
-.tcard-metric-value { font-size: 17px; font-weight: 700; letter-spacing: -0.2px; color: var(--text-primary); }
+
+
+
 .tcard-metric-value .unit { font-size: 11px; font-weight: 500; color: var(--text-secondary); margin-left: 1px; }
-.tcard-metric-label { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
-.tcard-chips { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 10px; }
-.tcard-chip { font-size: 11px; color: var(--text-secondary); background: rgba(142,142,147,0.12); padding: 2px 8px; border-radius: 999px; }
-.tcard-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; min-height: 30px; }
-.tcard-time { font-size: 11px; color: var(--text-tertiary); }
+
+
+
+
+
 
 /* ═══ 聊天欢迎页 V3 + AI 员工渐变描边（真人无描边无徽章） ═══ */
 .chat-empty-state .welcome-emp-row { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 28px; }
@@ -1715,19 +1690,6 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .chat-empty-state .welcome-links { margin-top: 16px; display: flex; justify-content: center; gap: 24px; }
 .chat-empty-state .welcome-link { font-size: 13px; color: var(--text-secondary); background: none; border: none; cursor: pointer; padding: 0; }
 .chat-empty-state .welcome-link:hover { color: var(--accent); text-decoration: underline; }
-.talents-mid-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
-  margin-bottom: 10px;
-  background: #ffffff;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
-  border: 0.5px solid var(--separator);
-  cursor: pointer;
-  transition: all 0.18s ease;
-}
 .talents-mid-card:hover {
   background: #fafbfc;
   border-color: rgba(0,0,0,0.08);
@@ -7038,7 +7000,7 @@ window.doLogin = function () {
         <button class="segmented-item" data-status="out_of_stock" onclick="selectProductStatus('out_of_stock')">缺货</button>
       </div>
       <select class="products-mid-filter" id="productsMidSort" onchange="selectProductSort(this.value)" title="排序">
-        <option value="">默认排序</option>
+        <option value="default">默认排序（按评级）</option>
         <option value="price_asc">价格从低到高</option>
         <option value="price_desc">价格从高到低</option>
         <option value="sales_desc">月销从高到低</option>
@@ -7096,9 +7058,7 @@ window.doLogin = function () {
         <option value="products_desc">推广商品从多到少</option>
         <option value="gmv_desc">预估销售额从高到低</option>
       </select>
-      <button class="talents-ai-recommend-btn" onclick="recommendTalentsAI()" title="AI 推荐达人(开发中)">
-        <span class="talents-ai-recommend-icon">✨</span>AI 推荐达人
-      </button>
+      <button class="btn-ai-primary" onclick="recommendTalentsAI()" title="AI 推荐达人(开发中)"><span class="sparkle">✨</span> AI 推荐达人</button>
       <button class="talents-mid-new" onclick="createNewTalent()">+ 录入达人</button>
       <label class="talents-demo-toggle" title="开启后主库列表会包含演示种子数据(status=demo)，默认关闭以保持主库纯净">
         <input type="checkbox" id="talentsIncludeDemo" onchange="onTalentIncludeDemoChange(this.checked)">
@@ -24170,7 +24130,19 @@ function loadTalents(page) {
 }
 
 function sortTalentsLocally(talents, sort) {
-  if (!sort || !talents || !talents.length) return talents;
+  if (!talents || !talents.length) return talents;
+  // ★ 默认排序(无 sort 或 sort=='default'): A → B → C → D → unrated, 同评级按粉丝降序
+  if (!sort || sort === 'default') {
+    var order = {A: 0, B: 1, C: 2, D: 3, unrated: 4};
+    return talents.slice().sort(function(a, b){
+      var ra = ('ABCD'.indexOf(String(a.level || '').charAt(0).toUpperCase()) >= 0) ? String(a.level).charAt(0).toUpperCase() : 'unrated';
+      var rb = ('ABCD'.indexOf(String(b.level || '').charAt(0).toUpperCase()) >= 0) ? String(b.level).charAt(0).toUpperCase() : 'unrated';
+      var oa = order[ra] !== undefined ? order[ra] : 4;
+      var ob = order[rb] !== undefined ? order[rb] : 4;
+      if (oa !== ob) return oa - ob;
+      return (b.followers || 0) - (a.followers || 0);
+    });
+  }
   var list = talents.slice();
   switch (sort) {
     case 'followers_desc':
@@ -24255,24 +24227,26 @@ function renderTalentList(talents) {
   var html = '';
   talents.forEach(function(t){
     var mock = _getTalentMockData(t);
-    // 评级：取 level/ai_rating 首字符，归一到 A/B/C/D；无值时降级为 D（保持左色条+头像底色可见）
-    var rating = String(t.level || t.ai_rating || 'D').trim().charAt(0).toUpperCase();
-    if ('ABCD'.indexOf(rating) < 0) rating = 'D';
+    // 评级：取 level/ai_rating 首字符；A/B/C/D 显式，未评级的用 'unrated'(独立状态，虚线+待评级 chip)
+    // 注意:'ABCD'.indexOf('') === 0 (JS 老坑),需先确保 _rawR 是非空字母
+    var _rawR = String(t.level || t.ai_rating || '').trim().charAt(0).toUpperCase();
+    var rating = (_rawR && 'ABCD'.indexOf(_rawR) >= 0) ? _rawR : 'unrated';
+    var ratingLabel = ({A:'A级',B:'B级',C:'C级',D:'D级',unrated:'待评级'})[rating];
     // 合作状态：映射到设计系统的 data-status 值
     var status = t.cooperation_status || 'available';
-    // 头像内容：有图用图，无图用评级色背景的首字
+    // 平台 key 归一（兼容历史 "微博"/"Bilibili" 写法）
+    var _platformKey = ({'微博':'wechat','B站':'bilibili','bilibili':'bilibili','douyin':'douyin','抖音':'douyin','快手':'kuaishou','kuaishou':'kuaishou','小红书':'xiaohongshu','xiaohongshu':'xiaohongshu','视频号':'wechat','wechat':'wechat'})[platform] || platform;
+    // ★ 头像：白底 + 评级色细描边（中性化，不再用评级色填充）；未评级显 "?"
+    var _avatarChar = (rating === 'unrated') ? '?' : ((t.name || '?').charAt(0).toUpperCase());
     var avatarInner = t.avatar
-      ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">'
-      : '<span>' + escapeHtml((t.name || '?').charAt(0)) + '</span>';
-    // 平台 chip（color 从映射取，无则用主题默认色）
+      ? '<img src="' + escapeAttr(t.avatar) + '">'
+      : '<span>' + escapeHtml(_avatarChar) + '</span>';
+    // 平台 chip：subtle 淡色降级
     var platform = t.platform || '抖音';
-    var platformColor = PLATFORM_COLOR[platform] || '';
-    var platformChip = platformColor
-      ? '<span class="chip chip-platform" style="--chip-color:' + platformColor + ';">' + escapeHtml(platform) + '</span>'
-      : '<span class="chip chip-platform">' + escapeHtml(platform) + '</span>';
-    // 类目 chips（按 / , 拆，最多 2 个）
+    var platformChip = '<span class="chip-subtle" data-platform="' + escapeAttr(_platformKey) + '">' + escapeHtml(platform) + '</span>';
+    // 类目 chips：subtle 灰底
     var categories = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
-    var catChips = categories.map(function(c){ return '<span class="chip">' + escapeHtml(c) + '</span>'; }).join('');
+    var catChips = categories.map(function(c){ return '<span class="chip-subtle">' + escapeHtml(c) + '</span>'; }).join('');
     // 数字
     var followersText = formatFollowers(t.followers || 0).replace('w', '万');
     var gmvRaw = t.total_gmv || mock.total_gmv || 0;
@@ -24292,12 +24266,12 @@ function renderTalentList(talents) {
       + ' data-rating="' + rating + '"'
       + ' data-status="' + escapeAttr(status) + '"'
       + ' onclick="selectTalentItem(\'' + escapeAttr(t.id).replace(/'/g,"\\'") + '\')">';
-    // 头像：内联 --rating-color 让设计系统 .talent-card .avatar { background: var(--rating-color) } 生效
-    html += '<div class="avatar" style="--rating-color: var(--color-rating-' + rating.toLowerCase() + ');">' + avatarInner + '</div>';
-    // meta：名字 + chips
+    // ★ 头像：白底 + 评级色 1.5px 细描边（avatar-neutral 已在 components.css 定义，data-rating 在卡片根继承）
+    html += '<div class="avatar-neutral" data-rating="' + rating + '">' + avatarInner + '</div>';
+    // meta：名字 + rating chip + 平台/类目 chip
     html += '<div class="meta">';
     html += '<div class="name">' + escapeHtml(t.name || '-') + '</div>';
-    html += '<div class="chips">' + platformChip + catChips + '</div>';
+    html += '<div class="chips"><span class="rating-chip" data-rating="' + rating + '">' + ratingLabel + '</span>' + platformChip + catChips + '</div>';
     html += '</div>';
     // 3 列 metrics（数字 + 可选量级单位 + 标签）
     html += '<div class="metrics">';

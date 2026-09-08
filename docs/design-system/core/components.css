@@ -66,6 +66,107 @@
 .talent-card[data-rating="B"] { --rating-color: var(--color-rating-b); }
 .talent-card[data-rating="C"] { --rating-color: var(--color-rating-c); }
 .talent-card[data-rating="D"] { --rating-color: var(--rating-color-d, var(--color-rating-d)); }
+/* === 达人卡评级视觉 v2 增量(中性头像 + 显式评级 chip + 待评级虚线) === */
+.talent-card[data-rating="unrated"] { --rating-color: var(--color-text-tertiary); }
+/* 未评级：左色条改虚线(4px 实线 + 4px 透明,repeat-y) */
+.talent-card[data-rating="unrated"]::before {
+  background: transparent;
+  background-image: linear-gradient(
+    to bottom,
+    var(--rating-color) 0,
+    var(--rating-color) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+  background-size: 100% 8px;
+  background-repeat: repeat-y;
+}
+/* ★ 中性头像：白底 + 深灰字 + 评级色 1.5px 细描边(已评级)/ 普通边框(未评级) */
+.talent-card .avatar-neutral {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg);
+  border: 1.5px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-size: var(--fs-body-lg);
+  font-weight: var(--fw-semibold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.talent-card .avatar-neutral img { width: 100%; height: 100%; object-fit: cover; }
+.talent-card[data-rating="A"] .avatar-neutral { border-color: var(--color-rating-a); }
+.talent-card[data-rating="B"] .avatar-neutral { border-color: var(--color-rating-b); }
+.talent-card[data-rating="C"] .avatar-neutral { border-color: var(--color-rating-c); }
+.talent-card[data-rating="D"] .avatar-neutral { border-color: var(--color-rating-d); }
+/* 已废除:旧的 .talent-card .avatar 评级色填充由 .avatar-neutral 取代;不删以免破坏其他模块 */
+
+.chip-subtle {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-medium);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-softer);
+}
+.chip-subtle[data-platform="douyin"]      { color: #FE2C55; background: rgba(254,44,85,0.08); }
+.chip-subtle[data-platform="xiaohongshu"] { color: #FF2442; background: rgba(255,36,66,0.08); }
+.chip-subtle[data-platform="bilibili"]    { color: #FB7299; background: rgba(251,114,153,0.08); }
+.chip-subtle[data-platform="kuaishou"]    { color: #FF4906; background: rgba(255,73,6,0.08); }
+.chip-subtle[data-platform="wechat"]      { color: #07C160; background: rgba(7,193,96,0.08); }
+
+/* ★ 评级 chip:显式文字(A级/B级/C级/D级/待评级),评级色边框 + 评级色文字 */
+.rating-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--rating-color);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-bold);
+  color: var(--rating-color);
+  background: transparent;
+  letter-spacing: 0.3px;
+}
+.rating-chip[data-rating="unrated"] {
+  border-style: dashed;
+  color: var(--color-text-tertiary);
+  border-color: var(--color-text-tertiary);
+}
+
+/* ★ AI 推荐按钮:主色蓝 + ✨ 光晕(替代旧黄色按钮) */
+.btn-ai-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--color-primary);
+  color: #ffffff;
+  border: 0;
+  border-radius: var(--radius-md);
+  height: 32px;
+  padding: 0 12px;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.btn-ai-primary:hover {
+  background: var(--color-primary-hover, #0066D6);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25);
+}
+.btn-ai-primary .sparkle { font-size: 14px; }
+
 
 .talent-card[data-status="pending"] { --status-color: var(--color-status-pending); --status-bg: var(--color-status-pending-bg); }
 .talent-card[data-status="talking"] { --status-color: var(--color-status-talking); --status-bg: var(--color-status-talking-bg); }

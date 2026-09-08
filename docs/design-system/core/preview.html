@@ -214,12 +214,11 @@
         <!-- A 级 -->
         <div class="talent-card" data-rating="A" data-status="active">
           <div style="display:flex; align-items:center; gap: 12px; margin-bottom: 12px;">
-            <div class="avatar">头</div>
-            <div class="meta">
-              <div class="name">头部达人·示例</div>
+            <div class="avatar-neutral">头</div>
+            <div class="meta"><span class="rating-chip" data-rating="A">A级</span><span class="rating-chip" data-rating="A">A级</span><div class="name">头部达人·示例</div>
               <div class="chips">
-                <span class="chip chip-platform" data-color="#FE2C55">抖音</span>
-                <span class="chip">美妆</span>
+                <span class="chip-subtle" data-platform="douyin">抖音</span>
+                <span class="chip-subtle">美妆</span>
               </div>
             </div>
           </div>
@@ -237,12 +236,11 @@
         <!-- B 级 -->
         <div class="talent-card" data-rating="B" data-status="talking">
           <div style="display:flex; align-items:center; gap: 12px; margin-bottom: 12px;">
-            <div class="avatar">优</div>
-            <div class="meta">
-              <div class="name">优质达人·示例</div>
+            <div class="avatar-neutral">优</div>
+            <div class="meta"><span class="rating-chip" data-rating="B">B级</span><span class="rating-chip" data-rating="B">B级</span><div class="name">优质达人·示例</div>
               <div class="chips">
-                <span class="chip chip-platform" data-color="#FF2442">小红书</span>
-                <span class="chip">服饰</span>
+                <span class="chip-subtle" data-platform="xiaohongshu">小红书</span>
+                <span class="chip-subtle">服饰</span>
               </div>
             </div>
           </div>
@@ -260,12 +258,11 @@
         <!-- C 级 + 数据陈旧 -->
         <div class="talent-card" data-rating="C" data-status="pending" data-stale="true">
           <div style="display:flex; align-items:center; gap: 12px; margin-bottom: 12px;">
-            <div class="avatar">观</div>
-            <div class="meta">
-              <div class="name">观察达人·示例</div>
+            <div class="avatar-neutral">观</div>
+            <div class="meta"><span class="rating-chip" data-rating="C">C级</span><span class="rating-chip" data-rating="C">C级</span><div class="name">观察达人·示例</div>
               <div class="chips">
-                <span class="chip chip-platform" data-color="#FB7299">B 站</span>
-                <span class="chip">户外</span>
+                <span class="chip-subtle" data-platform="b 站">B 站</span>
+                <span class="chip-subtle">户外</span>
               </div>
             </div>
           </div>
@@ -283,12 +280,12 @@
         <!-- D 级 -->
         <div class="talent-card" data-rating="D" data-status="lost">
           <div style="display:flex; align-items:center; gap: 12px; margin-bottom: 12px;">
-            <div class="avatar">低</div>
+            <div class="avatar-neutral">低</div>
             <div class="meta">
-              <div class="name">边缘达人·示例</div>
+              <span class="rating-chip" data-rating="D">D级</span><div class="name">边缘达人·示例</div>
               <div class="chips">
-                <span class="chip chip-platform" data-color="#07C160">视频号</span>
-                <span class="chip">生活</span>
+                <span class="chip-subtle" data-platform="wechat">视频号</span>
+                <span class="chip-subtle">生活</span>
               </div>
             </div>
           </div>
@@ -315,7 +312,7 @@
           <h3 class="subsection-title" style="color: var(--color-ai-accent);">AI 员工（indigo 光晕 + AI 徽章）</h3>
           <div class="talent-card ai-employee" data-rating="B">
             <div style="display:flex; align-items:center; gap: 12px;">
-              <div class="avatar">Helen</div>
+              <div class="avatar-neutral">Helen</div>
               <div class="meta">
                 <div class="name">Helen</div>
                 <div class="role-desc" style="font-size: var(--fs-body); color: var(--color-text-secondary); margin-top: 4px;">商务拓展，达人建联与合作洽谈</div>
@@ -333,9 +330,9 @@
           <h3 class="subsection-title">真人员工（无光晕，干净头像）</h3>
           <div class="talent-card" data-rating="B">
             <div style="display:flex; align-items:center; gap: 12px;">
-              <div class="avatar">张</div>
+              <div class="avatar-neutral">张</div>
               <div class="meta">
-                <div class="name">张伟</div>
+                <span class="rating-chip" data-rating="B">B级</span><div class="name">张伟</div>
                 <div class="role-desc" style="font-size: var(--fs-body); color: var(--color-text-secondary); margin-top: 4px;">项目负责人</div>
               </div>
             </div>
@@ -357,20 +354,20 @@
 
       <h3 class="subsection-title">平台 chip（用 data-color）</h3>
       <div class="showcase-row" style="margin-bottom: var(--space-6);">
-        <span class="chip chip-platform" data-color="#FE2C55">🎵 抖音</span>
-        <span class="chip chip-platform" data-color="#FF2442">📕 小红书</span>
-        <span class="chip chip-platform" data-color="#FB7299">📺 B 站</span>
-        <span class="chip chip-platform" data-color="#07C160">💬 视频号</span>
-        <span class="chip chip-platform" data-color="#FF6600">⚡ 快手</span>
+        <span class="chip-subtle" data-platform="🎵 抖音">🎵 抖音</span>
+        <span class="chip-subtle" data-platform="📕 小红书">📕 小红书</span>
+        <span class="chip-subtle" data-platform="📺 b 站">📺 B 站</span>
+        <span class="chip-subtle" data-platform="💬 视频号">💬 视频号</span>
+        <span class="chip-subtle" data-platform="⚡ 快手">⚡ 快手</span>
       </div>
 
       <h3 class="subsection-title">类目 chip（默认色）</h3>
       <div class="showcase-row">
-        <span class="chip">户外</span>
-        <span class="chip">服饰</span>
-        <span class="chip">美妆</span>
-        <span class="chip">生活方式</span>
-        <span class="chip">3C 数码</span>
+        <span class="chip-subtle">户外</span>
+        <span class="chip-subtle">服饰</span>
+        <span class="chip-subtle">美妆</span>
+        <span class="chip-subtle">生活方式</span>
+        <span class="chip-subtle">3C 数码</span>
       </div>
     </section>
 
@@ -450,10 +447,9 @@
           <h3 class="subsection-title" style="color: var(--color-confidence-high);">高置信度（直接显示）</h3>
           <div class="talent-card" data-rating="A">
             <div style="display:flex; align-items:center; gap: 12px; margin-bottom: 12px;">
-              <div class="avatar">头</div>
-              <div class="meta">
-                <div class="name">头部达人·示例</div>
-                <div class="chips"><span class="chip chip-platform" data-color="#FE2C55">抖音</span></div>
+              <div class="avatar-neutral">头</div>
+              <div class="meta"><span class="rating-chip" data-rating="A">A级</span><span class="rating-chip" data-rating="A">A级</span><div class="name">头部达人·示例</div>
+                <div class="chips"><span class="chip-subtle" data-platform="douyin">抖音</span></div>
               </div>
             </div>
             <div class="metrics">
@@ -472,10 +468,10 @@
           <h3 class="subsection-title" style="color: var(--color-confidence-low);">低置信度（需复核）</h3>
           <div class="talent-card" data-rating="C" style="border-color: var(--color-confidence-low);">
             <div style="display:flex; align-items:center; gap: 12px; margin-bottom: 12px;">
-              <div class="avatar">疑</div>
+              <div class="avatar-neutral">疑</div>
               <div class="meta">
-                <div class="name">达人·需复核</div>
-                <div class="chips"><span class="chip chip-platform" data-color="#FE2C55">抖音</span></div>
+                <span class="rating-chip" data-rating="C">C级</span><div class="name">达人·需复核</div>
+                <div class="chips"><span class="chip-subtle" data-platform="douyin">抖音</span></div>
               </div>
             </div>
             <div class="metrics">
