@@ -16,3 +16,6 @@ create_product_table.py
 create_talent_table.py
 set_permission.py
 .solobrave-server.py.bak
+
+# 截图/视觉验证目录(本地回归基线,不入库)
+.shots/
