@@ -16984,9 +16984,22 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         #   由前端拼进发给 OpenClaw 的用户消息末尾；
         # - 其他员工：skipAI=True 强制置 False，后端调 AI 时把系统数据拼到用户消息末尾。
         talent_injection = ''
+        _talent_id_hit = None  # 截图分析:命中具体达人时,用于 AI 回复后保存报告
         if role == 'user':
             _content_for_check = body.get('content', '')
-            talent_injection = _build_talent_injection(_content_for_check, auth)
+            _has_images = bool(body.get('images'))
+            # 优先级 1:从 OCR/上下文文本中识别具体达人 → 单达人精确注入
+            _talent_id_hit = _extract_talent_from_text(_content_for_check, auth)
+            if _talent_id_hit:
+                talent_injection = _build_single_talent_injection(_talent_id_hit, auth)
+                logger.info(f'  [TalentInject] {agent_id} 单达人命中 talent_id={_talent_id_hit}')
+            # 优先级 2:关键词命中 → 注入全表 top 50(原行为,文本分析场景)
+            if not talent_injection:
+                talent_injection = _build_talent_injection(_content_for_check, auth)
+            # 优先级 3:图片消息但未识别到达人 → 显式提示 Helen(不静默回退)
+            if not talent_injection and _has_images:
+                talent_injection = _VISION_FALLBACK_NOTICE
+                logger.info(f'  [TalentInject] {agent_id} 图片消息但未识别达人,注入 OCR 失败提示')
             _talent_hit = bool(talent_injection)
             _is_openclaw = bool(agent.get('openclawName') or agent.get('connectionType') == 'openclaw')
             if _talent_hit and not _is_openclaw and body.get('skipAI', False):
@@ -17205,6 +17218,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 # 分析结论自动入库（默认开启，settings.json auto_save_analysis: false 可关闭）
                 if not is_extract:
                     _maybe_auto_save_analysis(agent_id, cleaned_reply, content)
+                # ★ 截图分析:单达人识别命中时,保存分析报告到 data/talent_reports/{id}.json
+                # 关键词:用户原话「评级 + 核心结论/分析报告」才保存,避免误存
+                if not is_extract and _talent_id_hit and _is_analysis_conclusion(cleaned_reply):
+                    if '评级' in cleaned_reply and ('核心结论' in cleaned_reply or '分析报告' in cleaned_reply):
+                        _save_talent_report_to_json(_talent_id_hit, cleaned_reply, auth.user_id)
                 # 记录项目组对话到 group_messages（供同组其他 AI 感知团队动态；记忆提取任务不记录）
                 if not is_extract:
                     try:
@@ -18886,6 +18904,165 @@ curl -s -X POST {base}/api/knowledge/entries \\
 
 
 # 达人相关提问的关键词（任一命中即触发实时数据注入）
+
+# ─── 截图分析 - 单达人精确识别 + 注入 + 历史报告存储 ───
+# 触发条件:用户消息含图片(OCR 文字已在 content 里)→ 尝试识别具体达人
+# 数据隔离:data/talent_reports/ 整目录在 .gitignore,纯运行时缓存
+
+_VISION_FALLBACK_NOTICE = (
+    '\n\n[系统提示] 截图疑似达人分析,但后端未能从消息文本中识别到达人 '
+    '(可能原因:OCR 失败 / 达人不存在的昵称 / 昵称歧义)。'
+    '请基于截图 + 现有规则回答,所有数字必须标注"约"或"估算"前缀。\n\n'
+)
+
+def _extract_talent_from_text(text, auth):
+    """从用户消息文本识别具体达人,返回 talent_id 或 None。
+    命中:先按名称/douyin_id/real_name 精确匹配,失败再模糊 LIKE。
+    权限:非 admin 只能看到自己 created_by 的达人(对齐现有 _build_talent_injection 逻辑)。
+    """
+    if not text or not isinstance(text, str):
+        return None
+    if not any(k in text for k in ('达人', '主播', '博主', 'KOL', '合作', '商务',
+                                    '佣金', '坑位', '带货', '筛选', '评估', '分析')):
+        return None
+    import re
+    candidates = set()
+    # 业务后缀字符(用来 trim 过长的 raw 抓取,防止把"璐妈妈的带货数据"全抓)
+    _BUSINESS_TAIL = '的带粉合商筛评估佣金坑位主播流量画像能力数据,/，。;:；:!！?？ '
+    def _trim(name):
+        for ch in _BUSINESS_TAIL:
+            i = name.find(ch)
+            if i > 0:
+                name = name[:i]
+        return name.strip(',.，:;；:!！?？ ')
+    # 模式 1: "达人小扎克" / "达人:小扎克" / "达人是小扎克" / "达人 X"
+    for m in re.finditer(r'达人[：:是\s]*["「『\']?([\u4e00-\u9fa5A-Za-z0-9_·.]{1,30})', text):
+        candidates.add(_trim(m.group(1)))
+    # 模式 2: "分析 小扎克" / "分析小扎克"
+    for m in re.finditer(r'分析\s*["「『\']?([\u4e00-\u9fa5A-Za-z0-9_·.]{1,30})', text):
+        candidates.add(_trim(m.group(1)))
+    # 模式 3: 开头区域命中(达人页顶部昵称) - 取前 200 字符单独匹配,提高短昵称命中率
+    _head = text[:200]
+    for m in re.finditer(r'["「『\']?([\u4e00-\u9fa5A-Za-z0-9_·]{2,20})["」』\']?', _head):
+        name = m.group(1).strip()
+        if name and name not in ('分析', '达人', '商务', '合作', '佣金', 'KOL'):
+            # 仅在有"达人"上下文时采纳
+            if '达人' in _head or '主播' in _head or 'KOL' in _head:
+                candidates.add(name)
+    candidates = {c for c in candidates if c and len(c) >= 2}
+    if not candidates:
+        return None
+    try:
+        conn = _db_conn()
+        try:
+            uid = auth.user_info.get('userId', '') if auth and auth.user_info else ''
+            is_admin = bool(auth.is_admin) if auth else False
+            for name in candidates:
+                row = conn.execute(
+                    "SELECT id, created_by FROM talents "
+                    "WHERE name = ? OR douyin_id = ? OR real_name = ? LIMIT 1",
+                    (name, name, name)).fetchone()
+                if row:
+                    if is_admin or (row['created_by'] or '') == uid:
+                        return row['id']
+            for name in candidates:
+                rows = conn.execute(
+                    "SELECT id, created_by, name FROM talents WHERE name LIKE ? LIMIT 3",
+                    (f'%{name}%',)).fetchall()
+                for r in rows:
+                    if is_admin or (r['created_by'] or '') == uid:
+                        return r['id']
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error(f'  [TalentExtract] 识别达人失败: {e}')
+    return None
+
+
+def _build_single_talent_injection(talent_id, auth):
+    """单达人精确数据注入(替代全表 top 50),含历史报告摘要(若存在)。"""
+    try:
+        conn = _db_conn()
+        try:
+            row = conn.execute('SELECT * FROM talents WHERE id = ?', (talent_id,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return ''
+        t = _talent_row_to_dict(row)
+        if not t:
+            return ''
+        uid = auth.user_info.get('userId', '') if auth and auth.user_info else ''
+        is_admin = bool(auth.is_admin) if auth else False
+        if not is_admin and (t.get('created_by') or '') != uid:
+            return ''
+        parts = [
+            f"名称:{t.get('name') or '-'}",
+            f"ID:{t.get('id')}",
+            f"平台:{t.get('platform') or '-'}",
+            f"等级:{t.get('level') or '-'}",
+            f"粉丝:{t.get('followers') or 0}",
+        ]
+        if t.get('video_interaction_rate'):
+            parts.append(f"完播率:{t['video_interaction_rate']}%")
+        if t.get('live_gpm') or t.get('video_gpm'):
+            gpm = t.get('live_gpm') or t.get('video_gpm')
+            parts.append(f"GPM:{gpm}")
+        if t.get('average_price'):
+            parts.append(f"客单价:{t['average_price']}")
+        if t.get('total_gmv'):
+            gmv = float(t['total_gmv'])
+            gmv_text = f"{gmv/10000:.1f}万" if gmv >= 10000 else str(int(gmv))
+            parts.append(f"总GMV:{gmv_text}")
+        if t.get('cooperation_status'):
+            parts.append(f"合作:{t['cooperation_status']}")
+        # 历史报告摘要
+        report_path = os.path.join(DATA_DIR, 'talent_reports', f'{talent_id}.json')
+        if os.path.isfile(report_path):
+            try:
+                with open(report_path, 'r', encoding='utf-8') as f:
+                    rep = json.load(f)
+                summary = (rep.get('summary') or '')[:300]
+                saved_at = rep.get('saved_at', 0)
+                if saved_at:
+                    import datetime as _dt
+                    date_str = _dt.datetime.fromtimestamp(saved_at/1000).strftime('%Y-%m-%d %H:%M')
+                else:
+                    date_str = '?'
+                parts.append(f"历史报告({date_str}):{summary}")
+            except Exception:
+                parts.append("历史报告:读取失败")
+        else:
+            parts.append("历史报告:无")
+        return '\n\n[达人数据] ' + ' | '.join(parts) + '\n\n'
+    except Exception as e:
+        logger.error(f'  [TalentSingleInject] 构建单达人注入失败 talent_id={talent_id} err={e}')
+        return ''
+
+
+def _save_talent_report_to_json(talent_id, content, user_id=''):
+    """保存 Helen 商务对某达人的分析报告到 data/talent_reports/{id}.json。
+    纯运行时缓存,不入版本控制(data/ 已在 .gitignore)。"""
+    try:
+        report_dir = os.path.join(DATA_DIR, 'talent_reports')
+        os.makedirs(report_dir, exist_ok=True)
+        path = os.path.join(report_dir, f'{talent_id}.json')
+        summary = (content or '').strip()[:500]
+        if not summary:
+            return
+        data = {
+            'talent_id': talent_id,
+            'saved_at': int(time.time() * 1000),
+            'user_id': user_id or '',
+            'summary': summary,
+        }
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        logger.info(f'  [TalentReport] saved {path} len={len(summary)}')
+    except Exception as e:
+        logger.error(f'  [TalentReport] save failed talent_id={talent_id} err={e}')
+
+
 _TALENT_INJECT_KEYWORDS = ('达人', '网红', 'KOL', '主播', '带货', '分析', '报告')
 _TALENT_INJECT_LIMIT = 50
 
