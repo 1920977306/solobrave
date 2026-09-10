@@ -6362,6 +6362,21 @@ window.doLogin = function () {
   background-repeat: repeat-y;
 }
 /* ====== V2 头像:白底+深灰字+评级色细描边 ====== */
+/* 子元素布局:avatar + meta 横向,metrics 3 列 grid,footer 横向 */
+.talent-card { display: flex; align-items: flex-start; gap: 12px; }
+.talent-card .meta { flex: 1; min-width: 0; }
+.talent-card .name { font-size: 15px; font-weight: 600; color: #1C1C1E; line-height: 1.4; }
+.talent-card .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.talent-card .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 8px 0; border-top: 1px solid #F2F2F7; border-bottom: 1px solid #F2F2F7; min-width: 220px; }
+.talent-card .metric { text-align: center; }
+.talent-card .metric-primary { font-size: 14px; font-weight: 600; color: #1C1C1E; }
+.talent-card .metric-secondary { font-size: 13px; color: #6E6E73; }
+.talent-card .metric-label { font-size: 10px; color: #6E6E73; margin-top: 2px; }
+.talent-card .footer { display: flex; justify-content: space-between; align-items: center; padding-top: 6px; width: 100%; }
+.talent-card .meta-text { font-size: 11px; color: #6E6E73; }
+.talent-card .badge-status { font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+.talent-card .badge-status[data-status="analyzed"] { background: #F2F2F7; color: #6E6E73; }
+
 .talent-card .avatar-neutral {
   width: 44px; height: 44px; border-radius: 9999px;
   background: #fff; border: 1.5px solid var(--color-border);
@@ -24672,45 +24687,53 @@ function _analyzedEventText(ev) {
 function renderAnalyzedTalentCard(item) {
   var text = _analyzedEventText(item);
   var metrics = _extractAnalysisMetrics(text);
-  var rating = metrics.rating;
+  var rating = metrics.rating || 'unrated';
   // 名称优先取 entity_id 的 'name:XXX' 部分；title 需去掉「截图识别原始数据：」前缀
   var rawId = String(item.entity_id || '');
   var name = '';
   if (rawId.indexOf('name:') === 0) name = rawId.slice(5).trim();
   if (!name && item.title) name = String(item.title).replace(/^截图识别原始数据[：:]\s*/, '').trim();
   if (!name) name = rawId || '未知达人';
-  // 头像底色绑评级，评级同时靠左侧色条传递
-  var badgeColors = { A: '#34C759', B: '#007AFF', C: '#FFCC00', D: '#8E8E93' };
-  var avBg = rating ? (badgeColors[rating] || '#c7c7cc') : '#c7c7cc';
-  var avFg = rating === 'C' ? '#3a3000' : '#ffffff';
   var timeText = item.created_at ? new Date(item.created_at).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-';
-  var html = '<div class="talents-mid-card" onclick="openAnalyzedTalentDetail(\'' + escapeAttr(String(item.entity_id || '')).replace(/'/g, "\\'") + '\', \'' + escapeAttr(String(name)).replace(/'/g, "\\'") + '\')">';
-  if (rating) html += '<div class="talent-rating-bar rating-' + rating + '"></div>';
-  var platInfo = metrics.platform ? _ANALYZED_PLATFORM_MAP[metrics.platform] : null;
-  html += '<div style="position:relative;flex-shrink:0;">';
-  html += '<div class="talents-mid-avatar" style="width:48px;height:48px;font-size:18px;background:' + avBg + ';color:' + avFg + ';"><span style="font-size:20px;font-weight:600;color:' + avFg + ';">' + escapeHtml(name.charAt(0) || '?') + '</span></div>';
-  if (platInfo) html += '<div style="position:absolute;right:-2px;bottom:-2px;width:18px;height:18px;border-radius:50%;background:#fff;border:1px solid #e5e5ea;display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1;" title="' + escapeAttr(platInfo[1]) + '">' + platInfo[0] + '</div>';
-  html += '</div>';
-  html += '<div class="talents-mid-info">';
-  html += '<div class="talents-mid-header-row">';
-  html += '<div class="talents-mid-name" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;">' + escapeHtml(name) + '</div>';
-  html += '</div>';
-  // 核心数据行：粉丝量 / 互动率 / 带货GMV（校验不过显示 '-'）
-  html += '<div class="tcard-metrics">';
-  html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (metrics.followersText ? escapeHtml(metrics.followersText) : '-') + '</div><div class="tcard-metric-label">粉丝量</div></div>';
-  html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (metrics.interaction ? escapeHtml(metrics.interaction) : '-') + '</div><div class="tcard-metric-label">互动率</div></div>';
-  html += '<div class="tcard-metric"><div class="tcard-metric-value">' + (metrics.gmvText ? escapeHtml(metrics.gmvText) : '-') + '</div><div class="tcard-metric-label">带货GMV</div></div>';
-  html += '</div>';
-  // 类目 + 平台 chip
-  if (metrics.category || platInfo) {
-    html += '<div class="tcard-chips">';
-    if (metrics.category) html += '<span class="tcard-chip">' + escapeHtml(metrics.category) + '</span>';
-    if (platInfo) html += '<span class="tcard-chip">' + platInfo[0] + ' ' + escapeHtml(platInfo[1]) + '</span>';
-    html += '</div>';
+  var ratingLabel = ({A:'A级',B:'B级',C:'C级',D:'D级',unrated:'待评级'})[rating];
+  // 平台 key 归一(对齐 renderTalentList)
+  var _platRaw = metrics.platform || '';
+  var _platformKey = ({'douyin':'douyin','抖音':'douyin','kuaishou':'kuaishou','快手':'kuaishou','xiaohongshu':'xiaohongshu','小红书':'xiaohongshu','bilibili':'bilibili','B站':'bilibili','wechat':'wechat','视频号':'wechat'})[_platRaw] || _platRaw;
+  var platInfo = _ANALYZED_PLATFORM_MAP[metrics.platform];
+  // 头像字符(未评级显 '?')
+  var _avChar = (rating === 'unrated') ? '?' : (name.charAt(0) || '?').toUpperCase();
+  // ★ v2 结构:与 renderTalentList 对齐(.talent-card + .avatar-neutral + .rating-chip + .chip-subtle)
+  var html = '<div class="talent-card"';
+  html += ' data-id="' + escapeAttr(rawId) + '"';
+  html += ' data-rating="' + rating + '"';
+  html += ' data-status="analyzed"';
+  html += ' onclick="openAnalyzedTalentDetail(\'' + escapeAttr(rawId).replace(/'/g, "\\'") + '\', \'' + escapeAttr(name).replace(/'/g, "\\'") + '\')">';
+  // 头像(v2:白底+评级色 1.5px 描边)
+  html += '<div class="avatar-neutral" data-rating="' + rating + '"><span>' + escapeHtml(_avChar) + '</span></div>';
+  // meta:名字 + 评级 chip
+  html += '<div class="meta">';
+  html += '<div class="name">' + escapeHtml(name) + '</div>';
+  html += '<div class="chips">';
+  html += '<span class="rating-chip" data-rating="' + rating + '">' + ratingLabel + '</span>';
+  // 平台 chip (subtle)
+  if (platInfo) {
+    html += '<span class="chip-subtle" data-platform="' + escapeAttr(_platformKey) + '">' + escapeHtml(platInfo[1] || _platRaw) + '</span>';
   }
-  // 底部：AI 分析标记 + 分析时间
-  html += '<div class="tcard-bottom"><span class="tcard-chip">🤖 AI 分析</span><span class="tcard-time">' + escapeHtml(timeText) + '</span></div>';
+  // 类目 chip (subtle)
+  if (metrics.category) html += '<span class="chip-subtle">' + escapeHtml(metrics.category) + '</span>';
   html += '</div></div>';
+  // 3 列 metrics(对齐 renderTalentList)
+  html += '<div class="metrics">';
+  html += '<div class="metric"><span class="metric-primary">' + (metrics.followersText ? escapeHtml(metrics.followersText) : '-') + '</span><div class="metric-label">粉丝量</div></div>';
+  html += '<div class="metric"><span class="metric-primary">' + (metrics.interaction ? escapeHtml(metrics.interaction) : '-') + '</span><div class="metric-label">互动率</div></div>';
+  html += '<div class="metric"><span class="metric-primary">' + (metrics.gmvText ? escapeHtml(metrics.gmvText) : '-') + '</span><div class="metric-label">带货GMV</div></div>';
+  html += '</div>';
+  // 底部:AI 分析时间
+  html += '<div class="footer">';
+  html += '<span class="meta-text">🤖 AI 分析</span>';
+  html += '<span class="badge-status" data-status="analyzed">' + escapeHtml(timeText) + '</span>';
+  html += '</div>';
+  html += '</div>';
   return html;
 }
 
@@ -24764,8 +24787,8 @@ function selectTalentItem(id) {
   _talentCurrentId = id;
   apiFetch('/api/talents/' + encodeURIComponent(id)).then(function(r){return r.json();}).then(function(t){
     renderTalentDetail(t);
-    document.querySelectorAll('.talents-mid-card').forEach(function(el){ el.classList.remove('active'); });
-    var activeEl = document.querySelector('.talents-mid-card[data-id="' + escapeAttr(id) + '"]');
+    document.querySelectorAll('.talent-card').forEach(function(el){ el.classList.remove('active'); });
+    var activeEl = document.querySelector('.talent-card[data-id="' + escapeAttr(id) + '"]');
     if (activeEl) activeEl.classList.add('active');
   }).catch(function(e){ showToast('加载失败'); });
 }
