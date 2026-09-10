@@ -165,7 +165,10 @@
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25);
 }
-.btn-ai-primary .sparkle { font-size: 14px; }
+.btn-ai-primary .sparkle {
+  font-size: 14px;
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.6));
+}
 
 
 .talent-card[data-status="pending"] { --status-color: var(--color-status-pending); --status-bg: var(--color-status-pending-bg); }
