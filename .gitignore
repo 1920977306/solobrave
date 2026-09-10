@@ -9,7 +9,21 @@ check_*.py
 *.docx
 *.exe
 *.env
+
+# ⚠️ 运行时数据(数据库/JSON/users/agents/products/...):不入版本控制
+# 重要:此规则对【已跟踪文件】不生效!如果某天 git ls-files data/agents.json 还有输出,
+#      必须 git rm --cached data/agents.json(只从索引移除,工作树保留)再 commit。
+#      2026-09-10 教训:之前 data/agents.json 等 13 个文件被误跟踪,.gitignore 没保护,
+#      一次 git stash 就把生产数据冲掉了。
 data/
+data/.secret
+data/agents.json
+data/users.json
+data/groups.json
+data/teams.json
+data/permissions.json
+data/settings.json
+
 HEARTBEAT.md
 
 create_product_table.py

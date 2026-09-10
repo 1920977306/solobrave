@@ -2,14 +2,45 @@
 
 ## 1. 数据隔离铁律(最高优先级)
 
-`data/` 整目录在 `.gitignore` 第 12 行。**绝对不要**:
+`data/` 整目录在 `.gitignore`。**绝对不要**:
 - `git add -f` 任何 `data/` 文件
 - 删/覆盖 `data/agents.json`、`data/solobrave.db` 等运行时数据
-- 假设 `data/` 里的状态是 git 可恢复的(它不在版本控制)
+- 假设 `data/` 里的状态是 git 可恢复的
 
 测试时造 demo 数据要写到 `data/` 外的临时位置(`.tmp/` / 内存常量),截图后清掉。
 
+### ⚠️ 已跟踪文件陷阱(2026-09-10 教训)
+
+`.gitignore` 的 `data/` **对已跟踪文件不生效**!
+
+**症状**:`git ls-files data/agents.json` 还有输出,但 `.gitignore` 里写明 `data/`——它仍是"已跟踪"状态,git 操作会读写它(stash、pull、merge 都能污染生产数据)。
+
+**为什么会发生**:
+- 早期项目里 `data/agents.json` 等被 `git add` 进了索引(可能无意或为早期 demo)
+- 后来加 `.gitignore` 的 `data/` 只对**新增/未跟踪**文件生效,已跟踪文件不受保护
+
+**修复**:
+```bash
+# 1. 看哪些 data/ 文件还在跟踪
+git ls-files data/
+
+# 2. 从索引移除(工作树文件保留,只 untrack),--cached 必加,不能漏
+git rm --cached data/agents.json
+git rm --cached data/influencers/index.json
+# ... 13 个文件
+
+# 3. commit
+git commit -m "fix: untrack data/ runtime files (.gitignore alone insufficient)"
+
+# 4. 验证
+git check-ignore -v data/agents.json  # 应输出 .gitignore:N:data/   data/agents.json
+git ls-files data/                     # 应为空
+```
+
+**历史**:老 commit 里仍然有这些文件的快照(`git log -p` 仍能看到),但 HEAD 不再跟踪,**新 clone 下来的 working tree 干净**。彻底从历史抹掉需要 `git filter-repo`(风险大,会改所有 commit hash),不建议做。
+
 **事故复盘**(2026-09-08,bcf5607 之前那次):为了截图 AI 光晕,给 `data/agents.json` 加 demo 员工并用 `git add -f` 强行 push,覆盖了远端生产数据,用户被迫从备份恢复。
+**事故复盘 2**(2026-09-10):用户部署时 `git stash` 把生产 agents.json 冲掉,根因是 .gitignore 对已跟踪文件不生效;13 个 data/ 文件 untrack 后修复。
 
 ## 2. v2 样式收尾:边界与教训
 
