@@ -6444,6 +6444,9 @@ window.doLogin = function () {
 }
 .btn-ai-primary:hover { background: #0066D6; }
 .btn-ai-primary .sparkle { font-size: 14px; filter: drop-shadow(0 0 4px rgba(255,255,255,0.6)); }
+/* AI 报告 section divider (1px 实线, divider 灰) */
+.ai-section-divider { border: 0; height: 1px; background: var(--color-border, #E5E5EA); margin: 16px 0; }
+
 </style>
 </head>
 <body>
@@ -7088,8 +7091,7 @@ window.doLogin = function () {
       <button class="talents-tab active" data-tab="overview" onclick="switchTalentTab('overview')">概览</button>
       <button class="talents-tab" data-tab="sales" onclick="switchTalentTab('sales')">带货数据</button>
       <button class="talents-tab" data-tab="fans" onclick="switchTalentTab('fans')">粉丝画像</button>
-      <button class="talents-tab" data-tab="products" onclick="switchTalentTab('products')">匹配商品</button>
-      <button class="talents-tab" data-tab="records" onclick="switchTalentTab('records')">合作记录</button>
+      <button class="talents-tab" data-tab="products" onclick="switchTalentTab('products')">合作</button>
       <button class="talents-tab" data-tab="followups" onclick="switchTalentTab('followups')">跟进记录</button>
       <button class="talents-tab" data-tab="knowledge" onclick="switchTalentTab('knowledge')">分析档案</button>
     </div>
@@ -24974,6 +24976,10 @@ function renderTalentAIReport(text) {
     report.issues.forEach(function(item){ html += '<li>' + formatMessageInline(item) + '</li>'; });
     html += '</ul></div>';
   }
+  // 1-2 / 2-3 / 3-4 section 之间插 1px divider(只在两段都渲染时)
+  if ((report.highlights.length || report.issues.length) && (report.issues.length || report.cooperation.length)) {
+    html += '<hr class="ai-section-divider">';
+  }
 
   // 合作建议表格
   if (report.cooperation.length) {
@@ -24982,6 +24988,10 @@ function renderTalentAIReport(text) {
       html += '<tr><th>' + escapeHtml(c.label) + '</th><td>' + formatMessageInline(c.value) + '</td></tr>';
     });
     html += '</table></div>';
+  }
+  // 2-3 divider
+  if ((report.cooperation.length) && (report.risks.length)) {
+    html += '<hr class="ai-section-divider">';
   }
 
   // 风险点与缓解建议
