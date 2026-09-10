@@ -6292,9 +6292,939 @@ window.doLogin = function () {
 }
 </style>
 <!-- V2 Design System (token + components + theme) -->
-<link rel="stylesheet" href="docs/design-system/core/tokens.css">
-<link rel="stylesheet" href="docs/design-system/core/components.css">
-<link rel="stylesheet" href="docs/design-system/themes/solobrave.css">
+
+
+
+
+
+<!-- ============================================================
+ * V2 talent card CSS inlined for single-file deploy
+ * Source: docs/design-system/core/{tokens,components}.css @ HEAD (commit 7b61cff)
+ * 维护:改 CSS 请改源文件 + 重新内联,不要直接改这里的内联块
+ * ============================================================ -->
+<style>
+/* ===== tokens.css ===== */
+/* ============================================================
+ * SoloBrave Design Tokens — CORE
+ * 这是跨项目通用的设计变量，**不含任何品牌色**
+ * 品牌色 / 项目级主题请见 themes/ 目录
+ * 配套文档：./design-tokens.md
+ * ============================================================ */
+
+:root {
+  /* =========================================================
+   * 1. 语义色（无品牌色）
+   * ========================================================= */
+
+  /* 主色（从主题层覆盖） */
+  --color-primary: var(--theme-primary, #007AFF);
+  --color-primary-hover: var(--theme-primary-hover, #0066D6);
+  --color-primary-soft: var(--theme-primary-soft, rgba(0, 122, 255, 0.10));
+
+  /* AI 视觉协议（产品级差异化，所有项目统一用 indigo） */
+  --color-ai-accent: #5E5CE6;
+  --color-ai-glow: rgba(94, 92, 230, 0.40);
+  --color-ai-ring: #5E5CE6;
+  --color-ai-bg-soft: rgba(94, 92, 230, 0.05);
+  --color-ai-bg-softer: rgba(94, 92, 230, 0.08);
+  --color-ai-bg-strong: rgba(94, 92, 230, 0.15);
+  --color-ai-pulse: rgba(94, 92, 230, 0.60);
+
+  /* 评级色（语义化，所有项目通用 A/B/C/D） */
+  --color-rating-a: #34C759;
+  --color-rating-b: #007AFF;
+  --color-rating-c: #FFCC00;
+  --color-rating-d: #8E8E93;
+
+  /* 合作状态色 */
+  --color-status-pending: #8E8E93;
+  --color-status-talking: #FF9500;
+  --color-status-active: #34C759;
+  --color-status-lost: #FF3B30;
+  --color-status-paused: #AF52DE;
+
+  /* 状态色软底（badge 用） */
+  --color-status-pending-bg: rgba(142, 142, 147, 0.12);
+  --color-status-talking-bg: rgba(255, 149, 0, 0.12);
+  --color-status-active-bg: rgba(52, 199, 89, 0.12);
+  --color-status-lost-bg: rgba(255, 59, 48, 0.12);
+  --color-status-paused-bg: rgba(175, 82, 222, 0.12);
+
+  /* 数据置信度 */
+  --color-confidence-high: #34C759;
+  --color-confidence-medium: #FF9500;
+  --color-confidence-low: #FF3B30;
+
+  /* 数据新鲜度 */
+  --color-freshness-fresh: #34C759;
+  --color-freshness-aging: #FF9500;
+  --color-freshness-stale: #8E8E93;
+
+  /* 中性色 */
+  --color-bg: #FFFFFF;
+  --color-bg-soft: #F5F5F7;
+  --color-bg-softer: #F2F2F7;
+  --color-sidebar: #1C1C1E;
+  --color-sidebar-hover: rgba(255, 255, 255, 0.08);
+  --color-border: #E5E5EA;
+  --color-border-subtle: #F2F2F7;
+  --color-divider: #F2F2F7;
+
+  --color-text-primary: #1C1C1E;
+  --color-text-secondary: #6E6E73;
+  --color-text-tertiary: #AEAEB2;
+  --color-text-disabled: #C7C7CC;
+  --color-text-inverse: #FFFFFF;
+
+  /* 平台色（仅 chip 文字用，不绑死样式，由 data-color 驱动） */
+  --chip-color: var(--color-text-secondary);
+
+  /* =========================================================
+   * 2. 字体系统
+   * ========================================================= */
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC",
+               "Microsoft YaHei", "HarmonyOS Sans", sans-serif;
+  --font-num: "SF Pro", "Inter", -apple-system, "JetBrains Mono", monospace;
+
+  --fs-display: 32px;
+  --fs-h1: 24px;
+  --fs-h2: 20px;
+  --fs-h3: 17px;
+  --fs-body-lg: 16px;
+  --fs-body: 14px;
+  --fs-caption: 12px;
+  --fs-micro: 11px;
+
+  --lh-display: 40px;
+  --lh-h1: 32px;
+  --lh-h2: 28px;
+  --lh-h3: 24px;
+  --lh-body-lg: 24px;
+  --lh-body: 20px;
+  --lh-caption: 18px;
+  --lh-micro: 16px;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+
+  /* =========================================================
+   * 3. 间距
+   * ========================================================= */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* =========================================================
+   * 4. 圆角
+   * ========================================================= */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-full: 9999px;
+
+  /* =========================================================
+   * 5. 阴影
+   * ========================================================= */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06),
+               0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.16);
+
+  /* AI 光晕（产品签名） */
+  --shadow-ai: 0 0 0 2px var(--color-ai-ring),
+               0 0 16px var(--color-ai-glow);
+  --shadow-ai-subtle: 0 0 0 1.5px var(--color-ai-ring);
+  --shadow-ai-strong: 0 0 0 3px var(--color-ai-ring),
+                      0 0 24px var(--color-ai-glow);
+
+  /* =========================================================
+   * 6. 动效
+   * ========================================================= */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 320ms;
+
+  /* =========================================================
+   * 7. 层级
+   * ========================================================= */
+  --z-base: 0;
+  --z-sticky: 100;
+  --z-overlay: 500;
+  --z-modal: 1000;
+  --z-tooltip: 2000;
+  --z-toast: 3000;
+
+  /* =========================================================
+   * 8. 断点
+   * ========================================================= */
+  --bp-sm: 640px;
+  --bp-md: 768px;
+  --bp-lg: 1024px;
+  --bp-xl: 1280px;
+  --bp-2xl: 1536px;
+}
+
+/* ============================================================
+ * 减弱动效偏好
+ * ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ===== components.css ===== */
+/* ============================================================
+ * SoloBrave Components — CORE
+ * 通用组件类。**不含** 平台/品牌/项目级内容
+ * 用法：先 link tokens.css，再 link components.css
+ * ============================================================ */
+
+/* ============================================================
+ * 达人卡片（Talent Card）
+ * 用法：<div class="talent-card" data-rating="A" data-status="active">
+ *        <div class="avatar">姓</div>
+ *        <div class="meta">
+ *          <div class="name">姓名</div>
+ *          <div class="chips">
+ *            <span class="chip chip-platform" data-color="#FE2C55">抖音</span>
+ *            <span class="chip">户外</span>
+ *          </div>
+ *        </div>
+ *        <div class="metrics">
+ *          <div class="metric"><span class="metric-primary">120</span><span class="unit">万</span><div class="metric-label">粉丝量</div></div>
+ *          ...
+ *        </div>
+ *        <div class="footer">
+ *          <span class="meta-text">AI 匹配 87% · 3 天前</span>
+ *          <span class="badge-status" data-status="active">合作中</span>
+ *        </div>
+ *      </div>
+ * ============================================================ */
+
+.talent-card {
+  --rating-color: var(--color-rating-d, #8E8E93);
+  --status-color: var(--color-status-pending);
+  --status-bg: var(--color-status-pending-bg);
+
+  position: relative;
+  display: block;
+  padding: var(--space-4);
+  padding-left: calc(var(--space-4) + 4px);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-normal) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.talent-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--rating-color);
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+}
+
+.talent-card:hover {
+  border-color: var(--color-border);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.talent-card[data-rating="A"] { --rating-color: var(--color-rating-a, #34C759); }
+.talent-card[data-rating="B"] { --rating-color: var(--color-rating-b, #007AFF); }
+.talent-card[data-rating="C"] { --rating-color: var(--color-rating-c, #FFCC00); }
+.talent-card[data-rating="D"] { --rating-color: var(--color-rating-d, #8E8E93); }
+/* === 达人卡评级视觉 v2 增量(中性头像 + 显式评级 chip + 待评级虚线) === */
+.talent-card[data-rating="unrated"] { --rating-color: var(--color-text-tertiary); }
+/* 未评级：左色条改虚线(4px 实线 + 4px 透明,repeat-y) */
+.talent-card[data-rating="unrated"]::before {
+  background: transparent;
+  background-image: linear-gradient(
+    to bottom,
+    var(--rating-color) 0,
+    var(--rating-color) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+  background-size: 100% 8px;
+  background-repeat: repeat-y;
+}
+/* ★ 中性头像：白底 + 深灰字 + 评级色 1.5px 细描边(已评级)/ 普通边框(未评级) */
+.talent-card .avatar-neutral {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg, #ffffff);
+  border: 1.5px solid var(--color-border, #e5e5e5);
+  color: var(--color-text-primary, #1c1c1e);
+  font-size: var(--fs-body-lg);
+  font-weight: var(--fw-semibold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.talent-card .avatar-neutral img { width: 100%; height: 100%; object-fit: cover; }
+.talent-card[data-rating="A"] .avatar-neutral { border-color: var(--color-rating-a, #34C759); }
+.talent-card[data-rating="B"] .avatar-neutral { border-color: var(--color-rating-b, #007AFF); }
+.talent-card[data-rating="C"] .avatar-neutral { border-color: var(--color-rating-c, #FFCC00); }
+.talent-card[data-rating="D"] .avatar-neutral { border-color: var(--color-rating-d, #8E8E93); }
+/* 已废除:旧的 .talent-card .avatar 评级色填充由 .avatar-neutral 取代;不删以免破坏其他模块 */
+
+.chip-subtle {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-medium);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-softer);
+}
+.chip-subtle[data-platform="douyin"]      { color: #FE2C55; background: rgba(254,44,85,0.08); }
+.chip-subtle[data-platform="xiaohongshu"] { color: #FF2442; background: rgba(255,36,66,0.08); }
+.chip-subtle[data-platform="bilibili"]    { color: #FB7299; background: rgba(251,114,153,0.08); }
+.chip-subtle[data-platform="kuaishou"]    { color: #FF4906; background: rgba(255,73,6,0.08); }
+.chip-subtle[data-platform="wechat"]      { color: #07C160; background: rgba(7,193,96,0.08); }
+
+/* ★ 评级 chip:显式文字(A级/B级/C级/D级/待评级),评级色边框 + 评级色文字 */
+.rating-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--rating-color);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-bold);
+  color: var(--rating-color);
+  background: transparent;
+  letter-spacing: 0.3px;
+}
+.rating-chip[data-rating="unrated"] {
+  border-style: dashed;
+  color: var(--color-text-tertiary);
+  border-color: var(--color-text-tertiary);
+}
+
+/* ★ AI 推荐按钮:主色蓝 + ✨ 光晕(替代旧黄色按钮) */
+.btn-ai-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--color-primary);
+  color: #ffffff;
+  border: 0;
+  border-radius: var(--radius-md);
+  height: 32px;
+  padding: 0 12px;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.btn-ai-primary:hover {
+  background: var(--color-primary-hover, #0066D6);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25);
+}
+.btn-ai-primary .sparkle {
+  font-size: 14px;
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.6));
+}
+
+
+.talent-card[data-status="pending"] { --status-color: var(--color-status-pending); --status-bg: var(--color-status-pending-bg); }
+.talent-card[data-status="talking"] { --status-color: var(--color-status-talking); --status-bg: var(--color-status-talking-bg); }
+.talent-card[data-status="active"]  { --status-color: var(--color-status-active);  --status-bg: var(--color-status-active-bg); }
+.talent-card[data-status="lost"]    { --status-color: var(--color-status-lost);    --status-bg: var(--color-status-lost-bg); }
+.talent-card[data-status="paused"]  { --status-color: var(--color-status-paused);  --status-bg: var(--color-status-paused-bg); }
+
+/* 头像：强制绑评级色 */
+.talent-card .avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full);
+  background: var(--rating-color);
+  color: white;
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* 卡片内布局辅助 */
+.talent-card .meta { flex: 1; min-width: 0; }
+.talent-card .name {
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.talent-card .chips { display: flex; gap: var(--space-1); margin-top: var(--space-1); flex-wrap: wrap; }
+
+.talent-card .metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+.talent-card .metric-primary {
+  font-size: var(--fs-body-lg);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.talent-card .unit {
+  font-size: var(--fs-caption);
+  color: var(--color-text-secondary);
+  font-weight: var(--fw-medium);
+  margin-left: 1px;
+}
+.talent-card .metric-secondary {
+  font-size: var(--fs-body);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.talent-card .metric-label {
+  font-size: var(--fs-caption);
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+}
+
+.talent-card .footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+}
+.talent-card .meta-text {
+  font-size: var(--fs-caption);
+  color: var(--color-text-tertiary);
+}
+
+/* 数据陈旧降级（30 天+ 未更新） */
+.talent-card[data-stale="true"] {
+  opacity: 0.7;
+}
+.talent-card[data-stale="true"]::after {
+  content: "数据陈旧";
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  font-size: var(--fs-micro);
+  color: var(--color-freshness-stale);
+  background: var(--color-bg-softer);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+/* ============================================================
+ * AI 员工卡（叠加在 talent-card 上）
+ * 用法：<div class="talent-card ai-employee">
+ * ============================================================ */
+
+.talent-card.ai-employee {
+  background: var(--color-ai-bg-soft);
+}
+
+.talent-card.ai-employee .avatar {
+  box-shadow: var(--shadow-ai);
+  position: relative;
+}
+
+.talent-card.ai-employee .avatar::after {
+  content: "AI";
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  min-width: 18px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-ai-accent);
+  color: white;
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  line-height: 14px;
+  text-align: center;
+  border: 2px solid var(--color-bg);
+  box-sizing: content-box;
+}
+
+/* ======================================
+ * 员工头像包装：相对定位容器 + AI 标识
+ * 用法：<span class="emp-avatar-wrap ai-employee">{avatar}</span>
+ * ====================================== */
+.emp-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+.emp-avatar-wrap.ai-employee::after {
+  content: "AI";
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  min-width: 16px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-ai-accent);
+  color: white;
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  line-height: 14px;
+  text-align: center;
+  border: 1.5px solid var(--color-bg);
+  box-sizing: content-box;
+  z-index: 2;
+}
+.emp-avatar-wrap.ai-employee > img,
+.emp-avatar-wrap.ai-employee > div {
+  box-shadow: 0 0 0 2px var(--color-ai-accent), 0 0 8px var(--color-ai-glow);
+}
+
+/* ============================================================
+ * 状态徽章
+ * 用法：<span class="badge-status" data-status="active">合作中</span>
+ * ============================================================ */
+
+.badge-status {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-medium);
+  background: var(--status-bg, var(--color-status-pending-bg));
+  color: var(--status-color, var(--color-status-pending));
+  white-space: nowrap;
+}
+
+/* ============================================================
+ * 计划徽章（会员制）
+ * 用法：<span class="badge-plan" data-plan="pro">Pro</span>
+ * ============================================================ */
+
+.badge-plan {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+.badge-plan[data-plan="free"]       { background: var(--color-bg-softer); color: var(--color-text-secondary); }
+.badge-plan[data-plan="pro"]        { background: var(--color-primary); color: white; }
+.badge-plan[data-plan="enterprise"] { background: var(--color-ai-accent); color: white; }
+
+/* ============================================================
+ * 平台 / 类目 chip
+ * 用法：<span class="chip chip-platform" data-color="#FE2C55">抖音</span>
+ * ============================================================ */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 20px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-caption);
+  background: var(--color-bg-softer);
+  color: var(--chip-color, var(--color-text-secondary));
+}
+
+.chip-platform[data-color] {
+  color: var(--chip-color);
+}
+
+/* ============================================================
+ * 按钮
+ * ============================================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-5);
+  border: 0;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+  user-select: none;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn-sm { height: 28px; padding: 0 var(--space-3); font-size: var(--fs-caption); }
+.btn-lg { height: 44px; padding: 0 var(--space-6); font-size: var(--fs-body-lg); }
+
+.btn-primary    { background: var(--color-primary);      color: white; }
+.btn-primary:hover { background: var(--color-primary-hover); }
+
+.btn-secondary  { background: var(--color-bg-soft);      color: var(--color-text-primary); }
+.btn-secondary:hover { background: var(--color-border); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-primary);
+  height: auto;
+  padding: 0;
+  font-weight: var(--fw-medium);
+}
+.btn-ghost:hover { color: var(--color-primary-hover); }
+
+.btn-ai {
+  background: var(--color-ai-bg-strong);
+  color: var(--color-ai-accent);
+}
+.btn-ai:hover { background: rgba(94, 92, 230, 0.22); }
+
+.btn-danger     { background: var(--color-status-lost);  color: white; }
+
+.btn:disabled, .btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================================
+ * 锁定 / 升级（会员制）
+ * ============================================================ */
+
+.lock-feature {
+  position: relative;
+  pointer-events: none;
+  filter: grayscale(0.4) opacity(0.6);
+}
+.lock-feature::after {
+  content: "🔒 升级到 Pro 解锁";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(4px);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  color: var(--color-primary);
+  border-radius: inherit;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.upgrade-cta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: linear-gradient(135deg, var(--color-ai-bg-soft), var(--color-primary-soft));
+  border: 1px solid var(--color-ai-bg-strong);
+  border-radius: var(--radius-lg);
+}
+.upgrade-cta-text { flex: 1; }
+.upgrade-cta-title { font-size: var(--fs-body-lg); font-weight: var(--fw-semibold); }
+.upgrade-cta-desc { font-size: var(--fs-caption); color: var(--color-text-secondary); margin-top: 2px; }
+
+/* ============================================================
+ * AI 配额（用量）
+ * 用法：<div class="quota-meter" data-usage="0.7">
+ *          <div class="quota-bar"></div>
+ *          <div class="quota-label">今日已用 7/10</div>
+ *        </div>
+ * ============================================================ */
+
+.quota-meter {
+  display: block;
+  width: 100%;
+}
+.quota-bar {
+  height: 6px;
+  background: var(--color-bg-softer);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  position: relative;
+}
+.quota-bar::after {
+  content: "";
+  display: block;
+  height: 100%;
+  width: calc(var(--usage, 0) * 100%);
+  background: var(--color-primary);
+  border-radius: inherit;
+  transition: width var(--duration-slow) var(--ease-out);
+}
+.quota-meter[data-usage^="0.9"] .quota-bar::after,
+.quota-meter[data-usage="1"] .quota-bar::after {
+  background: var(--color-status-lost);
+}
+.quota-label {
+  font-size: var(--fs-caption);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-1);
+}
+
+/* ============================================================
+ * 示例 prompt chip（AI 入口）
+ * ============================================================ */
+
+.prompt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: var(--color-ai-bg-softer);
+  color: var(--color-text-primary);
+  font-size: var(--fs-body);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.prompt-chip:hover {
+  background: var(--color-ai-bg-strong);
+  transform: translateY(-1px);
+}
+.prompt-chip:active { transform: translateY(0); }
+
+/* ============================================================
+ * 缺数据 / 置信度
+ * ============================================================ */
+
+.data-missing {
+  display: inline-block;
+  padding: 1px 6px;
+  background: var(--color-bg-softer);
+  color: var(--color-text-tertiary);
+  font-size: var(--fs-caption);
+  border-radius: var(--radius-sm);
+}
+
+.field-confidence {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-caption);
+}
+.field-confidence::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.field-confidence[data-confidence="high"]   { color: var(--color-confidence-high); }
+.field-confidence[data-confidence="high"]::before   { background: var(--color-confidence-high); }
+.field-confidence[data-confidence="medium"] { color: var(--color-confidence-medium); }
+.field-confidence[data-confidence="medium"]::before { background: var(--color-confidence-medium); }
+.field-confidence[data-confidence="low"]    { color: var(--color-confidence-low); }
+.field-confidence[data-confidence="low"]::before    { background: var(--color-confidence-low); }
+
+/* AI 推荐值（虚线边框） */
+.field-ai-suggested {
+  border: 1px dashed var(--color-ai-accent);
+  background: var(--color-ai-bg-soft);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+}
+
+/* ============================================================
+ * 截图录入（数据通道 / 通用上传）
+ * 用法：<div class="screenshot-drop">...</div>
+ * ============================================================ */
+
+.screenshot-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-10) var(--space-6);
+  background: var(--color-bg-soft);
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.screenshot-drop:hover, .screenshot-drop[data-drag-over="true"] {
+  background: var(--color-ai-bg-soft);
+  border-color: var(--color-ai-accent);
+  border-style: solid;
+}
+.screenshot-drop-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-full);
+  background: var(--color-ai-bg-strong);
+  color: var(--color-ai-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+.screenshot-drop-title {
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+}
+.screenshot-drop-hint {
+  font-size: var(--fs-caption);
+  color: var(--color-text-secondary);
+}
+
+/* 截图处理进度 */
+.screenshot-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-ai-bg-soft);
+  border: 1px solid var(--color-ai-bg-strong);
+  border-radius: var(--radius-md);
+}
+.screenshot-progress-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-ai-bg-strong);
+  border-top-color: var(--color-ai-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.screenshot-progress-text { font-size: var(--fs-body); }
+.screenshot-progress-meta { font-size: var(--fs-caption); color: var(--color-text-secondary); margin-top: 2px; }
+
+/* ============================================================
+ * FAB（悬浮操作按钮）
+ * ============================================================ */
+
+.fab {
+  position: fixed;
+  right: var(--space-6);
+  bottom: var(--space-6);
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-full);
+  background: var(--color-ai-accent);
+  color: white;
+  border: 0;
+  font-size: 24px;
+  cursor: pointer;
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration-fast) var(--ease-spring);
+}
+.fab:hover { transform: translateY(-2px) scale(1.05); }
+
+/* ============================================================
+ * Onboarding 引导步骤
+ * ============================================================ */
+
+.onboarding-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+}
+.onboarding-step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--color-ai-bg-strong);
+  color: var(--color-ai-accent);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-bold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.onboarding-step-content { flex: 1; }
+.onboarding-step-title { font-size: var(--fs-body-lg); font-weight: var(--fw-semibold); }
+.onboarding-step-desc { font-size: var(--fs-caption); color: var(--color-text-secondary); margin-top: 2px; }
+
+/* ============================================================
+ * AI 在线脉冲点
+ * ============================================================ */
+
+@keyframes ai-pulse {
+  0%   { box-shadow: 0 0 0 0 var(--color-ai-pulse); }
+  70%  { box-shadow: 0 0 0 8px rgba(94, 92, 230, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(94, 92, 230, 0); }
+}
+.ai-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-ai-accent);
+  animation: ai-pulse 2s infinite;
+  flex-shrink: 0;
+}
+
+</style>
 </head>
 <body>
 <!-- Message Context Menu (right-click on chat bubbles) -->
