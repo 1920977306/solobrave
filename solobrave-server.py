@@ -6112,6 +6112,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/employee-templates':
             self._handle_get_employee_templates()
             return
+        # 注意:子资源路由必须注册在下方 /api/agents/ 通配分支之前,
+        # 否则通配会把 /api/agents/X/stats 整体吞成 agent_id='X/stats' 误进 _handle_get_agent。
+        if path.startswith('/api/agents/') and path.endswith('/stats'):
+            agent_id = path[len('/api/agents/'):-len('/stats')]
+            if agent_id:
+                self._handle_get_agent_stats(agent_id)
+                return
+        if path.startswith('/api/agents/') and path.endswith('/activity'):
+            agent_id = path[len('/api/agents/'):-len('/activity')]
+            if agent_id:
+                self._handle_get_agent_activity(agent_id)
+                return
         if path.startswith('/api/agents/'):
             agent_id = path[len('/api/agents/'):]
             if agent_id:
@@ -9479,6 +9491,426 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
         self._send_json(200, agent)
+
+    # ============================================================
+    # AI 员工详情页 V2 配套接口(spec 文档:docs/ai-employee-apis-spec.md)
+    # 两个新接口均按"鉴权 → agent 可见性校验 → 两层 owner_set 过滤"
+    # 三步走,严格照搬 _handle_get_agent + talent 列表的范式。
+    # 5 个时间格式(epoch ms / localtime str / UTC str)在 SQL 层只做
+    # agent/scope 过滤,窗口过滤在 Python 侧按表格式归一化。
+    # ============================================================
+
+    @staticmethod
+    def _epoch_ms_to_local_str(epoch_ms):
+        """epoch 毫秒 → SQLite 'YYYY-MM-DD HH:MM:SS'(本地时间,与 tasks.created_at 写入格式一致)"""
+        from datetime import datetime
+        return datetime.fromtimestamp(epoch_ms / 1000).strftime('%Y-%m-%d %H:%M:%S')
+
+    @staticmethod
+    def _epoch_ms_to_utc_str(epoch_ms):
+        """epoch 毫秒 → UTC 'YYYY-MM-DD HH:MM:SS'(与 tool_calls.created_at = CURRENT_TIMESTAMP 一致)"""
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(epoch_ms / 1000, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+    def _handle_get_agent_stats(self, agent_id):
+        """GET /api/agents/:id/stats?window_days=30
+        返回 4 个真实可计算指标:talents_served / analyses_done / tasks_done / tool_success_rate
+        tool_calls_total=0 时 success_rate 返回 null(前端显示 --),禁止编造 0 或 1。
+        鉴权 + 可见性照搬 _handle_get_agent;非 admin 走 owner_set 两层架构。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'employees'):
+            return
+
+        # 窗口天数(默认 30,clamp 到 1-365)
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(self.path).query)
+        try:
+            window_days = int(qs.get('window_days', ['30'])[0])
+        except (ValueError, IndexError, TypeError):
+            window_days = 30
+        window_days = max(1, min(365, window_days))
+        window_start_ms = int((time.time() - window_days * 86400) * 1000)
+        window_start_local = self._epoch_ms_to_local_str(window_start_ms)
+        window_start_utc = self._epoch_ms_to_utc_str(window_start_ms)
+
+        # agent 存在性 + 可见性
+        agent = _get_agent_by_id(agent_id)
+        if not agent:
+            self._send_json(404, {'error': '员工不存在'})
+            return
+        if not auth.is_admin:
+            if agent.get('createdBy') != auth.user_info['userId'] and agent.get('visibility') != 'all':
+                self._send_auth_error('权限不足', 403)
+                return
+
+        # 两层架构 owner_set(admin + 非 localhost 代理跳过 scope 过滤)
+        is_scope_filtered = not (auth.is_admin and not getattr(auth, 'localhost_agent_id', None))
+        uid = _resolve_talent_owner_id(auth)
+        owner_set = {uid} | set(_get_user_emp_ids(uid))
+
+        conn = _db_conn()
+        try:
+            # ---- ① talents_served(并集去重) ----
+            # 来源 A:talents.created_by = :agent_id(窗口内)
+            ts_talents_rows = conn.execute(
+                "SELECT id FROM talents WHERE created_by = ? AND created_at >= ?",
+                (agent_id, window_start_ms)
+            ).fetchall()
+            ts_ids = {r['id'] for r in ts_talents_rows}
+            # 来源 B:knowledge_events.agent_id = :agent_id AND entity_type='talent' 的 DISTINCT entity_id
+            ts_events_rows = conn.execute(
+                "SELECT DISTINCT entity_id FROM knowledge_events WHERE agent_id = ? AND entity_type = 'talent' AND created_at >= ?",
+                (agent_id, window_start_ms)
+            ).fetchall()
+            ts_ids = ts_ids | {r['entity_id'] for r in ts_events_rows if r['entity_id']}
+            # 非 admin:与 visible_talent_ids 取交集
+            if is_scope_filtered:
+                vis_rows = conn.execute(
+                    f"SELECT id FROM talents WHERE created_by IN ({','.join('?' * len(owner_set))})",
+                    list(owner_set)
+                ).fetchall() if owner_set else []
+                visible_talent_ids = {r['id'] for r in vis_rows}
+                ts_ids = ts_ids & visible_talent_ids
+            talents_served = len(ts_ids)
+
+            # ---- ② analyses_done(knowledge_events.event_type='analysis') ----
+            if is_scope_filtered and ts_ids:
+                vis_ph = ','.join('?' * len(ts_ids))
+                ad_row = conn.execute(
+                    f"SELECT COUNT(*) AS c FROM knowledge_events WHERE agent_id = ? AND event_type = 'analysis' AND created_at >= ? AND entity_id IN ({vis_ph})",
+                    [agent_id, window_start_ms] + list(ts_ids)
+                ).fetchone()
+            else:
+                ad_row = conn.execute(
+                    "SELECT COUNT(*) AS c FROM knowledge_events WHERE agent_id = ? AND event_type = 'analysis' AND created_at >= ?",
+                    (agent_id, window_start_ms)
+                ).fetchone()
+            analyses_done = ad_row['c'] if ad_row else 0
+
+            # ---- ③ tasks_done(status='completed',completed_at 为空回退 created_at) ----
+            # tasks.created_at / completed_at 是 localtime TEXT,要与 window_start_local 字符串比较
+            if is_scope_filtered and owner_set:
+                own_ph = ','.join('?' * len(owner_set))
+                td_row = conn.execute(
+                    f"""SELECT COUNT(*) AS c FROM tasks
+                        WHERE assignee = ? AND status = 'completed'
+                          AND (CASE WHEN completed_at = '' THEN created_at ELSE completed_at END) >= ?
+                          AND creator IN ({own_ph})""",
+                    [agent_id, window_start_local] + list(owner_set)
+                ).fetchone()
+            else:
+                td_row = conn.execute(
+                    """SELECT COUNT(*) AS c FROM tasks
+                        WHERE assignee = ? AND status = 'completed'
+                          AND (CASE WHEN completed_at = '' THEN created_at ELSE completed_at END) >= ?""",
+                    (agent_id, window_start_local)
+                ).fetchone()
+            tasks_done = td_row['c'] if td_row else 0
+
+            # ---- ④ tool_calls_total / tool_success_rate(tool_calls.created_at 是 UTC TEXT) ----
+            tc_total_row = conn.execute(
+                "SELECT COUNT(*) AS c FROM tool_calls WHERE agent_id = ? AND created_at >= ?",
+                (agent_id, window_start_utc)
+            ).fetchone()
+            tool_calls_total = tc_total_row['c'] if tc_total_row else 0
+            tc_ok_row = conn.execute(
+                "SELECT COUNT(*) AS c FROM tool_calls WHERE agent_id = ? AND exit_code = 0 AND created_at >= ?",
+                (agent_id, window_start_utc)
+            ).fetchone()
+            tc_ok = tc_ok_row['c'] if tc_ok_row else 0
+            tool_success_rate = round(tc_ok / tool_calls_total, 2) if tool_calls_total > 0 else None
+        finally:
+            conn.close()
+
+        self._send_json(200, {
+            'agent_id': agent_id,
+            'window_days': window_days,
+            'stats': {
+                'talents_served': talents_served,
+                'analyses_done': analyses_done,
+                'tasks_done': tasks_done,
+                'tool_calls_total': tool_calls_total,
+                'tool_success_rate': tool_success_rate,
+            },
+            'generated_at': int(time.time()),
+        })
+
+    def _handle_get_agent_activity(self, agent_id):
+        """GET /api/agents/:id/activity?days=30&limit=20
+        聚合 5 类事件(analysis / vision_data / follow_up / task / deal),
+        按归一化 epoch 秒倒序,取前 limit 条。deals 只按 created_by=:id 直接归属,
+        禁止"该员工分析过的达人"间接推断。"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'employees'):
+            return
+
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(self.path).query)
+        try:
+            days = int(qs.get('days', ['30'])[0])
+        except (ValueError, IndexError, TypeError):
+            days = 30
+        days = max(1, min(365, days))
+        try:
+            limit = int(qs.get('limit', ['20'])[0])
+        except (ValueError, IndexError, TypeError):
+            limit = 20
+        limit = max(1, min(200, limit))
+        window_start_ms = int((time.time() - days * 86400) * 1000)
+        window_start_local = self._epoch_ms_to_local_str(window_start_ms)
+
+        # agent 可见性
+        agent = _get_agent_by_id(agent_id)
+        if not agent:
+            self._send_json(404, {'error': '员工不存在'})
+            return
+        if not auth.is_admin:
+            if agent.get('createdBy') != auth.user_info['userId'] and agent.get('visibility') != 'all':
+                self._send_auth_error('权限不足', 403)
+                return
+
+        is_scope_filtered = not (auth.is_admin and not getattr(auth, 'localhost_agent_id', None))
+        uid = _resolve_talent_owner_id(auth)
+        owner_set = {uid} | set(_get_user_emp_ids(uid))
+
+        # 名字缓存:talent_id -> name,product_id -> name
+        items = []
+
+        def _truncate(s, n=60):
+            if not s:
+                return ''
+            s = str(s)
+            return s if len(s) <= n else s[:n] + '...'
+
+        def _to_epoch_seconds_from_ms(ms):
+            """INTEGER epoch ms → epoch 秒(int)"""
+            try:
+                return int(int(ms) / 1000)
+            except (TypeError, ValueError):
+                return 0
+
+        def _to_epoch_seconds_from_local_str(s):
+            """'YYYY-MM-DD HH:MM:SS' localtime → epoch 秒(int);解析失败返 0"""
+            if not s:
+                return 0
+            try:
+                from datetime import datetime
+                return int(datetime.strptime(str(s), '%Y-%m-%d %H:%M:%S').timestamp())
+            except (TypeError, ValueError):
+                return 0
+
+        conn = _db_conn()
+        try:
+            # 一次性查 visible_talent_ids 与 owner_set(供非 admin scope)
+            if is_scope_filtered and owner_set:
+                vis_rows = conn.execute(
+                    f"SELECT id, name FROM talents WHERE created_by IN ({','.join('?' * len(owner_set))})",
+                    list(owner_set)
+                ).fetchall() if owner_set else []
+                visible_talent_map = {r['id']: (r['name'] or '') for r in vis_rows}
+                visible_talent_ids = set(visible_talent_map.keys())
+            else:
+                visible_talent_map = None
+                visible_talent_ids = None
+
+            # === type=analysis / vision_data(knowledge_events 共享 entity_id 解析) ===
+            ke_q = conn.execute(
+                "SELECT id, entity_type, entity_id, event_type, title, content_summary, content_full, created_at "
+                "FROM knowledge_events WHERE agent_id = ? AND event_type IN ('analysis','vision_data') AND created_at >= ?",
+                (agent_id, window_start_ms)
+            ).fetchall()
+            # 聚合 entity_id → name(单次 SQL,避免 N+1)
+            ke_entity_ids = {r['entity_id'] for r in ke_q if r['entity_id']}
+            ke_talent_name_map = {}
+            if ke_entity_ids and (not is_scope_filtered or visible_talent_ids is None or ke_entity_ids & visible_talent_ids):
+                # 仅查 entity_type='talent' 的,name 给 title 用
+                tids = list(ke_entity_ids)
+                placeholders = ','.join('?' * len(tids))
+                nm_rows = conn.execute(
+                    f"SELECT id, name FROM talents WHERE id IN ({placeholders})",
+                    tids
+                ).fetchall()
+                ke_talent_name_map = {r['id']: (r['name'] or '') for r in nm_rows}
+            for r in ke_q:
+                if is_scope_filtered and visible_talent_ids is not None:
+                    if r['entity_type'] == 'talent' and r['entity_id'] not in visible_talent_ids:
+                        continue  # 非 admin 越权过滤
+                tname = ke_talent_name_map.get(r['entity_id'], '') if r['entity_type'] == 'talent' else ''
+                if r['event_type'] == 'analysis':
+                    title = ('完成达人分析:' + tname) if tname else (r['title'] or '完成分析')
+                    detail_src = r['content_summary'] or r['content_full'] or ''
+                else:  # 'vision_data' = 截图录入(grep 实证)
+                    title = ('录入截图数据:' + tname) if tname else (r['title'] or '录入截图数据')
+                    detail_src = r['content_summary'] or r['content_full'] or ''
+                items.append({
+                    'type': 'analysis' if r['event_type'] == 'analysis' else 'ingest',
+                    'status': 'active',
+                    'title': title,
+                    'detail': _truncate(detail_src, 60),
+                    'entity_id': r['entity_id'],
+                    'entity_name': tname,
+                    'ts': _to_epoch_seconds_from_ms(r['created_at']),
+                })
+
+            # === type=follow_up(talent_follow_ups.follow_up_by 是 body 写入,非 admin 用 owner 过滤 talent) ===
+            if is_scope_filtered and visible_talent_ids is not None:
+                if visible_talent_ids:
+                    ph = ','.join('?' * len(visible_talent_ids))
+                    tfu_rows = conn.execute(
+                        f"SELECT id, talent_id, content, status, follow_up_at, created_at "
+                        f"FROM talent_follow_ups WHERE follow_up_by = ? AND follow_up_at >= ? AND talent_id IN ({ph})",
+                        [agent_id, window_start_ms] + list(visible_talent_ids)
+                    ).fetchall()
+                else:
+                    tfu_rows = []
+            else:
+                tfu_rows = conn.execute(
+                    "SELECT id, talent_id, content, status, follow_up_at, created_at "
+                    "FROM talent_follow_ups WHERE follow_up_by = ? AND follow_up_at >= ?",
+                    (agent_id, window_start_ms)
+                ).fetchall()
+            # 名字查
+            tfu_tids = {r['talent_id'] for r in tfu_rows if r['talent_id']}
+            tfu_name_map = {}
+            if tfu_tids:
+                ph = ','.join('?' * len(tfu_tids))
+                nm_rows = conn.execute(
+                    f"SELECT id, name FROM talents WHERE id IN ({ph})",
+                    list(tfu_tids)
+                ).fetchall()
+                tfu_name_map = {r['id']: (r['name'] or '') for r in nm_rows}
+            for r in tfu_rows:
+                tname = tfu_name_map.get(r['talent_id'], '')
+                # status 映射:completed→active(已跟进);pending→talking(沟通中)
+                st = (r['status'] or '').strip()
+                if st == 'completed':
+                    mapped_status = 'active'
+                elif st == 'pending':
+                    mapped_status = 'talking'
+                else:
+                    mapped_status = 'talking'  # 兜底
+                items.append({
+                    'type': 'follow_up',
+                    'status': mapped_status,
+                    'title': ('跟进 ' + tname) if tname else '跟进达人',
+                    'detail': _truncate(r['content'], 60),
+                    'entity_id': r['talent_id'],
+                    'entity_name': tname,
+                    'ts': _to_epoch_seconds_from_ms(r['follow_up_at']),
+                })
+
+            # === type=task(tasks.status 映射:completed→active;pending→pending;进行中→talking) ===
+            if is_scope_filtered and owner_set:
+                own_ph = ','.join('?' * len(owner_set))
+                # 用 completed_at 优先,空回退 created_at;两字段都 localtime TEXT
+                task_rows = conn.execute(
+                    f"""SELECT id, title, status, completed_at, created_at
+                        FROM tasks
+                        WHERE assignee = ?
+                          AND (CASE WHEN completed_at = '' THEN created_at ELSE completed_at END) >= ?
+                          AND creator IN ({own_ph})""",
+                    [agent_id, window_start_local] + list(owner_set)
+                ).fetchall()
+            else:
+                task_rows = conn.execute(
+                    """SELECT id, title, status, completed_at, created_at
+                        FROM tasks
+                        WHERE assignee = ?
+                          AND (CASE WHEN completed_at = '' THEN created_at ELSE completed_at END) >= ?""",
+                    (agent_id, window_start_local)
+                ).fetchall()
+            for r in task_rows:
+                st = (r['status'] or '').strip()
+                if st == 'completed':
+                    mapped_status = 'active'
+                elif st == 'pending':
+                    mapped_status = 'pending'
+                else:
+                    mapped_status = 'talking'  # in_progress / blocked 等
+                items.append({
+                    'type': 'task',
+                    'status': mapped_status,
+                    'title': r['title'] or '任务',
+                    'detail': '',
+                    'entity_id': '',
+                    'entity_name': '',
+                    'ts': _to_epoch_seconds_from_local_str(r['completed_at'] or r['created_at']),
+                })
+
+            # === type=deal(deals 只按 created_by=:id 直接归属,禁止"分析过的达人"间接推断) ===
+            if is_scope_filtered and visible_talent_ids is not None:
+                if visible_talent_ids:
+                    ph = ','.join('?' * len(visible_talent_ids))
+                    deal_rows = conn.execute(
+                        f"""SELECT id, talent_id, product_name, status, win_loss_category, created_at
+                            FROM deals
+                            WHERE created_by = ? AND created_at >= ? AND talent_id IN ({ph})""",
+                        [agent_id, window_start_ms] + list(visible_talent_ids)
+                    ).fetchall()
+                else:
+                    deal_rows = []
+            else:
+                deal_rows = conn.execute(
+                    "SELECT id, talent_id, product_name, status, win_loss_category, created_at "
+                    "FROM deals WHERE created_by = ? AND created_at >= ?",
+                    (agent_id, window_start_ms)
+                ).fetchall()
+            # talent name 查询(只为 title 用)
+            deal_tids = {r['talent_id'] for r in deal_rows if r['talent_id']}
+            deal_name_map = {}
+            if deal_tids:
+                ph = ','.join('?' * len(deal_tids))
+                nm_rows = conn.execute(
+                    f"SELECT id, name FROM talents WHERE id IN ({ph})",
+                    list(deal_tids)
+                ).fetchall()
+                deal_name_map = {r['id']: (r['name'] or '') for r in nm_rows}
+            for r in deal_rows:
+                tname = deal_name_map.get(r['talent_id'], '')
+                pname = r['product_name'] or ''
+                # status 映射:failed 或 win_loss_category=lost → lost(需介入,红色)
+                st = (r['status'] or '').strip()
+                wl = (r['win_loss_category'] or '').strip()
+                if st == 'failed' or wl == 'lost':
+                    mapped_status = 'lost'
+                elif st in ('completed', 'live'):
+                    mapped_status = 'active'
+                elif st in ('pending', 'negotiating', 'sample_sent', 'approved'):
+                    mapped_status = 'talking'
+                else:
+                    mapped_status = 'talking'  # 兜底
+                title_parts = ['合作单']
+                if pname:
+                    title_parts.append(pname)
+                if tname:
+                    title_parts.append('(' + tname + ')')
+                items.append({
+                    'type': 'deal',
+                    'status': mapped_status,
+                    'title': '：'.join(title_parts) if len(title_parts) > 1 else '合作单',
+                    'detail': '',
+                    'entity_id': r['talent_id'],
+                    'entity_name': tname,
+                    'ts': _to_epoch_seconds_from_ms(r['created_at']),
+                })
+
+        finally:
+            conn.close()
+
+        # 合并:按 ts 倒序(0 排最后),取前 limit
+        items.sort(key=lambda x: (x.get('ts') or 0, x.get('type') or ''), reverse=True)
+        items = items[:limit]
+
+        self._send_json(200, {
+            'agent_id': agent_id,
+            'items': items,
+        })
 
     def _handle_create_agent(self):
         """POST /api/agents"""
