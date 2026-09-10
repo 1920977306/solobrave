@@ -1,9 +1,10 @@
-# SoloBrave 设计 Token 规范（V2）
+# SoloBrave 设计 Token 规范（V2.1）
 
 > 适用版本：V2 架构 + SoloBrave 抖音团长项目
 > 设计语言：Apple HIG + 飞书克制感
 > 核心差异化：**AI 员工视觉协议** + **评级色视觉签名**
-> 最后更新：2026-09-08
+> 最后更新：2026-09-10
+> 本次更新：V2 收尾 — 5 v2 组件类正式落地(avatar-neutral / rating-chip / chip-subtle / btn-ai-primary / unrated 虚线),详情面板 chip outline 风格统一,AI 报告 --- 分隔换 hr
 
 ---
 
@@ -171,6 +172,33 @@ docs/design-system/
 > ```
 
 ---
+
+## 3.5 v2 组件规范(2026-09-10 落地)
+
+5 个 v2 组件类在 `core/components.css` 正式定义,inline v2 block(e539b43 + 79eb155 起)是它的精简 self-contained 副本,source of truth 仍是 components.css。
+
+### .avatar-neutral(中性头像)
+- 44px 圆形,白底 + 评级色 1.5px 细描边
+- 5 评级色覆盖:`.talent-card[data-rating="A"] .avatar-neutral { border-color: #34C759 }` 等
+- unrated:`border-style: dashed` + 灰色,头像字符 `?`
+
+### .rating-chip(显式评级 chip)
+- outline 风格(1px 评级色边框 + 评级色文字)
+- 5 评级色覆盖(A 绿 / B 蓝 / C 黄 / D 灰)
+- unrated:`border-style: dashed` + 灰色
+
+### .chip-subtle(平台/类目 subtle 降级)
+- 字号 11px,subtle 灰底
+- 5 平台色覆盖:douyin 254,44,85 / xiaohongshu 255,36,66 / bilibili 251,114,153 / kuaishou 255,73,6 / wechat 7,193,96
+- 透明度 5%(2026-09-10 polish,从 8% 降)
+
+### .btn-ai-primary(AI 推荐按钮)
+- 主色蓝填充 + ✨ 光晕图标(`filter: drop-shadow`)
+- hover 加深 + 阴影
+
+### unrated 虚线(左色条 dashed)
+- `linear-gradient` 4px 实 + 4px 透明,repeat-y
+- 替代"评级色填充头像"的旧 v1 风格
 
 ## 4. 字体系统
 
@@ -677,3 +705,4 @@ AI 识别后展示结果 + 置信度 + 让用户确认/修改。**必须**有这
 |---|---|---|
 | V1 | 2026-09-08 | 初版：AI 视觉协议 + 评级色 + 卡片规范 |
 | V2 | 2026-09-08 | 架构拆分 core/themes/domain；加会员制 UI；加截图录入 + 置信度/新鲜度；加 onboarding；术语词典；多项目扩展 |
+| V2.1 | 2026-09-10 | 5 v2 组件类正式落地(avatar-neutral / rating-chip / chip-subtle / btn-ai-primary / unrated 虚线);详情面板评级 chip 改 outline 与列表一致;AI 报告 --- 文字分隔换 hr 1px 灰线;评级排序 indexOf 短路修复;5 平台 chip 透明度 8%→5% |

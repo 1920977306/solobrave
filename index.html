@@ -6446,6 +6446,9 @@ window.doLogin = function () {
 .btn-ai-primary .sparkle { font-size: 14px; filter: drop-shadow(0 0 4px rgba(255,255,255,0.6)); }
 /* AI 报告 section divider (1px 实线, divider 灰) */
 .ai-section-divider { border: 0; height: 1px; background: var(--color-border, #E5E5EA); margin: 16px 0; }
+/* AI 报告 inline --- 文字分隔换 hr 1px 灰线 */
+.ai-inline-divider { border: 0; height: 1px; background: var(--color-border, #E5E5EA); margin: 12px 0; }
+
 
 </style>
 </head>
@@ -8695,6 +8698,8 @@ function formatMessageInline(text) {
       s = s.replace(/(^|[\s(])\*([^*\s][^*]*?)\*($|[\s)])/g, '$1<em>$2</em>$3');
       // 链接 [text](url)
       s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      // 独立行 --- 替换为 hr divider (AI 报告里的 Markdown 分隔符)
+      s = s.replace(/^---$/gm, '<hr class="ai-inline-divider">');
       out += s;
     }
   }
@@ -24908,6 +24913,8 @@ function parseTalentAIReport(text) {
   // 通用列表提取
   function extractItems(body) {
     return body.split('\n').map(function(l){ return l.trim(); }).filter(function(l){
+      // 跳过纯 --- 分隔符行(已用 hr 替代)
+      if (/^-+$/.test(l)) return false;
       return /^[-*✓!]\s+/.test(l);
     }).map(function(l){ return l.replace(/^[-*✓!]\s+/, ''); });
   }
