@@ -6430,11 +6430,11 @@ window.doLogin = function () {
   font-size: 11px; font-weight: 500;
   color: #6E6E73; background: #F2F2F7;
 }
-.chip-subtle[data-platform="douyin"] { color: #FE2C55; background: rgba(254,44,85,0.08); }
-.chip-subtle[data-platform="xiaohongshu"] { color: #FF2442; background: rgba(255,36,66,0.08); }
-.chip-subtle[data-platform="bilibili"] { color: #FB7299; background: rgba(251,114,153,0.08); }
-.chip-subtle[data-platform="kuaishou"] { color: #FF4906; background: rgba(255,73,6,0.08); }
-.chip-subtle[data-platform="wechat"] { color: #07C160; background: rgba(7,193,96,0.08); }
+.chip-subtle[data-platform="douyin"] { color: #FE2C55; background: rgba(254,44,85,0.05); }
+.chip-subtle[data-platform="xiaohongshu"] { color: #FF2442; background: rgba(255,36,66,0.05); }
+.chip-subtle[data-platform="bilibili"] { color: #FB7299; background: rgba(251,114,153,0.05); }
+.chip-subtle[data-platform="kuaishou"] { color: #FF4906; background: rgba(255,73,6,0.05); }
+.chip-subtle[data-platform="wechat"] { color: #07C160; background: rgba(7,193,96,0.05); }
 /* ====== AI 推荐按钮 ====== */
 .btn-ai-primary {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -24749,7 +24749,6 @@ function renderAnalyzedTalentCard(item) {
   html += '</div>';
   // 底部:AI 分析时间
   html += '<div class="footer">';
-  html += '<span class="meta-text">🤖 AI 分析</span>';
   html += '<span class="badge-status" data-status="analyzed">' + escapeHtml(timeText) + '</span>';
   html += '</div>';
   html += '</div>';
