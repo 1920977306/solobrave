@@ -24194,9 +24194,9 @@ function _renderTalentRatingBadge(rating) {
   var r = String(rating).trim().toUpperCase();
   if (!r) return '';
   var first = r.charAt(0);
-  var bg = _TALENT_RATING_COLORS[first] || '#6B7280';
-  var label = _TALENT_RATING_COLORS[first] ? (first + '级') : r;
-  return '<span class="talent-rating-badge" style="background:' + bg + ';" title="评级 ' + escapeAttr(r) + '">' + escapeHtml(label) + '</span>';
+  if (!_TALENT_RATING_COLORS[first]) return '';
+  var label = ({A:'A级',B:'B级',C:'C级',D:'D级'})[first] || (first + '级');
+  return '<span class="rating-chip" data-rating="' + first + '" title="评级 ' + escapeAttr(r) + '">' + escapeHtml(label) + '</span>';
 }
 
 // 卡片底部合作建议条：取自 cooperation_status，有值则彩色高亮，无值不渲染
@@ -25043,15 +25043,27 @@ function renderTalentPanelOverview(t) {
   // 基础信息（飞书录入字段）
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">基础信息</div>';
+  // 8 项基础信息:任一有值就展示,全空时合并成一行 placeholder
+  var _bi = [
+    {label:'内容类型',     val:t.talent_type || '-',                   full:false},
+    {label:'类目',         val:t.category || mock.category || '-',    full:false},
+    {label:'内容风格',     val:t.content_style || mock.content_style || '-', full:false},
+    {label:'视频结算额占比', val:t.video_settlement_ratio || '-',      full:false},
+    {label:'视频平均件单价', val:t.video_avg_price || '-',             full:false},
+    {label:'账号粉丝特征',  val:t.account_fans_profile || '-',         full:true},
+    {label:'短视频粉丝特征', val:t.video_fans_profile || '-',          full:true},
+    {label:'备注',         val:t.remark || '-',                        full:true},
+  ];
+  var _biHasAny = _bi.some(function(i){ return i.val && i.val !== '-'; });
   html += '<div class="talents-info-grid">';
-  html += '<div class="talents-info-item"><label>内容类型</label><div class="value">' + escapeHtml(t.talent_type || '-') + '</div></div>';
-  html += '<div class="talents-info-item"><label>类目</label><div class="value">' + escapeHtml(t.category || mock.category || '-') + '</div></div>';
-  html += '<div class="talents-info-item"><label>内容风格</label><div class="value">' + escapeHtml(t.content_style || mock.content_style || '-') + '</div></div>';
-  html += '<div class="talents-info-item"><label>视频结算额占比</label><div class="value">' + escapeHtml(t.video_settlement_ratio || '-') + '</div></div>';
-  html += '<div class="talents-info-item"><label>视频平均件单价</label><div class="value">' + escapeHtml(t.video_avg_price || '-') + '</div></div>';
-  html += '<div class="talents-info-item full-width"><label>账号粉丝特征</label><div class="value">' + escapeHtml(t.account_fans_profile || '-') + '</div></div>';
-  html += '<div class="talents-info-item full-width"><label>短视频粉丝特征</label><div class="value">' + escapeHtml(t.video_fans_profile || '-') + '</div></div>';
-  html += '<div class="talents-info-item full-width"><label>备注</label><div class="value">' + escapeHtml(t.remark || '-') + '</div></div>';
+  if (!_biHasAny) {
+    html += '<div class="talents-info-item full-width placeholder">基础信息待 AI 识别(AI 分析后将自动填充)</div>';
+  } else {
+    for (var _i = 0; _i < _bi.length; _i++) {
+      var _it = _bi[_i];
+      html += '<div class="talents-info-item' + (_it.full ? ' full-width' : '') + '"><label>' + escapeHtml(_it.label) + '</label><div class="value">' + escapeHtml(_it.val) + '</div></div>';
+    }
+  }
   html += '</div></div>';
 
   // AI 分析摘要
