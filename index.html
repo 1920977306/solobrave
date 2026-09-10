@@ -24135,8 +24135,11 @@ function sortTalentsLocally(talents, sort) {
   if (!sort || sort === 'default') {
     var order = {A: 0, B: 1, C: 2, D: 3, unrated: 4};
     return talents.slice().sort(function(a, b){
-      var ra = ('ABCD'.indexOf(String(a.level || '').charAt(0).toUpperCase()) >= 0) ? String(a.level).charAt(0).toUpperCase() : 'unrated';
-      var rb = ('ABCD'.indexOf(String(b.level || '').charAt(0).toUpperCase()) >= 0) ? String(b.level).charAt(0).toUpperCase() : 'unrated';
+      // ★ 修 indexOf('') === 0 的 JS 老坑:level 为空时必须显式返回 'unrated',否则 ra='' 排第一
+      var _a = String(a.level || '').charAt(0).toUpperCase();
+      var _b = String(b.level || '').charAt(0).toUpperCase();
+      var ra = (_a && 'ABCD'.indexOf(_a) >= 0) ? _a : 'unrated';
+      var rb = (_b && 'ABCD'.indexOf(_b) >= 0) ? _b : 'unrated';
       var oa = order[ra] !== undefined ? order[ra] : 4;
       var ob = order[rb] !== undefined ? order[rb] : 4;
       if (oa !== ob) return oa - ob;
