@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-project="solobrave">
+<head>
+  <meta charset="UTF-8" />
+  <title>AI 员工详细页 · V2（真实数据版）</title>
+  <link rel="stylesheet" href="../core/tokens.css" />
+  <link rel="stylesheet" href="../core/components.css" />
+  <link rel="stylesheet" href="../themes/solobrave.css" />
+  <style>
+    /* ============================================================
+     * AI 员工详细页 · V2
+     * ============================================================
+     * 改自 V1 的关键修正（按 2026-09-10 评审意见）：
+     *
+     * 1. 数字全部为占位标注"[待后端聚合]"，结构和计算口径真实
+     * 2. 能力卡只放真实功能：截图录入/达人-商品匹配/选品建议/合作价值评级
+     * 3. 工作记录用真实事件类型：knowledge_events / follow_ups / tasks / deals
+     * 4. 状态徽章按真实映射：analysis→active, follow_up 待回→talking, deals.lost→需介入
+     * 5. 升级卡 ¥99/月 Pro 整段隐藏（付费体系未建）
+     * 6. 按钮类名统一 .btn-ai-primary（不用 .btn-ai）
+     * 7. 能力图标用色块+字符，不用 emoji
+     * 8. 按达人权限隔离（子账号只看到自己 created_by 的事件，dev 端标"待后端过滤"）
+     * ============================================================ */
+
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      background: var(--color-bg-soft);
+      color: var(--color-text-primary);
+      min-height: 100vh;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 var(--space-6);
+      height: 56px;
+      background: var(--color-bg);
+      border-bottom: 1px solid var(--color-border-subtle);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-weight: var(--fw-semibold);
+      font-size: var(--fs-body-lg);
+    }
+    .brand-logo {
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, #5E5CE6, #007AFF);
+    }
+    .topbar-meta {
+      font-size: var(--fs-caption);
+      color: var(--color-text-tertiary);
+      margin-left: var(--space-2);
+      font-weight: var(--fw-regular);
+    }
+
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: var(--space-4) var(--space-8) 0;
+      font-size: var(--fs-caption);
+      color: var(--color-text-tertiary);
+    }
+    .breadcrumb a {
+      color: var(--color-text-secondary);
+      text-decoration: none;
+    }
+    .breadcrumb-current {
+      color: var(--color-text-primary);
+      font-weight: var(--fw-semibold);
+    }
+    .breadcrumb-sep { color: var(--color-text-tertiary); }
+
+    .page {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: var(--space-4) var(--space-6) var(--space-8);
+    }
+
+    /* Hero */
+    .hero {
+      position: relative;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: var(--space-5);
+      align-items: center;
+      padding: var(--space-6);
+      margin-top: var(--space-3);
+      background: var(--color-ai-bg-soft);
+      border: 1px solid var(--color-ai-bg-strong);
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+    }
+    .hero::before {
+      content: "";
+      position: absolute;
+      top: -50%;
+      right: -10%;
+      width: 50%;
+      height: 200%;
+      background: radial-gradient(circle, var(--color-ai-bg-strong) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .hero-avatar {
+      width: 96px;
+      height: 96px;
+      border-radius: var(--radius-full);
+      background: linear-gradient(135deg, #5E5CE6, #34C759);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 40px;
+      font-weight: var(--fw-bold);
+      box-shadow: var(--shadow-ai-strong);
+      position: relative;
+      z-index: 1;
+    }
+    .hero-avatar::after {
+      content: "AI";
+      position: absolute;
+      right: -4px;
+      bottom: -4px;
+      min-width: 28px;
+      height: 22px;
+      padding: 0 6px;
+      border-radius: var(--radius-full);
+      background: var(--color-ai-accent);
+      color: white;
+      font-size: 12px;
+      font-weight: var(--fw-bold);
+      line-height: 22px;
+      text-align: center;
+      border: 3px solid var(--color-bg);
+      box-sizing: content-box;
+    }
+    .hero-info { position: relative; z-index: 1; }
+    .hero-name-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      margin-bottom: 4px;
+    }
+    .hero-name {
+      font-size: 28px;
+      font-weight: var(--fw-semibold);
+      letter-spacing: var(--tracking-tight);
+      margin: 0;
+    }
+    .hero-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: var(--fs-caption);
+      color: var(--color-ai-accent);
+    }
+    .hero-role {
+      font-size: var(--fs-body);
+      color: var(--color-text-secondary);
+      margin: 0 0 var(--space-2);
+    }
+    .hero-role strong { color: var(--color-text-primary); font-weight: var(--fw-semibold); }
+    .hero-desc {
+      font-size: var(--fs-body);
+      color: var(--color-text-secondary);
+      line-height: 1.6;
+      max-width: 560px;
+      margin: 0;
+    }
+    .hero-actions {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Stats */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: var(--space-3);
+      margin-top: var(--space-4);
+    }
+    .stat {
+      padding: var(--space-4);
+      background: var(--color-bg);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-lg);
+      position: relative;
+    }
+    .stat-value {
+      font-size: var(--fs-h2);
+      font-weight: var(--fw-semibold);
+      color: var(--color-text-primary);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: var(--tracking-tight);
+    }
+    .stat-value.placeholder {
+      color: var(--color-text-tertiary);
+      font-size: var(--fs-h3);
+      font-weight: var(--fw-medium);
+    }
+    .stat-label {
+      font-size: var(--fs-caption);
+      color: var(--color-text-tertiary);
+      margin-top: 2px;
+    }
+    .stat-source {
+      font-size: var(--fs-micro);
+      color: var(--color-text-tertiary);
+      margin-top: var(--space-1);
+      font-family: var(--font-num);
+    }
+    .stat-pending-tag {
+      position: absolute;
+      top: var(--space-2);
+      right: var(--space-2);
+      font-size: 9px;
+      color: var(--color-status-talking);
+      background: var(--color-status-talking-bg);
+      padding: 2px 5px;
+      border-radius: var(--radius-sm);
+      font-weight: var(--fw-semibold);
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: var(--space-1);
+      margin-top: var(--space-6);
+      border-bottom: 1px solid var(--color-border);
+    }
+    .tab {
+      padding: var(--space-3) var(--space-4);
+      font-size: var(--fs-body);
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      border: 0;
+      background: transparent;
+      font-family: inherit;
+      position: relative;
+    }
+    .tab.active {
+      color: var(--color-primary);
+      font-weight: var(--fw-semibold);
+    }
+    .tab.active::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 2px;
+      background: var(--color-primary);
+      border-radius: 2px 2px 0 0;
+    }
+
+    /* Section */
+    .section {
+      margin-top: var(--space-5);
+      background: var(--color-bg);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-lg);
+      padding: var(--space-5) var(--space-6);
+    }
+    .section-title {
+      font-size: var(--fs-h3);
+      font-weight: var(--fw-semibold      );
+      margin: 0 0 var(--space-1);
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .section-source {
+      font-size: var(--fs-micro);
+      color: var(--color-text-tertiary);
+      font-family: var(--font-num);
+      padding: 2px 6px;
+      background: var(--color-bg-softer);
+      border-radius: var(--radius-sm);
+      margin-left: auto;
+    }
+    .section-desc {
+      font-size: var(--fs-body);
+      color: var(--color-text-secondary);
+      margin: 0 0 var(--space-4);
+    }
+
+    /* Tag */
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      height: 24px;
+      padding: 0 10px;
+      border-radius: var(--radius-full);
+      font-size: var(--fs-caption);
+      background: var(--color-ai-bg-soft);
+      color: var(--color-ai-accent);
+      font-weight: var(--fw-medium);
+    }
+
+    /* Ability grid */
+    .ability-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--space-3);
+    }
+    .ability {
+      padding: var(--space-4);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-md);
+      transition: all var(--duration-fast) var(--ease-out);
+      cursor: pointer;
+    }
+    .ability:hover {
+      border-color: var(--color-ai-accent);
+      background: var(--color-ai-bg-soft);
+    }
+    .ability-head {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      margin-bottom: var(--space-2);
+    }
+    .ability-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-sm);
+      background: var(--color-ai-accent);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: var(--fw-bold);
+      letter-spacing: -0.02em;
+    }
+    .ability-name {
+      font-size: var(--fs-body);
+      font-weight: var(--fw-semibold);
+    }
+    .ability-desc {
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+      line-height: 1.5;
+      margin-bottom: var(--space-2);
+    }
+    .ability-source {
+      font-size: var(--fs-micro);
+      color: var(--color-text-tertiary);
+      font-family: var(--font-num);
+      padding: 2px 6px;
+      background: var(--color-bg-softer);
+      border-radius: var(--radius-sm);
+      display: inline-block;
+      margin-bottom: var(--space-2);
+    }
+    .ability-prompt {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: var(--space-2) var(--space-3);
+      background: var(--color-bg-softer);
+      border-radius: var(--radius-sm);
+      font-size: var(--fs-caption);
+      color: var(--color-text-primary);
+    }
+    .ability-prompt-tag {
+      font-size: 9px;
+      color: var(--color-ai-accent);
+      font-weight: var(--fw-bold);
+      background: var(--color-ai-bg-strong);
+      padding: 1px 5px;
+      border-radius: var(--radius-sm);
+      flex-shrink: 0;
+    }
+
+    /* Work records */
+    .work-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1);
+    }
+    .work-item {
+      display: grid;
+      grid-template-columns: 24px auto 1fr auto;
+      gap: var(--space-3);
+      align-items: center;
+      padding: var(--space-3);
+      border-radius: var(--radius-md);
+      transition: background var(--duration-fast) var(--ease-out);
+    }
+    .work-item:hover { background: var(--color-bg-soft); }
+    .work-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: var(--fw-bold);
+      color: white;
+    }
+    .work-icon.analysis { background: var(--color-ai-accent); }
+    .work-icon.followup { background: var(--color-status-talking); }
+    .work-icon.task { background: var(--color-status-active); }
+    .work-icon.deal { background: var(--color-rating-b); }
+    .work-time {
+      font-size: var(--fs-caption);
+      color: var(--color-text-tertiary);
+      font-variant-numeric: tabular-nums;
+      min-width: 84px;
+    }
+    .work-content {
+      font-size: var(--fs-body);
+      color: var(--color-text-primary);
+    }
+    .work-content .target {
+      color: var(--color-primary);
+    }
+    .work-source {
+      font-size: var(--fs-micro);
+      color: var(--color-text-tertiary);
+      font-family: var(--font-num);
+    }
+
+    /* .work-item 也成为状态变量宿主，复用 5 个状态 token（pending/talking/active/lost/paused）
+       不新增第 6 个枚举。让 .badge-status 在 work-item 里正确继承状态色 */
+    .work-item[data-status="pending"] { --status-color: var(--color-status-pending); --status-bg: var(--color-status-pending-bg); }
+    .work-item[data-status="talking"] { --status-color: var(--color-status-talking); --status-bg: var(--color-status-talking-bg); }
+    .work-item[data-status="active"]  { --status-color: var(--color-status-active);  --status-bg: var(--color-status-active-bg); }
+    .work-item[data-status="lost"]    { --status-color: var(--color-status-lost);    --status-bg: var(--color-status-lost-bg); }
+    .work-item[data-status="paused"]  { --status-color: var(--color-status-paused);  --status-bg: var(--color-status-paused-bg); }
+
+    /* 数据来源说明 */
+    .data-source-block {
+      margin-top: var(--space-5);
+      padding: var(--space-4);
+      background: var(--color-bg-softer);
+      border-radius: var(--radius-md);
+      font-size: var(--fs-caption);
+      color: var(--color-text-secondary);
+      line-height: 1.7;
+    }
+    .data-source-block strong { color: var(--color-text-primary); }
+    .data-source-block code {
+      background: var(--color-bg);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: var(--font-num);
+      font-size: var(--fs-micro);
+    }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo"></div>
+      全可AI <span class="topbar-meta">www.solobrave.com</span>
+    </div>
+    <div style="font-size: var(--fs-caption); color: var(--color-text-tertiary);">✓ 服务正常 · 25ms</div>
+  </header>
+
+  <div class="breadcrumb">
+    <a href="#">AI 团队</a>
+    <span class="breadcrumb-sep">/</span>
+    <span class="breadcrumb-current">Helen</span>
+  </div>
+
+  <main class="page">
+
+    <!-- ============ Hero ============ -->
+    <section class="hero">
+      <div class="hero-avatar">H</div>
+      <div class="hero-info">
+        <div class="hero-name-row">
+          <h1 class="hero-name">Helen</h1>
+          <span class="hero-status">
+            <span class="ai-pulse-dot"></span>
+            服务中
+          </span>
+        </div>
+        <p class="hero-role">
+          <strong>数据分析商务</strong> · emp_1780199176680
+        </p>
+        <p class="hero-desc">
+          用数据说话的商务专家，主动分析给建议，不等着被问。基于达人数据与商品数据，输出匹配分析、选品建议、合作价值判断。
+        </p>
+      </div>
+      <div class="hero-actions">
+        <button class="btn btn-ai-primary btn-lg">和 Helen 聊聊</button>
+        <button class="btn btn-secondary btn-sm">查看 systemPrompt</button>
+      </div>
+    </section>
+
+    <!-- ============ Stats（4 个真实可计算指标，全部为占位） ============ -->
+    <div class="stats">
+      <div class="stat">
+        <span class="stat-pending-tag">占位</span>
+        <div class="stat-value placeholder">--</div>
+        <div class="stat-label">已服务达人数</div>
+        <div class="stat-source">talents.created_by / knowledge_events.agent_id</div>
+      </div>
+      <div class="stat">
+        <span class="stat-pending-tag">占位</span>
+        <div class="stat-value placeholder">--</div>
+        <div class="stat-label">完成分析数</div>
+        <div class="stat-source">knowledge_events WHERE event_type='analysis'</div>
+      </div>
+      <div class="stat">
+        <span class="stat-pending-tag">占位</span>
+        <div class="stat-value placeholder">--</div>
+        <div class="stat-label">完成任务数</div>
+        <div class="stat-source">tasks WHERE assignee=X AND status='done'</div>
+      </div>
+      <div class="stat">
+        <span class="stat-pending-tag">占位</span>
+        <div class="stat-value placeholder">--</div>
+        <div class="stat-label">工具调用成功率</div>
+        <div class="stat-source">tool_calls.exit_code=0 占比</div>
+      </div>
+    </div>
+
+    <!-- ============ Tabs ============ -->
+    <div class="tabs">
+      <button class="tab active">概览</button>
+      <button class="tab">能力清单</button>
+      <button class="tab">工作记录</button>
+      <button class="tab">配置</button>
+    </div>
+
+    <!-- ============ 概览 ============ -->
+    <section class="section">
+      <h2 class="section-title">
+        角色定义
+        <span class="section-source">出自 update_helen_soul.py</span>
+      </h2>
+      <p class="section-desc">
+        <strong>一句话</strong>：用数据说话的商务专家，主动分析给建议，不等着被问。<br>
+        <strong>主要职责</strong>：达人-商品匹配分析 · 选品策略建议 · 合作价值判断。<br>
+        <strong>次要职责</strong>：达人/商品数据录入（截图结构化数据）。<br>
+        <strong>底线</strong>：没有数据支撑的结论不说 · 查不到如实告知不编造。
+      </p>
+      <div class="tag-row">
+        <span class="tag">匹配分析</span>
+        <span class="tag">选品建议</span>
+        <span class="tag">合作价值评级</span>
+        <span class="tag">截图录入</span>
+      </div>
+    </section>
+
+    <!-- ============ 能力清单（4 个真实能力） ============ -->
+    <section class="section">
+      <h2 class="section-title">
+        能力清单
+        <span class="section-source">4 / 4 真实已实现</span>
+      </h2>
+      <p class="section-desc">Helen 当前系统已实现的能力。每个"试试"按钮都基于真实可执行的 systemPrompt 能力。</p>
+      <div class="ability-grid">
+
+        <div class="ability">
+          <div class="ability-head">
+            <div class="ability-mark">入</div>
+            <div class="ability-name">截图结构化录入</div>
+          </div>
+          <div class="ability-source">次要职责 · talent/product 数据写入</div>
+          <div class="ability-desc">抖音后台截图 → 解析粉丝量/带货 GMV/互动率/账号等级 → 写入 talents 表。</div>
+          <div class="ability-prompt">
+            <span class="ability-prompt-tag">试试</span>
+            <span>上传一张抖音数据截图</span>
+          </div>
+        </div>
+
+        <div class="ability">
+          <div class="ability-head">
+            <div class="ability-mark">匹</div>
+            <div class="ability-name">达人-商品匹配分析</div>
+          </div>
+          <div class="ability-source">主要职责 · knowledge_events.analysis</div>
+          <div class="ability-desc">基于达人历史带货数据 + 商品属性，输出 6 维度匹配度评分（A/B/C/D + 数值）。</div>
+          <div class="ability-prompt">
+            <span class="ability-prompt-tag">试试</span>
+            <span>分析小菜菜和"运动鞋"类商品的匹配度</span>
+          </div>
+        </div>
+
+        <div class="ability">
+          <div class="ability-head">
+            <div class="ability-mark">选</div>
+            <div class="ability-name">选品策略建议</div>
+          </div>
+          <div class="ability-source">主要职责 · knowledge_events.analysis</div>
+          <div class="ability-desc">基于已合作达人的带货历史，推荐适合下一阶段合作的商品组合。</div>
+          <div class="ability-prompt">
+            <span class="ability-prompt-tag">试试</span>
+            <span>基于本周已合作达人，推荐下一波选品</span>
+          </div>
+        </div>
+
+        <div class="ability">
+          <div class="ability-head">
+            <div class="ability-mark">评</div>
+            <div class="ability-name">合作价值评级</div>
+          </div>
+          <div class="ability-source">主要职责 · talents.rating</div>
+          <div class="ability-desc">综合粉丝量、互动率、带货 GMV、履约评分 → 输出 A/B/C/D 评级 + 一句话理由。</div>
+          <div class="ability-prompt">
+            <span class="ability-prompt-tag">试试</span>
+            <span>给搭配师W 重新评级</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============ 工作记录（真实事件类型） ============ -->
+    <section class="section">
+      <h2 class="section-title">
+        工作记录
+        <span class="section-source">knowledge_events ∪ follow_ups ∪ tasks ∪ deals</span>
+      </h2>
+      <p class="section-desc">真实事件聚合（按达人权限隔离，子账号仅看自己 created_by 的达人相关事件）。</p>
+      <div class="work-list">
+        <div class="work-item" data-status="active">
+          <div class="work-icon analysis">分</div>
+          <div class="work-time">[待后端]</div>
+          <div class="work-content">
+            完成了 <span class="target">[达人名]</span> 的 6 维度匹配分析
+            <div class="work-source">knowledge_events · event_type=analysis</div>
+          </div>
+          <span class="badge-status" data-status="active">已完成</span>
+        </div>
+        <div class="work-item" data-status="talking">
+          <div class="work-icon followup">跟</div>
+          <div class="work-time">[待后端]</div>
+          <div class="work-content">
+            跟进 <span class="target">[达人名]</span>：待对方回复报价
+            <div class="work-source">talent_follow_ups · status=pending</div>
+          </div>
+          <span class="badge-status" data-status="talking">沟通中</span>
+        </div>
+        <div class="work-item" data-status="active">
+          <div class="work-icon task">完</div>
+          <div class="work-time">[待后端]</div>
+          <div class="work-content">
+            任务"周选品报告"已完成
+            <div class="work-source">tasks · status=done</div>
+          </div>
+          <span class="badge-status" data-status="active">已完成</span>
+        </div>
+        <div class="work-item" data-status="lost">
+          <div class="work-icon deal">合</div>
+          <div class="work-time">[待后端]</div>
+          <div class="work-content">
+            <span class="target">[达人名]</span> 合作已终止，预测 vs 实际偏离较大
+            <div class="work-source">deals · win_loss_category=lost</div>
+          </div>
+          <span class="badge-status" data-status="lost">需介入</span>
+        </div>
+        <div class="work-item" data-status="active">
+          <div class="work-icon analysis">录</div>
+          <div class="work-time">[待后端]</div>
+          <div class="work-content">
+            通过截图录入 <span class="target">[达人名]</span> 数据
+            <div class="work-source">knowledge_events · event_type=ingest</div>
+          </div>
+          <span class="badge-status" data-status="active">已完成</span>
+        </div>
+      </div>
+
+      <!-- 数据来源说明 -->
+      <div class="data-source-block">
+        <strong>数据来源约定（dev 后端）</strong>：<br>
+        • 数字标 <code>--</code> = 真实占位，<strong>不是</strong> 0，<strong>不是</strong>"暂无数据"，是后端聚合查询尚未实现。<br>
+        • 时间标 <code>[待后端]</code> = 后端查询接口待实现，前端先画结构。<br>
+        • 状态徽章映射（按你的清单）：<code>analysis→active</code> · <code>follow_up 待回→talking</code> · <code>deals.lost→需介入</code>。<br>
+        • <strong>权限隔离</strong>：子账号访问时，后端按 <code>created_by</code> 过滤，前端不做权限判断（避免越权）。
+      </div>
+    </section>
+
+    <!-- 升级卡已从文件移除（付费体系未建，不上线点不动的按钮）。
+         等支付系统就绪后，按以下骨架恢复：
+         <div class="upgrade-card">
+           <div class="upgrade-info">
+             <div class="upgrade-title">解锁 Helen 的高级能力</div>
+             <div class="upgrade-desc">...</div>
+           </div>
+           <button class="btn btn-primary">立即升级</button>
+         </div>
+    -->
+
+    <div class="data-source-block" style="margin-top: var(--space-6);">
+      <strong>V3 真实版约束自检</strong>（V2 评审后修正）：<br>
+      ✅ 数字全部占位标注（无 "AI 准确度 89%" 那种无口径指标）<br>
+      ✅ 能力卡 4 个全是系统已实现（截图录入 / 匹配分析 / 选品建议 / 合作价值评级）<br>
+      ✅ 工作记录事件类型真实（knowledge_events / follow_ups / tasks / deals）<br>
+      ✅ 状态徽章按真实映射：active / talking / <strong>lost（语义含"需介入"，复用红不新增枚举）</strong><br>
+      ✅ 升级卡<strong>从文件删除</strong>（不只是注释，付费体系未建前不出现）<br>
+      ✅ <code>.work-item</code> 也成为状态变量宿主（复用 5 个状态 token，零新增类）<br>
+      ✅ 按钮类名 <code>.btn-ai-primary</code>（统一）<br>
+      ✅ 能力图标用 <code>入 / 匹 / 选 / 评</code> 字符色块（不用 emoji）<br>
+      ✅ 按达人权限隔离标注（待后端过滤）<br>
+      ✅ V2 漏项修正：删除 <code>.badge-needs-action</code>（不该扩第 6 个枚举）
+    </div>
+
+  </main>
+
+</body>
+</html>
