@@ -27,7 +27,7 @@
  * ============================================================ */
 
 .talent-card {
-  --rating-color: var(--color-rating-d);
+  --rating-color: var(--color-rating-d, #8E8E93);
   --status-color: var(--color-status-pending);
   --status-bg: var(--color-status-pending-bg);
 
@@ -62,10 +62,10 @@
   transform: translateY(-1px);
 }
 
-.talent-card[data-rating="A"] { --rating-color: var(--color-rating-a); }
-.talent-card[data-rating="B"] { --rating-color: var(--color-rating-b); }
-.talent-card[data-rating="C"] { --rating-color: var(--color-rating-c); }
-.talent-card[data-rating="D"] { --rating-color: var(--rating-color-d, var(--color-rating-d)); }
+.talent-card[data-rating="A"] { --rating-color: var(--color-rating-a, #34C759); }
+.talent-card[data-rating="B"] { --rating-color: var(--color-rating-b, #007AFF); }
+.talent-card[data-rating="C"] { --rating-color: var(--color-rating-c, #FFCC00); }
+.talent-card[data-rating="D"] { --rating-color: var(--color-rating-d, #8E8E93); }
 /* === 达人卡评级视觉 v2 增量(中性头像 + 显式评级 chip + 待评级虚线) === */
 .talent-card[data-rating="unrated"] { --rating-color: var(--color-text-tertiary); }
 /* 未评级：左色条改虚线(4px 实线 + 4px 透明,repeat-y) */
@@ -86,9 +86,9 @@
   width: 44px;
   height: 44px;
   border-radius: var(--radius-full);
-  background: var(--color-bg);
-  border: 1.5px solid var(--color-border);
-  color: var(--color-text-primary);
+  background: var(--color-bg, #ffffff);
+  border: 1.5px solid var(--color-border, #e5e5e5);
+  color: var(--color-text-primary, #1c1c1e);
   font-size: var(--fs-body-lg);
   font-weight: var(--fw-semibold);
   display: inline-flex;
@@ -98,10 +98,10 @@
   overflow: hidden;
 }
 .talent-card .avatar-neutral img { width: 100%; height: 100%; object-fit: cover; }
-.talent-card[data-rating="A"] .avatar-neutral { border-color: var(--color-rating-a); }
-.talent-card[data-rating="B"] .avatar-neutral { border-color: var(--color-rating-b); }
-.talent-card[data-rating="C"] .avatar-neutral { border-color: var(--color-rating-c); }
-.talent-card[data-rating="D"] .avatar-neutral { border-color: var(--color-rating-d); }
+.talent-card[data-rating="A"] .avatar-neutral { border-color: var(--color-rating-a, #34C759); }
+.talent-card[data-rating="B"] .avatar-neutral { border-color: var(--color-rating-b, #007AFF); }
+.talent-card[data-rating="C"] .avatar-neutral { border-color: var(--color-rating-c, #FFCC00); }
+.talent-card[data-rating="D"] .avatar-neutral { border-color: var(--color-rating-d, #8E8E93); }
 /* 已废除:旧的 .talent-card .avatar 评级色填充由 .avatar-neutral 取代;不删以免破坏其他模块 */
 
 .chip-subtle {
