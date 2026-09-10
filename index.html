@@ -1983,19 +1983,6 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   line-height: 1.5;
   margin-top: 8px;
 }
-.talents-overview-rating {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, #0a84ff, #0070e0);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
-  flex-shrink: 0;
-  box-shadow: 0 1px 3px rgba(10,132,255,0.25);
-}
 .talents-metric-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -25031,7 +25018,9 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-overview-header">';
   html += '<div class="talents-overview-avatar" style="background:' + (t.avatar ? '#f5f7fa' : 'var(--accent)') + ';">' + avatar + '</div>';
   html += '<div class="talents-overview-info">';
-  html += '<div class="talents-overview-name">' + escapeHtml(t.name || '-') + ' ' + _renderTalentStatusDropdown(t.id, t.cooperation_status) + (t.ai_rating ? ' <span class="talents-overview-rating">' + escapeHtml(t.ai_rating) + '</span>' : (mock.level ? ' <span class="talents-overview-rating">' + escapeHtml(mock.level) + '</span>' : '')) + '</div>';
+  // Hero 评级 chip:复用 _renderTalentRatingBadge(列表 v2 outline 5 评级色),和左侧列表完全一致
+  var _heroRating = t.ai_rating ? _renderTalentRatingBadge(t.ai_rating) : (mock.level ? _renderTalentRatingBadge(mock.level) : '');
+  html += '<div class="talents-overview-name">' + escapeHtml(t.name || '-') + ' ' + _renderTalentStatusDropdown(t.id, t.cooperation_status) + (_heroRating ? ' ' + _heroRating : '') + '</div>';
   html += '<div class="talents-overview-pills">';
   html += '<span class="talents-overview-pill"><label>抖音号</label>' + escapeHtml(t.douyin_id || '-') + '</span>';
   html += '<span class="talents-overview-pill"><label>粉丝</label>' + formatFollowers(t.followers || 0) + '</span>';
