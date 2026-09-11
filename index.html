@@ -16656,6 +16656,8 @@ function onAbilityClick(abilityKey) {
 }
 
 // 并发拉 /api/agents/:id/stats → 填 4 个独立条
+// 鉴权模式:照搬 L8260 / L8264-8272 apiFetch 的 token 获取 + Bearer 拼接方式(localStorage.sb_auth_token),
+// 但**不用 apiFetch 封装**(其 401 会 showLogin + toast 强制跳登录页,本场景要求静默回退 --)。
 function loadEmpStats(empId) {
   if (!empId) return;
   // 重置为占位(防止上一个员工的数据短暂残留)
@@ -16663,7 +16665,12 @@ function loadEmpStats(empId) {
     var el = document.getElementById(id);
     if (el) { el.textContent = '--'; el.classList.add('placeholder'); }
   });
-  fetch('/api/agents/' + encodeURIComponent(empId) + '/stats?window_days=30', { credentials: 'same-origin' })
+  var token = localStorage.getItem('sb_auth_token');
+  var headers = { 'Accept': 'application/json' };
+  if (token && token !== 'null' && token !== 'local_mode') {
+    headers['Authorization'] = 'Bearer ' + token;
+  }
+  fetch('/api/agents/' + encodeURIComponent(empId) + '/stats?window_days=30', { headers: headers, credentials: 'same-origin' })
     .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
     .then(function (resp) {
       if (resp.status === 200 && resp.body && resp.body.stats) {
@@ -16687,7 +16694,7 @@ function loadEmpStats(empId) {
         var winEl = document.getElementById('aiEmpStatWindow');
         if (winEl) winEl.textContent = w + 'd';
       } else {
-        // 401/403/404/5xx 一律显 --,不弹错
+        // 401/403/404/5xx 一律显 --,不弹错(不 showLogin / 不 toast,静默回退)
         console.warn('loadEmpStats 非 200:', resp.status, resp.body && resp.body.error);
       }
     })
@@ -16695,27 +16702,32 @@ function loadEmpStats(empId) {
 }
 
 // 并发拉 /api/agents/:id/activity → 填工作记录 tab
+// 鉴权模式同上(不用 apiFetch 封装,401 静默回退)
 function loadEmpWorkActivity(empId) {
   if (!empId) return;
   var listEl = document.getElementById('aiEmpWorkList');
   if (listEl) listEl.innerHTML = '<div class="ai-emp-work-empty">加载中...</div>';
-  fetch('/api/agents/' + encodeURIComponent(empId) + '/activity?days=30&limit=20', { credentials: 'same-origin' })
+  var token = localStorage.getItem('sb_auth_token');
+  var headers = { 'Accept': 'application/json' };
+  if (token && token !== 'null' && token !== 'local_mode') {
+    headers['Authorization'] = 'Bearer ' + token;
+  }
+  fetch('/api/agents/' + encodeURIComponent(empId) + '/activity?days=30&limit=20', { headers: headers, credentials: 'same-origin' })
     .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
     .then(function (resp) {
       if (resp.status === 200 && resp.body && Array.isArray(resp.body.items)) {
         renderEmpWorkList(resp.body.items);
       } else {
+        // 静默回退:不弹错,只在 work-list 区域显占位
         if (listEl) {
-          var errCls = (resp.status === 401 || resp.status === 403) ? '' : ' error';
-          var errMsg = (resp.status === 401) ? '请先登录查看工作记录' :
-                       (resp.status === 403) ? '无权查看该员工工作记录' :
-                       '暂无工作记录(后端返回 ' + resp.status + ')';
-          listEl.innerHTML = '<div class="ai-emp-work-empty' + errCls + '">' + errMsg + '</div>';
+          listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录(后端 ' + resp.status + ')</div>';
         }
+        console.warn('loadEmpWorkActivity 非 200:', resp.status, resp.body && resp.body.error);
       }
     })
     .catch(function (e) {
-      if (listEl) listEl.innerHTML = '<div class="ai-emp-work-empty error">网络错误:' + (e && e.message || 'unknown') + '</div>';
+      if (listEl) listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录(网络错误)</div>';
+      console.warn('loadEmpWorkActivity 网络错误:', e);
     });
 }
 
