@@ -4517,6 +4517,125 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   .emp-detail-panel { width: 95%; max-height: 90vh; }
 }
 .emp-detail-header { display: flex; align-items: center; gap: 12px; padding: 20px; border-bottom: 0.5px solid var(--separator); }
+.emp-detail-header.emp-detail-header-v3 {
+  background: linear-gradient(135deg, var(--color-ai-bg-soft, #EEF0FF) 0%, var(--color-bg, #fff) 60%);
+}
+.emp-detail-header.emp-detail-header-v3::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  right: -10%;
+  width: 50%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(94, 92, 230, 0.12) 0%, transparent 60%);
+  pointer-events: none;
+}
+.emp-detail-header-v3 .emp-detail-info { position: relative; z-index: 1; flex: 1; min-width: 0; }
+.emp-detail-header-v3 .emp-detail-actions {
+  display: flex; gap: 8px; align-items: center; position: relative; z-index: 1; flex-shrink: 0;
+  margin-right: 12px;
+}
+.emp-detail-header-v3 .status-dot.online { animation: aiEmpStatusPulse 2s ease-in-out infinite; }
+@keyframes aiEmpStatusPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+/* ============================================================
+ * V3 升级 - ai-emp-* 命名空间(stats 独立条 / 4 能力 / 工作记录)
+ * ============================================================ */
+
+/* stats 独立条(跨 tab 始终可见,header 下方,tabs 上方) */
+.ai-emp-stats-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--color-bg-soft, #F5F7FA);
+  border-bottom: 1px solid var(--color-border-subtle, #E5E5EA);
+}
+.ai-emp-stat {
+  padding: 12px 14px;
+  background: var(--color-bg, #fff);
+  border: 1px solid var(--color-border-subtle, #E5E5EA);
+  border-radius: 10px;
+  position: relative;
+}
+.ai-emp-stat-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1C1C1E);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.ai-emp-stat-value.placeholder { color: var(--color-text-tertiary, #8E8E93); font-size: 18px; font-weight: 500; }
+.ai-emp-stat-label { font-size: 12px; color: var(--color-text-tertiary, #8E8E93); margin-top: 4px; }
+.ai-emp-stat-source { font-size: 10px; color: var(--color-text-tertiary, #8E8E93); margin-top: 4px; font-family: var(--font-num, monospace); opacity: 0.7; }
+
+/* 4 真实能力卡片(技能 tab 头部) */
+.ai-emp-ability-section { margin-bottom: 20px; }
+.ai-emp-ability-section-title { font-size: 13px; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.ai-emp-ability-section-title .badge-4-of-4 { font-size: 10px; color: var(--color-ai-accent, #5E5CE6); background: var(--color-ai-bg-soft, #EEF0FF); padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+.ai-emp-ability-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.ai-emp-ability {
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-subtle, #E5E5EA);
+  border-radius: 10px;
+  transition: all 0.15s ease-out;
+  cursor: pointer;
+  background: var(--color-bg, #fff);
+}
+.ai-emp-ability:hover { border-color: var(--color-ai-accent, #5E5CE6); background: var(--color-ai-bg-soft, #EEF0FF); transform: translateY(-1px); }
+.ai-emp-ability-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.ai-emp-ability-mark {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: var(--color-ai-accent, #5E5CE6); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; flex-shrink: 0;
+}
+.ai-emp-ability-name { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
+.ai-emp-ability-desc { font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; }
+.ai-emp-ability-prompt {
+  margin-top: 8px; padding: 6px 8px;
+  background: var(--color-bg-softer, #F5F5F7);
+  border-radius: 4px; font-size: 11px; color: var(--color-text-primary);
+  display: flex; align-items: center; gap: 6px;
+}
+.ai-emp-ability-prompt-tag { font-size: 9px; color: #fff; background: var(--color-ai-accent, #5E5CE6); padding: 1px 5px; border-radius: 3px; font-weight: 700; flex-shrink: 0; }
+
+/* 工作记录(work-item + icon + time + content + source) */
+.ai-emp-work-list { display: flex; flex-direction: column; gap: 2px; }
+.ai-emp-work-item {
+  display: grid;
+  grid-template-columns: 24px auto 1fr auto;
+  gap: 10px; align-items: center;
+  padding: 10px 12px;
+  border-radius: 8px;
+  transition: background 0.15s ease-out;
+}
+.ai-emp-work-item:hover { background: var(--color-bg-soft, #F5F7FA); }
+.ai-emp-work-icon {
+  width: 24px; height: 24px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: #fff;
+}
+.ai-emp-work-icon.analysis { background: var(--color-ai-accent, #5E5CE6); }
+.ai-emp-work-icon.followup { background: var(--color-status-talking, #FFCC00); color: #1C1C1E; }
+.ai-emp-work-icon.task { background: var(--color-status-active, #34C759); }
+.ai-emp-work-icon.deal { background: var(--color-rating-b, #007AFF); }
+.ai-emp-work-time { font-size: 12px; color: var(--color-text-tertiary, #8E8E93); font-variant-numeric: tabular-nums; min-width: 84px; }
+.ai-emp-work-content { font-size: 13px; color: var(--color-text-primary); }
+.ai-emp-work-content .target { color: var(--color-primary, #007AFF); font-weight: 500; }
+.ai-emp-work-source { font-size: 10px; color: var(--color-text-tertiary, #8E8E93); font-family: var(--font-num, monospace); }
+/* work-item 状态变量宿主(让未来 .badge-status 在 work-item 内能继承状态色) */
+.ai-emp-work-item[data-status="pending"] { --status-color: var(--color-status-pending, #8E8E93); --status-bg: var(--color-status-pending-bg, rgba(142,142,147,0.1)); }
+.ai-emp-work-item[data-status="talking"] { --status-color: var(--color-status-talking, #FFCC00); --status-bg: var(--color-status-talking-bg, rgba(255,204,0,0.12)); }
+.ai-emp-work-item[data-status="active"]  { --status-color: var(--color-status-active, #34C759); --status-bg: var(--color-status-active-bg, rgba(52,199,89,0.12)); }
+.ai-emp-work-item[data-status="lost"]    { --status-color: var(--color-status-lost, #FF3B30); --status-bg: var(--color-status-lost-bg, rgba(255,59,48,0.12)); }
+.ai-emp-work-item[data-status="paused"]  { --status-color: var(--color-status-paused, #AF52DE); --status-bg: var(--color-status-paused-bg, rgba(175,82,222,0.12)); }
+
+/* 工作记录 tab pane 默认空态/错误态 */
+.ai-emp-work-empty { padding: 40px 20px; text-align: center; color: var(--color-text-tertiary, #8E8E93); font-size: 13px; }
+.ai-emp-work-empty.error { color: var(--color-status-talking, #B8860B); }
+
 .emp-detail-avatar { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; overflow: hidden; }
 .emp-detail-info { flex: 1; min-width: 0; }
 .emp-detail-name { font-size: 18px; font-weight: 600; margin-bottom: 2px; }
@@ -7547,21 +7666,50 @@ window.doLogin = function () {
 
 <div class="emp-detail-overlay" id="empDetailOverlay" onclick="closeEmpDetail()">
 <div class="emp-detail-panel" onclick="event.stopPropagation()">
-<div class="emp-detail-header">
+<div class="emp-detail-header emp-detail-header-v3">
 <div class="emp-detail-avatar" id="empDetailAvatar" style="background:linear-gradient(135deg,#FF6B35,#E55A2B);">🦞</div>
 <div class="emp-detail-info">
 <div class="emp-detail-name" id="empDetailName">-</div>
 <div class="emp-detail-role" id="empDetailRole">-</div>
 <div class="emp-detail-status" id="empDetailStatus"><span class="status-dot online"></span> 在线</div>
 </div>
+<div class="emp-detail-actions">
+  <button class="emp-action-btn primary" id="empDetailChatBtn" onclick="onEmpDetailChat()">和 Helen 聊聊</button>
+  <button class="emp-action-btn secondary" id="empDetailPromptBtn" onclick="onEmpDetailShowPrompt()">查看 systemPrompt</button>
+</div>
 <button class="emp-detail-close" onclick="closeEmpDetail()">
 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 </button>
 </div>
 
+<!-- V3 升级:stats 独立条(跨 tab 始终可见,从 /api/agents/:id/stats 取) -->
+<div class="ai-emp-stats-bar" id="aiEmpStatsBar">
+  <div class="ai-emp-stat">
+    <div class="ai-emp-stat-value placeholder" id="aiEmpStatTalents">--</div>
+    <div class="ai-emp-stat-label">已服务达人数</div>
+    <div class="ai-emp-stat-source">talents + knowledge_events</div>
+  </div>
+  <div class="ai-emp-stat">
+    <div class="ai-emp-stat-value placeholder" id="aiEmpStatAnalyses">--</div>
+    <div class="ai-emp-stat-label">完成分析数</div>
+    <div class="ai-emp-stat-source">knowledge_events (analysis)</div>
+  </div>
+  <div class="ai-emp-stat">
+    <div class="ai-emp-stat-value placeholder" id="aiEmpStatTasks">--</div>
+    <div class="ai-emp-stat-label">完成任务数</div>
+    <div class="ai-emp-stat-source">tasks (status=completed)</div>
+  </div>
+  <div class="ai-emp-stat">
+    <div class="ai-emp-stat-value placeholder" id="aiEmpStatSuccess">--</div>
+    <div class="ai-emp-stat-label">工具调用成功率</div>
+    <div class="ai-emp-stat-source">tool_calls (window:<span id="aiEmpStatWindow">30d</span>)</div>
+  </div>
+</div>
+
 <div class="emp-detail-tabs">
 <button class="emp-detail-tab active" data-etab="basic" onclick="switchEmpDetailTab('basic')">基础</button>
 <button class="emp-detail-tab" data-etab="skills" onclick="switchEmpDetailTab('skills')">技能</button>
+<button class="emp-detail-tab" data-etab="work" onclick="switchEmpDetailTab('work')">工作记录</button>
 <button class="emp-detail-tab" data-etab="memory" onclick="switchEmpDetailTab('memory')">记忆</button>
 <button class="emp-detail-tab" data-etab="avatar" onclick="switchEmpDetailTab('avatar')">头像</button>
 <button class="emp-detail-tab" data-etab="connect" onclick="switchEmpDetailTab('connect')">连接</button>
@@ -7570,20 +7718,7 @@ window.doLogin = function () {
 <div class="emp-detail-content" id="empDetailContent">
 <!-- Basic Tab -->
 <div class="emp-tab-pane active" id="emp-tab-basic">
-<div class="emp-stat-grid">
-<div class="emp-stat">
-<div class="emp-stat-value" id="empDetailMsgs">0</div>
-<div class="emp-stat-label">消息数</div>
-</div>
-<div class="emp-stat">
-<div class="emp-stat-value" id="empDetailTokens">0</div>
-<div class="emp-stat-label">Token</div>
-</div>
-<div class="emp-stat">
-<div class="emp-stat-value" id="empDetailTasks">0</div>
-<div class="emp-stat-label">任务</div>
-</div>
-</div>
+<!-- V3 升级:删除原 3 个 Math.random 编造 stats(零编造规则),改由 header 下方 stats 独立条统一展示真实数据 -->
 <div class="emp-info-list">
 <div class="emp-info-item">
 <span class="emp-info-label">ID</span>
@@ -7657,6 +7792,34 @@ window.doLogin = function () {
 
 <!-- Skills Tab -->
 <div class="emp-tab-pane" id="emp-tab-skills">
+<!-- V3 升级:4 真实能力卡片(系统已实现可执行, 点击 → switchModule('messages') + openChat(currentEmpId) + 预填 prompt) -->
+<div class="ai-emp-ability-section">
+  <div class="ai-emp-ability-section-title">
+    <span>能力清单</span><span class="badge-4-of-4">4 / 4 真实已实现</span>
+  </div>
+  <div class="ai-emp-ability-grid">
+    <div class="ai-emp-ability" onclick="onAbilityClick('vision')">
+      <div class="ai-emp-ability-head"><div class="ai-emp-ability-mark">入</div><div class="ai-emp-ability-name">截图录入</div></div>
+      <div class="ai-emp-ability-desc">上传一张达人主页截图,自动识别 + OCR + 写入知识库</div>
+      <div class="ai-emp-ability-prompt"><span class="ai-emp-ability-prompt-tag">试试</span>上传一张达人主页截图</div>
+    </div>
+    <div class="ai-emp-ability" onclick="onAbilityClick('match')">
+      <div class="ai-emp-ability-head"><div class="ai-emp-ability-mark">匹</div><div class="ai-emp-ability-name">达人-商品匹配分析</div></div>
+      <div class="ai-emp-ability-desc">6 维度(粉丝画像 / 历史 GPM / 客单价 / 品类契合 / 调性 / 履约)分析达人-商品匹配度</div>
+      <div class="ai-emp-ability-prompt"><span class="ai-emp-ability-prompt-tag">试试</span>分析小菜菜和「运动鞋」的匹配度</div>
+    </div>
+    <div class="ai-emp-ability" onclick="onAbilityClick('selection')">
+      <div class="ai-emp-ability-head"><div class="ai-emp-ability-mark">选</div><div class="ai-emp-ability-name">选品策略建议</div></div>
+      <div class="ai-emp-ability-desc">基于本周已合作达人的粉丝画像,推荐下一波选品(品类 + 价格带)</div>
+      <div class="ai-emp-ability-prompt"><span class="ai-emp-ability-prompt-tag">试试</span>基于本周已合作达人,推荐下一波选品</div>
+    </div>
+    <div class="ai-emp-ability" onclick="onAbilityClick('revalue')">
+      <div class="ai-emp-ability-head"><div class="ai-emp-ability-mark">评</div><div class="ai-emp-ability-name">合作价值重新评级</div></div>
+      <div class="ai-emp-ability-desc">基于最新数据(履约率 / 复购 / GMV)重评达人合作价值等级 A/B/C/D</div>
+      <div class="ai-emp-ability-prompt"><span class="ai-emp-ability-prompt-tag">试试</span>给搭配师W 重新评级</div>
+    </div>
+  </div>
+</div>
 <!-- OpenClaw技能区域 -->
 <div class="emp-doc-section" style="margin-bottom:20px;">
 <div class="skills-header">
@@ -7705,6 +7868,13 @@ window.doLogin = function () {
 <div class="skills-presets-grid" id="skillsPresets"></div>
 </div>
 </div>
+</div>
+
+<!-- V3 升级:工作记录 tab pane (从 /api/agents/:id/activity 取,5 类事件归一化) -->
+<div class="emp-tab-pane" id="emp-tab-work">
+  <div class="ai-emp-work-list" id="aiEmpWorkList">
+    <div class="ai-emp-work-empty">加载中...</div>
+  </div>
 </div>
 
 <!-- Memory Tab -->
@@ -16405,9 +16575,7 @@ function openEmpDetail(empId) {
   document.getElementById('empDetailSubCategory').textContent = emp.subCategory || emp.group || '技术团队';
   document.getElementById('empDetailStatusText').textContent = getStatusText(emp.status) || '在线';
   document.getElementById('empDetailCreated').textContent = emp.createdAt || emp.created || new Date().toLocaleDateString('zh-CN');
-  document.getElementById('empDetailMsgs').textContent = emp.msgs || Math.floor(Math.random() * 100);
-  document.getElementById('empDetailTokens').textContent = (emp.tokens || Math.floor(Math.random() * 5000)).toLocaleString();
-  document.getElementById('empDetailTasks').textContent = emp.tasks || 0;
+  // V3 升级:3 个 Math.random 编造 stats 已从 DOM 移除(零编造规则),改由 header 下方 stats 独立条统一从 /api/agents/:id/stats 取真实数据
   document.getElementById('empDetailCtx').textContent = emp.ctx || '4K / 8K';
   document.getElementById('empDescriptionInput').value = emp.description || '';
   document.getElementById('empDetailDescription').textContent = emp.description ? '当前描述: ' + emp.description : '暂无描述';
@@ -16436,9 +16604,143 @@ function openEmpDetail(empId) {
   var overlay = document.getElementById('empDetailOverlay');
   if (overlay && overlay.parentElement !== document.body) document.body.appendChild(overlay);
   overlay.classList.add('open');
+  // V3 升级:并发拉 stats + activity(stats 填独立条,activity 填工作记录 tab)。失败各自显 --,不阻塞面板
+  loadEmpStats(empId);
+  loadEmpWorkActivity(empId);
   loadEmpConnect(emp);
   loadEmpDreaming(empId);
   switchEmpDetailTab('basic');
+}
+
+// ============================================================
+// V3 升级配套函数(2026-09-10 评审 + Mac curl 后端 stats/activity 接口上线)
+// ============================================================
+
+// AI 员工详情头部"和 Helen 聊聊"按钮:关闭面板 → 切到 messages → 打开该员工聊天
+function onEmpDetailChat() {
+  if (!currentEmpId) return;
+  closeEmpDetail();
+  switchModule('messages');
+  setTimeout(function () { openChat(currentEmpId); }, 50);
+}
+
+// "查看 systemPrompt"按钮:切到"连接"tab(现有连接 tab 有 systemPrompt 编辑)
+function onEmpDetailShowPrompt() {
+  if (!currentEmpId) return;
+  switchEmpDetailTab('connect');
+}
+
+// 4 真实能力卡片点击:切到 messages + 打开聊天 + 预填 prompt
+var _ABILITY_PROMPTS = {
+  vision:    '上传一张达人主页截图,我帮你 OCR 识别 + 写入知识库',
+  match:     '分析小菜菜和「运动鞋」的匹配度',
+  selection: '基于本周已合作达人,推荐下一波选品(品类 + 价格带)',
+  revalue:   '给搭配师W 重新评级'
+};
+function onAbilityClick(abilityKey) {
+  if (!currentEmpId) return;
+  var prompt = _ABILITY_PROMPTS[abilityKey] || '';
+  closeEmpDetail();
+  switchModule('messages');
+  setTimeout(function () {
+    openChat(currentEmpId);
+    setTimeout(function () {
+      var input = document.getElementById('msgInput');
+      if (input && prompt) {
+        input.value = prompt;
+        if (typeof handleInput === 'function') handleInput();
+        input.focus();
+      }
+    }, 100);
+  }, 50);
+}
+
+// 并发拉 /api/agents/:id/stats → 填 4 个独立条
+function loadEmpStats(empId) {
+  if (!empId) return;
+  // 重置为占位(防止上一个员工的数据短暂残留)
+  ['aiEmpStatTalents', 'aiEmpStatAnalyses', 'aiEmpStatTasks', 'aiEmpStatSuccess'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) { el.textContent = '--'; el.classList.add('placeholder'); }
+  });
+  fetch('/api/agents/' + encodeURIComponent(empId) + '/stats?window_days=30', { credentials: 'same-origin' })
+    .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
+    .then(function (resp) {
+      if (resp.status === 200 && resp.body && resp.body.stats) {
+        var s = resp.body.stats;
+        var w = resp.body.window_days;
+        var setVal = function (id, v, isNull) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          if (isNull || v === null || v === undefined) {
+            el.textContent = '--';
+            el.classList.add('placeholder');
+          } else {
+            el.textContent = (typeof v === 'number' && v % 1 !== 0) ? v.toFixed(2) : String(v);
+            el.classList.remove('placeholder');
+          }
+        };
+        setVal('aiEmpStatTalents', s.talents_served, false);
+        setVal('aiEmpStatAnalyses', s.analyses_done, false);
+        setVal('aiEmpStatTasks', s.tasks_done, false);
+        setVal('aiEmpStatSuccess', s.tool_success_rate, s.tool_success_rate === null);
+        var winEl = document.getElementById('aiEmpStatWindow');
+        if (winEl) winEl.textContent = w + 'd';
+      } else {
+        // 401/403/404/5xx 一律显 --,不弹错
+        console.warn('loadEmpStats 非 200:', resp.status, resp.body && resp.body.error);
+      }
+    })
+    .catch(function (e) { console.warn('loadEmpStats 网络错误:', e); });
+}
+
+// 并发拉 /api/agents/:id/activity → 填工作记录 tab
+function loadEmpWorkActivity(empId) {
+  if (!empId) return;
+  var listEl = document.getElementById('aiEmpWorkList');
+  if (listEl) listEl.innerHTML = '<div class="ai-emp-work-empty">加载中...</div>';
+  fetch('/api/agents/' + encodeURIComponent(empId) + '/activity?days=30&limit=20', { credentials: 'same-origin' })
+    .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
+    .then(function (resp) {
+      if (resp.status === 200 && resp.body && Array.isArray(resp.body.items)) {
+        renderEmpWorkList(resp.body.items);
+      } else {
+        if (listEl) {
+          var errCls = (resp.status === 401 || resp.status === 403) ? '' : ' error';
+          var errMsg = (resp.status === 401) ? '请先登录查看工作记录' :
+                       (resp.status === 403) ? '无权查看该员工工作记录' :
+                       '暂无工作记录(后端返回 ' + resp.status + ')';
+          listEl.innerHTML = '<div class="ai-emp-work-empty' + errCls + '">' + errMsg + '</div>';
+        }
+      }
+    })
+    .catch(function (e) {
+      if (listEl) listEl.innerHTML = '<div class="ai-emp-work-empty error">网络错误:' + (e && e.message || 'unknown') + '</div>';
+    });
+}
+
+function renderEmpWorkList(items) {
+  var listEl = document.getElementById('aiEmpWorkList');
+  if (!listEl) return;
+  if (!items || items.length === 0) {
+    listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录(后端 0 events)</div>';
+    return;
+  }
+  var iconMap = { analysis: '分', follow_up: '跟', task: '完', deal: '合', ingest: '录' };
+  var statusLabel = { active: '已完成', talking: '沟通中', pending: '待回', lost: '需介入', paused: '已暂停' };
+  listEl.innerHTML = items.map(function (it) {
+    var ic = iconMap[it.type] || '·';
+    var cls = it.type === 'follow_up' ? 'followup' : (it.type === 'ingest' ? 'analysis' : it.type);
+    var statusAttr = it.status ? ' data-status="' + escapeAttr(it.status) + '"' : '';
+    var timeStr = it.ts ? new Date(it.ts * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+    var statusBadge = it.status ? '<span style="font-size:10px;color:var(--status-color, var(--color-text-tertiary));background:var(--status-bg, transparent);padding:2px 6px;border-radius:8px;margin-left:6px;">' + (statusLabel[it.status] || it.status) + '</span>' : '';
+    var detail = it.detail ? '<div style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px;">' + escapeHtml(it.detail) + '</div>' : '';
+    return '<div class="ai-emp-work-item"' + statusAttr + '>'
+      + '<div class="ai-emp-work-icon ' + cls + '">' + ic + '</div>'
+      + '<div class="ai-emp-work-time">' + escapeHtml(timeStr) + '</div>'
+      + '<div class="ai-emp-work-content">' + escapeHtml(it.title || '') + statusBadge + detail + '</div>'
+      + '</div>';
+  }).join('');
 }
 
 // ===== Dreaming 开关 =====
