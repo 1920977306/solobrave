@@ -3840,6 +3840,35 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 2px 6px;
   border-radius: 8px;
 }
+/* ② 二级分类可折叠: 同款 chevron + click + 0.15s 旋转 */
+.dept-header-collapsible {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  margin: 0 8px;
+  padding: 6px 8px;
+  transition: background 0.15s ease;
+}
+.dept-header-collapsible:hover { background: rgba(0, 122, 255, 0.06); }
+.dept-header-collapsible .dept-chevron {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-text-tertiary, #AEAEB2);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+  width: 10px;
+  text-align: center;
+}
+.dept-header-collapsible.expanded .dept-chevron { transform: rotate(0deg); }
+.dept-header-collapsible.collapsed .dept-chevron { transform: rotate(-90deg); }
+.dept-header-collapsible .dept-title { flex: 1; }
+.dept-header-collapsible .dept-count { flex-shrink: 0; }
+/* ② 折叠态: 隐藏组内员工 */
+.subcategory-group[data-collapsed="true"] .subcategory-content { display: none; }
 .sidebar-divider { height: 8px; background: transparent; margin: 4px 0; }
 .emp-role { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
 .emp-preview { font: 400 12px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -11869,7 +11898,8 @@ function getSidebarState() {
   }
   return {
     'AI 团队': true,
-    '项目组': true
+    '项目组': true,
+    subCategories: {}  // ② 二级分类折叠状态, key = 原始 subCategory 名(含 '📌 置顶' / '未分组'), value = true(展开) / false(折叠)
   };
 }
 function saveSidebarState(state) {
@@ -11878,6 +11908,15 @@ function saveSidebarState(state) {
 function toggleCategory(cat) {
   var state = getSidebarState();
   state[cat] = !state[cat];
+  saveSidebarState(state);
+  renderEmployeeList();
+}
+// ② 二级分类折叠 toggle(键是原始 subCategory 名, 默认展开)
+function toggleSubCategory(name) {
+  var state = getSidebarState();
+  if (!state.subCategories) state.subCategories = {};
+  // 默认展开(true), 折叠时存 false
+  state.subCategories[name] = state.subCategories[name] === false ? true : false;
   saveSidebarState(state);
   renderEmployeeList();
 }
@@ -11989,10 +12028,14 @@ function renderEmployeeList() {
 
       // ===== 置顶区域 =====
       if (pinnedEmps.length > 0) {
-        html += renderSubCategoryHeader('📌 置顶', pinnedEmps.length);
+        var pinnedExpanded = state.subCategories && state.subCategories['📌 置顶'] === false ? false : true;
+        html += '<div class="subcategory-group" data-subcat-group="📌 置顶" ' + (pinnedExpanded ? '' : 'data-collapsed="true"') + '>';
+        html += renderSubCategoryHeader('📌 置顶', pinnedEmps.length, pinnedExpanded);
+        html += '<div class="subcategory-content">';
         html += pinnedEmps.map(function (e) {
           return '<div class="list-item pinned-item" data-id="' + escapeAttr(e.id) + '" draggable="true" oncontextmenu="event.preventDefault();showEmpSettingsMenu(event,this.dataset.id)" style="background:rgba(0,122,255,0.04);">' + renderEmployeeItem(e, true) + '</div>';
         }).join('');
+        html += '</div></div>';
       }
 
       // 按 subCategory 分组（不含已置顶的）
@@ -12003,10 +12046,14 @@ function renderEmployeeList() {
         subGroups[sub].push(e);
       });
       Object.keys(subGroups).forEach(function (sub) {
-        html += renderSubCategoryHeader(sub, subGroups[sub].length);
+        var subExpanded = state.subCategories && state.subCategories[sub] === false ? false : true;
+        html += '<div class="subcategory-group" data-subcat-group="' + escapeAttr(sub) + '" ' + (subExpanded ? '' : 'data-collapsed="true"') + '>';
+        html += renderSubCategoryHeader(sub, subGroups[sub].length, subExpanded);
+        html += '<div class="subcategory-content">';
         html += subGroups[sub].map(function (e) {
           return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true" oncontextmenu="event.preventDefault();showEmpSettingsMenu(event,this.dataset.id)">' + renderEmployeeItem(e, true) + '</div>';
         }).join('');
+        html += '</div></div>';
       });
     }
     html += '<div class="sidebar-divider"></div>';
@@ -12145,9 +12192,15 @@ function renderCategoryHeader(name, expanded) {
     + '<span class="section-title-text">' + escapeHtml(name) + '</span>'
     + '</div>';
 }
-function renderSubCategoryHeader(name, count) {
+function renderSubCategoryHeader(name, count, expanded) {
+  // ② 二级分类可折叠: 复用同款 chevron + click, 状态由调用方从 state.subCategories 传入
   var displayName = name === '未分组' ? '全部' : name;
-  return '<div class="dept-header"><span class="dept-title">' + escapeHtml(displayName) + '</span><span class="dept-count">' + count + '</span></div>';
+  var isExpanded = expanded !== false;  // 默认 true(展开), 折叠时为 false
+  return '<div class="dept-header dept-header-collapsible ' + (isExpanded ? 'expanded' : 'collapsed') + '" data-subcat="' + escapeAttr(name) + '" onclick="toggleSubCategory(\'' + escapeAttr(name) + '\')">'
+    + '<span class="dept-chevron">▾</span>'
+    + '<span class="dept-title">' + escapeHtml(displayName) + '</span>'
+    + '<span class="dept-count">' + count + '</span>'
+    + '</div>';
 }
 function renderProjectGroupPlaceholder(name, count) {
   // 兼容旧调用，但新渲染通过 renderGroupItems 实现
