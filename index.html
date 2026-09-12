@@ -4179,6 +4179,44 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* 被引用消息定位高亮闪烁 */
 .msg.quote-flash .msg-bubble { animation: quoteFlash 1.2s ease; }
 
+/* ③ 发送状态: sending 半透明 + 角标 spinner, failed 红边 + 重试按钮 */
+.msg.own[data-status="sending"] { opacity: 0.65; }
+.msg.own[data-status="sending"]::after {
+  content: '';
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  margin-top: -6px;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--color-border, #E5E5EA);
+  border-top-color: var(--color-primary, #007AFF);
+  border-radius: 50%;
+  animation: msgSendingSpin 0.8s linear infinite;
+}
+@keyframes msgSendingSpin { to { transform: rotate(360deg); } }
+.msg.own[data-status="failed"] .msg-bubble {
+  border: 1.5px solid var(--color-status-lost, #FF3B30);
+  background: rgba(255, 59, 48, 0.04);
+}
+.msg.own[data-status="failed"] {
+  position: relative;
+}
+.msg-retry-btn {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 4px 10px;
+  background: var(--color-status-lost, #FF3B30);
+  color: #fff;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  user-select: none;
+}
+.msg-retry-btn:hover { background: #E5352B; }
+
 /* ① 消息 hover 操作栏(右上角浮出, 复制/引用/重发/删除) */
 .msg { position: relative; }
 .msg-hover-actions {
@@ -9605,6 +9643,11 @@ async function sendMsg() {
   var ownQuoteHtml = window._pendingQuote ? buildQuoteBlockHtml(window._pendingQuote) : '';
   userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + ownQuoteHtml + formatMessageContent(text || '') + '</div>' + imagesHtml + '</div>';
   area.appendChild(userMsg);
+  // ③ 发送状态管理: 用户消息进 DOM 时标 sending + 缓存 text/images 用于重试
+  userMsg.setAttribute('data-status', 'sending');
+  userMsg.setAttribute('data-pending-text', text || '');
+  // images 不直接存 attribute(太大), 只存 URL 列表(已在 imagesHtml 渲染, 重试时无法重新发送图片)
+  try { userMsg.setAttribute('data-pending-images', JSON.stringify(pendingImages.map(function (img) { return img.url || img.dataUrl || ''; }))); } catch (e) { userMsg.setAttribute('data-pending-images', '[]'); }
   // 立即保存用户消息到服务器，避免切换员工时消息丢失（AI 回复由 saveChatToServer 再存）
   // 达人防编造（架构级）：后端保存消息时检测达人关键词，命中则直查 talents 表并随响应返回
   // talentInjection（【系统数据】），由前端拼进发给 OpenClaw 的消息，LLM 不参与数据查询
@@ -9626,13 +9669,55 @@ async function sendMsg() {
       if (savedMsgId) {
         _registerMsgDom(userMsg, { id: savedMsgId, role: 'user', content: text, images: pendingImages, reply_to: replyToId || null });
       }
+      // ③ save 成功: 3s 后移除 sending 状态(无痕过渡到"已发送")
+      setTimeout(function () {
+        if (userMsg.getAttribute('data-status') === 'sending') userMsg.removeAttribute('data-status');
+      }, 3000);
       // 多图（>=2）重任务被后端旁路：不再走 OpenClaw chat.send，改为轮询旁路任务状态
       if (saveData && saveData.heavyPipe) {
         heavyJobId = saveData.jobId || null;
         heavyPlaceholder = (saveData.aiMessage && saveData.aiMessage.content) || '';
       }
+    } else {
+      // ③ save 失败: 标 failed + 加重试按钮(用户点 retryMessage 重发, 不需重输)
+      userMsg.setAttribute('data-status', 'failed');
+      var failReason = (saveResp && saveResp.status) ? ('HTTP ' + saveResp.status) : '保存失败';
+      userMsg.setAttribute('data-fail-reason', failReason);
+      var retryBtn = document.createElement('div');
+      retryBtn.className = 'msg-retry-btn';
+      retryBtn.textContent = '⚠️ 发送失败 · 点击重试';
+      retryBtn.setAttribute('data-msg-id', userMsg.getAttribute('data-msg-id') || '');
+      userMsg.appendChild(retryBtn);
+      userMsg.addEventListener('click', function onRetryClick(e) {
+        if (!e.target.classList.contains('msg-retry-btn')) return;
+        e.stopPropagation();
+        retryMessage(userMsg);
+      });
+      // 失败时不让 typing 指示器出现(避免"AI 还在想"的错觉)
+      var earlyTyping = document.getElementById('typingMsg');
+      if (earlyTyping) earlyTyping.remove();
+      restoreOnline();
+      showToast('❌ 消息发送失败: ' + failReason);
     }
-  } catch (e) { console.error('[Chat] 用户消息即时保存失败:', e); }
+  } catch (e) {
+    // ③ save 异常(网络错误等): 同样标 failed
+    console.error('[Chat] 用户消息即时保存失败:', e);
+    userMsg.setAttribute('data-status', 'failed');
+    userMsg.setAttribute('data-fail-reason', (e && e.message) || '网络错误');
+    var retryBtn2 = document.createElement('div');
+    retryBtn2.className = 'msg-retry-btn';
+    retryBtn2.textContent = '⚠️ 发送失败 · 点击重试';
+    userMsg.appendChild(retryBtn2);
+    userMsg.addEventListener('click', function (e) {
+      if (!e.target.classList.contains('msg-retry-btn')) return;
+      e.stopPropagation();
+      retryMessage(userMsg);
+    });
+    var earlyTyping2 = document.getElementById('typingMsg');
+    if (earlyTyping2) earlyTyping2.remove();
+    restoreOnline();
+    showToast('❌ 消息发送失败: ' + ((e && e.message) || '网络错误'));
+  }
   input.value = '';
   clearPendingImages();
   clearQuotePreview();
@@ -15896,6 +15981,53 @@ function onWelcomePrompt(text) {
       isAI: !msg.classList.contains('own')
     };
     if (typeof msgCtxAction === 'function') msgCtxAction('delete');
+  }
+  // ③ 失败消息重试: 用缓存的 text/images 重新发, 失败时不重入 sendMsg(避免双发)
+  function retryMessage(msg) {
+    if (!msg || msg.getAttribute('data-status') !== 'failed') return;
+    var text = msg.getAttribute('data-pending-text') || '';
+    var imagesJson = msg.getAttribute('data-pending-images') || '[]';
+    var images = [];
+    try { images = JSON.parse(imagesJson) || []; } catch (e) { images = []; }
+    // 标回 sending + 移除重试按钮
+    msg.setAttribute('data-status', 'sending');
+    var rb = msg.querySelector('.msg-retry-btn');
+    if (rb) rb.remove();
+    var empId = localStorage.getItem('sb_current_emp');
+    if (!empId) { showToast('❌ 无法确定当前聊天员工'); msg.setAttribute('data-status', 'failed'); return; }
+    // 只重发"保存到服务器"那一步(完整重发要走 sendMsg 全流程太重, 失败常见原因是网络抖动,
+    // 重试保存后 AI 路由由 server-side job 接管)
+    if (typeof apiFetch !== 'function') {
+      showToast('❌ apiFetch 未就绪');
+      msg.setAttribute('data-status', 'failed');
+      return;
+    }
+    apiFetch('/api/chat/' + encodeURIComponent(empId), {
+      method: 'POST',
+      body: JSON.stringify({ role: 'user', content: text, skipAI: false, empId: empId, images: images.length ? images : undefined })
+    }).then(function (resp) {
+      if (resp && resp.ok) {
+        setTimeout(function () { if (msg.getAttribute('data-status') === 'sending') msg.removeAttribute('data-status'); }, 1500);
+        showToast('✅ 重试成功');
+        // 触发后端 AI 流程(若 skipAI=false, 后端会自动调度, 不需要前端额外发 OpenClaw)
+        if (typeof renderMsgs === 'function') setTimeout(function () { renderMsgs('private'); }, 500);
+      } else {
+        msg.setAttribute('data-status', 'failed');
+        msg.setAttribute('data-fail-reason', (resp && resp.status) ? ('HTTP ' + resp.status) : '重试失败');
+        var retryBtn2 = document.createElement('div');
+        retryBtn2.className = 'msg-retry-btn';
+        retryBtn2.textContent = '⚠️ 重试失败 · 再次点击';
+        msg.appendChild(retryBtn2);
+        showToast('❌ 重试失败');
+      }
+    }).catch(function (e) {
+      msg.setAttribute('data-status', 'failed');
+      var retryBtn3 = document.createElement('div');
+      retryBtn3.className = 'msg-retry-btn';
+      retryBtn3.textContent = '⚠️ 重试失败 · 再次点击';
+      msg.appendChild(retryBtn3);
+      showToast('❌ 重试失败: ' + ((e && e.message) || '网络错误'));
+    });
   }
   function handle(action, msg) {
     if (action === 'copy') copyMessage(msg);
