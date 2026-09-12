@@ -4577,7 +4577,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .ai-emp-stat-value.placeholder { color: var(--color-text-tertiary, #8E8E93); font-size: 18px; font-weight: 500; }
 .ai-emp-stat-label { font-size: 12px; color: var(--color-text-tertiary, #8E8E93); margin-top: 4px; }
-.ai-emp-stat-source { font-size: 10px; color: var(--color-text-tertiary, #8E8E93); margin-top: 4px; font-family: var(--font-num, monospace); opacity: 0.7; }
+.ai-emp-stat-source { display: none; font-size: 10px; color: var(--color-text-tertiary, #8E8E93); margin-top: 4px; font-family: var(--font-num, monospace); opacity: 0.7; }
 
 /* 4 真实能力卡片(技能 tab 头部) */
 .ai-emp-ability-section { margin-bottom: 20px; }
@@ -6729,6 +6729,8 @@ window.doLogin = function () {
     <button class="global-search-scope-tab" data-scope="employees" onclick="setGlobalSearchScope('employees')">AI员工</button>
     <button class="global-search-scope-tab" data-scope="groups" onclick="setGlobalSearchScope('groups')">项目组</button>
     <button class="global-search-scope-tab" data-scope="knowledge" onclick="setGlobalSearchScope('knowledge')">知识库</button>
+    <button class="global-search-scope-tab" data-scope="products" onclick="openProductLibrary()">商品库</button>
+    <button class="global-search-scope-tab" data-scope="influencers" onclick="openInfluencerLibrary()">达人库</button>
   </div>
   <div class="global-search-results" id="globalSearchResults"></div>
 </div>
