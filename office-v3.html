@@ -8,57 +8,55 @@
 /* ====== 全局重置 & 基础变量 ====== */
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  /* 品牌色 */
-  --brand-primary: #FF6B35;
-  --brand-secondary: #FF9500;
-  --brand-gradient: linear-gradient(135deg, #FF6B35 0%, #FF9500 100%);
-  
-  /* 苹果灰度系统 */
-  --gray-1: #F5F5F7;
-  --gray-2: #E8E8ED;
-  --gray-3: #D2D2D7;
-  --gray-4: #86868B;
-  --gray-5: #3D3D3F;
-  --gray-6: #1D1D1F;
-  
-  /* 功能色 */
-  --blue: #007AFF;
-  --green: #34C759;
-  --red: #FF3B30;
-  --yellow: #FFCC00;
-  --purple: #AF52DE;
-  --teal: #00C7BE;
-  --pink: #FF2D55;
-  
-  /* 场景色 */
-  --chat-zone: #007AFF;
-  --work-zone: #FF9500;
-  --lounge-zone: #34C759;
-  
-  /* 布局 */
-  --bg-primary: var(--gray-1);
-  --bg-secondary: white;
-  --bg-glass: rgba(255,255,255,0.72);
-  --border-color: rgba(0,0,0,0.06);
-  --text-primary: var(--gray-6);
-  --text-secondary: var(--gray-4);
-  
+  /* ============================================================
+   * V2.1 设计 token (与 docs/design-system/core/tokens.css 对齐)
+   * office-v3.html 是单文件, 不能 @import 外部 token, 在此直接定义
+   * ============================================================ */
+  /* 主色 */
+  --color-primary: #007AFF;
+  --color-primary-hover: #0066D6;
+  --color-primary-soft: rgba(0, 122, 255, 0.10);
+  /* AI 视觉协议色 */
+  --color-ai-accent: #5E5CE6;
+  --color-ai-bg-soft: rgba(94, 92, 230, 0.05);
+  --color-ai-bg-softer: rgba(94, 92, 230, 0.08);
+  --color-ai-glow: rgba(94, 92, 230, 0.40);
+  /* 评级色 A/B/C/D */
+  --color-rating-a: #34C759;
+  --color-rating-b: #007AFF;
+  --color-rating-c: #FFCC00;
+  --color-rating-d: #8E8E93;
+  /* 状态色(对齐主站 5 态) */
+  --color-status-pending: #8E8E93;
+  --color-status-talking: #FF9500;
+  --color-status-active:  #34C759;
+  --color-status-lost:    #FF3B30;
+  --color-status-paused:  #AF52DE;
+  /* 背景/文字/边框 */
+  --color-bg: #FFFFFF;
+  --color-bg-soft: #F5F5F7;
+  --color-bg-softer: #F2F2F7;
+  --color-border: #E5E5EA;
+  --color-border-subtle: #F2F2F7;
+  --color-text-primary: #1C1C1E;
+  --color-text-secondary: #6E6E73;
+  --color-text-tertiary: #AEAEB2;
   /* 阴影 */
   --shadow-sm: 0 2px 8px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.03);
   --shadow-lg: 0 12px 40px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.05);
-  --shadow-brand: 0 4px 14px rgba(255,107,53,0.30);
-  
-  /* 区域刷新过渡动画 */
-  --zone-transition: opacity 0.3s ease;
-  
   /* 圆角 */
   --radius-xs: 6px;
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 20px;
   --radius-xl: 24px;
-}
+  /* 区域刷新过渡 */
+  --zone-transition: opacity 0.3s ease;
+  /* 自定义扩展色(V2.1 无等价, 保留 teal/pink hex 兼容旧逻辑) */
+  --teal: #00C7BE;
+  --pink: #FF2D55;
+
 
 body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Segoe UI',sans-serif;background:var(--bg-primary);color:var(--text-primary);min-height:100vh;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 
@@ -69,13 +67,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 ::-webkit-scrollbar-thumb:hover{background:var(--gray-4)}
 
 /* ====== Hero 区域 ====== */
-.hero-section{position:relative;padding:48px 32px 36px;text-align:center;background:linear-gradient(180deg,rgba(255,107,53,0.06) 0%,transparent 100%);overflow:hidden}
-.hero-glow{position:absolute;top:-80px;left:50%;transform:translateX(-50%);width:500px;height:300px;background:radial-gradient(ellipse,rgba(255,107,53,0.15) 0%,transparent 70%);filter:blur(60px);pointer-events:none}
+.hero-section{position:relative;padding:48px 32px 36px;text-align:center;background:linear-gradient(180deg,rgba(94, 92, 230, 0.06) 0%,transparent 100%);overflow:hidden}
+.hero-glow{position:absolute;top:-80px;left:50%;transform:translateX(-50%);width:500px;height:300px;background:radial-gradient(ellipse,rgba(94, 92, 230, 0.15) 0%,transparent 70%);filter:blur(60px);pointer-events:none}
 .hero-icon-wrap{position:relative;display:inline-block;margin-bottom:16px}
-.hero-icon-bg{position:absolute;inset:-16px;background:var(--brand-gradient);border-radius:28px;opacity:0.12;filter:blur(20px)}
+.hero-icon-bg{position:absolute;inset:-16px;background:linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);border-radius:28px;opacity:0.12;filter:blur(20px)}
 .brand-hero-icon{position:relative;font-size:56px;z-index:1;animation:heroFloat 3s ease-in-out infinite}
 @keyframes heroFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
-.hero-title{font-size:30px;font-weight:800;letter-spacing:-0.8px;margin-bottom:6px;background:var(--brand-gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-title{font-size:30px;font-weight:800;letter-spacing:-0.8px;margin-bottom:6px;background:linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .hero-subtitle{font-size:15px;color:var(--text-secondary);font-weight:400}
 
 /* ====== 状态卡片区域 ====== */
@@ -150,7 +148,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 /* ====== 导航栏 ====== */
 .nav-bar{position:sticky;top:0;z-index:100;background:var(--bg-glass);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--border-color)}
 .nav-inner{display:flex;align-items:center;padding:0 24px;height:56px;gap:8px}
-.brand-logo{width:34px;height:34px;background:var(--brand-gradient);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:white;letter-spacing:-0.5px;box-shadow:var(--shadow-brand);flex-shrink:0}
+.brand-logo{width:34px;height:34px;background:linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:white;letter-spacing:-0.5px;box-shadow:var(--shadow-brand);flex-shrink:0}
 .brand-text{font-size:17px;font-weight:700;letter-spacing:-0.41px;color:var(--gray-6)}
 .brand-subtitle{font-size:12px;font-weight:500;color:var(--gray-4);margin-left:4px}
 .nav-spacer{flex:1}
@@ -181,19 +179,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .skills-empty{text-align:center;padding:48px 24px}
 .skills-empty-icon{font-size:48px;margin-bottom:12px}
 .skills-empty-text{color:var(--text-secondary);margin-bottom:16px}
-.skills-add-btn-lg{padding:10px 24px;background:var(--brand-gradient);border:none;border-radius:var(--radius-sm);color:white;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.2s}
+.skills-add-btn-lg{padding:10px 24px;background:linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);border:none;border-radius:var(--radius-sm);color:white;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.2s}
 .skills-add-btn-lg:hover{box-shadow:var(--shadow-brand);transform:scale(1.02)}
 .skills-presets{margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color)}
 .skills-presets-title{font-size:13px;color:var(--text-secondary);margin-bottom:12px}
 .skills-presets-grid{display:flex;flex-wrap:wrap;gap:8px}
 .skill-preset{padding:8px 14px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:20px;font-size:13px;cursor:pointer;transition:all 0.2s}
-.skill-preset:hover{border-color:var(--brand-primary);color:var(--brand-primary)}
+.skill-preset:hover{border-color:var(--color-primary);color:var(--color-primary)}
 .skill-preset.used{opacity:0.4;pointer-events:none}
 
 /* ====== 记忆系统 ====== */
 .memory-tabs{display:flex;gap:4px;margin-bottom:16px}
 .memory-tab{padding:8px 18px;border:none;background:var(--gray-1);border-radius:20px;font-size:13px;font-weight:500;color:var(--text-secondary);cursor:pointer;transition:all 0.2s}
-.memory-tab.active{background:var(--brand-gradient);color:white}
+.memory-tab.active{background:linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);color:white}
 .memory-item{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;background:var(--bg-secondary);border-radius:var(--radius-md);border:1px solid var(--border-color);margin-bottom:8px}
 .memory-item-content{flex:1}
 .memory-item-text{font-size:14px;line-height:1.5}
@@ -206,7 +204,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .docs-search{flex:1;padding:10px 14px;border:1px solid var(--border-color);border-radius:var(--radius-sm);font-size:14px;background:var(--bg-secondary);outline:none;transition:border-color 0.2s}
 .docs-search:focus{border-color:var(--blue)}
 .btn{padding:8px 16px;border:none;border-radius:var(--radius-sm);font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;display:inline-flex;align-items:center;gap:6px}
-.btn-primary{background:var(--brand-gradient);color:white}
+.btn-primary{background:linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);color:white}
 .btn-primary:hover{box-shadow:var(--shadow-brand)}
 .btn-secondary{background:var(--gray-1);color:var(--text-primary)}
 .btn-secondary:hover{background:var(--gray-2)}
@@ -215,7 +213,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .docs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
 .doc-card{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:18px;cursor:pointer;transition:all 0.25s}
 .doc-card:hover{box-shadow:var(--shadow-md);transform:translateY(-2px);border-color:transparent}
-.doc-card-icon{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--brand-primary),var(--brand-secondary));display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:12px}
+.doc-card-icon{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--color-primary),var(--color-primary-hover));display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:12px}
 .doc-name{font-size:14px;font-weight:600;margin-bottom:4px}
 .doc-meta{display:flex;gap:8px;font-size:11px;color:var(--text-secondary);margin-bottom:8px}
 .doc-tags{display:flex;gap:4px;flex-wrap:wrap}
@@ -265,7 +263,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .emp-role{font-size:12px;color:var(--text-secondary)}
 .emp-status{margin-top:8px;display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600}
 .emp-status.online{background:rgba(52,199,89,0.1);color:var(--green)}
-.emp-status.busy{background:rgba(255,149,0,0.1);color:var(--brand-secondary)}
+.emp-status.busy{background:rgba(255,149,0,0.1);color:var(--color-primary-hover)}
 .emp-status.offline{background:rgba(142,142,147,0.1);color:var(--gray-4)}
 .emp-status.idle{background:rgba(142,142,147,0.1);color:var(--gray-4)}
 
@@ -356,7 +354,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .emp-status-tag{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:12px;font-size:10px;font-weight:600}
 .emp-status-tag.online{background:rgba(52,199,89,0.12);color:var(--green)}
 .emp-status-tag.thinking{background:rgba(0,122,255,0.12);color:var(--blue)}
-.emp-status-tag.working{background:rgba(255,107,53,0.12);color:var(--brand-primary)}
+.emp-status-tag.working{background:rgba(94, 92, 230, 0.12);color:var(--color-ai-accent)}
 .emp-status-tag.busy{background:rgba(255,59,48,0.12);color:var(--red)}
 .emp-status-desc{font-size:10px;color:var(--blue);font-weight:500}
 .work-progress{margin-top:6px}
@@ -367,7 +365,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .work-progress-fraction{font-size:11px;font-weight:600;color:var(--gray-4)}
 .emp-interaction{display:flex;align-items:center;gap:8px;margin-top:2px;font-size:10px;color:var(--text-secondary)}
 .emp-interaction-item{display:flex;align-items:center;gap:4px}
-.emp-interaction-num{font-weight:700;color:var(--brand-primary)}
+.emp-interaction-num{font-weight:700;color:var(--color-primary)}
 
 .detail-panel{position:fixed;top:50%;left:50%;width:480px;max-width:90vw;max-height:85vh;background:var(--bg-secondary);box-shadow:0 24px 80px rgba(0,0,0,0.2);z-index:200;transform:translate(-50%,-50%) scale(0.92);transition:all 0.3s cubic-bezier(0.32,0.72,0,1);display:flex;flex-direction:column;border-radius:var(--radius-lg);opacity:0;pointer-events:none;overflow:hidden}
 .detail-panel.show{transform:translate(-50%,-50%) scale(1);opacity:1;pointer-events:auto}
@@ -387,15 +385,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .detail-info-item .value{font-size:14px;font-weight:600;color:var(--gray-5)}
 .detail-skills{display:flex;flex-wrap:wrap;gap:8px}
 .detail-skill-tag{padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;background:var(--gray-1);color:var(--gray-5);border:1px solid var(--border-color)}
-.detail-skill-tag.primary{background:var(--brand-primary);color:white;border-color:transparent}
+.detail-skill-tag.primary{background:var(--color-primary);color:white;border-color:transparent}
 .detail-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .detail-stat-item{text-align:center;padding:16px 12px;background:var(--gray-1);border-radius:var(--radius-sm)}
-.detail-stat-item .number{font-size:24px;font-weight:800;color:var(--brand-primary);margin-bottom:4px}
+.detail-stat-item .number{font-size:24px;font-weight:800;color:var(--color-primary);margin-bottom:4px}
 .detail-stat-item .label{font-size:11px;color:var(--gray-4)}
 .detail-actions{display:flex;gap:12px;padding:24px;border-top:1px solid var(--border-color)}
 .detail-btn{flex:1;padding:12px 16px;border-radius:var(--radius-sm);font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:8px}
-.detail-btn-primary{background:var(--brand-gradient);color:white;box-shadow:var(--shadow-brand)}
-.detail-btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(255,107,53,0.35)}
+.detail-btn-primary{background:linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);color:white;box-shadow:var(--shadow-brand)}
+.detail-btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(0, 122, 255, 0.35)}
 .detail-btn-secondary{background:var(--gray-1);color:var(--gray-5)}
 .detail-btn-secondary:hover{background:var(--gray-2)}
 .detail-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.3);z-index:199;opacity:0;pointer-events:none;transition:opacity 0.3s}
@@ -407,7 +405,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .detail-projects .project-status{font-size:12px;color:var(--gray-4)}
 .detail-activity-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-color)}
 .detail-activity-item:last-child{border-bottom:none}
-.detail-activity-dot{width:8px;height:8px;border-radius:50%;background:var(--brand-primary);margin-top:6px;flex-shrink:0}
+.detail-activity-dot{width:8px;height:8px;border-radius:50%;background:var(--color-primary);margin-top:6px;flex-shrink:0}
 .detail-activity-text{font-size:13px;color:var(--gray-5);line-height:1.5}
 .detail-activity-time{font-size:11px;color:var(--gray-4);margin-top:2px}
 
@@ -648,7 +646,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .config-docs-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
 .config-doc-card{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:16px;cursor:pointer;transition:all .2s cubic-bezier(.4,0,.2,1);position:relative;overflow:hidden}
 .config-doc-card:hover{box-shadow:var(--shadow-md);transform:translateY(-2px);border-color:transparent}
-.config-doc-card-icon{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--brand-primary),var(--brand-secondary));display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;margin-bottom:12px}
+.config-doc-card-icon{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--color-primary),var(--color-primary-hover));display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;margin-bottom:12px}
 .config-doc-card-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px}
 .config-doc-card-desc{font-size:12px;color:var(--text-secondary);margin-bottom:8px}
 .config-doc-card-preview{font-size:11px;color:var(--gray-4);line-height:1.5;max-height:3.2em;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:pre-wrap;word-break:break-word}
@@ -726,7 +724,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .wizard-steps{display:flex;align-items:center;justify-content:center;gap:8px;padding:20px}
 .wizard-step{display:flex;align-items:center;gap:8px}
 .wizard-step-num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;background:var(--gray-2);color:var(--text-secondary);transition:all 0.3s}
-.wizard-step.active .wizard-step-num{background:var(--brand-gradient);color:white}
+.wizard-step.active .wizard-step-num{background:linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);color:white}
 .wizard-step.done .wizard-step-num{background:var(--green);color:white}
 .wizard-step-label{font-size:13px;color:var(--text-secondary);transition:all 0.3s}
 .wizard-step.active .wizard-step-label{color:var(--text-primary);font-weight:600}
@@ -740,7 +738,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .avatar-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px}
 .avatar-option{aspect-ratio:1;border-radius:var(--radius-md);cursor:pointer;transition:all 0.2s;border:3px solid transparent;padding:4px}
 .avatar-option:hover{border-color:var(--gray-3);transform:scale(1.05)}
-.avatar-option.selected{border-color:var(--brand-primary);box-shadow:var(--shadow-brand)}
+.avatar-option.selected{border-color:var(--color-primary);box-shadow:var(--shadow-brand)}
 .avatar-option-inner{width:100%;height:100%;border-radius:calc(var(--radius-md) - 4px);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;color:white}
 .avatar-custom{grid-column:span 5;display:flex;align-items:center;gap:12px;padding:12px;background:var(--gray-1);border-radius:var(--radius-md)}
 .avatar-custom-input{flex:1;padding:10px 14px;border:1px solid var(--border-color);border-radius:var(--radius-sm);font-size:14px;outline:none;transition:border-color 0.2s}
@@ -763,7 +761,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 .soul-template-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .soul-template-card{padding:16px 12px;text-align:center;border:2px solid var(--border-color);border-radius:var(--radius-md);cursor:pointer;transition:all 0.2s}
 .soul-template-card:hover{border-color:var(--gray-3);transform:translateY(-2px)}
-.soul-template-card.selected{border-color:var(--brand-primary);background:rgba(255,107,53,0.05)}
+.soul-template-card.selected{border-color:var(--color-ai-accent);background:rgba(94, 92, 230, 0.05)}
 .soul-template-emoji{font-size:28px;margin-bottom:6px}
 .soul-template-name{font-size:14px;font-weight:600}
 .soul-template-desc{font-size:11px;color:var(--text-secondary);margin-top:4px}
@@ -883,7 +881,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   min-width: 20px !important; 
   height: 20px !important; 
   padding: 0 6px !important; 
-  background: linear-gradient(135deg, #FF6B35 0%, #FF9500 100%) !important; 
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%) !important; 
   color: white !important; 
   border-radius: 10px !important; 
   font-size: 11px !important; 
@@ -891,7 +889,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   display: flex !important; 
   align-items: center !important; 
   justify-content: center !important; 
-  box-shadow: 0 2px 8px rgba(255,107,53,0.35) !important;
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.35) !important;
 }
 
 /* 对话项 - Apple风格卡片 */
@@ -1527,13 +1525,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   transition: all 0.3s;
 }
 .zone-stat.new-msg {
-  background: rgba(255, 107, 53, 0.1);
-  color: #FF6B35;
+  background: rgba(94, 92, 230, 0.1);
+  color: var(--color-ai-accent);
 }
 .zone-stat.new-msg .stat-dot {
   width: 6px;
   height: 6px;
-  background: #FF6B35;
+  background: var(--color-primary);
   border-radius: 50%;
   animation: pulse-new 2s infinite;
 }
@@ -1961,7 +1959,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
   font-weight: 600;
 }
 .lounge-chip.active .lounge-name {
-  color: var(--accent, #FF6B35);
+  color: var(--accent, var(--color-ai-accent));
 }
 
 /* ===== 底部状态栏升级 ===== */
@@ -2323,7 +2321,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text'
 </head><body>
 <nav class="nav-bar">
   <div class="nav-inner">
-    <a href="./index.html?v=2" class="brand-logo" style="text-decoration:none;display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:linear-gradient(135deg,#FF6B35,#FF9500);border-radius:8px;box-shadow:0 2px 8px rgba(255,107,53,0.3);"><svg viewBox="0 0 100 100" width="20" height="20" style="display:block;"><text x="50" y="72" text-anchor="middle" font-size="65" font-weight="bold" fill="white" font-family="-apple-system,BlinkMacSystemFont,sans-serif">QK</text></svg></a>
+    <a href="./index.html?v=2" class="brand-logo" style="text-decoration:none;display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:linear-gradient(135deg,var(--color-primary),var(--color-primary-hover));border-radius:8px;box-shadow:0 2px 8px rgba(0, 122, 255, 0.3);"><svg viewBox="0 0 100 100" width="20" height="20" style="display:block;"><text x="50" y="72" text-anchor="middle" font-size="65" font-weight="bold" fill="white" font-family="-apple-system,BlinkMacSystemFont,sans-serif">QK</text></svg></a>
     <span class="brand-text">全可AI</span>
     <span class="brand-subtitle">Office</span>
     <div class="nav-spacer"></div>
@@ -3891,7 +3889,7 @@ function renderMemory(){
         html += '</div>';
         html += '<div style="display:flex;gap:4px;">';
         if(isAuto){
-          html += '<button onclick="promoteToCore(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\')" title="升级为核心记忆" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--brand-primary);display:flex;align-items:center;justify-content:center;">⭐</button>';
+          html += '<button onclick="promoteToCore(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\')" title="升级为核心记忆" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--color-primary);display:flex;align-items:center;justify-content:center;">⭐</button>';
         }
         html += '<button onclick="deleteMemory(\'' + escapeAttr(empId) + '\',\'' + escapeAttr(m.id) + '\')" title="删除" style="width:28px;height:28px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--text-tertiary);display:flex;align-items:center;justify-content:center;">🗑️</button>';
         html += '</div></div>';
@@ -3917,7 +3915,7 @@ function addMemory(){
     container.innerHTML = '<input type="text" id="newMemoryInput" placeholder="输入记忆内容..." style="width:100%;padding:8px 12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--bg-primary);color:var(--text-primary);box-sizing:border-box;margin-bottom:8px;" onkeypress="if(event.key===\'Enter\')confirmAddMemory()">';
     container.innerHTML += '<div style="display:flex;gap:8px;justify-content:flex-end;">';
     container.innerHTML += '<button onclick="document.getElementById(\'addMemoryContainer\').remove()" style="padding:6px 14px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-secondary);color:var(--text-primary);font-size:13px;cursor:pointer;">取消</button>';
-    container.innerHTML += '<button onclick="confirmAddMemory()" style="padding:6px 14px;border-radius:8px;border:none;background:var(--brand-gradient);color:white;font-size:13px;cursor:pointer;">确认</button>';
+    container.innerHTML += '<button onclick="confirmAddMemory()" style="padding:6px 14px;border-radius:8px;border:none;background:linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);color:white;font-size:13px;cursor:pointer;">确认</button>';
     container.innerHTML += '</div>';
     var content = document.getElementById('memoryContent');
     if(content) content.parentNode.insertBefore(container, content);
@@ -5548,7 +5546,7 @@ async function confirmCreateAgent() {
           id: newEmp.id,
           name: newEmp.name,
           role: newEmp.role,
-      bg: newEmp.bg || (newEmp.gradient && newEmp.gradient[0]) || '#FF6B35',
+      bg: newEmp.bg || (newEmp.gradient && newEmp.gradient[0]) || '#007AFF',
       avatar: newEmp.avatar || (newEmp.name && newEmp.name[0]) || '👤',
           status: 'idle',
           permission: 'dev',
