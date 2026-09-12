@@ -4680,6 +4680,37 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-info-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 0.5px solid var(--separator); }
 .emp-info-label { font-size: 13px; color: var(--text-secondary); }
 .emp-info-value { font-size: 13px; font-family: 'SF Mono', monospace; }
+/* V2.1 quota-meter 横条进度条(上下文用量, 复用 --separator 轨道 + accent 填充 + SF Mono 数字) */
+.quota-meter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 160px;
+  height: 18px;
+  border-radius: 6px;
+  background: var(--separator);
+  overflow: hidden;
+}
+.quota-meter-fill {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  background: linear-gradient(90deg, #007AFF 0%, #5E5CE6 100%);
+  border-radius: 6px;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.quota-meter-fill[data-level="high"] { background: linear-gradient(90deg, #FF9500 0%, #FF3B30 100%); }
+.quota-meter-fill[data-level="critical"] { background: linear-gradient(90deg, #FF3B30 0%, #AF52DE 100%); }
+.quota-meter-text {
+  position: relative;
+  z-index: 1;
+  padding-right: 8px;
+  font-size: 11px;
+  font-family: 'SF Mono', monospace;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-shadow: 0 0 3px rgba(255, 255, 255, 0.6);
+}
 .emp-doc-section { margin-bottom: 16px; }
 .emp-doc-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; }
 .emp-doc-editor { width: 100%; padding: 10px; background: var(--bg-secondary); border: 0.5px solid var(--separator); border-radius: var(--radius-sm); font-size: 12px; font-family: 'SF Mono', monospace; resize: vertical; box-sizing: border-box; }
@@ -7762,7 +7793,10 @@ window.doLogin = function () {
 </div>
 <div class="emp-info-item">
 <span class="emp-info-label">上下文</span>
-<span class="emp-info-value" id="empDetailCtx">4K / 8K</span>
+<div class="quota-meter" title="上下文使用量">
+  <div class="quota-meter-fill" id="empDetailCtxFill" style="width:0%;"></div>
+  <span class="quota-meter-text" id="empDetailCtxText">-- / 8K</span>
+</div>
 </div>
 </div>
 <div class="emp-doc-section" style="margin-top:16px;">
@@ -16689,7 +16723,33 @@ function openEmpDetail(empId) {
   document.getElementById('empDetailStatusText').textContent = getStatusText(emp.status) || '在线';
   document.getElementById('empDetailCreated').textContent = emp.createdAt || emp.created || new Date().toLocaleDateString('zh-CN');
   // V3 升级:3 个 Math.random 编造 stats 已从 DOM 移除(零编造规则),改由 header 下方 stats 独立条统一从 /api/agents/:id/stats 取真实数据
-  document.getElementById('empDetailCtx').textContent = emp.ctx || '4K / 8K';
+  // 上下文进度条:解析 emp.ctx(总窗口,如 8K / 32K) + emp.tokenUsage(已用 tokens,无则 0 → 0% 显占位)
+  // TODO: 后端目前没有 /api/agents/:id/token_usage 实时接口,等后端聚合 API 接入后,改用真实 usage
+  // 零编造规则:没数据时不要瞎显百分比,fill=0% + -- 占位
+  (function () {
+    var totalStr = (emp && emp.ctx) || '8K';
+    var total = 8 * 1024;
+    var m = String(totalStr).match(/^(\d+)\s*([KkMm]?)$/);
+    if (m) {
+      var n = parseInt(m[1], 10);
+      var u = (m[2] || '').toUpperCase();
+      total = u === 'M' ? n * 1024 * 1024 : (u === 'K' ? n * 1024 : n);
+    }
+    var used = (emp && typeof emp.tokenUsage === 'number') ? emp.tokenUsage : 0;
+    var pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+    var level = pct >= 90 ? 'critical' : (pct >= 70 ? 'high' : 'normal');
+    var fillEl = document.getElementById('empDetailCtxFill');
+    var textEl = document.getElementById('empDetailCtxText');
+    if (fillEl) {
+      fillEl.style.width = pct + '%';
+      fillEl.setAttribute('data-level', level);
+    }
+    if (textEl) {
+      var usedFmt = used > 0 ? (used >= 1024 ? (used / 1024).toFixed(1) + 'K' : used) : '--';
+      var totalFmt = total >= 1024 * 1024 ? (total / (1024 * 1024)) + 'M' : (total / 1024) + 'K';
+      textEl.textContent = used > 0 ? (usedFmt + ' / ' + totalFmt + ' · ' + pct + '%') : ('-- / ' + totalFmt);
+    }
+  })();
   document.getElementById('empDescriptionInput').value = emp.description || '';
   document.getElementById('empDetailDescription').textContent = emp.description ? '当前描述: ' + emp.description : '暂无描述';
   document.getElementById('empBadgeInput').value = emp.badge || '';
