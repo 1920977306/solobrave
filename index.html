@@ -4178,6 +4178,48 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .quote-preview-close:hover { background: #e5e5e5; color: #333; }
 /* 被引用消息定位高亮闪烁 */
 .msg.quote-flash .msg-bubble { animation: quoteFlash 1.2s ease; }
+
+/* ① 消息 hover 操作栏(右上角浮出, 复制/引用/重发/删除) */
+.msg { position: relative; }
+.msg-hover-actions {
+  position: absolute;
+  top: -28px;
+  right: 8px;
+  display: flex;
+  gap: 2px;
+  padding: 3px 5px;
+  background: var(--bg-primary, #fff);
+  border: 0.5px solid var(--separator);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 5;
+}
+.msg:hover .msg-hover-actions,
+.msg-hover-actions.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+.msg-hover-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary, #6E6E73);
+  transition: all 0.1s ease;
+}
+.msg-hover-btn:hover { background: var(--color-bg-softer, #F2F2F7); color: var(--color-primary, #007AFF); }
+.msg-hover-btn.danger:hover { color: var(--color-status-lost, #FF3B30); }
+/* own 消息(右侧)在右上; not-own(左侧)在右上(不变, 工具栏永远右上方便触发) */
+.msg.own .msg-hover-actions { right: 8px; left: auto; }
 @keyframes quoteFlash { 0%, 60% { background: #dbe7fd; } 100% { background: #f2f3f5; } }
 
 /* Apple 风格 - 用户消息（右侧，浅蓝色） */
@@ -15680,7 +15722,7 @@ function renderMsgs(type) {
         citationHtml2 = '<div class="citation-bar" onclick="toggleCitationPanel(\'' + citeId2 + '\')">📚 引用了 ' + m.citations.length + ' 条知识 <span class="citation-toggle">▼</span></div>' +
           '<div class="citation-panel hidden" id="' + citeId2 + '">' + citeItems2 + '</div>';
       }
-      return '<div class="msg ' + (own ? 'own' : '') + '" data-msg-id="' + escapeAttr(m.id || '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + quoteHtml2 + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '</div></div>';
+      return '<div class="msg ' + (own ? 'own' : '') + '" data-msg-id="' + escapeAttr(m.id || '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + quoteHtml2 + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '<div class="msg-hover-actions" data-msg-id="' + escapeAttr(m.id || '') + '">' + '<button class="msg-hover-btn" data-action="copy" title="复制">📋</button>' + '<button class="msg-hover-btn" data-action="quote" title="引用">💬</button>' + (own ? '<button class="msg-hover-btn" data-action="resend" title="重发">🔄</button>' : '') + '<button class="msg-hover-btn danger" data-action="delete" title="删除">🗑</button>' + '</div>' + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
     if (typingMsg) {
       area.appendChild(typingMsg);
@@ -15760,6 +15802,96 @@ function onWelcomePrompt(text) {
     }
   }, 50);
 }
+
+// ========== ① 消息 hover 操作栏事件委托 ==========
+// 单一 handler 通过事件委托挂到 messagesArea, 处理 4 个 action: copy/quote/resend/delete
+// 触屏兼容: touchstart 后 0.5s 显示, touchend 隐藏(模拟 hover)
+(function bindMsgHoverActions() {
+  var area = null;
+  function ensure() { if (!area) area = document.getElementById('messagesArea'); return area; }
+  // 长按触发(touchstart 0.5s 后)
+  var longPressTimer = null;
+  var lastTouchTarget = null;
+  function findMsg(el) { while (el && el !== area) { if (el.classList && el.classList.contains('msg')) return el; el = el.parentNode; } return null; }
+  function hideAll() { var menus = document.querySelectorAll('.msg-hover-actions.show'); for (var i = 0; i < menus.length; i++) menus[i].classList.remove('show'); }
+  function showActions(msg) { var a = msg.querySelector('.msg-hover-actions'); if (a) a.classList.add('show'); }
+  function getMsgContent(msg) {
+    var b = msg.querySelector('.msg-bubble');
+    if (!b) return '';
+    return (b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+  function copyMessage(msg) {
+    var text = getMsgContent(msg);
+    if (!text) { showToast('⚠️ 消息内容为空'); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { showToast('✅ 已复制'); }).catch(function () { showToast('❌ 复制失败'); });
+    } else { showToast('❌ 当前浏览器不支持复制'); }
+  }
+  function quoteMessage(msg) {
+    var text = getMsgContent(msg);
+    if (!text) { showToast('⚠️ 消息内容为空'); return; }
+    var input = document.getElementById('msgInput');
+    if (input) {
+      var truncated = text.length > 200 ? text.slice(0, 200) + '…' : text;
+      input.value = '> ' + truncated + '\n\n';
+      input.focus();
+      if (typeof handleInput === 'function') handleInput();
+    }
+  }
+  function resendMessage(msg) {
+    var id = msg.getAttribute('data-msg-id');
+    if (!id) { showToast('⚠️ 消息缺少 id'); return; }
+    var btn = msg.querySelector('.msg-hover-btn[data-action="resend"]');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    setTimeout(function () {
+      if (btn) { btn.disabled = false; btn.textContent = '🔄'; }
+      showToast('🔄 已触发重发(占位)');
+    }, 800);
+  }
+  function deleteMessage(msg) {
+    var id = msg.getAttribute('data-msg-id');
+    if (!id) { showToast('⚠️ 消息缺少 id'); return; }
+    // 设置 msgCtxTarget 给现有 msgCtxAction('delete') 用(避免复制右击逻辑)
+    msgCtxTarget = {
+      element: msg,
+      isAI: !msg.classList.contains('own')
+    };
+    if (typeof msgCtxAction === 'function') msgCtxAction('delete');
+  }
+  function handle(action, msg) {
+    if (action === 'copy') copyMessage(msg);
+    else if (action === 'quote') quoteMessage(msg);
+    else if (action === 'resend') resendMessage(msg);
+    else if (action === 'delete') deleteMessage(msg);
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    var a = ensure();
+    if (!a) return;
+    a.addEventListener('click', function (e) {
+      var btn = e.target.closest && e.target.closest('.msg-hover-btn');
+      if (!btn) return;
+      var menu = btn.closest('.msg-hover-actions');
+      var msg = menu ? menu.closest('.msg') : null;
+      if (!msg) return;
+      e.stopPropagation();
+      handle(btn.getAttribute('data-action'), msg);
+    });
+    // 触屏长按
+    a.addEventListener('touchstart', function (e) {
+      var msg = findMsg(e.target);
+      if (!msg) return;
+      lastTouchTarget = msg;
+      clearTimeout(longPressTimer);
+      longPressTimer = setTimeout(function () { hideAll(); showActions(msg); }, 500);
+    }, { passive: true });
+    a.addEventListener('touchend', function () { clearTimeout(longPressTimer); }, { passive: true });
+    a.addEventListener('touchmove', function () { clearTimeout(longPressTimer); }, { passive: true });
+    // 点击空白处隐藏
+    document.addEventListener('click', function (e) {
+      if (!e.target.closest || !e.target.closest('.msg-hover-actions')) hideAll();
+    });
+  });
+})();
 
 // 员工列表异步加载完成后，若聊天区仍是欢迎空状态则重渲染（让员工卡片出现）
 function refreshChatEmptyStateIfVisible() {
