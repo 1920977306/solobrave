@@ -6133,6 +6133,76 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .product-modal { width: 100%; max-width: 480px; max-height: 90vh; background: #ffffff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
 .product-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 0.5px solid var(--separator); }
 .product-modal-title { font-size: 17px; font-weight: 600; }
+
+/* ① 新人 onboarding 引导 modal(空员工时自动弹, V2.1 tokens) */
+.onboarding-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: onboardingFadeIn 0.25s ease-out;
+}
+@keyframes onboardingFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.onboarding-modal-panel {
+  width: 400px;
+  max-width: 92vw;
+  background: var(--bg-primary, #fff);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  padding: 32px 28px 24px;
+  text-align: center;
+  animation: onboardingPopIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes onboardingPopIn { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.onboarding-modal-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  display: inline-block;
+  filter: drop-shadow(0 0 12px var(--color-ai-bg-soft, #EEF0FF));
+}
+.onboarding-modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1C1C1E);
+  margin-bottom: 10px;
+  letter-spacing: -0.3px;
+}
+.onboarding-modal-desc {
+  font-size: 13px;
+  color: var(--color-text-secondary, #6E6E73);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+.onboarding-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.onboarding-modal-btn {
+  flex: 1;
+  padding: 11px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: none;
+}
+.onboarding-modal-btn.primary {
+  background: var(--color-primary, #007AFF);
+  color: #fff;
+}
+.onboarding-modal-btn.primary:hover { background: var(--color-primary-hover, #0066D6); }
+.onboarding-modal-btn.secondary {
+  background: var(--color-bg-softer, #F2F2F7);
+  color: var(--color-text-primary, #1C1C1E);
+}
+.onboarding-modal-btn.secondary:hover { background: var(--color-border, #E5E5EA); }
 .product-modal-close { width: 28px; height: 28px; border-radius: 50%; border: none; background: transparent; cursor: pointer; font-size: 16px; color: var(--text-secondary); }
 .product-modal-body { padding: 16px 20px; flex: 1; overflow-y: auto; }
 .product-modal-field { margin-bottom: 14px; }
@@ -6670,6 +6740,20 @@ window.doLogin = function () {
   <div class="menu-item" onclick="empSettingsAction('archive')">📦 归档</div>
   <div class="menu-divider"></div>
   <div class="menu-item danger" onclick="empSettingsAction('delete')">🗑️ 删除</div>
+</div>
+
+
+<!-- ① 新人 onboarding 引导 modal(空员工时自动弹) -->
+<div id="onboardingModal" class="onboarding-modal-overlay" style="display:none;">
+  <div class="onboarding-modal-panel">
+    <div class="onboarding-modal-icon">🦞</div>
+    <div class="onboarding-modal-title">还没有 AI 员工</div>
+    <div class="onboarding-modal-desc">AI 员工是你的虚拟团队成员, 能帮你分析达人、录入商品、自动跟进合作。创建第一位只需 30 秒。</div>
+    <div class="onboarding-modal-actions">
+      <button class="onboarding-modal-btn primary" onclick="onboardingCreateClick()">立即创建</button>
+      <button class="onboarding-modal-btn secondary" onclick="onboardingSkipClick()">先逛逛</button>
+    </div>
+  </div>
 </div>
 
 
@@ -8496,6 +8580,9 @@ function showMainApp() {
     console.error('[showMainApp] 加载员工/小组失败:', err);
     renderEmployeeList();
   });
+  // ① onboarding 引导检测: 登录后 emps 加载完, 检查是否要弹新人引导 modal
+  // (放在 .then() 链外部, 不阻塞主流程; emps 异步加载完成后会自动触发)
+  setTimeout(maybeShowOnboardingModal, 800);
   // Feishu layout: default to messages module
   switchModule('messages');
   // Leader加载可见小组
@@ -8525,6 +8612,36 @@ function showMainApp() {
 
   // 启动项目组列表轮询：每 15 秒从后端刷新，子账号页面自动感知管理员新增的项目组
   startGroupPolling();
+}
+
+// ========== ① 新人 onboarding 引导 modal ==========
+// 检测逻辑: 登录后(或 refreshEmployeeList 后)如果用户没创建过 AI 员工, 弹轻量引导卡片
+// 「先逛逛」设 sb_onboarding_done='1' 后不再弹
+// 未来 reset 路径(如后端清空用户数据)后, 因为新会话 localStorage 不会有这个标志, 也会自动重新触发
+function maybeShowOnboardingModal() {
+  if (typeof emps === 'undefined') return;
+  var done = localStorage.getItem('sb_onboarding_done');
+  if (done === '1') return; // 用户已看过引导
+  // 只对 0 员工的用户弹(已经有员工的账号不打扰)
+  if (emps.length > 0) {
+    // 用户已经有员工, 自动设 done(避免后续每次登录都检查)
+    localStorage.setItem('sb_onboarding_done', '1');
+    return;
+  }
+  // 当前账号没有任何 AI 员工 → 弹引导
+  var modal = document.getElementById('onboardingModal');
+  if (modal) modal.style.display = 'flex';
+}
+function onboardingCreateClick() {
+  localStorage.setItem('sb_onboarding_done', '1');
+  var modal = document.getElementById('onboardingModal');
+  if (modal) modal.style.display = 'none';
+  if (typeof openWizard === 'function') openWizard();
+}
+function onboardingSkipClick() {
+  localStorage.setItem('sb_onboarding_done', '1');
+  var modal = document.getElementById('onboardingModal');
+  if (modal) modal.style.display = 'none';
 }
 
 // 登录
