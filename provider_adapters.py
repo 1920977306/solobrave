@@ -248,6 +248,20 @@ def openai_extract_text_and_usage(resp_json):
     return text, {'input_tokens': int(in_tok), 'output_tokens': int(out_tok)}
 
 
+def transform_openai_resp_to_anthropic(resp_json, model=''):
+    """将 OpenAI chat.completion 响应转为 Anthropic Messages 格式。"""
+    text, usage = openai_extract_text_and_usage(resp_json)
+    return {
+        'id': resp_json.get('id', f'msg_{int(time.time() * 1000)}'),
+        'type': 'message',
+        'role': 'assistant',
+        'content': [{'type': 'text', 'text': text}],
+        'model': model or resp_json.get('model', ''),
+        'stop_reason': 'end_turn',
+        'usage': {'input_tokens': usage['input_tokens'], 'output_tokens': usage['output_tokens']},
+    }
+
+
 def to_openai_messages(body_json):
     """把 Anthropic 或 OpenAI 格式的请求体归一为 OpenAI messages 列表
     （供 OpenAI 兼容的兜底 provider 使用，如 minimax）。
@@ -586,6 +600,8 @@ class ProviderAdapter:
             return resp_json
         if target_format == 'openai' and self.api_format == 'anthropic':
             return transform_anthropic_to_openai(resp_json)
+        if target_format == 'anthropic' and self.api_format == 'openai':
+            return transform_openai_resp_to_anthropic(resp_json)
         raise ValueError(f'unsupported conversion: {self.api_format} -> {target_format}')
 
     def make_sse_parser(self):
