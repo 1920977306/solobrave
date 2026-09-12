@@ -4579,6 +4579,20 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .ai-emp-stat-value.placeholder { color: var(--color-text-tertiary, #8E8E93); font-size: 18px; font-weight: 500; }
 .ai-emp-stat-label { font-size: 12px; color: var(--color-text-tertiary, #8E8E93); margin-top: 4px; }
 .ai-emp-stat-source { display: none; font-size: 10px; color: var(--color-text-tertiary, #8E8E93); margin-top: 4px; font-family: var(--font-num, monospace); opacity: 0.7; }
+/* V2.1 评级 chip 视觉: 数字为 0 时加灰色「未采集」chip,和达人卡 V2.1 一致
+   零编造规则 v2: 0 不等于没数据,统一兑底为「未采集」 */
+.stat-uncaptured-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #8E8E93;
+  background: #F2F2F7;
+  border-radius: 4px;
+  vertical-align: middle;
+  letter-spacing: 0;
+}
 
 /* 4 真实能力卡片(技能 tab 头部) */
 .ai-emp-ability-section { margin-bottom: 20px; }
@@ -7732,22 +7746,22 @@ window.doLogin = function () {
 <!-- V3 升级:stats 独立条(跨 tab 始终可见,从 /api/agents/:id/stats 取) -->
 <div class="ai-emp-stats-bar" id="aiEmpStatsBar">
   <div class="ai-emp-stat">
-    <div class="ai-emp-stat-value placeholder" id="aiEmpStatTalents">--</div>
+    <div class="ai-emp-stat-value placeholder" id="aiEmpStatTalents">--<span class="stat-uncaptured-chip" style="display:none;">未采集</span></div>
     <div class="ai-emp-stat-label">已服务达人数</div>
     <div class="ai-emp-stat-source">talents + knowledge_events</div>
   </div>
   <div class="ai-emp-stat">
-    <div class="ai-emp-stat-value placeholder" id="aiEmpStatAnalyses">--</div>
+    <div class="ai-emp-stat-value placeholder" id="aiEmpStatAnalyses">--<span class="stat-uncaptured-chip" style="display:none;">未采集</span></div>
     <div class="ai-emp-stat-label">完成分析数</div>
     <div class="ai-emp-stat-source">knowledge_events (analysis)</div>
   </div>
   <div class="ai-emp-stat">
-    <div class="ai-emp-stat-value placeholder" id="aiEmpStatTasks">--</div>
+    <div class="ai-emp-stat-value placeholder" id="aiEmpStatTasks">--<span class="stat-uncaptured-chip" style="display:none;">未采集</span></div>
     <div class="ai-emp-stat-label">完成任务数</div>
     <div class="ai-emp-stat-source">tasks (status=completed)</div>
   </div>
   <div class="ai-emp-stat">
-    <div class="ai-emp-stat-value placeholder" id="aiEmpStatSuccess">--</div>
+    <div class="ai-emp-stat-value placeholder" id="aiEmpStatSuccess">--<span class="stat-uncaptured-chip" style="display:none;">未采集</span></div>
     <div class="ai-emp-stat-label">工具调用成功率</div>
     <div class="ai-emp-stat-source">tool_calls (window:<span id="aiEmpStatWindow">30d</span>)</div>
   </div>
@@ -16836,7 +16850,14 @@ function loadEmpStats(empId) {
   // 重置为占位(防止上一个员工的数据短暂残留)
   ['aiEmpStatTalents', 'aiEmpStatAnalyses', 'aiEmpStatTasks', 'aiEmpStatSuccess'].forEach(function (id) {
     var el = document.getElementById(id);
-    if (el) { el.textContent = '--'; el.classList.add('placeholder'); }
+    if (el) {
+      // 重置: 只保留 -- 数字(去掉「未采集」chip),加 placeholder class
+      var chip = el.querySelector('.stat-uncaptured-chip');
+      el.textContent = '--';
+      if (chip) el.appendChild(chip);
+      if (chip) chip.style.display = 'none';
+      el.classList.add('placeholder');
+    }
   });
   var token = localStorage.getItem('sb_auth_token');
   var headers = { 'Accept': 'application/json' };
@@ -16849,14 +16870,32 @@ function loadEmpStats(empId) {
       if (resp.status === 200 && resp.body && resp.body.stats) {
         var s = resp.body.stats;
         var w = resp.body.window_days;
+        // 零编造规则 v2: 值为 0 时统一兑底「未采集」chip
+        // (前端无法区分「真零」vs「数据源没采集」, 保守按「未采集」显示, 避免数字误导)
         var setVal = function (id, v, isNull) {
           var el = document.getElementById(id);
           if (!el) return;
+          var chip = el.querySelector('.stat-uncaptured-chip');
+          var setNum = function (txt) {
+            // 只更新第一个文本节点(--),不动 chip span
+            if (el.firstChild && el.firstChild.nodeType === 3) {
+              el.firstChild.nodeValue = txt;
+            } else {
+              el.textContent = txt;
+              if (chip) el.appendChild(chip);
+            }
+          };
           if (isNull || v === null || v === undefined) {
-            el.textContent = '--';
+            setNum('--');
+            if (chip) chip.style.display = 'none';
+            el.classList.add('placeholder');
+          } else if (v === 0) {
+            setNum('--');
+            if (chip) chip.style.display = '';
             el.classList.add('placeholder');
           } else {
-            el.textContent = (typeof v === 'number' && v % 1 !== 0) ? v.toFixed(2) : String(v);
+            setNum((typeof v === 'number' && v % 1 !== 0) ? v.toFixed(2) : String(v));
+            if (chip) chip.style.display = 'none';
             el.classList.remove('placeholder');
           }
         };
