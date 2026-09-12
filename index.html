@@ -4178,6 +4178,95 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .quote-preview-close:hover { background: #e5e5e5; color: #333; }
 /* 被引用消息定位高亮闪烁 */
 .msg.quote-flash .msg-bubble { animation: quoteFlash 1.2s ease; }
+
+/* ③ 发送状态: sending 半透明 + 角标 spinner, failed 红边 + 重试按钮 */
+.msg.own[data-status="sending"] { opacity: 0.65; }
+.msg.own[data-status="sending"]::after {
+  content: '';
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  margin-top: -6px;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--color-border, #E5E5EA);
+  border-top-color: var(--color-primary, #007AFF);
+  border-radius: 50%;
+  animation: msgSendingSpin 0.8s linear infinite;
+}
+@keyframes msgSendingSpin { to { transform: rotate(360deg); } }
+.msg.own[data-status="failed"] .msg-bubble {
+  border: 1.5px solid var(--color-status-lost, #FF3B30);
+  background: rgba(255, 59, 48, 0.04);
+}
+.msg.own[data-status="failed"] {
+  position: relative;
+}
+.msg-retry-btn {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 4px 10px;
+  background: var(--color-status-lost, #FF3B30);
+  color: #fff;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  user-select: none;
+}
+.msg-retry-btn:hover { background: #E5352B; }
+
+/* ① 消息 hover 操作栏(右上角浮出, 复制/引用/重发/删除) */
+.msg { position: relative; }
+.msg-hover-actions {
+  position: absolute;
+  top: -28px;
+  right: 8px;
+  display: flex;
+  gap: 2px;
+  padding: 3px 5px;
+  background: var(--bg-primary, #fff);
+  border: 0.5px solid var(--separator);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 5;
+}
+.msg:hover .msg-hover-actions,
+.msg-hover-actions.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+.msg-hover-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary, #6E6E73);
+  transition: all 0.1s ease;
+}
+.msg-hover-btn:hover { background: var(--color-bg-softer, #F2F2F7); color: var(--color-primary, #007AFF); }
+.msg-hover-btn.danger:hover { color: var(--color-status-lost, #FF3B30); }
+/* own 消息(右侧)在右上; not-own(左侧)在右上(不变, 工具栏永远右上方便触发) */
+.msg.own .msg-hover-actions { right: 8px; left: auto; }
+
+/* ④ 连续消息合并: 跳过 avatar + sender 行(只渲染 bubble) */
+/* 时间只显示在消息组最后一条(.last-in-group) */
+.msg.consecutive .msg-avatar { display: none; }
+.msg.consecutive .msg-sender { display: none; }
+.msg-sender-time-only { padding-top: 2px; padding-bottom: 4px; font-size: 11px; color: var(--text-tertiary, #AEAEB2); text-align: right; }
+.msg.own .msg-sender-time-only { text-align: left; }
+/* own 消息(sender 在右)的 last-in-group 时间也右对齐 */
+.msg.own .msg-sender { text-align: right; }
 @keyframes quoteFlash { 0%, 60% { background: #dbe7fd; } 100% { background: #f2f3f5; } }
 
 /* Apple 风格 - 用户消息（右侧，浅蓝色） */
@@ -9001,6 +9090,41 @@ function escapeAttr(s) {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ② 智能时间分隔 helper: 根据与上一条消息的时间差, 返回分隔 HTML 或 ''
+// 规则: 跨日(本地时区) → "今天" / "昨天" / "前天" / "MM-DD" / "YYYY-MM-DD"
+//       同日间隔 > 30 分钟 → "HH:MM"
+//       旧 fallback: 无 time 字段 → "今天" 兜底
+function formatChatTimeSeparator(prevTime, currTime) {
+  if (!currTime) return '<div class="time-separator"><span>今天</span></div>';
+  var d = new Date(currTime);
+  if (isNaN(d.getTime())) return '<div class="time-separator"><span>今天</span></div>';
+  var pad = function (n) { return n < 10 ? '0' + n : n; };
+  var now = new Date();
+  var dStart = new Date(d); dStart.setHours(0, 0, 0, 0);
+  var nowStart = new Date(now); nowStart.setHours(0, 0, 0, 0);
+  var dayDiff = Math.floor((nowStart - dStart) / (1000 * 60 * 60 * 24));
+  var dayLabel;
+  if (dayDiff === 0) dayLabel = '今天';
+  else if (dayDiff === 1) dayLabel = '昨天';
+  else if (dayDiff === 2) dayLabel = '前天';
+  else if (dayDiff <= 7) dayLabel = dayDiff + ' 天前';
+  else dayLabel = d.getFullYear() === now.getFullYear() ? (pad(d.getMonth() + 1) + '-' + pad(d.getDate())) : (d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()));
+  // 第一条消息(无 prev)或跨日 → 显示日期分隔
+  if (!prevTime) return '<div class="time-separator"><span>' + dayLabel + '</span></div>';
+  var pd = new Date(prevTime);
+  if (isNaN(pd.getTime())) return '<div class="time-separator"><span>' + dayLabel + '</span></div>';
+  // 跨日判断(用本地时区, 不比较 dayDiff 而是同一天)
+  var sameDay = (d.getFullYear() === pd.getFullYear() && d.getMonth() === pd.getMonth() && d.getDate() === pd.getDate());
+  if (!sameDay) return '<div class="time-separator"><span>' + dayLabel + '</span></div>';
+  // 同日: 间隔 > 30 分钟 → 显示时间分隔
+  var gapMin = Math.abs(d.getTime() - pd.getTime()) / (1000 * 60);
+  if (gapMin > 30) {
+    var h = pad(d.getHours()), min = pad(d.getMinutes());
+    return '<div class="time-separator"><span>' + h + ':' + min + '</span></div>';
+  }
+  return '';
+}
+
 // 格式化相对时间：今天 HH:mm，昨天 昨天 HH:mm，前天到本周 周X HH:mm，更早 MM-DD HH:mm，跨年 YYYY-MM-DD HH:mm
 function formatRelativeTime(ts) {
   if (!ts) return '';
@@ -9528,6 +9652,11 @@ async function sendMsg() {
   var ownQuoteHtml = window._pendingQuote ? buildQuoteBlockHtml(window._pendingQuote) : '';
   userMsg.innerHTML = '<div class="msg-content"><div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div><div class="msg-bubble">' + ownQuoteHtml + formatMessageContent(text || '') + '</div>' + imagesHtml + '</div>';
   area.appendChild(userMsg);
+  // ③ 发送状态管理: 用户消息进 DOM 时标 sending + 缓存 text/images 用于重试
+  userMsg.setAttribute('data-status', 'sending');
+  userMsg.setAttribute('data-pending-text', text || '');
+  // images 不直接存 attribute(太大), 只存 URL 列表(已在 imagesHtml 渲染, 重试时无法重新发送图片)
+  try { userMsg.setAttribute('data-pending-images', JSON.stringify(pendingImages.map(function (img) { return img.url || img.dataUrl || ''; }))); } catch (e) { userMsg.setAttribute('data-pending-images', '[]'); }
   // 立即保存用户消息到服务器，避免切换员工时消息丢失（AI 回复由 saveChatToServer 再存）
   // 达人防编造（架构级）：后端保存消息时检测达人关键词，命中则直查 talents 表并随响应返回
   // talentInjection（【系统数据】），由前端拼进发给 OpenClaw 的消息，LLM 不参与数据查询
@@ -9549,13 +9678,55 @@ async function sendMsg() {
       if (savedMsgId) {
         _registerMsgDom(userMsg, { id: savedMsgId, role: 'user', content: text, images: pendingImages, reply_to: replyToId || null });
       }
+      // ③ save 成功: 3s 后移除 sending 状态(无痕过渡到"已发送")
+      setTimeout(function () {
+        if (userMsg.getAttribute('data-status') === 'sending') userMsg.removeAttribute('data-status');
+      }, 3000);
       // 多图（>=2）重任务被后端旁路：不再走 OpenClaw chat.send，改为轮询旁路任务状态
       if (saveData && saveData.heavyPipe) {
         heavyJobId = saveData.jobId || null;
         heavyPlaceholder = (saveData.aiMessage && saveData.aiMessage.content) || '';
       }
+    } else {
+      // ③ save 失败: 标 failed + 加重试按钮(用户点 retryMessage 重发, 不需重输)
+      userMsg.setAttribute('data-status', 'failed');
+      var failReason = (saveResp && saveResp.status) ? ('HTTP ' + saveResp.status) : '保存失败';
+      userMsg.setAttribute('data-fail-reason', failReason);
+      var retryBtn = document.createElement('div');
+      retryBtn.className = 'msg-retry-btn';
+      retryBtn.textContent = '⚠️ 发送失败 · 点击重试';
+      retryBtn.setAttribute('data-msg-id', userMsg.getAttribute('data-msg-id') || '');
+      userMsg.appendChild(retryBtn);
+      userMsg.addEventListener('click', function onRetryClick(e) {
+        if (!e.target.classList.contains('msg-retry-btn')) return;
+        e.stopPropagation();
+        retryMessage(userMsg);
+      });
+      // 失败时不让 typing 指示器出现(避免"AI 还在想"的错觉)
+      var earlyTyping = document.getElementById('typingMsg');
+      if (earlyTyping) earlyTyping.remove();
+      restoreOnline();
+      showToast('❌ 消息发送失败: ' + failReason);
     }
-  } catch (e) { console.error('[Chat] 用户消息即时保存失败:', e); }
+  } catch (e) {
+    // ③ save 异常(网络错误等): 同样标 failed
+    console.error('[Chat] 用户消息即时保存失败:', e);
+    userMsg.setAttribute('data-status', 'failed');
+    userMsg.setAttribute('data-fail-reason', (e && e.message) || '网络错误');
+    var retryBtn2 = document.createElement('div');
+    retryBtn2.className = 'msg-retry-btn';
+    retryBtn2.textContent = '⚠️ 发送失败 · 点击重试';
+    userMsg.appendChild(retryBtn2);
+    userMsg.addEventListener('click', function (e) {
+      if (!e.target.classList.contains('msg-retry-btn')) return;
+      e.stopPropagation();
+      retryMessage(userMsg);
+    });
+    var earlyTyping2 = document.getElementById('typingMsg');
+    if (earlyTyping2) earlyTyping2.remove();
+    restoreOnline();
+    showToast('❌ 消息发送失败: ' + ((e && e.message) || '网络错误'));
+  }
   input.value = '';
   clearPendingImages();
   clearQuotePreview();
@@ -15662,10 +15833,30 @@ function renderMsgs(type) {
       area.innerHTML = getChatEmptyStateHtml();
       return;
     }
+    // ④ 2-pass: 先算 consecutive + isLastInGroup 标志
+    // 规则: 上一条同 role + 间隔 < 2 分钟 → current 是 consecutive(middle)
+    //       下一条开始新组时, current 是 lastInGroup
+    var groupFlags = filtered.map(function () { return { consecutive: false, lastInGroup: false }; });
+    for (var gi = 0; gi < filtered.length; gi++) {
+      var m = filtered[gi];
+      var prev = gi > 0 ? filtered[gi - 1] : null;
+      var sameAsPrev = prev && prev.role === m.role && m.time && prev.time && (Math.abs(new Date(m.time) - new Date(prev.time)) / 60000) < 2;
+      if (sameAsPrev) groupFlags[gi].consecutive = true;
+    }
+    for (var gj = 0; gj < filtered.length; gj++) {
+      var mj = filtered[gj];
+      var next = gj + 1 < filtered.length ? filtered[gj + 1] : null;
+      var nextStartsNew = !next || next.role !== mj.role || !mj.time || !next.time || (Math.abs(new Date(next.time) - new Date(mj.time)) / 60000) >= 2;
+      if (nextStartsNew) groupFlags[gj].lastInGroup = true;
+    }
     var typingMsg = document.getElementById('typingMsg');
-    area.innerHTML = '<div class="time-separator"><span>今天</span></div>' + filtered.map(function (m) {
+    var prevMsgTime = null;
+    area.innerHTML = filtered.map(function (m, idx) {
       const own = m.role === 'user';
       const timeStr = formatDate(m.time);
+      // ② 智能时间分隔: 跨日/30 分钟间隔
+      var sepHtml = formatChatTimeSeparator(prevMsgTime, m.time);
+      prevMsgTime = m.time;
       // 缓存消息数据供右键「引用」取数
       _registerMsgDom(null, m);
       var quoteHtml2 = m.reply_to_message ? buildQuoteBlockHtml(m.reply_to_message) : '';
@@ -15680,7 +15871,25 @@ function renderMsgs(type) {
         citationHtml2 = '<div class="citation-bar" onclick="toggleCitationPanel(\'' + citeId2 + '\')">📚 引用了 ' + m.citations.length + ' 条知识 <span class="citation-toggle">▼</span></div>' +
           '<div class="citation-panel hidden" id="' + citeId2 + '">' + citeItems2 + '</div>';
       }
-      return '<div class="msg ' + (own ? 'own' : '') + '" data-msg-id="' + escapeAttr(m.id || '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + quoteHtml2 + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '</div></div>';
+      // ④ 连续消息合并: 跳过 avatar + sender 行; 时间只在 lastInGroup 显示
+      var isConsecutive = groupFlags[idx].consecutive;
+      var isLastInGroup = groupFlags[idx].lastInGroup;
+      var msgClasses = 'msg ' + (own ? 'own' : '') + (isConsecutive ? ' consecutive' : '') + (isLastInGroup ? ' last-in-group' : '');
+      var avatarHtml = (!own && !isConsecutive) ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '';
+      var senderHtml = '';
+      if (!isConsecutive) {
+        // 开头消息: 完整 sender 行
+        if (!own) {
+          senderHtml = '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + (isLastInGroup ? '<span class="msg-sender-time">' + timeStr + '</span>' : '') + '</div>';
+        } else {
+          senderHtml = '<div class="msg-sender"><span class="msg-sender-name">你</span>' + (isLastInGroup ? '<span class="msg-sender-time">' + timeStr + '</span>' : '') + '</div>';
+        }
+      } else if (isLastInGroup) {
+        // consecutive + lastInGroup: 只显示时间(无 sender name, 无 role)
+        var timeOnlyHtml = '<div class="msg-sender msg-sender-time-only"><span class="msg-sender-time">' + timeStr + '</span></div>';
+        senderHtml = timeOnlyHtml;
+      }
+      return sepHtml + '<div class="' + msgClasses.trim() + '" data-msg-id="' + escapeAttr(m.id || '') + '">' + avatarHtml + '<div class="msg-content">' + senderHtml + '<div class="msg-bubble">' + quoteHtml2 + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '<div class="msg-hover-actions" data-msg-id="' + escapeAttr(m.id || '') + '">' + '<button class="msg-hover-btn" data-action="copy" title="复制">📋</button>' + '<button class="msg-hover-btn" data-action="quote" title="引用">💬</button>' + (own ? '<button class="msg-hover-btn" data-action="resend" title="重发">🔄</button>' : '') + '<button class="msg-hover-btn danger" data-action="delete" title="删除">🗑</button>' + '</div>' + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
     if (typingMsg) {
       area.appendChild(typingMsg);
@@ -15760,6 +15969,143 @@ function onWelcomePrompt(text) {
     }
   }, 50);
 }
+
+// ========== ① 消息 hover 操作栏事件委托 ==========
+// 单一 handler 通过事件委托挂到 messagesArea, 处理 4 个 action: copy/quote/resend/delete
+// 触屏兼容: touchstart 后 0.5s 显示, touchend 隐藏(模拟 hover)
+(function bindMsgHoverActions() {
+  var area = null;
+  function ensure() { if (!area) area = document.getElementById('messagesArea'); return area; }
+  // 长按触发(touchstart 0.5s 后)
+  var longPressTimer = null;
+  var lastTouchTarget = null;
+  function findMsg(el) { while (el && el !== area) { if (el.classList && el.classList.contains('msg')) return el; el = el.parentNode; } return null; }
+  function hideAll() { var menus = document.querySelectorAll('.msg-hover-actions.show'); for (var i = 0; i < menus.length; i++) menus[i].classList.remove('show'); }
+  function showActions(msg) { var a = msg.querySelector('.msg-hover-actions'); if (a) a.classList.add('show'); }
+  function getMsgContent(msg) {
+    var b = msg.querySelector('.msg-bubble');
+    if (!b) return '';
+    return (b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+  function copyMessage(msg) {
+    var text = getMsgContent(msg);
+    if (!text) { showToast('⚠️ 消息内容为空'); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { showToast('✅ 已复制'); }).catch(function () { showToast('❌ 复制失败'); });
+    } else { showToast('❌ 当前浏览器不支持复制'); }
+  }
+  function quoteMessage(msg) {
+    var text = getMsgContent(msg);
+    if (!text) { showToast('⚠️ 消息内容为空'); return; }
+    var input = document.getElementById('msgInput');
+    if (input) {
+      var truncated = text.length > 200 ? text.slice(0, 200) + '…' : text;
+      input.value = '> ' + truncated + '\n\n';
+      input.focus();
+      if (typeof handleInput === 'function') handleInput();
+    }
+  }
+  function resendMessage(msg) {
+    var id = msg.getAttribute('data-msg-id');
+    if (!id) { showToast('⚠️ 消息缺少 id'); return; }
+    var btn = msg.querySelector('.msg-hover-btn[data-action="resend"]');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    setTimeout(function () {
+      if (btn) { btn.disabled = false; btn.textContent = '🔄'; }
+      showToast('🔄 已触发重发(占位)');
+    }, 800);
+  }
+  function deleteMessage(msg) {
+    var id = msg.getAttribute('data-msg-id');
+    if (!id) { showToast('⚠️ 消息缺少 id'); return; }
+    // 设置 msgCtxTarget 给现有 msgCtxAction('delete') 用(避免复制右击逻辑)
+    msgCtxTarget = {
+      element: msg,
+      isAI: !msg.classList.contains('own')
+    };
+    if (typeof msgCtxAction === 'function') msgCtxAction('delete');
+  }
+  // ③ 失败消息重试: 用缓存的 text/images 重新发, 失败时不重入 sendMsg(避免双发)
+  function retryMessage(msg) {
+    if (!msg || msg.getAttribute('data-status') !== 'failed') return;
+    var text = msg.getAttribute('data-pending-text') || '';
+    var imagesJson = msg.getAttribute('data-pending-images') || '[]';
+    var images = [];
+    try { images = JSON.parse(imagesJson) || []; } catch (e) { images = []; }
+    // 标回 sending + 移除重试按钮
+    msg.setAttribute('data-status', 'sending');
+    var rb = msg.querySelector('.msg-retry-btn');
+    if (rb) rb.remove();
+    var empId = localStorage.getItem('sb_current_emp');
+    if (!empId) { showToast('❌ 无法确定当前聊天员工'); msg.setAttribute('data-status', 'failed'); return; }
+    // 只重发"保存到服务器"那一步(完整重发要走 sendMsg 全流程太重, 失败常见原因是网络抖动,
+    // 重试保存后 AI 路由由 server-side job 接管)
+    if (typeof apiFetch !== 'function') {
+      showToast('❌ apiFetch 未就绪');
+      msg.setAttribute('data-status', 'failed');
+      return;
+    }
+    apiFetch('/api/chat/' + encodeURIComponent(empId), {
+      method: 'POST',
+      body: JSON.stringify({ role: 'user', content: text, skipAI: false, empId: empId, images: images.length ? images : undefined })
+    }).then(function (resp) {
+      if (resp && resp.ok) {
+        setTimeout(function () { if (msg.getAttribute('data-status') === 'sending') msg.removeAttribute('data-status'); }, 1500);
+        showToast('✅ 重试成功');
+        // 触发后端 AI 流程(若 skipAI=false, 后端会自动调度, 不需要前端额外发 OpenClaw)
+        if (typeof renderMsgs === 'function') setTimeout(function () { renderMsgs('private'); }, 500);
+      } else {
+        msg.setAttribute('data-status', 'failed');
+        msg.setAttribute('data-fail-reason', (resp && resp.status) ? ('HTTP ' + resp.status) : '重试失败');
+        var retryBtn2 = document.createElement('div');
+        retryBtn2.className = 'msg-retry-btn';
+        retryBtn2.textContent = '⚠️ 重试失败 · 再次点击';
+        msg.appendChild(retryBtn2);
+        showToast('❌ 重试失败');
+      }
+    }).catch(function (e) {
+      msg.setAttribute('data-status', 'failed');
+      var retryBtn3 = document.createElement('div');
+      retryBtn3.className = 'msg-retry-btn';
+      retryBtn3.textContent = '⚠️ 重试失败 · 再次点击';
+      msg.appendChild(retryBtn3);
+      showToast('❌ 重试失败: ' + ((e && e.message) || '网络错误'));
+    });
+  }
+  function handle(action, msg) {
+    if (action === 'copy') copyMessage(msg);
+    else if (action === 'quote') quoteMessage(msg);
+    else if (action === 'resend') resendMessage(msg);
+    else if (action === 'delete') deleteMessage(msg);
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    var a = ensure();
+    if (!a) return;
+    a.addEventListener('click', function (e) {
+      var btn = e.target.closest && e.target.closest('.msg-hover-btn');
+      if (!btn) return;
+      var menu = btn.closest('.msg-hover-actions');
+      var msg = menu ? menu.closest('.msg') : null;
+      if (!msg) return;
+      e.stopPropagation();
+      handle(btn.getAttribute('data-action'), msg);
+    });
+    // 触屏长按
+    a.addEventListener('touchstart', function (e) {
+      var msg = findMsg(e.target);
+      if (!msg) return;
+      lastTouchTarget = msg;
+      clearTimeout(longPressTimer);
+      longPressTimer = setTimeout(function () { hideAll(); showActions(msg); }, 500);
+    }, { passive: true });
+    a.addEventListener('touchend', function () { clearTimeout(longPressTimer); }, { passive: true });
+    a.addEventListener('touchmove', function () { clearTimeout(longPressTimer); }, { passive: true });
+    // 点击空白处隐藏
+    document.addEventListener('click', function (e) {
+      if (!e.target.closest || !e.target.closest('.msg-hover-actions')) hideAll();
+    });
+  });
+})();
 
 // 员工列表异步加载完成后，若聊天区仍是欢迎空状态则重渲染（让员工卡片出现）
 function refreshChatEmptyStateIfVisible() {
