@@ -4427,6 +4427,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .chat-more-dropdown > div:hover { background: var(--bg-tertiary); }
 .chat-more-dropdown .token-count { margin-left: auto; color: var(--text-tertiary); font-size: 12px; }
+.chat-more-divider { height: 1px; background: var(--separator); margin: 4px 6px; opacity: 0.6; }
 
 .input-area-v2 {
   padding: 10px 16px 12px;
@@ -6588,6 +6589,7 @@ window.doLogin = function () {
 
 <!-- Employee Settings Dropdown Menu -->
 <div id="empSettingsMenu" class="emp-settings-menu">
+  <div class="menu-item" onclick="empSettingsAction('detail')">👁️ 查看详情</div>
   <div class="menu-item" onclick="empSettingsAction('edit')">✏️ 编辑资料</div>
   <div class="menu-divider"></div>
   <div class="menu-item has-submenu">📁 移动到分组
@@ -7396,6 +7398,9 @@ window.doLogin = function () {
     <div onclick="handleMenuReset()"><span>🔄</span> 重置</div>
     <div id="menuArchiveItem" onclick="archiveGroupChat(); closeChatMoreMenu();" style="display:none;"><span>📦</span> 归档</div>
     <div onclick="jumpToTokens(); closeChatMoreMenu();">跳转至 Tokens <span class="token-count" id="tokenCount">665</span></div>
+    <div class="chat-more-divider"></div>
+    <div onclick="copyLastChatMessage()"><span>📋</span> 复制消息</div>
+    <div onclick="deleteLastChatMessage()"><span>🗑️</span> 删除消息</div>
   </div>
 </div>
 </div>
@@ -12108,7 +12113,8 @@ function bindListEvents() {
       moreBtn.addEventListener('click', function (ev) {
         ev.stopPropagation();
         ev.preventDefault();
-        alert('[DEBUG] moreBtn clicked! empId=' + empId);
+        // 复用 empSettingsMenu(showEmpSettingsMenu 已支持左键 + 右键 + 位置计算 + 关闭外点击)
+        showEmpSettingsMenu(ev, empId);
       });
     }
     // Drag
@@ -12349,6 +12355,13 @@ function empSettingsAction(action) {
   });
   if (!emp) return;
   switch (action) {
+    case 'detail':
+      // 「查看详情」= 打开详情面板 + 跳到基础 tab(与 edit 同行为,但语义上是只读入口)
+      openEmpDetail(empSettingsTarget);
+      setTimeout(function () {
+        switchEmpDetailTab('basic');
+      }, 100);
+      break;
     case 'edit':
       openEmpDetail(empSettingsTarget);
       setTimeout(function () {
@@ -15989,6 +16002,79 @@ function toggleChatMoreMenu() {
 function closeChatMoreMenu() {
   var dd = document.getElementById('chatMoreDropdown');
   if (dd) dd.classList.remove('show');
+}
+
+// 复制当前聊天最后一条消息(从 DOM 拿文本,navigator.clipboard 优先 + execCommand fallback)
+function copyLastChatMessage() {
+  closeChatMoreMenu();
+  var msgs = document.querySelectorAll('#messagesArea .msg[data-msg-id]');
+  if (!msgs.length) {
+    showToast('⚠️ 当前聊天没有可复制的消息');
+    return;
+  }
+  var last = msgs[msgs.length - 1];
+  var contentEl = last.querySelector('.msg-content, .msg-text, .msg-bubble, .text, .content');
+  var text = contentEl ? (contentEl.innerText || contentEl.textContent || '').trim() : (last.innerText || '').trim();
+  if (!text) {
+    showToast('⚠️ 最后一条消息无可复制内容');
+    return;
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () {
+      showToast('✅ 已复制最后一条消息');
+    }).catch(function () {
+      fallbackCopy(text);
+    });
+  } else {
+    fallbackCopy(text);
+  }
+  function fallbackCopy(t) {
+    var ta = document.createElement('textarea');
+    ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); showToast('✅ 已复制最后一条消息'); }
+    catch (e) { showToast('❌ 复制失败,请手动复制'); }
+    document.body.removeChild(ta);
+  }
+}
+
+// 删除当前聊天最后一条消息(后端 DELETE /api/chat/{empId}/{msgId},成功 renderMsgs 刷新)
+function deleteLastChatMessage() {
+  closeChatMoreMenu();
+  var msgs = document.querySelectorAll('#messagesArea .msg[data-msg-id]');
+  if (!msgs.length) {
+    showToast('⚠️ 当前聊天没有可删除的消息');
+    return;
+  }
+  var last = msgs[msgs.length - 1];
+  var msgId = last.getAttribute('data-msg-id');
+  if (!msgId) {
+    showToast('⚠️ 最后一条消息缺少 id,无法删除');
+    return;
+  }
+  if (!confirm('确定删除最后一条消息?此操作不可恢复。')) return;
+  var empId = localStorage.getItem('sb_current_emp');
+  if (!empId) {
+    showToast('❌ 无法确定当前聊天员工');
+    return;
+  }
+  if (typeof apiFetch !== 'function') {
+    showToast('❌ apiFetch 未就绪');
+    return;
+  }
+  apiFetch('/api/chat/' + encodeURIComponent(empId) + '/' + encodeURIComponent(msgId), {
+    method: 'DELETE'
+  }).then(function (res) {
+    if (res && (res.status === 200 || res.status === 204)) {
+      showToast('✅ 已删除最后一条消息');
+      if (typeof renderMsgs === 'function') renderMsgs('private');
+    } else {
+      var err = (res && res.body && res.body.error) || ('HTTP ' + (res && res.status));
+      showToast('❌ 删除失败:' + err);
+    }
+  }).catch(function (e) {
+    showToast('❌ 删除失败:' + (e && e.message || '网络错误'));
+  });
 }
 function handleMenuReset() {
   closeChatMoreMenu();
