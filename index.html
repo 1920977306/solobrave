@@ -6130,6 +6130,124 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .product-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(20px); z-index: 400; display: none; align-items: center; justify-content: center; }
 .product-modal-overlay.active { display: flex; }
 .product-modal-panel { width: 88%; max-width: 480px; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
+
+/* ② 员工列表空状态视觉化引导(AI 员工是核心的视觉传达) */
+.emp-list-empty-state {
+  padding: 40px 20px 32px;
+  text-align: center;
+  color: var(--text-secondary, #6E6E73);
+}
+.emp-list-empty-icon-wrap {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.emp-list-empty-icon {
+  font-size: 48px;
+  position: relative;
+  z-index: 1;
+}
+.emp-list-empty-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-ai-bg-soft, #EEF0FF) 0%, transparent 70%);
+  animation: empListEmptyRingPulse 2.4s ease-in-out infinite;
+}
+@keyframes empListEmptyRingPulse {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+.emp-list-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1C1C1E);
+  margin-bottom: 8px;
+  letter-spacing: -0.2px;
+}
+.emp-list-empty-desc {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-text-secondary, #6E6E73);
+  margin-bottom: 20px;
+  max-width: 280px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.emp-list-empty-cta-primary {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  margin: 0 auto 10px;
+  padding: 11px 16px;
+  background: var(--color-primary, #007AFF);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.emp-list-empty-cta-primary:hover { background: var(--color-primary-hover, #0066D6); }
+.emp-list-empty-cta-secondary {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  margin: 0 auto;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--color-primary, #007AFF);
+  border: none;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.emp-list-empty-cta-secondary:hover { text-decoration: underline; }
+
+/* ② 「AI 员工能做什么」info modal 列表(复用 AI 员工技能卡视觉) */
+.what-can-do-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.what-can-do-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--color-bg-softer, #F2F2F7);
+  border-radius: 10px;
+  align-items: flex-start;
+}
+.what-can-do-mark {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--color-ai-accent, #5E5CE6);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.what-can-do-body { flex: 1; min-width: 0; }
+.what-can-do-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1C1C1E);
+  margin-bottom: 2px;
+}
+.what-can-do-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-secondary, #6E6E73);
+}
 .product-modal { width: 100%; max-width: 480px; max-height: 90vh; background: #ffffff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
 .product-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 0.5px solid var(--separator); }
 .product-modal-title { font-size: 17px; font-weight: 600; }
@@ -8642,6 +8760,30 @@ function onboardingSkipClick() {
   localStorage.setItem('sb_onboarding_done', '1');
   var modal = document.getElementById('onboardingModal');
   if (modal) modal.style.display = 'none';
+}
+
+// ② 员工列表空状态「了解 AI 员工能做什么」— 弹一个轻量 info modal 列 4 个真实能力
+// (数据源: Helen 等 AI 员工真实 systemPrompt 能力, 不编)
+function showWhatCanAiEmpDo() {
+  var html = '<div class="onboarding-modal-overlay" id="whatCanAiDoOverlay" style="display:flex;">'
+    + '<div class="onboarding-modal-panel" style="width:480px;text-align:left;padding:28px 24px;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
+    + '<div style="font-size:17px;font-weight:600;color:var(--color-text-primary,#1C1C1E);">AI 员工能做什么</div>'
+    + '<button onclick="document.getElementById(\'whatCanAiDoOverlay\').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--color-text-tertiary,#AEAEB2);">✕</button>'
+    + '</div>'
+    + '<div class="what-can-do-list">'
+    + '<div class="what-can-do-item"><div class="what-can-do-mark">入</div><div class="what-can-do-body"><div class="what-can-do-name">截图录入</div><div class="what-can-do-desc">上传一张达人主页截图, 自动识别 + OCR + 写入知识库</div></div></div>'
+    + '<div class="what-can-do-item"><div class="what-can-do-mark">匹</div><div class="what-can-do-body"><div class="what-can-do-name">达人-商品匹配分析</div><div class="what-can-do-desc">6 维度(粉丝画像 / 历史 GPM / 客单价 / 品类契合 / 调性 / 履约)评估合作匹配度</div></div></div>'
+    + '<div class="what-can-do-item"><div class="what-can-do-mark">选</div><div class="what-can-do-body"><div class="what-can-do-name">选品策略建议</div><div class="what-can-do-desc">基于本周已合作达人的粉丝画像, 推荐下一波选品(品类 + 价格带)</div></div></div>'
+    + '<div class="what-can-do-item"><div class="what-can-do-mark">评</div><div class="what-can-do-body"><div class="what-can-do-name">合作价值重新评级</div><div class="what-can-do-desc">基于最新数据(履约率 / 复购 / GMV)重评达人合作价值 A/B/C/D</div></div></div>'
+    + '</div>'
+    + '<div style="display:flex;justify-content:flex-end;margin-top:20px;">'
+    + '<button class="onboarding-modal-btn primary" style="flex:0 0 auto;padding:9px 22px;" onclick="document.getElementById(\'whatCanAiDoOverlay\').remove();openWizard();">立即创建</button>'
+    + '</div>'
+    + '</div></div>';
+  var wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstChild);
 }
 
 // 登录
@@ -11611,8 +11753,15 @@ function renderEmployeeList() {
     html += renderCategoryHeader('AI 团队', state['AI 团队']);
     if (state['AI 团队']) {
     if (visible.length === 0) {
-      // 没有员工时显示空状态提示
-      html += '<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方「新增员工」按钮，创建属于你的AI员工</div><div style="font-size:11px;margin-top:6px;color:var(--text-tertiary)">双击员工可查看详情 · 右键更多操作</div></div>';
+      // ② 员工列表空状态: 视觉化引导(以前是纯文字 4 行, 叙事弱, AI 员工是核心的视觉传达缺失)
+      // 现在用 V2.1 tokens 做"AI 员工 = 你的虚拟团队"叙事 + 主/次 CTA
+      html += '<div class="emp-list-empty-state">'
+        + '<div class="emp-list-empty-icon-wrap"><div class="emp-list-empty-icon">🦞</div><div class="emp-list-empty-ring"></div></div>'
+        + '<div class="emp-list-empty-title">还没有 AI 员工</div>'
+        + '<div class="emp-list-empty-desc">AI 员工是你的虚拟团队。每位 AI 员工可以服务达人群、分析商品、自动跟进合作。</div>'
+        + '<button class="emp-list-empty-cta-primary" onclick="openWizard()">+ 创建第一位 AI 员工</button>'
+        + '<button class="emp-list-empty-cta-secondary" onclick="showWhatCanAiEmpDo()">了解 AI 员工能做什么</button>'
+        + '</div>';
     } else {
       // 置顶的排在前面
       visible.sort(function (a, b) {
