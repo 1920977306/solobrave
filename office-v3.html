@@ -56,6 +56,13 @@
   /* 自定义扩展色(V2.1 无等价, 保留 teal/pink hex 兼容旧逻辑) */
   --teal: #00C7BE;
   --pink: #FF2D55;
+  /* 旧名 alias (修复 6ad2b28 删 alias 但保留 var() 引用导致的 broken ref)
+   * L86-96 等 22 处 var(--blue/green/red/yellow) 引用需要这些定义,
+   * 不补回的话 stat-card.online/working/idle/pending 4 个色条全不显示 */
+  --blue: #007AFF;          /* working 工作中 = 活跃蓝 (user 偏好, 不是橙 talking) */
+  --green: #34C759;          /* online 在线 = 绿 (--color-status-active 同色) */
+  --red: #FF3B30;             /* pending 未处理 = 红 (--color-status-lost 同色) */
+  --yellow: #8E8E93;        /* idle 待命 = 中性灰 (user 偏好, 不是 #FFCC00 黄警示) */
 
 
 body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Segoe UI',sans-serif;background:var(--bg-primary);color:var(--text-primary);min-height:100vh;-webkit-font-smoothing:antialiased;overflow-x:hidden}
