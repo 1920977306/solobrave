@@ -3820,6 +3820,31 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .section-title-collapsible.expanded .section-chevron { transform: rotate(0deg); }
 .section-title-collapsible.collapsed .section-chevron { transform: rotate(-90deg); }
 .section-title-collapsible .section-title-text { flex: 1; letter-spacing: 1px; font-weight: 500; }
+/* ③ 一级分类头视觉强化: outline AI 徽章(不 fill, 避免和员工卡 AI 光晕打架) + 人数 chip */
+.section-ai-badge {
+  display: inline-block;
+  font: 600 9px/1 -apple-system, sans-serif;
+  color: var(--color-ai-accent, #5E5CE6);
+  background: transparent;
+  border: 1px solid var(--color-ai-accent, #5E5CE6);
+  padding: 2px 5px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+.section-count-chip {
+  display: inline-block;
+  font: 500 10px/1 -apple-system, sans-serif;
+  color: var(--color-text-tertiary, #AEAEB2);
+  background: var(--color-bg-softer, #F2F2F7);
+  padding: 2px 6px;
+  border-radius: 8px;
+  min-width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
 .dept-group { margin-bottom: 4px; }
 .dept-header {
   display: flex;
@@ -6839,6 +6864,9 @@ window.doLogin = function () {
   --color-text-secondary: #6E6E73;
   --color-primary: #007AFF;
   --color-primary-hover: #0066D6;
+  --color-ai-accent: #5E5CE6;  /* ③ AI 视觉协议主色(已用在多处, 集中 token) */
+  --color-ai-bg-soft: #EEF0FF;  /* ③ AI 浅紫底色 */
+  --color-pinned-bg: rgba(0, 122, 255, 0.06);  /* ③ 置顶区域背景, 替代 inline rgba(0,122,255,0.04) 提到 token + 略加深 */
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -11998,7 +12026,8 @@ function renderEmployeeList() {
 
   // ===== 一级分类：AI 团队 =====
   if (canSeeEmployees) {
-    html += renderCategoryHeader('AI 团队', state['AI 团队']);
+    // ③ 视觉强化: 传 visible.length 做人数 chip
+    html += renderCategoryHeader('AI 团队', state['AI 团队'], visible.length);
     if (state['AI 团队']) {
     if (visible.length === 0) {
       // ② 员工列表空状态: 视觉化引导(以前是纯文字 4 行, 叙事弱, AI 员工是核心的视觉传达缺失)
@@ -12033,7 +12062,8 @@ function renderEmployeeList() {
         html += renderSubCategoryHeader('📌 置顶', pinnedEmps.length, pinnedExpanded);
         html += '<div class="subcategory-content">';
         html += pinnedEmps.map(function (e) {
-          return '<div class="list-item pinned-item" data-id="' + escapeAttr(e.id) + '" draggable="true" oncontextmenu="event.preventDefault();showEmpSettingsMenu(event,this.dataset.id)" style="background:rgba(0,122,255,0.04);">' + renderEmployeeItem(e, true) + '</div>';
+          // ③ 置顶区背景: 提 token 替代内联 rgba(0,122,255,0.04) + 略加深到 0.06 让置顶区可辨识
+          return '<div class="list-item pinned-item" data-id="' + escapeAttr(e.id) + '" draggable="true" oncontextmenu="event.preventDefault();showEmpSettingsMenu(event,this.dataset.id)" style="background:var(--color-pinned-bg);">' + renderEmployeeItem(e, true) + '</div>';
         }).join('');
         html += '</div></div>';
       }
@@ -12062,7 +12092,8 @@ function renderEmployeeList() {
 
   // ===== 一级分类：项目组 =====
   if (canSeeGroups) {
-    html += renderCategoryHeader('项目组', state['项目组']);
+    // ③ 视觉强化: 传 groups.length 做人数 chip
+    html += renderCategoryHeader('项目组', state['项目组'], (groups || []).length);
     if (state['项目组']) {
       html += renderGroupItems();
       // 添加 "+" 按钮
@@ -12184,12 +12215,18 @@ function renderArchiveSections() {
     }
   }
 }
-function renderCategoryHeader(name, expanded) {
+function renderCategoryHeader(name, expanded, count) {
   // ① 修折叠 bug: 旧实现完全忽略 expanded 参数, 只渲染纯文字。
-  // 新实现: chevron + 标题 + click 绑现有 toggleCategory(name) + class 反映状态
+  // ③ 视觉强化: 一级分类头加 outline AI 徽章(仅 AI 团队) + 人数 chip
+  // chevron + 标题 + click 绑现有 toggleCategory(name) + class 反映状态
+  var isAi = name === 'AI 团队';
+  var aiBadge = isAi ? '<span class="section-ai-badge">AI</span>' : '';
+  var countChip = (typeof count === 'number' && count > 0) ? '<span class="section-count-chip">' + count + '</span>' : '';
   return '<div class="section-title section-title-collapsible ' + (expanded ? 'expanded' : 'collapsed') + '" data-category="' + escapeAttr(name) + '" onclick="toggleCategory(\'' + escapeAttr(name) + '\')">'
     + '<span class="section-chevron">▾</span>'
     + '<span class="section-title-text">' + escapeHtml(name) + '</span>'
+    + aiBadge
+    + countChip
     + '</div>';
 }
 function renderSubCategoryHeader(name, count, expanded) {
