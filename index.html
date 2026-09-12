@@ -9043,6 +9043,41 @@ function escapeAttr(s) {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ② 智能时间分隔 helper: 根据与上一条消息的时间差, 返回分隔 HTML 或 ''
+// 规则: 跨日(本地时区) → "今天" / "昨天" / "前天" / "MM-DD" / "YYYY-MM-DD"
+//       同日间隔 > 30 分钟 → "HH:MM"
+//       旧 fallback: 无 time 字段 → "今天" 兜底
+function formatChatTimeSeparator(prevTime, currTime) {
+  if (!currTime) return '<div class="time-separator"><span>今天</span></div>';
+  var d = new Date(currTime);
+  if (isNaN(d.getTime())) return '<div class="time-separator"><span>今天</span></div>';
+  var pad = function (n) { return n < 10 ? '0' + n : n; };
+  var now = new Date();
+  var dStart = new Date(d); dStart.setHours(0, 0, 0, 0);
+  var nowStart = new Date(now); nowStart.setHours(0, 0, 0, 0);
+  var dayDiff = Math.floor((nowStart - dStart) / (1000 * 60 * 60 * 24));
+  var dayLabel;
+  if (dayDiff === 0) dayLabel = '今天';
+  else if (dayDiff === 1) dayLabel = '昨天';
+  else if (dayDiff === 2) dayLabel = '前天';
+  else if (dayDiff <= 7) dayLabel = dayDiff + ' 天前';
+  else dayLabel = d.getFullYear() === now.getFullYear() ? (pad(d.getMonth() + 1) + '-' + pad(d.getDate())) : (d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()));
+  // 第一条消息(无 prev)或跨日 → 显示日期分隔
+  if (!prevTime) return '<div class="time-separator"><span>' + dayLabel + '</span></div>';
+  var pd = new Date(prevTime);
+  if (isNaN(pd.getTime())) return '<div class="time-separator"><span>' + dayLabel + '</span></div>';
+  // 跨日判断(用本地时区, 不比较 dayDiff 而是同一天)
+  var sameDay = (d.getFullYear() === pd.getFullYear() && d.getMonth() === pd.getMonth() && d.getDate() === pd.getDate());
+  if (!sameDay) return '<div class="time-separator"><span>' + dayLabel + '</span></div>';
+  // 同日: 间隔 > 30 分钟 → 显示时间分隔
+  var gapMin = Math.abs(d.getTime() - pd.getTime()) / (1000 * 60);
+  if (gapMin > 30) {
+    var h = pad(d.getHours()), min = pad(d.getMinutes());
+    return '<div class="time-separator"><span>' + h + ':' + min + '</span></div>';
+  }
+  return '';
+}
+
 // 格式化相对时间：今天 HH:mm，昨天 昨天 HH:mm，前天到本周 周X HH:mm，更早 MM-DD HH:mm，跨年 YYYY-MM-DD HH:mm
 function formatRelativeTime(ts) {
   if (!ts) return '';
@@ -15705,9 +15740,13 @@ function renderMsgs(type) {
       return;
     }
     var typingMsg = document.getElementById('typingMsg');
-    area.innerHTML = '<div class="time-separator"><span>今天</span></div>' + filtered.map(function (m) {
+    var prevMsgTime = null;
+    area.innerHTML = filtered.map(function (m) {
       const own = m.role === 'user';
       const timeStr = formatDate(m.time);
+      // ② 智能时间分隔: 跨日/30 分钟间隔
+      var sepHtml = formatChatTimeSeparator(prevMsgTime, m.time);
+      prevMsgTime = m.time;
       // 缓存消息数据供右键「引用」取数
       _registerMsgDom(null, m);
       var quoteHtml2 = m.reply_to_message ? buildQuoteBlockHtml(m.reply_to_message) : '';
@@ -15722,7 +15761,7 @@ function renderMsgs(type) {
         citationHtml2 = '<div class="citation-bar" onclick="toggleCitationPanel(\'' + citeId2 + '\')">📚 引用了 ' + m.citations.length + ' 条知识 <span class="citation-toggle">▼</span></div>' +
           '<div class="citation-panel hidden" id="' + citeId2 + '">' + citeItems2 + '</div>';
       }
-      return '<div class="msg ' + (own ? 'own' : '') + '" data-msg-id="' + escapeAttr(m.id || '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + quoteHtml2 + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '<div class="msg-hover-actions" data-msg-id="' + escapeAttr(m.id || '') + '">' + '<button class="msg-hover-btn" data-action="copy" title="复制">📋</button>' + '<button class="msg-hover-btn" data-action="quote" title="引用">💬</button>' + (own ? '<button class="msg-hover-btn" data-action="resend" title="重发">🔄</button>' : '') + '<button class="msg-hover-btn danger" data-action="delete" title="删除">🗑</button>' + '</div>' + '</div></div>';
+      return sepHtml + '<div class="msg ' + (own ? 'own' : '') + '" data-msg-id="' + escapeAttr(m.id || '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + quoteHtml2 + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '<div class="msg-hover-actions" data-msg-id="' + escapeAttr(m.id || '') + '">' + '<button class="msg-hover-btn" data-action="copy" title="复制">📋</button>' + '<button class="msg-hover-btn" data-action="quote" title="引用">💬</button>' + (own ? '<button class="msg-hover-btn" data-action="resend" title="重发">🔄</button>' : '') + '<button class="msg-hover-btn danger" data-action="delete" title="删除">🗑</button>' + '</div>' + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
     if (typingMsg) {
       area.appendChild(typingMsg);
