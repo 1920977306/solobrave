@@ -16739,21 +16739,31 @@ function loadEmpWorkActivity(empId) {
   if (token && token !== 'null' && token !== 'local_mode') {
     headers['Authorization'] = 'Bearer ' + token;
   }
+  // 8s 硬超时:API 挂起时不要永远卡在「加载中...」,降级为「暂无工作记录」
+  // (用户能区分「还在加载」vs「真的没数据」,而不是以为页面卡死)
+  var timeoutId = setTimeout(function () {
+    if (listEl && listEl.innerHTML.indexOf('加载中') !== -1) {
+      listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录</div>';
+    }
+  }, 8000);
   fetch('/api/agents/' + encodeURIComponent(empId) + '/activity?days=30&limit=20', { headers: headers, credentials: 'same-origin' })
     .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
     .then(function (resp) {
+      clearTimeout(timeoutId);
       if (resp.status === 200 && resp.body && Array.isArray(resp.body.items)) {
         renderEmpWorkList(resp.body.items);
       } else {
-        // 静默回退:不弹错,只在 work-list 区域显占位
+        // 静默回退:不弹错,只在 work-list 区域显占位(统一文案,不带调试后缀)
         if (listEl) {
-          listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录(后端 ' + resp.status + ')</div>';
+          listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录</div>';
         }
         console.warn('loadEmpWorkActivity 非 200:', resp.status, resp.body && resp.body.error);
       }
     })
     .catch(function (e) {
-      if (listEl) listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录(网络错误)</div>';
+      clearTimeout(timeoutId);
+      // 静默回退:网络错误也只显「暂无工作记录」,不弹错
+      if (listEl) listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录</div>';
       console.warn('loadEmpWorkActivity 网络错误:', e);
     });
 }
@@ -16762,7 +16772,8 @@ function renderEmpWorkList(items) {
   var listEl = document.getElementById('aiEmpWorkList');
   if (!listEl) return;
   if (!items || items.length === 0) {
-    listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录(后端 0 events)</div>';
+    // 空数据统一显「暂无工作记录」(去掉调试文本「后端 0 events」)
+    listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录</div>';
     return;
   }
   var iconMap = { analysis: '分', follow_up: '跟', task: '完', deal: '合', ingest: '录' };
