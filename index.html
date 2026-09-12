@@ -22184,7 +22184,12 @@ async function finishWizard() {
     closeWizard();
     document.getElementById('wizName').value = '';
     document.getElementById('wizApiKey').value = '';
+    // ④ wizard 完成后「成功首屏」跳转:
+    // 先切到 messages 模块(如果用户从 employees 列表空白态打开 wizard, 此时在
+    // employees 模块, 聊天面板不可见, openChat 不会改变视图)。然后打开新员工
+    // 单聊, 让用户立刻看到"员工已就位, 可以开始对话", 而不是回到空欢迎页
     setTimeout(function () {
+      if (typeof switchModule === 'function') switchModule('messages');
       openChat(newEmp.id);
     }, 300);
   } else if (regResult.error === 'Gateway 未连接') {
@@ -22195,7 +22200,9 @@ async function finishWizard() {
       closeWizard();
       document.getElementById('wizName').value = '';
       document.getElementById('wizApiKey').value = '';
+      // ④ 同上: 保留员工时也跳转到新员工聊天
       setTimeout(function () {
+        if (typeof switchModule === 'function') switchModule('messages');
         openChat(newEmp.id);
       }, 300);
     } else {
