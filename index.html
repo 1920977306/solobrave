@@ -4258,6 +4258,15 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .msg-hover-btn.danger:hover { color: var(--color-status-lost, #FF3B30); }
 /* own 消息(右侧)在右上; not-own(左侧)在右上(不变, 工具栏永远右上方便触发) */
 .msg.own .msg-hover-actions { right: 8px; left: auto; }
+
+/* ④ 连续消息合并: 跳过 avatar + sender 行(只渲染 bubble) */
+/* 时间只显示在消息组最后一条(.last-in-group) */
+.msg.consecutive .msg-avatar { display: none; }
+.msg.consecutive .msg-sender { display: none; }
+.msg-sender-time-only { padding-top: 2px; padding-bottom: 4px; font-size: 11px; color: var(--text-tertiary, #AEAEB2); text-align: right; }
+.msg.own .msg-sender-time-only { text-align: left; }
+/* own 消息(sender 在右)的 last-in-group 时间也右对齐 */
+.msg.own .msg-sender { text-align: right; }
 @keyframes quoteFlash { 0%, 60% { background: #dbe7fd; } 100% { background: #f2f3f5; } }
 
 /* Apple 风格 - 用户消息（右侧，浅蓝色） */
@@ -15824,9 +15833,25 @@ function renderMsgs(type) {
       area.innerHTML = getChatEmptyStateHtml();
       return;
     }
+    // ④ 2-pass: 先算 consecutive + isLastInGroup 标志
+    // 规则: 上一条同 role + 间隔 < 2 分钟 → current 是 consecutive(middle)
+    //       下一条开始新组时, current 是 lastInGroup
+    var groupFlags = filtered.map(function () { return { consecutive: false, lastInGroup: false }; });
+    for (var gi = 0; gi < filtered.length; gi++) {
+      var m = filtered[gi];
+      var prev = gi > 0 ? filtered[gi - 1] : null;
+      var sameAsPrev = prev && prev.role === m.role && m.time && prev.time && (Math.abs(new Date(m.time) - new Date(prev.time)) / 60000) < 2;
+      if (sameAsPrev) groupFlags[gi].consecutive = true;
+    }
+    for (var gj = 0; gj < filtered.length; gj++) {
+      var mj = filtered[gj];
+      var next = gj + 1 < filtered.length ? filtered[gj + 1] : null;
+      var nextStartsNew = !next || next.role !== mj.role || !mj.time || !next.time || (Math.abs(new Date(next.time) - new Date(mj.time)) / 60000) >= 2;
+      if (nextStartsNew) groupFlags[gj].lastInGroup = true;
+    }
     var typingMsg = document.getElementById('typingMsg');
     var prevMsgTime = null;
-    area.innerHTML = filtered.map(function (m) {
+    area.innerHTML = filtered.map(function (m, idx) {
       const own = m.role === 'user';
       const timeStr = formatDate(m.time);
       // ② 智能时间分隔: 跨日/30 分钟间隔
@@ -15846,7 +15871,25 @@ function renderMsgs(type) {
         citationHtml2 = '<div class="citation-bar" onclick="toggleCitationPanel(\'' + citeId2 + '\')">📚 引用了 ' + m.citations.length + ' 条知识 <span class="citation-toggle">▼</span></div>' +
           '<div class="citation-panel hidden" id="' + citeId2 + '">' + citeItems2 + '</div>';
       }
-      return sepHtml + '<div class="msg ' + (own ? 'own' : '') + '" data-msg-id="' + escapeAttr(m.id || '') + '">' + (!own ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '') + '<div class="msg-content">' + (!own ? '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + '</span><span class="msg-sender-time">' + timeStr + '</span></div>' : '<div class="msg-sender"><span class="msg-sender-name">你</span><span class="msg-sender-time">' + timeStr + '</span></div>') + '<div class="msg-bubble">' + quoteHtml2 + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '<div class="msg-hover-actions" data-msg-id="' + escapeAttr(m.id || '') + '">' + '<button class="msg-hover-btn" data-action="copy" title="复制">📋</button>' + '<button class="msg-hover-btn" data-action="quote" title="引用">💬</button>' + (own ? '<button class="msg-hover-btn" data-action="resend" title="重发">🔄</button>' : '') + '<button class="msg-hover-btn danger" data-action="delete" title="删除">🗑</button>' + '</div>' + '</div></div>';
+      // ④ 连续消息合并: 跳过 avatar + sender 行; 时间只在 lastInGroup 显示
+      var isConsecutive = groupFlags[idx].consecutive;
+      var isLastInGroup = groupFlags[idx].lastInGroup;
+      var msgClasses = 'msg ' + (own ? 'own' : '') + (isConsecutive ? ' consecutive' : '') + (isLastInGroup ? ' last-in-group' : '');
+      var avatarHtml = (!own && !isConsecutive) ? '<div class="msg-avatar">' + renderAvatar(emp, 32) + '</div>' : '';
+      var senderHtml = '';
+      if (!isConsecutive) {
+        // 开头消息: 完整 sender 行
+        if (!own) {
+          senderHtml = '<div class="msg-sender"><span class="msg-sender-name">' + escapeHtml(emp && emp.name || 'AI') + '</span><span class="msg-sender-role">' + escapeHtml(getEmpRoleDisplay(emp) || '') + (isLastInGroup ? '<span class="msg-sender-time">' + timeStr + '</span>' : '') + '</div>';
+        } else {
+          senderHtml = '<div class="msg-sender"><span class="msg-sender-name">你</span>' + (isLastInGroup ? '<span class="msg-sender-time">' + timeStr + '</span>' : '') + '</div>';
+        }
+      } else if (isLastInGroup) {
+        // consecutive + lastInGroup: 只显示时间(无 sender name, 无 role)
+        var timeOnlyHtml = '<div class="msg-sender msg-sender-time-only"><span class="msg-sender-time">' + timeStr + '</span></div>';
+        senderHtml = timeOnlyHtml;
+      }
+      return sepHtml + '<div class="' + msgClasses.trim() + '" data-msg-id="' + escapeAttr(m.id || '') + '">' + avatarHtml + '<div class="msg-content">' + senderHtml + '<div class="msg-bubble">' + quoteHtml2 + formatMessageContent(m.content) + '</div>' + citationHtml2 + imagesHtml2 + '<div class="msg-hover-actions" data-msg-id="' + escapeAttr(m.id || '') + '">' + '<button class="msg-hover-btn" data-action="copy" title="复制">📋</button>' + '<button class="msg-hover-btn" data-action="quote" title="引用">💬</button>' + (own ? '<button class="msg-hover-btn" data-action="resend" title="重发">🔄</button>' : '') + '<button class="msg-hover-btn danger" data-action="delete" title="删除">🗑</button>' + '</div>' + '</div></div>';
     }).join('') + '<div class="typing-indicator" id="typingIndicator" style="display:none;"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>';
     if (typingMsg) {
       area.appendChild(typingMsg);
