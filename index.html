@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>全可AI Office - Mission Control</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23FF6B35'/%3E%3Ctext x='50' y='68' text-anchor='middle' font-size='55' font-weight='bold' fill='white' font-family='-apple-system,BlinkMacSystemFont,sans-serif'%3EQK%3C/text%3E%3C/svg%3E?v=2">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23FF6B35'/%3E%3Cstop offset='100%25' stop-color='%23FF3B30'/%3E%3C/linearGradient%3E%3Cfilter id='s'%3E%3CfeGaussianBlur stdDeviation='0.6'/%3E%3C/filter%3E%3C/defs%3E%3Cstyle%3E@media (prefers-color-scheme: dark){.q{fill:%23ffffff}.b{fill:url(%23g);stroke:%23ffffff;stroke-width:1}}.q{fill:%23ffffff}.b{fill:url(%23g)}%3C/style%3E%3Crect class='b' width='100' height='100' rx='22'/%3E%3Ctext class='q' x='50' y='70' text-anchor='middle' font-size='56' font-weight='800' font-family='-apple-system,BlinkMacSystemFont,%22PingFang%20SC%22,sans-serif' filter='url(%23s)'%3EQK%3C/text%3E%3C/svg%3E?v=3">
 <style>
 /* ========================================
    V7 - Apple 抽屉式面板设计
@@ -4427,6 +4427,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .chat-more-dropdown > div:hover { background: var(--bg-tertiary); }
 .chat-more-dropdown .token-count { margin-left: auto; color: var(--text-tertiary); font-size: 12px; }
+.chat-more-divider { height: 1px; background: var(--separator); margin: 4px 6px; opacity: 0.6; }
 
 .input-area-v2 {
   padding: 10px 16px 12px;
@@ -4522,6 +4523,22 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-detail-content { flex: 1; overflow-y: auto; }
 .emp-detail-actions { flex-shrink: 0; }
 .emp-detail-overlay.open .emp-detail-panel { opacity: 1; visibility: visible; transform: translate(-50%, -50%) scale(1); }
+/* V2.1 脏状态指示器: 红色 ● 未保存 chip(与紧急标记体系一致,12px / #FF3B30 / SF Mono) */
+.emp-dirty-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(255, 59, 48, 0.1);
+  color: #FF3B30;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'SF Mono', monospace;
+  border-radius: 6px;
+  border: 0.5px solid rgba(255, 59, 48, 0.3);
+  animation: empDirtyPulse 1.6s ease-in-out infinite;
+}
+@keyframes empDirtyPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
 @media (max-width: 600px) {
   .emp-detail-panel { width: 95%; max-height: 90vh; }
 }
@@ -4578,6 +4595,20 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .ai-emp-stat-value.placeholder { color: var(--color-text-tertiary, #8E8E93); font-size: 18px; font-weight: 500; }
 .ai-emp-stat-label { font-size: 12px; color: var(--color-text-tertiary, #8E8E93); margin-top: 4px; }
 .ai-emp-stat-source { display: none; font-size: 10px; color: var(--color-text-tertiary, #8E8E93); margin-top: 4px; font-family: var(--font-num, monospace); opacity: 0.7; }
+/* V2.1 评级 chip 视觉: 数字为 0 时加灰色「未采集」chip,和达人卡 V2.1 一致
+   零编造规则 v2: 0 不等于没数据,统一兑底为「未采集」 */
+.stat-uncaptured-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #8E8E93;
+  background: #F2F2F7;
+  border-radius: 4px;
+  vertical-align: middle;
+  letter-spacing: 0;
+}
 
 /* 4 真实能力卡片(技能 tab 头部) */
 .ai-emp-ability-section { margin-bottom: 20px; }
@@ -4679,6 +4710,37 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-info-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 0.5px solid var(--separator); }
 .emp-info-label { font-size: 13px; color: var(--text-secondary); }
 .emp-info-value { font-size: 13px; font-family: 'SF Mono', monospace; }
+/* V2.1 quota-meter 横条进度条(上下文用量, 复用 --separator 轨道 + accent 填充 + SF Mono 数字) */
+.quota-meter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 160px;
+  height: 18px;
+  border-radius: 6px;
+  background: var(--separator);
+  overflow: hidden;
+}
+.quota-meter-fill {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  background: linear-gradient(90deg, #007AFF 0%, #5E5CE6 100%);
+  border-radius: 6px;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.quota-meter-fill[data-level="high"] { background: linear-gradient(90deg, #FF9500 0%, #FF3B30 100%); }
+.quota-meter-fill[data-level="critical"] { background: linear-gradient(90deg, #FF3B30 0%, #AF52DE 100%); }
+.quota-meter-text {
+  position: relative;
+  z-index: 1;
+  padding-right: 8px;
+  font-size: 11px;
+  font-family: 'SF Mono', monospace;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-shadow: 0 0 3px rgba(255, 255, 255, 0.6);
+}
 .emp-doc-section { margin-bottom: 16px; }
 .emp-doc-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; text-transform: uppercase; }
 .emp-doc-editor { width: 100%; padding: 10px; background: var(--bg-secondary); border: 0.5px solid var(--separator); border-radius: var(--radius-sm); font-size: 12px; font-family: 'SF Mono', monospace; resize: vertical; box-sizing: border-box; }
@@ -6588,6 +6650,7 @@ window.doLogin = function () {
 
 <!-- Employee Settings Dropdown Menu -->
 <div id="empSettingsMenu" class="emp-settings-menu">
+  <div class="menu-item" onclick="empSettingsAction('detail')">👁️ 查看详情</div>
   <div class="menu-item" onclick="empSettingsAction('edit')">✏️ 编辑资料</div>
   <div class="menu-divider"></div>
   <div class="menu-item has-submenu">📁 移动到分组
@@ -7396,6 +7459,9 @@ window.doLogin = function () {
     <div onclick="handleMenuReset()"><span>🔄</span> 重置</div>
     <div id="menuArchiveItem" onclick="archiveGroupChat(); closeChatMoreMenu();" style="display:none;"><span>📦</span> 归档</div>
     <div onclick="jumpToTokens(); closeChatMoreMenu();">跳转至 Tokens <span class="token-count" id="tokenCount">665</span></div>
+    <div class="chat-more-divider"></div>
+    <div onclick="copyLastChatMessage()"><span>📋</span> 复制消息</div>
+    <div onclick="deleteLastChatMessage()"><span>🗑️</span> 删除消息</div>
   </div>
 </div>
 </div>
@@ -7685,6 +7751,7 @@ window.doLogin = function () {
 <div class="emp-detail-status" id="empDetailStatus"><span class="status-dot online"></span> 在线</div>
 </div>
 <div class="emp-detail-actions">
+  <span class="emp-dirty-indicator" id="empDirtyIndicator" style="display:none;" title="有未保存的修改">● 未保存</span>
   <button class="emp-action-btn primary" id="empDetailChatBtn" onclick="onEmpDetailChat()">和 Helen 聊聊</button>
   <button class="emp-action-btn secondary" id="empDetailPromptBtn" onclick="onEmpDetailShowPrompt()">查看 systemPrompt</button>
 </div>
@@ -7696,22 +7763,22 @@ window.doLogin = function () {
 <!-- V3 升级:stats 独立条(跨 tab 始终可见,从 /api/agents/:id/stats 取) -->
 <div class="ai-emp-stats-bar" id="aiEmpStatsBar">
   <div class="ai-emp-stat">
-    <div class="ai-emp-stat-value placeholder" id="aiEmpStatTalents">--</div>
+    <div class="ai-emp-stat-value placeholder" id="aiEmpStatTalents">--<span class="stat-uncaptured-chip" style="display:none;">未采集</span></div>
     <div class="ai-emp-stat-label">已服务达人数</div>
     <div class="ai-emp-stat-source">talents + knowledge_events</div>
   </div>
   <div class="ai-emp-stat">
-    <div class="ai-emp-stat-value placeholder" id="aiEmpStatAnalyses">--</div>
+    <div class="ai-emp-stat-value placeholder" id="aiEmpStatAnalyses">--<span class="stat-uncaptured-chip" style="display:none;">未采集</span></div>
     <div class="ai-emp-stat-label">完成分析数</div>
     <div class="ai-emp-stat-source">knowledge_events (analysis)</div>
   </div>
   <div class="ai-emp-stat">
-    <div class="ai-emp-stat-value placeholder" id="aiEmpStatTasks">--</div>
+    <div class="ai-emp-stat-value placeholder" id="aiEmpStatTasks">--<span class="stat-uncaptured-chip" style="display:none;">未采集</span></div>
     <div class="ai-emp-stat-label">完成任务数</div>
     <div class="ai-emp-stat-source">tasks (status=completed)</div>
   </div>
   <div class="ai-emp-stat">
-    <div class="ai-emp-stat-value placeholder" id="aiEmpStatSuccess">--</div>
+    <div class="ai-emp-stat-value placeholder" id="aiEmpStatSuccess">--<span class="stat-uncaptured-chip" style="display:none;">未采集</span></div>
     <div class="ai-emp-stat-label">工具调用成功率</div>
     <div class="ai-emp-stat-source">tool_calls (window:<span id="aiEmpStatWindow">30d</span>)</div>
   </div>
@@ -7757,7 +7824,10 @@ window.doLogin = function () {
 </div>
 <div class="emp-info-item">
 <span class="emp-info-label">上下文</span>
-<span class="emp-info-value" id="empDetailCtx">4K / 8K</span>
+<div class="quota-meter" title="上下文使用量">
+  <div class="quota-meter-fill" id="empDetailCtxFill" style="width:0%;"></div>
+  <span class="quota-meter-text" id="empDetailCtxText">-- / 8K</span>
+</div>
 </div>
 </div>
 <div class="emp-doc-section" style="margin-top:16px;">
@@ -12055,12 +12125,11 @@ function renderEmployeeItem(e, showCreator) {
   var avatarContent = renderAvatar(e, size);
   var creatorTag = '';
 
-  // admin/leader视图：显示创建者标签（回退到员工角色，不再显示"未知"）
+  // admin/leader视图：显示创建者标签（回退链 createdByName → _createdByName → role → "创建者"，
+  // 全空时不再渲染空 span 假装没事，直接显"创建者"占位，避免 admin 列表看到空白行像 bug）
   if (showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
-    var creatorName = e.createdByName || e._createdByName || e.role || '';
-    if (creatorName) {
-      creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
-    }
+    var creatorName = e.createdByName || e._createdByName || e.role || '创建者';
+    creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
   }
 
   var statusClass = escapeAttr(e.status || 'offline');
@@ -12109,7 +12178,8 @@ function bindListEvents() {
       moreBtn.addEventListener('click', function (ev) {
         ev.stopPropagation();
         ev.preventDefault();
-        alert('[DEBUG] moreBtn clicked! empId=' + empId);
+        // 复用 empSettingsMenu(showEmpSettingsMenu 已支持左键 + 右键 + 位置计算 + 关闭外点击)
+        showEmpSettingsMenu(ev, empId);
       });
     }
     // Drag
@@ -12350,6 +12420,13 @@ function empSettingsAction(action) {
   });
   if (!emp) return;
   switch (action) {
+    case 'detail':
+      // 「查看详情」= 打开详情面板 + 跳到基础 tab(与 edit 同行为,但语义上是只读入口)
+      openEmpDetail(empSettingsTarget);
+      setTimeout(function () {
+        switchEmpDetailTab('basic');
+      }, 100);
+      break;
     case 'edit':
       openEmpDetail(empSettingsTarget);
       setTimeout(function () {
@@ -15991,6 +16068,79 @@ function closeChatMoreMenu() {
   var dd = document.getElementById('chatMoreDropdown');
   if (dd) dd.classList.remove('show');
 }
+
+// 复制当前聊天最后一条消息(从 DOM 拿文本,navigator.clipboard 优先 + execCommand fallback)
+function copyLastChatMessage() {
+  closeChatMoreMenu();
+  var msgs = document.querySelectorAll('#messagesArea .msg[data-msg-id]');
+  if (!msgs.length) {
+    showToast('⚠️ 当前聊天没有可复制的消息');
+    return;
+  }
+  var last = msgs[msgs.length - 1];
+  var contentEl = last.querySelector('.msg-content, .msg-text, .msg-bubble, .text, .content');
+  var text = contentEl ? (contentEl.innerText || contentEl.textContent || '').trim() : (last.innerText || '').trim();
+  if (!text) {
+    showToast('⚠️ 最后一条消息无可复制内容');
+    return;
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () {
+      showToast('✅ 已复制最后一条消息');
+    }).catch(function () {
+      fallbackCopy(text);
+    });
+  } else {
+    fallbackCopy(text);
+  }
+  function fallbackCopy(t) {
+    var ta = document.createElement('textarea');
+    ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); showToast('✅ 已复制最后一条消息'); }
+    catch (e) { showToast('❌ 复制失败,请手动复制'); }
+    document.body.removeChild(ta);
+  }
+}
+
+// 删除当前聊天最后一条消息(后端 DELETE /api/chat/{empId}/{msgId},成功 renderMsgs 刷新)
+function deleteLastChatMessage() {
+  closeChatMoreMenu();
+  var msgs = document.querySelectorAll('#messagesArea .msg[data-msg-id]');
+  if (!msgs.length) {
+    showToast('⚠️ 当前聊天没有可删除的消息');
+    return;
+  }
+  var last = msgs[msgs.length - 1];
+  var msgId = last.getAttribute('data-msg-id');
+  if (!msgId) {
+    showToast('⚠️ 最后一条消息缺少 id,无法删除');
+    return;
+  }
+  if (!confirm('确定删除最后一条消息?此操作不可恢复。')) return;
+  var empId = localStorage.getItem('sb_current_emp');
+  if (!empId) {
+    showToast('❌ 无法确定当前聊天员工');
+    return;
+  }
+  if (typeof apiFetch !== 'function') {
+    showToast('❌ apiFetch 未就绪');
+    return;
+  }
+  apiFetch('/api/chat/' + encodeURIComponent(empId) + '/' + encodeURIComponent(msgId), {
+    method: 'DELETE'
+  }).then(function (res) {
+    if (res && (res.status === 200 || res.status === 204)) {
+      showToast('✅ 已删除最后一条消息');
+      if (typeof renderMsgs === 'function') renderMsgs('private');
+    } else {
+      var err = (res && res.body && res.body.error) || ('HTTP ' + (res && res.status));
+      showToast('❌ 删除失败:' + err);
+    }
+  }).catch(function (e) {
+    showToast('❌ 删除失败:' + (e && e.message || '网络错误'));
+  });
+}
 function handleMenuReset() {
   closeChatMoreMenu();
   if (currentGroupId) {
@@ -16581,6 +16731,8 @@ function openEmpDetail(empId) {
     return e.id === empId;
   });
   if (!emp) return;
+  // ⑤c 脏状态: 打开新员工的面板时, 视为干净状态(避免上一个员工的脏数据干扰)
+  if (typeof clearEmpDetailDirty === 'function') clearEmpDetailDirty();
   inductBannerSuppressed = false;
   currentEmpId = empId;
   // 切换员工时先清空记忆面板的旧数据，避免短暂显示上一位员工的记忆
@@ -16604,7 +16756,33 @@ function openEmpDetail(empId) {
   document.getElementById('empDetailStatusText').textContent = getStatusText(emp.status) || '在线';
   document.getElementById('empDetailCreated').textContent = emp.createdAt || emp.created || new Date().toLocaleDateString('zh-CN');
   // V3 升级:3 个 Math.random 编造 stats 已从 DOM 移除(零编造规则),改由 header 下方 stats 独立条统一从 /api/agents/:id/stats 取真实数据
-  document.getElementById('empDetailCtx').textContent = emp.ctx || '4K / 8K';
+  // 上下文进度条:解析 emp.ctx(总窗口,如 8K / 32K) + emp.tokenUsage(已用 tokens,无则 0 → 0% 显占位)
+  // TODO: 后端目前没有 /api/agents/:id/token_usage 实时接口,等后端聚合 API 接入后,改用真实 usage
+  // 零编造规则:没数据时不要瞎显百分比,fill=0% + -- 占位
+  (function () {
+    var totalStr = (emp && emp.ctx) || '8K';
+    var total = 8 * 1024;
+    var m = String(totalStr).match(/^(\d+)\s*([KkMm]?)$/);
+    if (m) {
+      var n = parseInt(m[1], 10);
+      var u = (m[2] || '').toUpperCase();
+      total = u === 'M' ? n * 1024 * 1024 : (u === 'K' ? n * 1024 : n);
+    }
+    var used = (emp && typeof emp.tokenUsage === 'number') ? emp.tokenUsage : 0;
+    var pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+    var level = pct >= 90 ? 'critical' : (pct >= 70 ? 'high' : 'normal');
+    var fillEl = document.getElementById('empDetailCtxFill');
+    var textEl = document.getElementById('empDetailCtxText');
+    if (fillEl) {
+      fillEl.style.width = pct + '%';
+      fillEl.setAttribute('data-level', level);
+    }
+    if (textEl) {
+      var usedFmt = used > 0 ? (used >= 1024 ? (used / 1024).toFixed(1) + 'K' : used) : '--';
+      var totalFmt = total >= 1024 * 1024 ? (total / (1024 * 1024)) + 'M' : (total / 1024) + 'K';
+      textEl.textContent = used > 0 ? (usedFmt + ' / ' + totalFmt + ' · ' + pct + '%') : ('-- / ' + totalFmt);
+    }
+  })();
   document.getElementById('empDescriptionInput').value = emp.description || '';
   document.getElementById('empDetailDescription').textContent = emp.description ? '当前描述: ' + emp.description : '暂无描述';
   document.getElementById('empBadgeInput').value = emp.badge || '';
@@ -16691,7 +16869,14 @@ function loadEmpStats(empId) {
   // 重置为占位(防止上一个员工的数据短暂残留)
   ['aiEmpStatTalents', 'aiEmpStatAnalyses', 'aiEmpStatTasks', 'aiEmpStatSuccess'].forEach(function (id) {
     var el = document.getElementById(id);
-    if (el) { el.textContent = '--'; el.classList.add('placeholder'); }
+    if (el) {
+      // 重置: 只保留 -- 数字(去掉「未采集」chip),加 placeholder class
+      var chip = el.querySelector('.stat-uncaptured-chip');
+      el.textContent = '--';
+      if (chip) el.appendChild(chip);
+      if (chip) chip.style.display = 'none';
+      el.classList.add('placeholder');
+    }
   });
   var token = localStorage.getItem('sb_auth_token');
   var headers = { 'Accept': 'application/json' };
@@ -16704,14 +16889,32 @@ function loadEmpStats(empId) {
       if (resp.status === 200 && resp.body && resp.body.stats) {
         var s = resp.body.stats;
         var w = resp.body.window_days;
+        // 零编造规则 v2: 值为 0 时统一兑底「未采集」chip
+        // (前端无法区分「真零」vs「数据源没采集」, 保守按「未采集」显示, 避免数字误导)
         var setVal = function (id, v, isNull) {
           var el = document.getElementById(id);
           if (!el) return;
+          var chip = el.querySelector('.stat-uncaptured-chip');
+          var setNum = function (txt) {
+            // 只更新第一个文本节点(--),不动 chip span
+            if (el.firstChild && el.firstChild.nodeType === 3) {
+              el.firstChild.nodeValue = txt;
+            } else {
+              el.textContent = txt;
+              if (chip) el.appendChild(chip);
+            }
+          };
           if (isNull || v === null || v === undefined) {
-            el.textContent = '--';
+            setNum('--');
+            if (chip) chip.style.display = 'none';
+            el.classList.add('placeholder');
+          } else if (v === 0) {
+            setNum('--');
+            if (chip) chip.style.display = '';
             el.classList.add('placeholder');
           } else {
-            el.textContent = (typeof v === 'number' && v % 1 !== 0) ? v.toFixed(2) : String(v);
+            setNum((typeof v === 'number' && v % 1 !== 0) ? v.toFixed(2) : String(v));
+            if (chip) chip.style.display = 'none';
             el.classList.remove('placeholder');
           }
         };
@@ -16740,21 +16943,31 @@ function loadEmpWorkActivity(empId) {
   if (token && token !== 'null' && token !== 'local_mode') {
     headers['Authorization'] = 'Bearer ' + token;
   }
+  // 8s 硬超时:API 挂起时不要永远卡在「加载中...」,降级为「暂无工作记录」
+  // (用户能区分「还在加载」vs「真的没数据」,而不是以为页面卡死)
+  var timeoutId = setTimeout(function () {
+    if (listEl && listEl.innerHTML.indexOf('加载中') !== -1) {
+      listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录</div>';
+    }
+  }, 8000);
   fetch('/api/agents/' + encodeURIComponent(empId) + '/activity?days=30&limit=20', { headers: headers, credentials: 'same-origin' })
     .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
     .then(function (resp) {
+      clearTimeout(timeoutId);
       if (resp.status === 200 && resp.body && Array.isArray(resp.body.items)) {
         renderEmpWorkList(resp.body.items);
       } else {
-        // 静默回退:不弹错,只在 work-list 区域显占位
+        // 静默回退:不弹错,只在 work-list 区域显占位(统一文案,不带调试后缀)
         if (listEl) {
-          listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录(后端 ' + resp.status + ')</div>';
+          listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录</div>';
         }
         console.warn('loadEmpWorkActivity 非 200:', resp.status, resp.body && resp.body.error);
       }
     })
     .catch(function (e) {
-      if (listEl) listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录(网络错误)</div>';
+      clearTimeout(timeoutId);
+      // 静默回退:网络错误也只显「暂无工作记录」,不弹错
+      if (listEl) listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录</div>';
       console.warn('loadEmpWorkActivity 网络错误:', e);
     });
 }
@@ -16763,7 +16976,8 @@ function renderEmpWorkList(items) {
   var listEl = document.getElementById('aiEmpWorkList');
   if (!listEl) return;
   if (!items || items.length === 0) {
-    listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录(后端 0 events)</div>';
+    // 空数据统一显「暂无工作记录」(去掉调试文本「后端 0 events」)
+    listEl.innerHTML = '<div class="ai-emp-work-empty">暂无工作记录</div>';
     return;
   }
   var iconMap = { analysis: '分', follow_up: '跟', task: '完', deal: '合', ingest: '录' };
@@ -18288,10 +18502,61 @@ function removeOpenClawSkill(slug) {
   });
 }
 function closeEmpDetail() {
+  // ⑤c 脏状态: 有关闭前确认
+  if (typeof isEmpDetailDirty !== 'undefined' && isEmpDetailDirty) {
+    if (!confirm('有未保存的修改,是否放弃?')) return;
+    clearEmpDetailDirty();
+  }
   document.getElementById('empDetailOverlay').classList.remove('open');
   currentEmpId = null;
   inductBannerSuppressed = false;
 }
+
+// ========== ⑤c 员工详情面板脏状态管理 ==========
+// 描述/紧急标记/连接配置等输入框被修改后, 顶部出现红色 ● 未保存 标记;
+// 关闭面板 / 切 tab / 离开页面时若有脏数据, 弹 confirm 确认放弃。
+var isEmpDetailDirty = false;
+function markEmpDetailDirty() {
+  isEmpDetailDirty = true;
+  var ind = document.getElementById('empDirtyIndicator');
+  if (ind) ind.style.display = '';
+}
+function clearEmpDetailDirty() {
+  isEmpDetailDirty = false;
+  var ind = document.getElementById('empDirtyIndicator');
+  if (ind) ind.style.display = 'none';
+}
+// 监听所有「可编辑 + 需要保存」的 input/textarea/select
+function bindEmpDetailDirtyInputs() {
+  var ids = [
+    'empDescriptionInput',
+    'empBadgeInput',
+    'empConnectApiKey',
+    'empConnectBaseUrl',
+    'empConnectOpenclawName',
+    'empConnectAIProvider',
+    'empConnectModel'
+  ];
+  ids.forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var ev = (el.tagName === 'SELECT') ? 'change' : 'input';
+    el.addEventListener(ev, markEmpDetailDirty);
+  });
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bindEmpDetailDirtyInputs);
+} else {
+  bindEmpDetailDirtyInputs();
+}
+// 离开页面 / 关闭 tab 浏览器级 beforeunload 提示
+window.addEventListener('beforeunload', function (e) {
+  if (isEmpDetailDirty) {
+    e.preventDefault();
+    e.returnValue = '有未保存的修改';
+    return '有未保存的修改';
+  }
+});
 // ESC key to close modals
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') {
@@ -18812,6 +19077,11 @@ function dissolveGroupFromDetail() {
   }
 }
 function switchEmpDetailTab(tab) {
+  // ⑤c 脏状态: 切 tab 时若有未保存修改, 弹 confirm 确认
+  if (typeof isEmpDetailDirty !== 'undefined' && isEmpDetailDirty) {
+    if (!confirm('有未保存的修改,是否放弃?')) return;
+    clearEmpDetailDirty();
+  }
   document.querySelectorAll('.emp-detail-tab').forEach(function (t) {
     return t.classList.toggle('active', t.dataset.etab === tab);
   });
@@ -18941,6 +19211,8 @@ function saveEmpDescription() {
   if (descDisplay) descDisplay.textContent = newDesc ? '当前描述: ' + newDesc : '暂无描述';
   saveEmployees(currentEmpId);
   syncEmpToServer(emp);
+  // ⑤c 脏状态: 保存成功 → 清标记
+  if (typeof clearEmpDetailDirty === 'function') clearEmpDetailDirty();
   showToast('✅ 描述已保存并同步');
 }
 // ========== 员工连接配置 ==========
@@ -19025,6 +19297,8 @@ async function saveEmpConnect() {
 
   // 自动在 Gateway 注册/更新 Agent
   var regResult = await registerOpenClawAgent(emp);
+  // ⑤c 脏状态: 保存成功(无论注册 Gateway 成功与否, 本地配置已落库) → 清标记
+  if (typeof clearEmpDetailDirty === 'function') clearEmpDetailDirty();
   if (regResult.success) {
     showToast('✅ 配置已保存，Agent 已注册');
   } else if (regResult.error === 'Gateway 未连接') {
@@ -28206,12 +28480,11 @@ renderEmployeeItem = function (e, showCreator) {
   var avatarHtml = renderAvatar(e, size);
   var creatorTag = '';
 
-  // admin/leader视图：显示创建者标签（回退到员工角色，不再显示"未知"）
+  // admin/leader视图：显示创建者标签（回退链 createdByName → _createdByName → role → "创建者"，
+  // 全空时不再渲染空 span 假装没事，直接显"创建者"占位，避免 admin 列表看到空白行像 bug）
   if (showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
-    var creatorName = e.createdByName || e._createdByName || e.role || '';
-    if (creatorName) {
-      creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
-    }
+    var creatorName = e.createdByName || e._createdByName || e.role || '创建者';
+    creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
   }
 
   // 新版 Badge
