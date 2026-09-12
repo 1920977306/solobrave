@@ -24072,6 +24072,16 @@ def _handle_proxy_kimi(self):
     except Exception as e:
         logger.error(f'[KimiProxy] 拆分混合消息失败，跳过: {e}')
 
+    # ── 新引擎路径(PROXY_ENGINE=chain):转发/key轮换/provider降级/流式/错误
+    #    规范化由 ProviderChain 完成;业务前置(积分检查/记忆/达人/tool修补/裁剪)
+    #    与 legacy 完全共用上面的代码。legacy 路径保留,PROXY_ENGINE=legacy 切回。
+    if PROXY_ENGINE == 'chain':
+        path_chain = self._normalize_path(self.path)
+        path_suffix_chain = path_chain[len('/api/proxy/kimi'):] or '/v1/messages'
+        _handle_proxy_kimi_chain(self, body, agent_id, agent_api_key,
+                                 path_suffix_chain, _t_start, _timing)
+        return
+
     # 5. 构造转发请求到真实Kimi API
     # 提取原始请求路径中的子路径（如/v1/messages）
     path = self._normalize_path(self.path)
@@ -24476,6 +24486,178 @@ def _handle_proxy_kimi(self):
             print(f'  [KimiProxy] 非流式usage解析异常: {ns_err}', flush=True)
 
     # 10. Memory Pipeline：检查是否触发 L1 事实提取（响应已发出，失败不影响客户端）
+    if agent_id:
+        _t = time.perf_counter()
+        conn = _db_conn()
+        try:
+            memory_pipeline.check_and_run_pipeline(
+                conn, agent_id,
+                llm_call_func=_memory_pipeline_llm_call(body.get('model'), api_key=agent_api_key))
+        except Exception as e:
+            print(f'  [MemoryPipeline] pipeline check failed: {e}', flush=True)
+        finally:
+            conn.close()
+        _timing('pipeline_check', _t)
+
+    _timing('total', _t_start)
+
+
+def _make_kimi_400_repair(agent_id, log_prefix='KimiProxy'):
+    """legacy 400 自动修复的 chain 版本（repair_400 钩子）：
+    'tool_call_ids did not have response' 时从 tool_calls 表补 tool_result 重试，
+    最多 2 次；配对已存在仍报缺失则放弃（返回 None，由引擎返回规范化 400）。
+    每次进入先 dump messages 到 data/ 便于排查（与 legacy 一致）。"""
+    state = {'count': 0}
+
+    def _repair(body, err_text):
+        if state['count'] >= 2:
+            return None
+        try:
+            dump_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data',
+                                     f'kimi_400_dump_{agent_id}_{int(time.time())}.json')
+            with open(dump_path, 'w', encoding='utf-8') as df:
+                json.dump({'error': err_text, 'messages': body.get('messages', []),
+                           'agent_id': agent_id}, df, ensure_ascii=False, indent=2)
+            print(f'  [{log_prefix}] 400 dump saved: {dump_path}', flush=True)
+        except Exception:
+            pass
+        if 'tool_call_ids did not have response' not in err_text:
+            return None
+        match = re.search(r"did not have response messages: ([^\"]+)", err_text)
+        if not match:
+            return None
+        missing_raw = match.group(1).strip().strip('"').strip("'")
+        missing_ids = [mid.strip() for mid in missing_raw.split(',') if mid.strip()]
+        print(f'  [{log_prefix}] 400自动修复(chain retry {state["count"] + 1}/2): 缺失={missing_ids}', flush=True)
+
+        msgs = body.get('messages', [])
+        exec_counter = 0
+        exec_map = {}
+        for m in msgs:
+            if not isinstance(m, dict):
+                continue
+            content = m.get('content')
+            if isinstance(content, list):
+                for c in content:
+                    if isinstance(c, dict) and c.get('type') == 'tool_use':
+                        exec_map[f'exec:{exec_counter}'] = c.get('id', '')
+                        exec_counter += 1
+            tc = m.get('tool_calls')
+            if tc:
+                for t in tc:
+                    if isinstance(t, dict):
+                        exec_map[f'exec:{exec_counter}'] = t.get('id', '')
+                        exec_counter += 1
+
+        patched_msgs = list(msgs)
+        any_fixed = False
+        for mid in missing_ids:
+            target_id = exec_map.get(mid, mid)
+            has_resp = False
+            for rm in msgs:
+                if not isinstance(rm, dict):
+                    continue
+                rm_c = rm.get('content')
+                if isinstance(rm_c, list):
+                    for rc in rm_c:
+                        if isinstance(rc, dict) and rc.get('type') == 'tool_result' and rc.get('tool_use_id') == target_id:
+                            has_resp = True
+                            break
+                    if has_resp:
+                        break
+                if rm.get('role') == 'tool' and rm.get('tool_call_id') == target_id:
+                    has_resp = True
+                    break
+            if has_resp:
+                # 配对已存在却仍报缺失：问题不在消息配对，继续删改只会越修越坏
+                print(f'  [{log_prefix}] 400自动修复: {mid} -> {target_id} 已有配对，放弃修复', flush=True)
+                return None
+            tool_output = None
+            try:
+                conn = _db_conn()
+                try:
+                    row = conn.execute('SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1', (agent_id, target_id)).fetchone()
+                    if row:
+                        tool_output = row[0]
+                    if not tool_output:
+                        row = conn.execute('SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1', (agent_id, mid)).fetchone()
+                        if row:
+                            tool_output = row[0]
+                finally:
+                    conn.close()
+            except Exception:
+                pass
+            if not tool_output:
+                tool_output = '[工具执行完成，无输出记录]'
+            patched_msgs.append({
+                'role': 'user',
+                'content': [{'type': 'tool_result', 'tool_use_id': target_id,
+                             'content': tool_output if isinstance(tool_output, str) else json.dumps(tool_output, ensure_ascii=False)}]
+            })
+            any_fixed = True
+            print(f'  [{log_prefix}] 400自动修复: 追加tool_result for {mid} -> {target_id}', flush=True)
+
+        if not any_fixed:
+            return None
+        state['count'] += 1
+        new_body = dict(body)
+        new_body['messages'] = patched_msgs
+        return new_body
+
+    return _repair
+
+
+def _handle_proxy_kimi_chain(self, body, agent_id, agent_api_key, path_suffix, _t_start, _timing):
+    """_handle_proxy_kimi 的 chain 引擎转发段（PROXY_ENGINE=chain）。
+    业务前置（积分检查/记忆召回/达人预搜索/tool 修补/裁剪）在 legacy 前半段
+    已共用执行；这里只负责转发、降级、流式、扣费、记忆 pipeline 收尾。"""
+    is_streaming = bool(body.get('stream', False))
+
+    def _write_head(status, content_type, extra):
+        self.send_response(status)
+        self.send_header('Content-Type', content_type)
+        if content_type == 'text/event-stream':
+            self.send_header('Cache-Control', 'no-cache')
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+
+    def _write_chunk(b):
+        self.wfile.write(b)
+        self.wfile.flush()
+
+    _t = time.perf_counter()
+    result = _proxy_chain_forward(
+        body,
+        request_format='anthropic',
+        is_streaming=is_streaming,
+        write_head=_write_head,
+        write_chunk=_write_chunk,
+        target_path=path_suffix,
+        primary_key=agent_api_key,
+        key_pool=KIMI_KEY_POOL,
+        repair_400=_make_kimi_400_repair(agent_id),
+        log_prefix='KimiProxy')
+    _timing('chain_forward', _t)
+
+    # 9. 积分扣减：统一在引擎返回后扣一次——key 轮换 / provider 降级 /
+    #    minimax 非流式包装 SSE 等所有成功分支共用此扣费点，不重扣不漏扣；
+    #    失败（ok=False）不扣。
+    usage = result.get('usage') or {}
+    in_tok = usage.get('input_tokens', 0)
+    out_tok = usage.get('output_tokens', 0)
+    print(f'  [KimiProxy] chain结束: agent_id={agent_id} ok={result["ok"]} '
+          f'provider={result.get("provider")} fallback_from={result.get("fallback_from")} '
+          f'input_tokens={in_tok} output_tokens={out_tok}', flush=True)
+    if result['ok'] and agent_id and (in_tok or out_tok):
+        conn = _db_conn()
+        try:
+            _record_credit_usage(conn, agent_id, in_tok, out_tok, 0)
+            conn.commit()
+        finally:
+            conn.close()
+
+    # 10. Memory Pipeline（与 legacy 一致；响应已发出，失败不影响客户端）
     if agent_id:
         _t = time.perf_counter()
         conn = _db_conn()
