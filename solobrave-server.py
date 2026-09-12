@@ -17907,6 +17907,12 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
     if api_provider == 'kimicode':
         return _call_kimicode_messages(base_url, resolved_model, api_key, messages, timeout, max_tokens)
 
+    # anthropic 官方同样是 Anthropic Messages API（/messages + x-api-key 鉴权），
+    # 与 OpenAI chat/completions 不兼容；复用同一实现（此前误走 /chat/completions
+    # + Bearer，配置 anthropic 必失败——隐患修复）
+    if api_provider == 'anthropic':
+        return _call_kimicode_messages(base_url, resolved_model, api_key, messages, timeout, max_tokens)
+
     req_body = json.dumps({
         'model': resolved_model,
         'messages': messages,
@@ -22669,6 +22675,14 @@ def _handle_proxy(self):
             import traceback
             traceback.print_exc()
 
+    # ── 新引擎路径(PROXY_ENGINE=chain):转发/降级/流式/错误规范化由 ProviderChain
+    #    完成;非流式语义与 legacy 一致(同格式透传+token usage 记录),新增流式支持。
+    #    legacy 路径保留,PROXY_ENGINE=legacy 立即切回。
+    if PROXY_ENGINE == 'chain' and isinstance(body_json, dict):
+        _handle_proxy_chain(self, body_json, auth, agent_id, target_url, provider,
+                            request_format, is_kimi_coding)
+        return
+
     forward_headers = {}
     if is_kimi_coding and body_json:
         # Kimi coding API 是 Anthropic 原生端点。请求体若是 OpenAI 格式（含或不含 image_url），
@@ -22942,6 +22956,70 @@ def _handle_proxy(self):
         logger.error(f'  ❌ Proxy Unexpected Error: {e} <- {target_url}')
         self._send_json_error(500, f'Internal proxy error: {str(e)}')
 
+
+def _handle_proxy_chain(self, body_json, auth, agent_id, target_url, provider,
+                        request_format, is_kimi_coding):
+    """POST /api/proxy 的 chain 引擎路径（PROXY_ENGINE=chain）。
+    鉴权/HTTPS/域名白名单/自修改拦截在 legacy 前半段已共用执行；
+    这里接管转发：kimi coding 目标保持 legacy 的 key 优先级与端点解析，
+    非 kimi 目标按 X-AI-Provider / target_url 适配，新增流式透传。"""
+    is_streaming = bool(body_json.get('stream'))
+    ai_api_key = self.headers.get('X-AI-API-Key', '')
+    auth_header = self.headers.get('Authorization', '')
+
+    if is_kimi_coding:
+        # 与 legacy 一致：端点走 vision.baseUrl 覆盖解析；优先 key = 前端 key + agent key
+        primary = {'name': 'kimi', 'url': _resolve_kimi_coding_target_url(provider)}
+        primary_keys = []
+        if ai_api_key:
+            primary_keys.append(ai_api_key)
+        agent_stored_key = _get_agent_api_key(agent_id) if agent_id else None
+        if agent_stored_key and agent_stored_key not in primary_keys:
+            primary_keys.append(agent_stored_key)
+        key_pool = KIMI_KEY_POOL
+    else:
+        # 与 legacy 一致：X-AI-API-Key 优先，其次非 JWT 的 Authorization Bearer
+        key = ai_api_key
+        if not key and auth_header.startswith('Bearer ') and not auth_header.startswith('Bearer ey'):
+            key = auth_header[7:]
+        primary = {'name': (provider or 'openai').lower(), 'url': target_url}
+        primary_keys = [key] if key else []
+        key_pool = None
+
+    def _write_head(status, content_type, extra):
+        self.send_response(status)
+        self._add_cors_headers()
+        self.send_header('Content-Type', content_type)
+        if content_type == 'text/event-stream':
+            self.send_header('Cache-Control', 'no-cache')
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+
+    def _write_chunk(b):
+        self.wfile.write(b)
+        self.wfile.flush()
+
+    result = _proxy_chain_forward(
+        body_json,
+        request_format=request_format,
+        is_streaming=is_streaming,
+        write_head=_write_head,
+        write_chunk=_write_chunk,
+        primary=primary,
+        primary_key=primary_keys,
+        key_pool=key_pool,
+        log_prefix='Proxy')
+
+    # token usage 记录（与 legacy 一致；流式用 SSE 解析出的 usage 构造）
+    usage = result.get('usage') or {}
+    if result['ok'] and (usage.get('input_tokens') or usage.get('output_tokens')):
+        usage_json = json.dumps(
+            {'usage': usage, 'model': result.get('model') or ''}).encode('utf-8')
+        _log_proxy_token_usage(auth, body_json, usage_json,
+                               result.get('provider') or provider, target_url, agent_id)
+
+
 # ═══════════════════════════════════════════════════
 # Kimi API 代理（积分管控）— 见 KIMI_API_PROXY_SPEC.md
 # ═══════════════════════════════════════════════════
@@ -22999,13 +23077,16 @@ KIMI_PROXY_REAL_BASE_URL = os.environ.get('KIMI_PROXY_BASE_URL', '').strip() or 
 # priority 顺序降级；流式/非流式统一；错误统一规范化。
 # ═══════════════════════════════════════════════════
 
-def _chain_kimi_key_iter(primary_key, key_pool):
-    """kimi 主 provider 的 key 迭代器：优先 key（前端/agent 配置）按序 → 池内轮询，
-    tried 集合去重，池空或轮完一整圈结束（与 legacy 轮换行为一致）。"""
+def _chain_kimi_key_iter(primary_keys, key_pool):
+    """kimi 主 provider 的 key 迭代器：优先 key（前端/agent 配置，可传单个或列表）
+    按序 → 池内轮询，tried 集合去重，池空或轮完一整圈结束（与 legacy 轮换行为一致）。"""
     tried = set()
-    if primary_key:
-        tried.add(primary_key)
-        yield primary_key
+    if isinstance(primary_keys, str):
+        primary_keys = [primary_keys] if primary_keys else []
+    for k in (primary_keys or []):
+        if k and k not in tried:
+            tried.add(k)
+            yield k
     if key_pool is None:
         return
     while True:
@@ -23063,13 +23144,16 @@ def _chain_resp_headers(provider_name, fallback_from=None):
 
 
 def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head, write_chunk,
-                         target_path='/v1/messages', primary_key=None, key_pool=None,
+                         target_path='/v1/messages', primary=None, primary_key=None, key_pool=None,
                          repair_400=None, timeout=None,
                          max_tokens_default=padapters.DEFAULT_MAX_TOKENS_PROXY,
                          log_prefix='ProxyChain', fallback_providers=None):
     """统一 Provider 转发引擎。通过 write_head(status, content_type, extra_headers)
     与 write_chunk(bytes) 回调写响应，自身不持有 HTTP handler，可独立单测。
 
+    primary: 主 provider 描述 {'name', 'url'?}，缺省为 kimi（url 缺省时取
+    KIMI_PROXY_REAL_BASE_URL + target_path）；primary_key 可传单个 key 或
+    优先 key 列表（kimi: 前端 key + agent key），key_pool 非空时池内轮换。
     降级策略：401/429 同 provider 内换 key 重试（key 耗尽转下一 provider）；
     403/5xx/超时/网络错误降级下一 provider；400 等客户端错误规范化后直接返回
     （可选 repair_400 钩子先尝试修补重试）。兜底 provider 一律非流式调用，
@@ -23091,7 +23175,10 @@ def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head,
     req_model = body_json.get('model') or ''
     result['model'] = req_model
 
-    providers = [{'name': 'kimi', 'is_primary': True}]
+    if primary is None:
+        primary = {'name': 'kimi'}
+    primary = dict(primary, is_primary=True)
+    providers = [primary]
     fb = fallback_providers if fallback_providers is not None else _chain_fallback_providers()
     providers.extend(fb)
     primary_name = providers[0]['name']
@@ -23107,7 +23194,13 @@ def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head,
             result['attempts'].append({'provider': name, 'skipped': 'cooldown'})
             continue
 
-        key_iter = _chain_kimi_key_iter(primary_key, key_pool) if is_primary else iter([prov.get('api_key')])
+        if is_primary and key_pool is not None:
+            key_iter = _chain_kimi_key_iter(primary_key, key_pool)
+        elif is_primary:
+            keys = [primary_key] if isinstance(primary_key, str) else list(primary_key or [])
+            key_iter = iter([k for k in keys if k])
+        else:
+            key_iter = iter([prov.get('api_key')] if prov.get('api_key') else [])
 
         # 上游 body：格式对齐（openai↔anthropic）+ 适配层规范化
         # （max_tokens 补齐/system 顶层抽取在适配器内，默认值按调用场景传入）
@@ -23121,12 +23214,18 @@ def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head,
         upstream_body = adapter.prepare_body(upstream_body, default_max_tokens=max_tokens_default)
         if not upstream_body.get('model'):
             upstream_body['model'] = prov.get('model') or req_model
-        # 真流式透传仅当上游格式与前端一致；跨格式走非流式调用 + SSE 包装
+        # 真流式透传仅当上游格式与前端一致且为主 provider；
+        # 兜底 provider 一律非流式调用 + SSE 包装（与 legacy 403 降级行为一致）
         same_format = adapter.api_format == request_format
-        upstream_stream = bool(is_streaming and same_format)
+        upstream_stream = bool(is_streaming and same_format and is_primary)
         upstream_body['stream'] = upstream_stream
 
-        url = (KIMI_PROXY_REAL_BASE_URL + target_path) if is_primary else adapter.build_url(prov['base_url'])
+        if prov.get('url'):
+            url = prov['url']
+        elif is_primary:
+            url = KIMI_PROXY_REAL_BASE_URL + target_path
+        else:
+            url = adapter.build_url(prov['base_url'])
         logger.info(f'  [{log_prefix}] trying provider={name} format={adapter.api_format} '
                     f'stream={upstream_stream} url={url}')
 
