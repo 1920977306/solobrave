@@ -23944,6 +23944,27 @@ def _handle_proxy_kimi(self):
         'anthropic-version': self.headers.get('anthropic-version', '2023-06-01'),
     }
 
+    # ★ fix/kimi-proxy-400: anthropic 兼容 /v1/messages 必填 max_tokens (int>=1),
+    #  前端 / OpenClaw 客户端常漏发,导致累计 185 次 400。system 消息应在顶层而
+    #  不在 messages 里(role 校验会被拒)。补默认值 + 提到顶层,生产 400 闭环。
+    if not isinstance(body.get('max_tokens'), int) or body.get('max_tokens', 0) < 1:
+        body['max_tokens'] = 4096
+    if isinstance(body.get('messages'), list):
+        sys_msgs = [m for m in body['messages'] if isinstance(m, dict) and m.get('role') == 'system']
+        if sys_msgs and 'system' not in body:
+            buf = []
+            for m in sys_msgs:
+                c = m.get('content', '')
+                if isinstance(c, str):
+                    buf.append(c)
+                elif isinstance(c, list):
+                    for blk in c:
+                        if isinstance(blk, dict) and blk.get('type') == 'text':
+                            buf.append(blk.get('text', ''))
+            if buf:
+                body['system'] = '\n\n'.join(buf).strip()
+        body['messages'] = [m for m in body['messages'] if not (isinstance(m, dict) and m.get('role') == 'system')]
+
     req_body = json.dumps(body).encode('utf-8')
     forward_headers['Content-Length'] = str(len(req_body))
 
