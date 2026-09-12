@@ -4523,6 +4523,22 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .emp-detail-content { flex: 1; overflow-y: auto; }
 .emp-detail-actions { flex-shrink: 0; }
 .emp-detail-overlay.open .emp-detail-panel { opacity: 1; visibility: visible; transform: translate(-50%, -50%) scale(1); }
+/* V2.1 脏状态指示器: 红色 ● 未保存 chip(与紧急标记体系一致,12px / #FF3B30 / SF Mono) */
+.emp-dirty-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(255, 59, 48, 0.1);
+  color: #FF3B30;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'SF Mono', monospace;
+  border-radius: 6px;
+  border: 0.5px solid rgba(255, 59, 48, 0.3);
+  animation: empDirtyPulse 1.6s ease-in-out infinite;
+}
+@keyframes empDirtyPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
 @media (max-width: 600px) {
   .emp-detail-panel { width: 95%; max-height: 90vh; }
 }
@@ -7735,6 +7751,7 @@ window.doLogin = function () {
 <div class="emp-detail-status" id="empDetailStatus"><span class="status-dot online"></span> 在线</div>
 </div>
 <div class="emp-detail-actions">
+  <span class="emp-dirty-indicator" id="empDirtyIndicator" style="display:none;" title="有未保存的修改">● 未保存</span>
   <button class="emp-action-btn primary" id="empDetailChatBtn" onclick="onEmpDetailChat()">和 Helen 聊聊</button>
   <button class="emp-action-btn secondary" id="empDetailPromptBtn" onclick="onEmpDetailShowPrompt()">查看 systemPrompt</button>
 </div>
@@ -16714,6 +16731,8 @@ function openEmpDetail(empId) {
     return e.id === empId;
   });
   if (!emp) return;
+  // ⑤c 脏状态: 打开新员工的面板时, 视为干净状态(避免上一个员工的脏数据干扰)
+  if (typeof clearEmpDetailDirty === 'function') clearEmpDetailDirty();
   inductBannerSuppressed = false;
   currentEmpId = empId;
   // 切换员工时先清空记忆面板的旧数据，避免短暂显示上一位员工的记忆
@@ -18483,10 +18502,61 @@ function removeOpenClawSkill(slug) {
   });
 }
 function closeEmpDetail() {
+  // ⑤c 脏状态: 有关闭前确认
+  if (typeof isEmpDetailDirty !== 'undefined' && isEmpDetailDirty) {
+    if (!confirm('有未保存的修改,是否放弃?')) return;
+    clearEmpDetailDirty();
+  }
   document.getElementById('empDetailOverlay').classList.remove('open');
   currentEmpId = null;
   inductBannerSuppressed = false;
 }
+
+// ========== ⑤c 员工详情面板脏状态管理 ==========
+// 描述/紧急标记/连接配置等输入框被修改后, 顶部出现红色 ● 未保存 标记;
+// 关闭面板 / 切 tab / 离开页面时若有脏数据, 弹 confirm 确认放弃。
+var isEmpDetailDirty = false;
+function markEmpDetailDirty() {
+  isEmpDetailDirty = true;
+  var ind = document.getElementById('empDirtyIndicator');
+  if (ind) ind.style.display = '';
+}
+function clearEmpDetailDirty() {
+  isEmpDetailDirty = false;
+  var ind = document.getElementById('empDirtyIndicator');
+  if (ind) ind.style.display = 'none';
+}
+// 监听所有「可编辑 + 需要保存」的 input/textarea/select
+function bindEmpDetailDirtyInputs() {
+  var ids = [
+    'empDescriptionInput',
+    'empBadgeInput',
+    'empConnectApiKey',
+    'empConnectBaseUrl',
+    'empConnectOpenclawName',
+    'empConnectAIProvider',
+    'empConnectModel'
+  ];
+  ids.forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var ev = (el.tagName === 'SELECT') ? 'change' : 'input';
+    el.addEventListener(ev, markEmpDetailDirty);
+  });
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bindEmpDetailDirtyInputs);
+} else {
+  bindEmpDetailDirtyInputs();
+}
+// 离开页面 / 关闭 tab 浏览器级 beforeunload 提示
+window.addEventListener('beforeunload', function (e) {
+  if (isEmpDetailDirty) {
+    e.preventDefault();
+    e.returnValue = '有未保存的修改';
+    return '有未保存的修改';
+  }
+});
 // ESC key to close modals
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') {
@@ -19007,6 +19077,11 @@ function dissolveGroupFromDetail() {
   }
 }
 function switchEmpDetailTab(tab) {
+  // ⑤c 脏状态: 切 tab 时若有未保存修改, 弹 confirm 确认
+  if (typeof isEmpDetailDirty !== 'undefined' && isEmpDetailDirty) {
+    if (!confirm('有未保存的修改,是否放弃?')) return;
+    clearEmpDetailDirty();
+  }
   document.querySelectorAll('.emp-detail-tab').forEach(function (t) {
     return t.classList.toggle('active', t.dataset.etab === tab);
   });
@@ -19136,6 +19211,8 @@ function saveEmpDescription() {
   if (descDisplay) descDisplay.textContent = newDesc ? '当前描述: ' + newDesc : '暂无描述';
   saveEmployees(currentEmpId);
   syncEmpToServer(emp);
+  // ⑤c 脏状态: 保存成功 → 清标记
+  if (typeof clearEmpDetailDirty === 'function') clearEmpDetailDirty();
   showToast('✅ 描述已保存并同步');
 }
 // ========== 员工连接配置 ==========
@@ -19220,6 +19297,8 @@ async function saveEmpConnect() {
 
   // 自动在 Gateway 注册/更新 Agent
   var regResult = await registerOpenClawAgent(emp);
+  // ⑤c 脏状态: 保存成功(无论注册 Gateway 成功与否, 本地配置已落库) → 清标记
+  if (typeof clearEmpDetailDirty === 'function') clearEmpDetailDirty();
   if (regResult.success) {
     showToast('✅ 配置已保存，Agent 已注册');
   } else if (regResult.error === 'Gateway 未连接') {
