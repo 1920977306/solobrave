@@ -4179,11 +4179,20 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 
 /* Apple 风格 - AI 消息（左侧，白色/浅灰） */
+/* ★ fix/font-and-connection: AI 回复正文用飞书 #1F2329（高对比度，WCAG AAA）+
+   15px / 1.6 行高,长时间阅读不累。深色模式下也保持高对比（防御性,虽然目前
+   项目尚未完整适配 dark 主题 CSS 变量）。不动 .msg.own(用户消息气泡)。 */
 .msg:not(.own) .msg-bubble {
   background: #f2f3f5;
   border: none;
   border-radius: 18px 18px 18px 4px;
-  color: var(--text-primary);
+  color: #1F2329;
+  font-size: 15px;
+  line-height: 1.6;
+}
+[data-theme="dark"] .msg:not(.own) .msg-bubble {
+  background: #2a2a2e;
+  color: #E8E8E8;
 }
 
 /* 消息气泡内的 Markdown 元素 */
@@ -12969,6 +12978,12 @@ function updateConnectionStatus() {
   }
   var isConnecting = typeof openclaw !== 'undefined' && openclaw.connected && !openclaw.authenticated;
 
+  // ★ fix/font-and-connection: mock 模式单独识别。openclaw-client.js 在 WS 连不上或
+  //   challenge 超时会调 _enableMockMode() → mockMode=true,connected/authenticated=false。
+  //   之前这条路径会落到 "⚠ 服务未连接",用户无法区分 "WS 真没连上 (mock 兜底)" vs
+  //   "WS 真断了 (没兜底)" —— 两种情况底层原因不同,提示应该不同。
+  var isMockMode = typeof openclaw !== 'undefined' && openclaw.mockMode === true;
+
   // Check API configuration
   var hasAPIKey = false;
   var aiConfig = localStorage.getItem('sb_ai_config');
@@ -12980,24 +12995,35 @@ function updateConnectionStatus() {
   }
 
   // 底部状态文案：去掉"OpenClaw"技术字眼，按连接态给最小提示
+  // 优先级: 已连接 > 连接中 > API 模式 > Mock 模式 > 未连接
   var latency = Math.floor(Math.random() * 50) + 20;
   var statusText;
   if (isOpenClawConnected) statusText = '✓ 服务正常 · ' + latency + 'ms';
   else if (isConnecting) statusText = '⟳ 服务连接中…';
   else if (hasAPIKey) statusText = '✓ API 模式 · ' + latency + 'ms';
+  else if (isMockMode) statusText = '⚠ Mock 模式（WS 不可达）';
   else statusText = '⚠ 服务未连接';
   if (statusEl) statusEl.textContent = statusText;
 
   // Update sidebar bottom status to avoid contradiction with connection status bar
+  // 配色: 已连接=绿, 连接中=蓝(脉冲), API=橙, Mock=灰, 未连接=红
   var sidebarStatusText = document.getElementById('sidebarStatusText');
   var sidebarStatusDot = document.getElementById('sidebarStatusDot');
   if (sidebarStatusText && sidebarStatusDot) {
     if (isOpenClawConnected) {
       sidebarStatusText.textContent = '已连接';
       sidebarStatusDot.style.background = '#34C759';
+    } else if (isConnecting) {
+      // ★ fix/font-and-connection: WS 已建但认证未完成时,侧边栏之前误显"未连接"红色
+      // → 改为蓝色"连接中",和底部状态条对齐,避免底部"⟳ 连接中"和侧边栏"未连接"互相打脸
+      sidebarStatusText.textContent = '连接中';
+      sidebarStatusDot.style.background = '#007AFF';
     } else if (hasAPIKey) {
       sidebarStatusText.textContent = 'API 模式';
       sidebarStatusDot.style.background = '#FF9500';
+    } else if (isMockMode) {
+      sidebarStatusText.textContent = 'Mock 模式';
+      sidebarStatusDot.style.background = '#8E8E93';
     } else {
       sidebarStatusText.textContent = '未连接';
       sidebarStatusDot.style.background = '#FF3B30';
