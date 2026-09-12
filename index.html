@@ -12055,12 +12055,11 @@ function renderEmployeeItem(e, showCreator) {
   var avatarContent = renderAvatar(e, size);
   var creatorTag = '';
 
-  // admin/leader视图：显示创建者标签（回退到员工角色，不再显示"未知"）
+  // admin/leader视图：显示创建者标签（回退链 createdByName → _createdByName → role → "创建者"，
+  // 全空时不再渲染空 span 假装没事，直接显"创建者"占位，避免 admin 列表看到空白行像 bug）
   if (showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
-    var creatorName = e.createdByName || e._createdByName || e.role || '';
-    if (creatorName) {
-      creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
-    }
+    var creatorName = e.createdByName || e._createdByName || e.role || '创建者';
+    creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
   }
 
   var statusClass = escapeAttr(e.status || 'offline');
@@ -28206,12 +28205,11 @@ renderEmployeeItem = function (e, showCreator) {
   var avatarHtml = renderAvatar(e, size);
   var creatorTag = '';
 
-  // admin/leader视图：显示创建者标签（回退到员工角色，不再显示"未知"）
+  // admin/leader视图：显示创建者标签（回退链 createdByName → _createdByName → role → "创建者"，
+  // 全空时不再渲染空 span 假装没事，直接显"创建者"占位，避免 admin 列表看到空白行像 bug）
   if (showCreator && (isAdmin() || isLeader()) && e.createdBy && e.createdBy !== (currentUser && currentUser.id)) {
-    var creatorName = e.createdByName || e._createdByName || e.role || '';
-    if (creatorName) {
-      creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
-    }
+    var creatorName = e.createdByName || e._createdByName || e.role || '创建者';
+    creatorTag = '<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;background:#E8E8E8;border-radius:4px;font-size:11px;color:#999999;vertical-align:middle;font-weight:500;">👤 ' + escapeHtml(creatorName) + '</span>';
   }
 
   // 新版 Badge
