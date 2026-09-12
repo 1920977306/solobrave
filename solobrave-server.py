@@ -64,6 +64,9 @@ import brain_knowledge_service as bks
 # Memory Pipeline（L0-L3 分层记忆 + Token 预算召回）
 import memory_pipeline
 
+# 统一 Provider 适配层（Anthropic/OpenAI 双向转换 + SSE + 错误规范化 + 冷却半开）
+import provider_adapters as padapters
+
 # 统一日志（替代散落的 print 调试输出）
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -89,6 +92,11 @@ PROXY_TIMEOUT = 60  # 秒
 # 60s 易触发 "The read operation timed out"（请求实际已到达 Kimi），放宽到 180s。
 # urllib 的 timeout 是 connect+read 统一值（无元组写法），转发链路统一改用此值。
 PROXY_READ_TIMEOUT = 180  # 秒
+# 代理引擎开关：chain = 新 ProviderChain 引擎（适配层 + 统一降级 + 错误规范化）；
+# legacy = 旧转发路径。生产异常时设环境变量 PROXY_ENGINE=legacy 可立即切回。
+PROXY_ENGINE = os.environ.get('PROXY_ENGINE', 'chain').strip().lower()
+if PROXY_ENGINE not in ('chain', 'legacy'):
+    PROXY_ENGINE = 'chain'
 ALLOWED_HTTP_METHODS = {'GET', 'HEAD', 'POST', 'OPTIONS', 'DELETE'}
 ALLOWED_DOMAINS = []  # 域名白名单，留空不限制
 
@@ -17899,6 +17907,12 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
     if api_provider == 'kimicode':
         return _call_kimicode_messages(base_url, resolved_model, api_key, messages, timeout, max_tokens)
 
+    # anthropic 官方同样是 Anthropic Messages API（/messages + x-api-key 鉴权），
+    # 与 OpenAI chat/completions 不兼容；复用同一实现（此前误走 /chat/completions
+    # + Bearer，配置 anthropic 必失败——隐患修复）
+    if api_provider == 'anthropic':
+        return _call_kimicode_messages(base_url, resolved_model, api_key, messages, timeout, max_tokens)
+
     req_body = json.dumps({
         'model': resolved_model,
         'messages': messages,
@@ -18024,27 +18038,31 @@ def _call_minimax_messages(base_url, model, api_key, messages, timeout=300, max_
     return None
 
 
-# ═══ Provider 降级计数器 + 多 provider 降级调用 ═══
-# 当某个 provider 连续失败 _PROVIDER_DEGRADED_THRESHOLD 次后，降级调用会跳过该 provider，
-# 避免每个请求都白白等超时。成功一次后自动重置计数。
-_PROVIDER_FAIL_COUNTS = {}
+# ═══ Provider 降级：冷却 + 半开探测（原 _PROVIDER_FAIL_COUNTS 永久降级已废弃）═══
+# 连续失败 _PROVIDER_DEGRADED_THRESHOLD 次后进入 _PROVIDER_COOLDOWN_SECONDS 秒冷却；
+# 冷却到期进入半开态：只放一个试探请求，成功才恢复，失败重新冷却。
+# 避免一次抖动永久跳过，也避免冷却刚结束被流量打爆。函数名保持兼容现有调用方。
+_PROVIDER_COOLDOWN_SECONDS = 600
 _PROVIDER_DEGRADED_THRESHOLD = 3
+_PROVIDER_COOLDOWN = padapters.CooldownTracker(
+    cooldown_seconds=_PROVIDER_COOLDOWN_SECONDS,
+    threshold=_PROVIDER_DEGRADED_THRESHOLD)
 
 
 def _mark_provider_failed(provider_name):
-    _PROVIDER_FAIL_COUNTS[provider_name] = _PROVIDER_FAIL_COUNTS.get(provider_name, 0) + 1
-    count = _PROVIDER_FAIL_COUNTS[provider_name]
-    if count >= _PROVIDER_DEGRADED_THRESHOLD:
-        logger.warning(f'  [Fallback] Provider "{provider_name}" degraded after {count} consecutive failures, skipping')
+    entered = _PROVIDER_COOLDOWN.mark_failed(provider_name)
+    if entered:
+        logger.warning(
+            f'  [Fallback] Provider "{provider_name}" 连续失败达阈值，冷却 '
+            f'{_PROVIDER_COOLDOWN_SECONDS}s（到期后半开探测恢复）')
 
 
 def _is_provider_degraded(provider_name):
-    return _PROVIDER_FAIL_COUNTS.get(provider_name, 0) >= _PROVIDER_DEGRADED_THRESHOLD
+    return not _PROVIDER_COOLDOWN.allow_request(provider_name)
 
 
 def _mark_provider_ok(provider_name):
-    if provider_name in _PROVIDER_FAIL_COUNTS:
-        del _PROVIDER_FAIL_COUNTS[provider_name]
+    _PROVIDER_COOLDOWN.mark_ok(provider_name)
 
 
 def _call_chat_completion_with_fallback(messages, timeout=PROXY_TIMEOUT, max_tokens=2000):
@@ -18125,15 +18143,15 @@ def _call_chat_completion_with_fallback(messages, timeout=PROXY_TIMEOUT, max_tok
 
 
 def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy', request_format='anthropic'):
-    """代理转发失败时（典型 403）尝试 minimax 兜底。
+    """代理转发失败时（典型 403）尝试 minimax 兜底（薄壳：实现已收编到 provider_adapters）。
     输入：body_json 是 Anthropic Messages 或 OpenAI chat/completions 格式的 dict。
     request_format: 'anthropic' 或 'openai'，决定返回的响应格式（与前端原始请求一致）。
     返回：minimax 响应已转为对应格式的 JSON 字节流；失败返回 None。
-    不修改输入。调 minimax 失败会更新 _PROVIDER_FAIL_COUNTS，连续失败 3 次后跳过。"""
+    不修改输入。失败经冷却追踪器记录，连续失败达阈值进入冷却（10 分钟，半开恢复）。"""
     if not isinstance(body_json, dict):
         return None
     if _is_provider_degraded('minimax'):
-        logger.info(f'  [{log_prefix}Fallback] minimax 已 degraded，跳过')
+        logger.info(f'  [{log_prefix}Fallback] minimax 冷却中，跳过')
         return None
 
     # 读 settings.json 拿 minimax 配置
@@ -18158,52 +18176,9 @@ def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy', request_format='a
         logger.error(f'  [{log_prefix}Fallback] 读 settings.json 失败: {e}')
         return None
 
-    # 把请求归一为 OpenAI chat/completions 消息列表（minimax 后端吃 OpenAI 格式）
-    # 输入 body_json 可能是 OpenAI 或 Anthropic 格式（_handle_proxy 在请求侧已可能做过转换）
+    adapter = padapters.adapter_for('minimax')
     try:
-        oai_messages = []
-        # 判定输入 body 是 Anthropic 还是 OpenAI：顶层有 'system' 字段或 'max_tokens' 视为 Anthropic
-        input_is_anthropic = isinstance(body_json, dict) and (
-            'system' in body_json or 'max_tokens' in body_json
-        )
-        if input_is_anthropic:
-            system_text = body_json.get('system', '')
-            if isinstance(system_text, str) and system_text:
-                oai_messages.append({'role': 'system', 'content': system_text})
-            elif isinstance(system_text, list):
-                sys_texts = [b.get('text', '') for b in system_text if isinstance(b, dict) and b.get('type') == 'text']
-                if sys_texts:
-                    oai_messages.append({'role': 'system', 'content': '\n'.join(sys_texts)})
-            for msg in body_json.get('messages', []) or []:
-                if not isinstance(msg, dict):
-                    continue
-                role = msg.get('role')
-                if role == 'system':
-                    continue
-                content = msg.get('content')
-                if isinstance(content, str):
-                    oai_messages.append({'role': role, 'content': content})
-                elif isinstance(content, list):
-                    texts = []
-                    for item in content:
-                        if isinstance(item, dict) and item.get('type') == 'text':
-                            texts.append(item.get('text', ''))
-                    if texts:
-                        oai_messages.append({'role': role, 'content': '\n'.join(texts)})
-        else:
-            # OpenAI chat/completions: system 在 messages 第一个，user/assistant 顺序
-            for msg in body_json.get('messages', []) or []:
-                if not isinstance(msg, dict):
-                    continue
-                role = msg.get('role')
-                content = msg.get('content')
-                if isinstance(content, str):
-                    oai_messages.append({'role': role, 'content': content})
-                elif isinstance(content, list):
-                    texts = [item.get('text', '') for item in content
-                             if isinstance(item, dict) and item.get('type') == 'text']
-                    if texts:
-                        oai_messages.append({'role': role, 'content': '\n'.join(texts)})
+        oai_messages, max_tokens = padapters.to_openai_messages(body_json)
         if not oai_messages:
             logger.info(f'  [{log_prefix}Fallback] 没有可转换的文本消息，跳过')
             return None
@@ -18211,16 +18186,13 @@ def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy', request_format='a
         minimax_body = {
             'model': model,
             'messages': oai_messages,
-            'max_tokens': body_json.get('max_tokens', 4096),
+            'max_tokens': max_tokens,
             'stream': False,
         }
         req_body = json.dumps(minimax_body, ensure_ascii=False).encode('utf-8')
-        target_url = base_url + '/chatcompletion_v2'
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {api_key}',
-            'Content-Length': str(len(req_body)),
-        }
+        target_url = adapter.build_url(base_url)
+        headers = adapter.build_headers(api_key)
+        headers['Content-Length'] = str(len(req_body))
         masked_key = f'{api_key[:8]}...' if api_key and len(api_key) > 8 else '(none)'
         logger.info(f'  [{log_prefix}Fallback] 上游失败 → 尝试 minimax 兜底: model={model} url={target_url} key={masked_key} request_format={request_format}')
 
@@ -18234,18 +18206,13 @@ def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy', request_format='a
             logger.error(f'  [{log_prefix}Fallback] minimax unexpected format: {raw[:500]}')
             _mark_provider_failed('minimax')
             return None
-        content_text = resp_data['choices'][0]['message'].get('content', '')
+        content_text, usage = adapter.parse_response(resp_data)
         if not content_text:
             _mark_provider_failed('minimax')
             return None
 
         # 按 request_format 构造响应
         if request_format == 'openai':
-            # OpenAI chat.completion 格式
-            usage_raw = resp_data.get('usage') or {}
-            prompt_tokens = usage_raw.get('prompt_tokens') or usage_raw.get('input_tokens') or 0
-            completion_tokens = usage_raw.get('completion_tokens') or usage_raw.get('output_tokens') or 0
-            total_tokens = usage_raw.get('total_tokens') or (prompt_tokens + completion_tokens)
             openai_resp = {
                 'id': resp_data.get('id', f'minimax_{int(time.time() * 1000)}'),
                 'object': 'chat.completion',
@@ -18257,16 +18224,15 @@ def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy', request_format='a
                     'finish_reason': 'stop',
                 }],
                 'usage': {
-                    'prompt_tokens': prompt_tokens,
-                    'completion_tokens': completion_tokens,
-                    'total_tokens': total_tokens,
+                    'prompt_tokens': usage['input_tokens'],
+                    'completion_tokens': usage['output_tokens'],
+                    'total_tokens': usage['input_tokens'] + usage['output_tokens'],
                 },
             }
             _mark_provider_ok('minimax')
             logger.info(f'  ✅ [{log_prefix}Fallback] minimax 兜底成功(OpenAI格式), content_len={len(content_text)}')
             return json.dumps(openai_resp, ensure_ascii=False).encode('utf-8')
         else:
-            # Anthropic Messages 格式（保持向后兼容）
             anthropic_resp = {
                 'id': resp_data.get('id', f'minimax_{int(time.time() * 1000)}'),
                 'type': 'message',
@@ -18274,7 +18240,7 @@ def _try_minimax_proxy_fallback(body_json, log_prefix='Proxy', request_format='a
                 'content': [{'type': 'text', 'text': content_text}],
                 'model': model,
                 'stop_reason': 'end_turn',
-                'usage': resp_data.get('usage', {'input_tokens': 0, 'output_tokens': 0}),
+                'usage': {'input_tokens': usage['input_tokens'], 'output_tokens': usage['output_tokens']},
             }
             _mark_provider_ok('minimax')
             logger.info(f'  ✅ [{log_prefix}Fallback] minimax 兜底成功(Anthropic格式), content_len={len(content_text)}')
@@ -22078,107 +22044,20 @@ def _detect_request_format(target_url, body_json):
 
 
 def _openai_content_to_anthropic(content):
-    """将单条 OpenAI message.content 转成 Anthropic Messages API 格式。
-    如果 content 里已经包含 Anthropic 原生格式（type='image' + source），直接透传，避免重复转换或丢失。"""
-    if isinstance(content, str):
-        return content
-    if not isinstance(content, list):
-        return str(content)
-
-    result = []
-    for item in content:
-        if not isinstance(item, dict):
-            continue
-        item_type = item.get('type')
-        if item_type == 'text':
-            result.append({'type': 'text', 'text': item.get('text', '')})
-        elif item_type == 'image_url':
-            url = item.get('image_url', {}).get('url', '')
-            if url.startswith('data:'):
-                try:
-                    header, b64 = url.split(',', 1)
-                    media_type = header.split(';')[0].split(':')[1]
-                    result.append({
-                        'type': 'image',
-                        'source': {
-                            'type': 'base64',
-                            'media_type': media_type,
-                            'data': b64
-                        }
-                    })
-                except Exception:
-                    pass
-        elif item_type == 'image' and isinstance(item.get('source'), dict):
-            # 已经是 Anthropic Messages 原生图片格式，直接保留
-            result.append(item)
-    return result
+    """薄壳：转发到 provider_adapters.openai_content_to_anthropic（行为不变）。"""
+    return padapters.openai_content_to_anthropic(content)
 
 
 def _transform_openai_to_anthropic(body_json):
-    """将 OpenAI chat/completions 请求体转为 Anthropic Messages API 格式（Kimi coding 兼容）。"""
-    system_parts = []
-    messages = []
-    for msg in body_json.get('messages', []):
-        role = msg.get('role')
-        content = msg.get('content', '')
-        if role == 'system':
-            if isinstance(content, str):
-                system_parts.append(content)
-            elif isinstance(content, list):
-                texts = [item.get('text', '') for item in content
-                         if isinstance(item, dict) and item.get('type') == 'text']
-                system_parts.extend(texts)
-        elif role in ('user', 'assistant'):
-            anthropic_content = _openai_content_to_anthropic(content)
-            messages.append({'role': role, 'content': anthropic_content})
-
-    anthropic_body = {
-        'model': body_json.get('model', ''),
-        'max_tokens': body_json.get('max_tokens', 2000),
-        'messages': messages
-    }
-    if system_parts:
-        anthropic_body['system'] = '\n\n'.join(system_parts)
-
-    temp = body_json.get('temperature')
-    if temp is not None and 0 <= temp <= 1:
-        anthropic_body['temperature'] = temp
-
-    return anthropic_body
+    """薄壳：转发到 provider_adapters.transform_openai_to_anthropic。
+    默认 max_tokens 维持原 2000 语义（内部调用场景）。"""
+    return padapters.transform_openai_to_anthropic(
+        body_json, default_max_tokens=padapters.DEFAULT_MAX_TOKENS_INTERNAL)
 
 
 def _transform_anthropic_to_openai(resp_json):
-    """将 Anthropic Messages API 响应转回 OpenAI chat/completions 格式，便于前端统一解析。"""
-    content_items = resp_json.get('content', []) if isinstance(resp_json.get('content'), list) else []
-    texts = []
-    for item in content_items:
-        if isinstance(item, dict) and item.get('type') == 'text':
-            texts.append(item.get('text', ''))
-    content = ''.join(texts)
-
-    usage = resp_json.get('usage', {})
-    input_tokens = usage.get('input_tokens', 0)
-    output_tokens = usage.get('output_tokens', 0)
-
-    stop_reason = resp_json.get('stop_reason', '')
-    finish_reason_map = {'end_turn': 'stop', 'max_tokens': 'length', 'stop_sequence': 'stop'}
-    finish_reason = finish_reason_map.get(stop_reason, stop_reason or 'stop')
-
-    return {
-        'id': resp_json.get('id', ''),
-        'object': 'chat.completion',
-        'model': resp_json.get('model', ''),
-        'choices': [{
-            'index': 0,
-            'message': {'role': 'assistant', 'content': content},
-            'finish_reason': finish_reason
-        }],
-        'usage': {
-            'prompt_tokens': input_tokens,
-            'completion_tokens': output_tokens,
-            'total_tokens': input_tokens + output_tokens
-        }
-    }
+    """薄壳：转发到 provider_adapters.transform_anthropic_to_openai（行为不变）。"""
+    return padapters.transform_anthropic_to_openai(resp_json)
 
 
 def _continue_anthropic_tool_use(target_url, forward_headers, body_json, anthropic_resp, max_retries=2):
@@ -22796,6 +22675,14 @@ def _handle_proxy(self):
             import traceback
             traceback.print_exc()
 
+    # ── 新引擎路径(PROXY_ENGINE=chain):转发/降级/流式/错误规范化由 ProviderChain
+    #    完成;非流式语义与 legacy 一致(同格式透传+token usage 记录),新增流式支持。
+    #    legacy 路径保留,PROXY_ENGINE=legacy 立即切回。
+    if PROXY_ENGINE == 'chain' and isinstance(body_json, dict):
+        _handle_proxy_chain(self, body_json, auth, agent_id, target_url, provider,
+                            request_format, is_kimi_coding)
+        return
+
     forward_headers = {}
     if is_kimi_coding and body_json:
         # Kimi coding API 是 Anthropic 原生端点。请求体若是 OpenAI 格式（含或不含 image_url），
@@ -23069,6 +22956,70 @@ def _handle_proxy(self):
         logger.error(f'  ❌ Proxy Unexpected Error: {e} <- {target_url}')
         self._send_json_error(500, f'Internal proxy error: {str(e)}')
 
+
+def _handle_proxy_chain(self, body_json, auth, agent_id, target_url, provider,
+                        request_format, is_kimi_coding):
+    """POST /api/proxy 的 chain 引擎路径（PROXY_ENGINE=chain）。
+    鉴权/HTTPS/域名白名单/自修改拦截在 legacy 前半段已共用执行；
+    这里接管转发：kimi coding 目标保持 legacy 的 key 优先级与端点解析，
+    非 kimi 目标按 X-AI-Provider / target_url 适配，新增流式透传。"""
+    is_streaming = bool(body_json.get('stream'))
+    ai_api_key = self.headers.get('X-AI-API-Key', '')
+    auth_header = self.headers.get('Authorization', '')
+
+    if is_kimi_coding:
+        # 与 legacy 一致：端点走 vision.baseUrl 覆盖解析；优先 key = 前端 key + agent key
+        primary = {'name': 'kimi', 'url': _resolve_kimi_coding_target_url(provider)}
+        primary_keys = []
+        if ai_api_key:
+            primary_keys.append(ai_api_key)
+        agent_stored_key = _get_agent_api_key(agent_id) if agent_id else None
+        if agent_stored_key and agent_stored_key not in primary_keys:
+            primary_keys.append(agent_stored_key)
+        key_pool = KIMI_KEY_POOL
+    else:
+        # 与 legacy 一致：X-AI-API-Key 优先，其次非 JWT 的 Authorization Bearer
+        key = ai_api_key
+        if not key and auth_header.startswith('Bearer ') and not auth_header.startswith('Bearer ey'):
+            key = auth_header[7:]
+        primary = {'name': (provider or 'openai').lower(), 'url': target_url}
+        primary_keys = [key] if key else []
+        key_pool = None
+
+    def _write_head(status, content_type, extra):
+        self.send_response(status)
+        self._add_cors_headers()
+        self.send_header('Content-Type', content_type)
+        if content_type == 'text/event-stream':
+            self.send_header('Cache-Control', 'no-cache')
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+
+    def _write_chunk(b):
+        self.wfile.write(b)
+        self.wfile.flush()
+
+    result = _proxy_chain_forward(
+        body_json,
+        request_format=request_format,
+        is_streaming=is_streaming,
+        write_head=_write_head,
+        write_chunk=_write_chunk,
+        primary=primary,
+        primary_key=primary_keys,
+        key_pool=key_pool,
+        log_prefix='Proxy')
+
+    # token usage 记录（与 legacy 一致；流式用 SSE 解析出的 usage 构造）
+    usage = result.get('usage') or {}
+    if result['ok'] and (usage.get('input_tokens') or usage.get('output_tokens')):
+        usage_json = json.dumps(
+            {'usage': usage, 'model': result.get('model') or ''}).encode('utf-8')
+        _log_proxy_token_usage(auth, body_json, usage_json,
+                               result.get('provider') or provider, target_url, agent_id)
+
+
 # ═══════════════════════════════════════════════════
 # Kimi API 代理（积分管控）— 见 KIMI_API_PROXY_SPEC.md
 # ═══════════════════════════════════════════════════
@@ -23118,6 +23069,298 @@ KIMI_KEY_POOL = KimiKeyPool(_env_kimi_keys or [
 ])
 # 上游 base url：可用环境变量覆盖（便于本地 mock 测试），默认真实 Kimi coding endpoint
 KIMI_PROXY_REAL_BASE_URL = os.environ.get('KIMI_PROXY_BASE_URL', '').strip() or 'https://api.kimi.com/coding'
+
+
+# ═══════════════════════════════════════════════════
+# ProviderChain 统一转发引擎（PROXY_ENGINE=chain 时启用）
+# kimi 优先（agent key → 池轮换），失败后按 settings.json llm.providers
+# priority 顺序降级；流式/非流式统一；错误统一规范化。
+# ═══════════════════════════════════════════════════
+
+def _chain_kimi_key_iter(primary_keys, key_pool):
+    """kimi 主 provider 的 key 迭代器：优先 key（前端/agent 配置，可传单个或列表）
+    按序 → 池内轮询，tried 集合去重，池空或轮完一整圈结束（与 legacy 轮换行为一致）。"""
+    tried = set()
+    if isinstance(primary_keys, str):
+        primary_keys = [primary_keys] if primary_keys else []
+    for k in (primary_keys or []):
+        if k and k not in tried:
+            tried.add(k)
+            yield k
+    if key_pool is None:
+        return
+    while True:
+        k = key_pool.get_key()
+        if k is None or k in tried:
+            return
+        tried.add(k)
+        yield k
+
+
+def _chain_fallback_providers(exclude=('kimi', 'kimicode')):
+    """从 settings.json llm.providers 读兜底 provider 列表（priority 升序）。
+    兼容旧单 provider 格式（无 providers 数组）。缺 apiKey/baseUrl 的跳过。"""
+    try:
+        settings = _read_json(SETTINGS_FILE, {}) or {}
+    except Exception as e:
+        logger.error(f'  [ProxyChain] 读 settings.json 失败: {e}')
+        return []
+    llm = settings.get('llm') or {}
+    provs = llm.get('providers') or []
+    if not provs and (llm.get('apiKey') or llm.get('baseUrl')):
+        provs = [{
+            'name': llm.get('provider', 'default'),
+            'apiKey': llm.get('apiKey', ''),
+            'baseUrl': llm.get('baseUrl', ''),
+            'model': llm.get('model', ''),
+            'priority': 1,
+        }]
+    out = []
+    for p in sorted(provs, key=lambda x: x.get('priority', 99)):
+        if not isinstance(p, dict):
+            continue
+        name = (p.get('name') or '').strip().lower()
+        if not name or name in exclude:
+            continue
+        api_key = (p.get('apiKey', '') or '').strip()
+        base_url = (p.get('baseUrl', '') or '').strip()
+        if not api_key or not base_url:
+            logger.info(f'  [ProxyChain] 兜底 provider {name} 缺 apiKey/baseUrl，跳过')
+            continue
+        out.append({
+            'name': name,
+            'api_key': api_key,
+            'base_url': base_url,
+            'model': (p.get('model') or '').strip() or padapters.adapter_for(name).default_model,
+        })
+    return out
+
+
+def _chain_resp_headers(provider_name, fallback_from=None):
+    h = {'X-Proxy-Engine': 'chain', 'X-Proxy-Provider': provider_name or ''}
+    if fallback_from:
+        h['X-Proxy-Fallback-From'] = fallback_from
+    return h
+
+
+def _proxy_chain_forward(body_json, *, request_format, is_streaming, write_head, write_chunk,
+                         target_path='/v1/messages', primary=None, primary_key=None, key_pool=None,
+                         repair_400=None, timeout=None,
+                         max_tokens_default=padapters.DEFAULT_MAX_TOKENS_PROXY,
+                         log_prefix='ProxyChain', fallback_providers=None):
+    """统一 Provider 转发引擎。通过 write_head(status, content_type, extra_headers)
+    与 write_chunk(bytes) 回调写响应，自身不持有 HTTP handler，可独立单测。
+
+    primary: 主 provider 描述 {'name', 'url'?}，缺省为 kimi（url 缺省时取
+    KIMI_PROXY_REAL_BASE_URL + target_path）；primary_key 可传单个 key 或
+    优先 key 列表（kimi: 前端 key + agent key），key_pool 非空时池内轮换。
+    降级策略：401/429 同 provider 内换 key 重试（key 耗尽转下一 provider）；
+    403/5xx/超时/网络错误降级下一 provider；400 等客户端错误规范化后直接返回
+    （可选 repair_400 钩子先尝试修补重试）。兜底 provider 一律非流式调用，
+    流式请求由适配层包装成 request_format 的 SSE（与 legacy 403 降级行为一致）。
+    返回 result dict：{ok, provider, model, fallback_from, usage, attempts, error?}，
+    usage 统一 {'input_tokens','output_tokens'}，调用方据此一次性扣积分。"""
+    timeout = timeout or PROXY_READ_TIMEOUT
+    result = {'ok': False, 'provider': None, 'model': '', 'fallback_from': None,
+              'usage': {'input_tokens': 0, 'output_tokens': 0}, 'attempts': []}
+
+    if not isinstance(body_json, dict):
+        status, ct, payload = padapters.normalize_error_payload(
+            request_format, 400, detail='请求体不是 JSON 对象')
+        write_head(status, ct, _chain_resp_headers(''))
+        write_chunk(payload)
+        result['error'] = 'invalid body'
+        return result
+
+    req_model = body_json.get('model') or ''
+    result['model'] = req_model
+
+    if primary is None:
+        primary = {'name': 'kimi'}
+    primary = dict(primary, is_primary=True)
+    providers = [primary]
+    fb = fallback_providers if fallback_providers is not None else _chain_fallback_providers()
+    providers.extend(fb)
+    primary_name = providers[0]['name']
+    last_status = None
+    last_provider = None
+
+    for prov in providers:
+        name = prov['name']
+        adapter = padapters.adapter_for(name)
+        is_primary = bool(prov.get('is_primary'))
+        if not is_primary and not _PROVIDER_COOLDOWN.allow_request(name):
+            logger.info(f'  [{log_prefix}] provider {name} 冷却中，跳过')
+            result['attempts'].append({'provider': name, 'skipped': 'cooldown'})
+            continue
+
+        if is_primary and key_pool is not None:
+            key_iter = _chain_kimi_key_iter(primary_key, key_pool)
+        elif is_primary:
+            keys = [primary_key] if isinstance(primary_key, str) else list(primary_key or [])
+            key_iter = iter([k for k in keys if k])
+        else:
+            key_iter = iter([prov.get('api_key')] if prov.get('api_key') else [])
+
+        # 上游 body：格式对齐（openai↔anthropic）+ 适配层规范化
+        # （max_tokens 补齐/system 顶层抽取在适配器内，默认值按调用场景传入）
+        if adapter.api_format == 'anthropic' and request_format == 'openai':
+            upstream_body = padapters.transform_openai_to_anthropic(body_json, default_max_tokens=max_tokens_default)
+        elif adapter.api_format == 'openai' and request_format == 'anthropic':
+            _msgs, _mt = padapters.to_openai_messages(body_json)
+            upstream_body = {'model': prov.get('model') or req_model, 'messages': _msgs, 'max_tokens': _mt}
+        else:
+            upstream_body = dict(body_json)
+        upstream_body = adapter.prepare_body(upstream_body, default_max_tokens=max_tokens_default)
+        if not upstream_body.get('model'):
+            upstream_body['model'] = prov.get('model') or req_model
+        # 真流式透传仅当上游格式与前端一致且为主 provider；
+        # 兜底 provider 一律非流式调用 + SSE 包装（与 legacy 403 降级行为一致）
+        same_format = adapter.api_format == request_format
+        upstream_stream = bool(is_streaming and same_format and is_primary)
+        upstream_body['stream'] = upstream_stream
+
+        if prov.get('url'):
+            url = prov['url']
+        elif is_primary:
+            url = KIMI_PROXY_REAL_BASE_URL + target_path
+        else:
+            url = adapter.build_url(prov['base_url'])
+        logger.info(f'  [{log_prefix}] trying provider={name} format={adapter.api_format} '
+                    f'stream={upstream_stream} url={url}')
+
+        while True:
+            try:
+                key = next(key_iter)
+            except StopIteration:
+                break
+            if not key:
+                continue
+            masked = (key[:10] + '...' + key[-4:]) if len(key) > 14 else '****'
+            headers = adapter.build_headers(key)
+            req_bytes = json.dumps(upstream_body, ensure_ascii=False).encode('utf-8')
+            headers['Content-Length'] = str(len(req_bytes))
+            try:
+                req = urllib.request.Request(url, data=req_bytes, headers=headers, method='POST')
+                ctx = ssl.create_default_context()
+                resp = urllib.request.urlopen(req, timeout=timeout, context=ctx)
+            except urllib.error.HTTPError as e:
+                try:
+                    err_body = e.read()
+                except Exception:
+                    err_body = b''
+                err_text = err_body.decode('utf-8', errors='replace')[:500]
+                last_status, last_provider = e.code, name
+                action = padapters.classify_upstream_status(e.code)
+                logger.error(f'  [{log_prefix}] provider={name} HTTP {e.code} key={masked} '
+                             f'action={action} resp[:500]={err_text!r}')
+                result['attempts'].append({'provider': name, 'status': e.code})
+                if action == padapters.ERROR_ACTION_ROTATE_KEY:
+                    if is_primary and key_pool is not None:
+                        key_pool.mark_failed(key)
+                    continue  # 换 key；key 耗尽 StopIteration → 下一 provider
+                if e.code == 400 and repair_400:
+                    new_body = repair_400(upstream_body, err_text)
+                    if new_body is not None:
+                        upstream_body = new_body
+                        continue  # 修补后同 key 重试
+                if action == padapters.ERROR_ACTION_FALLBACK:
+                    if not is_primary:
+                        _mark_provider_failed(name)
+                    break  # 降级下一 provider
+                # 客户端错误（400 等）：规范化后直接返回，不重试不降级
+                status, ct, payload = padapters.normalize_error_payload(request_format, e.code, provider=name)
+                write_head(status, ct, _chain_resp_headers(name))
+                write_chunk(payload)
+                result['error'] = f'HTTP {e.code}'
+                return result
+            except Exception as e:
+                last_status, last_provider = 503, name
+                logger.error(f'  [{log_prefix}] provider={name} 调用异常: {type(e).__name__}: {e}')
+                result['attempts'].append({'provider': name, 'error': f'{type(e).__name__}: {e}'})
+                if not is_primary:
+                    _mark_provider_failed(name)
+                break  # 超时/网络错误 → 降级下一 provider
+
+            # ── 上游 200 ──
+            fallback_from = primary_name if name != primary_name else None
+            if upstream_stream:
+                # 首包校验：不是合法 SSE 视为上游故障（响应头未发，可安全降级）
+                try:
+                    first = resp.read(4096)
+                except Exception as e:
+                    logger.error(f'  [{log_prefix}] provider={name} 流式首包读取失败: {e}')
+                    last_status, last_provider = 502, name
+                    if not is_primary:
+                        _mark_provider_failed(name)
+                    break
+                if not padapters.looks_like_sse(first):
+                    sample = first[:200].decode('utf-8', errors='replace')
+                    logger.error(f'  [{log_prefix}] provider={name} 流式首包非 SSE，降级: {sample!r}')
+                    try:
+                        resp.close()
+                    except Exception:
+                        pass
+                    last_status, last_provider = 502, name
+                    if not is_primary:
+                        _mark_provider_failed(name)
+                    break
+                write_head(200, 'text/event-stream', _chain_resp_headers(name, fallback_from))
+                parser = adapter.make_sse_parser()
+                parser.feed(first)
+                write_chunk(first)
+                try:
+                    for chunk in iter(lambda: resp.read(4096), b''):
+                        parser.feed(chunk)
+                        write_chunk(chunk)
+                except Exception as e:
+                    # 中途断流：响应头已发无法改状态，记日志收尾（前端收到截断的 SSE，
+                    # 至少都是合法事件片段，不会解析崩溃）
+                    logger.error(f'  [{log_prefix}] provider={name} 流式中途异常: {e}')
+                result['usage'] = parser.usage
+                if parser.parse_errors:
+                    logger.warning(f'  [{log_prefix}] SSE 解析异常 {parser.parse_errors} 次（透传未受影响）')
+            else:
+                try:
+                    resp_body = resp.read()
+                    resp_json = json.loads(resp_body.decode('utf-8', errors='replace'))
+                    text, usage = adapter.parse_response(resp_json)
+                except Exception as e:
+                    logger.error(f'  [{log_prefix}] provider={name} 响应解析失败，降级: {e}')
+                    last_status, last_provider = 502, name
+                    if not is_primary:
+                        _mark_provider_failed(name)
+                    break
+                result['usage'] = usage
+                if is_streaming:
+                    # 兜底 provider 非流式结果 → 包装成 request_format 的 SSE
+                    payload = adapter.wrap_sse(text, upstream_body.get('model', ''), request_format, usage)
+                    write_head(200, 'text/event-stream', _chain_resp_headers(name, fallback_from))
+                    write_chunk(payload)
+                    logger.info(f'  [{log_prefix}] {name} 非流式结果已包装为 {request_format} SSE: text_len={len(text)}')
+                else:
+                    out_json = adapter.convert_response_to(resp_json, request_format)
+                    write_head(200, 'application/json', _chain_resp_headers(name, fallback_from))
+                    write_chunk(json.dumps(out_json, ensure_ascii=False).encode('utf-8'))
+            if not is_primary:
+                _mark_provider_ok(name)
+            result['ok'] = True
+            result['provider'] = name
+            result['fallback_from'] = fallback_from
+            logger.info(f'  ✅ [{log_prefix}] provider={name} 成功'
+                        + (f'（降级自 {fallback_from}）' if fallback_from else '')
+                        + f' usage={result["usage"]}')
+            return result
+        # 当前 provider 失败（key 耗尽 / fallback 动作 / 网络异常）→ 下一 provider
+
+    status = last_status or 503
+    status, ct, payload = padapters.normalize_error_payload(
+        request_format, status, provider=last_provider or '', detail='所有可用 Provider 均失败')
+    write_head(status, ct, _chain_resp_headers(last_provider or '', primary_name if last_provider and last_provider != primary_name else None))
+    write_chunk(payload)
+    result['error'] = 'all providers failed'
+    logger.error(f'  ❌ [{log_prefix}] 所有 provider 失败: attempts={result["attempts"]}')
+    return result
 
 
 def _extract_last_user_message(body):
@@ -23928,6 +24171,16 @@ def _handle_proxy_kimi(self):
     except Exception as e:
         logger.error(f'[KimiProxy] 拆分混合消息失败，跳过: {e}')
 
+    # ── 新引擎路径(PROXY_ENGINE=chain):转发/key轮换/provider降级/流式/错误
+    #    规范化由 ProviderChain 完成;业务前置(积分检查/记忆/达人/tool修补/裁剪)
+    #    与 legacy 完全共用上面的代码。legacy 路径保留,PROXY_ENGINE=legacy 切回。
+    if PROXY_ENGINE == 'chain':
+        path_chain = self._normalize_path(self.path)
+        path_suffix_chain = path_chain[len('/api/proxy/kimi'):] or '/v1/messages'
+        _handle_proxy_kimi_chain(self, body, agent_id, agent_api_key,
+                                 path_suffix_chain, _t_start, _timing)
+        return
+
     # 5. 构造转发请求到真实Kimi API
     # 提取原始请求路径中的子路径（如/v1/messages）
     path = self._normalize_path(self.path)
@@ -24332,6 +24585,178 @@ def _handle_proxy_kimi(self):
             print(f'  [KimiProxy] 非流式usage解析异常: {ns_err}', flush=True)
 
     # 10. Memory Pipeline：检查是否触发 L1 事实提取（响应已发出，失败不影响客户端）
+    if agent_id:
+        _t = time.perf_counter()
+        conn = _db_conn()
+        try:
+            memory_pipeline.check_and_run_pipeline(
+                conn, agent_id,
+                llm_call_func=_memory_pipeline_llm_call(body.get('model'), api_key=agent_api_key))
+        except Exception as e:
+            print(f'  [MemoryPipeline] pipeline check failed: {e}', flush=True)
+        finally:
+            conn.close()
+        _timing('pipeline_check', _t)
+
+    _timing('total', _t_start)
+
+
+def _make_kimi_400_repair(agent_id, log_prefix='KimiProxy'):
+    """legacy 400 自动修复的 chain 版本（repair_400 钩子）：
+    'tool_call_ids did not have response' 时从 tool_calls 表补 tool_result 重试，
+    最多 2 次；配对已存在仍报缺失则放弃（返回 None，由引擎返回规范化 400）。
+    每次进入先 dump messages 到 data/ 便于排查（与 legacy 一致）。"""
+    state = {'count': 0}
+
+    def _repair(body, err_text):
+        if state['count'] >= 2:
+            return None
+        try:
+            dump_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data',
+                                     f'kimi_400_dump_{agent_id}_{int(time.time())}.json')
+            with open(dump_path, 'w', encoding='utf-8') as df:
+                json.dump({'error': err_text, 'messages': body.get('messages', []),
+                           'agent_id': agent_id}, df, ensure_ascii=False, indent=2)
+            print(f'  [{log_prefix}] 400 dump saved: {dump_path}', flush=True)
+        except Exception:
+            pass
+        if 'tool_call_ids did not have response' not in err_text:
+            return None
+        match = re.search(r"did not have response messages: ([^\"]+)", err_text)
+        if not match:
+            return None
+        missing_raw = match.group(1).strip().strip('"').strip("'")
+        missing_ids = [mid.strip() for mid in missing_raw.split(',') if mid.strip()]
+        print(f'  [{log_prefix}] 400自动修复(chain retry {state["count"] + 1}/2): 缺失={missing_ids}', flush=True)
+
+        msgs = body.get('messages', [])
+        exec_counter = 0
+        exec_map = {}
+        for m in msgs:
+            if not isinstance(m, dict):
+                continue
+            content = m.get('content')
+            if isinstance(content, list):
+                for c in content:
+                    if isinstance(c, dict) and c.get('type') == 'tool_use':
+                        exec_map[f'exec:{exec_counter}'] = c.get('id', '')
+                        exec_counter += 1
+            tc = m.get('tool_calls')
+            if tc:
+                for t in tc:
+                    if isinstance(t, dict):
+                        exec_map[f'exec:{exec_counter}'] = t.get('id', '')
+                        exec_counter += 1
+
+        patched_msgs = list(msgs)
+        any_fixed = False
+        for mid in missing_ids:
+            target_id = exec_map.get(mid, mid)
+            has_resp = False
+            for rm in msgs:
+                if not isinstance(rm, dict):
+                    continue
+                rm_c = rm.get('content')
+                if isinstance(rm_c, list):
+                    for rc in rm_c:
+                        if isinstance(rc, dict) and rc.get('type') == 'tool_result' and rc.get('tool_use_id') == target_id:
+                            has_resp = True
+                            break
+                    if has_resp:
+                        break
+                if rm.get('role') == 'tool' and rm.get('tool_call_id') == target_id:
+                    has_resp = True
+                    break
+            if has_resp:
+                # 配对已存在却仍报缺失：问题不在消息配对，继续删改只会越修越坏
+                print(f'  [{log_prefix}] 400自动修复: {mid} -> {target_id} 已有配对，放弃修复', flush=True)
+                return None
+            tool_output = None
+            try:
+                conn = _db_conn()
+                try:
+                    row = conn.execute('SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1', (agent_id, target_id)).fetchone()
+                    if row:
+                        tool_output = row[0]
+                    if not tool_output:
+                        row = conn.execute('SELECT output FROM tool_calls WHERE agent_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1', (agent_id, mid)).fetchone()
+                        if row:
+                            tool_output = row[0]
+                finally:
+                    conn.close()
+            except Exception:
+                pass
+            if not tool_output:
+                tool_output = '[工具执行完成，无输出记录]'
+            patched_msgs.append({
+                'role': 'user',
+                'content': [{'type': 'tool_result', 'tool_use_id': target_id,
+                             'content': tool_output if isinstance(tool_output, str) else json.dumps(tool_output, ensure_ascii=False)}]
+            })
+            any_fixed = True
+            print(f'  [{log_prefix}] 400自动修复: 追加tool_result for {mid} -> {target_id}', flush=True)
+
+        if not any_fixed:
+            return None
+        state['count'] += 1
+        new_body = dict(body)
+        new_body['messages'] = patched_msgs
+        return new_body
+
+    return _repair
+
+
+def _handle_proxy_kimi_chain(self, body, agent_id, agent_api_key, path_suffix, _t_start, _timing):
+    """_handle_proxy_kimi 的 chain 引擎转发段（PROXY_ENGINE=chain）。
+    业务前置（积分检查/记忆召回/达人预搜索/tool 修补/裁剪）在 legacy 前半段
+    已共用执行；这里只负责转发、降级、流式、扣费、记忆 pipeline 收尾。"""
+    is_streaming = bool(body.get('stream', False))
+
+    def _write_head(status, content_type, extra):
+        self.send_response(status)
+        self.send_header('Content-Type', content_type)
+        if content_type == 'text/event-stream':
+            self.send_header('Cache-Control', 'no-cache')
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+
+    def _write_chunk(b):
+        self.wfile.write(b)
+        self.wfile.flush()
+
+    _t = time.perf_counter()
+    result = _proxy_chain_forward(
+        body,
+        request_format='anthropic',
+        is_streaming=is_streaming,
+        write_head=_write_head,
+        write_chunk=_write_chunk,
+        target_path=path_suffix,
+        primary_key=agent_api_key,
+        key_pool=KIMI_KEY_POOL,
+        repair_400=_make_kimi_400_repair(agent_id),
+        log_prefix='KimiProxy')
+    _timing('chain_forward', _t)
+
+    # 9. 积分扣减：统一在引擎返回后扣一次——key 轮换 / provider 降级 /
+    #    minimax 非流式包装 SSE 等所有成功分支共用此扣费点，不重扣不漏扣；
+    #    失败（ok=False）不扣。
+    usage = result.get('usage') or {}
+    in_tok = usage.get('input_tokens', 0)
+    out_tok = usage.get('output_tokens', 0)
+    print(f'  [KimiProxy] chain结束: agent_id={agent_id} ok={result["ok"]} '
+          f'provider={result.get("provider")} fallback_from={result.get("fallback_from")} '
+          f'input_tokens={in_tok} output_tokens={out_tok}', flush=True)
+    if result['ok'] and agent_id and (in_tok or out_tok):
+        conn = _db_conn()
+        try:
+            _record_credit_usage(conn, agent_id, in_tok, out_tok, 0)
+            conn.commit()
+        finally:
+            conn.close()
+
+    # 10. Memory Pipeline（与 legacy 一致；响应已发出，失败不影响客户端）
     if agent_id:
         _t = time.perf_counter()
         conn = _db_conn()
