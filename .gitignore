@@ -33,3 +33,13 @@ set_permission.py
 
 # 截图/视觉验证目录(本地回归基线,不入库)
 .shots/
+
+# 备份文件/目录(本地归档,不入库;2026-09-12 清理)
+*.bak
+*.bak-*
+*.bak.*
+*.pinarchive
+*.memory
+code-backup-*/
+rebase-cleanup-backup-*/
+
