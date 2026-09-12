@@ -1682,6 +1682,17 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .chat-empty-state .welcome-emp-name { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
 .chat-empty-state .welcome-emp-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
 .chat-empty-state .welcome-prompt-hint { font-size: 12px; color: var(--text-tertiary); margin-bottom: 10px; }
+/* ③ 0 员工分支: 加大图标(80px), 蓝色光晕 + 描述块(无 prompt chips) */
+.chat-empty-state.chat-empty-state-no-emp { padding-top: 8vh; }
+.chat-empty-state .welcome-emp-avatar-wrap-large { width: 88px; height: 88px; margin: 0 auto 18px; }
+.chat-empty-state .welcome-emp-ring-large { width: 88px; height: 88px; padding: 4px; font-size: 44px; }
+.chat-empty-state .welcome-prompt-hint-block {
+  max-width: 360px;
+  margin: 0 auto 24px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary, #6E6E73);
+}
 .chat-empty-state .welcome-prompt-chips { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; max-width: 640px; }
 .chat-empty-state .welcome-prompt-chip { font-size: 12px; color: var(--text-secondary); background: var(--surface, #fff); border: 0.5px solid var(--separator); border-radius: 999px; padding: 6px 14px; cursor: pointer; transition: color 0.15s ease, border-color 0.15s ease; }
 .chat-empty-state .welcome-prompt-chip:hover { color: var(--accent); border-color: rgba(0,122,255,0.4); }
@@ -6130,9 +6141,197 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .product-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(20px); z-index: 400; display: none; align-items: center; justify-content: center; }
 .product-modal-overlay.active { display: flex; }
 .product-modal-panel { width: 88%; max-width: 480px; background: var(--bg-primary); border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
+
+/* ② 员工列表空状态视觉化引导(AI 员工是核心的视觉传达) */
+.emp-list-empty-state {
+  padding: 40px 20px 32px;
+  text-align: center;
+  color: var(--text-secondary, #6E6E73);
+}
+.emp-list-empty-icon-wrap {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.emp-list-empty-icon {
+  font-size: 48px;
+  position: relative;
+  z-index: 1;
+}
+.emp-list-empty-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-ai-bg-soft, #EEF0FF) 0%, transparent 70%);
+  animation: empListEmptyRingPulse 2.4s ease-in-out infinite;
+}
+@keyframes empListEmptyRingPulse {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+.emp-list-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1C1C1E);
+  margin-bottom: 8px;
+  letter-spacing: -0.2px;
+}
+.emp-list-empty-desc {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-text-secondary, #6E6E73);
+  margin-bottom: 20px;
+  max-width: 280px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.emp-list-empty-cta-primary {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  margin: 0 auto 10px;
+  padding: 11px 16px;
+  background: var(--color-primary, #007AFF);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.emp-list-empty-cta-primary:hover { background: var(--color-primary-hover, #0066D6); }
+.emp-list-empty-cta-secondary {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  margin: 0 auto;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--color-primary, #007AFF);
+  border: none;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.emp-list-empty-cta-secondary:hover { text-decoration: underline; }
+
+/* ② 「AI 员工能做什么」info modal 列表(复用 AI 员工技能卡视觉) */
+.what-can-do-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.what-can-do-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--color-bg-softer, #F2F2F7);
+  border-radius: 10px;
+  align-items: flex-start;
+}
+.what-can-do-mark {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--color-ai-accent, #5E5CE6);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.what-can-do-body { flex: 1; min-width: 0; }
+.what-can-do-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1C1C1E);
+  margin-bottom: 2px;
+}
+.what-can-do-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-secondary, #6E6E73);
+}
 .product-modal { width: 100%; max-width: 480px; max-height: 90vh; background: #ffffff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
 .product-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 0.5px solid var(--separator); }
 .product-modal-title { font-size: 17px; font-weight: 600; }
+
+/* ① 新人 onboarding 引导 modal(空员工时自动弹, V2.1 tokens) */
+.onboarding-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: onboardingFadeIn 0.25s ease-out;
+}
+@keyframes onboardingFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.onboarding-modal-panel {
+  width: 400px;
+  max-width: 92vw;
+  background: var(--bg-primary, #fff);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  padding: 32px 28px 24px;
+  text-align: center;
+  animation: onboardingPopIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes onboardingPopIn { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.onboarding-modal-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  display: inline-block;
+  filter: drop-shadow(0 0 12px var(--color-ai-bg-soft, #EEF0FF));
+}
+.onboarding-modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1C1C1E);
+  margin-bottom: 10px;
+  letter-spacing: -0.3px;
+}
+.onboarding-modal-desc {
+  font-size: 13px;
+  color: var(--color-text-secondary, #6E6E73);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+.onboarding-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.onboarding-modal-btn {
+  flex: 1;
+  padding: 11px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: none;
+}
+.onboarding-modal-btn.primary {
+  background: var(--color-primary, #007AFF);
+  color: #fff;
+}
+.onboarding-modal-btn.primary:hover { background: var(--color-primary-hover, #0066D6); }
+.onboarding-modal-btn.secondary {
+  background: var(--color-bg-softer, #F2F2F7);
+  color: var(--color-text-primary, #1C1C1E);
+}
+.onboarding-modal-btn.secondary:hover { background: var(--color-border, #E5E5EA); }
 .product-modal-close { width: 28px; height: 28px; border-radius: 50%; border: none; background: transparent; cursor: pointer; font-size: 16px; color: var(--text-secondary); }
 .product-modal-body { padding: 16px 20px; flex: 1; overflow-y: auto; }
 .product-modal-field { margin-bottom: 14px; }
@@ -6670,6 +6869,20 @@ window.doLogin = function () {
   <div class="menu-item" onclick="empSettingsAction('archive')">📦 归档</div>
   <div class="menu-divider"></div>
   <div class="menu-item danger" onclick="empSettingsAction('delete')">🗑️ 删除</div>
+</div>
+
+
+<!-- ① 新人 onboarding 引导 modal(空员工时自动弹) -->
+<div id="onboardingModal" class="onboarding-modal-overlay" style="display:none;">
+  <div class="onboarding-modal-panel">
+    <div class="onboarding-modal-icon">🦞</div>
+    <div class="onboarding-modal-title">还没有 AI 员工</div>
+    <div class="onboarding-modal-desc">AI 员工是你的虚拟团队成员, 能帮你分析达人、录入商品、自动跟进合作。创建第一位只需 30 秒。</div>
+    <div class="onboarding-modal-actions">
+      <button class="onboarding-modal-btn primary" onclick="onboardingCreateClick()">立即创建</button>
+      <button class="onboarding-modal-btn secondary" onclick="onboardingSkipClick()">先逛逛</button>
+    </div>
+  </div>
 </div>
 
 
@@ -8496,6 +8709,9 @@ function showMainApp() {
     console.error('[showMainApp] 加载员工/小组失败:', err);
     renderEmployeeList();
   });
+  // ① onboarding 引导检测: 登录后 emps 加载完, 检查是否要弹新人引导 modal
+  // (放在 .then() 链外部, 不阻塞主流程; emps 异步加载完成后会自动触发)
+  setTimeout(maybeShowOnboardingModal, 800);
   // Feishu layout: default to messages module
   switchModule('messages');
   // Leader加载可见小组
@@ -8525,6 +8741,60 @@ function showMainApp() {
 
   // 启动项目组列表轮询：每 15 秒从后端刷新，子账号页面自动感知管理员新增的项目组
   startGroupPolling();
+}
+
+// ========== ① 新人 onboarding 引导 modal ==========
+// 检测逻辑: 登录后(或 refreshEmployeeList 后)如果用户没创建过 AI 员工, 弹轻量引导卡片
+// 「先逛逛」设 sb_onboarding_done='1' 后不再弹
+// 未来 reset 路径(如后端清空用户数据)后, 因为新会话 localStorage 不会有这个标志, 也会自动重新触发
+function maybeShowOnboardingModal() {
+  if (typeof emps === 'undefined') return;
+  var done = localStorage.getItem('sb_onboarding_done');
+  if (done === '1') return; // 用户已看过引导
+  // 只对 0 员工的用户弹(已经有员工的账号不打扰)
+  if (emps.length > 0) {
+    // 用户已经有员工, 自动设 done(避免后续每次登录都检查)
+    localStorage.setItem('sb_onboarding_done', '1');
+    return;
+  }
+  // 当前账号没有任何 AI 员工 → 弹引导
+  var modal = document.getElementById('onboardingModal');
+  if (modal) modal.style.display = 'flex';
+}
+function onboardingCreateClick() {
+  localStorage.setItem('sb_onboarding_done', '1');
+  var modal = document.getElementById('onboardingModal');
+  if (modal) modal.style.display = 'none';
+  if (typeof openWizard === 'function') openWizard();
+}
+function onboardingSkipClick() {
+  localStorage.setItem('sb_onboarding_done', '1');
+  var modal = document.getElementById('onboardingModal');
+  if (modal) modal.style.display = 'none';
+}
+
+// ② 员工列表空状态「了解 AI 员工能做什么」— 弹一个轻量 info modal 列 4 个真实能力
+// (数据源: Helen 等 AI 员工真实 systemPrompt 能力, 不编)
+function showWhatCanAiEmpDo() {
+  var html = '<div class="onboarding-modal-overlay" id="whatCanAiDoOverlay" style="display:flex;">'
+    + '<div class="onboarding-modal-panel" style="width:480px;text-align:left;padding:28px 24px;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
+    + '<div style="font-size:17px;font-weight:600;color:var(--color-text-primary,#1C1C1E);">AI 员工能做什么</div>'
+    + '<button onclick="document.getElementById(\'whatCanAiDoOverlay\').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--color-text-tertiary,#AEAEB2);">✕</button>'
+    + '</div>'
+    + '<div class="what-can-do-list">'
+    + '<div class="what-can-do-item"><div class="what-can-do-mark">入</div><div class="what-can-do-body"><div class="what-can-do-name">截图录入</div><div class="what-can-do-desc">上传一张达人主页截图, 自动识别 + OCR + 写入知识库</div></div></div>'
+    + '<div class="what-can-do-item"><div class="what-can-do-mark">匹</div><div class="what-can-do-body"><div class="what-can-do-name">达人-商品匹配分析</div><div class="what-can-do-desc">6 维度(粉丝画像 / 历史 GPM / 客单价 / 品类契合 / 调性 / 履约)评估合作匹配度</div></div></div>'
+    + '<div class="what-can-do-item"><div class="what-can-do-mark">选</div><div class="what-can-do-body"><div class="what-can-do-name">选品策略建议</div><div class="what-can-do-desc">基于本周已合作达人的粉丝画像, 推荐下一波选品(品类 + 价格带)</div></div></div>'
+    + '<div class="what-can-do-item"><div class="what-can-do-mark">评</div><div class="what-can-do-body"><div class="what-can-do-name">合作价值重新评级</div><div class="what-can-do-desc">基于最新数据(履约率 / 复购 / GMV)重评达人合作价值 A/B/C/D</div></div></div>'
+    + '</div>'
+    + '<div style="display:flex;justify-content:flex-end;margin-top:20px;">'
+    + '<button class="onboarding-modal-btn primary" style="flex:0 0 auto;padding:9px 22px;" onclick="document.getElementById(\'whatCanAiDoOverlay\').remove();openWizard();">立即创建</button>'
+    + '</div>'
+    + '</div></div>';
+  var wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap.firstChild);
 }
 
 // 登录
@@ -11494,8 +11764,15 @@ function renderEmployeeList() {
     html += renderCategoryHeader('AI 团队', state['AI 团队']);
     if (state['AI 团队']) {
     if (visible.length === 0) {
-      // 没有员工时显示空状态提示
-      html += '<div style="padding:40px 20px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">🦞</div><div style="font-size:15px;font-weight:600;margin-bottom:8px">还没有员工</div><div style="font-size:13px">点击上方「新增员工」按钮，创建属于你的AI员工</div><div style="font-size:11px;margin-top:6px;color:var(--text-tertiary)">双击员工可查看详情 · 右键更多操作</div></div>';
+      // ② 员工列表空状态: 视觉化引导(以前是纯文字 4 行, 叙事弱, AI 员工是核心的视觉传达缺失)
+      // 现在用 V2.1 tokens 做"AI 员工 = 你的虚拟团队"叙事 + 主/次 CTA
+      html += '<div class="emp-list-empty-state">'
+        + '<div class="emp-list-empty-icon-wrap"><div class="emp-list-empty-icon">🦞</div><div class="emp-list-empty-ring"></div></div>'
+        + '<div class="emp-list-empty-title">还没有 AI 员工</div>'
+        + '<div class="emp-list-empty-desc">AI 员工是你的虚拟团队。每位 AI 员工可以服务达人群、分析商品、自动跟进合作。</div>'
+        + '<button class="emp-list-empty-cta-primary" onclick="openWizard()">+ 创建第一位 AI 员工</button>'
+        + '<button class="emp-list-empty-cta-secondary" onclick="showWhatCanAiEmpDo()">了解 AI 员工能做什么</button>'
+        + '</div>';
     } else {
       // 置顶的排在前面
       visible.sort(function (a, b) {
@@ -15430,6 +15707,16 @@ function renderMsgs(type) {
 function getChatEmptyStateHtml() {
   // AI 员工卡片：只列 AI 员工（isAIEmp 判定，真人员工如 Ray 不出现），渐变描边 + AI 徽章
   var aiEmps = (typeof emps !== 'undefined' ? emps : []).filter(function (e) { return e && !e.isProject && isAIEmp(e); }).slice(0, 4);
+  // ③ 0 员工分支: 欢迎页不显 4 卡片 + 3 prompt chips(没有员工, prompt 没上下文)
+  // 改为: 引导用户先创建 AI 员工, 创建后再回来就能看到员工卡片
+  if (aiEmps.length === 0) {
+    return '<div class="chat-empty-state chat-empty-state-no-emp">'
+      + '<div class="welcome-emp-avatar-wrap welcome-emp-avatar-wrap-large"><div class="welcome-emp-ring welcome-emp-ring-large">🦞</div></div>'
+      + '<div class="welcome-title">先创建一位 AI 员工开始协作</div>'
+      + '<div class="welcome-prompt-hint welcome-prompt-hint-block">AI 员工可以帮你分析达人、录入商品、跟进合作。创建后这里会显示员工卡片和对话入口。</div>'
+      + '<div><button class="welcome-cta" onclick="onWelcomeNewChat()">+ 创建 AI 员工</button></div>'
+      + '</div>';
+  }
   var empRow = '';
   if (aiEmps.length) {
     empRow = '<div class="welcome-emp-row">' + aiEmps.map(function (e) {
@@ -21897,7 +22184,12 @@ async function finishWizard() {
     closeWizard();
     document.getElementById('wizName').value = '';
     document.getElementById('wizApiKey').value = '';
+    // ④ wizard 完成后「成功首屏」跳转:
+    // 先切到 messages 模块(如果用户从 employees 列表空白态打开 wizard, 此时在
+    // employees 模块, 聊天面板不可见, openChat 不会改变视图)。然后打开新员工
+    // 单聊, 让用户立刻看到"员工已就位, 可以开始对话", 而不是回到空欢迎页
     setTimeout(function () {
+      if (typeof switchModule === 'function') switchModule('messages');
       openChat(newEmp.id);
     }, 300);
   } else if (regResult.error === 'Gateway 未连接') {
@@ -21908,7 +22200,9 @@ async function finishWizard() {
       closeWizard();
       document.getElementById('wizName').value = '';
       document.getElementById('wizApiKey').value = '';
+      // ④ 同上: 保留员工时也跳转到新员工聊天
       setTimeout(function () {
+        if (typeof switchModule === 'function') switchModule('messages');
         openChat(newEmp.id);
       }, 300);
     } else {
