@@ -17590,23 +17590,6 @@ function archiveCurrent() {
     showToast('📦 已切换到归档');
   }
 }
-function showToast(msg) {
-  var existing = document.querySelector('.toast-message');
-  if (existing) existing.remove();
-  var toast = document.createElement('div');
-  toast.className = 'toast-message';
-  toast.textContent = msg;
-  toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--bg-primary);color:var(--text-primary);border:0.5px solid var(--separator);padding:10px 20px;border-radius:20px;font-size:13px;z-index:9999;animation:fadeIn 0.3s';
-  document.body.appendChild(toast);
-  setTimeout(function () {
-    toast.style.opacity = '0';
-    toast.style.transition = 'opacity 0.3s';
-    setTimeout(function () {
-      toast.remove();
-    }, 300);
-  }, 2000);
-}
-
 // Theme Switcher (Soybean-inspired)
 let themeScheme = 'light';
 function toggleTheme() {
@@ -20751,30 +20734,6 @@ function showMessages() {
 }
 
 // 通知管理
-function markAllRead() {
-  document.querySelectorAll('.notification-item.unread').forEach(function (item) {
-    return item.classList.remove('unread');
-  });
-  document.getElementById('notificationBadge').textContent = '0';
-  emps.forEach(function (e) {
-    return e.unread = 0;
-  });
-  showToast('✅ 所有通知已标记为已读');
-}
-function addNotification(icon, text, type = 'info') {
-  const list = document.getElementById('notificationList');
-  const item = document.createElement('div');
-  item.className = 'notification-item unread';
-  item.innerHTML = `<div class="notification-icon">${escapeHtml(icon || '')}</div>
-<div class="notification-content">
-<div class="notification-text">${escapeHtml(text || '')}</div>
-<div class="notification-time">刚刚</div>
-</div>`;
-  list.insertBefore(item, list.firstChild);
-  // 更新未读数
-  const badge = document.getElementById('notificationBadge');
-  badge.textContent = parseInt(badge.textContent) + 1;
-}
 function closeGlobalSearch() {
   (function () {
     var el = document.getElementById('globalSearchModal');
