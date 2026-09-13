@@ -15090,9 +15090,12 @@ async function initiateAgentDiscussion(groupId) {
 
 // 解析员工在群聊中的 OpenClaw agentId：优先使用已注册的 openclawName，否则用 emp.id
 // 不再兜底到 'main'，因为 main 在 OpenClaw 中通常是保留/未配置 agent，会导致新员工无响应
+// ★ fix/diaochan-identity: 兼容历史字段 openclawAgent（生产 data/agents.json 用的旧名），
+//   老数据没 openclawName 也读得到，避免貂蝉等老员工 IDENTITY workspace 读不到 → 默认文本
 function _resolveGroupAgentId(emp) {
   if (!emp) return 'main';
-  if (emp.openclawName && emp.openclawName !== 'main') return emp.openclawName;
+  var agentName = emp.openclawName || emp.openclawAgent;
+  if (agentName && agentName !== 'main') return agentName;
   return emp.id || 'main';
 }
 
