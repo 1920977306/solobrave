@@ -2802,6 +2802,20 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   align-items: center;
   gap: 4px;
   padding: 7px 8px;
+}
+/* ② 分类树计数 chip: 11px / --color-text-tertiary / --color-bg-softer 圆角, 和侧栏 dept-count 风格一致 */
+.kb-cat-count {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 6px;
+  font: 500 11px/1.4 -apple-system, sans-serif;
+  color: var(--color-text-tertiary, #AEAEB2);
+  background: var(--color-bg-softer, #F2F2F7);
+  border-radius: 8px;
+  text-align: center;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
   margin: 1px 0;
   border-radius: 8px;
   cursor: pointer;
@@ -27835,6 +27849,10 @@ var _knowledgePreviewMode = false;
 var _knowledgeViewMode = 'card';
 var _knowledgePage = 1;
 var _knowledgeLastQuery = '';  // ① 当前搜索 query(空 = 列表模式, 非空 = 搜索模式), 用于 renderKnowledgeList 区分空态
+// ② 分类计数缓存: 全量拉取后按 doc.categoryId 聚合, 父分类递归累加
+// 首次打开 KB 面板 / 手动刷新时拉一次, 切分类翻页不重复拉
+var _knowledgeCatCounts = null;  // { [categoryId]: number } 从 0 开始, 1000 封顶
+var _knowledgeCatCountsTotal = 0;  // 缓存里的总文档数(可能 = _knowledgeCatCounts 总和, 也可能 < 1000 封顶)
 var _knowledgePageSize = 20;
 var _knowledgeInitialized = false;
 var _knowledgeExpandedCats = {};
@@ -27896,6 +27914,14 @@ function getSelectedKnowledgeGroupIds(containerId) {
 function openKnowledgePage() {
   switchModule('knowledge');
   loadGroups();
+  // ② 首次打开 KB 面板时拉一次分类计数缓存(切分类翻页复用, 不重复拉)
+  if (!_knowledgeCatCounts) {
+    loadKnowledgeCategoryCounts().then(function () {
+      // 拉完后强制重渲染分类树(让计数 chip 出现)
+      var tree = document.getElementById('knowledgeMidCategory');
+      if (tree && _knowledgeData && _knowledgeData.categories) renderKnowledgeCategories(_knowledgeData.categories);
+    });
+  }
 }
 function closeKnowledgePage() { switchModule('messages'); closeKnowledgeEditor(); _knowledgeInitialized = false; _knowledgeCurrentId = null; }
 function openKnowledgeEditor() {
@@ -28039,11 +28065,22 @@ function _renderKnowledgeCatNode(cat, depth, isAll) {
   var expanded = isAll || _knowledgeExpandedCats[cat.id] || false;
   var active = isAll ? !_knowledgeCurrentCategoryId : (_knowledgeCurrentCategoryId === cat.id);
   var catIdVal = cat.id === '' ? 'null' : JSON.stringify(cat.id);
+  // ② 父分类计数 = 自身 + 所有后代 categoryId 累加; 「全部分类」特殊: 显总数
+  // 计数超过 1000(API 封顶)显 999+
+  var count;
+  if (isAll) {
+    count = _knowledgeCatCountsTotal || 0;
+  } else {
+    count = _getCategoryCountWithChildren(cat);
+  }
+  var countChip = '<span class="kb-cat-count">' + (count > 1000 ? '999+' : count) + '</span>';
   var html = '<div class="knowledge-cat-tree-node" data-cat-id="' + escapeAttr(String(cat.id)) + '">';
   html += '<div class="knowledge-cat-tree-row' + (active ? ' active' : '') + '" draggable="' + (isAll ? 'false' : 'true') + '" style="padding-left:' + (8 + depth * 14) + 'px;"' + (isAll ? '' : ' oncontextmenu="showKnowledgeCatContextMenu(event, ' + catIdVal + ')"') + '>';
   html += '<span class="knowledge-cat-toggle ' + (hasChildren ? (expanded ? 'expanded' : '') : 'leaf') + '" onclick="toggleKnowledgeCategory(event, ' + catIdVal + ')">▶</span>';
   html += '<span class="knowledge-cat-icon">' + (isAll ? '📁' : '📄') + '</span>';
   html += '<span class="knowledge-cat-name" onclick="selectKnowledgeCategoryId(event, ' + catIdVal + ', ' + isAll + ')">' + escapeHtml(cat.name || '未命名') + '</span>';
+  // ② 计数 chip 嵌在 row 末尾(用 inline-block 撑开, flex 自然推)
+  html += countChip;
   html += '</div>';
   if (hasChildren) {
     html += '<div class="knowledge-cat-tree-children" style="display:' + (expanded ? 'block' : 'none') + '">';
@@ -28507,6 +28544,54 @@ function onKnowledgeSearchClear() {
   var input = document.getElementById('knowledgeMidSearch');
   if (input) input.value = '';
   loadKnowledgePage();
+}
+
+// ② 分类计数: 全量拉取 docs(limit=1000), 本地按 doc.categoryId 聚合
+// 父分类计数 = 自身 + 所有后代 categoryId 的累加
+// 仅首次打开 KB / 手动刷新时拉, 切分类翻页复用缓存
+async function loadKnowledgeCategoryCounts() {
+  try {
+    var resp = await apiFetch('/api/knowledge?limit=1000&offset=0');
+    var data = await resp.json();
+    var docs = data.docs || [];
+    var counts = {};  // { categoryId: number }
+    docs.forEach(function (d) {
+      if (d.categoryId === null || d.categoryId === undefined) return;
+      var k = String(d.categoryId);
+      counts[k] = (counts[k] || 0) + 1;
+    });
+    _knowledgeCatCounts = counts;
+    _knowledgeCatCountsTotal = docs.length;
+    return counts;
+  } catch (e) {
+    console.warn('[KB Counts] 拉取失败:', e);
+    _knowledgeCatCounts = {};
+    _knowledgeCatCountsTotal = 0;
+    return {};
+  }
+}
+
+// ② 递归算父分类总数 = 自身 categoryId 的文档数 + 所有 children 的累加
+// _renderKnowledgeCatNode 在渲染每个节点时调用, 拿到的就是该分类(及后代)的总文档数
+function _getCategoryCountWithChildren(cat) {
+  if (!_knowledgeCatCounts) return 0;
+  var self = (_knowledgeCatCounts[String(cat.id)] || 0);
+  var children = cat.children || [];
+  children.forEach(function (c) {
+    self += _getCategoryCountWithChildren(c);
+  });
+  return self;
+}
+
+// ② 强制刷新分类计数(绑到手动 refresh 按钮)
+async function refreshKnowledgeCategoryCounts() {
+  await loadKnowledgeCategoryCounts();
+  var tree = document.getElementById('knowledgeMidCategory');
+  if (tree && typeof renderKnowledgeCategories === 'function') {
+    // 重新触发分类树渲染(从缓存读 _knowledgeData.categories)
+    var cats = (window._knowledgeData && window._knowledgeData.categories) || [];
+    renderKnowledgeCategories(cats);
+  }
 }
 
 function onKnowledgeSearch(value) {
