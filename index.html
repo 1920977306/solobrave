@@ -1681,6 +1681,20 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .chat-empty-state .welcome-ai-badge { position: absolute; right: -4px; bottom: -4px; font-size: 9px; font-weight: 700; color: #fff; background: var(--accent); padding: 2px 5px; border-radius: 6px; border: 2px solid #fff; letter-spacing: 0.3px; }
 .chat-empty-state .welcome-emp-name { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
 .chat-empty-state .welcome-emp-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+/* ★ fix/sidebar-welcome-minor: 第 5+ 个 AI 员工用 +N 占位卡,点击聚焦侧栏员工搜索框 */
+.chat-empty-state .welcome-emp-more {
+  border: 1.5px dashed rgba(0, 122, 255, 0.35);
+  background: rgba(0, 122, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.chat-empty-state .welcome-emp-more:hover { background: rgba(0, 122, 255, 0.08); }
+.chat-empty-state .welcome-emp-more-num { font-size: 28px; font-weight: 700; color: var(--color-primary); }
+.chat-empty-state .welcome-emp-more-desc { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
 .chat-empty-state .welcome-prompt-hint { font-size: 12px; color: var(--text-tertiary); margin-bottom: 10px; }
 /* ③ 0 员工分支: 加大图标(80px), 蓝色光晕 + 描述块(无 prompt chips) */
 .chat-empty-state.chat-empty-state-no-emp { padding-top: 8vh; }
@@ -12546,7 +12560,7 @@ function renderGroupItems() {
     var lastMsg = g.lastMsg || '';
     var emoji = g.emoji || '👥';
     var isActive = currentGroupId === g.id;
-    return '<div class="list-item" data-group="' + escapeAttr(g.id) + '" style="' + (isActive ? 'background:#e8f3ff;' : '') + '" onclick="openGroupChat(\'' + escapeAttr(g.id) + '\')" oncontextmenu="event.preventDefault();event.stopPropagation();openGroupDetail(\'' + escapeAttr(g.id) + '\');">' + '<div class="group-avatar" style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,' + escapeAttr(g.bg || '#5856D6') + ',' + (g.bg || '#5856D6') + 'dd);display:flex;align-items:center;justify-content:center;font-size:16px;">' + escapeHtml(emoji) + '</div>' + '<div class="group-item-info" style="flex:1;min-width:0;"><div class="group-item-name" style="font-size:14px;font-weight:500;color:var(--text-primary);">' + escapeHtml(g.name) + '</div><div class="group-item-sub" style="font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + memberCount + ' 人' + (lastMsg ? ' · ' + escapeHtml(lastMsg) : '') + '</div></div>' + '<div class="group-meta" style="flex-shrink:0;text-align:right;margin-left:8px;"><div style="font-size:12px;color:var(--text-secondary);">' + memberCount + '人</div></div>' + '</div>';
+    return '<div class="list-item" data-group="' + escapeAttr(g.id) + '" style="' + (isActive ? 'background:#e8f3ff;' : '') + '" onclick="openGroupChat(\'' + escapeAttr(g.id) + '\')" oncontextmenu="event.preventDefault();event.stopPropagation();openGroupDetail(\'' + escapeAttr(g.id) + '\');">' + '<div class="group-avatar" style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,' + escapeAttr(g.bg || '#5856D6') + ',' + (g.bg || '#5856D6') + 'dd);display:flex;align-items:center;justify-content:center;font-size:16px;">' + escapeHtml(emoji) + '</div>' + '<div class="group-item-info" style="flex:1;min-width:0;"><div class="group-item-name" style="font-size:14px;font-weight:500;color:var(--text-primary);">' + escapeHtml(g.name) + '</div><div class="group-item-sub" style="font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + memberCount + ' 人' + (lastMsg ? ' · ' + escapeHtml(lastMsg) : '') + '</div></div>' + '</div>';
   }).join('');
 }
 
@@ -16124,7 +16138,11 @@ function renderMsgs(type) {
 // ============ 聊天区空状态 - 欢迎态 ============
 function getChatEmptyStateHtml() {
   // AI 员工卡片：只列 AI 员工（isAIEmp 判定，真人员工如 Ray 不出现），渐变描边 + AI 徽章
-  var aiEmps = (typeof emps !== 'undefined' ? emps : []).filter(function (e) { return e && !e.isProject && isAIEmp(e); }).slice(0, 4);
+  // ★ fix/sidebar-welcome-minor: 拆出 allAi 数组,保留 aiEmps(0,4) 渲染前 4 张卡片,
+  // 超出部分用 +N 占位卡提示,并在点击时聚焦侧栏员工搜索框,形成"还有 N 位 → 立刻能搜到"闭环
+  var allAi = (typeof emps !== 'undefined' ? emps : []).filter(function (e) { return e && !e.isProject && isAIEmp(e); });
+  var aiEmps = allAi.slice(0, 4);
+  var overflowCount = allAi.length - 4;  // <=0 表示不溢出
   // ③ 0 员工分支: 欢迎页不显 4 卡片 + 3 prompt chips(没有员工, prompt 没上下文)
   // 改为: 引导用户先创建 AI 员工, 创建后再回来就能看到员工卡片
   if (aiEmps.length === 0) {
@@ -16144,7 +16162,14 @@ function getChatEmptyStateHtml() {
         + '<div class="welcome-emp-name">' + escapeHtml(e.name || '') + '</div>'
         + '<div class="welcome-emp-desc">' + escapeHtml(desc) + '</div>'
         + '</div>';
-    }).join('') + '</div>';
+    }).join('')
+      + (overflowCount > 0
+        ? '<div class="welcome-emp-card welcome-emp-more" onclick="var el=document.getElementById(\'sidebarEmpSearch\');if(el){el.focus();el.scrollIntoView({block:\'center\',behavior:\'smooth\'});}">'
+          + '<div class="welcome-emp-more-num">+' + overflowCount + '</div>'
+          + '<div class="welcome-emp-more-desc">还有 ' + overflowCount + ' 位员工</div>'
+          + '</div>'
+        : '')
+      + '</div>';
   }
   var prompts = ['帮我分析一位达人的带货数据', '筛选粉丝 50 万以上的服饰达人', '汇总这周的达人合作进展'];
   var chips = prompts.map(function (p) {
