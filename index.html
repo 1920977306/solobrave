@@ -7252,6 +7252,10 @@ window.doLogin = function () {
 <!-- Left Navigation (56px) -->
 <nav class="left-nav">
   <div class="left-nav-top">
+    <div class="nav-item" id="navNotifications" onclick="toggleNotificationPanel()" data-tooltip="通知" title="通知" style="position:relative;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+      <span class="nav-notification-badge" id="notificationBadge" data-count="0">0</span>
+    </div>
     <div class="nav-item" id="navSearch" onclick="openGlobalSearch()" data-tooltip="搜索" title="全局搜索">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
     </div>
@@ -17586,23 +17590,6 @@ function archiveCurrent() {
     showToast('📦 已切换到归档');
   }
 }
-function showToast(msg) {
-  var existing = document.querySelector('.toast-message');
-  if (existing) existing.remove();
-  var toast = document.createElement('div');
-  toast.className = 'toast-message';
-  toast.textContent = msg;
-  toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--bg-primary);color:var(--text-primary);border:0.5px solid var(--separator);padding:10px 20px;border-radius:20px;font-size:13px;z-index:9999;animation:fadeIn 0.3s';
-  document.body.appendChild(toast);
-  setTimeout(function () {
-    toast.style.opacity = '0';
-    toast.style.transition = 'opacity 0.3s';
-    setTimeout(function () {
-      toast.remove();
-    }, 300);
-  }, 2000);
-}
-
 // Theme Switcher (Soybean-inspired)
 let themeScheme = 'light';
 function toggleTheme() {
@@ -20747,30 +20734,6 @@ function showMessages() {
 }
 
 // 通知管理
-function markAllRead() {
-  document.querySelectorAll('.notification-item.unread').forEach(function (item) {
-    return item.classList.remove('unread');
-  });
-  document.getElementById('notificationBadge').textContent = '0';
-  emps.forEach(function (e) {
-    return e.unread = 0;
-  });
-  showToast('✅ 所有通知已标记为已读');
-}
-function addNotification(icon, text, type = 'info') {
-  const list = document.getElementById('notificationList');
-  const item = document.createElement('div');
-  item.className = 'notification-item unread';
-  item.innerHTML = `<div class="notification-icon">${escapeHtml(icon || '')}</div>
-<div class="notification-content">
-<div class="notification-text">${escapeHtml(text || '')}</div>
-<div class="notification-time">刚刚</div>
-</div>`;
-  list.insertBefore(item, list.firstChild);
-  // 更新未读数
-  const badge = document.getElementById('notificationBadge');
-  badge.textContent = parseInt(badge.textContent) + 1;
-}
 function closeGlobalSearch() {
   (function () {
     var el = document.getElementById('globalSearchModal');
@@ -23057,6 +23020,203 @@ async function finishWizard() {
 
 /* Toast Notification */
 .toast-container { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+
+/* ⑤ 通知中心: 督促通知卡片 CSS(原 showUrgingNotify 完全无样式,功能等于裸奔)
+   - 容器: 右上角 fixed 浮卡, 纵向堆叠
+   - 卡片三态: 默认 opacity 0 / .show opacity 1 / .hide opacity 0
+   - 进度条: 初始 scaleX(1), 8s 线性 transition 到 scaleX(0)(JS setTimeout 对接) */
+.notification-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+.notification-card {
+  width: 340px;
+  background: var(--bg-primary, #ffffff);
+  border: 0.5px solid var(--separator);
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  padding: 0;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: auto;
+  overflow: hidden;
+}
+.notification-card.show { opacity: 1; transform: translateY(0); }
+.notification-card.hide { opacity: 0; transform: translateY(-8px); }
+.notification-content { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.notification-header { display: flex; align-items: center; gap: 8px; }
+.notification-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-status-lost, #FF3B30), #FF6B6B);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.notification-title { font: 600 14px/1.4 -apple-system, sans-serif; color: var(--text-primary, #1C1C1E); }
+.notification-title .highlight { color: var(--color-status-lost, #FF3B30); font-weight: 700; }
+.notification-body { display: flex; flex-direction: column; gap: 2px; }
+.notification-task { font: 500 13px/1.4 -apple-system, sans-serif; color: var(--text-primary, #1C1C1E); }
+.notification-time { font: 400 12px/1.4 -apple-system, sans-serif; color: var(--text-tertiary, #AEAEB2); }
+.notification-actions { display: flex; gap: 8px; }
+.notification-btn {
+  flex: 1;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font: 500 13px/1 -apple-system, sans-serif;
+  cursor: pointer;
+  border: 0.5px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.notification-btn.primary {
+  background: var(--color-primary, #007AFF);
+  color: #ffffff;
+  border-color: var(--color-primary, #007AFF);
+}
+.notification-btn.primary:hover { background: var(--color-primary-hover, #0066D6); border-color: var(--color-primary-hover, #0066D6); }
+.notification-btn.secondary {
+  background: transparent;
+  color: var(--color-primary, #007AFF);
+  border-color: var(--color-primary, #007AFF);
+}
+.notification-btn.secondary:hover { background: rgba(0, 122, 255, 0.06); }
+.notification-progress { position: relative; height: 2px; background: transparent; }
+.notification-progress-bar {
+  height: 100%;
+  width: 100%;
+  background: var(--color-primary, #007AFF);
+  transform: scaleX(1);
+  transform-origin: left;
+  /* JS setTimeout 内设 transition: 'transform 8000ms linear' + requestAnimationFrame scaleX(0) */
+}
+
+/* ⑤ 通知中心: 左侧 nav 铃铛 + 下拉面板(后续 C2 钩到这里,先把样式备好) */
+.nav-notification-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  background: var(--color-status-lost, #FF3B30);
+  color: #ffffff;
+  font: 700 10px/14px -apple-system, sans-serif;
+  border-radius: 7px;
+  text-align: center;
+  display: none;  /* JS: 有未读时移除 display: none */
+}
+.nav-notification-badge[data-count="0"] { display: none; }
+.notification-panel {
+  position: fixed;
+  left: 64px;
+  top: 12px;
+  width: 340px;
+  max-height: 70vh;
+  background: var(--bg-primary, #ffffff);
+  border: 0.5px solid var(--separator);
+  border-radius: 12px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.18);
+  z-index: 10001;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+.notification-panel.show { display: flex; }
+.notification-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 0.5px solid var(--separator);
+}
+.notification-panel-title { font: 600 14px/1 -apple-system, sans-serif; color: var(--text-primary, #1C1C1E); }
+.notification-panel-markall {
+  font: 500 12px/1 -apple-system, sans-serif;
+  color: var(--color-primary, #007AFF);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.notification-panel-body { flex: 1; overflow-y: auto; }
+.notification-panel-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  border-bottom: 0.5px solid var(--separator);
+}
+.notification-panel-item:hover { background: var(--color-bg-softer, #F2F2F7); }
+.notification-panel-item:last-child { border-bottom: none; }
+/* ⑤ C3: 通知类型视觉分级(信息/成功/警告/错误/督促/消息)
+   - 左侧 3px 色条强调类型
+   - icon 颜色与类型对应
+   - urge / warning / error 加重(更显眼, 督促是用户最关心的) */
+.notification-panel-item[data-type="info"]    { border-left: 3px solid var(--color-text-secondary, #6E6E73); }
+.notification-panel-item[data-type="success"] { border-left: 3px solid var(--color-status-active, #34C759); }
+.notification-panel-item[data-type="warning"] { border-left: 3px solid var(--color-status-talking, #FFCC00); }
+.notification-panel-item[data-type="error"]   { border-left: 3px solid var(--color-status-lost, #FF3B30); }
+.notification-panel-item[data-type="urge"]    { border-left: 3px solid var(--color-status-lost, #FF3B30); background: rgba(255, 59, 48, 0.04); }
+.notification-panel-item[data-type="message"] { border-left: 3px solid transparent; }
+.notification-panel-item[data-type="info"]    .notification-panel-icon { color: var(--color-text-secondary, #6E6E73); }
+.notification-panel-item[data-type="success"] .notification-panel-icon { color: var(--color-status-active, #34C759); }
+.notification-panel-item[data-type="warning"] .notification-panel-icon { color: var(--color-status-talking, #FFCC00); }
+.notification-panel-item[data-type="error"]   .notification-panel-icon { color: var(--color-status-lost, #FF3B30); }
+.notification-panel-item[data-type="urge"]    .notification-panel-icon { color: var(--color-status-lost, #FF3B30); }
+.notification-panel-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+.notification-panel-dot.unread { background: var(--color-status-lost, #FF3B30); }
+.notification-panel-dot.read { background: var(--separator); }
+.notification-panel-icon { font-size: 14px; flex-shrink: 0; }
+.notification-panel-content { flex: 1; min-width: 0; }
+.notification-panel-text {
+  font: 400 13px/1.5 -apple-system, sans-serif;
+  color: var(--text-primary, #1C1C1E);
+  word-break: break-word;
+  margin-bottom: 2px;
+}
+.notification-panel-time {
+  font: 400 11px/1 -apple-system, sans-serif;
+  color: var(--text-tertiary, #AEAEB2);
+}
+.notification-panel-empty {
+  padding: 40px 20px;
+  text-align: center;
+  font: 400 13px/1.4 -apple-system, sans-serif;
+  color: var(--text-tertiary, #AEAEB2);
+}
+.notification-panel-empty-icon { font-size: 36px; margin-bottom: 8px; opacity: 0.5; }
+.notification-panel-footer {
+  padding: 10px 16px;
+  border-top: 0.5px solid var(--separator);
+  text-align: center;
+}
+.notification-panel-viewall {
+  font: 500 12px/1 -apple-system, sans-serif;
+  color: var(--color-primary, #007AFF);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 0;
+}
 .toast { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); color: var(--text-primary); border: 0.5px solid var(--separator); padding: 12px 20px; border-radius: 12px; font-size: 14px; font-weight: 500; box-shadow: 0 8px 32px rgba(0,0,0,0.12); opacity: 0; transform: translateY(-20px) scale(0.95); transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); pointer-events: auto; max-width: 320px; text-align: center; }
 .toast.show { opacity: 1; transform: translateY(0) scale(1); }
 .toast.toast-success { background: rgba(52, 199, 89, 0.92); }
@@ -29529,6 +29689,23 @@ function closeMatchModal() {
 <!-- 通知容器 -->
 <div class="notification-container" id="notificationContainer"></div>
 
+<!-- ⑤ 通知中心: 左侧 nav 铃铛下拉面板(C2) -->
+<div class="notification-panel" id="notificationPanel">
+  <div class="notification-panel-header">
+    <span class="notification-panel-title">通知</span>
+    <button class="notification-panel-markall" onclick="markAllNotificationsRead()">全部已读</button>
+  </div>
+  <div class="notification-panel-body" id="notificationPanelBody">
+    <div class="notification-panel-empty">
+      <div class="notification-panel-empty-icon">🔕</div>
+      <div>暂无通知</div>
+    </div>
+  </div>
+  <div class="notification-panel-footer">
+    <button class="notification-panel-viewall" onclick="viewAllNotifications()">查看全部 →</button>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="avatars.js?v=1778166504"></script>
 <script src="openclaw-client.js"></script>
@@ -30667,13 +30844,84 @@ function refreshUnreadBadge() {
   var badge = document.getElementById('notificationBadge');
   if (!badge || typeof apiFetch !== 'function') return;
   fetchNotifications(true).then(function (data) {
-    badge.textContent = data.unreadCount || 0;
+    var n = data.unreadCount || 0;
+    // ⑤ ≥10 显 9+, 0 隐藏
+    badge.textContent = n >= 10 ? '9+' : n;
+    if (n === 0) badge.setAttribute('data-count', '0');
+    else badge.removeAttribute('data-count');
   }).catch(function () {});
 }
 function initNotificationPolling() {
   refreshUnreadBadge();
   registerTimerTask(refreshUnreadBadge, 30);
 }
+
+// ⑤ 通知中心: 左侧 nav 铃铛 toggle
+function toggleNotificationPanel() {
+  var panel = document.getElementById('notificationPanel');
+  if (!panel) return;
+  var willShow = !panel.classList.contains('show');
+  panel.classList.toggle('show');
+  if (willShow) renderNotificationPanelBody();
+}
+
+// ⑤ 渲染通知面板列表(fetch 最新 20 条, 倒序)
+function renderNotificationPanelBody() {
+  var body = document.getElementById('notificationPanelBody');
+  if (!body || typeof apiFetch === 'undefined') return;
+  body.innerHTML = '<div class="notification-panel-empty"><div class="notification-panel-empty-icon">⏳</div><div>加载中...</div></div>';
+  fetchNotifications(false).then(function (data) {
+    var items = (data.items || []).slice(0, 20);
+    if (!items.length) {
+      body.innerHTML = '<div class="notification-panel-empty"><div class="notification-panel-empty-icon">🔕</div><div>暂无通知</div></div>';
+      return;
+    }
+    body.innerHTML = items.map(function (n) {
+      var t = n.type || 'message';
+      var icon = (n.icon && n.icon.length) ? n.icon : _getNotificationTypeEmoji(t);
+      var time = new Date(n.created_at || 0).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      var text = n.title && n.content && n.title !== n.content ? (n.title + '：' + n.content) : (n.title || n.content || '');
+      return '<div class="notification-panel-item" data-type="' + escapeAttr(t) + '" onclick="toggleNotificationRead(\'' + escapeAttr(n.id) + '\')">' +
+        '<div class="notification-panel-dot ' + (n.read ? 'read' : 'unread') + '"></div>' +
+        '<div class="notification-panel-icon">' + icon + '</div>' +
+        '<div class="notification-panel-content">' +
+        '<div class="notification-panel-text">' + escapeHtml(text) + '</div>' +
+        '<div class="notification-panel-time">' + escapeHtml(time) + '</div>' +
+        '</div></div>';
+    }).join('');
+    // 拉完后刷新一下未读数(可能刚标记的变成已读)
+    if (typeof refreshUnreadBadge === 'function') refreshUnreadBadge();
+  }).catch(function () {
+    body.innerHTML = '<div class="notification-panel-empty"><div class="notification-panel-empty-icon">⚠️</div><div>加载失败</div></div>';
+  });
+}
+
+// ⑤ 通知类型 → emoji(C3 也会复用, 提前放这里)
+function _getNotificationTypeEmoji(t) {
+  var map = { info: 'ℹ️', success: '✅', warning: '⚠️', error: '❌', urge: '⏰', message: '💬' };
+  return map[t] || '💬';
+}
+
+// ⑤ 「查看全部」跳设置页通知历史
+function viewAllNotifications() {
+  var panel = document.getElementById('notificationPanel');
+  if (panel) panel.classList.remove('show');
+  if (typeof switchModule === 'function') switchModule('settings');
+  setTimeout(function () {
+    if (typeof renderNotificationHistory === 'function') renderNotificationHistory();
+    var area = document.getElementById('notificationHistoryArea');
+    if (area) area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 200);
+}
+
+// ⑤ 通知面板 click outside 关闭(复用 chat-more-btn 的 click-outside 模式)
+document.addEventListener('click', function (e) {
+  var panel = document.getElementById('notificationPanel');
+  if (!panel || !panel.classList.contains('show')) return;
+  var bell = document.getElementById('navNotifications');
+  if (e.target.closest && (e.target.closest('#notificationPanel') || e.target.closest('#navNotifications'))) return;
+  panel.classList.remove('show');
+});
 
 // ========== 通知开关 ==========
 async function loadNotificationSwitches() {
