@@ -8929,6 +8929,77 @@ async function apiFetch(url, options = {}) {
   }
 }
 
+// ★ refactor/openclaw-gateway-error-handling: OpenClaw / gateway 调用的统一包装
+// 区别于 apiFetch (返回 Response, 上百处调用方), 这里返回统一格式 {success, data, error, status}
+// 专给 /api/openclaw/* 8 处调用用, 前端不会拿到异常响应崩溃
+// 行为:
+//   - AbortController 10s 超时 (网络挂起兜底)
+//   - 网络错误 / 超时 → 立即重试 1 次 (maxRetries=2 = 初始 + 1 次重试)
+//   - HTTP 4xx/5xx → 解析 error body (JSON 优先, 文本兜底) → {success:false, error, status}
+//   - JSON parse 失败 → {success:false, error:'invalid_response'}
+//   - 成功 → {success:true, data, status}
+//   - 401/403/409 仍走 apiFetch 内部的 401 跳登录/403 GET 静默/409 静默 逻辑(返回 null),
+//     本包装不重复处理, 视为 "没有 resp" → 包装成 {success:false, error:'no_response', status:0}
+async function apiFetchWithRetry(url, options, maxRetries) {
+  if (maxRetries == null) maxRetries = 2;  // 初始 + 1 次重试
+  var timeoutMs = 10000;
+  var lastError = null;
+  for (var attempt = 1; attempt <= maxRetries; attempt++) {
+    var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = null;
+    if (controller) {
+      timer = setTimeout(function () { try { controller.abort(); } catch (e) {} }, timeoutMs);
+    }
+    try {
+      var resp = await apiFetch(url, controller ? Object.assign({}, options, { signal: controller.signal }) : options);
+      if (timer) clearTimeout(timer);
+      // apiFetch 内部 401/403/409 返回 null 或 mock Response, 视为失败
+      if (!resp) {
+        return { success: false, data: null, error: 'no_response', status: 0, attempts: attempt };
+      }
+      if (!resp.ok) {
+        // 4xx/5xx: 解析 error body
+        var errMsg = null;
+        try {
+          var errBody = await resp.json();
+          errMsg = errBody && (errBody.error || errBody.message || errBody.reason);
+        } catch (e) {
+          try { errMsg = await resp.text(); } catch (e2) { errMsg = 'HTTP ' + resp.status; }
+        }
+        return { success: false, data: null, error: errMsg || ('HTTP ' + resp.status), status: resp.status, attempts: attempt };
+      }
+      // 成功, 解析 JSON
+      try {
+        var data = await resp.json();
+        return { success: true, data: data, error: null, status: resp.status, attempts: attempt };
+      } catch (e) {
+        // JSON parse 失败
+        return { success: false, data: null, error: 'invalid_response', status: resp.status, attempts: attempt };
+      }
+    } catch (e) {
+      if (timer) clearTimeout(timer);
+      lastError = e;
+      // 网络错误 / 超时 (AbortError) → 决定是否重试
+      var isTimeout = e && (e.name === 'AbortError' || (e.message || '').toLowerCase().indexOf('timeout') !== -1);
+      var isNetwork = e && (e.message || '').toLowerCase().match(/failed to fetch|networkerror|cors/);
+      if ((isTimeout || isNetwork) && attempt < maxRetries) {
+        console.warn('[apiFetchWithRetry] retry ' + attempt + '/' + maxRetries + ' for ' + url + ' (' + (isTimeout ? 'timeout' : 'network') + ')');
+        continue;
+      }
+      // 不可重试错误 / 重试用尽
+      return {
+        success: false,
+        data: null,
+        error: isTimeout ? 'timeout' : (e.message || 'network_error'),
+        status: 0,
+        attempts: attempt
+      };
+    }
+  }
+  // 不应到达, 但兜底
+  return { success: false, data: null, error: (lastError && lastError.message) || 'unknown', status: 0, attempts: maxRetries };
+}
+
 // 检查认证状态
 async function checkAuth() {
   var savedUser = localStorage.getItem('sb_current_user');
@@ -17938,14 +18009,17 @@ async function loadEmpDreaming(empId){
   toggle.checked = false;
   status.textContent = '';
   try{
-    var resp = await apiFetch('/api/openclaw/dreaming?agentId=' + encodeURIComponent(empId));
-    if(resp && resp.ok){
-      var data = await resp.json();
+    // ★ refactor/openclaw-gateway-error-handling: 用 apiFetchWithRetry 替换 raw apiFetch
+    var result = await apiFetchWithRetry('/api/openclaw/dreaming?agentId=' + encodeURIComponent(empId));
+    if(result.success && result.data){
+      var data = result.data;
       toggle.checked = data.enabled || false;
       status.textContent = data.enabled ? '🌙 当前阶段: ' + (data.phase || 'light') : '';
+    } else if(!result.success && result.error !== 'no_response') {
+      console.warn('[Dreaming] 加载失败:', result.error);
     }
   } catch(e){
-    console.error('[Dreaming] 加载失败:', e);
+    console.error('[Dreaming] 加载异常:', e);
   }
 }
 async function toggleEmpDreaming(enabled){
@@ -17953,22 +18027,23 @@ async function toggleEmpDreaming(enabled){
   if(!empId) return;
   var status = document.getElementById('empDreamingStatus');
   try{
-    var resp = await apiFetch('/api/openclaw/dreaming', {
+    // ★ refactor/openclaw-gateway-error-handling: 用 apiFetchWithRetry 替换 raw apiFetch
+    var result = await apiFetchWithRetry('/api/openclaw/dreaming', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({agentId: empId, enabled: enabled})
     });
-    if(resp && resp.ok){
-      var data = await resp.json();
+    if(result.success && result.data){
+      var data = result.data;
       if(status) status.textContent = data.enabled ? '🌙 当前阶段: ' + (data.phase || 'light') : '';
       showToast(data.enabled ? '🎭 Dreaming 已开启' : '🎭 Dreaming 已关闭');
     } else {
-      showToast('❌ Dreaming 切换失败');
+      showToast('❌ Dreaming 切换失败' + (result.error ? ': ' + result.error : ''));
       var toggle = document.getElementById('empDreamingToggle');
       if(toggle) toggle.checked = !enabled;
     }
   } catch(e){
-    console.error('[Dreaming] 切换失败:', e);
+    console.error('[Dreaming] 切换异常:', e);
     showToast('❌ 网络错误');
     var toggle = document.getElementById('empDreamingToggle');
     if(toggle) toggle.checked = !enabled;
@@ -19339,9 +19414,13 @@ function confirmAddMemory() {
 // ========== OpenClaw技能管理 ==========
 var ocSkillsLoaded = false;
 function loadOpenClawSkills() {
-  apiFetch('/api/openclaw/skills/list').then(function (r) {
-    return r.json();
-  }).then(function (data) {
+  // ★ refactor/openclaw-gateway-error-handling: 用 apiFetchWithRetry 替换 raw apiFetch
+  apiFetchWithRetry('/api/openclaw/skills/list').then(function (result) {
+    if (!result.success) {
+      console.warn('[Skills] 加载OpenClaw技能失败:', result.error);
+      return;
+    }
+    var data = result.data || {};
     var skills = data.skills || [];
     var list = document.getElementById('ocSkillList');
     var empty = document.getElementById('ocSkillEmpty');
@@ -19359,7 +19438,7 @@ function loadOpenClawSkills() {
     }
     ocSkillsLoaded = true;
   }).catch(function (e) {
-    console.warn('[Skills] 加载OpenClaw技能失败:', e);
+    console.warn('[Skills] 加载OpenClaw技能异常:', e);
   });
 }
 function searchOpenClawSkills() {
@@ -19371,9 +19450,13 @@ function searchOpenClawSkills() {
   if (!resultsDiv || !listDiv) return;
   listDiv.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-tertiary);">搜索中...</div>';
   resultsDiv.style.display = 'block';
-  apiFetch('/api/openclaw/skills/search?q=' + encodeURIComponent(query)).then(function (r) {
-    return r.json();
-  }).then(function (data) {
+  // ★ refactor/openclaw-gateway-error-handling: 用 apiFetchWithRetry 替换 raw apiFetch
+  apiFetchWithRetry('/api/openclaw/skills/search?q=' + encodeURIComponent(query)).then(function (result) {
+    if (!result.success) {
+      listDiv.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-tertiary);">搜索失败: ' + escapeHtml(result.error || 'unknown') + '</div>';
+      return;
+    }
+    var data = result.data || {};
     var results = data.results || [];
     if (results.length === 0) {
       listDiv.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-tertiary);">未找到匹配的技能</div>';
@@ -19383,13 +19466,14 @@ function searchOpenClawSkills() {
       }).join('');
     }
   }).catch(function (e) {
-    listDiv.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-tertiary);">搜索失败</div>';
+    listDiv.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-tertiary);">搜索异常</div>';
   });
 }
 function installOpenClawSkill(slug) {
   if (!slug) return;
   showToast('正在安装 ' + slug + '...');
-  apiFetch('/api/openclaw/skills/install', {
+  // ★ refactor/openclaw-gateway-error-handling: 用 apiFetchWithRetry 替换 raw apiFetch
+  apiFetchWithRetry('/api/openclaw/skills/install', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -19397,23 +19481,23 @@ function installOpenClawSkill(slug) {
     body: JSON.stringify({
       skillName: slug
     })
-  }).then(function (r) {
-    return r.json();
-  }).then(function (data) {
-    if (data.success) {
+  }).then(function (result) {
+    if (result.success && result.data && result.data.success) {
       showToast('✅ ' + slug + ' 安装成功');
       loadOpenClawSkills();
     } else {
-      showToast('❌ 安装失败: ' + (data.error || '未知错误'));
+      var errMsg = (result.data && result.data.error) || result.error || '未知错误';
+      showToast('❌ 安装失败: ' + errMsg);
     }
   }).catch(function (e) {
-    showToast('❌ 安装失败');
+    showToast('❌ 安装异常');
   });
 }
 function removeOpenClawSkill(slug) {
   if (!slug) return;
   if (!confirm('确定要卸载技能 ' + slug + ' 吗？')) return;
-  apiFetch('/api/openclaw/skills/remove', {
+  // ★ refactor/openclaw-gateway-error-handling: 用 apiFetchWithRetry 替换 raw apiFetch
+  apiFetchWithRetry('/api/openclaw/skills/remove', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -19421,17 +19505,16 @@ function removeOpenClawSkill(slug) {
     body: JSON.stringify({
       skillName: slug
     })
-  }).then(function (r) {
-    return r.json();
-  }).then(function (data) {
-    if (data.success) {
+  }).then(function (result) {
+    if (result.success && result.data && result.data.success) {
       showToast('✅ ' + slug + ' 已卸载');
       loadOpenClawSkills();
     } else {
-      showToast('❌ 卸载失败: ' + (data.error || '未知错误'));
+      var errMsg = (result.data && result.data.error) || result.error || '未知错误';
+      showToast('❌ 卸载失败: ' + errMsg);
     }
   }).catch(function (e) {
-    showToast('❌ 卸载失败');
+    showToast('❌ 卸载异常');
   });
 }
 function closeEmpDetail() {
@@ -20305,7 +20388,9 @@ async function registerOpenClawAgent(emp) {
   var docsWritten = false;
   if (soulContent || identityContent || agentsContent) {
     try {
-      var wsResp = await apiFetch('/api/openclaw/write-agent-docs', {
+      // ★ refactor/openclaw-gateway-error-handling: 用 apiFetchWithRetry 替换 raw apiFetch,
+      // 10s 超时 + 1 次重试,失败不再抛异常,降级 warn 不阻断主流程
+      var wsResult = await apiFetchWithRetry('/api/openclaw/write-agent-docs', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -20318,12 +20403,11 @@ async function registerOpenClawAgent(emp) {
           workspacePath: workspacePath
         })
       });
-      if (wsResp && wsResp.ok) {
-        var data = await wsResp.json();
-        console.debug('[OpenClaw] 文档已写入:', JSON.stringify(data));
+      if (wsResult.success) {
+        console.debug('[OpenClaw] 文档已写入:', JSON.stringify(wsResult.data));
         docsWritten = true;
       } else {
-        console.debug('[OpenClaw] 文档写入失败:', wsResp ? wsResp.status : 'no response');
+        console.debug('[OpenClaw] 文档写入失败:', wsResult.error, 'attempts=' + wsResult.attempts);
       }
     } catch (e3) {
       console.debug('[OpenClaw] 文档写入异常:', e3.message);
@@ -22855,7 +22939,8 @@ async function finishWizard() {
   // 安装选中技能（仅在注册成功时）
   if (regResult.success && wizSelectedSkills.length > 0 && newEmp.openclawName) {
     wizSelectedSkills.forEach(function (slug) {
-      apiFetch('/api/openclaw/skills/install', {
+      // ★ refactor/openclaw-gateway-error-handling: 用 apiFetchWithRetry 替换 raw apiFetch
+      apiFetchWithRetry('/api/openclaw/skills/install', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -22863,12 +22948,14 @@ async function finishWizard() {
         body: JSON.stringify({
           skillName: slug
         })
-      }).then(function (r) {
-        return r.json();
-      }).then(function (data) {
-        if (data.success) console.debug('[Wizard] 技能安装成功:', slug);else console.warn('[Wizard] 技能安装失败:', slug, data.error);
+      }).then(function (result) {
+        if (result.success && result.data && result.data.success) {
+          console.debug('[Wizard] 技能安装成功:', slug);
+        } else {
+          console.warn('[Wizard] 技能安装失败:', slug, (result.data && result.data.error) || result.error);
+        }
       }).catch(function (e) {
-        console.warn('[Wizard] 技能安装失败:', slug, e);
+        console.warn('[Wizard] 技能安装异常:', slug, e);
       });
     });
   }
