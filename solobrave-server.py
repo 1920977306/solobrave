@@ -24597,15 +24597,85 @@ def _handle_proxy_kimi(self):
         _t = time.perf_counter()
         resp_body = resp.read()
         _timing('read_response', _t)
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(resp_body)
 
-        # 解析usage
+        # ★ fix/kimi-response-format: 加固 1 - 响应读取 try-catch 容错
+        # 现状: Kimi API 偶发返回 HTML 错误页 / 截断流 / 网关错误(被 Helen 商务"Kimi 返回格式异常"命中)
+        # 之前直接 wfile.write(resp_body) 把脏数据透传给 OpenClaw → OpenClaw 解析失败 → 整条对话崩
+        # 现在: 写回客户端前先 try-parse，失败时包装成 OpenAI 兼容格式 (content 放降级文本),
+        #       OpenClaw 能正常解析+显示给用户,而不是被 HTML 炸掉
+        resp_json = None
         try:
             resp_json = json.loads(resp_body)
-            usage = resp_json.get('usage', {})
+            if not isinstance(resp_json, dict):
+                logger.warning(f'[KimiProxy] 响应非 dict (type={type(resp_json).__name__}), 降级包装')
+                resp_json = None
+        except (json.JSONDecodeError, ValueError) as jde:
+            logger.warning(
+                f'[KimiProxy] JSON parse failed: {jde!r} resp_body[:200]={resp_body[:200]!r}'
+            )
+            resp_json = None
+        except Exception as parse_err:
+            # 其它异常 (UnicodeDecodeError 等), 走降级
+            logger.warning(f'[KimiProxy] 响应解析异常: {type(parse_err).__name__}: {parse_err}')
+            resp_json = None
+
+        # ★ 加固 2 应用点: 解析成功的响应, 用 _extract_kimi_message_content 做健康检查
+        #   - content 正常 → 透传原响应 (OpenClaw 期望原始 OpenAI 格式)
+        #   - content 全缺失/异常 → 构造 fallback OpenAI 响应(防止 OpenClaw 收到 choices 为空崩)
+        if resp_json is not None:
+            main_text, reasoning = _extract_kimi_message_content(resp_json)
+            if not main_text and not reasoning:
+                # content 全缺失 (字段名变化 / 选择项为空), 走纯文本 fallback
+                logger.warning(
+                    f'[KimiProxy] response format unexpected: content 全缺失, '
+                    f'choices={len(resp_json.get("choices", []))} keys={list(resp_json.keys())[:5]}'
+                )
+                fallback_text = _extract_text_from_garbage(resp_body)
+                resp_json = {
+                    'id': resp_json.get('id', 'fallback-' + str(int(time.time() * 1000))),
+                    'object': 'chat.completion',
+                    'created': resp_json.get('created', int(time.time())),
+                    'model': resp_json.get('model', (body.get('model') if isinstance(body, dict) else 'kimi')),
+                    'choices': [{
+                        'index': 0,
+                        'message': {'role': 'assistant', 'content': fallback_text},
+                        'finish_reason': 'stop'
+                    }],
+                    'usage': resp_json.get('usage', {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0})
+                }
+
+        if resp_json is None:
+            # 加固 3 纯文本 fallback: 整个响应不是 JSON (HTML 错误页 / 截断流)
+            fallback_text = _extract_text_from_garbage(resp_body)
+            resp_json = {
+                'id': 'fallback-' + str(int(time.time() * 1000)),
+                'object': 'chat.completion',
+                'created': int(time.time()),
+                'model': (body.get('model') if isinstance(body, dict) else 'kimi'),
+                'choices': [{
+                    'index': 0,
+                    'message': {'role': 'assistant', 'content': fallback_text},
+                    'finish_reason': 'stop'
+                }],
+                'usage': {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0}
+            }
+            logger.info(f'[KimiProxy] 已降级返回 fallback: text_len={len(fallback_text)}')
+
+        # 200 写回 (原始或降级包装)
+        try:
+            output_body = json.dumps(resp_json, ensure_ascii=False).encode('utf-8')
+        except (TypeError, ValueError) as enc_err:
+            logger.error(f'[KimiProxy] 降级响应编码失败: {enc_err}, 返回空对象')
+            output_body = json.dumps({'error': 'encoding_failed'}).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(output_body)))
+        self.end_headers()
+        self.wfile.write(output_body)
+
+        # 解析usage (即使降级也尝试, 默认 0)
+        try:
+            usage = resp_json.get('usage', {}) if isinstance(resp_json, dict) else {}
             input_tokens = usage.get('input_tokens', 0)
             output_tokens = usage.get('output_tokens', 0)
 
@@ -24807,6 +24877,82 @@ def _handle_proxy_kimi_chain(self, body, agent_id, agent_api_key, path_suffix, _
         _timing('pipeline_check', _t)
 
     _timing('total', _t_start)
+
+
+# ★ fix/kimi-response-format: Kimi 响应格式防御性加固
+# 加固 1 + 3 配套 helper: 兼容字段名变化 + 纯文本 fallback
+# 9cbcc04 (gateway 错误兜底) 只覆盖前端 fetch 层, server 端 Kimi 代理无现成 handler 可 reuse
+def _extract_kimi_message_content(data):
+    """★ fix/kimi-response-format: 字段名兼容 (新 content / 旧 text / reasoning_content 思维链)
+
+    返回 (main_text, reasoning):
+      - main_text: 优先 msg.get('content')，回落 msg.get('text')，都没有返回 ''
+      - reasoning: Kimi 思维链 (reasoning_content)，没有返回 ''
+      - KeyError/TypeError/IndexError 时 logger.warning + 返回 ('', '')
+
+    Kimi API 公开规范 (OpenAI 兼容): {choices: [{message: {role, content}}]}
+    但生产曾观测到 (Helen 商务"Kimi 返回格式异常"):
+      - 字段名变化: content ↔ text
+      - 字段全缺失 (HTML 错误页 / 截断流)
+    """
+    try:
+        if not isinstance(data, dict):
+            return ('', '')
+        choices = data.get('choices')
+        if not isinstance(choices, list) or not choices:
+            return ('', '')
+        msg = choices[0].get('message') if isinstance(choices[0], dict) else None
+        if not isinstance(msg, dict):
+            return ('', '')
+        # 优先 content (新标准), 回落 text (旧 / 其它实现)
+        main_text = msg.get('content')
+        if main_text is None:
+            main_text = msg.get('text', '')
+        if main_text is None:
+            main_text = ''
+        # Kimi 思维链 (chain-of-thought) 单独返回
+        reasoning = msg.get('reasoning_content', '')
+        if reasoning is None:
+            reasoning = ''
+        return (main_text, reasoning)
+    except (KeyError, TypeError, IndexError, AttributeError) as e:
+        logger.warning(f'[KimiProxy] _extract_kimi_message_content failed: {type(e).__name__}: {e}')
+        return ('', '')
+
+
+def _extract_text_from_garbage(raw):
+    """★ fix/kimi-response-format: 纯文本 fallback (非 JSON / 字段全缺失时)
+
+    返回清洗后的纯文本 (str):
+      - 空 raw → "Kimi 服务返回空响应, 请稍后重试"
+      - regex 找 error/错误/exception/failed/timeout/4xx/5xx 关键词 → "Kimi 服务提示: ..."
+      - 否则去 HTML tag + 取前 300 字符 → "Kimi 返回非标准格式, 原文片段: ..."
+    """
+    if not raw:
+        return 'Kimi 服务返回空响应, 请稍后重试'
+    raw_str = raw.decode('utf-8', errors='replace') if isinstance(raw, bytes) else str(raw)
+    raw_str = raw_str.strip()
+    if not raw_str:
+        return 'Kimi 服务返回空响应, 请稍后重试'
+    # 关键词匹配: 找 "error: 502 Bad Gateway" 这类结构化错误
+    import re as _re
+    m = _re.search(r'(?:error|错误|exception|failed|timeout)\s*[:：\-]?\s*([^\n\r<]{4,200})', raw_str, _re.IGNORECASE)
+    if m:
+        msg = m.group(1).strip()
+        # 截断过长
+        if len(msg) > 200:
+            msg = msg[:200] + '...'
+        return f'Kimi 服务提示: {msg}'
+    # 4xx/5xx 错误码匹配
+    m2 = _re.search(r'\b([45]\d\d)\s*(?:Bad Gateway|Internal Server Error|Service Unavailable|Gateway Timeout|Bad Request|Unauthorized|Forbidden|Not Found)?\b', raw_str)
+    if m2:
+        return f'Kimi 服务提示: HTTP {m2.group(1)}'
+    # 去 HTML tag, 取前 300 字符
+    no_html = _re.sub(r'<[^>]+>', ' ', raw_str)
+    no_html = _re.sub(r'\s+', ' ', no_html).strip()
+    if len(no_html) > 300:
+        no_html = no_html[:300] + '...'
+    return f'Kimi 返回非标准格式, 原文片段: {no_html}'
 
 
 def _handle_douyin_parse(self):
