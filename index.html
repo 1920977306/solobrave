@@ -8869,6 +8869,110 @@ var currentUser = null;
 var authToken = localStorage.getItem('sb_auth_token') || null;
 window._pendingImages = [];
 
+// ============ Chat 重试链路加固 (refactor/chat-retry-pipeline) ============
+// 顶层常量:前端调用层(只动 sendViaOpenClaw / sendViaAPI 入口,不动 OpenClaw 网关内部)
+// - TIMEOUT_CHAT_MS: chat 端到端 UI 兜底超时(30s 早 reject 触发重试,后台任务不取消,
+//   因为 AbortController 无法中断已发出去的 WS 消息,lifecycleWaitMs 默认 120s 保留给
+//   真的慢 LLM 响应)
+// - RETRY_BACKOFF_LLM_429 / RETRY_BACKOFF_NETWORK: 指数退避序列(单位 ms)
+//   429 限流按 1s/2s/4s 退避,网络错误立即重试 1 次(不 sleep,直接 retry)
+// - MAX_RETRY_LLM_429: 429 重试上限 3 次
+// - MAX_RETRY_NETWORK: 网络错误重试上限 1 次(其他错误不重试,直接报错)
+var TIMEOUT_CHAT_MS = 30000;
+var RETRY_BACKOFF_LLM_429 = [0, 1000, 2000, 4000];   // 第 0 次=立即,1/2/3 次=1s/2s/4s
+var RETRY_BACKOFF_NETWORK = [0, 0];                  // 立即重试 1 次
+var MAX_RETRY_LLM_429 = 3;
+var MAX_RETRY_NETWORK = 1;
+
+// 错误分类:把 fetch/apiFetch/lifecycle 抛出的 error 归类到 5 种之一
+// 返回: 'timeout' | 'network' | 'rate_limit' | 'llm' | 'unknown'
+//   timeout   - Promise.race 超时 (withTimeout reject)
+//   network   - Failed to fetch / NetworkError / CORS / 5xx
+//   rate_limit - HTTP 429 (限流,OpenClaw gateway 或 LLM 供应商返回)
+//   llm       - HTTP 4xx 非 429 (LLM 调用方问题,鉴权/参数错等,不该重试)
+//   unknown   - 兜底
+function _classifyChatError(err) {
+  if (!err) return 'unknown';
+  var msg = (err.message || String(err) || '').toLowerCase();
+  // timeout: withTimeout 抛的 AbortError 或含 'timeout' 字样
+  if (err.name === 'AbortError' || msg.indexOf('timeout') !== -1) return 'timeout';
+  // network: 浏览器原生网络错误 / CORS / 5xx
+  if (msg.indexOf('failed to fetch') !== -1) return 'network';
+  if (msg.indexOf('networkerror') !== -1) return 'network';
+  if (msg.indexOf('cors') !== -1) return 'network';
+  if (/http\s*5\d\d/.test(msg)) return 'network';
+  // rate_limit: 429
+  if (msg.indexOf('http 429') !== -1 || msg.indexOf('429') !== -1) return 'rate_limit';
+  // llm: 4xx 非 429 (400/401/403/404 等,通常是 LLM 调用方问题)
+  if (/http\s*4\d\d/.test(msg)) return 'llm';
+  return 'unknown';
+}
+
+// Promise 超时包装:race 一个 setTimeout reject,达到 ms 立即 reject with 'timeout' 错
+// 注意: AbortController 在 WS 场景无法中断已发请求,这里只做 UI 兜底早 reject,
+// 后台 _sendChatWaitForLifecycle 可能仍在跑(它的 lifecycleTimeout=120s 兜底)
+function _withTimeout(promise, ms, label) {
+  label = label || 'chat';
+  return new Promise(function (resolve, reject) {
+    var timer = setTimeout(function () {
+      var e = new Error(label + ' timeout after ' + ms + 'ms');
+      e.name = 'AbortError';
+      e.code = 'TIMEOUT';
+      reject(e);
+    }, ms);
+    promise.then(
+      function (v) { clearTimeout(timer); resolve(v); },
+      function (e) { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
+// 重试包装:对 chat fn 做指数退避重试
+//   fn: 异步函数,返回结果或 throw
+//   options.maxRetries: 各类错误的最大重试次数(per-kind,已映射)
+//   返回: { success, result, error, errorKind, attempts, lastError }
+//   chat 错误分类 → 重试策略:
+//     rate_limit → MAX_RETRY_LLM_429 次,按 RETRY_BACKOFF_LLM_429 退避
+//     network    → MAX_RETRY_NETWORK 次,按 RETRY_BACKOFF_NETWORK 退避(立即重试)
+//     timeout/llm/unknown → 不重试,直接返回失败
+async function _retryChatCall(fn, options) {
+  options = options || {};
+  var label = options.label || 'chat';
+  var attempt = 0;
+  var lastErr = null;
+  var lastKind = 'unknown';
+  while (true) {
+    attempt++;
+    try {
+      var result = await fn(attempt);
+      return { success: true, result: result, error: null, errorKind: null, attempts: attempt };
+    } catch (e) {
+      lastErr = e;
+      lastKind = _classifyChatError(e);
+      var backoff = null;
+      var maxRetries = 0;
+      if (lastKind === 'rate_limit') {
+        maxRetries = MAX_RETRY_LLM_429;
+        backoff = RETRY_BACKOFF_LLM_429;
+      } else if (lastKind === 'network') {
+        maxRetries = MAX_RETRY_NETWORK;
+        backoff = RETRY_BACKOFF_NETWORK;
+      } else {
+        // timeout/llm/unknown: 不重试
+        maxRetries = 0;
+        backoff = [0];
+      }
+      if (attempt > maxRetries) {
+        return { success: false, result: null, error: e, errorKind: lastKind, attempts: attempt, lastError: e };
+      }
+      var sleepMs = backoff[Math.min(attempt, backoff.length - 1)] || 0;
+      // 调 sleepFn 即使 sleepMs=0(记录调用,便于测试和将来需要 pre-retry hook 时插入)
+      await new Promise(function (r) { setTimeout(r, sleepMs); });
+      console.warn('[' + label + '] retry attempt=' + (attempt + 1) + '/' + (maxRetries + 1) + ' kind=' + lastKind + ' sleep=' + sleepMs + 'ms err=' + (e.message || e));
+    }
+  }
+}
+
 // 统一 API 请求（带认证 token）
 async function apiFetch(url, options = {}) {
   const token = localStorage.getItem('sb_auth_token');
@@ -10492,7 +10596,11 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
       }
     }
     
-    var chatResult = await _sendChatWaitForLifecycle(sessionKey, fullMessage, {
+    // ★ refactor/chat-retry-pipeline: 30s 端到端 UI 兜底超时(不取消后台任务,AbortController
+    //   无法中断已发的 WS 消息)。lifecycleWaitMs 默认 120s 保留给真的慢 LLM 响应。
+    //   此处不重试——callbacks (onStream/onPhase/onToolStart 等) 重试时副作用会泄漏
+    //   (status 闪、tool card 重复注册),留到下一轮用 _sendChatWithRetry 改造。
+    var chatResult = await _withTimeout(_sendChatWaitForLifecycle(sessionKey, fullMessage, {
       onStream: function (text) {
         if (!hasSentWorking) {
           hasSentWorking = true;
@@ -21258,7 +21366,9 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
     endpoint = baseUrl + '/chat/completions';
   }
   console.debug('[API] 发送请求 -> /api/proxy endpoint=' + endpoint + ' model=' + model + ' messages=' + messages.length);
-  apiFetch('/api/proxy', {
+  // ★ refactor/chat-retry-pipeline: 30s 端到端 UI 兜底超时(不影响后端 proxy 真在跑的请求,
+  //   跟 sendViaOpenClaw 同语义)。retry 留给下一轮把 .then 链改 async/await 后再做。
+  _withTimeout(apiFetch('/api/proxy', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -21273,7 +21383,7 @@ async function sendViaAPI(emp, userMessage, docContext, timeStr, images) {
       temperature: 0.8,
       max_tokens: 2000
     })
-  }).then(function (res) {
+  }), TIMEOUT_CHAT_MS, 'API chat').then(function (res) {
     console.debug('[API] /api/proxy 响应 status=' + (res ? res.status : 'null') + ' ok=' + (res ? res.ok : 'null'));
 
     // 这里 t 是 sendViaAPI 函数作用域的变量，但只在 if 早退分支里被赋值过；
