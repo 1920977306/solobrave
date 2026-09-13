@@ -2816,6 +2816,20 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   align-items: center;
   gap: 4px;
   padding: 7px 8px;
+}
+/* ② 分类树计数 chip: 11px / --color-text-tertiary / --color-bg-softer 圆角, 和侧栏 dept-count 风格一致 */
+.kb-cat-count {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 6px;
+  font: 500 11px/1.4 -apple-system, sans-serif;
+  color: var(--color-text-tertiary, #AEAEB2);
+  background: var(--color-bg-softer, #F2F2F7);
+  border-radius: 8px;
+  text-align: center;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
   margin: 1px 0;
   border-radius: 8px;
   cursor: pointer;
@@ -2940,7 +2954,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   align-items: stretch;
   gap: 12px;
   padding: 16px;
-  background: #ffffff;
+  background: var(--bg-primary, #ffffff);
   border-radius: 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
   border: 0.5px solid rgba(0, 0, 0, 0.04);
@@ -2953,7 +2967,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   justify-content: center;
   min-width: 80px;
   padding: 12px 14px;
-  background: #ffffff;
+  background: var(--bg-primary, #ffffff);
   border-radius: 10px;
   border: 0.5px solid rgba(0, 0, 0, 0.06);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
@@ -2965,7 +2979,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-color: rgba(0, 122, 255, 0.18);
 }
 .knowledge-stats-total {
-  background: linear-gradient(135deg, #007AFF 0%, #00A3FF 100%);
+  background: linear-gradient(135deg, var(--color-primary, #007AFF) 0%, var(--color-primary-hover, #0066D6) 100%);
   color: #ffffff;
   min-width: 96px;
   border: none;
@@ -2978,22 +2992,22 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: rgba(255, 255, 255, 0.9);
 }
 .knowledge-stats-pending {
-  background: #FFF8E1;
-  border-color: rgba(245, 166, 35, 0.18);
+  background: var(--color-kb-pending-bg, #FFF8E1);
+  border-color: var(--color-kb-pending-border, rgba(245, 166, 35, 0.18));
 }
 .knowledge-stats-pending .knowledge-stats-value {
-  color: #F5A623;
+  color: var(--color-kb-pending-text, #F5A623);
 }
 .knowledge-stats-value {
   font-size: 22px;
   font-weight: 700;
   line-height: 1.2;
-  color: #007AFF;
+  color: var(--color-primary, #007AFF);
 }
 .knowledge-stats-label {
   font-size: 12px;
   font-weight: 500;
-  color: #86909c;
+  color: var(--color-text-tertiary, #AEAEB2);
   margin-top: 4px;
 }
 .knowledge-stats-divider {
@@ -3015,7 +3029,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   background: rgba(0, 122, 255, 0.06);
   border-radius: 20px;
   font-size: 12px;
-  color: #007AFF;
+  color: var(--color-primary, #007AFF);
   font-weight: 500;
   border: 0.5px solid rgba(0, 122, 255, 0.12);
 }
@@ -3121,6 +3135,15 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 11px;
   vertical-align: middle;
 }
+/* ④ pending 视觉: 卡片/列表项浅黄半透明背景 + 左边线, 状态可辨识 */
+.kb-mid-card-pending {
+  background: var(--color-kb-pending-bg, #FFF8E1) !important;
+  border-left: 3px solid var(--color-kb-pending-text, #F5A623);
+}
+.kb-list-item-pending {
+  background: var(--color-kb-pending-bg, #FFF8E1) !important;
+  border-left: 3px solid var(--color-kb-pending-text, #F5A623);
+}
 .kb-review-btn {
   border: 1px solid var(--separator);
   background: #fff;
@@ -3128,13 +3151,24 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 3px 10px;
   font-size: 12px;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
 }
 .kb-review-approve { color: #28a745; }
+.kb-review-approve:hover { background: rgba(40, 167, 69, 0.1); border-color: #28a745; }
 .kb-review-reject { color: #ff3b30; }
+.kb-review-reject:hover { background: rgba(255, 59, 48, 0.1); border-color: #ff3b30; }
+.kb-review-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .kb-card-review-actions {
   display: flex;
   gap: 8px;
   padding: 4px 12px 8px;
+}
+/* ④ 搜索关键词高亮: 底色用 status-pending 浅黄(避免和 pending 卡片背景撞) + 不改字色 */
+.kb-search-hl {
+  background: var(--color-status-pending-bg, rgba(255, 204, 0, 0.25));
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
 }
 .knowledge-mid-card-title-wrap {
   flex: 1;
@@ -3195,6 +3229,45 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 12px;
   padding: 40px 20px;
 }
+/* ① 搜索状态容器(spinner/empty/fail 三态统一容器) */
+.kb-search-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+  padding: 60px 20px;
+  color: var(--color-text-tertiary, #AEAEB2);
+  font-size: 13px;
+}
+.kb-search-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-bg-softer, #F2F2F7);
+  border-top-color: var(--color-primary, #007AFF);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.kb-search-empty-icon { font-size: 36px; opacity: 0.6; }
+.kb-search-empty-text { font-size: 14px; color: var(--color-text-secondary, #6E6E73); }
+.kb-search-empty-btn,
+.kb-search-retry-btn {
+  margin-top: 4px;
+  padding: 7px 18px;
+  font: 500 13px/1 -apple-system, sans-serif;
+  color: var(--color-primary, #007AFF);
+  background: transparent;
+  border: 1px solid var(--color-primary, #007AFF);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.kb-search-empty-btn:hover,
+.kb-search-retry-btn:hover { background: var(--color-primary, #007AFF); color: #fff; }
+.kb-search-fail-icon { font-size: 32px; color: var(--color-danger, #FF3B30); }
+.kb-search-fail-text { color: var(--color-danger, #FF3B30); font-size: 14px; }
 .knowledge-mid-empty-icon { font-size: 48px; }
 .knowledge-mid-empty-text { font-size: 14px; }
 .knowledge-mid-empty-btn {
@@ -6929,6 +7002,9 @@ window.doLogin = function () {
   --color-ai-accent: #5E5CE6;  /* ③ AI 视觉协议主色(已用在多处, 集中 token) */
   --color-ai-bg-soft: #EEF0FF;  /* ③ AI 浅紫底色 */
   --color-pinned-bg: rgba(0, 122, 255, 0.06);  /* ③ 置顶区域背景, 替代 inline rgba(0,122,255,0.04) 提到 token + 略加深 */
+  --color-kb-pending-bg: #FFF8E1;  /* ③ KB 待审核软黄底(原 inline #FFF8E1) */
+  --color-kb-pending-text: #F5A623;  /* ③ KB 待审核 warning 文字色(原 inline #F5A623) */
+  --color-kb-pending-border: rgba(245, 166, 35, 0.18);  /* ③ KB 待审核软黄边 */
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -27820,6 +27896,11 @@ var _knowledgeProjectId = '';
 var _knowledgePreviewMode = false;
 var _knowledgeViewMode = 'card';
 var _knowledgePage = 1;
+var _knowledgeLastQuery = '';  // ① 当前搜索 query(空 = 列表模式, 非空 = 搜索模式), 用于 renderKnowledgeList 区分空态
+// ② 分类计数缓存: 全量拉取后按 doc.categoryId 聚合, 父分类递归累加
+// 首次打开 KB 面板 / 手动刷新时拉一次, 切分类翻页不重复拉
+var _knowledgeCatCounts = null;  // { [categoryId]: number } 从 0 开始, 1000 封顶
+var _knowledgeCatCountsTotal = 0;  // 缓存里的总文档数(可能 = _knowledgeCatCounts 总和, 也可能 < 1000 封顶)
 var _knowledgePageSize = 20;
 var _knowledgeInitialized = false;
 var _knowledgeExpandedCats = {};
@@ -27881,6 +27962,14 @@ function getSelectedKnowledgeGroupIds(containerId) {
 function openKnowledgePage() {
   switchModule('knowledge');
   loadGroups();
+  // ② 首次打开 KB 面板时拉一次分类计数缓存(切分类翻页复用, 不重复拉)
+  if (!_knowledgeCatCounts) {
+    loadKnowledgeCategoryCounts().then(function () {
+      // 拉完后强制重渲染分类树(让计数 chip 出现)
+      var tree = document.getElementById('knowledgeMidCategory');
+      if (tree && _knowledgeData && _knowledgeData.categories) renderKnowledgeCategories(_knowledgeData.categories);
+    });
+  }
 }
 function closeKnowledgePage() { switchModule('messages'); closeKnowledgeEditor(); _knowledgeInitialized = false; _knowledgeCurrentId = null; }
 function openKnowledgeEditor() {
@@ -28024,11 +28113,22 @@ function _renderKnowledgeCatNode(cat, depth, isAll) {
   var expanded = isAll || _knowledgeExpandedCats[cat.id] || false;
   var active = isAll ? !_knowledgeCurrentCategoryId : (_knowledgeCurrentCategoryId === cat.id);
   var catIdVal = cat.id === '' ? 'null' : JSON.stringify(cat.id);
+  // ② 父分类计数 = 自身 + 所有后代 categoryId 累加; 「全部分类」特殊: 显总数
+  // 计数超过 1000(API 封顶)显 999+
+  var count;
+  if (isAll) {
+    count = _knowledgeCatCountsTotal || 0;
+  } else {
+    count = _getCategoryCountWithChildren(cat);
+  }
+  var countChip = '<span class="kb-cat-count">' + (count > 1000 ? '999+' : count) + '</span>';
   var html = '<div class="knowledge-cat-tree-node" data-cat-id="' + escapeAttr(String(cat.id)) + '">';
   html += '<div class="knowledge-cat-tree-row' + (active ? ' active' : '') + '" draggable="' + (isAll ? 'false' : 'true') + '" style="padding-left:' + (8 + depth * 14) + 'px;"' + (isAll ? '' : ' oncontextmenu="showKnowledgeCatContextMenu(event, ' + catIdVal + ')"') + '>';
   html += '<span class="knowledge-cat-toggle ' + (hasChildren ? (expanded ? 'expanded' : '') : 'leaf') + '" onclick="toggleKnowledgeCategory(event, ' + catIdVal + ')">▶</span>';
   html += '<span class="knowledge-cat-icon">' + (isAll ? '📁' : '📄') + '</span>';
   html += '<span class="knowledge-cat-name" onclick="selectKnowledgeCategoryId(event, ' + catIdVal + ', ' + isAll + ')">' + escapeHtml(cat.name || '未命名') + '</span>';
+  // ② 计数 chip 嵌在 row 末尾(用 inline-block 撑开, flex 自然推)
+  html += countChip;
   html += '</div>';
   if (hasChildren) {
     html += '<div class="knowledge-cat-tree-children" style="display:' + (expanded ? 'block' : 'none') + '">';
@@ -28307,7 +28407,16 @@ function renderKnowledgeList(docs) {
   if (!el) return;
   el.classList.toggle('list-view', _knowledgeViewMode === 'list');
   if (!docs || docs.length === 0) {
-    el.innerHTML = '<div class="knowledge-mid-empty"><div class="knowledge-mid-empty-icon">📖</div><div class="knowledge-mid-empty-text">暂无知识文档</div><button class="knowledge-mid-empty-btn" onclick="createNewKnowledge()">手动添加</button></div>';
+    // ① 区分搜索空态 vs 库空态: 搜索时无结果显「无匹配」+ 查看全部 CTA, 库空时显「暂无文档」+ 手动添加
+    if (_knowledgeLastQuery) {
+      el.innerHTML = '<div class="kb-search-state kb-search-empty">'
+        + '<div class="kb-search-empty-icon">🔍</div>'
+        + '<div class="kb-search-empty-text">无匹配文档 · 试试别的关键词</div>'
+        + '<button class="kb-search-empty-btn" onclick="onKnowledgeSearchClear()">查看全部文档</button>'
+        + '</div>';
+    } else {
+      el.innerHTML = '<div class="knowledge-mid-empty"><div class="knowledge-mid-empty-icon">📖</div><div class="knowledge-mid-empty-text">暂无知识文档</div><button class="knowledge-mid-empty-btn" onclick="createNewKnowledge()">手动添加</button></div>';
+    }
     return;
   }
   var scopeClassMap = { global: 'scope-global', group: 'scope-group', personal: 'scope-personal' };
@@ -28317,18 +28426,23 @@ function renderKnowledgeList(docs) {
     docs.forEach(function(d) {
       var isActive = d.id === _knowledgeCurrentId;
       var scope = d.scope || 'global';
-      html += '<div class="knowledge-list-item' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';">';
+      // ④ pending 视觉: 整行加 .kb-list-item-pending 类, 浅黄底 + 待审核 chip
+      var pendingClass = d.status === 'pending' ? ' kb-list-item-pending' : '';
+      html += '<div class="knowledge-list-item' + (isActive ? ' active' : '') + pendingClass + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';">';
       html += '<div class="knowledge-list-cat-line"></div>';
       html += '<div class="knowledge-list-main" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
-      html += '<div class="knowledge-list-title-row"><div class="knowledge-list-title">' + escapeHtml(d.title || d.name || '未命名') + (d.status === 'pending' ? '<span class="kb-pending-badge">待审核</span>' : '') + '</div><span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
+      // ④ 搜索关键词高亮: 当 _knowledgeLastQuery 非空时, title 用 highlightSearch 包装
+      var titleText = highlightSearch(d.title || d.name || '未命名', _knowledgeLastQuery);
+      html += '<div class="knowledge-list-title-row"><div class="knowledge-list-title">' + titleText + (d.status === 'pending' ? '<span class="kb-pending-badge">待审核</span>' : '') + '</div><span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
       html += '<div class="knowledge-list-meta">';
       html += '<span class="knowledge-view-scope ' + (scopeClassMap[scope] || 'scope-global') + '">' + (scopeNameMap[scope] || '全局') + '</span>';
       html += '<span>' + formatRelativeTime(d.updatedAt) + '</span>';
       html += '</div></div>';
       html += '<div class="knowledge-list-actions">';
       if (d.status === 'pending') {
-        html += '<button class="kb-review-btn kb-review-approve" onclick="event.stopPropagation();approveKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="确认通过">✓</button>';
-        html += '<button class="kb-review-btn kb-review-reject" onclick="event.stopPropagation();rejectKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="驳回">✗</button>';
+        // ④ 审核按钮加 data-attr 让 approve/reject handler 可 disable 防双击
+        html += '<button class="kb-review-btn kb-review-approve" data-doc-id="' + escapeAttr(d.id || '') + '" onclick="event.stopPropagation();reviewKnowledgeDoc(this, \'approve\', \'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="确认通过">✓</button>';
+        html += '<button class="kb-review-btn kb-review-reject" data-doc-id="' + escapeAttr(d.id || '') + '" onclick="event.stopPropagation();reviewKnowledgeDoc(this, \'reject\', \'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="驳回">✗</button>';
       }
       html += '<button onclick="event.stopPropagation();editKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="编辑">✏️</button>';
       html += '<button onclick="event.stopPropagation();deleteKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="删除">🗑️</button>';
@@ -28340,15 +28454,20 @@ function renderKnowledgeList(docs) {
       var isActive = d.id === _knowledgeCurrentId;
       var preview = getKnowledgePreview(d.content).slice(0, 100);
       var scope = d.scope || 'global';
-      html += '<div class="knowledge-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
+      // ④ pending 视觉: 整卡片加 .kb-mid-card-pending 类
+      var pendingClass = d.status === 'pending' ? ' kb-mid-card-pending' : '';
+      html += '<div class="knowledge-mid-card' + (isActive ? ' active' : '') + pendingClass + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
       html += '<div class="knowledge-mid-card-header">';
-      html += '<div class="knowledge-mid-card-title-wrap"><div class="knowledge-mid-card-title">' + escapeHtml(d.title || d.name || '未命名') + (d.status === 'pending' ? '<span class="kb-pending-badge">待审核</span>' : '') + '</div></div>';
+      // ④ 搜索关键词高亮: title + preview
+      var titleText = highlightSearch(d.title || d.name || '未命名', _knowledgeLastQuery);
+      var previewText = highlightSearch(preview, _knowledgeLastQuery);
+      html += '<div class="knowledge-mid-card-title-wrap"><div class="knowledge-mid-card-title">' + titleText + (d.status === 'pending' ? '<span class="kb-pending-badge">待审核</span>' : '') + '</div></div>';
       html += '<span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
-      html += '<div class="knowledge-mid-card-body">' + escapeHtml(preview) + (preview.length >= 100 ? '...' : '') + '</div>';
+      html += '<div class="knowledge-mid-card-body">' + previewText + (preview.length >= 100 ? '...' : '') + '</div>';
       if (d.status === 'pending') {
         html += '<div class="kb-card-review-actions">';
-        html += '<button class="kb-review-btn kb-review-approve" onclick="event.stopPropagation();approveKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">✓ 确认通过</button>';
-        html += '<button class="kb-review-btn kb-review-reject" onclick="event.stopPropagation();rejectKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">✗ 驳回</button>';
+        html += '<button class="kb-review-btn kb-review-approve" data-doc-id="' + escapeAttr(d.id || '') + '" onclick="event.stopPropagation();reviewKnowledgeDoc(this, \'approve\', \'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">✓ 确认通过</button>';
+        html += '<button class="kb-review-btn kb-review-reject" data-doc-id="' + escapeAttr(d.id || '') + '" onclick="event.stopPropagation();reviewKnowledgeDoc(this, \'reject\', \'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">✗ 驳回</button>';
         html += '</div>';
       }
       html += '<div class="knowledge-mid-card-meta">';
@@ -28365,6 +28484,22 @@ function renderKnowledgeList(docs) {
     });
   }
   el.innerHTML = html;
+}
+
+// ④ 审核按钮包装: 防双击(loading 0.5s) + 调原 approve/reject 函数
+// 旧 onclick 直接调 approveKnowledgeDoc, 用户连续点两下会触发两次 API
+// 包装后: 第一次点击立即 disabled + 改文案, 0.5s 内重复点击不响应
+function reviewKnowledgeDoc(btnEl, action, docId) {
+  if (!btnEl || btnEl.disabled) return;
+  btnEl.disabled = true;
+  var originalText = btnEl.textContent;
+  btnEl.textContent = '⏳';
+  setTimeout(function () { btnEl.disabled = false; btnEl.textContent = originalText; }, 500);
+  if (action === 'approve') {
+    if (typeof approveKnowledgeDoc === 'function') approveKnowledgeDoc(docId);
+  } else if (action === 'reject') {
+    if (typeof rejectKnowledgeDoc === 'function') rejectKnowledgeDoc(docId);
+  }
 }
 function switchKnowledgeView(mode) {
   _knowledgeViewMode = mode === 'list' ? 'list' : 'card';
@@ -28477,17 +28612,95 @@ function renderKnowledgeStats(stats) {
     '</div>' + catHtml;
   el.style.display = '';
 }
+// ① 搜索空态的「查看全部文档」按钮 handler: 清空 input + query + 重新加载
+function onKnowledgeSearchClear() {
+  _knowledgeLastQuery = '';
+  var input = document.getElementById('knowledgeMidSearch');
+  if (input) input.value = '';
+  loadKnowledgePage();
+}
+
+// ④ 搜索关键词高亮 helper: 先 escapeHtml(text), 再 escapeHtml(query),
+// 在转义后文本上 case-insensitive 替换, 命中片段包 <mark>
+// 严格防注入: text 和 query 都先转义, query 还做正则元字符转义
+// 仅当 _knowledgeLastQuery 非空时调用, 正常浏览列表不高亮
+function highlightSearch(text, query) {
+  if (!text) return '';
+  var safe = escapeHtml(text);
+  if (!query) return safe;
+  // query 转义正则元字符, 再 escapeHtml 防注入
+  var escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  var safeQuery = escapeHtml(escapedQuery);
+  // case-insensitive 全局替换, 保留原文大小写
+  try {
+    var re = new RegExp('(' + safeQuery + ')', 'gi');
+    return safe.replace(re, '<mark class="kb-search-hl">$1</mark>');
+  } catch (e) {
+    return safe;  // 正则构造失败时兑底返回原文, 不抛错
+  }
+}
+
+// ② 分类计数: 全量拉取 docs(limit=1000), 本地按 doc.categoryId 聚合
+// 父分类计数 = 自身 + 所有后代 categoryId 的累加
+// 仅首次打开 KB / 手动刷新时拉, 切分类翻页复用缓存
+async function loadKnowledgeCategoryCounts() {
+  try {
+    var resp = await apiFetch('/api/knowledge?limit=1000&offset=0');
+    var data = await resp.json();
+    var docs = data.docs || [];
+    var counts = {};  // { categoryId: number }
+    docs.forEach(function (d) {
+      if (d.categoryId === null || d.categoryId === undefined) return;
+      var k = String(d.categoryId);
+      counts[k] = (counts[k] || 0) + 1;
+    });
+    _knowledgeCatCounts = counts;
+    _knowledgeCatCountsTotal = docs.length;
+    return counts;
+  } catch (e) {
+    console.warn('[KB Counts] 拉取失败:', e);
+    _knowledgeCatCounts = {};
+    _knowledgeCatCountsTotal = 0;
+    return {};
+  }
+}
+
+// ② 递归算父分类总数 = 自身 categoryId 的文档数 + 所有 children 的累加
+// _renderKnowledgeCatNode 在渲染每个节点时调用, 拿到的就是该分类(及后代)的总文档数
+function _getCategoryCountWithChildren(cat) {
+  if (!_knowledgeCatCounts) return 0;
+  var self = (_knowledgeCatCounts[String(cat.id)] || 0);
+  var children = cat.children || [];
+  children.forEach(function (c) {
+    self += _getCategoryCountWithChildren(c);
+  });
+  return self;
+}
+
+// ② 强制刷新分类计数(绑到手动 refresh 按钮)
+async function refreshKnowledgeCategoryCounts() {
+  await loadKnowledgeCategoryCounts();
+  var tree = document.getElementById('knowledgeMidCategory');
+  if (tree && typeof renderKnowledgeCategories === 'function') {
+    // 重新触发分类树渲染(从缓存读 _knowledgeData.categories)
+    var cats = (window._knowledgeData && window._knowledgeData.categories) || [];
+    renderKnowledgeCategories(cats);
+  }
+}
+
 function onKnowledgeSearch(value) {
   clearTimeout(window._knowledgeSearchTimer);
   window._knowledgeSearchTimer = setTimeout(async function () {
     _knowledgePage = 1;
     var kw = (value || '').trim();
+    _knowledgeLastQuery = kw;  // ① 记录当前 query, 让 renderKnowledgeList 区分搜索空态 vs 库空态
     if (!kw) {
       loadKnowledgePage();
       return;
     }
     var midItems = document.getElementById('knowledgeMidItems');
-    if (midItems) midItems.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索中...</div>';
+    // ① spinner + 文字(复用 :root 现有 @keyframes spin 0.8s linear infinite)
+    if (midItems) midItems.innerHTML = '<div class="kb-search-state kb-search-loading"><div class="kb-search-spinner"></div><div>搜索中...</div></div>';
     try {
       var r = await apiFetch('/api/knowledge/search', {
         method: 'POST',
@@ -28501,7 +28714,8 @@ function onKnowledgeSearch(value) {
       renderKnowledgePagination(0, 1, _knowledgePageSize);
     } catch (e) {
       console.warn('[KnowledgeSearch] failed:', e);
-      if (midItems) midItems.innerHTML = '<div style="padding:40px;text-align:center;color:var(--danger);">搜索失败</div>';
+      // ① 失败: spinner 替换为 retry 按钮(避免用户刷新整页)
+      if (midItems) midItems.innerHTML = '<div class="kb-search-state kb-search-fail"><div class="kb-search-fail-icon">⚠️</div><div class="kb-search-fail-text">搜索失败,请重试</div><button class="kb-search-retry-btn" onclick="onKnowledgeSearch(document.getElementById(\'knowledgeMidSearch\').value)">重试</button></div>';
     }
   }, 300);
 }
