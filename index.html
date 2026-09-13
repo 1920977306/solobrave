@@ -2940,7 +2940,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   align-items: stretch;
   gap: 12px;
   padding: 16px;
-  background: #ffffff;
+  background: var(--bg-primary, #ffffff);
   border-radius: 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
   border: 0.5px solid rgba(0, 0, 0, 0.04);
@@ -2953,7 +2953,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   justify-content: center;
   min-width: 80px;
   padding: 12px 14px;
-  background: #ffffff;
+  background: var(--bg-primary, #ffffff);
   border-radius: 10px;
   border: 0.5px solid rgba(0, 0, 0, 0.06);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
@@ -2965,7 +2965,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-color: rgba(0, 122, 255, 0.18);
 }
 .knowledge-stats-total {
-  background: linear-gradient(135deg, #007AFF 0%, #00A3FF 100%);
+  background: linear-gradient(135deg, var(--color-primary, #007AFF) 0%, var(--color-primary-hover, #0066D6) 100%);
   color: #ffffff;
   min-width: 96px;
   border: none;
@@ -2978,22 +2978,22 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: rgba(255, 255, 255, 0.9);
 }
 .knowledge-stats-pending {
-  background: #FFF8E1;
-  border-color: rgba(245, 166, 35, 0.18);
+  background: var(--color-kb-pending-bg, #FFF8E1);
+  border-color: var(--color-kb-pending-border, rgba(245, 166, 35, 0.18));
 }
 .knowledge-stats-pending .knowledge-stats-value {
-  color: #F5A623;
+  color: var(--color-kb-pending-text, #F5A623);
 }
 .knowledge-stats-value {
   font-size: 22px;
   font-weight: 700;
   line-height: 1.2;
-  color: #007AFF;
+  color: var(--color-primary, #007AFF);
 }
 .knowledge-stats-label {
   font-size: 12px;
   font-weight: 500;
-  color: #86909c;
+  color: var(--color-text-tertiary, #AEAEB2);
   margin-top: 4px;
 }
 .knowledge-stats-divider {
@@ -3015,7 +3015,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   background: rgba(0, 122, 255, 0.06);
   border-radius: 20px;
   font-size: 12px;
-  color: #007AFF;
+  color: var(--color-primary, #007AFF);
   font-weight: 500;
   border: 0.5px solid rgba(0, 122, 255, 0.12);
 }
@@ -6968,6 +6968,9 @@ window.doLogin = function () {
   --color-ai-accent: #5E5CE6;  /* ③ AI 视觉协议主色(已用在多处, 集中 token) */
   --color-ai-bg-soft: #EEF0FF;  /* ③ AI 浅紫底色 */
   --color-pinned-bg: rgba(0, 122, 255, 0.06);  /* ③ 置顶区域背景, 替代 inline rgba(0,122,255,0.04) 提到 token + 略加深 */
+  --color-kb-pending-bg: #FFF8E1;  /* ③ KB 待审核软黄底(原 inline #FFF8E1) */
+  --color-kb-pending-text: #F5A623;  /* ③ KB 待审核 warning 文字色(原 inline #F5A623) */
+  --color-kb-pending-border: rgba(245, 166, 35, 0.18);  /* ③ KB 待审核软黄边 */
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
