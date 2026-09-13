@@ -1999,10 +1999,11 @@ def kb_entry_create(title, content, category, created_by, scope='global', team_i
 
 
 def kb_entry_get_by_id(entry_id):
-    """获取单条新版知识详情"""
+    """获取单条新版知识详情(★ refactor/kb-soft-delete-cascade: 过滤 status='deleted')"""
     conn = _db_conn()
     try:
-        row = conn.execute('SELECT * FROM kb_entries WHERE id = ?', (entry_id,)).fetchone()
+        # 软删文档 (status='deleted') 对单条 GET 也不可见,避免前端拿到"幽灵文档"
+        row = conn.execute("SELECT * FROM kb_entries WHERE id = ? AND status != 'deleted'", (entry_id,)).fetchone()
         return _kb_entry_row_to_dict(row)
     finally:
         conn.close()
@@ -2163,8 +2164,14 @@ def kb_entries_reindex_pending():
 
 
 def kb_entry_delete(entry_id, is_admin=False, operator_id=''):
-    """删除新版知识条目，级联删除 chunks（该表无 status，物理删除保证已删条目的 chunks 绝不进 RAG），
-    并在 kb_operation_log 留下 delete 审计记录（历史日志保留，不连带删除）"""
+    """★ refactor/kb-soft-delete-cascade: 软删新版知识条目。
+    行为变更：从「物理删」改为「软删」(status='deleted') + 级联清理 chunks (防 RAG 命中)。
+    - 同事务 3 步: UPDATE status='deleted' + DELETE chunks + 写 audit log，任一失败回滚
+    - 7 天后可用 kb_entry_cleanup_dangling() 物理删兜底
+    - 列表查询 (_kb_entry_build_where) 已自动过滤 status IN ('ok','pending'),软删文档自动消失
+    - kb_entry_get_by_id 也加 status!='deleted' 过滤,防止单条 GET 查到软删文档
+    - 物理删 API 改走 kb_entry_hard_delete
+    """
     conn = _db_conn()
     try:
         row = conn.execute('SELECT scope, title FROM kb_entries WHERE id = ?', (entry_id,)).fetchone()
@@ -2176,20 +2183,147 @@ def kb_entry_delete(entry_id, is_admin=False, operator_id=''):
     if not is_admin and doc_scope in ('global', 'team'):
         raise PermissionError('Permission denied: non-admin cannot delete global/team knowledge')
 
+    now_ms = int(time.time() * 1000)
+    conn = _db_conn()
+    try:
+        # 事务 3 步: 软删标记 + 级联清 chunks + 写 audit log,任一失败回滚
+        cur = conn.execute(
+            "UPDATE kb_entries SET status='deleted', updated_at=? WHERE id = ? AND status != 'deleted'",
+            (now_ms, entry_id)
+        )
+        if cur.rowcount == 0:
+            # 已经被软删过 (idempotent),返回 False 表示这次没新动作
+            conn.commit()
+            return False
+        # 级联清理 chunks (防 RAG 检索命中已软删文档的向量)
+        conn.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
+        # 写 audit log (历史日志保留,不连带删除)
+        try:
+            conn.execute('''
+                INSERT INTO kb_operation_log (id, entry_id, operation, operator_id, details, created_at)
+                VALUES (?, ?, 'soft_delete', ?, ?, ?)
+            ''', (
+                'op_' + uuid.uuid4().hex,
+                entry_id,
+                operator_id,
+                json.dumps({'title': row['title'], 'scope': doc_scope}, ensure_ascii=False),
+                now_ms
+            ))
+        except Exception as e:
+            print(f'  [KBEntry] soft_delete audit log 写入失败(回滚): {e}', flush=True)
+            raise  # 让外层 try 触发 rollback
+        conn.commit()
+        deleted = True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return deleted
+
+
+def kb_entry_hard_delete(entry_id, is_admin=False, operator_id=''):
+    """★ refactor/kb-soft-delete-cascade: 物理删 KB 条目(供清理 API 和 admin 工具用)。
+    区别于 kb_entry_delete (软删),这里直接 DELETE,不留恢复余地。
+    同样级联清 chunks + 写 audit log(物理删审计)。"""
+    conn = _db_conn()
+    try:
+        row = conn.execute('SELECT scope, title FROM kb_entries WHERE id = ?', (entry_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return False
+    doc_scope = (row['scope'] or 'global')
+    if not is_admin and doc_scope in ('global', 'team'):
+        raise PermissionError('Permission denied: non-admin cannot delete global/team knowledge')
+
+    now_ms = int(time.time() * 1000)
     conn = _db_conn()
     try:
         conn.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
         cur = conn.execute('DELETE FROM kb_entries WHERE id = ?', (entry_id,))
+        # 物理删 audit log 仍然写(便于追溯"何时被硬删")
+        try:
+            conn.execute('''
+                INSERT INTO kb_operation_log (id, entry_id, operation, operator_id, details, created_at)
+                VALUES (?, ?, 'hard_delete', ?, ?, ?)
+            ''', (
+                'op_' + uuid.uuid4().hex,
+                entry_id,
+                operator_id,
+                json.dumps({'title': row['title'], 'scope': doc_scope}, ensure_ascii=False),
+                now_ms
+            ))
+        except Exception as e:
+            print(f'  [KBEntry] hard_delete audit log 写入失败(回滚): {e}', flush=True)
+            raise
         conn.commit()
         deleted = cur.rowcount > 0
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
-    if deleted:
-        try:
-            kb_entry_log_operation(entry_id, 'delete', operator_id, {'title': row['title'], 'scope': doc_scope})
-        except Exception as e:
-            print(f'  [KBEntry] delete 日志写入失败（不影响删除）: {e}', flush=True)
     return deleted
+
+
+def kb_entry_cleanup_dangling(days_old=7, is_admin=True):
+    """★ refactor/kb-soft-delete-cascade: 兜底物理删 status='deleted' 超过 N 天的记录。
+    返回: {scanned, hard_deleted, chunk_cleared, error_count, deleted_entry_ids}
+    - is_admin 强制 True(兜底清理是高危操作,普通用户不该触发)
+    - 单事务批处理,失败回滚,记录错误但继续跑下一批
+    - POST /api/knowledge/cleanup-dangling 调用此函数
+    """
+    if not is_admin:
+        raise PermissionError('kb_entry_cleanup_dangling requires is_admin=True')
+    cutoff_ms = int(time.time() * 1000) - days_old * 24 * 60 * 60 * 1000
+    stats = {'scanned': 0, 'hard_deleted': 0, 'chunk_cleared': 0, 'error_count': 0, 'deleted_entry_ids': []}
+    conn = _db_conn()
+    try:
+        # 找候选: status='deleted' 且 updated_at 早于 cutoff
+        candidates = conn.execute(
+            "SELECT id, title FROM kb_entries WHERE status='deleted' AND updated_at < ?",
+            (cutoff_ms,)
+        ).fetchall()
+    finally:
+        conn.close()
+    stats['scanned'] = len(candidates)
+    for row in candidates:
+        entry_id = row['id']
+        try:
+            # 每条独立事务
+            conn2 = _db_conn()
+            try:
+                cur = conn2.execute('DELETE FROM kb_entry_chunks WHERE entry_id = ?', (entry_id,))
+                stats['chunk_cleared'] += cur.rowcount
+                cur2 = conn2.execute("DELETE FROM kb_entries WHERE id = ? AND status='deleted'", (entry_id,))
+                if cur2.rowcount > 0:
+                    stats['hard_deleted'] += 1
+                    stats['deleted_entry_ids'].append(entry_id)
+                # 写 audit
+                try:
+                    conn2.execute('''
+                        INSERT INTO kb_operation_log (id, entry_id, operation, operator_id, details, created_at)
+                        VALUES (?, ?, 'cleanup_dangling', ?, ?, ?)
+                    ''', (
+                        'op_' + uuid.uuid4().hex,
+                        entry_id,
+                        'system_cleanup',
+                        json.dumps({'days_old': days_old, 'title': row['title']}, ensure_ascii=False),
+                        int(time.time() * 1000)
+                    ))
+                except Exception:
+                    pass  # audit 失败不阻塞清理
+                conn2.commit()
+            except Exception:
+                conn2.rollback()
+                raise
+            finally:
+                conn2.close()
+        except Exception as e:
+            stats['error_count'] += 1
+            print(f'  [KBEntry] cleanup {entry_id} failed: {e}', flush=True)
+    return stats
 
 
 def _kb_entry_group_where_clause(user_group_ids):

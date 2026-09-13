@@ -6822,6 +6822,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/knowledge/categories':
             self._handle_post_kb_categories()
             return
+        # ★ refactor/kb-soft-delete-cascade: 兜底清理 status='deleted' 超过 N 天的记录
+        if path == '/api/knowledge/cleanup-dangling':
+            self._handle_cleanup_kb_dangling()
+            return
 
         # 规律库：触发归纳
         if path == '/api/knowledge-patterns/induce':
@@ -12807,7 +12811,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(500, f'Update failed: {str(e)}')
 
     def _handle_delete_kb_entry(self, entry_id):
-        """DELETE /api/knowledge/entries/<id> — 删除新版知识"""
+        """DELETE /api/knowledge/entries/<id> — 删除新版知识(★ refactor/kb-soft-delete-cascade:
+        行为变化: 从物理删改为软删, status='deleted' + 清 chunks, 7 天后清理 API 兜底)"""
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -12826,10 +12831,41 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         try:
             deleted = ks.kb_entry_delete(entry_id, is_admin=auth.is_admin, operator_id=auth.user_id)
-            self._send_json(200, {'success': deleted, 'id': entry_id})
+            self._send_json(200, {'success': deleted, 'id': entry_id, 'soft_delete': True})
         except Exception as e:
-            logger.error(f'  [KBEntry] delete failed: {e}')
+            logger.error(f'  [KBEntry] soft delete failed: {e}')
             self._send_json_error(500, f'Delete failed: {str(e)}')
+
+    def _handle_cleanup_kb_dangling(self):
+        """★ refactor/kb-soft-delete-cascade: POST /api/knowledge/cleanup-dangling
+        物理删 status='deleted' 超过 N 天的记录 (admin only)
+        body: { days_old: 7 (default) }
+        返回: {scanned, hard_deleted, chunk_cleared, error_count, deleted_entry_ids}
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_auth_error('Admin only', 403)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body() or {}
+        try:
+            days_old = int(body.get('days_old', 7))
+            if days_old < 1 or days_old > 365:
+                self._send_json_error(400, 'days_old must be 1-365')
+                return
+        except (TypeError, ValueError):
+            self._send_json_error(400, 'days_old must be int')
+            return
+        try:
+            stats = ks.kb_entry_cleanup_dangling(days_old=days_old, is_admin=True)
+            logger.info(f'  [KBEntry] cleanup-dangling days_old={days_old} stats={stats}')
+            self._send_json(200, stats)
+        except Exception as e:
+            logger.error(f'  [KBEntry] cleanup-dangling failed: {e}')
+            self._send_json_error(500, f'Cleanup failed: {str(e)}')
 
     def _handle_get_kb_categories(self):
         """GET /api/knowledge/categories — 分类树"""
