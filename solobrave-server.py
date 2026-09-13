@@ -6827,6 +6827,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_cleanup_kb_dangling()
             return
 
+        # ★ refactor/rag-index-integrity: 索引完整性 verify (admin only)
+        if path == '/api/knowledge/verify-index':
+            self._handle_post_verify_kb_index()
+            return
+
+        # ★ refactor/rag-index-integrity: 索引完整性 repair (admin only, 默认 dry-run)
+        if path == '/api/knowledge/repair-index':
+            self._handle_post_repair_kb_index()
+            return
+
         # 规律库：触发归纳
         if path == '/api/knowledge-patterns/induce':
             self._handle_post_induce_knowledge_patterns()
@@ -12866,6 +12876,66 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [KBEntry] cleanup-dangling failed: {e}')
             self._send_json_error(500, f'Cleanup failed: {str(e)}')
+
+    def _handle_post_verify_kb_index(self):
+        """★ refactor/rag-index-integrity: POST /api/knowledge/verify-index
+        扫描 RAG 索引 4 类不一致 (admin only)
+        body: { entryId?: str, limitPerType?: int (default 50) }
+        返回: {scanned_at, total_entries, total_chunks, issues: {missing_chunks, chunk_count_mismatch, model_drift, orphan_chunks}, truncated, scope}
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_auth_error('Admin only', 403)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body() or {}
+        try:
+            limit = int(body.get('limitPerType', 50))
+            if limit < 1 or limit > 1000:
+                self._send_json_error(400, 'limitPerType must be 1-1000')
+                return
+        except (TypeError, ValueError):
+            self._send_json_error(400, 'limitPerType must be int')
+            return
+        entry_id = (body.get('entryId') or body.get('entry_id') or '').strip() or None
+        try:
+            result = ks.kb_entry_verify_index(entry_id=entry_id, limit_per_type=limit, is_admin=True)
+            logger.info(f'  [KBIndex] verify-index scope={result["scope"]} '
+                        f'issues={ {k: len(v) for k, v in result["issues"].items()} }')
+            self._send_json(200, result)
+        except Exception as e:
+            logger.error(f'  [KBIndex] verify-index failed: {e}')
+            self._send_json_error(500, f'Verify failed: {str(e)}')
+
+    def _handle_post_repair_kb_index(self):
+        """★ refactor/rag-index-integrity: POST /api/knowledge/repair-index
+        修复 RAG 索引不一致 (admin only, Q1: 默认 dry-run)
+        body: { entryId?: str, confirm?: bool (default false) }
+        - confirm=false: 返回 {dry_run: true,  actions_planned,  stats}  (默认)
+        - confirm=true:  返回 {dry_run: false, actions_executed, stats}  (真改)
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not auth.is_admin:
+            self._send_auth_error('Admin only', 403)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body() or {}
+        entry_id = (body.get('entryId') or body.get('entry_id') or '').strip() or None
+        confirm = bool(body.get('confirm', False))
+        try:
+            result = ks.kb_entry_repair_index(entry_id=entry_id, confirm=confirm, is_admin=True)
+            logger.info(f'  [KBIndex] repair-index entry_id={entry_id} confirm={confirm} '
+                        f'stats={result["stats"]}')
+            self._send_json(200, result)
+        except Exception as e:
+            logger.error(f'  [KBIndex] repair-index failed: {e}')
+            self._send_json_error(500, f'Repair failed: {str(e)}')
 
     def _handle_get_kb_categories(self):
         """GET /api/knowledge/categories — 分类树"""

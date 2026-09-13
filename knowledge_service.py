@@ -2326,6 +2326,339 @@ def kb_entry_cleanup_dangling(days_old=7, is_admin=True):
     return stats
 
 
+# ═══════════════════════════════════════════════════
+# ★ refactor/rag-index-integrity: 索引完整性 verify + repair
+# ═══════════════════════════════════════════════════
+
+def kb_entry_verify_index(entry_id=None, limit_per_type=50, is_admin=True):
+    """★ refactor/rag-index-integrity: 扫描 RAG 索引,检测 4 类不一致。
+    4 类问题:
+      1. missing_chunks       — entries.status IN ('ok','pending') 但实际 chunks=0
+      2. chunk_count_mismatch — entries.chunk_count != COUNT(chunks.entry_id)
+      3. model_drift          — 同一 entry 的 chunks 用了不同 embedding_model
+      4. orphan_chunks        — chunks.entry_id NOT IN (SELECT id FROM kb_entries)
+    软删 (status='deleted') 的 entry 不参与 1/2/3 检测 (它们就该没 chunks)。
+    Args:
+        entry_id: 精确查单条 entry (None=全表扫,admin 用)
+        limit_per_type: 单类最多返回条数 (Q2 决策: 50,防报告爆炸)
+    Returns:
+        {
+          'scanned_at': ms, 'total_entries': N, 'total_chunks': M,
+          'issues': {
+            'missing_chunks':       [{'entry_id','title','status','actual_chunk_count'}, ...],
+            'chunk_count_mismatch': [{'entry_id','title','expected','actual'}, ...],
+            'model_drift':          [{'entry_id','title','models':[m1,m2]}, ...],
+            'orphan_chunks':        [{'chunk_id','entry_id'}, ...],
+          },
+          'truncated': {issue_type: bool, ...},  # 是否被 limit 截断
+          'scope': 'entry:<id>' or 'all',
+        }
+    """
+    if not is_admin:
+        raise PermissionError('kb_entry_verify_index requires is_admin=True')
+
+    scanned_at = _now_ms()
+    conn = _db_conn()
+    try:
+        # 1. 全表统计
+        total_entries = conn.execute(
+            "SELECT COUNT(*) AS c FROM kb_entries WHERE status != 'deleted'"
+        ).fetchone()['c']
+        total_chunks = conn.execute(
+            "SELECT COUNT(*) AS c FROM kb_entry_chunks"
+        ).fetchone()['c']
+
+        # entry 过滤 (None=全表)
+        if entry_id:
+            entry_filter = "AND id = ?"
+            entry_params = (entry_id,)
+        else:
+            entry_filter = ""
+            entry_params = ()
+
+        # 2. missing_chunks: 活跃 entry (status IN ok/pending) 但 0 chunks
+        missing_rows = conn.execute(f"""
+            SELECT e.id, e.title, e.status,
+                   (SELECT COUNT(*) FROM kb_entry_chunks c WHERE c.entry_id = e.id) AS actual
+            FROM kb_entries e
+            WHERE e.status IN ('ok', 'pending') {entry_filter}
+              AND NOT EXISTS (SELECT 1 FROM kb_entry_chunks c WHERE c.entry_id = e.id)
+            ORDER BY e.id
+            LIMIT ?
+        """, entry_params + (limit_per_type + 1,)).fetchall()
+        missing_chunks = [{'entry_id': r['id'], 'title': r['title'],
+                           'status': r['status'], 'actual_chunk_count': r['actual']}
+                          for r in missing_rows[:limit_per_type]]
+
+        # 3. chunk_count_mismatch: entries.chunk_count != 实际 chunks 数
+        mismatch_rows = conn.execute(f"""
+            SELECT e.id, e.title, e.chunk_count AS expected,
+                   (SELECT COUNT(*) FROM kb_entry_chunks c WHERE c.entry_id = e.id) AS actual
+            FROM kb_entries e
+            WHERE e.status != 'deleted' {entry_filter}
+              AND e.chunk_count != (SELECT COUNT(*) FROM kb_entry_chunks c WHERE c.entry_id = e.id)
+            ORDER BY e.id
+            LIMIT ?
+        """, entry_params + (limit_per_type + 1,)).fetchall()
+        chunk_count_mismatch = [{'entry_id': r['id'], 'title': r['title'],
+                                 'expected': r['expected'], 'actual': r['actual']}
+                                for r in mismatch_rows[:limit_per_type]]
+
+        # 4. model_drift: 同一 entry 的 chunks 用了 ≥2 个不同 model (排除空 model)
+        drift_rows = conn.execute(f"""
+            SELECT e.id, e.title, e.emp_id,
+                   (SELECT COUNT(DISTINCT c.embedding_model)
+                    FROM kb_entry_chunks c
+                    WHERE c.entry_id = e.id AND c.embedding_model != '') AS distinct_models
+            FROM kb_entries e
+            WHERE e.status != 'deleted' {entry_filter}
+              AND EXISTS (SELECT 1 FROM kb_entry_chunks c
+                          WHERE c.entry_id = e.id AND c.embedding_model != '')
+            ORDER BY e.id
+        """, entry_params).fetchall()
+        # 二次过滤: 只要 distinct_models >= 2
+        model_drift = []
+        for r in drift_rows:
+            if r['distinct_models'] < 2:
+                continue
+            # 取这个 entry 用过的所有 model
+            models = conn.execute("""
+                SELECT DISTINCT c.embedding_model
+                FROM kb_entry_chunks c
+                WHERE c.entry_id = ? AND c.embedding_model != ''
+                ORDER BY c.embedding_model
+            """, (r['id'],)).fetchall()
+            model_drift.append({'entry_id': r['id'], 'title': r['title'],
+                                'models': [m['embedding_model'] for m in models]})
+            if len(model_drift) >= limit_per_type + 1:
+                break
+        model_drift = model_drift[:limit_per_type]
+
+        # 5. orphan_chunks: chunks.entry_id 不在 kb_entries
+        orphan_rows = conn.execute("""
+            SELECT c.id AS chunk_id, c.entry_id
+            FROM kb_entry_chunks c
+            LEFT JOIN kb_entries e ON e.id = c.entry_id
+            WHERE e.id IS NULL
+            ORDER BY c.id
+            LIMIT ?
+        """, (limit_per_type + 1,)).fetchall()
+        orphan_chunks = [{'chunk_id': r['chunk_id'], 'entry_id': r['entry_id']}
+                         for r in orphan_rows[:limit_per_type]]
+    finally:
+        conn.close()
+
+    truncated = {
+        'missing_chunks': len(missing_rows) > limit_per_type,
+        'chunk_count_mismatch': len(mismatch_rows) > limit_per_type,
+        'model_drift': len(model_drift) >= limit_per_type,
+        'orphan_chunks': len(orphan_rows) > limit_per_type,
+    }
+
+    return {
+        'scanned_at': scanned_at,
+        'total_entries': total_entries,
+        'total_chunks': total_chunks,
+        'issues': {
+            'missing_chunks': missing_chunks,
+            'chunk_count_mismatch': chunk_count_mismatch,
+            'model_drift': model_drift,
+            'orphan_chunks': orphan_chunks,
+        },
+        'truncated': truncated,
+        'scope': f'entry:{entry_id}' if entry_id else 'all',
+    }
+
+
+def kb_entry_repair_index(entry_id=None, confirm=False, is_admin=True):
+    """★ refactor/rag-index-integrity: 修复 RAG 索引不一致 (Q1: 默认 dry-run)。
+    修复 4 类 (同 verify):
+      - orphan_chunks:           DELETE 孤儿 chunks (纯本地,无需 API)
+      - missing_chunks:          re-chunk + re-embed (走 _save_kb_chunks_without_embedding + _vectorize_kb_chunks)
+      - chunk_count_mismatch:    同上,DELETE 旧 chunks 重写
+      - model_drift:             同上,新 chunks 用当前 config model 重新 embed
+    Args:
+        entry_id: 精确修单条 (None=扫所有)
+        confirm: True=真改, False=只返回 actions_planned (Q1 决策: 默认 False)
+    Returns:
+        dry_run=True:  {'dry_run': True,  'actions_planned': [...],  'stats': {…}}
+        dry_run=False: {'dry_run': False, 'actions_executed': [...], 'stats': {…}}
+        actions_* 元素:
+          {'type': 'delete_orphan_chunks', 'count': N, 'chunk_ids': [...]}
+          {'type': 'rebuild_entry_chunks',  'entry_id': id, 'title': ..., 'reason': 'missing_chunks|chunk_count_mismatch|model_drift'}
+    """
+    if not is_admin:
+        raise PermissionError('kb_entry_repair_index requires is_admin=True')
+
+    # 1. 先跑 verify 拿到当前不一致列表
+    verify_result = kb_entry_verify_index(entry_id=entry_id, limit_per_type=1000, is_admin=is_admin)
+    issues = verify_result['issues']
+
+    actions = []
+    stats = {
+        'orphan_deleted': 0,
+        'rebuild_planned': 0,
+        'rebuild_succeeded': 0,
+        'rebuild_failed': 0,
+        'errors': [],
+    }
+
+    # 2. 规划 actions (无论 dry_run 与否都先生成 plan)
+    # 2.1 orphan_chunks
+    orphan_ids = [c['chunk_id'] for c in issues['orphan_chunks']]
+    if orphan_ids:
+        actions.append({
+            'type': 'delete_orphan_chunks',
+            'count': len(orphan_ids),
+            'chunk_ids': orphan_ids,
+        })
+
+    # 2.2 rebuild entries (missing + mismatch + model_drift 去重)
+    rebuild_targets = {}  # entry_id -> {'title', 'reasons': set}
+    for it in issues['missing_chunks']:
+        rebuild_targets[it['entry_id']] = {'title': it['title'], 'reasons': {'missing_chunks'}}
+    for it in issues['chunk_count_mismatch']:
+        if it['entry_id'] not in rebuild_targets:
+            rebuild_targets[it['entry_id']] = {'title': it['title'], 'reasons': set()}
+        rebuild_targets[it['entry_id']]['reasons'].add('chunk_count_mismatch')
+    for it in issues['model_drift']:
+        if it['entry_id'] not in rebuild_targets:
+            rebuild_targets[it['entry_id']] = {'title': it['title'], 'reasons': set()}
+        rebuild_targets[it['entry_id']]['reasons'].add('model_drift')
+    for eid, info in rebuild_targets.items():
+        actions.append({
+            'type': 'rebuild_entry_chunks',
+            'entry_id': eid,
+            'title': info['title'],
+            'reason': ','.join(sorted(info['reasons'])),
+        })
+    stats['rebuild_planned'] = len(rebuild_targets)
+
+    # 3. dry-run 模式: 只返回 plan
+    if not confirm:
+        return {
+            'dry_run': True,
+            'actions_planned': actions,
+            'stats': stats,
+        }
+
+    # 4. 真改模式: 逐 action 执行
+    actions_executed = []
+
+    # 4.1 DELETE 孤儿 (单事务)
+    if orphan_ids:
+        try:
+            conn = _db_conn()
+            try:
+                placeholders = ','.join('?' * len(orphan_ids))
+                conn.execute(
+                    f'DELETE FROM kb_entry_chunks WHERE id IN ({placeholders})',
+                    orphan_ids
+                )
+                conn.commit()
+                stats['orphan_deleted'] = len(orphan_ids)
+                actions_executed.append({
+                    'type': 'delete_orphan_chunks',
+                    'count': stats['orphan_deleted'],
+                    'chunk_ids': orphan_ids,
+                })
+            except Exception as e:
+                conn.rollback()
+                stats['errors'].append(f'orphan delete: {e}')
+                raise
+            finally:
+                conn.close()
+        except Exception as e:
+            print(f'  [KBIndex] orphan delete failed: {e}', flush=True)
+
+    # 4.2 rebuild entries (每条独立事务,失败不影响其他)
+    for eid, info in rebuild_targets.items():
+        try:
+            conn = _db_conn()
+            try:
+                row = conn.execute(
+                    'SELECT id, emp_id, content FROM kb_entries WHERE id = ? AND status != ?',
+                    (eid, 'deleted')
+                ).fetchone()
+            finally:
+                conn.close()
+            if not row:
+                stats['rebuild_failed'] += 1
+                stats['errors'].append(f'{eid}: entry not found or deleted')
+                continue
+            emp_id = row['emp_id'] or ''
+            content = row['content'] or ''
+            # 走标准 re-chunk + re-embed 流程 (用 entry 的 chunk_size/overlap 默认 500/100,
+            # 完整流程: _save_kb_chunks_without_embedding (含 DELETE 旧 + 写新) → _vectorize_kb_chunks
+            _save_kb_chunks_without_embedding(eid, emp_id, content, 500, 100)
+            emb_cfg = get_embedding_config(emp_id or None)
+            api_key = emb_cfg.get('apiKey')
+            if api_key:
+                _vectorize_kb_chunks(
+                    eid, emp_id, api_key,
+                    emb_cfg.get('provider', 'openai'),
+                    emb_cfg.get('model'),
+                    base_url=emb_cfg.get('baseUrl')
+                )
+            # 状态恢复: ok / pending 保持原逻辑 (同 _reindex_pending)
+            conn = _db_conn()
+            try:
+                orig = conn.execute('SELECT status FROM kb_entries WHERE id = ?', (eid,)).fetchone()
+                orig_status = orig['status'] if orig else 'ok'
+                # 修复后: pending 保持 pending, error/其他 -> ok
+                new_status = orig_status if orig_status == 'pending' else 'ok'
+                conn.execute(
+                    'UPDATE kb_entries SET status=?, updated_at=? WHERE id=?',
+                    (new_status, _now_ms(), eid)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            # 写 audit
+            try:
+                kb_entry_log_operation(eid, 'repair_index', 'system_repair', {
+                    'reason': sorted(info['reasons']),  # set → list (json 序列化)
+                    'type': 'rebuild_entry_chunks',
+                })
+            except Exception:
+                pass  # audit 失败不阻塞
+            stats['rebuild_succeeded'] += 1
+            actions_executed.append({
+                'type': 'rebuild_entry_chunks',
+                'entry_id': eid,
+                'title': info['title'],
+                'reason': info['reasons'],
+                'result': 'ok',
+            })
+        except Exception as e:
+            stats['rebuild_failed'] += 1
+            stats['errors'].append(f'{eid}: {e}')
+            actions_executed.append({
+                'type': 'rebuild_entry_chunks',
+                'entry_id': eid,
+                'title': info['title'],
+                'reason': info['reasons'],
+                'result': f'failed: {e}',
+            })
+            # 失败时 entry 标 error
+            try:
+                conn = _db_conn()
+                try:
+                    conn.execute('UPDATE kb_entries SET status="error" WHERE id=?', (eid,))
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception:
+                pass
+            print(f'  [KBIndex] rebuild {eid} failed: {e}', flush=True)
+
+    return {
+        'dry_run': False,
+        'actions_executed': actions_executed,
+        'stats': stats,
+    }
+
+
 def _kb_entry_group_where_clause(user_group_ids):
     """生成 group_ids JSON 数组交集过滤条件"""
     if not user_group_ids:
