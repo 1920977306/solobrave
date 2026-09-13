@@ -23057,6 +23057,188 @@ async function finishWizard() {
 
 /* Toast Notification */
 .toast-container { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+
+/* ⑤ 通知中心: 督促通知卡片 CSS(原 showUrgingNotify 完全无样式,功能等于裸奔)
+   - 容器: 右上角 fixed 浮卡, 纵向堆叠
+   - 卡片三态: 默认 opacity 0 / .show opacity 1 / .hide opacity 0
+   - 进度条: 初始 scaleX(1), 8s 线性 transition 到 scaleX(0)(JS setTimeout 对接) */
+.notification-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+.notification-card {
+  width: 340px;
+  background: var(--bg-primary, #ffffff);
+  border: 0.5px solid var(--separator);
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  padding: 0;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: auto;
+  overflow: hidden;
+}
+.notification-card.show { opacity: 1; transform: translateY(0); }
+.notification-card.hide { opacity: 0; transform: translateY(-8px); }
+.notification-content { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.notification-header { display: flex; align-items: center; gap: 8px; }
+.notification-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-status-lost, #FF3B30), #FF6B6B);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.notification-title { font: 600 14px/1.4 -apple-system, sans-serif; color: var(--text-primary, #1C1C1E); }
+.notification-title .highlight { color: var(--color-status-lost, #FF3B30); font-weight: 700; }
+.notification-body { display: flex; flex-direction: column; gap: 2px; }
+.notification-task { font: 500 13px/1.4 -apple-system, sans-serif; color: var(--text-primary, #1C1C1E); }
+.notification-time { font: 400 12px/1.4 -apple-system, sans-serif; color: var(--text-tertiary, #AEAEB2); }
+.notification-actions { display: flex; gap: 8px; }
+.notification-btn {
+  flex: 1;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font: 500 13px/1 -apple-system, sans-serif;
+  cursor: pointer;
+  border: 0.5px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.notification-btn.primary {
+  background: var(--color-primary, #007AFF);
+  color: #ffffff;
+  border-color: var(--color-primary, #007AFF);
+}
+.notification-btn.primary:hover { background: var(--color-primary-hover, #0066D6); border-color: var(--color-primary-hover, #0066D6); }
+.notification-btn.secondary {
+  background: transparent;
+  color: var(--color-primary, #007AFF);
+  border-color: var(--color-primary, #007AFF);
+}
+.notification-btn.secondary:hover { background: rgba(0, 122, 255, 0.06); }
+.notification-progress { position: relative; height: 2px; background: transparent; }
+.notification-progress-bar {
+  height: 100%;
+  width: 100%;
+  background: var(--color-primary, #007AFF);
+  transform: scaleX(1);
+  transform-origin: left;
+  /* JS setTimeout 内设 transition: 'transform 8000ms linear' + requestAnimationFrame scaleX(0) */
+}
+
+/* ⑤ 通知中心: 左侧 nav 铃铛 + 下拉面板(后续 C2 钩到这里,先把样式备好) */
+.nav-notification-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  background: var(--color-status-lost, #FF3B30);
+  color: #ffffff;
+  font: 700 10px/14px -apple-system, sans-serif;
+  border-radius: 7px;
+  text-align: center;
+  display: none;  /* JS: 有未读时移除 display: none */
+}
+.nav-notification-badge[data-count="0"] { display: none; }
+.notification-panel {
+  position: fixed;
+  left: 64px;
+  top: 12px;
+  width: 340px;
+  max-height: 70vh;
+  background: var(--bg-primary, #ffffff);
+  border: 0.5px solid var(--separator);
+  border-radius: 12px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.18);
+  z-index: 10001;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+.notification-panel.show { display: flex; }
+.notification-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 0.5px solid var(--separator);
+}
+.notification-panel-title { font: 600 14px/1 -apple-system, sans-serif; color: var(--text-primary, #1C1C1E); }
+.notification-panel-markall {
+  font: 500 12px/1 -apple-system, sans-serif;
+  color: var(--color-primary, #007AFF);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.notification-panel-body { flex: 1; overflow-y: auto; }
+.notification-panel-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  border-bottom: 0.5px solid var(--separator);
+}
+.notification-panel-item:hover { background: var(--color-bg-softer, #F2F2F7); }
+.notification-panel-item:last-child { border-bottom: none; }
+.notification-panel-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+.notification-panel-dot.unread { background: var(--color-status-lost, #FF3B30); }
+.notification-panel-dot.read { background: var(--separator); }
+.notification-panel-icon { font-size: 14px; flex-shrink: 0; }
+.notification-panel-content { flex: 1; min-width: 0; }
+.notification-panel-text {
+  font: 400 13px/1.5 -apple-system, sans-serif;
+  color: var(--text-primary, #1C1C1E);
+  word-break: break-word;
+  margin-bottom: 2px;
+}
+.notification-panel-time {
+  font: 400 11px/1 -apple-system, sans-serif;
+  color: var(--text-tertiary, #AEAEB2);
+}
+.notification-panel-empty {
+  padding: 40px 20px;
+  text-align: center;
+  font: 400 13px/1.4 -apple-system, sans-serif;
+  color: var(--text-tertiary, #AEAEB2);
+}
+.notification-panel-empty-icon { font-size: 36px; margin-bottom: 8px; opacity: 0.5; }
+.notification-panel-footer {
+  padding: 10px 16px;
+  border-top: 0.5px solid var(--separator);
+  text-align: center;
+}
+.notification-panel-viewall {
+  font: 500 12px/1 -apple-system, sans-serif;
+  color: var(--color-primary, #007AFF);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 0;
+}
 .toast { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); color: var(--text-primary); border: 0.5px solid var(--separator); padding: 12px 20px; border-radius: 12px; font-size: 14px; font-weight: 500; box-shadow: 0 8px 32px rgba(0,0,0,0.12); opacity: 0; transform: translateY(-20px) scale(0.95); transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); pointer-events: auto; max-width: 320px; text-align: center; }
 .toast.show { opacity: 1; transform: translateY(0) scale(1); }
 .toast.toast-success { background: rgba(52, 199, 89, 0.92); }
