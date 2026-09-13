@@ -3121,6 +3121,15 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 11px;
   vertical-align: middle;
 }
+/* ④ pending 视觉: 卡片/列表项浅黄半透明背景 + 左边线, 状态可辨识 */
+.kb-mid-card-pending {
+  background: var(--color-kb-pending-bg, #FFF8E1) !important;
+  border-left: 3px solid var(--color-kb-pending-text, #F5A623);
+}
+.kb-list-item-pending {
+  background: var(--color-kb-pending-bg, #FFF8E1) !important;
+  border-left: 3px solid var(--color-kb-pending-text, #F5A623);
+}
 .kb-review-btn {
   border: 1px solid var(--separator);
   background: #fff;
@@ -3128,13 +3137,24 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 3px 10px;
   font-size: 12px;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
 }
 .kb-review-approve { color: #28a745; }
+.kb-review-approve:hover { background: rgba(40, 167, 69, 0.1); border-color: #28a745; }
 .kb-review-reject { color: #ff3b30; }
+.kb-review-reject:hover { background: rgba(255, 59, 48, 0.1); border-color: #ff3b30; }
+.kb-review-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .kb-card-review-actions {
   display: flex;
   gap: 8px;
   padding: 4px 12px 8px;
+}
+/* ④ 搜索关键词高亮: 底色用 status-pending 浅黄(避免和 pending 卡片背景撞) + 不改字色 */
+.kb-search-hl {
+  background: var(--color-status-pending-bg, rgba(255, 204, 0, 0.25));
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
 }
 .knowledge-mid-card-title-wrap {
   flex: 1;
@@ -28381,18 +28401,23 @@ function renderKnowledgeList(docs) {
     docs.forEach(function(d) {
       var isActive = d.id === _knowledgeCurrentId;
       var scope = d.scope || 'global';
-      html += '<div class="knowledge-list-item' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';">';
+      // ④ pending 视觉: 整行加 .kb-list-item-pending 类, 浅黄底 + 待审核 chip
+      var pendingClass = d.status === 'pending' ? ' kb-list-item-pending' : '';
+      html += '<div class="knowledge-list-item' + (isActive ? ' active' : '') + pendingClass + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';">';
       html += '<div class="knowledge-list-cat-line"></div>';
       html += '<div class="knowledge-list-main" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
-      html += '<div class="knowledge-list-title-row"><div class="knowledge-list-title">' + escapeHtml(d.title || d.name || '未命名') + (d.status === 'pending' ? '<span class="kb-pending-badge">待审核</span>' : '') + '</div><span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
+      // ④ 搜索关键词高亮: 当 _knowledgeLastQuery 非空时, title 用 highlightSearch 包装
+      var titleText = highlightSearch(d.title || d.name || '未命名', _knowledgeLastQuery);
+      html += '<div class="knowledge-list-title-row"><div class="knowledge-list-title">' + titleText + (d.status === 'pending' ? '<span class="kb-pending-badge">待审核</span>' : '') + '</div><span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
       html += '<div class="knowledge-list-meta">';
       html += '<span class="knowledge-view-scope ' + (scopeClassMap[scope] || 'scope-global') + '">' + (scopeNameMap[scope] || '全局') + '</span>';
       html += '<span>' + formatRelativeTime(d.updatedAt) + '</span>';
       html += '</div></div>';
       html += '<div class="knowledge-list-actions">';
       if (d.status === 'pending') {
-        html += '<button class="kb-review-btn kb-review-approve" onclick="event.stopPropagation();approveKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="确认通过">✓</button>';
-        html += '<button class="kb-review-btn kb-review-reject" onclick="event.stopPropagation();rejectKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="驳回">✗</button>';
+        // ④ 审核按钮加 data-attr 让 approve/reject handler 可 disable 防双击
+        html += '<button class="kb-review-btn kb-review-approve" data-doc-id="' + escapeAttr(d.id || '') + '" onclick="event.stopPropagation();reviewKnowledgeDoc(this, \'approve\', \'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="确认通过">✓</button>';
+        html += '<button class="kb-review-btn kb-review-reject" data-doc-id="' + escapeAttr(d.id || '') + '" onclick="event.stopPropagation();reviewKnowledgeDoc(this, \'reject\', \'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="驳回">✗</button>';
       }
       html += '<button onclick="event.stopPropagation();editKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="编辑">✏️</button>';
       html += '<button onclick="event.stopPropagation();deleteKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')" title="删除">🗑️</button>';
@@ -28404,15 +28429,20 @@ function renderKnowledgeList(docs) {
       var isActive = d.id === _knowledgeCurrentId;
       var preview = getKnowledgePreview(d.content).slice(0, 100);
       var scope = d.scope || 'global';
-      html += '<div class="knowledge-mid-card' + (isActive ? ' active' : '') + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
+      // ④ pending 视觉: 整卡片加 .kb-mid-card-pending 类
+      var pendingClass = d.status === 'pending' ? ' kb-mid-card-pending' : '';
+      html += '<div class="knowledge-mid-card' + (isActive ? ' active' : '') + pendingClass + '" data-id="' + escapeAttr(d.id || '') + '" style="--cat-color: ' + _getKnowledgeCategoryColorVar(d.category) + ';" onclick="selectKnowledgeItem(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">';
       html += '<div class="knowledge-mid-card-header">';
-      html += '<div class="knowledge-mid-card-title-wrap"><div class="knowledge-mid-card-title">' + escapeHtml(d.title || d.name || '未命名') + (d.status === 'pending' ? '<span class="kb-pending-badge">待审核</span>' : '') + '</div></div>';
+      // ④ 搜索关键词高亮: title + preview
+      var titleText = highlightSearch(d.title || d.name || '未命名', _knowledgeLastQuery);
+      var previewText = highlightSearch(preview, _knowledgeLastQuery);
+      html += '<div class="knowledge-mid-card-title-wrap"><div class="knowledge-mid-card-title">' + titleText + (d.status === 'pending' ? '<span class="kb-pending-badge">待审核</span>' : '') + '</div></div>';
       html += '<span class="knowledge-mid-card-tag">' + escapeHtml(d.category || '未分类') + '</span></div>';
-      html += '<div class="knowledge-mid-card-body">' + escapeHtml(preview) + (preview.length >= 100 ? '...' : '') + '</div>';
+      html += '<div class="knowledge-mid-card-body">' + previewText + (preview.length >= 100 ? '...' : '') + '</div>';
       if (d.status === 'pending') {
         html += '<div class="kb-card-review-actions">';
-        html += '<button class="kb-review-btn kb-review-approve" onclick="event.stopPropagation();approveKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">✓ 确认通过</button>';
-        html += '<button class="kb-review-btn kb-review-reject" onclick="event.stopPropagation();rejectKnowledgeDoc(\'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">✗ 驳回</button>';
+        html += '<button class="kb-review-btn kb-review-approve" data-doc-id="' + escapeAttr(d.id || '') + '" onclick="event.stopPropagation();reviewKnowledgeDoc(this, \'approve\', \'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">✓ 确认通过</button>';
+        html += '<button class="kb-review-btn kb-review-reject" data-doc-id="' + escapeAttr(d.id || '') + '" onclick="event.stopPropagation();reviewKnowledgeDoc(this, \'reject\', \'' + escapeAttr(d.id || '').replace(/'/g, "\\'") + '\')">✗ 驳回</button>';
         html += '</div>';
       }
       html += '<div class="knowledge-mid-card-meta">';
@@ -28429,6 +28459,22 @@ function renderKnowledgeList(docs) {
     });
   }
   el.innerHTML = html;
+}
+
+// ④ 审核按钮包装: 防双击(loading 0.5s) + 调原 approve/reject 函数
+// 旧 onclick 直接调 approveKnowledgeDoc, 用户连续点两下会触发两次 API
+// 包装后: 第一次点击立即 disabled + 改文案, 0.5s 内重复点击不响应
+function reviewKnowledgeDoc(btnEl, action, docId) {
+  if (!btnEl || btnEl.disabled) return;
+  btnEl.disabled = true;
+  var originalText = btnEl.textContent;
+  btnEl.textContent = '⏳';
+  setTimeout(function () { btnEl.disabled = false; btnEl.textContent = originalText; }, 500);
+  if (action === 'approve') {
+    if (typeof approveKnowledgeDoc === 'function') approveKnowledgeDoc(docId);
+  } else if (action === 'reject') {
+    if (typeof rejectKnowledgeDoc === 'function') rejectKnowledgeDoc(docId);
+  }
 }
 function switchKnowledgeView(mode) {
   _knowledgeViewMode = mode === 'list' ? 'list' : 'card';
@@ -28547,6 +28593,26 @@ function onKnowledgeSearchClear() {
   var input = document.getElementById('knowledgeMidSearch');
   if (input) input.value = '';
   loadKnowledgePage();
+}
+
+// ④ 搜索关键词高亮 helper: 先 escapeHtml(text), 再 escapeHtml(query),
+// 在转义后文本上 case-insensitive 替换, 命中片段包 <mark>
+// 严格防注入: text 和 query 都先转义, query 还做正则元字符转义
+// 仅当 _knowledgeLastQuery 非空时调用, 正常浏览列表不高亮
+function highlightSearch(text, query) {
+  if (!text) return '';
+  var safe = escapeHtml(text);
+  if (!query) return safe;
+  // query 转义正则元字符, 再 escapeHtml 防注入
+  var escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  var safeQuery = escapeHtml(escapedQuery);
+  // case-insensitive 全局替换, 保留原文大小写
+  try {
+    var re = new RegExp('(' + safeQuery + ')', 'gi');
+    return safe.replace(re, '<mark class="kb-search-hl">$1</mark>');
+  } catch (e) {
+    return safe;  // 正则构造失败时兑底返回原文, 不抛错
+  }
 }
 
 // ② 分类计数: 全量拉取 docs(limit=1000), 本地按 doc.categoryId 聚合
