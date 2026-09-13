@@ -3181,6 +3181,45 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 12px;
   padding: 40px 20px;
 }
+/* ① 搜索状态容器(spinner/empty/fail 三态统一容器) */
+.kb-search-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+  padding: 60px 20px;
+  color: var(--color-text-tertiary, #AEAEB2);
+  font-size: 13px;
+}
+.kb-search-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-bg-softer, #F2F2F7);
+  border-top-color: var(--color-primary, #007AFF);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.kb-search-empty-icon { font-size: 36px; opacity: 0.6; }
+.kb-search-empty-text { font-size: 14px; color: var(--color-text-secondary, #6E6E73); }
+.kb-search-empty-btn,
+.kb-search-retry-btn {
+  margin-top: 4px;
+  padding: 7px 18px;
+  font: 500 13px/1 -apple-system, sans-serif;
+  color: var(--color-primary, #007AFF);
+  background: transparent;
+  border: 1px solid var(--color-primary, #007AFF);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.kb-search-empty-btn:hover,
+.kb-search-retry-btn:hover { background: var(--color-primary, #007AFF); color: #fff; }
+.kb-search-fail-icon { font-size: 32px; color: var(--color-danger, #FF3B30); }
+.kb-search-fail-text { color: var(--color-danger, #FF3B30); font-size: 14px; }
 .knowledge-mid-empty-icon { font-size: 48px; }
 .knowledge-mid-empty-text { font-size: 14px; }
 .knowledge-mid-empty-btn {
@@ -27795,6 +27834,7 @@ var _knowledgeProjectId = '';
 var _knowledgePreviewMode = false;
 var _knowledgeViewMode = 'card';
 var _knowledgePage = 1;
+var _knowledgeLastQuery = '';  // ① 当前搜索 query(空 = 列表模式, 非空 = 搜索模式), 用于 renderKnowledgeList 区分空态
 var _knowledgePageSize = 20;
 var _knowledgeInitialized = false;
 var _knowledgeExpandedCats = {};
@@ -28282,7 +28322,16 @@ function renderKnowledgeList(docs) {
   if (!el) return;
   el.classList.toggle('list-view', _knowledgeViewMode === 'list');
   if (!docs || docs.length === 0) {
-    el.innerHTML = '<div class="knowledge-mid-empty"><div class="knowledge-mid-empty-icon">📖</div><div class="knowledge-mid-empty-text">暂无知识文档</div><button class="knowledge-mid-empty-btn" onclick="createNewKnowledge()">手动添加</button></div>';
+    // ① 区分搜索空态 vs 库空态: 搜索时无结果显「无匹配」+ 查看全部 CTA, 库空时显「暂无文档」+ 手动添加
+    if (_knowledgeLastQuery) {
+      el.innerHTML = '<div class="kb-search-state kb-search-empty">'
+        + '<div class="kb-search-empty-icon">🔍</div>'
+        + '<div class="kb-search-empty-text">无匹配文档 · 试试别的关键词</div>'
+        + '<button class="kb-search-empty-btn" onclick="onKnowledgeSearchClear()">查看全部文档</button>'
+        + '</div>';
+    } else {
+      el.innerHTML = '<div class="knowledge-mid-empty"><div class="knowledge-mid-empty-icon">📖</div><div class="knowledge-mid-empty-text">暂无知识文档</div><button class="knowledge-mid-empty-btn" onclick="createNewKnowledge()">手动添加</button></div>';
+    }
     return;
   }
   var scopeClassMap = { global: 'scope-global', group: 'scope-group', personal: 'scope-personal' };
@@ -28452,17 +28501,27 @@ function renderKnowledgeStats(stats) {
     '</div>' + catHtml;
   el.style.display = '';
 }
+// ① 搜索空态的「查看全部文档」按钮 handler: 清空 input + query + 重新加载
+function onKnowledgeSearchClear() {
+  _knowledgeLastQuery = '';
+  var input = document.getElementById('knowledgeMidSearch');
+  if (input) input.value = '';
+  loadKnowledgePage();
+}
+
 function onKnowledgeSearch(value) {
   clearTimeout(window._knowledgeSearchTimer);
   window._knowledgeSearchTimer = setTimeout(async function () {
     _knowledgePage = 1;
     var kw = (value || '').trim();
+    _knowledgeLastQuery = kw;  // ① 记录当前 query, 让 renderKnowledgeList 区分搜索空态 vs 库空态
     if (!kw) {
       loadKnowledgePage();
       return;
     }
     var midItems = document.getElementById('knowledgeMidItems');
-    if (midItems) midItems.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">搜索中...</div>';
+    // ① spinner + 文字(复用 :root 现有 @keyframes spin 0.8s linear infinite)
+    if (midItems) midItems.innerHTML = '<div class="kb-search-state kb-search-loading"><div class="kb-search-spinner"></div><div>搜索中...</div></div>';
     try {
       var r = await apiFetch('/api/knowledge/search', {
         method: 'POST',
@@ -28476,7 +28535,8 @@ function onKnowledgeSearch(value) {
       renderKnowledgePagination(0, 1, _knowledgePageSize);
     } catch (e) {
       console.warn('[KnowledgeSearch] failed:', e);
-      if (midItems) midItems.innerHTML = '<div style="padding:40px;text-align:center;color:var(--danger);">搜索失败</div>';
+      // ① 失败: spinner 替换为 retry 按钮(避免用户刷新整页)
+      if (midItems) midItems.innerHTML = '<div class="kb-search-state kb-search-fail"><div class="kb-search-fail-icon">⚠️</div><div class="kb-search-fail-text">搜索失败,请重试</div><button class="kb-search-retry-btn" onclick="onKnowledgeSearch(document.getElementById(\'knowledgeMidSearch\').value)">重试</button></div>';
     }
   }, 300);
 }
