@@ -28806,19 +28806,43 @@ function highlightSearch(text, query) {
 // ② 分类计数: 全量拉取 docs(limit=1000), 本地按 doc.categoryId 聚合
 // 父分类计数 = 自身 + 所有后代 categoryId 的累加
 // 仅首次打开 KB / 手动刷新时拉, 切分类翻页复用缓存
+// ★ fix/kb-counts: 数据源从 /api/knowledge?limit=1000 (老表, 字段只有 category 文本名)
+//   改到循环分页拉 /api/knowledge/entries (新表 kb_entries, 字段完整有 categoryId)。
+//   生产 data 99 篇文档全在 kb_entries, 老表是空的 → 计数全 0。pageSize=100 (后端封顶),
+//   用 data.total 算总页数, 5000 条封顶防御死循环, 每次请求带 _knowledgeProjectId + scope
+//   (跟 L27978 拉取模式一致, 不传 categoryId 否则漏数)
 async function loadKnowledgeCategoryCounts() {
   try {
-    var resp = await apiFetch('/api/knowledge?limit=1000&offset=0');
-    var data = await resp.json();
-    var docs = data.docs || [];
-    var counts = {};  // { categoryId: number }
-    docs.forEach(function (d) {
+    var pageSize = 100;
+    var offset = 0;
+    var allDocs = [];
+    var total = 0;
+    while (true) {
+      var url = '/api/knowledge/entries?limit=' + pageSize + '&offset=' + offset;
+      if (_knowledgeProjectId) url += '&projectId=' + encodeURIComponent(_knowledgeProjectId);
+      if (_knowledgeScope && _knowledgeScope !== 'all') url += '&scope=' + encodeURIComponent(_knowledgeScope);
+      var resp = await apiFetch(url);
+      var data = await resp.json();
+      var docs = data.docs || [];
+      allDocs = allDocs.concat(docs);
+      total = data.total || 0;
+      if (offset === 0) {
+        if (Math.ceil(total / pageSize) <= 1) break;
+        offset += pageSize;
+      } else {
+        if (docs.length < pageSize) break;
+        offset += pageSize;
+      }
+      if (offset / pageSize > 50) break;  // 5000 条封顶, 防止接口 bug 死循环
+    }
+    var counts = {};
+    allDocs.forEach(function (d) {
       if (d.categoryId === null || d.categoryId === undefined) return;
       var k = String(d.categoryId);
       counts[k] = (counts[k] || 0) + 1;
     });
     _knowledgeCatCounts = counts;
-    _knowledgeCatCountsTotal = docs.length;
+    _knowledgeCatCountsTotal = total;
     return counts;
   } catch (e) {
     console.warn('[KB Counts] 拉取失败:', e);
