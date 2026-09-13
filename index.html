@@ -3793,6 +3793,106 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 .list-section { flex: 1; overflow-y: auto; padding-bottom: 28px; }
 .section-title { font: 12px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; color: #999999; letter-spacing: 1px; padding: 16px 14px 8px; }
+/* ① 一级分类可折叠: chevron + V2.1 token 文字色 + hover 圆角底 + 0.15s 旋转动画 */
+.section-title-collapsible {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  margin: 0 8px;
+  padding: 8px 6px;
+  color: var(--color-text-secondary, #6E6E73);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.section-title-collapsible:hover { background: rgba(0, 122, 255, 0.06); color: var(--color-text-primary, #1C1C1E); }
+.section-title-collapsible .section-chevron {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+  color: var(--color-text-tertiary, #AEAEB2);
+  flex-shrink: 0;
+  width: 10px;
+  text-align: center;
+}
+.section-title-collapsible.expanded .section-chevron { transform: rotate(0deg); }
+.section-title-collapsible.collapsed .section-chevron { transform: rotate(-90deg); }
+.section-title-collapsible .section-title-text { flex: 1; letter-spacing: 1px; font-weight: 500; }
+/* ③ 一级分类头视觉强化: outline AI 徽章(不 fill, 避免和员工卡 AI 光晕打架) + 人数 chip */
+.section-ai-badge {
+  display: inline-block;
+  font: 600 9px/1 -apple-system, sans-serif;
+  color: var(--color-ai-accent, #5E5CE6);
+  background: transparent;
+  border: 1px solid var(--color-ai-accent, #5E5CE6);
+  padding: 2px 5px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+.section-count-chip {
+  display: inline-block;
+  font: 500 10px/1 -apple-system, sans-serif;
+  color: var(--color-text-tertiary, #AEAEB2);
+  background: var(--color-bg-softer, #F2F2F7);
+  padding: 2px 6px;
+  border-radius: 8px;
+  min-width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+/* ④ 侧栏搜索: search input + 清空按钮 + 扁平结果容器 + 无匹配空态 */
+.sidebar-emp-search-wrap {
+  position: relative;
+  padding: 8px 10px;
+  border-bottom: 0.5px solid var(--separator);
+}
+.sidebar-emp-search {
+  width: 100%;
+  padding: 7px 28px 7px 10px;
+  font: 400 13px/1.4 -apple-system, sans-serif;
+  color: var(--text-primary, #1C1C1E);
+  background: var(--color-bg-softer, #F2F2F7);
+  border: 0.5px solid transparent;
+  border-radius: 8px;
+  outline: none;
+  box-sizing: border-box;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.sidebar-emp-search:focus { background: var(--bg-primary, #FFFFFF); border-color: var(--color-primary, #007AFF); }
+.sidebar-emp-search::placeholder { color: var(--color-text-tertiary, #AEAEB2); }
+.sidebar-emp-search-clear {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  color: var(--color-text-tertiary, #AEAEB2);
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+}
+.sidebar-emp-search-clear:hover { background: var(--color-bg-softer, #F2F2F7); color: var(--color-text-primary, #1C1C1E); }
+.sidebar-emp-search-empty {
+  padding: 32px 16px;
+  text-align: center;
+  font: 400 13px/1.4 -apple-system, sans-serif;
+  color: var(--color-text-tertiary, #AEAEB2);
+}
+.sidebar-emp-search-results {
+  padding: 4px 0;
+}
 .dept-group { margin-bottom: 4px; }
 .dept-header {
   display: flex;
@@ -3813,6 +3913,35 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 2px 6px;
   border-radius: 8px;
 }
+/* ② 二级分类可折叠: 同款 chevron + click + 0.15s 旋转 */
+.dept-header-collapsible {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  margin: 0 8px;
+  padding: 6px 8px;
+  transition: background 0.15s ease;
+}
+.dept-header-collapsible:hover { background: rgba(0, 122, 255, 0.06); }
+.dept-header-collapsible .dept-chevron {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-text-tertiary, #AEAEB2);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+  width: 10px;
+  text-align: center;
+}
+.dept-header-collapsible.expanded .dept-chevron { transform: rotate(0deg); }
+.dept-header-collapsible.collapsed .dept-chevron { transform: rotate(-90deg); }
+.dept-header-collapsible .dept-title { flex: 1; }
+.dept-header-collapsible .dept-count { flex-shrink: 0; }
+/* ② 折叠态: 隐藏组内员工 */
+.subcategory-group[data-collapsed="true"] .subcategory-content { display: none; }
 .sidebar-divider { height: 8px; background: transparent; margin: 4px 0; }
 .emp-role { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
 .emp-preview { font: 400 12px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -6783,6 +6912,9 @@ window.doLogin = function () {
   --color-text-secondary: #6E6E73;
   --color-primary: #007AFF;
   --color-primary-hover: #0066D6;
+  --color-ai-accent: #5E5CE6;  /* ③ AI 视觉协议主色(已用在多处, 集中 token) */
+  --color-ai-bg-soft: #EEF0FF;  /* ③ AI 浅紫底色 */
+  --color-pinned-bg: rgba(0, 122, 255, 0.06);  /* ③ 置顶区域背景, 替代 inline rgba(0,122,255,0.04) 提到 token + 略加深 */
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -11842,7 +11974,8 @@ function getSidebarState() {
   }
   return {
     'AI 团队': true,
-    '项目组': true
+    '项目组': true,
+    subCategories: {}  // ② 二级分类折叠状态, key = 原始 subCategory 名(含 '📌 置顶' / '未分组'), value = true(展开) / false(折叠)
   };
 }
 function saveSidebarState(state) {
@@ -11852,6 +11985,20 @@ function toggleCategory(cat) {
   var state = getSidebarState();
   state[cat] = !state[cat];
   saveSidebarState(state);
+  renderEmployeeList();
+}
+// ② 二级分类折叠 toggle(键是原始 subCategory 名, 默认展开)
+function toggleSubCategory(name) {
+  var state = getSidebarState();
+  if (!state.subCategories) state.subCategories = {};
+  // 默认展开(true), 折叠时存 false
+  state.subCategories[name] = state.subCategories[name] === false ? true : false;
+  saveSidebarState(state);
+  renderEmployeeList();
+}
+// ④ 侧栏搜索 input handler(过滤词存 window 临时变量, 页面刷新即清空, 不入 localStorage)
+function onSidebarEmpSearchInput(value) {
+  window._empSearchQuery = value || '';
   renderEmployeeList();
 }
 
@@ -11925,14 +12072,49 @@ function renderEmployeeList() {
   var visible = getVisibleEmps().filter(function (e) {
     return !isArchivedEmp(e);
   });
+  // ④ 侧栏搜索: query 是空就正常渲染, 非空就走"扁平匹配"分支(隐藏所有分组 header)
+  var searchQuery = (window._empSearchQuery || '').trim().toLowerCase();
   var html = '';
+  // ④ search input(始终在顶部, query 清空时恢复)
+  html += '<div class="sidebar-emp-search-wrap">'
+    + '<input class="sidebar-emp-search" type="text" id="sidebarEmpSearch" placeholder="搜索员工名字 / 角色" value="' + escapeAttr(window._empSearchQuery || '') + '" oninput="onSidebarEmpSearchInput(this.value)">'
+    + (searchQuery ? '<button class="sidebar-emp-search-clear" onclick="onSidebarEmpSearchInput(\'\')" title="清空">✕</button>' : '')
+    + '</div>';
+  // ④ 搜索态: 隐藏所有一级二级分组 header + 置顶分组, 把匹配员工扁平渲染
+  // (符合 spec: 搜索时折叠所有 subCategory header, 只显示扁平匹配结果)
+  if (searchQuery) {
+    var matched = visible.filter(function (e) {
+      var name = (e.name || '').toLowerCase();
+      var role = (e.role || e.position || getEmpRoleDisplay(e) || '').toLowerCase();
+      var desc = (e.description || e.tagline || '').toLowerCase();
+      return name.indexOf(searchQuery) >= 0 || role.indexOf(searchQuery) >= 0 || desc.indexOf(searchQuery) >= 0;
+    });
+    if (matched.length === 0) {
+      html += '<div class="sidebar-emp-search-empty">无匹配员工</div>';
+    } else {
+      html += '<div class="sidebar-emp-search-results">';
+      matched.forEach(function (e) {
+        var isPinned = e.pinned;
+        html += '<div class="list-item' + (isPinned ? ' pinned-item' : '') + '" data-id="' + escapeAttr(e.id) + '" draggable="true" oncontextmenu="event.preventDefault();showEmpSettingsMenu(event,this.dataset.id)"' + (isPinned ? ' style="background:var(--color-pinned-bg);"' : '') + '>' + renderEmployeeItem(e, true) + '</div>';
+      });
+      html += '</div>';
+    }
+    list.innerHTML = html;
+    // 自动 focus search input(进入搜索态时, 光标保持在输入框)
+    setTimeout(function () {
+      var input = document.getElementById('sidebarEmpSearch');
+      if (input) { try { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } catch (e) {} }
+    }, 0);
+    return;
+  }
   var state = getSidebarState();
   var canSeeEmployees = true;
   var canSeeGroups = hasModulePermission('groups');
 
   // ===== 一级分类：AI 团队 =====
   if (canSeeEmployees) {
-    html += renderCategoryHeader('AI 团队', state['AI 团队']);
+    // ③ 视觉强化: 传 visible.length 做人数 chip
+    html += renderCategoryHeader('AI 团队', state['AI 团队'], visible.length);
     if (state['AI 团队']) {
     if (visible.length === 0) {
       // ② 员工列表空状态: 视觉化引导(以前是纯文字 4 行, 叙事弱, AI 员工是核心的视觉传达缺失)
@@ -11962,10 +12144,15 @@ function renderEmployeeList() {
 
       // ===== 置顶区域 =====
       if (pinnedEmps.length > 0) {
-        html += renderSubCategoryHeader('📌 置顶', pinnedEmps.length);
+        var pinnedExpanded = state.subCategories && state.subCategories['📌 置顶'] === false ? false : true;
+        html += '<div class="subcategory-group" data-subcat-group="📌 置顶" ' + (pinnedExpanded ? '' : 'data-collapsed="true"') + '>';
+        html += renderSubCategoryHeader('📌 置顶', pinnedEmps.length, pinnedExpanded);
+        html += '<div class="subcategory-content">';
         html += pinnedEmps.map(function (e) {
-          return '<div class="list-item pinned-item" data-id="' + escapeAttr(e.id) + '" draggable="true" oncontextmenu="event.preventDefault();showEmpSettingsMenu(event,this.dataset.id)" style="background:rgba(0,122,255,0.04);">' + renderEmployeeItem(e, true) + '</div>';
+          // ③ 置顶区背景: 提 token 替代内联 rgba(0,122,255,0.04) + 略加深到 0.06 让置顶区可辨识
+          return '<div class="list-item pinned-item" data-id="' + escapeAttr(e.id) + '" draggable="true" oncontextmenu="event.preventDefault();showEmpSettingsMenu(event,this.dataset.id)" style="background:var(--color-pinned-bg);">' + renderEmployeeItem(e, true) + '</div>';
         }).join('');
+        html += '</div></div>';
       }
 
       // 按 subCategory 分组（不含已置顶的）
@@ -11976,10 +12163,14 @@ function renderEmployeeList() {
         subGroups[sub].push(e);
       });
       Object.keys(subGroups).forEach(function (sub) {
-        html += renderSubCategoryHeader(sub, subGroups[sub].length);
+        var subExpanded = state.subCategories && state.subCategories[sub] === false ? false : true;
+        html += '<div class="subcategory-group" data-subcat-group="' + escapeAttr(sub) + '" ' + (subExpanded ? '' : 'data-collapsed="true"') + '>';
+        html += renderSubCategoryHeader(sub, subGroups[sub].length, subExpanded);
+        html += '<div class="subcategory-content">';
         html += subGroups[sub].map(function (e) {
           return '<div class="list-item" data-id="' + escapeAttr(e.id) + '" draggable="true" oncontextmenu="event.preventDefault();showEmpSettingsMenu(event,this.dataset.id)">' + renderEmployeeItem(e, true) + '</div>';
         }).join('');
+        html += '</div></div>';
       });
     }
     html += '<div class="sidebar-divider"></div>';
@@ -11988,7 +12179,8 @@ function renderEmployeeList() {
 
   // ===== 一级分类：项目组 =====
   if (canSeeGroups) {
-    html += renderCategoryHeader('项目组', state['项目组']);
+    // ③ 视觉强化: 传 groups.length 做人数 chip
+    html += renderCategoryHeader('项目组', state['项目组'], (groups || []).length);
     if (state['项目组']) {
       html += renderGroupItems();
       // 添加 "+" 按钮
@@ -12110,12 +12302,29 @@ function renderArchiveSections() {
     }
   }
 }
-function renderCategoryHeader(name, expanded) {
-  return '<div class="section-title">' + escapeHtml(name) + '</div>';
+function renderCategoryHeader(name, expanded, count) {
+  // ① 修折叠 bug: 旧实现完全忽略 expanded 参数, 只渲染纯文字。
+  // ③ 视觉强化: 一级分类头加 outline AI 徽章(仅 AI 团队) + 人数 chip
+  // chevron + 标题 + click 绑现有 toggleCategory(name) + class 反映状态
+  var isAi = name === 'AI 团队';
+  var aiBadge = isAi ? '<span class="section-ai-badge">AI</span>' : '';
+  var countChip = (typeof count === 'number' && count > 0) ? '<span class="section-count-chip">' + count + '</span>' : '';
+  return '<div class="section-title section-title-collapsible ' + (expanded ? 'expanded' : 'collapsed') + '" data-category="' + escapeAttr(name) + '" onclick="toggleCategory(\'' + escapeAttr(name) + '\')">'
+    + '<span class="section-chevron">▾</span>'
+    + '<span class="section-title-text">' + escapeHtml(name) + '</span>'
+    + aiBadge
+    + countChip
+    + '</div>';
 }
-function renderSubCategoryHeader(name, count) {
+function renderSubCategoryHeader(name, count, expanded) {
+  // ② 二级分类可折叠: 复用同款 chevron + click, 状态由调用方从 state.subCategories 传入
   var displayName = name === '未分组' ? '全部' : name;
-  return '<div class="dept-header"><span class="dept-title">' + escapeHtml(displayName) + '</span><span class="dept-count">' + count + '</span></div>';
+  var isExpanded = expanded !== false;  // 默认 true(展开), 折叠时为 false
+  return '<div class="dept-header dept-header-collapsible ' + (isExpanded ? 'expanded' : 'collapsed') + '" data-subcat="' + escapeAttr(name) + '" onclick="toggleSubCategory(\'' + escapeAttr(name) + '\')">'
+    + '<span class="dept-chevron">▾</span>'
+    + '<span class="dept-title">' + escapeHtml(displayName) + '</span>'
+    + '<span class="dept-count">' + count + '</span>'
+    + '</div>';
 }
 function renderProjectGroupPlaceholder(name, count) {
   // 兼容旧调用，但新渲染通过 renderGroupItems 实现
