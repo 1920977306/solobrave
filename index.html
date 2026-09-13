@@ -7252,6 +7252,10 @@ window.doLogin = function () {
 <!-- Left Navigation (56px) -->
 <nav class="left-nav">
   <div class="left-nav-top">
+    <div class="nav-item" id="navNotifications" onclick="toggleNotificationPanel()" data-tooltip="通知" title="通知" style="position:relative;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+      <span class="nav-notification-badge" id="notificationBadge" data-count="0">0</span>
+    </div>
     <div class="nav-item" id="navSearch" onclick="openGlobalSearch()" data-tooltip="搜索" title="全局搜索">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
     </div>
@@ -29711,6 +29715,23 @@ function closeMatchModal() {
 <!-- 通知容器 -->
 <div class="notification-container" id="notificationContainer"></div>
 
+<!-- ⑤ 通知中心: 左侧 nav 铃铛下拉面板(C2) -->
+<div class="notification-panel" id="notificationPanel">
+  <div class="notification-panel-header">
+    <span class="notification-panel-title">通知</span>
+    <button class="notification-panel-markall" onclick="markAllNotificationsRead()">全部已读</button>
+  </div>
+  <div class="notification-panel-body" id="notificationPanelBody">
+    <div class="notification-panel-empty">
+      <div class="notification-panel-empty-icon">🔕</div>
+      <div>暂无通知</div>
+    </div>
+  </div>
+  <div class="notification-panel-footer">
+    <button class="notification-panel-viewall" onclick="viewAllNotifications()">查看全部 →</button>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="avatars.js?v=1778166504"></script>
 <script src="openclaw-client.js"></script>
@@ -30849,13 +30870,84 @@ function refreshUnreadBadge() {
   var badge = document.getElementById('notificationBadge');
   if (!badge || typeof apiFetch !== 'function') return;
   fetchNotifications(true).then(function (data) {
-    badge.textContent = data.unreadCount || 0;
+    var n = data.unreadCount || 0;
+    // ⑤ ≥10 显 9+, 0 隐藏
+    badge.textContent = n >= 10 ? '9+' : n;
+    if (n === 0) badge.setAttribute('data-count', '0');
+    else badge.removeAttribute('data-count');
   }).catch(function () {});
 }
 function initNotificationPolling() {
   refreshUnreadBadge();
   registerTimerTask(refreshUnreadBadge, 30);
 }
+
+// ⑤ 通知中心: 左侧 nav 铃铛 toggle
+function toggleNotificationPanel() {
+  var panel = document.getElementById('notificationPanel');
+  if (!panel) return;
+  var willShow = !panel.classList.contains('show');
+  panel.classList.toggle('show');
+  if (willShow) renderNotificationPanelBody();
+}
+
+// ⑤ 渲染通知面板列表(fetch 最新 20 条, 倒序)
+function renderNotificationPanelBody() {
+  var body = document.getElementById('notificationPanelBody');
+  if (!body || typeof apiFetch === 'undefined') return;
+  body.innerHTML = '<div class="notification-panel-empty"><div class="notification-panel-empty-icon">⏳</div><div>加载中...</div></div>';
+  fetchNotifications(false).then(function (data) {
+    var items = (data.items || []).slice(0, 20);
+    if (!items.length) {
+      body.innerHTML = '<div class="notification-panel-empty"><div class="notification-panel-empty-icon">🔕</div><div>暂无通知</div></div>';
+      return;
+    }
+    body.innerHTML = items.map(function (n) {
+      var t = n.type || 'message';
+      var icon = (n.icon && n.icon.length) ? n.icon : _getNotificationTypeEmoji(t);
+      var time = new Date(n.created_at || 0).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      var text = n.title && n.content && n.title !== n.content ? (n.title + '：' + n.content) : (n.title || n.content || '');
+      return '<div class="notification-panel-item" onclick="toggleNotificationRead(\'' + escapeAttr(n.id) + '\')">' +
+        '<div class="notification-panel-dot ' + (n.read ? 'read' : 'unread') + '"></div>' +
+        '<div class="notification-panel-icon">' + icon + '</div>' +
+        '<div class="notification-panel-content">' +
+        '<div class="notification-panel-text">' + escapeHtml(text) + '</div>' +
+        '<div class="notification-panel-time">' + escapeHtml(time) + '</div>' +
+        '</div></div>';
+    }).join('');
+    // 拉完后刷新一下未读数(可能刚标记的变成已读)
+    if (typeof refreshUnreadBadge === 'function') refreshUnreadBadge();
+  }).catch(function () {
+    body.innerHTML = '<div class="notification-panel-empty"><div class="notification-panel-empty-icon">⚠️</div><div>加载失败</div></div>';
+  });
+}
+
+// ⑤ 通知类型 → emoji(C3 也会复用, 提前放这里)
+function _getNotificationTypeEmoji(t) {
+  var map = { info: 'ℹ️', success: '✅', warning: '⚠️', error: '❌', urge: '⏰', message: '💬' };
+  return map[t] || '💬';
+}
+
+// ⑤ 「查看全部」跳设置页通知历史
+function viewAllNotifications() {
+  var panel = document.getElementById('notificationPanel');
+  if (panel) panel.classList.remove('show');
+  if (typeof switchModule === 'function') switchModule('settings');
+  setTimeout(function () {
+    if (typeof renderNotificationHistory === 'function') renderNotificationHistory();
+    var area = document.getElementById('notificationHistoryArea');
+    if (area) area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 200);
+}
+
+// ⑤ 通知面板 click outside 关闭(复用 chat-more-btn 的 click-outside 模式)
+document.addEventListener('click', function (e) {
+  var panel = document.getElementById('notificationPanel');
+  if (!panel || !panel.classList.contains('show')) return;
+  var bell = document.getElementById('navNotifications');
+  if (e.target.closest && (e.target.closest('#notificationPanel') || e.target.closest('#navNotifications'))) return;
+  panel.classList.remove('show');
+});
 
 // ========== 通知开关 ==========
 async function loadNotificationSwitches() {
