@@ -10,6 +10,7 @@ PYTHON=/Library/Developer/CommandLineTools/usr/bin/python3
 
 FILES=(
     solobrave-server.py
+    provider_adapters.py
     memory_pipeline.py
     knowledge_service.py
     index.html
