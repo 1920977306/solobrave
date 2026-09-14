@@ -19038,8 +19038,8 @@ def _parse_vision_json(desc):
 #   < 20% 硬拦截: 不调 LLM, 直接 return "截图数据不足, 无法生成分析报告"
 #   20-50% 警告: LLM 仍调, 在报告开头加 warning 标注
 #   > 50% 静默: 正常调 LLM, 无任何标注
-_HEAVY_HARD_BLOCK_THRESHOLD = 0.2   # < 20% 硬拦截
-_HEAVY_WARN_THRESHOLD = 0.5         # < 50% 警告 (>= 20% 且 < 50%)
+_HEAVY_HARD_BLOCK_THRESHOLD = 0.05   # < 5% 硬拦截 (纯黑/白/完全无法识别的图)
+_HEAVY_WARN_THRESHOLD = 0.2         # < 20% 警告 (>= 5% 且 < 20%, 报告头加 ⚠️)
 
 
 def _vision_coverage_gate(vision_texts, agent_name='Helen', job_id=None):
