@@ -29963,15 +29963,11 @@ function renderAvatarBadge(emp, avatarClass) {
 }
 
 // 更新 renderEmployeeItem 函数中的 badge 渲染
-// ★ fix/render-employee-monkey-patch: 包进 DOMContentLoaded + typeof 防御
-//   根因: 顶层执行时如果 renderEmployeeItem 还未定义(脚本加载时序 / IIFE / 死代码消除),
-//   会抛 "Uncaught ReferenceError: renderEmployeeItem is not defined"。
-//   修复: 等 DOMContentLoaded 再 patch, 加 typeof 防御, patch body 内部原样不动。
-document.addEventListener('DOMContentLoaded', function () {
-  if (typeof renderEmployeeItem !== 'function') {
-    console.warn('[renderEmployeeItem patch] function not defined, skip monkey patch');
-    return;
-  }
+// ★ fix/render-employee-monkey-patch-v2: 改用公共降级器 _applyMonkeyPatchWithRetry
+//   上一轮 c1f9adb 只 1 级 DOMContentLoaded 防御, 生产仍报 skip warn (L13053 函数定义晚于 DOMContentLoaded)
+//   升级到 3 级: DOMContentLoaded → window.load → 500ms setTimeout
+function _applyRenderEmployeePatch() {
+  if (typeof renderEmployeeItem !== 'function') return false;
   var _originalRenderEmployeeItem = renderEmployeeItem;
   renderEmployeeItem = function (e, showCreator) {
     var size = 40;
@@ -29992,7 +29988,9 @@ document.addEventListener('DOMContentLoaded', function () {
     var avatarContainer = '<div class="item-avatar" style="position:relative;width:' + size + 'px;height:' + size + 'px;flex-shrink:0;"><div class="avatar small ' + (e.badge && e.badge.level === 'urgent' ? 'pulse-urgent' : e.badge && e.badge.level === 'important' ? 'pulse-important' : '') + '" style="background:' + escapeAttr(e.bg || '') + ';width:' + size + 'px;height:' + size + 'px;overflow:hidden;">' + avatarHtml + badgeHtml + '</div><div class="status-dot ' + escapeAttr(e.status || 'offline') + '" style="position:absolute;bottom:0;right:0;width:11px;height:11px;border:2px solid var(--bg-primary);border-radius:50%;box-shadow:0 0 0 0.5px rgba(0,0,0,0.06);transition:transform 0.2s;"></div></div>';
     return avatarContainer + '<div class="item-info" style="flex:1;min-width:0;"><div class="item-name" style="font-weight:500;font-size:14px;letter-spacing:-0.01em;">' + escapeHtml(e.name || '') + creatorTag + '</div><div class="item-msg" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">' + getStatusIcon(e.status) + ' ' + escapeHtml(e.msg || '') + '</div></div>';
   };
-});
+  return true;
+}
+_applyMonkeyPatchWithRetry('renderEmployeeItem', _applyRenderEmployeePatch);
 
 // ========================================
 // 督促通知功能
@@ -30083,54 +30081,84 @@ function renderUrgeBubble(taskName, deadline) {
   return '<div class="urge-header"><span class="urge-icon">⚡</span> 催促处理</div>' + '<div class="urge-body">' + '<div class="urge-task">' + escapeHtml(taskName || '任务') + '</div>' + '<div class="urge-time">截止：' + escapeHtml(deadline || '未设置') + '</div>' + '</div>';
 }
 
-// 更新 renderMsgs 函数以支持督促气泡
-var _originalRenderMsgs = renderMsgs;
-renderMsgs = function (type) {
-  // 先调用原函数
-  _originalRenderMsgs(type);
-
-  // 如果有活跃的催促消息，在消息区域顶部显示
-  var area = document.getElementById('messagesArea');
-  if (!area) return;
-
-  // 检查是否有催促消息需要显示
-  var empId = localStorage.getItem('sb_current_emp');
-  var urgeData = localStorage.getItem('sb_urge_' + empId);
-  if (urgeData) {
-    try {
-      var urge = JSON.parse(urgeData);
-      if (urge && urge.show) {
-        // 在消息区域顶部插入催促气泡
-        var urgeBubble = document.createElement('div');
-        urgeBubble.className = 'msg urge';
-        urgeBubble.id = 'urge-bubble';
-        urgeBubble.innerHTML = '<div class="msg-bubble">' + renderUrgeBubble(urge.taskName, urge.deadline) + '</div>';
-        var firstMsg = area.querySelector('.msg, .chat-empty-state');
-        if (firstMsg) {
-          area.insertBefore(urgeBubble, firstMsg);
-        } else {
-          area.appendChild(urgeBubble);
-        }
-
-        // 3秒后淡出
-        setTimeout(function () {
-          var bubble = document.getElementById('urge-bubble');
-          if (bubble) {
-            bubble.style.opacity = '0';
-            bubble.style.transition = 'opacity 0.5s';
-            setTimeout(function () {
-              if (bubble.parentNode) bubble.parentNode.removeChild(bubble);
-            }, 500);
-          }
-        }, 3000);
-
-        // 清除催促状态
-        urge.show = false;
-        localStorage.setItem('sb_urge_' + empId, JSON.stringify(urge));
-      }
-    } catch (e) {}
+// ★ fix/render-employee-monkey-patch-v2: Monkey Patch 公共降级器
+//   3 级降级: DOMContentLoaded → window.load → 500ms setTimeout
+//   应对 L13053/L16274 函数定义晚于 DOMContentLoaded 的 race (可能在 defer/module 块)
+//   1 级防御不够 (c1f9adb 后生产仍报 renderEmployeeItem skip + renderMsgs ReferenceError)
+function _applyMonkeyPatchWithRetry(name, applyFn) {
+  function attempt(label) {
+    if (applyFn()) {
+      console.log('[monkey-patch] ' + name + ' patch applied at ' + label);
+      return true;
+    }
+    console.warn('[monkey-patch] ' + name + ' not defined at ' + label);
+    return false;
   }
-};
+  // 第 1 级: DOMContentLoaded
+  document.addEventListener('DOMContentLoaded', function () {
+    if (attempt('DOMContentLoaded')) return;
+    // 第 2 级: window.load (等所有资源加载完)
+    window.addEventListener('load', function () {
+      if (attempt('window.load')) return;
+      // 第 3 级: 500ms setTimeout 最后一次重试 (module 加载可能 > 500ms)
+      setTimeout(function () { attempt('setTimeout-500ms'); }, 500);
+    });
+  });
+}
+
+// 更新 renderMsgs 函数以支持督促气泡 (3 级降级应用)
+function _applyRenderMsgsPatch() {
+  if (typeof renderMsgs !== 'function') return false;
+  var _originalRenderMsgs = renderMsgs;
+  renderMsgs = function (type) {
+    // 先调用原函数
+    _originalRenderMsgs(type);
+
+    // 如果有活跃的催促消息，在消息区域顶部显示
+    var area = document.getElementById('messagesArea');
+    if (!area) return;
+
+    // 检查是否有催促消息需要显示
+    var empId = localStorage.getItem('sb_current_emp');
+    var urgeData = localStorage.getItem('sb_urge_' + empId);
+    if (urgeData) {
+      try {
+        var urge = JSON.parse(urgeData);
+        if (urge && urge.show) {
+          // 在消息区域顶部插入催促气泡
+          var urgeBubble = document.createElement('div');
+          urgeBubble.className = 'msg urge';
+          urgeBubble.id = 'urge-bubble';
+          urgeBubble.innerHTML = '<div class="msg-bubble">' + renderUrgeBubble(urge.taskName, urge.deadline) + '</div>';
+          var firstMsg = area.querySelector('.msg, .chat-empty-state');
+          if (firstMsg) {
+            area.insertBefore(urgeBubble, firstMsg);
+          } else {
+            area.appendChild(urgeBubble);
+          }
+
+          // 3秒后淡出
+          setTimeout(function () {
+            var bubble = document.getElementById('urge-bubble');
+            if (bubble) {
+              bubble.style.opacity = '0';
+              bubble.style.transition = 'opacity 0.5s';
+              setTimeout(function () {
+                if (bubble.parentNode) bubble.parentNode.removeChild(bubble);
+              }, 500);
+            }
+          }, 3000);
+
+          // 清除催促状态
+          urge.show = false;
+          localStorage.setItem('sb_urge_' + empId, JSON.stringify(urge));
+        }
+      } catch (e) {}
+    }
+  };
+  return true;
+}
+_applyMonkeyPatchWithRetry('renderMsgs', _applyRenderMsgsPatch);
 
 // 触发催促通知（供外部调用）
 function triggerUrgeNotification(empId, taskName, deadline) {
