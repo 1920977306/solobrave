@@ -9775,7 +9775,7 @@ function compressImageToBase64(file) {
       var img = new Image();
       img.onload = function() {
         var canvas = document.createElement('canvas');
-        var maxWidth = 1920;
+        var maxWidth = 4096;  // ★ fix/image-upload-no-compress: 1920→4096 (4K 屏保留, 微信截图通常 1080-2560 都不压缩)
         var width = img.width;
         var height = img.height;
         if (width > maxWidth) {
@@ -9789,8 +9789,8 @@ function compressImageToBase64(file) {
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
-        // JPEG 0.9 比 PNG 小 5-10 倍，9 张图才不会把请求体撑爆（后端 413）
-        var base64 = canvas.toDataURL('image/jpeg', 0.9);
+        // ★ fix/image-upload-no-compress: JPEG 0.9 → 0.95 (5% 质量损失几乎不可见, 仍走 JPEG 避免 9 张原图 PNG base64 把请求体撑爆后端 413)
+        var base64 = canvas.toDataURL('image/jpeg', 0.95);
         resolve({base64: base64, filename: file.name});
       };
       img.onerror = reject;
