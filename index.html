@@ -10693,7 +10693,7 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
           })
         }).catch(function (e) { console.warn('[ToolLog] 记录失败:', e); });
       }
-    }, lifecycleOptions);
+    }, lifecycleOptions));
     
     _doHandle(chatResult.reply, chatResult.isError);
     restoreOnline();
