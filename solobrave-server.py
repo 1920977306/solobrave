@@ -18897,6 +18897,45 @@ def _parse_vision_json(desc):
         return None
 
 
+# ★ fix/helen-vision-coverage-gate: 3 档阈值门控 (硬拦截 + 警告 + 静默)
+# 老逻辑 _HEAVY_LOW_COVERAGE_THRESHOLD = 0.2 (1 档) 改为 3 档:
+#   < 20% 硬拦截: 不调 LLM, 直接 return "截图数据不足, 无法生成分析报告"
+#   20-50% 警告: LLM 仍调, 在报告开头加 warning 标注
+#   > 50% 静默: 正常调 LLM, 无任何标注
+_HEAVY_HARD_BLOCK_THRESHOLD = 0.2   # < 20% 硬拦截
+_HEAVY_WARN_THRESHOLD = 0.5         # < 50% 警告 (>= 20% 且 < 50%)
+
+
+def _vision_coverage_gate(vision_texts, agent_name='Helen', job_id=None):
+    """3 档阈值门控: 返回 {'action': 'block'|'warn'|'silent', 'coverage': float, 'reply': str or None}
+    - block: 硬拦截, caller 不调 LLM, 直接返回 reply 给前端 / job 落盘
+    - warn: LLM 仍调, caller 在 reply 开头拼接 gate['reply'] 作 warning
+    - silent: 正常调 LLM, 无任何标注
+    """
+    if not vision_texts:
+        # 全部 OCR 失败 / 存量截图数据为空 — 视为硬拦截
+        return {
+            'action': 'block',
+            'coverage': 0.0,
+            'reply': '截图数据不足，无法生成分析报告',
+        }
+    coverage, _ = _heavy_vision_coverage(vision_texts)
+    if coverage < _HEAVY_HARD_BLOCK_THRESHOLD:
+        return {
+            'action': 'block',
+            'coverage': coverage,
+            'reply': '截图数据不足，无法生成分析报告',
+        }
+    if coverage < _HEAVY_WARN_THRESHOLD:
+        return {
+            'action': 'warn',
+            'coverage': coverage,
+            'reply': (f'⚠️ 截图数据不足，结论可信度低（核心字段覆盖率 {coverage:.0%}，'
+                      '缺失数据已按"截图未提供"标注）'),
+        }
+    return {'action': 'silent', 'coverage': coverage, 'reply': None}
+
+
 def _heavy_vision_coverage(vision_texts):
     """解析每张图的 vision JSON，统计核心字段非 null 覆盖率。
     分母固定为核心字段全集（不按图片数放大）：跨页截图各自承载不同字段，
@@ -19020,14 +19059,21 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         if not vision_texts:
             raise RuntimeError('vision 识别全部失败')
 
-        # 反幻觉覆盖率检查：核心字段非 null 比例低于阈值时，标注"截图数据不足，结论可信度低"，
-        # 不静默出报告（warning 透传到 job 状态 + 报告开头）
-        coverage, vision_field_maps = _heavy_vision_coverage(vision_texts)
-        low_confidence = coverage < _HEAVY_LOW_COVERAGE_THRESHOLD
-        if low_confidence:
-            logger.warning(f'  [HeavyPipe] {job_id} 截图核心字段覆盖率 {coverage:.1%} 低于 '
-                           f'{_HEAVY_LOW_COVERAGE_THRESHOLD:.0%}，结论可信度低')
-            _heavy_job_set(job_id, warning='截图数据不足，结论可信度低')
+        # 反幻觉覆盖率检查：3 档阈值门控 (< 20% 硬拦截, 20-50% 警告, > 50% 静默)
+        # block 提前 return 不进 stage2/3/4; warn 在报告开头拼 warning; silent 正常调 LLM
+        gate = _vision_coverage_gate(vision_texts, agent_name=agent_name, job_id=job_id)
+        if gate['action'] == 'block':
+            logger.warning(f'  [HeavyPipe] {job_id} 硬拦截: {gate["reply"]} (coverage={gate["coverage"]:.1%})')
+            _heavy_job_set(job_id, status='completed', stage='截图数据不足, 跳过分析',
+                           warning=gate['reply'])
+            return  # 提前 return, 不进 stage2/3/4/5
+        # warn 路径透传 warning 到 job 状态, silent 不设 warning
+        if gate['action'] == 'warn':
+            logger.warning(f'  [HeavyPipe] {job_id} 截图核心字段覆盖率 {gate["coverage"]:.1%} 低于 '
+                           f'{_HEAVY_WARN_THRESHOLD:.0%}，结论可信度低')
+            _heavy_job_set(job_id, warning=gate['reply'])
+        # 保留 vision_field_maps (stage5 落库用)
+        vision_field_maps = _heavy_vision_coverage(vision_texts)[1]
 
         # Stage 2：提取达人名（单次 LLM 调用）
         _heavy_job_set(job_id, stage='正在提取达人名称…')
@@ -19056,9 +19102,8 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         reply = _heavy_stage4_analyze(agent, agent_name, talents, vision_all, user_content, job_id)
         _stage('stage4 深度分析', _t)
         # 覆盖率不足时在报告开头显式标注，不让低可信度结论静默流出
-        if low_confidence:
-            reply = (f'⚠️ 截图数据不足，结论可信度低（核心字段覆盖率 {coverage:.0%}，'
-                     f'缺失数据已按"截图未提供"标注）\n\n') + reply
+        if gate['action'] == 'warn':
+            reply = gate['reply'] + '\n\n' + reply
 
         # Stage 5：落库（等价 skipAI=True 直接保存，不再触发 AI）+ 通知
         _heavy_job_set(job_id, stage='正在保存分析结果…')
@@ -19251,18 +19296,24 @@ def _reanalysis_worker(job_id, agent, user_content, talent_name, entity_id, visi
         # 达人档案照常预查（库内命中拿全量字段；未入库空列表不阻断，分析仍基于截图 JSON）
         _heavy_job_set(job_id, stage='正在检索达人数据…')
         talents = _heavy_fetch_talents([talent_name])
-        # 覆盖率检查沿用反幻觉口径（存量 content_full 按行拆回每图字段块）
+        # 覆盖率检查沿用反幻觉口径 (存量 content_full 按行拆回每图字段块)
+        # ★ fix/helen-vision-coverage-gate: 3 档门控 (block 提前 return, warn 透传 warning)
         vision_parts = [ln for ln in vision_summary.split('\n') if ln.strip()]
-        coverage, _maps = _heavy_vision_coverage(vision_parts)
-        low_confidence = coverage < _HEAVY_LOW_COVERAGE_THRESHOLD
-        if low_confidence:
-            _heavy_job_set(job_id, warning=f'截图核心字段覆盖率仅 {coverage:.0%}，结论可信度低')
+        gate = _vision_coverage_gate(vision_parts, agent_name=agent_name, job_id=job_id)
+        if gate['action'] == 'block':
+            logger.warning(f'  [Reanalysis] {job_id} 硬拦截: {gate["reply"]} (coverage={gate["coverage"]:.1%})')
+            _heavy_job_set(job_id, status='completed', stage='截图数据不足, 跳过分析',
+                           warning=gate['reply'])
+            return  # 提前 return, 不进 stage4/5
+        if gate['action'] == 'warn':
+            logger.warning(f'  [Reanalysis] {job_id} 截图核心字段覆盖率 {gate["coverage"]:.1%} 低于 '
+                           f'{_HEAVY_WARN_THRESHOLD:.0%}，结论可信度低')
+            _heavy_job_set(job_id, warning=gate['reply'])
 
         _heavy_job_set(job_id, stage='正在深度分析…')
         reply = _heavy_stage4_analyze(agent, agent_name, talents, vision_summary, user_content, job_id)
-        if low_confidence:
-            reply = (f'⚠️ 截图数据不足，结论可信度低（核心字段覆盖率 {coverage:.0%}，'
-                     f'缺失数据已按"截图未提供"标注）\n\n') + reply
+        if gate['action'] == 'warn':
+            reply = gate['reply'] + '\n\n' + reply
 
         _heavy_job_set(job_id, stage='正在保存分析结果…')
         ai_message = {
