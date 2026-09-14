@@ -2107,7 +2107,7 @@ def _save_kb_chunks_without_embedding(entry_id, emp_id, content, chunk_size, ove
 
 
 def _vectorize_kb_chunks(entry_id, emp_id, api_key, provider, model, base_url=None):
-    """为 kb_entry_chunks 中 embedding 为 NULL 的 chunk 生成向量"""
+    """★ refactor/kb-vectorization-error-handling: 为 kb_entry_chunks 中 embedding 为 NULL 的 chunk 生成向量"""
     import struct
     conn = _db_conn()
     try:
@@ -2136,6 +2136,43 @@ def _vectorize_kb_chunks(entry_id, emp_id, api_key, provider, model, base_url=No
             conn.commit()
         finally:
             conn.close()
+
+
+# ★ refactor/kb-vectorization-error-handling: 包装 _vectorize_kb_chunks, 失败时改 status='embedding_failed' + 写 audit log
+def _vectorize_kb_chunks_with_status_update(entry_id, emp_id, api_key, provider, model, base_url=None):
+    """包装 _vectorize_kb_chunks, 失败时:
+    - entry status 改 'embedding_failed' (区别于 SQL 错误等的 'error')
+    - 写 kb_operation_log 'embedding_failed' (含 provider/model/error, 便于排查)
+    - re-raise 让调用方继续处理 (如 create/update 流程可能还需要 set 'error' 兜底)
+
+    成功时调用方负责 set status='ok' (逻辑因 entry 状态而异: 保持 pending 审核闸)。
+    """
+    try:
+        _vectorize_kb_chunks(entry_id, emp_id, api_key, provider, model, base_url=base_url)
+    except Exception as e:
+        # 1. 标 'embedding_failed' (比 'error' 更具体, 知道是 embedding API 失败, 可走 retry 流程)
+        try:
+            conn = _db_conn()
+            try:
+                conn.execute(
+                    'UPDATE kb_entries SET status="embedding_failed", updated_at=? WHERE id=?',
+                    (_now_ms(), entry_id)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception:
+            pass  # DB 写失败不阻塞, 外层 'error' catch 会兜底
+        # 2. 写 audit log
+        try:
+            kb_entry_log_operation(entry_id, 'embedding_failed', 'system', {
+                'error': f'{type(e).__name__}: {e}',
+                'provider': provider,
+                'model': model,
+            })
+        except Exception:
+            pass
+        raise
 
 
 def kb_entry_create(title, content, category, created_by, scope='global', team_id='', group_ids=None, emp_id='', agent_config=None, category_id=None, project_id=None):
@@ -2181,7 +2218,7 @@ def kb_entry_create(title, content, category, created_by, scope='global', team_i
 
     if api_key:
         try:
-            _vectorize_kb_chunks(entry_id, emp_id or '', api_key, provider, model, base_url=base_url)
+            _vectorize_kb_chunks_with_status_update(entry_id, emp_id or '', api_key, provider, model, base_url=base_url)
             conn = _db_conn()
             try:
                 conn.execute('UPDATE kb_entries SET status="ok" WHERE id=?', (entry_id,))
@@ -2190,10 +2227,14 @@ def kb_entry_create(title, content, category, created_by, scope='global', team_i
                 conn.close()
         except Exception as e:
             print(f'  [KBEntry] vectorize failed: {e}', flush=True)
+            # 如果是 vectorize 失败, helper 已经标了 'embedding_failed' (更具体), 不要覆盖
+            # 如果是 save_chunks 失败, 才覆盖为 'error' (兜底)
             conn = _db_conn()
             try:
-                conn.execute('UPDATE kb_entries SET status="error" WHERE id=?', (entry_id,))
-                conn.commit()
+                cur = conn.execute('SELECT status FROM kb_entries WHERE id=?', (entry_id,)).fetchone()
+                if not cur or cur['status'] != 'embedding_failed':
+                    conn.execute('UPDATE kb_entries SET status="error" WHERE id=?', (entry_id,))
+                    conn.commit()
             finally:
                 conn.close()
             raise
@@ -2285,7 +2326,7 @@ def kb_entry_update(entry_id, title=None, content=None, category=None, category_
             model = emb_cfg.get('model')
             base_url = emb_cfg.get('baseUrl')
             if api_key:
-                _vectorize_kb_chunks(entry_id, actual_emp_id, api_key, provider, model, base_url=base_url)
+                _vectorize_kb_chunks_with_status_update(entry_id, actual_emp_id, api_key, provider, model, base_url=base_url)
                 conn = _db_conn()
                 try:
                     # 审核闸：pending（待审核）条目向量化成功后仍保持 pending，不自动过审；
@@ -2305,10 +2346,14 @@ def kb_entry_update(entry_id, title=None, content=None, category=None, category_
                 print(f'  [KBEntry] No API key, re-chunked without embedding: {entry_id}', flush=True)
         except Exception as e:
             print(f'  [KBEntry] update chunk/vectorize failed: {e}', flush=True)
+            # 如果是 vectorize 失败, helper 已经标了 'embedding_failed' (更具体), 不要覆盖
+            # 如果是 save_chunks 等其他失败, 才覆盖为 'error' (兜底)
             conn = _db_conn()
             try:
-                conn.execute('UPDATE kb_entries SET status="error" WHERE id=?', (entry_id,))
-                conn.commit()
+                cur = conn.execute('SELECT status FROM kb_entries WHERE id=?', (entry_id,)).fetchone()
+                if not cur or cur['status'] != 'embedding_failed':
+                    conn.execute('UPDATE kb_entries SET status="error" WHERE id=?', (entry_id,))
+                    conn.commit()
             finally:
                 conn.close()
             raise
@@ -2317,9 +2362,10 @@ def kb_entry_update(entry_id, title=None, content=None, category=None, category_
 
 
 def kb_entries_reindex_pending(progress_cb=None, cancel_event=None):
-    """★ refactor/heavy-pipe-timeout: 批量重建未向量化的知识条目 (status='pending' 或 chunk_count=0)。
-    重新分段 + 向量化; 成功时 ok/error 条目恢复 ok, pending(待审核) 条目保持 pending 不自动过审;
-    失败置 'error', 无 API key 保持原状态。返回 {'total', 'ok', 'noKey', 'failed', 'errors', 'cancelled'} 统计。
+    """★ 批量重建未向量化的知识条目 (status='pending'/'embedding_failed' 或 chunk_count=0)。
+    重新分段 + 向量化; 成功时 ok/error/embedding_failed 条目恢复 ok, pending 保持 pending 不自动过审;
+    vectorize 失败标 'embedding_failed' (不覆盖), save_chunks 错误标 'error';
+    无 API key 保持原状态。返回 {'total', 'ok', 'noKey', 'failed', 'errors', 'cancelled'} 统计。
     Args:
         progress_cb: 可选, 签名 (pct:int, completed:int, total:int) -> None. 每条 entry 后回调.
         cancel_event: 可选, threading.Event. set() 后, 当前 entry 完成后中断循环.
@@ -2328,7 +2374,7 @@ def kb_entries_reindex_pending(progress_cb=None, cancel_event=None):
     try:
         rows = conn.execute(
             "SELECT id, emp_id, title, content FROM kb_entries "
-            "WHERE status = 'pending' OR chunk_count = 0"
+            "WHERE status IN ('pending', 'embedding_failed') OR chunk_count = 0"
         ).fetchall()
     finally:
         conn.close()
@@ -2355,9 +2401,10 @@ def kb_entries_reindex_pending(progress_cb=None, cancel_event=None):
                 stats['noKey'] += 1
                 print(f'  [KBEntry] reindex {entry_id} ({row["title"]}): 无 embedding API key，跳过向量化', flush=True)
                 continue
-            _vectorize_kb_chunks(entry_id, emp_id, api_key,
-                                 emb_cfg.get('provider', 'openai'), emb_cfg.get('model'),
-                                 base_url=emb_cfg.get('baseUrl'))
+            _vectorize_kb_chunks_with_status_update(entry_id, emp_id, api_key,
+                                                    emb_cfg.get('provider', 'openai'),
+                                                    emb_cfg.get('model'),
+                                                    base_url=emb_cfg.get('baseUrl'))
             conn = _db_conn()
             try:
                 conn.execute(
@@ -2373,14 +2420,145 @@ def kb_entries_reindex_pending(progress_cb=None, cancel_event=None):
             stats['failed'] += 1
             stats['errors'].append(f'{entry_id}: {e}')
             print(f'  [KBEntry] reindex {entry_id} ({row["title"]}) failed: {e}', flush=True)
+            # 如果是 vectorize 失败, helper 已经标了 'embedding_failed', 不要覆盖 (留作可 retry)
+            # 如果是 save_chunks 等其他失败, 才覆盖为 'error'
             conn = _db_conn()
             try:
-                conn.execute('UPDATE kb_entries SET status="error" WHERE id=?', (entry_id,))
-                conn.commit()
+                cur = conn.execute('SELECT status FROM kb_entries WHERE id=?', (entry_id,)).fetchone()
+                if not cur or cur['status'] != 'embedding_failed':
+                    conn.execute('UPDATE kb_entries SET status="error" WHERE id=?', (entry_id,))
+                    conn.commit()
             finally:
                 conn.close()
         if progress_cb:
             progress_cb(int((i + 1) * 100 / max(total, 1)), completed=i + 1, total=total)
+    return stats
+
+
+# ═══════════════════════════════════════════════════
+# ★ refactor/kb-vectorization-error-handling: embedding 失败重试
+# ═══════════════════════════════════════════════════
+
+def kb_entry_retry_embedding(entry_id, is_admin=False, operator_id='', user_id='',
+                              managed_team_ids=None, managed_group_ids=None, emp_ids=None):
+    """★ refactor/kb-vectorization-error-handling: 手动重试单条 entry 的 embedding。
+    适用状态: 'embedding_failed' 或 'error' (其他状态抛 ValueError, 'deleted' 返回 None)。
+    权限: 跟 can_edit_knowledge 一致 (admin 可改任何, personal 仅本人, group 仅群主/管理员)。
+    流程: 读 entry → 权限检查 → save_chunks (重写) → vectorize → set status='ok' (保持 pending 审核闸)
+    成功: status='ok' (pending 保持) / 写 audit log 'retry_embedding'
+    失败: status='embedding_failed' (helper) / 写 audit log 'embedding_failed'
+    返回: {entry_id, status, retried: True} 或 None (entry 不存在/已删)
+    """
+    doc = kb_entry_get_by_id(entry_id)
+    if not doc:
+        return None
+    cur_status = doc.get('status') or ''
+    if cur_status in ('deleted',):
+        return None  # 软删不让 retry
+    if cur_status not in ('embedding_failed', 'error'):
+        raise ValueError(f'Cannot retry embedding: status={cur_status} (only embedding_failed/error allowed)')
+
+    # 权限检查 (跟 can_edit_knowledge 一致)
+    if not can_edit_knowledge(doc, user_id, is_admin=is_admin,
+                              managed_team_ids=managed_team_ids,
+                              managed_group_ids=managed_group_ids,
+                              emp_ids=emp_ids):
+        raise PermissionError('Permission denied: cannot retry embedding for this entry')
+
+    # 重写 chunks + 向量化
+    emp_id = doc.get('emp_id') or ''
+    content = doc.get('content') or ''
+    _save_kb_chunks_without_embedding(entry_id, emp_id, content, 500, 100)
+
+    emb_cfg = get_embedding_config(emp_id or None)
+    api_key = emb_cfg.get('apiKey')
+    if not api_key:
+        # 没有 API key 没法 retry, 标 'error' + 写 log + raise
+        conn = _db_conn()
+        try:
+            conn.execute('UPDATE kb_entries SET status="error", updated_at=? WHERE id=?',
+                         (_now_ms(), entry_id))
+            conn.commit()
+        finally:
+            conn.close()
+        try:
+            kb_entry_log_operation(entry_id, 'retry_failed_no_api_key', operator_id, {
+                'prev_status': cur_status,
+            })
+        except Exception:
+            pass
+        raise RuntimeError(f'No embedding API key for emp_id={emp_id}')
+
+    # 调 helper (失败自动标 embedding_failed + 写 log)
+    _vectorize_kb_chunks_with_status_update(
+        entry_id, emp_id, api_key,
+        emb_cfg.get('provider', 'openai'),
+        emb_cfg.get('model'),
+        base_url=emb_cfg.get('baseUrl')
+    )
+
+    # 成功, set status (保持 pending 审核闸, 'embedding_failed'/'error' → 'ok')
+    new_status = 'ok'
+    if cur_status == 'pending':
+        new_status = 'pending'  # 保持 pending 审核
+    conn = _db_conn()
+    try:
+        conn.execute('UPDATE kb_entries SET status=?, updated_at=? WHERE id=?',
+                     (new_status, _now_ms(), entry_id))
+        conn.commit()
+    finally:
+        conn.close()
+    # 写 audit
+    try:
+        kb_entry_log_operation(entry_id, 'retry_embedding', operator_id or user_id, {
+            'prev_status': cur_status,
+            'new_status': new_status,
+        })
+    except Exception:
+        pass
+    return {'entry_id': entry_id, 'status': new_status, 'prev_status': cur_status, 'retried': True}
+
+
+def kb_entries_retry_all_failed_embedding(is_admin=True, operator_id=''):
+    """★ refactor/kb-vectorization-error-handling: 批量重试所有 embedding_failed / error 状态的 entry (admin only)。
+    逐条调用 kb_entry_retry_embedding, 收集 stats, 单条失败不影响其他。
+    返回: {scanned, retried, succeeded, failed, errors: [{entry_id, error}]}
+    """
+    if not is_admin:
+        raise PermissionError('kb_entries_retry_all_failed_embedding requires is_admin=True')
+
+    conn = _db_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, title, scope, created_by, emp_id FROM kb_entries "
+            "WHERE status IN ('embedding_failed', 'error') ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    stats = {'scanned': len(rows), 'retried': 0, 'succeeded': 0, 'failed': 0,
+             'errors': []}
+    for row in rows:
+        entry_id = row['id']
+        try:
+            result = kb_entry_retry_embedding(
+                entry_id, is_admin=is_admin, operator_id=operator_id, user_id='__admin__',
+            )
+            if result:
+                stats['retried'] += 1
+                stats['succeeded'] += 1
+            else:
+                stats['failed'] += 1
+                stats['errors'].append({'entry_id': entry_id, 'error': 'not found or deleted'})
+        except PermissionError as e:
+            stats['failed'] += 1
+            stats['errors'].append({'entry_id': entry_id, 'error': f'PermissionError: {e}'})
+        except ValueError as e:
+            stats['failed'] += 1
+            stats['errors'].append({'entry_id': entry_id, 'error': f'ValueError: {e}'})
+        except Exception as e:
+            stats['failed'] += 1
+            stats['errors'].append({'entry_id': entry_id, 'error': f'{type(e).__name__}: {e}'})
     return stats
 
 

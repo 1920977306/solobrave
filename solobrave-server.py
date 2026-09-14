@@ -6816,6 +6816,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/knowledge/entries/reindex':
             self._handle_post_kb_reindex()
             return
+        # ★ refactor/kb-vectorization-error-handling: 批量重试所有失败 embedding (admin only)
+        if path == '/api/knowledge/retry-all-failed':
+            self._handle_post_kb_retry_all_failed()
+            return
         if path == '/api/knowledge/search':
             self._handle_post_kb_search()
             return
@@ -6877,6 +6881,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # ★ refactor/heavy-pipe-timeout: POST /api/knowledge/pipe-cancel/<taskId>
             if len(parts) == 2 and parts[0] == 'pipe-cancel':
                 self._handle_post_pipe_cancel(parts[1])
+                return
+            # ★ refactor/kb-vectorization-error-handling: POST /api/knowledge/retry-embedding/<entryId>
+            if len(parts) == 2 and parts[0] == 'retry-embedding':
+                self._handle_post_kb_retry_embedding(parts[1])
                 return
 
         # Brand API
@@ -12879,6 +12887,64 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         mgr = ks.get_pipe_manager()
         tasks = mgr.list_recent(limit=limit)
         self._send_json(200, {'tasks': tasks, 'count': len(tasks)})
+
+    def _handle_post_kb_retry_embedding(self, entry_id):
+        """★ refactor/kb-vectorization-error-handling: POST /api/knowledge/retry-embedding/<entryId>
+        手动重试单条 entry 的 embedding (适用 status='embedding_failed' 或 'error')。
+        权限: 跟 can_edit_knowledge 一致 (admin 可改任何, personal 仅本人, group 仅群主/管理员)。
+        返回: {entry_id, status, prev_status, retried: True}
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        try:
+            result = ks.kb_entry_retry_embedding(
+                entry_id,
+                is_admin=auth.is_admin,
+                operator_id=auth.user_id,
+                user_id=auth.user_id,
+                managed_team_ids=auth.managed_team_ids,
+                managed_group_ids=auth.managed_group_ids,
+                emp_ids=_get_user_emp_ids(auth.user_id),
+            )
+            if not result:
+                self._send_json_error(404, f'Entry {entry_id} not found or deleted')
+                return
+            self._send_json(200, result)
+        except PermissionError as e:
+            self._send_auth_error(str(e), 403)
+        except ValueError as e:
+            self._send_json_error(400, str(e))
+        except Exception as e:
+            logger.error(f'  [KBEntry] retry-embedding {entry_id} failed: {e}')
+            self._send_json_error(500, f'Retry failed: {str(e)}')
+
+    def _handle_post_kb_retry_all_failed(self):
+        """★ refactor/kb-vectorization-error-handling: POST /api/knowledge/retry-all-failed
+        批量重试所有 embedding_failed / error 状态的 entry (admin only)。
+        返回: {scanned, retried, succeeded, failed, errors: [{entry_id, error}]}
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        if not auth.is_admin:
+            self._send_auth_error('Admin only', 403)
+            return
+        try:
+            stats = ks.kb_entries_retry_all_failed_embedding(
+                is_admin=True, operator_id=auth.user_id,
+            )
+            logger.info(f'  [KBEntry] retry-all-failed stats={stats}')
+            self._send_json(200, stats)
+        except PermissionError as e:
+            self._send_auth_error(str(e), 403)
+        except Exception as e:
+            logger.error(f'  [KBEntry] retry-all-failed failed: {e}')
+            self._send_json_error(500, f'Retry-all failed: {str(e)}')
 
     def _handle_put_kb_entry(self, entry_id):
         """PUT /api/knowledge/entries/<id> — 更新新版知识"""
