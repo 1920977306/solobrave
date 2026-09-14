@@ -12,6 +12,7 @@ import time
 import math
 import sqlite3
 import hashlib
+import threading
 
 # ═══════════════════════════════════════════════════
 # 配置（与 solobrave-server.py 共享 DATA_DIR）
@@ -124,6 +125,211 @@ def _now_ms():
 
 def _gen_id(prefix='kb'):
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
+
+
+# ═══════════════════════════════════════════════════
+# ★ refactor/heavy-pipe-timeout: 后台任务 + 超时 + 进度 + 取消
+# ═══════════════════════════════════════════════════
+
+# Q1: 任务状态 in-memory (server 重启任务丢失, 下轮可升级 SQLite 持久化)
+# Q2: 完成后 1 小时清理
+# Q5: 取消粒度 = 每条 entry 完成后 check (最坏等 _vectorize 30s API 超时)
+TIMEOUT_HEAVY_PIPE_MS = 120000          # 2 分钟
+TASK_RETENTION_MS = 3600000              # 1 小时
+TASK_CLEANUP_INTERVAL_S = 300            # 5 分钟扫一次
+
+
+class HeavyPipeCancelled(Exception):
+    """用户取消 / 超时触发的取消异常, runner 检测到后抛出"""
+    pass
+
+
+class HeavyPipeTask:
+    """单个后台任务的状态对象, 线程安全"""
+
+    def __init__(self, task_type, params=None):
+        self.id = _gen_id('pipe')
+        self.type = task_type
+        self.params = params or {}
+        self.status = 'pending'   # pending / running / success / failed / cancelled / timeout
+        self.progress = 0         # 0-100
+        self.total = 0
+        self.completed = 0
+        self.started_at = None
+        self.ended_at = None
+        self.error = None
+        self.result = None
+        self._cancel_event = threading.Event()
+        self._lock = threading.Lock()
+
+    def to_dict(self):
+        with self._lock:
+            return {
+                'id': self.id,
+                'type': self.type,
+                'status': self.status,
+                'progress': self.progress,
+                'total': self.total,
+                'completed': self.completed,
+                'started_at': self.started_at,
+                'ended_at': self.ended_at,
+                'elapsed_ms': (self.ended_at or _now_ms()) - (self.started_at or _now_ms()),
+                'error': self.error,
+                'result': self.result,
+            }
+
+
+class HeavyPipeTaskManager:
+    """后台任务管理器 (单例, in-memory 存储, 后台线程定时清理过期任务)"""
+
+    def __init__(self):
+        self._tasks = {}  # id -> HeavyPipeTask
+        self._lock = threading.Lock()
+        self._cleanup_thread = None
+
+    def start_task(self, task_type, params, runner_fn):
+        """提交一个后台任务, 返回 task_id。runner_fn 签名: (progress_cb, cancel_event) -> result"""
+        task = HeavyPipeTask(task_type, params)
+        with self._lock:
+            self._tasks[task.id] = task
+        thread = threading.Thread(
+            target=self._run_with_timeout,
+            args=(task, runner_fn),
+            daemon=True,
+            name=f'pipe-{task.id}'
+        )
+        thread.start()
+        return task.id
+
+    def _run_with_timeout(self, task, runner_fn):
+        """线程入口: 启动 watchdog + 调 runner, 区分 timeout vs 用户取消"""
+        task.started_at = _now_ms()
+        task.status = 'running'
+        timeout_fired = [False]
+
+        def watchdog():
+            time.sleep(TIMEOUT_HEAVY_PIPE_MS / 1000.0)
+            # 仍在 running 才视为超时 (可能 runner 已结束)
+            with task._lock:
+                if task.status == 'running':
+                    timeout_fired[0] = True
+                    task._cancel_event.set()
+
+        wd = threading.Thread(target=watchdog, daemon=True)
+        wd.start()
+
+        def progress_cb(pct, completed=None, total=None):
+            with task._lock:
+                task.progress = max(0, min(100, int(pct)))
+                if completed is not None:
+                    task.completed = completed
+                if total is not None:
+                    task.total = total
+
+        try:
+            result = runner_fn(progress_cb, task._cancel_event)
+            # runner 正常返回
+            if task._cancel_event.is_set():
+                # 取消事件被 set 但 runner 没抛 (漏检), 视为取消
+                task.status = 'timeout' if timeout_fired[0] else 'cancelled'
+                if timeout_fired[0]:
+                    task.error = f'timeout after {TIMEOUT_HEAVY_PIPE_MS}ms'
+            else:
+                task.status = 'success'
+                task.result = result
+        except HeavyPipeCancelled:
+            if timeout_fired[0]:
+                task.status = 'timeout'
+                task.error = f'timeout after {TIMEOUT_HEAVY_PIPE_MS}ms'
+            else:
+                task.status = 'cancelled'
+        except Exception as e:
+            task.error = f'{type(e).__name__}: {e}'
+            task.status = 'failed'
+        finally:
+            task.ended_at = _now_ms()
+            with task._lock:
+                if task.status == 'success' and task.progress != 100 and task.total > 0:
+                    # runner 没设满 100%, 自动补到 100
+                    task.progress = 100
+
+    def get_task(self, task_id):
+        with self._lock:
+            task = self._tasks.get(task_id)
+        return task.to_dict() if task else None
+
+    def cancel_task(self, task_id):
+        with self._lock:
+            task = self._tasks.get(task_id)
+        if not task:
+            return False
+        task._cancel_event.set()
+        return True
+
+    def list_recent(self, limit=50):
+        with self._lock:
+            tasks = sorted(
+                self._tasks.values(),
+                key=lambda t: t.started_at or 0,
+                reverse=True
+            )[:limit]
+        return [t.to_dict() for t in tasks]
+
+    def start_cleanup_loop(self):
+        """启动后台清理线程, 完成后 1 小时的 task 自动删除 (Q2)"""
+        if self._cleanup_thread and self._cleanup_thread.is_alive():
+            return
+        def loop():
+            while True:
+                time.sleep(TASK_CLEANUP_INTERVAL_S)
+                self._cleanup_expired()
+        self._cleanup_thread = threading.Thread(target=loop, daemon=True, name='pipe-cleanup')
+        self._cleanup_thread.start()
+
+    def _cleanup_expired(self):
+        cutoff = _now_ms() - TASK_RETENTION_MS
+        with self._lock:
+            expired = [tid for tid, t in self._tasks.items()
+                       if t.ended_at and t.ended_at < cutoff]
+            for tid in expired:
+                del self._tasks[tid]
+
+
+_PIPE_MANAGER = None
+_PIPE_MANAGER_LOCK = threading.Lock()
+
+
+def get_pipe_manager():
+    """获取单例任务管理器 (懒初始化, 首次调用时启动清理线程)"""
+    global _PIPE_MANAGER
+    if _PIPE_MANAGER is None:
+        with _PIPE_MANAGER_LOCK:
+            if _PIPE_MANAGER is None:
+                _PIPE_MANAGER = HeavyPipeTaskManager()
+                _PIPE_MANAGER.start_cleanup_loop()
+    return _PIPE_MANAGER
+
+
+# ─── Heavy Pipe 任务 runner 实现 ───────────────────
+
+def _runner_reindex_pending(progress_cb, cancel_event):
+    """reindex_pending 任务的实际执行体, 委托给 kb_entries_reindex_pending 加 progress + cancel 钩子"""
+    return kb_entries_reindex_pending(progress_cb=progress_cb, cancel_event=cancel_event)
+
+
+# 任务类型注册表
+PIPE_RUNNERS = {
+    'reindex_pending': _runner_reindex_pending,
+}
+
+
+def start_heavy_pipe_task(task_type, params=None):
+    """提交一个后台任务, 返回 task_id。未知 task_type 抛 ValueError"""
+    runner_fn = PIPE_RUNNERS.get(task_type)
+    if not runner_fn:
+        raise ValueError(f'Unknown task type: {task_type}. Available: {list(PIPE_RUNNERS.keys())}')
+    mgr = get_pipe_manager()
+    return mgr.start_task(task_type, params, runner_fn)
 
 
 def _add_column_if_not_exists(conn, table, column, def_type):
@@ -2110,10 +2316,14 @@ def kb_entry_update(entry_id, title=None, content=None, category=None, category_
     return kb_entry_get_by_id(entry_id)
 
 
-def kb_entries_reindex_pending():
-    """批量重建未向量化的知识条目（status='pending' 或 chunk_count=0）：
-    重新分段 + 向量化；成功时 ok/error 条目恢复 ok，pending（待审核）条目保持 pending 不自动过审；
-    失败置 'error'，无 API key 保持原状态。返回 {'total', 'ok', 'noKey', 'failed', 'errors'} 统计。"""
+def kb_entries_reindex_pending(progress_cb=None, cancel_event=None):
+    """★ refactor/heavy-pipe-timeout: 批量重建未向量化的知识条目 (status='pending' 或 chunk_count=0)。
+    重新分段 + 向量化; 成功时 ok/error 条目恢复 ok, pending(待审核) 条目保持 pending 不自动过审;
+    失败置 'error', 无 API key 保持原状态。返回 {'total', 'ok', 'noKey', 'failed', 'errors', 'cancelled'} 统计。
+    Args:
+        progress_cb: 可选, 签名 (pct:int, completed:int, total:int) -> None. 每条 entry 后回调.
+        cancel_event: 可选, threading.Event. set() 后, 当前 entry 完成后中断循环.
+    """
     conn = _db_conn()
     try:
         rows = conn.execute(
@@ -2123,8 +2333,17 @@ def kb_entries_reindex_pending():
     finally:
         conn.close()
 
-    stats = {'total': len(rows), 'ok': 0, 'noKey': 0, 'failed': 0, 'errors': []}
-    for row in rows:
+    total = len(rows)
+    stats = {'total': total, 'ok': 0, 'noKey': 0, 'failed': 0, 'errors': [], 'cancelled': False}
+    if progress_cb:
+        progress_cb(0, completed=0, total=total)
+
+    for i, row in enumerate(rows):
+        if cancel_event is not None and cancel_event.is_set():
+            stats['cancelled'] = True
+            stats['cancelled_at'] = i
+            stats['cancelled_total'] = total
+            break
         entry_id = row['id']
         emp_id = row['emp_id'] or ''
         content = row['content'] or ''
@@ -2160,6 +2379,8 @@ def kb_entries_reindex_pending():
                 conn.commit()
             finally:
                 conn.close()
+        if progress_cb:
+            progress_cb(int((i + 1) * 100 / max(total, 1)), completed=i + 1, total=total)
     return stats
 
 
