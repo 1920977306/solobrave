@@ -644,7 +644,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .products-brand-score {
   font-size: 12px;
   font-weight: 600;
-  color: #FF6B35;
+  color: var(--color-primary, #007AFF);
 }
 
 /* Products Middle List */
@@ -1799,7 +1799,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-weight: 600;
 }
 .talents-mid-data-row .gmv {
-  color: #FF6B35;
+  color: var(--color-primary, #007AFF);
   font-weight: 600;
 }
 .talents-mid-score {
@@ -23594,7 +23594,7 @@ async function finishWizard() {
   box-sizing: border-box;
 }
 .search-panel-input:focus {
-  border-color: var(--accent, #FF6B35);
+  border-color: var(--accent, var(--color-primary, #007AFF));
 }
 .search-panel-input::placeholder {
   color: var(--text-tertiary, #AEAEB2);
@@ -23661,7 +23661,7 @@ async function finishWizard() {
 }
 .search-highlight {
   background: rgba(255, 107, 53, 0.2);
-  color: var(--accent, #FF6B35);
+  color: var(--accent, var(--color-primary, #007AFF));
   border-radius: 2px;
   padding: 0 1px;
 }
