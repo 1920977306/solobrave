@@ -6827,6 +6827,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_cleanup_kb_dangling()
             return
 
+        # ★ refactor/heavy-pipe-timeout: 启动后台任务 (admin only)
+        if path == '/api/knowledge/pipe/start':
+            self._handle_post_pipe_start()
+            return
+
+        # ★ refactor/heavy-pipe-timeout: 查询/列出任务 (admin only)
+        if path == '/api/knowledge/pipe/list':
+            self._handle_get_pipe_list()
+            return
+
         # 规律库：触发归纳
         if path == '/api/knowledge-patterns/induce':
             self._handle_post_induce_knowledge_patterns()
@@ -6849,6 +6859,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 return
             if len(parts) == 2 and parts[1] == 'move':
                 self._handle_knowledge_move(parts[0])
+                return
+            # ★ refactor/heavy-pipe-timeout: GET /api/knowledge/pipe-progress/<taskId>
+            if len(parts) == 2 and parts[0] == 'pipe-progress':
+                self._handle_get_pipe_progress(parts[1])
+                return
+            # ★ refactor/heavy-pipe-timeout: POST /api/knowledge/pipe-cancel/<taskId>
+            if len(parts) == 2 and parts[0] == 'pipe-cancel':
+                self._handle_post_pipe_cancel(parts[1])
                 return
 
         # Brand API
@@ -12714,7 +12732,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(500, f'Create failed: {str(e)}')
 
     def _handle_post_kb_reindex(self):
-        """POST /api/knowledge/entries/reindex — 批量重建 pending/未向量化条目的分段与向量（管理员）"""
+        """★ refactor/heavy-pipe-timeout: POST /api/knowledge/entries/reindex
+        批量重建 pending/未向量化条目的分段与向量 (管理员)。
+        Q3 决策: 默认异步启动后台任务, 返回 task_id; ?sync=true 时同步阻塞 (兼容旧脚本)。
+        body: { sync?: bool }
+        """
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -12723,12 +12745,130 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_admin:
             self._send_auth_error('Admin only', 403)
             return
+        body = self._read_body() or {}
+        # ?sync=true 走同步路径 (旧脚本兼容)
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        sync_mode = (qs.get('sync', ['false'])[0].lower() == 'true') or bool(body.get('sync', False))
+
+        if sync_mode:
+            try:
+                stats = ks.kb_entries_reindex_pending()
+                self._send_json(200, {'mode': 'sync', 'stats': stats})
+            except Exception as e:
+                logger.error(f'  [KBEntry] reindex sync failed: {e}')
+                self._send_json_error(500, f'Reindex failed: {str(e)}')
+            return
+
+        # 异步路径: 启动后台任务, 立即返回 task_id
         try:
-            stats = ks.kb_entries_reindex_pending()
-            self._send_json(200, stats)
+            task_id = ks.start_heavy_pipe_task('reindex_pending', params={})
+            self._send_json(200, {
+                'mode': 'async',
+                'task_id': task_id,
+                'status': 'pending',
+                'progress_url': f'/api/knowledge/pipe-progress/{task_id}',
+                'cancel_url': f'/api/knowledge/pipe-cancel/{task_id}',
+            })
         except Exception as e:
-            logger.error(f'  [KBEntry] reindex failed: {e}')
-            self._send_json_error(500, f'Reindex failed: {str(e)}')
+            logger.error(f'  [HeavyPipe] reindex start failed: {e}')
+            self._send_json_error(500, f'Task start failed: {str(e)}')
+
+    def _handle_post_pipe_start(self):
+        """★ refactor/heavy-pipe-timeout: POST /api/knowledge/pipe/start
+        通用后台任务启动入口 (admin only)。
+        body: { type: 'reindex_pending', params?: {} }
+        返回: { task_id, status: 'pending', progress_url, cancel_url }
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        if not auth.is_admin:
+            self._send_auth_error('Admin only', 403)
+            return
+        body = self._read_body() or {}
+        task_type = (body.get('type') or '').strip()
+        if not task_type:
+            self._send_json_error(400, 'Missing task type')
+            return
+        params = body.get('params') or {}
+        try:
+            task_id = ks.start_heavy_pipe_task(task_type, params=params)
+            self._send_json(200, {
+                'task_id': task_id,
+                'type': task_type,
+                'status': 'pending',
+                'progress_url': f'/api/knowledge/pipe-progress/{task_id}',
+                'cancel_url': f'/api/knowledge/pipe-cancel/{task_id}',
+            })
+        except ValueError as e:
+            self._send_json_error(400, str(e))
+        except Exception as e:
+            logger.error(f'  [HeavyPipe] pipe/start failed: {e}')
+            self._send_json_error(500, f'Task start failed: {str(e)}')
+
+    def _handle_get_pipe_progress(self, task_id):
+        """★ refactor/heavy-pipe-timeout: GET /api/knowledge/pipe-progress/<taskId>
+        查任务进度 (admin only)。返回 HeavyPipeTask.to_dict()。
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        if not auth.is_admin:
+            self._send_auth_error('Admin only', 403)
+            return
+        mgr = ks.get_pipe_manager()
+        task = mgr.get_task(task_id)
+        if not task:
+            self._send_json_error(404, f'Task {task_id} not found (可能已过期清理)')
+            return
+        self._send_json(200, task)
+
+    def _handle_post_pipe_cancel(self, task_id):
+        """★ refactor/heavy-pipe-timeout: POST /api/knowledge/pipe-cancel/<taskId>
+        取消任务 (admin only)。设 cancel_event, runner 在下一个检查点中断。
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        if not auth.is_admin:
+            self._send_auth_error('Admin only', 403)
+            return
+        mgr = ks.get_pipe_manager()
+        ok = mgr.cancel_task(task_id)
+        if not ok:
+            self._send_json_error(404, f'Task {task_id} not found')
+            return
+        self._send_json(200, {'task_id': task_id, 'cancelled': True})
+
+    def _handle_get_pipe_list(self):
+        """★ refactor/heavy-pipe-timeout: GET /api/knowledge/pipe/list
+        列出最近 N 个任务 (admin only, 默认 50)。
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        if not auth.is_admin:
+            self._send_auth_error('Admin only', 403)
+            return
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        try:
+            limit = int(qs.get('limit', ['50'])[0])
+            limit = max(1, min(limit, 200))
+        except (TypeError, ValueError):
+            limit = 50
+        mgr = ks.get_pipe_manager()
+        tasks = mgr.list_recent(limit=limit)
+        self._send_json(200, {'tasks': tasks, 'count': len(tasks)})
 
     def _handle_put_kb_entry(self, entry_id):
         """PUT /api/knowledge/entries/<id> — 更新新版知识"""
