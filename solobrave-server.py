@@ -188,7 +188,9 @@ BUSINESS_VISION_PROMPT = """你是一个专业的抖音达人数据提取员。�
 
 【短视频观众】video_audience_region(省份分布JSON含城市和占比)、video_audience_city_tier(城市等级分布JSON)；
 
-所有字段名必须严格使用上述英文名，数组和分布类字段输出为JSON对象或数组。"""
+所有字段名必须严格使用上述英文名，数组和分布类字段输出为JSON对象或数组。
+
+【图表/仪表盘截图分支】如果截图不是达人数据而是仪表盘/图表/其他类型, 不要强行套达人字段, 改为按用户提示词格式描述完整结构 (图表标题/坐标轴/数据标签/图例/数值), 输出纯文本不要 JSON。"""
 
 # ═══════════════════════════════════════════════════
 # Embedding 配置（RAG 向量检索）
@@ -18632,7 +18634,18 @@ def _call_kimi_vision(image_base64, agent_id=None, role=None):
             'role': 'user',
             'content': [
                 {'type': 'image', 'source': {'type': 'base64', 'media_type': media_type, 'data': data}},
-                {'type': 'text', 'text': '请描述这张图片的内容'}
+                # ★ fix/helen-vision-full-fix: 老 prompt "请描述这张图片的内容" 太简,
+                #   仪表盘/图表截图识别字段率低 (老老反馈). 改为专门识别图表元素 + 类型自适应.
+                {'type': 'text', 'text': (
+                    '请仔细识别图片中的所有数据元素:\n'
+                    '- 文字: 标题、标签、数值、单位、图例、坐标轴标签\n'
+                    '- 图表: 图表类型(柱状/折线/饼图/表格/数字)、数据系列名称、轴范围、刻度值\n'
+                    '- 表格: 列名、行值、汇总行\n'
+                    '- 视觉布局: 卡片位置、字段归类、颜色含义\n'
+                    '对截图类型自适应: 达人数据按 BUSINESS_VISION_PROMPT 输出 JSON, '
+                    '图表/仪表盘/其他截图按上面格式描述完整结构。\n'
+                    '不要概括, 不要"图片中显示了xxx", 列出具体字段名+数值。'
+                )}
             ]
         }]
     }
@@ -18748,7 +18761,17 @@ def _call_minimax_vision_fallback(image_base64, media_type='image/jpeg', role=No
         'role': 'user',
         'content': [
             {'type': 'image_url', 'image_url': {'url': image_data_url}},
-            {'type': 'text', 'text': '请描述这张图片的内容'}
+            # ★ fix/helen-vision-full-fix: 同上 anthropic 格式, OpenAI 多模态也用同一 OCR 提示词
+            {'type': 'text', 'text': (
+                '请仔细识别图片中的所有数据元素:\n'
+                '- 文字: 标题、标签、数值、单位、图例、坐标轴标签\n'
+                '- 图表: 图表类型(柱状/折线/饼图/表格/数字)、数据系列名称、轴范围、刻度值\n'
+                '- 表格: 列名、行值、汇总行\n'
+                '- 视觉布局: 卡片位置、字段归类、颜色含义\n'
+                '对截图类型自适应: 达人数据按 BUSINESS_VISION_PROMPT 输出 JSON, '
+                '图表/仪表盘/其他截图按上面格式描述完整结构。\n'
+                '不要概括, 不要"图片中显示了xxx", 列出具体字段名+数值。'
+            )}
         ]
     })
 
@@ -19038,24 +19061,37 @@ def _parse_vision_json(desc):
 #   < 20% 硬拦截: 不调 LLM, 直接 return "截图数据不足, 无法生成分析报告"
 #   20-50% 警告: LLM 仍调, 在报告开头加 warning 标注
 #   > 50% 静默: 正常调 LLM, 无任何标注
-_HEAVY_HARD_BLOCK_THRESHOLD = 0.05   # < 5% 硬拦截 (纯黑/白/完全无法识别的图)
-_HEAVY_WARN_THRESHOLD = 0.2         # < 20% 警告 (>= 5% 且 < 20%, 报告头加 ⚠️)
+_HEAVY_HARD_BLOCK_THRESHOLD = 0      # ★ fix/helen-vision-full-fix: 取消硬拦截 (任务 18 aea922b 20%→5%, 本次直接 0; 老大根据用户反馈持续调整, 覆盖率低也是数据, 让 LLM 继续生成报告)
+_HEAVY_WARN_THRESHOLD = 0.2         # < 20% 警告 (>= 0% 且 < 20%, 报告头加 ⚠️)
 
 
 def _vision_coverage_gate(vision_texts, agent_name='Helen', job_id=None):
-    """3 档阈值门控: 返回 {'action': 'block'|'warn'|'silent', 'coverage': float, 'reply': str or None}
-    - block: 硬拦截, caller 不调 LLM, 直接返回 reply 给前端 / job 落盘
+    """3 档阈值门控 (硬拦截已取消, 永远 silent 或 warn, 不再 block)
     - warn: LLM 仍调, caller 在 reply 开头拼接 gate['reply'] 作 warning
     - silent: 正常调 LLM, 无任何标注
+    ★ fix/helen-vision-full-fix: 加 logger.info 记录每次 agent_name + 覆盖率 + 非空字段数/总字段数 + 阈值,
+      方便后续排查 "为什么这条数据没识别到" 类问题。
     """
     if not vision_texts:
-        # 全部 OCR 失败 / 存量截图数据为空 — 视为硬拦截
+        # 空输入: 当 warn 处理 (硬拦截阈值已取消, 不再 block), 让 LLM 看到提示
+        logger.info(f'  [VisionGate] {agent_name} 空 vision_texts, fallback to warn (无数据可分析)')
         return {
-            'action': 'block',
+            'action': 'warn',
             'coverage': 0.0,
-            'reply': '截图数据不足，无法生成分析报告',
+            'reply': '⚠️ 截图数据为空 (OCR 全部失败), 结论可信度低',
         }
-    coverage, _ = _heavy_vision_coverage(vision_texts)
+    coverage, field_maps = _heavy_vision_coverage(vision_texts)
+    # field_maps 是 per_image_fields (list of dict or None), 跨图合并后算非空字段数
+    merged_keys = set()
+    per_image_total = 0
+    for fields in (field_maps or []):
+        if fields:
+            per_image_total += len(fields)
+            merged_keys.update(fields.keys())
+    non_null_count = len(merged_keys)
+    logger.info(f'  [VisionGate] {agent_name} coverage={coverage:.1%} non_null={non_null_count} (per_image_total={per_image_total}) hard_block_threshold={_HEAVY_HARD_BLOCK_THRESHOLD} warn_threshold={_HEAVY_WARN_THRESHOLD}')
+    # 硬拦截阈值改成 0 后, coverage < 0 永远不成立, 实际不再 block.
+    # 保留 if 块便于未来调回非零值 (eg 0.05) 仍能生效.
     if coverage < _HEAVY_HARD_BLOCK_THRESHOLD:
         return {
             'action': 'block',
