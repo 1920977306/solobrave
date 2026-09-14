@@ -16236,6 +16236,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         name = str(body.get('name', '')).strip()
         douyin_id = str(body.get('douyin_id') or body.get('douyinId') or '').strip()
 
+        # ★ fix/helen-vision-final-integration: 件套 4 (a) — 全局名称去重 (按 name LIKE 匹配)
+        #   优先级高于 douyin_id + 同用户同名去重, 防止"两个小楚当妈"重复创建
+        dedupe_hit = _deduplicate_talent(name)
+        if dedupe_hit and dedupe_hit['id']:
+            conn2 = _db_conn()
+            try:
+                existing = conn2.execute('SELECT * FROM talents WHERE id = ?', (dedupe_hit['id'],)).fetchone()
+                if existing:
+                    result = _talent_row_to_dict(existing)
+                    result['duplicate'] = True
+                    result['can_update'] = True
+                    result['message'] = f"该名名「{dedupe_hit['name']}」已存在, 是否需要更新信息?"
+                    self._send_json(200, result)
+                    return
+            finally:
+                conn2.close()
+
         # 去重检查：仅当抖音号非空且完全一致时才算重复
         conn = _db_conn()
         existing = None
@@ -19056,56 +19073,9 @@ def _parse_vision_json(desc):
         return None
 
 
-# ★ fix/helen-vision-coverage-gate: 3 档阈值门控 (硬拦截 + 警告 + 静默)
-# 老逻辑 _HEAVY_LOW_COVERAGE_THRESHOLD = 0.2 (1 档) 改为 3 档:
-#   < 20% 硬拦截: 不调 LLM, 直接 return "截图数据不足, 无法生成分析报告"
-#   20-50% 警告: LLM 仍调, 在报告开头加 warning 标注
-#   > 50% 静默: 正常调 LLM, 无任何标注
-_HEAVY_HARD_BLOCK_THRESHOLD = 0      # ★ fix/helen-vision-full-fix: 取消硬拦截 (任务 18 aea922b 20%→5%, 本次直接 0; 老大根据用户反馈持续调整, 覆盖率低也是数据, 让 LLM 继续生成报告)
-_HEAVY_WARN_THRESHOLD = 0.2         # < 20% 警告 (>= 0% 且 < 20%, 报告头加 ⚠️)
-
-
-def _vision_coverage_gate(vision_texts, agent_name='Helen', job_id=None):
-    """3 档阈值门控 (硬拦截已取消, 永远 silent 或 warn, 不再 block)
-    - warn: LLM 仍调, caller 在 reply 开头拼接 gate['reply'] 作 warning
-    - silent: 正常调 LLM, 无任何标注
-    ★ fix/helen-vision-full-fix: 加 logger.info 记录每次 agent_name + 覆盖率 + 非空字段数/总字段数 + 阈值,
-      方便后续排查 "为什么这条数据没识别到" 类问题。
-    """
-    if not vision_texts:
-        # 空输入: 当 warn 处理 (硬拦截阈值已取消, 不再 block), 让 LLM 看到提示
-        logger.info(f'  [VisionGate] {agent_name} 空 vision_texts, fallback to warn (无数据可分析)')
-        return {
-            'action': 'warn',
-            'coverage': 0.0,
-            'reply': '⚠️ 截图数据为空 (OCR 全部失败), 结论可信度低',
-        }
-    coverage, field_maps = _heavy_vision_coverage(vision_texts)
-    # field_maps 是 per_image_fields (list of dict or None), 跨图合并后算非空字段数
-    merged_keys = set()
-    per_image_total = 0
-    for fields in (field_maps or []):
-        if fields:
-            per_image_total += len(fields)
-            merged_keys.update(fields.keys())
-    non_null_count = len(merged_keys)
-    logger.info(f'  [VisionGate] {agent_name} coverage={coverage:.1%} non_null={non_null_count} (per_image_total={per_image_total}) hard_block_threshold={_HEAVY_HARD_BLOCK_THRESHOLD} warn_threshold={_HEAVY_WARN_THRESHOLD}')
-    # 硬拦截阈值改成 0 后, coverage < 0 永远不成立, 实际不再 block.
-    # 保留 if 块便于未来调回非零值 (eg 0.05) 仍能生效.
-    if coverage < _HEAVY_HARD_BLOCK_THRESHOLD:
-        return {
-            'action': 'block',
-            'coverage': coverage,
-            'reply': '截图数据不足，无法生成分析报告',
-        }
-    if coverage < _HEAVY_WARN_THRESHOLD:
-        return {
-            'action': 'warn',
-            'coverage': coverage,
-            'reply': (f'⚠️ 截图数据不足，结论可信度低（核心字段覆盖率 {coverage:.0%}，'
-                      '缺失数据已按"截图未提供"标注）'),
-        }
-    return {'action': 'silent', 'coverage': coverage, 'reply': None}
+# ★ fix/helen-vision-final-integration: _vision_coverage_gate + 2 个常量删除 (任务 20 已取消硬拦截,
+#   但 gate 函数 + warn 拼接是假警告 — OCR 数据本身可靠 (BUSINESS_VISION_PROMPT 已专门优化),
+#   覆盖率低不等于"截图数据不足", 删掉假警告让 LLM 自由分析)
 
 
 def _heavy_vision_coverage(vision_texts):
@@ -19128,6 +19098,196 @@ def _heavy_vision_coverage(vision_texts):
     nonnull = sum(1 for f in _HEAVY_CORE_FIELDS if f in merged)
     ratio = (nonnull / len(_HEAVY_CORE_FIELDS)) if _HEAVY_CORE_FIELDS else 0.0
     return ratio, per_image_fields
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ★ fix/helen-vision-final-integration: 件套 2 (OCR 字段落库) + 件套 3 (LLM JSON 落库) helpers
+# ══════════════════════════════════════════════════════════════════════
+
+# OCR 提取字段 → talents 表列 映射 (db_col, ocr_key, parser)
+_OCR_TO_TALENT_FIELDS = [
+    ('followers', 'followers', lambda v: int(float(v)) if str(v).strip() else 0),
+    ('total_gmv', 'total_gmv', lambda v: _parse_gmv_value(v)),
+    ('total_products', 'total_history_days', lambda v: 0),  # 占位,OCR 通常没 total_products, 保留 hook
+    ('product_count', 'product_count', lambda v: int(float(v)) if str(v).strip() else 0),
+    ('total_shops', 'total_shops', lambda v: int(float(v)) if str(v).strip() else 0),
+    ('average_price', 'average_price', lambda v: _parse_gmv_value(v)),
+    ('live_ratio', 'live_ratio', lambda v: float(str(v).rstrip('%').strip()) if str(v).strip() else 0),
+    ('video_ratio', 'video_ratio', lambda v: float(str(v).rstrip('%').strip()) if str(v).strip() else 0),
+    ('video_gpm', 'video_gpm', lambda v: _parse_gmv_value(v)),
+    ('live_gpm', 'live_gpm', lambda v: _parse_gmv_value(v)),
+    ('rating_score', 'rating_score', lambda v: float(v) if str(v).strip() else 0),
+    ('category', 'main_category', lambda v: str(v).strip() if v else ''),
+]
+
+
+def _parse_gmv_single(s):
+    """解析单个 GMV/价格值, 支持 '50万' / '100W' / '5000' / '1.5k' → float"""
+    s = str(s).lower().strip().replace(',', '').replace(' ', '')
+    if not s:
+        return 0.0
+    try:
+        if '万' in s or 'w' in s:
+            num = s.replace('万', '').replace('w', '').strip()
+            return float(num) * 10000
+        if 'k' in s:
+            return float(s.replace('k', '').strip()) * 1000
+        return float(s)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _parse_gmv_value(v):
+    """解析 GMV/价格类字段, 支持 '50万-100万' / '500000' / '50万' 多种格式。
+    区间值取均值, 容错 (返回 0.0)。
+    """
+    s = str(v).strip().replace(',', '').replace(' ', '')
+    if not s:
+        return 0.0
+    if '-' in s and s.count('-') == 1:
+        parts = s.split('-')
+        try:
+            return (_parse_gmv_single(parts[0]) + _parse_gmv_single(parts[1])) / 2
+        except (ValueError, IndexError):
+            pass
+    return _parse_gmv_single(s)
+
+
+def _update_talent_from_ocr_fields(talent_id, vision_field_maps):
+    """★ 件套 2: OCR 阶段结构化字段 → UPDATE talents 表核心数值列。
+    容错: 字段值为 null/None/空字符串/解析失败都跳过, 不覆盖已有数据。
+    vision_field_maps: list of dict (跨图), 取第一张含该字段的非 null 值。
+    返回更新行数 (0 = 无字段可更新)。
+    """
+    if not talent_id or not vision_field_maps:
+        return 0
+    updates = []
+    values = []
+    for db_col, ocr_key, parser in _OCR_TO_TALENT_FIELDS:
+        # total_products 占位跳过, OCR 通常只识别 total_history_days (天数)
+        if db_col == 'total_products':
+            continue
+        merged_val = None
+        for img_fields in vision_field_maps:
+            if img_fields and ocr_key in img_fields:
+                v = img_fields[ocr_key]
+                if v is not None and str(v).strip() and str(v).strip() != 'null':
+                    merged_val = v
+                    break
+        if merged_val is None:
+            continue
+        try:
+            parsed = parser(merged_val)
+            updates.append(f'{db_col} = ?')
+            values.append(parsed)
+        except (ValueError, TypeError):
+            continue
+    if not updates:
+        return 0
+    values.append(int(time.time() * 1000))
+    values.append(talent_id)
+    conn = _db_conn()
+    try:
+        cursor = conn.execute(
+            f'UPDATE talents SET {", ".join(updates)}, updated_at = ? WHERE id = ?',
+            values
+        )
+        conn.commit()
+        return cursor.rowcount
+    finally:
+        conn.close()
+
+
+# LLM JSON block 提取 (件套 3)
+_JSON_BLOCK_RE = re.compile(r'```json\s*(\{.*?\})\s*```', re.DOTALL)
+
+
+def _parse_llm_json_block(reply):
+    """★ 件套 3: 从 LLM reply 末尾的 ```json {...} ``` block 提取 AI 评估字段。
+    容错: parse 失败或字段缺失返回空 dict, 不影响主流程。
+    白名单字段 (避免 SQL injection): ai_rating / ai_summary / risk_rating / ai_tags。
+    """
+    if not reply:
+        return {}
+    matches = _JSON_BLOCK_RE.findall(reply)
+    if not matches:
+        return {}
+    try:
+        data = json.loads(matches[-1])  # 取最后一个 json block
+        if not isinstance(data, dict):
+            return {}
+        allowed = {'ai_rating', 'ai_summary', 'risk_rating', 'ai_tags'}
+        return {k: v for k, v in data.items() if k in allowed and v is not None}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _update_talent_from_llm_json(talent_id, llm_json):
+    """★ 件套 3: LLM JSON block 提取的 AI 评估字段 → UPDATE talents 表。
+    ai_rating (单字符) / ai_summary (短文本) / risk_rating (枚举) / ai_tags (数组)。
+    返回更新行数 (0 = llm_json 为空或字段全无值)。
+    """
+    if not talent_id or not llm_json:
+        return 0
+    updates = []
+    values = []
+    if llm_json.get('ai_rating'):
+        v = str(llm_json['ai_rating']).strip()[:8]
+        updates.append('ai_rating = ?')
+        values.append(v)
+    if llm_json.get('ai_summary'):
+        updates.append('ai_summary = ?')
+        values.append(str(llm_json['ai_summary'])[:500])
+    if llm_json.get('risk_rating'):
+        updates.append('risk_rating = ?')
+        values.append(str(llm_json['risk_rating']).strip()[:16])
+    if llm_json.get('ai_tags'):
+        try:
+            tags_json = json.dumps(llm_json['ai_tags'][:10], ensure_ascii=False)
+            updates.append('ai_tags = ?')
+            values.append(tags_json)
+        except (TypeError, ValueError):
+            pass
+    if not updates:
+        return 0
+    values.append(int(time.time() * 1000))
+    values.append(talent_id)
+    conn = _db_conn()
+    try:
+        cursor = conn.execute(
+            f'UPDATE talents SET {", ".join(updates)}, updated_at = ? WHERE id = ?',
+            values
+        )
+        conn.commit()
+        return cursor.rowcount
+    finally:
+        conn.close()
+
+
+# ★ 件套 4: 达人去重 helper (全局名称 LIKE 匹配, 不依赖 created_by 权限检查)
+def _deduplicate_talent(name):
+    """按达人名称全局查 talents 表, 命中返回 {'id': ..., 'name': ...}。
+    用途: 3 个创建路径都先调这个, 避免"两个小楚当妈"重复记录。
+    容错: name 为空或 DB 异常返回 None。
+    """
+    if not name or not str(name).strip():
+        return None
+    name = str(name).strip()
+    try:
+        conn = _db_conn()
+        try:
+            row = conn.execute(
+                "SELECT id, name FROM talents WHERE LOWER(name) LIKE ? AND status = 'active' LIMIT 1",
+                (f'%{name.lower()}%',)
+            ).fetchone()
+            if row:
+                logger.info(f'  [TalentDedupe] 命中 name={name} → id={row["id"]} db_name={row["name"]}')
+                return {'id': row['id'], 'name': row['name']}
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f'  [TalentDedupe] 查询失败: {e}')
+    return None
 
 
 def _heavy_entity_hint(talent_names, talents):
@@ -19179,6 +19339,17 @@ def _heavy_stage4_analyze(agent, agent_name, talents, vision_all, user_content, 
           '1. 截图识别结果JSON中为null或未提及的字段，报告中必须标注"截图未提供"，表格缺失数据写"—"\n'
           '2. 严禁根据行业常识、账号量级或数字合理性猜测补全任何具体数字\n'
           '3. 报告中每个具体数字必须能在【达人数据截图识别结果】中找到原文依据\n'
+          '\n\n## 结构化输出（★ fix/helen-vision-final-integration: 件套 3）\n'
+          '在报告正文之后, 必须额外输出一段 JSON 代码块, 格式严格如下:\n'
+          '```json\n'
+          '{\n'
+          '  "ai_rating": "A" | "B" | "C" | "D",\n'
+          '  "ai_summary": "一句话核心结论 (50字以内)",\n'
+          '  "risk_rating": "low" | "medium" | "high",\n'
+          '  "ai_tags": ["标签1", "标签2", "标签3"]\n'
+          '}\n'
+          '```\n'
+          '字段缺失或格式错误不影响正文报告, 但会被静默忽略不写入数据库。\n'
     )
     user_parts = []
     if talents:
@@ -19231,20 +19402,9 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         if not vision_texts:
             raise RuntimeError('vision 识别全部失败')
 
-        # 反幻觉覆盖率检查：3 档阈值门控 (< 20% 硬拦截, 20-50% 警告, > 50% 静默)
-        # block 提前 return 不进 stage2/3/4; warn 在报告开头拼 warning; silent 正常调 LLM
-        gate = _vision_coverage_gate(vision_texts, agent_name=agent_name, job_id=job_id)
-        if gate['action'] == 'block':
-            logger.warning(f'  [HeavyPipe] {job_id} 硬拦截: {gate["reply"]} (coverage={gate["coverage"]:.1%})')
-            _heavy_job_set(job_id, status='completed', stage='截图数据不足, 跳过分析',
-                           warning=gate['reply'])
-            return  # 提前 return, 不进 stage2/3/4/5
-        # warn 路径透传 warning 到 job 状态, silent 不设 warning
-        if gate['action'] == 'warn':
-            logger.warning(f'  [HeavyPipe] {job_id} 截图核心字段覆盖率 {gate["coverage"]:.1%} 低于 '
-                           f'{_HEAVY_WARN_THRESHOLD:.0%}，结论可信度低')
-            _heavy_job_set(job_id, warning=gate['reply'])
-        # 保留 vision_field_maps (stage5 落库用)
+        # ★ fix/helen-vision-final-integration: 删 _vision_coverage_gate + warn 拼接 (假警告)
+        # OCR 数据本身可靠 (BUSINESS_VISION_PROMPT 已专门优化), 删掉假警告让 LLM 自由分析
+        # 保留 vision_field_maps (stage5 落库用 + 件套 2 OCR 字段回写 talents 表)
         vision_field_maps = _heavy_vision_coverage(vision_texts)[1]
 
         # Stage 2：提取达人名（单次 LLM 调用）
@@ -19273,9 +19433,12 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         _t = time.perf_counter()
         reply = _heavy_stage4_analyze(agent, agent_name, talents, vision_all, user_content, job_id)
         _stage('stage4 深度分析', _t)
-        # 覆盖率不足时在报告开头显式标注，不让低可信度结论静默流出
-        if gate['action'] == 'warn':
-            reply = gate['reply'] + '\n\n' + reply
+        # ★ fix/helen-vision-final-integration: 件套 2+3 — OCR 字段 + LLM JSON 块回写 talents 表
+        # talents 是 stage3 预查结果 (可能有真实 tal_id), 取第一项的 id
+        _talent_id_hit = (talents[0]['id'] if talents else None) if 'talents' in dir() else None
+        if _talent_id_hit:
+            _update_talent_from_ocr_fields(_talent_id_hit, vision_field_maps)
+            _update_talent_from_llm_json(_talent_id_hit, _parse_llm_json_block(reply))
 
         # Stage 5：落库（等价 skipAI=True 直接保存，不再触发 AI）+ 通知
         _heavy_job_set(job_id, stage='正在保存分析结果…')
@@ -19374,6 +19537,11 @@ def _detect_reanalysis_intent(text):
     try:
         for etype, eid, name, _cat in _extract_entities_from_text(text):
             if etype == 'talent' and name:
+                # ★ fix/helen-vision-final-integration: 件套 4 (c) — 全局名称去重
+                #   优先于现有 knowledge_events 虚拟 id, 命中返回真实 tal_id
+                dedupe = _deduplicate_talent(name)
+                if dedupe and dedupe['id']:
+                    return {'name': dedupe['name'], 'entity_id': dedupe['id']}
                 return {'name': name, 'entity_id': eid}
     except Exception as e:
         logger.warning(f'  [Reanalysis] 实体提取失败: {e}')
@@ -19469,23 +19637,17 @@ def _reanalysis_worker(job_id, agent, user_content, talent_name, entity_id, visi
         _heavy_job_set(job_id, stage='正在检索达人数据…')
         talents = _heavy_fetch_talents([talent_name])
         # 覆盖率检查沿用反幻觉口径 (存量 content_full 按行拆回每图字段块)
-        # ★ fix/helen-vision-coverage-gate: 3 档门控 (block 提前 return, warn 透传 warning)
+        # ★ fix/helen-vision-final-integration: 删 _vision_coverage_gate 假警告 (件套 1)
         vision_parts = [ln for ln in vision_summary.split('\n') if ln.strip()]
-        gate = _vision_coverage_gate(vision_parts, agent_name=agent_name, job_id=job_id)
-        if gate['action'] == 'block':
-            logger.warning(f'  [Reanalysis] {job_id} 硬拦截: {gate["reply"]} (coverage={gate["coverage"]:.1%})')
-            _heavy_job_set(job_id, status='completed', stage='截图数据不足, 跳过分析',
-                           warning=gate['reply'])
-            return  # 提前 return, 不进 stage4/5
-        if gate['action'] == 'warn':
-            logger.warning(f'  [Reanalysis] {job_id} 截图核心字段覆盖率 {gate["coverage"]:.1%} 低于 '
-                           f'{_HEAVY_WARN_THRESHOLD:.0%}，结论可信度低')
-            _heavy_job_set(job_id, warning=gate['reply'])
+        vision_field_maps = _heavy_vision_coverage(vision_parts)[1]
 
         _heavy_job_set(job_id, stage='正在深度分析…')
         reply = _heavy_stage4_analyze(agent, agent_name, talents, vision_summary, user_content, job_id)
-        if gate['action'] == 'warn':
-            reply = gate['reply'] + '\n\n' + reply
+        # ★ fix/helen-vision-final-integration: 件套 2+3 — OCR 字段 + LLM JSON 块回写 talents 表
+        _talent_id_hit = (talents[0]['id'] if talents else None) if 'talents' in dir() else None
+        if _talent_id_hit:
+            _update_talent_from_ocr_fields(_talent_id_hit, vision_field_maps)
+            _update_talent_from_llm_json(_talent_id_hit, _parse_llm_json_block(reply))
 
         _heavy_job_set(job_id, stage='正在保存分析结果…')
         ai_message = {
@@ -19754,6 +19916,12 @@ def _extract_talent_from_text(text, auth):
         try:
             uid = auth.user_info.get('userId', '') if auth and auth.user_info else ''
             is_admin = bool(auth.is_admin) if auth else False
+            # ★ fix/helen-vision-final-integration: 件套 4 (b) — 全局名称去重 (优先于现有精确/模糊匹配)
+            #   命中直接返回真实 id (不检查权限, 因为 _extract_talent_from_text 只在 admin 流程被调)
+            for name in candidates:
+                dedupe = _deduplicate_talent(name)
+                if dedupe and dedupe['id']:
+                    return dedupe['id']
             for name in candidates:
                 row = conn.execute(
                     "SELECT id, created_by FROM talents "
