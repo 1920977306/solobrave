@@ -24059,7 +24059,25 @@ async function finishWizard() {
   color: var(--text-primary, #1C1C1E);
   word-break: break-word;
   margin-bottom: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
+.notification-panel-text.expanded {
+  display: block;
+  overflow: visible;
+}
+.notification-panel-text-toggle {
+  font: 500 11px/1 -apple-system, sans-serif;
+  color: var(--color-primary, #007AFF);
+  cursor: pointer;
+  padding: 2px 0;
+  margin-bottom: 2px;
+  user-select: none;
+  display: inline-block;
+}
+.notification-panel-text-toggle:hover { text-decoration: underline; }
 .notification-panel-time {
   font: 400 11px/1 -apple-system, sans-serif;
   color: var(--text-tertiary, #AEAEB2);
@@ -31682,6 +31700,41 @@ function renderCreditUsageList(records) {
 
 // ========== 通知历史 ==========
 var _notificationHistoryCache = [];
+
+// ★ fix/notification-panel-polish: 友好时间格式 helper (panel + history 共用)
+//   <1 min → 刚刚 / <1h → X 分钟前 / 今天 → HH:MM / 昨天 → 昨天 HH:MM / 今年 → M月D日 HH:MM / 跨年 → YYYY/M/D HH:MM
+function formatNotificationTime(date) {
+  var d = (date instanceof Date) ? date : new Date(date || 0);
+  if (isNaN(d.getTime())) return '';
+  var now = new Date();
+  var diffMs = now.getTime() - d.getTime();
+  var diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return '刚刚';
+  if (diffSec < 3600) return Math.floor(diffSec / 60) + ' 分钟前';
+  // 同一天 (今天)
+  var sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  if (sameDay) {
+    var hh = String(d.getHours()).padStart(2, '0');
+    var mm = String(d.getMinutes()).padStart(2, '0');
+    return hh + ':' + mm;
+  }
+  // 昨天
+  var yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  var isYesterday = d.getFullYear() === yesterday.getFullYear() && d.getMonth() === yesterday.getMonth() && d.getDate() === yesterday.getDate();
+  if (isYesterday) {
+    var hh2 = String(d.getHours()).padStart(2, '0');
+    var mm2 = String(d.getMinutes()).padStart(2, '0');
+    return '昨天 ' + hh2 + ':' + mm2;
+  }
+  // 今年
+  if (d.getFullYear() === now.getFullYear()) {
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  // 跨年
+  return d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
 async function fetchNotifications(unreadOnly) {
   if (typeof apiFetch !== 'function') return { items: [], unreadCount: 0 };
   try {
@@ -31717,6 +31770,12 @@ function toggleNotificationRead(id) {
     headers: {'Content-Type': 'application/json'}
   }).then(function () {
     renderNotificationHistory();
+    // ★ fix/notification-panel-polish: 标记已读后同时刷新左侧 panel (修红点残留 bug)
+    //   panel 和 history 共享 _notificationHistoryCache, 改 cache 后两边都该重渲染
+    var panel = document.getElementById('notificationPanel');
+    if (panel && panel.classList.contains('show')) {
+      renderNotificationPanelBody();
+    }
     refreshUnreadBadge();
   }).catch(function (e) {
     console.warn('[Notifications] 标记已读失败:', e);
@@ -31728,6 +31787,11 @@ function markAllNotificationsRead() {
     headers: {'Content-Type': 'application/json'}
   }).then(function () {
     renderNotificationHistory();
+    // ★ fix/notification-panel-polish: 全部已读后同时刷新左侧 panel
+    var panel = document.getElementById('notificationPanel');
+    if (panel && panel.classList.contains('show')) {
+      renderNotificationPanelBody();
+    }
     refreshUnreadBadge();
   }).catch(function (e) {
     console.warn('[Notifications] 全部已读失败:', e);
@@ -31754,7 +31818,8 @@ async function renderNotificationHistory() {
   }
   var html = '<div style="margin-bottom:12px;text-align:right;"><button class="module-action-btn" onclick="markAllNotificationsRead()">全部已读</button></div>';
   html += _notificationHistoryCache.map(function (n) {
-    var timeStr = new Date(n.created_at || 0).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    // ★ fix/notification-panel-polish: 右侧历史页也用统一时间格式 helper
+    var timeStr = formatNotificationTime(n.created_at);
     var text = n.title && n.content && n.title !== n.content ? (n.title + '：' + n.content) : (n.title || n.content || '');
     return '<div class="settings-notification-item" onclick="toggleNotificationRead(\'' + escapeAttr(n.id) + '\')">'
       + '<div class="settings-notification-dot ' + (n.read ? 'read' : 'unread') + '"></div>'
@@ -31795,6 +31860,7 @@ function toggleNotificationPanel() {
 }
 
 // ⑤ 渲染通知面板列表(fetch 最新 20 条, 倒序)
+// ★ fix/notification-panel-polish: 内容截断 (line-clamp 3 + 展开按钮) + 友好时间格式
 function renderNotificationPanelBody() {
   var body = document.getElementById('notificationPanelBody');
   if (!body || typeof apiFetch === 'undefined') return;
@@ -31808,13 +31874,22 @@ function renderNotificationPanelBody() {
     body.innerHTML = items.map(function (n) {
       var t = n.type || 'message';
       var icon = (n.icon && n.icon.length) ? n.icon : _getNotificationTypeEmoji(t);
-      var time = new Date(n.created_at || 0).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      var time = formatNotificationTime(n.created_at);
       var text = n.title && n.content && n.title !== n.content ? (n.title + '：' + n.content) : (n.title || n.content || '');
-      return '<div class="notification-panel-item" data-type="' + escapeAttr(t) + '" onclick="toggleNotificationRead(\'' + escapeAttr(n.id) + '\')">' +
+      // line-clamp 3 是 CSS 截断, 这里通过计算字符长度判断是否需要展开按钮
+      // 阈值: 中文 70 字 / 英文 200 字符 = 约 3 行 @ 13px
+      var needsToggle = text.length > 70;
+      var safeId = escapeAttr(n.id);
+      var safeText = escapeHtml(text);
+      var toggleHtml = needsToggle
+        ? '<span class="notification-panel-text-toggle" onclick="event.stopPropagation();toggleNotifTextExpand(this)">查看全部</span>'
+        : '';
+      return '<div class="notification-panel-item" data-type="' + escapeAttr(t) + '" onclick="toggleNotificationRead(\'' + safeId + '\')">' +
         '<div class="notification-panel-dot ' + (n.read ? 'read' : 'unread') + '"></div>' +
         '<div class="notification-panel-icon">' + icon + '</div>' +
         '<div class="notification-panel-content">' +
-        '<div class="notification-panel-text">' + escapeHtml(text) + '</div>' +
+        '<div class="notification-panel-text" data-notif-text="' + safeId + '">' + safeText + '</div>' +
+        toggleHtml +
         '<div class="notification-panel-time">' + escapeHtml(time) + '</div>' +
         '</div></div>';
     }).join('');
@@ -31823,6 +31898,14 @@ function renderNotificationPanelBody() {
   }).catch(function () {
     body.innerHTML = '<div class="notification-panel-empty"><div class="notification-panel-empty-icon">⚠️</div><div>加载失败</div></div>';
   });
+}
+// 切换左侧面板 text 展开/收起
+function toggleNotifTextExpand(toggleEl) {
+  // 找到兄弟节点 .notification-panel-text (上一个 sibling)
+  var textEl = toggleEl.previousElementSibling;
+  if (!textEl || !textEl.classList.contains('notification-panel-text')) return;
+  var expanded = textEl.classList.toggle('expanded');
+  toggleEl.textContent = expanded ? '收起' : '查看全部';
 }
 
 // ⑤ 通知类型 → emoji(C3 也会复用, 提前放这里)
