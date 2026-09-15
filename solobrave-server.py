@@ -9443,7 +9443,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not self._require_module_permission(auth, 'employees'): return
+        # ★ fix/agent-permission-get-delete: 不再 require_module_permission('employees'), 所有登录用户都能看到自己的 AI 员工 (跟 POST 对齐)
 
         agents = _load_agents()
         uid = auth.user_info['userId']
@@ -10278,7 +10278,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not self._require_module_permission(auth, 'employees'): return
+        # ★ fix/agent-permission-get-delete: 不再 require_module_permission('employees'), 权限校验交给下方 owner check (createdBy == uid / leader 团队成员), 跟 POST 对齐
 
         qs = parse_qs(urlparse(self.path).query)
         permanent = qs.get('permanent', ['false'])[0].lower() in ('true', '1', 'yes')
