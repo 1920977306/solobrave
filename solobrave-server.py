@@ -19290,6 +19290,108 @@ def _deduplicate_talent(name):
     return None
 
 
+# ══════════════════════════════════════════════════════════════════════
+# ★ fix/helen-analysis-auto-archive: 改动 1 — 达人名清洗 + 改动 2 — 分析自动建档
+# 老大反馈: 第4次分析「小楚当妈」时 LLM 把报告序号当名字, 存成 `name:1. 小楚当妈(捡漏版)`
+# 正常应是 `name:小楚当妈(捡漏版)`. 分析自动入库 + 历史 26 个回填合并脏名.
+# ══════════════════════════════════════════════════════════════════════
+
+# 带分隔符的前导序号: "1. 小楚" / "2、张三" / "3）李四" / "4:王五" / "5-赵六" / "6. 七"
+# 必须有分隔符才剥, 纯数字开头无分隔符的名字保留 (如 "77爱吃" "11" 不匹配)
+_TALENT_NAME_CLEAN_RE = re.compile(r'^\s*\d+\s*[\.、．\)）:：\-]\s*')
+
+
+def _clean_talent_name(name):
+    """剥离带分隔符的前导序号, 返回干净名.
+    规则: ^\s*\d+\s*[.、.\\uFF09)::\\-]\\s*  → 去掉
+    例: '1. 小楚当妈(捡漏版)' → '小楚当妈(捡漏版)'
+       '2、张三' → '张三'
+       '77爱吃' → '77爱吃' (无分隔符, 保留)
+       '   11   ' → '11'
+    """
+    if not name:
+        return ''
+    s = str(name).strip().strip('　').strip()
+    if not s:
+        return ''
+    m = _TALENT_NAME_CLEAN_RE.match(s)
+    if m:
+        s = s[m.end():].strip().strip('　').strip()
+    return s
+
+
+def _ensure_talent_from_analysis(name, vision_field_maps=None, llm_json=None,
+                                 user_id='', agent=None):
+    """★ 改动 2: 分析自动建档. 干净名 → 查重 → INSERT 或 UPDATE → 返回 talent dict.
+    - 精确查重 LOWER(name)=? (防「王嘻」误并「王嘻嘻」)
+    - LIKE 查重兜底 (干净名长度 ≥3 才算)
+    - 不存在则 INSERT 建档 (复用 _TALENT_COLUMNS + _dict_to_talent_row, id 沿用 tal_ 前缀约定,
+      platform='douyin', status='active', created_by=user_id 走子库)
+    - 建档/命中后调 _update_talent_from_ocr_fields + _update_talent_from_llm_json
+    - 全程 try/except 兜底, 失败只 logger.warning 不阻断主流程
+    """
+    clean = _clean_talent_name(name)
+    if not clean:
+        return None
+    try:
+        conn = _db_conn()
+        try:
+            # 精确查重 (LOWER(name)=?)
+            row = conn.execute(
+                "SELECT id FROM talents WHERE LOWER(name) = LOWER(?) AND status = 'active' LIMIT 1",
+                (clean,)
+            ).fetchone()
+            tid = row['id'] if row else None
+            # LIKE 兜底 (干净名长度 ≥3 才算数, 防短名误并)
+            if not tid and len(clean) >= 3:
+                row = conn.execute(
+                    "SELECT id FROM talents WHERE LOWER(name) LIKE LOWER(?) AND status = 'active' LIMIT 1",
+                    (f'%{clean}%',)
+                ).fetchone()
+                tid = row['id'] if row else None
+            # 返回 DB 行 (供后续 _heavy_entity_hint 用 talents[0] 取 id)
+            out_row = conn.execute('SELECT * FROM talents WHERE id = ?', (tid,)).fetchone() if tid else None
+        finally:
+            conn.close()
+        # 新达人 → INSERT 建档
+        if not tid:
+            now_ms = int(time.time() * 1000)
+            new_t = {'name': clean}
+            r = _dict_to_talent_row(new_t)
+            r['platform'] = 'douyin'
+            r['status'] = 'active'
+            r['created_by'] = user_id or ''
+            r['created_at'] = now_ms
+            r['updated_at'] = now_ms
+            conn = _db_conn()
+            try:
+                conn.execute(
+                    f"INSERT INTO talents ({', '.join(_TALENT_COLUMNS)}) VALUES ({', '.join('?' * len(_TALENT_COLUMNS))})",
+                    tuple(r[c] for c in _TALENT_COLUMNS)
+                )
+                conn.commit()
+                out_row = conn.execute('SELECT * FROM talents WHERE id = ?', (r['id'],)).fetchone()
+                tid = r['id']
+                logger.info(f'  [EnsureTalent] 新建达人 name={clean} id={tid}')
+            finally:
+                conn.close()
+        # OCR 字段 + LLM JSON 回写 (容错, 失败只 logger.warning 不阻断)
+        if vision_field_maps:
+            try:
+                _update_talent_from_ocr_fields(tid, vision_field_maps)
+            except Exception as e:
+                logger.warning(f'  [EnsureTalent] OCR 回写失败 talent_id={tid}: {e}')
+        if llm_json:
+            try:
+                _update_talent_from_llm_json(tid, llm_json)
+            except Exception as e:
+                logger.warning(f'  [EnsureTalent] LLM JSON 回写失败 talent_id={tid}: {e}')
+        return _talent_row_to_dict(out_row) if out_row else {'id': tid, 'name': clean}
+    except Exception as e:
+        logger.warning(f'  [EnsureTalent] 处理达人 {clean} 失败: {e}')
+        return None
+
+
 def _heavy_entity_hint(talent_names, talents):
     """stage5 事件落库的实体归属（entity_hint）：
     优先 stage3 达人库预查命中的真实 tal_id；达人未入库（预查命中 0）时用
@@ -19433,12 +19535,24 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         _t = time.perf_counter()
         reply = _heavy_stage4_analyze(agent, agent_name, talents, vision_all, user_content, job_id)
         _stage('stage4 深度分析', _t)
-        # ★ fix/helen-vision-final-integration: 件套 2+3 — OCR 字段 + LLM JSON 块回写 talents 表
-        # talents 是 stage3 预查结果 (可能有真实 tal_id), 取第一项的 id
-        _talent_id_hit = (talents[0]['id'] if talents else None) if 'talents' in dir() else None
-        if _talent_id_hit:
-            _update_talent_from_ocr_fields(_talent_id_hit, vision_field_maps)
-            _update_talent_from_llm_json(_talent_id_hit, _parse_llm_json_block(reply))
+        # ★ fix/helen-analysis-auto-archive: 改动 3 (a) — 分析即入库 + 主达人自动建档
+        # 老大反馈: 历史 26 个达人与 talents 主表零重合, 分析完从不建档.
+        # 这里用 stage2 提取的名字 (跨图字段已合并) 调 _ensure_talent_from_analysis 自动建档或命中已有,
+        # 然后把确保后的 talent 放进 talents 列表首位, _heavy_entity_hint 自然绑真实 tal_id.
+        # 保守只处理主达人 (talent_names[0]), 多达人张冠李戴风险; 其余名字只清洗不入库.
+        if talent_names:
+            cleaned_names = [_clean_talent_name(n) for n in talent_names]
+            cleaned_names = [n for n in cleaned_names if n]
+            if cleaned_names:
+                primary_name = cleaned_names[0]
+                llm_json_parsed = _parse_llm_json_block(reply)
+                ensured = _ensure_talent_from_analysis(
+                    primary_name, vision_field_maps, llm_json_parsed, user_id, agent
+                )
+                if ensured and ensured.get('id'):
+                    existing_ids = {t.get('id') for t in (talents or [])}
+                    if not existing_ids or ensured['id'] not in existing_ids:
+                        talents = [ensured] + (talents or [])
 
         # Stage 5：落库（等价 skipAI=True 直接保存，不再触发 AI）+ 通知
         _heavy_job_set(job_id, stage='正在保存分析结果…')
@@ -19643,11 +19757,17 @@ def _reanalysis_worker(job_id, agent, user_content, talent_name, entity_id, visi
 
         _heavy_job_set(job_id, stage='正在深度分析…')
         reply = _heavy_stage4_analyze(agent, agent_name, talents, vision_summary, user_content, job_id)
-        # ★ fix/helen-vision-final-integration: 件套 2+3 — OCR 字段 + LLM JSON 块回写 talents 表
-        _talent_id_hit = (talents[0]['id'] if talents else None) if 'talents' in dir() else None
-        if _talent_id_hit:
-            _update_talent_from_ocr_fields(_talent_id_hit, vision_field_maps)
-            _update_talent_from_llm_json(_talent_id_hit, _parse_llm_json_block(reply))
+        # ★ fix/helen-analysis-auto-archive: 改动 3 (b) — Reanalysis 也走自动入库
+        clean_talent_name = _clean_talent_name(talent_name)
+        if clean_talent_name:
+            llm_json_parsed = _parse_llm_json_block(reply)
+            ensured = _ensure_talent_from_analysis(
+                clean_talent_name, vision_field_maps, llm_json_parsed, user_id, agent
+            )
+            if ensured and ensured.get('id'):
+                existing_ids = {t.get('id') for t in (talents or [])}
+                if not existing_ids or ensured['id'] not in existing_ids:
+                    talents = [ensured] + (talents or [])
 
         _heavy_job_set(job_id, stage='正在保存分析结果…')
         ai_message = {
