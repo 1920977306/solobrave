@@ -19105,8 +19105,9 @@ def _heavy_vision_coverage(vision_texts):
 # ══════════════════════════════════════════════════════════════════════
 
 # OCR 提取字段 → talents 表列 映射 (db_col, ocr_key, parser)
+# ★ fix/helen-ocr-nested-fields: followers parser 改用 _parse_follower_count 支持 '1.2万' / '1.2W' 中文数字
 _OCR_TO_TALENT_FIELDS = [
-    ('followers', 'followers', lambda v: int(float(v)) if str(v).strip() else 0),
+    ('followers', 'followers', lambda v: _parse_follower_count(v)),
     ('total_gmv', 'total_gmv', lambda v: _parse_gmv_value(v)),
     ('total_products', 'total_history_days', lambda v: 0),  # 占位,OCR 通常没 total_products, 保留 hook
     ('product_count', 'product_count', lambda v: int(float(v)) if str(v).strip() else 0),
@@ -19119,6 +19120,38 @@ _OCR_TO_TALENT_FIELDS = [
     ('rating_score', 'rating_score', lambda v: float(v) if str(v).strip() else 0),
     ('category', 'main_category', lambda v: str(v).strip() if v else ''),
 ]
+
+
+def _deep_get(d, key):
+    """★ fix/helen-ocr-nested-fields: 递归搜索 dict 及其所有嵌套 dict 中的 key, 返回第一个非 null 值.
+    解决 vision JSON 嵌套结构: {"总览基本信息": {"followers": "1.2万"}} → _deep_get(d, "followers") = "1.2万".
+    容错: 非 dict / 不存在 key 返回 None.
+    """
+    if not isinstance(d, dict):
+        return None
+    if key in d and d[key] is not None and d[key] != '' and d[key] != 'null':
+        return d[key]
+    for v in d.values():
+        if isinstance(v, dict):
+            found = _deep_get(v, key)
+            if found is not None:
+                return found
+    return None
+
+
+def _parse_follower_count(v):
+    """★ fix/helen-ocr-nested-fields: 解析粉丝数, 支持 '1.2万' / '1.2W' / '1234' / '1,234' 中文数字.
+    异常/空值返回 0.
+    """
+    s = str(v).lower().strip().replace(',', '').replace(' ', '')
+    if not s:
+        return 0
+    try:
+        if '万' in s or 'w' in s:
+            return int(float(s.replace('万', '').replace('w', '')) * 10000)
+        return int(float(s))
+    except Exception:
+        return 0
 
 
 def _parse_gmv_single(s):
@@ -19158,6 +19191,10 @@ def _update_talent_from_ocr_fields(talent_id, vision_field_maps):
     容错: 字段值为 null/None/空字符串/解析失败都跳过, 不覆盖已有数据。
     vision_field_maps: list of dict (跨图), 取第一张含该字段的非 null 值。
     返回更新行数 (0 = 无字段可更新)。
+
+    ★ fix/helen-ocr-nested-fields: 改用 _deep_get 支持嵌套 vision JSON
+    (e.g. {"总览基本信息": {"followers": "1.2万"}} → 顶层 key 'followers' 找不到,
+     _deep_get 递归到嵌套 dict 才能拿到).
     """
     if not talent_id or not vision_field_maps:
         return 0
@@ -19169,8 +19206,9 @@ def _update_talent_from_ocr_fields(talent_id, vision_field_maps):
             continue
         merged_val = None
         for img_fields in vision_field_maps:
-            if img_fields and ocr_key in img_fields:
-                v = img_fields[ocr_key]
+            if img_fields:
+                # ★ 改用 _deep_get 支持嵌套 vision JSON (老代码只查顶层 key → 全 0 命中 bug)
+                v = _deep_get(img_fields, ocr_key)
                 if v is not None and str(v).strip() and str(v).strip() != 'null':
                     merged_val = v
                     break
