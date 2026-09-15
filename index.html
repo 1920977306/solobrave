@@ -23187,8 +23187,10 @@ function toggleWizSkill(slug) {
   renderWizSkillGrid();
 }
 function openWizard() {
-  if (!hasModulePermission('employees')) {
-    showToast('⛔ 你没有员工管理权限', 'warning');
+  // ★ fix/onboarding-permission: 创建 AI 员工是核心功能, 所有登录用户都可用
+  // 删除员工 / 系统配置 / 邀请员工仍由后端 admin check 限制
+  if (!currentUser) {
+    showToast('请先登录', 'warning');
     return;
   }
   wizStep = 1;
