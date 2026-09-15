@@ -31354,21 +31354,44 @@ async function loadPermissionSettings() {
   }
   area.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-tertiary);">加载中...</div>';
   try {
-    var [permsResp, usersResp, knowResp, modResp] = await Promise.all([
+    // ★ fix/permission-page-kb-entries: KB 分类改用 /api/knowledge/entries 新接口
+    // 老 API /api/knowledge?limit=1000 拉老表 (knowledge), 生产 data 99 篇文档全在 kb_entries 新表,
+    // 老表是空的 → _permissionCategories 永远空列表, "按分类筛选" 下拉空了
+    // 复用主 KB 计数 (refactor/kb-counts) 的循环分页 pattern, pageSize=100, 5000 条封顶
+    var [permsResp, usersResp, modResp] = await Promise.all([
       apiFetch('/api/permissions'),
       apiFetch('/api/users'),
-      apiFetch('/api/knowledge?limit=1000&offset=0'),
       apiFetch('/api/permissions/modules')
     ]);
+    // KB 分类: 串行循环分页拉 /api/knowledge/entries (admin 全量视角, 不带 projectId/scope 过滤)
+    var pageSize = 100;
+    var offset = 0;
+    var allDocs = [];
+    var total = 0;
+    while (true) {
+      var entriesUrl = '/api/knowledge/entries?limit=' + pageSize + '&offset=' + offset;
+      var entriesResp = await apiFetch(entriesUrl);
+      var entriesData = await entriesResp.json();
+      var docs = entriesData.docs || [];
+      allDocs = allDocs.concat(docs);
+      total = entriesData.total || 0;
+      if (offset === 0) {
+        if (Math.ceil(total / pageSize) <= 1) break;
+        offset += pageSize;
+      } else {
+        if (docs.length < pageSize) break;
+        offset += pageSize;
+      }
+      if (offset / pageSize > 50) break;  // 5000 条封顶, 防止接口 bug 死循环
+    }
     var perms = await permsResp.json();
     var users = await usersResp.json();
-    var know = await knowResp.json();
     var modData = await modResp.json();
     _permissionConfig = perms;
     _permissionUsers = Array.isArray(users) ? users : (users.users || []);
     if (modData && Array.isArray(modData.modules)) _availableModules = modData.modules;
     var cats = [];
-    (know.docs || []).forEach(function (d) {
+    allDocs.forEach(function (d) {
       if (d.category && cats.indexOf(d.category) < 0) cats.push(d.category);
     });
     cats.sort();
