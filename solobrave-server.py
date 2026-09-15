@@ -9521,7 +9521,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not self._require_module_permission(auth, 'employees'): return
+        # ★ fix/agent-permission-get-delete: 不再 require_module_permission('employees'), 权限校验交给下方 owner check (createdBy == uid / admin), 跟 POST/GET/DELETE 对齐
 
         agents = _load_agents()
         agent = None
@@ -9571,8 +9571,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not self._require_module_permission(auth, 'employees'):
-            return
+        # ★ fix/agent-permission-get-delete: 不再 require_module_permission('employees'), 权限校验交给下方 owner check (createdBy == uid / admin), 跟 POST/GET/DELETE 对齐
 
         # 窗口天数(默认 30,clamp 到 1-365)
         from urllib.parse import urlparse, parse_qs
@@ -9697,8 +9696,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not self._require_module_permission(auth, 'employees'):
-            return
+        # ★ fix/agent-permission-get-delete: 不再 require_module_permission('employees'), 权限校验交给下方 owner check (createdBy == uid / admin), 跟 POST/GET/DELETE 对齐
 
         from urllib.parse import urlparse, parse_qs
         qs = parse_qs(urlparse(self.path).query)
@@ -10070,7 +10068,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not auth.is_authenticated:
                 self._send_auth_error(auth.error, auth.status)
                 return
-            if not self._require_module_permission(auth, 'employees'): return
+            # ★ fix/agent-permission-get-delete: 不再 require_module_permission('employees'), 权限校验交给下方 owner check (createdBy == uid / admin), 跟 POST/GET/DELETE 对齐
 
             body = self._read_body()
             if not body:
@@ -10178,8 +10176,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not auth.is_authenticated:
                 self._send_auth_error(auth.error, auth.status)
                 return
-            if not self._require_module_permission(auth, 'employees'):
-                return
+            # ★ fix/agent-permission-get-delete: 不再 require_module_permission('employees'), 权限校验交给下方 _check_agent_access, 跟 POST/GET/DELETE 对齐
 
             body = self._read_body()
             if not body:
@@ -10233,8 +10230,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not auth.is_authenticated:
                 self._send_auth_error(auth.error, auth.status)
                 return
-            if not self._require_module_permission(auth, 'employees'):
-                return
+            # ★ fix/agent-permission-get-delete: 不再 require_module_permission('employees'), 权限校验交给下方 _check_agent_access, 跟 POST/GET/DELETE 对齐
 
             _, err, status = self._check_agent_access(auth, agent_id)
             if err:
