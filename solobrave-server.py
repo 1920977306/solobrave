@@ -9972,12 +9972,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(500, {'error': str(e)})
 
     def _handle_create_agent_inner(self):
-        """POST /api/agents (implementation)"""
+        """★ fix/onboarding-permission: POST /api/agents (implementation)
+        创建 AI 员工是核心功能, 所有登录用户都可用 (产品逻辑: 一键部署给每个客户,
+        员工身份也要能搭自己的 AI 团队)。
+        仍保留:
+        - auth.is_authenticated 检查 (必须登录)
+        - 子账号 agentQuota 硬上限 (每人最多 N 个 AI 员工)
+        - 删除员工 / 邀请员工 / 系统配置 仍走原有 admin / owner 检查
+        """
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
             return
-        if not self._require_module_permission(auth, 'employees'): return
+        # ★ 不再 require_module_permission('employees'), 所有登录用户都能创建自己的 AI 员工
 
         body = self._read_body()
         if not body:
