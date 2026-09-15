@@ -1506,16 +1506,29 @@ def _get_active_agent_ids():
 
 
 def _clean_agents_file():
-    """主动清理 agents.json 中的历史遗留默认员工数据"""
+    """启动清理 — 老大拍板 disable (避免 createdBy=None / name 误判误删员工创建的 agent)
+
+    历史 bug: _is_default_agent 把 createdBy=None 的合法员工 agent (如"貂蝉")
+    误判为默认员工 + 启动时静默删掉。老大 2026-09-15 拍板 disable 这个清理。
+    后续如果要重新启用, 必须先在 data/agents.json 里加 backup + 干跑 dry-run 看会被删哪些。
+    """
     agents = _read_json(AGENTS_FILE, [])
     if not isinstance(agents, list):
-        return 0
-    cleaned = [a for a in agents if not _is_default_agent(a)]
-    removed = len(agents) - len(cleaned)
-    if removed > 0:
-        _write_json(AGENTS_FILE, cleaned)
-        logger.info(f'  [Clean] 已从 agents.json 清理 {removed} 个历史遗留默认员工')
-    return removed
+        agents = []
+
+    # ★ 详细 log: 让老大能看到 _is_default_agent 当前会误判哪些 (dry-run)
+    would_remove = [a for a in agents if _is_default_agent(a)]
+    would_keep = [a for a in agents if not _is_default_agent(a)]
+
+    logger.info(f'[Clean] _clean_agents_file DISABLED (老大 2026-09-15 拍板, 避免 createdBy=None 误删)')
+    logger.info(f'[Clean] 当前 agents.json 总数: {len(agents)} (would_remove={len(would_remove)}, would_keep={len(would_keep)})')
+    if would_remove:
+        logger.warning(f'[Clean] 如启用, 会"误判"删掉这些 (createdBy=None + name 在默认列表):')
+        for a in would_remove:
+            logger.warning(f'  - id={a.get("id")} | name={a.get("name")} | createdBy={repr(a.get("createdBy"))}')
+
+    # ★ 不实际写文件, 早退
+    return 0
 
 def _save_agents(agents):
     """保存 Agent 列表"""
