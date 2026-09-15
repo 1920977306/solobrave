@@ -6637,6 +6637,290 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   color: var(--color-text-primary, #1C1C1E);
 }
 .onboarding-modal-btn.secondary:hover { background: var(--color-border, #E5E5EA); }
+
+/* ===== ② onboarding 真正 3 步 wizard (团队模板) ===== */
+.onboard-wizard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3100;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  animation: onboardingFadeIn 0.25s ease-out;
+}
+.onboard-wizard-overlay.show { display: flex; }
+.onboard-wizard-modal {
+  width: 560px;
+  max-width: 94vw;
+  max-height: 86vh;
+  background: var(--bg-primary, #fff);
+  border-radius: 18px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: onboardingPopIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.onboard-wizard-header {
+  padding: 18px 22px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 0.5px solid var(--separator, rgba(0,0,0,0.08));
+}
+.onboard-wizard-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1C1C1E);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.onboard-wizard-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #86868B);
+  cursor: pointer;
+  font-size: 16px;
+}
+.onboard-wizard-close:hover { background: var(--color-bg-softer, #F2F2F7); }
+.onboard-wizard-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 22px 4px;
+}
+.onboard-step-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--color-bg-softer, #F2F2F7);
+  color: var(--text-tertiary, #AEAEB2);
+  transition: all 0.2s;
+}
+.onboard-step-dot.active {
+  background: var(--color-primary, #007AFF);
+  color: #fff;
+}
+.onboard-step-dot.done {
+  background: #34C759;
+  color: #fff;
+}
+.onboard-step-line {
+  width: 36px;
+  height: 2px;
+  background: var(--separator, rgba(0,0,0,0.08));
+  border-radius: 1px;
+}
+.onboard-step-line.active { background: var(--color-primary, #007AFF); }
+.onboard-wizard-body {
+  padding: 16px 22px 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+.onboard-page { display: none; }
+.onboard-page.active { display: block; }
+.onboard-template-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.onboard-template-card {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 2px solid var(--separator, rgba(0,0,0,0.08));
+  background: var(--bg-primary, #fff);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  text-align: left;
+}
+.onboard-template-card:hover {
+  border-color: var(--color-primary, #007AFF);
+  background: var(--accent-light, #EAF3FF);
+}
+.onboard-template-card.selected {
+  border-color: var(--color-primary, #007AFF);
+  background: var(--accent-light, #EAF3FF);
+}
+.onboard-template-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  background: linear-gradient(135deg, var(--color-primary, #007AFF), var(--accent-hover, #0066D6));
+  flex-shrink: 0;
+}
+.onboard-template-info { flex: 1; min-width: 0; }
+.onboard-template-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1C1C1E);
+  margin-bottom: 4px;
+}
+.onboard-template-desc {
+  font-size: 12px;
+  color: var(--text-secondary, #6E6E73);
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+.onboard-template-members {
+  font-size: 11px;
+  color: var(--text-tertiary, #AEAEB2);
+}
+.onboard-member-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--color-bg-softer, #F2F2F7);
+  margin-bottom: 8px;
+  transition: all 0.15s;
+}
+.onboard-member-row.disabled {
+  opacity: 0.45;
+}
+.onboard-member-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 2px solid var(--text-tertiary, #AEAEB2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.onboard-member-check.checked {
+  background: var(--color-primary, #007AFF);
+  border-color: var(--color-primary, #007AFF);
+  color: #fff;
+}
+.onboard-member-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  background: linear-gradient(135deg, var(--color-primary, #007AFF), var(--accent-hover, #0066D6));
+  color: #fff;
+  flex-shrink: 0;
+}
+.onboard-member-info { flex: 1; min-width: 0; }
+.onboard-member-role {
+  font-size: 11px;
+  color: var(--text-tertiary, #AEAEB2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.onboard-member-name-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary, #1C1C1E);
+  padding: 2px 0;
+  outline: none;
+}
+.onboard-member-name-input:focus {
+  border-bottom: 1px solid var(--color-primary, #007AFF);
+}
+.onboard-confirm-summary {
+  text-align: center;
+  padding: 18px 12px 12px;
+}
+.onboard-confirm-icon {
+  font-size: 56px;
+  margin-bottom: 10px;
+  display: inline-block;
+  filter: drop-shadow(0 0 16px var(--color-ai-bg-soft, #EEF0FF));
+}
+.onboard-confirm-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1C1C1E);
+  margin-bottom: 6px;
+}
+.onboard-confirm-desc {
+  font-size: 13px;
+  color: var(--text-secondary, #6E6E73);
+  line-height: 1.6;
+}
+.onboard-progress {
+  width: 100%;
+  height: 4px;
+  background: var(--color-bg-softer, #F2F2F7);
+  border-radius: 2px;
+  margin-top: 14px;
+  overflow: hidden;
+}
+.onboard-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-primary, #007AFF), var(--accent-hover, #0066D6));
+  width: 0%;
+  transition: width 0.3s;
+}
+.onboard-progress-text {
+  font-size: 12px;
+  color: var(--text-tertiary, #AEAEB2);
+  text-align: center;
+  margin-top: 8px;
+}
+.onboard-wizard-footer {
+  padding: 14px 22px 18px;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  border-top: 0.5px solid var(--separator, rgba(0,0,0,0.08));
+}
+.onboard-wizard-footer .right { display: flex; gap: 10px; }
+.onboard-wizard-btn {
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.onboard-wizard-btn.primary {
+  background: var(--color-primary, #007AFF);
+  color: #fff;
+}
+.onboard-wizard-btn.primary:hover { background: var(--color-primary-hover, #0066D6); }
+.onboard-wizard-btn.primary:disabled {
+  background: var(--color-bg-softer, #F2F2F7);
+  color: var(--text-tertiary, #AEAEB2);
+  cursor: not-allowed;
+}
+.onboard-wizard-btn.ghost {
+  background: transparent;
+  color: var(--text-secondary, #6E6E73);
+}
+.onboard-wizard-btn.ghost:hover { background: var(--color-bg-softer, #F2F2F7); }
+
 .product-modal-close { width: 28px; height: 28px; border-radius: 50%; border: none; background: transparent; cursor: pointer; font-size: 16px; color: var(--text-secondary); }
 .product-modal-body { padding: 16px 20px; flex: 1; overflow-y: auto; }
 .product-modal-field { margin-bottom: 14px; }
@@ -7192,6 +7476,60 @@ window.doLogin = function () {
     <div class="onboarding-modal-actions">
       <button class="onboarding-modal-btn primary" onclick="onboardingCreateClick()">立即创建</button>
       <button class="onboarding-modal-btn secondary" onclick="onboardingSkipClick()">先逛逛</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ② 新人 onboarding 真正 3 步 wizard (团队模板 → 批量配置 → 开始对话) -->
+<div id="onboardWizardOverlay" class="onboard-wizard-overlay">
+  <div class="onboard-wizard-modal">
+    <div class="onboard-wizard-header">
+      <div class="onboard-wizard-title">
+        <span id="onboardWizardIcon">🦞</span>
+        <span id="onboardWizardTitle">组建你的 AI 团队</span>
+      </div>
+      <button class="onboard-wizard-close" onclick="closeOnboardWizard()">✕</button>
+    </div>
+    <div class="onboard-wizard-steps">
+      <div class="onboard-step-dot active" id="onboardDot1">1</div>
+      <div class="onboard-step-line" id="onboardLine1"></div>
+      <div class="onboard-step-dot" id="onboardDot2">2</div>
+      <div class="onboard-step-line" id="onboardLine2"></div>
+      <div class="onboard-step-dot" id="onboardDot3">3</div>
+    </div>
+    <div class="onboard-wizard-body">
+      <!-- Step 1: 选 AI 员工模板 -->
+      <div class="onboard-page active" id="onboardPage1">
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">选择一个适合你的团队模板, 30 秒搭好工作流。</div>
+        <div class="onboard-template-grid" id="onboardTemplateGrid"></div>
+      </div>
+      <!-- Step 2: 配置 (review + 改名字 + 取消勾选) -->
+      <div class="onboard-page" id="onboardPage2">
+        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
+          确认 AI 员工, 改个你喜欢的名字, 取消不需要的成员。
+        </div>
+        <div id="onboardMemberList"></div>
+      </div>
+      <!-- Step 3: 开始对话 (auto-create + 跳聊天) -->
+      <div class="onboard-page" id="onboardPage3">
+        <div class="onboard-confirm-summary">
+          <div class="onboard-confirm-icon">✨</div>
+          <div class="onboard-confirm-title" id="onboardConfirmTitle">准备就绪</div>
+          <div class="onboard-confirm-desc" id="onboardConfirmDesc">正在创建你的 AI 团队...</div>
+          <div class="onboard-progress">
+            <div class="onboard-progress-bar" id="onboardProgressBar"></div>
+          </div>
+          <div class="onboard-progress-text" id="onboardProgressText">0 / 0</div>
+        </div>
+      </div>
+    </div>
+    <div class="onboard-wizard-footer">
+      <button class="onboard-wizard-btn ghost" id="onboardBtnPrev" onclick="onboardPrev()" style="display:none;">← 上一步</button>
+      <div class="right">
+        <button class="onboard-wizard-btn ghost" id="onboardBtnSkip" onclick="closeOnboardWizard()">稍后再说</button>
+        <button class="onboard-wizard-btn primary" id="onboardBtnNext" onclick="onboardNext()" disabled>下一步 →</button>
+      </div>
     </div>
   </div>
 </div>
@@ -9255,12 +9593,339 @@ function onboardingCreateClick() {
   localStorage.setItem('sb_onboarding_done', '1');
   var modal = document.getElementById('onboardingModal');
   if (modal) modal.style.display = 'none';
-  if (typeof openWizard === 'function') openWizard();
+  // ★ feat/onboarding-wizard: 新人引导改走团队模板 3 步 wizard (而不是单员工 4 步 openWizard)
+  if (typeof openOnboardWizard === 'function') {
+    openOnboardWizard();
+  } else if (typeof openWizard === 'function') {
+    openWizard();
+  }
 }
 function onboardingSkipClick() {
   localStorage.setItem('sb_onboarding_done', '1');
   var modal = document.getElementById('onboardingModal');
   if (modal) modal.style.display = 'none';
+}
+
+// ========== ② 新人 onboarding 真正 3 步 wizard (团队模板 → 批量配置 → 开始对话) ==========
+// 团队模板常量 — systemPrompt 必须基于真实 demo 员工 (Helen) 的能力, 不编新能力
+// Q1=A 决策: 硬编码在前端, v1 够用; 后续可迁到后端 /api/agent-templates
+// Q1 约束: 角色名中性 ("小回/小薇/小理"), 不绑 demo 员工人名 (Helen/孔明/貂蝉)
+var ONBOARD_TEMPLATES = [
+  {
+    id: 'douyin_biz',
+    name: '抖音商务团',
+    icon: '🤝',
+    desc: '达人合作全流程: 截图识别、匹配分析、选品建议、价值评级',
+    members: [
+      {
+        roleKey: 'biz_specialist',
+        roleLabel: '商务专员',
+        avatar: '🤝',
+        defaultName: '小回',
+        skills: ['截图录入', '匹配分析', '选品建议', '合作评级'],
+        systemPrompt: '你是小回, 抖音团长的商务专员, 负责达人合作全流程。\n\n【核心能力】\n1. 截图录入: 用户上传达人主页截图, 自动 OCR 识别达人信息 + 调用 kb_entry_create 写入知识库。\n2. 达人-商品匹配分析: 6 维度 (粉丝画像 / 历史 GPM / 客单价 / 品类契合 / 调性 / 履约) 评估合作匹配度。\n3. 选品策略建议: 基于本周已合作达人的粉丝画像, 推荐下一波选品 (品类 + 价格带)。\n4. 合作价值评级: 基于最新数据 (履约率 / 复购 / GMV) 重评达人合作价值 A/B/C/D。\n\n【底线】\n- 没有数据支撑的结论不说, 所有结论必须基于真实知识库或工具返回。\n- 所有数据必须通过调用工具写入系统, 严禁口头回复"已录入"而不实际调用工具。\n- 如果没有某个工具权限, 必须如实告知用户, 严禁假装已完成。'
+      },
+      {
+        roleKey: 'data_analyst',
+        roleLabel: '数据分析师',
+        avatar: '📊',
+        defaultName: '小理',
+        skills: ['合作复盘', '数据看板', '趋势分析'],
+        systemPrompt: '你是小理, 抖音团长的数据分析师, 负责合作复盘和趋势洞察。\n\n【核心能力】\n1. 合作复盘: 基于已完成合作的数据 (GMV / ROI / 履约), 输出复盘结论和优化建议。\n2. 数据看板: 汇总本周 / 本月达人合作数据, 输出关键指标 (合作数 / GPM / 复购率)。\n3. 趋势分析: 对比历史数据, 识别增长 / 下滑趋势, 给出归因。\n\n【底线】\n- 数据必须从知识库或工具调用获取, 不编数据。\n- 结论必须有数据支撑, 没有数据时说"暂无数据"。'
+      }
+    ]
+  },
+  {
+    id: 'content_ops',
+    name: '内容运营团',
+    icon: '✍️',
+    desc: '内容策划 + 文案撰写 + 素材整理',
+    members: [
+      {
+        roleKey: 'copywriter',
+        roleLabel: '文案策划',
+        avatar: '✍️',
+        defaultName: '小薇',
+        skills: ['脚本撰写', '卖点提炼', '达人话术'],
+        systemPrompt: '你是小薇, 抖音团长的文案策划, 负责短视频脚本和达人沟通话术。\n\n【核心能力】\n1. 脚本撰写: 基于达人人设 + 商品卖点, 撰写 15- 60 秒短视频脚本 (含钩子 + 节奏 + CTA)。\n2. 卖点提炼: 从商品详情提炼 3- 5 个核心卖点, 按达人粉丝画像匹配。\n3. 达人话术: 私信话术模板 (初次接触 / 跟进 / 报价 / 复盘), 语气符合人设。\n\n【底线】\n- 所有内容必须基于真实商品/达人数据, 不编造卖点。\n- 话术遵循"管理员是你的老板, 你是下属"层级关系。'
+      },
+      {
+        roleKey: 'creator',
+        roleLabel: '创意策划',
+        avatar: '🎨',
+        defaultName: '小创',
+        skills: ['选题策划', '热点追踪', '内容矩阵'],
+        systemPrompt: '你是小创, 抖音团长的创意策划, 负责选题和内容矩阵规划。\n\n【核心能力】\n1. 选题策划: 基于近期热点 + 商品卖点, 推荐 5- 10 个内容选题。\n2. 热点追踪: 监控行业热点 (节日 / 平台活动 / 竞品爆款), 提示联动机会。\n3. 内容矩阵: 设计内容矩阵 (短视频 / 直播 / 图文), 覆盖不同粉丝决策路径。\n\n【底线】\n- 选题基于真实热点 (从工具返回), 不编造虚假热点。'
+      }
+    ]
+  },
+  {
+    id: 'data_team',
+    name: '数据复盘团',
+    icon: '📈',
+    desc: '深度数据分析 + 评级 + 周报',
+    members: [
+      {
+        roleKey: 'biz_specialist',
+        roleLabel: '商务专员',
+        avatar: '🤝',
+        defaultName: '小回',
+        skills: ['截图录入', '匹配分析', '选品建议', '合作评级'],
+        systemPrompt: '你是小回, 抖音团长的商务专员。\n\n【核心能力】截图录入 / 匹配分析 / 选品建议 / 合作评级 (同商务团版本)。'
+      },
+      {
+        roleKey: 'data_analyst',
+        roleLabel: '数据分析师',
+        avatar: '📊',
+        defaultName: '小理',
+        skills: ['合作复盘', '数据看板', '趋势分析'],
+        systemPrompt: '你是小理, 抖音团长的数据分析师。\n\n【核心能力】合作复盘 / 数据看板 / 趋势分析 (同商务团版本)。'
+      },
+      {
+        roleKey: 'reporter',
+        roleLabel: '周报助理',
+        avatar: '📝',
+        defaultName: '小报',
+        skills: ['周报生成', '数据汇总', '关键洞察'],
+        systemPrompt: '你是小报, 抖音团长的周报助理, 负责周期性复盘和汇报。\n\n【核心能力】\n1. 周报生成: 汇总本周合作数据 (达人 / GMV / 履约 / 新增), 生成结构化周报。\n2. 数据汇总: 跨达人/商品/时间维度汇总, 输出关键数字 + 趋势对比。\n3. 关键洞察: 从数据中提炼 3- 5 条洞察 (亮点 + 风险 + 建议)。\n\n【底线】\n- 周报基于真实数据生成, 不编造数字。\n- 洞察必须有数据支撑。'
+      }
+    ]
+  }
+];
+
+// onboard wizard 状态
+var onboardStep = 1;
+var onboardSelectedTemplate = null;
+var onboardSelectedMembers = []; // [{...member, customName, enabled}]
+
+function openOnboardWizard() {
+  if (!hasModulePermission('employees')) {
+    showToast('⛔ 你没有员工管理权限', 'warning');
+    return;
+  }
+  onboardStep = 1;
+  onboardSelectedTemplate = null;
+  onboardSelectedMembers = [];
+  renderOnboardTemplates();
+  updateOnboardUI();
+  document.getElementById('onboardWizardOverlay').classList.add('show');
+}
+function closeOnboardWizard() {
+  document.getElementById('onboardWizardOverlay').classList.remove('show');
+}
+function renderOnboardTemplates() {
+  var grid = document.getElementById('onboardTemplateGrid');
+  if (!grid) return;
+  grid.innerHTML = ONBOARD_TEMPLATES.map(function (t) {
+    var memberNames = t.members.map(function (m) { return m.defaultName; }).join(' + ');
+    return '<div class="onboard-template-card" data-tpl-id="' + t.id + '" onclick="onboardSelectTemplate(\'' + t.id + '\')">'
+      + '<div class="onboard-template-icon">' + t.icon + '</div>'
+      + '<div class="onboard-template-info">'
+      + '<div class="onboard-template-name">' + escapeHtml(t.name) + '</div>'
+      + '<div class="onboard-template-desc">' + escapeHtml(t.desc) + '</div>'
+      + '<div class="onboard-template-members">👥 ' + escapeHtml(memberNames) + ' (' + t.members.length + ' 人)</div>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+function onboardSelectTemplate(templateId) {
+  var tpl = ONBOARD_TEMPLATES.find(function (t) { return t.id === templateId; });
+  if (!tpl) return;
+  onboardSelectedTemplate = tpl;
+  onboardSelectedMembers = tpl.members.map(function (m) {
+    return {
+      roleKey: m.roleKey,
+      roleLabel: m.roleLabel,
+      avatar: m.avatar,
+      defaultName: m.defaultName,
+      customName: m.defaultName,
+      enabled: true,
+      systemPrompt: m.systemPrompt,
+      skills: m.skills
+    };
+  });
+  // 高亮选中
+  document.querySelectorAll('.onboard-template-card').forEach(function (card) {
+    card.classList.toggle('selected', card.dataset.tplId === templateId);
+  });
+  updateOnboardUI();
+}
+function renderOnboardMembers() {
+  var list = document.getElementById('onboardMemberList');
+  if (!list) return;
+  list.innerHTML = onboardSelectedMembers.map(function (m, idx) {
+    var checked = m.enabled ? ' checked' : '';
+    var disabled = m.enabled ? '' : ' disabled';
+    var checkMark = m.enabled ? '✓' : '';
+    var skillsHtml = (m.skills || []).map(function (s) {
+      return '<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:var(--bg-primary);font-size:11px;color:var(--text-secondary);margin-right:4px;">' + escapeHtml(s) + '</span>';
+    }).join('');
+    return '<div class="onboard-member-row' + disabled + '">'
+      + '<div class="onboard-member-check' + checked + '" onclick="onboardToggleMember(' + idx + ')">' + checkMark + '</div>'
+      + '<div class="onboard-member-avatar">' + m.avatar + '</div>'
+      + '<div class="onboard-member-info">'
+      + '<div class="onboard-member-role">' + escapeHtml(m.roleLabel) + '</div>'
+      + '<input class="onboard-member-name-input" type="text" value="' + escapeHtml(m.customName) + '" oninput="onboardRenameMember(' + idx + ', this.value)" maxlength="20" />'
+      + '<div style="margin-top:4px;">' + skillsHtml + '</div>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+function onboardRenameMember(idx, val) {
+  if (onboardSelectedMembers[idx]) {
+    onboardSelectedMembers[idx].customName = val.trim() || onboardSelectedMembers[idx].defaultName;
+  }
+}
+function onboardToggleMember(idx) {
+  if (onboardSelectedMembers[idx]) {
+    onboardSelectedMembers[idx].enabled = !onboardSelectedMembers[idx].enabled;
+    renderOnboardMembers();
+    updateOnboardUI();
+  }
+}
+function updateOnboardUI() {
+  // dots
+  for (var i = 1; i <= 3; i++) {
+    var dot = document.getElementById('onboardDot' + i);
+    if (!dot) continue;
+    dot.classList.remove('active', 'done');
+    if (i < onboardStep) dot.classList.add('done');
+    else if (i === onboardStep) dot.classList.add('active');
+  }
+  for (var j = 1; j <= 2; j++) {
+    var line = document.getElementById('onboardLine' + j);
+    if (!line) continue;
+    line.classList.toggle('active', j < onboardStep);
+  }
+  // pages
+  for (var p = 1; p <= 3; p++) {
+    var page = document.getElementById('onboardPage' + p);
+    if (page) page.classList.toggle('active', p === onboardStep);
+  }
+  // footer
+  var prevBtn = document.getElementById('onboardBtnPrev');
+  var nextBtn = document.getElementById('onboardBtnNext');
+  var skipBtn = document.getElementById('onboardBtnSkip');
+  prevBtn.style.display = onboardStep > 1 ? 'inline-block' : 'none';
+  if (onboardStep === 3) {
+    nextBtn.textContent = '开始对话 →';
+    skipBtn.style.display = 'none';
+    prevBtn.style.display = 'none';
+  } else {
+    nextBtn.textContent = '下一步 →';
+    skipBtn.style.display = 'inline-block';
+  }
+  // enable next
+  var canNext = false;
+  if (onboardStep === 1) canNext = !!onboardSelectedTemplate;
+  else if (onboardStep === 2) canNext = onboardSelectedMembers.some(function (m) { return m.enabled; });
+  else if (onboardStep === 3) canNext = false; // Step 3 自动跑, 不需手动 next
+  nextBtn.disabled = !canNext;
+  // title icon
+  var titleIcon = document.getElementById('onboardWizardIcon');
+  if (onboardSelectedTemplate) titleIcon.textContent = onboardSelectedTemplate.icon;
+  else titleIcon.textContent = '🦞';
+}
+function onboardPrev() {
+  if (onboardStep > 1) {
+    onboardStep--;
+    if (onboardStep === 1) renderOnboardTemplates(); // 恢复模板选择高亮
+    if (onboardStep === 2) renderOnboardMembers();
+    updateOnboardUI();
+  }
+}
+function onboardNext() {
+  if (onboardStep === 1) {
+    if (!onboardSelectedTemplate) return;
+    onboardStep = 2;
+    renderOnboardMembers();
+    updateOnboardUI();
+    return;
+  }
+  if (onboardStep === 2) {
+    var enabled = onboardSelectedMembers.filter(function (m) { return m.enabled; });
+    if (enabled.length === 0) {
+      showToast('⚠️ 至少选择一位 AI 员工');
+      return;
+    }
+    onboardStep = 3;
+    updateOnboardUI();
+    finishOnboardAndStartChat(enabled);
+    return;
+  }
+}
+// Step 3: 批量创建 + 跳到第 1 位员工聊天
+async function finishOnboardAndStartChat(members) {
+  var total = members.length;
+  var done = 0;
+  var created = [];
+  var errors = [];
+  document.getElementById('onboardConfirmTitle').textContent = '正在创建你的 AI 团队';
+  document.getElementById('onboardConfirmDesc').textContent = '批量创建中, 请稍候...';
+  updateOnboardProgress(done, total);
+  for (var i = 0; i < members.length; i++) {
+    var m = members[i];
+    try {
+      var resp = await apiFetch('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: m.customName,
+          role: m.roleKey,           // 后端 _sanitize_role 校验
+          avatar: m.avatar,           // emoji 直接传
+          systemPrompt: m.systemPrompt,
+          status: 'online',
+          permission: 'dev',
+          visibility: 'creator'       // = personal scope (后端默认)
+        })
+      });
+      if (resp && resp.ok) {
+        var data = await resp.json();
+        created.push(data);
+      } else {
+        var errText = '';
+        try { var _ej = await resp.json(); errText = _ej.error || ''; } catch (e2) {}
+        errors.push({ name: m.customName, error: errText || ('HTTP ' + (resp ? resp.status : '?')) });
+      }
+    } catch (e) {
+      errors.push({ name: m.customName, error: e.message || String(e) });
+    }
+    done++;
+    updateOnboardProgress(done, total);
+  }
+  if (created.length === 0) {
+    document.getElementById('onboardConfirmTitle').textContent = '❌ 创建失败';
+    var firstErr = errors[0] ? errors[0].error : '未知错误';
+    document.getElementById('onboardConfirmDesc').textContent = '所有 AI 员工都没创建成功: ' + firstErr;
+    showToast('创建失败: ' + firstErr, 'error');
+    return;
+  }
+  if (errors.length > 0) {
+    showToast('⚠️ ' + errors.length + ' 位员工创建失败', 'warning');
+  }
+  // 标 done, 关闭 wizard, 跳到聊天
+  localStorage.setItem('sb_onboarding_done', '1');
+  closeOnboardWizard();
+  // 刷新员工列表
+  if (typeof loadEmployees === 'function') {
+    await loadEmployees();
+  } else if (typeof refreshEmployeeList === 'function') {
+    await refreshEmployeeList();
+  }
+  // 跳到第 1 位员工聊天
+  var firstAgent = created[0];
+  if (firstAgent && typeof openChat === 'function') {
+    openChat(firstAgent.id);
+  } else if (typeof showToast === 'function') {
+    showToast('✅ 已创建 ' + created.length + ' 位 AI 员工');
+  }
+}
+function updateOnboardProgress(done, total) {
+  var pct = total === 0 ? 0 : Math.round(done * 100 / total);
+  var bar = document.getElementById('onboardProgressBar');
+  var text = document.getElementById('onboardProgressText');
+  if (bar) bar.style.width = pct + '%';
+  if (text) text.textContent = done + ' / ' + total + '  (' + pct + '%)';
 }
 
 // ② 员工列表空状态「了解 AI 员工能做什么」— 弹一个轻量 info modal 列 4 个真实能力
