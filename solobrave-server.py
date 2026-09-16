@@ -26426,6 +26426,21 @@ def _start_wss_proxy(cert_file, key_file, bind, port, target_host, target_port):
         """拦截握手：把客户端 Origin 头挂到 ws 实例上，供后续 _proxy_handler 读取。
         返回 None 让握手继续。"""
         origin = _extract_origin(request.headers)
+        # 防御深度：审计非本地 Origin 的 WSS 握手请求。OpenClaw v3 网关会按 Origin 做 allowlist
+        # 校验并拦截异常来源；这里再加一层本地审计日志，连接仍照常放行（不断，避免误伤真实部署
+        # 域名后被旧 token 卡死）。判定只看 hostname 段，不做严格 scheme 校验。
+        try:
+            if origin:
+                from urllib.parse import urlparse
+                _host = (urlparse(origin).hostname or '').lower()
+                _allowed_hosts = {'localhost', '127.0.0.1', '::1', (bind or '').lower()}
+                if _host and _host not in _allowed_hosts:
+                    logger.warning(
+                        f'  [WSS] 收到非本地 Origin 握手 → Origin={origin}, '
+                        f'peer={getattr(request, "remote_address", None)}'
+                    )
+        except Exception:
+            pass
         ws._client_origin = origin
         # 关闭 websockets 库自带的 Origin 校验（库默认会按 origins 参数拒掉没在白名单里的 origin，
         # 我们自己控制转发逻辑）
