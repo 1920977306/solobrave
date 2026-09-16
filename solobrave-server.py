@@ -6457,8 +6457,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 )
         except Exception:
             pass
-        # CSP 不加：index.html 有 672 个内联 onclick + 896 个内联 style，
-        # 加严格 CSP 会大面积打坏 UI。改用服务端输出侧 XSS 修复（commit 7963fed）兜底。
+        # ★ CSP 报告模式（不阻断，仅收集违规到 /api/csp-report 便于审计 + 渐进收紧）
+        #    index.html 有 672 个内联 onclick + 896 个内联 style，所以 script-src/style-src 暂时
+        #    容忍 unsafe-inline；未来迁移完内联脚本/样式后可逐步去掉 unsafe-inline 而不破坏 UI。
+        #    report-uri 接收浏览器违规报告，server.log 打 warning 标记。
+        #    这是"先报告后收紧"的标准渐进式策略。
+        self.send_header(
+            'Content-Security-Policy-Report-Only',
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: https:; "
+            "font-src 'self' data: https:; "
+            "connect-src 'self' wss: https:; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'; "
+            "report-uri /api/csp-report"
+        )
         # 覆盖 Server header，遮蔽 Python/SimpleHTTP 版本号（减少信息泄漏）
         self.send_header('Server', 'SoloBrave')
         super().end_headers()
@@ -7141,6 +7157,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/auth/admin/emergency-rotate-secret':
             self._handle_emergency_rotate_jwt_secret()
+            return
+
+        # CSP 违规报告端点（任何 origin 都可 POST，不需 auth — 浏览器自动上报）
+        if path == '/api/csp-report' and self.command == 'POST':
+            self._handle_csp_report()
             return
 
         # Tool calls log
@@ -8365,6 +8386,39 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'adminId': auth.user_id,
             'message': 'JWT secret 紧急轮换完成，旧 token 在 grace period 内仍可验证'
         })
+
+    def _handle_csp_report(self):
+        """POST /api/csp-report — 接收浏览器 CSP 违规报告（report-only 模式）
+
+        浏览器在 report-only 模式下检测到违规时自动 POST 一份 csp-report JSON。
+        我们只记录 warning 日志便于审计，不强制校验 content-type（浏览器可能用
+        application/csp-report 或 application/json）。
+        """
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+        except (TypeError, ValueError):
+            content_length = 0
+        raw = self.rfile.read(content_length) if content_length > 0 else b''
+        # CSP report 字段名是 'csp-report' (level 3) 或 'violated-directive' (level 1)
+        try:
+            payload = json.loads(raw.decode('utf-8', errors='replace')) if raw else {}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = {}
+        # 提取关键信息（兼容两种 level）
+        report = payload.get('csp-report', payload)
+        violated = report.get('violated-directive') or report.get('effectiveDirective', '?')
+        blocked_uri = report.get('blocked-uri') or report.get('blockedURI', '?')
+        document_uri = report.get('document-uri') or report.get('documentURL', '?')
+        source_file = report.get('source-file') or report.get('sourceFile', '?')
+        line_number = report.get('line-number') or report.get('lineNumber', '?')
+        logger.warning(
+            f'  [CSP-Report] violated={violated!s} blocked_uri={blocked_uri!s} '
+            f'document_uri={document_uri!s} source_file={source_file!s}:{line_number} '
+            f'client_ip={self.client_address[0]}'
+        )
+        # 立即 204 不存（避免污染）
+        self.send_response(204)
+        self.end_headers()
 
     def _handle_get_users(self):
         """GET /api/users（需要 admin）"""
