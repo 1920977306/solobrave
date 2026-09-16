@@ -1974,6 +1974,60 @@ def _run_openclaw(args, cwd=None, input_data=None):
         return False, '', str(e), -1
 
 
+def _audit_openclaw_config():
+    """启动时审计 OpenClaw 配置风险并 warning 日志提醒老大。
+
+    OpenClaw 是 npm 包，solobrave-server.py 不能改它的代码/配置。
+    这里只做防御深度的本地审计：
+    - 检查 ~/.openclaw/openclaw.json 权限（应 600，自动收紧）
+    - 检查 gateway.bind 是否暴露到 LAN
+    - 检查 controlUi.allowedOrigins 是否包含 '*'（CORS 全开）
+    """
+    import stat as _stat
+    config_path = os.path.expanduser('~/.openclaw/openclaw.json')
+    # 1) 文件权限审计 + 自动收紧
+    if os.path.isfile(config_path):
+        try:
+            st = os.stat(config_path)
+            mode = _stat.S_IMODE(st.st_mode)
+            if mode & 0o077:
+                # 任何 group/other 权限都收紧到 600（含明文 token 风险）
+                try:
+                    os.chmod(config_path, 0o600)
+                    logger.warning(
+                        f'  [OpenClaw-Audit] openclaw.json 权限 {oct(mode)} 过宽（含明文 token 风险），'
+                        f'已自动收紧为 0o600'
+                    )
+                except OSError as e:
+                    logger.warning(f'  [OpenClaw-Audit] 自动收紧 openclaw.json 权限失败: {e}')
+        except OSError:
+            pass
+    # 2) 配置内容审计
+    config = _read_json(config_path, {})
+    if not config:
+        return
+    gateway = config.get('gateway', {})
+    bind = gateway.get('bind', '')
+    if bind and bind not in ('loopback', 'localhost', '127.0.0.1'):
+        logger.warning(
+            f'  [OpenClaw-Audit] gateway.bind={bind!r}（非 loopback）→ OpenClaw gateway 端口 '
+            f'({gateway.get("port", 18789)}) 暴露到 {bind}。LAN 上的任何设备都可直连。'
+            f'建议改 gateway.bind="loopback"，通过本服务 WSS 代理 (8444) 安全访问。'
+        )
+    origins = gateway.get('controlUi', {}).get('allowedOrigins', [])
+    if '*' in origins:
+        logger.warning(
+            f'  [OpenClaw-Audit] controlUi.allowedOrigins 含 "*"（CORS 全开）→ 任何 origin '
+            f'浏览器都能访问 OpenClaw UI。建议改为 ["http://localhost:8080"]（仅 solobrave 前端）。'
+        )
+    auth = gateway.get('auth', {})
+    if auth.get('token'):
+        logger.info(
+            f'  [OpenClaw-Audit] gateway.auth.token 已配置（明文存于 openclaw.json）→ '
+            f'确认文件权限 600 且 bind=loopback，否则 token 可被 LAN 截获。'
+        )
+
+
 def _sync_agent_api_key_to_openclaw(agent):
     """
     将员工的 API Key 同步到 OpenClaw。
@@ -27308,6 +27362,12 @@ def main():
             )
         except Exception as wss_err:
             logger.error(f'  [WSS] WSS 代理启动失败: {wss_err}')
+
+    # OpenClaw 配置审计（防御深度 — OpenClaw 自身 npm 包装不可改，只审计 + warning 日志）
+    try:
+        _audit_openclaw_config()
+    except Exception as audit_err:
+        logger.warning(f'  [OpenClaw-Audit] 审计异常（不阻断启动）: {audit_err}')
 
     logger.info('=' * 56)
     logger.info('  [SOLO] SoloBrave Server (Auth Enabled)')
