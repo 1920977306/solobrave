@@ -11597,6 +11597,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not _check_agent_exists(emp_id):
             self._send_json(404, {'error': 'Agent not found'})
             return
+        # ★ 修复 IDOR：必须有 agent 访问权（owner/admin/visibility=all）才能改/删它的记忆
+        _, err, status = self._check_agent_access(auth, emp_id)
+        if err:
+            self._send_json(status, {'error': err})
+            return
 
         removed = ms3.delete_memory(emp_id, memory_id)
         if removed:
@@ -11615,6 +11620,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if not _check_agent_exists(emp_id):
             self._send_json(404, {'error': 'Agent not found'})
+            return
+        # ★ 修复 IDOR：必须有 agent 访问权（owner/admin/visibility=all）才能改/删它的记忆
+        _, err, status = self._check_agent_access(auth, emp_id)
+        if err:
+            self._send_json(status, {'error': err})
             return
 
         body = self._read_body()
