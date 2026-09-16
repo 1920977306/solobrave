@@ -154,6 +154,14 @@ WSS_REJECT_EXTERNAL_ORIGIN = os.environ.get(
     'SOLOBRAVE_WSS_REJECT_EXTERNAL_ORIGIN', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# ★ AI 身份约束校验模式：默认 True（软校验，缺失时 warning + 仍调用 AI）
+#    设为 False 则退回硬校验（缺失时直接拒绝 AI 调用 — 老的安全姿态）
+#    推荐：开发/调试用 True（默认）；生产环境想严格时设 False 或 SOLOBRAVE_REQUIRE_AI_ID_CHECK=1
+#    历史背景：之前硬校验挡了所有没 \"管理员是你的老板\" 关键字的 agent，导致 AI 完全不回复
+SOFT_AI_ID_CHECK = os.environ.get(
+    'SOLOBRAVE_SOFT_AI_ID_CHECK', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 # 数据存储目录（项目内 data/ 目录，支持 --data 覆盖）
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 SECRET_FILE = os.path.join(DATA_DIR, '.secret')
@@ -1569,15 +1577,34 @@ def _can_access_knowledge_category(user_or_auth, category):
 
 
 def _validate_agent_for_ai(agent):
-    """AI 调用前校验：员工必须存在且未删除，systemPrompt/soulDoc 必须包含身份约束关键字"""
+    """AI 调用前校验：员工必须存在且未删除。
+
+    身份约束（'管理员是你的老板' 关键字）的校验受 SOFT_AI_ID_CHECK 控制：
+    - SOFT_AI_ID_CHECK=True（默认）：缺失时 warning 日志 + 仍允许调用（修 AI 不回复）
+    - SOFT_AI_ID_CHECK=False：缺失时硬拒绝（老的安全姿态）
+
+    archived / not dict 仍是硬失败（员工不存在不能调用）。
+    """
     if not isinstance(agent, dict):
         return False, '员工不存在'
     if agent.get('status') == 'archived' or agent.get('archived'):
         return False, '员工不存在'
     effective_prompt = (agent.get('soulDoc') or agent.get('systemPrompt') or '').strip()
     if not effective_prompt:
+        if SOFT_AI_ID_CHECK:
+            logger.warning(
+                f'  [AI-IDCheck] SOFT: {agent.get("id", "?")} soulDoc/systemPrompt 为空，'
+                f'仍调用 AI（身份约束降级）'
+            )
+            return True, None
         return False, 'AI身份约束缺失，禁止调用AI'
     if '管理员是你的老板' not in effective_prompt:
+        if SOFT_AI_ID_CHECK:
+            logger.warning(
+                f'  [AI-IDCheck] SOFT: {agent.get("id", "?")} soulDoc/systemPrompt 缺'
+                f'"管理员是你的老板"关键字，仍调用 AI（身份约束降级）'
+            )
+            return True, None
         return False, 'AI身份约束缺失，禁止调用AI'
     return True, None
 
