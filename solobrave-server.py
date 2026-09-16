@@ -14267,7 +14267,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if end_of_day:
                     dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
                 return int(dt.timestamp() * 1000)
-            except Exception:
+            except Exception as e:
+                logger.warning(f'  [TokenUsage] 时间范围解析失败: {e}')
                 return None
 
         if start_date:
@@ -15839,8 +15840,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 cache_path = _get_embedding_cache_path('product', product_id)
                 if os.path.exists(cache_path):
                     os.remove(cache_path)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f'  [DeleteProduct] 缓存文件删除失败: {cache_path}, err={e}')
         self._send_json(200, {'deleted': deleted, 'id': product_id})
 
     def _handle_search_products(self):
@@ -23400,8 +23401,8 @@ def _handle_proxy(self):
     if body:
         try:
             body_json = json.loads(body.decode('utf-8'))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f'  [Proxy] 解析请求 body JSON 失败: {e}')
 
     # 判断是否为 Kimi coding / Anthropic Messages 格式请求
     provider = self.headers.get('X-AI-Provider', '').lower()
@@ -23658,8 +23659,8 @@ def _handle_proxy(self):
                 if choices and choices[0].get('message'):
                     content = choices[0]['message'].get('content', '')
                     choices_info += f' content_len={len(content)}'
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f'  [Proxy] 提取 choices 日志信息失败（不影响响应）: {e}')
             logger.info(f'  [Proxy] API返回 status={resp.status}{choices_info} <- {target_url}')
 
         # 记录真实 token usage
@@ -23707,8 +23708,8 @@ def _handle_proxy(self):
         err_text = ''
         try:
             err_text = err_body.decode('utf-8', errors='replace')[:200]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f'  [Proxy] 解码错误响应失败: {e}')
         logger.error(f'  [Proxy] API错误 status={status} detail={detail} err={err_text} <- {target_url}')
 
         self.send_response(status)
