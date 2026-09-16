@@ -43,6 +43,7 @@ from collections import OrderedDict, deque
 from datetime import datetime, timedelta
 import re
 import socket
+import ipaddress
 from urllib.parse import urlparse, unquote, parse_qs
 
 # 抖音视频解析模块（拆分到独立文件）
@@ -1935,6 +1936,38 @@ class AuthResult:
                     self.group_ids = _get_user_group_ids(uid)
                     self.managed_group_ids = _get_user_managed_group_ids(uid)
         return self.user_record
+
+
+def _is_safe_url(url, allow_private=False):
+    """SSRF 防护：检查 URL 是否指向公网/安全 IP。
+    - 仅允许 http/https scheme
+    - 解析域名，拒私/回环/link-local/reserved 等 IP
+    - 防止攻击者通过本服务探测内网服务 / 云元数据端点（169.254.169.254 等）
+    返回 (is_safe, reason)；不安全时 reason 包含具体原因。
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return False, f'scheme {parsed.scheme} 不允许'
+        hostname = parsed.hostname
+        if not hostname:
+            return False, '无 hostname'
+        # 解析域名 → IP
+        try:
+            ip_str = socket.gethostbyname(hostname)
+        except socket.gaierror:
+            return False, f'无法解析域名 {hostname}'
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False, f'非法 IP {ip_str}'
+        if not allow_private:
+            if (ip.is_private or ip.is_loopback or ip.is_link_local
+                    or ip.is_multicast or ip.is_reserved or ip.is_unspecified):
+                return False, f'目标 IP {ip_str} 是内网/私有/链路本地'
+        return True, None
+    except Exception as e:
+        return False, f'URL 解析失败: {e}'
 
 
 def _get_localhost_auth_result(headers, parsed_body=None):
@@ -23501,6 +23534,13 @@ def _handle_proxy(self):
         self._send_json_error(403, 'Only HTTPS targets are allowed')
         return
 
+    # ★ SSRF 防护：检查 target_url 是否指向内网/私有 IP
+    safe, reason = _is_safe_url(target_url)
+    if not safe:
+        logger.warning(f'  [Proxy] SSRF blocked: {target_url} → {reason}')
+        self._send_json_error(403, f'目标 URL 被安全策略拦截: {reason}')
+        return
+
     if ALLOWED_DOMAINS:
         host = urlparse(target_url).hostname or ''
         if not any(host == d or host.endswith('.' + d) for d in ALLOWED_DOMAINS):
@@ -25843,6 +25883,13 @@ def _handle_douyin_parse(self):
             self._send_json(400, {'success': False, 'error': '缺少 url 或 text 参数'})
             return
 
+    # ★ SSRF 防护：阻断指向内网/私有 IP 的抖音 URL
+    safe, reason = _is_safe_url(url)
+    if not safe:
+        logger.warning(f'  [DouyinParse] SSRF blocked: {url} → {reason}')
+        self._send_json(400, {'success': False, 'error': f'URL 被安全策略拦截: {reason}'})
+        return
+
     transcribe = body.get('transcribe', True)
     api_key = (body.get('api_key', '').strip()
                or self.headers.get('X-AI-API-Key', '')
@@ -25874,6 +25921,13 @@ def _handle_douyin_transcribe(self):
     video_url = body.get('video_url', '').strip()
     if not video_url:
         self._send_json(400, {'success': False, 'error': '缺少 video_url 参数'})
+        return
+
+    # ★ SSRF 防护：阻断指向内网/私有 IP 的 video_url
+    safe, reason = _is_safe_url(video_url)
+    if not safe:
+        logger.warning(f'  [DouyinTranscribe] SSRF blocked: {video_url} → {reason}')
+        self._send_json(400, {'success': False, 'error': f'URL 被安全策略拦截: {reason}'})
         return
 
     # API Key: 优先请求体，其次请求头 X-AI-API-Key，最后环境变量 DOUYIN_API_KEY
