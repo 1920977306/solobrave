@@ -1056,11 +1056,13 @@ def _get_previous_secret():
     return None
 
 
-def _rotate_jwt_secret():
+def _rotate_jwt_secret(reason='manual'):
     """轮换 JWT secret：当前 → .previous，新随机 → SECRET_FILE。
 
     轮换后旧 secret 在 grace period（_JWT_PREVIOUS_GRACE_S）内仍可用于验证旧 token，
     让客户端有时间刷新 token 而不会一次性全员登出。
+
+    参数 reason 记录轮换触发原因（manual / auto-period / emergency-...），便于审计。
     """
     global JWT_SECRET
     _ensure_data_dir()
@@ -1091,8 +1093,29 @@ def _rotate_jwt_secret():
         pass
     # 清缓存（下次 _get_jwt_secret() 会重新读）
     JWT_SECRET = new_secret.encode('utf-8')
+    # 记录到轮换历史文件（last N entries），便于审计何时轮换 + 谁/为什么
+    try:
+        history_path = SECRET_FILE + '.history'
+        history_entry = f'{int(time.time())}|{reason}\n'
+        # 追加（最多保留 100 行，避免无限增长）
+        existing = ''
+        if os.path.isfile(history_path):
+            try:
+                with open(history_path, 'r') as f:
+                    existing = f.read()
+            except OSError:
+                existing = ''
+        lines = (existing + history_entry).strip().split('\n')
+        if len(lines) > 100:
+            lines = lines[-100:]
+        with open(history_path, 'w') as f:
+            f.write('\n'.join(lines) + '\n')
+        os.chmod(history_path, 0o600)
+    except OSError as e:
+        logger.warning(f'  [JWT-Rotate] 写历史记录失败: {e}')
     logger.warning(
-        f'  [JWT-Rotate] ★ JWT secret 已轮换（grace period={_JWT_PREVIOUS_GRACE_S}s，旧 token 仍可验证）'
+        f'  [JWT-Rotate] ★ JWT secret 已轮换（reason={reason!r}，'
+        f'grace period={_JWT_PREVIOUS_GRACE_S}s，旧 token 仍可验证）'
     )
 
 
@@ -7116,6 +7139,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/auth/admin/rotate-secret':
             self._handle_rotate_jwt_secret()
             return
+        if path == '/api/auth/admin/emergency-rotate-secret':
+            self._handle_emergency_rotate_jwt_secret()
+            return
 
         # Tool calls log
         if path == '/api/tool-calls/log':
@@ -8270,6 +8296,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         轮换后所有现有 token 在 grace period（默认 24h）内仍可用，
         之后必须重新登录。返回新 secret 数量 + grace period 秒数。
+
+        Body 可选：{"reason": "..."}（紧急轮换时记录触发原因，便于审计）
         """
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
@@ -8279,8 +8307,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if err:
             self._send_auth_error(err, status)
             return
+        # 解析 body（可选 reason）
+        body = self._read_body() or {}
+        reason = (body.get('reason') or '').strip()[:200]  # 限长 200 字符
         try:
-            _rotate_jwt_secret()
+            _rotate_jwt_secret(reason=reason or 'manual')
         except Exception as e:
             logger.error(f'  [JWT-Rotate] 轮换失败: {e}')
             self._send_json_error(500, f'轮换失败: {e}')
@@ -8289,7 +8320,50 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'success': True,
             'rotatedAt': int(time.time()),
             'gracePeriodSeconds': _JWT_PREVIOUS_GRACE_S,
+            'reason': reason or 'manual',
             'message': 'JWT secret 已轮换，旧 token 在 grace period 内仍可验证'
+        })
+
+    def _handle_emergency_rotate_jwt_secret(self):
+        """POST /api/auth/admin/emergency-rotate-secret — 紧急轮换（安全事件响应）
+
+        与 /rotate-secret 区别：reason 强制以 'emergency-' 前缀写入审计日志，
+        便于事后追溯"何时因何事轮换"。
+
+        Body 必填：{"reason": "<具体事件描述>"}，否则 400。
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+        body = self._read_body() or {}
+        reason_raw = (body.get('reason') or '').strip()[:200]
+        if not reason_raw:
+            self._send_json_error(400, '紧急轮换必须填写 reason（事件描述）')
+            return
+        reason = f'emergency-{reason_raw}'
+        # ★ 额外审计：admin user + IP IP 写入 warning 日志
+        logger.warning(
+            f'  [JWT-Emergency] ★ 紧急轮换请求来自 admin={auth.user_id} '
+            f'client_ip={self.client_address[0]} reason={reason_raw!r}'
+        )
+        try:
+            _rotate_jwt_secret(reason=reason)
+        except Exception as e:
+            logger.error(f'  [JWT-Emergency] 紧急轮换失败: {e}')
+            self._send_json_error(500, f'紧急轮换失败: {e}')
+            return
+        self._send_json(200, {
+            'success': True,
+            'rotatedAt': int(time.time()),
+            'gracePeriodSeconds': _JWT_PREVIOUS_GRACE_S,
+            'reason': reason,
+            'adminId': auth.user_id,
+            'message': 'JWT secret 紧急轮换完成，旧 token 在 grace period 内仍可验证'
         })
 
     def _handle_get_users(self):
