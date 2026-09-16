@@ -27380,8 +27380,39 @@ def _openclaw_watchdog_loop():
         time.sleep(WATCHDOG_INTERVAL_S)
 
 
+def _load_dotenv(env_path='.env', override=False):
+    """轻量级 .env 加载器（不依赖 python-dotenv 包）
+
+    从 env_path 读 KEY=VALUE 行（# 开头为注释），写入 os.environ。
+    override=False：已存在的环境变量不被覆盖（命令行 export 优先级更高）。
+    """
+    import os as _os
+    env_full = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), env_path)
+    if not _os.path.isfile(env_full):
+        return False
+    try:
+        with open(env_full, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                k, v = line.split('=', 1)
+                k = k.strip()
+                v = v.strip()
+                # 去掉行尾注释（仅 # 后无空格情况保留；带空格视为内容）
+                if not override and k in _os.environ:
+                    continue
+                _os.environ[k] = v
+        return True
+    except OSError:
+        return False
+
+
 def main():
     global PORT, BIND
+    # 加载项目根目录 .env（不入 git, 由 .gitignore *.env 覆盖）
+    if _load_dotenv():
+        logger.info('  [Config] 已加载 .env 环境变量')
     # Windows 控制台/日志文件默认 GBK 编码，含 emoji 的日志会导致 UnicodeEncodeError 崩溃
     try:
         import sys
