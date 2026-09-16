@@ -22341,8 +22341,8 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
             summary_data = _read_json(summary_file, {})
             if summary_data.get('summary'):
                 system_prompt += f'\n\n【历史对话摘要】\n{summary_data["summary"]}'
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f'  [SummaryInject] {agent_id} 加载摘要失败（继续，AI 无摘要上下文）: type={type(e).__name__} err={e}')
         # 提取纯文本（用于 RAG、记忆注入、抖音检测）
         user_text = user_message
         if isinstance(user_message, list):
@@ -22438,8 +22438,8 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                                 break
                     else:
                         user_message = douyin_context + '\n\n---\n用户原始消息：' + user_message
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f'  [DouyinInject] 抖音解析注入失败（继续，按原文本调用 AI）: type={type(e).__name__} err={e}')
 
     # 加载最近聊天记录
     if include_history and agent_id:
@@ -22455,14 +22455,14 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                         msg_time = datetime.fromisoformat(ts_str)
                         if datetime.now() - msg_time < timedelta(seconds=5):
                             recent = recent[:-1]
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f'  [ChatHistory] {agent_id} 时间戳解析失败（继续，无去重）: {e}')
                 for msg in recent:
                     role = msg.get('role')
                     if role in ('user', 'assistant'):
                         messages.append({'role': role, 'content': msg.get('content', '')})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f'  [ChatHistory] {agent_id} 加载历史失败（继续，AI 无上下文）: type={type(e).__name__} err={e}')
 
     messages.append({'role': 'user', 'content': user_message})
 
@@ -22470,8 +22470,18 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
     result = _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT)
     if result is None and not custom_endpoint:
         # agent 级别调用失败，尝试 settings.json 的 provider 列表降级
-        logger.info(f'  [Fallback] Agent provider "{api_provider}" failed, trying settings.json fallback')
+        logger.warning(f'  [Fallback] Agent provider "{api_provider}" failed for {agent_id}, trying settings.json fallback')
         result = _call_chat_completion_with_fallback(messages, timeout=PROXY_TIMEOUT)
+    if result is None:
+        # ★ 防御：双 fallback 都失败时返回明确错误字符串（之前返回 None，上游仅落盘用户消息，
+        #    用户看不到任何 AI 反馈，表现为"系统卡住"）。这个 marker 字符串上游会识别并
+        #    提示用户「AI 服务暂时不可用，请稍后重试」而不是神秘无回复。
+        #    DEBUG 信息只写日志，不暴露给用户。
+        logger.error(
+            f'  [AI_FALLBACK_FAILED] {agent_id} provider={api_provider} model={api_model} '
+            f'双重 fallback 均失败（agent 配置 + settings.json 列表）'
+        )
+        return '⚠️ AI 服务暂时不可用，请稍后重试。如果问题持续，请联系管理员检查 API key 和网络。'
     return result
 
 def _handle_delete_chat_message(self, agent_id, msg_id):
