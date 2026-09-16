@@ -1450,6 +1450,11 @@ _DEFAULT_EMP_IDS = {'xlcx', 'dlxc', 'zjg', 'hx', 'sy'}
 # 历史遗留默认员工名字（不区分大小写）
 _DEFAULT_EMP_NAMES = {'lucy', 'emily', 'grace', 'cynthia', 'luna', 'gates', 'eric', 'olivia', 'summer'}
 
+# 创建路径允许的初始 status 白名单：只接受 online / offline / busy。
+# 排除 'archived' 是因为归档是后续显式操作（PUT/DELETE），不能在创建时通过 body 注入。
+# 排除一切非白名单值，落空后默认 'online'，避免前端脏数据让新员工创建后立刻消失。
+_NEW_AGENT_ALLOWED_STATUSES = ('online', 'offline', 'busy')
+
 def _is_default_agent(agent):
     """判断是否为历史遗留默认员工（按ID或名字），有createdBy的用户手动创建员工不受影响"""
     if not isinstance(agent, dict):
@@ -10020,7 +10025,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'role': _sanitize_role(body.get('role', '')),
             'bg': body.get('bg', '#FF6B35'),
             'avatar': body.get('avatar', '🦞'),
-            'status': body.get('status', 'online'),
+            # status 白名单：仅 online/offline/busy，落空（含 'archived' 或其他任意值）默认 'online'。
+            # 同 archived 的防御逻辑：创建路径不信任请求体，避免前端脏 status 让新员工创建即被 _load_agents 过滤。
+            'status': body.get('status') if body.get('status') in _NEW_AGENT_ALLOWED_STATUSES else 'online',
             'msg': body.get('msg', ''),
             # 新员工创建硬编码 archived=False：创建路径不应接受请求体里的 archived 字段，
             # 否则前端脏数据 / body 误传 archived=True 会导致 _load_agents() 默认过滤掉新员工，
