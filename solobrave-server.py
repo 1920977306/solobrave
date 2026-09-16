@@ -3973,6 +3973,10 @@ def _talent_dict_to_influencer(t):
     }
 
 
+# 达人合作状态白名单（防止创建/更新时塞入任意字符串污染 talents 表）
+_ALLOWED_COOPERATION_STATUSES = ('available', 'cooperating', 'communicating')
+
+
 def _influencer_body_to_talent(body):
     """把 legacy /api/influencers 请求体/JSON 记录映射为 talents 表字段（供 _dict_to_talent_row 使用）"""
     return {
@@ -3989,7 +3993,9 @@ def _influencer_body_to_talent(body):
         'average_price': body.get('cooperationPrice', 0),
         'price_unit': body.get('priceUnit') or '元/条',
         'contact': body.get('contact', ''),
-        'cooperation_status': body.get('status', 'available'),
+        # cooperation_status 白名单：仅 available/cooperating/communicating，落空回退 available。
+        # 防御逻辑同 agent archived：创建/更新路径不信任请求体的 status 字段。
+        'cooperation_status': body.get('status') if body.get('status') in _ALLOWED_COOPERATION_STATUSES else 'available',
         'video_interaction_rate': str(body.get('engagementRate', '') or ''),
         'avg_views': body.get('avgViews', 0),
         'last_cooperation': body.get('lastCooperation') or '',
@@ -9466,11 +9472,6 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         agents = _load_agents()
         uid = auth.user_info['userId']
 
-        # 调试日志：打印 uid 和所有 agent 的 createdBy，排查过滤问题
-        logger.info(f'  [DEBUG get_agents] uid={uid} role={auth.user_info.get("role")} is_admin={auth.is_admin} is_leader={auth.is_leader}')
-        for a in agents:
-            logger.info(f'  [DEBUG get_agents] agent id={a.get("id")} name={a.get("name")} createdBy={repr(a.get("createdBy"))}')
-
         if auth.is_admin:
             result = agents
         elif auth.is_leader:
@@ -9488,9 +9489,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 过滤掉系统级管理员
         result = [a for a in result if a.get('id') != 'knowledge_admin']
 
-        logger.info(f'  [DEBUG get_agents] 过滤后返回 {len(result)} 个 agents')
-        for a in result:
-            logger.info(f'  [DEBUG get_agents] -> result id={a.get("id")} name={a.get("name")} createdBy={repr(a.get("createdBy"))}')
+        
 
         # 返回员工完整数据（包含 apiKey，前端需要它来显示和保存）
         safe_result = []
@@ -10125,8 +10124,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if not agent:
                 self._send_json(404, {'error': '员工不存在'})
                 return
-            # 已归档员工只有在请求中明确取消归档时才允许更新
-            is_unarchive = ('archived' in body and body.get('archived') is False) or ('status' in body and body.get('status') != 'archived')
+            # ★ 修复 is_unarchive 过于宽松：只有显式 'archived': False 才算反归档请求
+            # 原逻辑：'status' in body and body.get('status') != 'archived' 也会触发，
+            # 导致任何 status 更新都会"反归档"已归档员工（容易误改、也可能被滥用）
+            is_unarchive = 'archived' in body and body.get('archived') is False
             if (agent.get('status') == 'archived' or agent.get('archived')) and not is_unarchive:
                 self._send_json(404, {'error': '员工不存在'})
                 return
