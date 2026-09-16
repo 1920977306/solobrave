@@ -38,8 +38,10 @@ AGENTS_FILE = os.path.join(DEFAULT_DATA_DIR, 'agents.json')
 
 
 # 环境变量覆盖（与 solobrave-server.py 保持一致）
-EMBEDDING_OVERRIDE_PROVIDER = os.environ.get('SOLOBRAVE_EMBEDDING_PROVIDER', '').strip()
-EMBEDDING_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_EMBEDDING_API_KEY', '').strip()
+# ★ 模块级常量问题：EMBEDDING_OVERRIDE_PROVIDER 在 module 加载时执行，但 .env 是
+#    main() 启动后才加载的，导致这个变量永远是空字符串，.env 优先级失效。
+#    修复：删除常量定义，改为函数内部实时读 os.environ。
+EMBEDDING_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_EMBEDDING_API_KEY', '').strip()  # 仅留兼容性引用
 
 
 def _read_json(filepath, default=None):
@@ -73,16 +75,18 @@ def get_embedding_config(emp_id=None):
     settings = _read_json(SETTINGS_FILE, {})
     emb_settings = settings.get('embedding', {}) or {}
 
-    provider = EMBEDDING_OVERRIDE_PROVIDER
-    api_key = EMBEDDING_OVERRIDE_API_KEY
+    # ★ 实时读 .env（修复模块常量失效 bug — 老大充值智谱后 RAG 仍走老配置）
+    provider = os.environ.get('SOLOBRAVE_EMBEDDING_PROVIDER', '').strip()
+    api_key = os.environ.get('SOLOBRAVE_EMBEDDING_API_KEY', '').strip()
 
     if not provider:
         provider = (emb_settings.get('provider') or settings.get('embeddingProvider', '')).strip()
     if not api_key:
         api_key = (emb_settings.get('apiKey') or settings.get('embeddingApiKey', '')).strip()
 
-    base_url = (emb_settings.get('baseUrl', '')).strip()
-    model = (emb_settings.get('model', '')).strip()
+    # ★ 同样实时读 base_url / model 覆盖（防 settings.json 的硅基流动 baseUrl 覆盖智谱 .env）
+    base_url = os.environ.get('SOLOBRAVE_EMBEDDING_BASE_URL', '').strip() or (emb_settings.get('baseUrl', '')).strip()
+    model = os.environ.get('SOLOBRAVE_EMBEDDING_MODEL', '').strip() or (emb_settings.get('model', '')).strip()
 
     if emp_id:
         agent = _get_agent_by_id(emp_id) or {}
@@ -410,12 +414,22 @@ def get_embedding(text, api_key, provider='openai', model=None, base_url=None):
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
-    with urllib.request.urlopen(req, timeout=30, context=ssl_ctx) as resp:
-        data = json.loads(resp.read().decode('utf-8'))
-        if data.get('data') and len(data['data']) > 0:
-            emb = data['data'][0].get('embedding')
-            if emb and isinstance(emb, list):
-                return emb
+    try:
+        with urllib.request.urlopen(req, timeout=30, context=ssl_ctx) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            if data.get('data') and len(data['data']) > 0:
+                emb = data['data'][0].get('embedding')
+                if emb and isinstance(emb, list):
+                    return emb
+    except urllib.error.HTTPError as e:
+        # 调试：打印 HTTPError 真实 url + api_key 前缀，便于老大定位是哪个 key 出问题
+        import logging
+        logging.getLogger('solobrave').warning(
+            f'  [Embedding-KS-Debug] HTTP {e.code} from {target_url} '
+            f'provider={provider} model={model or cfg["model"]} '
+            f'apiKey={(api_key or "")[:8]}...'
+        )
+        raise
     return None
 
 

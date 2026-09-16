@@ -294,18 +294,20 @@ EMBEDDING_PROVIDERS = {
     },
 }
 
-# 全局 embedding 覆盖配置（允许 RAG 使用与聊天不同的 provider/API Key）
-# 优先级：环境变量 > settings.json > agent 自身配置
-EMBEDDING_OVERRIDE_PROVIDER = os.environ.get('SOLOBRAVE_EMBEDDING_PROVIDER', '').strip()
-EMBEDDING_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_EMBEDDING_API_KEY', '').strip()
+# ★ 全局 embedding / chat 覆盖（实时读 os.environ, 不缓存模块常量）
+#    关键: 之前的 EMBEDDING_OVERRIDE_PROVIDER / API_KEY 是在模块加载时读取的,
+#    .env 是 main() 启动后才加载的 → 常量永远空字符串, 优先级失效.
+#    现在改为每次调用实时读, 确保 .env / 系统环境变量都生效.
+#    优先级: .env (env vars) > settings.json > agent 自身配置.
+SOLOBRAVE_EMBEDDING_PROVIDER_ENV = 'SOLOBRAVE_EMBEDDING_PROVIDER'
+SOLOBRAVE_EMBEDDING_API_KEY_ENV = 'SOLOBRAVE_EMBEDDING_API_KEY'
+SOLOBRAVE_AI_PROVIDER_ENV = 'SOLOBRAVE_AI_PROVIDER'
+SOLOBRAVE_AI_API_KEY_ENV = 'SOLOBRAVE_AI_API_KEY'
+SOLOBRAVE_AI_MODEL_ENV = 'SOLOBRAVE_AI_MODEL'
 
-# ★ 全局 chat 覆盖配置（让老大用 .env 切换聊天模型，无需逐个改 agents.json）
-#    优先级：环境变量 > settings.json ai > agent 自身 aiProvider/apiKey/apiModel
-#    设了 SOLOBRAVE_AI_PROVIDER=zhipu + 智谱 key 即可让全部员工走智谱 GLM-4-flash
-#    留空则 fallback 到员工自身配置（向后兼容）
-AI_OVERRIDE_PROVIDER = os.environ.get('SOLOBRAVE_AI_PROVIDER', '').strip()
-AI_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_AI_API_KEY', '').strip()
-AI_OVERRIDE_MODEL = os.environ.get('SOLOBRAVE_AI_MODEL', '').strip()
+def _get_env_override(env_key):
+    """实时读取 .env 加载后的环境变量 override (避免模块常量缓存问题)."""
+    return os.environ.get(env_key, '').strip()
 
 
 # 知识归纳模拟模式开关：无真实 API Key 时返回示例知识文档，便于测试/演示
@@ -322,9 +324,9 @@ def get_embedding_config(emp_id=None):
     settings = _read_json(SETTINGS_FILE, {})
     emb_settings = settings.get('embedding', {}) or {}
 
-    # 环境变量最高优先级
-    provider = EMBEDDING_OVERRIDE_PROVIDER
-    api_key = EMBEDDING_OVERRIDE_API_KEY
+    # 环境变量最高优先级（实时读 .env）
+    provider = _get_env_override(SOLOBRAVE_EMBEDDING_PROVIDER_ENV)
+    api_key = _get_env_override(SOLOBRAVE_EMBEDDING_API_KEY_ENV)
 
     # settings.json 中的 embedding 配置（新嵌套格式优先，兼容旧平铺格式）
     if not provider:
@@ -332,8 +334,9 @@ def get_embedding_config(emp_id=None):
     if not api_key:
         api_key = (emb_settings.get('apiKey') or settings.get('embeddingApiKey', '')).strip()
 
-    base_url = (emb_settings.get('baseUrl', '')).strip()
-    model = (emb_settings.get('model', '')).strip()
+    # base_url / model 也支持 .env override（修复硅基流动 baseUrl 覆盖智谱的 bug）
+    base_url = _get_env_override('SOLOBRAVE_EMBEDDING_BASE_URL') or (emb_settings.get('baseUrl', '')).strip()
+    model = _get_env_override('SOLOBRAVE_EMBEDDING_MODEL') or (emb_settings.get('model', '')).strip()
 
     # 全局未配置时 fallback 到员工的 aiProvider / apiKey
     if emp_id:
@@ -2617,6 +2620,12 @@ def get_embedding(text, api_key, provider='openai', model=None, base_url=None):
         if e.code == 400 and len(text) > 450:
             logger.warning(f'  [Embedding] HTTP 400（疑似输入超长），截断到 450 字符重试一次: model={target_model}')
             return get_embedding(text[:450], api_key, provider=provider, model=model, base_url=base_url)
+        # 调试：把 HTTPError 的 url + 真实 api_key 前缀打出来，便于老大定位是哪个 key 出问题
+        logger.warning(
+            f'  [Embedding-Debug] HTTP {e.code} from {target_url} provider={provider} '
+            f'model={target_model} apiKey={(api_key or "")[:8]}... '
+            f'(key 长度 {len(api_key or "")})'
+        )
         raise
     return None
 
@@ -22776,11 +22785,14 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
 
     # ★ 全局 chat 模型 override（与 embedding 同模式，env 最高优先级）
     #    让老大用 .env 切全局 chat 模型（如换到智谱 GLM-4-flash），无需改 agents.json
-    if AI_OVERRIDE_PROVIDER and AI_OVERRIDE_API_KEY:
-        api_provider = AI_OVERRIDE_PROVIDER
-        api_key = AI_OVERRIDE_API_KEY
-        if AI_OVERRIDE_MODEL:
-            api_model = AI_OVERRIDE_MODEL
+    _ai_ov_provider = _get_env_override(SOLOBRAVE_AI_PROVIDER_ENV)
+    _ai_ov_key = _get_env_override(SOLOBRAVE_AI_API_KEY_ENV)
+    _ai_ov_model = _get_env_override(SOLOBRAVE_AI_MODEL_ENV)
+    if _ai_ov_provider and _ai_ov_key:
+        api_provider = _ai_ov_provider
+        api_key = _ai_ov_key
+        if _ai_ov_model:
+            api_model = _ai_ov_model
         custom_endpoint = ''  # override 时忽略 agent 自定义 endpoint（防 model 不匹配）
         logger.info(
             f'  [AI-Override] {agent_id} 全局 chat 走 {api_provider}/{api_model or "<default>"}'
@@ -27647,6 +27659,25 @@ def main():
         _check_auto_rotate_jwt_secret()
     except Exception as auto_err:
         logger.warning(f'  [JWT-AutoRotate] 检查异常（不阻断启动）: {auto_err}')
+
+    # Debug: 打印当前生效的 embedding/AI 配置（让老大一眼看出走哪个 provider）
+    try:
+        _dbg_emb = get_embedding_config()
+        logger.info(
+            f'  [Config-Debug] embedding: provider={_dbg_emb.get("provider")} '
+            f'model={_dbg_emb.get("model")} baseUrl={_dbg_emb.get("baseUrl")} '
+            f'apiKey={(_dbg_emb.get("apiKey") or "")[:8]}...'
+        )
+        _ai_ov_provider_dbg = _get_env_override(SOLOBRAVE_AI_PROVIDER_ENV)
+        _ai_ov_key_dbg = _get_env_override(SOLOBRAVE_AI_API_KEY_ENV)
+        _ai_ov_model_dbg = _get_env_override(SOLOBRAVE_AI_MODEL_ENV)
+        logger.info(
+            f'  [Config-Debug] chat override: provider={_ai_ov_provider_dbg or "(none)"} '
+            f'model={_ai_ov_model_dbg or "(none)"} '
+            f'apiKey={(_ai_ov_key_dbg or "")[:8]}...'
+        )
+    except Exception as _dbg_err:
+        logger.warning(f'  [Config-Debug] 读取配置失败: {_dbg_err}')
 
     logger.info('=' * 56)
     logger.info('  [SOLO] SoloBrave Server (Auth Enabled)')
