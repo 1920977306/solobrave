@@ -10059,6 +10059,20 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if a.get('id') == new_agent['id']:
                 new_agent['id'] = 'emp_' + uuid.uuid4().hex[:6]
                 break
+        # ★ 同 createdBy 下同名去重（含 archived，trim 后比较）：
+        #   - 防止同一账号反复创建同名员工造成列表堆积 / 旧员"复活"错觉
+        #   - 把 archived 也算冲突，避免"删-建同名"绕过
+        _req_uid = auth.user_info['userId']
+        _req_name = (new_agent['name'] or '').strip()
+        for a in agents:
+            if (a.get('createdBy') == _req_uid
+                    and (a.get('name') or '').strip() == _req_name):
+                self._send_json(409, {
+                    'error': f'已存在同名 AI 员工「{_req_name}」，请换名字或恢复原员工',
+                    'existing_id': a.get('id'),
+                    'existing_archived': bool(a.get('archived') or a.get('status') == 'archived')
+                })
+                return
         # 按 role 自动套用预设 systemPrompt 模板作为默认值；用户传入的自定义 systemPrompt 优先
         if not (new_agent['systemPrompt'] or '').strip():
             template = _ROLE_SYSTEM_PROMPT_TEMPLATES.get(new_agent['role'])
