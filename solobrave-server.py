@@ -1020,7 +1020,63 @@ def _get_secret():
     return secret.encode('utf-8')
 
 
+def _get_previous_secret():
+    """获取轮换前的旧 JWT secret（grace period 内仍接受旧 token）。"""
+    prev_path = SECRET_FILE + '.previous'
+    if not os.path.isfile(prev_path):
+        return None
+    try:
+        with open(prev_path, 'r') as f:
+            secret = f.read().strip()
+            if secret:
+                return secret.encode('utf-8')
+    except OSError:
+        return None
+    return None
+
+
+def _rotate_jwt_secret():
+    """轮换 JWT secret：当前 → .previous，新随机 → SECRET_FILE。
+
+    轮换后旧 secret 在 grace period（_JWT_PREVIOUS_GRACE_S）内仍可用于验证旧 token，
+    让客户端有时间刷新 token 而不会一次性全员登出。
+    """
+    global JWT_SECRET
+    _ensure_data_dir()
+    # 把当前 secret 写到 .previous
+    current = _get_secret()
+    prev_path = SECRET_FILE + '.previous'
+    rotation_time_path = SECRET_FILE + '.rotated_at'
+    try:
+        with open(prev_path, 'w') as f:
+            f.write(current.decode('utf-8', errors='replace'))
+        os.chmod(prev_path, 0o600)
+    except OSError as e:
+        logger.warning(f'  [JWT-Rotate] 备份旧 secret 失败: {e}')
+    # 生成新 secret
+    new_secret = uuid.uuid4().hex + uuid.uuid4().hex
+    try:
+        with open(SECRET_FILE, 'w') as f:
+            f.write(new_secret)
+        os.chmod(SECRET_FILE, 0o600)
+    except OSError as e:
+        raise RuntimeError(f'写入新 JWT secret 失败: {e}') from e
+    # 记录轮换时间
+    try:
+        with open(rotation_time_path, 'w') as f:
+            f.write(str(int(time.time())))
+        os.chmod(rotation_time_path, 0o600)
+    except OSError:
+        pass
+    # 清缓存（下次 _get_jwt_secret() 会重新读）
+    JWT_SECRET = new_secret.encode('utf-8')
+    logger.warning(
+        f'  [JWT-Rotate] ★ JWT secret 已轮换（grace period={_JWT_PREVIOUS_GRACE_S}s，旧 token 仍可验证）'
+    )
+
+
 JWT_SECRET = None  # 延迟初始化
+_JWT_PREVIOUS_GRACE_S = 24 * 3600  # 旧 secret 24h 内仍可验证（避免一次性全员登出）
 
 
 def _get_jwt_secret():
@@ -1028,6 +1084,24 @@ def _get_jwt_secret():
     if JWT_SECRET is None:
         JWT_SECRET = _get_secret()
     return JWT_SECRET
+
+
+def _get_jwt_secret_with_fallback():
+    """返回 (current, previous) 用于 verify_token 优先 current、失败试 previous。"""
+    return _get_jwt_secret(), _get_previous_secret()
+
+
+def _is_previous_secret_expired():
+    """检查 .previous secret 是否已过 grace period，过期则视为不存在。"""
+    rotation_time_path = SECRET_FILE + '.rotated_at'
+    if not os.path.isfile(rotation_time_path):
+        return True  # 没记录轮换时间 = 旧逻辑下没有 .previous，grace 立即过期
+    try:
+        with open(rotation_time_path, 'r') as f:
+            rotated_at = int(f.read().strip())
+    except (OSError, ValueError):
+        return True
+    return (time.time() - rotated_at) > _JWT_PREVIOUS_GRACE_S
 
 
 # ★ 登录暴力破解防护：每 (ip, username) 5 分钟最多 5 次失败，超过返回 429
@@ -1112,7 +1186,13 @@ def generate_token(user_id, role, pwd_version=0):
 
 
 def verify_token(token):
-    """验证 JWT token，返回 {userId, role} 或 None"""
+    """验证 JWT token，返回 {userId, role} 或 None
+
+    支持 JWT secret rotation 的 grace period：
+    - 优先用当前 secret 验证
+    - 失败再用上一 secret 验证（如果未过期）
+    - 都失败返回 None
+    """
     if not token:
         return None
     parts = token.split('.')
@@ -1120,17 +1200,27 @@ def verify_token(token):
         return None
     try:
         header_b64, payload_b64, signature_b64 = parts
-
-        # 验证签名
         signing_input = f"{header_b64}.{payload_b64}"
-        expected_sig = hmac.new(
-            _get_jwt_secret(),
-            signing_input.encode('utf-8'),
-            hashlib.sha256
-        ).digest()
         actual_sig = _base64url_decode(signature_b64)
 
-        if not hmac.compare_digest(expected_sig, actual_sig):
+        # 1) 优先用当前 secret 验证
+        current_secret = _get_jwt_secret()
+        expected_sig = hmac.new(
+            current_secret, signing_input.encode('utf-8'), hashlib.sha256
+        ).digest()
+        sig_valid = hmac.compare_digest(expected_sig, actual_sig)
+
+        # 2) 当前 secret 验证失败时，尝试上一 secret（grace period）
+        if not sig_valid and not _is_previous_secret_expired():
+            prev_secret = _get_previous_secret()
+            if prev_secret:
+                expected_sig_prev = hmac.new(
+                    prev_secret, signing_input.encode('utf-8'), hashlib.sha256
+                ).digest()
+                if hmac.compare_digest(expected_sig_prev, actual_sig):
+                    sig_valid = True
+
+        if not sig_valid:
             return None
 
         # 解码 payload
@@ -6882,6 +6972,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/auth/change-password':
             self._handle_change_password()
             return
+        if path == '/api/auth/admin/rotate-secret':
+            self._handle_rotate_jwt_secret()
+            return
 
         # Tool calls log
         if path == '/api/tool-calls/log':
@@ -8030,6 +8123,33 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
     # ═══════════════════════════════════════════════════
     # 用户管理 API
     # ═══════════════════════════════════════════════════
+
+    def _handle_rotate_jwt_secret(self):
+        """POST /api/auth/admin/rotate-secret — 管理员手动轮换 JWT secret
+
+        轮换后所有现有 token 在 grace period（默认 24h）内仍可用，
+        之后必须重新登录。返回新 secret 数量 + grace period 秒数。
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+        try:
+            _rotate_jwt_secret()
+        except Exception as e:
+            logger.error(f'  [JWT-Rotate] 轮换失败: {e}')
+            self._send_json_error(500, f'轮换失败: {e}')
+            return
+        self._send_json(200, {
+            'success': True,
+            'rotatedAt': int(time.time()),
+            'gracePeriodSeconds': _JWT_PREVIOUS_GRACE_S,
+            'message': 'JWT secret 已轮换，旧 token 在 grace period 内仍可验证'
+        })
 
     def _handle_get_users(self):
         """GET /api/users（需要 admin）"""
