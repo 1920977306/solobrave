@@ -9209,14 +9209,14 @@ window._pendingImages = [];
 
 // ============ Chat 重试链路加固 (refactor/chat-retry-pipeline) ============
 // 顶层常量:前端调用层(只动 sendViaOpenClaw / sendViaAPI 入口,不动 OpenClaw 网关内部)
-// - TIMEOUT_CHAT_MS: chat 端到端 UI 兜底超时(30s 早 reject 触发重试,后台任务不取消,
-//   因为 AbortController 无法中断已发出去的 WS 消息,lifecycleWaitMs 默认 120s 保留给
-//   真的慢 LLM 响应)
+// - TIMEOUT_CHAT_MS: chat 端到端 UI 兜底超时（120s,OpenClaw 实际首次 assistant event
+//   30-60s 到达;之前 30s 太短,AI 回复已在 WS 收到但前端先 reject 触发误重试 →
+//   'AbortError: chat timeout after 30000ms',页面没渲染回复。120s 留够缓冲）
 // - RETRY_BACKOFF_LLM_429 / RETRY_BACKOFF_NETWORK: 指数退避序列(单位 ms)
 //   429 限流按 1s/2s/4s 退避,网络错误立即重试 1 次(不 sleep,直接 retry)
 // - MAX_RETRY_LLM_429: 429 重试上限 3 次
 // - MAX_RETRY_NETWORK: 网络错误重试上限 1 次(其他错误不重试,直接报错)
-var TIMEOUT_CHAT_MS = 30000;
+var TIMEOUT_CHAT_MS = 120000;  // 30s → 120s (commit 2e18fc2 + commit fix/chat-timeout-120s)
 var RETRY_BACKOFF_LLM_429 = [0, 1000, 2000, 4000];   // 第 0 次=立即,1/2/3 次=1s/2s/4s
 var RETRY_BACKOFF_NETWORK = [0, 0];                  // 立即重试 1 次
 var MAX_RETRY_LLM_429 = 3;
