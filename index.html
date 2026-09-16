@@ -6959,25 +6959,31 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 <script>// Early login handler - works even if main script fails to load
 window.doLogin = function () {
   var btn = document.getElementById('loginBtn');
-  if (btn) btn.disabled = true;
+  // ★ ui/login-v21-redesign: 加 .loading class 触发 spinner + "正在验证..."
+  if (btn) { btn.disabled = true; btn.classList.add('loading'); }
   var username = document.getElementById('loginUsername');
   var password = document.getElementById('loginPassword');
   var errorDiv = document.getElementById('loginError');
-  if (!username || !password) return;
+  if (!username || !password) {
+    if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
+    return;
+  }
   if (!username.value.trim() || !password.value) {
     if (errorDiv) {
       errorDiv.textContent = '请输入用户名和密码';
-      errorDiv.style.display = 'block';
+      errorDiv.classList.add('show'); // 替换老 style.display='block'
     }
-    if (btn) btn.disabled = false;
+    if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
     return;
   }
+  // 通用复位 helper (success/error 都要恢复 button)
+  var resetBtn = function () {
+    if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
+  };
 
   // Try the full login function from main script
   if (typeof _fullLogin === 'function') {
-    _fullLogin().finally(function () {
-      if (btn) btn.disabled = false;
-    });
+    _fullLogin().finally(resetBtn);
   } else {
     // Main script not loaded yet, try manual fetch
     apiFetch('/api/auth/login', {
@@ -7001,16 +7007,16 @@ window.doLogin = function () {
       } else {
         if (errorDiv) {
           errorDiv.textContent = data.error || '登录失败';
-          errorDiv.style.display = 'block';
+          errorDiv.classList.add('show');
         }
-        if (btn) btn.disabled = false;
+        resetBtn();
       }
     }).catch(function (e) {
       if (errorDiv) {
         errorDiv.textContent = '连接服务器失败';
-        errorDiv.style.display = 'block';
+        errorDiv.classList.add('show');
       }
-      if (btn) btn.disabled = false;
+      resetBtn();
     });
   }
 };
@@ -7536,28 +7542,214 @@ window.doLogin = function () {
 
 
 <!-- Login Overlay -->
-<div id="loginOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:linear-gradient(135deg,rgba(0,0,0,0.4),rgba(0,0,0,0.2));backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);align-items:center;justify-content:center;">
-  <div style="background:rgba(255,255,255,0.92);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border-radius:24px;padding:40px;width:360px;max-width:90%;box-shadow:0 25px 50px rgba(0,0,0,0.15);border:1px solid rgba(255,255,255,0.3);">
-    <div style="text-align:center;margin-bottom:32px;">
-      <div style="font-size:48px;margin-bottom:12px;">🦞</div>
-      <div style="font-size:20px;font-weight:600;color:var(--text-primary);">全可AI</div>
-      <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">AI 员工管理系统</div>
+<style>/* ui/login-v21-redesign: V2.1 token 收口 + 4 UX 加分点
+   - 团队门面: 登录卡内显示 5 个 AI 员工 avatar overlap (新用户体验第一关的"AI 团队"叙事)
+   - loading skeleton: 登录按钮点击切到 spinner + 禁用 + "正在验证..."
+   - error 红框 (V2.1 token): 用 --color-status-lost-bg/text 替换老 #FFF3E0/#E65100
+   - 空态/footer: 跟 V2.1 设计系统一致 */
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: var(--color-bg, #FFFFFF);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.login-overlay[hidden] { display: none; }
+.login-card {
+  background: var(--color-bg, #FFFFFF);
+  width: 360px;
+  max-width: 100%;
+  border-radius: var(--radius-xl, 16px);
+  padding: 36px 32px 28px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+  border: 0.5px solid var(--separator, rgba(0, 0, 0, 0.08));
+}
+.login-header { text-align: center; margin-bottom: 24px; }
+.login-logo {
+  font-size: 56px;
+  margin-bottom: 12px;
+  display: inline-block;
+  filter: drop-shadow(0 4px 16px var(--color-ai-bg-soft, #EEF0FF));
+}
+.login-app-name {
+  font: 600 22px/1.3 -apple-system, sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
+  letter-spacing: -0.4px;
+}
+.login-tagline {
+  font: 400 13px/1.5 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+  margin-top: 4px;
+}
+/* 团队门面: avatar row + caption */
+.login-team-row {
+  margin: 0 0 24px;
+  padding: 14px 16px;
+  background: var(--color-bg-softer, #F2F2F7);
+  border-radius: var(--radius-md, 10px);
+  text-align: center;
+}
+.login-team-avatars {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.login-team-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid var(--color-bg, #FFFFFF);
+  margin: 0 -6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 11px/1 -apple-system, sans-serif;
+  color: #FFFFFF;
+  flex-shrink: 0;
+}
+.login-team-avatar.avatar-blue { background: linear-gradient(135deg, #5AC8FA, #007AFF); }
+.login-team-avatar.avatar-green { background: linear-gradient(135deg, #34C759, #2BA84A); }
+.login-team-avatar.avatar-yellow { background: linear-gradient(135deg, #FFD60A, #FF9500); }
+.login-team-avatar.avatar-red { background: linear-gradient(135deg, #FF3B30, #D70015); }
+.login-team-avatar.avatar-purple { background: linear-gradient(135deg, #AF52DE, #8944AB); }
+.login-team-text {
+  font: 500 12px/1.4 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+}
+.login-team-text strong { color: var(--color-text-primary, #1C1C1E); font-weight: 600; }
+/* 表单 */
+.login-fields { margin-bottom: 16px; }
+.login-field { margin-bottom: 12px; }
+.login-field:last-child { margin-bottom: 0; }
+.login-label {
+  display: block;
+  font: 600 11px/1.4 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+  margin-bottom: 6px;
+  letter-spacing: 0.4px;
+}
+.login-input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--separator, rgba(0, 0, 0, 0.08));
+  border-radius: var(--radius-md, 10px);
+  font: 400 14px/1.4 -apple-system, sans-serif;
+  background: var(--color-bg, #FFFFFF);
+  color: var(--color-text-primary, #1C1C1E);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+  outline: none;
+}
+.login-input:focus {
+  border-color: var(--color-primary, #007AFF);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+}
+.login-input::placeholder { color: var(--color-text-tertiary, #AEAEB2); }
+/* 主按钮: V2.1 primary (solid) 替换老 gradient */
+.login-btn {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: var(--radius-md, 10px);
+  background: var(--color-primary, #007AFF);
+  color: #FFFFFF;
+  font: 600 15px/1.4 -apple-system, sans-serif;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.05s ease;
+  margin-top: 4px;
+}
+.login-btn:hover { background: var(--color-primary-hover, #0066D6); }
+.login-btn:active { transform: translateY(0.5px); }
+.login-btn:disabled,
+.login-btn.loading {
+  background: var(--color-bg-softer, #F2F2F7);
+  color: var(--color-text-tertiary, #AEAEB2);
+  cursor: not-allowed;
+  transform: none;
+}
+.login-btn-text { display: inline; }
+.login-btn-loading {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.login-btn.loading .login-btn-text { display: none; }
+.login-btn.loading .login-btn-loading { display: inline-flex; }
+.login-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  border-top-color: var(--color-text-tertiary, #AEAEB2);
+  border-radius: 50%;
+  display: inline-block;
+  animation: loginSpin 0.8s linear infinite;
+}
+.login-btn.loading .login-spinner {
+  border-color: rgba(142, 142, 147, 0.3);
+  border-top-color: var(--color-text-tertiary, #AEAEB2);
+}
+@keyframes loginSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+/* 错误框: V2.1 status-lost token (替换老 #FFF3E0/#E65100) */
+.login-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--color-status-lost-bg, rgba(255, 59, 48, 0.08));
+  border: 0.5px solid rgba(255, 59, 48, 0.2);
+  border-radius: var(--radius-md, 8px);
+  color: var(--color-status-lost, #FF3B30);
+  font: 400 13px/1.4 -apple-system, sans-serif;
+  display: none;
+}
+.login-error.show { display: block; }
+.login-footer {
+  margin-top: 16px;
+  text-align: center;
+  font: 400 11px/1.4 -apple-system, sans-serif;
+  color: var(--color-text-tertiary, #AEAEB2);
+}
+</style>
+<div id="loginOverlay" class="login-overlay" hidden>
+  <div class="login-card">
+    <div class="login-header">
+      <div class="login-logo">🦞</div>
+      <div class="login-app-name">SoloBrave</div>
+      <div class="login-tagline">AI 员工虚拟团队</div>
     </div>
-    <div style="margin-bottom:16px;">
-      <label style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">用户名</label>
-      <input type="text" id="loginUsername" placeholder="输入用户名..." style="width:100%;padding:12px 14px;border:1px solid var(--separator);border-radius:12px;font-size:14px;background:var(--bg-secondary);transition:all 0.2s;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--separator)'">
+    <div class="login-team-row">
+      <div class="login-team-avatars">
+        <div class="login-team-avatar avatar-blue">回</div>
+        <div class="login-team-avatar avatar-yellow">薇</div>
+        <div class="login-team-avatar avatar-green">理</div>
+        <div class="login-team-avatar avatar-purple">创</div>
+        <div class="login-team-avatar avatar-red">报</div>
+      </div>
+      <div class="login-team-text">登录即获 <strong>5 位 AI 员工</strong> 虚拟团队</div>
     </div>
-    <div style="margin-bottom:24px;">
-      <label style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">密码</label>
-      <input type="password" id="loginPassword" placeholder="输入密码..." style="width:100%;padding:12px 14px;border:1px solid var(--separator);border-radius:12px;font-size:14px;background:var(--bg-secondary);transition:all 0.2s;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--separator)'">
+    <div class="login-fields">
+      <div class="login-field">
+        <label class="login-label" for="loginUsername">用户名</label>
+        <input type="text" id="loginUsername" class="login-input" placeholder="输入用户名" autocomplete="username">
+      </div>
+      <div class="login-field">
+        <label class="login-label" for="loginPassword">密码</label>
+        <input type="password" id="loginPassword" class="login-input" placeholder="输入密码" autocomplete="current-password">
+      </div>
     </div>
-    <button id="loginBtn" onclick="doLogin()" style="width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent-hover));color:white;font-size:15px;font-weight:600;cursor:pointer;transition:all 0.2s;box-shadow:0 4px 16px rgba(255,107,53,0.3);" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='translateY(0)'">
-      登录
+    <button id="loginBtn" class="login-btn" onclick="doLogin()">
+      <span class="login-btn-text">登录</span>
+      <span class="login-btn-loading">
+        <span class="login-spinner"></span>正在验证...
+      </span>
     </button>
-    <div id="loginError" style="margin-top:12px;padding:10px 12px;background:#FFF3E0;border-radius:8px;color:#E65100;font-size:13px;display:none;"></div>
-    <div style="margin-top:16px;text-align:center;font-size:12px;color:var(--text-tertiary);">
-      本地模式 · 数据存储在浏览器中
-    </div>
+    <div id="loginError" class="login-error"></div>
+    <div class="login-footer">本地模式 · 数据存储在浏览器中</div>
   </div>
 </div>
 
@@ -9338,7 +9530,8 @@ async function apiFetch(url, options = {}) {
       localStorage.removeItem('sb_auth_token');
       // 已在登录页时不重复跳转，避免循环
       var loginOverlay = document.getElementById('loginOverlay');
-      if (!loginOverlay || loginOverlay.style.display !== 'flex') {
+      // ★ ui/login-v21-redesign: 改用 hidden 属性判断 (替换老 inline style.display)
+      if (!loginOverlay || loginOverlay.hidden) {
         showLogin();
         showToast('⚠️ 登录已过期，请重新登录');
       }
@@ -9476,15 +9669,24 @@ async function checkAuth() {
   // 没有有效登录，显示登录页
   showLogin();
 }
+// ★ ui/login-v21-redesign: 用 hidden 属性切换 (替换老 inline style.display)
 function showLogin() {
-  document.getElementById('loginOverlay').style.display = 'flex';
-  document.querySelector('.app-container').style.display = 'none';
-  document.querySelector('.top-banner').style.display = 'none';
+  var lo = document.getElementById('loginOverlay');
+  if (lo) lo.hidden = false;
+  var ac = document.querySelector('.app-container'); if (ac) ac.hidden = true;
+  var tb = document.querySelector('.top-banner'); if (tb) tb.hidden = true;
+  // 自动聚焦第一个字段, 提升体验
+  setTimeout(function () {
+    var u = document.getElementById('loginUsername');
+    if (u && !u.value) u.focus();
+    else { var p = document.getElementById('loginPassword'); if (p) p.focus(); }
+  }, 50);
 }
 function hideLogin() {
-  document.getElementById('loginOverlay').style.display = 'none';
-  document.querySelector('.app-container').style.display = 'flex';
-  document.querySelector('.top-banner').style.display = 'flex';
+  var lo = document.getElementById('loginOverlay');
+  if (lo) lo.hidden = true;
+  var ac = document.querySelector('.app-container'); if (ac) ac.hidden = false;
+  var tb = document.querySelector('.top-banner'); if (tb) tb.hidden = false;
 }
 function showMainApp() {
   hideLogin();
@@ -9957,9 +10159,19 @@ async function _fullLogin() {
   var username = document.getElementById('loginUsername').value.trim();
   var password = document.getElementById('loginPassword').value;
   var errorDiv = document.getElementById('loginError');
+  var btn = document.getElementById('loginBtn');
+  // ★ ui/login-v21-redesign: 进入函数时确认 button 已是 loading 态 (doLogin 已设)
+  // 这里补一次 (防止直接调 _fullLogin 而不走 doLogin)
+  if (btn) { btn.disabled = true; btn.classList.add('loading'); }
+  var resetBtn = function () {
+    if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
+  };
   if (!username || !password) {
-    errorDiv.textContent = '请输入用户名和密码';
-    errorDiv.style.display = 'block';
+    if (errorDiv) {
+      errorDiv.textContent = '请输入用户名和密码';
+      errorDiv.classList.add('show');
+    }
+    resetBtn();
     return;
   }
   try {
@@ -9973,7 +10185,14 @@ async function _fullLogin() {
         password
       })
     });
-    if (!resp) { if (errorDiv) { errorDiv.textContent = '用户名或密码错误'; errorDiv.style.display = 'block'; } var btn = document.getElementById('loginBtn'); if (btn) btn.disabled = false; return; }
+    if (!resp) {
+      if (errorDiv) {
+        errorDiv.textContent = '用户名或密码错误';
+        errorDiv.classList.add('show');
+      }
+      resetBtn();
+      return;
+    }
     const data = await resp.json();
     if (data.token) {
       currentUser = {
@@ -9996,12 +10215,17 @@ async function _fullLogin() {
       authToken = data.token;
       localStorage.setItem('sb_current_user', JSON.stringify(currentUser));
       localStorage.setItem('sb_auth_token', data.token);
-      errorDiv.style.display = 'none';
+      if (errorDiv) errorDiv.classList.remove('show');
+      // 成功: 重置按钮态 (button 即将被 hideLogin 移除, 但保险起见)
+      resetBtn();
       showMainApp();
       showToast('✅ 登录成功，欢迎 ' + (currentUser.displayName || currentUser.name || currentUser.username));
     } else {
-      errorDiv.textContent = data.error || '登录失败，请检查用户名和密码';
-      errorDiv.style.display = 'block';
+      if (errorDiv) {
+        errorDiv.textContent = data.error || '登录失败，请检查用户名和密码';
+        errorDiv.classList.add('show');
+      }
+      resetBtn();
     }
   } catch (e) {
     // 后端未启动，降级到本地模式
@@ -10029,7 +10253,9 @@ async function _fullLogin() {
     authToken = 'local_mode';
     localStorage.setItem('sb_current_user', JSON.stringify(currentUser));
     localStorage.setItem('sb_auth_token', 'local_mode');
-    errorDiv.style.display = 'none';
+    if (errorDiv) errorDiv.classList.remove('show');
+    // ★ ui/login-v21-redesign: 本地模式 fallback 也恢复 button
+    if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
     showMainApp();
     showToast('⚠️ 后端未连接，使用本地模式');
   }
