@@ -1084,14 +1084,16 @@ def _base64url_decode(s):
     return base64.urlsafe_b64decode(s)
 
 
-def generate_token(user_id, role):
-    """生成 JWT token"""
+def generate_token(user_id, role, pwd_version=0):
+    """生成 JWT token；pwd_version 记录 token 签发时的密码版本，
+    改密码后用户记录 passwordChangedAt 会更新，旧 token 自动失效。"""
     header = {"alg": "HS256", "typ": "JWT"}
     payload = {
         "sub": user_id,
         "role": role,
         "exp": int(time.time()) + JWT_EXPIRE_SECONDS,
-        "iat": int(time.time())
+        "iat": int(time.time()),
+        "pwd": pwd_version,  # 密码版本号，改密码后递增 → 旧 token 自然失效
     }
 
     header_b64 = _base64url_encode(json.dumps(header, separators=(',', ':')))
@@ -1139,7 +1141,8 @@ def verify_token(token):
 
         return {
             'userId': payload.get('sub'),
-            'role': payload.get('role')
+            'role': payload.get('role'),
+            'pwd': payload.get('pwd', 0),  # 密码版本号，用于 token失效校验
         }
     except Exception:
         return None
@@ -2064,6 +2067,12 @@ def _authenticate(headers, client_ip=None, request_handler=None):
     # 创建 AuthResult 并加载用户记录以获取 team 信息
     result = AuthResult(user_info=user_info)
     result.load_user_record()
+    # ★ Token 失效校验：密码改过（pwdVersion 递增）后旧 token 自动失效
+    if result.user_record is not None:
+        current_pwd_version = int(result.user_record.get('pwdVersion', 0))
+        token_pwd_version = int(user_info.get('pwd', 0))
+        if token_pwd_version < current_pwd_version:
+            return AuthResult(error='密码已修改，请重新登录', status=401)
     return result
 
 
@@ -7503,8 +7512,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         user['lastLoginAt'] = datetime.now().isoformat()
         _save_users(users)
 
-        # 生成 token
-        token = generate_token(user['id'], user.get('role', 'employee'))
+        # 生成 token（pwd_version 用于改密后让旧 token 自动失效）
+        token = generate_token(user['id'], user.get('role', 'employee'), user.get('pwdVersion', 0))
 
         self._send_json(200, {
             'token': token,
@@ -7786,6 +7795,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         pwd_hash, salt = hash_password(new_password)
         user['passwordHash'] = pwd_hash
         user['passwordSalt'] = salt
+        # ★ 递增 pwdVersion：旧 token 自动失效，无需黑名单
+        user['pwdVersion'] = int(user.get('pwdVersion', 0)) + 1
         _save_users(users)
 
         self._send_json(200, {'message': '密码修改成功'})
