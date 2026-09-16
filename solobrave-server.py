@@ -1938,7 +1938,12 @@ class AuthResult:
 
 
 def _get_localhost_auth_result(headers, parsed_body=None):
-    """本地回环地址的认证结果：优先根据 X-Agent-Id 识别 AI 员工创建者，否则检查 body 中的 agent_id，最后回退到 localhost"""
+    """本地回环地址的认证结果：优先根据 X-Agent-Id 识别 AI 员工创建者，否则检查 body 中的 agent_id。
+
+    安全收紧（2022026-09-16）：移除匿名 localhost admin 兜底。
+    没有 X-Agent-Id / body.agent_id 的 localhost 请求直接返回 401，
+    避免 SSRF 或本地恶意进程获得 admin。
+    """
     agent_id = headers.get('X-Agent-Id', '').strip()
     if not agent_id and isinstance(parsed_body, dict):
         body_agent_id = parsed_body.get('agent_id')
@@ -1949,12 +1954,20 @@ def _get_localhost_auth_result(headers, parsed_body=None):
         if agent:
             created_by = agent.get('createdBy')
             if created_by:
+                # ★ 审计：本地 AI 员工调用打日志
+                logger.info(f'  [Auth] localhost AI 调用: agent_id={agent_id} created_by={created_by}')
                 result = AuthResult(user_info={'userId': created_by, 'role': 'admin'})
                 # 标记为 AI 员工的本地调用：数据接口（如达人列表）需按创建者过滤，
                 # 不能让 AI 员工以 admin 身份绕过权限拉取全量数据
                 result.localhost_agent_id = agent_id
                 return result
-    return AuthResult(user_info={'userId': 'localhost', 'role': 'admin'})
+        # 给了 X-Agent-Id 但查不到 agent — 拒绝
+        client_ip = (parsed_body or {}).get('_client_ip') if isinstance(parsed_body, dict) else None
+        logger.warning(f'  [Auth] localhost 调用携带未知 X-Agent-Id={agent_id!r}，拒绝')
+        return AuthResult(error='未识别的 AI 员工身份，请提供有效 X-Agent-Id 或登录', status=401)
+    # ★ 关键改动：不再兜底给 localhost admin，要求显身份（X-Agent-Id 或 Bearer token）
+    logger.warning(f'  [Auth] localhost 调用未带 X-Agent-Id 或 Bearer，拒绝匿名 admin')
+    return AuthResult(error='本地调用需要 X-Agent-Id 头或 Bearer token', status=401)
 
 
 def _resolve_talent_owner_id(auth):
