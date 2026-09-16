@@ -15073,6 +15073,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not body or not body.get('title'):
             self._send_json_error(400, '任务标题不能为空')
             return
+        # ★ task status 白名单：仅 pending/in_progress/completed/cancelled，缺失默认 pending
+        _req_task_status = body.get('status')
+        if _req_task_status is None:
+            _req_task_status = 'pending'
+        elif _req_task_status not in _ALLOWED_TASK_STATUSES:
+            self._send_json_error(400, f'非法任务状态: {_req_task_status}，仅允许 {list(_ALLOWED_TASK_STATUSES)}')
+            return
         task_id = f"task_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         conn = _db_conn()
         try:
@@ -15085,7 +15092,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 body.get('assigneeName', ''),
                 auth.user_info.get('userId', ''),
                 auth.user_info.get('displayName', ''),
-                body.get('status', 'pending'),
+                _req_task_status,
                 body.get('priority', 'normal'),
                 body.get('deadline', ''),
                 body.get('projectId', ''),
@@ -15106,6 +15113,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Missing body')
+            return
+        # ★ task status 白名单（仅当 body 带 status 字段时校验）
+        if 'status' in body and body['status'] not in _ALLOWED_TASK_STATUSES:
+            self._send_json_error(400, f'非法任务状态: {body["status"]}，仅允许 {list(_ALLOWED_TASK_STATUSES)}')
             return
         conn = _db_conn()
         try:
@@ -21173,6 +21184,9 @@ def _kp_row_to_dict(r, with_evidence=False):
 
 
 # ═══ 合作单（deals）：达人-商品合作全流程 ═══
+# Task 状态白名单：仅 pending/in_progress/completed/cancelled（防止 POST/PUT 写入非法 status）
+_ALLOWED_TASK_STATUSES = ('pending', 'in_progress', 'completed', 'cancelled')
+
 # 状态机：pending → negotiating → sample_sent → approved → live → completed/failed
 _DEAL_STATUS_FLOW = {
     'pending': ('negotiating', 'failed'),
