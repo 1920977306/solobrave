@@ -1797,6 +1797,22 @@ def _save_chat(agent_id, messages):
 
 # ─── OpenClaw CLI 辅助函数 ──────────────────────────────
 
+def _safe_cli_arg(value, allow_spaces=True):
+    """防止用户控制字段作为 subprocess 参数时被当成 CLI 选项解析或分词。
+
+    - 拒绝以 '-' 开头的值（会被 CLI 当成 --flag）
+    - 可选：拒绝包含空白字符的值（被 argv 拆分风险）
+    - 返回校验后的值，校验失败抛 ValueError
+    """
+    if not isinstance(value, str) or not value:
+        raise ValueError(f'Invalid CLI argument: {value!r}')
+    if value.startswith('-'):
+        raise ValueError(f'CLI argument cannot start with "-": {value!r}')
+    if not allow_spaces and any(c.isspace() for c in value):
+        raise ValueError(f'CLI argument cannot contain whitespace: {value!r}')
+    return value
+
+
 def _run_openclaw(args, cwd=None, input_data=None):
     """执行 openclaw CLI 命令"""
     cmd = [OPENCLAW_CLI] + args
@@ -22545,11 +22561,22 @@ def _handle_openclaw_create_agent(self):
     if not name:
         self._send_json_error(400, 'Agent name is required')
         return
+    # ★ 防御：name / model 防 CLI 参数注入 + 路径穿越
+    try:
+        name = _safe_cli_arg(name)
+        # name 同时用于拼文件路径，禁止 .. / / / \ / 开头 .（防路径穿越）
+        if '..' in name or '/' in name or '\\' in name or name.startswith('.'):
+            raise ValueError(f'name 含非法路径字符: {name!r}')
+        if model:
+            model = _safe_cli_arg(model)
+    except ValueError as e:
+        self._send_json_error(400, str(e))
+        return
 
     # 构建 CLI 参数 (--non-interactive requires --workspace)
     home = os.path.expanduser('~')
-    if not workspace:
-        workspace = os.path.join(home, '.openclaw', 'agents', name)
+    # ★ 防御：忽略用户传的 workspace，统一走硬编码默认路径（防任意目录创建）
+    workspace = os.path.join(home, '.openclaw', 'agents', name)
     # 确保 workspace 目录存在
     os.makedirs(workspace, exist_ok=True)
 
@@ -22618,6 +22645,16 @@ def _handle_openclaw_update_agent(self):
 
     if not name:
         self._send_json_error(400, 'Agent name is required')
+        return
+    # ★ 防御：name / model 防 CLI 参数注入 + 路径穿越
+    try:
+        name = _safe_cli_arg(name)
+        if '..' in name or '/' in name or '\\' in name or name.startswith('.'):
+            raise ValueError(f'name 含非法路径字符: {name!r}')
+        if model:
+            model = _safe_cli_arg(model)
+    except ValueError as e:
+        self._send_json_error(400, str(e))
         return
 
     results = {'success': True, 'updates': []}
@@ -22701,6 +22738,14 @@ def _handle_openclaw_delete_agent(self, agent_name):
     auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
+        return
+    # ★ 防御：agent_name (URL 路径参数) 防 CLI 参数注入 + 路径穿越
+    try:
+        agent_name = _safe_cli_arg(agent_name)
+        if '..' in agent_name or '/' in agent_name or '\\' in agent_name or agent_name.startswith('.'):
+            raise ValueError(f'agent_name 含非法路径字符: {agent_name!r}')
+    except ValueError as e:
+        self._send_json_error(400, str(e))
         return
     success, stdout, stderr, rc = _run_openclaw(['agents', 'delete', agent_name])
 
@@ -22789,6 +22834,12 @@ def _handle_skills_search(self):
     if not query:
         self._send_json(400, {'error': 'Missing query parameter "q"'})
         return
+    # ★ 防御：query 防 CLI 参数注入（不能以 '-' 开头）
+    try:
+        query = _safe_cli_arg(query)
+    except ValueError as e:
+        self._send_json(400, {'error': str(e)})
+        return
 
     success, stdout, stderr, rc = _run_openclaw(['skill', 'search', query, '--json'])
 
@@ -22835,6 +22886,12 @@ def _handle_skills_install(self):
     if not skill_name:
         self._send_json(400, {'error': 'skillName is required'})
         return
+    # ★ 防御：skill_name 防 CLI 参数注入
+    try:
+        skill_name = _safe_cli_arg(skill_name)
+    except ValueError as e:
+        self._send_json(400, {'error': str(e)})
+        return
 
     success, stdout, stderr, rc = _run_openclaw(['skill', 'install', skill_name])
 
@@ -22876,6 +22933,12 @@ def _handle_skills_remove(self):
     skill_name = body.get('skillName', '').strip()
     if not skill_name:
         self._send_json(400, {'error': 'skillName is required'})
+        return
+    # ★ 防御：skill_name 防 CLI 参数注入
+    try:
+        skill_name = _safe_cli_arg(skill_name)
+    except ValueError as e:
+        self._send_json(400, {'error': str(e)})
         return
 
     success, stdout, stderr, rc = _run_openclaw(['skill', 'remove', skill_name])
@@ -23048,6 +23111,13 @@ def _handle_pairing_approve(self):
         self._send_json(400, {'error': '配对码不能为空'})
         return
 
+    # ★ 防御：channel / code 防 CLI 参数注入
+    try:
+        channel = _safe_cli_arg(channel)
+        code = _safe_cli_arg(code, allow_spaces=False)
+    except ValueError as e:
+        self._send_json(400, {'error': str(e)})
+        return
     success, stdout, stderr, rc = _run_openclaw(['pairing', 'approve', channel, code])
 
     if success and rc == 0:
