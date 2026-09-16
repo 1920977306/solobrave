@@ -299,6 +299,14 @@ EMBEDDING_PROVIDERS = {
 EMBEDDING_OVERRIDE_PROVIDER = os.environ.get('SOLOBRAVE_EMBEDDING_PROVIDER', '').strip()
 EMBEDDING_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_EMBEDDING_API_KEY', '').strip()
 
+# ★ 全局 chat 覆盖配置（让老大用 .env 切换聊天模型，无需逐个改 agents.json）
+#    优先级：环境变量 > settings.json ai > agent 自身 aiProvider/apiKey/apiModel
+#    设了 SOLOBRAVE_AI_PROVIDER=zhipu + 智谱 key 即可让全部员工走智谱 GLM-4-flash
+#    留空则 fallback 到员工自身配置（向后兼容）
+AI_OVERRIDE_PROVIDER = os.environ.get('SOLOBRAVE_AI_PROVIDER', '').strip()
+AI_OVERRIDE_API_KEY = os.environ.get('SOLOBRAVE_AI_API_KEY', '').strip()
+AI_OVERRIDE_MODEL = os.environ.get('SOLOBRAVE_AI_MODEL', '').strip()
+
 
 # 知识归纳模拟模式开关：无真实 API Key 时返回示例知识文档，便于测试/演示
 # 优先级：环境变量 > settings.json
@@ -22765,6 +22773,18 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
             logger.warning(f'  [ChatHistory] {agent_id} 加载历史失败（继续，AI 无上下文）: type={type(e).__name__} err={e}')
 
     messages.append({'role': 'user', 'content': user_message})
+
+    # ★ 全局 chat 模型 override（与 embedding 同模式，env 最高优先级）
+    #    让老大用 .env 切全局 chat 模型（如换到智谱 GLM-4-flash），无需改 agents.json
+    if AI_OVERRIDE_PROVIDER and AI_OVERRIDE_API_KEY:
+        api_provider = AI_OVERRIDE_PROVIDER
+        api_key = AI_OVERRIDE_API_KEY
+        if AI_OVERRIDE_MODEL:
+            api_model = AI_OVERRIDE_MODEL
+        custom_endpoint = ''  # override 时忽略 agent 自定义 endpoint（防 model 不匹配）
+        logger.info(
+            f'  [AI-Override] {agent_id} 全局 chat 走 {api_provider}/{api_model or "<default>"}'
+        )
 
     # 优先尝试 agent 自己的 provider 配置；如果失败，走 settings.json 多 provider 降级
     result = _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, messages, timeout=PROXY_TIMEOUT)
