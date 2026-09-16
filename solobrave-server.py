@@ -154,6 +154,45 @@ WSS_REJECT_EXTERNAL_ORIGIN = os.environ.get(
     'SOLOBRAVE_WSS_REJECT_EXTERNAL_ORIGIN', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# ★ WSS Origin 白名单补充：本机所有 IPv4/IPv6 地址（loopback / LAN）
+#    自动解析 socket.getaddrinfo + psutil 风格接口扫描，避免 LAN 访问时
+#    Origin hostname 是网卡 IP（如 192.168.x.x）被 REJECT 模式误拦。
+#    真正的外部 origin 仍被 reject。
+import socket as _socket
+
+def _collect_local_ip_hosts():
+    """收集本机所有 IP / hostname（含 loopback / LAN）作为 WSS Origin 白名单补充。"""
+    hosts = set()
+    try:
+        # hostname 自身（如 'AIMac-mini.local'）
+        hosts.add(_socket.gethostname().lower())
+    except Exception:
+        pass
+    try:
+        # getaddrinfo 解析所有地址（IPv4 + IPv6）
+        for info in _socket.getaddrinfo(_socket.gethostname(), None):
+            ip = info[4][0]
+            # 去掉 zone id（IPv6 link-local 含 %en0）
+            ip = ip.split('%')[0].lower()
+            hosts.add(ip)
+    except Exception:
+        pass
+    try:
+        # 直接 UDP socket 拿默认出口 IP（不会真发包）
+        s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        try:
+            s.connect(('8.8.8.8', 80))
+            hosts.add(s.getsockname()[0].lower())
+        finally:
+            s.close()
+    except Exception:
+        pass
+    return hosts
+
+_LOCAL_IP_HOSTS = _collect_local_ip_hosts()
+# 合并基础白名单（loopback + bind hostname）
+_LOCAL_IP_HOSTS.update({'localhost', '127.0.0.1', '::1'})
+
 # ★ AI 身份约束校验模式：默认 True（软校验，缺失时 warning + 仍调用 AI）
 #    设为 False 则退回硬校验（缺失时直接拒绝 AI 调用 — 老的安全姿态）
 #    推荐：开发/调试用 True（默认）；生产环境想严格时设 False 或 SOLOBRAVE_REQUIRE_AI_ID_CHECK=1
@@ -27073,7 +27112,10 @@ def _start_wss_proxy(cert_file, key_file, bind, port, target_host, target_port):
         try:
             if origin:
                 _host = (urlparse(origin).hostname or '').lower()
-                _allowed_hosts = {'localhost', '127.0.0.1', '::1', (bind or '').lower()}
+                # 白名单：基础 loopback + bind + 自动解析的本机所有 IP
+                # （LAN 访问时 Origin hostname 是网卡 IP，如 192.168.1.25）
+                _allowed_hosts = set(_LOCAL_IP_HOSTS)
+                _allowed_hosts.add((bind or '').lower())
                 if _host and _host not in _allowed_hosts:
                     if WSS_REJECT_EXTERNAL_ORIGIN:
                         logger.warning(
