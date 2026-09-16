@@ -13496,6 +13496,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if category:
                 conds.append('category = ?')
                 params.append(category)
+            # ★ 数据隔离：非管理员（含 AI 员工本地调用）只看自己 + 自己 AI 员工创建的规律
+            if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+                uid = _resolve_talent_owner_id(auth)
+                visible_ids = {uid} | set(_get_user_emp_ids(uid))
+                if visible_ids:
+                    placeholders = ','.join('?' for _ in visible_ids)
+                    conds.append(f'created_by IN ({placeholders})')
+                    params.extend(visible_ids)
+                else:
+                    # 没有可见 owner 时强制空结果（避免越权）
+                    conds.append('1 = 0')
             if conds:
                 sql += ' WHERE ' + ' AND '.join(conds)
             sql += ' ORDER BY confidence DESC, updated_at DESC LIMIT ?'
@@ -16025,10 +16036,18 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if q:
                 sql += " AND (LOWER(name) LIKE ? OR LOWER(main_category) LIKE ?)"
                 params.extend([f'%{q}%', f'%{q}%'])
+            # ★ 数据隔离：非管理员只看共享品牌（group_id 为空）+ 自己所在项目组的品牌
+            if not auth.is_admin:
+                user_group_ids = set(getattr(auth, 'group_ids', []) or [])
+                if user_group_ids:
+                    sql += " AND (group_id = '' OR group_id IS NULL OR group_id IN ({ph}))".format(
+                        ph=','.join('?' for _ in user_group_ids)
+                    )
+                    params.extend(user_group_ids)
+                else:
+                    sql += " AND (group_id = '' OR group_id IS NULL)"
             sql += " ORDER BY updated_at DESC"
-            logger.debug(f'[DEBUG] GET /api/brands SQL: {sql} params={params}')
             rows = conn.execute(sql, params).fetchall()
-            logger.debug(f'[DEBUG] GET /api/brands rows={len(rows)}')
             brands = [_brand_row_to_dict(r) for r in rows]
             # Fallback：brands 表为空时，从 products 表聚合生成品牌列表，兼容旧数据
             if not brands:
