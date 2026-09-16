@@ -1813,6 +1813,22 @@ def _safe_cli_arg(value, allow_spaces=True):
     return value
 
 
+def _sanitize_filename_segment(value):
+    """清理用户控制的文件名段（用于拼路径或 CLI 参数的 name / openclawName 等）。
+
+    - 拒绝 .. / / / \\ / 开头 . / 以 - 开头（防路径穿越 + 隐藏目录 + CLI 参数注入）
+    - 失败返回空串（让上游走默认路径）
+    """
+    if not isinstance(value, str):
+        return ''
+    v = value.strip()
+    if not v or v.startswith('-') or v.startswith('.'):
+        return ''
+    if '..' in v or '/' in v or '\\' in v:
+        return ''
+    return v
+
+
 def _run_openclaw(args, cwd=None, input_data=None):
     """执行 openclaw CLI 命令"""
     cmd = [OPENCLAW_CLI] + args
@@ -10288,7 +10304,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
         new_agent = {
-            'id': body.get('id', 'emp_' + uuid.uuid4().hex[:6]),
+            # ★ 防御：id 必须是合法文件名/CLI 参数（防 subprocess 参数注入：id='--evil' 会让 --agent --evil 解析为 flag）
+            'id': body.get('id') or 'emp_' + uuid.uuid4().hex[:6],
             'name': body.get('name', '未命名'),
             'role': _sanitize_role(body.get('role', '')),
             'bg': body.get('bg', '#FF6B35'),
@@ -10311,7 +10328,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'apiKey': _sanitize_api_key(body.get('apiKey', '')),
             'openclawAgent': body.get('openclawAgent', ''),
             'openclawModel': body.get('openclawModel', ''),
-            'openclawName': body.get('openclawName', ''),
+            # ★ 防御：openclawName 拼路径（~/.openclaw/workspace-{openclawName}），
+            #    必须拒绝 .. / / / \\ / 开头 .，否则会拼出 ~/.openclaw/workspace-../../etc 穿越 home
+            'openclawName': _sanitize_filename_segment(body.get('openclawName', '')),
             'aiProvider': body.get('aiProvider', ''),
             'systemPrompt': body.get('systemPrompt', ''),
             'toolsDoc': body.get('toolsDoc', ''),
@@ -10322,6 +10341,17 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         }
 
         agents = _load_agents(include_archived=True)
+        # ★ 防御：用户传入的 id 必须是合法标识符（防 subprocess 参数注入；防后续路径拼接穿越）
+        if body.get('id'):
+            try:
+                new_agent['id'] = _safe_cli_arg(new_agent['id'])
+                if ('..' in new_agent['id'] or '/' in new_agent['id']
+                        or '\\' in new_agent['id']
+                        or new_agent['id'].startswith('.')):
+                    raise ValueError(f'id 含非法路径字符: {new_agent["id"]!r}')
+            except ValueError as e:
+                self._send_json_error(400, str(e))
+                return
         # 检查 ID 重复
         for a in agents:
             if a.get('id') == new_agent['id']:
@@ -21858,6 +21888,11 @@ def _call_openclaw_infer(prompt, model=None, system_prompt=None, timeout=OPENCLA
 
     # 优先使用调用方指定的 agent_name（员工 ID），fallback 到 OPENCLAW_DEFAULT_AGENT
     target_agent = agent_name or OPENCLAW_DEFAULT_AGENT
+    # ★ 防御深度：target_agent 用作 subprocess --agent 参数，必须不能以 `-` 开头（防参数注入）
+    #    即使上游 _handle_create_agent 已校验过 id，老的 agents.json 里可能仍残留历史脏数据
+    if target_agent and target_agent.startswith('-'):
+        logger.warning(f'  [OpenClaw] 非法的 agent_name，回退到默认: {target_agent!r}')
+        target_agent = OPENCLAW_DEFAULT_AGENT
 
     # 新版 CLI：openclaw agent --message ... --json（项目环境更可能可用）
     # 旧版 CLI：openclaw infer model run --prompt ... --json（代码历史写法，保留兼容）
