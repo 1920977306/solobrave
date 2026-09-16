@@ -263,6 +263,9 @@ class OpenClawClient {
     this._reconnectAttempts = 0;
     this._maxReconnectAttempts = 5;
     this._reconnectTimer = null;
+    // ★ OpenClaw chat.send 默认 120s 超时（之前 30s 太短，AI 思考长时前端先放弃）
+    //    留够时间给 OpenClaw workspace prep + context prep + model start (典型 30-60s)
+    this._chatTimeoutMs = 120000;
 
     // 稳定的设备 ID（存 localStorage 保持不变）
     this._deviceId = localStorage.getItem('openclaw_device_id');
@@ -497,7 +500,7 @@ class OpenClawClient {
                       self._pending.delete(mid);
                       pending.reject(new Error('请求超时: ' + pending.method + ' (retry)'));
                     };
-                  }(this, newMsg.id), 30000);
+                  }(this, newMsg.id), this._chatTimeoutMs);
                   this._pending.set(newMsg.id, {
                     resolve: pending.resolve,
                     reject: pending.reject,
@@ -718,11 +721,11 @@ class OpenClawClient {
         params
       };
 
-      // 30秒超时
+      // 30秒超时 → 改为 120s（OpenClaw 实际首次 assistant event 在 30-60s，留够缓冲）
       const timeout = setTimeout(() => {
         this._pending.delete(id);
         reject(new Error(`请求超时: ${method}`));
-      }, 30000);
+      }, this._chatTimeoutMs);
 
       // 把 method/params 一起存到 pending，方便错误重试时知道原请求是什么
       this._pending.set(id, { resolve, reject, timeout, method, params });
