@@ -10269,14 +10269,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
             logger.info(f'  [PUT agent] id={agent_id} 实际保存字段={saved_keys}')
 
-            # 根因排查：保存前打印 apiKey 详情
+            # 根因排查：保存前打印 apiKey 详情（★ 不打 preview，避免密钥泄漏）
             pre_save_api_key = agent.get('apiKey', '')
             if pre_save_api_key:
-                logger.info(f'  [PUT agent] id={agent_id} 保存前 apiKey len={len(pre_save_api_key)} preview={repr(pre_save_api_key[:50])}')
+                logger.info(f'  [PUT agent] id={agent_id} 保存前 apiKey len={len(pre_save_api_key)} has_key=True')
 
             _save_agents(agents)
 
-            # 根因排查：保存后重新加载并对比
+            # 根因排查：保存后重新加载并对比（★ 不打 preview）
             post_agents = _load_agents()
             post_agent = None
             for a in post_agents:
@@ -10286,9 +10286,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if post_agent:
                 post_api_key = post_agent.get('apiKey', '')
                 if post_api_key != pre_save_api_key:
-                    logger.info(f'  [PUT agent] id={agent_id} 保存后 apiKey 发生变化! pre_len={len(pre_save_api_key)} post_len={len(post_api_key)} post_preview={repr(post_api_key[:50])}')
-                    import traceback
-                    traceback.print_stack()
+                    logger.info(f'  [PUT agent] id={agent_id} 保存后 apiKey 发生变化! pre_len={len(pre_save_api_key)} post_len={len(post_api_key)}')
                 elif post_api_key:
                     logger.info(f'  [PUT agent] id={agent_id} 保存后 apiKey 一致 len={len(post_api_key)}')
 
@@ -15857,7 +15855,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(role_guard[1], {'error': role_guard[0]})
             return
         body = self._read_body()
-        logger.info(f'  [ProductPUT] 请求体 product_id={product_id} body={repr(body)[:500]}')
+        # ★ 不打印完整请求体（可能含 apiKey/password/secret 等敏感字段）
+        logger.info(f'  [ProductPUT] 请求体 product_id={product_id} body_keys={list(body.keys()) if isinstance(body, dict) else type(body).__name__}')
         if not body:
             logger.info(f'  [ProductPUT] 返回 400: 请求体为空 product_id={product_id}')
             self._send_json_error(400, 'Missing body')
