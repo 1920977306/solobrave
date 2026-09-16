@@ -20,9 +20,12 @@
 
 minimax 配置（设到 solobrave .env）:
   OPENCLAW_MINIMAX_API_KEY=<your-minimax-key>
-  OPENCLAW_MINIMAX_BASE_URL=https://api.minimax.chat/v1  (海外 MiniMax, 默认)
-                       或 https://api.MiniMax.cn/v1          (国内 MiniMax)
-  OPENCLAW_MINIMAX_MODEL=MiniMax-M3                          (默认)
+  OPENCLAW_MINIMAX_BASE_URL=https://api.minimax.chat/coding/  (海外 MiniMax coding, 默认)
+                       或 https://api.MiniMax.cn/coding/         (国内 MiniMax coding)
+  OPENCLAW_MINIMAX_MODEL=MiniMax-M3                              (默认; M2 / M2-mini 也行)
+
+注: Kimi 和 MiniMax 都是 coding 模型，OpenClaw 协议用 anthropic-messages
+    (与 Kimi K3 同结构); zhipu 是通用 chat，用 openai-completions。
 
 设计原则（最小入侵 + 留回滚）:
   - 每次切换前自动备份当前配置到 ~/.openclaw/openclaw.json.bak.switch.<ts>
@@ -161,8 +164,13 @@ def profile_kimi() -> None:
 
 
 def profile_minimax() -> None:
+    """Kimi 和 MiniMax 都是 coding 模型，走 Anthropic-messages 协议（与 Kimi 同结构）。
+
+    baseUrl 默认海外 MiniMax coding endpoint；国内用 https://api.MiniMax.cn/coding/。
+    model 默认 MiniMax-M3；可改 M2 / M2-mini。
+    """
     key = _read_env("OPENCLAW_MINIMAX_API_KEY")
-    base_url = _read_env("OPENCLAW_MINIMAX_BASE_URL", required=False) or "https://api.minimax.chat/v1"
+    base_url = _read_env("OPENCLAW_MINIMAX_BASE_URL", required=False) or "https://api.minimax.chat/coding/"
     model = _read_env("OPENCLAW_MINIMAX_MODEL", required=False) or "MiniMax-M3"
     provider_id = "minimax"
     model_ref = f"{provider_id}/{model}"
@@ -173,7 +181,7 @@ def profile_minimax() -> None:
             "providers": {
                 provider_id: {
                     "baseUrl": base_url,
-                    "api": "openai-completions",
+                    "api": "anthropic-messages",  # ★ Kimi/MiniMax 都是 coding 协议
                     "apiKey": key,
                     "models": [
                         {
@@ -181,7 +189,7 @@ def profile_minimax() -> None:
                             "name": f"MiniMax {model}",
                             "reasoning": True,
                             "input": ["text"],
-                            "contextWindow": 128000,
+                            "contextWindow": 200000,
                             "maxTokens": 8192,
                         }
                     ],
