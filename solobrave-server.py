@@ -16,6 +16,7 @@ SoloBrave Server — Auth + CORS Proxy + OpenClaw Management API
 """
 
 import http.server
+import http as _http  # 给 WSS Origin reject 用 HTTPStatus.FORBIDDEN
 import json
 import os
 import subprocess
@@ -145,6 +146,13 @@ def _detect_openclaw_cli():
 OPENCLAW_CLI = _detect_openclaw_cli()
 OPENCLAW_TIMEOUT = 120
 OPENCLAW_DEFAULT_AGENT = os.environ.get('OPENCLAW_DEFAULT_AGENT', '').strip() or 'main'
+
+# ★ WSS Origin 严格模式：默认 True，非白名单 Origin 直接拒绝（403 close）
+#    设为 False 则退化为 audit log 模式（仅打 warning，仍放行）— 真实部署域名可用
+#    推荐：开发/单用户用 True；接入真实域名前设 False 或加进 ALLOWED_ORIGINS
+WSS_REJECT_EXTERNAL_ORIGIN = os.environ.get(
+    'SOLOBRAVE_WSS_REJECT_EXTERNAL_ORIGIN', '1'
+).strip().lower() in ('1', 'true', 'yes', 'on')
 
 # 数据存储目录（项目内 data/ 目录，支持 --data 覆盖）
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
@@ -26781,21 +26789,33 @@ def _start_wss_proxy(cert_file, key_file, bind, port, target_host, target_port):
 
     async def _process_request(ws, request):
         """拦截握手：把客户端 Origin 头挂到 ws 实例上，供后续 _proxy_handler 读取。
-        返回 None 让握手继续。"""
+
+        返回 None 让握手继续；返回 HTTPResponse（如 403）让 websockets 库立即返回该响应拒绝握手。
+
+        Origin 校验策略：
+        - WSS_REJECT_EXTERNAL_ORIGIN=True（默认）：非白名单 Origin 直接 close 403
+        - WSS_REJECT_EXTERNAL_ORIGIN=False：仅打 warning 审计日志，仍放行（兼容真实部署域名）
+        - 白名单：localhost / 127.0.0.1 / ::1 / bind（看 hostname 段，不做 scheme 校验）
+        """
+        from urllib.parse import urlparse
         origin = _extract_origin(request.headers)
-        # 防御深度：审计非本地 Origin 的 WSS 握手请求。OpenClaw v3 网关会按 Origin 做 allowlist
-        # 校验并拦截异常来源；这里再加一层本地审计日志，连接仍照常放行（不断，避免误伤真实部署
-        # 域名后被旧 token 卡死）。判定只看 hostname 段，不做严格 scheme 校验。
         try:
             if origin:
-                from urllib.parse import urlparse
                 _host = (urlparse(origin).hostname or '').lower()
                 _allowed_hosts = {'localhost', '127.0.0.1', '::1', (bind or '').lower()}
                 if _host and _host not in _allowed_hosts:
-                    logger.warning(
-                        f'  [WSS] 收到非本地 Origin 握手 → Origin={origin}, '
-                        f'peer={getattr(request, "remote_address", None)}'
-                    )
+                    if WSS_REJECT_EXTERNAL_ORIGIN:
+                        logger.warning(
+                            f'  [WSS] 拒绝非白名单 Origin 握手 (REJECT 模式) → Origin={origin}, '
+                            f'peer={getattr(request, "remote_address", None)}'
+                        )
+                        # 返回 403 拒绝握手
+                        return _http.HTTPStatus.FORBIDDEN
+                    else:
+                        logger.warning(
+                            f'  [WSS] 收到非白名单 Origin 握手 (audit 模式) → Origin={origin}, '
+                            f'peer={getattr(request, "remote_address", None)}'
+                        )
         except Exception:
             pass
         ws._client_origin = origin
