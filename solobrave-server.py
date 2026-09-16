@@ -11058,8 +11058,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         user_doc = body.get('userDoc', '')
         agents_doc = body.get('agentsDoc', '')
         tools_doc = body.get('toolsDoc', '')
-        workspace_path = body.get('workspacePath', '')
-
+        # ★ 防御：忽略 body.workspacePath，统一走硬编码默认路径
+        #    之前实现会直接 expanduser + makedirs 用户传入的路径，导致任意目录创建漏洞
+        #    （如 body={'workspacePath':'/etc/cron.d'} 即可在 /etc/cron.d 创建目录并写文件）
+        #    这里不信任请求体里的路径字段，强制用 agent_id / openclawName 拼默认路径
+        workspace_path = ''  # 留空让下面走默认逻辑
         if not agent_id:
             self._send_json(400, {'error': '缺少 agentId'})
             return
@@ -11132,6 +11135,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         query_params = parse_qs(parsed.query)
         doc_name = query_params.get('doc', ['SOUL.md'])[0]
+        # ★ 防御：doc_name 强制白名单（防 LFI：?doc=../../etc/passwd 会读到任意文件）
+        _ALLOWED_DOCS = {'SOUL.md', 'IDENTITY.md', 'USER.md', 'AGENTS.md', 'TOOLS.md'}
+        if doc_name not in _ALLOWED_DOCS:
+            self._send_json_error(400, f'doc 参数必须是 {_ALLOWED_DOCS} 之一')
+            return
 
         # 先从 agents.json 找 agent 数据
         agents = _load_agents()
@@ -11203,6 +11211,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
         if not agent_name:
             self._send_json(400, {'error': '缺少 agentName'})
+            return
+        # ★ 防御：agent_name 必须是单段合法文件名（防任意目录创建 + 路径穿越）
+        #    之前直接 os.path.join(workspace_base, agent_name) + os.makedirs，
+        #    传 agentName='../../etc/cron.d' 就能写到 /etc/cron.d/SOUL.md
+        if ('/' in agent_name or '\\' in agent_name
+                or '..' in agent_name or agent_name.startswith('.')):
+            self._send_json_error(400, 'agentName 必须是合法文件名')
             return
 
         import os
