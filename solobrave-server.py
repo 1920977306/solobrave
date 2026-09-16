@@ -6160,7 +6160,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [ERROR] GET {self.path}: {e}')
             try:
-                self._send_json(500, {'error': str(e)})
+                self._send_json(500, {'error': '服务器内部错误'})
             except:
                 pass
 
@@ -6666,7 +6666,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'  [ERROR] POST {self.path}: {e}')
             import traceback; traceback.print_exc()
             try:
-                self._send_json(500, {'error': str(e)})
+                self._send_json(500, {'error': '服务器内部错误'})
             except:
                 pass
 
@@ -7079,7 +7079,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'  [ERROR] PUT {self.path}: {e}')
             import traceback; traceback.print_exc()
             try:
-                self._send_json(500, {'error': str(e)})
+                self._send_json(500, {'error': '服务器内部错误'})
             except:
                 pass
 
@@ -7260,7 +7260,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [ERROR] DELETE {self.path}: {e}')
             try:
-                self._send_json(500, {'error': str(e)})
+                self._send_json(500, {'error': '服务器内部错误'})
             except:
                 pass
 
@@ -9400,7 +9400,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except RuntimeError as e:
             self._send_json(409, {'error': str(e)})
         except Exception as e:
-            self._send_json(500, {'error': str(e)})
+            self._send_json(500, {'error': '服务器内部错误'})
 
     def _handle_update_group_memory(self, group_id, mem_id):
         """PUT /api/groups/:groupId/memory/:memId — 修改项目组记忆"""
@@ -10056,7 +10056,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [POST agent] ERROR: {e}')
             import traceback; traceback.print_exc()
-            self._send_json(500, {'error': str(e)})
+            self._send_json(500, {'error': '服务器内部错误'})
 
     def _handle_create_agent_inner(self):
         """★ fix/onboarding-permission: POST /api/agents (implementation)
@@ -10277,7 +10277,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'  [PUT agent] ERROR: {e}')
             import traceback
             traceback.print_exc()
-            self._send_json(500, {'error': str(e)})
+            self._send_json(500, {'error': '服务器内部错误'})
 
     def _handle_agent_self_update(self, agent_id):
         """PUT /api/agents/:id/self-update - AI 员工自修改配置"""
@@ -10331,7 +10331,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'  [PUT agent self-update] ERROR: {e}')
             import traceback
             traceback.print_exc()
-            self._send_json(500, {'error': str(e)})
+            self._send_json(500, {'error': '服务器内部错误'})
 
     def _handle_agent_self_update_intent(self, agent_id):
         """POST /api/agents/:id/self-update-intent - 检测自然语言自修改意图并直接应用"""
@@ -10376,7 +10376,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'  [AgentSelfUpdateIntent] ERROR: {e}')
             import traceback
             traceback.print_exc()
-            self._send_json(500, {'error': str(e)})
+            self._send_json(500, {'error': '服务器内部错误'})
 
     def _handle_delete_agent(self, agent_id):
         """DELETE /api/agents/:id"""
@@ -10813,7 +10813,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'agentId': agent_id, 'enabled': dreaming.get('enabled', False), 'phase': dreaming.get('phase', 'idle')})
         except Exception as e:
             logger.error(f'  [GET dreaming] ERROR: {e}')
-            self._send_json(500, {'error': str(e)})
+            self._send_json(500, {'error': '服务器内部错误'})
 
     def _handle_post_dreaming(self):
         """POST /api/openclaw/dreaming body:{agentId, enabled}"""
@@ -10855,7 +10855,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'agentId': agent_id, 'enabled': dreaming['enabled'], 'phase': dreaming['phase']})
         except Exception as e:
             logger.error(f'  [POST dreaming] ERROR: {e}')
-            self._send_json(500, {'error': str(e)})
+            self._send_json(500, {'error': '服务器内部错误'})
 
     # ═══════════════════════════════════════════════════
     # 聊天 API
@@ -10941,7 +10941,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'workspace': workspace_path
             })
         except Exception as e:
-            self._send_json(500, {'error': f'写入失败: {str(e)}'})
+            self._send_json(500, {'error': '写入失败'})
 
     def _handle_get_agent_docs(self, agent_id):
         """GET /api/openclaw/agent-docs/:agentId?doc=SOUL.md"""
@@ -10992,7 +10992,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     content = f.read()
                 self._send_json(200, {'content': content, 'source': 'workspace'})
             except Exception as e:
-                self._send_json(500, {'error': str(e)})
+                self._send_json(500, {'error': '服务器内部错误'})
         else:
             # 文件不存在，回退到 agents.json
             content = ''
@@ -11047,7 +11047,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'dir': agent_dir
             })
         except Exception as e:
-            self._send_json(500, {'error': f'写入失败: {str(e)}'})
+            self._send_json(500, {'error': '写入失败'})
 
 
     def _check_agent_access(self, auth, agent_id):
@@ -11890,7 +11890,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             ms3.archive_source_memories_as_promoted(emp_id, cand.get('sourceIds', []))
         except Exception as e:
             logger.error(f'  [CoreCandidate] confirm failed: {e}')
-            self._send_json_error(500, f'Confirm failed: {str(e)}')
+            self._send_json_error(500, 'Confirm failed')
             return
         self._send_json(200, {
             'success': True,
@@ -11931,7 +11931,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             count, reason = _induct_knowledge_for_agent(agent, owner_user_id=auth.user_id)
         except Exception as e:
             logger.error(f'  [InductKnowledge] manual failed: {e}')
-            self._send_json_error(500, f'Induction failed: {str(e)}')
+            self._send_json_error(500, 'Induction failed')
             return
         self._send_json(200, {
             'success': True,
@@ -11956,7 +11956,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             archived_ids = ms3.archive_inducted_memories(emp_id)
         except Exception as e:
             logger.error(f'  [ArchiveInducted] failed: {e}')
-            self._send_json_error(500, f'Archive failed: {str(e)}')
+            self._send_json_error(500, 'Archive failed')
             return
         self._send_json(200, {
             'success': True,
@@ -12021,7 +12021,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'success': True, 'empId': emp_id, 'detected': detected})
         except Exception as e:
             logger.error(f'  [DetectConflicts] failed: {e}')
-            self._send_json_error(500, f'Detect failed: {str(e)}')
+            self._send_json_error(500, 'Detect failed')
 
     def _handle_resolve_conflict(self, emp_id, mem_id):
         """POST /api/memory/{empId}/{memId}/resolve-conflict — 解决冲突"""
@@ -12043,7 +12043,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'success': True, 'empId': emp_id, 'memory': mem})
         except Exception as e:
             logger.error(f'  [ResolveConflict] failed: {e}')
-            self._send_json_error(500, f'Resolve failed: {str(e)}')
+            self._send_json_error(500, 'Resolve failed')
 
     # FIXME: 大脑知识中枢 API 处理器
     def _handle_get_brain_status(self):
@@ -12057,7 +12057,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'success': True, **stats})
         except Exception as e:
             logger.error(f'  [BrainAPI] status failed: {e}')
-            self._send_json_error(500, f'Status failed: {str(e)}')
+            self._send_json_error(500, 'Status failed')
 
     def _handle_brain_trigger_manual(self):
         """POST /api/brain/trigger-manual — 手动触发全量处理"""
@@ -12076,7 +12076,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             })
         except Exception as e:
             logger.error(f'  [BrainAPI] trigger failed: {e}')
-            self._send_json_error(500, f'Trigger failed: {str(e)}')
+            self._send_json_error(500, 'Trigger failed')
 
     def _handle_get_brain_topics(self):
         """GET /api/brain/topics?empId=xxx — 获取员工的主题列表"""
@@ -12095,7 +12095,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'success': True, 'empId': emp_id, 'topics': topics})
         except Exception as e:
             logger.error(f'  [BrainAPI] topics failed: {e}')
-            self._send_json_error(500, f'Topics failed: {str(e)}')
+            self._send_json_error(500, 'Topics failed')
 
     def _handle_get_brain_knowledge(self):
         """GET /api/brain/knowledge?topicId=xxx — 获取主题下的知识"""
@@ -12114,7 +12114,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'success': True, 'topicId': topic_id, 'knowledge': knowledge})
         except Exception as e:
             logger.error(f'  [BrainAPI] knowledge failed: {e}')
-            self._send_json_error(500, f'Knowledge failed: {str(e)}')
+            self._send_json_error(500, 'Knowledge failed')
 
     def _handle_brain_knowledge_feedback(self, knowledge_id):
         """POST /api/brain/knowledge/{kid}/feedback — 准确/有误反馈"""
@@ -12129,7 +12129,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'success': ok})
         except Exception as e:
             logger.error(f'  [BrainAPI] feedback failed: {e}')
-            self._send_json_error(500, f'Feedback failed: {str(e)}')
+            self._send_json_error(500, 'Feedback failed')
 
     # FIXME: 记忆三级沉淀 API：二级归纳（daily/project） + 三级知识库查询/标记
     def _handle_get_daily_summary(self, emp_id):
@@ -12193,7 +12193,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             sid = _save_memory_summary(summary)
         except Exception as e:
             logger.error(f'  [SummaryTrigger] save failed: {e}')
-            self._send_json_error(500, f'Save summary failed: {str(e)}')
+            self._send_json_error(500, 'Save summary failed')
             return
         self._send_json(200, {'success': True, 'empId': emp_id, 'summaryId': sid})
 
@@ -12268,7 +12268,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             })
         except Exception as e:
             logger.error(f'  [KnowledgeBase] manual mark failed: {e}')
-            self._send_json_error(500, f'Mark knowledge failed: {str(e)}')
+            self._send_json_error(500, 'Mark knowledge failed')
             return
         self._send_json(200, {'success': True, 'empId': emp_id, 'knowledgeId': kb_id})
 
@@ -12397,7 +12397,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
         except Exception as e:
             logger.error(f'  [KnowledgeSearch] failed: {e}')
-            self._send_json_error(500, f'Search failed: {str(e)}')
+            self._send_json_error(500, 'Search failed')
 
     def _handle_post_knowledge(self):
         """POST /api/knowledge — 新增全局公共知识（自动分段+向量化）"""
@@ -12472,7 +12472,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, doc)
         except Exception as e:
             logger.error(f'  [Knowledge] create failed: {e}')
-            self._send_json_error(500, f'Create failed: {str(e)}')
+            self._send_json_error(500, 'Create failed')
 
     def _handle_put_knowledge(self, doc_id):
         """PUT /api/knowledge/{docId} — 更新全局公共知识（自动重新分段+向量化）"""
@@ -12561,7 +12561,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, updated)
         except Exception as e:
             logger.error(f'  [Knowledge] update failed: {e}')
-            self._send_json_error(500, f'Update failed: {str(e)}')
+            self._send_json_error(500, 'Update failed')
 
     def _handle_delete_knowledge(self, doc_id):
         """DELETE /api/knowledge/{docId} — 删除知识"""
@@ -12684,7 +12684,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'success': True, 'knowledge': rolled})
         except Exception as e:
             logger.error(f'  [KnowledgeRollback] failed: {e}')
-            self._send_json_error(500, f'Rollback failed: {str(e)}')
+            self._send_json_error(500, 'Rollback failed')
 
     def _handle_knowledge_move(self, doc_id):
         """POST /api/knowledge/{docId}/move — 移动知识到指定 scope/team"""
@@ -12728,7 +12728,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'success': True, 'knowledge': moved})
         except Exception as e:
             logger.error(f'  [KnowledgeMove] failed: {e}')
-            self._send_json_error(500, f'Move failed: {str(e)}')
+            self._send_json_error(500, 'Move failed')
 
     # ═══════════════════════════════════════════════════
     # 新版知识库 API（重构后）
@@ -12785,7 +12785,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, result)
         except Exception as e:
             logger.error(f'  [KBEntries] list failed: {e}')
-            self._send_json_error(500, f'List failed: {str(e)}')
+            self._send_json_error(500, 'List failed')
 
     def _handle_get_kb_entry_detail(self, entry_id):
         """GET /api/knowledge/entries/<id> — 新版知识详情"""
@@ -12872,7 +12872,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, doc)
         except Exception as e:
             logger.error(f'  [KBEntry] create failed: {e}')
-            self._send_json_error(500, f'Create failed: {str(e)}')
+            self._send_json_error(500, 'Create failed')
 
     def _handle_post_kb_reindex(self):
         """★ refactor/heavy-pipe-timeout: POST /api/knowledge/entries/reindex
@@ -12900,7 +12900,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(200, {'mode': 'sync', 'stats': stats})
             except Exception as e:
                 logger.error(f'  [KBEntry] reindex sync failed: {e}')
-                self._send_json_error(500, f'Reindex failed: {str(e)}')
+                self._send_json_error(500, 'Reindex failed')
             return
 
         # 异步路径: 启动后台任务, 立即返回 task_id
@@ -12915,7 +12915,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             })
         except Exception as e:
             logger.error(f'  [HeavyPipe] reindex start failed: {e}')
-            self._send_json_error(500, f'Task start failed: {str(e)}')
+            self._send_json_error(500, 'Task start failed')
 
     def _handle_post_pipe_start(self):
         """★ refactor/heavy-pipe-timeout: POST /api/knowledge/pipe/start
@@ -12950,7 +12950,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, str(e))
         except Exception as e:
             logger.error(f'  [HeavyPipe] pipe/start failed: {e}')
-            self._send_json_error(500, f'Task start failed: {str(e)}')
+            self._send_json_error(500, 'Task start failed')
 
     def _handle_get_pipe_progress(self, task_id):
         """★ refactor/heavy-pipe-timeout: GET /api/knowledge/pipe-progress/<taskId>
@@ -13044,7 +13044,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, str(e))
         except Exception as e:
             logger.error(f'  [KBEntry] retry-embedding {entry_id} failed: {e}')
-            self._send_json_error(500, f'Retry failed: {str(e)}')
+            self._send_json_error(500, 'Retry failed')
 
     def _handle_post_kb_retry_all_failed(self):
         """★ refactor/kb-vectorization-error-handling: POST /api/knowledge/retry-all-failed
@@ -13069,7 +13069,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(str(e), 403)
         except Exception as e:
             logger.error(f'  [KBEntry] retry-all-failed failed: {e}')
-            self._send_json_error(500, f'Retry-all failed: {str(e)}')
+            self._send_json_error(500, 'Retry-all failed')
 
     def _handle_put_kb_entry(self, entry_id):
         """PUT /api/knowledge/entries/<id> — 更新新版知识"""
@@ -13149,7 +13149,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, updated)
         except Exception as e:
             logger.error(f'  [KBEntry] update failed: {e}')
-            self._send_json_error(500, f'Update failed: {str(e)}')
+            self._send_json_error(500, 'Update failed')
 
     def _handle_delete_kb_entry(self, entry_id):
         """DELETE /api/knowledge/entries/<id> — 删除新版知识(★ refactor/kb-soft-delete-cascade:
@@ -13175,7 +13175,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'success': deleted, 'id': entry_id, 'soft_delete': True})
         except Exception as e:
             logger.error(f'  [KBEntry] soft delete failed: {e}')
-            self._send_json_error(500, f'Delete failed: {str(e)}')
+            self._send_json_error(500, 'Delete failed')
 
     def _handle_cleanup_kb_dangling(self):
         """★ refactor/kb-soft-delete-cascade: POST /api/knowledge/cleanup-dangling
@@ -13206,7 +13206,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, stats)
         except Exception as e:
             logger.error(f'  [KBEntry] cleanup-dangling failed: {e}')
-            self._send_json_error(500, f'Cleanup failed: {str(e)}')
+            self._send_json_error(500, 'Cleanup failed')
 
     def _handle_post_verify_kb_index(self):
         """★ refactor/rag-index-integrity: POST /api/knowledge/verify-index
@@ -13239,7 +13239,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, result)
         except Exception as e:
             logger.error(f'  [KBIndex] verify-index failed: {e}')
-            self._send_json_error(500, f'Verify failed: {str(e)}')
+            self._send_json_error(500, 'Verify failed')
 
     def _handle_post_repair_kb_index(self):
         """★ refactor/rag-index-integrity: POST /api/knowledge/repair-index
@@ -13266,7 +13266,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, result)
         except Exception as e:
             logger.error(f'  [KBIndex] repair-index failed: {e}')
-            self._send_json_error(500, f'Repair failed: {str(e)}')
+            self._send_json_error(500, 'Repair failed')
 
     def _handle_get_kb_categories(self):
         """GET /api/knowledge/categories — 分类树"""
@@ -13283,7 +13283,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'categories': tree, 'projectId': project_id})
         except Exception as e:
             logger.error(f'  [KBCategories] failed: {e}')
-            self._send_json_error(500, f'Categories failed: {str(e)}')
+            self._send_json_error(500, 'Categories failed')
 
     def _handle_post_kb_categories(self):
         """POST /api/knowledge/categories — 创建分类"""
@@ -13308,7 +13308,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, str(e))
         except Exception as e:
             logger.error(f'  [KBCategories] create failed: {e}')
-            self._send_json_error(500, f'Create category failed: {str(e)}')
+            self._send_json_error(500, 'Create category failed')
 
     def _handle_put_kb_category(self, category_id):
         """PUT /api/knowledge/categories/<id> — 更新分类"""
@@ -13332,7 +13332,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, str(e))
         except Exception as e:
             logger.error(f'  [KBCategories] update failed: {e}')
-            self._send_json_error(500, f'Update category failed: {str(e)}')
+            self._send_json_error(500, 'Update category failed')
 
     def _handle_delete_kb_category(self, category_id):
         """DELETE /api/knowledge/categories/<id> — 删除分类"""
@@ -13346,7 +13346,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'success': ok})
         except Exception as e:
             logger.error(f'  [KBCategories] delete failed: {e}')
-            self._send_json_error(500, f'Delete category failed: {str(e)}')
+            self._send_json_error(500, 'Delete category failed')
 
     def _handle_get_kb_stats(self):
         """GET /api/knowledge/stats — 统计面板"""
@@ -13371,7 +13371,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'stats': stats})
         except Exception as e:
             logger.error(f'  [KBStats] failed: {e}')
-            self._send_json_error(500, f'Stats failed: {str(e)}')
+            self._send_json_error(500, 'Stats failed')
 
     def _handle_get_knowledge_events(self):
         """GET /api/knowledge-events?entity_type=&entity_id= — 实体分析事件列表（不含 content_full）"""
@@ -13410,7 +13410,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'events': events, 'total': len(events)})
         except Exception as e:
             logger.error(f'  [KnowledgeEvents] list failed: {e}')
-            self._send_json_error(500, f'List failed: {str(e)}')
+            self._send_json_error(500, 'List failed')
 
     def _handle_get_knowledge_event_detail(self, event_id):
         """GET /api/knowledge-events/<id> — 单条完整事件（含 content_full，不含 embedding）"""
@@ -13434,7 +13434,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, dict(row))
         except Exception as e:
             logger.error(f'  [KnowledgeEvents] detail failed: {e}')
-            self._send_json_error(500, f'Detail failed: {str(e)}')
+            self._send_json_error(500, 'Detail failed')
 
     def _handle_get_knowledge_events_stats(self):
         """GET /api/knowledge-events/stats — 总数 / 各 entity_type 计数 / 最近7天新增数"""
@@ -13462,7 +13462,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             })
         except Exception as e:
             logger.error(f'  [KnowledgeEvents] stats failed: {e}')
-            self._send_json_error(500, f'Stats failed: {str(e)}')
+            self._send_json_error(500, 'Stats failed')
 
     def _handle_search_knowledge_events(self):
         """GET /api/knowledge-events/search?q=&entity_type=&limit= — 三信号混合检索分析档案。
@@ -13517,7 +13517,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'events': merged, 'total': len(merged)})
         except Exception as e:
             logger.error(f'  [KnowledgeEvents] search failed: {e}')
-            self._send_json_error(500, f'Search failed: {str(e)}')
+            self._send_json_error(500, 'Search failed')
 
     # ═══ 规律库（knowledge_patterns，L3）═══
     def _handle_post_induce_knowledge_patterns(self):
@@ -13592,7 +13592,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'patterns': patterns, 'total': len(patterns)})
         except Exception as e:
             logger.error(f'  [KnowledgePatterns] list failed: {e}')
-            self._send_json_error(500, f'List failed: {str(e)}')
+            self._send_json_error(500, 'List failed')
 
     def _handle_get_knowledge_pattern_detail(self, pattern_id):
         """GET /api/knowledge-patterns/<id> — 完整记录（含 evidence）"""
@@ -13613,7 +13613,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, _kp_row_to_dict(row, with_evidence=True))
         except Exception as e:
             logger.error(f'  [KnowledgePatterns] detail failed: {e}')
-            self._send_json_error(500, f'Detail failed: {str(e)}')
+            self._send_json_error(500, 'Detail failed')
 
     def _handle_put_knowledge_pattern(self, pattern_id):
         """PUT /api/knowledge-patterns/<id> — 状态流转：draft→confirmed/rejected→deprecated"""
@@ -13655,7 +13655,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, _kp_row_to_dict(row, with_evidence=True))
         except Exception as e:
             logger.error(f'  [KnowledgePatterns] update failed: {e}')
-            self._send_json_error(500, f'Update failed: {str(e)}')
+            self._send_json_error(500, 'Update failed')
 
     def _handle_delete_knowledge_pattern(self, pattern_id):
         """DELETE /api/knowledge-patterns/<id> — 硬删除"""
@@ -13674,7 +13674,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'deleted': cur.rowcount > 0, 'id': pattern_id})
         except Exception as e:
             logger.error(f'  [KnowledgePatterns] delete failed: {e}')
-            self._send_json_error(500, f'Delete failed: {str(e)}')
+            self._send_json_error(500, 'Delete failed')
 
     # ═══ 合作单（deals）═══
     def _handle_post_deal(self):
@@ -13729,7 +13729,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, _deal_row_to_dict(row))
         except Exception as e:
             logger.error(f'  [Deals] create failed: {e}')
-            self._send_json_error(500, f'Create failed: {str(e)}')
+            self._send_json_error(500, 'Create failed')
 
     def _handle_get_deals(self):
         """GET /api/deals?talent_id=&status=&limit=&offset= — 合作单列表（子账号隔离）"""
@@ -13778,7 +13778,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'deals': [_deal_row_to_dict(r) for r in rows], 'total': total})
         except Exception as e:
             logger.error(f'  [Deals] list failed: {e}')
-            self._send_json_error(500, f'List failed: {str(e)}')
+            self._send_json_error(500, 'List failed')
 
     def _handle_get_deal_detail(self, deal_id):
         """GET /api/deals/<id> — 完整记录"""
@@ -13799,7 +13799,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, _deal_row_to_dict(row))
         except Exception as e:
             logger.error(f'  [Deals] detail failed: {e}')
-            self._send_json_error(500, f'Detail failed: {str(e)}')
+            self._send_json_error(500, 'Detail failed')
 
     def _handle_put_deal(self, deal_id):
         """PUT /api/deals/<id> — 更新合作单（含状态流转）"""
@@ -13884,7 +13884,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, _deal_row_to_dict(row))
         except Exception as e:
             logger.error(f'  [Deals] update failed: {e}')
-            self._send_json_error(500, f'Update failed: {str(e)}')
+            self._send_json_error(500, 'Update failed')
 
     def _handle_delete_deal(self, deal_id):
         """DELETE /api/deals/<id> — 硬删除"""
@@ -13915,7 +13915,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'deleted': cur.rowcount > 0, 'id': deal_id})
         except Exception as e:
             logger.error(f'  [Deals] delete failed: {e}')
-            self._send_json_error(500, f'Delete failed: {str(e)}')
+            self._send_json_error(500, 'Delete failed')
 
     def _handle_post_kb_search(self):
         """POST /api/knowledge/search — 新版语义搜索"""
@@ -13953,7 +13953,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'query': query, 'docs': docs, 'count': len(docs)})
         except Exception as e:
             logger.error(f'  [KBSearch] failed: {e}')
-            self._send_json_error(500, f'Search failed: {str(e)}')
+            self._send_json_error(500, 'Search failed')
 
     def _handle_get_stats_compute(self):
         """GET /api/stats/compute — 真实 Token/调用统计"""
@@ -14329,7 +14329,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [TokenUsageSync] failed: {e}')
             import traceback; traceback.print_exc()
-            self._send_json_error(500, f'Sync failed: {str(e)}')
+            self._send_json_error(500, 'Sync failed')
 
     def _handle_get_token_usage(self):
         """GET /api/token-usage — 按 agent/day 聚合 token 用量"""
@@ -14542,7 +14542,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [RAG] retrieve failed: {e}')
             import traceback; traceback.print_exc()
-            self._send_json_error(500, f'RAG retrieve failed: {str(e)}')
+            self._send_json_error(500, 'RAG retrieve failed')
 
     def _handle_post_rag_build(self):
         """POST /api/rag/build — 批量构建所有 embedding 索引"""
@@ -14564,7 +14564,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'success': True, 'message': 'Embedding index built'})
         except Exception as e:
             logger.error(f'  [RAG] build failed: {e}')
-            self._send_json_error(500, f'Build failed: {str(e)}')
+            self._send_json_error(500, 'Build failed')
 
     def _handle_post_tool_calls_log(self):
         """POST /api/tool-calls/log — 记录 OpenClaw 工具调用日志"""
@@ -14610,7 +14610,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [TOOL-CALLS-LOG] failed: {e}')
             import traceback; traceback.print_exc()
-            self._send_json_error(500, f'Log tool call failed: {str(e)}')
+            self._send_json_error(500, 'Log tool call failed')
 
     # ═══════════════════════════════════════════════════
     # 通知 API
@@ -16155,7 +16155,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'[ERROR] GET /api/brands failed: {e}')
             import traceback
             traceback.print_exc()
-            self._send_json(500, {'error': f'获取品牌列表失败: {str(e)}'})
+            self._send_json(500, {'error': '获取品牌列表失败'})
         finally:
             conn.close()
 
@@ -16339,7 +16339,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'categories': [r['category'] for r in rows]})
         except Exception as e:
             logger.error(f'  [Talents] categories failed: {e}')
-            self._send_json_error(500, f'Categories failed: {str(e)}')
+            self._send_json_error(500, 'Categories failed')
 
     def _handle_get_talent_injection_text(self):
         """GET /api/talents/injection-text — 返回达人数据注入文本（含禁止编造约束）。
@@ -22807,7 +22807,7 @@ def _handle_feishu_config(self):
     try:
         _write_json(config_path, config)
     except Exception as e:
-        self._send_json(500, {'error': f'保存配置失败: {str(e)}'})
+        self._send_json(500, {'error': '保存配置失败'})
         return
 
     # 自动重启 Gateway
@@ -23849,7 +23849,7 @@ def _handle_proxy(self):
 
     except Exception as e:
         logger.error(f'  ❌ Proxy Unexpected Error: {e} <- {target_url}')
-        self._send_json_error(500, f'Internal proxy error: {str(e)}')
+        self._send_json_error(500, 'Internal proxy error')
 
 
 def _handle_proxy_chain(self, body_json, auth, agent_id, target_url, provider,
@@ -25946,7 +25946,7 @@ def _handle_douyin_transcribe(self):
         self._send_json(400, {'success': False, 'error': str(e)})
     except Exception as e:
         logger.error(f'  [Douyin] transcribe error: {e}')
-        self._send_json(500, {'success': False, 'error': f'转写失败: {str(e)}'})
+        self._send_json(500, {'success': False, 'error': '转写失败'})
     finally:
         # 清理临时文件
         if temp_dir and os.path.isdir(temp_dir):
