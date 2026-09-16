@@ -162,6 +162,11 @@ SOFT_AI_ID_CHECK = os.environ.get(
     'SOLOBRAVE_SOFT_AI_ID_CHECK', '1'
 ).strip().lower() in ('1', 'true', 'yes', 'on')
 
+# ★ JWT secret 自动轮换周期（默认 30 天）。设为 0 关闭自动轮换（仅手动 endpoint 可触发）。
+#    启动时检查 .secret.rotated_at，超过周期自动调用 _rotate_jwt_secret()。
+#    环境变量：SOLOBRAVE_JWT_AUTO_ROTATE_DAYS=0 关闭，=7 改为周轮换
+JWT_AUTO_ROTATE_DAYS = int(os.environ.get('SOLOBRAVE_JWT_AUTO_ROTATE_DAYS', '30').strip() or '30')
+
 # 数据存储目录（项目内 data/ 目录，支持 --data 覆盖）
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 SECRET_FILE = os.path.join(DATA_DIR, '.secret')
@@ -1118,6 +1123,53 @@ def _is_previous_secret_expired():
     except (OSError, ValueError):
         return True
     return (time.time() - rotated_at) > _JWT_PREVIOUS_GRACE_S
+
+
+def _check_auto_rotate_jwt_secret():
+    """启动时检查 JWT secret 是否超过自动轮换周期，是则调用 _rotate_jwt_secret()。
+
+    通过 .secret.rotated_at 时间戳判断；如果文件不存在（旧 secret 第一次启动还没轮换过），
+    把当前时间作为初始时间戳，不轮换（避免新装就强制全员登出）。
+    周期由 JWT_AUTO_ROTATE_DAYS 控制，0 表示关闭自动轮换。
+    """
+    if JWT_AUTO_ROTATE_DAYS <= 0:
+        return
+    rotation_time_path = SECRET_FILE + '.rotated_at'
+    rotated_at = None
+    if os.path.isfile(rotation_time_path):
+        try:
+            with open(rotation_time_path, 'r') as f:
+                rotated_at = int(f.read().strip())
+        except (OSError, ValueError):
+            rotated_at = None
+    now = int(time.time())
+    if rotated_at is None:
+        # 没有 .rotated_at（旧 secret）→ 写当前时间作为基线，不轮换
+        try:
+            with open(rotation_time_path, 'w') as f:
+                f.write(str(now))
+            os.chmod(rotation_time_path, 0o600)
+        except OSError:
+            pass
+        logger.info(
+            f'  [JWT-AutoRotate] 首次启动，记录基线时间；自动轮换周期 {JWT_AUTO_ROTATE_DAYS} 天'
+        )
+        return
+    age_days = (now - rotated_at) / 86400
+    if age_days >= JWT_AUTO_ROTATE_DAYS:
+        logger.warning(
+            f'  [JWT-AutoRotate] 当前 secret 已 {age_days:.1f} 天（周期 {JWT_AUTO_ROTATE_DAYS} 天），'
+            f'触发自动轮换'
+        )
+        try:
+            _rotate_jwt_secret()
+        except Exception as e:
+            logger.error(f'  [JWT-AutoRotate] 自动轮换失败: {e}')
+    else:
+        logger.info(
+            f'  [JWT-AutoRotate] 当前 secret 已 {age_days:.1f} 天，下次轮换约 '
+            f'{JWT_AUTO_ROTATE_DAYS - age_days:.1f} 天后'
+        )
 
 
 # ★ 登录暴力破解防护：每 (ip, username) 5 分钟最多 5 次失败，超过返回 429
@@ -27368,6 +27420,12 @@ def main():
         _audit_openclaw_config()
     except Exception as audit_err:
         logger.warning(f'  [OpenClaw-Audit] 审计异常（不阻断启动）: {audit_err}')
+
+    # JWT secret 自动轮换（启动时检查 — 超过周期则调用 _rotate_jwt_secret）
+    try:
+        _check_auto_rotate_jwt_secret()
+    except Exception as auto_err:
+        logger.warning(f'  [JWT-AutoRotate] 检查异常（不阻断启动）: {auto_err}')
 
     logger.info('=' * 56)
     logger.info('  [SOLO] SoloBrave Server (Auth Enabled)')
