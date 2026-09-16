@@ -6077,9 +6077,18 @@ _API_RATE_WINDOW_S = 60
 _API_RATE_MAX = 300
 _api_rate_log = {}  # {ip: [timestamps]}
 
+# ★ AI proxy 频率限制（防单用户滥用 + 共享 IP 公平）：
+#    每 user 60 秒最多 60 次 /api/proxy 调用；超出返回 429。
+#    触发限流时打 warning 日志便于溯源。
+_USER_PROXY_RATE_WINDOW_S = 60
+_USER_PROXY_RATE_MAX = 60
+_user_proxy_rate_log = {}  # {user_id: [timestamps]}
+_api_rate_check_counter = 0  # 懒清理节流计数器（_check_api_rate_limit 内每 100 次清一次过期项）
+
 
 def _check_api_rate_limit(client_ip):
     """检查并记录一次 API 请求；超限返回 False（拒绝）。"""
+    global _api_rate_check_counter
     now = time.time()
     log = _api_rate_log.get(client_ip)
     if log is None:
@@ -6091,16 +6100,44 @@ def _check_api_rate_limit(client_ip):
     if len(log) >= _API_RATE_MAX:
         return False
     log.append(now)
+    # 懒清理：每 100 次检查清一次整字典的过期 IP（防 dict 无限增长，函数定义了却没被调用）
+    _api_rate_check_counter += 1
+    if _api_rate_check_counter >= 100:
+        _api_rate_check_counter = 0
+        expired_ips = [ip for ip, ts_list in _api_rate_log.items()
+                       if not ts_list or now - ts_list[-1] > _API_RATE_WINDOW_S * 10]
+        for ip in expired_ips:
+            _api_rate_log.pop(ip, None)
     return True
 
 
-def _cleanup_api_rate_log():
-    """清理过期 IP 条目，避免字典无限增长。"""
+def _check_user_proxy_rate_limit(user_id):
+    """按 user 维度检查 /api/proxy 调用频次；超限返回 False（拒绝）。
+
+    与 IP-based 限流互补：IP 限流挡共享 IP 网段的整体流量，user 限流隔离单用户滥用。
+    """
     now = time.time()
-    expired = [ip for ip, log in _api_rate_log.items()
-               if not log or now - log[-1] > _API_RATE_WINDOW_S * 10]
-    for ip in expired:
-        _api_rate_log.pop(ip, None)
+    log = _user_proxy_rate_log.get(user_id)
+    if log is None:
+        log = []
+        _user_proxy_rate_log[user_id] = log
+    while log and now - log[0] > _USER_PROXY_RATE_WINDOW_S:
+        log.pop(0)
+    if len(log) >= _USER_PROXY_RATE_MAX:
+        return False
+    log.append(now)
+    # 顺手懒清理过期 user 条目（每 100 次触发一次）
+    if len(_user_proxy_rate_log) > 200:
+        expired = [uid for uid, ts_list in _user_proxy_rate_log.items()
+                   if not ts_list or now - ts_list[-1] > _USER_PROXY_RATE_WINDOW_S * 10]
+        for uid in expired:
+            _user_proxy_rate_log.pop(uid, None)
+    return True
+
+
+# 注：原 _cleanup_api_rate_log 函数被新懒清理取代，保留 stub 防外部引用
+def _cleanup_api_rate_log():  # pragma: no cover
+    return None
 
 
 # ─── 请求处理器 ────────────────────────────────────────
@@ -23605,6 +23642,18 @@ def _handle_proxy(self):
     auth = _authenticate(self.headers, self.client_address[0], self)
     if not auth.is_authenticated:
         self._send_auth_error(auth.error, auth.status)
+        return
+
+    # ★ User 维度限流：隔离单用户对 /api/proxy 的滥用（共享 IP 公平）。
+    #    IP 限流挡整网段整体流量；user 限流让单用户发疯不波及其他人。
+    user_id_for_rl = getattr(auth, 'user_id', None) or self.client_address[0]
+    if not _check_user_proxy_rate_limit(user_id_for_rl):
+        logger.warning(
+            f'  [Proxy] user 限流触发: user={user_id_for_rl} '
+            f'client_ip={self.client_address[0]} '
+            f'limit={_USER_PROXY_RATE_MAX}/{_USER_PROXY_RATE_WINDOW_S}s'
+        )
+        self._send_json_error(429, '请求过于频繁，请稍后再试')
         return
 
     target_url = self.headers.get('X-Target-URL', '')
