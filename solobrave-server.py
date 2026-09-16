@@ -6234,6 +6234,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except (TypeError, ValueError):
             content_length = 0
         path = self._normalize_path(self.path)
+        if path is None:
+            self._send_json_error(400, '非法请求路径')
+            return
         # /api/vision/describe 最多承载 9 张 1920px 图片的 base64，10MB 容易不够
         limit = MAX_VIDEO_UPLOAD_SIZE if path.startswith(('/api/douyin/', '/api/vision/')) else MAX_UPLOAD_SIZE
         if content_length > limit:
@@ -6258,8 +6261,26 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     # ─── 路由 ──────────────────────────────────────────
     def _normalize_path(self, path):
-        """统一处理路径：去掉 query string 和末尾斜杠（根路径除外）"""
+        """统一处理路径：去掉 query string 和末尾斜杠（根路径除外）
+
+        防御深度：拒绝含 \\x00（null byte）和路径穿越段（.. / .）的请求，
+        返回 None 让调用方返回 400。这些原本由 stdlib / HTTP 库部分处理，
+        但显式拒绝可避免下游业务逻辑（如文件路径拼接）被绕过。
+        """
         path = path.split('?')[0]
+        # URL 解码：把 %2E%2E / %00 等还原成真实字符，避免编码绕过
+        try:
+            from urllib.parse import unquote
+            path = unquote(path)
+        except Exception:
+            pass
+        if '\x00' in path:
+            return None
+        # 路径穿越段检测（用 / 分段后判断每段是否纯 .. 或 .）
+        segments = path.split('/')
+        for seg in segments:
+            if seg in ('.', '..'):
+                return None
         if path != '/' and path.endswith('/'):
             path = path[:-1]
         return path
@@ -6302,6 +6323,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(429, '请求过于频繁，请稍后重试')
                 return
         path = self._normalize_path(self.path)
+        if path is None:
+            self._send_json_error(400, '非法请求路径')
+            return
 
         # Auth routes (no auth required)
         if path == '/api/auth/me' or path == '/auth/me':
@@ -6812,6 +6836,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(429, '请求过于频繁，请稍后重试')
                 return
         path = self._normalize_path(self.path)
+        if path is None:
+            self._send_json_error(400, '非法请求路径')
+            return
 
         # Auth routes
         if path == '/api/auth/login':
@@ -7229,6 +7256,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(429, '请求过于频繁，请稍后重试')
                 return
         path = self._normalize_path(self.path)
+        if path is None:
+            self._send_json_error(400, '非法请求路径')
+            return
 
         # Groups API
         if path == '/api/groups':
@@ -7414,6 +7444,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(429, '请求过于频繁，请稍后重试')
                 return
         path = self._normalize_path(self.path)
+        if path is None:
+            self._send_json_error(400, '非法请求路径')
+            return
 
         # 规律库：硬删除
         if path.startswith('/api/knowledge-patterns/'):
@@ -25243,6 +25276,9 @@ def _handle_proxy_kimi(self):
     #    与 legacy 完全共用上面的代码。legacy 路径保留,PROXY_ENGINE=legacy 切回。
     if PROXY_ENGINE == 'chain':
         path_chain = self._normalize_path(self.path)
+        if path_chain is None:
+            self._send_json_error(400, '非法请求路径')
+            return
         path_suffix_chain = path_chain[len('/api/proxy/kimi'):] or '/v1/messages'
         _handle_proxy_kimi_chain(self, body, agent_id, agent_api_key,
                                  path_suffix_chain, _t_start, _timing)
@@ -25251,6 +25287,9 @@ def _handle_proxy_kimi(self):
     # 5. 构造转发请求到真实Kimi API
     # 提取原始请求路径中的子路径（如/v1/messages）
     path = self._normalize_path(self.path)
+    if path is None:
+        self._send_json_error(400, '非法请求路径')
+        return
     path_suffix = path[len('/api/proxy/kimi'):]
     if not path_suffix:
         path_suffix = '/v1/messages'
