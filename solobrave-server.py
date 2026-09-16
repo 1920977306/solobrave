@@ -1029,6 +1029,43 @@ def _get_jwt_secret():
     return JWT_SECRET
 
 
+# ★ 登录暴力破解防护：每 (ip, username) 5 分钟最多 5 次失败，超过返回 429
+_LOGIN_FAILURE_WINDOW_S = 300   # 时间窗 5 分钟
+_LOGIN_FAILURE_MAX = 5          # 窗口内最多允许 5 次失败
+_login_failures = {}            # {f'{ip}:{username}': [count, last_fail_ts]}
+
+
+def _check_login_failure(identifier):
+    """记录一次登录失败；超出阈值返回 False（拒绝）。"""
+    now = time.time()
+    rec = _login_failures.get(identifier)
+    if rec:
+        count, last_ts = rec
+        # 时间窗外重置计数
+        if now - last_ts > _LOGIN_FAILURE_WINDOW_S:
+            _login_failures[identifier] = [1, now]
+            return True
+        if count >= _LOGIN_FAILURE_MAX:
+            return False
+        rec[0] = count + 1
+        rec[1] = now
+    else:
+        _login_failures[identifier] = [1, now]
+    return True
+
+
+def _reset_login_failures(identifier):
+    _login_failures.pop(identifier, None)
+
+
+def _cleanup_login_failures():
+    """清理过期记录，避免字典无限增长（每次失败/成功后顺手清）。"""
+    now = time.time()
+    expired = [k for k, v in _login_failures.items() if now - v[1] > _LOGIN_FAILURE_WINDOW_S * 2]
+    for k in expired:
+        _login_failures.pop(k, None)
+
+
 def _base64url_encode(data):
     """Base64URL 编码（无填充）"""
     if isinstance(data, str):
@@ -7444,12 +7481,23 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(400, {'error': '用户名和密码不能为空'})
             return
 
+        # ★ 防暴力破解：每 (ip, username) 5 分钟最多 5 次失败，超过返回 429
+        client_ip = self.client_address[0]
+        failure_id = f'{client_ip}:{username}'
+        if not _check_login_failure(failure_id):
+            self._send_json(429, {'error': '登录尝试过多，请稍后再试'})
+            return
+        _cleanup_login_failures()
+
         users = _load_users()
         user = _find_user(users, 'username', username)
 
         if not user or not verify_password(password, user.get('passwordHash', ''), user.get('passwordSalt', '')):
             self._send_json(401, {'error': '用户名或密码错误'})
             return
+
+        # 登录成功：清掉失败计数
+        _reset_login_failures(failure_id)
 
         # 更新 lastLoginAt
         user['lastLoginAt'] = datetime.now().isoformat()
