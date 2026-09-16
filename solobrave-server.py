@@ -6112,9 +6112,38 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if self.path.endswith('.html') or self.path == '/' or self.path.endswith('.js'):
             self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
             self.send_header('Pragma', 'no-cache')
+        # ─── 安全响应头（防御深度，覆盖所有 endpoint） ───
+        # X-Content-Type-Options: 禁 MIME 嗅探（防上传文件被当 HTML 解析）
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        # X-Frame-Options: 禁被嵌入 iframe（防点击劫持；index.html 无 iframe，零冲突）
+        self.send_header('X-Frame-Options', 'SAMEORIGIN')
+        # Referrer-Policy: 跨域只发 origin（防 Referer 泄漏完整路径含敏感 ID）
+        self.send_header('Referrer-Policy', 'strict-origin-when-cross-origin')
+        # Permissions-Policy: 关闭未用硬件 API（降低 XSS 后的攻击面）
+        self.send_header(
+            'Permissions-Policy',
+            'camera=(), microphone=(), geolocation=(), payment=(), usb=(), '
+            'magnetometer=(), gyroscope=(), accelerometer=()'
+        )
+        # HSTS: 仅 HTTPS 发（含 self 1年 + subdomains；HTTP 上发也无害，浏览器只在 https 升级时遵守）
+        try:
+            if getattr(self, 'command', None) and self.headers.get('X-Forwarded-Proto', '').lower() == 'https':
+                self.send_header(
+                    'Strict-Transport-Security',
+                    'max-age=31536000; includeSubDomains'
+                )
+        except Exception:
+            pass
+        # CSP 不加：index.html 有 672 个内联 onclick + 896 个内联 style，
+        # 加严格 CSP 会大面积打坏 UI。改用服务端输出侧 XSS 修复（commit 7963fed）兜底。
+        # 覆盖 Server header，遮蔽 Python/SimpleHTTP 版本号（减少信息泄漏）
+        self.send_header('Server', 'SoloBrave')
         super().end_headers()
 
     def __init__(self, *args, **kwargs):
+        # 遮蔽 Server header 默认值（默认会写 "SimpleHTTP/0.6 Python/3.9.6"），改为不泄漏版本号
+        self.server_version = 'SoloBrave'
+        self.sys_version = ''
         super().__init__(*args, directory=STATIC_DIR, **kwargs)
 
     # ─── CORS ───────────────────────────────────────────
