@@ -18474,7 +18474,13 @@ def _call_chat_completion(api_provider, api_key, api_model, custom_endpoint, mes
         error_body = e.read().decode('utf-8', errors='replace')
         logger.error(f'  ❌ AI API call failed: HTTP {e.code} {e.reason}')
         logger.info(f'      Provider: {api_provider}, Model: {resolved_model}, URL: {target_url}')
-        logger.error(f'      Request body preview: {req_body[:500].decode("utf-8", errors="replace")}')
+        # ★ 不打印请求体（可能含用户对话 PII/系统提示/API 密钥），只打元信息
+        try:
+            preview_dict = json.loads(req_body.decode('utf-8', errors='replace')[:500])
+            preview_keys = list(preview_dict.keys())
+        except Exception:
+            preview_keys = '<non-json>'
+        logger.error(f'      Request body length={len(req_body)} keys={preview_keys}')
         logger.error(f'      Response: {error_body}')
     except Exception as e:
         logger.error(f'  ❌ AI API call failed: {e}')
