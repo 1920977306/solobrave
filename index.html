@@ -10394,8 +10394,17 @@ function formatMessageInline(text) {
       s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
       // 斜体 *text*（不与加粗冲突）
       s = s.replace(/(^|[\s(])\*([^*\s][^*]*?)\*($|[\s)])/g, '$1<em>$2</em>$3');
-      // 链接 [text](url)
-      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      // 链接 [text](url) — ★ XSS 修复：URL 必须走白名单 scheme + escapeAttr，否则原样显示文本
+      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_match, linkText, linkUrl) {
+        var trimmed = String(linkUrl).trim().toLowerCase();
+        // 仅允许 http/https/mailto/相对路径/锚点
+        var isSafe = /^(https?:\/\/|mailto:|\/|#)/.test(trimmed);
+        if (!isSafe) {
+          // 不安全 scheme（javascript:/data:/vbscript:）→ 当成普通文本，不生成链接
+          return '[' + escapeHtml(linkText) + '](' + escapeHtml(linkUrl) + ')';
+        }
+        return '<a href="' + escapeAttr(linkUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(linkText) + '</a>';
+      });
       // 独立行 --- 替换为 hr divider (AI 报告里的 Markdown 分隔符)
       s = s.replace(/^---$/gm, '<hr class="ai-inline-divider">');
       out += s;
