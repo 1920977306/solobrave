@@ -13906,6 +13906,12 @@ function ctxAction(action) {
         var _delId = contextTarget;
         var _wasCurrent2 = localStorage.getItem('sb_current_emp') === _delId;
         var _delEmp2 = emps.find(function (e) { return e.id === _delId; });
+        // ★ 优化删除 UX：保留原始状态用于失败回滚（避免"假删除"误导）
+        var _delOrig2 = _delEmp2 ? {
+          status: _delEmp2.status,
+          archived: _delEmp2.archived,
+          archivedAt: _delEmp2.archivedAt
+        } : null;
         if (_delEmp2) {
           _delEmp2.status = 'archived';
           _delEmp2.archived = true;
@@ -13915,7 +13921,27 @@ function ctxAction(action) {
         if (typeof apiFetch === 'function') {
           apiFetch('/api/agents/' + _delId, {
             method: 'DELETE'
-          }).catch(function () {});
+          }).then(function () {
+            // 成功：刷新列表对齐服务端状态（防本地-服务端漂移）
+            showToast('🗑️ 已删除');
+            if (typeof loadEmployees === 'function') loadEmployees();
+          }).catch(function (e) {
+            // 失败：回滚乐观更新，提示真实错误（不再让用户看到虚假的"已删除"）
+            if (_delEmp2 && _delOrig2) {
+              _delEmp2.status = _delOrig2.status;
+              _delEmp2.archived = _delOrig2.archived;
+              if (_delOrig2.archivedAt) {
+                _delEmp2.archivedAt = _delOrig2.archivedAt;
+              } else {
+                delete _delEmp2.archivedAt;
+              }
+            }
+            renderEmployeeList();
+            showToast('❌ 删除失败：' + (e && e.message ? e.message : '未知错误'));
+            console.error('[deleteAgent] 后端删除失败:', e);
+          });
+        } else {
+          showToast('❌ apiFetch 未定义，无法删除');
         }
         if (currentEmpId === _delId) closeEmpDetail();
         if (_wasCurrent2) {
@@ -13923,7 +13949,6 @@ function ctxAction(action) {
         } else {
           renderMsgs('private');
         }
-        showToast('🗑️ 已删除');
       }
       break;
   }
@@ -14081,6 +14106,12 @@ function empSettingsAction(action) {
         var deleteId = empSettingsTarget;
         var _wasCurrent3 = localStorage.getItem('sb_current_emp') === deleteId;
         var _delEmp3 = emps.find(function (e) { return e.id === deleteId; });
+        // ★ 优化删除 UX：保留原始状态用于失败回滚（避免"假删除"误导）
+        var _delOrig3 = _delEmp3 ? {
+          status: _delEmp3.status,
+          archived: _delEmp3.archived,
+          archivedAt: _delEmp3.archivedAt
+        } : null;
         if (_delEmp3) {
           _delEmp3.status = 'archived';
           _delEmp3.archived = true;
@@ -14090,7 +14121,26 @@ function empSettingsAction(action) {
         if (typeof apiFetch === 'function') {
           apiFetch('/api/agents/' + deleteId, {
             method: 'DELETE'
-          }).catch(function () {});
+          }).then(function () {
+            showToast('🗑️ 已删除');
+            if (typeof loadEmployees === 'function') loadEmployees();
+          }).catch(function (e) {
+            // 失败：回滚乐观更新，提示真实错误（不再让用户看到虚假的"已删除"）
+            if (_delEmp3 && _delOrig3) {
+              _delEmp3.status = _delOrig3.status;
+              _delEmp3.archived = _delOrig3.archived;
+              if (_delOrig3.archivedAt) {
+                _delEmp3.archivedAt = _delOrig3.archivedAt;
+              } else {
+                delete _delEmp3.archivedAt;
+              }
+            }
+            renderEmployeeList();
+            showToast('❌ 删除失败：' + (e && e.message ? e.message : '未知错误'));
+            console.error('[deleteAgent] 后端删除失败:', e);
+          });
+        } else {
+          showToast('❌ apiFetch 未定义，无法删除');
         }
         if (currentEmpId === deleteId) closeEmpDetail();
         if (_wasCurrent3) {
@@ -14098,7 +14148,6 @@ function empSettingsAction(action) {
         } else {
           renderMsgs('private');
         }
-        showToast('🗑️ 已删除');
       }
       break;
   }
