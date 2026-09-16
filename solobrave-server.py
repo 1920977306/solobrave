@@ -14926,10 +14926,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 ] + [str(t) for t in (p.get('tags') or [])]).lower()
                 return all(kw in fields for kw in kws)
             products = [p for p in products if _match_product(p)]
-        if not auth.is_admin:
-            uid = auth.user_info.get('userId', '')
-            ids = {uid} | set(_get_user_emp_ids(uid))
-            products = [p for p in products if (p.get('created_by') or p.get('createdBy') or '') in ids]
+        # ★ 数据隔离：AI 员工本地调用（localhost_agent_id）有 admin role 但仍需按 owner 过滤，
+# 与 _handle_get_talents / _handle_get_knowledge_patterns 一致。
+        if not auth.is_admin or getattr(auth, 'localhost_agent_id', None):
+            uid = _resolve_talent_owner_id(auth)
+            visible_ids = {uid} | set(_get_user_emp_ids(uid))
+            products = [p for p in products if (p.get('created_by') or p.get('createdBy') or '') in visible_ids]
         # 分页
         offset = int(query.get('offset', [0])[0])
         limit = int(query.get('limit', [50])[0])
