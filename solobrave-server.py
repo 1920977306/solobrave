@@ -16558,6 +16558,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # ★ 修复 IDOR：必须对该达人（URL 中的 talent_id）有写权限，
+        # 否则有 influencers 模块权限的人可以改/删别人子库的达人跟进记录。
+        deny = _check_talent_write_permission(auth, talent_id)
+        if deny:
+            self._send_json(deny[1], {'error': deny[0]})
+            return
         body = self._read_body()
         if not body:
             self._send_json_error(400, 'Missing body')
@@ -16598,6 +16604,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
+        # ★ 修复 IDOR：必须对该达人（URL 中的 talent_id）有写权限
+        deny = _check_talent_write_permission(auth, talent_id)
+        if deny:
+            self._send_json(deny[1], {'error': deny[0]})
+            return
         conn = _db_conn()
         try:
             cur = conn.execute(
