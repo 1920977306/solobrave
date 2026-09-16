@@ -6070,6 +6070,39 @@ def knowledge_migrate_from_json():
     return migrated
 
 
+# ★ API 频率限制（防 DoS / 滥用）：每 IP 60 秒最多 300 个 API 请求
+#    - 仅作用于 /api/* 路径，静态文件不限流
+#    - 跳过 /api/auth/* （login/register/change-password 有自己的 brute force 防护）
+_API_RATE_WINDOW_S = 60
+_API_RATE_MAX = 300
+_api_rate_log = {}  # {ip: [timestamps]}
+
+
+def _check_api_rate_limit(client_ip):
+    """检查并记录一次 API 请求；超限返回 False（拒绝）。"""
+    now = time.time()
+    log = _api_rate_log.get(client_ip)
+    if log is None:
+        log = []
+        _api_rate_log[client_ip] = log
+    # 清掉窗口外的旧记录
+    while log and now - log[0] > _API_RATE_WINDOW_S:
+        log.pop(0)
+    if len(log) >= _API_RATE_MAX:
+        return False
+    log.append(now)
+    return True
+
+
+def _cleanup_api_rate_log():
+    """清理过期 IP 条目，避免字典无限增长。"""
+    now = time.time()
+    expired = [ip for ip, log in _api_rate_log.items()
+               if not log or now - log[-1] > _API_RATE_WINDOW_S * 10]
+    for ip in expired:
+        _api_rate_log.pop(ip, None)
+
+
 # ─── 请求处理器 ────────────────────────────────────────
 
 class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
@@ -6198,6 +6231,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
     def _do_GET(self):
+        if self.path.startswith('/api/') and not self.path.startswith('/api/auth/'):
+            if not _check_api_rate_limit(self.client_address[0]):
+                self._send_json_error(429, '请求过于频繁，请稍后重试')
+                return
         path = self._normalize_path(self.path)
 
         # Auth routes (no auth required)
@@ -6704,6 +6741,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
     def _do_POST(self):
+        if self.path.startswith('/api/') and not self.path.startswith('/api/auth/'):
+            if not _check_api_rate_limit(self.client_address[0]):
+                self._send_json_error(429, '请求过于频繁，请稍后重试')
+                return
         path = self._normalize_path(self.path)
 
         # Auth routes
@@ -7117,6 +7158,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
     def _do_PUT(self):
+        if self.path.startswith('/api/') and not self.path.startswith('/api/auth/'):
+            if not _check_api_rate_limit(self.client_address[0]):
+                self._send_json_error(429, '请求过于频繁，请稍后重试')
+                return
         path = self._normalize_path(self.path)
 
         # Groups API
@@ -7298,6 +7343,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 pass
 
     def _do_DELETE(self):
+        if self.path.startswith('/api/') and not self.path.startswith('/api/auth/'):
+            if not _check_api_rate_limit(self.client_address[0]):
+                self._send_json_error(429, '请求过于频繁，请稍后重试')
+                return
         path = self._normalize_path(self.path)
 
         # 规律库：硬删除
