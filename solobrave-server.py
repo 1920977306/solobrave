@@ -10022,7 +10022,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'avatar': body.get('avatar', '🦞'),
             'status': body.get('status', 'online'),
             'msg': body.get('msg', ''),
-            'archived': body.get('archived', False),
+            # 新员工创建硬编码 archived=False：创建路径不应接受请求体里的 archived 字段，
+            # 否则前端脏数据 / body 误传 archived=True 会导致 _load_agents() 默认过滤掉新员工，
+            # 表现为「员工创建 AI 员工后端写入 archived=True、服务启动后看不到」。
+            'archived': False,
             'permission': body.get('permission', 'dev'),
             'visibility': body.get('visibility', 'creator'),
             'createdBy': auth.user_info['userId'],
