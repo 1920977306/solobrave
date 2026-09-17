@@ -26626,11 +26626,16 @@ function renderProductPanelDetail(p) {
   if (!el) return;
   var statusMap = {active:'在售', inactive:'停售', out_of_stock:'缺货'};
   var html = '';
+  // dev/feat: products 修复 #3 — main_image 100% 空时显示 placeholder (与列表卡片对齐)
+  // 真实图优先; 无图时用 getProductPlaceholder (品牌色 + name 首字); 图加载失败降级
+  html += '<div class="products-panel-section" style="text-align:center;">';
   if (p.main_image) {
-    html += '<div class="products-panel-section" style="text-align:center;">';
-    html += '<img src="' + escapeAttr(p.main_image) + '" style="max-width:200px;max-height:200px;border-radius:12px;border:1px solid var(--border);" onerror="this.parentElement.style.display=\'none\'">';
-    html += '</div>';
+    html += '<img src="' + escapeAttr(p.main_image) + '" style="max-width:200px;max-height:200px;border-radius:12px;border:1px solid var(--border);" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';">';
+    html += '<div style="display:none;width:200px;height:200px;margin:0 auto;align-items:center;justify-content:center;">' + getProductPlaceholder(p) + '</div>';
+  } else {
+    html += getProductPlaceholder(p);
   }
+  html += '</div>';
   html += '<div class="products-panel-section">';
   html += '<div class="products-panel-title">基本信息</div>';
   html += '<div class="products-detail-grid">';
