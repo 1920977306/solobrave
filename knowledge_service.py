@@ -562,8 +562,10 @@ def get_embedding_cached(text, api_key, provider, model=None, base_url=None):
 # 安全: get_embedding() 内部已加 retry (commit a4a4ea1), 单条失败不阻断整批.
 # ═══════════════════════════════════════════════════
 
-def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=None):
-    """回填 knowledge_chunks 表的 embedding 字段.
+def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=None,
+                         targets=None):
+    """回填 embedding 字段. 修复 dev/feat: 规律库 #6 — 之前只覆盖 knowledge_chunks,
+       现在也覆盖 knowledge_events (规律 evidence source, 99 条只 24% 有 embedding).
 
     参数:
       emp_id: 限定某个员工的 chunks (None = 全局)
@@ -571,10 +573,12 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
               False = 只补 IS NULL 或 embedding_model 不匹配的
       batch_size: 每多少条 commit 一次 (避免长事务)
       on_progress: 可选回调 fn(i, total) 报告进度
+      targets: 要回填的表集合 — ['chunks','events'] 或只 ['chunks'] 兼容老调用
 
     返回: {
-      total, success, skipped, failed, errors: [(chunk_id, msg), ...],
-      elapsed_sec, embedding_model
+      total, success, skipped, failed, errors: [(row_id, msg), ...],
+      elapsed_sec, embedding_model,
+      by_target: { 'chunks': {...}, 'events': {...} }
     }
     """
     import time as _time
@@ -583,6 +587,8 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
     log = _logging.getLogger('solobrave')
     start = _time.perf_counter()
 
+    if targets is None:
+        targets = ['chunks', 'events']
     emb_cfg = get_embedding_config(emp_id or None)
     api_key = emb_cfg['apiKey']
     provider = emb_cfg['provider']
@@ -591,82 +597,120 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
     if not api_key:
         return {'error': 'No API key configured for embedding', 'total': 0}
 
+    grand_total = 0
+    grand_success = 0
+    grand_failed = 0
+    grand_errors = []
+    by_target = {}
+
     conn = _db_conn()
     try:
-        # 选 chunks (status='ok' 是必要条件, RAG 也用这个)
-        if force:
-            where = "WHERE k.status = 'ok'"
-            params = []
-        else:
-            where = ("WHERE k.status = 'ok' AND "
-                     "(c.embedding IS NULL OR c.embedding_model = '' OR c.embedding_model != ?)")
-            params = [embedding_model]
-        if emp_id:
-            where += " AND c.emp_id = ?"
-            params.append(emp_id)
-        rows = conn.execute(
-            f'SELECT c.id, c.content FROM knowledge_chunks c '
-            f'JOIN knowledge k ON c.knowledge_id = k.id {where}',
-            params
-        ).fetchall()
-        total = len(rows)
-        success = 0
-        failed = 0
-        errors = []
-        if total == 0:
-            return {
-                'total': 0, 'success': 0, 'skipped': 0, 'failed': 0, 'errors': [],
-                'elapsed_sec': 0.0, 'embedding_model': embedding_model,
-                'message': '没有需要回填的 chunks (可能都已 embedding)',
-            }
-
-        for i, row in enumerate(rows, 1):
-            chunk_id = row['id']
-            content = row['content'] or ''
-            if not content.strip():
-                failed += 1
-                errors.append((chunk_id, 'empty content'))
+        for target in targets:
+            if target == 'chunks':
+                sql_where = "WHERE k.status = 'ok'"
+                sql_params = []
+                if not force:
+                    sql_where += (" AND (c.embedding IS NULL OR c.embedding_model = '' OR c.embedding_model != ?)")
+                    sql_params = [embedding_model]
+                if emp_id:
+                    sql_where += " AND c.emp_id = ?"
+                    sql_params.append(emp_id)
+                rows = conn.execute(
+                    f'SELECT c.id, c.content FROM knowledge_chunks c '
+                    f'JOIN knowledge k ON c.knowledge_id = k.id {sql_where}',
+                    sql_params
+                ).fetchall()
+                update_sql = ('UPDATE knowledge_chunks '
+                              'SET embedding = ?, embedding_model = ? WHERE id = ?')
+            elif target == 'events':
+                # events 没 model 列 (没存过), 用 force 或 IS NULL 判断
+                if force:
+                    sql_where = "WHERE 1=1"
+                    sql_params = []
+                else:
+                    sql_where = "WHERE embedding IS NULL"
+                    sql_params = []
+                # 只对 analysis / vision_data 类型跑 (其他 event_type 没 content)
+                sql_where += " AND event_type IN ('analysis','vision_data','product_intel','talent_intel','note','rule')"
+                rows = conn.execute(
+                    f'SELECT id, COALESCE(content_full, content_summary, title) AS content '
+                    f'FROM knowledge_events {sql_where} ORDER BY created_at DESC',
+                    sql_params
+                ).fetchall()
+                update_sql = ('UPDATE knowledge_events '
+                              'SET embedding = ? WHERE id = ?')
+            else:
                 continue
-            try:
-                emb = get_embedding_cached(content, api_key, provider,
-                                            embedding_model, base_url=base_url)
-                if not emb:
-                    failed += 1
-                    errors.append((chunk_id, 'embedding API returned None'))
+
+            total = len(rows)
+            if total == 0:
+                by_target[target] = {'total': 0, 'success': 0, 'failed': 0,
+                                       'elapsed_sec': 0.0,
+                                       'message': '没有需要回填的 rows'}
+                continue
+
+            target_success = 0
+            target_failed = 0
+            target_errors = []
+            t_start = _time.perf_counter()
+            for i, row in enumerate(rows, 1):
+                row_id = row['id']
+                content = row['content'] or ''
+                if not content.strip():
+                    target_failed += 1
+                    target_errors.append((row_id, 'empty content'))
                     continue
-                emb_bytes = _struct.pack(f'{len(emb)}f', *emb)
-                conn.execute(
-                    'UPDATE knowledge_chunks SET embedding = ?, embedding_model = ? WHERE id = ?',
-                    (emb_bytes, embedding_model, chunk_id)
-                )
-                success += 1
-                if i % batch_size == 0:
-                    conn.commit()
-                    log.info(f'  [Backfill] progress {i}/{total} success={success} failed={failed}')
-                    if on_progress:
-                        try:
-                            on_progress(i, total)
-                        except Exception:
-                            pass
-            except Exception as e:
-                failed += 1
-                errors.append((chunk_id, str(e)[:200]))
-        conn.commit()
+                try:
+                    emb = get_embedding_cached(content, api_key, provider,
+                                                embedding_model, base_url=base_url)
+                    if not emb:
+                        target_failed += 1
+                        target_errors.append((row_id, 'embedding API returned None'))
+                        continue
+                    emb_bytes = _struct.pack(f'{len(emb)}f', *emb)
+                    conn.execute(update_sql, (emb_bytes, embedding_model, row_id))
+                    target_success += 1
+                    if i % batch_size == 0:
+                        conn.commit()
+                        log.info(f'  [Backfill-{target}] progress {i}/{total} '
+                                 f'success={target_success} failed={target_failed}')
+                        if on_progress:
+                            try:
+                                on_progress(i, total)
+                            except Exception:
+                                pass
+                except Exception as e:
+                    target_failed += 1
+                    target_errors.append((row_id, str(e)[:200]))
+            conn.commit()
+            t_elapsed = round(_time.perf_counter() - t_start, 2)
+            log.info(f'  [Backfill-{target}] done: total={total} '
+                     f'success={target_success} failed={target_failed} elapsed={t_elapsed}s')
+            by_target[target] = {
+                'total': total, 'success': target_success, 'failed': target_failed,
+                'errors': target_errors[:10],
+                'elapsed_sec': t_elapsed,
+            }
+            grand_total += total
+            grand_success += target_success
+            grand_failed += target_failed
+            grand_errors.extend(target_errors[:10])
     finally:
         conn.close()
     elapsed = round(_time.perf_counter() - start, 2)
     log.info(
-        f'  [Backfill] done: total={total} success={success} '
-        f'failed={failed} elapsed={elapsed}s model={embedding_model}'
+        f'  [Backfill] 全部 done: total={grand_total} success={grand_success} '
+        f'failed={grand_failed} elapsed={elapsed}s'
     )
     return {
-        'total': total,
-        'success': success,
+        'total': grand_total,
+        'success': grand_success,
         'skipped': 0,
-        'failed': failed,
-        'errors': errors[:20],
+        'failed': grand_failed,
+        'errors': grand_errors[:20],
         'elapsed_sec': elapsed,
         'embedding_model': embedding_model,
+        'by_target': by_target,
     }
 
 

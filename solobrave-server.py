@@ -3477,6 +3477,24 @@ def init_db():
         except Exception as e:
             logger.warning(f'  [KnowledgePatterns] verification_level 迁移跳过: {e}')
 
+        # 存量迁移（幂等）: 同步 confidence_score = confidence * 100
+        # 修复 dev/feat: 规律库审计 #1 — confidence_score 字段加的时候 DEFAULT 50,
+        # 但老数据没回填 (16/16 条 confidence=0.65~0.95 但 confidence_score=50)
+        # 现在: confidence_score = ROUND(confidence * 100, 1)
+        try:
+            conn.execute(
+                "UPDATE knowledge_patterns "
+                "SET confidence_score = ROUND(confidence * 100, 1) "
+                "WHERE ABS(confidence_score - ROUND(confidence * 100, 1)) > 0.1"
+            )
+            conn.execute(
+                "UPDATE knowledge_patterns "
+                "SET evidence_count = json_array_length(evidence) "
+                "WHERE evidence IS NOT NULL AND evidence != '' AND evidence != '[]'"
+            )
+        except Exception as e:
+            logger.warning(f'  [KnowledgePatterns] confidence_score / evidence_count 回填跳过: {e}')
+
         # 合作单表（Deal）：达人-商品合作全流程跟踪
         # status 状态机：pending → negotiating → sample_sent → approved → live → completed/failed
         conn.execute('''
