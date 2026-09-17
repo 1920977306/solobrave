@@ -14643,11 +14643,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 )
             finally:
                 conn.close()
+            # dev/feat: 规律库修复 #7 — 反馈后自动晋升检查
+            promote_result = _kp_auto_promote(pattern_id)
             self._send_json(200, {
                 'ok': True,
                 'pattern_id': pattern_id,
                 'feedback': feedback,
                 'new_count': new_count,
+                'promotion': promote_result,  # None 或 {'old':..., 'new':...}
                 'message': '反馈已记录, 感谢!' if feedback == 'up' else '反馈已记录, 我们会优化'
             })
         except Exception as e:
@@ -22275,6 +22278,143 @@ def _kp_can_promote(cur_level, target_level, confidence_score, evidence_count, a
     if cur_level == 'verified' and target_level == 'proven':
         return confidence_score >= 85 and evidence_count >= 30
     return False
+
+
+# dev/feat: 规律库修复 #7 — verification_level 流转缺中间态
+# 之前 16/16 全是 'verified' (migration 自动升, 没渐进过程)
+# 修复: 加自动晋升机制 — RAG 命中 / feedback "up" 触发 hit_count 涨, 达到门槛自动升
+# 阈值 (hypothesis→candidate→verified→proven):
+#   - 状态 draft / hypothesis: 需要 approved=True + evidence_count ≥ 3 (人工审核)
+#   - candidate → verified: hit_count ≥ 5 + confidence_score ≥ 60 (RAG 用了 + 用户评分)
+#   - verified → proven: hit_count ≥ 20 + confidence_score ≥ 85 (高频使用 + 高置信)
+# 失败侧: miss_count ≥ 10 (被否 10 次) → 降到 deprecated
+_KP_AUTO_PROMOTE_TARGETS = [
+    ('candidate',  5,  60),
+    ('verified',  20,  85),
+]
+_KP_AUTO_DEPRECATE_MISS_THRESHOLD = 10
+
+
+def _kp_auto_promote(pattern_id, conn=None):
+    """根据 hit_count/confidence_score/miss_count 触发自动晋升或降级.
+    调用方: RAG 命中 patterns 后, feedback up/down 后.
+    返回: {'level_changed': 'hypothesis'→'candidate', 'old': ..., 'new': ...} 或 None.
+    全程 try/except 兜底, 失败不影响主流程.
+    """
+    try:
+        owns_conn = conn is None
+        if owns_conn:
+            conn = _db_conn()
+        try:
+            row = conn.execute(
+                'SELECT id, status, verification_level, hit_count, miss_count, confidence_score '
+                'FROM knowledge_patterns WHERE id = ?',
+                (pattern_id,)
+            ).fetchone()
+            if not row:
+                return None
+            cur_level = row['verification_level'] or 'hypothesis'
+            hit = row['hit_count'] or 0
+            miss = row['miss_count'] or 0
+            cs = row['confidence_score'] or 0
+            cur_status = row['status'] or 'draft'
+
+            # deprecated: 被否 10 次 → 降到 deprecated (但 status 仍可能是 confirmed, 仅 level 降)
+            if cur_status == 'confirmed' and miss >= _KP_AUTO_DEPRECATE_MISS_THRESHOLD:
+                if cur_level != 'deprecated':
+                    conn.execute(
+                        'UPDATE knowledge_patterns SET verification_level = ?, updated_at = ? WHERE id = ?',
+                        ('deprecated', int(time.time()), pattern_id)
+                    )
+                    conn.commit()
+                    logger.info(
+                        f'  [KP-AutoPromote] {pattern_id} {cur_level} → deprecated '
+                        f'(miss={miss} ≥ {_KP_AUTO_DEPRECATE_MISS_THRESHOLD})'
+                    )
+                    return {'old': cur_level, 'new': 'deprecated', 'reason': f'miss={miss}'}
+
+            # promote: 逐级检查
+            for target, hit_req, cs_req in _KP_AUTO_PROMOTE_TARGETS:
+                if cur_level == target:
+                    # 已到目标级, 不动
+                    break
+                # 必须在 confirmed 状态下才能自动晋升 (用户没确认的草稿不升)
+                if cur_status != 'confirmed':
+                    break
+                # 必须从 hypothesis→candidate 才能逐级 (跳过中间级不安全)
+                prev_target = {'candidate': 'hypothesis', 'verified': 'candidate', 'proven': 'verified'}.get(target)
+                if prev_target and prev_target != cur_level:
+                    # 当前级别低于 prev_target, 不能直接跳到 target, 跳出
+                    break
+                if hit >= hit_req and cs >= cs_req:
+                    conn.execute(
+                        'UPDATE knowledge_patterns SET verification_level = ?, updated_at = ? WHERE id = ?',
+                        (target, int(time.time()), pattern_id)
+                    )
+                    conn.commit()
+                    logger.info(
+                        f'  [KP-AutoPromote] {pattern_id} {cur_level} → {target} '
+                        f'(hit={hit} ≥ {hit_req}, cs={cs} ≥ {cs_req})'
+                    )
+                    return {'old': cur_level, 'new': target,
+                            'reason': f'hit={hit} cs={cs}'}
+            return None
+        finally:
+            if owns_conn:
+                conn.close()
+    except Exception as e:
+        logger.warning(f'  [KP-AutoPromote] {pattern_id} failed (不影响主流程): {e}')
+        return None
+
+
+def _kp_promotion_progress(pattern_id):
+    """返回距下一级晋升还需多少次 hit, 给前端展示 '还需 N 次命中升级'"""
+    try:
+        conn = _db_conn()
+        try:
+            row = conn.execute(
+                'SELECT verification_level, hit_count, confidence_score, status FROM knowledge_patterns WHERE id = ?',
+                (pattern_id,)
+            ).fetchone()
+            if not row:
+                return None
+            cur_level = row['verification_level'] or 'hypothesis'
+            cur_status = row['status'] or 'draft'
+            hit = row['hit_count'] or 0
+            cs = row['confidence_score'] or 0
+
+            # 找下一级
+            next_idx = None
+            for i, (target, hit_req, cs_req) in enumerate(_KP_AUTO_PROMOTE_TARGETS):
+                if target in ('candidate', 'verified', 'proven'):
+                    # 跳过已升的级
+                    if cur_level == 'hypothesis' and target == 'candidate':
+                        next_idx = i
+                        break
+                    if cur_level == 'candidate' and target == 'verified':
+                        next_idx = i
+                        break
+                    if cur_level == 'verified' and target == 'proven':
+                        next_idx = i
+                        break
+            if next_idx is None:
+                return {'current_level': cur_level, 'next_level': None,
+                        'next_required': None, 'status': cur_status}
+            target, hit_req, cs_req = _KP_AUTO_PROMOTE_TARGETS[next_idx]
+            return {
+                'current_level': cur_level,
+                'next_level': target,
+                'hit_required': hit_req,
+                'hits_remaining': max(0, hit_req - hit),
+                'confidence_required': cs_req,
+                'confidence_shortfall': max(0, cs_req - cs),
+                'status': cur_status,
+            }
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f'  [KP-PromotionProgress] {pattern_id} failed: {e}')
+        return None
 
 
 def _kp_row_to_dict(r, with_evidence=False):
