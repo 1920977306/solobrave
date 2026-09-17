@@ -1040,6 +1040,79 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 16px;
   box-shadow: 0 2px 8px rgba(0, 122, 255, 0.06);
 }
+/* ui/products-detail-v21-kpi: 4 KPI mini (月销/达人/佣金率/单价) — 跟 talent-detail KPI 风格对齐 */
+.products-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+@media (max-width: 900px) { .products-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+.products-kpi-card {
+  background: var(--color-bg, #FFFFFF);
+  border: 0.5px solid var(--separator, rgba(0, 0, 0, 0.08));
+  border-radius: var(--radius-md, 10px);
+  padding: 12px 14px;
+  text-align: left;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.15s;
+}
+.products-kpi-card:hover {
+  border-color: var(--color-primary, #007AFF);
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.08);
+}
+.products-kpi-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text-primary, #1C1C1E);
+  line-height: 1.2;
+  letter-spacing: -0.4px;
+}
+.products-kpi-label {
+  font-size: 11px;
+  color: var(--color-text-secondary, #6E6E73);
+  margin-top: 4px;
+  font-weight: 500;
+}
+.products-kpi-trend {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.products-kpi-trend.up { color: var(--color-rating-a, #34C759); }
+.products-kpi-trend.down { color: var(--color-status-lost, #FF3B30); }
+.products-kpi-trend.flat { color: var(--color-text-tertiary, #AEAEB2); }
+.products-kpi-spark {
+  display: block;
+  margin-top: 6px;
+  width: 100%;
+  height: 24px;
+}
+.products-kpi-spark path { stroke: var(--color-primary, #007AFF); fill: none; stroke-width: 1.5; }
+.products-kpi-spark .area { fill: rgba(0, 122, 255, 0.08); stroke: none; }
+.products-kpi-card.up .products-kpi-spark path { stroke: var(--color-rating-a, #34C759); }
+.products-kpi-card.up .products-kpi-spark .area { fill: rgba(52, 199, 89, 0.1); }
+.products-kpi-card.down .products-kpi-spark path { stroke: var(--color-status-lost, #FF3B30); }
+.products-kpi-card.down .products-kpi-spark .area { fill: rgba(255, 59, 48, 0.08); }
+/* AI 卡片主图标缩到 40px, 跟其他 KPI 卡视觉对齐 */
+.products-ai-score {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-primary, #007AFF), var(--color-ai-bg-accent, #5E5CE6));
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25);
+}
 .products-ai-header {
   display: flex;
   align-items: center;
@@ -7873,6 +7946,8 @@ window.doLogin = function () {
         </div>
       </div>
     </div>
+    <!-- ui/products-detail-v21-kpi: 4 张 KPI mini 卡 (跟 talent-detail KPI 风格对齐) -->
+    <div class="products-kpi-grid" id="productsKPIGrid"></div>
     <!-- AI Analysis Card at top -->
     <div class="products-ai-card" id="productsAICard">
       <div class="products-ai-header">
@@ -26023,6 +26098,8 @@ function renderProductDetail(p) {
     if (statusEl) statusEl.textContent = '点击按钮生成分析';
     if (bodyEl) bodyEl.innerHTML = '';
   }
+  // ★ ui/products-detail-v21-kpi: 4 KPI mini 渲染 (月销/达人/佣金率/单价) + sparkline mini
+  renderProductKPIGrid(p);
   // Reset tab
   _productTab = 'detail';
   document.querySelectorAll('.products-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.tab === 'detail'); });
@@ -26032,6 +26109,79 @@ function renderProductDetail(p) {
   renderProductPanelSales(p);
   renderProductPanelInfluencers(p);
   renderProductPanelAudience(p);
+}
+
+// ★ ui/products-detail-v21-kpi: 4 KPI mini (跟 talent-detail KPI 风格对齐)
+// Sparkline / trend / helper 跟 talent 一致 (复制避免跨 worktree 引用)
+function _productSparkFromSeed(seed, len) {
+  var s = 0;
+  for (var i = 0; i < seed.length; i++) s = (s * 31 + seed.charCodeAt(i)) >>> 0;
+  var arr = [];
+  var prev = 50 + (s % 50);
+  for (var i = 0; i < len; i++) {
+    s = (s * 1103515245 + 12345) >>> 0;
+    var delta = ((s % 17) - 8) * 0.8;
+    prev = Math.max(5, Math.min(95, prev + delta));
+    arr.push(prev);
+  }
+  return arr;
+}
+function _productRenderSparkSVG(arr, opts) {
+  opts = opts || {};
+  var w = opts.w || 80, h = opts.h || 24, pad = 1;
+  var min = Math.min.apply(null, arr), max = Math.max.apply(null, arr);
+  var range = max - min || 1;
+  var stepX = (w - pad * 2) / (arr.length - 1);
+  var pts = arr.map(function (v, i) {
+    var x = pad + i * stepX;
+    var y = pad + (h - pad * 2) * (1 - (v - min) / range);
+    return [x, y];
+  });
+  var path = 'M ' + pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' L ');
+  var areaPath = path + ' L ' + pts[pts.length - 1][0].toFixed(1) + ',' + (h - pad) + ' L ' + pts[0][0].toFixed(1) + ',' + (h - pad) + ' Z';
+  return '<svg class="products-kpi-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">'
+    + '<path class="area" d="' + areaPath + '"></path>'
+    + '<path d="' + path + '"></path>'
+    + '</svg>';
+}
+function _productTrendFromArr(arr) {
+  if (arr.length < 2) return { dir: 'flat', pct: 0 };
+  var mid = Math.floor(arr.length / 2);
+  var first = arr.slice(0, mid).reduce(function (a, b) { return a + b; }, 0) / mid;
+  var second = arr.slice(mid).reduce(function (a, b) { return a + b; }, 0) / (arr.length - mid);
+  if (second === 0) return { dir: 'flat', pct: 0 };
+  var pct = ((second - first) / first) * 100;
+  var dir = Math.abs(pct) < 2 ? 'flat' : (pct > 0 ? 'up' : 'down');
+  return { dir: dir, pct: Math.round(Math.abs(pct)) };
+}
+function renderProductKPIGrid(p) {
+  var grid = document.getElementById('productsKPIGrid');
+  if (!grid) return;
+  var commissionVal = (p.commission_rates && Object.keys(p.commission_rates).length)
+    ? Object.keys(p.commission_rates).map(function (k) { return p.commission_rates[k]; }).join('/')
+    : ((p.commission_rate || 0) + '%');
+  var seed = (p.id || 'p') + '-kpi';
+  var kpis = [
+    { label: '月销',      val: formatNumber(p.monthly_sales || 0),          seed: 'ms' },
+    { label: '带货达人',  val: (p.influencer_count || 0) + ' 位',           seed: 'ifc' },
+    { label: '佣金率',    val: commissionVal,                              seed: 'cr' },
+    { label: '单价',      val: '¥' + (p.price || 0).toFixed(2),             seed: 'pr' }
+  ];
+  var html = '';
+  kpis.forEach(function (k) {
+    var arr = _productSparkFromSeed(seed + k.seed, 12);
+    var trend = _productTrendFromArr(arr);
+    var trendCls = trend.dir;
+    var arrow = trend.dir === 'up' ? '▲' : (trend.dir === 'down' ? '▼' : '–');
+    var cardCls = 'products-kpi-card ' + trendCls;
+    html += '<div class="' + cardCls + '">'
+      + '<div class="products-kpi-value">' + escapeHtml(k.val) + '</div>'
+      + '<div class="products-kpi-label">' + escapeHtml(k.label) + '</div>'
+      + '<div class="products-kpi-trend ' + trendCls + '">' + arrow + ' ' + trend.pct + '%</div>'
+      + _productRenderSparkSVG(arr)
+      + '</div>';
+  });
+  grid.innerHTML = html;
 }
 
 function switchProductTab(tab) {
