@@ -5062,9 +5062,13 @@ def _kb_category_name_by_id(conn, category_id):
         return ''
 
 
-def _upsert_knowledge_base(kb):
+def _upsert_knowledge_base(kb, user_id=''):
     """插入或更新 kb_entries（新版知识库表）；status='active' 映射为 'ok'，其余为 'pending'。
-    旧表 knowledge_base 已废弃，不再写入。"""
+    旧表 knowledge_base 已废弃，不再写入。
+    dev/feat: kb_entries 修复 — 加 user_id 参数 (默认 '' 兼容老调用);
+    INSERT 写 created_by = user_id (修复前硬编码 '', 导致 133 行 100% 归属缺失).
+    调用方未来从 auth 拿真实 user_id 传入即可, 不传时仍为 '' (兼容老调用).
+    """
     conn = _db_conn()
     try:
         now = int(time.time() * 1000)
@@ -5127,11 +5131,11 @@ def _upsert_knowledge_base(kb):
         created_at = kb.get('createdAt') or kb.get('created_at') or now
         conn.execute('''
             INSERT INTO kb_entries (id, title, content, category, category_id, project_id, scope, emp_id, status, chunk_count, created_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'global', ?, ?, 0, '', ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 'global', ?, ?, 0, ?, ?, ?)
         ''', (
             kb_id, kb.get('title', ''), content,
             category_name, category_id, project_id, emp_id,
-            new_status, created_at, now
+            new_status, user_id, created_at, now
         ))
         conn.commit()
         return kb_id
@@ -5197,6 +5201,7 @@ def _auto_check_knowledge(emp_id, mem_id, value, tags=None):
     # 决策触发：直接沉淀为 active
     if _contains_decision_keyword(content):
         title = content[:40] + ('...' if len(content) > 40 else '')
+        # dev/feat: 自动沉淀路径 created_by 标 'auto:' + emp_id (agent 自动产生, 非 user)
         return _upsert_knowledge_base({
             'empId': emp_id,
             'title': '决策：' + title,
@@ -5205,9 +5210,10 @@ def _auto_check_knowledge(emp_id, mem_id, value, tags=None):
             'tags': tags or [],
             'relatedMemIds': [mem_id],
             'status': 'active'
-        })
+        }, user_id='auto:' + (emp_id or ''))
     # 重复提及：创建 pending，evidence_count 由 upsert 累加
     title = content[:40] + ('...' if len(content) > 40 else '')
+    # dev/feat: 自动沉淀路径 created_by 标 'auto:' + emp_id (agent 自动产生, 非 user)
     return _upsert_knowledge_base({
         'empId': emp_id,
         'title': '知识点：' + title,
@@ -5216,7 +5222,7 @@ def _auto_check_knowledge(emp_id, mem_id, value, tags=None):
         'tags': tags or [],
         'relatedMemIds': [mem_id],
         'status': 'pending'
-    })
+    }, user_id='auto:' + (emp_id or ''))
 
 
 # ═══ AI 分析结论自动入库 ═══
@@ -5827,12 +5833,13 @@ def _maybe_auto_save_analysis(agent_id, reply, user_text='', tool_results=None, 
             return
         title = _extract_analysis_title(analysis_text, user_text)
         # 审核闸：自动入库的分析结论一律先 status=pending，管理员在知识库页面确认后才转 ok 进 RAG
+        # dev/feat: created_by = 'auto:' + agent_id (agent 自动分析, 非 user 创建)
         kb_id = _upsert_knowledge_base({
             'title': title,
             'content': analysis_text,
             'source': 'auto_analysis',
             'review_required': True,
-        })
+        }, user_id='auto:' + (agent_id or ''))
         if not kb_id:
             return
         # 记录指纹：后续记忆管线收到同一内容时不再拆成碎片 pending 条目
@@ -13240,6 +13247,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, {'success': True, 'empId': emp_id, 'knowledgeId': None, 'filtered': True})
             return
         try:
+            # dev/feat: 手动 HTTP 路径 created_by = auth.user_id (真实创建者)
             kb_id = _upsert_knowledge_base({
                 'empId': emp_id,
                 'title': title,
@@ -13250,7 +13258,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 'categoryId': body.get('categoryId') or body.get('category_id'),
                 'projectId': body.get('projectId') or body.get('project_id'),
                 'status': 'active'
-            })
+            }, user_id=auth.user_id or '')
         except Exception as e:
             logger.error(f'  [KnowledgeBase] manual mark failed: {e}')
             self._send_json_error(500, 'Mark knowledge failed')
