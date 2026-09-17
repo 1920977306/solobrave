@@ -1712,6 +1712,22 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
                     f'WHERE id IN ({placeholders})',
                     (int(time.time() * 1000), *pattern_ids)
                 )
+                # dev/feat: 规律库修复 #7 续 — RAG 命中后调自动晋升
+                # hit_count 已 +1, 看看能否触发 candidate / verified / proven
+                try:
+                    import importlib
+                    solobrave_server = importlib.import_module('solobrave_server')
+                    for pid in pattern_ids:
+                        promote_result = solobrave_server._kp_auto_promote(pid)
+                        if promote_result:
+                            logger.info(
+                                f'  [RAG-Promote] RAG 命中触发晋升: '
+                                f'{pid} {promote_result["old"]}→{promote_result["new"]}'
+                            )
+                except Exception as promote_err:
+                    logger.warning(
+                        f'  [RAG-Promote] 自动晋升检查失败 (不影响 RAG): {promote_err}'
+                    )
                 conn.commit()
                 logger.info(
                     f'  [RAG-Patterns] 自动 +hit_count: {len(top_patterns)} 条 '
