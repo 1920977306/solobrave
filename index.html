@@ -27653,8 +27653,8 @@ function renderTalentList(talents) {
     var gmvRaw = t.total_gmv || mock.total_gmv || 0;
     var gmvText = gmvRaw >= 10000 ? ((gmvRaw / 10000).toFixed(1).replace(/\.0$/, '') + '万') : (gmvRaw > 0 ? formatNumber(gmvRaw) : '');
     var engagement = (t.video_interaction_rate || '').toString().replace(/[^\d.]/g, '');
-    // 状态徽章 label
-    var stMap = { following: '关注', cooperating: '已合作', communicating: '沟通中', available: '可合作', blacklist: '黑名单' };
+    // 状态徽章 label (dev/feat: talents 修复 #3 — 补 resting/archived; 与 _TALENT_STATUS_MAP 对齐)
+    var stMap = { following: '关注', cooperating: '已合作', communicating: '沟通中', available: '可合作', resting: '暂休', blacklist: '黑名单', archived: '已归档' };
     var statusLabel = stMap[status] || status;
     // AI 匹配分（暂用占位，0 分时省略前缀）
     var aiScore = t.ai_rating && ['S','A','B','C'].indexOf(t.ai_rating) >= 0
