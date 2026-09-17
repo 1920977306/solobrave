@@ -6764,6 +6764,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_user(user_id)
                 return
 
+        # Chat Model Switcher (GET — 前端 pill 启动时拉当前模型)
+        if path == '/api/admin/chat-model':
+            self._handle_get_chat_model()
+            return
+
         # FIXME: 大脑知识中枢 API
         if path == '/api/brain/status':
             self._handle_get_brain_status()
@@ -7213,6 +7218,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             return
         if path == '/api/auth/admin/emergency-rotate-secret':
             self._handle_emergency_rotate_jwt_secret()
+            return
+
+        # Chat 模型切换（admin, 前端 pill 调；OpenClaw hot reload 不需要重启 gateway）
+        if path == '/api/admin/chat-model':
+            if self.command == 'GET':
+                self._handle_get_chat_model()
+            elif self.command == 'POST':
+                self._handle_post_chat_model()
+            else:
+                self._send_json_error(405, 'Method Not Allowed')
             return
 
         # CSP 违规报告端点（任何 origin 都可 POST，不需 auth — 浏览器自动上报）
@@ -8442,6 +8457,114 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             'adminId': auth.user_id,
             'message': 'JWT secret 紧急轮换完成，旧 token 在 grace period 内仍可验证'
         })
+
+    # ─────────────────────────────────────────────────────────
+    # Chat Model Switcher (dev/feat: #4 UI 闭环)
+    # 架构: 前端 chat 必须经 OpenClaw Gateway；模型切换点是 OpenClaw config (model.primary)
+    #      BFF 只做 "读 + 调 switch_chat_model.py"，不直连 LLM provider API
+    # 前端: ui/model-switcher pill (commit 8dbe924) 调这两个 endpoint
+    # 安全: admin-only (前端 UI 是全员可见，但调这个 endpoint 必须是 admin 角色)
+    # ─────────────────────────────────────────────────────────
+
+    def _handle_get_chat_model(self):
+        """GET /api/admin/chat-model — 读当前 OpenClaw chat 模型 (前端 pill 显示用)
+
+        响应: {current: "minimax/MiniMax-M3", available: [...], profiles: [...]}
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+        try:
+            proc = subprocess.run(
+                ['openclaw', 'config', 'get', 'agents.defaults.model.primary'],
+                capture_output=True, text=True, timeout=8,
+            )
+            if proc.returncode != 0:
+                logger.error(f'  [ChatModel] openclaw get failed: {proc.stderr.strip()}')
+                self._send_json_error(502, f'openclaw read failed: {proc.stderr.strip()[:200]}')
+                return
+            current = proc.stdout.strip()
+            self._send_json(200, {
+                'current': current,
+                'available': [
+                    'zhipu/glm-4-flash',
+                    'kimi/k3',
+                    'minimax/MiniMax-M3',
+                ],
+                'profiles': ['zhipu', 'kimi', 'minimax', 'restore'],
+                'note': '切换通过 OpenClaw Gateway hot reload (≈0s 断流)',
+            })
+        except subprocess.TimeoutExpired:
+            self._send_json_error(504, 'openclaw read timeout (8s)')
+        except FileNotFoundError:
+            self._send_json_error(500, 'openclaw CLI not found in PATH')
+        except Exception as e:
+            logger.error(f'  [ChatModel] GET exception: {e}')
+            self._send_json_error(500, f'read failed: {e}')
+
+    def _handle_post_chat_model(self):
+        """POST /api/admin/chat-model — 切换 chat 模型 (内部跑 switch_chat_model.py)
+
+        Body: {profile: "zhipu"|"kimi"|"minimax"|"restore"}
+        响应: {ok: true, profile, current, message, scriptOutput}
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+        body = self._read_body() or {}
+        profile = (body.get('profile') or '').strip()
+        if profile not in ('zhipu', 'kimi', 'minimax', 'restore'):
+            self._send_json_error(
+                400, 'profile 必须是 zhipu|kimi|minimax|restore (前端 UI 只暴露前三个)'
+            )
+            return
+        script_path = '/Users/qichen/solobrave-prod/switch_chat_model.py'
+        try:
+            proc = subprocess.run(
+                ['python3', script_path, profile],
+                capture_output=True, text=True, timeout=30,
+                cwd='/Users/qichen/solobrave-prod',
+            )
+            if proc.returncode != 0:
+                logger.error(
+                    f'  [ChatModel] switch failed: profile={profile} '
+                    f'stderr={proc.stderr.strip()[:300]}'
+                )
+                self._send_json_error(500, f'switch failed: {proc.stderr.strip()[:200]}')
+                return
+            # 再读一次确认（OpenClaw hot reload 已生效）
+            read_proc = subprocess.run(
+                ['openclaw', 'config', 'get', 'agents.defaults.model.primary'],
+                capture_output=True, text=True, timeout=8,
+            )
+            current = read_proc.stdout.strip() if read_proc.returncode == 0 else 'unknown'
+            logger.info(
+                f'  [ChatModel] admin={auth.user_id} switched profile={profile} → current={current}'
+            )
+            self._send_json(200, {
+                'ok': True,
+                'profile': profile,
+                'current': current,
+                'message': f'已切换到 {profile} ({current})',
+                'scriptOutput': proc.stdout.strip()[-500:],
+            })
+        except subprocess.TimeoutExpired:
+            self._send_json_error(504, 'switch timeout (30s)')
+        except FileNotFoundError as e:
+            self._send_json_error(500, f'script or cli not found: {e}')
+        except Exception as e:
+            logger.error(f'  [ChatModel] POST exception: {e}')
+            self._send_json_error(500, f'switch failed: {e}')
 
     def _handle_csp_report(self):
         """POST /api/csp-report — 接收浏览器 CSP 违规报告（report-only 模式）
