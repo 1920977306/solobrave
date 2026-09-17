@@ -29263,6 +29263,11 @@ function renderPatternsList() {
     html += '<div class="pattern-card-meta">';
     html += '<span>置信度</span><div class="pattern-conf-bar"><div class="pattern-conf-fill" style="width:' + conf + '%"></div></div><span>' + conf + '%</span>';
     html += '<span>支撑案例 ' + (p.evidence_count || 0) + '</span>';
+    // dev/feat: #9 patterns ↔ knowledge 主表互引 — 显示关联知识文档数
+    var kbCount = (p.source_knowledge_ids || []).length;
+    if (kbCount > 0) {
+      html += '<span title="' + escapeAttr((p.source_knowledge_ids || []).join(',')) + '">📚 关联知识 ' + kbCount + '</span>';
+    }
     html += '<span style="margin-left:auto;">' + escapeHtml(time) + '</span>';
     if (p.status === 'draft') {
       html += '<span class="pattern-card-actions">';

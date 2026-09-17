@@ -3472,6 +3472,8 @@ def init_db():
         _add_column_if_not_exists(conn, 'knowledge_patterns', 'hit_count', 'INTEGER DEFAULT 0')
         _add_column_if_not_exists(conn, 'knowledge_patterns', 'miss_count', 'INTEGER DEFAULT 0')
         _add_column_if_not_exists(conn, 'knowledge_patterns', 'last_used_at', 'INTEGER')
+        # dev/feat: 规律库修复 #9 — patterns ↔ knowledge 主表互引
+        _add_column_if_not_exists(conn, 'knowledge_patterns', 'source_knowledge_ids', "TEXT DEFAULT '[]'")
         _add_column_if_not_exists(conn, 'knowledge_patterns', 'evidence_count', 'INTEGER DEFAULT 0')
         _add_column_if_not_exists(conn, 'knowledge_patterns', 'verification_level', "TEXT DEFAULT 'hypothesis'")
         # 存量迁移（幂等）：只回填仍为默认 hypothesis 的行，按旧 status 映射等级
@@ -22429,10 +22431,14 @@ def _kp_row_to_dict(r, with_evidence=False):
         'confidence_score': r['confidence_score'],
         'evidence_count': r['evidence_count'],
         'verification_level': r['verification_level'] or 'hypothesis',
+        'hit_count': r['hit_count'] or 0,
+        'miss_count': r['miss_count'] or 0,
         'source_event_ids': json.loads(r['source_event_ids'] or '[]'),
+        'source_knowledge_ids': json.loads(r['source_knowledge_ids'] or '[]') if 'source_knowledge_ids' in r.keys() else [],
         'created_by': r['created_by'],
         'created_at': r['created_at'],
         'updated_at': r['updated_at'],
+        'last_used_at': r['last_used_at'] if 'last_used_at' in r.keys() else None,
     }
     if with_evidence:
         try:
@@ -22654,6 +22660,27 @@ def _induce_knowledge_patterns(category, llm_config, created_by='', entity_type=
             logger.warning(f'  [KnowledgePatterns] LLM 返回非法 JSON: {(raw or "")[:200]}')
             return False, {'error': 'LLM解析失败'}
         now = int(time.time())
+        # dev/feat: 规律库修复 #9 — 桥接 knowledge 主表
+        # 查该 category + entity_type 相关的 knowledge 文档 (按类型关键词匹配)
+        _kb_type_keywords = {
+            'talent':   ['达人', '主播'],
+            'product':  ['产品', '商品', '选品'],
+            'brand':    ['品牌', '店铺'],
+            'category': ['类目', '行业'],
+        }
+        _kws = _kb_type_keywords.get(entity_type, [category])
+        kb_ids = []
+        try:
+            kb_rows = conn.execute(
+                "SELECT id FROM knowledge WHERE status='ok' AND ("
+                + ' OR '.join(['title LIKE ? OR category LIKE ?' for _ in _kws])
+                + ") ORDER BY updated_at DESC LIMIT 20",
+                tuple(f'%{kw}%' for kw in _kws for _ in (0, 1))
+            ).fetchall()
+            kb_ids = [r['id'] for r in kb_rows]
+        except Exception as e:
+            logger.warning(f'  [KnowledgePatterns] 桥接 knowledge 主表失败 (不影响主流程): {e}')
+        kb_ids_json = json.dumps(kb_ids, ensure_ascii=False)
         saved = []
         conn = _db_conn()
         try:
@@ -22670,15 +22697,16 @@ def _induce_knowledge_patterns(category, llm_config, created_by='', entity_type=
                 pid = 'kp_' + uuid.uuid4().hex[:12]
                 conn.execute(
                     "INSERT INTO knowledge_patterns (id, category, entity_type, pattern_text, evidence, "
-                    "confidence, status, source_event_ids, created_by, created_at, updated_at, "
-                    "confidence_score, evidence_count, verification_level) "
-                    "VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, 'hypothesis')",
+                    "confidence, status, source_event_ids, source_knowledge_ids, created_by, "
+                    "created_at, updated_at, confidence_score, evidence_count, verification_level) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, 'hypothesis')",
                     (pid, category, entity_type, p['pattern_text'].strip(), json.dumps(ev_ids, ensure_ascii=False),
-                     conf, json.dumps(event_ids, ensure_ascii=False), created_by, now, now,
+                     conf, json.dumps(event_ids, ensure_ascii=False), kb_ids_json, created_by, now, now,
                      round(conf * 100, 1), len(ev_ids)))
                 saved.append({'id': pid, 'category': category, 'entity_type': entity_type,
                               'pattern_text': p['pattern_text'].strip(), 'confidence': conf,
                               'status': 'draft', 'source_event_ids': event_ids,
+                              'source_knowledge_ids': kb_ids,
                               'confidence_score': round(conf * 100, 1), 'evidence_count': len(ev_ids),
                               'verification_level': 'hypothesis',
                               'created_at': now, 'updated_at': now})
