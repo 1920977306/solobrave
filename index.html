@@ -4415,6 +4415,30 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .chat-header-v2 .chat-header-info { display: flex; flex-direction: column; gap: 2px; }
 .chat-header-v2 .chat-header-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
 .chat-header-v2 .chat-header-role { font-size: 12px; color: var(--text-secondary); }
+
+/* Credit Balance Chip (dev/feat: #6)
+   显示当前员工的剩余积分; 余额 < 100 时变红警示. */
+.chat-header-credits {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  background: rgba(0,122,255,0.10);
+  color: #007AFF;
+  margin-left: 8px;
+  white-space: nowrap;
+  user-select: none;
+  cursor: help;
+  transition: background 0.15s, color 0.15s;
+}
+.chat-header-credits.low { background: rgba(255,59,48,0.10); color: #FF3B30; }
+.chat-header-credits.zero { background: rgba(142,142,147,0.15); color: #8E8E93; }
+.chat-header-credits .credit-icon { font-size: 11px; }
+.chat-header-credits .credit-num { font-variant-numeric: tabular-nums; }
 .chat-header-link { font-size: 13px; color: var(--accent); text-decoration: none; cursor: pointer; transition: opacity 0.15s; }
 .chat-header-link:hover { opacity: 0.8; }
 .chat-header-right { display: flex; align-items: center; gap: 4px; }
@@ -8515,6 +8539,10 @@ window.doLogin = function () {
 <div class="chat-header-info">
 <div class="chat-header-name"></div>
 <div class="chat-header-role"></div>
+</div>
+<!-- Credit Balance (dev/feat: #6) -->
+<div class="chat-header-credits" id="chatHeaderCredits" style="display:none;" title="剩余积分">
+<span class="credit-icon">💎</span><span class="credit-num">-</span>
 </div>
 </div>
 <div class="chat-header-right" id="chatHeaderRight" style="display:none;">
@@ -15055,6 +15083,8 @@ function openChat(id) {
     var chatHeaderAvatar = document.querySelector('.chat-header-v2 .avatar') || document.querySelector('.chat-header .avatar');
     if (chatHeaderName) chatHeaderName.textContent = emp.name;
     if (chatHeaderSub) chatHeaderSub.textContent = '在线 · ' + getEmpRoleDisplay(emp);
+    // 拉取当前员工积分余额 (dev/feat: #6)
+    loadChatCredits(id);
     if (chatHeaderAvatar) {
       chatHeaderAvatar.style.display = '';
       chatHeaderAvatar.innerHTML = renderAvatar(emp, 36);
@@ -18913,6 +18943,55 @@ function openDrawer() {
 var currentEmpId = null;
 // 在用户主动点击"一键归纳"后，临时抑制顶部归纳提示条，避免关闭弹窗/切换标签页时反复出现
 var inductBannerSuppressed = false;
+
+// ============ Chat Credit Balance (dev/feat: #6) ============
+// 后端: GET /api/credits/check?agent_id=xxx (solobrave-server.py:15206)
+// 显示当前员工剩余积分; < 100 变红, = 0 灰 (管理员角度)
+// 切换员工时调, 30 秒内缓存 (避免每次 UI 变化都打后端)
+var _creditsCache = { empId: null, balance: null, ts: 0 };
+function _renderChatCredits(balance) {
+  var el = document.getElementById('chatHeaderCredits');
+  if (!el) return;
+  if (balance === null || balance === undefined) {
+    el.style.display = 'none';
+    return;
+  }
+  var numEl = el.querySelector('.credit-num');
+  el.classList.remove('low', 'zero');
+  if (balance <= 0) {
+    el.classList.add('zero');
+    if (numEl) numEl.textContent = '0';
+  } else if (balance < 100) {
+    el.classList.add('low');
+    if (numEl) numEl.textContent = String(balance);
+  } else {
+    if (numEl) numEl.textContent = String(balance);
+  }
+  el.style.display = '';
+  el.title = '剩余 ' + balance + ' 积分';
+}
+function loadChatCredits(empId, force) {
+  if (!empId) return;
+  // 30 秒内同员工不重打 (避免频繁切 tab 触发)
+  var now = Date.now();
+  if (!force && _creditsCache.empId === empId && now - _creditsCache.ts < 30000) {
+    _renderChatCredits(_creditsCache.balance);
+    return;
+  }
+  apiFetch('/api/credits/check?agent_id=' + encodeURIComponent(empId))
+    .then(function (r) {
+      if (!r || !r.ok) throw new Error('http ' + (r ? r.status : 'no'));
+      return r.json();
+    })
+    .then(function (data) {
+      _creditsCache = { empId: empId, balance: data.balance, ts: Date.now() };
+      _renderChatCredits(data.balance);
+    })
+    .catch(function () {
+      // 静默失败 — 头部不显示, 不打扰用户
+      _renderChatCredits(null);
+    });
+}
 function getCurrentEmpId() {
   // 员工详情页优先使用 currentEmpId，聊天页回退到 sb_current_emp
   return currentEmpId || localStorage.getItem('sb_current_emp');
