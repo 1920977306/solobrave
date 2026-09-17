@@ -1016,7 +1016,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   align-items: center;
   justify-content: center;
   padding: 60px 20px;
-  color: var(--text-tertiary);
+  color: var(--color-text-tertiary, #AEAEB2);
   gap: 12px;
   flex: 1;
 }
@@ -1026,11 +1026,108 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   padding: 8px 16px;
   border-radius: 8px;
   border: none;
-  background: var(--accent);
+  background: var(--color-primary, #007AFF);
   color: #ffffff;
   font-size: 13px;
   cursor: pointer;
 }
+
+/* ============================================================
+   ui/global-states-unify: 全局 empty / loading / error 状态 V2.1 收口
+   - .empty-state-v21   统一空态 (无数据 / 无权限 / 无搜索结果 / 网络错误)
+   - .skeleton-v21      统一 skeleton loading (替换散落 "加载中..." 文本)
+   - 跟 showToast (V2.1 已就位) 形成 3 件套: 空 / 加载 / 反馈
+   ============================================================ */
+
+/* Empty state V2.1 */
+.empty-state-v21 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 20px;
+  gap: 14px;
+  flex: 1;
+  min-height: 180px;
+  text-align: center;
+}
+.empty-state-v21-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--color-bg-softer, #F2F2F7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  margin-bottom: 4px;
+}
+.empty-state-v21-icon.success { background: rgba(52, 199, 89, 0.12); }
+.empty-state-v21-icon.warning { background: rgba(255, 149, 0, 0.12); }
+.empty-state-v21-icon.danger  { background: rgba(255, 59, 48, 0.1); }
+.empty-state-v21-title {
+  font: 600 15px/1.4 -apple-system, sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
+}
+.empty-state-v21-desc {
+  font: 400 13px/1.5 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+  max-width: 320px;
+}
+.empty-state-v21-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md, 10px);
+  border: none;
+  background: var(--color-primary, #007AFF);
+  color: #FFFFFF;
+  font: 600 13px/1.4 -apple-system, sans-serif;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: background 0.15s ease;
+}
+.empty-state-v21-cta:hover { background: var(--color-primary-hover, #0066D6); }
+.empty-state-v21-cta.ghost {
+  background: transparent;
+  color: var(--color-primary, #007AFF);
+  border: 0.5px solid var(--color-primary, #007AFF);
+}
+.empty-state-v21-cta.ghost:hover { background: rgba(0, 122, 255, 0.08); }
+
+/* Skeleton V2.1 */
+.skeleton-v21 {
+  display: block;
+  background: linear-gradient(90deg,
+    var(--color-bg-softer, #F2F2F7) 0%,
+    rgba(0, 0, 0, 0.04) 50%,
+    var(--color-bg-softer, #F2F2F7) 100%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.6s ease-in-out infinite;
+  border-radius: var(--radius-sm, 6px);
+}
+@keyframes skeletonShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton-v21.line      { height: 12px; width: 100%; margin-bottom: 8px; }
+.skeleton-v21.line-sm   { height: 10px; width: 60%; }
+.skeleton-v21.line-lg   { height: 16px; width: 80%; }
+.skeleton-v21.title     { height: 18px; width: 50%; margin-bottom: 14px; border-radius: var(--radius-sm, 6px); }
+.skeleton-v21.avatar    { width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0; }
+.skeleton-v21.avatar-sm { width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; }
+.skeleton-v21.card      { height: 80px; width: 100%; border-radius: var(--radius-md, 10px); }
+.skeleton-v21.btn       { height: 32px; width: 80px; border-radius: var(--radius-md, 8px); }
+.skeleton-v21-list { padding: 8px 0; }
+.skeleton-v21-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md, 10px);
+}
+.skeleton-v21-list-item + .skeleton-v21-list-item { margin-top: 2px; }
 
 /* AI Analysis Card */
 .products-ai-card {
@@ -13770,7 +13867,7 @@ function bindListEvents() {
       detailBtn.addEventListener('click', function (ev) {
         ev.stopPropagation();
         ev.preventDefault();
-        alert('[DEBUG] detailBtn clicked! empId=' + empId);
+        showToast('detailBtn clicked: ' + empId, 'info');
       });
     }
     // More button
@@ -14789,7 +14886,7 @@ function showConnectionDetails() {
   } else {
     details.push('API 配置: 未设置');
   }
-  alert('连接详情:\n\n' + details.join('\n'));
+  showToast('连接详情:\n\n' + details.join('\n'), 'info');
 }
 
 // ========== 统一定时器调度器 ==========
@@ -22977,7 +23074,7 @@ function toggleCitationPanel(panelId) {
 }
 
 function showCitationDetail(id, title, type) {
-  alert((type === 'product' ? '📦 产品' : '📄 知识') + '\nID: ' + id + '\n标题: ' + title);
+  showToast((type === 'product' ? '📦 产品' : '📄 知识') + '\nID: ' + id + '\n标题: ' + title, 'info');
 }
 
 
@@ -24684,6 +24781,68 @@ function doReset() {
   }, 2500);
 }
 
+// ui/global-states-unify: 全局 empty state 渲染 (V2.1 token)
+// 用法: renderEmptyState({ icon: '🔍', title: '...', desc: '...', cta: {label, onclick}, tone: 'success|warning|danger' })
+function renderEmptyState(opts) {
+  opts = opts || {};
+  var icon = opts.icon || '📭';
+  var title = opts.title || '暂无数据';
+  var desc = opts.desc || '';
+  var tone = opts.tone || '';
+  var toneCls = tone ? ' ' + tone : '';
+  var cta = opts.cta;
+  var html = '<div class="empty-state-v21">';
+  html += '<div class="empty-state-v21-icon' + toneCls + '">' + escapeHtml(icon) + '</div>';
+  html += '<div class="empty-state-v21-title">' + escapeHtml(title) + '</div>';
+  if (desc) html += '<div class="empty-state-v21-desc">' + escapeHtml(desc) + '</div>';
+  if (cta && cta.label) {
+    var ghostCls = cta.ghost ? ' ghost' : '';
+    var onclickAttr = cta.onclick ? ' onclick="' + escapeAttr(String(cta.onclick)) + '"' : '';
+    html += '<button class="empty-state-v21-cta' + ghostCls + '"' + onclickAttr + '>' + escapeHtml(cta.label) + '</button>';
+  }
+  html += '</div>';
+  return html;
+}
+
+// ui/global-states-unify: 全局 skeleton loading 渲染 (V2.1 token)
+// 用法: renderSkeleton('list', 5)  /  renderSkeleton('card', 3)  /  renderSkeleton('detail')
+// 类型: 'list' (5 行行内列表) | 'card' (3 个卡片) | 'detail' (1 个 detail panel) | 'text' (3 行)
+function renderSkeleton(type, count) {
+  type = type || 'list';
+  count = count || (type === 'card' ? 3 : 3);
+  var lines = '';
+  if (type === 'list') {
+    for (var i = 0; i < count; i++) {
+      lines += '<div class="skeleton-v21-list-item">'
+        + '<div class="skeleton-v21 avatar-sm"></div>'
+        + '<div style="flex:1;min-width:0;">'
+        + '<div class="skeleton-v21 line line-sm"></div>'
+        + '<div class="skeleton-v21 line" style="width:40%;margin-top:6px;"></div>'
+        + '</div></div>';
+    }
+    return '<div class="skeleton-v21-list">' + lines + '</div>';
+  }
+  if (type === 'card') {
+    for (var j = 0; j < count; j++) {
+      lines += '<div class="skeleton-v21 card" style="margin-bottom:10px;"></div>';
+    }
+    return lines;
+  }
+  if (type === 'detail') {
+    return '<div class="skeleton-v21 avatar" style="margin-bottom:14px;"></div>'
+      + '<div class="skeleton-v21 title"></div>'
+      + '<div class="skeleton-v21 line line-lg"></div>'
+      + '<div class="skeleton-v21 line"></div>'
+      + '<div class="skeleton-v21 line" style="width:80%;"></div>'
+      + '<div class="skeleton-v21 line line-sm" style="width:50%;"></div>';
+  }
+  // 'text' 默认
+  for (var k = 0; k < count; k++) {
+    lines += '<div class="skeleton-v21 line" style="width:' + (100 - k * 20) + '%;"></div>';
+  }
+  return lines;
+}
+
 // 灵魂配置 Enter 键支持
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Enter' && document.getElementById('soulQuestionArea') && document.getElementById('soulQuestionArea').style.display !== 'none' && document.activeElement && document.activeElement.id === 'soulAnswer') {
@@ -24851,7 +25010,7 @@ function showAISwitcher() {
     document.getElementById('globalSearchModal').style.display = 'flex';
     document.getElementById('globalSearchInput').focus();
   } else {
-    alert('AI切换器功能');
+    showToast('AI 切换器: 可快速切到指定 AI 员工的对话', 'info');
   }
 }
 function startNewChat() {
@@ -24867,7 +25026,7 @@ function showSettings() {
   if (typeof toggleSettings === 'function') {
     toggleSettings();
   } else {
-    alert('设置面板');
+    showToast('设置面板: 配置账号 / 权限 / 系统', 'info');
   }
 }
 function openLobsterOffice() {
@@ -25814,7 +25973,7 @@ function loadProducts(page) {
   if (kw) qs.push('q=' + encodeURIComponent(kw));
   var url = '/api/products?' + qs.join('&');
   var itemsEl = document.getElementById('productsMidItems');
-  if (itemsEl) itemsEl.innerHTML = '<div class="products-loading">加载中...</div>';
+  if (itemsEl) itemsEl.innerHTML = renderSkeleton('card', 4);
   return apiFetch(url).then(function(r){return r.json();}).then(function(data){
     _productData.products = sortProductsLocally(data.products || [], _productCurrentSort);
     _productData.total = data.total || 0;
@@ -26930,7 +27089,7 @@ function loadTalents(page) {
   qs.push('include_demo=' + (_talentIncludeDemo ? '1' : '0'));
   var url = '/api/talents?' + qs.join('&');
   var itemsEl = document.getElementById('talentsMidItems');
-  if (itemsEl) itemsEl.innerHTML = '<div class="products-loading">加载中...</div>';
+  if (itemsEl) itemsEl.innerHTML = renderSkeleton('list', 6);
   apiFetch(url).then(function(r){return r.json();}).then(function(data){
     _talentData.talents = sortTalentsLocally(data.talents || [], _talentCurrentSort);
     _talentData.total = data.total || 0;
@@ -27201,7 +27360,7 @@ function switchTalentMidTab(tab) {
 
 function loadAnalyzedTalents() {
   var listEl = document.getElementById('talentsAnalyzedList');
-  if (listEl) listEl.innerHTML = '<div class="products-loading">加载中...</div>';
+  if (listEl) listEl.innerHTML = renderSkeleton('list', 4);
   apiFetch('/api/knowledge-events?entity_type=talent&limit=200').then(function(r){return r.json();}).then(function(data){
     var events = data.events || [];
     // 列表按 created_at DESC 返回，每个 entity_id 的首条 analysis 事件即最新一条
@@ -32750,10 +32909,10 @@ function saveFeishuConfig() {
   fetch('/api/user/feishu-config', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: body })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data.success) { alert('飞书配置已保存'); }
-      else { alert('保存失败: ' + (data.error || '未知错误')); }
+      if (data.success) { showToast('飞书配置已保存', 'success'); }
+      else { showToast('保存失败: ' + (data.error || '未知错误'), 'error'); }
     })
-    .catch(function(e) { alert('网络错误: ' + e); });
+    .catch(function(e) { showToast('网络错误: ' + e, 'error'); });
 }
 
 function syncFeishuTalentsFromSettings() {
@@ -32762,12 +32921,12 @@ function syncFeishuTalentsFromSettings() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.success) {
-        alert('同步完成：共' + data.total + '条，新增' + data.created + '条，更新' + data.updated + '条，跳过' + data.skipped + '条');
+        showToast('同步完成：共' + data.total + '条，新增' + data.created + '条，更新' + data.updated + '条，跳过' + data.skipped + '条', 'success');
       } else {
-        alert('同步失败: ' + (data.error || '未知错误'));
+        showToast('同步失败: ' + (data.error || '未知错误'), 'error');
       }
     })
-    .catch(function(e) { alert('网络错误: ' + e); });
+    .catch(function(e) { showToast('网络错误: ' + e, 'error'); });
 }
 
 function toggleMidSidebar() {
@@ -32936,13 +33095,13 @@ function syncFeishuProductsFromSettings() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.success) {
-        alert('商品同步完成：共' + data.total + '条，新增' + data.created + '条，更新' + data.updated + '条，跳过' + data.skipped + '条');
+        showToast('商品同步完成：共' + data.total + '条，新增' + data.created + '条，更新' + data.updated + '条，跳过' + data.skipped + '条', 'success');
         if (typeof loadProducts === 'function') loadProducts();
       } else {
-        alert('同步失败: ' + (data.error || '未知错误'));
+        showToast('同步失败: ' + (data.error || '未知错误'), 'error');
       }
     })
-    .catch(function(e) { alert('网络错误: ' + e); });
+    .catch(function(e) { showToast('网络错误: ' + e, 'error'); });
 }
 </script>
 </body>
@@ -32953,11 +33112,11 @@ function syncFeishuProductsFromSettings() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.success) {
-        alert('商品同步完成：共' + data.total + '条，新增' + data.created + '条，更新' + data.updated + '条，跳过' + data.skipped + '条');
+        showToast('商品同步完成：共' + data.total + '条，新增' + data.created + '条，更新' + data.updated + '条，跳过' + data.skipped + '条', 'success');
         if (typeof loadProducts === 'function') loadProducts();
       } else {
-        alert('同步失败: ' + (data.error || '未知错误'));
+        showToast('同步失败: ' + (data.error || '未知错误'), 'error');
       }
     })
-    .catch(function(e) { alert('网络错误: ' + e); });
+    .catch(function(e) { showToast('网络错误: ' + e, 'error'); });
 }
