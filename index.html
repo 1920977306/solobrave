@@ -11414,19 +11414,54 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
     if (!reply) reply = '抱歉，我暂时无法处理这个问题，请稍后重试或换一种方式提问。';
     if (isError && !reply) reply = '⚠️ AI 回复出错: 未知错误';
     var msgArea = document.getElementById('messagesArea');
-    var msgCountBefore = msgArea ? msgArea.childElementCount : 0;
-    if (groupId) {
-      displayGroupAIReply(groupId, emp.id, reply, chainDepth);
+
+    if (window._streamingActive) {
+      // ★ dev/feat: #7 streaming 模式 — 占位节点已在 onStream 首次创建,
+      //    这里只做最终补全 (兜底空 bubble + doc hint) + 违禁词条, 避免重复插入节点
+      var _streamMsg = window._streamingMsgEl || (msgArea && msgArea.lastElementChild);
+      if (_streamMsg && _streamMsg.querySelector) {
+        var _streamBubble = _streamMsg.querySelector('.msg-bubble');
+        if (_streamBubble) {
+          // 兜底: bubble 还是空 (例: lifecycle end 但 onStream 没收到任何 text)
+          if ((_streamBubble.textContent || '').trim() === '') {
+            _streamBubble.innerHTML = formatMessageContent(reply);
+          }
+        }
+      }
+      // 保存到聊天记录 (跟原 displayAIReply 路径行为一致)
+      if (!groupId) {
+        try {
+          saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images);
+        } catch (saveErr) {
+          console.warn('[Streaming] saveChatHistory failed:', saveErr);
+        }
+      }
+      window._streamingActive = false;
+      window._streamingMsgEl = null;
     } else {
-      displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations, chainDepth);
-      saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images);
+      // 原有路径: 新建 AI 节点 (非 streaming / 没收到任何 delta)
+      var msgCountBefore = msgArea ? msgArea.childElementCount : 0;
+      if (groupId) {
+        displayGroupAIReply(groupId, emp.id, reply, chainDepth);
+      } else {
+        displayAIReply(reply, docContext, timeStr, emp.id, ragResult.citations, chainDepth);
+        saveChatHistory(emp.id, userMessage, reply, docContext, ragResult.citations, images);
+      }
+      // 命中违禁词时在该消息气泡上方插入警告条 (新建节点路径)
+      if (fwWarning && msgArea && msgArea.childElementCount > msgCountBefore) {
+        var lastMsg = msgArea.lastElementChild;
+        var contentEl = lastMsg && lastMsg.querySelector ? lastMsg.querySelector('.msg-content') : null;
+        if (contentEl) {
+          contentEl.insertAdjacentHTML('afterbegin', '<div class="forbidden-warning-bar" style="background:rgba(255,59,48,0.1);color:#ff3b30;border:0.5px solid rgba(255,59,48,0.3);padding:6px 10px;border-radius:8px;font-size:12px;margin-bottom:6px;">' + escapeHtml(fwWarning) + '</div>');
+        }
+      }
     }
-    // 命中违禁词时在该消息气泡上方插入警告条
-    if (fwWarning && msgArea && msgArea.childElementCount > msgCountBefore) {
-      var lastMsg = msgArea.lastElementChild;
-      var contentEl = lastMsg && lastMsg.querySelector ? lastMsg.querySelector('.msg-content') : null;
-      if (contentEl) {
-        contentEl.insertAdjacentHTML('afterbegin', '<div class="forbidden-warning-bar" style="background:rgba(255,59,48,0.1);color:#ff3b30;border:0.5px solid rgba(255,59,48,0.3);padding:6px 10px;border-radius:8px;font-size:12px;margin-bottom:6px;">' + escapeHtml(fwWarning) + '</div>');
+    // streaming 路径的违禁词条 (加到已存在的占位节点, 不依赖 msgCountBefore)
+    if (fwWarning && msgArea) {
+      var _last = msgArea.lastElementChild;
+      var _content = _last && _last.querySelector ? _last.querySelector('.msg-content') : null;
+      if (_content && !_content.querySelector('.forbidden-warning-bar')) {
+        _content.insertAdjacentHTML('afterbegin', '<div class="forbidden-warning-bar" style="background:rgba(255,59,48,0.1);color:#ff3b30;border:0.5px solid rgba(255,59,48,0.3);padding:6px 10px;border-radius:8px;font-size:12px;margin-bottom:6px;">' + escapeHtml(fwWarning) + '</div>');
       }
     }
   }
@@ -11517,6 +11552,28 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
         if (!hasSentWorking) {
           hasSentWorking = true;
           setEmpStatus('working');
+          // ★ dev/feat: #7 streaming — 首次 delta 创建 AI 占位节点
+          //    (OpenClaw 内部已经 stream delta, _sendChatWaitForLifecycle 已累加 fullReply,
+          //     但前端 onStream 回调之前没渲染 — 这里把每段实时写入 UI)
+          if (typeof displayAIReply === 'function') {
+            displayAIReply(text || '', docContext, timeStr, emp.id, [], chainDepth);
+          }
+          window._streamingActive = true;
+          // 记录最后插入的 AI 节点, 后续 delta 直接更新
+          var _area0 = document.getElementById('messagesArea');
+          window._streamingMsgArea = _area0;
+          window._streamingMsgEl = _area0 && _area0.lastElementChild;
+        } else if (window._streamingActive && text) {
+          // ★ 后续 delta: 增量更新占位节点的 bubble 内部
+          var _area = window._streamingMsgArea || document.getElementById('messagesArea');
+          var _msg = window._streamingMsgEl || (_area && _area.lastElementChild);
+          if (_msg && _msg.querySelector) {
+            var _bubble = _msg.querySelector('.msg-bubble');
+            if (_bubble) {
+              _bubble.innerHTML = formatMessageContent(text);
+              if (_area) _area.scrollTop = _area.scrollHeight;
+            }
+          }
         }
       },
       onStartThinking: function () {
