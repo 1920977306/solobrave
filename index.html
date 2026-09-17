@@ -352,38 +352,41 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 #knowledgeMidList.active { display: flex; }
 
 /* Patterns (规律库) */
-.patterns-mid { display: none; flex: 1; min-width: 0; max-width: 100%; background: #ffffff; border-right: 1px solid var(--separator); overflow: hidden; }
+.patterns-mid { display: none; flex: 1; min-width: 0; max-width: 100%; background: var(--color-bg, #FFFFFF); border-right: 0.5px solid var(--separator, rgba(0, 0, 0, 0.08)); overflow: hidden; }
 .patterns-mid.active { display: flex; }
-.patterns-cat-sidebar { width: 180px; flex-shrink: 0; border-right: 1px solid var(--separator); padding: 12px 8px; overflow-y: auto; }
-.patterns-cat-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text-secondary); margin-bottom: 2px; }
-.patterns-cat-item.active, .patterns-cat-item:hover { background: rgba(0,0,0,0.05); color: var(--text-primary); }
+.patterns-cat-sidebar { width: 180px; flex-shrink: 0; border-right: 0.5px solid var(--separator, rgba(0, 0, 0, 0.08)); padding: 12px 8px; overflow-y: auto; }
+.patterns-cat-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--color-text-secondary, #6E6E73); margin-bottom: 2px; transition: all 0.15s; }
+.patterns-cat-item.active, .patterns-cat-item:hover { background: var(--color-bg-softer, #F2F2F7); color: var(--color-text-primary, #1C1C1E); }
 .patterns-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .patterns-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px; }
-.patterns-title { font-size: 17px; font-weight: 600; }
-.patterns-tabs { display: flex; gap: 6px; padding: 0 16px 10px; border-bottom: 1px solid var(--separator); flex-wrap: wrap; }
-.patterns-tab { border: none; background: none; padding: 6px 12px; border-radius: 14px; cursor: pointer; font-size: 13px; color: var(--text-secondary); }
-.patterns-tab.active { background: #007aff; color: #fff; }
+.patterns-title { font-size: 17px; font-weight: 600; color: var(--color-text-primary, #1C1C1E); }
+.patterns-tabs { display: flex; gap: 6px; padding: 0 16px 10px; border-bottom: 0.5px solid var(--separator, rgba(0, 0, 0, 0.08)); flex-wrap: wrap; }
+.patterns-tab { border: none; background: transparent; padding: 6px 12px; border-radius: 14px; cursor: pointer; font-size: 13px; color: var(--color-text-secondary, #6E6E73); transition: all 0.15s; font-family: inherit; }
+.patterns-tab:hover { background: var(--color-bg-softer, #F2F2F7); color: var(--color-text-primary, #1C1C1E); }
+.patterns-tab.active { background: var(--color-primary, #007AFF); color: #fff; font-weight: 500; }
 .patterns-list { flex: 1; overflow-y: auto; padding: 12px 16px; }
-.pattern-card { border: 1px solid var(--separator); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; }
-.pattern-card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.pattern-card-text { font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
-.pattern-card-meta { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; }
-.pattern-cat-tag { background: rgba(0,0,0,0.06); border-radius: 10px; padding: 2px 8px; font-size: 12px; }
-.pattern-status-badge { border-radius: 10px; padding: 2px 8px; font-size: 11px; }
-.pattern-status-badge.draft { background: #fff7e0; color: #a05a00; }
-.pattern-status-badge.confirmed { background: #e3f6e8; color: #1a7f37; }
-.pattern-status-badge.rejected { background: #fdecea; color: #c62828; }
-.pattern-status-badge.deprecated { background: #ececec; color: #777; }
-.pattern-level-badge { border-radius: 10px; padding: 2px 8px; font-size: 11px; }
-.pattern-level-badge.hypothesis { background: #ececec; color: #777; }
-.pattern-level-badge.candidate { background: #e3f0ff; color: #1565c0; }
-.pattern-level-badge.verified { background: #e3f6e8; color: #1a7f37; }
-.pattern-level-badge.proven { background: #fff3d6; color: #b8860b; }
-.pattern-level-badge.deprecated { background: #ececec; color: #777; text-decoration: line-through; }
-.pattern-conf-bar { width: 80px; height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
-.pattern-conf-fill { height: 100%; background: #007aff; }
+.pattern-card { border: 0.5px solid var(--separator, rgba(0, 0, 0, 0.08)); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; background: var(--color-bg, #FFFFFF); transition: all 0.2s ease; }
+.pattern-card:hover { border-color: rgba(0, 122, 255, 0.35); box-shadow: 0 4px 16px rgba(0, 122, 255, 0.10); transform: translateY(-1px); }
+.pattern-card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.pattern-card-text { font-size: 14px; line-height: 1.6; white-space: pre-wrap; color: var(--color-text-primary, #1C1C1E); }
+.pattern-card-meta { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 12px; color: var(--color-text-secondary, #6E6E73); flex-wrap: wrap; }
+.pattern-cat-tag { background: var(--color-bg-softer, #F2F2F7); border-radius: 10px; padding: 2px 8px; font-size: 12px; color: var(--color-text-secondary, #6E6E73); }
+.pattern-status-badge { border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 500; }
+.pattern-status-badge.draft { background: rgba(255, 149, 0, 0.10); color: var(--color-warning, #FF9500); }
+.pattern-status-badge.confirmed { background: rgba(52, 199, 89, 0.12); color: var(--color-rating-a, #34C759); }
+.pattern-status-badge.rejected { background: rgba(255, 59, 48, 0.10); color: var(--color-status-lost, #FF3B30); }
+.pattern-status-badge.deprecated { background: var(--color-bg-softer, #F2F2F7); color: var(--color-text-tertiary, #AEAEB2); }
+.pattern-level-badge { border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 500; }
+.pattern-level-badge.hypothesis { background: var(--color-bg-softer, #F2F2F7); color: var(--color-text-secondary, #6E6E73); }
+.pattern-level-badge.candidate { background: rgba(0, 122, 255, 0.10); color: var(--color-primary, #007AFF); }
+.pattern-level-badge.verified { background: rgba(52, 199, 89, 0.12); color: var(--color-rating-a, #34C759); }
+.pattern-level-badge.proven { background: rgba(255, 149, 0, 0.12); color: var(--color-warning, #FF9500); }
+.pattern-level-badge.deprecated { background: var(--color-bg-softer, #F2F2F7); color: var(--color-text-tertiary, #AEAEB2); text-decoration: line-through; }
+.pattern-conf-bar { width: 80px; height: 6px; background: var(--color-bg-softer, #F2F2F7); border-radius: 3px; overflow: hidden; }
+.pattern-conf-fill { height: 100%; background: linear-gradient(90deg, var(--color-primary, #007AFF), var(--color-primary-hover, #0066D6)); border-radius: 3px; }
 .pattern-card-actions { display: flex; gap: 6px; }
-.pattern-action-btn { border: 1px solid var(--separator); background: #fff; border-radius: 8px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.pattern-action-btn { border: 1px solid var(--separator, rgba(0, 0, 0, 0.08)); background: var(--color-bg, #FFFFFF); border-radius: 8px; padding: 3px 10px; font-size: 12px; cursor: pointer; color: var(--color-text-secondary, #6E6E73); transition: all 0.15s; font-family: inherit; }
+.pattern-action-btn:hover { border-color: var(--color-primary, #007AFF); color: var(--color-primary, #007AFF); }
 
 /* 规律反馈按钮 (dev/feat: #2) — 👍/👎 计 hit/miss */
 .pattern-fb-btn {
@@ -392,19 +395,21 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 3px;
   padding: 3px 9px;
   border-radius: 12px;
-  border: 1px solid var(--separator);
-  background: #fff;
+  border: 1px solid var(--separator, rgba(0, 0, 0, 0.08));
+  background: var(--color-bg, #FFFFFF);
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s;
   font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary, #6E6E73);
+  font-family: inherit;
 }
-.pattern-fb-btn.up:hover { background: rgba(52,199,89,0.10); border-color: rgba(52,199,89,0.3); color: #34C759; }
-.pattern-fb-btn.down:hover { background: rgba(255,59,48,0.10); border-color: rgba(255,59,48,0.3); color: #FF3B30; }
+.pattern-fb-btn.up:hover { background: rgba(52, 199, 89, 0.10); border-color: rgba(52, 199, 89, 0.3); color: var(--color-rating-a, #34C759); }
+.pattern-fb-btn.down:hover { background: rgba(255, 59, 48, 0.10); border-color: rgba(255, 59, 48, 0.3); color: var(--color-status-lost, #FF3B30); }
 .pattern-fb-btn:active { transform: scale(0.95); }
-.pattern-evidence { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--separator); font-size: 12px; color: var(--text-secondary); }
-.patterns-empty, .patterns-loading { padding: 40px; text-align: center; color: var(--text-secondary); font-size: 13px; }
+.pattern-evidence { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--separator, rgba(0, 0, 0, 0.08)); font-size: 12px; color: var(--color-text-secondary, #6E6E73); }
+.patterns-empty, .patterns-loading { padding: 40px; text-align: center; color: var(--color-text-tertiary, #AEAEB2); font-size: 13px; }
 #knowledgeRight {
   position: fixed;
   right: 0;
@@ -29216,7 +29221,7 @@ function selectPatternCategory(cat) {
 
 function loadPatternsPage() {
   var listEl = document.getElementById('patternsList');
-  if (listEl) listEl.innerHTML = '<div class="patterns-loading">加载中...</div>';
+  if (listEl) listEl.innerHTML = renderSkeleton('card', 4);
   var url = '/api/knowledge-patterns?limit=100';
   if (_patternsStatus) url += '&status=' + encodeURIComponent(_patternsStatus);
   apiFetch(url).then(function(r){ return r.json(); }).then(function(data){
@@ -29224,7 +29229,13 @@ function loadPatternsPage() {
     renderPatternsCats();
     renderPatternsList();
   }).catch(function(e){
-    if (listEl) listEl.innerHTML = '<div class="patterns-empty">加载失败</div>';
+    if (listEl) listEl.innerHTML = renderEmptyState({
+      icon: '⚠️',
+      title: '加载失败',
+      desc: '网络异常,请稍后重试',
+      tone: 'danger',
+      cta: { label: '重试', onclick: 'loadPatternsPage()' }
+    });
   });
 }
 
@@ -29245,7 +29256,13 @@ function renderPatternsList() {
   if (!el) return;
   var list = _patternsCache.filter(function(p){ return !_patternsCategory || p.category === _patternsCategory; });
   if (list.length === 0) {
-    el.innerHTML = '<div class="patterns-empty">暂无规律记录</div>';
+    var isFiltering = _patternsCategory || _patternsStatus;
+    el.innerHTML = renderEmptyState({
+      icon: '🧠',
+      title: isFiltering ? '当前过滤下无规律' : '暂无规律记录',
+      desc: isFiltering ? '试试切换其他类目或状态' : '类目积累足够历史事件后可触发归纳',
+      cta: isFiltering ? undefined : { label: '⚡ 触发归纳', onclick: 'triggerPatternInduce()' }
+    });
     return;
   }
   var statusLabel = { draft: '待确认', confirmed: '已确认', rejected: '已拒绝', deprecated: '已废弃' };
@@ -29299,11 +29316,11 @@ function togglePatternEvidence(pid) {
   if (!box) return;
   if (box.style.display !== 'none') { box.style.display = 'none'; return; }
   if (box.dataset.loaded === '1') { box.style.display = ''; return; }
-  box.textContent = '加载中...';
+  box.innerHTML = '<div style="padding:8px 0;">' + renderSkeleton('text', 3) + '</div>';
   box.style.display = '';
   apiFetch('/api/knowledge-patterns/' + encodeURIComponent(pid)).then(function(r){ return r.json(); }).then(function(data){
     var ev = data.evidence || [];
-    if (ev.length === 0) { box.textContent = '无支撑事件'; box.dataset.loaded = '1'; return; }
+    if (ev.length === 0) { box.innerHTML = '<div style="padding:8px 0;color:var(--color-text-tertiary, #AEAEB2);">无支撑事件</div>'; box.dataset.loaded = '1'; return; }
     // evidence 是事件ID列表，逐个取事件标题和时间
     Promise.all(ev.map(function(eid){
       return apiFetch('/api/knowledge-events/' + encodeURIComponent(eid)).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
@@ -29317,7 +29334,7 @@ function togglePatternEvidence(pid) {
       box.innerHTML = html;
       box.dataset.loaded = '1';
     });
-  }).catch(function(e){ box.textContent = '加载失败'; });
+  }).catch(function(e){ box.innerHTML = '<div style="padding:8px 0;color:var(--color-status-lost, #FF3B30);">加载失败</div>'; });
 }
 
 function setPatternStatus(pid, status) {
