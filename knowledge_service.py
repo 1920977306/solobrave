@@ -553,6 +553,124 @@ def get_embedding_cached(text, api_key, provider, model=None, base_url=None):
 
 
 # ═══════════════════════════════════════════════════
+# Embedding 批量回填 (dev/feat: #1)
+# 根因: knowledge_chunks.embedding 全 NULL (旧 chunks 创建时只存了 cache,
+#       没存 chunks.embedding 字段), RAG SQL c.embedding IS NOT NULL
+#       把所有 187 行过滤掉 → RAG 永远返空.
+# 修复: 这个函数遍历所有 chunks, 调 get_embedding_cached (带 MD5 缓存)
+#       生成 embedding 并 UPDATE 到 knowledge_chunks 表.
+# 安全: get_embedding() 内部已加 retry (commit a4a4ea1), 单条失败不阻断整批.
+# ═══════════════════════════════════════════════════
+
+def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=None):
+    """回填 knowledge_chunks 表的 embedding 字段.
+
+    参数:
+      emp_id: 限定某个员工的 chunks (None = 全局)
+      force:  True = 重生成所有 embedding (模型切换时用)
+              False = 只补 IS NULL 或 embedding_model 不匹配的
+      batch_size: 每多少条 commit 一次 (避免长事务)
+      on_progress: 可选回调 fn(i, total) 报告进度
+
+    返回: {
+      total, success, skipped, failed, errors: [(chunk_id, msg), ...],
+      elapsed_sec, embedding_model
+    }
+    """
+    import time as _time
+    import struct as _struct
+    import logging as _logging
+    log = _logging.getLogger('solobrave')
+    start = _time.perf_counter()
+
+    emb_cfg = get_embedding_config(emp_id or None)
+    api_key = emb_cfg['apiKey']
+    provider = emb_cfg['provider']
+    embedding_model = emb_cfg['model']
+    base_url = emb_cfg.get('baseUrl')
+    if not api_key:
+        return {'error': 'No API key configured for embedding', 'total': 0}
+
+    conn = _db_conn()
+    try:
+        # 选 chunks (status='ok' 是必要条件, RAG 也用这个)
+        if force:
+            where = "WHERE k.status = 'ok'"
+            params = []
+        else:
+            where = ("WHERE k.status = 'ok' AND "
+                     "(c.embedding IS NULL OR c.embedding_model = '' OR c.embedding_model != ?)")
+            params = [embedding_model]
+        if emp_id:
+            where += " AND c.emp_id = ?"
+            params.append(emp_id)
+        rows = conn.execute(
+            f'SELECT c.id, c.content FROM knowledge_chunks c '
+            f'JOIN knowledge k ON c.knowledge_id = k.id {where}',
+            params
+        ).fetchall()
+        total = len(rows)
+        success = 0
+        failed = 0
+        errors = []
+        if total == 0:
+            return {
+                'total': 0, 'success': 0, 'skipped': 0, 'failed': 0, 'errors': [],
+                'elapsed_sec': 0.0, 'embedding_model': embedding_model,
+                'message': '没有需要回填的 chunks (可能都已 embedding)',
+            }
+
+        for i, row in enumerate(rows, 1):
+            chunk_id = row['id']
+            content = row['content'] or ''
+            if not content.strip():
+                failed += 1
+                errors.append((chunk_id, 'empty content'))
+                continue
+            try:
+                emb = get_embedding_cached(content, api_key, provider,
+                                            embedding_model, base_url=base_url)
+                if not emb:
+                    failed += 1
+                    errors.append((chunk_id, 'embedding API returned None'))
+                    continue
+                emb_bytes = _struct.pack(f'{len(emb)}f', *emb)
+                conn.execute(
+                    'UPDATE knowledge_chunks SET embedding = ?, embedding_model = ? WHERE id = ?',
+                    (emb_bytes, embedding_model, chunk_id)
+                )
+                success += 1
+                if i % batch_size == 0:
+                    conn.commit()
+                    log.info(f'  [Backfill] progress {i}/{total} success={success} failed={failed}')
+                    if on_progress:
+                        try:
+                            on_progress(i, total)
+                        except Exception:
+                            pass
+            except Exception as e:
+                failed += 1
+                errors.append((chunk_id, str(e)[:200]))
+        conn.commit()
+    finally:
+        conn.close()
+    elapsed = round(_time.perf_counter() - start, 2)
+    log.info(
+        f'  [Backfill] done: total={total} success={success} '
+        f'failed={failed} elapsed={elapsed}s model={embedding_model}'
+    )
+    return {
+        'total': total,
+        'success': success,
+        'skipped': 0,
+        'failed': failed,
+        'errors': errors[:20],
+        'elapsed_sec': elapsed,
+        'embedding_model': embedding_model,
+    }
+
+
+# ═══════════════════════════════════════════════════
 # 语义搜索结果缓存（内存，5 分钟 TTL）
 # ═══════════════════════════════════════════════════
 

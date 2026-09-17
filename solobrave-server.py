@@ -6769,6 +6769,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_get_chat_model()
             return
 
+        # RAG 知识库 backfill 状态查询 (GET — admin 调试用)
+        if path == '/api/admin/knowledge/backfill-embeddings' and self.command == 'GET':
+            self._handle_get_backfill_status()
+            return
+
         # FIXME: 大脑知识中枢 API
         if path == '/api/brain/status':
             self._handle_get_brain_status()
@@ -7226,6 +7231,14 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._handle_get_chat_model()
             elif self.command == 'POST':
                 self._handle_post_chat_model()
+            else:
+                self._send_json_error(405, 'Method Not Allowed')
+            return
+
+        # RAG 知识库 backfill (POST — dev/feat: #1 修复 RAG 空命中)
+        if path == '/api/admin/knowledge/backfill-embeddings':
+            if self.command == 'POST':
+                self._handle_post_backfill_embeddings()
             else:
                 self._send_json_error(405, 'Method Not Allowed')
             return
@@ -8565,6 +8578,89 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [ChatModel] POST exception: {e}')
             self._send_json_error(500, f'switch failed: {e}')
+
+    # ─────────────────────────────────────────────────────────
+    # RAG Knowledge Embedding Backfill (dev/feat: #1)
+    # 根因: knowledge_chunks.embedding 全 NULL → RAG SQL 永远空命中
+    # 修复: POST 触发遍历所有 chunks, 调 get_embedding_cached 生成 embedding
+    #       并 UPDATE 到 knowledge_chunks.embedding + embedding_model
+    # 安全: get_embedding() 已加 retry (commit a4a4ea1), 单条失败不阻断整批
+    # 性能: 187 个 chunks × ~1.5s/each ≈ 5 分钟; force=true 时跑一次
+    # ─────────────────────────────────────────────────────────
+
+    def _handle_get_backfill_status(self):
+        """GET /api/admin/knowledge/backfill-embeddings — 查看 chunks 状态"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+        try:
+            conn = ks._db_conn()
+            try:
+                total = conn.execute(
+                    "SELECT COUNT(*) FROM knowledge_chunks c "
+                    "JOIN knowledge k ON c.knowledge_id = k.id WHERE k.status='ok'"
+                ).fetchone()[0]
+                with_emb = conn.execute(
+                    "SELECT COUNT(*) FROM knowledge_chunks c "
+                    "JOIN knowledge k ON c.knowledge_id = k.id "
+                    "WHERE k.status='ok' AND c.embedding IS NOT NULL"
+                ).fetchone()[0]
+                empty_emb_model = conn.execute(
+                    "SELECT COUNT(*) FROM knowledge_chunks c "
+                    "JOIN knowledge k ON c.knowledge_id = k.id "
+                    "WHERE k.status='ok' AND c.embedding IS NOT NULL "
+                    "AND (c.embedding_model = '' OR c.embedding_model IS NULL)"
+                ).fetchone()[0]
+            finally:
+                conn.close()
+            emb_cfg = ks.get_embedding_config(None)
+            self._send_json(200, {
+                'total_chunks': total,
+                'chunks_with_embedding': with_emb,
+                'chunks_need_backfill': total - with_emb,
+                'chunks_with_empty_model': empty_emb_model,
+                'embedding_provider': emb_cfg.get('provider'),
+                'embedding_model': emb_cfg.get('model'),
+                'note': 'POST 触发 backfill; body {force: false} 只补 IS NULL, force=true 重生成全部',
+            })
+        except Exception as e:
+            logger.error(f'  [Backfill-Status] {e}')
+            self._send_json_error(500, f'status failed: {e}')
+
+    def _handle_post_backfill_embeddings(self):
+        """POST /api/admin/knowledge/backfill-embeddings — 触发批量回填
+
+        body 可选: {force: false, emp_id: ""}
+        响应: {total, success, skipped, failed, errors, elapsed_sec, embedding_model}
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        err, status = _require_admin(auth)
+        if err:
+            self._send_auth_error(err, status)
+            return
+        body = self._read_body() or {}
+        force = bool(body.get('force', False))
+        emp_id = (body.get('emp_id') or '').strip() or None
+
+        logger.warning(
+            f'  [Backfill] admin={auth.user_id} client_ip={self.client_address[0]} '
+            f'started force={force} emp_id={emp_id or "(all)"}'
+        )
+        try:
+            result = ks.backfill_embeddings(emp_id=emp_id, force=force)
+            self._send_json(200, result)
+        except Exception as e:
+            logger.error(f'  [Backfill] failed: {e}')
+            import traceback; traceback.print_exc()
+            self._send_json_error(500, f'backfill failed: {e}')
 
     def _handle_csp_report(self):
         """POST /api/csp-report — 接收浏览器 CSP 违规报告（report-only 模式）
