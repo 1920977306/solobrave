@@ -5611,6 +5611,14 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
    ======================================== */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: none; align-items: center; justify-content: center; z-index: 300; backdrop-filter: blur(4px); }
 .modal-overlay.active { display: flex; }
+
+/* Modal 按钮 (dev/feat: #5 emergency rotate + 通用 admin 工具) */
+.modal-btn { padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+.modal-btn-secondary { background: var(--bg-secondary, #f5f5f7); color: var(--text-secondary, #6e6e73); }
+.modal-btn-secondary:hover { background: var(--bg-tertiary, #ebebed); }
+.modal-btn-danger { background: #FF3B30; color: #fff; }
+.modal-btn-danger:hover { background: #D70015; }
+.modal-btn-danger:disabled { opacity: 0.6; cursor: wait; }
 .modal { background: var(--bg-primary); border-radius: var(--radius-lg); box-shadow: var(--shadow-modal); width: 90%; max-width: 440px; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column; }
 .modal-header { padding: 14px 16px; border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; justify-content: space-between; }
 .modal-title { font: var(--font-lg); }
@@ -7827,6 +7835,7 @@ window.doLogin = function () {
       <div class="user-dropdown-item" onclick="openGlobalSearch(); closeUserDropdownDirect()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> 全局搜索</div>
       <div class="user-dropdown-divider"></div>
       <div class="user-dropdown-item" onclick="showUserManagement(); closeUserDropdownDirect()" id="dropdownAdminItem" style="display:none;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></svg> 用户管理</div>
+      <div class="user-dropdown-item" onclick="showSecurityTools(); closeUserDropdownDirect()" id="dropdownSecurityItem" style="display:none;" title="紧急 JWT secret 轮换 / RAG backfill / 模型切换"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> 安全工具</div>
       <div class="user-dropdown-item" onclick="showTeamManagement(); closeUserDropdownDirect()" style="display:none;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/><rect x="4" y="2" width="16" height="20" rx="2"/></svg> 团队管理</div>
       <div class="user-dropdown-item" onclick="switchModule('settings'); closeUserDropdownDirect()" style="display:none;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 设置</div>
       <div class="user-dropdown-item" onclick="showTokenStats(); closeUserDropdownDirect()" style="display:none;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></svg> Token统计</div>
@@ -10347,6 +10356,8 @@ function updateUserInfo() {
   if (dropdownName) dropdownName.textContent = escapeHtml(currentUser.displayName || currentUser.name || '用户');
   if (dropdownRole) dropdownRole.textContent = getCurrentUserRoleDisplay();
   if (dropdownAdminItem) dropdownAdminItem.style.display = isAdmin() ? '' : 'none';
+  var dropdownSecurityItem = document.getElementById('dropdownSecurityItem');
+  if (dropdownSecurityItem) dropdownSecurityItem.style.display = isAdmin() ? '' : 'none';
 }
 function escapeHtml(s) {
   if (!s) return '';
@@ -31895,6 +31906,97 @@ function confirmLogout() {
   if (confirm('确定要退出登录吗？')) {
     doLogout();
   }
+}
+
+// ============ Security Tools (dev/feat: #5) ============
+// 后端: /api/auth/admin/emergency-rotate-secret (commit 9765fa1)
+// 仅 admin 可见, 二次确认 + 输入 reason. 紧急 JWT secret 轮换用于安全事件响应.
+function showSecurityTools() {
+  if (!isAdmin()) {
+    showToast('⚠️ 仅管理员可访问安全工具');
+    return;
+  }
+  var dropdown = document.getElementById('userDropdown');
+  if (dropdown) dropdown.classList.remove('show');
+  showEmergencyRotateConfirm();
+}
+function showEmergencyRotateConfirm() {
+  // 移除已有 modal 防止重复
+  var existing = document.getElementById('emergencyRotateModalOverlay');
+  if (existing) existing.remove();
+  var html = '<div id="emergencyRotateModalOverlay" class="modal-overlay active" '
+           + 'onclick="if(event.target===this)closeEmergencyRotateModal()">'
+           + '<div class="modal-panel" style="max-width:480px;">'
+           +   '<div class="modal-header" style="display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--separator);">'
+           +     '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF3B30" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg>'
+           +     '<div style="font-weight:600;font-size:16px;">🚨 紧急 JWT Secret 轮换</div>'
+           +   '</div>'
+           +   '<div style="padding:18px 20px;">'
+           +     '<p style="margin:0 0 12px;color:var(--text-secondary);font-size:13px;">'
+           +       '用于安全事件响应（如 token 泄漏、可疑登录）。所有现有 JWT 将在 grace period 内仍可用，旧 secret 同时失效。'
+           +     '</p>'
+           +     '<label style="display:block;font-size:13px;font-weight:500;margin-bottom:6px;">'
+           +       '事件描述（必填, 会写入审计日志）'
+           +     '</label>'
+           +     '<textarea id="emergencyRotateReason" rows="3" '
+           +       'placeholder="例: 2026-09-17 14:30 发现 GitHub PAT 泄漏" '
+           +       'style="width:100%;padding:10px;border:1px solid var(--separator);border-radius:8px;'
+           +       'background:var(--bg-tertiary);color:var(--text);font-size:13px;font-family:inherit;'
+           +       'resize:vertical;box-sizing:border-box;"></textarea>'
+           +     '<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary);">'
+           +       '此操作不可撤销, 会广播到所有 session。'
+           +     '</div>'
+           +   '</div>'
+           +   '<div style="display:flex;gap:10px;padding:12px 20px;border-top:1px solid var(--separator);justify-content:flex-end;">'
+           +     '<button class="modal-btn modal-btn-secondary" onclick="closeEmergencyRotateModal()">取消</button>'
+           +     '<button class="modal-btn modal-btn-danger" onclick="doEmergencyRotate()">🚨 立即轮换</button>'
+           +   '</div>'
+           + '</div>'
+           + '</div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+  setTimeout(function () {
+    var ta = document.getElementById('emergencyRotateReason');
+    if (ta) ta.focus();
+  }, 50);
+}
+function closeEmergencyRotateModal() {
+  var m = document.getElementById('emergencyRotateModalOverlay');
+  if (m) m.remove();
+}
+function doEmergencyRotate() {
+  var reasonEl = document.getElementById('emergencyRotateReason');
+  var reason = (reasonEl && reasonEl.value || '').trim();
+  if (!reason) {
+    showToast('⚠️ 请填写事件描述（必填, 写入审计）', 'error');
+    if (reasonEl) reasonEl.focus();
+    return;
+  }
+  if (reason.length > 200) {
+    showToast('⚠️ 事件描述请控制在 200 字内', 'error');
+    return;
+  }
+  // 二次确认 (紧急操作, 防止误触)
+  if (!confirm('确认轮换 JWT Secret？\n\n该操作会写入审计日志 + 广播到所有 session。')) return;
+  closeEmergencyRotateModal();
+  showToast('🚨 正在轮换 JWT Secret...', 'info');
+  apiFetch('/api/auth/admin/emergency-rotate-secret', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason })
+  })
+    .then(function (r) {
+      return r && r.ok ? r.json().then(function (j) { return { ok: true, data: j }; })
+                        : r && r.json().then(function (j) { return { ok: false, err: j }; });
+    })
+    .catch(function (e) { return { ok: false, err: { error: String(e) } }; })
+    .then(function (out) {
+      if (out && out.ok && out.data) {
+        showToast('✅ JWT Secret 轮换完成 (grace period=' + (out.data.gracePeriodSeconds || '?') + 's)', 'success');
+      } else {
+        var msg = (out && out.err && (out.err.error || out.err.message)) || '轮换失败';
+        showToast('❌ ' + msg, 'error');
+      }
+    });
 }
 function showUserProfile() {
   var dropdown = document.getElementById('userDropdown');
