@@ -3170,6 +3170,9 @@ def init_db():
             ('created_by', "TEXT DEFAULT ''"),
             ('created_at', 'INTEGER'),
             ('updated_at', 'INTEGER'),
+            # dev/feat: products 修复 #1 — RAG 能按相似度查商品
+            ('embedding', 'BLOB'),
+            ('embedding_model', "TEXT DEFAULT ''"),
         ]:
             _add_column_if_not_exists(conn, 'products', _prod_col, _prod_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)')
@@ -3208,6 +3211,9 @@ def init_db():
             ('status', "TEXT DEFAULT 'active'"),
             ('created_at', 'INTEGER'),
             ('updated_at', 'INTEGER'),
+            # dev/feat: brands 修复 #1 — RAG 能按相似度查品牌
+            ('embedding', 'BLOB'),
+            ('embedding_model', "TEXT DEFAULT ''"),
         ]:
             _add_column_if_not_exists(conn, 'brands', _brand_col, _brand_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_brands_status ON brands(status)')

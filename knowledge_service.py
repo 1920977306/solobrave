@@ -609,7 +609,7 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
     start = _time.perf_counter()
 
     if targets is None:
-        targets = ['chunks', 'events', 'patterns', 'talents']
+        targets = ['chunks', 'events', 'patterns', 'talents', 'products', 'brands']
     emb_cfg = get_embedding_config(emp_id or None)
     api_key = emb_cfg['apiKey']
     provider = emb_cfg['provider']
@@ -701,6 +701,51 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
                     sql_params
                 ).fetchall()
                 update_sql = ('UPDATE talents '
+                              'SET embedding = ?, embedding_model = ? WHERE id = ?')
+            elif target == 'products':
+                # dev/feat: products 修复 #1 — RAG 能按相似度查商品
+                # content 拼接 name + subtitle + brand + category + selling_points + tags
+                if force:
+                    sql_where = "WHERE status = 'active'"
+                    sql_params = []
+                else:
+                    sql_where = ("WHERE status = 'active' AND "
+                                 "(embedding IS NULL OR embedding_model = '' "
+                                 "OR embedding_model != ?)")
+                    sql_params = [embedding_model]
+                rows = conn.execute(
+                    f"SELECT id, "
+                    f"TRIM(COALESCE(name, '') || ' | ' || "
+                    f"COALESCE(subtitle, '') || ' | ' || "
+                    f"COALESCE(brand, '') || ' | ' || "
+                    f"COALESCE(category, '') || ' | ' || "
+                    f"COALESCE(selling_points, '') || ' | ' || "
+                    f"COALESCE(tags, '')) AS content "
+                    f"FROM products {sql_where} ORDER BY monthly_gmv DESC, monthly_sales DESC",
+                    sql_params
+                ).fetchall()
+                update_sql = ('UPDATE products '
+                              'SET embedding = ?, embedding_model = ? WHERE id = ?')
+            elif target == 'brands':
+                # dev/feat: brands 修复 #1 — RAG 能按相似度查品牌
+                # content 拼接 name + main_category + shop_type
+                if force:
+                    sql_where = "WHERE status = 'active'"
+                    sql_params = []
+                else:
+                    sql_where = ("WHERE status = 'active' AND "
+                                 "(embedding IS NULL OR embedding_model = '' "
+                                 "OR embedding_model != ?)")
+                    sql_params = [embedding_model]
+                rows = conn.execute(
+                    f"SELECT id, "
+                    f"TRIM(COALESCE(name, '') || ' | ' || "
+                    f"COALESCE(main_category, '') || ' | ' || "
+                    f"COALESCE(shop_type, '')) AS content "
+                    f"FROM brands {sql_where} ORDER BY total_products DESC",
+                    sql_params
+                ).fetchall()
+                update_sql = ('UPDATE brands '
                               'SET embedding = ?, embedding_model = ? WHERE id = ?')
             else:
                 continue
