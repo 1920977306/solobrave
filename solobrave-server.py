@@ -22446,21 +22446,53 @@ def _induce_knowledge_patterns(category, llm_config, created_by='', entity_type=
 
         conn = _db_conn()
         try:
+            # dev/feat: 规律库修复 #5 — 排除最近 14 天已被用作 evidence 的 events,
+            # 避免 LLM 反复从同一批 events 归纳出相似规律 (之前 13/16 条 evidence 同源 80%)
+            _RECENT_INDUCE_WINDOW = 14 * 86400  # 14 天
+            _cutoff = int(time.time()) - _RECENT_INDUCE_WINDOW
             rows = conn.execute(
                 f"SELECT ke.id, ke.title, ke.content_full, ke.created_at FROM knowledge_events ke "
-                f"{cfg['join_sql']} ORDER BY ke.created_at DESC LIMIT ?",
-                (*cfg['join_param'], _KP_INDUCE_MAX_EVENTS)).fetchall()
+                f"{cfg['join_sql']} "
+                # 排除最近 14 天出现在 patterns.source_event_ids 里的 events (避免重复归纳)
+                f"AND ke.id NOT IN ("
+                f"  SELECT DISTINCT je.value FROM knowledge_patterns kp, json_each(kp.source_event_ids) je "
+                f"  WHERE kp.created_at > ? AND kp.category = ?"
+                f") "
+                f"ORDER BY ke.created_at DESC LIMIT ?",
+                (*cfg['join_param'], _cutoff, category, _KP_INDUCE_MAX_EVENTS)).fetchall()
         finally:
             conn.close()
         if len(rows) < _KP_INDUCE_MIN_EVENTS:
-            return False, {'error': f'数据不足，至少需要{_KP_INDUCE_MIN_EVENTS}条同类目{cfg["role_label"]}分析事件',
+            return False, {'error': f'数据不足，至少需要{_KP_INDUCE_MIN_EVENTS}条未参与近期归纳的同类目{cfg["role_label"]}分析事件',
                            'current_count': len(rows)}
         event_ids = [r['id'] for r in rows]
         lines = []
         for i, r in enumerate(rows, 1):
             snippet = (r['content_full'] or '')[:_KP_EVENT_SNIPPET_LEN]
             lines.append(f'事件{i}（ID: {r["id"]}）\n标题: {r["title"] or ""}\n内容: {snippet}')
-        user_prompt = f'以下是「{category}」类目的 {len(rows)} 条{cfg["role_label"]}分析事件：\n\n' + '\n\n'.join(lines)
+        user_prompt = f'以下是「{category}」类目的 {len(rows)} 条{cfg["role_label"]}分析事件（已过滤最近 14 天被用过的）：\n\n' + '\n\n'.join(lines)
+
+        # dev/feat: 规律库修复 #5 — 注入已有 patterns 上下文, 让 LLM 避免重复
+        existing_patterns_lines = []
+        try:
+            ex_conn = _db_conn()
+            try:
+                ex_rows = ex_conn.execute(
+                    "SELECT pattern_text FROM knowledge_patterns "
+                    "WHERE category = ? AND entity_type = ? AND status IN ('confirmed','draft') "
+                    "ORDER BY confidence DESC, created_at DESC LIMIT 30",
+                    (category, entity_type)
+                ).fetchall()
+                for i, r in enumerate(ex_rows, 1):
+                    existing_patterns_lines.append(f'{i}. {(r["pattern_text"] or "")[:200]}')
+            finally:
+                ex_conn.close()
+        except Exception as e:
+            logger.warning(f'  [KnowledgePatterns] 已有规律上下文加载失败 (不影响主流程): {e}')
+        if existing_patterns_lines:
+            user_prompt += (f'\n\n【已有规律 ({len(existing_patterns_lines)} 条) — 务必产出不同维度的新规律, 不要重复】\n'
+                            + '\n'.join(existing_patterns_lines))
+
         messages = [
             {'role': 'system', 'content': cfg['system']},
             {'role': 'user', 'content': user_prompt},
