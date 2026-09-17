@@ -384,6 +384,25 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .pattern-conf-fill { height: 100%; background: #007aff; }
 .pattern-card-actions { display: flex; gap: 6px; }
 .pattern-action-btn { border: 1px solid var(--separator); background: #fff; border-radius: 8px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+
+/* 规律反馈按钮 (dev/feat: #2) — 👍/👎 计 hit/miss */
+.pattern-fb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  border: 1px solid var(--separator);
+  background: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-variant-numeric: tabular-nums;
+}
+.pattern-fb-btn.up:hover { background: rgba(52,199,89,0.10); border-color: rgba(52,199,89,0.3); color: #34C759; }
+.pattern-fb-btn.down:hover { background: rgba(255,59,48,0.10); border-color: rgba(255,59,48,0.3); color: #FF3B30; }
+.pattern-fb-btn:active { transform: scale(0.95); }
 .pattern-evidence { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--separator); font-size: 12px; color: var(--text-secondary); }
 .patterns-empty, .patterns-loading { padding: 40px; text-align: center; color: var(--text-secondary); font-size: 13px; }
 #knowledgeRight {
@@ -29242,6 +29261,14 @@ function renderPatternsList() {
       html += '<button class="pattern-action-btn" onclick="event.stopPropagation(); setPatternStatus(\'' + pid + '\', \'confirmed\')">✓ 确认</button>';
       html += '<button class="pattern-action-btn" onclick="event.stopPropagation(); setPatternStatus(\'' + pid + '\', \'rejected\')">✗ 拒绝</button>';
       html += '</span>';
+    } else if (p.status === 'confirmed') {
+      // dev/feat: #2 规律反馈按钮 (只对已确认的, 收集 hit/miss 数据)
+      var hits = p.hit_count || 0;
+      var misses = p.miss_count || 0;
+      html += '<span class="pattern-card-actions">';
+      html += '<button class="pattern-fb-btn up" title="这条规律帮到你了" onclick="event.stopPropagation(); feedbackPattern(\'' + pid + '\', \'up\')">👍 ' + hits + '</button>';
+      html += '<button class="pattern-fb-btn down" title="这条规律误导了" onclick="event.stopPropagation(); feedbackPattern(\'' + pid + '\', \'down\')">👎 ' + misses + '</button>';
+      html += '</span>';
     }
     html += '</div>';
     html += '<div class="pattern-evidence" id="patternEvidence_' + pid + '" style="display:none;"></div>';
@@ -29283,6 +29310,26 @@ function setPatternStatus(pid, status) {
     if (data && data.id) { showToast(status === 'confirmed' ? '已确认' : '已拒绝', 'success'); loadPatternsPage(); }
     else { showToast('操作失败: ' + ((data && data.error) || ''), 'error'); }
   }).catch(function(e){ showToast('操作失败', 'error'); });
+}
+
+// dev/feat: #2 规律反馈 — 让规律有生命周期数据 (hit/miss 计数)
+// 之前 16/16 条 hit/miss 全 0, 因为前端没暴露反馈入口
+function feedbackPattern(pid, feedback) {
+  apiFetch('/api/knowledge-patterns/' + encodeURIComponent(pid) + '/feedback', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ feedback: feedback })
+  }).then(function(r) {
+    if (r && r.ok) return r.json();
+    return r && r.json ? r.json().then(function(j) { return { ok: false, err: j }; }) : { ok: false };
+  }).then(function(data) {
+    if (data && data.ok) {
+      showToast(data.message || (feedback === 'up' ? '👍 反馈已记录' : '👎 反馈已记录'), 'success');
+      loadPatternsPage();  // 刷新 hit/miss 计数显示
+    } else {
+      var msg = (data && data.error) || '反馈失败';
+      showToast('❌ ' + msg, 'error');
+    }
+  }).catch(function(e) { showToast('反馈失败', 'error'); });
 }
 
 function triggerPatternInduce() {

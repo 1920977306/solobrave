@@ -3464,9 +3464,15 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_kp_entity_type ON knowledge_patterns(entity_type)')
         # 阶段4B：规律置信度体系（confidence_score 0-100；verification_level 五级）
         _add_column_if_not_exists(conn, 'knowledge_patterns', 'confidence_score', 'REAL DEFAULT 50')
-        _add_column_if_not_exists(conn, 'knowledge_patterns', 'evidence_count', 'INTEGER DEFAULT 0')
+
+        # dev/feat: 规律库修复 #2+#8 RAG 接入 patterns
+        # 加 embedding 字段让 rag_retrieve 能按相似度检索规律
+        _add_column_if_not_exists(conn, 'knowledge_patterns', 'embedding', 'BLOB')
+        _add_column_if_not_exists(conn, 'knowledge_patterns', 'embedding_model', "TEXT DEFAULT ''")
         _add_column_if_not_exists(conn, 'knowledge_patterns', 'hit_count', 'INTEGER DEFAULT 0')
         _add_column_if_not_exists(conn, 'knowledge_patterns', 'miss_count', 'INTEGER DEFAULT 0')
+        _add_column_if_not_exists(conn, 'knowledge_patterns', 'last_used_at', 'INTEGER')
+        _add_column_if_not_exists(conn, 'knowledge_patterns', 'evidence_count', 'INTEGER DEFAULT 0')
         _add_column_if_not_exists(conn, 'knowledge_patterns', 'verification_level', "TEXT DEFAULT 'hypothesis'")
         # 存量迁移（幂等）：只回填仍为默认 hypothesis 的行，按旧 status 映射等级
         try:
@@ -7869,6 +7875,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             if sub and '/' not in sub:
                 self._handle_delete_knowledge_pattern(sub)
                 return
+            # POST /api/knowledge-patterns/<id>/feedback — 规律反馈 (dev/feat #2)
+            if sub and '/' in sub:
+                pid, action = sub.split('/', 1)
+                if action == 'feedback' and self.command == 'POST':
+                    self._handle_post_knowledge_pattern_feedback(pid)
+                    return
 
         # 合作单：硬删除
         if path.startswith('/api/deals/'):
@@ -14578,6 +14590,58 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f'  [KnowledgePatterns] update failed: {e}')
             self._send_json_error(500, 'Update failed')
+
+    def _handle_post_knowledge_pattern_feedback(self, pattern_id):
+        """POST /api/knowledge-patterns/<id>/feedback — 规律有用/无用反馈 (dev/feat: #2)
+
+        body: {feedback: "up"|"down", note: "可选"}
+        - up   → hit_count + 1 (用 pattern 帮你了, 感谢)
+        - down → miss_count + 1 (pattern 误导了, 抱歉)
+        多次反馈累计, 给后续规律健康度打分提供数据
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'knowledge'): return
+        body = self._read_body() or {}
+        feedback = (body.get('feedback') or '').strip().lower()
+        if feedback not in ('up', 'down'):
+            self._send_json_error(400, 'feedback 必须是 "up" 或 "down"')
+            return
+        try:
+            conn = _db_conn()
+            try:
+                row = conn.execute('SELECT id, hit_count, miss_count FROM knowledge_patterns WHERE id = ?',
+                                    (pattern_id,)).fetchone()
+                if not row:
+                    self._send_json_error(404, 'Pattern not found')
+                    return
+                if feedback == 'up':
+                    conn.execute('UPDATE knowledge_patterns SET hit_count = hit_count + 1, last_used_at = ? WHERE id = ?',
+                                  (int(time.time() * 1000), pattern_id))
+                    new_count = (row['hit_count'] or 0) + 1
+                else:
+                    conn.execute('UPDATE knowledge_patterns SET miss_count = miss_count + 1, last_used_at = ? WHERE id = ?',
+                                  (int(time.time() * 1000), pattern_id))
+                    new_count = (row['miss_count'] or 0) + 1
+                conn.commit()
+                logger.info(
+                    f'  [Pattern-Feedback] pattern={pattern_id} feedback={feedback} '
+                    f'by admin={auth.user_id} client_ip={self.client_address[0]}'
+                )
+            finally:
+                conn.close()
+            self._send_json(200, {
+                'ok': True,
+                'pattern_id': pattern_id,
+                'feedback': feedback,
+                'new_count': new_count,
+                'message': '反馈已记录, 感谢!' if feedback == 'up' else '反馈已记录, 我们会优化'
+            })
+        except Exception as e:
+            logger.error(f'  [Pattern-Feedback] failed: {e}')
+            self._send_json_error(500, f'feedback failed: {e}')
 
     def _handle_delete_knowledge_pattern(self, pattern_id):
         """DELETE /api/knowledge-patterns/<id> — 硬删除"""

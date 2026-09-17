@@ -115,7 +115,26 @@ def get_embedding_config(emp_id=None):
 
 
 def _db_conn(timeout=30):
-    """获取 SQLite 数据库连接；启用 WAL 与 busy timeout 降低 database locked 概率"""
+    """获取 SQLite 数据库连接；启用 WAL 与 busy timeout 降低 database locked 概率
+
+    dev/feat: 修复 _db_conn 用 ks.DBPATH (None) 的 bug —
+    单独运行 knowledge_service 时 DB_PATH=None 会报错.
+    fallback: import solobrave_server 用它的 _db_conn (它用真正的 DB_PATH).
+    """
+    if DB_PATH is None:
+        try:
+            import solobrave_server as _server
+            return _server._db_conn()
+        except Exception:
+            # 最后的 fallback: 自己猜 solobrave 默认 db path
+            import os as _os
+            _fallback = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                                       'data', 'solobrave.db')
+            conn = sqlite3.connect(_fallback, check_same_thread=False, timeout=timeout)
+            conn.row_factory = sqlite3.Row
+            conn.execute('PRAGMA journal_mode=WAL;')
+            conn.execute(f'PRAGMA busy_timeout={timeout * 1000};')
+            return conn
     conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=timeout)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL;')
@@ -588,7 +607,7 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
     start = _time.perf_counter()
 
     if targets is None:
-        targets = ['chunks', 'events']
+        targets = ['chunks', 'events', 'patterns']
     emb_cfg = get_embedding_config(emp_id or None)
     api_key = emb_cfg['apiKey']
     provider = emb_cfg['provider']
@@ -639,6 +658,25 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
                 ).fetchall()
                 update_sql = ('UPDATE knowledge_events '
                               'SET embedding = ? WHERE id = ?')
+            elif target == 'patterns':
+                # 规律表只处理 confirmed (status) 且非 deprecated (verification_level)
+                # 也要 confidence >= 0.5 (避免低质量规律污染 RAG)
+                if force:
+                    sql_where = "WHERE confidence >= 0.5 AND status != 'deprecated'"
+                    sql_params = []
+                else:
+                    sql_where = ("WHERE (embedding IS NULL OR embedding_model = '' "
+                                 "OR embedding_model != ?) AND confidence >= 0.5 "
+                                 "AND status != 'deprecated'")
+                    sql_params = [embedding_model]
+                rows = conn.execute(
+                    f'SELECT id, pattern_text AS content '
+                    f'FROM knowledge_patterns {sql_where} '
+                    f'ORDER BY confidence DESC, hit_count DESC',
+                    sql_params
+                ).fetchall()
+                update_sql = ('UPDATE knowledge_patterns '
+                              'SET embedding = ?, embedding_model = ? WHERE id = ?')
             else:
                 continue
 
@@ -1622,6 +1660,66 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
                 if len(docs) >= top_k_docs:
                     break
 
+        # 5b. 规律库检索 (dev/feat: 规律库修复 #2+#8)
+        # 读 verified 且 confidence >= 0.7 的规律, 按 pattern embedding 相似度排序,
+        # 加进 docs 列表 (type='pattern' 让 format_rag_context 单独格式化)
+        try:
+            pattern_rows = conn.execute(
+                "SELECT id, pattern_text, category, confidence, hit_count, embedding "
+                "FROM knowledge_patterns "
+                "WHERE status = 'confirmed' AND verification_level = 'verified' "
+                "AND confidence >= 0.7 AND embedding IS NOT NULL"
+            ).fetchall()
+            pattern_results = []
+            for p in pattern_rows:
+                try:
+                    emb_bytes = p['embedding']
+                    if not emb_bytes:
+                        continue
+                    pat_emb = list(struct.unpack(f'{len(emb_bytes)//4}f', emb_bytes))
+                    sim = _cosine_similarity(query_emb, pat_emb)
+                    if sim >= 0.6:  # 阈值稍低, 规律本来就稀疏
+                        pattern_results.append({
+                            'id': p['id'],
+                            'pattern_text': p['pattern_text'],
+                            'category': p['category'],
+                            'confidence': p['confidence'],
+                            'similarity': sim
+                        })
+                except Exception:
+                    continue
+            pattern_results.sort(key=lambda x: (x['similarity'] * x['confidence']),
+                                  reverse=True)
+            top_patterns = pattern_results[:max(1, top_k_docs // 2)]
+            for pr in top_patterns:
+                docs.append({
+                    'id': pr['id'],
+                    'type': 'pattern',
+                    'title': '📐 规律: ' + (pr['category'] or '通用'),
+                    'category': pr['category'],
+                    'content': pr['pattern_text'],
+                    'relevantChunk': pr['pattern_text'],
+                    'similarity': pr['similarity'],
+                    'confidence': pr['confidence']
+                })
+            # 自动 +hit_count (RAG 命中的规律被检索就算 hit)
+            if top_patterns:
+                pattern_ids = tuple(p['id'] for p in top_patterns)
+                placeholders = ','.join('?' for _ in pattern_ids)
+                conn.execute(
+                    f'UPDATE knowledge_patterns '
+                    f'SET hit_count = hit_count + 1, last_used_at = ? '
+                    f'WHERE id IN ({placeholders})',
+                    (int(time.time() * 1000), *pattern_ids)
+                )
+                conn.commit()
+                logger.info(
+                    f'  [RAG-Patterns] 自动 +hit_count: {len(top_patterns)} 条 '
+                    f'pattern_ids={list(pattern_ids)[:3]}{"..." if len(pattern_ids) > 3 else ""}'
+                )
+        except Exception as pe:
+            logger.warning(f'  [RAG-Patterns] 检索失败, 不影响主流程: {pe}')
+
         # 6. 格式化上下文
         context = format_rag_context(docs)
 
@@ -1637,14 +1735,28 @@ def format_rag_context(docs):
     """将检索结果格式化为注入 system prompt 的文本"""
     lines = []
     if docs:
-        lines.append('【知识库文档】')
-        for d in docs:
-            content = (d.get('relevantChunk') or d.get('content') or '')[:1200]
-            lines.append(f"━━━ 📄 {d.get('title', '未命名')} ━━━")
-            lines.append(content)
-            if len(d.get('content', '')) > 1200:
-                lines.append('...（内容已截取）')
-            lines.append('')
+        # 把规律类单独分组, 让 prompt 优先看 (dev/feat: 规律库修复 #2+#8)
+        pattern_docs = [d for d in docs if d.get('type') == 'pattern']
+        normal_docs = [d for d in docs if d.get('type') != 'pattern']
+        if pattern_docs:
+            lines.append('【📐 业务规律 (来自 SoloBrave 长期分析)】')
+            for d in pattern_docs:
+                conf = d.get('confidence', 0)
+                sim = d.get('similarity', 0)
+                lines.append(
+                    f"━━━ 📐 {d.get('category', '通用')} (置信度 {conf:.0%}, 相似度 {sim:.0%}) ━━━"
+                )
+                lines.append(d.get('content', '')[:600])
+                lines.append('')
+        if normal_docs:
+            lines.append('【📄 知识库文档】')
+            for d in normal_docs:
+                content = (d.get('relevantChunk') or d.get('content') or '')[:1200]
+                lines.append(f"━━━ 📄 {d.get('title', '未命名')} ━━━")
+                lines.append(content)
+                if len(d.get('content', '')) > 1200:
+                    lines.append('...（内容已截取）')
+                lines.append('')
     return '\n'.join(lines)
 
 
