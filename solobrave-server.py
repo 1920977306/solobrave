@@ -14455,7 +14455,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
     # ═══ 规律库（knowledge_patterns，L3）═══
     def _handle_post_induce_knowledge_patterns(self):
-        """POST /api/knowledge-patterns/induce — 触发同类目规律归纳（LLM），结果存 draft"""
+        """POST /api/knowledge-patterns/induce — 触发同类目规律归纳（LLM），结果存 draft
+
+        dev/feat: 规律库修复 #4 — body 多接 entity_type 字段
+          body: {category: "服饰内衣", entity_type: "talent"|"product"|"brand"|"category"}
+          默认 entity_type='talent' (兼容老调用)
+        """
         auth = _authenticate(self.headers, self.client_address[0], self)
         if not auth.is_authenticated:
             self._send_auth_error(auth.error, auth.status)
@@ -14466,13 +14471,19 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if not category:
             self._send_json_error(400, 'Missing category')
             return
+        entity_type = ((body or {}).get('entity_type') or 'talent').strip()
+        if entity_type not in ('talent', 'product', 'brand', 'category'):
+            self._send_json_error(400, f'entity_type 必须是 talent|product|brand|category, 当前: {entity_type}')
+            return
         try:
             llm_config = _resolve_induce_llm_config((body or {}).get('agentId', '') or '')
             if not llm_config:
                 self._send_json(200, {'ok': False, 'error': '未配置可用的 LLM API Key'})
                 return
-            ok, result = _induce_knowledge_patterns(category, llm_config, created_by=auth.user_id or '')
-            payload = {'ok': ok}
+            ok, result = _induce_knowledge_patterns(category, llm_config,
+                                                     created_by=auth.user_id or '',
+                                                     entity_type=entity_type)
+            payload = {'ok': ok, 'entity_type': entity_type}
             payload.update(result)
             self._send_json(200, payload)
         except Exception as e:
@@ -22376,33 +22387,82 @@ def _resolve_induce_llm_config(agent_id=''):
     return None
 
 
-def _induce_knowledge_patterns(category, llm_config, created_by=''):
+def _induce_knowledge_patterns(category, llm_config, created_by='', entity_type='talent'):
     """对指定类目的分析事件做 LLM 规律归纳，结果写入 knowledge_patterns（status=draft）。
-    返回 (ok, result_dict)；数据不足 / LLM 失败 / JSON 非法时返回 (False, {error})。全流程异常兜底。"""
+
+    dev/feat: 规律库修复 #4 — entity_type 不再硬编码 'talent'
+    支持 entity_type ∈ {'talent','product','brand','category'}:
+      - talent:  JOIN talents (entity_id → t.id, t.category = ?)      — 跨达人共性
+      - product: JOIN products (entity_id → p.id, p.category = ?)     — 跨产品共性
+      - brand:   JOIN brands (entity_id → b.id, b.main_category = ?) — 跨品牌共性
+      - category: 直接查 ke.category (level4 字段), 不需 JOIN          — 类目级 meta 规律
+
+    返回 (ok, result_dict); 数据不足 / LLM 失败 / JSON 非法时返回 (False, {error})。
+    """
     try:
+        # 1. 选 JOIN 表 + 类目列 + system prompt 模板 (按 entity_type 选)
+        entity_cfg = {
+            'talent': {
+                'join_sql': "JOIN talents t ON ke.entity_type = 'talent' AND ke.entity_id = t.id WHERE t.category = ?",
+                'join_param': (category,),
+                'role_label': '达人',
+                'system': '你是达人撮合业务的知识归纳专家。请从以下多条分析事件中提炼跨达人的共性规律。'
+                           '每条规律要具体、可操作，包含适用条件和预期效果。'
+                           '输出 JSON 数组，每条包含 pattern_text(规律描述)、evidence_event_ids(支撑的事件ID列表)、confidence(置信度0-1)。'
+            },
+            'product': {
+                'join_sql': "JOIN products p ON ke.entity_type = 'product' AND ke.entity_id = p.id WHERE p.category = ?",
+                'join_param': (category,),
+                'role_label': '产品',
+                'system': '你是选品业务的知识归纳专家。请从以下多条产品分析事件中提炼跨产品的共性规律。'
+                           '聚焦 GMV / 转化率 / 佣金率 / 客单价 / 复购率 等指标规律。'
+                           '每条规律要具体、可操作，包含适用条件和预期效果。'
+                           '输出 JSON 数组，每条包含 pattern_text(规律描述)、evidence_event_ids、confidence(0-1)。'
+            },
+            'brand': {
+                'join_sql': "JOIN brands b ON ke.entity_type = 'brand' AND ke.entity_id = b.id WHERE b.main_category = ?",
+                'join_param': (category,),
+                'role_label': '品牌',
+                'system': '你是品牌分析专家。请从以下多条品牌分析事件中提炼跨品牌的共性规律。'
+                           '聚焦品牌定位 / 用户画像 / 客单价 / 渠道分布 / 复购率 等品牌级指标。'
+                           '每条规律要具体、可操作。'
+                           '输出 JSON 数组，每条包含 pattern_text、evidence_event_ids、confidence(0-1)。'
+            },
+            'category': {
+                # 类目级: 直接查 ke.event_type (假设 ke.category 字段或 content_full 提取)
+                # 当前 schema 没 ke.category, 用 entity_type=category 事件直接查
+                'join_sql': "WHERE ke.entity_type = 'category' AND (ke.content_full LIKE ? OR ke.title LIKE ?)",
+                'join_param': (f'%{category}%', f'%{category}%'),
+                'role_label': '类目',
+                'system': '你是类目分析专家。请从以下多条类目级事件中提炼跨店铺/跨时段的共性规律。'
+                           '聚焦类目趋势 / 季节性 / 价格带 / 转化漏斗等。'
+                           '每条规律要具体、可操作。'
+                           '输出 JSON 数组，每条包含 pattern_text、evidence_event_ids、confidence(0-1)。'
+            },
+        }
+        cfg = entity_cfg.get(entity_type)
+        if not cfg:
+            return False, {'error': f'不支持的 entity_type: {entity_type} (可选: {list(entity_cfg.keys())})'}
+
         conn = _db_conn()
         try:
-            # knowledge_events 无 category 列，通过 entity_id JOIN talents 关联类目
             rows = conn.execute(
-                "SELECT ke.id, ke.title, ke.content_full, ke.created_at FROM knowledge_events ke "
-                "JOIN talents t ON ke.entity_type = 'talent' AND ke.entity_id = t.id "
-                "WHERE t.category = ? ORDER BY ke.created_at DESC LIMIT ?",
-                (category, _KP_INDUCE_MAX_EVENTS)).fetchall()
+                f"SELECT ke.id, ke.title, ke.content_full, ke.created_at FROM knowledge_events ke "
+                f"{cfg['join_sql']} ORDER BY ke.created_at DESC LIMIT ?",
+                (*cfg['join_param'], _KP_INDUCE_MAX_EVENTS)).fetchall()
         finally:
             conn.close()
         if len(rows) < _KP_INDUCE_MIN_EVENTS:
-            return False, {'error': f'数据不足，至少需要{_KP_INDUCE_MIN_EVENTS}条同类目分析事件',
+            return False, {'error': f'数据不足，至少需要{_KP_INDUCE_MIN_EVENTS}条同类目{cfg["role_label"]}分析事件',
                            'current_count': len(rows)}
         event_ids = [r['id'] for r in rows]
         lines = []
         for i, r in enumerate(rows, 1):
             snippet = (r['content_full'] or '')[:_KP_EVENT_SNIPPET_LEN]
             lines.append(f'事件{i}（ID: {r["id"]}）\n标题: {r["title"] or ""}\n内容: {snippet}')
-        user_prompt = f'以下是「{category}」类目的 {len(rows)} 条达人分析事件：\n\n' + '\n\n'.join(lines)
+        user_prompt = f'以下是「{category}」类目的 {len(rows)} 条{cfg["role_label"]}分析事件：\n\n' + '\n\n'.join(lines)
         messages = [
-            {'role': 'system', 'content': '你是达人撮合业务的知识归纳专家。请从以下多条分析事件中提炼跨达人的共性规律。'
-                                          '每条规律要具体、可操作，包含适用条件和预期效果。'
-                                          '输出 JSON 数组，每条包含 pattern_text(规律描述)、evidence_event_ids(支撑的事件ID列表)、confidence(置信度0-1)。'},
+            {'role': 'system', 'content': cfg['system']},
             {'role': 'user', 'content': user_prompt},
         ]
         # kimi-for-coding 是推理模型，thinking 块会先消耗 max_tokens，需要给足余量；推理耗时长，timeout 放宽到 300s
@@ -22440,11 +22500,11 @@ def _induce_knowledge_patterns(category, llm_config, created_by=''):
                     "INSERT INTO knowledge_patterns (id, category, entity_type, pattern_text, evidence, "
                     "confidence, status, source_event_ids, created_by, created_at, updated_at, "
                     "confidence_score, evidence_count, verification_level) "
-                    "VALUES (?, ?, 'talent', ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, 'hypothesis')",
-                    (pid, category, p['pattern_text'].strip(), json.dumps(ev_ids, ensure_ascii=False),
+                    "VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, 'hypothesis')",
+                    (pid, category, entity_type, p['pattern_text'].strip(), json.dumps(ev_ids, ensure_ascii=False),
                      conf, json.dumps(event_ids, ensure_ascii=False), created_by, now, now,
                      round(conf * 100, 1), len(ev_ids)))
-                saved.append({'id': pid, 'category': category, 'entity_type': 'talent',
+                saved.append({'id': pid, 'category': category, 'entity_type': entity_type,
                               'pattern_text': p['pattern_text'].strip(), 'confidence': conf,
                               'status': 'draft', 'source_event_ids': event_ids,
                               'confidence_score': round(conf * 100, 1), 'evidence_count': len(ev_ids),
@@ -22453,7 +22513,7 @@ def _induce_knowledge_patterns(category, llm_config, created_by=''):
             conn.commit()
         finally:
             conn.close()
-        logger.info(f'  [KnowledgePatterns] {category} 归纳出 {len(saved)} 条规律')
+        logger.info(f'  [KnowledgePatterns] {entity_type}/{category} 归纳出 {len(saved)} 条规律')
         return True, {'induced': len(saved), 'patterns': saved}
     except Exception as e:
         logger.error(f'  [KnowledgePatterns] 归纳失败: {e}')
