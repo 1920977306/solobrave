@@ -4080,7 +4080,7 @@ def _talent_row_to_dict(row):
         'contact_phone': row['contact_phone'] or '',
         'contact_wechat': row['contact_wechat'] or '',
         'contact_email': row['contact_email'] or '',
-        'cooperation_status': row['cooperation_status'] or 'available',
+        'cooperation_status': _normalize_cooperation_status(row['cooperation_status']),
         'follow_up_by': row['follow_up_by'] or '',
         'next_follow_up_at': row['next_follow_up_at'] if row['next_follow_up_at'] is not None else 0,
         'follow_up_note': row['follow_up_note'] or '',
@@ -4318,7 +4318,7 @@ def _dict_to_talent_row(t):
         'contact_phone': t.get('contact_phone') or t.get('contactPhone') or '',
         'contact_wechat': t.get('contact_wechat') or t.get('contactWechat') or '',
         'contact_email': t.get('contact_email') or t.get('contactEmail') or '',
-        'cooperation_status': t.get('cooperation_status') or t.get('cooperationStatus') or 'available',
+        'cooperation_status': _normalize_cooperation_status(t.get('cooperation_status') or t.get('cooperationStatus')),
         'follow_up_by': t.get('follow_up_by') or t.get('followUpBy') or '',
         'next_follow_up_at': int(t.get('next_follow_up_at', t.get('nextFollowUpAt', 0)) or 0),
         'follow_up_note': t.get('follow_up_note') or t.get('followUpNote') or '',
@@ -4420,7 +4420,7 @@ def _talent_dict_to_influencer(t):
         'cooperationPrice': t.get('average_price') or 0,
         'priceUnit': t.get('price_unit') or '元/条',
         'contact': t.get('contact') or '',
-        'status': t.get('cooperation_status') or 'available',
+        'status': _normalize_cooperation_status(t.get('cooperation_status')),
         'engagementRate': _parse_engagement_rate(t.get('video_interaction_rate')),
         'avgViews': t.get('avg_views') or 0,
         'lastCooperation': t.get('last_cooperation') or None,
@@ -4433,8 +4433,45 @@ def _talent_dict_to_influencer(t):
     }
 
 
-# 达人合作状态白名单（防止创建/更新时塞入任意字符串污染 talents 表）
-_ALLOWED_COOPERATION_STATUSES = ('available', 'cooperating', 'communicating')
+# 达人合作状态内部枚举（2026-09-18 talents 审计后统一）：
+# 历史 DB 中英混杂 13 种值（available/communicating/cooperating/blacklist/resting
+# + 可开发票/可邀约/在线沟通/待触达/待跟进/潜在合作/高效履约/发送邀约），
+# 全部通过 _normalize_cooperation_status 收敛为下列 6 种内部值。
+# 新建/更新路径不信任请求体 status 字段，落空走 'available' 默认（防御式）。
+_TALENT_COOPERATION_ALIASES = {
+    # 英文直接用
+    'available': 'available',
+    'cooperating': 'cooperating',
+    'communicating': 'communicating',
+    'following': 'following',
+    'blacklist': 'blacklist',
+    'resting': 'resting',
+    'archived': 'archived',
+    # 中文 → 内部 enum（按语义聚合）
+    '可合作': 'available', '可开发票': 'available', '可邀约': 'available', '发送邀约': 'available',
+    '沟通中': 'communicating', '在线沟通': 'communicating',
+    '待触达': 'communicating', '待跟进': 'communicating',
+    '已合作': 'cooperating', '潜在合作': 'cooperating', '高效履约': 'cooperating',
+    '关注': 'following',
+    '黑名单': 'blacklist',
+    '暂休': 'resting',
+    '归档': 'archived',
+}
+_ALLOWED_COOPERATION_STATUSES = (
+    'available', 'cooperating', 'communicating', 'following', 'blacklist', 'resting', 'archived',
+)
+
+
+def _normalize_cooperation_status(raw, default='available'):
+    """把历史中英混杂的 status 值收敛到内部 7 种 enum。
+    入参可能是 None / 英文 / 中文 / 任意旧值；落空回退 default（防御式）。
+    """
+    if raw is None:
+        return default
+    key = str(raw).strip()
+    if not key:
+        return default
+    return _TALENT_COOPERATION_ALIASES.get(key, default)
 
 
 def _influencer_body_to_talent(body):
@@ -4453,9 +4490,10 @@ def _influencer_body_to_talent(body):
         'average_price': body.get('cooperationPrice', 0),
         'price_unit': body.get('priceUnit') or '元/条',
         'contact': body.get('contact', ''),
-        # cooperation_status 白名单：仅 available/cooperating/communicating，落空回退 available。
+        # cooperation_status 收敛：英文 + 中文 alias → 内部 7 种 enum；落空走 available。
+        # 历史脏数据（前端老枚举/外部导入）全部经 _normalize_cooperation_status 归一化。
         # 防御逻辑同 agent archived：创建/更新路径不信任请求体的 status 字段。
-        'cooperation_status': body.get('status') if body.get('status') in _ALLOWED_COOPERATION_STATUSES else 'available',
+        'cooperation_status': _normalize_cooperation_status(body.get('status')),
         'video_interaction_rate': str(body.get('engagementRate', '') or ''),
         'avg_views': body.get('avgViews', 0),
         'last_cooperation': body.get('lastCooperation') or '',
