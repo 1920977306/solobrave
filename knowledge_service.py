@@ -392,7 +392,13 @@ def _get_embedding_provider_cfg(provider):
 
 
 def get_embedding(text, api_key, provider='openai', model=None, base_url=None):
-    """调用 Embedding API 获取向量，纯 urllib 实现"""
+    """调用 Embedding API 获取向量，纯 urllib 实现
+
+    dev/feat: 加 transient-error retry (3 次 + 指数退避 0.5s/1s/2s).
+    网络抖动 → 单次失败 → 整条知识永久没 embedding (RAG 空命中);
+    仅重试 transient: HTTP 5xx, 429 (rate limit), URL/Timeout 错误;
+    不重试: 其他 4xx (重试也无用), JSON 解析失败.
+    """
     import ssl
     import urllib.request
     if api_key and isinstance(api_key, str):
@@ -410,26 +416,62 @@ def get_embedding(text, api_key, provider='openai', model=None, base_url=None):
         'model': model or cfg['model'],
         'encoding_format': 'float',
     }).encode('utf-8')
-    req = urllib.request.Request(target_url, data=body, headers=headers, method='POST')
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
-    try:
-        with urllib.request.urlopen(req, timeout=30, context=ssl_ctx) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-            if data.get('data') and len(data['data']) > 0:
-                emb = data['data'][0].get('embedding')
-                if emb and isinstance(emb, list):
-                    return emb
-    except urllib.error.HTTPError as e:
-        # 调试：打印 HTTPError 真实 url + api_key 前缀，便于老大定位是哪个 key 出问题
-        import logging
-        logging.getLogger('solobrave').warning(
-            f'  [Embedding-KS-Debug] HTTP {e.code} from {target_url} '
-            f'provider={provider} model={model or cfg["model"]} '
-            f'apiKey={(api_key or "")[:8]}...'
-        )
-        raise
+
+    _RETRYABLE_HTTP = {429, 500, 502, 503, 504}
+    _MAX_RETRIES = 3
+    _BACKOFF_BASE = 0.5  # seconds; 序列 0.5 / 1.0 / 2.0
+
+    import logging
+    import time
+    log = logging.getLogger('solobrave')
+
+    for attempt in range(1, _MAX_RETRIES + 1):
+        req = urllib.request.Request(target_url, data=body, headers=headers, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=30, context=ssl_ctx) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                if data.get('data') and len(data['data']) > 0:
+                    emb = data['data'][0].get('embedding')
+                    if emb and isinstance(emb, list):
+                        if attempt > 1:
+                            log.info(
+                                f'  [Embedding-Retry] success on attempt {attempt}/{_MAX_RETRIES} '
+                                f'provider={provider} model={model or cfg["model"]}'
+                            )
+                        return emb
+                # 200 但 data 异常 → 不重试（重试也无意义）
+                return None
+        except urllib.error.HTTPError as e:
+            if e.code not in _RETRYABLE_HTTP or attempt == _MAX_RETRIES:
+                log.warning(
+                    f'  [Embedding-KS-Debug] HTTP {e.code} from {target_url} '
+                    f'provider={provider} model={model or cfg["model"]} '
+                    f'apiKey={(api_key or "")[:8]}... '
+                    f'attempt={attempt}/{_MAX_RETRIES}'
+                )
+                raise
+            delay = _BACKOFF_BASE * (2 ** (attempt - 1))
+            log.info(
+                f'  [Embedding-Retry] HTTP {e.code} from {target_url} '
+                f'retry in {delay}s (attempt {attempt}/{_MAX_RETRIES})'
+            )
+            time.sleep(delay)
+        except (urllib.error.URLError, TimeoutError) as e:
+            if attempt == _MAX_RETRIES:
+                log.warning(
+                    f'  [Embedding-KS-Debug] network {type(e).__name__}: {e} '
+                    f'from {target_url} attempt={attempt}/{_MAX_RETRIES}'
+                )
+                raise
+            delay = _BACKOFF_BASE * (2 ** (attempt - 1))
+            log.info(
+                f'  [Embedding-Retry] network {type(e).__name__} retry in {delay}s '
+                f'(attempt {attempt}/{_MAX_RETRIES})'
+            )
+            time.sleep(delay)
     return None
 
 
