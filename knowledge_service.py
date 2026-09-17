@@ -585,6 +585,7 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
                          targets=None):
     """回填 embedding 字段. 修复 dev/feat: 规律库 #6 — 之前只覆盖 knowledge_chunks,
        现在也覆盖 knowledge_events (规律 evidence source, 99 条只 24% 有 embedding).
+       dev/feat: talents 修复 #2 — 也覆盖 talents 表 (88 行 active).
 
     参数:
       emp_id: 限定某个员工的 chunks (None = 全局)
@@ -592,12 +593,13 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
               False = 只补 IS NULL 或 embedding_model 不匹配的
       batch_size: 每多少条 commit 一次 (避免长事务)
       on_progress: 可选回调 fn(i, total) 报告进度
-      targets: 要回填的表集合 — ['chunks','events'] 或只 ['chunks'] 兼容老调用
+      targets: 要回填的表集合 — ['chunks','events','patterns','talents']
+               或只 ['chunks'] 兼容老调用
 
     返回: {
       total, success, skipped, failed, errors: [(row_id, msg), ...],
       elapsed_sec, embedding_model,
-      by_target: { 'chunks': {...}, 'events': {...} }
+      by_target: { 'chunks': {...}, 'events': {...}, 'patterns': {...}, 'talents': {...} }
     }
     """
     import time as _time
@@ -607,7 +609,7 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
     start = _time.perf_counter()
 
     if targets is None:
-        targets = ['chunks', 'events', 'patterns']
+        targets = ['chunks', 'events', 'patterns', 'talents']
     emb_cfg = get_embedding_config(emp_id or None)
     api_key = emb_cfg['apiKey']
     provider = emb_cfg['provider']
@@ -676,6 +678,29 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
                     sql_params
                 ).fetchall()
                 update_sql = ('UPDATE knowledge_patterns '
+                              'SET embedding = ?, embedding_model = ? WHERE id = ?')
+            elif target == 'talents':
+                # dev/feat: talents 修复 #2 — 让 RAG 能按相似度查达人库
+                # content 用 name + bio + category + city + tags 拼接 (前端卡片能展示的都用上)
+                if force:
+                    sql_where = "WHERE status = 'active'"
+                    sql_params = []
+                else:
+                    sql_where = ("WHERE status = 'active' AND "
+                                 "(embedding IS NULL OR embedding_model = '' "
+                                 "OR embedding_model != ?)")
+                    sql_params = [embedding_model]
+                rows = conn.execute(
+                    f"SELECT id, "
+                    f"TRIM(COALESCE(name, '') || ' | ' || "
+                    f"COALESCE(category, '') || ' | ' || "
+                    f"COALESCE(city, '') || ' | ' || "
+                    f"COALESCE(ai_tags, '') || ' | ' || "
+                    f"COALESCE(bio, '')) AS content "
+                    f"FROM talents {sql_where} ORDER BY followers DESC",
+                    sql_params
+                ).fetchall()
+                update_sql = ('UPDATE talents '
                               'SET embedding = ?, embedding_model = ? WHERE id = ?')
             else:
                 continue

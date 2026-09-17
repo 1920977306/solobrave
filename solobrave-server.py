@@ -3322,6 +3322,11 @@ def init_db():
             ('fan_group_price', "TEXT DEFAULT '{}'"), ('fan_group_category', "TEXT DEFAULT '{}'"),
             ('live_audience_region', "TEXT DEFAULT '{}'"), ('live_audience_city_tier', "TEXT DEFAULT '{}'"),
             ('video_audience_region', "TEXT DEFAULT '{}'"), ('video_audience_city_tier', "TEXT DEFAULT '{}'"),
+            # dev/feat: talents 修复 #2 — RAG 能直接按相似度查达人
+            # (规律库自动归纳 cron 引用 talent 时可走 embedding 路径,
+            #  RAG 端 search_talent_by_query 也能用)
+            ('embedding', 'BLOB'),
+            ('embedding_model', "TEXT DEFAULT ''"),
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
