@@ -22498,8 +22498,10 @@ def _deal_row_to_dict(r):
 
 def _resolve_induce_llm_config(agent_id=''):
     """解析规律归纳用 LLM 配置。
-    优先读 settings.json 的 llm 字段（provider/apiKey/baseUrl/model，映射为 apiProvider/apiKey/customEndpoint/apiModel）；
-    不存在或 apiKey 为空时 fallback 到 agents.json：优先指定 agent，否则第一个配置了 apiKey 的员工。
+    优先级链 (dev/feat: #3 — 避免抓失效 Kimi key, 优先用 .env SOLOBRAVE_AI_*):
+      1. settings.json 的 llm 字段
+      2. SOLOBRAVE_AI_* env vars (智谱 GLM-4-flash, 已验证 work)
+      3. agents.json: 优先指定 agent, 否则第一个有效 key 的员工
     返回 dict 或 None。"""
     try:
         settings = _read_json(SETTINGS_FILE, {}) or {}
@@ -22513,6 +22515,15 @@ def _resolve_induce_llm_config(agent_id=''):
             }
     except Exception as e:
         logger.warning(f'  [KnowledgePatterns] settings.llm 读取失败: {e}')
+    # dev/feat: #3 续 — fallback 到 .env SOLOBRAVE_AI_* (智谱已充值, 之前 chat 验证 work)
+    ai_key = os.environ.get('SOLOBRAVE_AI_API_KEY', '').strip()
+    if ai_key:
+        return {
+            'apiProvider': (os.environ.get('SOLOBRAVE_AI_PROVIDER', 'zhipu') or '').strip(),
+            'apiKey': ai_key,
+            'apiModel': (os.environ.get('SOLOBRAVE_AI_MODEL', 'glm-4-flash') or '').strip(),
+            'customEndpoint': (os.environ.get('SOLOBRAVE_AI_BASE_URL', 'https://open.bigmodel.cn/api/paas/v4/') or '').strip(),
+        }
     try:
         agents = _read_json(AGENTS_FILE, []) or []
         candidates = []
@@ -22670,14 +22681,19 @@ def _induce_knowledge_patterns(category, llm_config, created_by='', entity_type=
         }
         _kws = _kb_type_keywords.get(entity_type, [category])
         kb_ids = []
+        # 修复: 上面 SELECT events 时 conn 已 close, 这里新开连接 (避免 "closed database" 报错)
         try:
-            kb_rows = conn.execute(
-                "SELECT id FROM knowledge WHERE status='ok' AND ("
-                + ' OR '.join(['title LIKE ? OR category LIKE ?' for _ in _kws])
-                + ") ORDER BY updated_at DESC LIMIT 20",
-                tuple(f'%{kw}%' for kw in _kws for _ in (0, 1))
-            ).fetchall()
-            kb_ids = [r['id'] for r in kb_rows]
+            kb_conn = _db_conn()
+            try:
+                kb_rows = kb_conn.execute(
+                    "SELECT id FROM knowledge WHERE status='ok' AND ("
+                    + ' OR '.join(['title LIKE ? OR category LIKE ?' for _ in _kws])
+                    + ") ORDER BY updated_at DESC LIMIT 20",
+                    tuple(f'%{kw}%' for kw in _kws for _ in (0, 1))
+                ).fetchall()
+                kb_ids = [r['id'] for r in kb_rows]
+            finally:
+                kb_conn.close()
         except Exception as e:
             logger.warning(f'  [KnowledgePatterns] 桥接 knowledge 主表失败 (不影响主流程): {e}')
         kb_ids_json = json.dumps(kb_ids, ensure_ascii=False)
@@ -28272,6 +28288,10 @@ def main():
     logger.info('=' * 56)
     logger.info('  Ctrl+C 停止服务\n')
 
+    # 启动后台定期规律归纳 (dev/feat: 规律库修复 #3)
+    # 必须在 serve_forever() 之前 — 后者阻塞进程, 后续代码不会执行
+    _start_pattern_induce_cron()
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -28431,5 +28451,77 @@ def _feishu_record_to_product(fields):
 
 
 
+def _start_pattern_induce_cron():
+    """dev/feat: 规律库修复 #3 — 定期归纳规律 (后台 daemon 线程, 每 6h 跑一次)
+    行为:
+      1. 启动时立即跑一次 (新数据进来立刻出规律)
+      2. 之后每 6h 跑一次 (按当前所有 category × entity_type 组合全跑)
+      3. 单个失败不影响其他, 整个失败也不影响主进程 (try/except 兜底)
+    """
+    def _run():
+        try:
+            _run_pattern_induce_all_categories()
+        except Exception as e:
+            logger.error(f'  [PatternInduce-Cron] job failed: {e}')
+        finally:
+            # 不管成不成都安排下次 (失败也不能卡死 cron)
+            threading.Timer(6 * 3600, _run).daemon = True
+
+    threading.Thread(target=_run, daemon=True, name='PatternInduce-Cron').start()
+    logger.info('  [PatternInduce-Cron] started (每 6h 跑一次规律归纳)')
+
+
+def _run_pattern_induce_all_categories():
+    """对当前 knowledge_patterns 里所有 (category, entity_type) 组合跑一遍归纳.
+    复用 #5 的 14 天去重 + prompt 已有规律上下文 → 新规律才被产出.
+    """
+    try:
+        llm_config = _resolve_induce_llm_config('')
+        if not llm_config:
+            logger.warning('  [PatternInduce-Cron] 无可用 LLM config, 跳过')
+            return
+        conn = _db_conn()
+        try:
+            # 从 knowledge_patterns 拿现有组合 (跳过刚归纳的 draft, 只对 confirmed/verified)
+            # 第一次跑没有现成 patterns, 退而查 talents/products/brands 的 category
+            rows = conn.execute(
+                "SELECT DISTINCT category FROM knowledge_patterns "
+                "WHERE category IS NOT NULL AND category != '' "
+                "UNION SELECT DISTINCT category FROM talents WHERE category IS NOT NULL AND category != '' "
+                "UNION SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category != '' "
+                "UNION SELECT DISTINCT main_category AS category FROM brands WHERE main_category IS NOT NULL AND main_category != ''"
+            ).fetchall()
+            categories = [r['category'] for r in rows if r['category']]
+        finally:
+            conn.close()
+        if not categories:
+            logger.info('  [PatternInduce-Cron] 没找到任何 category, 跳过 (需要先有 talents/products 数据)')
+            return
+        entity_types = ('talent', 'product', 'brand')
+        induced_total = 0
+        skip_count = 0
+        for cat in categories:
+            for et in entity_types:
+                ok, result = _induce_knowledge_patterns(cat, llm_config, entity_type=et)
+                if ok:
+                    induced_total += result.get('induced', 0)
+                else:
+                    err = (result or {}).get('error', '?')
+                    if '数据不足' in err:
+                        skip_count += 1
+                    else:
+                        logger.warning(f'  [PatternInduce-Cron] {et}/{cat}: {err[:100]}')
+        logger.info(
+            f'  [PatternInduce-Cron] 全 {len(categories)} 类目 × {len(entity_types)} entity_type = '
+            f'{len(categories) * len(entity_types)} 组合跑完, '
+            f'共归纳 {induced_total} 条新规律 (跳过 {skip_count} 个数据不足组合)'
+        )
+    except Exception as e:
+        logger.error(f'  [PatternInduce-Cron] _run_pattern_induce_all_categories failed: {e}')
+        raise  # 让外层 except 知道
+
+
 if __name__ == '__main__':
     main()
+    # 启动后台定期规律归纳 (dev/feat: 规律库修复 #3)
+    _start_pattern_induce_cron()
