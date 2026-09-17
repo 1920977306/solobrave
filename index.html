@@ -10826,22 +10826,20 @@ async function sendMsg() {
     return;
   }
 
-  // 路由策略：
+  // 路由策略（dev/fix-hard-constraint）：
+  // 架构硬约束 — 聊天必须经 OpenClaw Gateway，前端不能直连外部 LLM provider API。
+  // 之前 "OpenClaw 不可用时降级 API 直连" 的分支会绕过网关，违反硬约束。
+  // 改为: OpenClaw 不可用 → 直接报错让用户检查，不静默走直连。
   // 1. 优先走 OpenClaw 网关（支持纯文本和多模态图片）
-  // 2. 员工显式配置了非 openclaw 的 aiProvider + apiKey 且无图片时，优先 API 直连（更快）
-  // 3. OpenClaw 未连接时降级 API 直连
-  // 4. 都没有时用 OpenClaw main agent 兜底
+  // 2. OpenClaw 不可用时 → 报错（不再降级 sendViaAPI 直连）
+  // 3. 都没连 → 用 OpenClaw main agent 兜底（如果连上 main）
   var ocOk = typeof openclaw !== 'undefined' && openclaw.connected && openclaw.authenticated;
   var hasImages = pendingImages.length > 0;
-  var hasDirectApi = !!(emp.apiKey && emp.aiProvider && emp.aiProvider !== 'openclaw');
   window._lastUserMessageHadImages = hasImages;
 
   if (ocOk) {
     // 所有消息统一走 OpenClaw 主干道（图片已提前转成文字描述）
     sendViaOpenClaw(emp, text, docContext, timeStr, pendingImages, 0, null, talentInjection);
-  } else if (emp.apiKey && emp.aiProvider) {
-    // OpenClaw 不可用时降级到 API 直连
-    sendViaAPI(emp, text, docContext, timeStr, pendingImages);
   } else {
     // 即使没有配置AI，也用 OpenClaw main agent 兜底
     if (typeof openclaw !== 'undefined' && openclaw.connected) {
