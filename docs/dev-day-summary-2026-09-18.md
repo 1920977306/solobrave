@@ -160,6 +160,46 @@
 | 后端：定期诱导 cron (6h) | ✅ 已上线 | commit 1ac8e59 |
 | 后端：规律自动晋升 | ✅ 已上线 | commit 3bf3e8f |
 
+### Phase 5 — 续集 (17:38 ~ 现在, "继续修 不要有剩下的" 期间)
+
+**两个 commit 完成"不要有剩下的"剩余两件事**：
+
+1. **`44aab13` feat(ui): 顶部状态条 6 个 AI chip 加 onclick → 切对话**
+   - 老大最早提的「chip 没 onclick」短板
+   - 加 CSS `cursor:pointer` + `.active` 蓝色描边态
+   - `_initChatTopbarChips()` 静态映射 `data-agent` → emp_id (即使 emps 异步加载也能点)
+   - main chip 标"当前用户视图,不可切换"
+   - 点击 → `openChat(empId)` + `showToast('✦ 已切到 X')`
+   - `_syncTopbarActive()` 1.5s 轮询 + storage 事件保持 active class 与 sb_current_emp 一致
+   - `__chipsBound` 守卫防重复绑定, setTimeout(1500/4000ms) 重试覆盖异步加载
+
+2. **`9a9c820` feat(ui+dashboard): 选品看板真联动 - 卡片聚焦 + 三列联动刷新**
+   - 后端：`GET /api/dashboard/linkage?type=talent|brand|product&id=xxx`
+     - 联动策略 (按数据富度降级, 见 commit message)
+     - talent → product_talent_match ∪ top_brands/top_products 名称匹配 ∪ synthetic 卡片
+     - brand → products WHERE brand_id/brand ∪ talents.top_brands LIKE %name%
+     - product → product_talent_match ∪ products.influencers JSON ∪ talents.top_products LIKE %name%
+   - 前端：`_dashState.selected` 全局聚焦态 + `_refreshDashColumns()` 单一入口
+   - DOM：加 `#dashFocusBar` 联动状态条 + `.selection-card.focused` (🎯 角标)
+   - 行为：第一次点击卡片 → 聚焦 (其他两列刷新为关联实体); 再次点击同一卡片 → 跳转详情
+   - "✕ 清除" 按钮恢复默认三列
+
+**验证 (3 向联动端到端)**：
+| 选中 | brands | products | talents |
+|---|---|---|---|
+| 大丸子 (达人) | 3 (赫莲娜/Coolchap/闪钻) | 4 | 0 |
+| COOLCHAP (品牌) | 0 | 6 (coolchap_1..6) | 3 |
+| 嘭嘭爱心 (商品) | 1 (COOLCHAP) | 0 | 5 |
+| 璐妈妈 (无 top_*) | 0 | 6 (via product_talent_match) | 0 |
+| bad type | HTTP 400 | | |
+| no token | HTTP 401 | | |
+
+**RAG backfill 验证 (无需 action)**：
+- 跑了 `POST /api/admin/knowledge/backfill-embeddings {force:false}` → 5 patterns 补完 (30→35/35)
+- 剩余 21 chunks + 4 talents 全部 status='pending'/'archived', 设计正确不索引
+
+**当日 commit 计数**：30 commits 跨日 (24+ h)
+
 ---
 
 ## 六、明天/下次开始时该续的事
