@@ -6935,6 +6935,47 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .settings-permission-tag { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; cursor: pointer; user-select: none; }
 .settings-permission-tag.granted { background: rgba(52, 199, 89, 0.12); color: var(--color-rating-a, #34C759); }
 .settings-permission-tag.denied { background: var(--color-bg-softer, #F2F2F7); color: var(--color-text-tertiary, #AEAEB2); }
+/* ui/user-mgmt-v21: 权限矩阵 V2.1 收口 — 把 inline style 全转 class */
+.settings-permission-subtitle { margin-top: 12px; }
+.settings-permission-subtitle-kb { margin-top: 16px; }
+.settings-permission-row-label {
+  font-size: 14px;
+  color: var(--color-text-primary, #1C1C1E);
+}
+.settings-permission-cat-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-primary, #1C1C1E);
+}
+.settings-permission-cat-list {
+  border-top: 0.5px solid var(--color-border-subtle, var(--separator, #F2F2F7));
+  padding-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-permission-cat-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-primary, #1C1C1E);
+}
+.settings-permission-cat-empty {
+  font-size: 12px;
+  color: var(--color-text-tertiary, #AEAEB2);
+  padding-top: 8px;
+}
+.settings-permission-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+}
 
 .settings-notification-item { display: flex; gap: 12px; padding: 14px 16px; background: var(--color-bg, #FFFFFF); border-radius: 10px; margin-bottom: 8px; border: 0.5px solid var(--separator, rgba(0, 0, 0, 0.08)); align-items: flex-start; transition: all 0.15s; }
 .settings-notification-item:last-child { margin-bottom: 0; }
@@ -6982,6 +7023,42 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .settings-team-members { display: flex; align-items: center; margin-top: 8px; }
 .settings-team-member-avatar { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--color-bg, #FFFFFF); margin-left: -8px; overflow: hidden; flex-shrink: 0; background: var(--color-bg-softer, #F2F2F7); }
 .settings-team-member-avatar:first-child { margin-left: 0; }
+/* ui/user-mgmt-v21: 团队成员头像堆叠 +N 徽章 — V2.1 token 收口 */
+.settings-team-member-extra {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-softer, #F2F2F7);
+  color: var(--color-text-secondary, #6E6E73);
+  font-size: 11px;
+  font-weight: 500;
+}
+/* ui/user-mgmt-v21: 团队成员 modal 添加区 — 替代 inline style + 老 token 名 */
+.settings-team-add-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-subtle, var(--separator, #F2F2F7));
+}
+.settings-team-add-label {
+  font-size: 13px;
+  color: var(--color-text-secondary, #6E6E73);
+  margin-bottom: 8px;
+}
+.settings-team-add-select {
+  margin-bottom: 8px;
+}
+.settings-team-add-btn {
+  width: 100%;
+  padding: 8px;
+  background: var(--color-primary, var(--accent, #007AFF));
+  color: var(--color-text-inverse, #FFFFFF);
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.settings-team-add-btn:hover { opacity: 0.9; }
 .settings-team-actions { display: flex; gap: 8px; opacity: 0; transition: opacity 0.2s; }
 .settings-team-card:hover .settings-team-actions { opacity: 1; }
 .settings-team-actions button { padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; transition: all 0.15s; background: var(--color-bg-softer, #F2F2F7); color: var(--color-text-secondary, #6E6E73); }
@@ -27309,13 +27386,18 @@ function doReset() {
 function renderEmptyState(opts) {
   opts = opts || {};
   var icon = opts.icon || '📭';
+  var iconHtml = opts.iconHtml || ''; // ui/user-mgmt-v21: V2.1 设计系统 SVG icon 通道 (优先于 emoji icon)
   var title = opts.title || '暂无数据';
   var desc = opts.desc || '';
   var tone = opts.tone || '';
   var toneCls = tone ? ' ' + tone : '';
   var cta = opts.cta;
   var html = '<div class="empty-state-v21">';
-  html += '<div class="empty-state-v21-icon' + toneCls + '">' + escapeHtml(icon) + '</div>';
+  if (iconHtml) {
+    html += '<div class="empty-state-v21-icon' + toneCls + '">' + iconHtml + '</div>';
+  } else {
+    html += '<div class="empty-state-v21-icon' + toneCls + '">' + escapeHtml(icon) + '</div>';
+  }
   html += '<div class="empty-state-v21-title">' + escapeHtml(title) + '</div>';
   if (desc) html += '<div class="empty-state-v21-desc">' + escapeHtml(desc) + '</div>';
   if (cta && cta.label) {
@@ -27591,14 +27673,19 @@ function loadUserList() {
     }
   }).catch(function () {
     _userListCache = [];
-    if (list) list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary)"><div style="font-size:32px;margin-bottom:12px">👥</div><div>加载用户列表失败</div></div>';
+    if (list) list.innerHTML = renderEmptyState({
+      iconHtml: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+      title: '加载用户列表失败',
+      desc: '请稍后重试,或检查网络连接与权限设置',
+      tone: 'danger'
+    });
   });
 }
 function renderUserList(list, users) {
   if (!list) return;
   if (!users || users.length === 0) {
     list.innerHTML = renderEmptyState({
-      icon: '👥',
+      iconHtml: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
       title: '暂无用户',
       desc: '没有可显示的用户,等待新成员加入或检查权限设置'
     });
@@ -27607,12 +27694,20 @@ function renderUserList(list, users) {
   list.innerHTML = users.map(function (u) {
     var displayName = u.displayName || u.name || u.username;
     var roleBadge = '';
-    if (u.role === 'admin') roleBadge = '<span class="settings-tag settings-tag-warning">👑 管理员</span>';
-    else if (u.role === 'leader') roleBadge = '<span class="settings-tag settings-tag-primary">⭐ 组长</span>';
-    else roleBadge = '<span class="settings-tag settings-tag-success">🦞 员工</span>';
+    var roleSvg;
+    if (u.role === 'admin') {
+      roleSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>';
+      roleBadge = '<span class="settings-tag settings-tag-warning">' + roleSvg + ' 管理员</span>';
+    } else if (u.role === 'leader') {
+      roleSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+      roleBadge = '<span class="settings-tag settings-tag-primary">' + roleSvg + ' 组长</span>';
+    } else {
+      roleSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>';
+      roleBadge = '<span class="settings-tag settings-tag-success">' + roleSvg + ' 员工</span>';
+    }
     var teamTag = '';
     if (u.teamIds && u.teamIds.length > 0) {
-      teamTag = '<span class="settings-tag settings-tag-primary">🏢 已有小组</span>';
+      teamTag = '<span class="settings-tag settings-tag-primary"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg> 已有小组</span>';
     }
     var avatarHtml = renderAvatar({ name: displayName, avatar: u.avatar }, 40);
     return '<div class="settings-user-card">'
@@ -27818,7 +27913,7 @@ function renderTeamMemberAvatars(agentIds) {
     html += '<div class="settings-team-member-avatar" title="' + escapeAttr(emp ? emp.name : id) + '">' + renderAvatar(emp || { name: id }, 28) + '</div>';
   });
   if (extra > 0) {
-    html += '<div class="settings-team-member-avatar" style="display:flex;align-items:center;justify-content:center;background:var(--color-bg-softer, #F2F2F7);color:var(--color-text-secondary, #6E6E73);font-size:11px;font-weight:500;">+' + extra + '</div>';
+    html += '<div class="settings-team-member-avatar settings-team-member-extra">+' + extra + '</div>';
   }
   html += '</div>';
   return html;
@@ -27830,7 +27925,7 @@ function renderTeamList(teams) {
   if (!teams) teams = [];
   if (!teams.length) {
     list.innerHTML = renderEmptyState({
-      icon: '🏢',
+      iconHtml: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg>',
       title: '暂无小组',
       desc: '还没有创建任何小组,可以联系管理员创建'
     });
@@ -27845,15 +27940,22 @@ function renderTeamList(teams) {
     var memberCount = team.memberCount !== undefined ? team.memberCount : (team.agentIds ? team.agentIds.length : 0);
     var leaderName = team.leaderName || '未设置';
     var childHtml = children.map(function (c) { return renderTeamItem(c, level + 1); }).join('');
+    // ui/user-mgmt-v21: 树形图标 SVG 化(原 📂/📁)
+    var folderIcon = hasChildren
+      ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-7l-2-2H5a2 2 0 0 0-2 2z"/></svg>'
+      : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/></svg>';
+    var leaderIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+    var memberIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
+    var plusIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
     return '<div class="settings-team-card">'
-      + '<div class="settings-team-icon">' + (hasChildren ? '📂' : '📁') + '</div>'
+      + '<div class="settings-team-icon">' + folderIcon + '</div>'
       + '<div class="settings-team-info">'
       + '<div class="settings-team-name"><span class="settings-team-indent">' + prefix + '</span>' + escapeHtml(team.name) + '</div>'
-      + '<div class="settings-team-meta">👤 ' + escapeHtml(leaderName) + ' · 👥 ' + memberCount + ' 名成员' + (team.description ? ' · ' + escapeHtml(team.description) : '') + '</div>'
+      + '<div class="settings-team-meta">' + leaderIcon + ' ' + escapeHtml(leaderName) + ' · ' + memberIcon + ' ' + memberCount + ' 名成员' + (team.description ? ' · ' + escapeHtml(team.description) : '') + '</div>'
       + renderTeamMemberAvatars(team.agentIds)
       + '</div>'
       + '<div class="settings-team-actions">'
-      + '<button onclick="showAddSubTeamModal(\'' + escapeAttr(team.id) + '\')">➕ 子小组</button>'
+      + '<button onclick="showAddSubTeamModal(\'' + escapeAttr(team.id) + '\')">' + plusIcon + ' 子小组</button>'
       + '<button onclick="showTeamMembersModal(\'' + escapeAttr(team.id) + '\')">成员</button>'
       + '<button onclick="showEditTeamModal(\'' + escapeAttr(team.id) + '\')">编辑</button>'
       + '<button class="danger" onclick="deleteTeamById(\'' + escapeAttr(team.id) + '\')">删除</button>'
@@ -28140,7 +28242,7 @@ function showTeamMembersModal(teamId) {
   var team = allTeams.find(function (t) {
     return t.id === teamId;
   });
-  document.getElementById('teamMembersTitle').textContent = '👥 ' + (team ? team.name : '小组') + ' - 成员管理';
+  document.getElementById('teamMembersTitle').textContent = (team ? team.name : '小组') + ' · 成员管理';
 
   // 加载小组详情获取成员列表
   apiFetch('/api/teams/' + teamId).then(function (res) {
@@ -33307,7 +33409,7 @@ function closeMatchModal() {
 <div id="createUserOverlay" onclick="closeCreateUserModal()"></div>
 <div id="createUserModal">
   <div class="modal-header">
-    <span class="modal-title">➕ 创建用户</span>
+    <span class="modal-title">创建用户</span>
     <button class="modal-close" onclick="closeCreateUserModal()">×</button>
   </div>
   <div class="modal-body">
@@ -33326,9 +33428,9 @@ function closeMatchModal() {
     <div class="form-group">
       <label class="form-label">角色</label>
       <select id="newRole" class="form-select">
-        <option value="employee">🦞 员工</option>
-        <option value="leader">⭐ 组长</option>
-        <option value="admin">👑 管理员</option>
+        <option value="employee">员工</option>
+        <option value="leader">组长</option>
+        <option value="admin">管理员</option>
       </select>
     </div>
     <div class="form-group">
@@ -33349,7 +33451,7 @@ function closeMatchModal() {
 <div id="createTeamOverlay" onclick="closeCreateTeamModal()"></div>
 <div id="createTeamModal">
   <div class="modal-header">
-    <span class="modal-title">🏢 创建小组</span>
+    <span class="modal-title">创建小组</span>
     <button class="modal-close" onclick="closeCreateTeamModal()">×</button>
   </div>
   <div class="modal-body">
@@ -33388,7 +33490,7 @@ function closeMatchModal() {
 <div id="editTeamOverlay" onclick="closeEditTeamModal()"></div>
 <div id="editTeamModal">
   <div class="modal-header">
-    <span class="modal-title">✏️ 编辑小组</span>
+    <span class="modal-title">编辑小组</span>
     <button class="modal-close" onclick="closeEditTeamModal()">×</button>
   </div>
   <div class="modal-body">
@@ -33425,18 +33527,18 @@ function closeMatchModal() {
 <div id="teamMembersOverlay" onclick="closeTeamMembersModal()"></div>
 <div id="teamMembersModal">
   <div class="modal-header">
-    <span class="modal-title" id="teamMembersTitle">👥 小组成员</span>
+    <span class="modal-title" id="teamMembersTitle">小组成员</span>
     <button class="modal-close" onclick="closeTeamMembersModal()">×</button>
   </div>
   <div class="modal-body">
     <input type="hidden" id="teamMembersTeamId">
     <div id="teamMembersList"></div>
-    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--separator);">
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">添加成员</div>
-      <select id="addTeamMemberSelect" class="form-select" style="margin-bottom:8px;">
+    <div class="settings-team-add-section">
+      <div class="settings-team-add-label">添加成员</div>
+      <select id="addTeamMemberSelect" class="form-select settings-team-add-select">
         <option value="">-- 选择员工 --</option>
       </select>
-      <button onclick="addTeamMember()" style="width:100%;padding:8px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;">➕ 添加选中成员</button>
+      <button onclick="addTeamMember()" class="settings-team-add-btn">添加选中成员</button>
     </div>
   </div>
 </div>
@@ -35317,32 +35419,33 @@ function renderUserPermissionMatrix() {
     return;
   }
   var state = _permissionUserState;
-  var html = '<div class="settings-card-subtitle" style="margin-top:12px;">模块覆盖</div>';
+  // ui/user-mgmt-v21: V2.1 token 收口 + inline style → CSS class(去 var(--text-primary) / var(--text-tertiary) / var(--separator) 老 token 名)
+  var html = '<div class="settings-card-subtitle settings-permission-subtitle">模块覆盖</div>';
   _availableModules.forEach(function (m) {
     var label = _permissionModuleLabels[m] || m;
     var granted = state.modules[m];
     html += '<div class="settings-permission-row-card">';
-    html += '<div style="font-size:14px;color:var(--text-primary);">' + escapeHtml(label) + '</div>';
+    html += '<div class="settings-permission-row-label">' + escapeHtml(label) + '</div>';
     html += '<span class="settings-permission-tag ' + (granted ? 'granted' : 'denied') + '" onclick="toggleUserPermissionModule(\'' + m + '\', this)">' + (granted ? '有权限' : '无权限') + '</span>';
     html += '</div>';
   });
 
-  html += '<div class="settings-card-subtitle" style="margin-top:16px;">知识库分类覆盖</div>';
+  html += '<div class="settings-card-subtitle settings-permission-subtitle settings-permission-subtitle-kb">知识库分类覆盖</div>';
   var cats = state.knowledgeCategories || [];
   var allSelected = cats.indexOf('*') >= 0;
-  html += '<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;font-size:13px;"><input type="checkbox" value="*" ' + (allSelected ? 'checked' : '') + ' onchange="toggleUserCategory(\'*\', this.checked)"> 全部分类（*）</label>';
+  html += '<label class="settings-permission-cat-all"><input type="checkbox" value="*" ' + (allSelected ? 'checked' : '') + ' onchange="toggleUserCategory(\'*\', this.checked)"> 全部分类（*）</label>';
   if (_permissionCategories.length) {
-    html += '<div style="border-top:0.5px solid var(--separator);padding-top:8px;display:flex;flex-wrap:wrap;gap:8px;">';
+    html += '<div class="settings-permission-cat-list">';
     _permissionCategories.forEach(function (cat) {
       var checked = allSelected || cats.indexOf(cat) >= 0 ? 'checked' : '';
-      html += '<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;"><input type="checkbox" value="' + escapeHtml(cat) + '" ' + checked + ' onchange="toggleUserCategory(\'' + escapeHtml(cat).replace(/'/g, "\\'") + '\', this.checked)"> ' + escapeHtml(cat) + '</label>';
+      html += '<label class="settings-permission-cat-item"><input type="checkbox" value="' + escapeHtml(cat) + '" ' + checked + ' onchange="toggleUserCategory(\'' + escapeHtml(cat).replace(/'/g, "\\'") + '\', this.checked)"> ' + escapeHtml(cat) + '</label>';
     });
     html += '</div>';
   } else {
-    html += '<div style="font-size:12px;color:var(--text-tertiary);padding-top:8px;">暂无知识库分类。</div>';
+    html += '<div class="settings-permission-cat-empty">暂无知识库分类。</div>';
   }
 
-  html += '<div style="margin-top:16px;display:flex;gap:8px;"><button class="module-action-btn primary" onclick="saveUserPermissions()">保存用户覆盖</button><button class="module-action-btn" onclick="resetUserPermissions()">清除覆盖</button></div>';
+  html += '<div class="settings-permission-actions"><button class="module-action-btn primary" onclick="saveUserPermissions()">保存用户覆盖</button><button class="module-action-btn" onclick="resetUserPermissions()">清除覆盖</button></div>';
   container.innerHTML = html;
 }
 
@@ -35712,18 +35815,18 @@ function renderSettingsRight() {
   } else if (_settingsSelectedCategory === 'forbidden') {
     html += '<div id="forbiddenWordsArea"></div>';
   } else if (_settingsSelectedCategory === 'users') {
-    if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="showCreateUserModal()">➕ 添加用户</button>';
+    if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="showCreateUserModal()">添加用户</button>';
     html += '<div class="settings-card">';
     html += '<div class="settings-list-searchbar"><input type="text" id="userSearchInput" class="form-input" placeholder="搜索用户名字或 @ID..." oninput="filterUserList()"></div>';
     html += '<div id="userList"></div>';
     html += '</div>';
   } else if (_settingsSelectedCategory === 'teams') {
-    if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="showCreateTeamModal()">➕ 新建小组</button>';
+    if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="showCreateTeamModal()">新建小组</button>';
     html += '<div class="settings-card">';
     html += '<div id="teamList"></div>';
     html += '</div>';
   } else if (_settingsSelectedCategory === 'members') {
-    if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="openWizard()" style="border-radius:8px;">➕ 添加成员</button>';
+    if (actionsEl) actionsEl.innerHTML = '<button class="module-action-btn primary" onclick="openWizard()" style="border-radius:8px;">添加成员</button>';
     html += '<div class="settings-card">';
     html += '<div class="settings-member-filter" id="settingsMemberFilter"><button class="active" data-filter="all" onclick="setMemberFilter(\'all\')">全部</button><button data-filter="active" onclick="setMemberFilter(\'active\')">正常</button><button data-filter="archived" onclick="setMemberFilter(\'archived\')">已归档</button></div>';
     html += '<div class="settings-list-searchbar"><input type="text" id="memberSearchInput" class="form-input" placeholder="搜索成员名字..." oninput="filterSettingsMemberList()"></div>';
