@@ -13,6 +13,11 @@ import math
 import sqlite3
 import hashlib
 import threading
+import logging
+
+# 模块级 logger — rag_retrieve 等函数共用（之前 4 处裸用 logger 触发 NameError，
+# 被外层 try 静默吞掉导致 RAG 一直返空 docs/context）
+logger = logging.getLogger('solobrave')
 
 # ═══════════════════════════════════════════════════
 # 配置（与 solobrave-server.py 共享 DATA_DIR）
@@ -1717,7 +1722,9 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
                 WHERE {' AND '.join(where_clauses)}
             ''', tuple(sql_params)).fetchall()
         finally:
-            conn.close()
+            # ★ 防御：不能在这里 close()，下面规律块（line 1769+）还要用 conn
+            # 统一在函数末尾关闭（_db_conn() 是 new connection，每次独立）
+            pass
 
         results = []
         for row in rows:
@@ -1839,6 +1846,12 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
 
         result = {'docs': docs, 'context': context}
         _rag_cache_set(cache_key, result, ttl=300)
+        # ★ 修复：之前 try/finally 在 line 1725 提前 close() conn，导致规律块 line 1770/1807/1836
+        # 用了已关闭 conn 触发 'Cannot operate on a closed database'；现在移到此处统一关闭
+        try:
+            conn.close()
+        except Exception:
+            pass
         return result
     except Exception as e:
         print(f'  [RAG] rag_retrieve 异常: {e}', flush=True)
