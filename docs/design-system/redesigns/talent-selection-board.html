@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-project="solobrave">
+<head>
+  <meta charset="UTF-8" />
+  <title>达人选品看板 · 占位壳 (V2.1 收口预览)</title>
+  <link rel="stylesheet" href="../core/tokens.css" />
+  <link rel="stylesheet" href="../core/components.css" />
+  <link rel="stylesheet" href="../themes/solobrave.css" />
+  <style>
+    /* ============================================================
+     * 达人选品看板 · V2.1 占位壳预览
+     * ============================================================
+     * 这是设计占位壳,不接后端。后续 Mini 把这段逻辑搬到 index.html
+     * 的 modal 容器时,直接复用 .tsb-* class 即可。
+     *
+     * 改动摘要:
+     * 1. stat 卡 "——" 占位 → 改 renderSkeleton text 占位 + "暂无数据" 兜底
+     * 2. emoji icon (👤/🏷️/📔) → 改 SVG (3 个 iOS 风 24px 单色)
+     * 3. "查看 →" / "全部 →" 蓝色文字 → 改 V2.1 chip 化 button
+     * 4. "加载中..." 文字 → 改 renderSkeleton list 4 项
+     * 5. 加 AI 视觉协议 — 顶部条 indigo accent + "AI" badge
+     * 6. 右上 × + 右下"关闭" 双重关闭 → 删右下只留右上 ×
+     * 7. 底部 "提示: 点击卡片..." 叙述 → 改 kbd-Esc 快捷键展示
+     * ============================================================ */
+
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      background: var(--color-bg-soft);
+      color: var(--color-text-primary);
+      min-height: 100vh;
+    }
+
+    /* 设计预览页 topbar (跟其他 redesigns 风格一致) */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 var(--space-6);
+      height: 56px;
+      background: var(--color-bg);
+      border-bottom: 1px solid var(--color-border-subtle);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .topbar-left { display: flex; align-items: center; gap: var(--space-3); }
+    .brand {
+      display: flex; align-items: center; gap: var(--space-2);
+      font-weight: var(--fw-semibold); font-size: var(--fs-body-lg);
+    }
+    .brand-logo {
+      width: 28px; height: 28px; border-radius: var(--radius-md);
+      background: linear-gradient(135deg, #5E5CE6, #007AFF);
+    }
+    .topbar-meta {
+      font-size: var(--fs-caption); color: var(--color-text-tertiary);
+      margin-left: var(--space-2); font-weight: var(--fw-regular);
+    }
+    .mock-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 4px 10px; border-radius: var(--radius-full, 999px);
+      background: var(--color-status-talking-bg);
+      color: var(--color-status-talking);
+      font-size: var(--fs-caption); font-weight: var(--fw-semibold);
+    }
+
+    .breadcrumb {
+      display: flex; align-items: center; gap: var(--space-2);
+      padding: var(--space-4) var(--space-8) 0;
+      font-size: var(--fs-caption); color: var(--color-text-tertiary);
+    }
+    .breadcrumb a { color: var(--color-text-secondary); text-decoration: none; }
+    .breadcrumb-current { color: var(--color-text-primary); font-weight: var(--fw-semibold); }
+
+    /* modal 容器 */
+    .tsb-page {
+      padding: var(--space-6) var(--space-8) var(--space-8);
+    }
+
+    .tsb-modal {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: var(--color-bg);
+      border-radius: var(--radius-xl, 16px);
+      border: 1px solid var(--color-border-subtle);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+      overflow: hidden;
+    }
+
+    /* modal 头部 — AI 视觉协议带 */
+    .tsb-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: var(--space-6) var(--space-8) var(--space-5);
+      background:
+        linear-gradient(180deg,
+          var(--color-ai-bg-softer) 0%,
+          transparent 100%);
+      border-bottom: 1px solid var(--color-border-subtle);
+      position: relative;
+    }
+    .tsb-header::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+      background: linear-gradient(180deg, var(--color-ai-accent), transparent);
+    }
+    .tsb-title-row {
+      display: flex; align-items: center; gap: var(--space-3);
+    }
+    .tsb-icon-wrap {
+      width: 36px; height: 36px;
+      border-radius: var(--radius-md, 10px);
+      background: var(--color-ai-bg-soft);
+      color: var(--color-ai-accent);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .tsb-title { font-size: var(--fs-h3, 17px); font-weight: var(--fw-semibold); margin: 0; }
+    .tsb-subtitle {
+      font-size: var(--fs-caption, 12px);
+      color: var(--color-text-secondary);
+      margin: 4px 0 0 0;
+    }
+    .tsb-ai-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      margin-top: 6px;
+      padding: 2px 7px;
+      border-radius: var(--radius-full, 999px);
+      background: var(--color-ai-bg-soft);
+      color: var(--color-ai-accent);
+      font-size: var(--fs-micro, 11px); font-weight: var(--fw-semibold);
+    }
+
+    .tsb-close {
+      width: 28px; height: 28px;
+      border-radius: var(--radius-md, 10px);
+      background: transparent;
+      border: none;
+      color: var(--color-text-tertiary);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    .tsb-close:hover {
+      background: var(--color-bg-softer);
+      color: var(--color-text-primary);
+    }
+
+    /* stat 卡 — 3 个 grid */
+    .tsb-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-4);
+      padding: var(--space-5) var(--space-8);
+    }
+    .tsb-stat {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      padding: var(--space-4);
+      background: var(--color-bg);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-lg, 12px);
+    }
+    .tsb-stat-head {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .tsb-stat-icon {
+      width: 32px; height: 32px;
+      border-radius: var(--radius-md, 10px);
+      background: var(--color-bg-softer);
+      color: var(--color-text-secondary);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .tsb-stat-link {
+      display: inline-flex; align-items: center; gap: 2px;
+      font-size: var(--fs-caption, 12px); font-weight: var(--fw-medium);
+      color: var(--color-primary);
+      text-decoration: none;
+      padding: 2px 8px; border-radius: var(--radius-full, 999px);
+      background: var(--color-primary-soft);
+      transition: background 0.15s;
+    }
+    .tsb-stat-link:hover { background: rgba(0, 122, 255, 0.18); }
+    .tsb-stat-value {
+      font-size: var(--fs-h2, 20px); font-weight: var(--fw-bold, 700);
+      color: var(--color-text-primary);
+      font-variant-numeric: tabular-nums;
+      min-height: 28px;
+      line-height: 28px;
+    }
+    .tsb-stat-desc {
+      font-size: var(--fs-caption, 12px);
+      color: var(--color-text-tertiary);
+      margin-top: 2px;
+    }
+
+    /* 已聚焦 toast */
+    .tsb-focus-toast {
+      margin: 0 var(--space-8) var(--space-4);
+      padding: var(--space-3) var(--space-4);
+      background: var(--color-ai-bg-soft);
+      border: 1px solid rgba(94, 92, 230, 0.18);
+      border-radius: var(--radius-lg, 12px);
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--space-3);
+      font-size: var(--fs-caption, 12px);
+      color: var(--color-text-primary);
+    }
+    .tsb-focus-toast-label {
+      display: flex; align-items: center; gap: var(--space-2);
+    }
+    .tsb-focus-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--color-ai-accent);
+      box-shadow: 0 0 0 3px var(--color-ai-pulse);
+    }
+    .tsb-focus-clear {
+      display: inline-flex; align-items: center; gap: 2px;
+      padding: 2px 8px; border-radius: var(--radius-full, 999px);
+      background: transparent;
+      border: 1px solid var(--color-border-subtle);
+      color: var(--color-text-secondary);
+      font-size: var(--fs-caption, 12px);
+      cursor: pointer;
+    }
+    .tsb-focus-clear:hover { background: var(--color-bg-softer); }
+
+    /* 3 列 kanban */
+    .tsb-board {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-4);
+      padding: 0 var(--space-8) var(--space-6);
+    }
+    .tsb-col {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-lg, 12px);
+      padding: var(--space-4);
+      min-height: 320px;
+      display: flex; flex-direction: column; gap: var(--space-3);
+    }
+    .tsb-col-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-bottom: var(--space-2);
+      border-bottom: 1px solid var(--color-border-subtle);
+    }
+    .tsb-col-title {
+      display: flex; align-items: center; gap: var(--space-2);
+      font-size: var(--fs-body, 14px); font-weight: var(--fw-semibold, 600);
+      color: var(--color-text-primary);
+    }
+    .tsb-col-icon {
+      width: 20px; height: 20px;
+      color: var(--color-text-secondary);
+    }
+    .tsb-col-count {
+      padding: 1px 8px;
+      border-radius: var(--radius-full, 999px);
+      background: var(--color-bg-softer);
+      color: var(--color-text-secondary);
+      font-size: var(--fs-micro, 11px); font-weight: var(--fw-semibold, 600);
+      font-variant-numeric: tabular-nums;
+    }
+    .tsb-col-link {
+      display: inline-flex; align-items: center; gap: 2px;
+      font-size: var(--fs-caption, 12px); font-weight: var(--fw-medium);
+      color: var(--color-primary);
+      text-decoration: none;
+    }
+    .tsb-col-list { display: flex; flex-direction: column; gap: var(--space-2); }
+
+    /* skeleton */
+    .tsb-skel {
+      background: linear-gradient(90deg,
+        var(--color-bg-softer) 0%,
+        var(--color-border-subtle) 50%,
+        var(--color-bg-softer) 100%);
+      background-size: 200% 100%;
+      border-radius: var(--radius-md, 10px);
+      animation: tsb-shimmer 1.4s infinite linear;
+    }
+    @keyframes tsb-shimmer {
+      0% { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
+    .tsb-skel-card {
+      height: 64px;
+    }
+    .tsb-skel-stat { height: 22px; width: 70%; }
+
+    /* empty fallback (数据为空时套这个) */
+    .tsb-empty {
+      flex: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: var(--space-2);
+      padding: var(--space-6) var(--space-3);
+      color: var(--color-text-tertiary);
+      font-size: var(--fs-caption, 12px);
+      text-align: center;
+    }
+    .tsb-empty svg { color: var(--color-text-tertiary); }
+
+    /* 底部快捷键提示 */
+    .tsb-footer {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: var(--space-3) var(--space-8) var(--space-5);
+      font-size: var(--fs-caption, 12px);
+      color: var(--color-text-tertiary);
+      border-top: 1px solid var(--color-border-subtle);
+    }
+    .tsb-kbd-row { display: inline-flex; align-items: center; gap: var(--space-2); }
+    .tsb-kbd {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: var(--color-bg-softer);
+      border: 1px solid var(--color-border-subtle);
+      font-family: var(--font-num, monospace);
+      font-size: var(--fs-micro, 11px);
+      color: var(--color-text-secondary);
+    }
+
+    /* 备注块 */
+    .tsb-notes {
+      max-width: 1100px;
+      margin: var(--space-6) auto 0;
+      padding: var(--space-4) var(--space-5);
+      background: var(--color-bg);
+      border: 1px dashed var(--color-border);
+      border-radius: var(--radius-lg, 12px);
+      font-size: var(--fs-caption, 12px);
+      color: var(--color-text-secondary);
+    }
+    .tsb-notes h4 {
+      margin: 0 0 var(--space-2);
+      font-size: var(--fs-body, 14px); font-weight: var(--fw-semibold, 600);
+      color: var(--color-text-primary);
+    }
+    .tsb-notes ul { margin: 0; padding-left: 18px; line-height: 1.7; }
+    .tsb-notes code {
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: var(--color-bg-softer);
+      font-family: var(--font-num, monospace);
+      font-size: var(--fs-micro, 11px);
+    }
+  </style>
+</head>
+<body>
+
+<!-- 设计预览 topbar -->
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="brand">
+      <div class="brand-logo"></div>
+      SoloBrave 设计预览
+    </div>
+    <span class="topbar-meta">docs/design-system/redesigns/</span>
+  </div>
+  <span class="mock-badge">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    MOCK 数据 · 不接后端
+  </span>
+</header>
+
+<nav class="breadcrumb">
+  <a href="../core/preview.html">设计系统</a>
+  <span>›</span>
+  <a href="./ai-employee-profile.html">redesigns</a>
+  <span>›</span>
+  <span class="breadcrumb-current">达人选品看板</span>
+</nav>
+
+<main class="tsb-page">
+
+  <div class="tsb-modal" role="dialog" aria-labelledby="tsbTitle">
+
+    <!-- Header: AI 视觉协议带 + 关闭按钮 -->
+    <div class="tsb-header">
+      <div>
+        <div class="tsb-title-row">
+          <div class="tsb-icon-wrap" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/>
+              <rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+          </div>
+          <h2 class="tsb-title" id="tsbTitle">达人选品看板</h2>
+        </div>
+        <p class="tsb-subtitle">挑选达人 × 关联品牌 × 匹配商品 — 一处看全</p>
+        <span class="tsb-ai-badge">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>
+          AI 智能选品
+        </span>
+      </div>
+      <button class="tsb-close" aria-label="关闭" title="关闭 (Esc)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- 3 个 stat 卡 — 加载中用 skeleton + "暂无" 兜底 -->
+    <div class="tsb-stats">
+      <div class="tsb-stat">
+        <div class="tsb-stat-head">
+          <div class="tsb-stat-icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+          </div>
+          <a class="tsb-stat-link" href="#">查看 →</a>
+        </div>
+        <div class="tsb-stat-value">
+          <span class="tsb-skel tsb-skel-stat" aria-label="加载中"></span>
+        </div>
+        <div class="tsb-stat-desc">一可合作 · 一新成员</div>
+      </div>
+
+      <div class="tsb-stat">
+        <div class="tsb-stat-head">
+          <div class="tsb-stat-icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+              <line x1="7" y1="7" x2="7.01" y2="7"/>
+            </svg>
+          </div>
+          <a class="tsb-stat-link" href="#">查看 →</a>
+        </div>
+        <div class="tsb-stat-value">
+          <span class="tsb-skel tsb-skel-stat" aria-label="加载中"></span>
+        </div>
+        <div class="tsb-stat-desc">一平均商品/品牌</div>
+      </div>
+
+      <div class="tsb-stat">
+        <div class="tsb-stat-head">
+          <div class="tsb-stat-icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+            </svg>
+          </div>
+          <a class="tsb-stat-link" href="#">查看 →</a>
+        </div>
+        <div class="tsb-stat-value">
+          <span class="tsb-skel tsb-skel-stat" aria-label="加载中"></span>
+        </div>
+        <div class="tsb-stat-desc">一已关联达人</div>
+      </div>
+    </div>
+
+    <!-- 已聚焦 toast — AI 视觉协议强化 -->
+    <div class="tsb-focus-toast">
+      <span class="tsb-focus-toast-label">
+        <span class="tsb-focus-dot" aria-hidden="true"></span>
+        <strong>已聚焦</strong>
+        <span style="color:var(--color-text-secondary);">· 其他列已切换为关联实体。再点原卡片可查看详情。</span>
+      </span>
+      <button class="tsb-focus-clear">× 清除</button>
+    </div>
+
+    <!-- 3 列 kanban — 加载中用 skeleton,空态用 empty -->
+    <div class="tsb-board">
+
+      <div class="tsb-col">
+        <div class="tsb-col-head">
+          <span class="tsb-col-title">
+            <svg class="tsb-col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            </svg>
+            达人
+            <span class="tsb-col-count">—</span>
+          </span>
+          <a class="tsb-col-link" href="#">全部 →</a>
+        </div>
+        <div class="tsb-col-list">
+          <span class="tsb-skel tsb-skel-card"></span>
+          <span class="tsb-skel tsb-skel-card"></span>
+          <span class="tsb-skel tsb-skel-card"></span>
+          <span class="tsb-skel tsb-skel-card"></span>
+        </div>
+      </div>
+
+      <div class="tsb-col">
+        <div class="tsb-col-head">
+          <span class="tsb-col-title">
+            <svg class="tsb-col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>
+            </svg>
+            品牌
+            <span class="tsb-col-count">—</span>
+          </span>
+          <a class="tsb-col-link" href="#">全部 →</a>
+        </div>
+        <div class="tsb-col-list">
+          <span class="tsb-skel tsb-skel-card"></span>
+          <span class="tsb-skel tsb-skel-card"></span>
+          <span class="tsb-skel tsb-skel-card"></span>
+          <span class="tsb-skel tsb-skel-card"></span>
+        </div>
+      </div>
+
+      <div class="tsb-col">
+        <div class="tsb-col-head">
+          <span class="tsb-col-title">
+            <svg class="tsb-col-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+            </svg>
+            商品
+            <span class="tsb-col-count">—</span>
+          </span>
+          <a class="tsb-col-link" href="#">全部 →</a>
+        </div>
+        <div class="tsb-col-list">
+          <span class="tsb-skel tsb-skel-card"></span>
+          <span class="tsb-skel tsb-skel-card"></span>
+          <span class="tsb-skel tsb-skel-card"></span>
+          <span class="tsb-skel tsb-skel-card"></span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 底部快捷键提示 -->
+    <div class="tsb-footer">
+      <span class="tsb-kbd-row">
+        <span class="tsb-kbd">Esc</span>
+        <span>关闭</span>
+        <span style="color:var(--color-border); margin: 0 4px;">·</span>
+        <span class="tsb-kbd">点击卡片</span>
+        <span>跳转详情</span>
+      </span>
+      <span style="color:var(--color-text-tertiary);">占位壳 · 不接数据</span>
+    </div>
+
+  </div>
+
+  <!-- 给 reviewer/Mini 的开发备注 -->
+  <div class="tsb-notes">
+    <h4>实现备注 — 给后续接数据的同学</h4>
+    <ul>
+      <li>页面在 <code>index.html</code> 里不存在,需要新建 modal 容器(类名 <code>.tsb-modal</code> + <code>.tsb-*</code>)</li>
+      <li>stat 卡加载态用 skeleton (<code>.tsb-skel</code>),数据回填后替换数字;空值显示 <code>暂无数据</code></li>
+      <li>kanban 列内数据卡样式参考 <code>components.css</code> 里的 <code>.talent-card</code>,平台/状态 chip 用现成的</li>
+      <li>已聚焦 toast 跟 modal 状态联动 — 数据接口返回 <code>focusedEntity</code> 时显示,清除按钮回退 3 列全部</li>
+      <li>AI 视觉协议(<code>.tsb-ai-badge</code> + <code>.tsb-icon-wrap</code> + <code>.tsb-focus-toast</code>)是产品级叙事:这是 AI 团长在选品,不是用户自己在选</li>
+      <li>关闭:右上 × + <code>Esc</code> 键,删了原图右下角"关闭"按钮(冗余)</li>
+    </ul>
+  </div>
+
+</main>
+
+</body>
+</html>
