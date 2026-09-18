@@ -1750,7 +1750,10 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
                         'chunk_content': row['chunk_content'],
                         'similarity': sim
                     })
-            except Exception:
+            except Exception as ce:
+                # ★ fix/rag-chunk-exception: 之前裸 continue 静默吞错
+                #    单条 chunk embedding 损坏不应影响整个 RAG 检索, 但要记日志方便排查
+                logger.warning(f'  [RAG-Chunks] 单条 chunk sim 算失败 (continue): id={row.get("id","?")} {ce}')
                 continue
 
         # 4. 按 chunk 相似度排序，取 Top-N
