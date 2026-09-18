@@ -13579,7 +13579,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                                        user_group_ids=auth.group_ids):
             self._send_auth_error('Permission denied', 403)
             return
-        deleted = ks.knowledge_delete(doc_id)
+        deleted = ks.knowledge_delete(doc_id, is_admin=auth.is_admin)
         self._send_json(200, {'deleted': deleted, 'id': doc_id})
 
     def _handle_get_knowledge_versions(self, doc_id):
