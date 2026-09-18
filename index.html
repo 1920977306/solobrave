@@ -8806,6 +8806,527 @@ window.doLogin = function () {
   </div>
 </div>
 
+<!-- Selection Dashboard Overlay (ui/selection-dashboard-v21) -->
+<style>/* 达人选品看板: 3 列联动 (talents × brands × products)
+   - 自包含 overlay, 从 mid-panel sidebar 「📊 选品看板」按钮触发
+   - 顶部 3 张 KPI 卡片 + 中部 3 列 kanban (联动指示)
+   - 点击卡片 → switchModule 对应详情
+   - signature: 3 列顶部数字徽章 + 列间指示点
+*/
+.selection-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: var(--color-bg, #FFFFFF);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 0;
+}
+.selection-overlay[hidden] { display: none; }
+
+.selection-shell {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 28px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ─── Header ─── */
+.selection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 0.5px solid var(--separator, rgba(0,0,0,0.08));
+}
+.selection-head-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.selection-logo {
+  font-size: 32px;
+  line-height: 1;
+}
+.selection-title {
+  font: 600 22px/1.3 -apple-system, sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
+  letter-spacing: -0.01em;
+}
+.selection-sub {
+  font: 400 13px/1.5 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+  margin-top: 2px;
+}
+.selection-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 0.5px solid var(--separator, rgba(0,0,0,0.10));
+  background: var(--color-bg, #FFFFFF);
+  font: 500 16px/1 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.selection-close:hover {
+  background: var(--color-bg-softer, #F2F2F7);
+  border-color: rgba(0,0,0,0.18);
+}
+
+/* ─── KPI 卡片行 ─── */
+.selection-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.selection-kpi-card {
+  background: var(--color-bg, #FFFFFF);
+  border: 0.5px solid var(--separator, rgba(0,0,0,0.08));
+  border-radius: 14px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  cursor: pointer;
+}
+.selection-kpi-card:hover {
+  border-color: var(--color-primary, #007AFF);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+}
+.selection-kpi-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.selection-kpi-card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+.selection-kpi-card.talents .selection-kpi-card-icon { background: rgba(0,122,255,0.10); color: #007AFF; }
+.selection-kpi-card.brands  .selection-kpi-card-icon { background: rgba(52,199,89,0.10);  color: #34C759; }
+.selection-kpi-card.products .selection-kpi-card-icon { background: rgba(255,149,0,0.10); color: #FF9500; }
+.selection-kpi-card-cta {
+  font: 500 11px/1 -apple-system, sans-serif;
+  color: var(--color-primary, #007AFF);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.selection-kpi-card-num {
+  font: 600 32px/1 -apple-system, sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.selection-kpi-card-label {
+  font: 500 13px/1.3 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+}
+.selection-kpi-card-meta {
+  font: 400 11px/1.4 -apple-system, sans-serif;
+  color: var(--color-text-tertiary, #AEAEB2);
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.selection-kpi-card-meta b {
+  font-weight: 600;
+  color: var(--color-text-primary, #1C1C1E);
+}
+
+/* ─── 3 列 Kanban ─── */
+.selection-board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.selection-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--color-bg-softer, #F8F9FB);
+  border-radius: 14px;
+  padding: 14px;
+  min-height: 400px;
+}
+.selection-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 8px;
+  border-bottom: 0.5px dashed var(--separator, rgba(0,0,0,0.12));
+}
+.selection-col-title {
+  font: 600 13px/1 -apple-system, sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.selection-col-count {
+  font: 500 11px/1 -apple-system, sans-serif;
+  color: var(--color-text-tertiary, #AEAEB2);
+  background: var(--color-bg, #FFFFFF);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.selection-col-add {
+  font: 500 11px/1 -apple-system, sans-serif;
+  color: var(--color-primary, #007AFF);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.selection-col-add:hover { background: var(--color-bg, #FFFFFF); }
+
+.selection-card {
+  background: var(--color-bg, #FFFFFF);
+  border: 0.5px solid var(--separator, rgba(0,0,0,0.06));
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+  cursor: pointer;
+}
+.selection-card:hover {
+  border-color: var(--color-primary, #007AFF);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+}
+.selection-card-name {
+  font: 600 13px/1.3 -apple-system, sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.selection-card-meta {
+  font: 400 11px/1.4 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+}
+.selection-card-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.selection-chip {
+  font: 500 10px/1.3 -apple-system, sans-serif;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--color-bg-softer, #F2F2F7);
+  color: var(--color-text-secondary, #6E6E73);
+}
+.selection-chip.primary { background: rgba(0,122,255,0.10); color: #007AFF; }
+.selection-chip.success { background: rgba(52,199,89,0.10); color: #2BA84A; }
+.selection-chip.warn { background: rgba(255,149,0,0.10); color: #FF9500; }
+
+/* 卡片间连接指示 (signature) */
+.selection-link-arrow {
+  position: relative;
+  text-align: center;
+  font-size: 14px;
+  color: var(--color-text-tertiary, #AEAEB2);
+  padding: 2px 0;
+}
+
+/* ─── 移动端 ─── */
+@media (max-width: 767px) {
+  .selection-shell { padding: 20px 16px 32px; }
+  .selection-kpi-row { grid-template-columns: 1fr; }
+  .selection-board { grid-template-columns: 1fr; }
+  .selection-col { min-height: 240px; }
+  .selection-kpi-card-num { font-size: 26px; }
+}
+
+/* ─── Empty state ─── */
+.selection-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 400 12px/1.5 -apple-system, sans-serif;
+  color: var(--color-text-tertiary, #AEAEB2);
+  padding: 24px 8px;
+  text-align: center;
+}
+</style>
+
+<div id="selectionDashboard" class="selection-overlay" hidden>
+  <div class="selection-shell">
+    <!-- Header -->
+    <div class="selection-head">
+      <div class="selection-head-left">
+        <span class="selection-logo">📊</span>
+        <div>
+          <div class="selection-title">达人选品看板</div>
+          <div class="selection-sub">挑选达人 × 关联品牌 × 匹配商品 — 一处看全</div>
+        </div>
+      </div>
+      <button class="selection-close" onclick="closeSelectionDashboard()" title="关闭">✕</button>
+    </div>
+
+    <!-- KPI 行 -->
+    <div class="selection-kpi-row">
+      <div class="selection-kpi-card talents" onclick="closeSelectionDashboard(); switchModule('influencers');">
+        <div class="selection-kpi-card-head">
+          <div class="selection-kpi-card-icon">👤</div>
+          <span class="selection-kpi-card-cta">查看 →</span>
+        </div>
+        <div class="selection-kpi-card-num" id="kpiTalentsCount">—</div>
+        <div class="selection-kpi-card-label">达人总数</div>
+        <div class="selection-kpi-card-meta">
+          <span><b id="kpiTalentsActive">—</b> 可合作</span>
+          <span><b id="kpiTalentsNew">—</b> 新成员</span>
+        </div>
+      </div>
+      <div class="selection-kpi-card brands" onclick="closeSelectionDashboard(); openBrandLibrary();">
+        <div class="selection-kpi-card-head">
+          <div class="selection-kpi-card-icon">🏷️</div>
+          <span class="selection-kpi-card-cta">查看 →</span>
+        </div>
+        <div class="selection-kpi-card-num" id="kpiBrandsCount">—</div>
+        <div class="selection-kpi-card-label">合作品牌</div>
+        <div class="selection-kpi-card-meta">
+          <span><b id="kpiBrandsAvgProducts">—</b> 平均商品/品牌</span>
+        </div>
+      </div>
+      <div class="selection-kpi-card products" onclick="closeSelectionDashboard(); switchModule('products');">
+        <div class="selection-kpi-card-head">
+          <div class="selection-kpi-card-icon">📦</div>
+          <span class="selection-kpi-card-cta">查看 →</span>
+        </div>
+        <div class="selection-kpi-card-num" id="kpiProductsCount">—</div>
+        <div class="selection-kpi-card-label">商品总数</div>
+        <div class="selection-kpi-card-meta">
+          <span><b id="kpiProductsLinked">—</b> 已关联达人</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 列看板 -->
+    <div class="selection-board">
+      <!-- 列 1: 达人 -->
+      <div class="selection-col">
+        <div class="selection-col-head">
+          <span class="selection-col-title">👤 达人 <span class="selection-col-count" id="colTalentsCount">—</span></span>
+          <button class="selection-col-add" onclick="closeSelectionDashboard(); switchModule('influencers');">全部 →</button>
+        </div>
+        <div id="colTalentsList">
+          <div class="selection-empty">加载中...</div>
+        </div>
+      </div>
+
+      <!-- 列 2: 品牌 -->
+      <div class="selection-col">
+        <div class="selection-col-head">
+          <span class="selection-col-title">🏷️ 品牌 <span class="selection-col-count" id="colBrandsCount">—</span></span>
+          <button class="selection-col-add" onclick="closeSelectionDashboard(); openBrandLibrary();">全部 →</button>
+        </div>
+        <div id="colBrandsList">
+          <div class="selection-empty">加载中...</div>
+        </div>
+      </div>
+
+      <!-- 列 3: 商品 -->
+      <div class="selection-col">
+        <div class="selection-col-head">
+          <span class="selection-col-title">📦 商品 <span class="selection-col-count" id="colProductsCount">—</span></span>
+          <button class="selection-col-add" onclick="closeSelectionDashboard(); switchModule('products');">全部 →</button>
+        </div>
+        <div id="colProductsList">
+          <div class="selection-empty">加载中...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer 操作 -->
+    <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:0.5px solid var(--separator,rgba(0,0,0,0.06));">
+      <span style="font:400 12px/1.5 -apple-system,sans-serif;color:var(--color-text-tertiary,#AEAEB2);">💡 提示：点击卡片跳转详情, 按 Esc 关闭</span>
+      <button class="selection-col-add" onclick="closeSelectionDashboard();" style="font:500 13px/1 -apple-system,sans-serif;padding:6px 14px;">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>/* ui/selection-dashboard-v21: 看板数据加载 + 显示 */
+(function () {
+  // Esc 关闭
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      var dash = document.getElementById('selectionDashboard');
+      if (dash && !dash.hidden) closeSelectionDashboard();
+    }
+  });
+
+  window.openSelectionDashboard = function () {
+    var dash = document.getElementById('selectionDashboard');
+    if (!dash) return;
+    dash.hidden = false;
+    loadSelectionData();
+  };
+
+  window.closeSelectionDashboard = function () {
+    var dash = document.getElementById('selectionDashboard');
+    if (dash) dash.hidden = true;
+  };
+
+  window.openBrandLibrary = function () {
+    // 品牌库无独立 module, 暂引导到商品管理 (含品牌分类)
+    if (typeof switchModule === 'function') switchModule('products');
+    showToast && showToast('品牌库嵌在商品管理里, 跳转中', 'info');
+  };
+
+  // 数据加载 + 渲染
+  function loadSelectionData() {
+    // 并行 3 个 API
+    var tok = (typeof getAuthToken === 'function' && getAuthToken()) || '';
+    var headers = tok ? { 'Authorization': 'Bearer ' + tok } : {};
+
+    Promise.all([
+      fetch('/api/talents?limit=500', { headers: headers }).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; }),
+      fetch('/api/products?limit=500', { headers: headers }).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; }),
+      fetch('/api/brands?limit=500', { headers: headers }).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; })
+    ]).then(function (results) {
+      var talents = results[0].talents || results[0] || [];
+      var products = results[1].products || results[1] || [];
+      var brands = results[2].brands || results[2] || [];
+      renderKpi(talents, brands, products);
+      renderColTalents(talents);
+      renderColBrands(brands);
+      renderColProducts(products);
+    }).catch(function (e) {
+      console.error('[selection-dashboard] load failed', e);
+    });
+  }
+
+  function renderKpi(talents, brands, products) {
+    // 达人
+    var tTotal = talents.length;
+    var tActive = talents.filter(function (t) {
+      var s = (t.cooperation_status || t.status || '').toLowerCase();
+      return s === 'active' || s === 'resting' || s === 'available';
+    }).length;
+    var tNew = talents.filter(function (t) {
+      return (t.role || '').toLowerCase().indexOf('新成员') >= 0;
+    }).length;
+    setText('kpiTalentsCount', tTotal);
+    setText('kpiTalentsActive', tActive);
+    setText('kpiTalentsNew', tNew);
+
+    // 品牌
+    var bTotal = brands.length;
+    var bAvg = bTotal > 0 ? Math.round(products.length / bTotal) : 0;
+    setText('kpiBrandsCount', bTotal);
+    setText('kpiBrandsAvgProducts', bAvg);
+
+    // 商品
+    var pTotal = products.length;
+    var pLinked = products.filter(function (p) { return p.brand_id || p.brandId; }).length;
+    setText('kpiProductsCount', pTotal);
+    setText('kpiProductsLinked', pLinked);
+  }
+
+  function renderColTalents(talents) {
+    setText('colTalentsCount', talents.length);
+    var html = '';
+    if (!talents.length) { html = '<div class="selection-empty">暂无达人</div>'; }
+    else {
+      talents.slice(0, 6).forEach(function (t) {
+        var rating = (t.rating || t.avg_score || '').toString();
+        var followers = formatNum(t.followers || t.fans_count);
+        var cat = (t.main_category || t.category || '').toString();
+        var status = (t.cooperation_status || t.status || '').toString();
+        html += '<div class="selection-card" onclick="closeSelectionDashboard(); if(typeof openTalentDetail===\'function\')openTalentDetail(\'' + escapeAttr(t.id || '') + '\');">' +
+          '<div class="selection-card-name">' + escapeHtml(t.name || t.display_name || '未命名') + '</div>' +
+          '<div class="selection-card-meta">' + followers + ' 粉丝 · ' + escapeHtml(cat || '未分类') + '</div>' +
+          '<div class="selection-card-chips">' +
+            (rating ? '<span class="selection-chip primary">' + escapeHtml(rating) + '</span>' : '') +
+            (status ? '<span class="selection-chip ' + chipClass(status) + '">' + escapeHtml(status) + '</span>' : '') +
+          '</div>' +
+        '</div>';
+      });
+    }
+    document.getElementById('colTalentsList').innerHTML = html;
+  }
+
+  function renderColBrands(brands) {
+    setText('colBrandsCount', brands.length);
+    var html = '';
+    if (!brands.length) { html = '<div class="selection-empty">暂无品牌</div>'; }
+    else {
+      brands.slice(0, 6).forEach(function (b) {
+        var cat = (b.category || b.main_category || '').toString();
+        var count = b.total_products || b.product_count || 0;
+        html += '<div class="selection-card" onclick="closeSelectionDashboard(); openBrandLibrary();">' +
+          '<div class="selection-card-name">' + escapeHtml(b.name || b.brand_name || '未命名') + '</div>' +
+          '<div class="selection-card-meta">' + escapeHtml(cat || '未分类') + ' · ' + count + ' 个商品</div>' +
+          '<div class="selection-card-chips">' +
+            (count ? '<span class="selection-chip success">' + count + ' 商品</span>' : '') +
+          '</div>' +
+        '</div>';
+      });
+    }
+    document.getElementById('colBrandsList').innerHTML = html;
+  }
+
+  function renderColProducts(products) {
+    setText('colProductsCount', products.length);
+    var html = '';
+    if (!products.length) { html = '<div class="selection-empty">暂无商品</div>'; }
+    else {
+      products.slice(0, 6).forEach(function (p) {
+        var cat = (p.category || p.main_category || '').toString();
+        var price = p.price || p.suggest_price || '';
+        html += '<div class="selection-card" onclick="closeSelectionDashboard(); if(typeof openProductDetail===\'function\')openProductDetail(\'' + escapeAttr(p.id || '') + '\');">' +
+          '<div class="selection-card-name">' + escapeHtml(p.name || p.title || '未命名') + '</div>' +
+          '<div class="selection-card-meta">' + escapeHtml(cat || '未分类') + (price ? ' · ¥' + price : '') + '</div>' +
+          '<div class="selection-card-chips">' +
+            (p.brand_id || p.brandId ? '<span class="selection-chip success">已关联品牌</span>' : '<span class="selection-chip">未关联</span>') +
+          '</div>' +
+        '</div>';
+      });
+    }
+    document.getElementById('colProductsList').innerHTML = html;
+  }
+
+  function setText(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; }
+  function escapeHtml(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+  function escapeAttr(s) { return String(s == null ? '' : s).replace(/'/g, "\\'"); }
+  function chipClass(status) {
+    var s = status.toLowerCase();
+    if (s.indexOf('active') >= 0 || s.indexOf('可') >= 0) return 'success';
+    if (s.indexOf('resting') >= 0 || s.indexOf('rest') >= 0) return 'warn';
+    return '';
+  }
+  function formatNum(n) {
+    if (!n) return '—';
+    n = Number(n);
+    if (n >= 10000) return (n / 10000).toFixed(1).replace(/\.0$/, '') + 'w';
+    if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+    return String(n);
+  }
+})();
+</script>
+
 <!-- Register Overlay -->
 <div id="registerOverlay" class="register-overlay" hidden>
   <div class="register-shell">
@@ -14717,6 +15238,14 @@ function renderEmployeeList() {
     }
     html += '<div class="sidebar-divider"></div>';
   }
+
+  // ★ ui/selection-dashboard-v21: 选品看板入口 (放在项目组下方, 归档上方)
+  html += '<div class="sidebar-section">' +
+    '<div class="sidebar-section-header" style="padding:8px 16px 4px;cursor:pointer;" onclick="openSelectionDashboard()">' +
+      '<span style="font:600 11px/1 -apple-system,sans-serif;color:var(--color-text-secondary,#6E6E73);text-transform:uppercase;letter-spacing:0.05em;">📊 选品看板</span>' +
+      '<span style="font:500 10px/1 -apple-system,sans-serif;color:var(--color-primary,#007AFF);">打开 →</span>' +
+    '</div>' +
+  '</div>';
 
   // 归档区域（合并1v1对话和项目组归档）
   var archived = emps.filter(function (e) {
