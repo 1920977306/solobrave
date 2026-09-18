@@ -9236,10 +9236,12 @@ window.doLogin = function () {
     var tTotal = talents.length;
     var tActive = talents.filter(function (t) {
       var s = (t.cooperation_status || t.status || '').toLowerCase();
-      return s === 'active' || s === 'resting' || s === 'available';
+      return s === 'active' || s === 'resting' || s === 'available' || s === '可合作';
     }).length;
+    // 新成员: tags / ai_tags 含 "新成员" 关键字 (t.role 字段不存在)
     var tNew = talents.filter(function (t) {
-      return (t.role || '').toLowerCase().indexOf('新成员') >= 0;
+      var tagText = ((t.tags || []).join(' ') + ' ' + (t.ai_tags || []).join(' ')).toLowerCase();
+      return tagText.indexOf('新成员') >= 0;
     }).length;
     setText('kpiTalentsCount', tTotal);
     setText('kpiTalentsActive', tActive);
@@ -9264,15 +9266,17 @@ window.doLogin = function () {
     if (!talents.length) { html = '<div class="selection-empty">暂无达人</div>'; }
     else {
       talents.slice(0, 6).forEach(function (t) {
-        var rating = (t.rating || t.avg_score || '').toString();
-        var followers = formatNum(t.followers || t.fans_count);
-        var cat = (t.main_category || t.category || '').toString();
-        var status = (t.cooperation_status || t.status || '').toString();
+        // ★ 字段修正: ai_rating (优先) / rating_score / ai_summary (从 bio 取)
+        var rating = t.ai_rating || t.rating_score || '';
+        var ratingStr = rating ? '★ ' + (typeof rating === 'number' ? rating.toFixed(1) : rating) : '';
+        var followers = formatNum(t.followers);
+        var cat = t.category || t.main_category || '';
+        var status = t.cooperation_status || t.status || '';
         html += '<div class="selection-card" onclick="closeSelectionDashboard(); if(typeof openTalentDetail===\'function\')openTalentDetail(\'' + escapeAttr(t.id || '') + '\');">' +
           '<div class="selection-card-name">' + escapeHtml(t.name || t.display_name || '未命名') + '</div>' +
           '<div class="selection-card-meta">' + followers + ' 粉丝 · ' + escapeHtml(cat || '未分类') + '</div>' +
           '<div class="selection-card-chips">' +
-            (rating ? '<span class="selection-chip primary">' + escapeHtml(rating) + '</span>' : '') +
+            (ratingStr ? '<span class="selection-chip primary">' + escapeHtml(ratingStr) + '</span>' : '') +
             (status ? '<span class="selection-chip ' + chipClass(status) + '">' + escapeHtml(status) + '</span>' : '') +
           '</div>' +
         '</div>';
@@ -9287,13 +9291,16 @@ window.doLogin = function () {
     if (!brands.length) { html = '<div class="selection-empty">暂无品牌</div>'; }
     else {
       brands.slice(0, 6).forEach(function (b) {
-        var cat = (b.category || b.main_category || '').toString();
-        var count = b.total_products || b.product_count || 0;
+        // ★ 字段修正: 只有 main_category, 没有 category
+        var cat = b.main_category || b.category || '';
+        var count = b.total_products || 0;
+        var talentCount = b.total_talents || 0;
         html += '<div class="selection-card" onclick="closeSelectionDashboard(); openBrandLibrary();">' +
-          '<div class="selection-card-name">' + escapeHtml(b.name || b.brand_name || '未命名') + '</div>' +
-          '<div class="selection-card-meta">' + escapeHtml(cat || '未分类') + ' · ' + count + ' 个商品</div>' +
+          '<div class="selection-card-name">' + escapeHtml(b.name || '未命名') + '</div>' +
+          '<div class="selection-card-meta">' + escapeHtml(cat || '未分类') + ' · ' + count + ' 个商品' + (talentCount ? ' · ' + talentCount + ' 达人' : '') + '</div>' +
           '<div class="selection-card-chips">' +
             (count ? '<span class="selection-chip success">' + count + ' 商品</span>' : '') +
+            (talentCount ? '<span class="selection-chip primary">' + talentCount + ' 达人</span>' : '') +
           '</div>' +
         '</div>';
       });
