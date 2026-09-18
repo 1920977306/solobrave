@@ -706,3 +706,66 @@ AI 识别后展示结果 + 置信度 + 让用户确认/修改。**必须**有这
 | V1 | 2026-09-08 | 初版：AI 视觉协议 + 评级色 + 卡片规范 |
 | V2 | 2026-09-08 | 架构拆分 core/themes/domain；加会员制 UI；加截图录入 + 置信度/新鲜度；加 onboarding；术语词典；多项目扩展 |
 | V2.1 | 2026-09-10 | 5 v2 组件类正式落地(avatar-neutral / rating-chip / chip-subtle / btn-ai-primary / unrated 虚线);详情面板评级 chip 改 outline 与列表一致;AI 报告 --- 文字分隔换 hr 1px 灰线;评级排序 indexOf 短路修复;5 平台 chip 透明度 8%→5% |
+---
+
+## 18. 响应式 / 触摸目标 / PWA hook
+
+> feat/responsive-tokens (2026-09-19) 新增 ·
+> 本节定义响应式适配的 token 与 hook 约定, 详见 `docs/responsive-audit-2026-09.md`
+
+### 18.1 断点系统
+
+3 档统一断点, 沿用 `--bp-sm/md/lg` 命名:
+
+| Token     | 值      | 触发场景                                              |
+|-----------|---------|-----------------------------------------------------|
+| `--bp-sm` | 480px   | 手机竖屏边界 (`max-width: 480px` = mobile portrait)   |
+| `--bp-md` | 768px   | 平板边界 (`max-width: 768px` = mobile landscape / 小平板) |
+| `--bp-lg` | 1024px  | 小桌面边界 (`max-width: 1024px` = tablet / 小桌面)       |
+
+**写法**:
+
+```css
+/* 桌面默认 → 平板 → 手机 → 手机竖 */
+@media (max-width: var(--bp-lg, 1024px)) { /* tablet */ }
+@media (max-width: var(--bp-md, 768px))  { /* mobile landscape */ }
+@media (max-width: var(--bp-sm, 480px))  { /* mobile portrait */ }
+
+/* 反向 (临界防重叠) */
+@media (min-width: calc(var(--bp-md, 768px) + 1px)) { /* desktop only */ }
+```
+
+**禁止**: 写死 px 值 (`@media (max-width: 480px)`) 或用 767 / 768 临界值混合(会闪屏).
+
+### 18.2 触摸目标
+
+| Token                | 值   | 用途                       |
+|----------------------|------|--------------------------|
+| `--touch-target-min` | 44px | iOS HIG ≥44pt 触摸最小目标 |
+
+**约束 (老大明确)**: 触摸放大只在 `≤768px` (mobile) 生效, 桌面密度不动.
+实际启用留给 `feat/responsive-touch` (P0-3) 子分支处理, 本次只预留 token.
+
+### 18.3 PWA hook 占位
+
+`index.html` <head> 已加 PWA hook (本分支只挂占位, 不实装):
+
+```html
+<meta name="theme-color" content="#007AFF">
+<link rel="manifest" href="/manifest.webmanifest" data-pwa-hook="manifest">
+```
+
+**留给 `feat/pwa` 子分支实现**:
+- `manifest.webmanifest` (应用元数据 / 启动图 / 图标)
+- Service Worker (离线缓存)
+- install prompt 引导
+
+### 18.4 不动 / 留给后续分支
+
+| 项                              | 分支                              | 说明                          |
+|--------------------------------|----------------------------------|-----------------------------|
+| 769-1024 平板 drawer           | `feat/sidebar-drawer-mobile`     | P0-2 — 平板默认收起侧栏           |
+| 触摸 ≥44px 全局放大             | `feat/responsive-touch`          | P0-3 — 只 ≤768 启用           |
+| 聊天页 topbar / 字号压缩        | `feat/responsive-chat`           | P1-1 / 2 / 3                |
+| 达人 / 商品列表适配             | `feat/responsive-talent` / `feat/responsive-product` | P1-4 / 5 / 6 / 7 |
+| PWA 实装                        | `feat/pwa`                       | manifest + SW + install     |
