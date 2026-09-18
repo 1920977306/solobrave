@@ -4648,12 +4648,19 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-radius: 999px;
   background: transparent;
   transition: background 0.15s, transform 0.1s;
-  cursor: default;
+  cursor: pointer; /* ★ ui/chat-topbar-v21-fix: chip 可点击 → 切对话 */
   position: relative;
 }
 .chat-topbar-agent:hover {
   background: var(--color-bg-softer, #F2F2F7);
   transform: translateY(-1px);
+}
+.chat-topbar-agent.active {
+  background: var(--color-brand-soft, rgba(0,122,255,0.10));
+  box-shadow: inset 0 0 0 1px var(--color-brand, #007AFF);
+}
+.chat-topbar-agent.active .chat-topbar-agent-name {
+  color: var(--color-brand, #007AFF);
 }
 .chat-topbar-agent-dot {
   width: 7px;
@@ -17188,6 +17195,100 @@ function openGroupChat(groupId) {
   // 隐藏公告栏
   hideBulletin();
 }
+
+// ★ ui/chat-topbar-v21-fix: 顶部状态条 6 个 AI chip 加 onclick → 切对话
+// 防御式：先读 static map，运行时再尝试用 emps 数组覆盖（refresh 后 emp_id 不会变，名字可能改）
+function _initChatTopbarChips() {
+  var team = document.getElementById('chatTopbarTeam');
+  if (!team || team.__chipsBound) return;
+  team.__chipsBound = true;
+
+  // data-agent alias → emp_id 静态映射（即使 emps 还没加载也能点）
+  var STATIC_MAP = {
+    'ray':       { id: 'emp_1779430403964',       name: 'Ray' },
+    'shangguan': { id: 'emp_1779955656118',       name: '上官婉儿' },
+    'kongming':  { id: 'emp_1780132768182',       name: '孔明' },
+    'helen':     { id: 'emp_1780199176680',       name: 'Helen' },
+    'mumu':      { id: 'emp_1787550091124_1048',  name: '木木' }
+  };
+
+  function _resolveEmpId(alias) {
+    if (alias === 'main') {
+      // main chip = 当前用户视图（无独立 emp）
+      return null;
+    }
+    var m = STATIC_MAP[alias];
+    if (!m) return null;
+    // 优先用 emps 数组确认 emp_id 仍然存在
+    try {
+      if (typeof emps !== 'undefined' && Array.isArray(emps) && emps.length) {
+        var hit = emps.find(function (e) {
+          return e && e.id === m.id;
+        });
+        if (hit) return hit.id;
+      }
+    } catch (e) { /* 忽略 - fallback static */ }
+    return m.id;
+  }
+
+  var chips = team.querySelectorAll('.chat-topbar-agent[data-agent]');
+  chips.forEach(function (chip) {
+    var alias = chip.getAttribute('data-agent');
+    if (alias === 'main') {
+      // main chip 不可点击（语义上是当前用户，没有独立 emp_id 对话）
+      chip.style.cursor = 'default';
+      chip.title = '当前用户视图（不可切换）';
+      return;
+    }
+    var empId = _resolveEmpId(alias);
+    if (!empId) {
+      chip.style.cursor = 'not-allowed';
+      chip.title = '员工映射缺失';
+      return;
+    }
+    chip.setAttribute('data-emp-id', empId);
+    chip.setAttribute('title', '点击切到 ' + (chip.querySelector('.chat-topbar-agent-name')?.textContent || alias));
+    chip.addEventListener('click', function () {
+      try {
+        if (typeof openChat !== 'function') return;
+        openChat(empId);
+        _syncTopbarActive();
+        var nm = chip.querySelector('.chat-topbar-agent-name');
+        if (typeof showToast === 'function') {
+          showToast('✦ 已切到 ' + (nm ? nm.textContent : alias));
+        }
+      } catch (e) {
+        console.error('[topbar chip click] 切换失败 alias=' + alias + ' empId=' + empId, e);
+        if (typeof showToast === 'function') showToast('❌ 切换失败：' + (e && e.message || '未知错误'));
+      }
+    });
+  });
+
+  function _syncTopbarActive() {
+    var cur = '';
+    try { cur = localStorage.getItem('sb_current_emp') || ''; } catch (e) {}
+    chips.forEach(function (c) {
+      var empId = c.getAttribute('data-emp-id');
+      if (empId && cur === empId) c.classList.add('active');
+      else c.classList.remove('active');
+    });
+  }
+  team._syncTopbarActive = _syncTopbarActive;
+  _syncTopbarActive();
+  // 跨 tab 同步
+  window.addEventListener('storage', _syncTopbarActive);
+  // 同 tab 内 sb_current_emp 变化时也同步（每 1.5s 轮询，开销极低）
+  setInterval(_syncTopbarActive, 1500);
+}
+
+// emps 数组是异步加载的，1s 后再 bind 一次以捕获新员工（不会重复 bind，__chipsBound 守卫）
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _initChatTopbarChips);
+} else {
+  _initChatTopbarChips();
+}
+setTimeout(_initChatTopbarChips, 1500);
+setTimeout(_initChatTopbarChips, 4000);
 
 // 渲染群聊消息
 function renderGroupMessages(groupId) {
