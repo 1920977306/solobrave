@@ -9210,8 +9210,8 @@ window.doLogin = function () {
 
   // 数据加载 + 渲染
   function loadSelectionData() {
-    // 并行 3 个 API
-    var tok = (typeof getAuthToken === 'function' && getAuthToken()) || '';
+    // 并行 3 个 API (auth token 从 localStorage sb_auth_token 取)
+    var tok = localStorage.getItem('sb_auth_token') || '';
     var headers = tok ? { 'Authorization': 'Bearer ' + tok } : {};
 
     Promise.all([
@@ -9272,7 +9272,7 @@ window.doLogin = function () {
         var followers = formatNum(t.followers);
         var cat = t.category || t.main_category || '';
         var status = t.cooperation_status || t.status || '';
-        html += '<div class="selection-card" onclick="closeSelectionDashboard(); if(typeof openTalentDetail===\'function\')openTalentDetail(\'' + escapeAttr(t.id || '') + '\');">' +
+        html += '<div class="selection-card" onclick="closeSelectionDashboard(); switchModule(\'influencers\'); setTimeout(function(){ if(typeof selectTalentItem===\'function\')selectTalentItem(\'' + escapeAttr(t.id || '') + '\'); }, 80);">' +
           '<div class="selection-card-name">' + escapeHtml(t.name || t.display_name || '未命名') + '</div>' +
           '<div class="selection-card-meta">' + followers + ' 粉丝 · ' + escapeHtml(cat || '未分类') + '</div>' +
           '<div class="selection-card-chips">' +
@@ -9316,7 +9316,7 @@ window.doLogin = function () {
       products.slice(0, 6).forEach(function (p) {
         var cat = (p.category || p.main_category || '').toString();
         var price = p.price || p.suggest_price || '';
-        html += '<div class="selection-card" onclick="closeSelectionDashboard(); if(typeof openProductDetail===\'function\')openProductDetail(\'' + escapeAttr(p.id || '') + '\');">' +
+        html += '<div class="selection-card" onclick="closeSelectionDashboard(); switchModule(\'products\'); setTimeout(function(){ if(typeof selectProductItem===\'function\')selectProductItem(\'' + escapeAttr(p.id || '') + '\'); }, 80);">' +
           '<div class="selection-card-name">' + escapeHtml(p.name || p.title || '未命名') + '</div>' +
           '<div class="selection-card-meta">' + escapeHtml(cat || '未分类') + (price ? ' · ¥' + price : '') + '</div>' +
           '<div class="selection-card-chips">' +
