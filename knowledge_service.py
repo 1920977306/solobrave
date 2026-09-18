@@ -688,6 +688,9 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
                     f'FROM knowledge_events {sql_where} ORDER BY created_at DESC',
                     sql_params
                 ).fetchall()
+                # ★ fix/backfill-events-binding: events 表没 embedding_model 列, UPDATE 只需 2 占位符
+                #   (embedding, id). 之前传 3 个参数 (emb_bytes, embedding_model, row_id) 一直报
+                #   "Incorrect number of bindings supplied" → 101 条 events 几个月从未成功 backfill
                 update_sql = ('UPDATE knowledge_events '
                               'SET embedding = ? WHERE id = ?')
             elif target == 'patterns':
@@ -807,7 +810,13 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
                         target_errors.append((row_id, 'embedding API returned None'))
                         continue
                     emb_bytes = _struct.pack(f'{len(emb)}f', *emb)
-                    conn.execute(update_sql, (emb_bytes, embedding_model, row_id))
+                    # ★ fix/backfill-events-binding: 按 update_sql 占位符数量传参
+                    #   chunks/patterns/talents/products/brands 表有 embedding_model 列 → 3 占位符
+                    #   events 表没 embedding_model 列 → 只 2 占位符
+                    if 'embedding_model' in update_sql:
+                        conn.execute(update_sql, (emb_bytes, embedding_model, row_id))
+                    else:
+                        conn.execute(update_sql, (emb_bytes, row_id))
                     target_success += 1
                     if i % batch_size == 0:
                         conn.commit()
@@ -1854,18 +1863,50 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
                     f'WHERE id IN ({placeholders})',
                     (int(time.time() * 1000), *pattern_ids)
                 )
-                # dev/feat: 规律库修复 #7 续 — RAG 命中后调自动晋升
-                # hit_count 已 +1, 看看能否触发 candidate / verified / proven
+                # ★ fix/rag-evidence: RAG 命中也要 +evidence_count 才能触发晋升
+                #   _kp_can_promote 阈值看 evidence_count (≥10 candidate→verified, ≥30 verified→proven)
+                #   之前防刷屏逻辑只保留 1 个 'rag_hit:*' → evidence_count 永远 ≤6 不晋升
+                #   改为: 每次 RAG 命中追加一条带精确时间戳的 'rag_hit:{ts}' (每次 ts 不同, 自然累加)
                 try:
-                    import importlib
-                    solobrave_server = importlib.import_module('solobrave_server')
+                    _rag_ts = int(time.time() * 1000)
                     for pid in pattern_ids:
-                        promote_result = solobrave_server._kp_auto_promote(pid)
-                        if promote_result:
-                            logger.info(
-                                f'  [RAG-Promote] RAG 命中触发晋升: '
-                                f'{pid} {promote_result["old"]}→{promote_result["new"]}'
-                            )
+                        row = conn.execute(
+                            'SELECT evidence FROM knowledge_patterns WHERE id = ?', (pid,)
+                        ).fetchone()
+                        ev_raw = row['evidence'] if row else None
+                        try:
+                            ev_list = json.loads(ev_raw) if ev_raw else []
+                            if not isinstance(ev_list, list):
+                                ev_list = []
+                        except Exception:
+                            ev_list = []
+                        # 追加新的 (ts 每次都不同 → 自然累加 evidence_count)
+                        # 用 us 精度保证同一秒内多次命中也能区分
+                        ev_list.append(f'rag_hit:{_rag_ts}:{pid[-6:]}')
+                        conn.execute(
+                            'UPDATE knowledge_patterns SET evidence = ?, evidence_count = ? WHERE id = ?',
+                            (json.dumps(ev_list, ensure_ascii=False), len(ev_list), pid)
+                        )
+                except Exception as ev_err:
+                    logger.warning(f'  [RAG-Evidence] 累加 evidence_count 失败 (不影响 RAG): {ev_err}')
+                # ★ fix/rag-promote-import: solobrave-server.py 文件名带连字符,
+                #   importlib.import_module('solobrave_server') 永远找不到模块,
+                #   导致 _kp_auto_promote 几个月从未触发晋升。改用 spec_from_file_location
+                try:
+                    import importlib.util as _importlib_util
+                    _sbs_spec = _importlib_util.spec_from_file_location(
+                        'solobrave_server', os.path.join(os.path.dirname(__file__), 'solobrave-server.py')
+                    )
+                    if _sbs_spec and _sbs_spec.loader:
+                        _sbs = _importlib_util.module_from_spec(_sbs_spec)
+                        _sbs_spec.loader.exec_module(_sbs)
+                        for pid in pattern_ids:
+                            promote_result = _sbs._kp_auto_promote(pid)
+                            if promote_result:
+                                logger.info(
+                                    f'  [RAG-Promote] RAG 命中触发晋升: '
+                                    f'{pid} {promote_result["old"]}→{promote_result["new"]}'
+                                )
                 except Exception as promote_err:
                     logger.warning(
                         f'  [RAG-Promote] 自动晋升检查失败 (不影响 RAG): {promote_err}'
