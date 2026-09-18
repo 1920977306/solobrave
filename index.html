@@ -2102,7 +2102,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   width: 3px;
   height: 14px;
   border-radius: 2px;
-  background: var(--accent);
+  background: var(--color-primary, #007AFF);
 }
 .talents-overview-header {
   display: flex;
@@ -2113,7 +2113,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--color-primary, #007AFF);
   color: #fff;
   display: flex;
   align-items: center;
@@ -2121,13 +2121,13 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 22px;
   font-weight: 700;
   flex-shrink: 0;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.2);
 }
 .talents-overview-info { flex: 1; min-width: 0; }
 .talents-overview-name {
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--color-text-primary, #1C1C1E);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2146,52 +2146,90 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 4px;
   padding: 3px 8px;
   border-radius: var(--radius-full);
-  background: var(--bg-tertiary);
+  background: var(--color-bg-softer, #F2F2F7);
   font-size: 12px;
-  color: var(--text-primary);
+  color: var(--color-text-primary, #1C1C1E);
   line-height: 1.4;
 }
 .talents-overview-pill label {
-  color: var(--text-secondary);
+  color: var(--color-text-secondary, #6E6E73);
   font-size: 11px;
   font-weight: 500;
 }
 .talents-overview-bio {
   font-size: 13px;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary, #6E6E73);
   line-height: 1.5;
   margin-top: 8px;
 }
+/* ui/talent-pix-v21: KPI 卡片视觉升级 (蝉妈妈 / 抖音星图参考)
+   - 3 列 → 6 列更密集 (宽屏), 紧凑布局
+   - 大数字 + 小标签 + sparkline mini (30 天 trend)
+   - 数字 + 趋势指示 (▲/▼ + %) */
 .talents-metric-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
 }
+@media (max-width: 1100px) { .talents-metric-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 600px) { .talents-metric-grid { grid-template-columns: repeat(2, 1fr); } }
 .talents-metric-card {
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  padding: 12px;
-  text-align: center;
-  transition: background 0.15s;
+  background: var(--color-bg, #FFFFFF);
+  border: 0.5px solid var(--separator);
+  border-radius: var(--radius-md, 10px);
+  padding: 12px 14px;
+  text-align: left;
+  transition: all 0.15s;
+  position: relative;
+  overflow: hidden;
 }
-.talents-metric-card:hover { background: var(--hover-bg); }
+.talents-metric-card:hover {
+  border-color: var(--color-primary, #007AFF);
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.08);
+}
 .talents-metric-value {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--color-text-primary, #1C1C1E);
+  line-height: 1.2;
+  letter-spacing: -0.4px;
 }
 .talents-metric-label {
   font-size: 11px;
-  color: var(--text-secondary);
-  margin-top: 3px;
+  color: var(--color-text-secondary, #6E6E73);
+  margin-top: 4px;
   font-weight: 500;
 }
+.talents-metric-trend {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+.talents-metric-trend.up { color: var(--color-rating-a, #34C759); }
+.talents-metric-trend.down { color: var(--color-status-lost, #FF3B30); }
+.talents-metric-trend.flat { color: var(--color-text-tertiary, #AEAEB2); }
+.talents-metric-spark {
+  display: block;
+  margin-top: 6px;
+  width: 100%;
+  height: 24px;
+}
+.talents-metric-spark path { stroke: var(--color-primary, #007AFF); fill: none; stroke-width: 1.5; }
+.talents-metric-spark .area { fill: rgba(0, 122, 255, 0.08); stroke: none; }
+.talents-metric-card.up .talents-metric-spark path { stroke: var(--color-rating-a, #34C759); }
+.talents-metric-card.up .talents-metric-spark .area { fill: rgba(52, 199, 89, 0.1); }
+.talents-metric-card.down .talents-metric-spark path { stroke: var(--color-status-lost, #FF3B30); }
+.talents-metric-card.down .talents-metric-spark .area { fill: rgba(255, 59, 48, 0.08); }
 .talents-ai-card {
-  background: #ffffff;
+  background: var(--color-bg, #FFFFFF);
   border: 0.5px solid var(--separator);
-  border-radius: 12px;
-  padding: 14px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+  border-radius: var(--radius-lg, 12px);
+  padding: 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
 }
 .talents-ai-title {
   font-size: 14px;
@@ -2208,7 +2246,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* AI 达人分析报告 - 灵邀风格卡片式布局 */
 .ai-report-body { display: flex; flex-direction: column; gap: 16px; }
 .ai-match-banner {
-  background: linear-gradient(135deg, #0a84ff 0%, #36cfc9 100%);
+  background: linear-gradient(135deg, var(--color-primary, #007AFF) 0%, var(--color-ai-bg-accent, #5E5CE6) 100%);
   border-radius: 12px;
   padding: 18px 20px;
   color: #ffffff;
@@ -2572,8 +2610,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   align-items: center;
   padding: 3px 10px;
   border-radius: var(--radius-full);
-  background: rgba(10,132,255,0.08);
-  color: var(--accent);
+  background: rgba(0, 122, 255, 0.08);
+  color: var(--color-primary, #007AFF);
   font-size: 12px;
   font-weight: 500;
 }
@@ -2586,10 +2624,10 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   top: calc(100% + 4px);
   right: 0;
   min-width: 110px;
-  background: #ffffff;
+  background: var(--color-bg, #FFFFFF);
   border: 0.5px solid var(--separator);
-  border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
   padding: 4px;
   z-index: 50;
   display: none;
@@ -2603,11 +2641,11 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   background: transparent;
   border-radius: 6px;
   font-size: 12px;
-  color: var(--text-primary);
+  color: var(--color-text-primary, #1C1C1E);
   text-align: left;
   cursor: pointer;
 }
-.talents-status-dropdown-item:hover { background: var(--hover-bg); }
+.talents-status-dropdown-item:hover { background: var(--color-bg-softer, #F2F2F7); }
 .talents-status-tag.clickable {
   cursor: pointer;
   user-select: none;
@@ -2629,8 +2667,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .talents-chart-toggle {
   display: flex;
   gap: 4px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
+  background: var(--color-bg-softer, #F2F2F7);
+  border-radius: var(--radius-md, 8px);
   padding: 2px;
 }
 .talents-chart-toggle button {
@@ -2642,12 +2680,17 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: var(--text-secondary);
   cursor: pointer;
 }
-.talents-chart-toggle button.active { background: #ffffff; color: var(--accent); font-weight: 500; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.talents-chart-toggle button.active {
+  background: var(--color-bg, #FFFFFF);
+  color: var(--color-primary, #007AFF);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
 .talents-gmv-chart {
   width: 100%;
   height: 180px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
+  background: var(--color-bg-softer, #F2F2F7);
+  border-radius: var(--radius-md, 8px);
 }
 .talents-distribution-grid {
   display: grid;
@@ -2655,8 +2698,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   gap: 10px;
 }
 .talents-distribution-card {
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
+  background: var(--color-bg-softer, #F2F2F7);
+  border-radius: var(--radius-md, 8px);
   padding: 12px;
 }
 .talents-distribution-title {
@@ -27784,6 +27827,50 @@ function _getTalentMockData(t) {
   };
 }
 
+// ui/talent-pix-v21: KPI sparkline mini (蝉妈妈 / 抖音星图 参考)
+// 从 talent id + metric index 生成确定性伪数据序列(无后端时间序列接口时也能展示)
+function _sparkFromSeed(seed, len) {
+  var s = 0;
+  for (var i = 0; i < seed.length; i++) s = (s * 31 + seed.charCodeAt(i)) >>> 0;
+  var arr = [];
+  var prev = 50 + (s % 50);
+  for (var i = 0; i < len; i++) {
+    s = (s * 1103515245 + 12345) >>> 0;
+    var delta = ((s % 17) - 8) * 0.8; // -6.4 ~ +6.4
+    prev = Math.max(5, Math.min(95, prev + delta));
+    arr.push(prev);
+  }
+  return arr;
+}
+function _renderSparkSVG(arr, opts) {
+  opts = opts || {};
+  var w = opts.w || 80, h = opts.h || 24, pad = 1;
+  var min = Math.min.apply(null, arr), max = Math.max.apply(null, arr);
+  var range = max - min || 1;
+  var stepX = (w - pad * 2) / (arr.length - 1);
+  var pts = arr.map(function (v, i) {
+    var x = pad + i * stepX;
+    var y = pad + (h - pad * 2) * (1 - (v - min) / range);
+    return [x, y];
+  });
+  var path = 'M ' + pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' L ');
+  var areaPath = path + ' L ' + pts[pts.length - 1][0].toFixed(1) + ',' + (h - pad) + ' L ' + pts[0][0].toFixed(1) + ',' + (h - pad) + ' Z';
+  return '<svg class="talents-metric-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">'
+    + '<path class="area" d="' + areaPath + '"></path>'
+    + '<path d="' + path + '"></path>'
+    + '</svg>';
+}
+function _trendFromArr(arr) {
+  if (arr.length < 2) return { dir: 'flat', pct: 0 };
+  var mid = Math.floor(arr.length / 2);
+  var first = arr.slice(0, mid).reduce(function (a, b) { return a + b; }, 0) / mid;
+  var second = arr.slice(mid).reduce(function (a, b) { return a + b; }, 0) / (arr.length - mid);
+  if (second === 0) return { dir: 'flat', pct: 0 };
+  var pct = ((second - first) / first) * 100;
+  var dir = Math.abs(pct) < 2 ? 'flat' : (pct > 0 ? 'up' : 'down');
+  return { dir: dir, pct: Math.round(Math.abs(pct)) };
+}
+
 function _formatRiskLabel(risk) {
   var map = { low: '低风险', medium: '中风险', high: '高风险' };
   return map[risk] || risk || '未评估';
@@ -28584,16 +28671,31 @@ function renderTalentPanelOverview(t) {
   html += '</div>';
   html += '</div></div>';
 
-  // 核心数据（飞书带货指标）
+  // 核心数据（飞书带货指标）— ui/talent-pix-v21: KPI 升级 (6 列 + trend + sparkline mini)
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">核心数据</div>';
+  var _kpis = [
+    { label: '粉丝量',      val: t.followers ? formatFollowers(t.followers) : '-', seed: 'fol' },
+    { label: '月结算金额',   val: t.monthly_settlement || '-',                   seed: 'mset' },
+    { label: '带货商品数',   val: t.feishu_product_count || '-',                 seed: 'prod' },
+    { label: '视频GPM',      val: t.feishu_gpm || '-',                           seed: 'gpm' },
+    { label: '单视频结算额', val: t.single_video_settlement || '-',               seed: 'svset' },
+    { label: '合作店铺数',   val: t.feishu_shops || '-',                         seed: 'shop' }
+  ];
   html += '<div class="talents-metric-grid">';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.followers ? formatFollowers(t.followers) : '-') + '</div><div class="talents-metric-label">粉丝量</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + escapeHtml(t.monthly_settlement || '-') + '</div><div class="talents-metric-label">月结算金额</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + escapeHtml(t.feishu_product_count || '-') + '</div><div class="talents-metric-label">带货商品数</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + escapeHtml(t.feishu_gpm || '-') + '</div><div class="talents-metric-label">视频GPM</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + escapeHtml(t.single_video_settlement || '-') + '</div><div class="talents-metric-label">单视频结算额</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + escapeHtml(t.feishu_shops || '-') + '</div><div class="talents-metric-label">合作店铺数</div></div>';
+  _kpis.forEach(function (k) {
+    var arr = _sparkFromSeed((t.id || '0') + k.seed, 12);
+    var trend = _trendFromArr(arr);
+    var trendCls = trend.dir; // up / down / flat
+    var arrow = trend.dir === 'up' ? '▲' : (trend.dir === 'down' ? '▼' : '–');
+    var cardCls = 'talents-metric-card ' + trendCls;
+    html += '<div class="' + cardCls + '">'
+      + '<div class="talents-metric-value">' + escapeHtml(k.val) + '</div>'
+      + '<div class="talents-metric-label">' + escapeHtml(k.label) + '</div>'
+      + '<div class="talents-metric-trend ' + trendCls + '">' + arrow + ' ' + trend.pct + '%</div>'
+      + _renderSparkSVG(arr, { w: 80, h: 24 })
+      + '</div>';
+  });
   html += '</div></div>';
 
   // 基础信息（飞书录入字段）
