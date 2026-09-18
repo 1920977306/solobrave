@@ -7970,12 +7970,17 @@ window.doLogin = function () {
 </div>
 
 
-<!-- Login Overlay -->
-<style>/* ui/login-v21-redesign: V2.1 token 收口 + 4 UX 加分点
-   - 团队门面: 登录卡内显示 5 个 AI 员工 avatar overlap (新用户体验第一关的"AI 团队"叙事)
-   - loading skeleton: 登录按钮点击切到 spinner + 禁用 + "正在验证..."
-   - error 红框 (V2.1 token): 用 --color-status-lost-bg/text 替换老 #FFF3E0/#E65100
-   - 空态/footer: 跟 V2.1 设计系统一致 */
+<!-- Login Overlay (V2.1: 4-tab + 独立注册页) -->
+<style>/* ui/login-register-v21-full: 登录/注册 V2.1 重设计
+   ──────────────────────────────────────────────
+   视觉语言 (V2.1):
+     - 两列布局 (≥768px): 左侧 AI 团队叙事 (hero), 右侧表单
+     - 4 tab: 账号密码 / 手机验证码 / 邮箱密码 / OAuth
+     - 仅账号密码实装, 其他 3 tab 走 stub → toast「即将开放」
+     - OAuth: 微信/抖音/Google 视觉按钮 (待后端接入)
+     - 独立注册页: 邀请码 → 等待审核 → 完成
+     - 签名元素: 左侧 AI 团队头像 (hover 展开个性介绍)
+*/
 .login-overlay {
   position: fixed;
   inset: 0;
@@ -7985,202 +7990,855 @@ window.doLogin = function () {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  overflow-y: auto;
 }
 .login-overlay[hidden] { display: none; }
-.login-card {
+
+/* ============ 两列主容器 ============ */
+.login-shell {
+  display: grid;
+  grid-template-columns: 1fr;
+  max-width: 960px;
+  width: 100%;
   background: var(--color-bg, #FFFFFF);
-  width: 360px;
-  max-width: 100%;
-  border-radius: var(--radius-xl, 16px);
-  padding: 36px 32px 28px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
-  border: 0.5px solid var(--separator, rgba(0, 0, 0, 0.08));
+  border-radius: 20px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04);
+  border: 0.5px solid var(--separator, rgba(0,0,0,0.08));
+  overflow: hidden;
+  min-height: 540px;
 }
-.login-header { text-align: center; margin-bottom: 24px; }
-.login-logo {
-  font-size: 56px;
-  margin-bottom: 12px;
-  display: inline-block;
-  filter: drop-shadow(0 4px 16px var(--color-ai-bg-soft, #EEF0FF));
+@media (min-width: 768px) {
+  .login-shell { grid-template-columns: 1.05fr 1fr; }
 }
-.login-app-name {
-  font: 600 22px/1.3 -apple-system, sans-serif;
-  color: var(--color-text-primary, #1C1C1E);
-  letter-spacing: -0.4px;
-}
-.login-tagline {
-  font: 400 13px/1.5 -apple-system, sans-serif;
-  color: var(--color-text-secondary, #6E6E73);
-  margin-top: 4px;
-}
-/* 团队门面: avatar row + caption */
-.login-team-row {
-  margin: 0 0 24px;
-  padding: 14px 16px;
-  background: var(--color-bg-softer, #F2F2F7);
-  border-radius: var(--radius-md, 10px);
-  text-align: center;
-}
-.login-team-avatars {
+
+/* ============ 左侧 AI 团队 hero ============ */
+.login-hero {
+  background: linear-gradient(180deg, var(--color-bg, #FFFFFF) 0%, var(--color-bg-softer, #F2F2F7) 100%);
+  padding: 40px 36px;
   display: flex;
-  justify-content: center;
-  margin-bottom: 8px;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  border-right: 0.5px solid var(--separator, rgba(0,0,0,0.06));
 }
-.login-team-avatar {
+.login-hero-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.login-hero-logo {
+  font-size: 28px;
+  line-height: 1;
+}
+.login-hero-brand-name {
+  font: 600 16px/1 -apple-system, sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
+  letter-spacing: -0.01em;
+}
+.login-hero-tag {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 3px 10px;
+  background: rgba(0, 122, 255, 0.10);
+  color: var(--color-primary, #007AFF);
+  font: 600 10px/1.6 -apple-system, sans-serif;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  width: fit-content;
+}
+.login-hero-title {
+  font: 600 32px/1.15 -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
+  letter-spacing: -0.02em;
+  margin: 18px 0 8px;
+}
+.login-hero-sub {
+  font: 400 14px/1.5 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+  max-width: 320px;
+}
+.login-hero-team {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 24px;
+}
+.login-hero-team-label {
+  font: 500 11px/1 -apple-system, sans-serif;
+  color: var(--color-text-tertiary, #AEAEB2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+
+/* AI 员工卡片 (签名元素) */
+.login-agent-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--color-bg, #FFFFFF);
+  border-radius: 12px;
+  border: 0.5px solid var(--separator, rgba(0,0,0,0.06));
+  transition: transform 0.2s, box-shadow 0.2s;
+  cursor: default;
+}
+.login-agent-card:hover {
+  transform: translateX(2px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  border-color: rgba(0, 122, 255, 0.3);
+}
+.login-agent-avatar {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 2px solid var(--color-bg, #FFFFFF);
-  margin: 0 -6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font: 600 11px/1 -apple-system, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
   color: #FFFFFF;
   flex-shrink: 0;
 }
-.login-team-avatar.avatar-blue { background: linear-gradient(135deg, #5AC8FA, #007AFF); }
-.login-team-avatar.avatar-green { background: linear-gradient(135deg, #34C759, #2BA84A); }
-.login-team-avatar.avatar-yellow { background: linear-gradient(135deg, #FFD60A, #FF9500); }
-.login-team-avatar.avatar-red { background: linear-gradient(135deg, #FF3B30, #D70015); }
-.login-team-avatar.avatar-purple { background: linear-gradient(135deg, #AF52DE, #8944AB); }
-.login-team-text {
-  font: 500 12px/1.4 -apple-system, sans-serif;
-  color: var(--color-text-secondary, #6E6E73);
+.login-agent-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
 }
-.login-team-text strong { color: var(--color-text-primary, #1C1C1E); font-weight: 600; }
-/* 表单 */
-.login-fields { margin-bottom: 16px; }
-.login-field { margin-bottom: 12px; }
-.login-field:last-child { margin-bottom: 0; }
-.login-label {
-  display: block;
-  font: 600 11px/1.4 -apple-system, sans-serif;
-  color: var(--color-text-secondary, #6E6E73);
-  margin-bottom: 6px;
-  letter-spacing: 0.4px;
+.login-agent-name {
+  font: 600 12px/1.3 -apple-system, sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
 }
-.login-input {
-  width: 100%;
-  padding: 11px 14px;
-  border: 1px solid var(--separator, rgba(0, 0, 0, 0.08));
-  border-radius: var(--radius-md, 10px);
-  font: 400 14px/1.4 -apple-system, sans-serif;
+.login-agent-role {
+  font: 400 11px/1.3 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.login-agent-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-success, #34C759);
+  flex-shrink: 0;
+}
+
+.login-hero-foot {
+  font: 400 11px/1.4 -apple-system, sans-serif;
+  color: var(--color-text-tertiary, #AEAEB2);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* ============ 右侧表单 ============ */
+.login-form-side {
+  padding: 40px 36px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+}
+.login-form-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--color-bg-softer, #F2F2F7);
+  padding: 3px;
+  border-radius: 10px;
+  margin-bottom: 4px;
+}
+.login-form-tab {
+  flex: 1;
+  padding: 7px 8px;
+  border: none;
+  background: transparent;
+  font: 500 12px/1 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.login-form-tab:hover:not(.active) {
+  color: var(--color-text-primary, #1C1C1E);
+}
+.login-form-tab.active {
   background: var(--color-bg, #FFFFFF);
   color: var(--color-text-primary, #1C1C1E);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  box-sizing: border-box;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  font-weight: 600;
+}
+
+.login-form-pane {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+}
+.login-form-pane.active { display: flex; }
+
+.login-form-title {
+  font: 600 18px/1.3 -apple-system, sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
+  letter-spacing: -0.01em;
+  margin-bottom: 4px;
+}
+.login-form-sub {
+  font: 400 12px/1.5 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+  margin-bottom: 8px;
+}
+
+.login-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.login-field-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.login-field-row .login-input { flex: 1; }
+.login-label {
+  font: 500 11px/1.4 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.login-input {
+  font: 400 14px/1.4 -apple-system, sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
+  background: var(--color-bg, #FFFFFF);
+  border: 0.5px solid var(--separator, rgba(0,0,0,0.12));
+  border-radius: 10px;
+  padding: 12px 14px;
   outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
 }
 .login-input:focus {
   border-color: var(--color-primary, #007AFF);
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
 }
-.login-input::placeholder { color: var(--color-text-tertiary, #AEAEB2); }
-/* 主按钮: V2.1 primary (solid) 替换老 gradient */
-.login-btn {
-  width: 100%;
-  padding: 12px;
-  border: none;
-  border-radius: var(--radius-md, 10px);
-  background: var(--color-primary, #007AFF);
-  color: #FFFFFF;
-  font: 600 15px/1.4 -apple-system, sans-serif;
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.05s ease;
-  margin-top: 4px;
-}
-.login-btn:hover { background: var(--color-primary-hover, #0066D6); }
-.login-btn:active { transform: translateY(0.5px); }
-.login-btn:disabled,
-.login-btn.loading {
-  background: var(--color-bg-softer, #F2F2F7);
+.login-input::placeholder {
   color: var(--color-text-tertiary, #AEAEB2);
-  cursor: not-allowed;
-  transform: none;
 }
-.login-btn-text { display: inline; }
-.login-btn-loading {
-  display: none;
+.login-send-code {
+  font: 500 13px/1 -apple-system, sans-serif;
+  color: var(--color-primary, #007AFF);
+  background: rgba(0, 122, 255, 0.08);
+  border: 0.5px solid rgba(0, 122, 255, 0.2);
+  border-radius: 10px;
+  padding: 0 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+  min-height: 42px;
+}
+.login-send-code:hover:not(:disabled) {
+  background: rgba(0, 122, 255, 0.14);
+}
+.login-send-code:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: var(--color-text-tertiary, #AEAEB2);
+}
+
+.login-btn {
+  font: 600 14px/1 -apple-system, sans-serif;
+  color: #FFFFFF;
+  background: var(--color-primary, #007AFF);
+  border: none;
+  border-radius: 10px;
+  padding: 13px 20px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  min-height: 44px;
+  margin-top: 4px;
+  width: 100%;
+}
+.login-btn:hover:not(:disabled) {
+  background: var(--color-primary-hover, #0066D6);
+}
+.login-btn:active:not(:disabled) {
+  transform: scale(0.99);
+}
+.login-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .login-btn.loading .login-btn-text { display: none; }
-.login-btn.loading .login-btn-loading { display: inline-flex; }
+.login-btn.loading .login-btn-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.login-btn-loading { display: none; }
 .login-spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(0, 0, 0, 0.15);
-  border-top-color: var(--color-text-tertiary, #AEAEB2);
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #FFFFFF;
   border-radius: 50%;
-  display: inline-block;
-  animation: loginSpin 0.8s linear infinite;
+  animation: login-spin 0.7s linear infinite;
 }
-.login-btn.loading .login-spinner {
-  border-color: rgba(142, 142, 147, 0.3);
-  border-top-color: var(--color-text-tertiary, #AEAEB2);
+@keyframes login-spin { to { transform: rotate(360deg); } }
+
+/* OAuth 按钮 */
+.login-oauth-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
-@keyframes loginSpin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.login-oauth-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px;
+  background: var(--color-bg, #FFFFFF);
+  border: 0.5px solid var(--separator, rgba(0,0,0,0.10));
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  font-family: inherit;
 }
-/* 错误框: V2.1 status-lost token (替换老 #FFF3E0/#E65100) */
-.login-error {
-  margin-top: 12px;
-  padding: 10px 12px;
-  background: var(--color-status-lost-bg, rgba(255, 59, 48, 0.08));
-  border: 0.5px solid rgba(255, 59, 48, 0.2);
-  border-radius: var(--radius-md, 8px);
-  color: var(--color-status-lost, #FF3B30);
-  font: 400 13px/1.4 -apple-system, sans-serif;
-  display: none;
+.login-oauth-btn:hover {
+  border-color: var(--color-primary, #007AFF);
+  background: var(--color-bg-softer, #F2F2F7);
 }
-.login-error.show { display: block; }
-.login-footer {
-  margin-top: 16px;
-  text-align: center;
-  font: 400 11px/1.4 -apple-system, sans-serif;
+.login-oauth-btn:active { transform: scale(0.98); }
+.login-oauth-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+.login-oauth-label {
+  font: 500 11px/1 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+}
+
+/* 分隔线 */
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0;
+  font: 400 11px/1 -apple-system, sans-serif;
   color: var(--color-text-tertiary, #AEAEB2);
 }
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 0.5px;
+  background: var(--separator, rgba(0,0,0,0.10));
+}
+
+/* 错误 + 注册链接 */
+.login-error {
+  display: none;
+  background: rgba(255, 59, 48, 0.10);
+  color: #FF3B30;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: 500 12px/1.4 -apple-system, sans-serif;
+  text-align: center;
+}
+.login-error.show { display: block; }
+
+.login-foot {
+  text-align: center;
+  font: 400 12px/1.5 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+  margin-top: 8px;
+}
+.login-foot a {
+  color: var(--color-primary, #007AFF);
+  text-decoration: none;
+  font-weight: 500;
+}
+.login-foot a:hover { text-decoration: underline; }
+
+.login-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font: 400 11px/1 -apple-system, sans-serif;
+  color: var(--color-text-tertiary, #AEAEB2);
+  margin-top: 8px;
+}
+.login-meta a {
+  color: var(--color-text-secondary, #6E6E73);
+  text-decoration: none;
+}
+.login-meta a:hover { color: var(--color-primary, #007AFF); }
+
+/* ============ 注册页 V2.1 ============ */
+.register-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: var(--color-bg, #FFFFFF);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow-y: auto;
+}
+.register-overlay[hidden] { display: none; }
+.register-shell {
+  display: flex;
+  flex-direction: column;
+  max-width: 440px;
+  width: 100%;
+  background: var(--color-bg, #FFFFFF);
+  border-radius: 20px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04);
+  border: 0.5px solid var(--separator, rgba(0,0,0,0.08));
+  overflow: hidden;
+  padding: 32px 28px;
+  gap: 16px;
+}
+.register-head {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.register-logo {
+  font-size: 32px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.register-title {
+  font: 600 22px/1.3 -apple-system, sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
+  letter-spacing: -0.01em;
+}
+.register-sub {
+  font: 400 13px/1.5 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+}
+.register-step {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  margin: 8px 0;
+}
+.register-step-dot {
+  width: 32px;
+  height: 4px;
+  background: var(--separator, rgba(0,0,0,0.10));
+  border-radius: 2px;
+  transition: background 0.2s;
+}
+.register-step-dot.active {
+  background: var(--color-primary, #007AFF);
+}
+
+/* 注册成功状态 */
+.register-success {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 16px 0;
+}
+.register-success.show { display: flex; }
+.register-success-icon {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+.register-success-title {
+  font: 600 18px/1.3 -apple-system, sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
+}
+.register-success-sub {
+  font: 400 13px/1.5 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+  max-width: 320px;
+}
+
+/* 邀请码适配器提示框 */
+.register-invite-hint {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(0, 122, 255, 0.06);
+  border: 0.5px solid rgba(0, 122, 255, 0.18);
+  border-radius: 10px;
+  font: 400 12px/1.5 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+}
+.register-invite-hint-icon {
+  color: var(--color-primary, #007AFF);
+  flex-shrink: 0;
+}
+
+/* 移动端适配 */
+@media (max-width: 767px) {
+  .login-hero { padding: 28px 24px; min-height: 240px; }
+  .login-hero-title { font-size: 24px; }
+  .login-form-side { padding: 28px 24px; }
+  .login-shell { border-radius: 16px; }
+  .login-overlay { padding: 12px; align-items: flex-start; padding-top: 24px; }
+}
 </style>
+
+<!-- Login Overlay -->
 <div id="loginOverlay" class="login-overlay" hidden>
-  <div class="login-card">
-    <div class="login-header">
-      <div class="login-logo">🦞</div>
-      <div class="login-app-name">SoloBrave</div>
-      <div class="login-tagline">AI 员工虚拟团队</div>
-    </div>
-    <div class="login-team-row">
-      <div class="login-team-avatars">
-        <div class="login-team-avatar avatar-blue">回</div>
-        <div class="login-team-avatar avatar-yellow">薇</div>
-        <div class="login-team-avatar avatar-green">理</div>
-        <div class="login-team-avatar avatar-purple">创</div>
-        <div class="login-team-avatar avatar-red">报</div>
+  <div class="login-shell">
+    <!-- 左侧 AI 团队 hero (签名元素) -->
+    <div class="login-hero">
+      <div>
+        <div class="login-hero-brand">
+          <span class="login-hero-logo">🦞</span>
+          <span class="login-hero-brand-name">SoloBrave</span>
+        </div>
+        <div class="login-hero-tag">Mission Control · V2.1</div>
+        <h1 class="login-hero-title">5 位 AI 员工<br/>已为你待命</h1>
+        <p class="login-hero-sub">登录即开启你的虚拟团队——从选达人、做内容、审数据到沉淀经验，每一步都有人接手。</p>
+        <div class="login-hero-team">
+          <div class="login-hero-team-label">虚拟团队</div>
+          <div class="login-agent-card">
+            <div class="login-agent-avatar" style="background: linear-gradient(135deg, #5AC8FA, #007AFF)">R</div>
+            <div class="login-agent-info">
+              <div class="login-agent-name">Ray</div>
+              <div class="login-agent-role">新成员 · 写脚本 / 找达人</div>
+            </div>
+            <div class="login-agent-status" title="在线"></div>
+          </div>
+          <div class="login-agent-card">
+            <div class="login-agent-avatar" style="background: linear-gradient(135deg, #FFD60A, #FF9500)">婉</div>
+            <div class="login-agent-info">
+              <div class="login-agent-name">上官婉儿</div>
+              <div class="login-agent-role">资深员工 · 选品 / 营销策略</div>
+            </div>
+            <div class="login-agent-status" title="在线"></div>
+          </div>
+          <div class="login-agent-card">
+            <div class="login-agent-avatar" style="background: linear-gradient(135deg, #34C759, #2BA84A)">明</div>
+            <div class="login-agent-info">
+              <div class="login-agent-name">孔明</div>
+              <div class="login-agent-role">创建者 · 复盘 / 数据分析</div>
+            </div>
+            <div class="login-agent-status" title="在线"></div>
+          </div>
+          <div class="login-agent-card">
+            <div class="login-agent-avatar" style="background: linear-gradient(135deg, #FF3B6B, #C2185B)">H</div>
+            <div class="login-agent-info">
+              <div class="login-agent-name">Helen</div>
+              <div class="login-agent-role">商务 · 谈合作 / 维护关系</div>
+            </div>
+            <div class="login-agent-status" title="在线"></div>
+          </div>
+          <div class="login-agent-card">
+            <div class="login-agent-avatar" style="background: linear-gradient(135deg, #AF52DE, #8944AB)">木</div>
+            <div class="login-agent-info">
+              <div class="login-agent-name">木木</div>
+              <div class="login-agent-role">新成员 · 内容编辑 / 排期</div>
+            </div>
+            <div class="login-agent-status" title="在线"></div>
+          </div>
+        </div>
       </div>
-      <div class="login-team-text">登录即获 <strong>5 位 AI 员工</strong> 虚拟团队</div>
-    </div>
-    <div class="login-fields">
-      <div class="login-field">
-        <label class="login-label" for="loginUsername">用户名</label>
-        <input type="text" id="loginUsername" class="login-input" placeholder="输入用户名" autocomplete="username">
-      </div>
-      <div class="login-field">
-        <label class="login-label" for="loginPassword">密码</label>
-        <input type="password" id="loginPassword" class="login-input" placeholder="输入密码" autocomplete="current-password">
+      <div class="login-hero-foot">
+        <span>登录 1 次 · 数据保留 90 天</span>
       </div>
     </div>
-    <button id="loginBtn" class="login-btn" onclick="doLogin()">
-      <span class="login-btn-text">登录</span>
-      <span class="login-btn-loading">
-        <span class="login-spinner"></span>正在验证...
-      </span>
-    </button>
-    <div id="loginError" class="login-error"></div>
-    <div class="login-footer">本地模式 · 数据存储在浏览器中</div>
+
+    <!-- 右侧表单 -->
+    <div class="login-form-side">
+      <!-- 4 tab 切换 -->
+      <div class="login-form-tabs" role="tablist">
+        <button class="login-form-tab active" data-tab="account" role="tab">账号密码</button>
+        <button class="login-form-tab" data-tab="phone" role="tab">手机验证码</button>
+        <button class="login-form-tab" data-tab="email" role="tab">邮箱</button>
+        <button class="login-form-tab" data-tab="oauth" role="tab">第三方</button>
+      </div>
+
+      <!-- Tab 1: 账号密码 -->
+      <div class="login-form-pane active" data-pane="account">
+        <div class="login-form-title">欢迎回来</div>
+        <div class="login-form-sub">使用账号密码登录</div>
+        <div class="login-fields">
+          <div class="login-field">
+            <label class="login-label" for="loginUsername">用户名</label>
+            <input type="text" id="loginUsername" class="login-input" placeholder="输入用户名" autocomplete="username">
+          </div>
+          <div class="login-field">
+            <label class="login-label" for="loginPassword">密码</label>
+            <input type="password" id="loginPassword" class="login-input" placeholder="输入密码" autocomplete="current-password">
+          </div>
+        </div>
+        <button id="loginBtn" class="login-btn" onclick="doLogin()">
+          <span class="login-btn-text">登录</span>
+          <span class="login-btn-loading"><span class="login-spinner"></span>正在验证...</span>
+        </button>
+        <div id="loginError" class="login-error"></div>
+        <div class="login-meta">
+          <a href="#" onclick="event.preventDefault(); showLoginToast('忘记密码？请联系管理员重置');">忘记密码？</a>
+          <span></span>
+        </div>
+      </div>
+
+      <!-- Tab 2: 手机验证码 -->
+      <div class="login-form-pane" data-pane="phone">
+        <div class="login-form-title">手机号登录</div>
+        <div class="login-form-sub">输入手机号接收 6 位验证码</div>
+        <div class="login-fields">
+          <div class="login-field">
+            <label class="login-label">手机号</label>
+            <div class="login-field-row">
+              <input type="tel" class="login-input" placeholder="138 0000 0000" maxlength="13" inputmode="numeric">
+              <button type="button" class="login-send-code" onclick="showLoginToast('手机登录即将开放, 请用账号密码')">发送验证码</button>
+            </div>
+          </div>
+          <div class="login-field">
+            <label class="login-label">验证码</label>
+            <input type="text" class="login-input" placeholder="6 位数字" maxlength="6" inputmode="numeric">
+          </div>
+        </div>
+        <button class="login-btn" onclick="showLoginToast('手机登录即将开放, 请用账号密码')">
+          <span class="login-btn-text">登录</span>
+        </button>
+      </div>
+
+      <!-- Tab 3: 邮箱 -->
+      <div class="login-form-pane" data-pane="email">
+        <div class="login-form-title">邮箱登录</div>
+        <div class="login-form-sub">使用邮箱密码登录</div>
+        <div class="login-fields">
+          <div class="login-field">
+            <label class="login-label">邮箱</label>
+            <input type="email" class="login-input" placeholder="you@company.com" autocomplete="email">
+          </div>
+          <div class="login-field">
+            <label class="login-label">密码</label>
+            <input type="password" class="login-input" placeholder="输入密码" autocomplete="current-password">
+          </div>
+        </div>
+        <button class="login-btn" onclick="showLoginToast('邮箱登录即将开放, 请用账号密码')">
+          <span class="login-btn-text">登录</span>
+        </button>
+      </div>
+
+      <!-- Tab 4: OAuth -->
+      <div class="login-form-pane" data-pane="oauth">
+        <div class="login-form-title">第三方账号登录</div>
+        <div class="login-form-sub">选择一个平台继续</div>
+        <div class="login-oauth-row">
+          <button class="login-oauth-btn" onclick="showLoginToast('微信登录即将开放')">
+            <span class="login-oauth-icon" style="color: #07C160;">💬</span>
+            <span class="login-oauth-label">微信</span>
+          </button>
+          <button class="login-oauth-btn" onclick="showLoginToast('抖音登录即将开放')">
+            <span class="login-oauth-icon" style="color: #161823;">🎵</span>
+            <span class="login-oauth-label">抖音</span>
+          </button>
+          <button class="login-oauth-btn" onclick="showLoginToast('Google 登录即将开放')">
+            <span class="login-oauth-icon" style="color: #4285F4;">🌐</span>
+            <span class="login-oauth-label">Google</span>
+          </button>
+        </div>
+        <div class="login-divider">登录即同意服务条款与隐私政策</div>
+      </div>
+
+      <div class="login-foot">
+        还没有账号？<a href="#" onclick="event.preventDefault(); showRegister();">申请注册</a>
+      </div>
+    </div>
   </div>
 </div>
+
+<!-- Register Overlay -->
+<div id="registerOverlay" class="register-overlay" hidden>
+  <div class="register-shell">
+    <div class="register-head">
+      <div class="register-logo">🦞</div>
+      <div class="register-title">申请加入 SoloBrave</div>
+      <div class="register-sub">填写信息, 管理员审核后开通账号</div>
+      <div class="register-step" id="registerStepDots">
+        <div class="register-step-dot active" data-step="1"></div>
+        <div class="register-step-dot" data-step="2"></div>
+      </div>
+    </div>
+
+    <!-- Step 1: 表单 -->
+    <form id="registerForm" class="login-fields" onsubmit="event.preventDefault(); submitRegister();">
+      <div class="login-field">
+        <label class="login-label" for="regUsername">用户名 *</label>
+        <input type="text" id="regUsername" class="login-input" placeholder="字母数字, 4-20 位" required minlength="4" maxlength="20" pattern="[a-zA-Z0-9_]+">
+      </div>
+      <div class="login-field">
+        <label class="login-label" for="regDisplayName">显示名</label>
+        <input type="text" id="regDisplayName" class="login-input" placeholder="留空则与用户名相同" maxlength="20">
+      </div>
+      <div class="login-field">
+        <label class="login-label" for="regPassword">密码 *</label>
+        <input type="password" id="regPassword" class="login-input" placeholder="至少 6 位" required minlength="6">
+      </div>
+      <div class="login-field">
+        <label class="login-label" for="regInvite">邀请码</label>
+        <input type="text" id="regInvite" class="login-input" placeholder="可选, 有邀请码填一下" maxlength="32">
+      </div>
+      <div class="register-invite-hint">
+        <span class="register-invite-hint-icon">ℹ️</span>
+        <span>注册申请会进入管理员审核队列, 通过后会通知你的账号开通</span>
+      </div>
+      <button type="submit" id="registerBtn" class="login-btn">
+        <span class="login-btn-text">提交申请</span>
+        <span class="login-btn-loading"><span class="login-spinner"></span>提交中...</span>
+      </button>
+      <div id="registerError" class="login-error"></div>
+    </form>
+
+    <!-- Step 2: 成功 -->
+    <div id="registerSuccess" class="register-success">
+      <div class="register-success-icon">✅</div>
+      <div class="register-success-title">申请已提交</div>
+      <div class="register-success-sub">管理员会尽快审核你的注册申请。审核通过后, 你可以使用所填的用户名和密码登录。</div>
+      <button class="login-btn" onclick="hideRegister(); showLogin();">
+        <span class="login-btn-text">返回登录</span>
+      </button>
+    </div>
+
+    <div class="login-foot">
+      已有账号？<a href="#" onclick="event.preventDefault(); hideRegister(); showLogin();">直接登录</a>
+    </div>
+  </div>
+</div>
+
+<script>/* ui/login-register-v21-full: tab 切换 + register submit + stub 提示 */
+(function () {
+  // Tab 切换
+  document.querySelectorAll('.login-form-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      var target = tab.getAttribute('data-tab');
+      document.querySelectorAll('.login-form-tab').forEach(function (t) { t.classList.remove('active'); });
+      document.querySelectorAll('.login-form-pane').forEach(function (p) { p.classList.remove('active'); });
+      tab.classList.add('active');
+      var pane = document.querySelector('.login-form-pane[data-pane="' + target + '"]');
+      if (pane) pane.classList.add('active');
+    });
+  });
+
+  // 简化版 toast (复用项目内已有 toast 系统, 此处兜底)
+  window.showLoginToast = function (msg) {
+    if (typeof showToast === 'function') { showToast(msg, 'info'); return; }
+    var t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(28,28,30,0.92);color:#fff;padding:10px 18px;border-radius:10px;font:500 13px/1.4 -apple-system,sans-serif;z-index:99999;backdrop-filter:blur(8px);';
+    document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 2400);
+  };
+
+  // 注册页跳转
+  window.showRegister = function () {
+    document.getElementById('loginOverlay').hidden = true;
+    document.getElementById('registerOverlay').hidden = false;
+    var f = document.getElementById('registerForm');
+    if (f) f.reset();
+    var formEl = document.getElementById('registerForm');
+    if (formEl) formEl.style.display = '';
+    document.getElementById('registerSuccess').classList.remove('show');
+    document.getElementById('registerError').classList.remove('show');
+    updateRegisterStep(1);
+    setTimeout(function () {
+      var u = document.getElementById('regUsername');
+      if (u) u.focus();
+    }, 80);
+  };
+  window.hideRegister = function () {
+    document.getElementById('registerOverlay').hidden = true;
+  };
+  window.showLogin = function () {
+    document.getElementById('loginOverlay').hidden = false;
+    document.getElementById('registerOverlay').hidden = true;
+    document.querySelectorAll('.login-form-tab').forEach(function (t) { t.classList.remove('active'); });
+    document.querySelectorAll('.login-form-pane').forEach(function (p) { p.classList.remove('active'); });
+    var at = document.querySelector('.login-form-tab[data-tab="account"]');
+    var ap = document.querySelector('.login-form-pane[data-pane="account"]');
+    if (at) at.classList.add('active');
+    if (ap) ap.classList.add('active');
+    setTimeout(function () {
+      var u = document.getElementById('loginUsername');
+      if (u) u.focus();
+    }, 80);
+  };
+  function updateRegisterStep(step) {
+    document.querySelectorAll('#registerStepDots .register-step-dot').forEach(function (d) {
+      var s = parseInt(d.getAttribute('data-step'), 10);
+      d.classList.toggle('active', s <= step);
+    });
+  }
+
+  // 提交注册申请 (走 admin invite 模式 + localStorage 兜底)
+  window.submitRegister = function () {
+    var errDiv = document.getElementById('registerError');
+    if (errDiv) { errDiv.classList.remove('show'); errDiv.textContent = ''; }
+    var username = (document.getElementById('regUsername').value || '').trim();
+    var displayName = (document.getElementById('regDisplayName').value || '').trim();
+    var password = document.getElementById('regPassword').value || '';
+    var invite = (document.getElementById('regInvite').value || '').trim();
+    if (!username || username.length < 4) {
+      if (errDiv) { errDiv.textContent = '用户名至少 4 位'; errDiv.classList.add('show'); }
+      return;
+    }
+    if (!password || password.length < 6) {
+      if (errDiv) { errDiv.textContent = '密码至少 6 位'; errDiv.classList.add('show'); }
+      return;
+    }
+    var btn = document.getElementById('registerBtn');
+    if (btn) { btn.disabled = true; btn.classList.add('loading'); }
+
+    // 注册申请: localStorage 暂存, 管理员可读 (前端 mock, 等后端 admin invite endpoint)
+    try {
+      var pending = JSON.parse(localStorage.getItem('solobrave.pending_registrations') || '[]');
+      var dup = pending.find(function (p) { return p.username === username; });
+      if (dup) {
+        if (errDiv) { errDiv.textContent = '该用户名已提交过申请, 请等待审核'; errDiv.classList.add('show'); }
+        if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
+        return;
+      }
+      pending.push({
+        username: username,
+        displayName: displayName || username,
+        password: btoa(unescape(encodeURIComponent(password))),
+        invite: invite,
+        submittedAt: new Date().toISOString()
+      });
+      localStorage.setItem('solobrave.pending_registrations', JSON.stringify(pending));
+    } catch (e) { /* localStorage 不可用时静默 */ }
+
+    // 模拟网络延迟 + 切换到成功页
+    setTimeout(function () {
+      if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
+      updateRegisterStep(2);
+      var formEl = document.getElementById('registerForm');
+      if (formEl) formEl.style.display = 'none';
+      document.getElementById('registerSuccess').classList.add('show');
+    }, 800);
+  };
+})();
+</script>
 
 <!-- Skip Link -->
 <a href="#main-chat" class="skip-link">跳到聊天区域</a>
