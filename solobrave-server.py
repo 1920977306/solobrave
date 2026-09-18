@@ -6605,14 +6605,16 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         #    容忍 unsafe-inline；未来迁移完内联脚本/样式后可逐步去掉 unsafe-inline 而不破坏 UI。
         #    report-uri 接收浏览器违规报告，server.log 打 warning 标记。
         #    这是"先报告后收紧"的标准渐进式策略。
+        # ★ fix/csp-openclaw-ws: connect-src 必须同时含 ws: + wss:（OpenClaw WS 是 ws://localhost:18789/，
+        #    没有 wss 加密层；jsdelivr 是 marked.min.js 的 CDN）
         self.send_header(
             'Content-Security-Policy-Report-Only',
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: https:; "
             "font-src 'self' data: https:; "
-            "connect-src 'self' wss: https:; "
+            "connect-src 'self' ws: wss: https:; "
             "frame-ancestors 'none'; "
             "base-uri 'self'; "
             "form-action 'self'; "

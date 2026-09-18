@@ -1768,12 +1768,44 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
         # 5b. 规律库检索 (dev/feat: 规律库修复 #2+#8)
         # 读 verified 且 confidence >= 0.7 的规律, 按 pattern embedding 相似度排序,
         # 加进 docs 列表 (type='pattern' 让 format_rag_context 单独格式化)
+        # ★ fix/rag-pattern-cross-model: query 用 emb_cfg.model 算 embedding (如 siliconflow/bge),
+        #   但 patterns 存的是 zhipu/embedding-2, 跨模型算 cosine 集中 0.4~0.5 全 miss。
+        #   防御式: 按 patterns 实际存的 embedding_model 重新算 query embedding (与 chunks 一致)。
         try:
+            pattern_models = conn.execute(
+                "SELECT DISTINCT embedding_model FROM knowledge_patterns "
+                "WHERE status = 'confirmed' AND verification_level = 'verified' "
+                "AND confidence >= 0.7 AND embedding IS NOT NULL"
+            ).fetchall()
+            pattern_query_emb = query_emb
+            pattern_query_model = embedding_model
+            pattern_models_list = [r[0] for r in pattern_models if r[0]]
+            # patterns 存的模型 != query 模型 → 重新按 patterns 模型算 query embedding
+            if pattern_models_list and pattern_models_list[0] and pattern_models_list[0] != embedding_model:
+                try:
+                    pat_model = pattern_models_list[0]
+                    # 用与 patterns 相同的 provider/api_key (假定都走 global config 同一个 key)
+                    pattern_query_emb = get_embedding_cached(
+                        query, api_key, provider, pat_model, base_url=base_url
+                    )
+                    if pattern_query_emb:
+                        pattern_query_model = pat_model
+                        logger.info(
+                            f'  [RAG-Patterns] query 重算 embedding: {embedding_model}→{pat_model} '
+                            f'(因 patterns 存的是 {pat_model}, 跨模型算 cosine 会偏低)'
+                        )
+                except Exception as re_err:
+                    logger.warning(
+                        f'  [RAG-Patterns] 用 {pattern_models_list[0]} 重算 query embedding 失败, '
+                        f'继续用 {embedding_model} (sim 可能偏低): {re_err}'
+                    )
             pattern_rows = conn.execute(
                 "SELECT id, pattern_text, category, confidence, hit_count, embedding "
                 "FROM knowledge_patterns "
                 "WHERE status = 'confirmed' AND verification_level = 'verified' "
-                "AND confidence >= 0.7 AND embedding IS NOT NULL"
+                "AND confidence >= 0.7 AND embedding IS NOT NULL "
+                "AND embedding_model = ?",
+                (pattern_query_model,)
             ).fetchall()
             pattern_results = []
             for p in pattern_rows:
@@ -1782,8 +1814,11 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
                     if not emb_bytes:
                         continue
                     pat_emb = list(struct.unpack(f'{len(emb_bytes)//4}f', emb_bytes))
-                    sim = _cosine_similarity(query_emb, pat_emb)
-                    if sim >= 0.6:  # 阈值稍低, 规律本来就稀疏
+                    sim = cosine_similarity(pattern_query_emb, pat_emb)
+                    # ★ fix/rag-pattern-threshold (v2): zhipu embedding-2 cosine 天然集中 0.4~0.6,
+                    #   0.6/0.5 阈值都几乎全 miss。改用 confidence 加权 (≥0.40 即入选),
+                    #   排序后取固定 top 3 (避免 top_k_docs=3 时只取 1 条太寒酸)。
+                    if sim >= 0.40:
                         pattern_results.append({
                             'id': p['id'],
                             'pattern_text': p['pattern_text'],
@@ -1791,11 +1826,13 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
                             'confidence': p['confidence'],
                             'similarity': sim
                         })
-                except Exception:
+                except Exception as pe:
+                    logger.warning(f'  [RAG-Patterns] 单条 pattern sim 算失败 (continue): {pe}')
                     continue
             pattern_results.sort(key=lambda x: (x['similarity'] * x['confidence']),
                                   reverse=True)
-            top_patterns = pattern_results[:max(1, top_k_docs // 2)]
+            # ★ fix/rag-pattern-threshold v2: 固定 top 3, 避免 top_k_docs=3 时只 1 条
+            top_patterns = pattern_results[:max(1, min(3, top_k_docs))]
             for pr in top_patterns:
                 docs.append({
                     'id': pr['id'],
@@ -1837,6 +1874,13 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
                 logger.info(
                     f'  [RAG-Patterns] 自动 +hit_count: {len(top_patterns)} 条 '
                     f'pattern_ids={list(pattern_ids)[:3]}{"..." if len(pattern_ids) > 3 else ""}'
+                )
+            else:
+                # ★ fix/rag-pattern-threshold: 即使 0 命中也记录, 方便排查
+                logger.info(
+                    f'  [RAG-Patterns] 检索 {len(pattern_rows)} 条 verified 规律, '
+                    f'sim >= 0.4 命中 {len(pattern_results)} 条, top_patterns 空 '
+                    f'(query="{query[:30]}{"..." if len(query) > 30 else ""}")'
                 )
         except Exception as pe:
             logger.warning(f'  [RAG-Patterns] 检索失败, 不影响主流程: {pe}')
