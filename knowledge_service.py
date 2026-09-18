@@ -1812,10 +1812,14 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
                         f'继续用 {embedding_model} (sim 可能偏低): {re_err}'
                     )
             pattern_rows = conn.execute(
-                "SELECT id, pattern_text, category, confidence, hit_count, embedding "
+                # ★ fix/rag-include-candidate: 之前只查 verified, hypothesis/candidate 永远 hit=0
+                #    晋升链路 hypothesis→candidate→verified→proven 走不通
+                #    改成查所有 confirmed 状态的 pattern, 让 hit_count 能涨, 触发晋升
+                "SELECT id, pattern_text, category, confidence, hit_count, verification_level, embedding "
                 "FROM knowledge_patterns "
-                "WHERE status = 'confirmed' AND verification_level = 'verified' "
-                "AND confidence >= 0.7 AND embedding IS NOT NULL "
+                "WHERE status = 'confirmed' "
+                "AND verification_level IN ('verified', 'candidate', 'hypothesis') "
+                "AND confidence >= 0.5 AND embedding IS NOT NULL "
                 "AND embedding_model = ?",
                 (pattern_query_model,)
             ).fetchall()
@@ -1836,7 +1840,8 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
                             'pattern_text': p['pattern_text'],
                             'category': p['category'],
                             'confidence': p['confidence'],
-                            'similarity': sim
+                            'similarity': sim,
+                            'verification_level': p['verification_level']
                         })
                 except Exception as pe:
                     logger.warning(f'  [RAG-Patterns] 单条 pattern sim 算失败 (continue): {pe}')
@@ -1846,10 +1851,14 @@ def rag_retrieve(query, emp_id, api_key=None, provider='openai', agent_config=No
             # ★ fix/rag-pattern-threshold v2: 固定 top 3, 避免 top_k_docs=3 时只 1 条
             top_patterns = pattern_results[:max(1, min(3, top_k_docs))]
             for pr in top_patterns:
+                # ★ fix/rag-mark-level: 区分 verified/candidate/hypothesis, 前端可视觉区分
+                vl = pr.get('verification_level', 'verified') or 'verified'
+                vl_marker = '📐' if vl == 'verified' else '🔬' if vl == 'candidate' else '🧪'
                 docs.append({
                     'id': pr['id'],
-                    'type': 'pattern',
-                    'title': '📐 规律: ' + (pr['category'] or '通用'),
+                    'type': 'pattern',  # 前端用 'pattern' 类型识别
+                    'verification_level': vl,  # 前端可分级显示
+                    'title': vl_marker + ' 规律[' + vl + ']: ' + (pr['category'] or '通用'),
                     'category': pr['category'],
                     'content': pr['pattern_text'],
                     'relevantChunk': pr['pattern_text'],
