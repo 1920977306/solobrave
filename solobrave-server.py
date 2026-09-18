@@ -8586,8 +8586,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(err, status)
             return
         try:
+            # ★ 防御：用 OPENCLAW_CLI 绝对路径（launchd 默认 PATH 不含 /opt/homebrew/bin）
             proc = subprocess.run(
-                ['openclaw', 'config', 'get', 'agents.defaults.model.primary'],
+                [OPENCLAW_CLI, 'config', 'get', 'agents.defaults.model.primary'],
                 capture_output=True, text=True, timeout=8,
             )
             if proc.returncode != 0:
@@ -8608,7 +8609,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         except subprocess.TimeoutExpired:
             self._send_json_error(504, 'openclaw read timeout (8s)')
         except FileNotFoundError:
-            self._send_json_error(500, 'openclaw CLI not found in PATH')
+            self._send_json_error(500, f'openclaw CLI not found at {OPENCLAW_CLI}')
         except Exception as e:
             logger.error(f'  [ChatModel] GET exception: {e}')
             self._send_json_error(500, f'read failed: {e}')
@@ -8649,8 +8650,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(500, f'switch failed: {proc.stderr.strip()[:200]}')
                 return
             # 再读一次确认（OpenClaw hot reload 已生效）
+            # ★ 防御：用 OPENCLAW_CLI 绝对路径（launchd 默认 PATH 不含 /opt/homebrew/bin）
             read_proc = subprocess.run(
-                ['openclaw', 'config', 'get', 'agents.defaults.model.primary'],
+                [OPENCLAW_CLI, 'config', 'get', 'agents.defaults.model.primary'],
                 capture_output=True, text=True, timeout=8,
             )
             current = read_proc.stdout.strip() if read_proc.returncode == 0 else 'unknown'
