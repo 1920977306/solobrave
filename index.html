@@ -4590,6 +4590,144 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 /* Chat Header V2 - 参考截图样式 */
 .chat-header-v2 { padding: 0 16px; border-bottom: 0.5px solid var(--separator); display: flex; align-items: center; justify-content: space-between; background: var(--bg-primary); height: 48px; box-sizing: border-box; }
+
+/* ─────────────────────────────────────────────
+   ui/chat-main-v21-polish: 顶部状态条 (新)
+   - 32px 高, hairline border, 三段: 团队在线 / 模型 / WS
+   - 团队在线 5 个圆点, hover 显示 agent name
+   - 强化「5 段布局」叙事: 顶部状态 / AI hero / 公告 / 消息 / 输入
+   ───────────────────────────────────────────── */
+.chat-topbar {
+  height: 32px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(180deg, var(--color-bg, #FFFFFF) 0%, var(--color-bg-softer, #F8F9FB) 100%);
+  border-bottom: 0.5px solid var(--separator, rgba(0,0,0,0.06));
+  font: 500 11px/1 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #6E6E73);
+  user-select: none;
+  flex-shrink: 0;
+}
+.chat-topbar-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.chat-topbar-team {
+  flex: 1;
+  gap: 8px;
+}
+.chat-topbar-team-label {
+  color: var(--color-text-tertiary, #AEAEB2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 600;
+}
+.chat-topbar-agent {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 4px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background 0.15s, transform 0.1s;
+  cursor: default;
+  position: relative;
+}
+.chat-topbar-agent:hover {
+  background: var(--color-bg-softer, #F2F2F7);
+  transform: translateY(-1px);
+}
+.chat-topbar-agent-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px var(--color-bg, #FFFFFF);
+}
+.chat-topbar-agent-dot.online { background: var(--color-success, #34C759); }
+.chat-topbar-agent-dot.offline { background: var(--color-text-tertiary, #AEAEB2); }
+.chat-topbar-agent-dot.busy { background: var(--color-warning, #FF9500); }
+.chat-topbar-agent-name {
+  font-weight: 600;
+  color: var(--color-text-primary, #1C1C1E);
+  font-size: 11px;
+}
+.chat-topbar-agent-role {
+  color: var(--color-text-tertiary, #AEAEB2);
+  font-size: 10px;
+  margin-left: 2px;
+}
+.chat-topbar-model {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 122, 255, 0.08);
+  color: var(--color-primary, #007AFF);
+  font-weight: 600;
+}
+.chat-topbar-model-name {
+  font-size: 11px;
+}
+.chat-topbar-model-tag {
+  background: rgba(0, 122, 255, 0.18);
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.chat-topbar-ws {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(52, 199, 89, 0.10);
+  color: var(--color-success, #2BA84A);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.chat-topbar-ws.disconnected {
+  background: rgba(255, 59, 48, 0.10);
+  color: #FF3B30;
+}
+.chat-topbar-ws-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.chat-topbar-ws-warn {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+  animation: ws-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ws-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+.chat-topbar-ws-ms {
+  font-size: 10px;
+  color: var(--color-text-tertiary, #AEAEB2);
+  margin-left: 1px;
+}
+
+@media (max-width: 767px) {
+  .chat-topbar { padding: 0 12px; height: 28px; font-size: 10px; }
+  .chat-topbar-agent-role { display: none; }
+  .chat-topbar-team-label { display: none; }
+}
 .chat-header-left { display: flex; align-items: center; gap: 10px; }
 .chat-header-v2 .avatar { width: 36px; height: 36px; font-size: 16px; }
 .chat-header-v2 .chat-header-info { display: flex; flex-direction: column; gap: 2px; }
@@ -9597,6 +9735,52 @@ window.doLogin = function () {
 
 <!-- Chat Area -->
 <div class="chat-area" id="chatArea">
+<!-- 顶部状态条 (ui/chat-main-v21-polish: 5 段布局第 1 段 - 团队门面叙事) -->
+<div class="chat-topbar" id="chatTopbar">
+  <div class="chat-topbar-section chat-topbar-team" id="chatTopbarTeam">
+    <span class="chat-topbar-team-label">AI 团队</span>
+    <div class="chat-topbar-agent" data-agent="main">
+      <span class="chat-topbar-agent-dot online"></span>
+      <span class="chat-topbar-agent-name">main</span>
+      <span class="chat-topbar-agent-role">调度</span>
+    </div>
+    <div class="chat-topbar-agent" data-agent="ray">
+      <span class="chat-topbar-agent-dot online"></span>
+      <span class="chat-topbar-agent-name">Ray</span>
+    </div>
+    <div class="chat-topbar-agent" data-agent="shangguan">
+      <span class="chat-topbar-agent-dot online"></span>
+      <span class="chat-topbar-agent-name">婉儿</span>
+    </div>
+    <div class="chat-topbar-agent" data-agent="kongming">
+      <span class="chat-topbar-agent-dot online"></span>
+      <span class="chat-topbar-agent-name">孔明</span>
+    </div>
+    <div class="chat-topbar-agent" data-agent="helen">
+      <span class="chat-topbar-agent-dot online"></span>
+      <span class="chat-topbar-agent-name">Helen</span>
+      <span class="chat-topbar-agent-role">商务</span>
+    </div>
+    <div class="chat-topbar-agent" data-agent="mumu">
+      <span class="chat-topbar-agent-dot online"></span>
+      <span class="chat-topbar-agent-name">木木</span>
+    </div>
+  </div>
+  <div class="chat-topbar-section">
+    <div class="chat-topbar-model" id="chatTopbarModel" title="当前模型">
+      <span class="chat-topbar-model-tag">AI</span>
+      <span class="chat-topbar-model-name" id="chatTopbarModelName">MiniMax</span>
+    </div>
+  </div>
+  <div class="chat-topbar-section">
+    <div class="chat-topbar-ws disconnected" id="chatTopbarWs" title="OpenClaw WS 状态">
+      <span class="chat-topbar-ws-dot"></span>
+      <span id="chatTopbarWsText">未连接</span>
+      <span class="chat-topbar-ws-ms" id="chatTopbarWsMs"></span>
+    </div>
+  </div>
+</div>
+
 <div class="chat-header-v2">
 <div class="chat-header-left">
 <button class="mid-toggle-btn" onclick="toggleMidSidebar()" aria-label="切换列表">
@@ -16134,6 +16318,52 @@ function updateConnectionStatus() {
   else if (isMockMode) statusText = '⚠ Mock 模式（WS 不可达）';
   else statusText = '⚠ 服务未连接';
   if (statusEl) statusEl.textContent = statusText;
+
+  // ★ ui/chat-main-v21-polish: 同步顶部状态条 WS + 模型
+  var topbarWs = document.getElementById('chatTopbarWs');
+  var topbarWsText = document.getElementById('chatTopbarWsText');
+  var topbarWsMs = document.getElementById('chatTopbarWsMs');
+  if (topbarWs && topbarWsText) {
+    if (isOpenClawConnected) {
+      topbarWs.classList.remove('disconnected');
+      topbarWs.classList.add('connected');
+      topbarWsText.textContent = '服务正常';
+      if (topbarWsMs) topbarWsMs.textContent = '· ' + latency + 'ms';
+    } else if (isConnecting) {
+      topbarWs.classList.remove('disconnected');
+      topbarWs.classList.add('connected');
+      topbarWsText.textContent = '连接中';
+      if (topbarWsMs) topbarWsMs.textContent = '';
+    } else if (hasAPIKey) {
+      topbarWs.classList.remove('disconnected');
+      topbarWs.classList.add('connected');
+      topbarWsText.textContent = 'API 模式';
+      if (topbarWsMs) topbarWsMs.textContent = '· ' + latency + 'ms';
+    } else if (isMockMode) {
+      topbarWs.classList.add('disconnected');
+      topbarWs.classList.remove('connected');
+      topbarWsText.textContent = 'Mock';
+      if (topbarWsMs) topbarWsMs.textContent = '';
+    } else {
+      topbarWs.classList.add('disconnected');
+      topbarWs.classList.remove('connected');
+      topbarWsText.textContent = '未连接';
+      if (topbarWsMs) topbarWsMs.textContent = '';
+    }
+  }
+  // 模型名: 从 sb_ai_config 读 primary model, 兜底 'MiniMax'
+  var topbarModelName = document.getElementById('chatTopbarModelName');
+  if (topbarModelName) {
+    var modelName = 'MiniMax';
+    try {
+      var cfg = JSON.parse(localStorage.getItem('sb_ai_config') || '{}');
+      if (cfg.mode === 'kimi' && cfg.model) modelName = 'Kimi ' + cfg.model.replace(/^kimi\//, '');
+      else if (cfg.mode === 'zhipu' && cfg.model) modelName = 'GLM ' + cfg.model.replace(/^zhipu\//, '');
+      else if (cfg.mode === 'openai' && cfg.model) modelName = cfg.model.replace(/^openai\//, '');
+      else if (cfg.model) modelName = String(cfg.model).split('/').pop();
+    } catch (e) { /* 兜底用 MiniMax */ }
+    topbarModelName.textContent = modelName;
+  }
 
   // Update sidebar bottom status to avoid contradiction with connection status bar
   // 配色: 已连接=绿, 连接中=蓝(脉冲), API=橙, Mock=灰, 未连接=红
