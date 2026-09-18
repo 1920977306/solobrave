@@ -518,9 +518,16 @@ def cosine_similarity(a, b):
 # Embedding 缓存（MD5(content) 做 key）
 # ═══════════════════════════════════════════════════
 
-def _get_embedding_cached(content_hash, model):
-    """从 SQLite 缓存读取 embedding"""
-    conn = _db_conn()
+def _get_embedding_cached(content_hash, model, conn=None):
+    """从 SQLite 缓存读取 embedding
+    dev/feat: 接受可选 conn — 与 backfill_embeddings 主循环共用同一 conn,
+    避免短事务 conn 频繁开关 + 锁竞争.
+    """
+    if conn is None:
+        conn = _db_conn()
+        own_conn = True
+    else:
+        own_conn = False
     try:
         row = conn.execute(
             'SELECT embedding FROM embedding_cache WHERE content_hash = ? AND model = ?',
@@ -528,26 +535,38 @@ def _get_embedding_cached(content_hash, model):
         ).fetchone()
         return row['embedding'] if row else None
     finally:
-        conn.close()
+        if own_conn:
+            conn.close()
 
 
-def _save_embedding_cache(content_hash, embedding_bytes, model):
-    """保存 embedding 到 SQLite 缓存"""
-    conn = _db_conn()
+def _save_embedding_cache(content_hash, embedding_bytes, model, conn=None):
+    """保存 embedding 到 SQLite 缓存
+    dev/feat: 接受可选外部 conn — backfill_embeddings 等长事务场景必须传 conn,
+    否则开新 conn INSERT cache 会与外部 conn 的 row lock 冲突导致 database is locked.
+    """
+    if conn is None:
+        conn = _db_conn()
+        own_conn = True
+    else:
+        own_conn = False
     try:
         conn.execute('''
             INSERT OR REPLACE INTO embedding_cache (content_hash, embedding, model, created_at)
             VALUES (?, ?, ?, ?)
         ''', (content_hash, embedding_bytes, model, _now_ms()))
-        conn.commit()
+        if own_conn:
+            conn.commit()
     finally:
-        conn.close()
+        if own_conn:
+            conn.close()
 
 
-def get_embedding_cached(text, api_key, provider, model=None, base_url=None):
+def get_embedding_cached(text, api_key, provider, model=None, base_url=None, conn=None):
     """
     获取 embedding，带 MD5 缓存。
     返回 float list（非 bytes），维度由模型决定（当前约定 1536 维）。
+    dev/feat: 接受可选 conn — backfill_embeddings 等长事务场景传同一 conn,
+    让 cache 写入跟随主 conn commit, 避免多 conn 锁竞争.
     """
     if not text or not text.strip() or not api_key:
         return None
@@ -555,8 +574,8 @@ def get_embedding_cached(text, api_key, provider, model=None, base_url=None):
     model = model or cfg['model']
     content_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
 
-    # 查缓存
-    cached_bytes = _get_embedding_cached(content_hash, model)
+    # 查缓存 (复用 conn, 没传时用 _db_conn 一次)
+    cached_bytes = _get_embedding_cached(content_hash, model, conn=conn)
     if cached_bytes:
         import struct
         return list(struct.unpack(f'{len(cached_bytes)//4}f', cached_bytes))
@@ -566,7 +585,7 @@ def get_embedding_cached(text, api_key, provider, model=None, base_url=None):
     if emb:
         import struct
         emb_bytes = struct.pack(f'{len(emb)}f', *emb)
-        _save_embedding_cache(content_hash, emb_bytes, model)
+        _save_embedding_cache(content_hash, emb_bytes, model, conn=conn)
         return emb
     return None
 
@@ -769,8 +788,9 @@ def backfill_embeddings(emp_id=None, force=False, batch_size=50, on_progress=Non
                     target_errors.append((row_id, 'empty content'))
                     continue
                 try:
+                    # dev/feat: 传 conn 让 cache 写入复用主 conn, 避免与外部 SELECT/UPDATE 锁竞争
                     emb = get_embedding_cached(content, api_key, provider,
-                                                embedding_model, base_url=base_url)
+                                                embedding_model, base_url=base_url, conn=conn)
                     if not emb:
                         target_failed += 1
                         target_errors.append((row_id, 'embedding API returned None'))
