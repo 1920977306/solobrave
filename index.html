@@ -9027,6 +9027,7 @@ window.doLogin = function () {
   gap: 6px;
   transition: border-color 0.15s, transform 0.1s, box-shadow 0.15s;
   cursor: pointer;
+  position: relative; /* ★ ui/selection-dashboard-v21-linkage: focus badge 锚点 */
 }
 .selection-card:hover {
   border-color: var(--color-primary, #007AFF);
@@ -9089,6 +9090,47 @@ window.doLogin = function () {
   padding: 24px 8px;
   text-align: center;
 }
+
+/* ─── 联动聚焦状态条 (ui/selection-dashboard-v21-linkage) ─── */
+.dash-focus-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(0,122,255,0.08), rgba(0,122,255,0.04));
+  border: 0.5px solid rgba(0,122,255,0.25);
+  font: 500 12px/1.4 -apple-system, sans-serif;
+  color: var(--color-text-primary, #1C1C1E);
+}
+.dash-focus-icon { font-size: 14px; }
+.dash-focus-label { color: var(--color-text-tertiary, #AEAEB2); font-weight: 400; }
+.dash-focus-name { font-weight: 600; color: var(--color-brand, #007AFF); }
+.dash-focus-hint { flex: 1; color: var(--color-text-tertiary, #AEAEB2); font-weight: 400; font-size: 11px; }
+.dash-focus-clear {
+  background: rgba(0,0,0,0.04);
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: 500 11px/1 -apple-system, sans-serif;
+  color: var(--color-text-secondary, #3C3C43);
+  cursor: pointer;
+}
+.dash-focus-clear:hover { background: rgba(0,0,0,0.08); }
+
+/* 联动聚焦态卡片高亮 */
+.selection-card.focused {
+  border-color: var(--color-brand, #007AFF);
+  background: rgba(0,122,255,0.04);
+  box-shadow: 0 0 0 1px var(--color-brand, #007AFF);
+}
+.selection-card.focused::before {
+  content: '🎯';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 11px;
+}
 </style>
 
 <div id="selectionDashboard" class="selection-overlay" hidden>
@@ -9143,6 +9185,15 @@ window.doLogin = function () {
       </div>
     </div>
 
+    <!-- 联动聚焦状态条 (选中某实体后显示) -->
+    <div id="dashFocusBar" class="dash-focus-bar" hidden>
+      <span class="dash-focus-icon">🎯</span>
+      <span class="dash-focus-label">已聚焦：</span>
+      <span class="dash-focus-name" id="dashFocusName">—</span>
+      <span class="dash-focus-hint" id="dashFocusHint">其他列已切换为关联实体。再点原卡片可查看详情。</span>
+      <button class="dash-focus-clear" onclick="clearDashFocus()" title="清除聚焦">✕ 清除</button>
+    </div>
+
     <!-- 3 列看板 -->
     <div class="selection-board">
       <!-- 列 1: 达人 -->
@@ -9187,7 +9238,7 @@ window.doLogin = function () {
   </div>
 </div>
 
-<script>/* ui/selection-dashboard-v21: 看板数据加载 + 显示 */
+<script>/* ui/selection-dashboard-v21: 看板数据加载 + 显示 + 联动聚焦 */
 (function () {
   // Esc 关闭
   document.addEventListener('keydown', function (e) {
@@ -9197,10 +9248,18 @@ window.doLogin = function () {
     }
   });
 
+  // ★ ui/selection-dashboard-v21-linkage: 看板聚焦状态 + 缓存全量数据
+  var _dashState = {
+    selected: null,  // { type:'talent'|'brand'|'product', id, name }
+    cache: { talents: [], brands: [], products: [] }
+  };
+
   window.openSelectionDashboard = function () {
     var dash = document.getElementById('selectionDashboard');
     if (!dash) return;
     dash.hidden = false;
+    // 每次打开都重置聚焦, 避免上次残留
+    _dashState.selected = null;
     loadSelectionData();
   };
 
@@ -9215,9 +9274,17 @@ window.doLogin = function () {
     showToast && showToast('品牌库嵌在商品管理里, 跳转中', 'info');
   };
 
+  // ★ 联动聚焦：清空 → 恢复默认三列
+  window.clearDashFocus = function () {
+    _dashState.selected = null;
+    _refreshDashColumns();
+    var bar = document.getElementById('dashFocusBar');
+    if (bar) bar.hidden = true;
+    if (typeof showToast === 'function') showToast('✦ 已清除聚焦');
+  };
+
   // 数据加载 + 渲染
   function loadSelectionData() {
-    // 并行 3 个 API (auth token 从 localStorage sb_auth_token 取)
     var tok = localStorage.getItem('sb_auth_token') || '';
     var headers = tok ? { 'Authorization': 'Bearer ' + tok } : {};
 
@@ -9229,13 +9296,71 @@ window.doLogin = function () {
       var talents = results[0].talents || results[0] || [];
       var products = results[1].products || results[1] || [];
       var brands = results[2].brands || results[2] || [];
+      _dashState.cache = { talents: talents, brands: brands, products: products };
       renderKpi(talents, brands, products);
-      renderColTalents(talents);
-      renderColBrands(brands);
-      renderColProducts(products);
+      _refreshDashColumns();
     }).catch(function (e) {
       console.error('[selection-dashboard] load failed', e);
     });
+  }
+
+  // ★ 联动核心：根据 selected 状态决定三列内容
+  function _refreshDashColumns() {
+    var sel = _dashState.selected;
+    var cache = _dashState.cache;
+    if (!sel) {
+      renderColTalents(cache.talents, null);
+      renderColBrands(cache.brands, null);
+      renderColProducts(cache.products, null);
+      return;
+    }
+    // 自身列保持原始列表 + 高亮选中卡片
+    if (sel.type === 'talent') {
+      renderColTalents(cache.talents, sel.id);
+      // 其他两列通过 /api/dashboard/linkage 拉取
+      _loadLinkage(sel, 'talent', function (data) {
+        renderColBrands(data.brands || [], null);
+        renderColProducts(data.products || [], null);
+      });
+    } else if (sel.type === 'brand') {
+      renderColBrands(cache.brands, sel.id);
+      _loadLinkage(sel, 'brand', function (data) {
+        renderColTalents(data.talents || [], null);
+        renderColProducts(data.products || [], null);
+      });
+    } else if (sel.type === 'product') {
+      renderColProducts(cache.products, sel.id);
+      _loadLinkage(sel, 'product', function (data) {
+        renderColTalents(data.talents || [], null);
+        renderColBrands(data.brands || [], null);
+      });
+    }
+    // 显示聚焦状态条
+    var bar = document.getElementById('dashFocusBar');
+    var nm = document.getElementById('dashFocusName');
+    if (bar) bar.hidden = false;
+    if (nm) nm.textContent = sel.name + ' (' + (sel.type === 'talent' ? '达人' : sel.type === 'brand' ? '品牌' : '商品') + ')';
+  }
+
+  // 拉取联动数据 (防御：失败也走默认列)
+  function _loadLinkage(sel, type, cb) {
+    var tok = localStorage.getItem('sb_auth_token') || '';
+    var headers = tok ? { 'Authorization': 'Bearer ' + tok } : {};
+    fetch('/api/dashboard/linkage?type=' + type + '&id=' + encodeURIComponent(sel.id), {
+      headers: headers
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) {
+          if (typeof showToast === 'function') showToast('⚠ 联动数据为空');
+          return;
+        }
+        cb(data);
+      })
+      .catch(function (e) {
+        console.error('[linkage] fetch failed', e);
+        if (typeof showToast === 'function') showToast('❌ 联动查询失败');
+      });
   }
 
   function renderKpi(talents, brands, products) {
@@ -9267,19 +9392,25 @@ window.doLogin = function () {
     setText('kpiProductsLinked', pLinked);
   }
 
-  function renderColTalents(talents) {
+  // ★ 联动聚焦：卡片的 onclick 改为先聚焦，第二次同卡才跳转
+  function renderColTalents(talents, focusedId) {
     setText('colTalentsCount', talents.length);
     var html = '';
     if (!talents.length) { html = '<div class="selection-empty">暂无达人</div>'; }
     else {
       talents.slice(0, 6).forEach(function (t) {
-        // ★ 字段修正: ai_rating (优先) / rating_score / ai_summary (从 bio 取)
         var rating = t.ai_rating || t.rating_score || '';
         var ratingStr = rating ? '★ ' + (typeof rating === 'number' ? rating.toFixed(1) : rating) : '';
         var followers = formatNum(t.followers);
         var cat = t.category || t.main_category || '';
         var status = t.cooperation_status || t.status || '';
-        html += '<div class="selection-card" onclick="closeSelectionDashboard(); switchModule(\'influencers\'); setTimeout(function(){ if(typeof selectTalentItem===\'function\')selectTalentItem(\'' + escapeAttr(t.id || '') + '\'); }, 80);">' +
+        var focused = (focusedId && t.id === focusedId) ? ' focused' : '';
+        var navFn = 'closeSelectionDashboard(); switchModule(\'influencers\'); setTimeout(function(){ if(typeof selectTalentItem===\'function\')selectTalentItem(\'' + escapeAttr(t.id || '') + '\'); }, 80);';
+        // ★ 联动行为：第 1 次点击 → 聚焦；已聚焦则 → 跳转
+        var onclickJs = focused
+          ? navFn
+          : 'focusDashEntity(\'talent\', \'' + escapeAttr(t.id) + '\', \'' + escapeAttr(t.name || '') + '\');';
+        html += '<div class="selection-card' + focused + '" onclick="' + onclickJs + '">' +
           '<div class="selection-card-name">' + escapeHtml(t.name || t.display_name || '未命名') + '</div>' +
           '<div class="selection-card-meta">' + followers + ' 粉丝 · ' + escapeHtml(cat || '未分类') + '</div>' +
           '<div class="selection-card-chips">' +
@@ -9292,17 +9423,21 @@ window.doLogin = function () {
     document.getElementById('colTalentsList').innerHTML = html;
   }
 
-  function renderColBrands(brands) {
+  function renderColBrands(brands, focusedId) {
     setText('colBrandsCount', brands.length);
     var html = '';
     if (!brands.length) { html = '<div class="selection-empty">暂无品牌</div>'; }
     else {
       brands.slice(0, 6).forEach(function (b) {
-        // ★ 字段修正: 只有 main_category, 没有 category
         var cat = b.main_category || b.category || '';
         var count = b.total_products || 0;
         var talentCount = b.total_talents || 0;
-        html += '<div class="selection-card" onclick="closeSelectionDashboard(); openBrandLibrary();">' +
+        var focused = (focusedId && b.id === focusedId) ? ' focused' : '';
+        var navFn = 'closeSelectionDashboard(); openBrandLibrary();';
+        var onclickJs = focused
+          ? navFn
+          : 'focusDashEntity(\'brand\', \'' + escapeAttr(b.id) + '\', \'' + escapeAttr(b.name || '') + '\');';
+        html += '<div class="selection-card' + focused + '" onclick="' + onclickJs + '">' +
           '<div class="selection-card-name">' + escapeHtml(b.name || '未命名') + '</div>' +
           '<div class="selection-card-meta">' + escapeHtml(cat || '未分类') + ' · ' + count + ' 个商品' + (talentCount ? ' · ' + talentCount + ' 达人' : '') + '</div>' +
           '<div class="selection-card-chips">' +
@@ -9315,7 +9450,7 @@ window.doLogin = function () {
     document.getElementById('colBrandsList').innerHTML = html;
   }
 
-  function renderColProducts(products) {
+  function renderColProducts(products, focusedId) {
     setText('colProductsCount', products.length);
     var html = '';
     if (!products.length) { html = '<div class="selection-empty">暂无商品</div>'; }
@@ -9323,7 +9458,12 @@ window.doLogin = function () {
       products.slice(0, 6).forEach(function (p) {
         var cat = (p.category || p.main_category || '').toString();
         var price = p.price || p.suggest_price || '';
-        html += '<div class="selection-card" onclick="closeSelectionDashboard(); switchModule(\'products\'); setTimeout(function(){ if(typeof selectProductItem===\'function\')selectProductItem(\'' + escapeAttr(p.id || '') + '\'); }, 80);">' +
+        var focused = (focusedId && p.id === focusedId) ? ' focused' : '';
+        var navFn = 'closeSelectionDashboard(); switchModule(\'products\'); setTimeout(function(){ if(typeof selectProductItem===\'function\')selectProductItem(\'' + escapeAttr(p.id || '') + '\'); }, 80);';
+        var onclickJs = focused
+          ? navFn
+          : 'focusDashEntity(\'product\', \'' + escapeAttr(p.id) + '\', \'' + escapeAttr(p.name || '') + '\');';
+        html += '<div class="selection-card' + focused + '" onclick="' + onclickJs + '">' +
           '<div class="selection-card-name">' + escapeHtml(p.name || p.title || '未命名') + '</div>' +
           '<div class="selection-card-meta">' + escapeHtml(cat || '未分类') + (price ? ' · ¥' + price : '') + '</div>' +
           '<div class="selection-card-chips">' +
@@ -9334,6 +9474,13 @@ window.doLogin = function () {
     }
     document.getElementById('colProductsList').innerHTML = html;
   }
+
+  // ★ 联动聚焦：global 函数 (onclick 引用)
+  window.focusDashEntity = function (type, id, name) {
+    if (!id) return;
+    _dashState.selected = { type: type, id: id, name: name || id };
+    _refreshDashColumns();
+  };
 
   function setText(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; }
   function escapeHtml(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }

@@ -7104,6 +7104,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/products/sync-feishu':
             self._handle_sync_feishu_products()
             return
+        if path == '/api/dashboard/linkage':
+            self._handle_get_dashboard_linkage()
+            return
         if path.startswith('/api/products/'):
             rest = path[len('/api/products/'):]
             if rest:
@@ -18505,6 +18508,208 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             conn.close()
         self._send_json(200, {'talent_id': talent_id, 'products': products, 'total': len(products)})
+
+    def _handle_get_dashboard_linkage(self):
+        """GET /api/dashboard/linkage?type=talent|brand|product&id=xxx
+        返回选品看板"真联动"所需的三类关联实体。
+        策略（按富度降级）：
+        - talent:  ① product_talent_match JOIN ② talents.top_brands/top_products 名称匹配 ③ products.influencers JSON
+        - brand:   ① 直接 products WHERE brand_id/brand=② talents.top_brands 名称包含
+        - product: ① product_talent_match JOIN ② products.influencers JSON ③ talents.top_products 名称包含
+        返回空数组表示无关联（不报错）。
+        """
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        query = parse_qs(urlparse(self.path).query)
+        ent_type = (query.get('type', [''])[0] or '').strip().lower()
+        ent_id = (query.get('id', [''])[0] or '').strip()
+        if ent_type not in ('talent', 'brand', 'product'):
+            self._send_json_error(400, 'type must be talent|brand|product')
+            return
+        if not ent_id:
+            self._send_json_error(400, 'id is required')
+            return
+        # 防御式：按需模块权限（dashboard 是只读聚合，放宽到登录即可）
+        if not _has_module_permission(auth, 'dashboard'):
+            # 退而求其次：任一相关模块
+            ok = any(_has_module_permission(auth, m) for m in ('influencers', 'products'))
+            if not ok:
+                self._send_json_error(403, 'No module permission')
+                return
+
+        conn = _db_conn()
+        try:
+            related_talents = []
+            related_brands = []
+            related_products = []
+
+            if ent_type == 'talent':
+                # ① product_talent_match
+                rows = conn.execute('''
+                    SELECT p.* FROM products p
+                    JOIN product_talent_match ptm ON p.id = ptm.product_id
+                    WHERE ptm.talent_id = ? AND p.status = 'active'
+                    LIMIT 50
+                ''', (ent_id,)).fetchall()
+                for r in rows:
+                    related_products.append(_product_row_to_dict(r))
+                # ② talents.top_brands / top_products 名称匹配
+                t_row = conn.execute('SELECT top_brands, top_products, name FROM talents WHERE id = ?', (ent_id,)).fetchone()
+                if t_row:
+                    top_brands_raw = t_row['top_brands']
+                    top_products_raw = t_row['top_products']
+                    talent_name = t_row['name'] or ''
+                    try:
+                        top_brands = json.loads(top_brands_raw) if top_brands_raw else []
+                    except Exception:
+                        top_brands = []
+                    try:
+                        top_products = json.loads(top_products_raw) if top_products_raw else []
+                    except Exception:
+                        top_products = []
+                    brand_names = [b.get('name', '') for b in top_brands if b.get('name')]
+                    product_names = [p.get('name', '') for p in top_products if p.get('name')]
+                    # 关联品牌
+                    if brand_names:
+                        placeholders = ','.join('?' * len(brand_names))
+                        b_rows = conn.execute(f'SELECT * FROM brands WHERE name IN ({placeholders}) LIMIT 30', brand_names).fetchall()
+                        for r in b_rows:
+                            related_brands.append(_brand_row_to_dict(r))
+                        # 没匹配到品牌表的，从 top_brands JSON 构造虚拟卡片
+                        matched_b_names = {b.get('name') for b in related_brands}
+                        for b in top_brands:
+                            nm = b.get('name', '')
+                            if nm and nm not in matched_b_names:
+                                related_brands.append({
+                                    'id': f'synthetic_brand_{nm[:20]}',
+                                    'name': nm,
+                                    'main_category': '',
+                                    'shop_type': '',
+                                    'total_products': 0,
+                                    'total_talents': 0,
+                                    'avg_commission': 0,
+                                    '_synthetic': True,
+                                    'avg_price': b.get('avg_price', ''),
+                                    'gmv': b.get('gmv', ''),
+                                })
+                    # 关联商品
+                    if product_names:
+                        placeholders = ','.join('?' * len(product_names))
+                        p_rows = conn.execute(f'SELECT * FROM products WHERE name IN ({placeholders}) LIMIT 30', product_names).fetchall()
+                        for r in p_rows:
+                            related_products.append(_product_row_to_dict(r))
+                        matched_p_names = {p.get('name') for p in related_products if not p.get('id', '').startswith('synthetic_')}
+                        for p in top_products:
+                            nm = p.get('name', '')
+                            if nm and nm not in matched_p_names:
+                                related_products.append({
+                                    'id': f'synthetic_product_{nm[:20]}',
+                                    'name': nm,
+                                    'brand': p.get('shop_name') or '',
+                                    'price': p.get('price', ''),
+                                    'main_image': '',
+                                    'category': '',
+                                    'status': 'active',
+                                    '_synthetic': True,
+                                    'gmv_range': p.get('gmv_range', ''),
+                                    'video_count': p.get('video_count', 0),
+                                })
+
+            elif ent_type == 'brand':
+                # ① 直接通过 brand_id 或 brand 名称查 products
+                b_row = conn.execute('SELECT name FROM brands WHERE id = ?', (ent_id,)).fetchone()
+                brand_name = b_row['name'] if b_row else ''
+                if not brand_name:
+                    # 退化：从产品反查品牌名
+                    p_name = conn.execute('SELECT brand FROM products WHERE brand_id = ? LIMIT 1', (ent_id,)).fetchone()
+                    brand_name = p_name['brand'] if p_name and p_name['brand'] else ''
+                p_rows = conn.execute('SELECT * FROM products WHERE brand_id = ? OR brand = ? LIMIT 50', (ent_id, brand_name)).fetchall()
+                for r in p_rows:
+                    related_products.append(_product_row_to_dict(r))
+                # ② talents.top_brands 含此品牌名
+                if brand_name:
+                    rows = conn.execute("SELECT * FROM talents WHERE top_brands LIKE ? LIMIT 50", (f'%{brand_name}%',)).fetchall()
+                    for r in rows:
+                        td = _talent_row_to_dict(r)
+                        related_talents.append(td)
+
+            elif ent_type == 'product':
+                # ① product_talent_match
+                rows = conn.execute('''
+                    SELECT t.*, ptm.match_score, ptm.sales_volume FROM talents t
+                    JOIN product_talent_match ptm ON t.id = ptm.talent_id
+                    WHERE ptm.product_id = ? AND t.status = 'active'
+                    LIMIT 50
+                ''', (ent_id,)).fetchall()
+                for r in rows:
+                    related_talents.append(_talent_row_to_dict(r))
+                # ② products.influencers JSON
+                p_row = conn.execute('SELECT influencers, brand, brand_id, name FROM products WHERE id = ?', (ent_id,)).fetchone()
+                if p_row:
+                    try:
+                        infls = json.loads(p_row['influencers']) if p_row['influencers'] else []
+                    except Exception:
+                        infls = []
+                    for inf in infls:
+                        inf_id = inf.get('id') if isinstance(inf, dict) else None
+                        if inf_id:
+                            existing_ids = {t.get('id') for t in related_talents}
+                            if inf_id not in existing_ids:
+                                tr = conn.execute('SELECT * FROM talents WHERE id = ?', (inf_id,)).fetchone()
+                                if tr:
+                                    related_talents.append(_talent_row_to_dict(tr))
+                    # 关联品牌
+                    if p_row['brand_id']:
+                        br = conn.execute('SELECT * FROM brands WHERE id = ?', (p_row['brand_id'],)).fetchone()
+                        if br:
+                            related_brands.append(_brand_row_to_dict(br))
+                    elif p_row['brand']:
+                        br = conn.execute('SELECT * FROM brands WHERE name = ? LIMIT 1', (p_row['brand'],)).fetchone()
+                        if br:
+                            related_brands.append(_brand_row_to_dict(br))
+                # ③ talents.top_products 含此商品名
+                p_name = p_row['name'] if p_row else ''
+                if p_name:
+                    rows = conn.execute("SELECT * FROM talents WHERE top_products LIKE ? LIMIT 50", (f'%{p_name}%',)).fetchall()
+                    existing_ids = {t.get('id') for t in related_talents}
+                    for r in rows:
+                        td = _talent_row_to_dict(r)
+                        if td.get('id') not in existing_ids:
+                            related_talents.append(td)
+
+            # 去重
+            seen_t = set(); dedup_t = []
+            for t in related_talents:
+                tid = t.get('id')
+                if tid and tid not in seen_t:
+                    seen_t.add(tid); dedup_t.append(t)
+            seen_b = set(); dedup_b = []
+            for b in related_brands:
+                bid = b.get('id')
+                if bid and bid not in seen_b:
+                    seen_b.add(bid); dedup_b.append(b)
+            seen_p = set(); dedup_p = []
+            for p in related_products:
+                pid = p.get('id')
+                if pid and pid not in seen_p:
+                    seen_p.add(pid); dedup_p.append(p)
+
+            self._send_json(200, {
+                'type': ent_type,
+                'id': ent_id,
+                'talents': dedup_t,
+                'brands': dedup_b,
+                'products': dedup_p,
+                'counts': {
+                    'talents': len(dedup_t),
+                    'brands': len(dedup_b),
+                    'products': len(dedup_p),
+                },
+            })
+        finally:
+            conn.close()
 
     def _handle_match_product_talents(self, product_id):
         """POST /api/products/:id/match-talents — AI语义匹配推荐达人"""
