@@ -120,6 +120,10 @@ def _db_conn(timeout=30):
     dev/feat: 修复 _db_conn 用 ks.DBPATH (None) 的 bug —
     单独运行 knowledge_service 时 DB_PATH=None 会报错.
     fallback: import solobrave_server 用它的 _db_conn (它用真正的 DB_PATH).
+
+    dev/feat: knowledge_chunks 修复 — 显式 PRAGMA foreign_keys=ON
+    SQLite 默认 OFF, 即使表定义了 FOREIGN KEY ... ON DELETE CASCADE 也不生效.
+    必须在每个 conn 上开启, 否则 knowledge 删除时不会级联删 chunks (历史 122 orphan 根因).
     """
     if DB_PATH is None:
         try:
@@ -134,11 +138,13 @@ def _db_conn(timeout=30):
             conn.row_factory = sqlite3.Row
             conn.execute('PRAGMA journal_mode=WAL;')
             conn.execute(f'PRAGMA busy_timeout={timeout * 1000};')
+            conn.execute('PRAGMA foreign_keys = ON;')
             return conn
     conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=timeout)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL;')
     conn.execute(f'PRAGMA busy_timeout={timeout * 1000};')
+    conn.execute('PRAGMA foreign_keys = ON;')
     return conn
 
 
@@ -985,10 +991,12 @@ def init_db():
         conn.execute('CREATE INDEX IF NOT EXISTS idx_knowledge_team_id ON knowledge(team_id)')
 
         # 分段表
+        # dev/feat: knowledge_chunks 修复 — knowledge_id 加 FOREIGN KEY ON DELETE CASCADE
+        # 防止 knowledge 删除时遗留 orphan chunks (历史 122 orphan 已清理).
         conn.execute('''
             CREATE TABLE IF NOT EXISTS knowledge_chunks (
                 id TEXT PRIMARY KEY,
-                knowledge_id TEXT NOT NULL,
+                knowledge_id TEXT NOT NULL REFERENCES knowledge(id) ON DELETE CASCADE,
                 emp_id TEXT NOT NULL,
                 chunk_index INTEGER,
                 content TEXT NOT NULL,

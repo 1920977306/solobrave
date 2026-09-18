@@ -2864,12 +2864,17 @@ def format_rag_context(docs, products):
 # ═══════════════════════════════════════════════════
 
 def _db_conn():
-    """获取 SQLite 数据库连接（线程安全，启用 WAL + 同步模式 NORMAL + 忙等待 5000ms）"""
+    """获取 SQLite 数据库连接（线程安全，启用 WAL + 同步模式 NORMAL + 忙等待 5000ms）
+    dev/feat: knowledge_chunks 修复 — 显式 PRAGMA foreign_keys=ON
+    SQLite 默认 OFF, 即使表定义了 FOREIGN KEY ... ON DELETE CASCADE 也不生效.
+    必须在每个 conn 上开启, 否则 knowledge 删除时不会级联删 chunks (历史 122 orphan 根因).
+    """
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL;')
     conn.execute('PRAGMA synchronous=NORMAL;')
     conn.execute('PRAGMA busy_timeout=5000;')
+    conn.execute('PRAGMA foreign_keys=ON;')
     return conn
 
 
