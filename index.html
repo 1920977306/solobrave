@@ -918,6 +918,12 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   font-size: 11px;
   font-weight: 600;
 }
+/* ui/products-avatar-color: 月销 = 0 时的诚实占位,无 sparkline,字色更淡 */
+.products-mid-card-sales-trend-empty {
+  color: var(--color-text-tertiary, #AEAEB2);
+  opacity: 0.65;
+  font-weight: 400;
+}
 .products-mid-card-influencers {
   font-size: 12px;
   color: var(--color-text-tertiary, #AEAEB2);
@@ -26531,13 +26537,20 @@ function renderProductList(products) {
     html += '<span class="products-mid-card-commission' + (commissionUnset ? '' : ' commission-set') + '">' + commissionDisplay + '</span>';
     html += '</div>';
     // ui/products-avatar-color: 月销旁加 sparkline + trend ▲▼ — 跟 talent/products-detail KPI 卡一致
-    var _salesArr = _sparkFromSeedP(p.monthly_sales || (p.id ? String(p.id).length * 17 + 7 : 0), 7);
-    var _salesTrend = _trendFromArrP(_salesArr);
-    var _salesColor = _salesTrend.dir > 0 ? 'var(--color-rating-a, #34C759)' : (_salesTrend.dir < 0 ? 'var(--color-status-lost, #FF3B30)' : 'var(--color-text-tertiary, #AEAEB2)');
-    var _trendIcon = _salesTrend.dir > 0 ? '▲' : (_salesTrend.dir < 0 ? '▼' : '·');
+    // 月销 = 0 时不画假 sparkline / 不伪造 trend,直接 "· 暂无趋势" 诚实占位
     html += '<div class="products-mid-card-sales-row">';
     html += '<span class="products-mid-card-sales">月销 ' + formatNumber(p.monthly_sales || 0) + '</span>';
-    html += '<span class="products-mid-card-sales-trend" style="color:' + _salesColor + '">' + _renderSparkSVGP(_salesArr, { w: 36, h: 14, color: _salesColor }) + '<span class="products-mid-card-sales-trend-num">' + _trendIcon + ' ' + _salesTrend.pct + '%</span></span>';
+    if (p.monthly_sales > 0) {
+      // seed = sales 主项 + id 偏置,同销量的不同商品 sparkline 不会完全重合
+      var _seed = (Number(p.monthly_sales) * 1000) + (p.id ? String(p.id).length * 17 + 7 : 0);
+      var _salesArr = _sparkFromSeedP(_seed, 7);
+      var _salesTrend = _trendFromArrP(_salesArr);
+      var _salesColor = _salesTrend.dir > 0 ? 'var(--color-rating-a, #34C759)' : (_salesTrend.dir < 0 ? 'var(--color-status-lost, #FF3B30)' : 'var(--color-text-tertiary, #AEAEB2)');
+      var _trendIcon = _salesTrend.dir > 0 ? '▲' : (_salesTrend.dir < 0 ? '▼' : '·');
+      html += '<span class="products-mid-card-sales-trend" style="color:' + _salesColor + '">' + _renderSparkSVGP(_salesArr, { w: 36, h: 14, color: _salesColor }) + '<span class="products-mid-card-sales-trend-num">' + _trendIcon + ' ' + _salesTrend.pct + '%</span></span>';
+    } else {
+      html += '<span class="products-mid-card-sales-trend products-mid-card-sales-trend-empty"><span class="products-mid-card-sales-trend-num">· 暂无趋势</span></span>';
+    }
     html += '<span class="products-mid-card-influencers">' + (p.influencer_count || 0) + '位达人带货</span>';
     html += '<span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status) + '</span>';
     html += '</div></div></div></div>';
