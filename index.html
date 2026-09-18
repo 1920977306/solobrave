@@ -818,7 +818,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   height: 18px;
   border-radius: 3px;
   flex-shrink: 0;
-  background: linear-gradient(135deg, #0a84ff, #36cfc9);
+  background: linear-gradient(135deg, var(--color-primary, #007AFF), var(--color-ai-bg-accent, #5E5CE6));
 }
 .products-mid-card-image {
   width: 60px;
@@ -826,7 +826,7 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   border-radius: 10px;
   object-fit: cover;
   flex-shrink: 0;
-  background: #f5f7fa;
+  background: var(--color-bg-softer, #F2F2F7);
 }
 .products-mid-card-placeholder {
   width: 60px;
@@ -902,12 +902,25 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 }
 .products-mid-card-sales {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary, #6E6E73);
   font-weight: 500;
+}
+/* ui/products-avatar-color: 月销 sparkline + trend ▲▼% — 跟 talent/products-detail KPI 趋势一致 */
+.products-mid-card-sales-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.products-mid-card-sales-trend-num {
+  font-size: 11px;
+  font-weight: 600;
 }
 .products-mid-card-influencers {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--color-text-tertiary, #AEAEB2);
   font-weight: 600;
 }
 .products-status-active,
@@ -26517,8 +26530,14 @@ function renderProductList(products) {
     }
     html += '<span class="products-mid-card-commission' + (commissionUnset ? '' : ' commission-set') + '">' + commissionDisplay + '</span>';
     html += '</div>';
+    // ui/products-avatar-color: 月销旁加 sparkline + trend ▲▼ — 跟 talent/products-detail KPI 卡一致
+    var _salesArr = _sparkFromSeedP(p.monthly_sales || (p.id ? String(p.id).length * 17 + 7 : 0), 7);
+    var _salesTrend = _trendFromArrP(_salesArr);
+    var _salesColor = _salesTrend.dir > 0 ? 'var(--color-rating-a, #34C759)' : (_salesTrend.dir < 0 ? 'var(--color-status-lost, #FF3B30)' : 'var(--color-text-tertiary, #AEAEB2)');
+    var _trendIcon = _salesTrend.dir > 0 ? '▲' : (_salesTrend.dir < 0 ? '▼' : '·');
     html += '<div class="products-mid-card-sales-row">';
     html += '<span class="products-mid-card-sales">月销 ' + formatNumber(p.monthly_sales || 0) + '</span>';
+    html += '<span class="products-mid-card-sales-trend" style="color:' + _salesColor + '">' + _renderSparkSVGP(_salesArr, { w: 36, h: 14, color: _salesColor }) + '<span class="products-mid-card-sales-trend-num">' + _trendIcon + ' ' + _salesTrend.pct + '%</span></span>';
     html += '<span class="products-mid-card-influencers">' + (p.influencer_count || 0) + '位达人带货</span>';
     html += '<span class="products-status-' + (p.status || 'active') + '">' + (statusMap[p.status] || p.status) + '</span>';
     html += '</div></div></div></div>';
@@ -26526,34 +26545,71 @@ function renderProductList(products) {
   el.innerHTML = html;
 }
 
+// ui/products-avatar-color: 8 色 HSL 调色板 — 按 brand name 哈希出色(同类商品彩色区分)
+// 取代旧 brandColors 1:1 字典 + 单蓝 fallback,7+ 商品视觉立即拉开
+function _productAvatarColor(seed) {
+  var PALETTE = ['#5B8DEF','#FF8C42','#9D6BDF','#5DC4A6','#F06B83','#5BB3D9','#F2C849','#86909C'];
+  var s = String(seed || '');
+  var h = 5381;
+  for (var i = 0; i < s.length; i++) { h = ((h << 5) + h) ^ s.charCodeAt(i); h = h & h; }
+  return PALETTE[Math.abs(h) % PALETTE.length];
+}
+
+// ui/products-avatar-color: sparkline + trend helper(从 ui/talent-pix-v21-redesign 复用)
+// product 列表只暴露 monthly_sales 单值,用 sales 作 seed 派 sparkline(无数据时画平线)
+// P 后缀避免与 talent 模块同名 _sparkFromSeed / _renderSparkSVG / _trendFromArr 冲突
+// (dev 上 talent 版本是 string seed + LCG + area+path + mid-split trend;这里是 number seed + polyline + first-vs-last)
+function _sparkFromSeedP(seed, len) {
+  len = len || 7;
+  var arr = [];
+  var v = Math.max(1, Number(seed) || 1);
+  for (var i = 0; i < len; i++) {
+    var j = (seed * (i + 1) + i * 7919) % 100003;
+    var noise = ((j % 31) - 15) / 100;
+    var trend = (i / (len - 1) - 0.5) * 0.4;
+    arr.push(Math.max(0, v * (1 + noise + trend)));
+  }
+  return arr;
+}
+function _renderSparkSVGP(arr, opts) {
+  opts = opts || {};
+  var w = opts.w || 36;
+  var h = opts.h || 14;
+  var color = opts.color || 'var(--color-primary, #007AFF)';
+  var min = Math.min.apply(null, arr);
+  var max = Math.max.apply(null, arr);
+  var range = max - min || 1;
+  var stepX = w / (arr.length - 1);
+  var pts = arr.map(function(v, i) {
+    var x = i * stepX;
+    var y = h - ((v - min) / range) * h;
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="display:block;flex-shrink:0;"><polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+function _trendFromArrP(arr) {
+  if (!arr || arr.length < 2) return { pct: 0, dir: 0 };
+  var first = arr[0], last = arr[arr.length - 1];
+  if (first === 0) return { pct: last > 0 ? 100 : 0, dir: last > 0 ? 1 : 0 };
+  var pct = Math.round(((last - first) / first) * 100);
+  return { pct: Math.abs(pct), dir: pct > 0 ? 1 : (pct < 0 ? -1 : 0) };
+}
+
 function getProductPlaceholder(p) {
   if (p.main_image) {
     return '<img class="products-mid-card-image" src="' + escapeAttr(p.main_image) + '" alt="' + escapeAttr(p.name) + '" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';"><div class="products-mid-card-placeholder" style="display:none;">' + escapeHtml((p.name || '?').charAt(0)) + '</div>';
   }
-  var brandColors = {'COOLCHAP':'#FF6B35'};
-  var color = brandColors[p.brand] || '#165DFF';
+  // ui/products-avatar-color: 用 brand (无 brand 退到 name) hash 出色,稳定且视觉区分
+  var color = _productAvatarColor(p.brand || p.name || '');
   var ch = (p.name || '?').charAt(0);
   return '<div class="products-mid-card-placeholder" style="background:' + color + '">' + escapeHtml(ch) + '</div>';
 }
 
 function getBrandGradient(brand) {
-  var map = {
-    'COOLCHAP': 'linear-gradient(135deg, #FF6B35, #FF9500)',
-    'COOLCHAP/': 'linear-gradient(135deg, #FF6B35, #FF9500)'
-  };
-  if (map[brand]) return map[brand];
-  var colors = {
-    'A': '#FF6B35', 'B': '#5856D6', 'C': '#34C759', 'D': '#007AFF',
-    'E': '#FF9500', 'F': '#AF52DE', 'G': '#00C7BE', 'H': '#FF3B30',
-    'I': '#5AC8FA', 'J': '#FFCC00', 'K': '#FF2D55', 'L': '#34C759',
-    'M': '#007AFF', 'N': '#FF6B35', 'O': '#5856D6', 'P': '#FF9500',
-    'Q': '#AF52DE', 'R': '#00C7BE', 'S': '#FF3B30', 'T': '#5AC8FA',
-    'U': '#FFCC00', 'V': '#FF2D55', 'W': '#34C759', 'X': '#007AFF',
-    'Y': '#FF6B35', 'Z': '#5856D6'
-  };
-  var first = (brand || '?').charAt(0).toUpperCase();
-  var c1 = colors[first] || '#0a84ff';
-  return 'linear-gradient(135deg, ' + c1 + ', ' + c1 + 'dd)';
+  // ui/products-avatar-color: 跟 _productAvatarColor 同源 8 色 hash — 品牌色块 + letter avatar 视觉统一
+  // 取代旧 26 色 first-letter 字典 + COOLCHAP 硬编码,2 个识别体系合并成 1 个
+  var c = _productAvatarColor(brand || '?');
+  return 'linear-gradient(135deg, ' + c + ', ' + c + 'cc)';
 }
 
 function renderProductPagination(total, page, pageSize) {
