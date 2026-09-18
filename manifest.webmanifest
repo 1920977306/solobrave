@@ -1,0 +1,9 @@
+{
+  "name": "全可工作台",
+  "short_name": "全可",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#007AFF",
+  "background_color": "#FFFFFF",
+  "icons": []
+}
