@@ -4822,6 +4822,47 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .messages-area { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; background: #ffffff; min-height: 300px; }
 .messages-area:has(.chat-empty-state) { align-items: center; }
 
+/* ★ ui/chat-detail-v21-polish: 滚到底部浮动按钮 */
+.scroll-to-bottom-btn {
+  position: absolute;
+  right: 20px;
+  bottom: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-bg-primary, #FFFFFF);
+  border: 0.5px solid var(--color-separator, rgba(0,0,0,0.1));
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary, #6E6E73);
+  cursor: pointer;
+  transition: opacity 0.18s, transform 0.12s, color 0.15s;
+  z-index: 5;
+}
+.scroll-to-bottom-btn[hidden] { display: none; }
+.scroll-to-bottom-btn:hover {
+  color: var(--color-brand, #007AFF);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.16);
+}
+.scroll-to-bottom-btn:active { transform: translateY(0); }
+.scroll-to-bottom-unread {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--color-brand, #007AFF);
+  color: #FFFFFF;
+  font: 700 10px/18px -apple-system, sans-serif;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0,122,255,0.4);
+}
+
 .time-separator { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
 .time-separator::before, .time-separator::after { content: ''; flex: 1; height: 0.5px; background: var(--separator); }
 .time-separator span { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
@@ -10558,6 +10599,11 @@ window.doLogin = function () {
 </div>
 
 <div class="messages-area" id="messagesArea"></div>
+<!-- ★ ui/chat-detail-v21-polish: 滚到底部浮动按钮 (用户往上滚出可视区时显示) -->
+<button class="scroll-to-bottom-btn" id="scrollToBottomBtn" type="button" hidden onclick="scrollToBottom()" title="滚到底部">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+  <span class="scroll-to-bottom-unread" id="scrollToBottomUnread" hidden>0</span>
+</button>
 <!-- Context Menu -->
 <div class="context-menu" id="contextMenu">
 <div class="context-item" onclick="ctxAction('detail')">👤 查看详情</div>
@@ -16569,6 +16615,68 @@ function buildQuoteBlockHtml(rm) {
     + thumbHtml
     + '<span class="msg-quote-text">' + escapeHtml(who + '：' + text) + '</span></div>';
 }
+
+// ★ ui/chat-detail-v21-polish: 滚到底部浮动按钮 — 用户往上滚出可视区时显示
+(function () {
+  var _area = null;
+  var _btn = null;
+  var _unreadEl = null;
+  var _unreadCount = 0;
+  var _lastScrollHeight = 0;
+
+  function getArea() {
+    if (!_area) _area = document.getElementById('messagesArea');
+    return _area;
+  }
+  function getBtn() {
+    if (!_btn) _btn = document.getElementById('scrollToBottomBtn');
+    return _btn;
+  }
+  function getUnreadEl() {
+    if (!_unreadEl) _unreadEl = document.getElementById('scrollToBottomUnread');
+    return _unreadEl;
+  }
+
+  // 滚到底部 (暴露给 onclick)
+  window.scrollToBottom = function () {
+    var a = getArea();
+    if (a) a.scrollTop = a.scrollHeight;
+    _unreadCount = 0;
+    var ue = getUnreadEl();
+    if (ue) { ue.hidden = true; ue.textContent = '0'; }
+    var btn = getBtn();
+    if (btn) btn.hidden = true;
+  };
+
+  // 滚动监听: 用户滚到非底部时显示按钮
+  function _onScroll() {
+    var a = getArea();
+    var btn = getBtn();
+    if (!a || !btn) return;
+    var distFromBottom = a.scrollHeight - a.scrollTop - a.clientHeight;
+    var isAtBottom = distFromBottom < 40;  // 40px 容差 (允许子像素误差)
+    btn.hidden = isAtBottom;
+    // 新消息到达但用户没在底部 → 累加 unread badge
+    if (!isAtBottom && a.scrollHeight > _lastScrollHeight) {
+      _unreadCount += 1;
+      var ue = getUnreadEl();
+      if (ue) {
+        ue.hidden = false;
+        ue.textContent = _unreadCount > 99 ? '99+' : String(_unreadCount);
+      }
+    }
+    _lastScrollHeight = a.scrollHeight;
+  }
+
+  // DOMContentLoaded 后绑定
+  document.addEventListener('DOMContentLoaded', function () {
+    var a = getArea();
+    if (a) {
+      a.addEventListener('scroll', _onScroll, { passive: true });
+      _lastScrollHeight = a.scrollHeight;
+    }
+  });
+})();
 
 function scrollToQuotedMsg(msgId) {
   if (!msgId) return;
