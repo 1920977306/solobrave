@@ -27573,7 +27573,6 @@ function loadTalents(page) {
 }
 
 function sortTalentsLocally(talents, sort) {
-<<<<<<< Updated upstream
   if (!talents || !talents.length) return talents;
   // ★ 默认排序(无 sort 或 sort=='default'): A → B → C → D → unrated, 同评级按粉丝降序
   if (!sort || sort === 'default') {
@@ -27590,9 +27589,8 @@ function sortTalentsLocally(talents, sort) {
       return (b.followers || 0) - (a.followers || 0);
     });
   }
-=======
-  if (!sort || !talents || !talents.length) return talents;
->>>>>>> Stashed changes
+  // 兜底空值 (合并 upstream 与 stashed changes 双侧保护)
+  if (!talents || !talents.length) return talents;
   var list = talents.slice();
   switch (sort) {
     case 'followers_desc':
