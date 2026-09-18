@@ -23303,21 +23303,41 @@ def _call_ai_analysis(messages, cfg=None, context='', timeout=None, max_tokens=2
     logger.info(f'  [AI] start analysis context={context} provider={provider} chat_model={chat_model} key={masked_key} openclaw={OPENCLAW_CLI}')
 
     # 1. 优先 OpenClaw（项目主推的 AI 网关）
+    # ★ fix/optimize-connection: retry with backoff, 避免 zhipu 429 短时间重试加重限流
+    #   backoff 序列: 2s / 5s / 15s, 比 OpenClaw 自身硬编码的 1s/22s/30s 更友好
     if os.path.isfile(OPENCLAW_CLI):
         oc_timeout = timeout if timeout is not None else OPENCLAW_TIMEOUT
-        content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=oc_timeout, provider=provider)
-        if content:
-            return content
-        logger.error(f'  [AI] OpenClaw failed for {context}, will try direct API fallback')
+        backoff_seq = [2, 5, 15]  # 第一次失败等 2s, 第二次 5s, 第三次 15s
+        for attempt, sleep_before in enumerate([0] + backoff_seq, 1):
+            if sleep_before:
+                logger.info(f'  [AI] OpenClaw retry #{attempt-1} after {sleep_before}s backoff (context={context})')
+                time.sleep(sleep_before)
+            content = _call_openclaw_infer(full_prompt, model=chat_model, system_prompt=system_prompt, timeout=oc_timeout, provider=provider)
+            if content:
+                if attempt > 1:
+                    logger.info(f'  [AI] OpenClaw retry succeeded on attempt #{attempt} (context={context})')
+                return content
+            logger.warning(f'  [AI] OpenClaw attempt #{attempt}/{len(backoff_seq)+1} failed (context={context})')
+        logger.error(f'  [AI] OpenClaw failed after {len(backoff_seq)+1} attempts, will try direct API fallback')
     else:
         logger.info(f'  [AI] OpenClaw CLI not available for {context}, skip to direct API')
 
     # 2. 兜底：API 直连（需配置 API Key）
+    # ★ fix/optimize-connection: fallback retry 也加重试退避 (zhipu 429 同源问题)
     if api_key:
         api_timeout = timeout if timeout is not None else PROXY_TIMEOUT
-        content = _call_chat_completion(provider, api_key, chat_model, base_url, messages, timeout=api_timeout, max_tokens=max_tokens)
-        if content:
-            return content
+        backoff_seq = [2, 5]
+        for attempt, sleep_before in enumerate([0] + backoff_seq, 1):
+            if sleep_before:
+                logger.info(f'  [AI] Direct API retry #{attempt-1} after {sleep_before}s backoff (context={context})')
+                time.sleep(sleep_before)
+            content = _call_chat_completion(provider, api_key, chat_model, base_url, messages, timeout=api_timeout, max_tokens=max_tokens)
+            if content:
+                if attempt > 1:
+                    logger.info(f'  [AI] Direct API retry succeeded on attempt #{attempt} (context={context})')
+                return content
+            logger.warning(f'  [AI] Direct API attempt #{attempt}/{len(backoff_seq)+1} failed (context={context})')
+        logger.error(f'  [AI] Direct API failed after {len(backoff_seq)+1} attempts, all paths exhausted')
     else:
         logger.info(f'  [AI] no API key configured for {context}, skip direct API fallback')
 
