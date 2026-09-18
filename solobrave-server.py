@@ -24855,14 +24855,15 @@ def _recharge_credits(conn, agent_id, amount, operator=''):
 def _record_credit_usage(conn, agent_id, input_tokens, output_tokens, cache_read_tokens, session_id='', created_at=None):
     """记录一条算力消耗：写入 credit_usage_log 并扣减 credit_accounts.balance。
     积分 = ceil(total_tokens / 1000)；余额可以扣到 0，但不为负数（调用方负责幂等与 commit）。
-    ★ fix/optimize-connection: admin / main 不扣减余额, 只记 usage_log (admin 走 zhipu 公池)"""
+    ★ fix/optimize-connection: admin / main 不扣减余额, 只记 usage_log (admin 走 zhipu 公池)
+    ★ fix/creditsync-fk: admin/main 也要 ensure credit_accounts 行 (满足 FK), 只是不扣减余额"""
     total_tokens = int(input_tokens or 0) + int(output_tokens or 0) + int(cache_read_tokens or 0)
     credits_used = int(math.ceil(total_tokens / float(CREDITS_PER_TOKENS))) if total_tokens > 0 else 0
     if total_tokens <= 0:
         return 0
     is_admin_bypass = agent_id in ('main', 'user_7acb72ff')
-    if not is_admin_bypass:
-        _ensure_credit_account(conn, agent_id)
+    # ★ 修复: 始终 ensure credit_accounts (FK 约束需要), bypass 只是不扣减余额
+    _ensure_credit_account(conn, agent_id)
     if created_at:
         conn.execute(
             '''INSERT INTO credit_usage_log (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id, created_at)
@@ -24993,12 +24994,19 @@ def _repair_misattributed_credits(conn, active_ids):
     旧版归属逻辑把积分记到了 main 名下，导致总览有消耗记录但员工余额未扣。
     这里按 sessionKey 重新解析归属到正式员工并补扣余额。
     幂等：修复后 agent_id 已变为员工 id，重复执行不会再次命中。
-    （调用方负责 commit）"""
+    （调用方负责 commit）
+    ★ fix/creditsync-fk: 修复顺序 — 先清 credit_usage_log 非活跃 agent 的孤儿行,
+       再 DELETE credit_accounts (FK 顺序), 否则 FK constraint failed。"""
     if not active_ids:
         return 0
     fixed = 0
     placeholders = ','.join('?' * len(active_ids))
     active_tuple = tuple(active_ids)
+    # ★ 关键: 先删 credit_usage_log 非活跃 agent 的孤儿行 (FK 引用的下游表先清)
+    conn.execute(
+        f'DELETE FROM credit_usage_log WHERE agent_id NOT IN ({placeholders})',
+        active_tuple
+    )
     # credit_usage_log：agent_id 非正式员工、但 sessionKey 能解析出正式员工的记录重新归属
     rows = conn.execute(
         f'SELECT id, agent_id, session_id, credits_used FROM credit_usage_log WHERE agent_id NOT IN ({placeholders})',
@@ -25028,6 +25036,7 @@ def _repair_misattributed_credits(conn, active_ids):
             conn.execute('UPDATE token_usage SET agent_id = ? WHERE id = ?', (emp_id, r['id']))
             fixed += 1
     # 清理从未充值过的非员工垃圾账户（纯由错记产生）
+    # ★ 此时 credit_usage_log 已清空非活跃 agent, FK 安全
     conn.execute(
         f'DELETE FROM credit_accounts WHERE agent_id NOT IN ({placeholders}) AND total_recharged = 0',
         active_tuple
@@ -28470,6 +28479,9 @@ def main():
                     logger.info(f'  [CreditsSync] trajectory 定时同步: {result}')
             except Exception as e:
                 logger.error(f'  [CreditsSync] trajectory 定时同步失败: {e}')
+                # 详细 traceback, 避免再次隐藏 FK 顺序问题
+                import traceback as _tb
+                logger.error(f'  [CreditsSync] traceback:\n{_tb.format_exc()}')
             time.sleep(CREDIT_SYNC_INTERVAL_S)
     threading.Thread(target=_credit_sync_loop, daemon=True, name='CreditSyncLoop').start()
     logger.info(f'  [CreditsSync] 积分定时同步已启动（每 {CREDIT_SYNC_INTERVAL_S} 秒）')
