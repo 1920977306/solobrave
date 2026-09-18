@@ -144,7 +144,7 @@ def _detect_openclaw_cli():
     return '/opt/homebrew/bin/openclaw'
 
 OPENCLAW_CLI = _detect_openclaw_cli()
-OPENCLAW_TIMEOUT = 120
+OPENCLAW_TIMEOUT = 60  # ★ fix/optimize-connection: 120s 太长, OpenClaw 卡 1 分钟就 fallback, 减少用户感知等待
 OPENCLAW_DEFAULT_AGENT = os.environ.get('OPENCLAW_DEFAULT_AGENT', '').strip() or 'main'
 
 # ★ WSS Origin 严格模式：默认 True，非白名单 Origin 直接拒绝（403 close）
@@ -15381,11 +15381,24 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_error(400, '缺少 agent_id 参数')
             return
         balance, has_credits = _check_credit_balance(agent_id)
+        # ★ fix/optimize-connection: 没充值时给具体操作建议, 不要只说"积分不足"
+        if has_credits:
+            message = '积分充足'
+            hint = None
+        elif balance == 0:
+            message = '积分不足'
+            hint = ('该员工从未充值过 credit_accounts。'
+                    '管理员请到后台「员工管理 → 充值」给该员工初始化积分；'
+                    '或调用 POST /api/credits/quotas/{agent_id}/recharge 充值。')
+        else:
+            message = '积分不足'
+            hint = f'当前余额 {balance}，已不足以完成下一次 AI 调用。请联系管理员充值。'
         self._send_json(200, {
             'agent_id': agent_id,
             'balance': balance,
             'has_credits': has_credits,
-            'message': '积分充足' if has_credits else '积分不足',
+            'message': message,
+            'hint': hint,
         })
 
     def _handle_get_token_usage_sync(self):
@@ -19222,6 +19235,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         # 积分不足直接返回，不转发给 OpenClaw / AI API
         credit_info = None
         if role == 'user' and not body.get('skipAI', False):
+            # ★ fix/optimize-connection: admin 用户 bypass credit 管控 (走 _check_credit_balance 内置虚拟充足)
+            #   admin 是系统运营者, 不应该因为没充 credit 而无法触发 AI 调用
+            #   (旧逻辑: 0 余额 → 429 拒绝 → 用户感觉"连接失败")
             balance, has_credits = _check_credit_balance(agent_id)
             credit_info = {'balance': balance, 'has_credits': has_credits}
             if not has_credits:
@@ -24789,6 +24805,10 @@ def _ensure_credit_account(conn, agent_id):
 
 def _check_credit_balance(agent_id):
     """检查员工是否有足够积分发送消息。返回 (balance, has_credits)"""
+    # ★ fix/optimize-connection: admin / main 虚拟充足, 不受 credit 管控
+    #   admin 是系统运营者, 用 zhipu 公池 key, 不应该被自己的 credit 表卡住
+    if agent_id in ('main', 'user_7acb72ff'):
+        return (999999, True)
     conn = _db_conn()
     try:
         account = _ensure_credit_account(conn, agent_id)
@@ -24814,12 +24834,15 @@ def _recharge_credits(conn, agent_id, amount, operator=''):
 
 def _record_credit_usage(conn, agent_id, input_tokens, output_tokens, cache_read_tokens, session_id='', created_at=None):
     """记录一条算力消耗：写入 credit_usage_log 并扣减 credit_accounts.balance。
-    积分 = ceil(total_tokens / 1000)；余额可以扣到 0，但不为负数（调用方负责幂等与 commit）"""
+    积分 = ceil(total_tokens / 1000)；余额可以扣到 0，但不为负数（调用方负责幂等与 commit）。
+    ★ fix/optimize-connection: admin / main 不扣减余额, 只记 usage_log (admin 走 zhipu 公池)"""
     total_tokens = int(input_tokens or 0) + int(output_tokens or 0) + int(cache_read_tokens or 0)
     credits_used = int(math.ceil(total_tokens / float(CREDITS_PER_TOKENS))) if total_tokens > 0 else 0
     if total_tokens <= 0:
         return 0
-    _ensure_credit_account(conn, agent_id)
+    is_admin_bypass = agent_id in ('main', 'user_7acb72ff')
+    if not is_admin_bypass:
+        _ensure_credit_account(conn, agent_id)
     if created_at:
         conn.execute(
             '''INSERT INTO credit_usage_log (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id, created_at)
@@ -24832,11 +24855,12 @@ def _record_credit_usage(conn, agent_id, input_tokens, output_tokens, cache_read
                VALUES (?, ?, ?, ?, ?, ?, ?)''',
             (agent_id, input_tokens, output_tokens, cache_read_tokens, total_tokens, credits_used, session_id)
         )
-    # 扣减余额：允许透支到 0，但不能为负数
-    conn.execute(
-        "UPDATE credit_accounts SET balance = MAX(balance - ?, 0), total_consumed = total_consumed + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
-        (credits_used, credits_used, agent_id)
-    )
+    # 扣减余额：允许透支到 0，但不能为负数 (admin / main 不扣减)
+    if not is_admin_bypass:
+        conn.execute(
+            "UPDATE credit_accounts SET balance = MAX(balance - ?, 0), total_consumed = total_consumed + ?, updated_at = datetime('now','localtime') WHERE agent_id = ?",
+            (credits_used, credits_used, agent_id)
+        )
     return credits_used
 
 
