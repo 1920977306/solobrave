@@ -4448,16 +4448,81 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 /* ===== Feishu Three-Column Responsive ===== */
 /* = --bp-md 768px, 改断点同步 tokens.css / */
-/* fix/responsive-shell-collapse: 删除旧的 .app-sidebar 死码 (依赖 .app-sidebar-overlay 兄弟元素
-   但 HTML 里不存在该元素 → CSS 永远不生效 + 与下面 L6079 的 .app-sidebar 块冲突导致 drawer
-   卡死, 侧栏在 mobile 下既没真隐藏也没 drawer, 主区被挤, 输入框宽度被压成竖排.
-   drawer 行为完全交给 L6079 的 .app-sidebar 块处理, 它用 ::after 伪元素做遮罩无需 HTML 配合.) */
+/* fix/responsive-shell-collapse-r2: 把 ≤480 的 .left-nav 底部 tab bar 逻辑上移到 ≤768.
+   真实 DOM 定位 (看 index.html L9788-9800):
+   - .left-nav 是真员工侧栏 (56px 宽, 含 10 个 nav-item: 通知/搜索/对话/办公室/知识库/规律库/商品/达人/任务/设置)
+   - .left-nav-top flex column, 默认 56px 宽竖排 10 个 44×44 icon → height ~500px
+   - .app-sidebar 是中间侧栏 (280px, 模块切换)
+   400px viewport 落 481-768 区间 → .left-nav 默认 56px 宽侧栏 + .app-sidebar 280px
+   → 56+280=336 占满, 主区只剩 64px, "员工栏挂着把整屏挤成左右两块"
+   ≤480 时 .left-nav 已改底部 tab bar, 但 ≤480 触发不到 400px viewport
+   修复: ≤768 时也把 .left-nav 改底部 tab bar, 主区撑满
+   drawer 行为完全交给 L6079 的 .app-sidebar 块处理. */
 @media (max-width: 768px) {
   .mid-toggle-btn {
     display: flex !important;
   }
   .sidebar-resizer {
     display: none;
+  }
+
+  /* .left-nav: 左侧 56px 侧栏 → 底部 56px tab bar (10 个 icon 横向铺开)
+     关键: z-index 300 盖在主区上方, position fixed 不参与 flex 布局 → 主区 100% 宽 */
+  .left-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 56px;
+    flex-direction: row;
+    justify-content: space-around;
+    padding: 0 4px;
+    border-right: none;
+    border-top: 0.5px solid var(--separator);
+    z-index: 300;
+    background: var(--left-nav-bg, #2e2e33);
+  }
+  .left-nav-top {
+    flex-direction: row;
+    gap: 0;
+    flex: 1;
+    justify-content: space-around;
+    padding: 0 4px;
+  }
+  .left-nav-bottom {
+    display: none;
+  }
+
+  /* 10 个 nav-item 在 375/400 宽需要缩, 否则会溢出
+     375 / 10 = 37.5px per item (理论), 实际 space-around 留 gap → 32×32 + svg 16×16 留足 padding */
+  .nav-item {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    flex-shrink: 0;
+  }
+  .nav-item svg {
+    width: 18px;
+    height: 18px;
+  }
+  .nav-item.active::before {
+    left: 50%;
+    top: auto;
+    bottom: 2px;
+    transform: translateX(-50%);
+    width: 14px;
+    height: 2px;
+    border-radius: 2px;
+  }
+
+  /* 主区让出底部 56px tab bar 空间 (避免内容被遮挡) */
+  .app-container {
+    padding-bottom: 56px;
+    box-sizing: border-box;
+  }
+  .app-main {
+    padding-bottom: 56px;
   }
 }
 
@@ -6060,9 +6125,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 /* = --bp-md 768px, 改断点同步 tokens.css / */
 @media (max-width: 768px) {
   /* Sidebar becomes drawer */
-  .app-sidebar { position: fixed; left: -100%; width: 80%; max-width: 300px; height: 100vh; z-index: 200; transition: left 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); }
+  .app-sidebar { position: fixed; left: -100%; width: 80%; max-width: 300px; height: 100vh; z-index: 350; transition: left 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); }
   .app-sidebar.open { left: 0; }
-  .app-sidebar::after { content: ''; position: fixed; inset: 0; background: rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+  .app-sidebar::after { content: ''; position: fixed; inset: 0; background: rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: -1; }
   .app-sidebar.open::after { opacity: 1; pointer-events: auto; }
   
   /* Chat area full width */
