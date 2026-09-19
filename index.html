@@ -4448,34 +4448,16 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 /* ===== Feishu Three-Column Responsive ===== */
 /* = --bp-md 768px, 改断点同步 tokens.css / */
+/* fix/responsive-shell-collapse: 删除旧的 .app-sidebar 死码 (依赖 .app-sidebar-overlay 兄弟元素
+   但 HTML 里不存在该元素 → CSS 永远不生效 + 与下面 L6079 的 .app-sidebar 块冲突导致 drawer
+   卡死, 侧栏在 mobile 下既没真隐藏也没 drawer, 主区被挤, 输入框宽度被压成竖排.
+   drawer 行为完全交给 L6079 的 .app-sidebar 块处理, 它用 ::after 伪元素做遮罩无需 HTML 配合.) */
 @media (max-width: 768px) {
   .mid-toggle-btn {
     display: flex !important;
   }
   .sidebar-resizer {
     display: none;
-  }
-  .app-sidebar {
-    position: fixed;
-    left: 56px;
-    top: 48px;
-    height: calc(100vh - 48px);
-    z-index: 200;
-    transform: translateX(-100%);
-    transition: transform 0.3s ease;
-  }
-  .app-sidebar.open {
-    transform: translateX(0);
-  }
-  .app-sidebar-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 199;
-  }
-  .app-sidebar.open + .app-sidebar-overlay {
-    display: block;
   }
 }
 
@@ -6095,6 +6077,16 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   
   /* Input area */
   .input-wrap { margin: 8px 12px 12px !important; padding: 6px 10px !important; }
+  /* fix/responsive-shell-collapse: input-area-v2 (v2 输入框) mobile 紧凑化,
+     显式 textarea 100% 宽防被工具栏挤压, 缩字号/间距/按钮, 让文字横排 */
+  .input-area-v2 { padding: 8px 12px 10px !important; }
+  .input-wrap-v2 { padding: 8px 10px !important; gap: 6px !important; }
+  .input-wrap-v2 textarea { width: 100% !important; font-size: 14px !important; min-height: 48px !important; }
+  .input-toolbar-left { gap: 4px !important; }
+  .input-tool-btn { width: 24px !important; height: 24px !important; }
+  .input-tool-btn svg { width: 16px !important; height: 16px !important; }
+  .input-model-pill-wrap .input-model-pill { font-size: 11px !important; padding: 2px 8px !important; }
+  .send-btn-v2 { width: 32px !important; height: 32px !important; }
   
   /* Task board */
   .task-board { flex-direction: column !important; }
