@@ -4467,62 +4467,65 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   }
 
   /* .left-nav: 左侧 56px 侧栏 → 底部 56px tab bar (10 个 icon 横向铺开)
-     关键: z-index 300 盖在主区上方, position fixed 不参与 flex 布局 → 主区 100% 宽 */
+     关键: z-index 300 盖在主区上方, position fixed 不参与 flex 布局 → 主区 100% 宽
+     fix/responsive-shell-collapse-r3: 对话页 r2 不生效(同一 DOM/CSS 在达人库页生效)
+     → 全部加 !important 拦截任何被遗漏的 specificity / inline style override.
+     仍有兜底 JS forceResponsiveShell() 见 init 段. */
   .left-nav {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    width: 100%;
-    height: 56px;
-    flex-direction: row;
-    justify-content: space-around;
-    padding: 0 4px;
-    border-right: none;
-    border-top: 0.5px solid var(--separator);
-    z-index: 300;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    height: 56px !important;
+    flex-direction: row !important;
+    justify-content: space-around !important;
+    padding: 0 4px !important;
+    border-right: none !important;
+    border-top: 0.5px solid var(--separator) !important;
+    z-index: 300 !important;
     background: var(--left-nav-bg, #2e2e33);
   }
   .left-nav-top {
-    flex-direction: row;
-    gap: 0;
-    flex: 1;
-    justify-content: space-around;
-    padding: 0 4px;
+    flex-direction: row !important;
+    gap: 0 !important;
+    flex: 1 !important;
+    justify-content: space-around !important;
+    padding: 0 4px !important;
   }
   .left-nav-bottom {
-    display: none;
+    display: none !important;
   }
 
   /* 10 个 nav-item 在 375/400 宽需要缩, 否则会溢出
      375 / 10 = 37.5px per item (理论), 实际 space-around 留 gap → 32×32 + svg 16×16 留足 padding */
   .nav-item {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    flex-shrink: 0;
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 8px !important;
+    flex-shrink: 0 !important;
   }
   .nav-item svg {
-    width: 18px;
-    height: 18px;
+    width: 18px !important;
+    height: 18px !important;
   }
   .nav-item.active::before {
-    left: 50%;
-    top: auto;
-    bottom: 2px;
-    transform: translateX(-50%);
-    width: 14px;
-    height: 2px;
-    border-radius: 2px;
+    left: 50% !important;
+    top: auto !important;
+    bottom: 2px !important;
+    transform: translateX(-50%) !important;
+    width: 14px !important;
+    height: 2px !important;
+    border-radius: 2px !important;
   }
 
   /* 主区让出底部 56px tab bar 空间 (避免内容被遮挡) */
   .app-container {
-    padding-bottom: 56px;
-    box-sizing: border-box;
+    padding-bottom: 56px !important;
+    box-sizing: border-box !important;
   }
   .app-main {
-    padding-bottom: 56px;
+    padding-bottom: 56px !important;
   }
 }
 
@@ -14280,6 +14283,13 @@ document.addEventListener('DOMContentLoaded', function () {
   // 初始化侧边栏拖拽调整
   initSidebarResizers();
   applySidebarWidth(getSidebarWidth());
+  // fix/responsive-shell-collapse-r3: 初次入场即按下响应式 shell(不动 r2 CSS,
+  // 仅 inline 加固 .left-nav, 拦截对话页 @media 失效场景)
+  if (typeof forceResponsiveShell === 'function') forceResponsiveShell();
+  // 监听 resize(横竖屏切换 / PC 拖窗口): < 768 ↔ >= 769 边界重排
+  window.addEventListener('resize', function () {
+    if (typeof forceResponsiveShell === 'function') forceResponsiveShell();
+  });
   // 默认切换到消息模块（Feishu三栏布局）
   setTimeout(function() { switchModule('messages'); }, 100);
 
@@ -34180,6 +34190,99 @@ function applySidebarWidth(width) {
   });
 }
 
+// fix/responsive-shell-collapse-r3: 兜底 JS-driven 响应式 shell
+// 背景: 老大复验发现 r2 (≤768 .left-nav 改底部 tab bar) 在达人库页生效,
+// 对话页 .left-nav 仍是 56px 左侧栏, CSS 静态分析(r2 已带 !important)
+// 仍无法定位. 用 JS 直接 inline 强写 .left-nav 样式, 跳过 CSS @media,
+// 任何微信 WebView / 浏览器 CSS 解析异常都拦截.
+// 触发: load(resize 兼容旋转), resize, switchModule 后, 保证模块切换也重排.
+function forceResponsiveShell() {
+  var leftNav = document.querySelector('.left-nav');
+  if (!leftNav) return;
+  var appContainer = document.querySelector('.app-container');
+  var appMain = document.querySelector('.app-main');
+  var navTop = leftNav.querySelector('.left-nav-top');
+  var navBottom = leftNav.querySelector('.left-nav-bottom');
+  var navItems = leftNav.querySelectorAll('.nav-item');
+  var navItemSvgs = leftNav.querySelectorAll('.nav-item svg');
+  var isMobile = window.innerWidth <= 768;
+
+  // 保留的属性白名单(switchModule/applySidebarWidth 可能改 .left-nav 个别属性,
+  // 但本函数仅在 ≤768/≥769 边界改这些字段,其他不动)
+  if (isMobile) {
+    leftNav.style.position = 'fixed';
+    leftNav.style.left = '0';
+    leftNav.style.right = '0';
+    leftNav.style.bottom = '0';
+    leftNav.style.width = '100%';
+    leftNav.style.height = '56px';
+    leftNav.style.flexDirection = 'row';
+    leftNav.style.justifyContent = 'space-around';
+    leftNav.style.padding = '0 4px';
+    leftNav.style.borderRight = 'none';
+    leftNav.style.borderTop = '0.5px solid var(--separator)';
+    leftNav.style.zIndex = '300';
+    if (navTop) {
+      navTop.style.flexDirection = 'row';
+      navTop.style.gap = '0';
+      navTop.style.flex = '1';
+      navTop.style.justifyContent = 'space-around';
+      navTop.style.padding = '0 4px';
+    }
+    if (navBottom) navBottom.style.display = 'none';
+    for (var i = 0; i < navItems.length; i++) {
+      var item = navItems[i];
+      var w = window.innerWidth <= 480 ? '36px' : '32px';
+      item.style.width = w;
+      item.style.height = w;
+      item.style.borderRadius = '8px';
+      item.style.flexShrink = '0';
+      // ::before indicator 由 CSS 控制(不在这里覆盖, 避免内联 !important 污染)
+    }
+    for (var k = 0; k < navItemSvgs.length; k++) {
+      navItemSvgs[k].style.width = '18px';
+      navItemSvgs[k].style.height = '18px';
+    }
+    // 主区让出底部 56px
+    if (appContainer) appContainer.style.paddingBottom = '56px';
+    if (appMain) appMain.style.paddingBottom = '56px';
+  } else {
+    // 桌面端: 清掉 inline style 恢复 r2 之前状态(让 base CSS 接管)
+    leftNav.style.position = '';
+    leftNav.style.left = '';
+    leftNav.style.right = '';
+    leftNav.style.bottom = '';
+    leftNav.style.width = '';
+    leftNav.style.height = '';
+    leftNav.style.flexDirection = '';
+    leftNav.style.justifyContent = '';
+    leftNav.style.padding = '';
+    leftNav.style.borderRight = '';
+    leftNav.style.borderTop = '';
+    leftNav.style.zIndex = '';
+    if (navTop) {
+      navTop.style.flexDirection = '';
+      navTop.style.gap = '';
+      navTop.style.flex = '';
+      navTop.style.justifyContent = '';
+      navTop.style.padding = '';
+    }
+    if (navBottom) navBottom.style.display = '';
+    for (var j = 0; j < navItems.length; j++) {
+      navItems[j].style.width = '';
+      navItems[j].style.height = '';
+      navItems[j].style.borderRadius = '';
+      navItems[j].style.flexShrink = '';
+    }
+    for (var m = 0; m < navItemSvgs.length; m++) {
+      navItemSvgs[m].style.width = '';
+      navItemSvgs[m].style.height = '';
+    }
+    if (appContainer) appContainer.style.paddingBottom = '';
+    if (appMain) appMain.style.paddingBottom = '';
+  }
+}
+
 function initSidebarResizers() {
   getAllSidebars().forEach(function(sb) {
     if (sb.querySelector('.sidebar-resizer')) return;
@@ -34330,6 +34433,9 @@ function switchModule(module) {
   else if (module === 'tasks') loadTasks();
   else if (module === 'settings') renderSettingsMid();
   applySidebarWidth(getSidebarWidth());
+  // fix/responsive-shell-collapse-r3: 模块切换也重排(防止 inline style 被覆盖/不同
+  // 模块里 .app-main 子节点的 layout 改变影响 .left-nav 视觉)
+  if (typeof forceResponsiveShell === 'function') forceResponsiveShell();
 }
 
 function getDefaultGlobalSearchScope(module) {
