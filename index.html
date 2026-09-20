@@ -4806,10 +4806,87 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 
 /* = --bp-md 768px, 改断点同步 tokens.css / */
 @media (max-width: 768px) {
-  .chat-topbar { padding: 0 12px; height: 28px; font-size: 10px; }
+  .chat-topbar { padding: 0 8px; height: 28px; font-size: 10px; }
   .chat-topbar-agent-role { display: none; }
   .chat-topbar-team-label { display: none; }
+
+  /* ★ fix/iphone16-visual-polish: chat-topbar-team (6 个 AI 员工 + label) 折叠成 toggle icon
+     默认隐藏 6 个 .chat-topbar-agent, 只显示 chat-topbar-team-toggle button
+     点击 toggle → 加 .expanded class → 显示 6 个 agent (popover 形式, 不占 chat-topbar 高度) */
+  .chat-topbar-team {
+    position: relative;
+    flex-shrink: 0;
+  }
+  .chat-topbar-team-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 20px;
+    padding: 0 8px;
+    border-radius: 10px;
+    background: rgba(0, 122, 255, 0.10);
+    border: none;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent, #007AFF);
+    gap: 4px;
+    white-space: nowrap;
+  }
+  .chat-topbar-team-toggle::before {
+    content: "👥";
+    font-size: 12px;
+  }
+  .chat-topbar-team.expanded .chat-topbar-team-toggle::before {
+    content: "✕";
+  }
+  .chat-topbar-team .chat-topbar-agent {
+    display: none;
+  }
+  .chat-topbar-team.expanded .chat-topbar-agent {
+    display: flex;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    min-width: 160px;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    background: var(--bg-elevated, #fff);
+    border: 0.5px solid var(--separator);
+    border-radius: 10px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+    z-index: 200;
+  }
+  .chat-topbar-team.expanded .chat-topbar-agent {
+    /* 覆盖桌面默认 (L4704) 的 inline-flex, 让 popover 是 column */
+    flex-direction: row;
+  }
+  .chat-topbar-team.expanded .chat-topbar-agent {
+    /* 让 agent 水平排列更紧凑 */
+    width: auto;
+    padding: 4px 8px;
+    gap: 6px;
+    align-items: center;
+  }
+  .chat-topbar-team.expanded .chat-topbar-agent-name {
+    font-size: 12px;
+  }
+
+  /* ★ fix/iphone16-visual-polish: 任务页右上"返回"按钮 ≤768 隐藏 (移动端用左滑/系统手势) */
+  #tasksRightActions .module-action-btn {
+    display: none !important;
+  }
 }
+
+/* ★ fix/iphone16-visual-polish-2: 桌面端隐藏 toggle button
+   HTML button 默认 display: inline-block, 桌面端 (≥769) 没设 fallback 会渲染出 "👥 6" 小按钮
+   且 JS toggleChatTopbarTeam 在 ≥769 直接 return 无功能
+   桌面端 chat-topbar 默认就显示完整 6 个 agent, 不需要 toggle 折叠 */
+@media (min-width: 769px) {
+  .chat-topbar-team-toggle { display: none; }
+}
+
 .chat-header-left { display: flex; align-items: center; gap: 10px; }
 .chat-header-v2 .avatar { width: 36px; height: 36px; font-size: 16px; }
 .chat-header-v2 .chat-header-info { display: flex; flex-direction: column; gap: 2px; }
@@ -10599,6 +10676,8 @@ window.doLogin = function () {
 <div class="chat-topbar" id="chatTopbar">
   <div class="chat-topbar-section chat-topbar-team" id="chatTopbarTeam">
     <span class="chat-topbar-team-label">AI 团队</span>
+    <!-- ★ fix/iphone16-visual-polish: ≤768 折叠按钮 (默认隐藏 6 个 .chat-topbar-agent, 点击 toggle 展开) -->
+    <button class="chat-topbar-team-toggle" id="chatTopbarTeamToggle" onclick="toggleChatTopbarTeam()" aria-label="切换AI团队">6</button>
     <div class="chat-topbar-agent" data-agent="main">
       <span class="chat-topbar-agent-dot online"></span>
       <span class="chat-topbar-agent-name">main</span>
@@ -24366,6 +24445,14 @@ document.addEventListener('keydown', function (e) {
 // Mobile sidebar toggle
 function toggleSidebar() {
   document.querySelector('.app-sidebar').classList.toggle('open');
+}
+
+// ★ fix/iphone16-visual-polish: ≤768 时点 chat-topbar-team 切换 6 个 AI 员工 agent 展开/收起
+// 默认隐藏 6 个 .chat-topbar-agent, 加 .expanded class 显示 popover (CSS @media 块控制)
+function toggleChatTopbarTeam() {
+  if (window.innerWidth > 768) return;  // 桌面直接放行, 6 个 agent 默认横向铺开
+  var team = document.getElementById('chatTopbarTeam');
+  if (team) team.classList.toggle('expanded');
 }
 
 // CountTo Animation
