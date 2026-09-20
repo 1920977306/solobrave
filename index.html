@@ -4878,6 +4878,15 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
     display: none !important;
   }
 }
+
+/* ★ fix/iphone16-visual-polish-2: 桌面端隐藏 toggle button
+   HTML button 默认 display: inline-block, 桌面端 (≥769) 没设 fallback 会渲染出 "👥 6" 小按钮
+   且 JS toggleChatTopbarTeam 在 ≥769 直接 return 无功能
+   桌面端 chat-topbar 默认就显示完整 6 个 agent, 不需要 toggle 折叠 */
+@media (min-width: 769px) {
+  .chat-topbar-team-toggle { display: none; }
+}
+
 .chat-header-left { display: flex; align-items: center; gap: 10px; }
 .chat-header-v2 .avatar { width: 36px; height: 36px; font-size: 16px; }
 .chat-header-v2 .chat-header-info { display: flex; flex-direction: column; gap: 2px; }
