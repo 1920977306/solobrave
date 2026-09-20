@@ -34275,7 +34275,12 @@ function switchModule(module) {
   var appSidebar = document.querySelector('.app-sidebar');
   if (module === 'messages') {
     if (chatArea) chatArea.style.display = 'flex';
-    if (appSidebar) appSidebar.style.display = 'flex';
+    // ★ fix/chat-page-tab-bar-768px-r2: ≤768 时 .app-sidebar 隐藏 (跟达人库/商品页 L34292 一致 inline 强制)
+    //  - 之前: 不分 viewport 一律 display: flex → ≤768 主区被 280px 侧栏压缩
+    //  - 现在: ≤768 隐藏, ≥769 显示 (跟达人库/商品 inline 逻辑对齐)
+    //  - 这是 JS-side 防御, 跟 mobile CSS @media .app-sidebar { display: none !important } 互补
+    //    (任一生效即可, 即使 Mac 浏览器 cache 旧 CSS, JS inline 仍 hide)
+    if (appSidebar) appSidebar.style.display = (window.innerWidth <= 768) ? 'none' : 'flex';
     if (employeeList) employeeList.style.display = 'block';
     if (projectList) projectList.style.display = 'none';
     renderEmployeeList();
