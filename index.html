@@ -32087,6 +32087,14 @@ function saveTalent() {
   if (!douyinId) { showToast('请输入抖音号'); return; }
   // ★ feature/influencer-form-validation: 4 必填字段校验 (内容类型 / 内容风格 / 账号粉丝特征 / 短视频粉丝特征)
   if (!validateTalentForm()) return;
+
+  // ★ bug/talent-deduplicate: 新建场景 (id 为空) 前置查重, 命中已有 → confirm 让用户选
+  //   确认 → 调 updateExistingTalent 走更新 (只覆盖 AI 字段, 保留已有基础字段)
+  //   取消 → 继续原新建流程
+  if (!id) {
+    return _preCheckTalentAndSave(name);
+  }
+
   var nextFollowUpVal = document.getElementById('talentNextFollowUpAt').value;
   var nextFollowUpAt = nextFollowUpVal ? new Date(nextFollowUpVal).getTime() : 0;
   var body = {
@@ -32131,6 +32139,108 @@ function saveTalent() {
     loadTalents();
     if (id && _talentCurrentId === id) selectTalentItem(id);
   }).catch(function(){ showToast('❌ 保存失败'); }).finally(restoreBtn);
+}
+
+// ★ bug/talent-deduplicate: 前置查重 + confirm 路由
+// 新建场景 (saveTalent id='') 先 GET /api/talents/search, 命中已有 → confirm
+// 确认 → updateExistingTalent(走更新, 只覆盖 AI 字段); 取消 → 原 POST 新建流程
+function _preCheckTalentAndSave(name) {
+  // fetch 用原生 (apiFetch 是 wrapper, 但查重是辅助操作, 用原生更直接)
+  fetch('/api/talents/search?name=' + encodeURIComponent(name), {headers: {'Accept': 'application/json'}})
+    .then(function(r){ return r.ok ? r.json() : {talents: []}; })
+    .catch(function(){ return {talents: []}; })
+    .then(function(data){
+      var hits = (data.talents || []).filter(function(t){ return !t._archived; });
+      if (hits.length === 0) {
+        // 没命中 → 走原新建流程
+        return _doCreateTalentPost();
+      }
+      var match = hits[0];
+      var confirmed = window.confirm(
+        '达人「' + match.name + '」已存在 (ID: ' + match.id + ', ' + (match.followers||0) + ' 粉丝)\n\n' +
+        '点击"确定" = 更新档案 (保留已有基础字段, 只覆盖 AI 分析 / 跟进信息)\n' +
+        '点击"取消" = 继续新建新达人记录 (会创建一条新的)'
+      );
+      if (confirmed) {
+        return updateExistingTalent(match.id);
+      }
+      // 取消 → 继续原新建
+      return _doCreateTalentPost();
+    });
+}
+
+// ★ bug/talent-deduplicate: 走更新 (保留 name/douyinId/realName 等基础字段, 只覆盖 AI/跟进字段)
+function updateExistingTalent(talentId) {
+  var nextFollowUpVal = document.getElementById('talentNextFollowUpAt').value;
+  var nextFollowUpAt = nextFollowUpVal ? new Date(nextFollowUpVal).getTime() : 0;
+  // 只覆盖 AI 分析 + 跟进信息, 不覆盖 name/douyinId/realName/city/bio 等基础字段
+  var body = {
+    ai_analysis: document.getElementById('talentAIAnalysis').value.trim(),
+    content_style: document.getElementById('talentContentStyle').value.trim(),
+    follow_up_by: document.getElementById('talentFollowUpBy').value.trim(),
+    next_follow_up_at: nextFollowUpAt,
+    follow_up_note: document.getElementById('talentFollowUpNote').value.trim(),
+    cooperation_status: document.getElementById('talentCooperationStatus').value,
+  };
+  var btn = document.querySelector('#talentModalOverlay .product-modal-btn.save');
+  if (btn && btn.disabled) return Promise.resolve();
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+  var restoreBtn = function () { if (btn) { btn.disabled = false; btn.textContent = '保存'; } };
+  return apiFetch('/api/talents/' + encodeURIComponent(talentId), {
+    method: 'PUT',
+    body: JSON.stringify(body)
+  }).then(function(){
+    showToast('✅ 达人「' + document.getElementById('talentName').value.trim() + '」档案已更新');
+    closeTalentModal();
+    loadTalents();
+    if (_talentCurrentId === talentId) selectTalentItem(talentId);
+  }).catch(function(){
+    showToast('❌ 更新失败');
+  }).then(restoreBtn, restoreBtn);
+}
+
+// ★ bug/talent-deduplicate: 原 saveTalent 里"新建"分支 (POST /api/talents) 抽出来
+// 让 _preCheckTalentAndSave 在查重 miss / 用户取消 confirm 后复用
+function _doCreateTalentPost() {
+  var id = document.getElementById('talentEditId').value;
+  var name = document.getElementById('talentName').value.trim();
+  var douyinId = document.getElementById('talentDouyinId').value.trim();
+  var nextFollowUpVal = document.getElementById('talentNextFollowUpAt').value;
+  var nextFollowUpAt = nextFollowUpVal ? new Date(nextFollowUpVal).getTime() : 0;
+  var body = {
+    name: name,
+    douyin_id: douyinId,
+    real_name: document.getElementById('talentRealName').value.trim(),
+    followers: parseInt(document.getElementById('talentFollowers').value || '0') || 0,
+    category: document.getElementById('talentCategory').value.trim(),
+    fan_category: document.getElementById('talentCategory').value.trim(),
+    level: document.getElementById('talentLevel').value.trim(),
+    risk_rating: document.getElementById('talentRiskRating').value.trim(),
+    city: document.getElementById('talentCity').value.trim(),
+    bio: document.getElementById('talentBio').value.trim(),
+    content_style: document.getElementById('talentContentStyle').value.trim(),
+    ai_analysis: document.getElementById('talentAIAnalysis').value.trim(),
+    contact_name: document.getElementById('talentContactName').value.trim(),
+    contact_phone: document.getElementById('talentContactPhone').value.trim(),
+    phone: document.getElementById('talentContactPhone').value.trim(),
+    contact_wechat: document.getElementById('talentContactWechat').value.trim(),
+    wechat: document.getElementById('talentContactWechat').value.trim(),
+    contact_email: document.getElementById('talentContactEmail').value.trim(),
+    email: document.getElementById('talentContactEmail').value.trim(),
+    cooperation_status: document.getElementById('talentCooperationStatus').value,
+    follow_up_by: document.getElementById('talentFollowUpBy').value.trim(),
+    next_follow_up_at: nextFollowUpAt,
+    follow_up_note: document.getElementById('talentFollowUpNote').value.trim()
+  };
+  var btn = document.querySelector('#talentModalOverlay .product-modal-btn.save');
+  if (btn && btn.disabled) return Promise.resolve();
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+  var restoreBtn = function () { if (btn) { btn.disabled = false; btn.textContent = '保存'; } };
+  return apiFetch('/api/talents', {method: 'POST', body: JSON.stringify(body)}).then(function(){
+    showToast('✅ 达人已录入');
+    closeTalentModal();
+    loadTalents();
+  }).catch(function(){ showToast('❌ 保存失败'); }).then(restoreBtn, restoreBtn);
 }
 
 function deleteCurrentTalent() {
