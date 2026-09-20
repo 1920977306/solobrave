@@ -21681,7 +21681,8 @@ def _extract_talent_from_text(text, auth):
     if not text or not isinstance(text, str):
         return None
     if not any(k in text for k in ('达人', '主播', '博主', 'KOL', '合作', '商务',
-                                    '佣金', '坑位', '带货', '筛选', '评估', '分析')):
+                                    '佣金', '坑位', '带货', '筛选', '评估', '分析',
+                                    '录入', '添加', '建档', '搜索', '找', '更新', '修改')):
         return None
     import re
     candidates = set()
