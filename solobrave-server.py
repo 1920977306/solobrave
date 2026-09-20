@@ -21700,14 +21700,26 @@ def _extract_talent_from_text(text, auth):
     # 模式 2: "分析 小扎克" / "分析小扎克"
     for m in re.finditer(r'分析\s*["「『\']?([\u4e00-\u9fa5A-Za-z0-9_·.]{1,30})', text):
         candidates.add(_trim(m.group(1)))
-    # 模式 3: 开头区域命中(达人页顶部昵称) - 取前 200 字符单独匹配,提高短昵称命中率
+    # 模式 3: 开头区域命中 - 取前 200 字符单独匹配,提高短昵称命中率
+    #   ★ fix dedup 命中模式 3: 取消"达人上下文"限制 — 外层 line 21683 关键字过滤
+    #   已经通过(录入/分析/达人等),这里再判"达人/主播/KOL"是冗余且误杀短消息
+    #   ("录入发财周周" 这类). 让 _deduplicate_talent 做最终兜底判定.
     _head = text[:200]
-    for m in re.finditer(r'["「『\']?([\u4e00-\u9fa5A-Za-z0-9_·]{2,20})["」』\']?', _head):
+    _STOP_WORDS = ('分析', '达人', '商务', '合作', '佣金', 'KOL', '录入', '添加',
+                   '建档', '搜索', '更新', '修改')
+    for m in re.finditer(r'["“「]?([\u4e00-\u9fa5A-Za-z0-9_\u00b7]{2,20})["”\u300d]?', _head):
         name = m.group(1).strip()
-        if name and name not in ('分析', '达人', '商务', '合作', '佣金', 'KOL'):
-            # 仅在有"达人"上下文时采纳
-            if '达人' in _head or '主播' in _head or 'KOL' in _head:
-                candidates.add(name)
+        if name and name not in _STOP_WORDS:
+            candidates.add(name)
+    # 先用停用词去除业务动词, 再 split 出可能的中文姓名
+    _BUSINESS_STOP = ('录入', '添加', '建档', '搜索', '找', '更新', '修改',
+                      '达人', '主播', '博主', 'KOL', '分析', '评估', '筛选',
+                      '合作', '商务', '佣金', '坑位', '带货')
+    _text_clean = text
+    for _sw in _BUSINESS_STOP:
+        _text_clean = _text_clean.replace(_sw, ' ')
+    for _m in re.finditer(r'[\u4e00-\u9fa5A-Za-z0-9_\u00b7]{2,20}', _text_clean):
+        candidates.add(_m.group(0))
     candidates = {c for c in candidates if c and len(c) >= 2}
     if not candidates:
         return None
