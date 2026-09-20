@@ -20948,21 +20948,24 @@ def _build_talent_dedup_hint(talent_id, auth):
         ai_rating = d.get('ai_rating') or '(未评级)'
         category = d.get('category') or '(未分类)'
         followers = d.get('followers') or 0
+        # ★ dedup 三件事收口: 话术精简 + 双位置注入
+        #   - 核心指令 (走更新场景) 放最前, LLM 第一眼看到
+        #   - 达人ID 是关键, LLM 拿到 ID 就能直接 PUT, 不要绕回问用户
+        #   - 原有字段快照从 6 字段缩到 3 字段, 降低 token 干扰
         return (
-            f"\n\n【达人查重命中 - 走【更新】场景】\n"
-            f"该达人「{d['name']}」已存在 (ID: {d['id']}).\n"
-            f"已有字段快照:\n"
-            f"  - 抖音号: {d.get('douyin_id') or '(空)'}\n"
-            f"  - 类目: {category}\n"
-            f"  - 粉丝量: {followers}\n"
-            f"  - AI评级: {ai_rating}\n"
-            f"  - AI摘要: {ai_summary or '(空)'}\n"
-            f"  - AI标签: {ai_tags or '(空)'}\n"
-            f"\n指令:\n"
-            f"→ 走【更新】场景, 基于已有档案 + 用户本轮输入更新 (写回 ai_rating / ai_summary / ai_tags / ai_analysis)\n"
-            f"→ 禁止说'请提供达人ID' / '请提供达人 ID' / '请提供该达人ID' 等不合理话术 (你已有 ID)\n"
-            f"→ 禁止让用户重新提供已有字段 (抖音号/类目/粉丝量等)\n"
-            f"→ 直接基于已有档案 + 用户本轮新分析 / 报告内容, 输出更新后的分析结论\n"
+            f"\n\n# ⚠️ 系统检测到达人已存在，必须走【更新】场景，禁用【新建】\n"
+            f"达人ID: `{d['id']}` (姓名: {d['name']})\n"
+            f"该达人档案**已存在**, 你**已经**有 ID, 不要让用户重新提供.\n"
+            f"\n"
+            f"## 必须执行\n"
+            f"1. 用提供的 ID `{d['id']}` 直接调 PUT /api/talents/{d['id']} 更新档案\n"
+            f"2. **永远不要**回复 '请提供达人ID' / '请告诉我达人ID' / '需要先建档吗'\n"
+            f"3. **永远不要**问用户重新提供已有的抖音号 / 类目 / 粉丝量\n"
+            f"4. 用户本轮发的内容是分析/数据, 直接基于这些更新 ai_rating / ai_summary / ai_tags / ai_analysis\n"
+            f"\n"
+            f"## 档案快照 (供你参考, 不需要用户再填)\n"
+            f"- 类目: {category} | 粉丝量: {followers} | AI评级: {ai_rating}\n"
+            f"- AI摘要 (前300字): {ai_summary or '(空)'}\n"
         )
     except Exception as e:
         logger.warning(f'  [TalentDedupHint] 构建失败 talent_id={talent_id}: {e}')
@@ -23812,6 +23815,25 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
                 logger.error(f'  [KnowledgeInject] {agent_id} 注入失败: {e}')
 
     system_prompt = _append_self_update_prompt(system_prompt)
+
+    # ★ dedup 三件事收口: dedup_hint 也注入到 system_prompt 顶部 (双保险)
+    #   之前只拼到 user message 末尾, OpenClaw CLI 转发时可能截断/丢失.
+    #   这里按特征串识别 dedup_hint, 提到 system prompt 开头 LLM 必看到.
+    _user_text_for_dedup = ''
+    if isinstance(user_message, str):
+        _user_text_for_dedup = user_message
+    elif isinstance(user_message, list):
+        for _it in user_message:
+            if isinstance(_it, dict) and _it.get('type') == 'text':
+                _user_text_for_dedup += _it.get('text', '')
+    if '系统检测到达人已存在' in _user_text_for_dedup:
+        _dedup_marker_start = _user_text_for_dedup.find('# ⚠️ 系统检测到达人已存在')
+        _dedup_marker_end_marker = '\n## 档案快照'
+        _dedup_marker_end = _user_text_for_dedup.find(_dedup_marker_end_marker, _dedup_marker_start)
+        if _dedup_marker_start >= 0 and _dedup_marker_end > _dedup_marker_start:
+            _dedup_block = _user_text_for_dedup[_dedup_marker_start:_dedup_marker_end]
+            system_prompt = '\n\n' + _dedup_block + '\n\n' + system_prompt
+            logger.info(f'  [TalentDedupHint] 已注入到 system_prompt 顶部 len={len(_dedup_block)}')
 
     messages = [{'role': 'system', 'content': system_prompt}]
 
