@@ -2697,6 +2697,8 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   word-break: break-all;
 }
 .talents-info-item .value.empty { color: #c9cdd4; }
+/* ★ feature/influencer-form-validation: 详情页基础信息空值高亮 (用项目 --warning token) */
+.talents-info-item .value.value-empty { color: var(--warning); font-weight: 500; }
 .talents-overview-tags {
   display: flex;
   flex-wrap: wrap;
@@ -7659,6 +7661,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .product-modal-field label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
 .product-modal-field.required label { color: var(--text-primary); }
 .product-modal-field.required label::after { content: ' *'; color: #FF3B30; }
+/* ★ feature/influencer-form-validation: 4 字段必填校验不通过时的高亮 */
+.field-missing { border-color: #FF3B30 !important; box-shadow: 0 0 0 2px rgba(255,59,48,0.25); }
 .product-modal-field input, .product-modal-field select, .product-modal-field textarea { width: 100%; padding: 8px 12px; border-radius: 8px; border: 0.5px solid var(--separator); font-size: 14px; background: var(--bg-primary); box-sizing: border-box; }
 .product-modal-field textarea { resize: vertical; min-height: 72px; }
 .product-modal-tip { background: var(--accent-light); color: var(--accent); padding: 10px 12px; border-radius: 8px; font-size: 12px; margin-bottom: 14px; line-height: 1.5; }
@@ -10243,7 +10247,10 @@ window.doLogin = function () {
         </div>
         <div class="product-modal-field"><label>所在城市</label><input type="text" id="talentCity" placeholder="输入所在城市"></div>
         <div class="product-modal-field"><label>达人简介</label><textarea id="talentBio" placeholder="输入达人简介"></textarea></div>
-        <div class="product-modal-field"><label>短视频特征</label><textarea id="talentContentStyle" placeholder="例如：带货场景、纯内容、真实测评+日常vlog、韩系简约风等"></textarea></div>
+        <div class="product-modal-field required"><label>内容类型</label><input type="text" id="talentType" placeholder="如：达人号、带货号、剧情号"></div>
+        <div class="product-modal-field required"><label>内容风格</label><textarea id="talentContentStyle" placeholder="例如：带货场景、纯内容、真实测评+日常vlog、韩系简约风等"></textarea></div>
+        <div class="product-modal-field required"><label>账号粉丝特征</label><textarea id="accountFansProfile" placeholder="账号粉丝特征，如：25-35岁女性为主，一二线城市"></textarea></div>
+        <div class="product-modal-field required"><label>短视频粉丝特征</label><textarea id="videoFansProfile" placeholder="短视频粉丝特征，如：18-24岁女性，看完率显著提升"></textarea></div>
         <div class="product-modal-field"><label>AI 分析</label><textarea id="talentAIAnalysis" placeholder="输入 AI 综合分析"></textarea></div>
       </div>
       <div class="product-modal-section">
@@ -30788,24 +30795,26 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">基础信息</div>';
   // 8 项基础信息:任一有值就展示,全空时合并成一行 placeholder
+  // ★ feature/influencer-form-validation: 空值 fallback '-' → '待补充' + 加 empty flag (CSS class value-empty 高亮橙色)
   var _bi = [
-    {label:'内容类型',     val:t.talent_type || '-',                   full:false},
-    {label:'类目',         val:t.category || mock.category || '-',    full:false},
-    {label:'内容风格',     val:t.content_style || mock.content_style || '-', full:false},
-    {label:'视频结算额占比', val:t.video_settlement_ratio || '-',      full:false},
-    {label:'视频平均件单价', val:t.video_avg_price || '-',             full:false},
-    {label:'账号粉丝特征',  val:t.account_fans_profile || '-',         full:true},
-    {label:'短视频粉丝特征', val:t.video_fans_profile || '-',          full:true},
-    {label:'备注',         val:t.remark || '-',                        full:true},
+    {label:'内容类型',       val:(t.talent_type || '待补充'),                     empty:!t.talent_type,                           full:false},
+    {label:'类目',           val:(t.category || mock.category || '待补充'),       empty:!(t.category || mock.category),           full:false},
+    {label:'内容风格',       val:(t.content_style || mock.content_style || '待补充'), empty:!(t.content_style || mock.content_style), full:false},
+    {label:'视频结算额占比',  val:(t.video_settlement_ratio || '待补充'),          empty:!t.video_settlement_ratio,                full:false},
+    {label:'视频平均件单价',  val:(t.video_avg_price || '待补充'),                empty:!t.video_avg_price,                       full:false},
+    {label:'账号粉丝特征',   val:(t.account_fans_profile || '待补充'),            empty:!t.account_fans_profile,                  full:true},
+    {label:'短视频粉丝特征',  val:(t.video_fans_profile || '待补充'),             empty:!t.video_fans_profile,                   full:true},
+    {label:'备注',           val:(t.remark || '待补充'),                         empty:!t.remark,                                full:true},
   ];
-  var _biHasAny = _bi.some(function(i){ return i.val && i.val !== '-'; });
+  var _biHasAny = _bi.some(function(i){ return !i.empty; });
   html += '<div class="talents-info-grid">';
   if (!_biHasAny) {
     html += '<div class="talents-info-item full-width placeholder">基础信息待 AI 识别(AI 分析后将自动填充)</div>';
   } else {
     for (var _i = 0; _i < _bi.length; _i++) {
       var _it = _bi[_i];
-      html += '<div class="talents-info-item' + (_it.full ? ' full-width' : '') + '"><label>' + escapeHtml(_it.label) + '</label><div class="value">' + escapeHtml(_it.val) + '</div></div>';
+      // ★ feature/influencer-form-validation: 空值字段加 value-empty class (橙色高亮)
+      html += '<div class="talents-info-item' + (_it.full ? ' full-width' : '') + '"><label>' + escapeHtml(_it.label) + '</label><div class="value' + (_it.empty ? ' value-empty' : '') + '">' + escapeHtml(_it.val) + '</div></div>';
     }
   }
   html += '</div></div>';
@@ -31993,6 +32002,10 @@ function createNewTalent() {
   document.getElementById('talentCity').value = '';
   document.getElementById('talentBio').value = '';
   document.getElementById('talentContentStyle').value = '';
+  // ★ feature/influencer-form-validation: 4 必填字段新增
+  document.getElementById('talentType').value = '';
+  document.getElementById('accountFansProfile').value = '';
+  document.getElementById('videoFansProfile').value = '';
   document.getElementById('talentAIAnalysis').value = '';
   document.getElementById('talentContactName').value = '';
   document.getElementById('talentContactPhone').value = '';
@@ -32020,6 +32033,10 @@ function editCurrentTalent() {
     document.getElementById('talentCity').value = t.city || '';
     document.getElementById('talentBio').value = t.bio || '';
     document.getElementById('talentContentStyle').value = t.content_style || t.contentStyle || '';
+    // ★ feature/influencer-form-validation: 4 必填字段回填 (snake_case → camelCase id)
+    document.getElementById('talentType').value = t.talent_type || t.talentType || '';
+    document.getElementById('accountFansProfile').value = t.account_fans_profile || t.accountFansProfile || '';
+    document.getElementById('videoFansProfile').value = t.video_fans_profile || t.videoFansProfile || '';
     document.getElementById('talentAIAnalysis').value = t.ai_analysis || t.ai_summary || '';
     document.getElementById('talentContactName').value = t.contact_name || '';
     document.getElementById('talentContactPhone').value = t.phone || t.contact_phone || '';
@@ -32036,12 +32053,40 @@ function editCurrentTalent() {
 
 function closeTalentModal(e) { if (e && e.target !== e.currentTarget) return; document.getElementById('talentModalOverlay').classList.remove('active'); }
 
+// ★ feature/influencer-form-validation: 4 必填字段校验 (内容类型 / 内容风格 / 账号粉丝特征 / 短视频粉丝特征)
+// 备注保持选填, 不进校验
+function validateTalentForm() {
+  var required = [
+    {id: 'talentType',           label: '内容类型'},
+    {id: 'talentContentStyle',   label: '内容风格'},
+    {id: 'accountFansProfile',   label: '账号粉丝特征'},
+    {id: 'videoFansProfile',     label: '短视频粉丝特征'},
+  ];
+  var missing = [];
+  required.forEach(function(item) {
+    var field = document.getElementById(item.id);
+    if (field && !field.value.trim()) {
+      missing.push(item.label);
+      field.classList.add('field-missing');
+    } else if (field) {
+      field.classList.remove('field-missing');
+    }
+  });
+  if (missing.length) {
+    showToast('请补充必填字段: ' + missing.join('、'), 'error');
+    return false;
+  }
+  return true;
+}
+
 function saveTalent() {
   var id = document.getElementById('talentEditId').value;
   var name = document.getElementById('talentName').value.trim();
   var douyinId = document.getElementById('talentDouyinId').value.trim();
   if (!name) { showToast('请输入达人昵称'); return; }
   if (!douyinId) { showToast('请输入抖音号'); return; }
+  // ★ feature/influencer-form-validation: 4 必填字段校验 (内容类型 / 内容风格 / 账号粉丝特征 / 短视频粉丝特征)
+  if (!validateTalentForm()) return;
   var nextFollowUpVal = document.getElementById('talentNextFollowUpAt').value;
   var nextFollowUpAt = nextFollowUpVal ? new Date(nextFollowUpVal).getTime() : 0;
   var body = {
@@ -32056,6 +32101,10 @@ function saveTalent() {
     city: document.getElementById('talentCity').value.trim(),
     bio: document.getElementById('talentBio').value.trim(),
     content_style: document.getElementById('talentContentStyle').value.trim(),
+    // ★ feature/influencer-form-validation: 4 必填字段新增 (camelCase id → snake_case body field)
+    talent_type: document.getElementById('talentType').value.trim(),
+    account_fans_profile: document.getElementById('accountFansProfile').value.trim(),
+    video_fans_profile: document.getElementById('videoFansProfile').value.trim(),
     ai_analysis: document.getElementById('talentAIAnalysis').value.trim(),
     contact_name: document.getElementById('talentContactName').value.trim(),
     contact_phone: document.getElementById('talentContactPhone').value.trim(),
