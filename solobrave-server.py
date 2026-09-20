@@ -19179,6 +19179,30 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         self._send_json(200, {'status': job['status'], 'error': job.get('error', ''), 'stage': job.get('stage', ''),
                               'warning': job.get('warning', '')})
 
+    @staticmethod
+    def _is_fallback_reply(reply):
+        """★ bug/helen-amnesia: 检测 LLM 回复是否含"请提供数据/截图"等 fallback 字符串"""
+        if not reply or not isinstance(reply, str):
+            return False
+        _FALLBACK = ['请提供具体数据', '请提供具体数据或截图', '请提供截图',
+                     '需要您提供具体数据', '请提供达人数据']
+        return any(s in reply for s in _FALLBACK)
+
+    @staticmethod
+    def _has_data_signals(text):
+        """★ bug/helen-amnesia: 用户消息是否已含数据特征 (数字/百分比/结构化关键词)
+        长度阈值 80 字 (老大的完整报告文本远超); 数字正则覆盖 %/万/千 单位 + 千分号格式"""
+        if not text or not isinstance(text, str):
+            return False
+        if len(text) > 80:
+            return True
+        import re as _re_data
+        # 数字 + 单位/百分比, 或 4+ 位数字, 或明显业务字段
+        return bool(_re_data.search(
+            r'\d+\.?\d*[%万千]|\d{4,}|[粉]丝|互动率|GMV|报价|等级|报价|粉丝量|'
+            r'垂类|完播率|GPM|客单价|坑位|佣金率|带货量',
+            text))
+
     def _handle_post_chat(self, agent_id):
         """POST /api/chat/:agentId"""
         logger.info(f'  [ChatPOST] 收到请求: {agent_id} path={self.path}')
@@ -19410,6 +19434,40 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
                 # 剥离伪工具调用文本（exec(command=/tool_call( 等模型演戏输出）
                 cleaned_reply = _strip_fake_tool_calls(cleaned_reply)
+
+                # ★ bug/helen-amnesia: fallback reply 防御
+                # LLM 偶尔无视 system_prompt + 用户消息末尾的【系统数据】注入,
+                # 在已有富数据时仍回"请提供具体数据或截图",触发用户重新提供。
+                # 检测到这种情况 + 用户本轮消息含数据特征 → 重生成 (加重提示禁止再要求提供)。
+                if self._is_fallback_reply(cleaned_reply) and self._has_data_signals(user_content):
+                    logger.warning(
+                        f'  [HelenAmnesia] {agent_id} LLM fallback reply detected '
+                        f'(含 fallback 字符串 + 用户消息含数据特征),强制重生成'
+                    )
+                    _retry_content = content + (
+                        '\n\n【HelenAmnesia 防御】系统已检测到本轮用户消息含完整数据 '
+                        '(数字/百分比/达人结构化字段),禁止再要求"请提供具体数据/截图"'
+                        ',直接基于【系统数据】注入和用户消息已有内容重新生成分析。'
+                    )
+                    try:
+                        _retry_reply = _call_ai_api(
+                            agent, _retry_content, auth.user_info, include_history=not is_extract,
+                            allowed_knowledge_categories=allowed_cats,
+                            requester_id=auth.user_id, is_admin=auth.is_admin, team_ids=auth.team_ids,
+                            group_ids=auth.group_ids
+                        )
+                        if _retry_reply:
+                            _retry_updates, _retry_cleaned = _parse_self_updates(_retry_reply)
+                            if _retry_updates:
+                                _apply_agent_self_update(agent_id, _retry_updates, source=f'chat:{auth.user_id}')
+                            _retry_cleaned = _strip_fake_tool_calls(_retry_cleaned)
+                            if _retry_cleaned:
+                                cleaned_reply = _retry_cleaned
+                                logger.info(
+                                    f'  [HelenAmnesia] {agent_id} retry success, new_len={len(cleaned_reply)}'
+                                )
+                    except Exception as _retry_err:
+                        logger.error(f'  [HelenAmnesia] {agent_id} retry failed: {_retry_err}')
 
                 ai_message = {
                     'id': 'msg_' + uuid.uuid4().hex[:8],
