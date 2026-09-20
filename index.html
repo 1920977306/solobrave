@@ -10249,8 +10249,8 @@ window.doLogin = function () {
         <div class="product-modal-field"><label>达人简介</label><textarea id="talentBio" placeholder="输入达人简介"></textarea></div>
         <div class="product-modal-field required"><label>内容类型</label><input type="text" id="talentType" placeholder="如：达人号、带货号、剧情号"></div>
         <div class="product-modal-field required"><label>内容风格</label><textarea id="talentContentStyle" placeholder="例如：带货场景、纯内容、真实测评+日常vlog、韩系简约风等"></textarea></div>
-        <div class="product-modal-field required"><label>账号粉丝特征</label><textarea id="accountFansProfile" placeholder="账号粉丝特征，如：25-35岁女性为主，一二线城市"></textarea></div>
-        <div class="product-modal-field required"><label>短视频粉丝特征</label><textarea id="videoFansProfile" placeholder="短视频粉丝特征，如：18-24岁女性，看完率显著提升"></textarea></div>
+        <div class="product-modal-field required"><label>账号粉丝特征</label><textarea id="talentAccountFansProfile" placeholder="账号粉丝特征，如：25-35岁女性为主，一二线城市"></textarea></div>
+        <div class="product-modal-field required"><label>短视频粉丝特征</label><textarea id="talentVideoFansProfile" placeholder="短视频粉丝特征，如：18-24岁女性，看完率显著提升"></textarea></div>
         <div class="product-modal-field"><label>AI 分析</label><textarea id="talentAIAnalysis" placeholder="输入 AI 综合分析"></textarea></div>
       </div>
       <div class="product-modal-section">
@@ -32004,8 +32004,8 @@ function createNewTalent() {
   document.getElementById('talentContentStyle').value = '';
   // ★ feature/influencer-form-validation: 4 必填字段新增
   document.getElementById('talentType').value = '';
-  document.getElementById('accountFansProfile').value = '';
-  document.getElementById('videoFansProfile').value = '';
+  document.getElementById('talentAccountFansProfile').value = '';
+  document.getElementById('talentVideoFansProfile').value = '';
   document.getElementById('talentAIAnalysis').value = '';
   document.getElementById('talentContactName').value = '';
   document.getElementById('talentContactPhone').value = '';
@@ -32035,8 +32035,8 @@ function editCurrentTalent() {
     document.getElementById('talentContentStyle').value = t.content_style || t.contentStyle || '';
     // ★ feature/influencer-form-validation: 4 必填字段回填 (snake_case → camelCase id)
     document.getElementById('talentType').value = t.talent_type || t.talentType || '';
-    document.getElementById('accountFansProfile').value = t.account_fans_profile || t.accountFansProfile || '';
-    document.getElementById('videoFansProfile').value = t.video_fans_profile || t.videoFansProfile || '';
+    document.getElementById('talentAccountFansProfile').value = t.account_fans_profile || t.accountFansProfile || '';
+    document.getElementById('talentVideoFansProfile').value = t.video_fans_profile || t.videoFansProfile || '';
     document.getElementById('talentAIAnalysis').value = t.ai_analysis || t.ai_summary || '';
     document.getElementById('talentContactName').value = t.contact_name || '';
     document.getElementById('talentContactPhone').value = t.phone || t.contact_phone || '';
@@ -32059,8 +32059,8 @@ function validateTalentForm() {
   var required = [
     {id: 'talentType',           label: '内容类型'},
     {id: 'talentContentStyle',   label: '内容风格'},
-    {id: 'accountFansProfile',   label: '账号粉丝特征'},
-    {id: 'videoFansProfile',     label: '短视频粉丝特征'},
+    {id: 'talentAccountFansProfile',   label: '账号粉丝特征'},
+    {id: 'talentVideoFansProfile',     label: '短视频粉丝特征'},
   ];
   var missing = [];
   required.forEach(function(item) {
@@ -32103,8 +32103,8 @@ function saveTalent() {
     content_style: document.getElementById('talentContentStyle').value.trim(),
     // ★ feature/influencer-form-validation: 4 必填字段新增 (camelCase id → snake_case body field)
     talent_type: document.getElementById('talentType').value.trim(),
-    account_fans_profile: document.getElementById('accountFansProfile').value.trim(),
-    video_fans_profile: document.getElementById('videoFansProfile').value.trim(),
+    account_fans_profile: document.getElementById('talentAccountFansProfile').value.trim(),
+    video_fans_profile: document.getElementById('talentVideoFansProfile').value.trim(),
     ai_analysis: document.getElementById('talentAIAnalysis').value.trim(),
     contact_name: document.getElementById('talentContactName').value.trim(),
     contact_phone: document.getElementById('talentContactPhone').value.trim(),
