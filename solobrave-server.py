@@ -17440,7 +17440,8 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._send_auth_error(auth.error, auth.status)
             return
         if not self._require_module_permission(auth, 'influencers'): return
-        name = (self._get_query_param('name', '') or '').strip()
+        qs = parse_qs(urlparse(self.path).query)
+        name = (qs.get('name', [''])[0] or '').strip()
         if not name:
             self._send_json(200, {'talents': []})
             return
@@ -17464,7 +17465,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     visible_list = []
                 sql = (
                     "SELECT id, name, douyin_id, followers, level, ai_rating, ai_summary, "
-                    "       category, risk_rating, created_at, updated_at, status, archived, created_by "
+                    "       category, risk_rating, created_at, updated_at, status, created_by "
                     "FROM talents WHERE status = 'active' AND LOWER(name) LIKE LOWER(?)" + where_extra + " "
                     "ORDER BY "
                     "  CASE WHEN LOWER(name) = LOWER(?) THEN 0 "
