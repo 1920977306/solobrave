@@ -7081,6 +7081,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if path == '/api/talents/categories':
             self._handle_get_talent_categories()
             return
+        # ★ bug/talent-deduplicate: GET /api/talents/search?name=xxx — 前置查重 (前端录入/编辑时用)
+        if path == '/api/talents/search':
+            self._handle_search_talents()
+            return
         if path.startswith('/api/talents/'):
             rest = path[len('/api/talents/'):]
             if rest:
@@ -17426,6 +17430,67 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             logger.error(f'  [Talents] categories failed: {e}')
             self._send_json_error(500, 'Categories failed')
 
+    # ★ bug/talent-deduplicate: 前置查重接口 (录入/编辑时前端先 GET 这条接口判定是否已有)
+    # 命中规则: 精确 (LOWER(name)=LOWER(?)) 优先, 然后模糊 LIKE, 按粉丝量降序排
+    # 权限: 与 _handle_get_talents 一致 (admin 看全部, 非 admin 只看自己 created_by)
+    def _handle_search_talents(self):
+        """GET /api/talents/search?name=xxx — 达人查重 (前端录入/编辑前置查重)"""
+        auth = _authenticate(self.headers, self.client_address[0], self)
+        if not auth.is_authenticated:
+            self._send_auth_error(auth.error, auth.status)
+            return
+        if not self._require_module_permission(auth, 'influencers'): return
+        name = (self._get_query_param('name', '') or '').strip()
+        if not name:
+            self._send_json(200, {'talents': []})
+            return
+        clean = _clean_talent_name(name) or name
+        try:
+            conn = _db_conn()
+            try:
+                # 权限过滤: 与 _handle_get_talents L17403-17408 一致
+                #   admin → 全部
+                #   非 admin → 仅 created_by ∈ visible_ids (自己的 uid + AI 员工 uid)
+                #   主库 (created_by='') 只有 admin 可见
+                uid = auth.user_info.get('userId', '') if auth.user_info else ''
+                is_admin = bool(auth.is_admin) and not getattr(auth, 'localhost_agent_id', None)
+                if not is_admin:
+                    visible_ids = {uid} | set(_get_user_emp_ids(uid))
+                    visible_list = list(visible_ids)
+                    placeholders = ','.join('?' * len(visible_list))
+                    where_extra = f" AND COALESCE(created_by, '') IN ({placeholders})"
+                else:
+                    where_extra = ''
+                    visible_list = []
+                sql = (
+                    "SELECT id, name, douyin_id, followers, level, ai_rating, ai_summary, "
+                    "       category, risk_rating, created_at, updated_at, status, archived, created_by "
+                    "FROM talents WHERE status = 'active' AND LOWER(name) LIKE LOWER(?)" + where_extra + " "
+                    "ORDER BY "
+                    "  CASE WHEN LOWER(name) = LOWER(?) THEN 0 "
+                    "       WHEN LOWER(name) LIKE LOWER(?) THEN 1 "
+                    "       ELSE 2 END, "
+                    "  followers DESC, "
+                    "  updated_at DESC "
+                    "LIMIT 5"
+                )
+                params = [clean] + visible_list + [f'{clean}%', clean]
+                rows = conn.execute(sql, params).fetchall()
+                results = []
+                for r in rows:
+                    d = _talent_row_to_dict(r) or {}
+                    if r['status'] == 'archived' or d.get('archived'):
+                        d['_archived'] = True
+                    else:
+                        d['_archived'] = False
+                    results.append(d)
+            finally:
+                conn.close()
+            self._send_json(200, {'talents': results, 'query': clean})
+        except Exception as e:
+            logger.error(f'  [TalentSearch] 失败: {type(e).__name__} {e}\n{traceback.format_exc()}')
+            self._send_json_error(500, 'Talent search failed')
+
     def _handle_get_talent_injection_text(self):
         """GET /api/talents/injection-text — 返回达人数据注入文本（含禁止编造约束）。
 
@@ -19216,8 +19281,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             # 优先级 1:从 OCR/上下文文本中识别具体达人 → 单达人精确注入
             _talent_id_hit = _extract_talent_from_text(_content_for_check, auth)
             if _talent_id_hit:
-                talent_injection = _build_single_talent_injection(_talent_id_hit, auth)
-                logger.info(f'  [TalentInject] {agent_id} 单达人命中 talent_id={_talent_id_hit}')
+                # ★ bug/talent-deduplicate: 命中已有达人 → 显式告诉 LLM 走【更新】场景,
+                #   不说"请提供达人ID" / 不让用户重新提供已有字段
+                _dedup_hint = _build_talent_dedup_hint(_talent_id_hit, auth)
+                talent_injection = _dedup_hint + _build_single_talent_injection(_talent_id_hit, auth)
+                logger.info(f'  [TalentInject] {agent_id} 单达人命中 talent_id={_talent_id_hit} dedup_hint_len={len(_dedup_hint)}')
             # 优先级 2:关键词命中 → 注入全表 top 50(原行为,文本分析场景)
             if not talent_injection:
                 talent_injection = _build_talent_injection(_content_for_check, auth)
@@ -20789,6 +20857,57 @@ def _deduplicate_talent(name):
     except Exception as e:
         logger.warning(f'  [TalentDedupe] 查询失败: {e}')
     return None
+
+
+# ★ bug/talent-deduplicate: Helen system_prompt 注入片段
+# 检测到具体达人命中 → 拼一段"该达人已存在 (ID, ai_rating, ai_summary ...)" 提示,
+# 显式告诉 LLM 走【更新】场景, 不要问用户要达人 ID, 不要说"请提供达人ID"。
+def _build_talent_dedup_hint(talent_id, auth):
+    """★ bug/talent-deduplicate: 达人已存在 → 返回 system_prompt 注入片段.
+    talent_id 必须是 _deduplicate_talent / _extract_talent_from_text 命中的真实 id.
+    无匹配 / DB 异常 / 非 active → 返回 '' (不注入).
+    """
+    if not talent_id:
+        return ''
+    try:
+        conn = _db_conn()
+        try:
+            row = conn.execute(
+                "SELECT id, name, douyin_id, ai_rating, ai_summary, "
+                "       ai_tags, category, risk_rating, followers, ai_analysis "
+                "FROM talents WHERE id = ? AND status = 'active' LIMIT 1",
+                (talent_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return ''
+        d = dict(row)
+        # 截断摘要避免 token 爆炸 (跟 _build_single_talent_injection 一致 300 字上限)
+        ai_summary = (d.get('ai_summary') or '')[:300]
+        ai_tags = ', '.join(d.get('ai_tags') or []) if isinstance(d.get('ai_tags'), list) else (d.get('ai_tags') or '')[:200]
+        ai_rating = d.get('ai_rating') or '(未评级)'
+        category = d.get('category') or '(未分类)'
+        followers = d.get('followers') or 0
+        return (
+            f"\n\n【达人查重命中 - 走【更新】场景】\n"
+            f"该达人「{d['name']}」已存在 (ID: {d['id']}).\n"
+            f"已有字段快照:\n"
+            f"  - 抖音号: {d.get('douyin_id') or '(空)'}\n"
+            f"  - 类目: {category}\n"
+            f"  - 粉丝量: {followers}\n"
+            f"  - AI评级: {ai_rating}\n"
+            f"  - AI摘要: {ai_summary or '(空)'}\n"
+            f"  - AI标签: {ai_tags or '(空)'}\n"
+            f"\n指令:\n"
+            f"→ 走【更新】场景, 基于已有档案 + 用户本轮输入更新 (写回 ai_rating / ai_summary / ai_tags / ai_analysis)\n"
+            f"→ 禁止说'请提供达人ID' / '请提供达人 ID' / '请提供该达人ID' 等不合理话术 (你已有 ID)\n"
+            f"→ 禁止让用户重新提供已有字段 (抖音号/类目/粉丝量等)\n"
+            f"→ 直接基于已有档案 + 用户本轮新分析 / 报告内容, 输出更新后的分析结论\n"
+        )
+    except Exception as e:
+        logger.warning(f'  [TalentDedupHint] 构建失败 talent_id={talent_id}: {e}')
+    return ''
 
 
 # ══════════════════════════════════════════════════════════════════════
