@@ -13809,6 +13809,31 @@ async function sendViaOpenClaw(emp, userMessage, docContext, timeStr, images, ch
       }
     }, lifecycleOptions), TIMEOUT_CHAT_MS, 'chat');
     
+    // ★ dedup 三件事收口: 检测 OpenClaw LLM fallback 自动 retry 一次
+    //   fallback 触发条件: reply 是固定文案 "抱歉，我暂时无法处理..." 或 isError=true
+    //   retry 时换 fallbackKey 避免覆盖主链 session, 并给 LLM 提示这是 retry
+    if (chatResult.reply && chatResult.reply.indexOf('抱歉，我暂时无法处理') !== -1 && !chatResult.isError) {
+      console.warn('[OpenClaw] 检测到 fallback 文案 (chainDepth=' + chainDepth + '), 自动 retry 一次');
+      try {
+        var retrySessionKey = 'agent:' + emp.id + ':chat:retry_' + Date.now();
+        var retryResult = await _withTimeout(_sendChatWaitForLifecycle(retrySessionKey, fullMessage + '\n\n[系统提示: 上一次LLM未遵守system_prompt中的达人ID,请用 PUT /api/talents/<ID> 直接更新,不要让用户重新提供]', {
+          onStream: function () {},
+          onPhase: function () {},
+          onToolStart: function () {},
+          onToolEnd: function () {},
+          onLifecycleEnd: function () {}
+        }), TIMEOUT_CHAT_MS, 'chat:retry');
+        if (retryResult && retryResult.reply && retryResult.reply.indexOf('抱歉，我暂时无法处理') === -1) {
+          chatResult = retryResult;
+          console.log('[OpenClaw] retry 成功, 用 retry 的 reply');
+        } else {
+          console.warn('[OpenClaw] retry 后仍 fallback 或失败, 用原 reply');
+        }
+      } catch (retryErr) {
+        console.warn('[OpenClaw] retry 异常:', retryErr);
+      }
+    }
+
     _doHandle(chatResult.reply, chatResult.isError);
     restoreOnline();
   } catch (e) {
