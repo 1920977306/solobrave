@@ -733,6 +733,100 @@ def test_r6_dedup_hint_includes_4_new():
         pass
 
 
+# ★ fix/talent-full-sync-r7: 4 JSON 字段 (cooperating_brands / brand_details / products + hot_brands 升级)
+# 28 → 32 测试
+
+def test_r7_tal_columns_includes_3_new():
+    """★ r7 根因回归保护: _TALENT_COLUMNS 必须含 3 新 JSON 列."""
+    from solobrave_server import _TALENT_COLUMNS
+    new_cols = ['cooperating_brands', 'brand_details', 'products']
+    for col in new_cols:
+        assert col in _TALENT_COLUMNS, f'_TALENT_COLUMNS 缺 r7 新列 {col}'
+
+
+def test_r7_dict_to_talent_row_includes_3_new():
+    """★ r7 根因回归保护: _dict_to_talent_row 含 3 新列 + JSON 序列化 (dict/list → JSON 字符串)."""
+    from solobrave_server import _dict_to_talent_row
+    row = _dict_to_talent_row({
+        'name': 'test',
+        # dict 输入 (Helen OCR 解析的 dict 结果)
+        'cooperating_brands': [{'brand': 'A', 'products_count': 5}],
+        'brand_details': [{'name': 'A', 'products': 5, 'shop': 'shopA'}],
+        'products': [{'name': 'p1', 'shop': 's1', 'price': 99}],
+    })
+    import json as _json
+    assert isinstance(row.get('cooperating_brands'), str), 'cooperating_brands → JSON 字符串'
+    parsed_cb = _json.loads(row['cooperating_brands'])
+    assert parsed_cb[0]['brand'] == 'A', 'cooperating_brands dict 序列化正确'
+    parsed_bd = _json.loads(row['brand_details'])
+    assert parsed_bd[0]['name'] == 'A', 'brand_details dict 序列化正确'
+    parsed_p = _json.loads(row['products'])
+    assert parsed_p[0]['name'] == 'p1', 'products dict 序列化正确'
+
+    # 字符串输入 (前端 Markdown 表格解析的 JSON 字符串) → 原样保留
+    row2 = _dict_to_talent_row({
+        'name': 'test',
+        'products': '[{"name": "p2"}]',
+    })
+    parsed_p2 = _json.loads(row2['products'])
+    assert parsed_p2[0]['name'] == 'p2', 'products JSON 字符串原样保留'
+
+
+def test_r7_extract_json_fields_from_llm_reply():
+    """★ r7 前端 regex 解析 4 JSON 字段 (Markdown 表格 → JSON 字符串)."""
+    reply = '''已为达人 `tal_r7_001` (姓名: 发财周周) 录入档案:
+
+热卖品牌TOP3:
+| 排名 | 品牌 | 均价 | 结算额 |
+| 1 | 哈比熊 | ¥181.55 | ¥10万-25万 |
+| 2 | 安踏 | ¥120 | ¥5万-10万 |
+| 3 | 美的 | ¥300 | ¥5万-10万 |
+
+合作品牌列表:
+| 品牌 | 商品数 | 代表商品 | 店铺 |
+| 哈比熊 | 5 | 哈比熊童鞋 | 哈比熊旗舰店 |
+| 安踏 | 3 | 安踏运动鞋 | 安踏官方旗舰店 |
+
+品牌详情:
+| 品牌 | 商品数 | 代表商品 | 店铺 |
+| 哈比熊 | 5 | 哈比熊童鞋 | 哈比熊旗舰店 |
+
+带货商品明细:
+| 商品名 | 店铺 | 到手价 | 原价 | 结算额 | 关联视频数 |
+| 哈比熊童鞋 | 哈比熊旗舰店 | ¥99 | ¥199 | ¥5万-10万 | 3 |
+'''
+    result = _extract_talent_fields_from_llm_reply_py(reply)
+    assert result is not None, '应解析出结果'
+    body = result['body']
+    import json as _json
+    # hot_brands 应为 JSON 字符串 (Markdown 表格 → 3 行 JSON)
+    assert isinstance(body.get('hot_brands'), str), 'hot_brands 是 JSON 字符串'
+    hot_brands = _json.loads(body['hot_brands'])
+    assert len(hot_brands) == 3, f'hot_brands 3 行, 实际 {len(hot_brands)}'
+    assert hot_brands[0]['品牌'] == '哈比熊', 'hot_brands 第 1 行品牌'
+    # cooperating_brands / brand_details / products
+    assert isinstance(body.get('cooperating_brands'), str), 'cooperating_brands 是 JSON 字符串'
+    assert isinstance(body.get('brand_details'), str), 'brand_details 是 JSON 字符串'
+    assert isinstance(body.get('products'), str), 'products 是 JSON 字符串'
+    products = _json.loads(body['products'])
+    assert products[0]['商品名'] == '哈比熊童鞋', 'products 第 1 行商品名'
+
+
+def test_r7_dedup_hint_includes_4_json_fields():
+    """★ r7 dedup_hint 必须含 4 JSON 字段 (Markdown 表格格式提示)."""
+    from solobrave_server import _build_talent_dedup_hint
+    try:
+        result = _build_talent_dedup_hint('tal_r7_test', auth=None)
+        if result:
+            assert 'hot_brands' in result, 'dedup_hint 应含 hot_brands'
+            assert 'cooperating_brands' in result, 'dedup_hint 应含 cooperating_brands'
+            assert 'brand_details' in result, 'dedup_hint 应含 brand_details'
+            assert 'products' in result, 'dedup_hint 应含 products'
+            assert 'Markdown 表格' in result or 'JSON' in result, 'dedup_hint 应明确格式 (Markdown 表格 / JSON)'
+    except Exception:
+        pass
+
+
 def run_all_tests():
     """跑全部测试, 返回 (pass_count, fail_count)."""
     import traceback
@@ -770,6 +864,11 @@ def run_all_tests():
         test_r6_dict_to_talent_row_includes_4_new,
         test_r6_extract_4_new_fields_from_llm_reply,
         test_r6_dedup_hint_includes_4_new,
+        # ★ r7 新增 (3 新 JSON 列 + Markdown 表格解析)
+        test_r7_tal_columns_includes_3_new,
+        test_r7_dict_to_talent_row_includes_3_new,
+        test_r7_extract_json_fields_from_llm_reply,
+        test_r7_dedup_hint_includes_4_json_fields,
     ]
     pass_count = 0
     fail_count = 0

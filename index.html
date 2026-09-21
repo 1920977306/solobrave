@@ -26066,6 +26066,42 @@ function _parseFollowerCountLLM(v) {
     } catch (e) { return 0; }
 }
 
+function _parseMarkdownTableLLM(text) {
+    // ★ fix/talent-full-sync-r7: Markdown 表格 / JSON 块 → JSON 字符串 解析 helper
+    // LLM 输出格式多样 (Markdown 表格 / 单行逗号分隔 / JSON 块), 容错处理
+    if (!text || typeof text !== 'string') return null;
+    var trimmed = text.trim();
+    if (!trimmed) return null;
+    // 1. 已是 JSON 格式 (LLM 输出 ```json ... ```) → 直接验证
+    if (trimmed.charAt(0) === '[' || trimmed.charAt(0) === '{') {
+        try { return JSON.stringify(JSON.parse(trimmed), null, 0); } catch (e) { /* fallback */ }
+    }
+    // 2. Markdown 表格 (含 | 分隔符) → 解析
+    var lines = trimmed.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+    var tableLines = lines.filter(function (l) { return l.indexOf('|') >= 0 && !l.match(/^[\|\s\-:]+$/); });
+    if (tableLines.length < 2) {
+        // 3. 单行: 逗号 / 中文逗号分隔 (热卖品牌TOP3: 哈比熊, 其他A, 其他B)
+        if (/[,，]/.test(trimmed)) {
+            var items = trimmed.split(/[,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+            return JSON.stringify(items);
+        }
+        return null;
+    }
+    // Markdown 表格解析
+    var headers = tableLines[0].split('|').map(function (s) { return s.trim(); }).filter(Boolean);
+    if (headers.length === 0) return null;
+    var rows = [];
+    for (var i = 1; i < tableLines.length; i++) {
+        var cells = tableLines[i].split('|').map(function (s) { return s.trim(); }).filter(Boolean);
+        var item = {};
+        for (var j = 0; j < headers.length; j++) {
+            item[headers[j]] = cells[j] || '';
+        }
+        rows.push(item);
+    }
+    return JSON.stringify(rows, null, 0);
+}
+
 function _extractTalentFieldsFromLLMReply(reply) {
     if (!reply || typeof reply !== 'string') return null;
     var fields = {};
@@ -26140,11 +26176,38 @@ function _extractTalentFieldsFromLLMReply(reply) {
     t = reply.match(/(?:粉丝变化率|粉丝增速|fan_growth_rate)[:\s]*([\-+]?[0-9\.]+\s*%?)/);
     if (t) fields.fan_growth_rate = t[1].trim();
 
-    t = reply.match(/(?:热卖类目TOP3|热卖类目|hot_categories|类目TOP3)[:\s]*([^\n]+)/);
-    if (t) fields.hot_categories = t[1].trim();
+    t = reply.match(/(?:热卖类目TOP3|热卖类目|hot_categories|类目TOP3)[:\s]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
+    if (t) {
+        var parsed = _parseMarkdownTableLLM(t[1]);
+        if (parsed) fields.hot_categories = parsed;
+        else fields.hot_categories = t[1].trim().split('\n')[0];  // 单行 fallback
+    }
 
-    t = reply.match(/(?:热卖品牌TOP3|热卖品牌|hot_brands|品牌TOP3)[:\s]*([^\n]+)/);
-    if (t) fields.hot_brands = t[1].trim();
+    // ★ fix/talent-full-sync-r7: 4 JSON 字段 (Markdown 表格 → JSON 字符串)
+    t = reply.match(/(?:热卖品牌TOP3|热卖品牌|hot_brands|品牌TOP3)[:\s]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
+    if (t) {
+        var parsed = _parseMarkdownTableLLM(t[1]);
+        if (parsed) fields.hot_brands = parsed;
+        else fields.hot_brands = t[1].trim().split('\n')[0];
+    }
+
+    t = reply.match(/(?:合作品牌[列表]?|cooperating_brands)[:\s]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
+    if (t) {
+        var parsed = _parseMarkdownTableLLM(t[1]);
+        if (parsed) fields.cooperating_brands = parsed;
+    }
+
+    t = reply.match(/(?:品牌详情|brand_details)[:\s]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
+    if (t) {
+        var parsed = _parseMarkdownTableLLM(t[1]);
+        if (parsed) fields.brand_details = parsed;
+    }
+
+    t = reply.match(/(?:带货商品[明细列表]?|products|代表商品)[:\s]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
+    if (t) {
+        var parsed = _parseMarkdownTableLLM(t[1]);
+        if (parsed) fields.products = parsed;
+    }
 
     t = reply.match(/(?:主推类目|main_category|主推带货类目)[:\s]*([^\n,。；]+)/);
     if (t) fields.main_category = t[1].trim();

@@ -3364,6 +3364,12 @@ def init_db():
             ('live_stream_viewers', 'INTEGER DEFAULT 0'),   # 带货直播观看人数
             ('brand_commission', "TEXT DEFAULT ''"),       # 佣金参考 (JSON 字符串)
             ('data_period', "TEXT DEFAULT ''"),            # 统计时间
+            # ★ fix/talent-full-sync-r7: 3 新 JSON 列 (品牌详情 + 商品明细)
+            #   hot_brands r5 已加 (TEXT DEFAULT '[]'), r7 不再加
+            #   3 新列: cooperating_brands / brand_details / products (TEXT, 内容是 JSON 字符串)
+            ('cooperating_brands', "TEXT DEFAULT '[]'"),  # 合作品牌列表 (JSON)
+            ('brand_details', "TEXT DEFAULT '[]'"),       # 品牌详情 (JSON, 商品数/代表商品/店铺)
+            ('products', "TEXT DEFAULT '[]'"),            # 带货商品明细 (JSON array)
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
@@ -4033,8 +4039,8 @@ _BRAND_COLUMNS = [
 _TALENT_COLUMNS = [
     'id', 'name', 'avatar', 'douyin_id', 'real_name', 'wechat', 'phone', 'email',
     'city', 'level', 'followers', 'talent_type', 'location', 'agency', 'tags',
-    'bio', 'brand_commission', 'cooperation_requirements', 'contact', 'contact_name', 'contact_phone', 'contact_wechat',
-    'contact_email', 'cooperation_status', 'data_period', 'follow_up_by', 'next_follow_up_at',
+    'bio', 'brand_commission', 'brand_details', 'cooperation_requirements', 'contact', 'contact_name', 'contact_phone', 'contact_wechat',
+    'contact_email', 'cooperating_brands', 'cooperation_status', 'data_period', 'follow_up_by', 'next_follow_up_at',
     'follow_up_note', 'commission_requirement', 'fulfillment_score', 'rating_score',
     'total_gmv', 'total_products', 'product_count', 'total_shops', 'average_price',
     'avg_session_gmv', 'live_ratio', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_gpm',
@@ -4058,6 +4064,7 @@ _TALENT_COLUMNS = [
     'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by',
     'platform', 'price_unit', 'avg_views', 'last_cooperation', 'notes',
     'matched_products', 'matched_products_updated_at',
+    'products',  # ★ fix/talent-full-sync-r7: 带货商品明细 JSON
     'created_at', 'updated_at'
 ]
 
@@ -4295,6 +4302,27 @@ _TALENT_INT_FIELDS = ('followers', 'next_follow_up_at', 'total_products', 'produ
                       'nextFollowUpAt', 'avgViews', 'matchedProductsUpdatedAt')
 
 
+def _json_or_str(val, default='[]'):
+    """★ fix/talent-full-sync-r7: dict/list → JSON 字符串 序列化 helper.
+    前端可能传 dict/list (Helen OCR 解析结果) 或字符串 (Markdown 表格 JSON).
+    统一序列化为 JSON 字符串存 db.
+    """
+    import json as _json
+    if val is None or val == '':
+        return default
+    if isinstance(val, (dict, list)):
+        return _json.dumps(val, ensure_ascii=False)
+    if isinstance(val, str):
+        # 已经是字符串, 但验证是否合法 JSON
+        try:
+            _json.loads(val)
+            return val
+        except (ValueError, TypeError):
+            # 不是 JSON, 当字符串原样返回 (避免丢数据)
+            return val
+    return str(val)
+
+
 def _sanitize_talent_numeric_fields(body, talent_id=''):
     """在合并 body 前把数值字段规范化；无法解析的字段从 body 移除（保留原值）。"""
     try:
@@ -4424,6 +4452,10 @@ def _dict_to_talent_row(t):
         'top_brands': _dump(t.get('top_brands', t.get('topBrands', []))),
         'hot_categories': t.get('hot_categories') or t.get('hotCategories') or '[]',
         'hot_brands': t.get('hot_brands') or t.get('hotBrands') or '[]',
+        # ★ fix/talent-full-sync-r7: 3 新 JSON 字段 (含 dict/list → JSON 字符串序列化)
+        'cooperating_brands': _json_or_str(t.get('cooperating_brands') or t.get('cooperatingBrands'), default='[]'),
+        'brand_details': _json_or_str(t.get('brand_details') or t.get('brandDetails'), default='[]'),
+        'products': _json_or_str(t.get('products'), default='[]'),
         'fan_city_tier': _dump(t.get('fan_city_tier', t.get('fanCityTier', {}))),
         'fan_group_gender': _dump(t.get('fan_group_gender', t.get('fanGroupGender', {}))),
         'fan_group_age': _dump(t.get('fan_group_age', t.get('fanGroupAge', {}))),
@@ -20805,6 +20837,10 @@ _TALENT_FORM_TO_DB = {
     'fan_growth_rate': 'fan_growth_rate',          # 粉丝变化率
     'hot_brands': 'hot_brands',                    # 热卖品牌 (文本 JSON)
     'hot_categories': 'hot_categories',            # 热卖类目 (文本 JSON)
+    # ───── ★ fix/talent-full-sync-r7: 3 新 JSON 列 ─────
+    'cooperating_brands': 'cooperating_brands',  # 合作品牌列表 (JSON)
+    'brand_details': 'brand_details',            # 品牌详情 (JSON)
+    'products': 'products',                      # 带货商品明细 (JSON array)
     'live_avg_price': 'live_avg_price',            # 直播平均件单价
     'live_gmv_ratio': 'live_gmv_ratio',            # 直播GMV占比
     'main_category': 'main_category',              # 主推类目 (跟 category 区分, OCR prompt 提 main_category)
@@ -21169,6 +21205,7 @@ def _build_talent_dedup_hint(talent_id, auth):
 **直播详细**: 带货直播场次(live_stream_sessions) / 带货直播观看人数(live_stream_viewers)
 **品牌**: 佣金参考 (品牌维度, JSON 字符串可存, brand_commission)
 **时效**: 统计时间 (数据时效, e.g. "2026/08/21至2026/09/19", data_period)
+**JSON 字段 (Markdown 表格格式)**: 热卖品牌TOP3(hot_brands) / 合作品牌列表(cooperating_brands) / 品牌详情(brand_details, 含商品数/代表商品/店铺) / 带货商品明细(products, 含商品名/店铺/到手价/原价/结算额/关联视频数)
 '''
         return (
             f"\n\n# ⚠️ 系统检测到达人已存在，必须走【更新】场景，禁用【新建】\n"
