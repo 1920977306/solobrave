@@ -26085,9 +26085,10 @@ function _extractTalentFieldsFromLLMReply(reply) {
     fields._talent_id = t[1];
     var talentId = fields._talent_id;
 
-    // ───── dedup 触发关键词 (防止误触发普通 LLM 回复) ─────
-    var dedupTriggered = /(已为.*达人.*更新|已更新.*档案|直接调\s*PUT|PUT\s*\/api\/talents)/.test(reply);
-    if (!dedupTriggered) return null;  // 不是 dedup 触发 → 不动
+    // ───── (触发判定已移至 _tryAutoPutTalentFromReply, r4 双条件结构匹配) ─────
+    // 原本这里有 c6ce501 的关键词 regex `/(已为.*达人.*更新|已更新.*档案|直接调\s*PUT|PUT\s*\/api\/talents)/`
+    // r4 删了, 改用更鲁棒的双条件: 达人 ID 格式 + dedup context 关键词 (AND)
+    // (见 _tryAutoPutTalentFromReply L26155 起的双条件判定)
 
     // ───── 核心数据 ─────
     t = reply.match(/粉丝[量]?[:\s]*([0-9,\.万千]+)/);
@@ -26152,9 +26153,21 @@ function _extractTalentFieldsFromLLMReply(reply) {
 }
 
 function _tryAutoPutTalentFromReply(reply) {
-    // ★ fix/talent-full-sync-r3: 解析 + 自动 PUT
+    // ★ fix/talent-full-sync-r4: 双条件结构匹配 (取代 c6ce501 的具体 pattern regex)
+    // 1. 达人 ID 存在: tal_xxx 格式 (单词边界避免匹配 "talents" 等普通词)
+    // 2. dedup context 关键词 (中文, 涵盖老大 brief 的 5 个 + 扩展 2 个)
+    //    老大 brief 列表: 更新 / 录入 / 建档 / 同步 / 写入
+    //    扩展 (dedup 场景同义词): 档案 / 覆盖
+    // 两个条件 AND 满足 → 触发自动 PUT
+    // 单条件满足 → 普通对话 / 提及达人昵称但无 id → 不触发
+    if (!reply || typeof reply !== 'string') return;
+    var talentIdMatch = reply.match(/\b(tal_[a-zA-Z0-9_]+)\b/);
+    if (!talentIdMatch) return;  // ★ 没达人 ID → 普通对话 (含昵称但无 id) 不触发
+    if (!/(更新|录入|建档|同步|写入|档案|覆盖)/.test(reply)) return;  // ★ 没 dedup context → 不触发
+
+    // 双条件满足 → 解析字段 + 自动 PUT
     var extracted = _extractTalentFieldsFromLLMReply(reply);
-    if (!extracted || !extracted.talent_id) return;  // 不是 dedup 触发或解析失败
+    if (!extracted || !extracted.talent_id) return;  // 解析失败 (理论上不该到这里, 双条件已确保有 id)
     var talentId = extracted.talent_id;
     var body = extracted.body;
     var fieldCount = Object.keys(body).length;

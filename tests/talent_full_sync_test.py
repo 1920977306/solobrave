@@ -456,6 +456,46 @@ def test_extract_talent_fields_handles_chinese_units():
     assert _extract_talent_fields_from_llm_reply_py(None) is None
 
 
+# ★ fix/talent-full-sync-r4: 双条件结构匹配 (tal_xxx id + dedup context 关键词 AND)
+# Python 等价: 跟 JS 版 _tryAutoPutTalentFromReply (index.html L26155) 同一 regex
+def _should_auto_put_py(reply):
+    """★ r4 双条件判定: 达人 ID (tal_xxx) AND dedup context 关键词.
+    返回 talent_id (str) 或 None (不触发).
+    """
+    import re
+    if not reply or not isinstance(reply, str):
+        return None
+    m = re.search(r'\b(tal_[a-zA-Z0-9_]+)\b', reply)
+    if not m:
+        return None  # 条件 1: 没达人 ID → 不触发
+    if not re.search(r'(更新|录入|建档|同步|写入|档案|覆盖)', reply):
+        return None  # 条件 2: 没 dedup context 关键词 → 不触发
+    return m.group(1)
+
+
+def test_r4_tal_id_with_update_keyword_triggers():
+    """★ r4 case 1 (老大 brief 字面 wording): '我将使用达人ID tal_xxx 更新' → 触发."""
+    reply = "我将使用达人ID tal_abc123 更新档案"
+    result = _should_auto_put_py(reply)
+    assert result is not None, "应触发自动 PUT (有 tal_abc123 id + 更新 + 档案)"
+    _assert_equal(result, 'tal_abc123', 'r4 case 1 提取的 talent_id')
+
+
+def test_r4_separate_id_and_context_triggers():
+    """★ r4 case 2 (老大 brief 字面 wording): '以下是更新的信息...达人ID: tal_xxx' → 触发."""
+    reply = "以下是更新的信息: 粉丝量5486\n达人ID: tal_abc123"
+    result = _should_auto_put_py(reply)
+    assert result is not None, "应触发自动 PUT (有 tal_abc123 id + 更新 + 达人ID)"
+    _assert_equal(result, 'tal_abc123', 'r4 case 2 提取的 talent_id')
+
+
+def test_r4_normal_conversation_no_tal_id_skipped():
+    """★ r4 case 3 (老大 brief 字面 wording): '发财周周粉丝量5486' (普通对话无 tal_xxx) → 不触发."""
+    reply = "发财周周粉丝量5486, 互动率0.32%"
+    result = _should_auto_put_py(reply)
+    assert result is None, "不应触发 (无 tal_xxx id, 只含昵称 + 数字)"
+
+
 def run_all_tests():
     """跑全部测试, 返回 (pass_count, fail_count)."""
     import traceback
@@ -476,6 +516,10 @@ def run_all_tests():
         # ★ r3 新增 (dedup 路径自动 PUT 解析)
         test_extract_talent_fields_from_llm_reply_basic,
         test_extract_talent_fields_handles_chinese_units,
+        # ★ r4 新增 (双条件结构匹配)
+        test_r4_tal_id_with_update_keyword_triggers,
+        test_r4_separate_id_and_context_triggers,
+        test_r4_normal_conversation_no_tal_id_skipped,
     ]
     pass_count = 0
     fail_count = 0
