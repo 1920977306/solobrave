@@ -379,6 +379,24 @@ def _extract_talent_fields_from_llm_reply_py(reply):
     if m:
         fields['city'] = m.group(1).strip()
 
+    # ───── r8 新增: LLM 实际输出 → DB 列名映射 (行首锚定避免误匹配) ─────
+    m = re.search(r'(?:^|\n)\s*[-*]?\s*(?:\*\*)?达人昵称(?:\*\*)?[：:\s*]([^\n,。；*]+?)\s*(?:\*\*)?\s*$', reply, re.MULTILINE)
+    if m:
+        fields['name'] = m.group(1).strip()
+
+    m = re.search(r'(?:^|\n)\s*[-*]?\s*(?:\*\*)?平台(?:\*\*)?[：:\s*]([^\n,。；*]+?)\s*(?:\*\*)?\s*$', reply, re.MULTILINE)
+    if m:
+        fields['platform'] = m.group(1).strip()
+
+    # 内容标签 (LLM 实际输出名) → content_style (独立匹配, 避免跟 内容类型/内容风格 OR 冲突)
+    m = re.search(r'(?:^|\n)\s*[-*]?\s*(?:\*\*)?内容标签(?:\*\*)?[：:\s*]([^\n,。；*]+?)\s*(?:\*\*)?\s*$', reply, re.MULTILINE)
+    if m:
+        fields['content_style'] = m.group(1).strip()
+
+    m = re.search(r'(?:^|\n)\s*[-*]?\s*(?:\*\*)?合作状态(?:\*\*)?[：:\s*]([^\n,。；*]+?)\s*(?:\*\*)?\s*$', reply, re.MULTILINE)
+    if m:
+        fields['cooperation_status'] = m.group(1).strip()
+
     m = re.search(r'(?:备注|简介|bio)[：:\s*]*([^\n]+)', reply)
     if m:
         fields['bio'] = m.group(1).strip()
@@ -542,6 +560,59 @@ def test_r6_partial_reply_extraction_no_core_fields():
         assert not has_core, f'部分 reply 不应提取到核心字段, body={body}'
 
 
+def test_r8_full_reply_extracts_name_platform_contentstyle_status():
+    """★ r8 新增: 完整 LLM reply 应提取 name/platform/content_style/cooperation_status.
+    根因: r7 只同步了 4 个核心字段, LLM 输出还有 达人昵称/平台/内容标签/合作状态 没映射.
+    修法: 加 4 个 regex (行首锚定 + markdown 加粗兼容).
+    """
+    full_reply = """收到老板，我将使用提供的达人ID `tal_1789443949796_1583e3` 来更新发财周周这位达人的信息。以下是更新的信息：
+
+- **达人昵称**：发财周周
+- **达人ID**：tal_1789443949796_1583e3
+- **平台**：抖音
+- **粉丝量**：5,486
+- **内容标签**：时尚
+- **视频GPM**：75元
+- **互动率**：0.32%
+- **结算总额**：25-50万
+- **合作状态**：available
+
+请您确认以上信息是否准确。确认无误后，我将执行更新操作。"""
+    result = _extract_talent_fields_from_llm_reply_py(full_reply)
+    assert result, '完整 reply 应解析出结果'
+    body = result['body']
+    _assert_equal(body.get('name'), '发财周周', 'name 应被提取')
+    _assert_equal(body.get('platform'), '抖音', 'platform 应被提取')
+    _assert_equal(body.get('content_style'), '时尚', 'content_style 应被提取')
+    _assert_equal(body.get('cooperation_status'), 'available', 'cooperation_status 应被提取')
+    assert 'followers' in body, 'followers 不应被破坏'
+    assert 'video_gpm' in body, 'video_gpm 不应被破坏'
+
+
+def test_r8_pure_text_format_extracts_basic_info():
+    """★ r8 新增: 纯文本格式 (dedup_hint 第5条生效后) 同样能提取基础信息."""
+    pure_text_reply = """收到老板，以下是更新的信息：
+
+- 达人昵称：发财周周
+- 达人ID：tal_1789443949796_1583e3
+- 平台：抖音
+- 粉丝量：5,486
+- 内容标签：时尚
+- 视频GPM：75元
+- 互动率：0.32%
+- 结算总额：25-50万
+- 合作状态：available
+
+确认无误后执行更新。"""
+    result = _extract_talent_fields_from_llm_reply_py(pure_text_reply)
+    assert result, '纯文本 reply 应解析'
+    body = result['body']
+    _assert_equal(body.get('name'), '发财周周', '纯文本 name')
+    _assert_equal(body.get('platform'), '抖音', '纯文本 platform')
+    _assert_equal(body.get('content_style'), '时尚', '纯文本 content_style')
+    _assert_equal(body.get('cooperation_status'), 'available', '纯文本 cooperation_status')
+
+
 def test_extract_talent_fields_markdown_format():
     """★ r5 新增: LLM 实际用 markdown **xxx**：格式回复时, 字段仍能正确提取.
     根因: r4 改了触发判定 (双条件), 但字段提取 regex 仍是 `[:\s]*`, 不接受 markdown `**` 字符.
@@ -606,6 +677,9 @@ def run_all_tests():
         # ★ r6 新增 (lifecycle end 重调, 完整 reply 字段提取)
         test_r6_full_reply_extraction_fieldcount_positive,
         test_r6_partial_reply_extraction_no_core_fields,
+        # ★ r8 新增 (基础信息映射: name/platform/content_style/cooperation_status)
+        test_r8_full_reply_extracts_name_platform_contentstyle_status,
+        test_r8_pure_text_format_extracts_basic_info,
     ]
     pass_count = 0
     fail_count = 0

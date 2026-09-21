@@ -26144,6 +26144,24 @@ function _extractTalentFieldsFromLLMReply(reply) {
     t = reply.match(/(?:所在地|所在城市|城市)[：:\s*]*([^\n,。；]+)/);
     if (t) fields.city = t[1].trim();
 
+    // ───── r8: 补全 LLM 实际输出 → DB 列名映射 ─────
+    // LLM 真实回复常见字段 (chat 149): "- **达人昵称**：发财周周" / "- **平台**：抖音"
+    //                              "- **内容标签**：时尚" / "- **合作状态**：available"
+    // 之前 r5 只补了核心数据 + 部分基础信息, 漏了这 4 个常用字段
+    // 用 (?:^|\n)\s*[-*]? 行首锚定, 避免误匹配文中"达人昵称"等关键词
+    t = reply.match(/(?:^|\n)\s*[-*]?\s*(?:\*\*)?达人昵称(?:\*\*)?[：:\s*]*([^\n,。；*]+?)\s*(?:\*\*)?\s*$/m);
+    if (t) fields.name = t[1].trim();
+
+    t = reply.match(/(?:^|\n)\s*[-*]?\s*(?:\*\*)?平台(?:\*\*)?[：:\s*]*([^\n,。；*]+?)\s*(?:\*\*)?\s*$/m);
+    if (t) fields.platform = t[1].trim();
+
+    // 内容标签 (LLM 实际输出名) → content_style (独立匹配, 不跟"内容类型"/"内容风格" OR, 避免顺序冲突)
+    t = reply.match(/(?:^|\n)\s*[-*]?\s*(?:\*\*)?内容标签(?:\*\*)?[：:\s*]*([^\n,。；*]+?)\s*(?:\*\*)?\s*$/m);
+    if (t) fields.content_style = t[1].trim();
+
+    t = reply.match(/(?:^|\n)\s*[-*]?\s*(?:\*\*)?合作状态(?:\*\*)?[：:\s*]*([^\n,。；*]+?)\s*(?:\*\*)?\s*$/m);
+    if (t) fields.cooperation_status = t[1].trim();
+
     t = reply.match(/(?:备注|简介|bio)[：:\s*]*([^\n]+)/);
     if (t) fields.bio = t[1].trim();
 
