@@ -26187,8 +26187,26 @@ function _extractTalentFieldsFromLLMReply(reply) {
     t = reply.match(/(?:热卖品牌TOP3|热卖品牌|hot_brands|品牌TOP3)[:\s]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
     if (t) {
         var parsed = _parseMarkdownTableLLM(t[1]);
-        if (parsed) fields.hot_brands = parsed;
-        else fields.hot_brands = t[1].trim().split('\n')[0];
+        if (parsed) {
+            // ★ fix/talent-full-sync-r8: 确保每个 item 含 commission 子字段 (LLM 必须输出佣金列)
+            try {
+                var arr = JSON.parse(parsed);
+                if (Array.isArray(arr)) {
+                    arr.forEach(function (item) {
+                        if (!('commission' in item) && !('佣金' in item)) {
+                            item.commission = item.commission || item['佣金'] || '未提供';
+                        }
+                    });
+                    fields.hot_brands = JSON.stringify(arr);
+                } else {
+                    fields.hot_brands = parsed;
+                }
+            } catch (e) {
+                fields.hot_brands = parsed;
+            }
+        } else {
+            fields.hot_brands = t[1].trim().split('\n')[0];
+        }
     }
 
     t = reply.match(/(?:合作品牌[列表]?|cooperating_brands)[:\s]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
@@ -26206,7 +26224,24 @@ function _extractTalentFieldsFromLLMReply(reply) {
     t = reply.match(/(?:带货商品[明细列表]?|products|代表商品)[:\s]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
     if (t) {
         var parsed = _parseMarkdownTableLLM(t[1]);
-        if (parsed) fields.products = parsed;
+        if (parsed) {
+            // ★ fix/talent-full-sync-r8: 确保每个 item 含 live_session_count 子字段 (LLM 必须输出关联直播场次列)
+            try {
+                var arr = JSON.parse(parsed);
+                if (Array.isArray(arr)) {
+                    arr.forEach(function (item) {
+                        if (!('live_session_count' in item) && !('关联直播场次' in item)) {
+                            item.live_session_count = parseInt(item.live_session_count || item['关联直播场次'] || 0);
+                        }
+                    });
+                    fields.products = JSON.stringify(arr);
+                } else {
+                    fields.products = parsed;
+                }
+            } catch (e) {
+                fields.products = parsed;
+            }
+        }
     }
 
     t = reply.match(/(?:主推类目|main_category|主推带货类目)[:\s]*([^\n,。；]+)/);

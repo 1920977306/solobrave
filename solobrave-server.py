@@ -21205,7 +21205,15 @@ def _build_talent_dedup_hint(talent_id, auth):
 **直播详细**: 带货直播场次(live_stream_sessions) / 带货直播观看人数(live_stream_viewers)
 **品牌**: 佣金参考 (品牌维度, JSON 字符串可存, brand_commission)
 **时效**: 统计时间 (数据时效, e.g. "2026/08/21至2026/09/19", data_period)
-**JSON 字段 (Markdown 表格格式)**: 热卖品牌TOP3(hot_brands) / 合作品牌列表(cooperating_brands) / 品牌详情(brand_details, 含商品数/代表商品/店铺) / 带货商品明细(products, 含商品名/店铺/到手价/原价/结算额/关联视频数)
+**JSON 字段 (Markdown 表格格式, 必含子字段必写)**:
+- 热卖品牌TOP3 (hot_brands): Markdown 表格, 列: 排名|品牌|均价|结算额|佣金参考
+  例: [{"rank":1, "brand":"哈比熊", "avg_price":"¥181.55", "gmv":"¥10万-25万", "commission":"未提供"}]
+  ⚠️ commission 列必含 (即使没数据写"未提供")
+- 合作品牌列表 (cooperating_brands): 列: 品牌|商品数|代表商品|店铺
+- 品牌详情 (brand_details): 列: 品牌|商品数|代表商品|店铺
+- 带货商品明细 (products): Markdown 表格, 列: 商品名|店铺|到手价|原价|结算额|关联视频数|关联直播场次
+  例: [{"name":"德尔惠闪穿两用鞋", "shop":"德尔惠男鞋旗舰店", "price":"¥139.00", "original_price":"¥239.00", "gmv_range":"¥5万-10万", "video_count":10, "live_session_count":0}]
+  ⚠️ live_session_count 列必含 (即使 0 也要输出, 不要省略)
 '''
         return (
             f"\n\n# ⚠️ 系统检测到达人已存在，必须走【更新】场景，禁用【新建】\n"
