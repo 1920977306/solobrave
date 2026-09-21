@@ -283,7 +283,7 @@ def _parse_follower_count_py(v):
         return 0
     try:
         if '万' in s or 'w' in s:
-            return int(float(re.sub(r'[万千]', '', s)) * 10000)
+            return int(float(re.sub(r'[万千wW]', '', s)) * 10000)
         return int(float(s))
     except Exception:
         return 0
