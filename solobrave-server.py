@@ -3338,6 +3338,11 @@ def init_db():
             #  RAG 端 search_talent_by_query 也能用)
             ('embedding', 'BLOB'),
             ('embedding_model', "TEXT DEFAULT ''"),
+            # ★ fix/talent-full-sync: 3 列新建（前端 L32165-32166 / L32241-32242 已用但 schema 无）
+            # 老大硬约束: 缺列必须 ALTER TABLE 加, 走 _add_column_if_not_exists 兜底 (db 已存在不重建)
+            ('account_fans_profile', "TEXT DEFAULT ''"),
+            ('video_fans_profile', "TEXT DEFAULT ''"),
+            ('cooperation_days', "INTEGER DEFAULT 0"),
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
@@ -4023,6 +4028,8 @@ _TALENT_COLUMNS = [
     'fan_group_activity', 'fan_group_device', 'fan_group_price', 'fan_group_category',
     'live_audience_region', 'live_audience_city_tier',
     'video_audience_region', 'video_audience_city_tier',
+    # ★ fix/talent-full-sync-r2: ALTER TABLE 加了 3 列, 必须同步到这里否则 UPDATE 永远漏写
+    'account_fans_profile', 'video_fans_profile', 'cooperation_days',
     'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by',
     'platform', 'price_unit', 'avg_views', 'last_cooperation', 'notes',
     'matched_products', 'matched_products_updated_at',
@@ -4390,6 +4397,10 @@ def _dict_to_talent_row(t):
         'live_audience_city_tier': _dump(t.get('live_audience_city_tier', t.get('liveAudienceCityTier', {}))),
         'video_audience_region': _dump(t.get('video_audience_region', t.get('videoAudienceRegion', {}))),
         'video_audience_city_tier': _dump(t.get('video_audience_city_tier', t.get('videoAudienceCityTier', {}))),
+        # ★ fix/talent-full-sync-r2: 补 3 列映射 (ALTER TABLE 加了但 _dict_to_talent_row 漏)
+        'account_fans_profile': str(t.get('account_fans_profile') or t.get('accountFansProfile') or ''),
+        'video_fans_profile': str(t.get('video_fans_profile') or t.get('videoFansProfile') or ''),
+        'cooperation_days': int(t.get('cooperation_days', t.get('cooperationDays', 0)) or 0),
         'ai_reason': t.get('ai_reason') or t.get('aiReason') or '',
         'risk_rating': t.get('risk_rating') or t.get('riskRating') or '',
         'group_id': t.get('group_id') or t.get('groupId') or '',
@@ -17691,7 +17702,9 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json_error(404, 'Talent not found')
                 return
             existing = _talent_row_to_dict(row)
-            existing.update(body)
+            # ★ fix/talent-full-sync: PUT merge 只补空值严禁覆盖 (老大硬约束)
+            # 之前 existing.update(body) 无脑覆盖, 导致已有核心数据 (followers/total_gmv/video_gpm) 被冲掉
+            existing = _merge_talent_only_empty(existing, body)
             existing['id'] = talent_id
             existing['updated_at'] = int(time.time() * 1000)
             row = _dict_to_talent_row(existing)
@@ -20694,8 +20707,115 @@ def _heavy_vision_coverage(vision_texts):
 # ★ fix/helen-vision-final-integration: 件套 2 (OCR 字段落库) + 件套 3 (LLM JSON 落库) helpers
 # ══════════════════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════════════════
+# ★ fix/talent-full-sync: 全字段映射 helper (brief 字段名 → DB 列名 + 表内翻译)
+# ══════════════════════════════════════════════════════════════════════
+# 老大硬约束: 之前 bug/talent-deduplicate (1017212) 前端 updateExistingTalent 只传 AI/跟进字段
+# (ai_analysis / content_style / follow_up_by / next_follow_up_at / follow_up_note / cooperation_status),
+# 漏传核心数据 + 基础信息 → Helen 分析结果的核心数据丢失.
+#
+# 此模块统一两条路径:
+#   1) 前端 form → 后端 PUT body 翻译
+#   2) Helen 分析结果 (vision_field_maps + llm_json) → talents 表字段翻译
+#
+# 翻译规则:
+#   - 大部分 brief 字段名 = 表字段名 (followers / total_gmv / etc.)
+#   - 4 个 brief 字段名 ≠ 表字段名 (live_count / avg_video_settlement / interaction_rate / avg_video_price
+#     → live_sessions / single_video_settlement / video_interaction_rate / video_avg_price), 复用现有 schema 不重复加列
+#   - 真缺的 3 列 (account_fans_profile / video_fans_profile / cooperation_days) 已通过 ALTER TABLE 加
+#
+# 字段分 3 类:
+#   - 核心数据: followers / total_gmv / product_count / video_gpm / avg_video_settlement / total_shops
+#   - 基础信息: talent_type / content_style / account_fans_profile / video_fans_profile / avg_video_price / bio
+#     / douyin_id / level / city / cooperation_days / live_count / interaction_rate
+#   - AI/跟进 (已有): ai_rating / ai_analysis / ai_summary / risk_rating / follow_up_by / next_follow_up_at
+#     / follow_up_note / cooperation_status
+
+_TALENT_FORM_TO_DB = {
+    # ───── 核心数据 (6 项) ─────
+    'followers': 'followers',
+    'total_gmv': 'total_gmv',
+    'product_count': 'product_count',
+    'video_gpm': 'video_gpm',
+    'avg_video_settlement': 'single_video_settlement',  # brief → 表内翻译
+    'total_shops': 'total_shops',
+    # ───── 基础信息 (12 项) ─────
+    'talent_type': 'talent_type',
+    'content_style': 'content_style',
+    'account_fans_profile': 'account_fans_profile',  # ALTER TABLE 新加
+    'video_fans_profile': 'video_fans_profile',  # ALTER TABLE 新加
+    'avg_video_price': 'video_avg_price',  # brief → 表内翻译
+    'bio': 'bio',
+    'douyin_id': 'douyin_id',
+    'level': 'level',
+    'city': 'city',
+    'cooperation_days': 'cooperation_days',  # ALTER TABLE 新加
+    'live_count': 'live_sessions',  # brief → 表内翻译
+    'interaction_rate': 'video_interaction_rate',  # brief → 表内翻译
+    # ───── AI/跟进 (保留 8 项, 已在 1017212 + 已有 helper 处理) ─────
+    'ai_rating': 'ai_rating',
+    'ai_analysis': 'ai_analysis',
+    'ai_summary': 'ai_summary',
+    'risk_rating': 'risk_rating',
+    'follow_up_by': 'follow_up_by',
+    'next_follow_up_at': 'next_follow_up_at',
+    'follow_up_note': 'follow_up_note',
+    'cooperation_status': 'cooperation_status',
+}
+
+
+def _map_talent_form_to_record(form):
+    """★ fix/talent-full-sync: 从前端 form (Helen 分析结果或 modal 输入) 取所有字段 → DB record dict.
+
+    输入: form dict (camelCase 或 snake_case 都可, 优先 snake_case)
+    输出: DB 列名 → 值的 dict (用于 PUT body / INSERT/UPDATE)
+    """
+    if not form or not isinstance(form, dict):
+        return {}
+    record = {}
+    for form_key, db_col in _TALENT_FORM_TO_DB.items():
+        val = form.get(form_key)
+        if val is None:
+            # 也试 camelCase (前端可能有两种命名)
+            camel = ''.join(w.title() if i else w for i, w in enumerate(form_key.split('_')))
+            val = form.get(camel)
+        if val is None or val == '':
+            continue
+        record[db_col] = val
+    return record
+
+
+def _merge_talent_only_empty(existing, body):
+    """★ fix/talent-full-sync: PUT merge — 只补空值, 严禁覆盖已有数据.
+
+    老大硬约束: 已有非空值绝不被 PUT 覆盖, 防止 PUT 把已有核心数据冲掉.
+
+    合并规则:
+      - 新值空 (None / '' / 0) → 不覆盖 (无论老值空不空)
+      - 老值空 (None / '' / 0) → 用新值补
+      - 老值非空 + 新值非空 → 保留老值 (不覆盖)
+      - id / updated_at 由调用方设置, 这里不动
+    """
+    if not existing:
+        existing = {}
+    if not body:
+        return dict(existing)
+    merged = dict(existing)
+    for k, v in body.items():
+        if k in ('id', 'updated_at'):
+            continue
+        if v is None or v == '' or v == 0:
+            continue  # 新值空, 不覆盖
+        existing_val = merged.get(k)
+        if existing_val is None or existing_val == '' or existing_val == 0:
+            merged[k] = v  # 老值空, 用新值补
+        # else: 老值非空, 保留老值 (不覆盖) — 老大硬约束
+    return merged
+
+
 # OCR 提取字段 → talents 表列 映射 (db_col, ocr_key, parser)
 # ★ fix/helen-ocr-nested-fields: followers parser 改用 _parse_follower_count 支持 '1.2万' / '1.2W' 中文数字
+# ★ fix/talent-full-sync: 补 account_fans_profile / video_fans_profile / cooperation_days / content_style / bio / level / city
 _OCR_TO_TALENT_FIELDS = [
     ('followers', 'followers', lambda v: _parse_follower_count(v)),
     ('total_gmv', 'total_gmv', lambda v: _parse_gmv_value(v)),
@@ -20709,6 +20829,15 @@ _OCR_TO_TALENT_FIELDS = [
     ('live_gpm', 'live_gpm', lambda v: _parse_gmv_value(v)),
     ('rating_score', 'rating_score', lambda v: float(v) if str(v).strip() else 0),
     ('category', 'main_category', lambda v: str(v).strip() if v else ''),
+    # ★ fix/talent-full-sync: 补基础信息 OCR 回写 (字符串字段, parser 是 str().strip())
+    ('account_fans_profile', 'account_fans_profile', lambda v: str(v).strip()[:500] if v else ''),
+    ('video_fans_profile', 'video_fans_profile', lambda v: str(v).strip()[:500] if v else ''),
+    ('cooperation_days', 'cooperation_days', lambda v: int(float(v)) if str(v).strip() else 0),
+    ('content_style', 'content_style', lambda v: str(v).strip()[:200] if v else ''),
+    ('bio', 'bio', lambda v: str(v).strip()[:1000] if v else ''),
+    ('level', 'level', lambda v: str(v).strip()[:16] if v else ''),
+    ('city', 'city', lambda v: str(v).strip()[:64] if v else ''),
+    ('talent_type', 'talent_type', lambda v: str(v).strip()[:64] if v else ''),
 ]
 
 
