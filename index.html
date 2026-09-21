@@ -26173,6 +26173,19 @@ function _extractTalentFieldsFromLLMReply(reply) {
     t = reply.match(/(?:播放量|视频播放量|带货视频播放量)[:\s]*([0-9,\.万千]+)/);
     if (t) fields.video_plays = _parseFollowerCountLLM(t[1]);
 
+    // ★ fix/talent-full-sync-r6: 4 新字段 (live_stream_sessions 跟现有 live_sessions 不同概念)
+    t = reply.match(/(?:带货直播场次|带货场次|live_stream_sessions)[:\s]*([0-9]+)\s*场?/);
+    if (t) fields.live_stream_sessions = parseInt(t[1]) || 0;
+
+    t = reply.match(/(?:带货直播观看人数|live_stream_viewers|直播观看人数)[:\s]*([0-9,\.万千]+)/);
+    if (t) fields.live_stream_viewers = _parseFollowerCountLLM(t[1]);
+
+    t = reply.match(/(?:佣金参考|brand_commission|品牌佣金参考)[:\s]*([^\n]+)/);
+    if (t) fields.brand_commission = t[1].trim();
+
+    t = reply.match(/(?:统计时间|数据时效|data_period|数据周期)[:\s]*([^\n]+)/);
+    if (t) fields.data_period = t[1].trim();
+
     t = reply.match(/(?:平均客单价|平均件单价)[:\s]*[¥￥]?([0-9,\-]+)/);
     if (t) fields.avg_order_price = t[1];
 

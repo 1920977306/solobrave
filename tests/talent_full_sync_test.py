@@ -673,6 +673,66 @@ def test_r5_dedup_hint_says_unprovided_for_empty():
         pass
 
 
+# ★ fix/talent-full-sync-r6: 4 新列补漏 (live_stream_sessions / live_stream_viewers / brand_commission / data_period)
+# 24 → 28 测试
+
+def test_r6_tal_columns_includes_4_new():
+    """★ r6 根因回归保护: _TALENT_COLUMNS 必须含 4 新列."""
+    from solobrave_server import _TALENT_COLUMNS
+    new_cols = ['live_stream_sessions', 'live_stream_viewers', 'brand_commission', 'data_period']
+    for col in new_cols:
+        assert col in _TALENT_COLUMNS, f'_TALENT_COLUMNS 缺 r6 新列 {col}'
+
+
+def test_r6_dict_to_talent_row_includes_4_new():
+    """★ r6 根因回归保护: _dict_to_talent_row 必须含 4 新列映射 (含类型转换)."""
+    from solobrave_server import _dict_to_talent_row
+    row = _dict_to_talent_row({
+        'name': 'test',
+        'live_stream_sessions': 12,
+        'live_stream_viewers': '8,888',
+        'brand_commission': '{"品牌A": "20%"}',
+        'data_period': '2026/08/21至2026/09/19',
+    })
+    assert row.get('live_stream_sessions') == 12, 'live_stream_sessions int 映射'
+    assert row.get('live_stream_viewers') == 8888, 'live_stream_viewers 逗号分隔转 int'
+    assert row.get('brand_commission') == '{"品牌A": "20%"}', 'brand_commission JSON 字符串'
+    assert row.get('data_period') == '2026/08/21至2026/09/19', 'data_period'
+
+
+def test_r6_extract_4_new_fields_from_llm_reply():
+    """★ r6 前端 regex 提取 4 新字段 (live_stream_sessions 跟 live_sessions 区分)."""
+    reply = '''已为达人 `tal_r6_001` (姓名: 发财周周) 录入档案:
+带货直播场次: 12
+带货直播观看人数: 8888
+佣金参考: 品牌A 20%, 品牌B 15%
+统计时间: 2026/08/21至2026/09/19
+'''
+    result = _extract_talent_fields_from_llm_reply_py(reply)
+    assert result is not None, '应解析出结果'
+    body = result['body']
+    assert body.get('live_stream_sessions') == 12, 'live_stream_sessions === 12'
+    assert body.get('live_stream_viewers') == 8888, 'live_stream_viewers === 8888'
+    assert body.get('brand_commission') == '品牌A 20%, 品牌B 15%', 'brand_commission'
+    assert body.get('data_period') == '2026/08/21至2026/09/19', 'data_period'
+    # 验证跟现有 live_sessions 区分 (老大明确"带货"前缀, 不 alias)
+    assert 'live_sessions' not in body or body.get('live_sessions') is None or body.get('live_sessions') == 0, 'live_sessions 不被新 regex 误覆盖'
+
+
+def test_r6_dedup_hint_includes_4_new():
+    """★ r6 dedup_hint 必须含 4 新字段 (直播详细 / 品牌佣金 / 统计时间)."""
+    from solobrave_server import _build_talent_dedup_hint
+    try:
+        result = _build_talent_dedup_hint('tal_r6_test', auth=None)
+        if result:
+            assert 'live_stream_sessions' in result, 'dedup_hint 应含 live_stream_sessions'
+            assert 'live_stream_viewers' in result, 'dedup_hint 应含 live_stream_viewers'
+            assert 'brand_commission' in result, 'dedup_hint 应含 brand_commission'
+            assert 'data_period' in result, 'dedup_hint 应含 data_period'
+    except Exception:
+        pass
+
+
 def run_all_tests():
     """跑全部测试, 返回 (pass_count, fail_count)."""
     import traceback
@@ -705,6 +765,11 @@ def run_all_tests():
         test_r5_extract_aliases_from_llm_reply,
         test_r5_build_dedup_hint_includes_full_fields,
         test_r5_dedup_hint_says_unprovided_for_empty,
+        # ★ r6 新增 (4 新列补漏)
+        test_r6_tal_columns_includes_4_new,
+        test_r6_dict_to_talent_row_includes_4_new,
+        test_r6_extract_4_new_fields_from_llm_reply,
+        test_r6_dedup_hint_includes_4_new,
     ]
     pass_count = 0
     fail_count = 0

@@ -3356,6 +3356,14 @@ def init_db():
             ('live_gmv_ratio', "TEXT DEFAULT ''"),
             ('main_category', "TEXT DEFAULT ''"),
             ('video_gmv_ratio', "TEXT DEFAULT ''"),
+            # ★ fix/talent-full-sync-r6: 4 新列补漏
+            #   live_stream_sessions 跟现有 live_sessions 是不同字段 (老大明确"带货"前缀)
+            #   brand_commission JSON 字符串 (品牌维度佣金参考)
+            #   data_period 记录数据时效 (e.g. "2026/08/21至2026/09/19")
+            ('live_stream_sessions', 'INTEGER DEFAULT 0'),  # 带货直播场次
+            ('live_stream_viewers', 'INTEGER DEFAULT 0'),   # 带货直播观看人数
+            ('brand_commission', "TEXT DEFAULT ''"),       # 佣金参考 (JSON 字符串)
+            ('data_period', "TEXT DEFAULT ''"),            # 统计时间
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
@@ -4025,8 +4033,8 @@ _BRAND_COLUMNS = [
 _TALENT_COLUMNS = [
     'id', 'name', 'avatar', 'douyin_id', 'real_name', 'wechat', 'phone', 'email',
     'city', 'level', 'followers', 'talent_type', 'location', 'agency', 'tags',
-    'bio', 'cooperation_requirements', 'contact', 'contact_name', 'contact_phone', 'contact_wechat',
-    'contact_email', 'cooperation_status', 'follow_up_by', 'next_follow_up_at',
+    'bio', 'brand_commission', 'cooperation_requirements', 'contact', 'contact_name', 'contact_phone', 'contact_wechat',
+    'contact_email', 'cooperation_status', 'data_period', 'follow_up_by', 'next_follow_up_at',
     'follow_up_note', 'commission_requirement', 'fulfillment_score', 'rating_score',
     'total_gmv', 'total_products', 'product_count', 'total_shops', 'average_price',
     'avg_session_gmv', 'live_ratio', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_gpm',
@@ -4034,7 +4042,8 @@ _TALENT_COLUMNS = [
     'fan_region', 'fan_crowd', 'fan_price_range',
     'fan_category', 'category', 'content_style', 'fans_profile', 'ai_tags', 'ai_rating', 'ai_summary',
     'ai_analysis', 'main_category',
-    'total_history_days', 'live_sessions', 'live_views', 'live_avg_price',
+    'total_history_days', 'live_sessions', 'live_stream_sessions', 'live_stream_viewers',
+    'live_views', 'live_avg_price',
     'video_plays', 'video_gmv_ratio',
     'single_video_settlement', 'video_completion_rate', 'video_likes', 'video_comments',
     'video_shares', 'video_interaction_rate', 'video_avg_price',
@@ -4395,8 +4404,12 @@ def _dict_to_talent_row(t):
         'main_category': t.get('main_category') or t.get('mainCategory') or '',
         'total_history_days': t.get('total_history_days') or t.get('totalHistoryDays') or '',
         'live_sessions': t.get('live_sessions') or t.get('liveSessions') or '',
+        'live_stream_sessions': int(t.get('live_stream_sessions', t.get('liveStreamSessions', 0)) or 0),
+        'live_stream_viewers': int(str(t.get('live_stream_viewers', t.get('liveStreamViewers', 0)) or 0).replace(',', '')),
         'live_views': t.get('live_views') or t.get('liveViews') or '',
         'live_avg_price': float(t.get('live_avg_price', t.get('liveAvgPrice', 0)) or 0),
+        'brand_commission': str(t.get('brand_commission') or t.get('brandCommission') or ''),
+        'data_period': str(t.get('data_period') or t.get('dataPeriod') or ''),
         'video_plays': t.get('video_plays') or t.get('videoPlays') or '',
         'video_gmv_ratio': t.get('video_gmv_ratio') or t.get('videoGmvRatio') or '',
         'single_video_settlement': t.get('single_video_settlement') or t.get('singleVideoSettlement') or '',
@@ -20778,6 +20791,12 @@ _TALENT_FORM_TO_DB = {
     'cooperation_days': 'cooperation_days',  # ALTER TABLE 新加 (r2)
     'live_count': 'live_sessions',  # brief → 表内翻译
     'interaction_rate': 'video_interaction_rate',  # brief → 表内翻译
+    # ───── ★ fix/talent-full-sync-r6: 4 新列补漏 ─────
+    # live_stream_sessions 跟现有 live_sessions 是不同字段 (老大明确"带货直播场次")
+    'live_stream_sessions': 'live_stream_sessions',  # 带货直播场次
+    'live_stream_viewers': 'live_stream_viewers',   # 带货直播观看人数
+    'brand_commission': 'brand_commission',         # 佣金参考 (JSON 字符串)
+    'data_period': 'data_period',                  # 统计时间 (数据时效)
     # ───── ★ fix/talent-full-sync-r5: 大幅扩展 (10 新字段 + 13 别名) ─────
     # 10 新字段 (alphabetic 顺序, 跟 _TALENT_COLUMNS / _dict_to_talent_row / ALTER TABLE 同步)
     'avg_session_gmv': 'avg_session_gmv',         # 场均结算额
@@ -21147,6 +21166,9 @@ def _build_talent_dedup_hint(talent_id, auth):
 **粉丝**: 粉丝变化数(fan_growth) / 粉丝变化率(fan_growth_rate) / 粉丝画像(性别/年龄/城市等级/人群/活跃度/设备/价格带/品类偏好/省份TOP/粉丝特征/消费偏好) / 视频粉丝画像
 **热卖**: 热卖类目TOP3(hot_categories) / 热卖品牌TOP3(hot_brands)
 **指标**: 点赞数(likes) / 评论数(comments) / 转发数(shares)
+**直播详细**: 带货直播场次(live_stream_sessions) / 带货直播观看人数(live_stream_viewers)
+**品牌**: 佣金参考 (品牌维度, JSON 字符串可存, brand_commission)
+**时效**: 统计时间 (数据时效, e.g. "2026/08/21至2026/09/19", data_period)
 '''
         return (
             f"\n\n# ⚠️ 系统检测到达人已存在，必须走【更新】场景，禁用【新建】\n"
