@@ -32296,14 +32296,30 @@ function _preCheckTalentAndSave(name) {
     });
 }
 
-// ★ bug/talent-deduplicate: 走更新 (保留 name/douyinId/realName 等基础字段, 只覆盖 AI/跟进字段)
+// ★ fix/talent-full-sync: 走更新 (传 modal 实际有 input 的全部字段)
+// 之前 bug/talent-deduplicate (1017212) 只传 6 字段漏核心数据, Helen 分析结果的核心数据丢失
+// 现在传 modal 真实存在的 14 个字段 (基础信息 + AI + 跟进), 后端 _merge_talent_only_empty 只补空值严禁覆盖
+// modal 里没 input 的字段 (total_gmv / video_gpm / product_count 等核心数据) 走 Helen OCR 自动回写 (_update_talent_from_ocr_fields)
 function updateExistingTalent(talentId) {
   var nextFollowUpVal = document.getElementById('talentNextFollowUpAt').value;
   var nextFollowUpAt = nextFollowUpVal ? new Date(nextFollowUpVal).getTime() : 0;
-  // 只覆盖 AI 分析 + 跟进信息, 不覆盖 name/douyinId/realName/city/bio 等基础字段
+  var followersVal = parseInt(document.getElementById('talentFollowers').value, 10);
+  // ───── modal 实际有 input 的字段 (14 个) ─────
   var body = {
-    ai_analysis: document.getElementById('talentAIAnalysis').value.trim(),
+    // 基础信息 (10 项)
+    douyin_id: document.getElementById('talentDouyinId').value.trim(),
+    followers: isNaN(followersVal) ? 0 : followersVal,
+    talent_type: document.getElementById('talentType').value.trim(),
     content_style: document.getElementById('talentContentStyle').value.trim(),
+    account_fans_profile: document.getElementById('accountFansProfile').value.trim(),
+    video_fans_profile: document.getElementById('videoFansProfile').value.trim(),
+    bio: document.getElementById('talentBio').value.trim(),
+    level: document.getElementById('talentLevel').value.trim(),
+    city: document.getElementById('talentCity').value.trim(),
+    category: document.getElementById('talentCategory').value.trim(),
+    // AI 字段 (1 项)
+    ai_analysis: document.getElementById('talentAIAnalysis').value.trim(),
+    // 跟进字段 (4 项)
     follow_up_by: document.getElementById('talentFollowUpBy').value.trim(),
     next_follow_up_at: nextFollowUpAt,
     follow_up_note: document.getElementById('talentFollowUpNote').value.trim(),
