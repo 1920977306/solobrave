@@ -359,11 +359,11 @@ def _extract_talent_fields_from_llm_reply_py(reply):
     if m:
         fields['content_style'] = m.group(1).strip()
 
-    m = re.search(r'(?:账号粉丝特征|粉丝特征)[：:\s*]*([^\n,。；]+)', reply)
+    m = re.search(r'(?:账号粉丝特征|粉丝特征|粉丝画像|账号粉丝画像)[：:\s*]*([^\n,。；]+)', reply)
     if m:
         fields['account_fans_profile'] = m.group(1).strip()
 
-    m = re.search(r'(?:短视频粉丝特征|视频粉丝特征)[：:\s*]*([^\n,。；]+)', reply)
+    m = re.search(r'(?:短视频粉丝特征|视频粉丝特征|短视频粉丝画像|视频粉丝画像)[：:\s*]*([^\n,。；]+)', reply)
     if m:
         fields['video_fans_profile'] = m.group(1).strip()
 
@@ -397,9 +397,14 @@ def _extract_talent_fields_from_llm_reply_py(reply):
     if m:
         fields['cooperation_status'] = m.group(1).strip()
 
-    m = re.search(r'(?:备注|简介|bio)[：:\s*]*([^\n]+)', reply)
+    m = re.search(r'(?:备注|简介|个人简介|bio)[：:\s*]*([^\n]+)', reply)
     if m:
         fields['bio'] = m.group(1).strip()
+
+    # r9 新增: 带货方式 → talent_type (DB 没"带货方式"列, 映射到 talent_type)
+    m = re.search(r'(?:^|\n)\s*[-*]?\s*(?:\*\*)?带货方式(?:\*\*)?[：:\s*]([^\n,。；*]+?)\s*(?:\*\*)?\s*$', reply, re.MULTILINE)
+    if m and not fields.get('talent_type'):
+        fields['talent_type'] = m.group(1).strip()
 
     return {'talent_id': talent_id, 'body': fields}
 
@@ -613,6 +618,58 @@ def test_r8_pure_text_format_extracts_basic_info():
     _assert_equal(body.get('cooperation_status'), 'available', '纯文本 cooperation_status')
 
 
+def test_r9_full_reply_extracts_fans_profile_aliases():
+    """★ r9 新增: 粉丝画像/账号粉丝画像/短视频粉丝画像 等别名应映射到正确字段."""
+    full_reply = """收到老板，以下是更新的信息：
+
+- 达人昵称：发财周周
+- 达人ID：tal_1789443949796_1583e3
+- 平台：抖音
+- 粉丝量：5,486
+- 账号粉丝画像：女性为主85% 18-24岁
+- 短视频粉丝画像：女性为主92% 18-24岁
+- 内容标签：时尚
+
+确认无误后执行更新。"""
+    result = _extract_talent_fields_from_llm_reply_py(full_reply)
+    assert result, 'reply 应解析'
+    body = result['body']
+    _assert_equal(body.get('account_fans_profile'), '女性为主85% 18-24岁', 'account_fans_profile 别名匹配')
+    _assert_equal(body.get('video_fans_profile'), '女性为主92% 18-24岁', 'video_fans_profile 别名匹配')
+
+
+def test_r9_full_reply_extracts_daifan_to_talent_type():
+    """★ r9 新增: 带货方式 → talent_type (DB 无带货方式列, 映射到 talent_type)."""
+    full_reply = """收到老板，以下是更新的信息：
+
+- 达人昵称：发财周周
+- 达人ID：tal_1789443949796_1583e3
+- 带货方式：短视频带货为主（占比97.7%）
+- 视频GPM：75元
+
+确认无误后执行更新。"""
+    result = _extract_talent_fields_from_llm_reply_py(full_reply)
+    assert result
+    body = result['body']
+    _assert_equal(body.get('talent_type'), '短视频带货为主（占比97.7%）', '带货方式 → talent_type')
+
+
+def test_r9_full_reply_extracts_personal_bio():
+    """★ r9 新增: 个人简介 (LLM 用别名时) → bio."""
+    full_reply = """收到老板，以下是更新的信息：
+
+- 达人昵称：发财周周
+- 达人ID：tal_1789443949796_1583e3
+- 个人简介：以时尚穿搭分享为主，粉丝粘性高
+
+确认无误后执行更新。"""
+    result = _extract_talent_fields_from_llm_reply_py(full_reply)
+    assert result
+    body = result['body']
+    _assert_equal(body.get('bio'), '以时尚穿搭分享为主，粉丝粘性高', '个人简介 → bio')
+
+
+
 def test_extract_talent_fields_markdown_format():
     """★ r5 新增: LLM 实际用 markdown **xxx**：格式回复时, 字段仍能正确提取.
     根因: r4 改了触发判定 (双条件), 但字段提取 regex 仍是 `[:\s]*`, 不接受 markdown `**` 字符.
@@ -680,6 +737,10 @@ def run_all_tests():
         # ★ r8 新增 (基础信息映射: name/platform/content_style/cooperation_status)
         test_r8_full_reply_extracts_name_platform_contentstyle_status,
         test_r8_pure_text_format_extracts_basic_info,
+        # ★ r9 新增 (粉丝画像别名 + 带货方式 → talent_type + 个人简介别名)
+        test_r9_full_reply_extracts_fans_profile_aliases,
+        test_r9_full_reply_extracts_daifan_to_talent_type,
+        test_r9_full_reply_extracts_personal_bio,
     ]
     pass_count = 0
     fail_count = 0

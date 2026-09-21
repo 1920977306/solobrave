@@ -26129,10 +26129,10 @@ function _extractTalentFieldsFromLLMReply(reply) {
     t = reply.match(/内容风格[：:\s*]*([^\n,。；]+)/);
     if (t) fields.content_style = t[1].trim();
 
-    t = reply.match(/(?:账号粉丝特征|粉丝特征)[：:\s*]*([^\n,。；]+)/);
+    t = reply.match(/(?:账号粉丝特征|粉丝特征|粉丝画像|账号粉丝画像)[：:\s*]*([^\n,。；]+)/);
     if (t) fields.account_fans_profile = t[1].trim();
 
-    t = reply.match(/(?:短视频粉丝特征|视频粉丝特征)[：:\s*]*([^\n,。；]+)/);
+    t = reply.match(/(?:短视频粉丝特征|视频粉丝特征|短视频粉丝画像|视频粉丝画像)[：:\s*]*([^\n,。；]+)/);
     if (t) fields.video_fans_profile = t[1].trim();
 
     t = reply.match(/抖音号[：:\s*]*[`'"]?([a-zA-Z0-9_\-\.]+)[`'"]?/);
@@ -26162,8 +26162,12 @@ function _extractTalentFieldsFromLLMReply(reply) {
     t = reply.match(/(?:^|\n)\s*[-*]?\s*(?:\*\*)?合作状态(?:\*\*)?[：:\s*]*([^\n,。；*]+?)\s*(?:\*\*)?\s*$/m);
     if (t) fields.cooperation_status = t[1].trim();
 
-    t = reply.match(/(?:备注|简介|bio)[：:\s*]*([^\n]+)/);
+    t = reply.match(/(?:备注|简介|个人简介|bio)[：:\s*]*([^\n]+)/);
     if (t) fields.bio = t[1].trim();
+
+    // r9 新增: 带货方式 → talent_type (DB 没"带货方式"列, 映射到 talent_type 最合适)
+    t = reply.match(/(?:^|\n)\s*[-*]?\s*(?:\*\*)?带货方式(?:\*\*)?[：:\s*]*([^\n,。；*]+?)\s*(?:\*\*)?\s*$/m);
+    if (t && !fields.talent_type) fields.talent_type = t[1].trim();
 
     // 去掉内部字段 (talent_id 已经单独提取)
     delete fields._talent_id;
