@@ -26182,7 +26182,11 @@ function _tryAutoPutTalentFromReply(reply) {
     // 异步后台 PUT, 不阻塞 render
     fetch('/api/talents/' + encodeURIComponent(talentId), {
         method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',  // 带 cookie (防御: 部分路径靠 session cookie 而非 header)
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + (localStorage.getItem('sb_auth_token') || '')  // ★ r7: 带 Bearer token, 修 401
+        },
         body: JSON.stringify(body)
     }).then(function (r) {
         if (r.ok) {
