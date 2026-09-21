@@ -26060,7 +26060,7 @@ function _parseFollowerCountLLM(v) {
     if (!s) return 0;
     try {
         if (s.indexOf('万') >= 0 || s.indexOf('w') >= 0) {
-            return Math.floor(parseFloat(s.replace(/[万千]/g, '')) * 10000);
+            return Math.floor(parseFloat(s.replace(/[万千wW]/g, '')) * 10000);
         }
         return parseInt(s) || 0;
     } catch (e) { return 0; }
