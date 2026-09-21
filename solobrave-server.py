@@ -23975,6 +23975,48 @@ def _call_ai_api(agent, user_message, user_info=None, include_history=True, grou
 
     system_prompt = _append_self_update_prompt(system_prompt)
 
+    # ★ fix/helen-output-template-first-line: 无条件前置闭环铁律 (只要请求带图片)
+    # 之前闭环铁律只在 dedup 命中时注入 (依赖达人名匹配), 现在只要 has_images 就无条件注入
+    #   - 闭环铁律放第一行 (最高优先级, model attention bias)
+    #   - 附反例 (禁止"正在分析 X 张截图数据, 预计需要 3-5 分钟"等延迟话术, 实际输出即任务失败)
+    #   - 附输出模板 ("- **达人昵称**：" 开头 + 字段清单, 没数据写"未提供")
+    #   - 不依赖 data/agents.json (server.py 是 source of truth, agents.json 是软配置)
+    _has_images = (
+        isinstance(user_message, list) and any(
+            isinstance(item, dict) and item.get('type') == 'image_url'
+            for item in user_message
+        )
+    )
+    if _has_images:
+        _CLOSURE_BLOCK = (
+            "【闭环铁律（最高优先级 · 置顶第一条）】\n"
+            "收到截图后必须立即、完整、按字段输出达人分析报告, 禁止分批/异步/口头承诺。\n"
+            "\n"
+            "【反例 - 实际输出即视为任务失败】\n"
+            "禁止输出类似 \"正在分析 X 张截图数据，预计需要 3-5 分钟，完成后会发送完整分析报告\" 的句子。\n"
+            "禁止以 \"正在 / 我先 / 稍后 / 让我 / 预计 / 完成后\" 开头。\n"
+            "\n"
+            "【输出模板 - 必须严格遵守】\n"
+            "收到截图后首条回复必须以 \"- **达人昵称**：\" 开头, 逐行列出全部字段 (按下方字段清单):\n"
+            "- 达人昵称: \n"
+            "- 达人ID: \n"
+            "- 平台: \n"
+            "- 粉丝量: \n"
+            "- 等级: \n"
+            "- 所在地: \n"
+            "- 履约分: \n"
+            "- 类型: \n"
+            "- 主推类目: \n"
+            "- 核心数据: 带货商品数 / 历史带货天数 / 合作店铺数 / 结算总额 / 直播带货销售占比 / 带货直播场次 / 场均结算额 / 视频GPM\n"
+            "- 粉丝画像: 性别 / 年龄 / 城市等级 / 人群 / 活跃度 / 设备 / 价格带 / 品类偏好 / 省份TOP\n"
+            "- 热卖品牌TOP3: \n"
+            "- 合作品牌列表: \n"
+            "- 带货商品明细: \n"
+            "（没数据写\"未提供\"）\n"
+        )
+        system_prompt = _CLOSURE_BLOCK + '\n\n' + system_prompt
+        logger.info(f'  [ClosureBlock] {agent_id} 无条件前置闭环铁律 (has_images=True)')
+
     # ★ dedup 三件事收口: dedup_hint 也注入到 system_prompt 顶部 (双保险)
     #   之前只拼到 user message 末尾, OpenClaw CLI 转发时可能截断/丢失.
     #   这里按特征串识别 dedup_hint, 提到 system prompt 开头 LLM 必看到.
