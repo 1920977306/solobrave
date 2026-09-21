@@ -26025,7 +26025,165 @@ function rollbackKnowledgeVersion(docId, version) {
   });
 }
 
+// ★ fix/talent-full-sync-r3: dedup 路径前端自动 PUT
+// Helen system_prompt 注入 dedup_hint (server _build_talent_dedup_hint L21053) 时, LLM 回复会含:
+//   "已为达人 `tal_xxx` (姓名: XXX) 更新档案, ..." + 字段值 (粉丝量/GMV/GPM/...)
+// 前端解析后直接 PUT /api/talents/{id}, 不依赖用户手动点 modal 确认.
+// 后端 _merge_talent_only_empty 只补空值严禁覆盖 (r2 修复), 自动 PUT 安全.
+//
+// LLM 回复格式约定 (宽松 regex, 容错):
+//   "达人ID: `tal_xxx`" → talent_id
+//   "粉丝量: 5486" / "粉丝 5486" / "5486 粉丝" → followers
+//   "总GMV: 50万" / "结算总额: 50万-100万" → total_gmv
+//   "视频GPM: 50-100" / "GPM: 50" → video_gpm
+//   "带货商品数: 63" / "商品数: 63" → product_count
+//   "合作店铺数: 41" / "关联店铺数: 41" → total_shops
+//   "单视频结算额: 1000-2500" → single_video_settlement
+//   "互动率: 0.32%" → video_interaction_rate
+//   "直播场次: 0" / "直播 0 场" → live_sessions
+//   "带货天数: 372" / "372 天" → cooperation_days
+//   "内容类型: 带货号" → talent_type
+//   "内容风格: 好物分享" → content_style
+//   "账号粉丝特征: 25-35岁女性" → account_fans_profile
+//   "短视频粉丝特征: 18-24岁" → video_fans_profile
+//   "抖音号: abc" → douyin_id
+//   "等级: B级" / "LV3" → level
+//   "所在地: 上海" / "城市: 上海" → city
+//   "备注: ..." → bio
+//
+// 不依赖后端改 dedup_hint (避免耦合 bug/talent-deduplicate 1017212)
+// 用户手动 modal 流程 (updateExistingTalent) 保留, 两条路径并存
+
+function _parseFollowerCountLLM(v) {
+    // 复用 solobrave-server.py _parse_follower_count 逻辑 (LLM 回复可能用 '1.2万' / '5,486')
+    var s = String(v || '').toLowerCase().trim().replace(/[,\s]/g, '');
+    if (!s) return 0;
+    try {
+        if (s.indexOf('万') >= 0 || s.indexOf('w') >= 0) {
+            return Math.floor(parseFloat(s.replace(/[万千]/g, '')) * 10000);
+        }
+        return parseInt(s) || 0;
+    } catch (e) { return 0; }
+}
+
+function _extractTalentFieldsFromLLMReply(reply) {
+    if (!reply || typeof reply !== 'string') return null;
+    var fields = {};
+    var t;
+
+    // ───── 达人 ID (触发前提) ─────
+    // LLM 实际回复格式:
+    //   A) "已为达人 `tal_xxx` (姓名: XXX) 更新档案..." (反引号 + 姓名: 配对)
+    //   B) "达人ID: `tal_xxx` (姓名: XXX) 更新档案..." (system_prompt 引导)
+    //   C) "已更新档案, 达人 ID: tal_xxx" (fallback)
+    // 优先匹配 A 格式 (反引号 + 姓名: 紧跟), 再 fallback 到 达人ID
+    t = reply.match(/[`'"]?(tal_[a-zA-Z0-9_]+)[`'"]?\s*\(姓名:/);
+    if (!t) {
+        t = reply.match(/达人ID[:\s]*[`'"]?(tal_[a-zA-Z0-9_]+|[a-zA-Z0-9_]{8,})[`'"]?/);
+    }
+    if (!t) return null;  // 没达人 ID → 不是 dedup 触发场景, 跳过
+    fields._talent_id = t[1];
+    var talentId = fields._talent_id;
+
+    // ───── dedup 触发关键词 (防止误触发普通 LLM 回复) ─────
+    var dedupTriggered = /(已为.*达人.*更新|已更新.*档案|直接调\s*PUT|PUT\s*\/api\/talents)/.test(reply);
+    if (!dedupTriggered) return null;  // 不是 dedup 触发 → 不动
+
+    // ───── 核心数据 ─────
+    t = reply.match(/粉丝[量]?[:\s]*([0-9,\.万千]+)/);
+    if (t) fields.followers = _parseFollowerCountLLM(t[1]);
+
+    t = reply.match(/(结算总额|总GMV|GMV总额)[:\s]*[¥￥]?([0-9,\-万千]+)/);
+    if (t) fields.total_gmv = t[2];
+
+    t = reply.match(/(带货商品数|商品数)[:\s]*([0-9]+)/);
+    if (t) fields.product_count = parseInt(t[2]) || 0;
+
+    t = reply.match(/(合作店铺数|关联店铺数)[:\s]*([0-9]+)/);
+    if (t) fields.total_shops = parseInt(t[2]) || 0;
+
+    t = reply.match(/(?:视频\s*GPM|GPM)[:\s]*([0-9,\-]+)/);
+    if (t) fields.video_gpm = t[1];
+
+    t = reply.match(/单视频结算额[:\s]*[¥￥]?([0-9,\-]+)/);
+    if (t) fields.single_video_settlement = t[1];
+
+    t = reply.match(/互动率[:\s]*([0-9\.]+)\s*%/);
+    if (t) fields.video_interaction_rate = (parseFloat(t[1]) || 0) / 100;
+
+    t = reply.match(/直播(?:场次|场数|场|次|数)?[:\s]*([0-9]+)/);
+    if (t) fields.live_sessions = parseInt(t[1]) || 0;
+
+    t = reply.match(/带货天数[:\s]*([0-9]+)/);
+    if (t) fields.cooperation_days = parseInt(t[1]) || 0;
+
+    // ───── 基础信息 ─────
+    t = reply.match(/内容类型[:\s]*([^\n,。；]+)/);
+    if (t) fields.talent_type = t[1].trim();
+
+    t = reply.match(/内容风格[:\s]*([^\n,。；]+)/);
+    if (t) fields.content_style = t[1].trim();
+
+    t = reply.match(/(?:账号粉丝特征|粉丝特征)[:\s]*([^\n,。；]+)/);
+    if (t) fields.account_fans_profile = t[1].trim();
+
+    t = reply.match(/(?:短视频粉丝特征|视频粉丝特征)[:\s]*([^\n,。；]+)/);
+    if (t) fields.video_fans_profile = t[1].trim();
+
+    t = reply.match(/抖音号[:\s]*[`'"]?([a-zA-Z0-9_\-\.]+)[`'"]?/);
+    if (t) fields.douyin_id = t[1];
+
+    t = reply.match(/(?:等级|评级)[:\s]*(LV\d+|L\d+|[A-D]\s*级|[A-D][级]?)/);
+    if (t) fields.level = t[1].replace(/\s/g, '');
+
+    t = reply.match(/(?:所在地|所在城市|城市)[:\s]*([^\n,。；]+)/);
+    if (t) fields.city = t[1].trim();
+
+    t = reply.match(/(?:备注|简介|bio)[:\s]*([^\n]+)/);
+    if (t) fields.bio = t[1].trim();
+
+    // 去掉内部字段 (talent_id 已经单独提取)
+    delete fields._talent_id;
+
+    return {
+        talent_id: talentId,
+        body: fields
+    };
+}
+
+function _tryAutoPutTalentFromReply(reply) {
+    // ★ fix/talent-full-sync-r3: 解析 + 自动 PUT
+    var extracted = _extractTalentFieldsFromLLMReply(reply);
+    if (!extracted || !extracted.talent_id) return;  // 不是 dedup 触发或解析失败
+    var talentId = extracted.talent_id;
+    var body = extracted.body;
+    var fieldCount = Object.keys(body).length;
+    if (fieldCount === 0) {
+        console.debug('[AutoPUT] 没提取到任何字段, 跳过 (talent_id=' + talentId + ')');
+        return;
+    }
+    // 异步后台 PUT, 不阻塞 render
+    fetch('/api/talents/' + encodeURIComponent(talentId), {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+    }).then(function (r) {
+        if (r.ok) {
+            console.log('[AutoPUT] 达人 ' + talentId + ' 自动同步 ' + fieldCount + ' 字段:', Object.keys(body).join(','));
+            // 不弹 toast (避免 Helen 还在回复时打扰用户), 静默成功
+        } else {
+            console.warn('[AutoPUT] PUT 失败 status=' + r.status + ' talent_id=' + talentId);
+        }
+    }).catch(function (e) {
+        console.error('[AutoPUT] 异常 talent_id=' + talentId + ':', e);
+    });
+}
+
 function displayAIReply(replyText, docContext, timeStr, expectedEmpId, citations, chainDepth) {
+  // ★ fix/talent-full-sync-r3: dedup 路径自动 PUT (放在函数最前, 异步后台执行不阻塞 render)
+  if (replyText && typeof replyText === 'string') {
+    _tryAutoPutTalentFromReply(replyText);
+  }
   citations = citations || [];
   chainDepth = chainDepth || 0;
   var area = document.getElementById('messagesArea');

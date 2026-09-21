@@ -15,11 +15,16 @@
 
 ★ fix/talent-full-sync-r2: 用 importlib.util.spec_from_file_location 加载 server
   (solobrave-server.py 有连字符不能直接 import, 之前 Mac 跑 ModuleNotFoundError)
+★ fix/talent-full-sync-r3: 在 spec_from_file_location 前加 sys.path.insert
+  让 solobrave-server.py 内部 `from douyin_parser import *` 能找到 douyin_parser 模块
 """
 import sys
 import os
 import importlib.util
 from pathlib import Path
+
+# ★ fix/talent-full-sync-r3: 先把项目根加进 sys.path, 让 server 内部 `from douyin_parser import *` 能 import
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # ★ 改用 importlib.util.spec_from_file_location (老大 r2 反馈指定)
 # 原因: solobrave-server.py 文件名有连字符, Python 不能 `import solobrave-server`
@@ -265,6 +270,192 @@ def test_dict_to_talent_row_default_3_new():
     _assert_equal(row.get('cooperation_days'), 0, '缺省值: 0')
 
 
+# ★ fix/talent-full-sync-r3: dedup 路径前端自动 PUT 解析测试
+# 这俩测试验证 Python 等价的 _extract_talent_fields_from_llm_reply 行为,
+# JS 版 (index.html L26029 起的 _extractTalentFieldsFromLLMReply) 用同一套 regex.
+# Mac 端跑: python3 tests/talent_full_sync_test.py → 14 pass
+
+def _parse_follower_count_py(v):
+    """★ r3 helper: 复用 server _parse_follower_count 逻辑, 支持 '1.2万' / '5,486'."""
+    import re
+    s = re.sub(r'[,\s]', '', str(v or '').lower())
+    if not s:
+        return 0
+    try:
+        if '万' in s or 'w' in s:
+            return int(float(re.sub(r'[万千]', '', s)) * 10000)
+        return int(float(s))
+    except Exception:
+        return 0
+
+
+def _extract_talent_fields_from_llm_reply_py(reply):
+    """★ r3 Python 等价: 跟 index.html _extractTalentFieldsFromLLMReply 同 regex 解析."""
+    import re
+    if not reply or not isinstance(reply, str):
+        return None
+
+    fields = {}
+
+    # ───── 达人 ID (触发前提) ─────
+    # LLM 实际回复格式 A/B/C 三种, 优先匹配 A (反引号 + 姓名: 紧跟)
+    m = re.search(r'[`\'"]?(tal_[a-zA-Z0-9_]+)[`\'"]?\s*\(姓名:', reply)
+    if not m:
+        m = re.search(r'达人ID[:\s]*[`\'"]?(tal_[a-zA-Z0-9_]+|[a-zA-Z0-9_]{8,})[`\'"]?', reply)
+    if not m:
+        return None  # 没达人 ID → 不是 dedup 触发场景, 跳过
+    talent_id = m.group(1)
+
+    # ───── dedup 触发关键词 ─────
+    if not re.search(r'(已为.*达人.*更新|已更新.*档案|直接调\s*PUT|PUT\s*/api/talents)', reply):
+        return None
+
+    # ───── 核心数据 ─────
+    m = re.search(r'粉丝[量]?[:\s]*([0-9,\.万千]+)', reply)
+    if m:
+        fields['followers'] = _parse_follower_count_py(m.group(1))
+
+    m = re.search(r'(结算总额|总GMV|GMV总额)[:\s]*[¥￥]?([0-9,\-万千]+)', reply)
+    if m:
+        fields['total_gmv'] = m.group(2)
+
+    m = re.search(r'(带货商品数|商品数)[:\s]*([0-9]+)', reply)
+    if m:
+        fields['product_count'] = int(m.group(2)) or 0
+
+    m = re.search(r'(合作店铺数|关联店铺数)[:\s]*([0-9]+)', reply)
+    if m:
+        fields['total_shops'] = int(m.group(2)) or 0
+
+    m = re.search(r'(?:视频\s*GPM|GPM)[:\s]*([0-9,\-]+)', reply)
+    if m:
+        fields['video_gpm'] = m.group(1)
+
+    m = re.search(r'单视频结算额[:\s]*[¥￥]?([0-9,\-]+)', reply)
+    if m:
+        fields['single_video_settlement'] = m.group(1)
+
+    m = re.search(r'互动率[:\s]*([0-9\.]+)\s*%', reply)
+    if m:
+        fields['video_interaction_rate'] = (float(m.group(1)) or 0) / 100
+
+    m = re.search(r'直播(?:场次|场数|场|次|数)?[:\s]*([0-9]+)', reply)
+    if m:
+        fields['live_sessions'] = int(m.group(1)) or 0
+
+    m = re.search(r'带货天数[:\s]*([0-9]+)', reply)
+    if m:
+        fields['cooperation_days'] = int(m.group(1)) or 0
+
+    # ───── 基础信息 ─────
+    m = re.search(r'内容类型[:\s]*([^\n,。；]+)', reply)
+    if m:
+        fields['talent_type'] = m.group(1).strip()
+
+    m = re.search(r'内容风格[:\s]*([^\n,。；]+)', reply)
+    if m:
+        fields['content_style'] = m.group(1).strip()
+
+    m = re.search(r'(?:账号粉丝特征|粉丝特征)[:\s]*([^\n,。；]+)', reply)
+    if m:
+        fields['account_fans_profile'] = m.group(1).strip()
+
+    m = re.search(r'(?:短视频粉丝特征|视频粉丝特征)[:\s]*([^\n,。；]+)', reply)
+    if m:
+        fields['video_fans_profile'] = m.group(1).strip()
+
+    m = re.search(r'抖音号[:\s]*[`\'"]?([a-zA-Z0-9_\-\.]+)[`\'"]?', reply)
+    if m:
+        fields['douyin_id'] = m.group(1)
+
+    m = re.search(r'(?:等级|评级)[:\s]*(LV\d+|L\d+|[A-D]\s*级|[A-D][级]?)', reply)
+    if m:
+        fields['level'] = re.sub(r'\s', '', m.group(1))
+
+    m = re.search(r'(?:所在地|所在城市|城市)[:\s]*([^\n,。；]+)', reply)
+    if m:
+        fields['city'] = m.group(1).strip()
+
+    m = re.search(r'(?:备注|简介|bio)[:\s]*([^\n]+)', reply)
+    if m:
+        fields['bio'] = m.group(1).strip()
+
+    return {'talent_id': talent_id, 'body': fields}
+
+
+def test_extract_talent_fields_from_llm_reply_basic():
+    """★ r3 新增: 基本 dedup 触发 + 字段提取 (LLM 看到 dedup_hint 的典型回复)."""
+    reply = (
+        '已为达人 `tal_abc123_xyz` (姓名: 发财周周) 更新档案, 核心数据如下:\n'
+        '粉丝量: 5486\n'
+        '结算总额: 50万-100万\n'
+        '带货商品数: 63\n'
+        '合作店铺数: 41\n'
+        '视频GPM: 50-100\n'
+        '单视频结算额: 1000-2500\n'
+        '互动率: 0.32%\n'
+        '直播场次: 0\n'
+        '带货天数: 372\n'
+        '内容类型: 带货号\n'
+        '内容风格: 好物分享\n'
+        '账号粉丝特征: 25-35岁女性\n'
+        '短视频粉丝特征: 18-24岁女性\n'
+        '抖音号: douyin_facai\n'
+        '等级: B级\n'
+        '所在地: 上海\n'
+        '备注: 高质量带货达人\n'
+    )
+    result = _extract_talent_fields_from_llm_reply_py(reply)
+    assert result, '应解析出结果 (dedup 触发 + 达人ID 存在)'
+    _assert_equal(result['talent_id'], 'tal_abc123_xyz', 'talent_id 正确')
+    body = result['body']
+    _assert_equal(body.get('followers'), 5486, 'followers 直数字')
+    _assert_equal(body.get('total_gmv'), '50万-100万', 'total_gmv 区间格式')
+    _assert_equal(body.get('product_count'), 63, 'product_count 整数')
+    _assert_equal(body.get('total_shops'), 41, 'total_shops 整数')
+    _assert_equal(body.get('video_gpm'), '50-100', 'video_gpm 区间格式')
+    _assert_equal(body.get('single_video_settlement'), '1000-2500', 'single_video_settlement')
+    _assert_equal(body.get('video_interaction_rate'), 0.0032, 'video_interaction_rate 0.32% → 0.0032')
+    _assert_equal(body.get('live_sessions'), 0, 'live_sessions')
+    _assert_equal(body.get('cooperation_days'), 372, 'cooperation_days')
+    _assert_equal(body.get('talent_type'), '带货号', 'talent_type')
+    _assert_equal(body.get('content_style'), '好物分享', 'content_style')
+    _assert_equal(body.get('account_fans_profile'), '25-35岁女性', 'account_fans_profile')
+    _assert_equal(body.get('video_fans_profile'), '18-24岁女性', 'video_fans_profile')
+    _assert_equal(body.get('douyin_id'), 'douyin_facai', 'douyin_id')
+    _assert_equal(body.get('level'), 'B级', 'level')
+    _assert_equal(body.get('city'), '上海', 'city')
+    _assert_equal(body.get('bio'), '高质量带货达人', 'bio')
+
+
+def test_extract_talent_fields_handles_chinese_units():
+    """★ r3 新增: 中文单位 ('1.2万') + 区间值 ('50-100') 容错解析."""
+    # 中文单位粉丝
+    assert _parse_follower_count_py('1.2万') == 12000, '1.2万 → 12000'
+    assert _parse_follower_count_py('1.2W') == 12000, '1.2W → 12000'
+    assert _parse_follower_count_py('5,486') == 5486, '5,486 → 5486'
+    assert _parse_follower_count_py('1.5万') == 15000, '1.5万 → 15000'
+    assert _parse_follower_count_py('11') == 11, '11 → 11'
+    assert _parse_follower_count_py('') == 0, '空 → 0'
+    assert _parse_follower_count_py(None) == 0, 'None → 0'
+
+    # 非 dedup 触发 → 返回 None (避免误触发普通 LLM 回复)
+    reply_no_dedup = (
+        '达人ID: `tal_xxx` 这是个普通问候, 粉丝量: 5486\n'  # 有达人 ID 但没"已为...更新"
+    )
+    result = _extract_talent_fields_from_llm_reply_py(reply_no_dedup)
+    assert result is None, '非 dedup 触发应返回 None, 不解析'
+
+    # 没达人 ID → 返回 None
+    reply_no_id = '已为达人更新档案, 粉丝量: 5486'
+    result = _extract_talent_fields_from_llm_reply_py(reply_no_id)
+    assert result is None, '没达人 ID 应返回 None'
+
+    # 空 / None 输入
+    assert _extract_talent_fields_from_llm_reply_py('') is None
+    assert _extract_talent_fields_from_llm_reply_py(None) is None
+
+
 def run_all_tests():
     """跑全部测试, 返回 (pass_count, fail_count)."""
     import traceback
@@ -282,6 +473,9 @@ def run_all_tests():
         test_talent_columns_includes_3_new,
         test_dict_to_talent_row_includes_3_new,
         test_dict_to_talent_row_default_3_new,
+        # ★ r3 新增 (dedup 路径自动 PUT 解析)
+        test_extract_talent_fields_from_llm_reply_basic,
+        test_extract_talent_fields_handles_chinese_units,
     ]
     pass_count = 0
     fail_count = 0
