@@ -498,6 +498,50 @@ def test_r4_normal_conversation_no_tal_id_skipped():
     result = _should_auto_put_py(reply)
     assert result is None, "不应触发 (无 tal_xxx id, 只含昵称 + 数字)"
 
+def test_r6_full_reply_extraction_fieldcount_positive():
+    """★ r6 新增: 完整 LLM reply (含 markdown 或纯文本) 字段提取数 > 0.
+    根因: r5 之前 _tryAutoPutTalentFromReply 在 onStream 首次 delta 调, reply 不完整
+    → fieldCount=0 → early return. r6 在 lifecycle end 用完整 fullReply 重调一次.
+    此测试保证完整 reply 提取字段数 > 0, 触发 PUT 请求.
+    """
+    full_reply = """收到老板，我将使用提供的达人ID `tal_1789443949796_1583e3` 来更新发财周周这位达人的信息。以下是更新的信息：
+
+- 达人昵称：发财周周
+- 达人ID：tal_1789443949796_1583e3
+- 平台：抖音
+- 粉丝量：5,486
+- 等级：未提供，需要确认或更新
+- 内容标签：时尚
+- 带货方式：短视频带货为主（占比97.7%）
+- 视频GPM：75元
+- 互动率：0.32%
+- 结算总额：25-50万
+- 合作状态：available
+
+请您确认以上信息是否准确。确认无误后，我将执行更新操作。"""
+    result = _extract_talent_fields_from_llm_reply_py(full_reply)
+    assert result, '完整 reply 应解析出结果'
+    body = result['body']
+    field_count = len(body)
+    assert field_count > 0, f'完整 reply 字段提取数必须 > 0 (现={field_count}), 否则 PUT 永远不触发'
+    expected_keys = ['followers', 'video_gpm', 'video_interaction_rate', 'total_gmv', 'content_style']
+    extracted_keys = [k for k in expected_keys if k in body]
+    assert len(extracted_keys) >= 4, f'核心字段应提取 ≥4 个, 实际: {extracted_keys}'
+
+
+def test_r6_partial_reply_extraction_no_core_fields():
+    """★ r6 新增: 部分 reply (onStream 首次 delta) 不应提取到核心字段.
+    保证 r6 修复 (lifecycle end 重调) 不会引入误触发 — 部分文本永远不 PUT.
+    """
+    partial_reply = "收到老板，我将使用提供的达人ID `tal_1789443949796_1583e3` 来更新发财周周这位达人的信息。"
+    result = _extract_talent_fields_from_llm_reply_py(partial_reply)
+    if result is not None:
+        body = result['body']
+        core_keys = ['followers', 'video_gpm', 'total_gmv', 'video_interaction_rate']
+        has_core = any(k in body for k in core_keys)
+        assert not has_core, f'部分 reply 不应提取到核心字段, body={body}'
+
+
 def test_extract_talent_fields_markdown_format():
     """★ r5 新增: LLM 实际用 markdown **xxx**：格式回复时, 字段仍能正确提取.
     根因: r4 改了触发判定 (双条件), 但字段提取 regex 仍是 `[:\s]*`, 不接受 markdown `**` 字符.
@@ -559,6 +603,9 @@ def run_all_tests():
         test_r4_normal_conversation_no_tal_id_skipped,
         # ★ r5 新增 (markdown 字段提取兼容)
         test_extract_talent_fields_markdown_format,
+        # ★ r6 新增 (lifecycle end 重调, 完整 reply 字段提取)
+        test_r6_full_reply_extraction_fieldcount_positive,
+        test_r6_partial_reply_extraction_no_core_fields,
     ]
     pass_count = 0
     fail_count = 0

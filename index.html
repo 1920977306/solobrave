@@ -18261,6 +18261,10 @@ function _sendChatWaitForLifecycle(sessionKey, prompt, callbacks, options) {
             lifecycleError = (data.data.phase === 'error') && !fullReply;
             openclaw.off('agent', handler);
             if (lifecycleTimeout) clearTimeout(lifecycleTimeout);
+            // ★ r6: dedup 自动 PUT 时机修复 — lifecycle end 时用完整 fullReply 跑一次
+            //   onStream 首次 delta 调 displayAIReply 时 replyText 只是部分文本, 双条件/字段提取都 miss
+            //   完整 reply 才到时再调一次, 保证 dedup 真生效
+            if (fullReply) _tryAutoPutTalentFromReply(fullReply);
             resolve({ reply: fullReply, isError: lifecycleError, lifecycleEnded: true, fullReply: fullReply });
             done();
           }
