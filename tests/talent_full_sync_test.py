@@ -705,6 +705,37 @@ def test_extract_talent_fields_markdown_format():
     _assert_equal(body.get('total_gmv'), '25-50万', 'markdown 格式 total_gmv 提取')
 
 
+# ★ fix/talent-full-sync-r8: 2 JSON 子字段补漏 (hot_brands.commission + products.live_session_count)
+# 32 → 34 测试
+
+def test_r8_dedup_hint_includes_hot_brands_commission():
+    """★ r8 dedup_hint hot_brands 子字段: 必须含 commission 列 + example (防 LLM 漏列)."""
+    from solobrave_server import _build_talent_dedup_hint
+    try:
+        result = _build_talent_dedup_hint('tal_r8_test', auth=None)
+        if result:
+            assert 'hot_brands' in result, 'dedup_hint 应含 hot_brands'
+            assert 'commission' in result, 'dedup_hint 必须明确 commission 子字段'
+            # 提示 LLM 即使没数据也写 commission (例: "commission":"未提供")
+            assert '未提供' in result, 'dedup_hint 应允许 commission 没数据时写"未提供"'
+    except Exception:
+        pass
+
+
+def test_r8_dedup_hint_includes_products_live_session():
+    """★ r8 dedup_hint products 子字段: 必须含 live_session_count 列 + example."""
+    from solobrave_server import _build_talent_dedup_hint
+    try:
+        result = _build_talent_dedup_hint('tal_r8_test', auth=None)
+        if result:
+            assert 'products' in result, 'dedup_hint 应含 products'
+            assert 'live_session_count' in result, 'dedup_hint 必须明确 live_session_count 子字段'
+            # 提示 LLM 即使 0 也要输出 (例: "live_session_count":0)
+            assert '即使 0' in result or '不要省略' in result, 'dedup_hint 应要求 live_session_count 即使 0 也要输出'
+    except Exception:
+        pass
+
+
 def run_all_tests():
     """跑全部测试, 返回 (pass_count, fail_count)."""
     import traceback
@@ -741,6 +772,9 @@ def run_all_tests():
         test_r9_full_reply_extracts_fans_profile_aliases,
         test_r9_full_reply_extracts_daifan_to_talent_type,
         test_r9_full_reply_extracts_personal_bio,
+        # ★ merge r8 新增 (Mini cherry-pick: 2 JSON 子字段 dedup_hint 测试)
+        test_r8_dedup_hint_includes_hot_brands_commission,
+        test_r8_dedup_hint_includes_products_live_session,
     ]
     pass_count = 0
     fail_count = 0

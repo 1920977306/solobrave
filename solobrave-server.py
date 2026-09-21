@@ -21081,6 +21081,33 @@ def _build_talent_dedup_hint(talent_id, auth):
         #   - 核心指令 (走更新场景) 放最前, LLM 第一眼看到
         #   - 达人ID 是关键, LLM 拿到 ID 就能直接 PUT, 不要绕回问用户
         #   - 原有字段快照从 6 字段缩到 3 字段, 降低 token 干扰
+        # ★ fix/talent-full-sync-r5: 扩展完整字段列表 (没数据写"未提供")
+        #   覆盖截图 1-9 全部可见字段, 让前端自动 PUT 时有完整数据
+        _DEDUP_HINT_FULL_FIELDS = '''
+## 完整字段提取要求 (前端会从你回复自动解析, 没数据写"未提供")
+请在回复正文后, 用以下格式逐条列出 (字段名: 值), 字段缺失或截图未提及写"未提供":
+
+**基本面**: 达人昵称 / 达人ID / 平台 / 粉丝量 / 等级 / 所在地 / 履约分
+**类型**: 类型(talent_type) / 带货方式 / 内容类型 / 主推类目(main_category) / 机构(agency) / 简介(bio) / 带货要求(cooperation_requirements)
+**核心数据**: 带货商品数 / 历史带货天数 / 合作店铺数 / 结算总额 / 场均结算额(avg_session_gmv)
+**直播**: 直播GMV占比(live_gmv_ratio) / 直播GPM(live_gpm) / 直播平均件单价(live_avg_price)
+**短视频**: 短视频占比(video_gmv_ratio) / 视频GPM / 单视频结算额 / 视频平均件单价 / 完播率(completion_rate) / 互动率
+**粉丝**: 粉丝变化数(fan_growth) / 粉丝变化率(fan_growth_rate) / 粉丝画像(性别/年龄/城市等级/人群/活跃度/设备/价格带/品类偏好/省份TOP/粉丝特征/消费偏好) / 视频粉丝画像
+**热卖**: 热卖类目TOP3(hot_categories) / 热卖品牌TOP3(hot_brands)
+**指标**: 点赞数(likes) / 评论数(comments) / 转发数(shares)
+**直播详细**: 带货直播场次(live_stream_sessions) / 带货直播观看人数(live_stream_viewers)
+**品牌**: 佣金参考 (品牌维度, JSON 字符串可存, brand_commission)
+**时效**: 统计时间 (数据时效, e.g. "2026/08/21至2026/09/19", data_period)
+**JSON 字段 (Markdown 表格格式, 必含子字段必写)**:
+- 热卖品牌TOP3 (hot_brands): Markdown 表格, 列: 排名|品牌|均价|结算额|佣金参考
+  例: [{"rank":1, "brand":"哈比熊", "avg_price":"¥181.55", "gmv":"¥10万-25万", "commission":"未提供"}]
+  ⚠️ commission 列必含 (即使没数据写"未提供")
+- 合作品牌列表 (cooperating_brands): 列: 品牌|商品数|代表商品|店铺
+- 品牌详情 (brand_details): 列: 品牌|商品数|代表商品|店铺
+- 带货商品明细 (products): Markdown 表格, 列: 商品名|店铺|到手价|原价|结算额|关联视频数|关联直播场次
+  例: [{"name":"德尔惠闪穿两用鞋", "shop":"德尔惠男鞋旗舰店", "price":"¥139.00", "original_price":"¥239.00", "gmv_range":"¥5万-10万", "video_count":10, "live_session_count":0}]
+  ⚠️ live_session_count 列必含 (即使 0 也要输出, 不要省略)
+'''
         return (
             f"\n\n# ⚠️ 系统检测到达人已存在，必须走【更新】场景，禁用【新建】\n"
             f"达人ID: `{d['id']}` (姓名: {d['name']})\n"
