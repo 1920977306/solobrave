@@ -301,82 +301,85 @@ def _extract_talent_fields_from_llm_reply_py(reply):
     # LLM 实际回复格式 A/B/C 三种, 优先匹配 A (反引号 + 姓名: 紧跟)
     m = re.search(r'[`\'"]?(tal_[a-zA-Z0-9_]+)[`\'"]?\s*\(姓名:', reply)
     if not m:
-        m = re.search(r'达人ID[:\s]*[`\'"]?(tal_[a-zA-Z0-9_]+|[a-zA-Z0-9_]{8,})[`\'"]?', reply)
+        m = re.search(r'达人ID[：:\s*]*[`\'"]?(tal_[a-zA-Z0-9_]+|[a-zA-Z0-9_]{8,})[`\'"]?', reply)
     if not m:
         return None  # 没达人 ID → 不是 dedup 触发场景, 跳过
     talent_id = m.group(1)
 
-    # ───── dedup 触发关键词 ─────
-    if not re.search(r'(已为.*达人.*更新|已更新.*档案|直接调\s*PUT|PUT\s*/api/talents)', reply):
+    # ───── dedup 触发判定 (r4 双条件, 跟 JS _tryAutoPutTalentFromReply 同步) ─────
+    # 条件 1: tal_xxx id (talent_id 已从上面匹配拿到, 此处只需确认非空)
+    # 条件 2: dedup context 关键词 (7 个, OR)
+    # markdown 格式 reply 不含 "已为...更新" 等旧关键词, 所以同步 r4 双条件
+    if not re.search(r'(更新|录入|建档|同步|写入|档案|覆盖)', reply):
         return None
 
     # ───── 核心数据 ─────
-    m = re.search(r'粉丝[量]?[:\s]*([0-9,\.万千]+)', reply)
+    m = re.search(r'粉丝[量]?[：:\s*]*([0-9,\.万千]+)', reply)
     if m:
         fields['followers'] = _parse_follower_count_py(m.group(1))
 
-    m = re.search(r'(结算总额|总GMV|GMV总额)[:\s]*[¥￥]?([0-9,\-万千]+)', reply)
+    m = re.search(r'(结算总额|总GMV|GMV总额)[：:\s*]*[¥￥]?([0-9,\-万千]+)', reply)
     if m:
         fields['total_gmv'] = m.group(2)
 
-    m = re.search(r'(带货商品数|商品数)[:\s]*([0-9]+)', reply)
+    m = re.search(r'(带货商品数|商品数)[：:\s*]*([0-9]+)', reply)
     if m:
         fields['product_count'] = int(m.group(2)) or 0
 
-    m = re.search(r'(合作店铺数|关联店铺数)[:\s]*([0-9]+)', reply)
+    m = re.search(r'(合作店铺数|关联店铺数)[：:\s*]*([0-9]+)', reply)
     if m:
         fields['total_shops'] = int(m.group(2)) or 0
 
-    m = re.search(r'(?:视频\s*GPM|GPM)[:\s]*([0-9,\-]+)', reply)
+    m = re.search(r'(?:视频\s*GPM|GPM)[：:\s*]*([0-9,\-]+)', reply)
     if m:
         fields['video_gpm'] = m.group(1)
 
-    m = re.search(r'单视频结算额[:\s]*[¥￥]?([0-9,\-]+)', reply)
+    m = re.search(r'单视频结算额[：:\s*]*[¥￥]?([0-9,\-]+)', reply)
     if m:
         fields['single_video_settlement'] = m.group(1)
 
-    m = re.search(r'互动率[:\s]*([0-9\.]+)\s*%', reply)
+    m = re.search(r'互动率[：:\s*]*([0-9\.]+)\s*%', reply)
     if m:
         fields['video_interaction_rate'] = (float(m.group(1)) or 0) / 100
 
-    m = re.search(r'直播(?:场次|场数|场|次|数)?[:\s]*([0-9]+)', reply)
+    m = re.search(r'直播(?:场次|场数|场|次|数)?[：:\s*]*([0-9]+)', reply)
     if m:
         fields['live_sessions'] = int(m.group(1)) or 0
 
-    m = re.search(r'带货天数[:\s]*([0-9]+)', reply)
+    m = re.search(r'带货天数[：:\s*]*([0-9]+)', reply)
     if m:
         fields['cooperation_days'] = int(m.group(1)) or 0
 
     # ───── 基础信息 ─────
-    m = re.search(r'内容类型[:\s]*([^\n,。；]+)', reply)
+    m = re.search(r'内容类型[：:\s*]*([^\n,。；]+)', reply)
     if m:
         fields['talent_type'] = m.group(1).strip()
 
-    m = re.search(r'内容风格[:\s]*([^\n,。；]+)', reply)
+    m = re.search(r'内容风格[：:\s*]*([^\n,。；]+)', reply)
     if m:
         fields['content_style'] = m.group(1).strip()
 
-    m = re.search(r'(?:账号粉丝特征|粉丝特征)[:\s]*([^\n,。；]+)', reply)
+    m = re.search(r'(?:账号粉丝特征|粉丝特征)[：:\s*]*([^\n,。；]+)', reply)
     if m:
         fields['account_fans_profile'] = m.group(1).strip()
 
-    m = re.search(r'(?:短视频粉丝特征|视频粉丝特征)[:\s]*([^\n,。；]+)', reply)
+    m = re.search(r'(?:短视频粉丝特征|视频粉丝特征)[：:\s*]*([^\n,。；]+)', reply)
     if m:
         fields['video_fans_profile'] = m.group(1).strip()
 
-    m = re.search(r'抖音号[:\s]*[`\'"]?([a-zA-Z0-9_\-\.]+)[`\'"]?', reply)
+    m = re.search(r'抖音号[：:\s*]*[`\'"]?([a-zA-Z0-9_\-\.]+)[`\'"]?', reply)
     if m:
         fields['douyin_id'] = m.group(1)
 
-    m = re.search(r'(?:等级|评级)[:\s]*(LV\d+|L\d+|[A-D]\s*级|[A-D][级]?)', reply)
+    m = re.search(r'(?:等级|评级)[：:\s*]*(LV\d+|L\d+|[A-D]\s*级|[A-D][级]?)', reply)
     if m:
         fields['level'] = re.sub(r'\s', '', m.group(1))
 
-    m = re.search(r'(?:所在地|所在城市|城市)[:\s]*([^\n,。；]+)', reply)
+    m = re.search(r'(?:所在地|所在城市|城市)[：:\s*]*([^\n,。；]+)', reply)
     if m:
         fields['city'] = m.group(1).strip()
 
-    m = re.search(r'(?:备注|简介|bio)[:\s]*([^\n]+)', reply)
+    m = re.search(r'(?:备注|简介|bio)[：:\s*]*([^\n]+)', reply)
     if m:
         fields['bio'] = m.group(1).strip()
 
@@ -495,6 +498,40 @@ def test_r4_normal_conversation_no_tal_id_skipped():
     result = _should_auto_put_py(reply)
     assert result is None, "不应触发 (无 tal_xxx id, 只含昵称 + 数字)"
 
+def test_extract_talent_fields_markdown_format():
+    """★ r5 新增: LLM 实际用 markdown **xxx**：格式回复时, 字段仍能正确提取.
+    根因: r4 改了触发判定 (双条件), 但字段提取 regex 仍是 `[:\s]*`, 不接受 markdown `**` 字符.
+    修法: `[:\s]*` → `[：:\s*]*` (字符类含中文冒号 + markdown 星号).
+    """
+    # 真实 LLM 18:44:34 回复的 markdown 风格 (含 **加粗** + 中文冒号)
+    reply = (
+        '收到老板，我将使用提供的达人ID `tal_abc123_xyz` 来更新发财周周这位达人的信息。以下是更新的信息：\n'
+        '\n'
+        '- **达人昵称**：发财周周\n'
+        '- **达人ID**：tal_abc123_xyz\n'
+        '- **平台**：抖音\n'
+        '- **粉丝量**：5,486\n'
+        '- **等级**：未提供，需要确认或更新\n'
+        '- **内容标签**：时尚\n'
+        '- **带货方式**：短视频带货为主（占比97.7%）\n'
+        '- **视频GPM**：75元\n'
+        '- **互动率**：0.32%\n'
+        '- **结算总额**：25-50万\n'
+        '- **合作状态**：available\n'
+        '- **合作建议**：适合80-200元功能型男鞋\n'
+        '\n'
+        '请您确认以上信息是否准确。确认无误后，我将执行更新操作。'
+    )
+    result = _extract_talent_fields_from_llm_reply_py(reply)
+    assert result, '应解析出结果 (有达人ID + dedup context "更新")'
+    _assert_equal(result['talent_id'], 'tal_abc123_xyz', 'talent_id 正确')
+    body = result['body']
+    # 关键断言: markdown **xxx**： 格式下, 这些字段必须非 None
+    _assert_equal(body.get('followers'), 5486, 'markdown 格式 followers 提取')
+    _assert_equal(body.get('video_gpm'), '75', 'markdown 格式 video_gpm 提取')
+    _assert_equal(body.get('video_interaction_rate'), 0.0032, 'markdown 格式互动率 0.32% → 0.0032')
+    _assert_equal(body.get('total_gmv'), '25-50万', 'markdown 格式 total_gmv 提取')
+
 
 def run_all_tests():
     """跑全部测试, 返回 (pass_count, fail_count)."""
@@ -520,6 +557,8 @@ def run_all_tests():
         test_r4_tal_id_with_update_keyword_triggers,
         test_r4_separate_id_and_context_triggers,
         test_r4_normal_conversation_no_tal_id_skipped,
+        # ★ r5 新增 (markdown 字段提取兼容)
+        test_extract_talent_fields_markdown_format,
     ]
     pass_count = 0
     fail_count = 0

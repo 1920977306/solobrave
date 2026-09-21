@@ -26079,7 +26079,7 @@ function _extractTalentFieldsFromLLMReply(reply) {
     // 优先匹配 A 格式 (反引号 + 姓名: 紧跟), 再 fallback 到 达人ID
     t = reply.match(/[`'"]?(tal_[a-zA-Z0-9_]+)[`'"]?\s*\(姓名:/);
     if (!t) {
-        t = reply.match(/达人ID[:\s]*[`'"]?(tal_[a-zA-Z0-9_]+|[a-zA-Z0-9_]{8,})[`'"]?/);
+        t = reply.match(/达人ID[：:\s*]*[`'"]?(tal_[a-zA-Z0-9_]+|[a-zA-Z0-9_]{8,})[`'"]?/);
     }
     if (!t) return null;  // 没达人 ID → 不是 dedup 触发场景, 跳过
     fields._talent_id = t[1];
@@ -26091,56 +26091,56 @@ function _extractTalentFieldsFromLLMReply(reply) {
     // (见 _tryAutoPutTalentFromReply L26155 起的双条件判定)
 
     // ───── 核心数据 ─────
-    t = reply.match(/粉丝[量]?[:\s]*([0-9,\.万千]+)/);
+    t = reply.match(/粉丝[量]?[：:\s*]*([0-9,\.万千]+)/);
     if (t) fields.followers = _parseFollowerCountLLM(t[1]);
 
-    t = reply.match(/(结算总额|总GMV|GMV总额)[:\s]*[¥￥]?([0-9,\-万千]+)/);
+    t = reply.match(/(结算总额|总GMV|GMV总额)[：:\s*]*[¥￥]?([0-9,\-万千]+)/);
     if (t) fields.total_gmv = t[2];
 
-    t = reply.match(/(带货商品数|商品数)[:\s]*([0-9]+)/);
+    t = reply.match(/(带货商品数|商品数)[：:\s*]*([0-9]+)/);
     if (t) fields.product_count = parseInt(t[2]) || 0;
 
-    t = reply.match(/(合作店铺数|关联店铺数)[:\s]*([0-9]+)/);
+    t = reply.match(/(合作店铺数|关联店铺数)[：:\s*]*([0-9]+)/);
     if (t) fields.total_shops = parseInt(t[2]) || 0;
 
-    t = reply.match(/(?:视频\s*GPM|GPM)[:\s]*([0-9,\-]+)/);
+    t = reply.match(/(?:视频\s*GPM|GPM)[：:\s*]*([0-9,\-]+)/);
     if (t) fields.video_gpm = t[1];
 
-    t = reply.match(/单视频结算额[:\s]*[¥￥]?([0-9,\-]+)/);
+    t = reply.match(/单视频结算额[：:\s*]*[¥￥]?([0-9,\-]+)/);
     if (t) fields.single_video_settlement = t[1];
 
-    t = reply.match(/互动率[:\s]*([0-9\.]+)\s*%/);
+    t = reply.match(/互动率[：:\s*]*([0-9\.]+)\s*%/);
     if (t) fields.video_interaction_rate = (parseFloat(t[1]) || 0) / 100;
 
-    t = reply.match(/直播(?:场次|场数|场|次|数)?[:\s]*([0-9]+)/);
+    t = reply.match(/直播(?:场次|场数|场|次|数)?[：:\s*]*([0-9]+)/);
     if (t) fields.live_sessions = parseInt(t[1]) || 0;
 
-    t = reply.match(/带货天数[:\s]*([0-9]+)/);
+    t = reply.match(/带货天数[：:\s*]*([0-9]+)/);
     if (t) fields.cooperation_days = parseInt(t[1]) || 0;
 
     // ───── 基础信息 ─────
-    t = reply.match(/内容类型[:\s]*([^\n,。；]+)/);
+    t = reply.match(/内容类型[：:\s*]*([^\n,。；]+)/);
     if (t) fields.talent_type = t[1].trim();
 
-    t = reply.match(/内容风格[:\s]*([^\n,。；]+)/);
+    t = reply.match(/内容风格[：:\s*]*([^\n,。；]+)/);
     if (t) fields.content_style = t[1].trim();
 
-    t = reply.match(/(?:账号粉丝特征|粉丝特征)[:\s]*([^\n,。；]+)/);
+    t = reply.match(/(?:账号粉丝特征|粉丝特征)[：:\s*]*([^\n,。；]+)/);
     if (t) fields.account_fans_profile = t[1].trim();
 
-    t = reply.match(/(?:短视频粉丝特征|视频粉丝特征)[:\s]*([^\n,。；]+)/);
+    t = reply.match(/(?:短视频粉丝特征|视频粉丝特征)[：:\s*]*([^\n,。；]+)/);
     if (t) fields.video_fans_profile = t[1].trim();
 
-    t = reply.match(/抖音号[:\s]*[`'"]?([a-zA-Z0-9_\-\.]+)[`'"]?/);
+    t = reply.match(/抖音号[：:\s*]*[`'"]?([a-zA-Z0-9_\-\.]+)[`'"]?/);
     if (t) fields.douyin_id = t[1];
 
-    t = reply.match(/(?:等级|评级)[:\s]*(LV\d+|L\d+|[A-D]\s*级|[A-D][级]?)/);
+    t = reply.match(/(?:等级|评级)[：:\s*]*(LV\d+|L\d+|[A-D]\s*级|[A-D][级]?)/);
     if (t) fields.level = t[1].replace(/\s/g, '');
 
-    t = reply.match(/(?:所在地|所在城市|城市)[:\s]*([^\n,。；]+)/);
+    t = reply.match(/(?:所在地|所在城市|城市)[：:\s*]*([^\n,。；]+)/);
     if (t) fields.city = t[1].trim();
 
-    t = reply.match(/(?:备注|简介|bio)[:\s]*([^\n]+)/);
+    t = reply.match(/(?:备注|简介|bio)[：:\s*]*([^\n]+)/);
     if (t) fields.bio = t[1].trim();
 
     // 去掉内部字段 (talent_id 已经单独提取)

@@ -21091,6 +21091,7 @@ def _build_talent_dedup_hint(talent_id, auth):
             f"2. **永远不要**回复 '请提供达人ID' / '请告诉我达人ID' / '需要先建档吗'\n"
             f"3. **永远不要**问用户重新提供已有的抖音号 / 类目 / 粉丝量\n"
             f"4. 用户本轮发的内容是分析/数据, 直接基于这些更新 ai_rating / ai_summary / ai_tags / ai_analysis\n"
+            f"5. **禁止**用 markdown 加粗格式输出字段 (如 `**粉丝量**：5,486`), 用纯文本 `粉丝量：5,486`\n"
             f"\n"
             f"## 档案快照 (供你参考, 不需要用户再填)\n"
             f"- 类目: {category} | 粉丝量: {followers} | AI评级: {ai_rating}\n"
