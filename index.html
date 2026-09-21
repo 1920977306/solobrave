@@ -26100,7 +26100,7 @@ function _extractTalentFieldsFromLLMReply(reply) {
     t = reply.match(/(带货商品数|商品数)[:\s]*([0-9]+)/);
     if (t) fields.product_count = parseInt(t[2]) || 0;
 
-    t = reply.match(/(合作店铺数|关联店铺数)[:\s]*([0-9]+)/);
+    t = reply.match(/(合作店铺数|关联店铺数|总店铺数|合作店铺)[:\s]*([0-9]+)/);
     if (t) fields.total_shops = parseInt(t[2]) || 0;
 
     t = reply.match(/(?:视频\s*GPM|GPM)[:\s]*([0-9,\-]+)/);
@@ -26115,20 +26115,98 @@ function _extractTalentFieldsFromLLMReply(reply) {
     t = reply.match(/直播(?:场次|场数|场|次|数)?[:\s]*([0-9]+)/);
     if (t) fields.live_sessions = parseInt(t[1]) || 0;
 
-    t = reply.match(/带货天数[:\s]*([0-9]+)/);
+    t = reply.match(/(?:带货天数|合作天数|历史带货天数)[:\s]*([0-9]+)/);
     if (t) fields.cooperation_days = parseInt(t[1]) || 0;
 
+    // ───── ★ fix/talent-full-sync-r5: 新增 10 字段 + 别名 ─────
+    t = reply.match(/(?:场均结算额|场均GMV)[:\s]*[¥￥]?([0-9,\-万千]+)/);
+    if (t) fields.avg_session_gmv = t[1];
+
+    t = reply.match(/(?:直播GMV占比|live_gmv_ratio)[:\s]*([0-9\.]+\s*%?)/);
+    if (t) fields.live_gmv_ratio = t[1].trim();
+
+    t = reply.match(/(?:短视频占比|视频GMV占比|video_gmv_ratio)[:\s]*([0-9\.]+\s*%?)/);
+    if (t) fields.video_gmv_ratio = t[1].trim();
+
+    t = reply.match(/(?:直播平均件单价|live_avg_price|直播件单价)[:\s]*[¥￥]?([0-9,\-]+)/);
+    if (t) fields.live_avg_price = t[1];
+
+    t = reply.match(/(?:完播率|completion_rate|视频完播率)[:\s]*([0-9\.]+\s*%?)/);
+    if (t) fields.completion_rate = t[1].trim();
+
+    t = reply.match(/(?:粉丝变化数|粉丝增量|fan_growth)[:\s]*([\-+]?[0-9,]+)/);
+    if (t) fields.fan_growth = parseInt(t[1].replace(/,/g, '')) || 0;
+
+    t = reply.match(/(?:粉丝变化率|粉丝增速|fan_growth_rate)[:\s]*([\-+]?[0-9\.]+\s*%?)/);
+    if (t) fields.fan_growth_rate = t[1].trim();
+
+    t = reply.match(/(?:热卖类目TOP3|热卖类目|hot_categories|类目TOP3)[:\s]*([^\n]+)/);
+    if (t) fields.hot_categories = t[1].trim();
+
+    t = reply.match(/(?:热卖品牌TOP3|热卖品牌|hot_brands|品牌TOP3)[:\s]*([^\n]+)/);
+    if (t) fields.hot_brands = t[1].trim();
+
+    t = reply.match(/(?:主推类目|main_category|主推带货类目)[:\s]*([^\n,。；]+)/);
+    if (t) fields.main_category = t[1].trim();
+
+    t = reply.match(/(?:带货要求|合作要求|cooperation_requirements)[:\s]*([^\n]+)/);
+    if (t) fields.cooperation_requirements = t[1].trim();
+
+    t = reply.match(/(?:履约分|fulfillment_score)[:\s]*([0-9\.]+)/);
+    if (t) fields.fulfillment_score_alias_rename = t[1];
+
+    t = reply.match(/(?:点赞数?|likes?)[:\s]*([0-9,]+)/);
+    if (t) fields.likes = parseInt(t[1].replace(/,/g, '')) || 0;
+
+    t = reply.match(/(?:评论数?|comments?)[:\s]*([0-9,]+)/);
+    if (t) fields.comments = parseInt(t[1].replace(/,/g, '')) || 0;
+
+    t = reply.match(/(?:转发数?|分享数?|shares?)[:\s]*([0-9,]+)/);
+    if (t) fields.shares = parseInt(t[1].replace(/,/g, '')) || 0;
+
+    t = reply.match(/(?:机构|签约机构|agency)[:\s]*([^\n,。；]+)/);
+    if (t) fields.agency = t[1].trim();
+
+    t = reply.match(/(?:视频数|视频数量|带货视频数量)[:\s]*([0-9]+)/);
+    if (t) fields.video_count = parseInt(t[1]) || 0;
+
+    t = reply.match(/(?:播放量|视频播放量|带货视频播放量)[:\s]*([0-9,\.万千]+)/);
+    if (t) fields.video_plays = _parseFollowerCountLLM(t[1]);
+
+    t = reply.match(/(?:平均客单价|平均件单价)[:\s]*[¥￥]?([0-9,\-]+)/);
+    if (t) fields.avg_order_price = t[1];
+
     // ───── 基础信息 ─────
-    t = reply.match(/内容类型[:\s]*([^\n,。；]+)/);
+    t = reply.match(/(?:内容类型|类型|带货方式)[:\s]*([^\n,。；]+)/);
     if (t) fields.talent_type = t[1].trim();
 
     t = reply.match(/内容风格[:\s]*([^\n,。；]+)/);
     if (t) fields.content_style = t[1].trim();
 
-    t = reply.match(/(?:账号粉丝特征|粉丝特征)[:\s]*([^\n,。；]+)/);
-    if (t) fields.account_fans_profile = t[1].trim();
+    // 粉丝画像拼接 (活跃度/设备/价格带/品类偏好/省份TOP + 粉丝特征 拼到 account_fans_profile)
+    var fanProfileExtras = [];
+    t = reply.match(/(?:粉丝活跃度|活跃度)[:\s]*([^\n]+)/);
+    if (t) fanProfileExtras.push('活跃度: ' + t[1].trim());
+    t = reply.match(/(?:粉丝设备|设备分布)[:\s]*([^\n]+)/);
+    if (t) fanProfileExtras.push('设备: ' + t[1].trim());
+    t = reply.match(/(?:粉丝价格带|价格带偏好|客单价偏好)[:\s]*([^\n]+)/);
+    if (t) fanProfileExtras.push('价格带: ' + t[1].trim());
+    t = reply.match(/(?:粉丝品类偏好|品类偏好)[:\s]*([^\n]+)/);
+    if (t) fanProfileExtras.push('品类偏好: ' + t[1].trim());
+    t = reply.match(/(?:粉丝省份TOP|粉丝省份分布|省份分布)[:\s]*([^\n]+)/);
+    if (t) fanProfileExtras.push('省份TOP: ' + t[1].trim());
 
-    t = reply.match(/(?:短视频粉丝特征|视频粉丝特征)[:\s]*([^\n,。；]+)/);
+    t = reply.match(/(?:账号粉丝特征|粉丝特征|粉丝画像|消费偏好)[:\s]*([^\n,。；]+)/);
+    if (t) {
+        fields.account_fans_profile = t[1].trim();
+    }
+    if (fanProfileExtras.length) {
+        fields.account_fans_profile = (fields.account_fans_profile || '') +
+            (fields.account_fans_profile ? '\n' : '') +
+            fanProfileExtras.join('\n');
+    }
+
+    t = reply.match(/(?:短视频粉丝特征|视频粉丝特征|视频粉丝画像|视频带货数据)[:\s]*([^\n,。；]+)/);
     if (t) fields.video_fans_profile = t[1].trim();
 
     t = reply.match(/抖音号[:\s]*[`'"]?([a-zA-Z0-9_\-\.]+)[`'"]?/);
@@ -26140,7 +26218,7 @@ function _extractTalentFieldsFromLLMReply(reply) {
     t = reply.match(/(?:所在地|所在城市|城市)[:\s]*([^\n,。；]+)/);
     if (t) fields.city = t[1].trim();
 
-    t = reply.match(/(?:备注|简介|bio)[:\s]*([^\n]+)/);
+    t = reply.match(/(?:备注|简介|个人简介|bio)[:\s]*([^\n]+)/);
     if (t) fields.bio = t[1].trim();
 
     // 去掉内部字段 (talent_id 已经单独提取)

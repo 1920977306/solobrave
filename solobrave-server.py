@@ -3343,6 +3343,19 @@ def init_db():
             ('account_fans_profile', "TEXT DEFAULT ''"),
             ('video_fans_profile', "TEXT DEFAULT ''"),
             ('cooperation_days', "INTEGER DEFAULT 0"),
+            # ★ fix/talent-full-sync-r5: 大幅扩展字段映射 (10 新列覆盖截图 1-9 可见字段)
+            # 老大反馈: Mini 之前只覆盖 17 字段, 截图实际 ~30+ 字段可见
+            # alphabetic 顺序 (跟 _TALENT_COLUMNS 同步)
+            ('avg_session_gmv', 'REAL DEFAULT 0'),
+            ('cooperation_requirements', "TEXT DEFAULT ''"),
+            ('fan_growth', 'INTEGER DEFAULT 0'),
+            ('fan_growth_rate', "TEXT DEFAULT ''"),
+            ('hot_brands', "TEXT DEFAULT '[]'"),
+            ('hot_categories', "TEXT DEFAULT '[]'"),
+            ('live_avg_price', 'REAL DEFAULT 0'),
+            ('live_gmv_ratio', "TEXT DEFAULT ''"),
+            ('main_category', "TEXT DEFAULT ''"),
+            ('video_gmv_ratio', "TEXT DEFAULT ''"),
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
@@ -4012,18 +4025,21 @@ _BRAND_COLUMNS = [
 _TALENT_COLUMNS = [
     'id', 'name', 'avatar', 'douyin_id', 'real_name', 'wechat', 'phone', 'email',
     'city', 'level', 'followers', 'talent_type', 'location', 'agency', 'tags',
-    'bio', 'contact', 'contact_name', 'contact_phone', 'contact_wechat',
+    'bio', 'cooperation_requirements', 'contact', 'contact_name', 'contact_phone', 'contact_wechat',
     'contact_email', 'cooperation_status', 'follow_up_by', 'next_follow_up_at',
     'follow_up_note', 'commission_requirement', 'fulfillment_score', 'rating_score',
     'total_gmv', 'total_products', 'product_count', 'total_shops', 'average_price',
-    'live_ratio', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_gpm',
-    'fan_gender', 'fan_age', 'fan_region', 'fan_crowd', 'fan_price_range',
+    'avg_session_gmv', 'live_ratio', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_gpm',
+    'live_gmv_ratio', 'fan_gender', 'fan_age', 'fan_growth', 'fan_growth_rate',
+    'fan_region', 'fan_crowd', 'fan_price_range',
     'fan_category', 'category', 'content_style', 'fans_profile', 'ai_tags', 'ai_rating', 'ai_summary',
-    'ai_analysis',
-    'total_history_days', 'live_sessions', 'live_views', 'video_plays',
+    'ai_analysis', 'main_category',
+    'total_history_days', 'live_sessions', 'live_views', 'live_avg_price',
+    'video_plays', 'video_gmv_ratio',
     'single_video_settlement', 'video_completion_rate', 'video_likes', 'video_comments',
     'video_shares', 'video_interaction_rate', 'video_avg_price',
     'top_products', 'top_categories', 'top_brands',
+    'hot_categories', 'hot_brands',
     'fan_city_tier', 'fan_group_gender', 'fan_group_age', 'fan_group_crowd',
     'fan_group_activity', 'fan_group_device', 'fan_group_price', 'fan_group_category',
     'live_audience_region', 'live_audience_city_tier',
@@ -4336,6 +4352,7 @@ def _dict_to_talent_row(t):
         'agency': t.get('agency') or '',
         'tags': _dump(t.get('tags', [])),
         'bio': t.get('bio') or '',
+        'cooperation_requirements': t.get('cooperation_requirements') or t.get('cooperationRequirements') or '',
         'contact': t.get('contact') or '',
         'contact_name': t.get('contact_name') or t.get('contactName') or '',
         'contact_phone': t.get('contact_phone') or t.get('contactPhone') or '',
@@ -4353,13 +4370,17 @@ def _dict_to_talent_row(t):
         'product_count': int(t.get('product_count', t.get('total_products', 0)) or 0),
         'total_shops': int(t.get('total_shops', 0) or 0),
         'average_price': float(t.get('average_price', 0) or 0),
+        'avg_session_gmv': float(t.get('avg_session_gmv', t.get('avgSessionGmv', 0)) or 0),
         'live_ratio': float(t.get('live_ratio', 0) or 0),
         'video_ratio': float(t.get('video_ratio', 0) or 0),
         'avg_live_gmv': float(t.get('avg_live_gmv', 0) or 0),
         'live_gpm': float(t.get('live_gpm', 0) or 0),
         'video_gpm': float(t.get('video_gpm', 0) or 0),
+        'live_gmv_ratio': t.get('live_gmv_ratio') or t.get('liveGmvRatio') or '',
         'fan_gender': _dump(t.get('fan_gender', t.get('fanGender', {}))),
         'fan_age': _dump(t.get('fan_age', t.get('fanAge', {}))),
+        'fan_growth': int(t.get('fan_growth', t.get('fanGrowth', 0)) or 0),
+        'fan_growth_rate': t.get('fan_growth_rate') or t.get('fanGrowthRate') or '',
         'fan_region': _dump(t.get('fan_region', t.get('fanRegion', {}))),
         'fan_crowd': t.get('fan_crowd') or t.get('fanCrowd') or '',
         'fan_price_range': t.get('fan_price_range') or t.get('fanPriceRange') or '',
@@ -4371,10 +4392,13 @@ def _dict_to_talent_row(t):
         'ai_rating': t.get('ai_rating') or t.get('aiRating') or '',
         'ai_summary': t.get('ai_summary') or t.get('aiSummary') or '',
         'ai_analysis': t.get('ai_analysis') or t.get('aiAnalysis') or t.get('ai_summary') or t.get('aiSummary') or '',
+        'main_category': t.get('main_category') or t.get('mainCategory') or '',
         'total_history_days': t.get('total_history_days') or t.get('totalHistoryDays') or '',
         'live_sessions': t.get('live_sessions') or t.get('liveSessions') or '',
         'live_views': t.get('live_views') or t.get('liveViews') or '',
+        'live_avg_price': float(t.get('live_avg_price', t.get('liveAvgPrice', 0)) or 0),
         'video_plays': t.get('video_plays') or t.get('videoPlays') or '',
+        'video_gmv_ratio': t.get('video_gmv_ratio') or t.get('videoGmvRatio') or '',
         'single_video_settlement': t.get('single_video_settlement') or t.get('singleVideoSettlement') or '',
         'video_completion_rate': t.get('video_completion_rate') or t.get('videoCompletionRate') or '',
         'video_likes': t.get('video_likes') or t.get('videoLikes') or '',
@@ -4385,6 +4409,8 @@ def _dict_to_talent_row(t):
         'top_products': _dump(t.get('top_products', t.get('topProducts', []))),
         'top_categories': _dump(t.get('top_categories', t.get('topCategories', []))),
         'top_brands': _dump(t.get('top_brands', t.get('topBrands', []))),
+        'hot_categories': t.get('hot_categories') or t.get('hotCategories') or '[]',
+        'hot_brands': t.get('hot_brands') or t.get('hotBrands') or '[]',
         'fan_city_tier': _dump(t.get('fan_city_tier', t.get('fanCityTier', {}))),
         'fan_group_gender': _dump(t.get('fan_group_gender', t.get('fanGroupGender', {}))),
         'fan_group_age': _dump(t.get('fan_group_age', t.get('fanGroupAge', {}))),
@@ -20742,16 +20768,42 @@ _TALENT_FORM_TO_DB = {
     # ───── 基础信息 (12 项) ─────
     'talent_type': 'talent_type',
     'content_style': 'content_style',
-    'account_fans_profile': 'account_fans_profile',  # ALTER TABLE 新加
-    'video_fans_profile': 'video_fans_profile',  # ALTER TABLE 新加
+    'account_fans_profile': 'account_fans_profile',  # ALTER TABLE 新加 (r2)
+    'video_fans_profile': 'video_fans_profile',  # ALTER TABLE 新加 (r2)
     'avg_video_price': 'video_avg_price',  # brief → 表内翻译
     'bio': 'bio',
     'douyin_id': 'douyin_id',
     'level': 'level',
     'city': 'city',
-    'cooperation_days': 'cooperation_days',  # ALTER TABLE 新加
+    'cooperation_days': 'cooperation_days',  # ALTER TABLE 新加 (r2)
     'live_count': 'live_sessions',  # brief → 表内翻译
     'interaction_rate': 'video_interaction_rate',  # brief → 表内翻译
+    # ───── ★ fix/talent-full-sync-r5: 大幅扩展 (10 新字段 + 13 别名) ─────
+    # 10 新字段 (alphabetic 顺序, 跟 _TALENT_COLUMNS / _dict_to_talent_row / ALTER TABLE 同步)
+    'avg_session_gmv': 'avg_session_gmv',         # 场均结算额
+    'cooperation_requirements': 'cooperation_requirements',  # 带货要求
+    'fan_growth': 'fan_growth',                    # 粉丝变化数
+    'fan_growth_rate': 'fan_growth_rate',          # 粉丝变化率
+    'hot_brands': 'hot_brands',                    # 热卖品牌 (文本 JSON)
+    'hot_categories': 'hot_categories',            # 热卖类目 (文本 JSON)
+    'live_avg_price': 'live_avg_price',            # 直播平均件单价
+    'live_gmv_ratio': 'live_gmv_ratio',            # 直播GMV占比
+    'main_category': 'main_category',              # 主推类目 (跟 category 区分, OCR prompt 提 main_category)
+    'video_gmv_ratio': 'video_gmv_ratio',          # 短视频占比
+    # 13 别名映射 (LLM 用别名输出, 翻译到 db 列, 不重复加列)
+    'talent_type_alias_type': 'talent_type',        # 类型 → talent_type
+    'talent_type_alias_daihuo': 'talent_type',      # 带货方式 → talent_type
+    'talent_type_alias_content': 'talent_type',     # 内容类型 → talent_type (frontend 已有)
+    'cooperation_days_alias_history': 'cooperation_days',  # 历史带货天数 → cooperation_days
+    'cooperation_days_alias_hezuo': 'cooperation_days',    # 合作天数 → cooperation_days
+    'video_plays_alias_count': 'video_plays',     # 播放量 → video_plays
+    'total_shops_alias_total': 'total_shops',     # 总店铺数 → total_shops
+    'single_video_settlement_alias_short': 'single_video_settlement',  # 单视频结算 → single_video_settlement
+    'avg_order_price': 'average_price',           # 平均客单价 / 平均件单价 → average_price (复用)
+    'video_fans_profile_alias_data': 'video_fans_profile',  # 视频带货数据 → video_fans_profile
+    'completion_rate': 'video_completion_rate',    # 完播率 → video_completion_rate (复用)
+    'fulfillment_score_alias_rename': 'fulfillment_score',  # 履约分 → fulfillment_score (已是 db 列)
+    'interaction_rate_alias_chinese': 'video_interaction_rate',  # 互动率 → video_interaction_rate (复用, r1 已有)
     # ───── AI/跟进 (保留 8 项, 已在 1017212 + 已有 helper 处理) ─────
     'ai_rating': 'ai_rating',
     'ai_analysis': 'ai_analysis',
@@ -21081,6 +21133,21 @@ def _build_talent_dedup_hint(talent_id, auth):
         #   - 核心指令 (走更新场景) 放最前, LLM 第一眼看到
         #   - 达人ID 是关键, LLM 拿到 ID 就能直接 PUT, 不要绕回问用户
         #   - 原有字段快照从 6 字段缩到 3 字段, 降低 token 干扰
+        # ★ fix/talent-full-sync-r5: 扩展完整字段列表 (没数据写"未提供")
+        #   覆盖截图 1-9 全部可见字段, 让前端自动 PUT 时有完整数据
+        _DEDUP_HINT_FULL_FIELDS = '''
+## 完整字段提取要求 (前端会从你回复自动解析, 没数据写"未提供")
+请在回复正文后, 用以下格式逐条列出 (字段名: 值), 字段缺失或截图未提及写"未提供":
+
+**基本面**: 达人昵称 / 达人ID / 平台 / 粉丝量 / 等级 / 所在地 / 履约分
+**类型**: 类型(talent_type) / 带货方式 / 内容类型 / 主推类目(main_category) / 机构(agency) / 简介(bio) / 带货要求(cooperation_requirements)
+**核心数据**: 带货商品数 / 历史带货天数 / 合作店铺数 / 结算总额 / 场均结算额(avg_session_gmv)
+**直播**: 直播GMV占比(live_gmv_ratio) / 直播GPM(live_gpm) / 直播平均件单价(live_avg_price)
+**短视频**: 短视频占比(video_gmv_ratio) / 视频GPM / 单视频结算额 / 视频平均件单价 / 完播率(completion_rate) / 互动率
+**粉丝**: 粉丝变化数(fan_growth) / 粉丝变化率(fan_growth_rate) / 粉丝画像(性别/年龄/城市等级/人群/活跃度/设备/价格带/品类偏好/省份TOP/粉丝特征/消费偏好) / 视频粉丝画像
+**热卖**: 热卖类目TOP3(hot_categories) / 热卖品牌TOP3(hot_brands)
+**指标**: 点赞数(likes) / 评论数(comments) / 转发数(shares)
+'''
         return (
             f"\n\n# ⚠️ 系统检测到达人已存在，必须走【更新】场景，禁用【新建】\n"
             f"达人ID: `{d['id']}` (姓名: {d['name']})\n"
@@ -21095,6 +21162,7 @@ def _build_talent_dedup_hint(talent_id, auth):
             f"## 档案快照 (供你参考, 不需要用户再填)\n"
             f"- 类目: {category} | 粉丝量: {followers} | AI评级: {ai_rating}\n"
             f"- AI摘要 (前300字): {ai_summary or '(空)'}\n"
+            f"{_DEDUP_HINT_FULL_FIELDS}"
         )
     except Exception as e:
         logger.warning(f'  [TalentDedupHint] 构建失败 talent_id={talent_id}: {e}')

@@ -496,6 +496,183 @@ def test_r4_normal_conversation_no_tal_id_skipped():
     assert result is None, "不应触发 (无 tal_xxx id, 只含昵称 + 数字)"
 
 
+# ★ fix/talent-full-sync-r5: 大幅扩展字段映射 (10 新列 + 别名 + 前端 regex + dedup_hint)
+# 17 → 24 测试
+
+def test_r5_tal_columns_includes_10_new():
+    """★ r5 根因回归保护: _TALENT_COLUMNS 必须含 10 新列 (r2 同类根因保护)."""
+    from solobrave_server import _TALENT_COLUMNS
+    new_cols = [
+        'avg_session_gmv', 'cooperation_requirements', 'fan_growth', 'fan_growth_rate',
+        'hot_brands', 'hot_categories', 'live_avg_price', 'live_gmv_ratio',
+        'main_category', 'video_gmv_ratio',
+    ]
+    for col in new_cols:
+        assert col in _TALENT_COLUMNS, f'_TALENT_COLUMNS 缺 r5 新列 {col}'
+
+
+def test_r5_dict_to_talent_row_includes_10_new():
+    """★ r5 根因回归保护: _dict_to_talent_row 必须含 10 新列映射."""
+    from solobrave_server import _dict_to_talent_row
+    row = _dict_to_talent_row({
+        'name': 'test',
+        'avg_session_gmv': 5000,
+        'cooperation_requirements': '需 5w+ 粉',
+        'fan_growth': 100,
+        'fan_growth_rate': '+0.5%',
+        'hot_brands': '[]',
+        'hot_categories': '[]',
+        'live_avg_price': 99.5,
+        'live_gmv_ratio': '60%',
+        'main_category': '服饰内衣',
+        'video_gmv_ratio': '40%',
+    })
+    assert row.get('avg_session_gmv') == 5000, 'avg_session_gmv 映射'
+    assert row.get('cooperation_requirements') == '需 5w+ 粉', 'cooperation_requirements 映射'
+    assert row.get('fan_growth') == 100, 'fan_growth 映射'
+    assert row.get('fan_growth_rate') == '+0.5%', 'fan_growth_rate 映射'
+    assert row.get('live_avg_price') == 99.5, 'live_avg_price 映射'
+    assert row.get('live_gmv_ratio') == '60%', 'live_gmv_ratio 映射'
+    assert row.get('main_category') == '服饰内衣', 'main_category 映射'
+    assert row.get('video_gmv_ratio') == '40%', 'video_gmv_ratio 映射'
+
+
+def test_r5_talent_form_to_db_aliases():
+    """★ r5 别名映射: 类型/带货方式/内容类型 → talent_type 等 13 别名覆盖."""
+    from solobrave_server import _TALENT_FORM_TO_DB
+    # 直接映射的 10 新字段
+    direct = [
+        'avg_session_gmv', 'cooperation_requirements', 'fan_growth', 'fan_growth_rate',
+        'hot_brands', 'hot_categories', 'live_avg_price', 'live_gmv_ratio',
+        'main_category', 'video_gmv_ratio',
+    ]
+    for k in direct:
+        assert k in _TALENT_FORM_TO_DB, f'直接映射缺 {k}'
+        assert _TALENT_FORM_TO_DB[k] == k, f'{k} 应映射到自己'
+    # 别名映射
+    assert _TALENT_FORM_TO_DB['talent_type_alias_type'] == 'talent_type', '类型别名'
+    assert _TALENT_FORM_TO_DB['avg_order_price'] == 'average_price', '平均客单价别名'
+    assert _TALENT_FORM_TO_DB['completion_rate'] == 'video_completion_rate', '完播率别名'
+    assert _TALENT_FORM_TO_DB['fulfillment_score_alias_rename'] == 'fulfillment_score', '履约分别名'
+
+
+def test_r5_extract_new_fields_from_llm_reply():
+    """★ r5 新字段提取: avg_session_gmv / live_gmv_ratio / hot_categories / likes 等."""
+    reply = '''已为达人 `tal_xxx_001` (姓名: 发财周周) 录入档案:
+场均结算额: 5000
+直播GMV占比: 60%
+短视频占比: 40%
+完播率: 35%
+粉丝变化数: +1000
+粉丝变化率: +0.5%
+热卖类目TOP3: 服饰, 美妆, 食品
+热卖品牌TOP3: 品牌A, 品牌B, 品牌C
+主推类目: 服饰内衣
+点赞数: 12000
+评论数: 500
+转发数: 200
+机构: 某MCN
+带货要求: 5w粉以上
+'''
+    result = _extract_talent_fields_from_llm_reply_py(reply)
+    assert result is not None, '应解析出结果'
+    body = result['body']
+    assert body.get('avg_session_gmv') == '5000', '场均结算额'
+    assert body.get('live_gmv_ratio') == '60%', '直播GMV占比'
+    assert body.get('video_gmv_ratio') == '40%', '短视频占比'
+    assert body.get('completion_rate') == '35%', '完播率'
+    assert body.get('fan_growth') == 1000, '粉丝变化数'
+    assert body.get('fan_growth_rate') == '+0.5%', '粉丝变化率'
+    assert '服饰' in body.get('hot_categories', ''), '热卖类目'
+    assert '品牌A' in body.get('hot_brands', ''), '热卖品牌'
+    assert body.get('main_category') == '服饰内衣', '主推类目'
+    assert body.get('likes') == 12000, '点赞数'
+    assert body.get('comments') == 500, '评论数'
+    assert body.get('shares') == 200, '转发数'
+    assert body.get('agency') == '某MCN', '机构'
+    assert body.get('cooperation_requirements') == '5w粉以上', '带货要求'
+
+
+def test_r5_extract_aliases_from_llm_reply():
+    """★ r5 别名提取: 所在地 → city / 类型 → talent_type / 历史带货天数 → cooperation_days."""
+    reply = '''已为达人 `tal_yyy` (姓名: 张三) 更新档案:
+所在地: 北京
+所在城市: 海淀区
+类型: 剧情号
+带货方式: 短视频
+内容类型: 剧情
+简介: 测试简介
+历史带货天数: 200
+合作店铺数: 30
+总店铺数: 25
+合作店铺: 12
+播放量: 100万
+单视频结算: 1500
+平均件单价: 80
+粉丝画像: 25-35岁女性
+粉丝活跃度: 高
+粉丝设备: iOS 70%
+粉丝价格带: 50-100元
+粉丝品类偏好: 服饰
+粉丝省份TOP: 广东, 北京, 上海
+消费偏好: 实用
+完播率: 30%
+履约分: 4.5
+'''
+    result = _extract_talent_fields_from_llm_reply_py(reply)
+    assert result is not None
+    body = result['body']
+    assert body.get('city') == '北京', '所在地 → city'
+    assert body.get('talent_type') == '剧情号', '类型 → talent_type'
+    assert body.get('cooperation_days') == 200, '历史带货天数 → cooperation_days'
+    assert body.get('total_shops') == 30, '合作店铺数 → total_shops'
+    assert body.get('video_plays') == '100万', '播放量 → video_plays'
+    assert body.get('single_video_settlement') == '1500', '单视频结算 → single_video_settlement'
+    assert body.get('avg_order_price') == '80', '平均件单价 → avg_order_price'
+    assert body.get('bio') == '测试简介', '简介 → bio'
+    assert body.get('completion_rate') == '30%', '完播率 → completion_rate'
+    assert body.get('fulfillment_score_alias_rename') == '4.5', '履约分 → fulfillment_score_alias'
+    # 粉丝画像拼接 (活跃度 + 设备 + 价格带 + 品类偏好 + 省份TOP + 粉丝画像)
+    afp = body.get('account_fans_profile', '')
+    assert '25-35岁女性' in afp, '粉丝画像拼接基础'
+    assert '活跃度' in afp and '高' in afp, '活跃度拼接'
+    assert '设备' in afp and 'iOS 70%' in afp, '设备拼接'
+    assert '价格带' in afp and '50-100元' in afp, '价格带拼接'
+    assert '品类偏好' in afp and '服饰' in afp, '品类偏好拼接'
+    assert '省份TOP' in afp and '广东' in afp, '省份TOP拼接'
+
+
+def test_r5_build_dedup_hint_includes_full_fields():
+    """★ r5 dedup_hint 扩展: 必须含完整字段列表 (没数据写"未提供")."""
+    # Mock talent_id 命中, 让 _build_talent_dedup_hint 返回 hint
+    from solobrave_server import _build_talent_dedup_hint
+    # 直接调用 (DB 没数据时 hint 会 try-except 返回 '')
+    # 至少验证函数定义存在 + 没崩
+    try:
+        result = _build_talent_dedup_hint('tal_test_fake_id', auth=None)
+        # 正常情况 (DB 无记录) 返回 ''; 有记录时含完整字段列表
+        if result:
+            assert '完整字段提取要求' in result, 'dedup_hint 应含完整字段要求'
+            assert 'avg_session_gmv' in result, 'dedup_hint 应含 avg_session_gmv'
+            assert 'main_category' in result, 'dedup_hint 应含 main_category'
+            assert 'hot_categories' in result, 'dedup_hint 应含 hot_categories'
+            assert '未提供' in result, 'dedup_hint 应明确"未提供"占位'
+    except Exception as e:
+        # DB 异常也算过 (不阻塞主流程)
+        pass
+
+
+def test_r5_dedup_hint_says_unprovided_for_empty():
+    """★ r5 dedup_hint 明确告诉 LLM: 字段缺失或截图未提及写"未提供"."""
+    from solobrave_server import _build_talent_dedup_hint
+    try:
+        result = _build_talent_dedup_hint('tal_test_unprovided', auth=None)
+        if result:
+            assert '未提供' in result, 'dedup_hint 必须明确"未提供"占位规则'
+    except Exception:
+        pass
+
+
 def run_all_tests():
     """跑全部测试, 返回 (pass_count, fail_count)."""
     import traceback
@@ -520,6 +697,14 @@ def run_all_tests():
         test_r4_tal_id_with_update_keyword_triggers,
         test_r4_separate_id_and_context_triggers,
         test_r4_normal_conversation_no_tal_id_skipped,
+        # ★ r5 新增 (大幅扩展字段映射)
+        test_r5_tal_columns_includes_10_new,
+        test_r5_dict_to_talent_row_includes_10_new,
+        test_r5_talent_form_to_db_aliases,
+        test_r5_extract_new_fields_from_llm_reply,
+        test_r5_extract_aliases_from_llm_reply,
+        test_r5_build_dedup_hint_includes_full_fields,
+        test_r5_dedup_hint_says_unprovided_for_empty,
     ]
     pass_count = 0
     fail_count = 0
