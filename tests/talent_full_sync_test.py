@@ -12,12 +12,25 @@
   python3 -m pytest tests/talent_full_sync_test.py -v
 
 退出码 0 = 全部通过, 1 = 有失败.
+
+★ fix/talent-full-sync-r2: 用 importlib.util.spec_from_file_location 加载 server
+  (solobrave-server.py 有连字符不能直接 import, 之前 Mac 跑 ModuleNotFoundError)
 """
 import sys
 import os
+import importlib.util
+from pathlib import Path
 
-# 把项目根加进 sys.path, 让 import solobrave-server 能找到
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# ★ 改用 importlib.util.spec_from_file_location (老大 r2 反馈指定)
+# 原因: solobrave-server.py 文件名有连字符, Python 不能 `import solobrave-server`
+# 参考 scripts/backfill_analyzed_talents.py 的 helper 加载模式
+_SERVER_PATH = Path(__file__).parent.parent / 'solobrave-server.py'
+_spec = importlib.util.spec_from_file_location('solobrave_server', _SERVER_PATH)
+_solobrave_server = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_solobrave_server)
+
+# 暴露给测试函数用
+sys.modules['solobrave_server'] = _solobrave_server
 
 
 def _assert_equal(actual, expected, msg):
@@ -217,6 +230,41 @@ def test_map_talent_form_to_record_empty_input():
     _assert_equal(_map_talent_form_to_record('not a dict'), {}, '非 dict 输入返回空')
 
 
+# ★ fix/talent-full-sync-r2: 回归保护, 防止再有人忘了同步 _TALENT_COLUMNS / _dict_to_talent_row
+def test_talent_columns_includes_3_new():
+    """★ r2 根因回归保护: _TALENT_COLUMNS 必须含 ALTER TABLE 新加的 3 列.
+    否则 PUT handler 拼 UPDATE SQL 会漏这 3 列, DB 永远写不进.
+    """
+    from solobrave_server import _TALENT_COLUMNS
+    for col in ('account_fans_profile', 'video_fans_profile', 'cooperation_days'):
+        assert col in _TALENT_COLUMNS, f'_TALENT_COLUMNS 缺 {col} (r2 根因: PUT SQL 不写这列)'
+
+
+def test_dict_to_talent_row_includes_3_new():
+    """★ r2 根因回归保护: _dict_to_talent_row 输出必须含 3 列映射.
+    否则即使补了 _TALENT_COLUMNS, row dict 也不带这 3 列.
+    """
+    from solobrave_server import _dict_to_talent_row
+    row = _dict_to_talent_row({
+        'name': 'test',
+        'account_fans_profile': '25-35岁女性',
+        'video_fans_profile': '18-24岁女性',
+        'cooperation_days': 30,
+    })
+    _assert_equal(row.get('account_fans_profile'), '25-35岁女性', 'account_fans_profile 映射')
+    _assert_equal(row.get('video_fans_profile'), '18-24岁女性', 'video_fans_profile 映射')
+    _assert_equal(row.get('cooperation_days'), 30, 'cooperation_days 映射')
+
+
+def test_dict_to_talent_row_default_3_new():
+    """★ r2 根因回归保护: 缺 3 列字段时, row 默认值应符合 schema (TEXT '' / INTEGER 0)."""
+    from solobrave_server import _dict_to_talent_row
+    row = _dict_to_talent_row({'name': 'test'})
+    _assert_equal(row.get('account_fans_profile'), '', '缺省值: 空字符串')
+    _assert_equal(row.get('video_fans_profile'), '', '缺省值: 空字符串')
+    _assert_equal(row.get('cooperation_days'), 0, '缺省值: 0')
+
+
 def run_all_tests():
     """跑全部测试, 返回 (pass_count, fail_count)."""
     import traceback
@@ -230,6 +278,10 @@ def run_all_tests():
         test_map_talent_form_to_record_brief_to_db,
         test_map_talent_form_to_record_skip_empty,
         test_map_talent_form_to_record_empty_input,
+        # ★ r2 新增 (根因回归保护)
+        test_talent_columns_includes_3_new,
+        test_dict_to_talent_row_includes_3_new,
+        test_dict_to_talent_row_default_3_new,
     ]
     pass_count = 0
     fail_count = 0

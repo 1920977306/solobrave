@@ -4028,6 +4028,8 @@ _TALENT_COLUMNS = [
     'fan_group_activity', 'fan_group_device', 'fan_group_price', 'fan_group_category',
     'live_audience_region', 'live_audience_city_tier',
     'video_audience_region', 'video_audience_city_tier',
+    # ★ fix/talent-full-sync-r2: ALTER TABLE 加了 3 列, 必须同步到这里否则 UPDATE 永远漏写
+    'account_fans_profile', 'video_fans_profile', 'cooperation_days',
     'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by',
     'platform', 'price_unit', 'avg_views', 'last_cooperation', 'notes',
     'matched_products', 'matched_products_updated_at',
@@ -4395,6 +4397,10 @@ def _dict_to_talent_row(t):
         'live_audience_city_tier': _dump(t.get('live_audience_city_tier', t.get('liveAudienceCityTier', {}))),
         'video_audience_region': _dump(t.get('video_audience_region', t.get('videoAudienceRegion', {}))),
         'video_audience_city_tier': _dump(t.get('video_audience_city_tier', t.get('videoAudienceCityTier', {}))),
+        # ★ fix/talent-full-sync-r2: 补 3 列映射 (ALTER TABLE 加了但 _dict_to_talent_row 漏)
+        'account_fans_profile': str(t.get('account_fans_profile') or t.get('accountFansProfile') or ''),
+        'video_fans_profile': str(t.get('video_fans_profile') or t.get('videoFansProfile') or ''),
+        'cooperation_days': int(t.get('cooperation_days', t.get('cooperationDays', 0)) or 0),
         'ai_reason': t.get('ai_reason') or t.get('aiReason') or '',
         'risk_rating': t.get('risk_rating') or t.get('riskRating') or '',
         'group_id': t.get('group_id') or t.get('groupId') or '',
