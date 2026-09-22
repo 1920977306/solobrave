@@ -19510,6 +19510,48 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             self._handle_reanalysis_request(agent, agent_id, user_content, re_intent, msg, auth)
             return
 
+        # ★ fix/heavy-bypass-skipai: heavy bypass 必须放在 if not skip_ai 块外
+        #   之前实现把 heavy bypass 写在 if not skip_ai 内 (commit 33696b1), 但 OpenClaw
+        #   链路前端恰好用 skipAI=True 跳过整个 if 块 — heavy bypass 永远不触发,
+        #   用户截图走 WebSocket → OpenClaw 网关失败 → 'API 服务连不上'.
+        #   移出 if 块后, 不管 skipAI 标志是什么, 多图场景都直接走 heavy bypass.
+        images = body.get('images', [])
+        if _should_heavy_bypass(role, images, agent):
+            job_id = _heavy_job_create(agent_id)
+            threading.Thread(
+                target=_heavy_pipe_worker,
+                args=(job_id, agent, body.get('content', ''), images, auth.user_id),
+                daemon=True, name=f'HeavyPipe-{job_id}',
+            ).start()
+            placeholder_msg = {
+                'id': 'msg_' + uuid.uuid4().hex[:8],
+                'role': 'assistant',
+                'content': '正在处理截图...',
+                'timestamp': datetime.now().isoformat(),
+                'heavyPipePlaceholder': True,
+            }
+            lock = _get_chat_lock(agent_id)
+            if not lock.acquire(timeout=30):
+                logger.error(f'  [HeavyPipe] {job_id} 占位消息落盘锁获取超时(30s)，返回500')
+                self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
+                return
+            try:
+                messages = _load_chat(agent_id)
+                if not isinstance(messages, list):
+                    messages = []
+                messages.append(placeholder_msg)
+                _save_chat(agent_id, messages)
+            finally:
+                lock.release()
+            logger.info(f'  [HeavyPipe] {job_id} 已旁路 (前置于 _call_ai_api, 不受 skipAI 限制): {agent_id} images={len(images)} skipAI={skip_ai}')
+            self._send_json(200, {
+                'userMessage': msg, 'aiMessage': placeholder_msg,
+                'heavyPipe': True, 'jobId': job_id,
+                'talentInjection': talent_injection,
+            })
+            return
+
+
         # 当 skipAI=false 时，无论 connectionType 是什么，都调用 AI API
         # 这样 memory 提取等场景（_extractMemoryViaAPI）才能正常工作
         if not skip_ai:
@@ -19538,51 +19580,11 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                     else:
                         logger.error(f'  [ChatPOST] {agent_id} self-update intent apply failed: {su_msg}')
 
-            images = body.get('images', [])
             # 达人相关提问：把后端直查的【系统数据】拼到用户消息末尾，
             # LLM 只做分析和润色，不负责数据查询，从架构上杜绝编造
             if talent_injection:
                 content = content + talent_injection
                 logger.info(f'  [TalentInject] {agent_id} 命中达人关键词，系统数据拼入用户消息 len={len(talent_injection)}')
-            # ★ fix/heavy-bypass-pre-ai: heavy bypass 必须在 _call_ai_api 之前判断
-            #   之前实现放在 _call_ai_api 之后 (line 19684), 但 fallback 字符串 truthy
-            #   永远拦截, heavy bypass 形同虚设 — 用户走 OpenClaw 主干道 fallback 失败
-            #   时看到 'AI 服务暂时不可用' 错误, 而非 heavy pipe 直写 DB 的 ✅ 已写入 确认.
-            #   多图场景直接旁路, 不调 _call_ai_api, 不会返回错误消息.
-            if _should_heavy_bypass(role, images, agent):
-                job_id = _heavy_job_create(agent_id)
-                threading.Thread(
-                    target=_heavy_pipe_worker,
-                    args=(job_id, agent, body.get('content', ''), images, auth.user_id),
-                    daemon=True, name=f'HeavyPipe-{job_id}',
-                ).start()
-                placeholder_msg = {
-                    'id': 'msg_' + uuid.uuid4().hex[:8],
-                    'role': 'assistant',
-                    'content': '正在处理截图...',
-                    'timestamp': datetime.now().isoformat(),
-                    'heavyPipePlaceholder': True,
-                }
-                lock = _get_chat_lock(agent_id)
-                if not lock.acquire(timeout=30):
-                    logger.error(f'  [HeavyPipe] {job_id} 占位消息落盘锁获取超时(30s)，返回500')
-                    self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
-                    return
-                try:
-                    messages = _load_chat(agent_id)
-                    if not isinstance(messages, list):
-                        messages = []
-                    messages.append(placeholder_msg)
-                    _save_chat(agent_id, messages)
-                finally:
-                    lock.release()
-                logger.info(f'  [HeavyPipe] {job_id} 已旁路 (前置于 _call_ai_api): {agent_id} images={len(images)}')
-                self._send_json(200, {
-                    'userMessage': msg, 'aiMessage': placeholder_msg,
-                    'heavyPipe': True, 'jobId': job_id,
-                    'talentInjection': talent_injection,
-                })
-                return
             if images:
                 user_payload = [{'type': 'text', 'text': content}]
                 for img in images:
