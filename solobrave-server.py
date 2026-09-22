@@ -19545,6 +19545,13 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 messages = _load_chat(agent_id)
                 if not isinstance(messages, list):
                     messages = []
+                # ★ fix/user-msg-persist: heavy bypass 必须把用户消息 msg 也存进 chat
+                #   之前实现只 append placeholder_msg, 用户消息丢失 —
+                #   老大反馈 '对话窗口只显示 Helen 回复, 用户发的消息不显示'
+                #   (前端 DOM 立即显示用户消息, 但后端 chat.json 没持久化, refreshMsgs 后消失).
+                #   OpenClaw 链路 (if not skip_ai 块 line 19689) 早就 append(msg), 这里对齐.
+                if role == 'user':
+                    messages.append(msg)
                 messages.append(placeholder_msg)
                 _save_chat(agent_id, messages)
             finally:
