@@ -3663,6 +3663,30 @@ def init_db():
             )
         ''')
 
+        # ★ fix/heavy-persist: HeavyPipe job 状态持久化
+        #   之前 _HEAVY_JOBS = {} 是进程内存 dict, kickstart -k 重启后所有 job 状态丢失,
+        #   前端 5s 轮询 heavy-status 永远拿不到 done → 10min 超时后才降级 OpenClaw,
+        #   用户感受 '任务没等完就结束'.
+        #   现在 heavy_jobs 表存所有 job 状态 (status/stage/error/warning/created_at/updated_at),
+        #   重启后 _heavy_job_get 能从 SQLite 读出历史状态, 前端轮询正常显示 done/failed.
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS heavy_jobs (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                stage TEXT DEFAULT '',
+                error TEXT DEFAULT '',
+                warning TEXT DEFAULT '',
+                result_msg_id TEXT DEFAULT '',
+                talent_name TEXT DEFAULT '',
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+        ''')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_heavy_jobs_agent ON heavy_jobs(agent_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_heavy_jobs_status ON heavy_jobs(status)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_heavy_jobs_updated ON heavy_jobs(updated_at DESC)')
+
         # 违禁词表
         conn.execute('''
             CREATE TABLE IF NOT EXISTS forbidden_words (
@@ -20506,6 +20530,7 @@ _HEAVY_TALENT_EXTRACT_PROMPT = '从以下达人数据截图识别结果中提取
 
 def _heavy_job_create(agent_id):
     job_id = 'heavy_' + uuid.uuid4().hex[:8]
+    now_ms = int(time.time() * 1000)
     with _heavy_jobs_lock:
         if len(_HEAVY_JOBS) >= _HEAVY_JOB_MAX:
             oldest = min(_HEAVY_JOBS.items(), key=lambda kv: kv[1].get('created_at', 0))[0]
@@ -20514,22 +20539,88 @@ def _heavy_job_create(agent_id):
             'agent_id': agent_id,
             'status': 'analyzing',
             'error': '',
-            'created_at': int(time.time() * 1000),
+            'created_at': now_ms,
         }
+    # ★ fix/heavy-persist: 同步写入 SQLite, 重启不丢失
+    try:
+        conn = _db_conn()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO heavy_jobs (id, agent_id, status, stage, error, warning, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (job_id, agent_id, 'analyzing', '', '', '', now_ms, now_ms)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f'  [HeavyPersist] INSERT failed job_id={job_id}: {e}')
     return job_id
 
 
 def _heavy_job_set(job_id, **fields):
+    now_ms = int(time.time() * 1000)
     with _heavy_jobs_lock:
         job = _HEAVY_JOBS.get(job_id)
         if job is not None:
             job.update(fields)
+    # ★ fix/heavy-persist: 写穿到 SQLite (L1 cache + L2 持久化)
+    if job is not None:
+        try:
+            conn = _db_conn()
+            try:
+                # 构造 update SQL (动态列)
+                valid_cols = {'status', 'stage', 'error', 'warning', 'result_msg_id', 'talent_name'}
+                set_clauses = []
+                values = []
+                for k, v in fields.items():
+                    if k in valid_cols:
+                        set_clauses.append(f'{k} = ?')
+                        values.append(v)
+                if set_clauses:
+                    set_clauses.append('updated_at = ?')
+                    values.append(now_ms)
+                    values.append(job_id)
+                    conn.execute(f"UPDATE heavy_jobs SET {', '.join(set_clauses)} WHERE id = ?", values)
+                    conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning(f'  [HeavyPersist] UPDATE failed job_id={job_id}: {e}')
 
 
 def _heavy_job_get(job_id):
+    """★ fix/heavy-persist: 先查 L1 内存 cache, miss 时查 SQLite (兼容重启)."""
     with _heavy_jobs_lock:
         job = _HEAVY_JOBS.get(job_id)
-        return dict(job) if job else None
+        if job is not None:
+            return dict(job)
+    # L1 miss → 查 SQLite (服务重启后 job 状态仍在)
+    try:
+        conn = _db_conn()
+        try:
+            row = conn.execute(
+                "SELECT id, agent_id, status, stage, error, warning, result_msg_id, talent_name, created_at, updated_at "
+                "FROM heavy_jobs WHERE id = ?",
+                (job_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if row:
+            return {
+                'agent_id': row[1],
+                'status': row[2],
+                'stage': row[3],
+                'error': row[4],
+                'warning': row[5],
+                'result_msg_id': row[6],
+                'talent_name': row[7],
+                'created_at': row[8],
+                'updated_at': row[9],
+            }
+    except Exception as e:
+        logger.warning(f'  [HeavyPersist] SELECT failed job_id={job_id}: {e}')
+    return None
 
 
 def _resolve_heavy_pipe_providers(agent_id):
