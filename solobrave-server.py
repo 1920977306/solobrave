@@ -251,6 +251,14 @@ BUSINESS_VISION_PROMPT = """你是一个专业的抖音达人数据提取员。�
 
 所有字段名必须严格使用上述英文名，数组和分布类字段输出为JSON对象或数组。
 
+【★ fix/ocr-full: 截图所有数据点全部提取, 不能给少了】如果截图上有上述 schema 之外的字段
+(如 退货率/客服电话/售后评分/合作商家列表/最近合作时间 等),
+**额外输出一个 extra_fields 字典**, key 用截图里的中文/英文原名, value 用截图里的原始值.
+- 截图里每个可见的标签/数字/按钮/链接文字都尽量提取, 不限于达人维度
+- 嵌套数据 (如 "退货率: 5.2%") 用 {"退货率": "5.2%"} 形式直接列出
+- 没有任何额外字段时 extra_fields 留空 {} 不要省略 key
+- 这是入库硬约束: 截图上看到啥就录啥, 后端 ocr_raw_fields 兜底存全部字段, 不依赖预设 schema
+
 【图表/仪表盘截图分支】如果截图不是达人数据而是仪表盘/图表/其他类型, 不要强行套达人字段, 改为按用户提示词格式描述完整结构 (图表标题/坐标轴/数据标签/图例/数值), 输出纯文本不要 JSON。"""
 
 # ═══════════════════════════════════════════════════
@@ -3343,6 +3351,12 @@ def init_db():
             ('account_fans_profile', "TEXT DEFAULT ''"),
             ('video_fans_profile', "TEXT DEFAULT ''"),
             ('cooperation_days', "INTEGER DEFAULT 0"),
+            # ★ fix/ocr-full: OCR 全字段入库, 存 vision_field_maps 完整 merge 后 JSON
+            #   老大诉求 (2026-09-22): 截图上所有数据全部录入, 不能给少了.
+            #   之前 _OCR_TO_TALENT_FIELDS 只翻译 21 个固定字段, 截图上 schema 之外的字段
+            #   (如 '退货率' / '客服电话' / '售后评分') 全部丢失.
+            #   现在 ocr_raw_fields 存所有 OCR 看到的字段 (不限 schema), 前端可单独渲染.
+            ('ocr_raw_fields', "TEXT DEFAULT '{}'"),
         ]:
             _add_column_if_not_exists(conn, 'talents', _talent_col, _talent_dtype)
         conn.execute('CREATE INDEX IF NOT EXISTS idx_talents_status ON talents(status)')
@@ -4033,6 +4047,8 @@ _TALENT_COLUMNS = [
     'ai_reason', 'risk_rating', 'group_id', 'status', 'created_by',
     'platform', 'price_unit', 'avg_views', 'last_cooperation', 'notes',
     'matched_products', 'matched_products_updated_at',
+    # ★ fix/ocr-full: OCR 全字段入库 (vision_field_maps 完整 merge JSON)
+    'ocr_raw_fields',
     'created_at', 'updated_at'
 ]
 
@@ -4413,6 +4429,8 @@ def _dict_to_talent_row(t):
         'notes': t.get('notes') or '',
         'matched_products': _dump(t.get('matched_products', t.get('matchedProducts', []))),
         'matched_products_updated_at': int(t.get('matched_products_updated_at', t.get('matchedProductsUpdatedAt', 0)) or 0),
+        # ★ fix/ocr-full: OCR 全字段入库 (vision_field_maps merge 后 JSON, 不限 schema)
+        'ocr_raw_fields': _dump(t.get('ocr_raw_fields', t.get('ocrRawFields', {}))),
         'created_at': t.get('created_at') or t.get('createdAt') or now,
         'updated_at': now,
     }
@@ -21497,6 +21515,11 @@ def _ensure_talent_from_analysis(name, vision_field_maps=None, llm_json=None,
                 _update_talent_from_ocr_fields(tid, vision_field_maps)
             except Exception as e:
                 logger.warning(f'  [EnsureTalent] OCR 回写失败 talent_id={tid}: {e}')
+            # ★ fix/ocr-full: 全部 OCR 字段入库 (不限 schema, 老大诉求截图所有数据不能少)
+            try:
+                _update_talent_ocr_raw_fields(tid, vision_field_maps)
+            except Exception as e:
+                logger.warning(f'  [EnsureTalent] ocr_raw_fields 回写失败 talent_id={tid}: {e}')
         if llm_json:
             try:
                 _update_talent_from_llm_json(tid, llm_json)
@@ -21518,6 +21541,71 @@ def _heavy_entity_hint(talent_names, talents):
     if talent_names:
         return ('talent', 'name:' + talent_names[0])
     return None
+
+
+def _update_talent_ocr_raw_fields(talent_id, vision_field_maps):
+    """★ fix/ocr-full: 把 OCR 阶段结构化字段全部入库到 talents.ocr_raw_fields.
+
+    老大诉求 (2026-09-22): 截图上所有数据全部录入, 不能给少了.
+    之前 _OCR_TO_TALENT_FIELDS 只翻译 21 个固定字段, 截图上 schema 之外的字段
+    (如 '退货率' / '客服电话' / '售后评分') 全部丢失.
+
+    现在 ocr_raw_fields 存所有 OCR 看到的字段 (不限 schema), 跨图字段 merge:
+    - 后到的图覆盖前面的 (按图1 → 图2 → ...顺序, 但 OCR null 跳过不覆盖已有值)
+    - 嵌套 dict 递归 merge
+    - list 类型直接覆盖 (避免错误拼接)
+    返回写入字段数 (0 = 无字段可写).
+
+    vision_field_maps: list of dict (每张图一个 dict)
+    """
+    if not talent_id or not vision_field_maps:
+        return 0
+
+    def _deep_merge(base, new):
+        """递归 merge new 到 base, base 已有非 null 值不覆盖 (避免空 OCR 覆盖真实数据).
+        list 类型直接覆盖 (避免错误拼接).
+        """
+        if not isinstance(base, dict) or not isinstance(new, dict):
+            return base
+        for k, v in new.items():
+            if v is None or v == '' or v == 'null':
+                continue
+            if k not in base:
+                base[k] = v
+                continue
+            bv = base[k]
+            if isinstance(bv, dict) and isinstance(v, dict):
+                base[k] = _deep_merge(bv, v)
+            elif isinstance(bv, list) and isinstance(v, list):
+                base[k] = v  # list 直接覆盖, 避免拼接
+            else:
+                # 已有值不为空则跳过, 避免覆盖真实数据
+                if bv is None or bv == '' or bv == 'null':
+                    base[k] = v
+        return base
+
+    merged = {}
+    for img_fields in vision_field_maps:
+        if not isinstance(img_fields, dict):
+            continue
+        merged = _deep_merge(merged, img_fields)
+    if not merged:
+        return 0
+
+    try:
+        conn = _db_conn()
+        try:
+            cursor = conn.execute(
+                "UPDATE talents SET ocr_raw_fields = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(merged, ensure_ascii=False), int(time.time() * 1000), talent_id)
+            )
+            conn.commit()
+            return cursor.rowcount
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f'  [OCRRawFields] UPDATE failed talent_id={talent_id}: {e}')
+        return 0
 
 
 def _heavy_vision_struct_summary(per_image_fields):
