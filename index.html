@@ -31220,15 +31220,17 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-panel-title">基础信息</div>';
   // 8 项基础信息:任一有值就展示,全空时合并成一行 placeholder
   // ★ feature/influencer-form-validation: 空值 fallback '-' → '待补充' + 加 empty flag (CSS class value-empty 高亮橙色)
+  // ★ fix/ocr-fallback: talent 表字段为空时, 从 ocr_raw_fields 模糊匹配填充
+  //   (e.g. talent_type 为空 → 试 ocr.talent_type → 试 ocr.main_category)
   var _bi = [
-    {label:'内容类型',       val:(t.talent_type || '待补充'),                     empty:!t.talent_type,                           full:false},
-    {label:'类目',           val:(t.category || mock.category || '待补充'),       empty:!(t.category || mock.category),           full:false},
-    {label:'内容风格',       val:(t.content_style || mock.content_style || '待补充'), empty:!(t.content_style || mock.content_style), full:false},
-    {label:'视频结算额占比',  val:(t.video_settlement_ratio || '待补充'),          empty:!t.video_settlement_ratio,                full:false},
-    {label:'视频平均件单价',  val:(t.video_avg_price || '待补充'),                empty:!t.video_avg_price,                       full:false},
-    {label:'账号粉丝特征',   val:(t.account_fans_profile || '待补充'),            empty:!t.account_fans_profile,                  full:true},
-    {label:'短视频粉丝特征',  val:(t.video_fans_profile || '待补充'),             empty:!t.video_fans_profile,                   full:true},
-    {label:'备注',           val:(t.remark || '待补充'),                         empty:!t.remark,                                full:true},
+    {label:'内容类型',       val:(t.talent_type      || _ocrFallback(t, 'talent_type')      || '待补充'),     empty:!(t.talent_type      || _ocrFallback(t, 'talent_type')),      full:false},
+    {label:'类目',           val:(t.category         || _ocrFallback(t, 'category')         || mock.category || '待补充'), empty:!(t.category         || _ocrFallback(t, 'category')         || mock.category), full:false},
+    {label:'内容风格',       val:(t.content_style    || _ocrFallback(t, 'content_style')    || mock.content_style || '待补充'), empty:!(t.content_style    || _ocrFallback(t, 'content_style')    || mock.content_style), full:false},
+    {label:'视频结算额占比',  val:(t.video_settlement_ratio || _ocrFallback(t, 'video_settlement_ratio') || '待补充'), empty:!(t.video_settlement_ratio || _ocrFallback(t, 'video_settlement_ratio')), full:false},
+    {label:'视频平均件单价',  val:(t.video_avg_price  || _ocrFallback(t, 'video_avg_price')  || '待补充'),     empty:!(t.video_avg_price  || _ocrFallback(t, 'video_avg_price')),  full:false},
+    {label:'账号粉丝特征',   val:(t.account_fans_profile   || _ocrFallback(t, 'account_fans_profile')   || '待补充'), empty:!(t.account_fans_profile   || _ocrFallback(t, 'account_fans_profile')),   full:true},
+    {label:'短视频粉丝特征',  val:(t.video_fans_profile || _ocrFallback(t, 'video_fans_profile') || '待补充'),     empty:!(t.video_fans_profile || _ocrFallback(t, 'video_fans_profile')),     full:true},
+    {label:'备注',           val:(t.remark           || _ocrFallback(t, 'remark')           || '待补充'),     empty:!(t.remark           || _ocrFallback(t, 'remark')),            full:true},
   ];
   var _biHasAny = _bi.some(function(i){ return !i.empty; });
   html += '<div class="talents-info-grid">';
@@ -31297,6 +31299,79 @@ function _renderOcrFieldsPanel(ocrRaw) {
   }
   var totalLeaves = topEntries.length + nestedEntries.reduce(function(s, x) { return s + _countLeaves(x.value); }, 0);
 
+  // ★ fix/ocr-field-labels: OCR 字段名 → 中文标签映射
+  //   老大反馈 '字段名要显示中文' — DB 里存的是英文 key (followers/total_gmv 等),
+  //   直接展示英文用户看不懂. 这里做中英映射, 没匹配的用原 key 兜底.
+  var OCR_FIELD_LABELS = {
+    name: '达人昵称',
+    douyin_id: '抖音号',
+    city: '所在地',
+    location: '地区',
+    followers: '粉丝量',
+    level: '等级',
+    bio: '简介',
+    tags: '内容标签',
+    main_category: '主营类目',
+    cooperation_status: '合作状态',
+    agency: '所属机构',
+    talent_type: '内容类型',
+    content_style: '内容风格',
+    product_count: '带货商品数',
+    total_history_days: '历史带货天数',
+    total_shops: '合作店铺数',
+    total_gmv: '总结算额',
+    live_ratio: '直播占比',
+    live_sessions: '直播场次',
+    live_views: '直播观看量',
+    video_ratio: '视频占比',
+    video_count: '视频数',
+    video_plays: '视频播放量',
+    single_video_settlement: '单视频结算',
+    video_gpm: '视频 GPM',
+    live_gpm: '直播 GPM',
+    video_settlement_ratio: '视频结算额占比',
+    video_avg_price: '视频平均件单价',
+    video_completion_rate: '视频完播率',
+    video_likes: '视频点赞数',
+    video_comments: '视频评论数',
+    video_shares: '视频转发数',
+    video_interaction_rate: '视频互动率',
+    average_price: '平均件单价',
+    fulfillment_score: '履约分',
+    rating_score: '评分',
+    top_products: '带货商品 TOP',
+    top_categories: '热卖类目 TOP',
+    top_brands: '热卖品牌 TOP',
+    fan_gender: '粉丝性别',
+    fan_age: '粉丝年龄',
+    fan_city_tier: '粉丝城市等级',
+    fan_crowd: '粉丝人群',
+    fan_price_range: '粉丝价格带',
+    fan_category: '粉丝品类偏好',
+    fan_region: '粉丝地域',
+    fan_group_gender: '粉丝团性别',
+    fan_group_age: '粉丝团年龄',
+    fan_group_crowd: '粉丝团人群',
+    fan_group_activity: '粉丝团活跃度',
+    fan_group_device: '粉丝团设备',
+    fan_group_price: '粉丝团价格带',
+    fan_group_category: '粉丝团品类',
+    live_audience_region: '直播间观众地域',
+    live_audience_city_tier: '直播间观众城市等级',
+    video_audience_region: '短视频观众地域',
+    video_audience_city_tier: '短视频观众城市等级',
+    extra_fields: '其他字段 (extra)',
+    account_fans_profile: '账号粉丝特征',
+    video_fans_profile: '短视频粉丝特征',
+    remark: '备注',
+    notes: '备注',
+    bio: '简介',
+  };
+
+  function _label(key) {
+    return OCR_FIELD_LABELS[key] || key;
+  }
+
   var html = '';
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">📸 OCR 截图字段 <span style="font-weight:400;color:var(--text-secondary);font-size:12px;margin-left:6px;">(' + totalLeaves + ' 字段)</span></div>';
@@ -31308,7 +31383,7 @@ function _renderOcrFieldsPanel(ocrRaw) {
       var val = String(item.value);
       // 截断过长的值 (避免一行占用太多空间)
       var truncated = val.length > 120 ? val.slice(0, 120) + '…' : val;
-      html += '<div class="talents-info-item"><label>' + escapeHtml(item.key) + '</label><div class="value">' + escapeHtml(truncated) + '</div></div>';
+      html += '<div class="talents-info-item"><label>' + escapeHtml(_label(item.key)) + '</label><div class="value">' + escapeHtml(truncated) + '</div></div>';
     });
     html += '</div>';
   }
@@ -31322,7 +31397,7 @@ function _renderOcrFieldsPanel(ocrRaw) {
       html += '<details style="background:var(--bg-tertiary);border-radius:var(--radius-md);padding:8px 12px;margin-bottom:8px;">';
       html += '<summary style="cursor:pointer;font-size:13px;color:var(--text-primary);font-weight:500;list-style:none;">';
       html += '<span style="display:inline-block;width:14px;transition:transform 0.2s;" class="ocr-toggle-icon">▶</span> ';
-      html += escapeHtml(item.key) + ' <span style="color:var(--text-secondary);font-weight:400;">(' + leaves + ' 字段)</span>';
+      html += escapeHtml(_label(item.key)) + ' <span style="color:var(--text-secondary);font-weight:400;">(' + leaves + ' 字段)</span>';
       html += '</summary>';
       html += '<pre style="font-size:12px;color:var(--text-secondary);margin:10px 0 0 20px;white-space:pre-wrap;word-break:break-all;line-height:1.6;background:var(--bg-secondary);padding:10px;border-radius:6px;">' + escapeHtml(json) + '</pre>';
       html += '</details>';
@@ -31332,6 +31407,32 @@ function _renderOcrFieldsPanel(ocrRaw) {
 
   html += '</div>';
   return html;
+}
+
+// ★ fix/ocr-fallback: 从 ocr_raw_fields 模糊匹配填充前端 '待补充' 字段
+//   老大反馈 '前端要显示的待补充字段' (内容类型/内容风格/视频平均件单价/账号粉丝特征/短视频粉丝特征/备注)
+//   这些字段 talent 表里空 (legacy 录入没填), 但 ocr_raw_fields 里有同义字段 (talent_type/content_style/...)
+//   这里做 lookup 表, renderTalentPanelOverview 调用 _ocrFallback(t, 'talent_type') 拿到 fallback 值.
+var _OCR_FALLBACK_MAP = {
+  'talent_type':        ['talent_type', 'main_category'],
+  'category':           ['main_category', 'top_categories', 'category'],
+  'content_style':      ['content_style', 'bio'],
+  'video_settlement_ratio': ['video_settlement_ratio'],
+  'video_avg_price':    ['video_avg_price', 'average_price'],
+  'account_fans_profile':   ['account_fans_profile', 'fan_gender', 'fan_age', 'fan_city_tier', 'fan_crowd', 'fan_price_range', 'fan_category'],
+  'video_fans_profile': ['video_fans_profile', 'video_audience_region', 'video_audience_city_tier'],
+  'remark':             ['remark', 'notes'],
+};
+function _ocrFallback(t, field) {
+  var ocr = t && t.ocr_raw_fields;
+  if (!ocr) return '';
+  var keys = _OCR_FALLBACK_MAP[field];
+  if (!keys) return '';
+  for (var i = 0; i < keys.length; i++) {
+    var v = ocr[keys[i]];
+    if (v && typeof v !== 'object') return String(v);
+  }
+  return '';
 }
 
 function renderTalentPanelSales(t) {
