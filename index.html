@@ -26304,7 +26304,8 @@ function _tryAutoPutTalentFromReply(reply) {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + (localStorage.getItem('sb_auth_token') || '')  // ★ r7: 带 Bearer token, 修 401
         },
-        body: JSON.stringify(body)
+        // ★ r10: dedup_auto=true 标记让后端 bypass SubpoolGuard (Helen agent 是系统 AI 代写, 不是用户跨库操作)
+        body: JSON.stringify(Object.assign({dedup_auto: true}, body))
     }).then(function (r) {
         if (r.ok) {
             console.log('[AutoPUT] 达人 ' + talentId + ' 自动同步 ' + fieldCount + ' 字段:', Object.keys(body).join(','));

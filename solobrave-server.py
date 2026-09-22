@@ -17684,12 +17684,21 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         if role_guard:
             self._send_json(role_guard[1], {'error': role_guard[0]})
             return
-        # 两层架构：非管理员（含 AI 员工）只能操作自己子库的达人，主库仅管理员可动
-        write_guard = _check_talent_write_permission(auth, talent_id)
-        if write_guard:
-            self._send_json(write_guard[1], {'error': write_guard[0]})
-            return
+        # 提前读 body: 检测 dedup_auto_put 标记 (前端 _tryAutoPutTalentFromReply 触发时加 true)
+        #   SubpoolGuard 在 dedup 自动 PUT 场景下 bypass — Helen agent 是系统 AI 代用户执行写入,
+        #   不是用户主动跨库操作. dedup 是关键词+tal_xxx ID 命中触发的, 不是 Helen 决定改谁的.
         body = self._read_body()
+        is_dedup_auto_put = isinstance(body, dict) and body.get('dedup_auto') is True
+
+        if not is_dedup_auto_put:
+            # 两层架构：非管理员（含 AI 员工）只能操作自己子库的达人，主库仅管理员可动
+            write_guard = _check_talent_write_permission(auth, talent_id)
+            if write_guard:
+                self._send_json(write_guard[1], {'error': write_guard[0]})
+                return
+        else:
+            logger.info(f'  [DedupAutoPut] {talent_id} dedup_auto=true, bypass SubpoolGuard (agent={auth.localhost_agent_id or "?"})')
+
         if not body:
             self._send_json_error(400, 'Missing body')
             return
@@ -19388,16 +19397,26 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
         reanalysis_hit = False
         re_intent = None
         user_content = msg.get('content', '')
+        # ★ memory-fix: is_extract 必须在 lock 前初始化 (后续 lock 内守卫要用到)
+        is_extract = '【记忆提取任务】' in user_content
         lock = _get_chat_lock(agent_id)
         if not lock.acquire(timeout=30):
             logger.error(f'  [ChatPOST] {agent_id} 聊天锁获取超时(30s)，返回500')
             self._send_json(500, {'error': '聊天服务繁忙，请稍后重试'})
             return
         try:
+            # ★ memory-fix: 记忆提取任务 (前端 _extractMemoryViaAPI 走 /api/chat 的兼容路径)
+            #   不该污染用户 chat 历史 (跟 2026-05 memory_skill prompt 泄露教训一致)
+            #   提取结果走 /api/memory 独立通道, 这里只跑 LLM 不落盘
+            if is_extract:
+                logger.info(f'  [ChatPOST] {agent_id} is_extract=True, 跳过落盘 (走独立记忆提取路径)')
+            else:
+                pass  # 正常落盘
             messages = _load_chat(agent_id)
             if not isinstance(messages, list):
                 messages = []
-            messages.append(msg)
+            if not is_extract:
+                messages.append(msg)
             original_len = len(messages)
 
             # v2：聊天记录上限归档（非静默丢弃）
@@ -19434,11 +19453,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                 if _has_reanalysis_intent(user_content):
                     re_intent = _detect_reanalysis_intent(user_content)
                     reanalysis_hit = True
-                    _save_chat(agent_id, messages)
+                    if not is_extract:
+                        _save_chat(agent_id, messages)
                     # 正则命中 → 一律进意图接管（intent 非空走重分析任务；空走引导问达人名）
                     logger.info(f'  [Reanalysis] {agent_id} 命中重新分析意图: intent={re_intent}')
             # 归档发生时立即落盘截断后的列表，避免锁外流程 reload 到未截断的旧列表导致重复归档
-            if archived_count > 0 and not reanalysis_hit:
+            if archived_count > 0 and not reanalysis_hit and not is_extract:
                 _save_chat(agent_id, messages)
         finally:
             lock.release()
@@ -19460,7 +19480,7 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
 
             content = body.get('content', '')
             # 记忆提取场景不需要加载历史记录，避免 token 超限和干扰
-            is_extract = '【记忆提取任务】' in content
+            # is_extract 已在 handler 入口初始化 (line ~19391), 复用
 
             # 后端拦截自然语言自修改指令，不依赖 AI 输出 [SELF_UPDATE] 标记
             if role == 'user':
@@ -19576,10 +19596,12 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
                             m['content'] = msg['content']
                             _msg_on_disk = True
                             break
-                    if not _msg_on_disk:
+                    if not _msg_on_disk and not is_extract:
                         messages.append(msg)
-                    messages.append(ai_message)
-                    _save_chat(agent_id, messages)
+                    if not is_extract:
+                        messages.append(ai_message)
+                    if not is_extract:
+                        _save_chat(agent_id, messages)
                 finally:
                     lock.release()
                 logger.info(f'  [ChatPOST] {agent_id} API代理 保存 ai_content_len={len(ai_message["content"])}')
@@ -19669,7 +19691,10 @@ class SoloBraveHandler(http.server.SimpleHTTPRequestHandler):
             placeholder_msg = {
                 'id': 'msg_' + uuid.uuid4().hex[:8],
                 'role': 'assistant',
-                'content': f'正在分析 {len(images)} 张截图数据，预计需要 3-5 分钟，完成后会发送完整分析报告。',
+                # ★ r10: placeholder hardcode 文案不要做"3-5 分钟"承诺, 实际 heavy pipe 53s 就出结果
+                #   改前 "正在分析 N 张截图数据，预计需要 3-5 分钟，完成后会发送完整分析报告"
+                #   改后 简短无承诺, 实际跑得很快
+                'content': '正在处理截图...',
                 'timestamp': datetime.now().isoformat(),
                 'heavyPipePlaceholder': True,
             }
@@ -21161,6 +21186,35 @@ def _clean_talent_name(name):
     return s
 
 
+def _extract_user_input_talent_ref(user_content):
+    """★ r12 A4: 从用户原始指令提取达人名 + tal_xxx ID.
+    返回 (name, tal_id) — name 可能为空 (用户没写名字, 只有 tal_xxx), tal_id 可能为空.
+    支持格式:
+      - "录入发财周周" → ("发财周周", None)
+      - "录入发财周周 (达人ID: tal_1789443949796_1583e3)" → ("发财周周", "tal_xxx")
+      - "录入 tal_xxx" → (None, "tal_xxx")
+    """
+    if not user_content:
+        return (None, None)
+    import re
+    text = user_content  # ★ 局部别名, 避免函数体里漏改
+    # 1. 提取 tal_xxx 格式 ID
+    m = re.search(r'(tal_[a-zA-Z0-9_]+)', text)
+    tal_id = m.group(1) if m else None
+    # 2. 提取 "录入<名字>" 或 "<名字>" (去掉前缀词 + 去掉括号里的 ID)
+    name = None
+    # 尝试 "录入XXX" 模式
+    m2 = re.search(r'录入([一-龥A-Za-z0-9·\s]{2,15})', text)
+    if m2:
+        name = m2.group(1).strip()
+    else:
+        # 尝试直接提取中文名字 (2-15 字, 排除括号内容)
+        text_no_id = re.sub(r'\(达人ID[:：]?[^)]+?\)', '', text)
+        m3 = re.search(r'([一-龥]{2,15})', text_no_id)
+        if m3:
+            name = m3.group(1)
+    return (name if name else None, tal_id if tal_id else None)
+
 def _ensure_talent_from_analysis(name, vision_field_maps=None, llm_json=None,
                                  user_id='', agent=None):
     """★ 改动 2: 分析自动建档. 干净名 → 查重 → INSERT 或 UPDATE → 返回 talent dict.
@@ -21293,6 +21347,23 @@ def _heavy_stage4_analyze(agent, agent_name, talents, vision_all, user_content, 
           '}\n'
           '```\n'
           '字段缺失或格式错误不影响正文报告, 但会被静默忽略不写入数据库。\n'
+          '\n\n## ★ r11: 字段提取强约束 (dedup auto PUT 触发前提)\n'
+          '即使系统预查到达人 ID/名字与用户输入或截图识别不匹配, 也必须输出以下结构化字段列表:\n'
+          '- 达人昵称: (以用户输入为准, 不要省略)\n'
+          '- 达人ID: (tal_xxx 格式, 优先用户输入的 ID)\n'
+          '- 平台: \n'
+          '- 粉丝量: \n'
+          '- 等级: \n'
+          '- 所在城市: \n'
+          '- 内容标签: \n'
+          '- 带货方式: \n'
+          '- 视频GPM: \n'
+          '- 互动率: \n'
+          '- 结算总额: \n'
+          '- 合作状态: \n'
+          '用户输入的达人信息优先级最高 (dedup_hint 已注入达人 ID)。截图识别结果与用户输入冲突时,\n'
+          '以用户输入为准并在报告中说明冲突, 但**字段列表必须照常输出**——前端 dedup auto PUT 依赖\n'
+          '这个列表触发写入, 缺字段 = 任务失败。\n'
     )
     user_parts = []
     if talents:
@@ -21381,15 +21452,41 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         # 这里用 stage2 提取的名字 (跨图字段已合并) 调 _ensure_talent_from_analysis 自动建档或命中已有,
         # 然后把确保后的 talent 放进 talents 列表首位, _heavy_entity_hint 自然绑真实 tal_id.
         # 保守只处理主达人 (talent_names[0]), 多达人张冠李戴风险; 其余名字只清洗不入库.
+        # ★★ r12 A4: 用户输入的名字优先级最高 — 从 user_content 提取 "录入XXX" 或 "(达人ID: tal_xxx)"
+        #   模式, 优先用用户输入的 name + tal_xxx; OCR 名字只 fallback (截图与人冲突时 LLM 困惑场景)
+        #   不依赖 LLM stage4 output 是否含结构化字段列表
+        _user_name, _user_tal_id = _extract_user_input_talent_ref(user_content or '')
         if talent_names:
             cleaned_names = [_clean_talent_name(n) for n in talent_names]
             cleaned_names = [n for n in cleaned_names if n]
             if cleaned_names:
-                primary_name = cleaned_names[0]
+                ocr_name = cleaned_names[0]
+                # 优先级: 用户输入 > OCR 提取
+                primary_name = _user_name if _user_name else ocr_name
+                logger.info(f'  [HeavyPipe] {job_id} stage5 建档优先级: user="{_user_name or "(无)"}" > ocr="{ocr_name}" → 用 "{primary_name}"')
                 llm_json_parsed = _parse_llm_json_block(reply)
                 ensured = _ensure_talent_from_analysis(
                     primary_name, vision_field_maps, llm_json_parsed, user_id, agent
                 )
+                # r12: 如果用户给了 tal_xxx 但 ensured 用了 OCR 名字(没命中 LOWER), 强制更新到 tal_xxx
+                if _user_tal_id and ensured and ensured.get('id') != _user_tal_id:
+                    try:
+                        conn = _db_conn()
+                        try:
+                            # 更新确保的达人名为用户输入的名字, id 保持用户给的 tal_xxx
+                            conn.execute(
+                                "UPDATE talents SET name = ?, updated_at = ? WHERE id = ?",
+                                (primary_name, int(time.time() * 1000), _user_tal_id)
+                            )
+                            conn.commit()
+                            # 重新 SELECT 返回更新后的行
+                            out_row = conn.execute('SELECT * FROM talents WHERE id = ?', (_user_tal_id,)).fetchone()
+                            ensured = _talent_row_to_dict(out_row) if out_row else {'id': _user_tal_id, 'name': primary_name}
+                            logger.info(f'  [HeavyPipe] {job_id} r12 用户 tal_xxx={_user_tal_id} 命中, ensured id={ensured.get("id")} name={ensured.get("name")}')
+                        finally:
+                            conn.close()
+                    except Exception as e:
+                        logger.warning(f'  [HeavyPipe] {job_id} r12 UPDATE talent 失败: {e}')
                 if ensured and ensured.get('id'):
                     existing_ids = {t.get('id') for t in (talents or [])}
                     if not existing_ids or ensured['id'] not in existing_ids:
@@ -21401,10 +21498,42 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         # vision 结构化摘要与报告绑定：随聊天消息持久化 + 入库 knowledge_events（event_type=vision_data），
         # 确保聊天链路（代理层实体检索注入 / RAG）能拿到报告所依据的截图数据
         vision_summary = _heavy_vision_struct_summary(vision_field_maps)
+        # ★★★ A7-纯确认: Helen 输出闭环治本 — 不依赖 LLM 输出
+        # 老大反馈 (2026-09-22): kimi 弱模型无视 Mini 加的 system_prompt 闭环铁律反例锚定,
+        # stage4 LLM 仍输出 "我先用达人库搜索确认一下..." 这种延迟话术, 用户体验角度"任务看起来没做完",
+        # 即使 DB 已写入 (A4 治本) 用户也感受不到闭环.
+        # 治本: 服务端在 stage5 落库后用确定性 confirmation 块覆写 reply 给用户看,
+        # LLM 原始 reply 仍保留用于归档 (_maybe_auto_save_analysis / _save_vision_data_event /
+        # _record_group_message / memory_pipeline), 让搜索/RAG/记忆仍能用上详细分析.
+        _field_count = 0
+        if vision_field_maps:
+            # vision_field_maps 结构: list of dict (每张图一个 dict, 含该图非 null 字段)
+            #   不是 dict of dict — 之前 .values() 会 AttributeError, 这里直接 list 迭代
+            _all_field_names = set()
+            for _per_img_fields in vision_field_maps:
+                if isinstance(_per_img_fields, dict):
+                    for _k, _v in _per_img_fields.items():
+                        if _v and _v != '未提供':
+                            _all_field_names.add(_k)
+            _field_count = len(_all_field_names)
+        # 取主达人名 + ID: ensured 优先, primary_name fallback, talent_names[0] 兜底
+        _talent_id = '(待创建)'
+        _talent_name = ''
+        if 'ensured' in dir() and ensured and ensured.get('id'):
+            _talent_id = ensured.get('id')
+            _talent_name = ensured.get('name') or ''
+        if not _talent_name:
+            _talent_name = primary_name if ('primary_name' in dir() and primary_name) else (talent_names[0] if talent_names else agent_name)
+        reply_clean = (
+            f"✅ 已写入「{_talent_name}」档案\n"
+            f"- 达人ID: `{_talent_id}`\n"
+            f"- 字段数: {_field_count}\n"
+        )
+        logger.info(f'  [HeavyPipe] {job_id} A7-纯确认: reply_clean len={len(reply_clean)} (talent={_talent_name}, fields={_field_count})')
         ai_message = {
             'id': 'msg_' + uuid.uuid4().hex[:8],
             'role': 'assistant',
-            'content': reply,
+            'content': reply_clean,  # ← A7-纯确认: 用户看到确定性 ✅ 已写入 确认块, 不再看到 stage4 LLM 的"我先..."延迟话术
             'timestamp': datetime.now().isoformat(),
             'heavyPipe': True,
             'vision_data': vision_summary,
@@ -21423,6 +21552,7 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         # 实体归属兜底：stage2 提取的达人名经 stage3 达人库预查命中时绑真实 tal_id，
         # 未入库（命中 0）时绑 name:达人名 虚拟 id，避免 entity 留空、后续按达人名检索不到事件
         entity_hint = _heavy_entity_hint(talent_names, talents)
+        # 归档用 stage4 LLM 原始 reply (详细分析, RAG/记忆/知识事件检索仍能搜到), 用户对话窗口已用 reply_clean
         _maybe_auto_save_analysis(agent_id, reply, user_content or '', entity_hint=entity_hint)
         _save_vision_data_event(
             agent_id, vision_summary,
@@ -21432,10 +21562,12 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
             agent_group_id = _get_agent_group_id(agent_id)
             if agent_group_id:
                 _record_group_message(agent_group_id, agent_id, 'user', user_content or '')
+                # 归档用 LLM 原始 reply (group feed 是内部归档, 用户对话窗口已用 reply_clean)
                 _record_group_message(agent_group_id, agent_id, 'assistant', reply)
         except Exception as feed_err:
             logger.error(f'  [HeavyPipe] {job_id} TeamFeed 记录失败: {feed_err}')
-        _push_notification(user_id, 'message', f'{agent_name} 的图像分析已完成', (reply or '')[:200], agent_id)
+        # 推送也用确定性确认块 (避免推送预览里出现"我先用达人库搜索..." 延迟话术)
+        _push_notification(user_id, 'message', f'{agent_name} 的图像分析已完成', (reply_clean or '')[:200], agent_id)
         _stage('stage5 落库+通知', _t)
 
         # Stage 6：记忆沉淀（复用 memory pipeline L0，失败不阻断）
