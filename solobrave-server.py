@@ -4211,6 +4211,12 @@ def _talent_row_to_dict(row):
         'notes': row['notes'] or '',
         'matched_products': _json_col('matched_products', []),
         'matched_products_updated_at': row['matched_products_updated_at'] if row['matched_products_updated_at'] is not None else 0,
+        # ★ fix/ocr-full-api: 加 ocr_raw_fields 到 _talent_row_to_dict 返回
+        #   之前 commit 8b027d4 加了 _TALENT_COLUMNS / _dict_to_talent_row / DB 列,
+        #   但忘了在 _talent_row_to_dict (line 4113) 手写 dict 里加这一行 —
+        #   /api/talents/:id 返回数据不包含 ocr_raw_fields, 前端拿不到完整 OCR 字段.
+        #   老大反馈 '达人库详情没有变化' — 实际是 API 没返回 ocr_raw_fields, 详情页空白.
+        'ocr_raw_fields': _json_col('ocr_raw_fields', {}),
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'createdAt': row['created_at'],
