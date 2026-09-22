@@ -31670,35 +31670,37 @@ function _getTalentPriceDistribution(t, mock) {
 }
 
 function _getTalentCategoryDistribution(t, mock) {
-  // 优先使用达人真实的类目分布数据（key 为类目名称，value 为百分比数字）
-  if (t.category_distribution && typeof t.category_distribution === 'object' && Object.keys(t.category_distribution).length) {
-    return Object.keys(t.category_distribution).map(function(key){
-      return { label: key, value: t.category_distribution[key] };
+  // ★ fix/ocr-distribution-fallback: 优先 t.category_distribution, 兜底 t.ocr_raw_fields.category_distribution
+  //   _OCR_TO_TALENT_FIELDS 没同步 category_distribution (talent 表无此列), OCR dict 必走 ocr_raw_fields
+  var cd = t.category_distribution;
+  if (!cd || typeof cd !== 'object' || !Object.keys(cd).length) {
+    var _ocr = t.ocr_raw_fields || {};
+    cd = _ocr.category_distribution;
+  }
+  if (cd && typeof cd === 'object' && Object.keys(cd).length) {
+    return Object.keys(cd).map(function(key){
+      return { label: key, value: cd[key] };
     });
   }
-  var cats = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean);
-  if (!cats.length) return [];
-  var seed = _hashString(t.id + 'cat');
-  if (cats.length < 2) cats = [cats[0] || '主营类目', '相关类目1', '相关类目2'];
-  var total = 0;
-  var dist = cats.map(function(cat, i){
-    var v = Math.max(5, 30 + (seed >> i) % 40);
-    total += v;
-    return { label: cat, raw: v };
-  });
-  return dist.map(function(item){ return { label: item.label, value: Math.round(item.raw / total * 100) }; });
+  // ★ fix/ocr-distribution-no-demo: 移除 demo 假数据兜底 (老大反馈 2026-09-22)
+  //   之前无数据时回退到 "相关类目1 27%/相关类目2 43%" 是假数据, 误导用户
+  //   现在无数据直接返 [], 前端渲染"暂无数据"
+  return [];
 }
 
 function _getTalentBrandDistribution(t) {
-  // ★ fix/ocr-panel-fallback: 老大反馈 '品牌集中度显示暂无数据'
-  //   talent 表 brand_distribution 列通常空, OCR 识别的品牌在 ocr_raw_fields.top_brands/hot_brands
-  //   支持 dict {品牌: 占比%} 和 list [{name, ratio}, ...] 两种格式
-  // 1) talent.brand_distribution (dict)
+  // ★ fix/ocr-distribution-fallback: 优先 t.brand_distribution, 兜底 ocr_raw_fields.brand_distribution (dict)
+  //   OCR v3 (commit d32c7ff) 加了 brand_distribution dict 字段, 直接用 dict 渲染
+  // 1) talent.brand_distribution (dict) — talent 表实际无此列, 跳过
   var _bd = t.brand_distribution;
-  if (_bd && typeof _bd === 'object' && Object.keys(_bd).length) {
+  if (!(_bd && typeof _bd === 'object' && Object.keys(_bd).length)) {
+    var _ocr = t.ocr_raw_fields || {};
+    _bd = _ocr.brand_distribution;
+  }
+  if (_bd && typeof _bd === 'object' && !Array.isArray(_bd) && Object.keys(_bd).length) {
     return Object.keys(_bd).map(function(key){ return { label: key, value: _bd[key] }; });
   }
-  // 2) ocr_raw_fields.top_brands / hot_brands (字段名变体兼容)
+  // 2) fallback: ocr_raw_fields.top_brands / hot_brands (字段名变体, list 格式)
   var ocr = t.ocr_raw_fields;
   if (ocr) {
     var _src = ocr.top_brands || ocr.hot_brands;
@@ -31755,23 +31757,39 @@ function _loadTalentSalesProducts(t) {
     }
     var html = '<div class="talents-panel-title">带货商品列表 (' + products.length + ')' + (sourceLabel ? ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + sourceLabel + '</span>' : '') + '</div>';
     products.forEach(function(p){
-      // OCR 商品字段名兼容: name/title/product_name, brand, category, price, ratio/share
+      // ★ fix/ocr-product-field-mapping: OCR v3 (commit d32c7ff) 5 字段 name+shop_name+price+gmv_range+video_count
+      //   OCR 实际输出字段名: name(必填) + shop_name + price + gmv_range + video_count
+      //   之前只读 p.name/p.brand/p.category/p.price/p.match_reason/p.match_score, OCR 商品字段都没对上
+      //   所以老大反馈: 价格 ¥0.00, 占比 0 (OCR 里明明有 ¥19.90, gmv ¥100万+)
       var _name = (p && (p.name || p.title || p.product_name)) || '-';
-      var _brand = (p && p.brand) || '-';
-      var _category = (p && p.category) || '未分类';
-      var _price = p && p.price ? p.price : 0;
-      var _matchReason = p && (p.match_reason || p.reason) ? (p.match_reason || p.reason) : '';
-      var _matchScore = p && (p.match_score || p.score) ? (p.match_score || p.score) : 0;
+      var _shop = (p && (p.shop_name || p.shop || p.store)) || '-';
+      var _price = (p && (p.price || p['到手价'] || p.sale_price)) || 0;
+      var _gmv = (p && (p.gmv_range || p.gmv || p['结算额'] || p.settlement)) || '';
+      var _ratio = (p && (p.ratio || p.share || p['占比'] || p.percentage)) || '';
+      var _videoCount = (p && (p.video_count || p['关联短视频数'] || p.videoCount)) || '';
+      var _matchReason = (p && (p.match_reason || p.reason)) || '';
+      var _matchScore = (p && (p.match_score || p.score)) || 0;
+      // 商品元信息: 店铺 · 价格 · 结算额
+      var _metaParts = [_shop];
+      if (_price) _metaParts.push('¥' + (parseFloat(_price) || 0).toFixed(2));
+      if (_gmv) _metaParts.push('结算额 ' + _gmv);
+      var _meta = _metaParts.join(' · ');
+      // 右上角: OCR 模式显示占比, API 模式显示匹配分
+      var _scoreLabel = sourceLabel ? '占比' : '匹配分';
+      var _scoreValue = sourceLabel
+        ? ((parseFloat(_ratio) || 0).toFixed(1) + '%')
+        : (parseFloat(_matchScore) || 0).toFixed(0);
       html += '<div class="talents-product-card">';
-      html += '<div class="talents-product-placeholder" style="background:' + (_brand === 'COOLCHAP' ? '#FF6B35' : '#165DFF') + ';">' + (_name || '?').charAt(0) + '</div>';
+      html += '<div class="talents-product-placeholder" style="background:' + (_shop === 'COOLCHAP' ? '#FF6B35' : '#165DFF') + ';">' + (_name || '?').charAt(0) + '</div>';
       html += '<div class="talents-product-info">';
       html += '<div class="talents-product-name">' + escapeHtml(_name) + '</div>';
-      html += '<div class="talents-product-meta">' + escapeHtml(_brand) + ' · ' + escapeHtml(_category) + ' · ¥' + (parseFloat(_price) || 0).toFixed(2) + '</div>';
+      html += '<div class="talents-product-meta">' + escapeHtml(_meta) + '</div>';
       if (_matchReason) html += '<div class="talents-product-meta" style="margin-top:4px;color:var(--text-secondary);">' + escapeHtml(_matchReason) + '</div>';
+      if (_videoCount && _videoCount !== '0') html += '<div class="talents-product-meta" style="margin-top:2px;color:var(--text-secondary);font-size:11px;">关联视频 ' + escapeHtml(String(_videoCount)) + ' 个</div>';
       html += '</div>';
       html += '<div class="talents-product-score">';
-      html += '<div class="talents-product-score-value">' + (parseFloat(_matchScore) || 0).toFixed(0) + '</div>';
-      html += '<div class="talents-mid-score-label">' + (sourceLabel ? '占比' : '匹配分') + '</div>';
+      html += '<div class="talents-product-score-value">' + escapeHtml(_scoreValue) + '</div>';
+      html += '<div class="talents-mid-score-label">' + escapeHtml(_scoreLabel) + '</div>';
       html += '</div>';
       html += '</div>';
     });
