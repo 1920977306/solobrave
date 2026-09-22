@@ -21518,6 +21518,13 @@ def _clean_talent_name(name):
     return s
 
 
+_TALENT_NAME_VERB_BLACKLIST = {
+    '录入', '添加', '建档', '新建', '更新', '修改', '查找', '搜索', '导入',
+    '分析', '导出', '删除', '查询', '看看', '整理', '保存', '测试', '看看',
+    '帮我', '请', '麻烦', '批量', '自动',
+}
+
+
 def _extract_user_input_talent_ref(user_content):
     """★ r12 A4: 从用户原始指令提取达人名 + tal_xxx ID.
     返回 (name, tal_id) — name 可能为空 (用户没写名字, 只有 tal_xxx), tal_id 可能为空.
@@ -21525,26 +21532,39 @@ def _extract_user_input_talent_ref(user_content):
       - "录入发财周周" → ("发财周周", None)
       - "录入发财周周 (达人ID: tal_1789443949796_1583e3)" → ("发财周周", "tal_xxx")
       - "录入 tal_xxx" → (None, "tal_xxx")
+      - "录入" → (None, None)  ★ fix/extract-verb-only: 纯动词不当作达人名
+    
+    ★ fix/extract-verb-only (老大反馈 2026-09-22 20:52):
+      之前 "录入" (2 字动词) 被当作达人名, stage5 写入 name="录入" 脏数据.
+      现在加动词黑名单 + 严格模式要求, 纯命令式短句返回 name=None,
+      让 stage5 走 ocr_name (vision 提取的真实达人名) 而不是 user_name.
     """
     if not user_content:
         return (None, None)
     import re
-    text = user_content  # ★ 局部别名, 避免函数体里漏改
-    # 1. 提取 tal_xxx 格式 ID
+    text = user_content.strip()
+    # 1. 提取 tal_xxx 格式 ID (跟达人名一起, 也可单独存在)
     m = re.search(r'(tal_[a-zA-Z0-9_]+)', text)
     tal_id = m.group(1) if m else None
-    # 2. 提取 "录入<名字>" 或 "<名字>" (去掉前缀词 + 去掉括号里的 ID)
+    # 2. 提取达人名
     name = None
-    # 尝试 "录入XXX" 模式
-    m2 = re.search(r'录入([一-龥A-Za-z0-9·\s]{2,15})', text)
+    # 模式 A: "录入/添加/建档/XXX" 显式达人名 (XXX 长度 >= 2, 不在动词黑名单)
+    m2 = re.search(r'(?:录入|添加|建档|新建|更新|修改|查找|搜索|导入|分析)\s*([一-龥A-Za-z0-9·\s]{2,15})', text)
     if m2:
-        name = m2.group(1).strip()
-    else:
-        # 尝试直接提取中文名字 (2-15 字, 排除括号内容)
-        text_no_id = re.sub(r'\(达人ID[:：]?[^)]+?\)', '', text)
-        m3 = re.search(r'([一-龥]{2,15})', text_no_id)
+        candidate = m2.group(1).strip()
+        if candidate and candidate not in _TALENT_NAME_VERB_BLACKLIST:
+            name = candidate
+    # 模式 B: 没有动词前缀, 直接说达人名 (中文 2-15 字开头, 不在黑名单)
+    if not name:
+        text_no_id = re.sub(r'\(?达人ID[:：]?[^)]+?\)', '', text).strip()
+        # 提取开头的 2-15 字中文 (排除括号内容)
+        m3 = re.match(r'^([一-龥·]{2,15})', text_no_id)
         if m3:
-            name = m3.group(1)
+            candidate = m3.group(1)
+            if candidate and candidate not in _TALENT_NAME_VERB_BLACKLIST:
+                name = candidate
+    # 模式 C: 用户给的纯命令 ("录入" / "添加" 等) → name=None
+    # 已经由黑名单 + 模式 A/B 联合保证: 纯动词不会匹配
     return (name if name else None, tal_id if tal_id else None)
 
 def _ensure_talent_from_analysis(name, vision_field_maps=None, llm_json=None,
