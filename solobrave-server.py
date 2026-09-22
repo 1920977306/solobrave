@@ -20366,7 +20366,10 @@ def _call_kimi_vision(image_base64, agent_id=None, role=None):
             return None
     body = {
         'model': vision_model,
-        'max_tokens': 1024,
+        # ★ fix/vision-max-tokens: 之前 max_tokens=1024 太小, vision API 输出被截断
+        #   导致 _parse_vision_json raw_decode 失败, 9 张图只有 1 张完整入库 (数据丢 79%)
+        #   4096 足够 cover BUSINESS_VISION_PROMPT 完整 schema 输出 (~2500 tokens)
+        'max_tokens': 4096,
         # 关闭 extended thinking，强制模型只输出 text 块，不输出 thinking 块
         'thinking': {'type': 'disabled'},
         'messages': [{
