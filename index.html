@@ -31255,7 +31255,83 @@ function renderTalentPanelOverview(t) {
     if (!t.ai_analysis && ai.risk_warnings) html += '<div class="talents-ai-title" style="margin-top:10px;">风险提示</div><div class="talents-ai-text">' + formatMessageContent(ai.risk_warnings) + '</div>';
   }
   html += '</div>';
+
+  // ★ fix/ocr-full-ui: OCR 截图原始字段面板 (commit 284f6cd 后 API 返回 ocr_raw_fields)
+  //   老大反馈 "达人库详情没有变化" — 实际是 API 没返 ocr_raw_fields, 现在 API 已修,
+  //   但前端还没渲染, 用户看不到截图上识别的所有字段. 这里把所有非空字段列出来.
+  //   extra_fields 嵌套 dict 用 details/summary 折叠 (默认收起, 避免占用太多空间).
+  html += _renderOcrFieldsPanel(t.ocr_raw_fields);
+
   el.innerHTML = html;
+}
+
+
+// ★ fix/ocr-full-ui: OCR 截图原始字段面板 (复用人 talents-info-grid + talents-info-item 类)
+function _renderOcrFieldsPanel(ocrRaw) {
+  if (!ocrRaw || typeof ocrRaw !== 'object') return '';
+  var topEntries = [];   // 顶层标量字段
+  var nestedEntries = []; // 嵌套 dict/list
+  Object.keys(ocrRaw).forEach(function(k) {
+    var v = ocrRaw[k];
+    if (v === null || v === undefined || v === '' || v === '未提供') return;
+    if (typeof v === 'object') {
+      nestedEntries.push({ key: k, value: v });
+    } else {
+      topEntries.push({ key: k, value: v });
+    }
+  });
+  if (topEntries.length === 0 && nestedEntries.length === 0) return '';
+
+  // 嵌套字段叶子计数 (用于 badge 显示)
+  function _countLeaves(v) {
+    if (v === null || v === undefined) return 0;
+    if (typeof v !== 'object') return 1;
+    if (Array.isArray(v)) {
+      var n = 0;
+      v.forEach(function(item) { n += _countLeaves(item); });
+      return n;
+    }
+    var n = 0;
+    Object.keys(v).forEach(function(k) { n += _countLeaves(v[k]); });
+    return n;
+  }
+  var totalLeaves = topEntries.length + nestedEntries.reduce(function(s, x) { return s + _countLeaves(x.value); }, 0);
+
+  var html = '';
+  html += '<div class="talents-panel-section">';
+  html += '<div class="talents-panel-title">📸 OCR 截图字段 <span style="font-weight:400;color:var(--text-secondary);font-size:12px;margin-left:6px;">(' + totalLeaves + ' 字段)</span></div>';
+
+  // 顶层字段 grid
+  if (topEntries.length > 0) {
+    html += '<div class="talents-info-grid">';
+    topEntries.forEach(function(item) {
+      var val = String(item.value);
+      // 截断过长的值 (避免一行占用太多空间)
+      var truncated = val.length > 120 ? val.slice(0, 120) + '…' : val;
+      html += '<div class="talents-info-item"><label>' + escapeHtml(item.key) + '</label><div class="value">' + escapeHtml(truncated) + '</div></div>';
+    });
+    html += '</div>';
+  }
+
+  // 嵌套字段: 每个独立 details 折叠面板, 默认收起
+  if (nestedEntries.length > 0) {
+    html += '<div style="margin-top:14px;">';
+    nestedEntries.forEach(function(item) {
+      var json = JSON.stringify(item.value, null, 2);
+      var leaves = _countLeaves(item.value);
+      html += '<details style="background:var(--bg-tertiary);border-radius:var(--radius-md);padding:8px 12px;margin-bottom:8px;">';
+      html += '<summary style="cursor:pointer;font-size:13px;color:var(--text-primary);font-weight:500;list-style:none;">';
+      html += '<span style="display:inline-block;width:14px;transition:transform 0.2s;" class="ocr-toggle-icon">▶</span> ';
+      html += escapeHtml(item.key) + ' <span style="color:var(--text-secondary);font-weight:400;">(' + leaves + ' 字段)</span>';
+      html += '</summary>';
+      html += '<pre style="font-size:12px;color:var(--text-secondary);margin:10px 0 0 20px;white-space:pre-wrap;word-break:break-all;line-height:1.6;background:var(--bg-secondary);padding:10px;border-radius:6px;">' + escapeHtml(json) + '</pre>';
+      html += '</details>';
+    });
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
 }
 
 function renderTalentPanelSales(t) {
