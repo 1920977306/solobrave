@@ -21931,12 +21931,29 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         if vision_field_maps:
             # vision_field_maps 结构: list of dict (每张图一个 dict, 含该图非 null 字段)
             #   不是 dict of dict — 之前 .values() 会 AttributeError, 这里直接 list 迭代
+            # ★ fix/recursive-field-count: 递归数所有非空字段 (含 extra_fields 内嵌套 dict/list)
+            #   之前只数顶层 key, 老大截图有 22 个 extra_fields 嵌套字段没算进去,
+            #   reply_clean 显示 '字段数: 12' 但实际入库 34+ 字段, 用户困惑.
             _all_field_names = set()
+            def _count_recursive(d, prefix=''):
+                if isinstance(d, dict):
+                    for _k, _v in d.items():
+                        _full = f'{prefix}.{_k}' if prefix else _k
+                        if isinstance(_v, (dict, list)):
+                            # 嵌套结构: 数容器里所有非空叶子 (避免把容器本身算 1)
+                            if isinstance(_v, dict) and _v:
+                                _count_recursive(_v, _full)
+                            elif isinstance(_v, list) and _v:
+                                for _idx, _item in enumerate(_v):
+                                    if isinstance(_item, dict):
+                                        _count_recursive(_item, f'{_full}[{_idx}]')
+                                    elif _item and _item != '未提供':
+                                        _all_field_names.add(f'{_full}[{_idx}]')
+                        elif _v and _v != '未提供':
+                            _all_field_names.add(_full)
             for _per_img_fields in vision_field_maps:
                 if isinstance(_per_img_fields, dict):
-                    for _k, _v in _per_img_fields.items():
-                        if _v and _v != '未提供':
-                            _all_field_names.add(_k)
+                    _count_recursive(_per_img_fields)
             _field_count = len(_all_field_names)
         # 取主达人名 + ID: ensured 优先, primary_name fallback, talent_names[0] 兜底
         _talent_id = '(待创建)'
