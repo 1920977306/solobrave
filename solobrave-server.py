@@ -239,6 +239,13 @@ BUSINESS_VISION_PROMPT = """你是一个专业的抖音达人数据提取员。�
 
 【热卖品牌TOP3】top_brands数组，每条含name(品牌名)、avg_price(均价)、gmv(结算额)、ratio(占比百分比)；
 
+【★v3 新增★ 分布类 dict 字段】以下字段直接用截图里的中文名(列名)作 key, 占比/数值作 value, 输出为扁平 dict 对象:
+- price_distribution (价格带分布) — {"0-25": 15, "25-50": 20, ...}, 用于"价格带分布"卡片渲染
+- category_distribution (类目分布 dict 格式) — {"个护家清": 76, "医疗健康": 12, ...}, 用于"类目分布"卡片环形图
+- brand_distribution (品牌集中度 dict 格式) — {"左小妆": 30, "优禾康": 25, ...}, 用于"品牌集中度"卡片环形图
+- 即使截图里只有类目/品牌占比列表(不是 dict), 也必须展开为 {名称: 占比%} dict
+- 完全没数据时留空 {}, 不要省略 key
+
 【短视频详细指标】video_completion_rate(完播率百分比)、video_likes(点赞数)、video_comments(评论数)、video_shares(转发数)、video_interaction_rate(互动率百分比)、video_avg_price(视频平均件单价)；
 
 【粉丝分析】fan_gender(性别分布JSON如{"男":50,"女":50})、fan_age(年龄分布JSON如{"31-40":43})、fan_city_tier(城市等级分布JSON如{"三线城市":24})、fan_crowd(人群标签如都市银发23%)、fan_price_range(客单价偏好如50到100元30%)、fan_category(品类偏好如服装23%)；
@@ -21725,7 +21732,8 @@ def _update_talent_ocr_raw_fields(talent_id, vision_field_maps):
 
     def _deep_merge(base, new):
         """递归 merge new 到 base, base 已有非 null 值不覆盖 (避免空 OCR 覆盖真实数据).
-        list 类型直接覆盖 (避免错误拼接).
+        list 类型只在**新值非空**时覆盖 (避免后续截图空 list 覆盖前面的真实数据).
+        例如图2 OCR 返回 top_brands=[3 items], 图9 返回 top_brands=[] 时, 保留图2 的 [3 items].
         """
         if not isinstance(base, dict) or not isinstance(new, dict):
             return base
@@ -21739,7 +21747,9 @@ def _update_talent_ocr_raw_fields(talent_id, vision_field_maps):
             if isinstance(bv, dict) and isinstance(v, dict):
                 base[k] = _deep_merge(bv, v)
             elif isinstance(bv, list) and isinstance(v, list):
-                base[k] = v  # list 直接覆盖, 避免拼接
+                # ★ fix/ocr-merge-empty-list: 新 list 非空才覆盖, 避免图9 空 list 把图2 的真实数据抹掉
+                if v:
+                    base[k] = v
             else:
                 # 已有值不为空则跳过, 避免覆盖真实数据
                 if bv is None or bv == '' or bv == 'null':
