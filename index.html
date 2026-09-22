@@ -31388,18 +31388,58 @@ function _renderOcrFieldsPanel(ocrRaw) {
     html += '</div>';
   }
 
+  // 嵌套字段格式化: dict → key-value 列表, list → bullet list
+  // ★ fix/ocr-render-dict: 老大反馈 '嵌套 JSON 显示原始数据'
+  //   {"女": 94} 应该显示 '女 94%' 而不是 '{"女":94}' JSON 字符串
+  //   规则: 数字 ≤ 100 自动加 % (粉丝画像/类目占比都是 0-100), >100 不加 (绝对值如粉丝数)
+  //         字符串原样保留 (e.g. "30%")
+  function _formatNestedScalar(v) {
+    if (typeof v === 'number' && !isNaN(v) && v <= 100) return v + '%';
+    return String(v);
+  }
+  function _renderNestedValue(v) {
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'object' && !Array.isArray(v)) {
+      // dict: key-value flex 列表
+      var parts = [];
+      Object.keys(v).forEach(function(k){
+        var val = v[k];
+        var display;
+        if (val !== null && typeof val === 'object') {
+          // 嵌套 dict/list: 递归 + 缩进
+          display = _renderNestedValue(val);
+          parts.push('<div style="padding:4px 0;"><div style="color:var(--text-secondary);font-size:11px;margin-bottom:4px;">' + escapeHtml(k) + '</div><div style="padding-left:10px;border-left:2px solid var(--bg-secondary);">' + display + '</div></div>');
+        } else {
+          display = _formatNestedScalar(val);
+          parts.push('<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid var(--bg-secondary);"><span style="color:var(--text-secondary);">' + escapeHtml(k) + '</span><span style="color:var(--accent);font-weight:500;">' + escapeHtml(display) + '</span></div>');
+        }
+      });
+      return parts.join('');
+    }
+    if (Array.isArray(v)) {
+      // list: bullet 列表 (数组元素是 dict 时显示 JSON, 是标量时直接展示)
+      var items = v.map(function(item){
+        if (item !== null && typeof item === 'object') {
+          return '<div style="padding:4px 0;font-size:12px;">• ' + escapeHtml(JSON.stringify(item)) + '</div>';
+        }
+        return '<div style="padding:3px 0;font-size:12px;color:var(--text-primary);">• ' + escapeHtml(_formatNestedScalar(item)) + '</div>';
+      });
+      return items.join('');
+    }
+    return '<span>' + escapeHtml(_formatNestedScalar(v)) + '</span>';
+  }
+
   // 嵌套字段: 每个独立 details 折叠面板, 默认收起
   if (nestedEntries.length > 0) {
     html += '<div style="margin-top:14px;">';
     nestedEntries.forEach(function(item) {
-      var json = JSON.stringify(item.value, null, 2);
       var leaves = _countLeaves(item.value);
       html += '<details style="background:var(--bg-tertiary);border-radius:var(--radius-md);padding:8px 12px;margin-bottom:8px;">';
       html += '<summary style="cursor:pointer;font-size:13px;color:var(--text-primary);font-weight:500;list-style:none;">';
       html += '<span style="display:inline-block;width:14px;transition:transform 0.2s;" class="ocr-toggle-icon">▶</span> ';
       html += escapeHtml(_label(item.key)) + ' <span style="color:var(--text-secondary);font-weight:400;">(' + leaves + ' 字段)</span>';
       html += '</summary>';
-      html += '<pre style="font-size:12px;color:var(--text-secondary);margin:10px 0 0 20px;white-space:pre-wrap;word-break:break-all;line-height:1.6;background:var(--bg-secondary);padding:10px;border-radius:6px;">' + escapeHtml(json) + '</pre>';
+      html += '<div style="margin:10px 0 0 20px;line-height:1.6;">' + _renderNestedValue(item.value) + '</div>';
       html += '</details>';
     });
     html += '</div>';
@@ -31650,11 +31690,34 @@ function _getTalentCategoryDistribution(t, mock) {
 }
 
 function _getTalentBrandDistribution(t) {
-  // 与 category_distribution 相同的解析逻辑（key 为品牌名称，value 为百分比数字）
-  if (t.brand_distribution && typeof t.brand_distribution === 'object' && Object.keys(t.brand_distribution).length) {
-    return Object.keys(t.brand_distribution).map(function(key){
-      return { label: key, value: t.brand_distribution[key] };
-    });
+  // ★ fix/ocr-panel-fallback: 老大反馈 '品牌集中度显示暂无数据'
+  //   talent 表 brand_distribution 列通常空, OCR 识别的品牌在 ocr_raw_fields.top_brands/hot_brands
+  //   支持 dict {品牌: 占比%} 和 list [{name, ratio}, ...] 两种格式
+  // 1) talent.brand_distribution (dict)
+  var _bd = t.brand_distribution;
+  if (_bd && typeof _bd === 'object' && Object.keys(_bd).length) {
+    return Object.keys(_bd).map(function(key){ return { label: key, value: _bd[key] }; });
+  }
+  // 2) ocr_raw_fields.top_brands / hot_brands (字段名变体兼容)
+  var ocr = t.ocr_raw_fields;
+  if (ocr) {
+    var _src = ocr.top_brands || ocr.hot_brands;
+    if (_src) {
+      if (Array.isArray(_src)) {
+        // list 格式 [{name, ratio, ...}, ...] → 转 {label, value}
+        var _mapped = _src.map(function(item){
+          if (item && typeof item === 'object') {
+            var _name = item.name || item.brand || item.label || '';
+            var _ratio = item.ratio || item.share || item.value || item.percentage || item.pct || 0;
+            return _name ? { label: _name, value: _ratio } : null;
+          }
+          return { label: String(item), value: 0 };
+        }).filter(Boolean);
+        if (_mapped.length) return _mapped;
+      } else if (typeof _src === 'object' && Object.keys(_src).length) {
+        return Object.keys(_src).map(function(key){ return { label: key, value: _src[key] }; });
+      }
+    }
   }
   return [];
 }
@@ -31684,28 +31747,60 @@ function _renderTalentDonut(items) {
 function _loadTalentSalesProducts(t) {
   var section = document.getElementById('talentSalesProductsSection');
   if (!section) return;
-  apiFetch('/api/talents/' + encodeURIComponent(t.id) + '/products?limit=10').then(function(r){return r.json();}).then(function(data){
-    var products = data.products || [];
-    if (products.length === 0) {
+  // ★ fix/ocr-panel-fallback: 内部 _renderProducts 抽出, 支持 API + OCR 兜底两路
+  function _renderProducts(products, sourceLabel) {
+    if (!products || products.length === 0) {
       section.innerHTML = '<div class="talents-panel-title">带货商品列表</div><div class="products-empty"><div class="products-empty-text">暂无带货商品数据</div></div>';
       return;
     }
-    var html = '<div class="talents-panel-title">带货商品列表 (' + products.length + ')</div>';
+    var html = '<div class="talents-panel-title">带货商品列表 (' + products.length + ')' + (sourceLabel ? ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + sourceLabel + '</span>' : '') + '</div>';
     products.forEach(function(p){
+      // OCR 商品字段名兼容: name/title/product_name, brand, category, price, ratio/share
+      var _name = (p && (p.name || p.title || p.product_name)) || '-';
+      var _brand = (p && p.brand) || '-';
+      var _category = (p && p.category) || '未分类';
+      var _price = p && p.price ? p.price : 0;
+      var _matchReason = p && (p.match_reason || p.reason) ? (p.match_reason || p.reason) : '';
+      var _matchScore = p && (p.match_score || p.score) ? (p.match_score || p.score) : 0;
       html += '<div class="talents-product-card">';
-      html += '<div class="talents-product-placeholder" style="background:' + (p.brand === 'COOLCHAP' ? '#FF6B35' : '#165DFF') + ';">' + (p.name || '?').charAt(0) + '</div>';
+      html += '<div class="talents-product-placeholder" style="background:' + (_brand === 'COOLCHAP' ? '#FF6B35' : '#165DFF') + ';">' + (_name || '?').charAt(0) + '</div>';
       html += '<div class="talents-product-info">';
-      html += '<div class="talents-product-name">' + escapeHtml(p.name || '-') + '</div>';
-      html += '<div class="talents-product-meta">' + escapeHtml(p.brand || '-') + ' · ' + escapeHtml(p.category || '未分类') + ' · ¥' + (p.price || 0).toFixed(2) + '</div>';
-      html += '<div class="talents-product-meta" style="margin-top:4px;color:var(--text-secondary);">' + escapeHtml(p.match_reason || '') + '</div>';
+      html += '<div class="talents-product-name">' + escapeHtml(_name) + '</div>';
+      html += '<div class="talents-product-meta">' + escapeHtml(_brand) + ' · ' + escapeHtml(_category) + ' · ¥' + (parseFloat(_price) || 0).toFixed(2) + '</div>';
+      if (_matchReason) html += '<div class="talents-product-meta" style="margin-top:4px;color:var(--text-secondary);">' + escapeHtml(_matchReason) + '</div>';
       html += '</div>';
       html += '<div class="talents-product-score">';
-      html += '<div class="talents-product-score-value">' + (p.match_score || 0).toFixed(0) + '</div>';
-      html += '<div class="talents-mid-score-label">匹配分</div>';
+      html += '<div class="talents-product-score-value">' + (parseFloat(_matchScore) || 0).toFixed(0) + '</div>';
+      html += '<div class="talents-mid-score-label">' + (sourceLabel ? '占比' : '匹配分') + '</div>';
       html += '</div>';
       html += '</div>';
     });
     section.innerHTML = html;
+  }
+  apiFetch('/api/talents/' + encodeURIComponent(t.id) + '/products?limit=10').then(function(r){return r.json();}).then(function(data){
+    var products = data.products || [];
+    if (products.length > 0) {
+      _renderProducts(products, '');
+      return;
+    }
+    // ★ fallback ocr_raw_fields.top_products / hot_products
+    var ocr = t.ocr_raw_fields;
+    if (ocr) {
+      var _tp = ocr.top_products || ocr.hot_products;
+      if (Array.isArray(_tp) && _tp.length) {
+        _renderProducts(_tp, '· OCR 识别');
+        return;
+      }
+      if (_tp && typeof _tp === 'object' && !Array.isArray(_tp) && Object.keys(_tp).length) {
+        // dict 格式 {商品: 占比} → 转成 [{name, ratio}]
+        var _items = Object.keys(_tp).map(function(k){
+          return { name: k, ratio: _tp[k] };
+        });
+        _renderProducts(_items, '· OCR 识别');
+        return;
+      }
+    }
+    _renderProducts([], '');
   }).catch(function(e){
     section.innerHTML = '<div class="talents-panel-title">带货商品列表</div><div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
   });
@@ -31716,9 +31811,29 @@ function renderTalentPanelFans(t) {
   if (!el) return;
   var mock = _getTalentMockData(t);
   var fans = t.fans_profile || mock.fans_profile || {};
+  // ★ fix/ocr-panel-fallback: 老大反馈 '粉丝画像标签页没读 ocr_raw_fields'
+  //   talent 表 fan_gender/fan_age/fan_region/fan_city_tier 等列通常空
+  //   (_OCR_TO_TALENT_FIELDS 只同步 17 个标量字段, 没同步这些 dict 字段)
+  //   OCR 识别的粉丝画像都在 ocr_raw_fields 里, 这里加 ocr_raw_fields 兜底
+  var ocr = t.ocr_raw_fields || {};
+  // _pickOcr: 按顺序找第一个非空值 (dict 类型用 Object.keys.length 判空)
+  function _pickOcrDict() {
+    for (var i = 0; i < arguments.length; i++) {
+      var v = ocr[arguments[i]];
+      if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length) return v;
+    }
+    return null;
+  }
+  function _pickOcrScalar() {
+    for (var i = 0; i < arguments.length; i++) {
+      var v = ocr[arguments[i]];
+      if (v && (typeof v !== 'object' || Array.isArray(v))) return v;
+    }
+    return '';
+  }
   var html = '';
   function renderDist(title, obj) {
-    if (!obj || Object.keys(obj).length === 0) return '';
+    if (!obj || (typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).length === 0)) return '';
     var total = Object.values(obj).reduce(function(a,b){return a + (parseFloat(b)||0);}, 0);
     var section = '<div class="talents-panel-section"><div class="talents-panel-title">' + title + '</div>';
     Object.keys(obj).forEach(function(k){
@@ -31730,8 +31845,8 @@ function renderTalentPanelFans(t) {
     return section;
   }
 
-  // 粉丝画像总览
-  var hasFansData = ((fans.cities && fans.cities.length) || (fans.interest && fans.interest.length) || (t.fan_gender && Object.keys(t.fan_gender).length) || (t.fan_age && Object.keys(t.fan_age).length) || (t.fan_region && Object.keys(t.fan_region).length));
+  // 粉丝画像总览 (加 ocr 兜底)
+  var hasFansData = ((fans.cities && fans.cities.length) || (fans.interest && fans.interest.length) || _pickOcrDict('fan_gender','fan_group_gender') || _pickOcrDict('fan_age','fan_group_age') || _pickOcrDict('fan_region','fan_city_tier','live_audience_city_tier'));
   if (hasFansData) {
     html += '<div class="talents-panel-section">';
     html += '<div class="talents-panel-title">粉丝画像</div>';
@@ -31745,15 +31860,29 @@ function renderTalentPanelFans(t) {
     html += '</div></div>';
   }
 
-  html += renderDist('性别分布', t.fan_gender && Object.keys(t.fan_gender).length ? t.fan_gender : fans.gender);
-  html += renderDist('年龄分布', t.fan_age && Object.keys(t.fan_age).length ? t.fan_age : fans.age);
-  html += renderDist('地域分布', t.fan_region && Object.keys(t.fan_region).length ? t.fan_region : (fans.region || {}));
-  if (t.fan_crowd || t.fan_price_range || t.fan_category) {
+  // ★ ocr 兜底: 性别 / 年龄 / 地域 / 城市等级 / 设备 / 活跃度
+  var _fanGender = (t.fan_gender && Object.keys(t.fan_gender).length) ? t.fan_gender : (_pickOcrDict('fan_gender','fan_group_gender') || fans.gender);
+  var _fanAge = (t.fan_age && Object.keys(t.fan_age).length) ? t.fan_age : (_pickOcrDict('fan_age','fan_group_age') || fans.age);
+  var _fanRegion = (t.fan_region && Object.keys(t.fan_region).length) ? t.fan_region : (_pickOcrDict('fan_region') || (fans.region || {}));
+  html += renderDist('性别分布', _fanGender);
+  html += renderDist('年龄分布', _fanAge);
+  html += renderDist('地域分布', _fanRegion);
+  var _cityTier = _pickOcrDict('fan_city_tier','live_audience_city_tier','video_audience_city_tier');
+  if (_cityTier) html += renderDist('城市等级分布', _cityTier);
+  var _device = _pickOcrDict('fan_group_device');
+  if (_device) html += renderDist('粉丝团设备', _device);
+  var _activity = _pickOcrDict('fan_group_activity');
+  if (_activity) html += renderDist('粉丝团活跃度', _activity);
+  // ★ ocr 兜底: 人群偏好 (标量字段)
+  var _fanCrowd = t.fan_crowd || _pickOcrScalar('fan_crowd','fan_group_crowd');
+  var _fanPrice = t.fan_price_range || _pickOcrScalar('fan_price_range','fan_group_price');
+  var _fanCategory = t.fan_category || _pickOcrScalar('fan_category','fan_group_category');
+  if (_fanCrowd || _fanPrice || _fanCategory) {
     html += '<div class="talents-panel-section"><div class="talents-panel-title">人群偏好</div>';
     html += '<div class="products-detail-grid">';
-    html += '<div class="products-detail-item"><div class="products-detail-label">人群画像</div><div class="products-detail-value">' + escapeHtml(t.fan_crowd || '-') + '</div></div>';
-    html += '<div class="products-detail-item"><div class="products-detail-label">价格带</div><div class="products-detail-value">' + escapeHtml(t.fan_price_range || '-') + '</div></div>';
-    html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + escapeHtml(t.fan_category || '-') + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">人群画像</div><div class="products-detail-value">' + escapeHtml(_fanCrowd || '-') + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">价格带</div><div class="products-detail-value">' + escapeHtml(_fanPrice || '-') + '</div></div>';
+    html += '<div class="products-detail-item"><div class="products-detail-label">类目偏好</div><div class="products-detail-value">' + escapeHtml(_fanCategory || '-') + '</div></div>';
     html += '</div></div>';
   }
   if (!html) html = '<div class="products-empty"><div class="products-empty-text">暂无粉丝画像数据</div></div>';
