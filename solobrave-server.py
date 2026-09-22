@@ -20510,6 +20510,115 @@ def _heavy_job_get(job_id):
         return dict(job) if job else None
 
 
+def _resolve_heavy_pipe_providers(agent_id):
+    """★ fix/heavy-pipe-provider-chain: 读 openclaw.json 解析 heavy pipe 的 provider 链.
+    
+    按 openclaw.json agents.entries[agent_id].model.primary + fallbacks 顺序返回:
+    [(provider_name, model_id, base_url, api_key, api_type), ...]
+    
+    失败（缺 agent 配置 / provider 配置）返回 None, 调用方走 kimi key pool + minimax 兜底.
+    """
+    if not agent_id:
+        return None
+    try:
+        oc = _read_json(os.path.expanduser('~/.openclaw/openclaw.json'), {})
+    except Exception as e:
+        logger.warning(f'  [HeavyPipe] 读 openclaw.json 失败: {e}')
+        return None
+    if not oc:
+        return None
+
+    entries = (oc.get('agents') or {}).get('entries') or {}
+    defaults = (oc.get('agents') or {}).get('defaults') or {}
+    models_cfg = (oc.get('models') or {}).get('providers') or {}
+
+    # 1. 找该 agent 的 model 配置 (agent 级优先, 否则 defaults)
+    model_cfg = (entries.get(agent_id) or {}).get('model') or defaults.get('model')
+    if not model_cfg:
+        return None
+
+    primary = model_cfg.get('primary')
+    fallbacks = model_cfg.get('fallbacks', []) or []
+    refs = ([primary] if primary else []) + list(fallbacks)
+
+    chain = []
+    seen = set()
+    for ref in refs:
+        if not ref or ref in seen:
+            continue
+        seen.add(ref)
+        if '/' not in ref:
+            logger.warning(f'  [HeavyPipe] openclaw.json model 引用格式错误: {ref}')
+            continue
+        provider_name, model_id = ref.split('/', 1)
+        provider_cfg = models_cfg.get(provider_name, {})
+        base_url = (provider_cfg.get('baseUrl', '') or '').rstrip('/')
+        api_key = (provider_cfg.get('apiKey', '') or '').strip()
+        api_type = provider_cfg.get('api', 'openai-completions')
+        if not base_url:
+            logger.warning(f'  [HeavyPipe] provider {provider_name} 缺 baseUrl, 跳过')
+            continue
+        # kimi apiKey 缺失时保留 KIMI_KEY_POOL 轮询逻辑 (兼容现有配置, 多 key 池)
+        if not api_key and provider_name == 'kimi':
+            api_key = '__USE_KIMI_KEY_POOL__'
+        elif not api_key:
+            logger.warning(f'  [HeavyPipe] provider {provider_name} 缺 apiKey, 跳过')
+            continue
+        chain.append((provider_name, model_id, base_url, api_key, api_type))
+    return chain if chain else None
+
+
+def _heavy_try_openai_call(system_prompt, user_text, max_tokens, prov_name, model_id, base_url, api_key):
+    """★ fix/heavy-pipe-provider-chain: 通用 OpenAI chat/completions 调用 (deepseek/zhipu/openai 等).
+    
+    返回与 _heavy_kimi_call 同构的 dict: {'text', 'stop_reason', 'input_tokens', 'output_tokens', 'content_types', 'provider'}.
+    失败返回 None. 支持 base_url 自定义 (openclaw.json provider 配置).
+    """
+    body = {
+        'model': model_id,
+        'messages': [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_text},
+        ],
+        'max_tokens': max_tokens,
+        'stream': False,
+    }
+    req_body = json.dumps(body, ensure_ascii=False).encode('utf-8')
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {api_key}',
+        'Content-Length': str(len(req_body)),
+    }
+    target_url = base_url + '/chat/completions'
+    masked_key = f'{api_key[:8]}...' if api_key and len(api_key) > 8 else '(none)'
+    logger.info(f'  [HeavyPipe] {prov_name} request: model={model_id} url={target_url} key={masked_key}')
+    try:
+        req = urllib.request.Request(target_url, data=req_body, headers=headers, method='POST')
+        ctx = ssl.create_default_context()
+        resp = urllib.request.urlopen(req, timeout=180, context=ctx)
+        raw = resp.read().decode('utf-8', errors='replace')
+        resp_data = json.loads(raw)
+        text_val = ''
+        if resp_data.get('choices') and resp_data['choices'][0].get('message'):
+            text_val = resp_data['choices'][0]['message'].get('content', '') or ''
+        usage = resp_data.get('usage') or {}
+        logger.info(f'  [HeavyPipe] {prov_name} 返回 text_len={len(text_val)} input_tokens={usage.get("prompt_tokens")} output_tokens={usage.get("completion_tokens")}')
+        return {
+            'text': text_val,
+            'stop_reason': resp_data.get('choices', [{}])[0].get('finish_reason'),
+            'input_tokens': usage.get('prompt_tokens'),
+            'output_tokens': usage.get('completion_tokens'),
+            'content_types': ['text'],
+            'provider': prov_name,
+        }
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8', errors='replace')[:500]
+        logger.error(f'  ❌ [HeavyPipe] {prov_name} HTTP {e.code} {e.reason}: {error_body}')
+    except Exception as e:
+        logger.error(f'  ❌ [HeavyPipe] {prov_name} 调用失败: {e}')
+    return None
+
+
 def _heavy_minimax_fallback(system_prompt, user_text, max_tokens):
     """Kimi 全部失败后的降级通道：读 settings.json 的 minimax provider 配置，
     走 _call_minimax_messages（OpenAI 兼容格式）。返回与 _heavy_kimi_call 同构的 dict，失败返回 None。"""
@@ -20551,18 +20660,126 @@ def _heavy_minimax_fallback(system_prompt, user_text, max_tokens):
     }
 
 
-def _heavy_llm_call(system_prompt, user_text, max_tokens=4096):
-    """HeavyPipe LLM 调用入口：先走 Kimi（key 池轮询重试），全部失败或返回空 text
-    （thinking 块吃光额度 / content 为空）时自动降级 MiniMax。"""
+def _heavy_llm_call(system_prompt, user_text, max_tokens=4096, agent_id=None):
+    """★ fix/heavy-pipe-provider-chain: HeavyPipe LLM 调用入口.
+    
+    改造前: 硬编码 kimi-for-coding + KIMI_KEY_POOL, 失败降级 MiniMax.
+    改造后 (方案 A): 读 openclaw.json agents[id].model.primary + fallbacks,
+      按链顺序调用, 失败自动切下一个. 全部失败 / 无配置 → 走 kimi key pool + minimax 兜底.
+    
+    Provider 分发:
+    - provider_name='kimi' 或 api_type='anthropic-messages' → 走 _heavy_kimi_call (key pool 轮询)
+    - api_type='openai-completions' (deepseek/zhipu/openai 等) → 走 _heavy_try_openai_call
+    
+    注意: kimi 用 '__USE_KIMI_KEY_POOL__' 标记表示沿用 KIMI_KEY_POOL 轮询, 不强制用 openclaw.json 单 key.
+    """
+    if agent_id:
+        chain = _resolve_heavy_pipe_providers(agent_id)
+        if chain:
+            logger.info(f'  [HeavyPipe] {agent_id} provider 链: {[c[0]+"/"+c[1] for c in chain]}')
+            for idx, (prov_name, model_id, base_url, api_key, api_type) in enumerate(chain):
+                try:
+                    if prov_name == 'kimi' or api_type == 'anthropic-messages':
+                        # kimi 走 key pool 轮询 (openclaw.json 里的 baseUrl 优先, fallback 硬编码)
+                        target_base_url = base_url if base_url else KIMI_PROXY_REAL_BASE_URL
+                        # 重写 KIMI_PROXY_REAL_BASE_URL 临时值 - 这里只读不写, 直接用 _heavy_kimi_call
+                        # 注: _heavy_kimi_call 硬编码用 KIMI_PROXY_REAL_BASE_URL 全局变量
+                        #     临时覆盖只对本次生效: monkey patch 不可, 改用新函数 _heavy_kimi_call_with_base
+                        result = _heavy_kimi_call_with_base(system_prompt, user_text, max_tokens, target_base_url, override_key=None if api_key == '__USE_KIMI_KEY_POOL__' else api_key)
+                    else:
+                        # openai-completions (deepseek/zhipu/openai 等)
+                        result = _heavy_try_openai_call(system_prompt, user_text, max_tokens, prov_name, model_id, base_url, api_key)
+                    if result is not None and (result.get('text') or '').strip():
+                        logger.info(f'  [HeavyPipe] {prov_name}/{model_id} 成功 ({len(result.get("text", ""))} chars)')
+                        return result
+                    if result is not None:
+                        logger.warning(f'  [HeavyPipe] {prov_name}/{model_id} 返回空 text')
+                except Exception as e:
+                    logger.warning(f'  [HeavyPipe] {prov_name}/{model_id} 调用失败: {type(e).__name__}: {e}')
+                    continue
+            logger.warning(f'  [HeavyPipe] {agent_id} provider 链全部失败, 走兜底')
+        else:
+            logger.info(f'  [HeavyPipe] {agent_id} 无 openclaw.json provider 配置, 走 kimi 兜底')
+    else:
+        logger.info('  [HeavyPipe] 未传 agent_id, 走 kimi 兜底')
+    # 全失败或没配置 → kimi key pool 轮询 → minimax 降级
     result = _heavy_kimi_call(system_prompt, user_text, max_tokens)
     if result is not None and (result.get('text') or '').strip():
         return result
     if result is not None:
-        logger.warning(f'  [HeavyPipe] Kimi 返回空 text（stop_reason={result.get("stop_reason")} '
+        logger.warning(f'  [HeavyPipe] Kimi 兜底返回空 text（stop_reason={result.get("stop_reason")} '
                        f'content_types={result.get("content_types")}），降级到 MiniMax')
     else:
-        logger.warning('  [HeavyPipe] Kimi 全部失败，降级到 MiniMax')
+        logger.warning('  [HeavyPipe] Kimi 兜底全部失败，降级到 MiniMax')
     return _heavy_minimax_fallback(system_prompt, user_text, max_tokens)
+
+
+def _heavy_kimi_call_with_base(system_prompt, user_text, max_tokens, base_url, override_key=None):
+    """★ fix/heavy-pipe-provider-chain: _heavy_kimi_call 变体, 支持自定义 base_url 和 override_key.
+    
+    主要给 _heavy_llm_call 用, 让 openclaw.json 里的 kimi baseUrl 生效.
+    override_key 非空时用单 key, 否则走 KIMI_KEY_POOL 轮询.
+    """
+    req_payload = {
+        'model': 'kimi-for-coding',
+        'max_tokens': max_tokens,
+        'system': system_prompt,
+        'messages': [{'role': 'user', 'content': user_text}],
+        'thinking': {'type': 'disabled'},
+    }
+    req_body = json.dumps(req_payload, ensure_ascii=False).encode('utf-8')
+    keys_to_try = [override_key] if override_key else None
+    if not keys_to_try:
+        # KIMI_KEY_POOL 轮询
+        seen_keys = set()
+        keys_to_try = []
+        # 复制一份 pool 轮询, 避免污染原 pool index
+        for _ in range(KIMI_KEY_POOL.size):
+            k = KIMI_KEY_POOL.get_key()
+            if not k or k in seen_keys:
+                break
+            seen_keys.add(k)
+            keys_to_try.append(k)
+        if not keys_to_try:
+            logger.error('  [HeavyPipe] Key 池已空，无法调用 kimi')
+            return None
+
+    for current_key in keys_to_try:
+        try:
+            req = urllib.request.Request(
+                base_url + '/v1/messages',
+                data=req_body,
+                headers={
+                    'Content-Type': 'application/json',
+                    'x-api-key': current_key,
+                    'anthropic-version': '2023-06-01',
+                },
+                method='POST')
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                data = json.loads(resp.read().decode('utf-8', errors='replace'))
+            usage = data.get('usage') or {}
+            text_val = ''.join(p.get('text', '') for p in data.get('content', [])
+                               if isinstance(p, dict) and p.get('type') == 'text')
+            logger.info(f'  [HeavyPipe] kimi_call({base_url[:30]}...) 返回 text_len={len(text_val)} stop_reason={data.get("stop_reason")}')
+            return {
+                'text': text_val,
+                'stop_reason': data.get('stop_reason'),
+                'input_tokens': usage.get('input_tokens'),
+                'output_tokens': usage.get('output_tokens'),
+                'content_types': ['text'],
+                'provider': 'kimi',
+            }
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8', errors='replace')[:200]
+            logger.error(f'  ❌ [HeavyPipe] kimi HTTP {e.code}: {error_body}')
+            if e.code in (401, 429) and not override_key and KIMI_KEY_POOL.size > 1:
+                KIMI_KEY_POOL.mark_failed(current_key)
+                continue
+            return None
+        except Exception as e:
+            logger.error(f'  ❌ [HeavyPipe] kimi 调用失败: {e}')
+            return None
+    return None
 
 
 def _heavy_kimi_call(system_prompt, user_text, max_tokens=4096):
@@ -21371,7 +21588,7 @@ def _heavy_stage4_analyze(agent, agent_name, talents, vision_all, user_content, 
                           + json.dumps(talents, ensure_ascii=False, indent=1))
     user_parts.append('【达人数据截图识别结果】\n' + vision_all)
     user_parts.append('【用户原始指令】\n' + (user_content or ''))
-    result = _heavy_llm_call(system_prompt, '\n\n'.join(user_parts), max_tokens=8192)
+    result = _heavy_llm_call(system_prompt, '\n\n'.join(user_parts), max_tokens=8192, agent_id=agent.get('id'))
     logger.info(f'  [HeavyPipe] {job_id} stage4 result: {repr(result)[:500]}')
     if isinstance(result, dict):
         logger.info(f'  [HeavyPipe] {job_id} stage4 stop_reason={result.get("stop_reason")} '
@@ -21426,7 +21643,7 @@ def _heavy_pipe_worker(job_id, agent, user_content, images, user_id):
         _t = time.perf_counter()
         vision_all = '\n\n'.join(vision_texts)
         logger.info(f'  [HeavyPipe] {job_id} vision 内容预览（前500字）: {vision_all[:500]}')
-        names_result = _heavy_llm_call(_HEAVY_TALENT_EXTRACT_PROMPT, vision_all, max_tokens=1024)
+        names_result = _heavy_llm_call(_HEAVY_TALENT_EXTRACT_PROMPT, vision_all, max_tokens=1024, agent_id=agent_id)
         names_text = names_result.get('text', '') if isinstance(names_result, dict) else (names_result or '')
         if isinstance(names_result, dict) and names_result.get('stop_reason') not in (None, 'end_turn', 'stop_sequence'):
             logger.warning(f'  [HeavyPipe] {job_id} stage2 达人名提取可能被截断: '
