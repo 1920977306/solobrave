@@ -2455,6 +2455,17 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   color: #fff;
   flex-shrink: 0;
 }
+/* ★ ui/talent-detail-redesign-v2-cleanup commit 5: 替换首字色块占位 → SKU 编号 (规范商品卡) */
+.talents-product-sku {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  letter-spacing: 0.3px;
+}
 .talents-product-info { flex: 1; min-width: 0; }
 .talents-product-name {
   font-size: 14px;
@@ -31433,41 +31444,45 @@ function _loadTalentSalesProducts(t) {
       return;
     }
     var html = '<div class="talents-panel-title">带货商品列表 (' + products.length + ')' + (sourceLabel ? ' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">' + sourceLabel + '</span>' : '') + '</div>';
-    products.forEach(function(p){
+    products.forEach(function(p, pIdx){
       // ★ fix/ocr-product-field-mapping: OCR v3 (commit d32c7ff) 5 字段 name+shop_name+price+gmv_range+video_count
-      //   OCR 实际输出字段名: name(必填) + shop_name + price + gmv_range + video_count
-      //   之前只读 p.name/p.brand/p.category/p.price/p.match_reason/p.match_score, OCR 商品字段都没对上
-      //   所以老大反馈: 价格 ¥0.00, 占比 0 (OCR 里明明有 ¥19.90, gmv ¥100万+)
       var _name = (p && (p.name || p.title || p.product_name)) || '-';
       var _shop = (p && (p.shop_name || p.shop || p.store)) || '-';
       var _price = (p && (p.price || p['到手价'] || p.sale_price)) || 0;
       var _gmv = (p && (p.gmv_range || p.gmv || p['结算额'] || p.settlement)) || '';
-      var _ratio = (p && (p.ratio || p.share || p['占比'] || p.percentage)) || '';
+      var _ratio = parseFloat((p && (p.ratio || p.share || p['占比'] || p.percentage)) || 0);
       var _videoCount = (p && (p.video_count || p['关联短视频数'] || p.videoCount)) || '';
       var _matchReason = (p && (p.match_reason || p.reason)) || '';
-      var _matchScore = (p && (p.match_score || p.score)) || 0;
-      // 商品元信息: 店铺 · 价格 · 结算额
+      var _matchScore = parseFloat((p && (p.match_score || p.score)) || 0);
+      // ★ ui/talent-detail-redesign-v2-cleanup commit 5 (老大 2026-09-23):
+      //   - 删首字色块占位符 (老大截图 "优【钢" 字块, 丑)
+      //   - 改规范商品卡: SKU 编号 + 商品名 + 品牌 + 价格 + 匹配理由 + 关联视频
+      //   - 占比/match_score 为 0 时不显示 "0.0%" / "0 分" 占位
       var _metaParts = [_shop];
       if (_price) _metaParts.push('¥' + (parseFloat(_price) || 0).toFixed(2));
       if (_gmv) _metaParts.push('结算额 ' + _gmv);
       var _meta = _metaParts.join(' · ');
-      // 右上角: OCR 模式显示占比, API 模式显示匹配分
-      var _scoreLabel = sourceLabel ? '占比' : '匹配分';
-      var _scoreValue = sourceLabel
-        ? ((parseFloat(_ratio) || 0).toFixed(1) + '%')
-        : (parseFloat(_matchScore) || 0).toFixed(0);
       html += '<div class="talents-product-card">';
-      html += '<div class="talents-product-placeholder" style="background:' + (_shop === 'COOLCHAP' ? '#FF6B35' : '#1677ff') + ';">' + (_name || '?').charAt(0) + '</div>';
+      // 替换首字色块: 用 SKU 编号 + 渐变蓝底显示更规范
+      html += '<div class="talents-product-sku" style="background:linear-gradient(135deg, #1677ff, #0E62D9);color:#fff;font-weight:600;font-size:13px;">#' + (pIdx + 1) + '</div>';
       html += '<div class="talents-product-info">';
       html += '<div class="talents-product-name">' + escapeHtml(_name) + '</div>';
       html += '<div class="talents-product-meta">' + escapeHtml(_meta) + '</div>';
       if (_matchReason) html += '<div class="talents-product-meta" style="margin-top:4px;color:var(--text-secondary);">' + escapeHtml(_matchReason) + '</div>';
       if (_videoCount && _videoCount !== '0') html += '<div class="talents-product-meta" style="margin-top:2px;color:var(--text-secondary);font-size:11px;">关联视频 ' + escapeHtml(String(_videoCount)) + ' 个</div>';
       html += '</div>';
-      html += '<div class="talents-product-score">';
-      html += '<div class="talents-product-score-value">' + escapeHtml(_scoreValue) + '</div>';
-      html += '<div class="talents-mid-score-label">' + escapeHtml(_scoreLabel) + '</div>';
-      html += '</div>';
+      // 右上角评分: 占比/match_score 都为 0 时整段不渲染 (无数据走空状态)
+      if (sourceLabel) {
+        // OCR 模式: 占比 >0 才显示
+        if (_ratio > 0) {
+          html += '<div class="talents-product-score"><div class="talents-product-score-value">' + _ratio.toFixed(1) + '%</div><div class="talents-mid-score-label">占比</div></div>';
+        }
+      } else {
+        // API 模式: 匹配分 >0 才显示
+        if (_matchScore > 0) {
+          html += '<div class="talents-product-score"><div class="talents-product-score-value">' + _matchScore.toFixed(0) + '</div><div class="talents-mid-score-label">匹配分</div></div>';
+        }
+      }
       html += '</div>';
     });
     section.innerHTML = html;
