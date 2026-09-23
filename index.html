@@ -31257,10 +31257,13 @@ function renderTalentPanelSales(t) {
   html += '<div class="talents-distribution-title">价格带分布</div>';
   var priceDistribution = _getTalentPriceDistribution(t);
   if (priceDistribution.length) {
+    // ★ ui/talent-detail-redesign-v2-cleanup commit 4: 价格带占比归一化校验
+    //   OCR 数据脏时 (总和 >100% / <100%) 按当前总和归一化显示,避免 "76+29.67+33.94..." 累加超 100%
+    var priceTotal = priceDistribution.reduce(function(s, x){ return s + (parseFloat(x.value)||0); }, 0);
     priceDistribution.forEach(function(item, idx){
-      // ★ ui/talent-detail-redesign-v2-cleanup: V2.1 token 兑换 #1677ff → #1677ff
       var colors = ['#1677ff', '#36cfc9', '#73d13d', '#faad14', '#ff7875'];
-      html += '<div class="talents-price-bubble"><span class="talents-price-bubble-dot" style="background:' + colors[idx % colors.length] + ';"></span><span class="talents-price-bubble-label">' + escapeHtml(item.label) + '</span><span class="talents-price-bubble-value">' + item.value + '%</span></div>';
+      var pct = priceTotal ? ((parseFloat(item.value) || 0) / priceTotal * 100) : 0;
+      html += '<div class="talents-price-bubble"><span class="talents-price-bubble-dot" style="background:' + colors[idx % colors.length] + ';"></span><span class="talents-price-bubble-label">' + escapeHtml(item.label) + '</span><span class="talents-price-bubble-value">' + pct.toFixed(1) + '%</span></div>';
     });
   } else {
     html += '<div class="products-empty-text" style="padding:12px 0;">暂无数据</div>';
@@ -31270,9 +31273,18 @@ function renderTalentPanelSales(t) {
   html += '<div class="talents-distribution-title">类目分布</div>';
   var catDistribution = _getTalentCategoryDistribution(t);
   if (catDistribution.length) {
+    // ★ ui/talent-detail-redesign-v2-cleanup commit 4: 类目占比归一化校验 (老大反馈 2026-09-23)
+    //   "类目分布占比加起来超过 180% (76+29.67+33.94…),脏数据直接渲染"
+    //   前端归一化: sum > 100% 时按 value/sum 计算真实占比,显示给用户真实占比
+    var catTotal = catDistribution.reduce(function(s, x){ return s + (parseFloat(x.value)||0); }, 0);
     catDistribution.forEach(function(item){
-      html += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(item.label) + '</span><span>' + item.value + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(item.value, 100) + '%"></div></div></div>';
+      var pct = catTotal ? ((parseFloat(item.value) || 0) / catTotal * 100) : 0;
+      html += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(item.label) + '</span><span>' + pct.toFixed(1) + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(pct, 100) + '%"></div></div></div>';
     });
+    if (catTotal > 100.5 || catTotal < 99.5) {
+      // 数据脏时加提示 (用户能看见)
+      html += '<div style="font-size:11px;color:var(--color-status-lost,#FF3B30);margin-top:8px;">⚠ OCR 录入占比总和 ' + catTotal.toFixed(1) + '%,已按当前总和归一化显示</div>';
+    }
   } else {
     html += '<div class="products-empty-text" style="padding:12px 0;">暂无数据</div>';
   }
@@ -31402,7 +31414,10 @@ function _renderTalentDonut(items) {
   html += '<div class="talents-donut" style="background:conic-gradient(' + stops.join(',') + ');"></div>';
   html += '<div class="talents-donut-legend">';
   items.forEach(function(item, idx){
-    html += '<div class="talents-price-bubble"><span class="talents-price-bubble-dot" style="background:' + colors[idx % colors.length] + ';"></span><span class="talents-price-bubble-label">' + escapeHtml(item.label) + '</span><span class="talents-price-bubble-value">' + item.value + '%</span></div>';
+    // ★ ui/talent-detail-redesign-v2-cleanup commit 4: legend 也按归一化后 pct 显示
+    //   之前显示原始 item.value (OCR 数据脏时可能是 1% 1% 1% 累计 <13%)
+    var pct = total ? ((parseFloat(item.value) || 0) / total * 100) : 0;
+    html += '<div class="talents-price-bubble"><span class="talents-price-bubble-dot" style="background:' + colors[idx % colors.length] + ';"></span><span class="talents-price-bubble-label">' + escapeHtml(item.label) + '</span><span class="talents-price-bubble-value">' + pct.toFixed(1) + '%</span></div>';
   });
   html += '</div></div>';
   return html;
@@ -31514,10 +31529,16 @@ function renderTalentPanelFans(t) {
   var html = '';
   function renderDist(title, obj) {
     if (!obj || (typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).length === 0)) return '';
-    var total = Object.values(obj).reduce(function(a,b){return a + (parseFloat(b)||0);}, 0);
+    // ★ ui/talent-detail-redesign-v2-cleanup commit 4: dedup 防御 (老大反馈 2026-09-23)
+    //   截图显示粉丝画像年龄分布 "31-40岁 30.1%" 出现两次, OCR 阶段后端 dedup 不彻底
+    //   (dict key 唯一, 但 OCR 字符串里可能有重复 key 直接拼接). 这里 _dedup 兜底按 key 去重
+    //   保留最后一次的值 (后端如果修了 dedup 这层是 no-op)
+    var _dedup = {};
+    Object.keys(obj).forEach(function(k){ _dedup[k] = obj[k]; });
+    var total = Object.values(_dedup).reduce(function(a,b){return a + (parseFloat(b)||0);}, 0);
     var section = '<div class="talents-panel-section"><div class="talents-panel-title">' + title + '</div>';
-    Object.keys(obj).forEach(function(k){
-      var v = parseFloat(obj[k]) || 0;
+    Object.keys(_dedup).forEach(function(k){
+      var v = parseFloat(_dedup[k]) || 0;
       var pct = total ? (v / total * 100) : 0;
       section += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(k) + '</span><span>' + pct.toFixed(1) + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(pct, 100) + '%"></div></div></div>';
     });
