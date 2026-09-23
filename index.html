@@ -31170,196 +31170,36 @@ function renderTalentPanelOverview(t) {
   }
   html += '</div>';
 
-  // ★ fix/ocr-full-ui: OCR 截图原始字段面板 (commit 284f6cd 后 API 返回 ocr_raw_fields)
-  //   老大反馈 "达人库详情没有变化" — 实际是 API 没返 ocr_raw_fields, 现在 API 已修,
-  //   但前端还没渲染, 用户看不到截图上识别的所有字段. 这里把所有非空字段列出来.
-  //   extra_fields 嵌套 dict 用 details/summary 折叠 (默认收起, 避免占用太多空间).
-  html += _renderOcrFieldsPanel(t.ocr_raw_fields);
+  // ★ ui/talent-detail-redesign-v2-cleanup commit 3 (老大 2026-09-23):
+  //   删概览 tab 底部 610 字段 OCR 长列表 (含 extra 473 字段 + 英文 key 平铺)
+  //   改成"数据完整度"卡片: 展示已识别字段数 + 覆盖的维度 (6 维度分类)
+  //   原始 OCR 字段移到 commit 7 分析档案 tab 做语义分组折叠,字段名全中文
+  var ocr = (t && t.ocr_raw_fields) || {};
+  var totalFields = Object.keys(ocr).length;
+  var dims = [];
+  if (ocr.name || ocr.douyin_id || ocr.followers || ocr.total_gmv || ocr.monthly_settlement || ocr.gpm || ocr.feishu_product_count) dims.push('商业核心');
+  if (ocr.talent_type || ocr.category || ocr.content_style || ocr.bio || ocr.city || ocr.level) dims.push('基础');
+  if (ocr.fan_gender || ocr.fan_age || ocr.fan_region || ocr.fan_city_tier || ocr.fan_crowd || ocr.fan_price_range || ocr.fan_category) dims.push('粉丝画像');
+  if (ocr.fan_group_gender || ocr.fan_group_age || ocr.fan_group_active || ocr.fan_group_device) dims.push('群组粉丝');
+  if (ocr.price_distribution || ocr.category_distribution || ocr.brand_distribution || ocr.top_brands || ocr.hot_brands) dims.push('热卖分布');
+  if (ocr.live_stream_sessions || ocr.live_stream_viewers || ocr.live_ratio || ocr.video_ratio || ocr.avg_live_gmv) dims.push('直播数据');
+  if (dims.length === 0) dims.push('待识别');
+  html += '<div class="talents-panel-section">';
+  html += '<div class="talents-panel-title">数据完整度</div>';
+  html += '<div style="background:var(--surface);border:0.5px solid var(--separator);border-radius:var(--radius-lg);padding:14px 16px;">';
+  html += '<div style="font-size:14px;color:var(--text-primary);margin-bottom:8px;">已识别 <strong style="color:var(--accent);font-size:18px;">' + totalFields + '</strong> 个字段</div>';
+  html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">已覆盖维度: ' + dims.map(function(d){ return '<span style="display:inline-block;background:var(--accent-light);color:var(--accent);font-size:11px;padding:3px 8px;border-radius:6px;margin-right:4px;margin-bottom:4px;">' + escapeHtml(d) + '</span>'; }).join('') + '</div>';
+  html += '<div style="font-size:11px;color:var(--text-tertiary);">完整字段在「分析档案」tab 查阅</div>';
+  html += '</div></div>';
 
   el.innerHTML = html;
 }
 
+// ★ ui/talent-detail-redesign-v2-cleanup commit 3: _renderOcrFieldsPanel 函数已删除 (老大 2026-09-23)
+//   原函数将 ocr_raw_fields 全部 610 字段 (含 extra 473 字段 + 英文 key 平铺) 渲染到概览底部
+//   用户体验差: 字段太多 + 英文 key 不友好 + 占用过多空间
+//   改用 commit 3 的"数据完整度"卡片 + commit 7 的分析档案 tab 语义分组折叠
 
-// ★ fix/ocr-full-ui: OCR 截图原始字段面板 (复用人 talents-info-grid + talents-info-item 类)
-function _renderOcrFieldsPanel(ocrRaw) {
-  if (!ocrRaw || typeof ocrRaw !== 'object') return '';
-  var topEntries = [];   // 顶层标量字段
-  var nestedEntries = []; // 嵌套 dict/list
-  Object.keys(ocrRaw).forEach(function(k) {
-    var v = ocrRaw[k];
-    if (v === null || v === undefined || v === '' || v === '未提供') return;
-    if (typeof v === 'object') {
-      nestedEntries.push({ key: k, value: v });
-    } else {
-      topEntries.push({ key: k, value: v });
-    }
-  });
-  if (topEntries.length === 0 && nestedEntries.length === 0) return '';
-
-  // 嵌套字段叶子计数 (用于 badge 显示)
-  function _countLeaves(v) {
-    if (v === null || v === undefined) return 0;
-    if (typeof v !== 'object') return 1;
-    if (Array.isArray(v)) {
-      var n = 0;
-      v.forEach(function(item) { n += _countLeaves(item); });
-      return n;
-    }
-    var n = 0;
-    Object.keys(v).forEach(function(k) { n += _countLeaves(v[k]); });
-    return n;
-  }
-  var totalLeaves = topEntries.length + nestedEntries.reduce(function(s, x) { return s + _countLeaves(x.value); }, 0);
-
-  // ★ fix/ocr-field-labels: OCR 字段名 → 中文标签映射
-  //   老大反馈 '字段名要显示中文' — DB 里存的是英文 key (followers/total_gmv 等),
-  //   直接展示英文用户看不懂. 这里做中英映射, 没匹配的用原 key 兜底.
-  var OCR_FIELD_LABELS = {
-    name: '达人昵称',
-    douyin_id: '抖音号',
-    city: '所在地',
-    location: '地区',
-    followers: '粉丝量',
-    level: '等级',
-    bio: '简介',
-    tags: '内容标签',
-    main_category: '主营类目',
-    cooperation_status: '合作状态',
-    agency: '所属机构',
-    talent_type: '内容类型',
-    content_style: '内容风格',
-    product_count: '带货商品数',
-    total_history_days: '历史带货天数',
-    total_shops: '合作店铺数',
-    total_gmv: '总结算额',
-    live_ratio: '直播占比',
-    live_sessions: '直播场次',
-    live_views: '直播观看量',
-    video_ratio: '视频占比',
-    video_count: '视频数',
-    video_plays: '视频播放量',
-    single_video_settlement: '单视频结算',
-    video_gpm: '视频 GPM',
-    live_gpm: '直播 GPM',
-    video_settlement_ratio: '视频结算额占比',
-    video_avg_price: '视频平均件单价',
-    video_completion_rate: '视频完播率',
-    video_likes: '视频点赞数',
-    video_comments: '视频评论数',
-    video_shares: '视频转发数',
-    video_interaction_rate: '视频互动率',
-    average_price: '平均件单价',
-    fulfillment_score: '履约分',
-    rating_score: '评分',
-    top_products: '带货商品 TOP',
-    top_categories: '热卖类目 TOP',
-    top_brands: '热卖品牌 TOP',
-    fan_gender: '粉丝性别',
-    fan_age: '粉丝年龄',
-    fan_city_tier: '粉丝城市等级',
-    fan_crowd: '粉丝人群',
-    fan_price_range: '粉丝价格带',
-    fan_category: '粉丝品类偏好',
-    fan_region: '粉丝地域',
-    fan_group_gender: '粉丝团性别',
-    fan_group_age: '粉丝团年龄',
-    fan_group_crowd: '粉丝团人群',
-    fan_group_activity: '粉丝团活跃度',
-    fan_group_device: '粉丝团设备',
-    fan_group_price: '粉丝团价格带',
-    fan_group_category: '粉丝团品类',
-    live_audience_region: '直播间观众地域',
-    live_audience_city_tier: '直播间观众城市等级',
-    video_audience_region: '短视频观众地域',
-    video_audience_city_tier: '短视频观众城市等级',
-    extra_fields: '其他字段 (extra)',
-    account_fans_profile: '账号粉丝特征',
-    video_fans_profile: '短视频粉丝特征',
-    remark: '备注',
-    notes: '备注',
-    bio: '简介',
-  };
-
-  function _label(key) {
-    return OCR_FIELD_LABELS[key] || key;
-  }
-
-  var html = '';
-  html += '<div class="talents-panel-section">';
-  html += '<div class="talents-panel-title">📸 OCR 截图字段 <span style="font-weight:400;color:var(--text-secondary);font-size:12px;margin-left:6px;">(' + totalLeaves + ' 字段)</span></div>';
-
-  // 顶层字段 grid
-  if (topEntries.length > 0) {
-    html += '<div class="talents-info-grid">';
-    topEntries.forEach(function(item) {
-      var val = String(item.value);
-      // 截断过长的值 (避免一行占用太多空间)
-      var truncated = val.length > 120 ? val.slice(0, 120) + '…' : val;
-      html += '<div class="talents-info-item"><label>' + escapeHtml(_label(item.key)) + '</label><div class="value">' + escapeHtml(truncated) + '</div></div>';
-    });
-    html += '</div>';
-  }
-
-  // 嵌套字段格式化: dict → key-value 列表, list → bullet list
-  // ★ fix/ocr-render-dict: 老大反馈 '嵌套 JSON 显示原始数据'
-  //   {"女": 94} 应该显示 '女 94%' 而不是 '{"女":94}' JSON 字符串
-  //   规则: 数字 ≤ 100 自动加 % (粉丝画像/类目占比都是 0-100), >100 不加 (绝对值如粉丝数)
-  //         字符串原样保留 (e.g. "30%")
-  function _formatNestedScalar(v) {
-    if (typeof v === 'number' && !isNaN(v) && v <= 100) return v + '%';
-    return String(v);
-  }
-  function _renderNestedValue(v) {
-    if (v === null || v === undefined) return '';
-    if (typeof v === 'object' && !Array.isArray(v)) {
-      // dict: key-value flex 列表
-      var parts = [];
-      Object.keys(v).forEach(function(k){
-        var val = v[k];
-        var display;
-        if (val !== null && typeof val === 'object') {
-          // 嵌套 dict/list: 递归 + 缩进
-          display = _renderNestedValue(val);
-          parts.push('<div style="padding:4px 0;"><div style="color:var(--text-secondary);font-size:11px;margin-bottom:4px;">' + escapeHtml(k) + '</div><div style="padding-left:10px;border-left:2px solid var(--bg-secondary);">' + display + '</div></div>');
-        } else {
-          display = _formatNestedScalar(val);
-          parts.push('<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid var(--bg-secondary);"><span style="color:var(--text-secondary);">' + escapeHtml(k) + '</span><span style="color:var(--accent);font-weight:500;">' + escapeHtml(display) + '</span></div>');
-        }
-      });
-      return parts.join('');
-    }
-    if (Array.isArray(v)) {
-      // list: bullet 列表 (数组元素是 dict 时显示 JSON, 是标量时直接展示)
-      var items = v.map(function(item){
-        if (item !== null && typeof item === 'object') {
-          return '<div style="padding:4px 0;font-size:12px;">• ' + escapeHtml(JSON.stringify(item)) + '</div>';
-        }
-        return '<div style="padding:3px 0;font-size:12px;color:var(--text-primary);">• ' + escapeHtml(_formatNestedScalar(item)) + '</div>';
-      });
-      return items.join('');
-    }
-    return '<span>' + escapeHtml(_formatNestedScalar(v)) + '</span>';
-  }
-
-  // 嵌套字段: 每个独立 details 折叠面板, 默认收起
-  if (nestedEntries.length > 0) {
-    html += '<div style="margin-top:14px;">';
-    nestedEntries.forEach(function(item) {
-      var leaves = _countLeaves(item.value);
-      html += '<details style="background:var(--bg-tertiary);border-radius:var(--radius-md);padding:8px 12px;margin-bottom:8px;">';
-      html += '<summary style="cursor:pointer;font-size:13px;color:var(--text-primary);font-weight:500;list-style:none;">';
-      html += '<span style="display:inline-block;width:14px;transition:transform 0.2s;" class="ocr-toggle-icon">▶</span> ';
-      html += escapeHtml(_label(item.key)) + ' <span style="color:var(--text-secondary);font-weight:400;">(' + leaves + ' 字段)</span>';
-      html += '</summary>';
-      html += '<div style="margin:10px 0 0 20px;line-height:1.6;">' + _renderNestedValue(item.value) + '</div>';
-      html += '</details>';
-    });
-    html += '</div>';
-  }
-
-  html += '</div>';
-  return html;
-}
 
 // ★ fix/ocr-fallback: 从 ocr_raw_fields 模糊匹配填充前端 '待补充' 字段
 //   老大反馈 '前端要显示的待补充字段' (内容类型/内容风格/视频平均件单价/账号粉丝特征/短视频粉丝特征/备注)
