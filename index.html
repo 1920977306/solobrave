@@ -2171,15 +2171,17 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
 .talents-tab-panels { flex: 1; min-height: 0; overflow-y: auto; padding: 0 14px 28px; }
 .talents-tab-panel { display: none; }
 .talents-tab-panel.active { display: block; }
+/* ui/talent-detail-redesign-2026: Apple+飞书卡片风格 — 白卡 + 12px 圆角 + 16px 间距 */
 .talents-panel-section {
   background: #ffffff;
-  border: 0.5px solid var(--separator);
-  border-radius: var(--radius-lg);
-  padding: 14px;
-  margin-bottom: 12px;
+  border: 0.5px solid var(--separator, rgba(0, 0, 0, 0.08));
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 .talents-panel-section + .talents-panel-section {
-  border-top: 0.5px solid var(--separator);
+  border-top: 0.5px solid var(--separator, rgba(0, 0, 0, 0.06));
 }
 .talents-panel-title {
   display: flex;
@@ -8108,8 +8110,8 @@ window.doLogin = function () {
   --color-border: #E5E5EA;
   --color-text-primary: #1C1C1E;
   --color-text-secondary: #6E6E73;
-  --color-primary: #007AFF;
-  --color-primary-hover: #0066D6;
+  --color-primary: #1677ff;          /* ui/talent-detail-redesign-2026: 苹果蓝 #007AFF → 飞书蓝 #1677ff (老大决策全 V2.1 token 兑换) */
+  --color-primary-hover: #0E62D9;     /* 飞书蓝 hover */
   --color-warning: #FF9500;
   --color-warning-hover: #CC7700;
   --color-ai-accent: #5E5CE6;  /* ③ AI 视觉协议主色(已用在多处, 集中 token) */
@@ -10501,22 +10503,22 @@ window.doLogin = function () {
         </div>
       </div>
     </div>
+    <!-- ui/talent-detail-redesign-2026: 6 tab 结构 (overview / sales-data / fans / cooperation / follow-ups / analysis) -->
     <div class="talents-tabs" id="talentsTabs">
       <button class="talents-tab active" data-tab="overview" onclick="switchTalentTab('overview')">概览</button>
-      <button class="talents-tab" data-tab="sales" onclick="switchTalentTab('sales')">带货数据</button>
+      <button class="talents-tab" data-tab="sales-data" onclick="switchTalentTab('sales-data')">带货数据</button>
       <button class="talents-tab" data-tab="fans" onclick="switchTalentTab('fans')">粉丝画像</button>
-      <button class="talents-tab" data-tab="products" onclick="switchTalentTab('products')">合作</button>
-      <button class="talents-tab" data-tab="followups" onclick="switchTalentTab('followups')">跟进记录</button>
-      <button class="talents-tab" data-tab="knowledge" onclick="switchTalentTab('knowledge')">分析档案</button>
+      <button class="talents-tab" data-tab="cooperation" onclick="switchTalentTab('cooperation')">合作</button>
+      <button class="talents-tab" data-tab="follow-ups" onclick="switchTalentTab('follow-ups')">跟进记录</button>
+      <button class="talents-tab" data-tab="analysis" onclick="switchTalentTab('analysis')">分析档案</button>
     </div>
     <div class="talents-tab-panels" id="talentsTabPanels">
       <div class="talents-tab-panel active" data-panel="overview" id="talentsPanelOverview"></div>
-      <div class="talents-tab-panel" data-panel="sales" id="talentsPanelSales"></div>
+      <div class="talents-tab-panel" data-panel="sales-data" id="talentsPanelSalesData"></div>
       <div class="talents-tab-panel" data-panel="fans" id="talentsPanelFans"></div>
-      <div class="talents-tab-panel" data-panel="products" id="talentsPanelProducts"></div>
-      <div class="talents-tab-panel" data-panel="records" id="talentsPanelRecords"></div>
-      <div class="talents-tab-panel" data-panel="followups" id="talentsPanelFollowUps"></div>
-      <div class="talents-tab-panel" data-panel="knowledge" id="talentsPanelKnowledge"></div>
+      <div class="talents-tab-panel" data-panel="cooperation" id="talentsPanelCooperation"></div>
+      <div class="talents-tab-panel" data-panel="follow-ups" id="talentsPanelFollowUps"></div>
+      <div class="talents-tab-panel" data-panel="analysis" id="talentsPanelAnalysis"></div>
     </div>
   </div>
 </div>
@@ -30376,80 +30378,20 @@ function _renderTalentCooperationAdvice(status) {
     + '</div>';
 }
 
-function _hashString(str) {
-  var hash = 0;
-  if (!str) return hash;
-  for (var i = 0; i < str.length; i++) {
-    var chr = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + chr;
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
+// ui/talent-detail-redesign-2026: _hashString 已删除 (仅被 fake 数据生成函数使用, commit 1 全部清掉)
 
-function _getTalentMockData(t) {
-  return {
-    category: t.category || t.fan_category || '',
-    city: t.city || '',
-    level: t.level || '',
-    risk_rating: t.risk_rating || '',
-    ai_tags: (t.ai_tags && t.ai_tags.length) ? t.ai_tags : [],
-    real_name: t.real_name || '',
-    phone: t.phone || t.contact_phone || '',
-    wechat: t.wechat || t.contact_wechat || '',
-    email: t.email || t.contact_email || '',
-    content_style: t.content_style || t.contentStyle || '',
-    product_count: t.product_count || t.total_products || 0,
-    average_price: t.average_price || 0,
-    total_gmv: t.total_gmv || 0,
-    ai_analysis: t.ai_analysis || t.ai_summary || '',
-    fans_profile: (t.fans_profile && Object.keys(t.fans_profile).length) ? t.fans_profile : {}
-  };
-}
+// ui/talent-detail-redesign-2026: _getTalentMockData 已删除 (老大禁 demo 假数据, 字段空走空状态)
+// 原函数作用: 给 DB 字段缺失时兜底空值 (但命名 "mock" 误导, 实际只是 t.X || '' 包装)
+// 所有 panel 函数现已直接 t.X || '—' / '待补充', 无 fake 数据生成
+
+// ui/talent-detail-redesign-2026: _sparkFromSeed / _renderSparkSVG / _trendFromArr 已删除
+// (原用于 KPI 卡片合成假 sparkline 趋势; 现 commit 1 改 _renderTalentPanelOverview 不再画 sparkline,
+// 真实 GMV 趋势由后端 t.gmv_trend 提供; 后端暂未返回时空状态显示破折号)
 
 // ui/talent-pix-v21: KPI sparkline mini (蝉妈妈 / 抖音星图 参考)
 // 从 talent id + metric index 生成确定性伪数据序列(无后端时间序列接口时也能展示)
-function _sparkFromSeed(seed, len) {
-  var s = 0;
-  for (var i = 0; i < seed.length; i++) s = (s * 31 + seed.charCodeAt(i)) >>> 0;
-  var arr = [];
-  var prev = 50 + (s % 50);
-  for (var i = 0; i < len; i++) {
-    s = (s * 1103515245 + 12345) >>> 0;
-    var delta = ((s % 17) - 8) * 0.8; // -6.4 ~ +6.4
-    prev = Math.max(5, Math.min(95, prev + delta));
-    arr.push(prev);
-  }
-  return arr;
-}
-function _renderSparkSVG(arr, opts) {
-  opts = opts || {};
-  var w = opts.w || 80, h = opts.h || 24, pad = 1;
-  var min = Math.min.apply(null, arr), max = Math.max.apply(null, arr);
-  var range = max - min || 1;
-  var stepX = (w - pad * 2) / (arr.length - 1);
-  var pts = arr.map(function (v, i) {
-    var x = pad + i * stepX;
-    var y = pad + (h - pad * 2) * (1 - (v - min) / range);
-    return [x, y];
-  });
-  var path = 'M ' + pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' L ');
-  var areaPath = path + ' L ' + pts[pts.length - 1][0].toFixed(1) + ',' + (h - pad) + ' L ' + pts[0][0].toFixed(1) + ',' + (h - pad) + ' Z';
-  return '<svg class="talents-metric-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">'
-    + '<path class="area" d="' + areaPath + '"></path>'
-    + '<path d="' + path + '"></path>'
-    + '</svg>';
-}
-function _trendFromArr(arr) {
-  if (arr.length < 2) return { dir: 'flat', pct: 0 };
-  var mid = Math.floor(arr.length / 2);
-  var first = arr.slice(0, mid).reduce(function (a, b) { return a + b; }, 0) / mid;
-  var second = arr.slice(mid).reduce(function (a, b) { return a + b; }, 0) / (arr.length - mid);
-  if (second === 0) return { dir: 'flat', pct: 0 };
-  var pct = ((second - first) / first) * 100;
-  var dir = Math.abs(pct) < 2 ? 'flat' : (pct > 0 ? 'up' : 'down');
-  return { dir: dir, pct: Math.round(Math.abs(pct)) };
-}
+// 注: 此函数保留但已无调用方 (commit 1 重写后 KPI 卡片不再画 sparkline)
+// 删除警告: 上线前清理, 避免误注入 fake 数据
 
 function _formatRiskLabel(risk) {
   var map = { low: '低风险', medium: '中风险', high: '高风险' };
@@ -30592,7 +30534,7 @@ function renderTalentList(talents) {
   };
   var html = '';
   talents.forEach(function(t){
-    var mock = _getTalentMockData(t);
+    // ui/talent-detail-redesign-2026: 删 _getTalentMockData 调用, 直接读 t.X
     // 评级：取 level/ai_rating 首字符，归一到 A/B/C/D；无值时降级为 D（保持左色条+头像底色可见）
     var rating = String(t.level || t.ai_rating || 'D').trim().charAt(0).toUpperCase();
     if ('ABCD'.indexOf(rating) < 0) rating = 'D';
@@ -30609,11 +30551,11 @@ function renderTalentList(talents) {
       ? '<span class="chip chip-platform" style="--chip-color:' + platformColor + ';">' + escapeHtml(platform) + '</span>'
       : '<span class="chip chip-platform">' + escapeHtml(platform) + '</span>';
     // 类目 chips（按 / , 拆，最多 2 个）
-    var categories = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
+    var categories = (t.category || t.fan_category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0, 2);
     var catChips = categories.map(function(c){ return '<span class="chip">' + escapeHtml(c) + '</span>'; }).join('');
     // 数字
     var followersText = formatFollowers(t.followers || 0).replace('w', '万');
-    var gmvRaw = t.total_gmv || mock.total_gmv || 0;
+    var gmvRaw = t.total_gmv || 0;
     var gmvText = gmvRaw >= 10000 ? ((gmvRaw / 10000).toFixed(1).replace(/\.0$/, '') + '万') : (gmvRaw > 0 ? formatNumber(gmvRaw) : '');
     var engagement = (t.video_interaction_rate || '').toString().replace(/[^\d.]/g, '');
     // 状态徽章 label (dev/feat: talents 修复 #3 — 补 resting/archived; 与 _TALENT_STATUS_MAP 对齐)
@@ -31022,6 +30964,8 @@ function selectTalentItem(id) {
   }).catch(function(e){ showToast('加载失败'); });
 }
 
+// ui/talent-detail-redesign-2026: 6 panel 重写入口
+// 概览 / 带货数据 / 粉丝画像 / 合作 / 跟进记录 / 分析档案
 function renderTalentDetail(t) {
   hideTalentEmptyState();
   _currentTalent = t;
@@ -31038,12 +30982,11 @@ function renderTalentDetail(t) {
   document.querySelectorAll('.talents-tab').forEach(function(tab){ tab.classList.toggle('active', tab.dataset.tab === 'overview'); });
   document.querySelectorAll('.talents-tab-panel').forEach(function(p){ p.classList.toggle('active', p.dataset.panel === 'overview'); });
   renderTalentPanelOverview(t);
-  renderTalentPanelSales(t);
+  renderTalentPanelSalesData(t);
   renderTalentPanelFans(t);
-  renderTalentPanelProducts(t);
-  renderTalentPanelRecords(t);
+  renderTalentPanelCooperation(t);
   renderTalentPanelFollowUps(t);
-  renderTalentPanelKnowledge(t);
+  renderTalentPanelAnalysis(t);
 }
 
 function showTalentEmptyState() {
@@ -31072,8 +31015,9 @@ function switchTalentTab(tab) {
   _talentTab = tab;
   document.querySelectorAll('.talents-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.tab === tab); });
   document.querySelectorAll('.talents-tab-panel').forEach(function(p){ p.classList.toggle('active', p.dataset.panel === tab); });
-  if (tab === 'sales' && _currentTalent) {
-    setTimeout(function(){ _drawTalentGmvChart(_currentTalent, _getTalentMockData(_currentTalent), 30); }, 50);
+  // ui/talent-detail-redesign-2026: sales-data tab 切到时画 GMV 趋势图(无 mock 数据)
+  if (tab === 'sales-data' && _currentTalent) {
+    setTimeout(function(){ _drawTalentGmvChart(_currentTalent, 30); }, 50);
   }
 }
 
@@ -31216,18 +31160,15 @@ function renderTalentAIReport(text) {
   return html;
 }
 
+// ui/talent-detail-redesign-2026: 删 _getTalentMockData 调用,所有 fallback 走空字符串 / '—' (零 fake 数据)
 function renderTalentPanelOverview(t) {
   var el = document.getElementById('talentsPanelOverview');
   if (!el) return;
-  var mock = _getTalentMockData(t);
   var st = _TALENT_STATUS_MAP[t.cooperation_status] || _TALENT_STATUS_MAP['available'];
   var ai = t.ai_reason ? (function(){ try { return JSON.parse(t.ai_reason); } catch(e){ return {}; } })() : {};
-  var tags = (t.ai_tags && t.ai_tags.length) ? t.ai_tags : mock.ai_tags;
+  var tags = (t.ai_tags && t.ai_tags.length) ? t.ai_tags : [];
   var avatar = t.avatar ? '<img src="' + escapeAttr(t.avatar) + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">' : '<span style="font-size:28px;">' + (t.name || '?').charAt(0) + '</span>';
-  var category = t.category || t.fan_category || mock.category || '-';
-  var productCount = t.product_count || t.total_products || mock.product_count || 0;
-  var averagePrice = t.average_price || mock.average_price || 0;
-  var totalGmv = t.total_gmv || mock.total_gmv || 0;
+  var category = t.category || t.fan_category || '—';
   var html = '';
 
   // 核心信息卡片
@@ -31236,13 +31177,13 @@ function renderTalentPanelOverview(t) {
   html += '<div class="talents-overview-avatar" style="background:' + (t.avatar ? '#f5f7fa' : 'var(--accent)') + ';">' + avatar + '</div>';
   html += '<div class="talents-overview-info">';
   // Hero 评级 chip:复用 _renderTalentRatingBadge(列表 v2 outline 5 评级色),和左侧列表完全一致
-  var _heroRating = t.ai_rating ? _renderTalentRatingBadge(t.ai_rating) : (mock.level ? _renderTalentRatingBadge(mock.level) : '');
+  var _heroRating = t.ai_rating ? _renderTalentRatingBadge(t.ai_rating) : (t.level ? _renderTalentRatingBadge(t.level) : '');
   html += '<div class="talents-overview-name">' + escapeHtml(t.name || '-') + ' ' + _renderTalentStatusDropdown(t.id, t.cooperation_status) + (_heroRating ? ' ' + _heroRating : '') + '</div>';
   html += '<div class="talents-overview-pills">';
-  html += '<span class="talents-overview-pill"><label>抖音号</label>' + escapeHtml(t.douyin_id || '-') + '</span>';
+  html += '<span class="talents-overview-pill"><label>抖音号</label>' + escapeHtml(t.douyin_id || '—') + '</span>';
   html += '<span class="talents-overview-pill"><label>粉丝</label>' + formatFollowers(t.followers || 0) + '</span>';
   html += '<span class="talents-overview-pill"><label>类目</label>' + escapeHtml(category) + '</span>';
-  html += '<span class="talents-overview-pill"><label>风险</label>' + escapeHtml(_formatRiskLabel(t.risk_rating || mock.risk_rating)) + '</span>';
+  html += '<span class="talents-overview-pill"><label>风险</label>' + escapeHtml(_formatRiskLabel(t.risk_rating)) + '</span>';
   html += '</div>';
   if (t.bio) html += '<div class="talents-overview-bio">' + escapeHtml(t.bio) + '</div>';
   if (tags.length) {
@@ -31251,42 +31192,36 @@ function renderTalentPanelOverview(t) {
   html += '</div>';
   html += '</div></div>';
 
-  // 核心数据（飞书带货指标）— ui/talent-pix-v21: KPI 升级 (6 列 + trend + sparkline mini)
+  // 核心数据 (6 宫格) — ui/talent-detail-redesign-2026: 删 _sparkFromSeed 假数据,
+  // 只显示真实字段值;无值时显示 '—' placeholder (无 fake trend 兜底,符合"零编造"原则)
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">核心数据</div>';
   var _kpis = [
-    { label: '粉丝量',      val: t.followers ? formatFollowers(t.followers) : '-', seed: 'fol' },
-    { label: '月结算金额',   val: t.monthly_settlement || '-',                   seed: 'mset' },
-    { label: '带货商品数',   val: t.feishu_product_count || '-',                 seed: 'prod' },
-    { label: '视频GPM',      val: t.feishu_gpm || '-',                           seed: 'gpm' },
-    { label: '单视频结算额', val: t.single_video_settlement || '-',               seed: 'svset' },
-    { label: '合作店铺数',   val: t.feishu_shops || '-',                         seed: 'shop' }
+    { label: '粉丝量',      val: t.followers ? formatFollowers(t.followers) : '—' },
+    { label: '月结算金额',   val: t.monthly_settlement || '—' },
+    { label: '带货商品数',   val: t.feishu_product_count != null ? t.feishu_product_count : '—' },
+    { label: '视频GPM',      val: t.feishu_gpm || '—' },
+    { label: '单视频结算额', val: t.single_video_settlement || '—' },
+    { label: '合作店铺数',   val: t.feishu_shops != null ? t.feishu_shops : '—' }
   ];
   html += '<div class="talents-metric-grid">';
   _kpis.forEach(function (k) {
-    var arr = _sparkFromSeed((t.id || '0') + k.seed, 12);
-    var trend = _trendFromArr(arr);
-    var trendCls = trend.dir; // up / down / flat
-    var arrow = trend.dir === 'up' ? '▲' : (trend.dir === 'down' ? '▼' : '–');
-    var cardCls = 'talents-metric-card ' + trendCls;
-    html += '<div class="' + cardCls + '">'
-      + '<div class="talents-metric-value">' + escapeHtml(k.val) + '</div>'
+    html += '<div class="talents-metric-card">'
+      + '<div class="talents-metric-value">' + escapeHtml(String(k.val)) + '</div>'
       + '<div class="talents-metric-label">' + escapeHtml(k.label) + '</div>'
-      + '<div class="talents-metric-trend ' + trendCls + '">' + arrow + ' ' + trend.pct + '%</div>'
-      + _renderSparkSVG(arr, { w: 80, h: 24 })
       + '</div>';
   });
   html += '</div></div>';
 
-  // 基础信息（飞书录入字段）
+  // 基础信息（飞书录入字段）— ui/talent-detail-redesign-2026: 删 mock.category / mock.content_style 兜底
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">基础信息</div>';
   // 8 项基础信息:任一有值就展示,全空时合并成一行 placeholder
   // ★ feature/influencer-form-validation: 空值 fallback '-' → '待补充' + 加 empty flag (CSS class value-empty 高亮橙色)
   var _bi = [
     {label:'内容类型',       val:(t.talent_type || '待补充'),                     empty:!t.talent_type,                           full:false},
-    {label:'类目',           val:(t.category || mock.category || '待补充'),       empty:!(t.category || mock.category),           full:false},
-    {label:'内容风格',       val:(t.content_style || mock.content_style || '待补充'), empty:!(t.content_style || mock.content_style), full:false},
+    {label:'类目',           val:(t.category || '待补充'),                         empty:!t.category,                              full:false},
+    {label:'内容风格',       val:(t.content_style || '待补充'),                   empty:!t.content_style,                         full:false},
     {label:'视频结算额占比',  val:(t.video_settlement_ratio || '待补充'),          empty:!t.video_settlement_ratio,                full:false},
     {label:'视频平均件单价',  val:(t.video_avg_price || '待补充'),                empty:!t.video_avg_price,                       full:false},
     {label:'账号粉丝特征',   val:(t.account_fans_profile || '待补充'),            empty:!t.account_fans_profile,                  full:true},
@@ -31306,8 +31241,8 @@ function renderTalentPanelOverview(t) {
   }
   html += '</div></div>';
 
-  // AI 分析摘要
-  var aiText = t.ai_analysis || mock.ai_analysis || '';
+  // AI 分析摘要 — ui/talent-detail-redesign-2026: 删 mock.ai_analysis 兜底
+  var aiText = t.ai_analysis || '';
   html += '<div class="talents-ai-card">';
   html += '<div class="talents-ai-title">🤖 AI 综合分析</div>';
   if (aiText) {
@@ -31322,9 +31257,11 @@ function renderTalentPanelOverview(t) {
 }
 
 function renderTalentPanelSales(t) {
-  var el = document.getElementById('talentsPanelSales');
+  // ui/talent-detail-redesign-2026: 带货数据 panel (合并原 sales + products tab)
+// 删除 _getTalentMockData + _hashString 假数据兜底, 数据为空走空状态
+function renderTalentPanelSalesData(t) {
+  var el = document.getElementById('talentsPanelSalesData');
   if (!el) return;
-  var mock = _getTalentMockData(t);
   var html = '';
 
   // GMV 趋势图
@@ -31338,48 +31275,48 @@ function renderTalentPanelSales(t) {
   html += '<canvas class="talents-gmv-chart" id="talentGmvChart"></canvas>';
   html += '</div>';
 
-  // 直播/视频数据
+  // 直播/视频数据 — ui/talent-detail-redesign-2026: '||0' 改 '||"—"' (零假数据, 空字段显示破折号)
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">内容带货占比</div>';
   html += '<div class="talents-metric-grid">';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.live_ratio || 0) + '%</div><div class="talents-metric-label">直播占比</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.video_ratio || 0) + '%</div><div class="talents-metric-label">视频占比</div></div>';
-  html += '<div class="talents-metric-card"><div class="talents-metric-value">¥' + formatNumber(t.avg_live_gmv || 0) + '</div><div class="talents-metric-label">场均直播GMV</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.live_ratio != null ? t.live_ratio + '%' : '—') + '</div><div class="talents-metric-label">直播占比</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.video_ratio != null ? t.video_ratio + '%' : '—') + '</div><div class="talents-metric-label">视频占比</div></div>';
+  html += '<div class="talents-metric-card"><div class="talents-metric-value">' + (t.avg_live_gmv != null ? '¥' + formatNumber(t.avg_live_gmv) : '—') + '</div><div class="talents-metric-label">场均直播GMV</div></div>';
   html += '</div></div>';
 
-  // 价格带与类目分布
+  // 价格带 / 类目 / 品牌集中度 (3 列 grid) — 删 fake 数据兜底
   html += '<div class="talents-distribution-grid">';
   html += '<div class="talents-distribution-card">';
   html += '<div class="talents-distribution-title">价格带分布</div>';
-  var priceDistribution = _getTalentPriceDistribution(t, mock);
+  var priceDistribution = _getTalentPriceDistribution(t);
   if (priceDistribution.length) {
     priceDistribution.forEach(function(item, idx){
       var colors = ['#0a84ff', '#36cfc9', '#73d13d', '#faad14', '#ff7875'];
       html += '<div class="talents-price-bubble"><span class="talents-price-bubble-dot" style="background:' + colors[idx % colors.length] + ';"></span><span class="talents-price-bubble-label">' + escapeHtml(item.label) + '</span><span class="talents-price-bubble-value">' + item.value + '%</span></div>';
     });
   } else {
-    html += '<div class="products-empty-text" style="padding:12px 0;">暂无数据</div>';
+    html += '<div class="talents-empty-text">暂无价格带数据</div>';
   }
   html += '</div>';
   html += '<div class="talents-distribution-card">';
   html += '<div class="talents-distribution-title">类目分布</div>';
-  var catDistribution = _getTalentCategoryDistribution(t, mock);
+  var catDistribution = _getTalentCategoryDistribution(t);
   if (catDistribution.length) {
     catDistribution.forEach(function(item){
       html += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(item.label) + '</span><span>' + item.value + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(item.value, 100) + '%"></div></div></div>';
     });
   } else {
-    html += '<div class="products-empty-text" style="padding:12px 0;">暂无数据</div>';
+    html += '<div class="talents-empty-text">暂无类目分布数据</div>';
   }
   html += '</div>';
-  // 品牌集中度环形图（与类目分布相同的数据解析逻辑）
+  // 品牌集中度环形图
   html += '<div class="talents-distribution-card">';
   html += '<div class="talents-distribution-title">品牌集中度</div>';
   var brandDistribution = _getTalentBrandDistribution(t);
   if (brandDistribution.length) {
     html += _renderTalentDonut(brandDistribution);
   } else {
-    html += '<div class="products-empty-text" style="padding:12px 0;">暂无数据</div>';
+    html += '<div class="talents-empty-text">暂无品牌分布数据</div>';
   }
   html += '</div></div>';
 
@@ -31390,8 +31327,8 @@ function renderTalentPanelSales(t) {
   html += '</div>';
   el.innerHTML = html;
 
-  // 绘制图表与加载商品
-  _drawTalentGmvChart(t, mock, 30);
+  // 绘制图表与加载商品 (签名变 1 参, 不再传 mock)
+  _drawTalentGmvChart(t, 30);
   _loadTalentSalesProducts(t);
 }
 
@@ -31399,22 +31336,22 @@ function switchTalentGmvRange(btn, days) {
   var btns = document.querySelectorAll('#talentGmvChartToggle button');
   btns.forEach(function(b){ b.classList.remove('active'); });
   btn.classList.add('active');
-  if (_currentTalent) _drawTalentGmvChart(_currentTalent, _getTalentMockData(_currentTalent), days);
+  if (_currentTalent) _drawTalentGmvChart(_currentTalent, days);
 }
 
-function _getTalentGmvTrend(mock, days) {
-  if (!mock.total_gmv) return new Array(days).fill(0);
-  var seed = _hashString(mock.category + mock.city);
-  var points = [];
-  var base = (mock.total_gmv / days) * (0.6 + (seed % 80) / 100);
-  for (var i = 0; i < days; i++) {
-    var noise = Math.sin(i * 0.3 + seed) * 0.3 + (seed % 100) / 200;
-    points.push(Math.max(0, Math.round(base * (1 + noise))));
+// ui/talent-detail-redesign-2026: 删 _hashString 假数据生成, 真实 GMV 趋势优先读 t.gmv_trend JSON
+// 后端若不返回时间序列数据, 返回空数组 → 折线图渲染空状态 (canvas 内显示提示文字)
+function _getTalentGmvTrend(t, days) {
+  if (t.gmv_trend && Array.isArray(t.gmv_trend) && t.gmv_trend.length) {
+    return t.gmv_trend.slice(0, days);
   }
-  return points;
+  if (t.monthly_gmv_trend && Array.isArray(t.monthly_gmv_trend) && t.monthly_gmv_trend.length) {
+    return t.monthly_gmv_trend.slice(0, days);
+  }
+  return [];
 }
 
-function _drawTalentGmvChart(t, mock, days) {
+function _drawTalentGmvChart(t, days) {
   var canvas = document.getElementById('talentGmvChart');
   if (!canvas) return;
   var ctx = canvas.getContext('2d');
@@ -31424,13 +31361,23 @@ function _drawTalentGmvChart(t, mock, days) {
   canvas.width = width * window.devicePixelRatio;
   canvas.height = height * window.devicePixelRatio;
   ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-  var data = _getTalentGmvTrend(mock, days);
-  var max = Math.max.apply(null, data) || 1;
+  var data = _getTalentGmvTrend(t, days);
   var padding = { top: 20, right: 10, bottom: 24, left: 44 };
   var chartW = width - padding.left - padding.right;
   var chartH = height - padding.top - padding.bottom;
 
   ctx.clearRect(0, 0, width, height);
+
+  // ui/talent-detail-redesign-2026: 空数据时画"暂无趋势数据"提示
+  if (!data.length) {
+    ctx.fillStyle = '#86909c';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('暂无 GMV 趋势数据', width / 2, height / 2);
+    return;
+  }
+
+  var max = Math.max.apply(null, data) || 1;
 
   // 网格线
   ctx.strokeStyle = 'rgba(0,0,0,0.05)';
@@ -31489,8 +31436,8 @@ function _drawTalentGmvChart(t, mock, days) {
   });
 }
 
-function _getTalentPriceDistribution(t, mock) {
-  // 优先使用真实价格带分布数据（格式: {"0-25":15.09,...,"500+":2.95}）
+// ui/talent-detail-redesign-2026: 价格带分布 — 删 _hashString fake 数据兜底, 空字段直接返回 []
+function _getTalentPriceDistribution(t) {
   var pd = t.price_distribution;
   if (pd && typeof pd === 'object' && Object.keys(pd).length > 0) {
     return Object.keys(pd).map(function(k){
@@ -31504,39 +31451,20 @@ function _getTalentPriceDistribution(t, mock) {
       return { label: label, value: pd[k] };
     });
   }
-  if (!mock.average_price) return [];
-  var seed = _hashString(t.id + 'price');
-  var avg = mock.average_price || 100;
-  return [
-    { label: '0 - ¥' + Math.round(avg * 0.5), value: 10 + seed % 20 },
-    { label: '¥' + Math.round(avg * 0.5) + ' - ¥' + Math.round(avg), value: 20 + seed % 25 },
-    { label: '¥' + Math.round(avg) + ' - ¥' + Math.round(avg * 1.5), value: 15 + seed % 20 },
-    { label: '> ¥' + Math.round(avg * 1.5), value: 5 + seed % 15 }
-  ];
+  return [];
 }
 
-function _getTalentCategoryDistribution(t, mock) {
-  // 优先使用达人真实的类目分布数据（key 为类目名称，value 为百分比数字）
+// ui/talent-detail-redesign-2026: 类目分布 — 删 "相关类目1/2" 假数据兜底
+function _getTalentCategoryDistribution(t) {
   if (t.category_distribution && typeof t.category_distribution === 'object' && Object.keys(t.category_distribution).length) {
     return Object.keys(t.category_distribution).map(function(key){
       return { label: key, value: t.category_distribution[key] };
     });
   }
-  var cats = (t.category || t.fan_category || mock.category || '').split(/[\/，,]/).map(function(s){ return s.trim(); }).filter(Boolean);
-  if (!cats.length) return [];
-  var seed = _hashString(t.id + 'cat');
-  if (cats.length < 2) cats = [cats[0] || '主营类目', '相关类目1', '相关类目2'];
-  var total = 0;
-  var dist = cats.map(function(cat, i){
-    var v = Math.max(5, 30 + (seed >> i) % 40);
-    total += v;
-    return { label: cat, raw: v };
-  });
-  return dist.map(function(item){ return { label: item.label, value: Math.round(item.raw / total * 100) }; });
+  return [];
 }
 
 function _getTalentBrandDistribution(t) {
-  // 与 category_distribution 相同的解析逻辑（key 为品牌名称，value 为百分比数字）
   if (t.brand_distribution && typeof t.brand_distribution === 'object' && Object.keys(t.brand_distribution).length) {
     return Object.keys(t.brand_distribution).map(function(key){
       return { label: key, value: t.brand_distribution[key] };
@@ -31597,11 +31525,12 @@ function _loadTalentSalesProducts(t) {
   });
 }
 
+// ui/talent-detail-redesign-2026: 粉丝画像 panel (8 子项: 性别/年龄/城市等级/消费人群/活跃度/设备/客单价/类目分布)
+// 删 _getTalentMockData 调用; fans_profile 优先读 t.ocr_raw_fields.fans_profile 兜底 (commit 2 补)
 function renderTalentPanelFans(t) {
   var el = document.getElementById('talentsPanelFans');
   if (!el) return;
-  var mock = _getTalentMockData(t);
-  var fans = t.fans_profile || mock.fans_profile || {};
+  var fans = t.fans_profile || {};
   var html = '';
   function renderDist(title, obj) {
     if (!obj || Object.keys(obj).length === 0) return '';
@@ -31646,26 +31575,8 @@ function renderTalentPanelFans(t) {
   el.innerHTML = html;
 }
 
-function renderTalentPanelProducts(t) {
-  var el = document.getElementById('talentsPanelProducts');
-  if (!el) return;
-  _currentTalentMatchProducts = { talent: t, matches: [], sortBy: 'score' };
-  var html = '<div class="talents-panel-section">';
-  html += '<div class="ai-match-header">';
-  html += '<div class="talents-panel-title" style="margin:0;padding:0;border:none;">AI 推荐可合作商品</div>';
-  html += '<div class="ai-match-actions">';
-  html += '<select class="ai-match-sort" id="talentProductSort" onchange="onTalentProductSortChange(this.value)">';
-  html += '<option value="score">按匹配度</option>';
-  html += '<option value="commission">按佣金率</option>';
-  html += '<option value="price">按价格</option>';
-  html += '</select>';
-  html += '<button class="ai-match-btn" id="btnMatchTalentProducts" onclick="runTalentProductMatch(\'' + escapeAttr(t.id) + '\')">AI 匹配商品</button>';
-  html += '</div></div>';
-  html += '<div id="talentProductMatchBody" class="ai-match-body">';
-  html += '<div class="products-empty"><div class="products-empty-text">点击上方「AI 匹配商品」按钮，为该达人智能推荐最合适的商品</div></div>';
-  html += '</div></div>';
-  el.innerHTML = html;
-}
+// ui/talent-detail-redesign-2026: renderTalentPanelProducts 已合并到 renderTalentPanelCooperation
+// (AI 推荐商品作为合作 tab 第 2 子区块, 不再独立 tab)
 
 function onTalentProductSortChange(sortBy) {
   _currentTalentMatchProducts.sortBy = sortBy;
@@ -31750,22 +31661,37 @@ function _dealWinLossLabel(c) {
   return { price_commission: '价格佣金', tone_mismatch: '调性不符', product_weak: '商品力不足', experience: '对接体验', competitor: '竞品截胡', schedule: '档期问题', other: '其他' }[c] || '';
 }
 
-function renderTalentPanelRecords(t) {
-  var el = document.getElementById('talentsPanelRecords');
+// ui/talent-detail-redesign-2026: 合作 panel (合并原 records + AI 匹配商品 products tab)
+// 删 _getTalentMockData 调用; 集成 AI 推荐可合作商品作为第 2 个子区块
+function renderTalentPanelCooperation(t) {
+  var el = document.getElementById('talentsPanelCooperation');
   if (!el) return;
   var header = '<div class="talents-follow-up-header"><div class="talents-panel-title" style="margin:0;padding:0;border:none;">合作记录</div><button class="talents-follow-up-add" onclick="createNewDeal()">+ 新增合作</button></div>';
-  el.innerHTML = '<div class="talents-panel-section">' + header + '<div class="products-loading">加载中...</div></div>';
+  var matchHeader = '<div class="ai-match-header"><div class="talents-panel-title" style="margin:0;padding:0;border:none;">AI 推荐可合作商品</div><div class="ai-match-actions">'
+    + '<button class="ai-match-btn" id="btnMatchTalentProducts" onclick="runTalentProductMatch(\'' + escapeAttr(t.id) + '\')">AI 匹配商品</button>'
+    + '</div></div>';
+  el.innerHTML = '<div class="talents-panel-section">' + header + '<div class="products-loading">加载中...</div></div>'
+    + '<div class="talents-panel-section">' + matchHeader
+    + '<div id="talentProductMatchBody" class="ai-match-body"><div class="products-empty"><div class="products-empty-text">点击上方「AI 匹配商品」按钮，为该达人智能推荐最合适的商品</div></div>'
+    + '</div></div>';
+  // 重置 match state
+  _currentTalentMatchProducts = { talent: t, matches: [], sortBy: 'score' };
+  // 拉取 deals
   apiFetch('/api/deals?talent_id=' + encodeURIComponent(t.id) + '&limit=50').then(function(r){return r.json();}).then(function(data){
     var deals = data.deals || [];
     _currentTalentDeals = deals;
     var html = '<div class="talents-panel-section">' + header;
     if (deals.length === 0) {
       html += '<div class="products-empty"><div class="products-empty-text">暂无合作记录，点击新增</div></div></div>';
+      html += '<div class="talents-panel-section">' + matchHeader
+        + '<div id="talentProductMatchBody" class="ai-match-body"><div class="products-empty"><div class="products-empty-text">点击上方「AI 匹配商品」按钮</div></div></div>';
       el.innerHTML = html;
       return;
     }
     deals.forEach(function(d){ html += _renderDealCardHTML(d); });
     html += '</div>';
+    html += '<div class="talents-panel-section">' + matchHeader
+      + '<div id="talentProductMatchBody" class="ai-match-body"><div class="products-empty"><div class="products-empty-text">点击「AI 匹配商品」按钮</div></div></div>';
     el.innerHTML = html;
   }).catch(function(e){
     el.innerHTML = '<div class="talents-panel-section">' + header + '<div class="products-empty"><div class="products-empty-text">加载失败</div></div></div>';
@@ -31957,7 +31883,7 @@ function saveDeal() {
     if (res && res.error) { showToast('保存失败: ' + (res.error.message || res.error), 'error'); return; }
     showToast(id ? '✅ 已更新' : '✅ 已新增合作');
     closeDealModal();
-    if (_currentTalent) renderTalentPanelRecords(_currentTalent);
+    if (_currentTalent) renderTalentPanelCooperation(_currentTalent);
   }).catch(function(){ showToast('❌ 保存失败'); });
 }
 
@@ -31966,7 +31892,7 @@ function deleteDeal(dealId) {
   apiFetch('/api/deals/' + encodeURIComponent(dealId), { method: 'DELETE' }).then(function(r){return r.json();}).then(function(res){
     if (res && res.error) { showToast('删除失败: ' + (res.error.message || res.error), 'error'); return; }
     showToast('✅ 已删除');
-    if (_currentTalent) renderTalentPanelRecords(_currentTalent);
+    if (_currentTalent) renderTalentPanelCooperation(_currentTalent);
   }).catch(function(){ showToast('❌ 删除失败'); });
 }
 
@@ -31976,9 +31902,7 @@ function renderTalentPanelFollowUps(t) {
   el.innerHTML = '<div class="talents-panel-section"><div class="talents-follow-up-header"><div class="talents-panel-title" style="margin:0;padding:0;border:none;">跟进记录</div><button class="talents-follow-up-add" onclick="createNewTalentFollowUp()">+ 新增跟进</button></div><div class="products-loading">加载中...</div></div>';
   apiFetch('/api/talents/' + encodeURIComponent(t.id) + '/follow-ups').then(function(r){return r.json();}).then(function(data){
     var followUps = data.follow_ups || [];
-    if (followUps.length === 0) {
-      followUps = _getMockTalentFollowUps(t);
-    }
+    // ui/talent-detail-redesign-2026: 删 _getMockTalentFollowUps 假数据兜底, 空数据走空状态
     _currentTalentFollowUps = followUps;
     el.innerHTML = _renderTalentFollowUpsHTML(t, followUps);
   }).catch(function(e){
@@ -31986,28 +31910,8 @@ function renderTalentPanelFollowUps(t) {
   });
 }
 
-function _getMockTalentFollowUps(t) {
-  var seed = _hashString(t.id + 'followups');
-  var names = ['张经理', '李运营', '王商务', '赵达人'];
-  var contents = ['电话沟通合作意向，达人表示对凉鞋类目感兴趣。', '发送货盘表与佣金政策，等待达人反馈。', '确认首场直播排期，沟通样品寄送地址。', '跟进达人短视频种草进度，提醒挂车链接。'];
-  var results = ['达成初步意向', '待反馈', '已确认排期', '持续跟进中'];
-  var now = Date.now();
-  var list = [];
-  for (var i = 0; i < 3; i++) {
-    list.push({
-      id: 'mock_' + i,
-      talent_id: t.id,
-      follow_up_at: now - (i + 1) * 7 * 24 * 60 * 60 * 1000,
-      next_follow_up_at: i === 0 ? now + 3 * 24 * 60 * 60 * 1000 : 0,
-      follow_up_by: names[(seed + i) % names.length],
-      content: contents[(seed + i) % contents.length],
-      result: results[(seed + i) % results.length],
-      status: 'completed',
-      is_mock: true
-    });
-  }
-  return list;
-}
+// ui/talent-detail-redesign-2026: _getMockTalentFollowUps 已删除 (老大禁 demo 假数据)
+// 跟进记录为空时直接显示空状态, 不再注入假张经理/李运营/Ray/婉儿/木木/孔明 假数据
 
 function _renderTalentFollowUpsHTML(t, followUps) {
   var html = '<div class="talents-panel-section">';
@@ -32045,9 +31949,10 @@ function _renderTalentFollowUpsHTML(t, followUps) {
   return html;
 }
 
-// ═══ 达人详情 - 分析档案（knowledge_events 时间线）═══
-function renderTalentPanelKnowledge(t) {
-  var el = document.getElementById('talentsPanelKnowledge');
+// ═══ ui/talent-detail-redesign-2026: 达人详情 - 分析档案（knowledge_events 时间线）═══
+// 原 renderTalentPanelKnowledge 重命名为 renderTalentPanelAnalysis
+function renderTalentPanelAnalysis(t) {
+  var el = document.getElementById('talentsPanelAnalysis');
   if (!el || !t || !t.id) return;
   el.innerHTML = '<div class="talents-panel-section"><div class="talents-panel-title">分析档案</div><div class="products-loading">加载中...</div></div>';
   apiFetch('/api/knowledge-events?entity_type=talent&entity_id=' + encodeURIComponent(t.id))
@@ -32167,7 +32072,7 @@ function _uploadTalentAnalysisImages(files) {
         showToast('✅ 已提交给 Helen 分析');
       }
       // HeavyPipe 分析耗时较长，延迟刷新分析档案面板
-      setTimeout(function(){ if (_currentTalent) renderTalentPanelKnowledge(_currentTalent); }, 30000);
+      setTimeout(function(){ if (_currentTalent) renderTalentPanelAnalysis(_currentTalent); }, 30000);
     })
     .catch(function(e){
       console.error('[TalentAnalysis] 上传失败:', e);
