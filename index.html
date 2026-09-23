@@ -30961,13 +30961,19 @@ function parseTalentAIReport(text) {
   //   (后端 Mini 端在 data/agents.json 改, Mavis 不能碰 data/ 目录)
   function _hasUnverifiedNumbers(body) {
     if (!body) return false;
-    // 匹配: 预估 GMV 50万 / 预计曝光 10万次 / 预估转化率 5% / GMV 50-100万
+    // ★ ui/talent-detail-redesign-v2-cleanup commit 8 (老大 2026-09-23 review 风险):
+    //   commit 6 旧 regex 模式 3/4/5 没有"预估/预计"意图前缀,会误杀真实数据:
+    //     - "GMV 50万/月" (真实) 被藏 ✗
+    //     - "转化率 3.5%, 行业平均 5%" (真实) 被藏 ✗
+    //     - "50万 GMV, 月均带货 12场" (真实) 被藏 ✗
+    //   修复: 模式 3/4/5 全部加"预估"前缀, 只藏 LLM 编造数字, 真实数据不藏
+    //   老大要求"显式标记/白名单, 而不是见到数字就藏" — 意图前缀是最稳的白名单
     var patterns = [
       /预估[^\n]{0,20}(GMV|曝光|转化率|销售额|成交|GPM|佣金)/i,
       /预计[^\n]{0,20}(GMV|曝光|转化率|销售额|成交|GPM|佣金)/i,
-      /(GMV|曝光|销售额)[^\n]{0,10}\d+\s*[万千wW]/i,
-      /\d+%\s*(转化率|转化|CTR|点击率)/,
-      /\d+\s*[万千wW]\s*(GMV|销售额|成交额)/i
+      /预估[^\n]{0,20}\d+\s*[万千wW]/i,
+      /预估[^\n]{0,20}\d+%\s*(转化率|转化|CTR|点击率)/i,
+      /预估[^\n]{0,20}\d+\s*[万千wW]\s*(GMV|销售额|成交额)/i
     ];
     for (var i = 0; i < patterns.length; i++) {
       if (patterns[i].test(body)) return true;
