@@ -289,6 +289,47 @@ def _parse_follower_count_py(v):
         return 0
 
 
+def _parse_markdown_table_llm_py(text):
+    """★ fix/talent-full-sync-r7: Markdown 表格 / JSON 块 → JSON 字符串 解析 helper (Python 等价 JS _parseMarkdownTableLLM).
+
+    LLM 输出格式多样 (Markdown 表格 / 单行逗号分隔 / JSON 块), 容错处理.
+    """
+    import re
+    import json as _json
+    if not text or not isinstance(text, str):
+        return None
+    trimmed = text.strip()
+    if not trimmed:
+        return None
+    # 1. 已是 JSON 格式 (LLM 输出 ```json ... ```) → 直接验证
+    if trimmed[0] in ('[', '{'):
+        try:
+            return _json.dumps(_json.loads(trimmed), ensure_ascii=False)
+        except Exception:
+            pass
+    # 2. Markdown 表格 (含 | 分隔符) → 解析
+    lines = [l.strip() for l in trimmed.split('\n') if l.strip()]
+    table_lines = [l for l in lines if '|' in l and not re.match(r'^[\|\s\-:]+$', l)]
+    if len(table_lines) < 2:
+        # 3. 单行: 逗号 / 中文逗号分隔 (热卖品牌TOP3: 哈比熊, 其他A, 其他B)
+        if re.search(r'[,，]', trimmed):
+            items = [s.strip() for s in re.split(r'[,，]', trimmed) if s.strip()]
+            return _json.dumps(items, ensure_ascii=False)
+        return None
+    # Markdown 表格解析
+    headers = [s.strip() for s in table_lines[0].split('|') if s.strip()]
+    if not headers:
+        return None
+    rows = []
+    for line in table_lines[1:]:
+        cells = [s.strip() for s in line.split('|') if s.strip()]
+        item = {}
+        for j, h in enumerate(headers):
+            item[h] = cells[j] if j < len(cells) else ''
+        rows.append(item)
+    return _json.dumps(rows, ensure_ascii=False)
+
+
 def _extract_talent_fields_from_llm_reply_py(reply):
     """★ r3 Python 等价: 跟 index.html _extractTalentFieldsFromLLMReply 同 regex 解析."""
     import re
@@ -326,7 +367,7 @@ def _extract_talent_fields_from_llm_reply_py(reply):
     if m:
         fields['product_count'] = int(m.group(2)) or 0
 
-    m = re.search(r'(合作店铺数|关联店铺数)[：:\s*]*([0-9]+)', reply)
+    m = re.search(r'(合作店铺数|关联店铺数|总店铺数|合作店铺)[：:\s*]*([0-9]+)', reply)
     if m:
         fields['total_shops'] = int(m.group(2)) or 0
 
@@ -334,7 +375,7 @@ def _extract_talent_fields_from_llm_reply_py(reply):
     if m:
         fields['video_gpm'] = m.group(1)
 
-    m = re.search(r'单视频结算额[：:\s*]*[¥￥]?([0-9,\-]+)', reply)
+    m = re.search(r'(?:单视频结算额|单视频结算)[：:\s*]*[¥￥]?([0-9,\-]+)', reply)
     if m:
         fields['single_video_settlement'] = m.group(1)
 
@@ -342,16 +383,16 @@ def _extract_talent_fields_from_llm_reply_py(reply):
     if m:
         fields['video_interaction_rate'] = (float(m.group(1)) or 0) / 100
 
-    m = re.search(r'直播(?:场次|场数|场|次|数)?[：:\s*]*([0-9]+)', reply)
+    m = re.search(r'(?<!\S)直播(?:场次|场数|场|次|数)?[：:\s*]*([0-9]+)', reply)
     if m:
         fields['live_sessions'] = int(m.group(1)) or 0
 
-    m = re.search(r'带货天数[：:\s*]*([0-9]+)', reply)
+    m = re.search(r'(?:带货天数|合作天数|历史带货天数)[：:\s*]*([0-9]+)', reply)
     if m:
         fields['cooperation_days'] = int(m.group(1)) or 0
 
     # ───── 基础信息 ─────
-    m = re.search(r'内容类型[：:\s*]*([^\n,。；]+)', reply)
+    m = re.search(r'(?:内容类型|类型|带货方式)[：:\s*]*([^\n,。；]+)', reply)
     if m:
         fields['talent_type'] = m.group(1).strip()
 
@@ -359,7 +400,7 @@ def _extract_talent_fields_from_llm_reply_py(reply):
     if m:
         fields['content_style'] = m.group(1).strip()
 
-    m = re.search(r'(?:账号粉丝特征|粉丝特征|粉丝画像|账号粉丝画像)[：:\s*]*([^\n,。；]+)', reply)
+    m = re.search(r'(?:账号粉丝特征|粉丝特征|粉丝画像|账号粉丝画像|消费偏好)[：:\s*]*([^\n,。；]+)', reply)
     if m:
         fields['account_fans_profile'] = m.group(1).strip()
 
@@ -405,6 +446,197 @@ def _extract_talent_fields_from_llm_reply_py(reply):
     m = re.search(r'(?:^|\n)\s*[-*]?\s*(?:\*\*)?带货方式(?:\*\*)?[：:\s*]([^\n,。；*]+?)\s*(?:\*\*)?\s*$', reply, re.MULTILINE)
     if m and not fields.get('talent_type'):
         fields['talent_type'] = m.group(1).strip()
+
+    # ───── ★ fix/talent-full-sync-r5/r6/r7: 同步 JS 22 字段提取 (Mini 漏同步 Python) ─────
+    m = re.search(r'(?:场均结算额|场均GMV)[：:\s*]*[¥￥]?([0-9,\-万千]+)', reply)
+    if m:
+        fields['avg_session_gmv'] = m.group(1)
+
+    m = re.search(r'(?:直播GMV占比|live_gmv_ratio)[：:\s*]*([0-9\.]+\s*%?)', reply)
+    if m:
+        fields['live_gmv_ratio'] = m.group(1).strip()
+
+    m = re.search(r'(?:短视频占比|视频GMV占比|video_gmv_ratio)[：:\s*]*([0-9\.]+\s*%?)', reply)
+    if m:
+        fields['video_gmv_ratio'] = m.group(1).strip()
+
+    m = re.search(r'(?:直播平均件单价|live_avg_price|直播件单价)[：:\s*]*[¥￥]?([0-9,\-]+)', reply)
+    if m:
+        fields['live_avg_price'] = m.group(1)
+
+    m = re.search(r'(?:完播率|completion_rate|视频完播率)[：:\s*]*([0-9\.]+\s*%?)', reply)
+    if m:
+        fields['completion_rate'] = m.group(1).strip()
+
+    m = re.search(r'(?:粉丝变化数|粉丝增量|fan_growth)[：:\s]*([\-+]?[0-9,]+)', reply)
+    if m:
+        try:
+            fields['fan_growth'] = int(m.group(1).replace(',', '')) or 0
+        except ValueError:
+            fields['fan_growth'] = 0
+
+    m = re.search(r'(?:粉丝变化率|粉丝增速|fan_growth_rate)[：:\s*]*([\-+]?[0-9\.]+\s*%?)', reply)
+    if m:
+        fields['fan_growth_rate'] = m.group(1).strip()
+
+    # 热卖类目TOP3 (Markdown → JSON, fallback 单行)
+    m = re.search(r'(?:热卖类目TOP3|热卖类目|hot_categories|类目TOP3)[：:\s]*\n?([\s\S]*?)(?=\n\n|\n#|$)', reply)
+    if m:
+        parsed = _parse_markdown_table_llm_py(m.group(1))
+        if parsed is not None:
+            fields['hot_categories'] = parsed
+        else:
+            first_line = m.group(1).strip().split('\n')[0]
+            fields['hot_categories'] = first_line
+
+    # 热卖品牌TOP3 (Markdown → JSON + r8 commission 兜底)
+    m = re.search(r'(?:热卖品牌TOP3|热卖品牌|hot_brands|品牌TOP3)[：:\s]*\n?([\s\S]*?)(?=\n\n|\n#|$)', reply)
+    if m:
+        parsed = _parse_markdown_table_llm_py(m.group(1))
+        if parsed is not None:
+            try:
+                import json as _json
+                arr = _json.loads(parsed)
+                if isinstance(arr, list):
+                    for item in arr:
+                        if not isinstance(item, dict):
+                            continue
+                        if 'commission' not in item and '佣金' not in item:
+                            item['commission'] = item.get('commission') or item.get('佣金') or '未提供'
+                    fields['hot_brands'] = _json.dumps(arr, ensure_ascii=False)
+                else:
+                    fields['hot_brands'] = parsed
+            except Exception:
+                fields['hot_brands'] = parsed
+        else:
+            first_line = m.group(1).strip().split('\n')[0]
+            fields['hot_brands'] = first_line
+
+    # 合作品牌列表 (Markdown → JSON)
+    m = re.search(r'(?:合作品牌[列表]?|cooperating_brands)[：:\s]*\n?([\s\S]*?)(?=\n\n|\n#|$)', reply)
+    if m:
+        parsed = _parse_markdown_table_llm_py(m.group(1))
+        if parsed is not None:
+            fields['cooperating_brands'] = parsed
+
+    # 品牌详情 (Markdown → JSON)
+    m = re.search(r'(?:品牌详情|brand_details)[：:\s]*\n?([\s\S]*?)(?=\n\n|\n#|$)', reply)
+    if m:
+        parsed = _parse_markdown_table_llm_py(m.group(1))
+        if parsed is not None:
+            fields['brand_details'] = parsed
+
+    # 带货商品明细 (Markdown → JSON + r8 live_session_count 兜底 + 代表商品 lookbehind 防列头误匹配)
+    m = re.search(r'(?:带货商品明细|带货商品列表|带货商品|products|(?<!\| )代表商品)[：:\s]*\n?([\s\S]*?)(?=\n\n|\n#|$)', reply)
+    if m:
+        parsed = _parse_markdown_table_llm_py(m.group(1))
+        if parsed is not None:
+            try:
+                import json as _json
+                arr = _json.loads(parsed)
+                if isinstance(arr, list):
+                    for item in arr:
+                        if not isinstance(item, dict):
+                            continue
+                        if 'live_session_count' not in item and '关联直播场次' not in item:
+                            try:
+                                item['live_session_count'] = int(item.get('live_session_count') or item.get('关联直播场次') or 0)
+                            except (ValueError, TypeError):
+                                item['live_session_count'] = 0
+                    fields['products'] = _json.dumps(arr, ensure_ascii=False)
+                else:
+                    fields['products'] = parsed
+            except Exception:
+                fields['products'] = parsed
+
+    m = re.search(r'(?:主推类目|main_category|主推带货类目)[：:\s*]*([^\n,。；]+)', reply)
+    if m:
+        fields['main_category'] = m.group(1).strip()
+
+    m = re.search(r'(?:带货要求|合作要求|cooperation_requirements)[：:\s*]*([^\n]+)', reply)
+    if m:
+        fields['cooperation_requirements'] = m.group(1).strip()
+
+    m = re.search(r'(?:履约分|fulfillment_score)[：:\s*]*([0-9\.]+)', reply)
+    if m:
+        fields['fulfillment_score_alias_rename'] = m.group(1)
+
+    m = re.search(r'(?:点赞数?|likes?)[：:\s*]*([0-9,]+)', reply)
+    if m:
+        try:
+            fields['likes'] = int(m.group(1).replace(',', '')) or 0
+        except ValueError:
+            fields['likes'] = 0
+
+    m = re.search(r'(?:评论数?|comments?)[：:\s*]*([0-9,]+)', reply)
+    if m:
+        try:
+            fields['comments'] = int(m.group(1).replace(',', '')) or 0
+        except ValueError:
+            fields['comments'] = 0
+
+    m = re.search(r'(?:转发数?|分享数?|shares?)[：:\s*]*([0-9,]+)', reply)
+    if m:
+        try:
+            fields['shares'] = int(m.group(1).replace(',', '')) or 0
+        except ValueError:
+            fields['shares'] = 0
+
+    m = re.search(r'(?:机构|签约机构|agency)[：:\s*]*([^\n,。；]+)', reply)
+    if m:
+        fields['agency'] = m.group(1).strip()
+
+    m = re.search(r'(?:视频数|视频数量|带货视频数量)[：:\s*]*([0-9]+)', reply)
+    if m:
+        fields['video_count'] = int(m.group(1)) or 0
+
+    m = re.search(r'(?:播放量|视频播放量|带货视频播放量)[：:\s*]*([0-9,\.万千]+)', reply)
+    if m:
+        fields['video_plays'] = m.group(1)  # ★ raw 字符串 (跟 r5 测试期望一致: '100万' 而不是 1000000)
+
+    # ───── ★ fix/talent-full-sync-r6: 4 新字段 ─────
+    m = re.search(r'(?:带货直播场次|带货场次|live_stream_sessions)[：:\s*]*([0-9]+)\s*场?', reply)
+    if m:
+        fields['live_stream_sessions'] = int(m.group(1)) or 0
+
+    m = re.search(r'(?:带货直播观看人数|live_stream_viewers|直播观看人数)[：:\s*]*([0-9,\.万千]+)', reply)
+    if m:
+        fields['live_stream_viewers'] = _parse_follower_count_py(m.group(1))
+
+    m = re.search(r'(?:佣金参考|brand_commission|品牌佣金参考)[：:\s*]*([^\n]+)', reply)
+    if m:
+        fields['brand_commission'] = m.group(1).strip()
+
+    m = re.search(r'(?:统计时间|数据时效|data_period|数据周期)[：:\s*]*([^\n]+)', reply)
+    if m:
+        fields['data_period'] = m.group(1).strip()
+
+    m = re.search(r'(?:平均客单价|平均件单价)[：:\s*]*[¥￥]?([0-9,\-]+)', reply)
+    if m:
+        fields['avg_order_price'] = m.group(1)
+
+    # 粉丝画像拼接 (活跃度/设备/价格带/品类偏好/省份TOP → 拼到 account_fans_profile)
+    _fan_profile_extras = []
+    m = re.search(r'(?:粉丝活跃度|活跃度)[：:\s*]*([^\n]+)', reply)
+    if m:
+        _fan_profile_extras.append('活跃度: ' + m.group(1).strip())
+    m = re.search(r'(?:粉丝设备|设备分布)[：:\s*]*([^\n]+)', reply)
+    if m:
+        _fan_profile_extras.append('设备: ' + m.group(1).strip())
+    m = re.search(r'(?:粉丝价格带|价格带偏好|客单价偏好)[：:\s*]*([^\n]+)', reply)
+    if m:
+        _fan_profile_extras.append('价格带: ' + m.group(1).strip())
+    m = re.search(r'(?:粉丝品类偏好|品类偏好)[：:\s*]*([^\n]+)', reply)
+    if m:
+        _fan_profile_extras.append('品类偏好: ' + m.group(1).strip())
+    m = re.search(r'(?:粉丝省份TOP|粉丝省份分布|省份分布)[：:\s*]*([^\n]+)', reply)
+    if m:
+        _fan_profile_extras.append('省份TOP: ' + m.group(1).strip())
+
+    if _fan_profile_extras:
+        existing = fields.get('account_fans_profile', '') or ''
+        sep = '\n' if existing else ''
+        fields['account_fans_profile'] = existing + sep + '\n'.join(_fan_profile_extras)
 
     return {'talent_id': talent_id, 'body': fields}
 

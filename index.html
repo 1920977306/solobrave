@@ -26145,13 +26145,13 @@ function _extractTalentFieldsFromLLMReply(reply) {
     t = reply.match(/(?:视频\s*GPM|GPM)[：:\s*]*([0-9,\-]+)/);
     if (t) fields.video_gpm = t[1];
 
-    t = reply.match(/单视频结算额[：:\s*]*[¥￥]?([0-9,\-]+)/);
+    t = reply.match(/(?:单视频结算额|单视频结算)[：:\s*]*[¥￥]?([0-9,\-]+)/);
     if (t) fields.single_video_settlement = t[1];
 
     t = reply.match(/互动率[：:\s*]*([0-9\.]+)\s*%/);
     if (t) fields.video_interaction_rate = (parseFloat(t[1]) || 0) / 100;
 
-    t = reply.match(/直播(?:场次|场数|场|次|数)?[：:\s*]*([0-9]+)/);
+    t = reply.match(/(?<!\S)直播(?:场次|场数|场|次|数)?[：:\s*]*([0-9]+)/);
     if (t) fields.live_sessions = parseInt(t[1]) || 0;
 
     t = reply.match(/带货天数[：:\s*]*([0-9]+)/);
@@ -26243,7 +26243,7 @@ function _extractTalentFieldsFromLLMReply(reply) {
         if (parsed) fields.brand_details = parsed;
     }
 
-    t = reply.match(/(?:带货商品[明细列表]|products|代表商品)[：:\s*]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
+    t = reply.match(/(?:带货商品明细|带货商品列表|带货商品|products|(?<!\| )代表商品)[：:\s*]*\n?([\s\S]*?)(?=\n\n|\n#|$)/);
     if (t) {
         var parsed = _parseMarkdownTableLLM(t[1]);
         if (parsed) {
