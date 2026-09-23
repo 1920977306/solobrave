@@ -2297,30 +2297,9 @@ input, textarea { font: inherit; border: none; outline: none; resize: none; }
   margin-top: 4px;
   font-weight: 500;
 }
-.talents-metric-trend {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  margin-top: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-}
-.talents-metric-trend.up { color: var(--color-rating-a, #34C759); }
-.talents-metric-trend.down { color: var(--color-status-lost, #FF3B30); }
-.talents-metric-trend.flat { color: var(--color-text-tertiary, #AEAEB2); }
-.talents-metric-spark {
-  display: block;
-  margin-top: 6px;
-  width: 100%;
-  height: 24px;
-}
-.talents-metric-spark path { stroke: var(--color-primary, #007AFF); fill: none; stroke-width: 1.5; }
-.talents-metric-spark .area { fill: rgba(0, 122, 255, 0.08); stroke: none; }
-.talents-metric-card.up .talents-metric-spark path { stroke: var(--color-rating-a, #34C759); }
-.talents-metric-card.up .talents-metric-spark .area { fill: rgba(52, 199, 89, 0.1); }
-.talents-metric-card.down .talents-metric-spark path { stroke: var(--color-status-lost, #FF3B30); }
-.talents-metric-card.down .talents-metric-spark .area { fill: rgba(255, 59, 48, 0.08); }
+/* ★ ui/talent-detail-redesign-v2-cleanup: .talents-metric-trend / .talents-metric-spark
+   / .talents-metric-card.up / .talents-metric-card.down CSS 已删除 (老大 2026-09-23)
+   KPI 6 宫格 sparkline 假数据 + trend % 全删, 只剩 value + label */
 .talents-ai-card {
   background: var(--color-bg, #FFFFFF);
   border: 0.5px solid var(--separator);
@@ -30313,80 +30292,16 @@ function _renderTalentCooperationAdvice(status) {
     + '</div>';
 }
 
-function _hashString(str) {
-  var hash = 0;
-  if (!str) return hash;
-  for (var i = 0; i < str.length; i++) {
-    var chr = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + chr;
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
-
-function _getTalentMockData(t) {
-  return {
-    category: t.category || t.fan_category || '',
-    city: t.city || '',
-    level: t.level || '',
-    risk_rating: t.risk_rating || '',
-    ai_tags: (t.ai_tags && t.ai_tags.length) ? t.ai_tags : [],
-    real_name: t.real_name || '',
-    phone: t.phone || t.contact_phone || '',
-    wechat: t.wechat || t.contact_wechat || '',
-    email: t.email || t.contact_email || '',
-    content_style: t.content_style || t.contentStyle || '',
-    product_count: t.product_count || t.total_products || 0,
-    average_price: t.average_price || 0,
-    total_gmv: t.total_gmv || 0,
-    ai_analysis: t.ai_analysis || t.ai_summary || '',
-    fans_profile: (t.fans_profile && Object.keys(t.fans_profile).length) ? t.fans_profile : {}
-  };
-}
-
-// ui/talent-pix-v21: KPI sparkline mini (蝉妈妈 / 抖音星图 参考)
-// 从 talent id + metric index 生成确定性伪数据序列(无后端时间序列接口时也能展示)
-function _sparkFromSeed(seed, len) {
-  var s = 0;
-  for (var i = 0; i < seed.length; i++) s = (s * 31 + seed.charCodeAt(i)) >>> 0;
-  var arr = [];
-  var prev = 50 + (s % 50);
-  for (var i = 0; i < len; i++) {
-    s = (s * 1103515245 + 12345) >>> 0;
-    var delta = ((s % 17) - 8) * 0.8; // -6.4 ~ +6.4
-    prev = Math.max(5, Math.min(95, prev + delta));
-    arr.push(prev);
-  }
-  return arr;
-}
-function _renderSparkSVG(arr, opts) {
-  opts = opts || {};
-  var w = opts.w || 80, h = opts.h || 24, pad = 1;
-  var min = Math.min.apply(null, arr), max = Math.max.apply(null, arr);
-  var range = max - min || 1;
-  var stepX = (w - pad * 2) / (arr.length - 1);
-  var pts = arr.map(function (v, i) {
-    var x = pad + i * stepX;
-    var y = pad + (h - pad * 2) * (1 - (v - min) / range);
-    return [x, y];
-  });
-  var path = 'M ' + pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' L ');
-  var areaPath = path + ' L ' + pts[pts.length - 1][0].toFixed(1) + ',' + (h - pad) + ' L ' + pts[0][0].toFixed(1) + ',' + (h - pad) + ' Z';
-  return '<svg class="talents-metric-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">'
-    + '<path class="area" d="' + areaPath + '"></path>'
-    + '<path d="' + path + '"></path>'
-    + '</svg>';
-}
-function _trendFromArr(arr) {
-  if (arr.length < 2) return { dir: 'flat', pct: 0 };
-  var mid = Math.floor(arr.length / 2);
-  var first = arr.slice(0, mid).reduce(function (a, b) { return a + b; }, 0) / mid;
-  var second = arr.slice(mid).reduce(function (a, b) { return a + b; }, 0) / (arr.length - mid);
-  if (second === 0) return { dir: 'flat', pct: 0 };
-  var pct = ((second - first) / first) * 100;
-  var dir = Math.abs(pct) < 2 ? 'flat' : (pct > 0 ? 'up' : 'down');
-  return { dir: dir, pct: Math.round(Math.abs(pct)) };
-}
+// ★ ui/talent-detail-redesign-v2-cleanup: 4 个假数据生成函数已删除 (老大 2026-09-23)
+//   - _hashString: 字符串 hash 当种子 (sin/linear congruential)
+//   - _sparkFromSeed: KPI 6 宫格 sparkline mini 假数据
+//   - _renderSparkSVG: 渲染 sparkline SVG
+//   - _trendFromArr: sparkline 算 up/down/flat + pct
+//   全部 commit 1 干掉, KPI 卡只画 value + label
+//
+// 注: _sparkFromSeedP / _renderSparkSVGP / _trendFromArrP (P 后缀) 是 products 模块独立函数,
+//   仍在 L29264+ 使用, 不在本 commit 范围 (产品模块的 mid-card sparkline 由产品 redesign 处理)
+// 注: _getTalentMockData 保留 (其他面板依赖字段 fallback 包装, 但 mock 不再含假数据生成)
 
 function _formatRiskLabel(risk) {
   var map = { low: '低风险', medium: '中风险', high: '高风险' };
@@ -31009,9 +30924,7 @@ function switchTalentTab(tab) {
   _talentTab = tab;
   document.querySelectorAll('.talents-tab').forEach(function(t){ t.classList.toggle('active', t.dataset.tab === tab); });
   document.querySelectorAll('.talents-tab-panel').forEach(function(p){ p.classList.toggle('active', p.dataset.panel === tab); });
-  if (tab === 'sales' && _currentTalent) {
-    setTimeout(function(){ _drawTalentGmvChart(_currentTalent, _getTalentMockData(_currentTalent), 30); }, 50);
-  }
+  // ★ ui/talent-detail-redesign-v2-cleanup: GMV canvas 已删除, setTimeout 画图调用一并删
 }
 
 // 解析达人 AI 分析报告 Markdown，提取结构化字段
@@ -31191,26 +31104,21 @@ function renderTalentPanelOverview(t) {
   // 核心数据（飞书带货指标）— ui/talent-pix-v21: KPI 升级 (6 列 + trend + sparkline mini)
   html += '<div class="talents-panel-section">';
   html += '<div class="talents-panel-title">核心数据</div>';
+  // ★ ui/talent-detail-redesign-v2-cleanup: 删 KPI 假 sparkline + trend % (老大 2026-09-23)
+  //   无后端时间序列接口时画假折线 + 假趋势 %, 等于编造数字 → 全删, 只留 value + label
   var _kpis = [
-    { label: '粉丝量',      val: t.followers ? formatFollowers(t.followers) : '-', seed: 'fol' },
-    { label: '月结算金额',   val: t.monthly_settlement || '-',                   seed: 'mset' },
-    { label: '带货商品数',   val: t.feishu_product_count || '-',                 seed: 'prod' },
-    { label: '视频GPM',      val: t.feishu_gpm || '-',                           seed: 'gpm' },
-    { label: '单视频结算额', val: t.single_video_settlement || '-',               seed: 'svset' },
-    { label: '合作店铺数',   val: t.feishu_shops || '-',                         seed: 'shop' }
+    { label: '粉丝量',      val: t.followers ? formatFollowers(t.followers) : '-' },
+    { label: '月结算金额',   val: t.monthly_settlement || '-' },
+    { label: '带货商品数',   val: t.feishu_product_count || '-' },
+    { label: '视频GPM',      val: t.feishu_gpm || '-' },
+    { label: '单视频结算额', val: t.single_video_settlement || '-' },
+    { label: '合作店铺数',   val: t.feishu_shops || '-' }
   ];
   html += '<div class="talents-metric-grid">';
   _kpis.forEach(function (k) {
-    var arr = _sparkFromSeed((t.id || '0') + k.seed, 12);
-    var trend = _trendFromArr(arr);
-    var trendCls = trend.dir; // up / down / flat
-    var arrow = trend.dir === 'up' ? '▲' : (trend.dir === 'down' ? '▼' : '–');
-    var cardCls = 'talents-metric-card ' + trendCls;
-    html += '<div class="' + cardCls + '">'
+    html += '<div class="talents-metric-card">'
       + '<div class="talents-metric-value">' + escapeHtml(k.val) + '</div>'
       + '<div class="talents-metric-label">' + escapeHtml(k.label) + '</div>'
-      + '<div class="talents-metric-trend ' + trendCls + '">' + arrow + ' ' + trend.pct + '%</div>'
-      + _renderSparkSVG(arr, { w: 80, h: 24 })
       + '</div>';
   });
   html += '</div></div>';
@@ -31481,15 +31389,13 @@ function renderTalentPanelSales(t) {
   var mock = _getTalentMockData(t);
   var html = '';
 
-  // GMV 趋势图
+  // ★ ui/talent-detail-redesign-v2-cleanup: GMV 趋势图组件已删 (老大 2026-09-23)
+  //   原本是基于 _getTalentMockData.total_gmv + sin 波合成 30/90 天假折线
+  //   DB 无 gmv_trend 字段, OCR 也无时间序列, 后端没有 GMV 时间序列接口
+  //   现在直接显示"暂无 GMV 趋势数据"占位, 等后端接入真实接口再加
   html += '<div class="talents-panel-section">';
-  html += '<div class="talents-chart-header">';
-  html += '<div class="talents-panel-title" style="margin:0;padding:0;border:none;">GMV 趋势</div>';
-  html += '<div class="talents-chart-toggle" id="talentGmvChartToggle">';
-  html += '<button class="active" onclick="switchTalentGmvRange(this, 30)">近30天</button>';
-  html += '<button onclick="switchTalentGmvRange(this, 90)">近90天</button>';
-  html += '</div></div>';
-  html += '<canvas class="talents-gmv-chart" id="talentGmvChart"></canvas>';
+  html += '<div class="talents-panel-title">GMV 趋势</div>';
+  html += '<div class="talents-empty-text">暂无 GMV 趋势数据(后端时间序列接口未接入)</div>';
   html += '</div>';
 
   // 直播/视频数据
@@ -31505,10 +31411,11 @@ function renderTalentPanelSales(t) {
   html += '<div class="talents-distribution-grid">';
   html += '<div class="talents-distribution-card">';
   html += '<div class="talents-distribution-title">价格带分布</div>';
-  var priceDistribution = _getTalentPriceDistribution(t, mock);
+  var priceDistribution = _getTalentPriceDistribution(t);
   if (priceDistribution.length) {
     priceDistribution.forEach(function(item, idx){
-      var colors = ['#0a84ff', '#36cfc9', '#73d13d', '#faad14', '#ff7875'];
+      // ★ ui/talent-detail-redesign-v2-cleanup: V2.1 token 兑换 #0a84ff → #1677ff
+      var colors = ['#1677ff', '#36cfc9', '#73d13d', '#faad14', '#ff7875'];
       html += '<div class="talents-price-bubble"><span class="talents-price-bubble-dot" style="background:' + colors[idx % colors.length] + ';"></span><span class="talents-price-bubble-label">' + escapeHtml(item.label) + '</span><span class="talents-price-bubble-value">' + item.value + '%</span></div>';
     });
   } else {
@@ -31517,7 +31424,7 @@ function renderTalentPanelSales(t) {
   html += '</div>';
   html += '<div class="talents-distribution-card">';
   html += '<div class="talents-distribution-title">类目分布</div>';
-  var catDistribution = _getTalentCategoryDistribution(t, mock);
+  var catDistribution = _getTalentCategoryDistribution(t);
   if (catDistribution.length) {
     catDistribution.forEach(function(item){
       html += '<div class="products-progress-item"><div class="products-progress-header"><span>' + escapeHtml(item.label) + '</span><span>' + item.value + '%</span></div><div class="products-progress-bar"><div class="products-progress-fill" style="width:' + Math.min(item.value, 100) + '%"></div></div></div>';
@@ -31544,109 +31451,26 @@ function renderTalentPanelSales(t) {
   html += '</div>';
   el.innerHTML = html;
 
-  // 绘制图表与加载商品
-  _drawTalentGmvChart(t, mock, 30);
+  // 加载商品(GMV canvas 已删)
   _loadTalentSalesProducts(t);
 }
 
-function switchTalentGmvRange(btn, days) {
-  var btns = document.querySelectorAll('#talentGmvChartToggle button');
-  btns.forEach(function(b){ b.classList.remove('active'); });
-  btn.classList.add('active');
-  if (_currentTalent) _drawTalentGmvChart(_currentTalent, _getTalentMockData(_currentTalent), days);
-}
+// ★ ui/talent-detail-redesign-v2-cleanup: switchTalentGmvRange / _getTalentGmvTrend / _drawTalentGmvChart
+//   已删除 (老大 2026-09-23): GMV 趋势图原为 sin 波 + hash 合成假数据,违反零编造规则
+//   后端无 gmv_trend 字段, OCR 也无时间序列, 后端无 GMV 时间序列接口
+//   保留 _getTalentGmvTrend 函数签名空 stub,等后端接入真实数据时再实现
 
-function _getTalentGmvTrend(mock, days) {
-  if (!mock.total_gmv) return new Array(days).fill(0);
-  var seed = _hashString(mock.category + mock.city);
-  var points = [];
-  var base = (mock.total_gmv / days) * (0.6 + (seed % 80) / 100);
-  for (var i = 0; i < days; i++) {
-    var noise = Math.sin(i * 0.3 + seed) * 0.3 + (seed % 100) / 200;
-    points.push(Math.max(0, Math.round(base * (1 + noise))));
-  }
-  return points;
-}
-
-function _drawTalentGmvChart(t, mock, days) {
-  var canvas = document.getElementById('talentGmvChart');
-  if (!canvas) return;
-  var ctx = canvas.getContext('2d');
-  var rect = canvas.getBoundingClientRect();
-  var width = rect.width || canvas.offsetWidth || 400;
-  var height = rect.height || canvas.offsetHeight || 180;
-  canvas.width = width * window.devicePixelRatio;
-  canvas.height = height * window.devicePixelRatio;
-  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-  var data = _getTalentGmvTrend(mock, days);
-  var max = Math.max.apply(null, data) || 1;
-  var padding = { top: 20, right: 10, bottom: 24, left: 44 };
-  var chartW = width - padding.left - padding.right;
-  var chartH = height - padding.top - padding.bottom;
-
-  ctx.clearRect(0, 0, width, height);
-
-  // 网格线
-  ctx.strokeStyle = 'rgba(0,0,0,0.05)';
-  ctx.lineWidth = 1;
-  for (var i = 0; i <= 4; i++) {
-    var y = padding.top + chartH * (i / 4);
-    ctx.beginPath();
-    ctx.moveTo(padding.left, y);
-    ctx.lineTo(width - padding.right, y);
-    ctx.stroke();
-    ctx.fillStyle = '#86909c';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'right';
-    var label = '¥' + ((max * (1 - i / 4)) / 10000).toFixed(1) + 'w';
-    ctx.fillText(label, padding.left - 6, y + 3);
-  }
-
-  // 折线渐变
-  var grad = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
-  grad.addColorStop(0, 'rgba(10,132,255,0.25)');
-  grad.addColorStop(1, 'rgba(10,132,255,0.02)');
-
-  // 折线
-  ctx.beginPath();
-  data.forEach(function(v, idx){
-    var x = padding.left + chartW * (idx / (data.length - 1));
-    var y = padding.top + chartH * (1 - v / max);
-    if (idx === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.lineTo(padding.left + chartW, padding.top + chartH);
-  ctx.lineTo(padding.left, padding.top + chartH);
-  ctx.closePath();
-  ctx.fillStyle = grad;
-  ctx.fill();
-
-  ctx.beginPath();
-  data.forEach(function(v, idx){
-    var x = padding.left + chartW * (idx / (data.length - 1));
-    var y = padding.top + chartH * (1 - v / max);
-    if (idx === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.strokeStyle = '#0a84ff';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  // X轴标签
-  ctx.fillStyle = '#86909c';
-  ctx.font = '10px sans-serif';
-  ctx.textAlign = 'center';
-  var labels = days === 30 ? [1, 8, 15, 22, 30] : [1, 23, 45, 67, 90];
-  labels.forEach(function(day){
-    var x = padding.left + chartW * ((day - 1) / (data.length - 1));
-    ctx.fillText(day + '日', x, height - 6);
-  });
-}
-
-function _getTalentPriceDistribution(t, mock) {
-  // 优先使用真实价格带分布数据（格式: {"0-25":15.09,...,"500+":2.95}）
+function _getTalentPriceDistribution(t) {
+  // ★ ui/talent-detail-redesign-v2-cleanup (老大 2026-09-23): 价格带分布接 ocr_raw_fields
+  //   优先级: t.price_distribution (DB) → t.ocr_raw_fields.price_distribution (OCR v3 dict 字段)
+  //   兜底: 无数据返回 [] 显示"暂无数据"
+  //   删原 hash 兜底 (mock.average_price + _hashString 合成假分布, 老大禁 fake 数据)
   var pd = t.price_distribution;
-  if (pd && typeof pd === 'object' && Object.keys(pd).length > 0) {
+  if (!pd || typeof pd !== 'object' || !Object.keys(pd).length) {
+    var _ocr = t.ocr_raw_fields || {};
+    pd = _ocr.price_distribution;
+  }
+  if (pd && typeof pd === 'object' && Object.keys(pd).length) {
     return Object.keys(pd).map(function(k){
       var label;
       if (k.indexOf('+') >= 0) {
@@ -31658,20 +31482,13 @@ function _getTalentPriceDistribution(t, mock) {
       return { label: label, value: pd[k] };
     });
   }
-  if (!mock.average_price) return [];
-  var seed = _hashString(t.id + 'price');
-  var avg = mock.average_price || 100;
-  return [
-    { label: '0 - ¥' + Math.round(avg * 0.5), value: 10 + seed % 20 },
-    { label: '¥' + Math.round(avg * 0.5) + ' - ¥' + Math.round(avg), value: 20 + seed % 25 },
-    { label: '¥' + Math.round(avg) + ' - ¥' + Math.round(avg * 1.5), value: 15 + seed % 20 },
-    { label: '> ¥' + Math.round(avg * 1.5), value: 5 + seed % 15 }
-  ];
+  return [];
 }
 
-function _getTalentCategoryDistribution(t, mock) {
+function _getTalentCategoryDistribution(t) {
   // ★ fix/ocr-distribution-fallback: 优先 t.category_distribution, 兜底 t.ocr_raw_fields.category_distribution
   //   _OCR_TO_TALENT_FIELDS 没同步 category_distribution (talent 表无此列), OCR dict 必走 ocr_raw_fields
+  // ★ ui/talent-detail-redesign-v2-cleanup: 删 mock 参数 (其他面板已不依赖 mock 兜底)
   var cd = t.category_distribution;
   if (!cd || typeof cd !== 'object' || !Object.keys(cd).length) {
     var _ocr = t.ocr_raw_fields || {};
@@ -31726,7 +31543,8 @@ function _getTalentBrandDistribution(t) {
 
 function _renderTalentDonut(items) {
   // 环形图：conic-gradient 扇区 + 图例，扇区角度按占比归一化
-  var colors = ['#0a84ff', '#36cfc9', '#73d13d', '#faad14', '#ff7875', '#b37feb'];
+  // ★ ui/talent-detail-redesign-v2-cleanup: V2.1 token 兑换 #0a84ff → #1677ff
+  var colors = ['#1677ff', '#36cfc9', '#73d13d', '#faad14', '#ff7875', '#b37feb'];
   var total = items.reduce(function(a, b){ return a + (parseFloat(b.value) || 0); }, 0);
   if (!total) return '';
   var acc = 0;
@@ -32237,9 +32055,8 @@ function renderTalentPanelFollowUps(t) {
   el.innerHTML = '<div class="talents-panel-section"><div class="talents-follow-up-header"><div class="talents-panel-title" style="margin:0;padding:0;border:none;">跟进记录</div><button class="talents-follow-up-add" onclick="createNewTalentFollowUp()">+ 新增跟进</button></div><div class="products-loading">加载中...</div></div>';
   apiFetch('/api/talents/' + encodeURIComponent(t.id) + '/follow-ups').then(function(r){return r.json();}).then(function(data){
     var followUps = data.follow_ups || [];
-    if (followUps.length === 0) {
-      followUps = _getMockTalentFollowUps(t);
-    }
+    // ★ ui/talent-detail-redesign-v2-cleanup: 删 _getMockTalentFollowUps 假数据兜底
+    //   老大 2026-09-23: 跟进记录为空时直接显示"暂无跟进记录"占位, 不塞 fake 跟进
     _currentTalentFollowUps = followUps;
     el.innerHTML = _renderTalentFollowUpsHTML(t, followUps);
   }).catch(function(e){
@@ -32247,28 +32064,9 @@ function renderTalentPanelFollowUps(t) {
   });
 }
 
-function _getMockTalentFollowUps(t) {
-  var seed = _hashString(t.id + 'followups');
-  var names = ['张经理', '李运营', '王商务', '赵达人'];
-  var contents = ['电话沟通合作意向，达人表示对凉鞋类目感兴趣。', '发送货盘表与佣金政策，等待达人反馈。', '确认首场直播排期，沟通样品寄送地址。', '跟进达人短视频种草进度，提醒挂车链接。'];
-  var results = ['达成初步意向', '待反馈', '已确认排期', '持续跟进中'];
-  var now = Date.now();
-  var list = [];
-  for (var i = 0; i < 3; i++) {
-    list.push({
-      id: 'mock_' + i,
-      talent_id: t.id,
-      follow_up_at: now - (i + 1) * 7 * 24 * 60 * 60 * 1000,
-      next_follow_up_at: i === 0 ? now + 3 * 24 * 60 * 60 * 1000 : 0,
-      follow_up_by: names[(seed + i) % names.length],
-      content: contents[(seed + i) % contents.length],
-      result: results[(seed + i) % results.length],
-      status: 'completed',
-      is_mock: true
-    });
-  }
-  return list;
-}
+// ★ ui/talent-detail-redesign-v2-cleanup: _getMockTalentFollowUps 已删除 (老大 2026-09-23)
+//   原函数用 hash 合成 "张经理/李运营/王商务/赵达人" 假跟进记录
+//   跟进记录为空时显示"暂无跟进记录"占位, 等真实跟进数据接入
 
 function _renderTalentFollowUpsHTML(t, followUps) {
   var html = '<div class="talents-panel-section">';
