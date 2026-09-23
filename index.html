@@ -30318,6 +30318,26 @@ function _renderTalentCooperationAdvice(status) {
 //   仍在 L29264+ 使用, 不在本 commit 范围 (产品模块的 mid-card sparkline 由产品 redesign 处理)
 // 注: _getTalentMockData 保留 (其他面板依赖字段 fallback 包装, 但 mock 不再含假数据生成)
 
+function _getTalentMockData(t) {
+  return {
+    category: t.category || t.fan_category || '',
+    city: t.city || '',
+    level: t.level || '',
+    risk_rating: t.risk_rating || '',
+    ai_tags: (t.ai_tags && t.ai_tags.length) ? t.ai_tags : [],
+    real_name: t.real_name || '',
+    phone: t.phone || t.contact_phone || '',
+    wechat: t.wechat || t.contact_wechat || '',
+    email: t.email || t.contact_email || '',
+    content_style: t.content_style || t.contentStyle || '',
+    product_count: t.product_count || t.total_products || 0,
+    average_price: t.average_price || 0,
+    total_gmv: t.total_gmv || 0,
+    ai_analysis: t.ai_analysis || t.ai_summary || '',
+    fans_profile: (t.fans_profile && Object.keys(t.fans_profile).length) ? t.fans_profile : {}
+  };
+}
+
 function _formatRiskLabel(risk) {
   var map = { low: '低风险', medium: '中风险', high: '高风险' };
   return map[risk] || risk || '未评估';
@@ -30353,6 +30373,7 @@ function loadTalents(page) {
     renderTalentPagination(_talentData.total, _talentPage, _talentPageSize);
     if (!_talentCurrentId) showTalentEmptyState();
   }).catch(function(e){
+    console.error('[loadTalents] 渲染失败:', e);
     if (itemsEl) itemsEl.innerHTML = '<div class="products-empty"><div class="products-empty-text">加载失败</div></div>';
   });
 }
