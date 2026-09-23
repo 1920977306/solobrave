@@ -32041,21 +32041,153 @@ function _renderTalentFollowUpsHTML(t, followUps) {
 }
 
 // ═══ 达人详情 - 分析档案（knowledge_events 时间线）═══
+// ★ ui/talent-detail-redesign-v2-cleanup commit 7 (老大 2026-09-23):
+//   原始 OCR 字段移到分析档案 tab 做语义分组折叠,字段名全中文
+//   6 维度: 商业核心 / 基础 / 粉丝画像 / 群组粉丝 / 热卖分布 / 直播数据
+//   dict/list 格式化 (数字 ≤100 加 %, list bullet, 不显示 JSON 字符串和英文 key)
+
+// OCR 字段名 → 中文标签映射 (从 commit 3 删除的版本恢复 + commit 7 扩展)
+var OCR_FIELD_LABELS = {
+  name: '达人昵称', douyin_id: '抖音号', city: '所在地', location: '地区', followers: '粉丝量', level: '等级',
+  bio: '简介', tags: '内容标签', main_category: '主营类目', cooperation_status: '合作状态', agency: '所属机构',
+  talent_type: '内容类型', content_style: '内容风格', product_count: '带货商品数', total_history_days: '历史带货天数',
+  total_shops: '合作店铺数', total_gmv: '总结算额', live_ratio: '直播占比', live_sessions: '直播场次',
+  live_views: '直播观看量', video_ratio: '视频占比', video_count: '视频数', video_plays: '视频播放量',
+  single_video_settlement: '单视频结算', video_gpm: '视频 GPM', live_gpm: '直播 GPM',
+  video_settlement_ratio: '视频结算额占比', video_avg_price: '视频平均件单价',
+  video_completion_rate: '视频完播率', video_likes: '视频点赞数', video_comments: '视频评论数',
+  video_shares: '视频转发数', video_interaction_rate: '视频互动率', average_price: '平均件单价',
+  fulfillment_score: '履约分', rating_score: '评分', top_products: '带货商品 TOP',
+  top_categories: '热卖类目 TOP', top_brands: '热卖品牌 TOP',
+  fan_gender: '粉丝性别', fan_age: '粉丝年龄', fan_city_tier: '粉丝城市等级', fan_crowd: '粉丝人群',
+  fan_price_range: '粉丝价格带', fan_category: '粉丝品类偏好', fan_region: '粉丝地域',
+  fan_group_gender: '粉丝团性别', fan_group_age: '粉丝团年龄', fan_group_crowd: '粉丝团人群',
+  fan_group_activity: '粉丝团活跃度', fan_group_device: '粉丝团设备', fan_group_price: '粉丝团价格带',
+  fan_group_category: '粉丝团品类',
+  live_audience_region: '直播间观众地域', live_audience_city_tier: '直播间观众城市等级',
+  video_audience_region: '短视频观众地域', video_audience_city_tier: '短视频观众城市等级',
+  extra_fields: '其他字段 (extra)', account_fans_profile: '账号粉丝特征',
+  video_fans_profile: '短视频粉丝特征', remark: '备注', notes: '备注',
+  price_distribution: '价格带分布', category_distribution: '类目分布', brand_distribution: '品牌集中度',
+  cooperation_days: '合作天数', cooperating_brands: '合作中品牌', brand_details: '品牌详情',
+  brand_commission: '品牌佣金', cooperation_brand_count: '合作品牌数',
+  products: '带货商品', data_period: '数据周期', live_stream_sessions: '直播场次',
+  live_stream_viewers: '直播总观看', avg_live_gmv: '场均直播 GMV', cooperation_status: '合作状态'
+};
+
+// 6 维度分组
+var OCR_FIELD_GROUPS = {
+  '商业核心': ['name', 'douyin_id', 'followers', 'total_gmv', 'monthly_settlement', 'gpm', 'feishu_gpm', 'feishu_product_count', 'feishu_shops', 'single_video_settlement', 'product_count', 'total_products', 'average_price', 'rating_score', 'fulfillment_score'],
+  '基础': ['talent_type', 'category', 'main_category', 'content_style', 'bio', 'city', 'location', 'level', 'agency', 'tags', 'cooperation_status', 'real_name', 'phone', 'wechat', 'email', 'contact_phone', 'contact_wechat', 'contact_email', 'risk_rating', 'risk_level'],
+  '粉丝画像': ['fan_gender', 'fan_age', 'fan_region', 'fan_city_tier', 'fan_crowd', 'fan_price_range', 'fan_category', 'account_fans_profile'],
+  '群组粉丝': ['fan_group_gender', 'fan_group_age', 'fan_group_crowd', 'fan_group_activity', 'fan_group_device', 'fan_group_price', 'fan_group_category', 'video_fans_profile'],
+  '热卖分布': ['price_distribution', 'category_distribution', 'brand_distribution', 'top_brands', 'hot_brands', 'top_categories', 'top_products', 'cooperating_brands', 'brand_details', 'brand_commission', 'cooperation_brand_count', 'products', 'cooperation_days'],
+  '直播数据': ['live_ratio', 'live_sessions', 'live_views', 'live_stream_sessions', 'live_stream_viewers', 'video_ratio', 'avg_live_gmv', 'live_gpm', 'video_count', 'video_plays', 'video_settlement_ratio', 'video_avg_price', 'video_completion_rate', 'video_likes', 'video_comments', 'video_shares', 'video_interaction_rate', 'video_audience_region', 'video_audience_city_tier', 'live_audience_region', 'live_audience_city_tier', 'data_period']
+};
+
+// dict/list 格式化 (数字 ≤100 加 %, list bullet)
+function _formatOcrValue(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'number') {
+    if (!isNaN(v) && v <= 100) return v + '%';
+    return String(v);
+  }
+  return String(v);
+}
+function _renderOcrNestedValue(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object' && !Array.isArray(v)) {
+    var parts = [];
+    Object.keys(v).forEach(function(k){
+      var val = v[k];
+      var display;
+      if (val !== null && typeof val === 'object') {
+        display = _renderOcrNestedValue(val);
+        parts.push('<div style="padding:4px 0;"><div style="color:var(--text-secondary);font-size:11px;margin-bottom:4px;">' + escapeHtml(OCR_FIELD_LABELS[k] || k) + '</div><div style="padding-left:10px;border-left:2px solid var(--bg-secondary);">' + display + '</div></div>');
+      } else {
+        display = _formatOcrValue(val);
+        parts.push('<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid var(--bg-secondary);"><span style="color:var(--text-secondary);">' + escapeHtml(OCR_FIELD_LABELS[k] || k) + '</span><span style="color:var(--accent);font-weight:500;">' + escapeHtml(display) + '</span></div>');
+      }
+    });
+    return parts.join('');
+  }
+  if (Array.isArray(v)) {
+    return v.map(function(item){
+      if (item !== null && typeof item === 'object') {
+        return '<div style="padding:4px 0;font-size:12px;">• ' + escapeHtml(_formatOcrValue(item)) + '</div>';
+      }
+      return '<div style="padding:3px 0;font-size:12px;color:var(--text-primary);">• ' + escapeHtml(_formatOcrValue(item)) + '</div>';
+    }).join('');
+  }
+  return '<span>' + escapeHtml(_formatOcrValue(v)) + '</span>';
+}
+
+// OCR 字段按 6 维度分组渲染 (commit 7)
+function _renderOcrSemanticGroups(ocrRaw) {
+  if (!ocrRaw || typeof ocrRaw !== 'object') return '';
+  var keys = Object.keys(ocrRaw);
+  if (keys.length === 0) return '';
+
+  var html = '<div class="talents-panel-section">';
+  html += '<div class="talents-panel-title">📋 OCR 完整字段 <span style="font-weight:400;color:var(--text-secondary);font-size:12px;margin-left:6px;">(' + keys.length + ' 字段 / 6 维度分组)</span></div>';
+
+  // 用 6 维度顺序遍历,未分类的归到 "其他字段"
+  var _grouped = {};
+  Object.keys(OCR_FIELD_GROUPS).forEach(function(g){ _grouped[g] = []; });
+  _grouped['其他字段'] = [];
+  keys.forEach(function(k){
+    var _found = false;
+    Object.keys(OCR_FIELD_GROUPS).forEach(function(g){
+      if (OCR_FIELD_GROUPS[g].indexOf(k) >= 0) { _grouped[g].push(k); _found = true; }
+    });
+    if (!_found) _grouped['其他字段'].push(k);
+  });
+
+  Object.keys(_grouped).forEach(function(g){
+    var items = _grouped[g];
+    if (items.length === 0) return;
+    html += '<details style="background:var(--bg-tertiary);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:8px;">';
+    html += '<summary style="cursor:pointer;font-size:13px;color:var(--text-primary);font-weight:600;list-style:none;">';
+    html += '<span style="display:inline-block;width:14px;transition:transform 0.2s;">▶</span> ';
+    html += escapeHtml(g) + ' <span style="color:var(--text-secondary);font-weight:400;">(' + items.length + ' 字段)</span>';
+    html += '</summary>';
+    html += '<div style="margin:10px 0 0 8px;line-height:1.6;">';
+    items.forEach(function(k){
+      var v = ocrRaw[k];
+      if (v === null || v === undefined || v === '' || v === '未提供') return;
+      html += '<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid var(--bg-secondary);"><span style="color:var(--text-secondary);">' + escapeHtml(OCR_FIELD_LABELS[k] || k) + '</span><span style="color:var(--accent);font-weight:500;">';
+      if (typeof v === 'object') {
+        html += _renderOcrNestedValue(v);
+      } else {
+        html += escapeHtml(_formatOcrValue(v));
+      }
+      html += '</span></div>';
+    });
+    html += '</div></details>';
+  });
+
+  html += '</div>';
+  return html;
+}
+
 function renderTalentPanelKnowledge(t) {
   var el = document.getElementById('talentsPanelKnowledge');
   if (!el || !t || !t.id) return;
   el.innerHTML = '<div class="talents-panel-section"><div class="talents-panel-title">分析档案</div><div class="products-loading">加载中...</div></div>';
+  // ★ commit 7: OCR 完整字段折叠区在 events 之前渲染, 加载 events 后拼接
+  var _ocrHtml = _renderOcrSemanticGroups(t.ocr_raw_fields);
   apiFetch('/api/knowledge-events?entity_type=talent&entity_id=' + encodeURIComponent(t.id))
     .then(function(r){ return r.json(); })
     .then(function(data){
       var events = data.events || [];
       if (events.length === 0) {
-        el.innerHTML = '<div class="talents-panel-section"><div class="talents-panel-title">分析档案</div>'
+        el.innerHTML = _ocrHtml
+          + '<div class="talents-panel-section"><div class="talents-panel-title">分析档案</div>'
           + '<div class="talent-empty-guide" style="text-align:center;padding:40px 20px;background:#F9FAFB;border-radius:12px;margin:20px;">'
           + '<div style="font-size:48px;margin-bottom:16px;">📊</div>'
           + '<div style="font-size:16px;font-weight:600;color:#111827;margin-bottom:8px;">该达人尚未生成分析报告</div>'
           + '<div style="font-size:14px;color:#6B7280;margin-bottom:20px;">上传达人数据截图，AI 自动分析粉丝画像、带货结构、合作建议</div>'
-          + '<button onclick="triggerTalentAnalysis()" style="background:#3B82F6;color:white;border:none;padding:10px 24px;border-radius:8px;font-size:14px;cursor:pointer;">上传截图分析</button>'
+          + '<button onclick="triggerTalentAnalysis()" style="background:#1677ff;color:white;border:none;padding:10px 24px;border-radius:8px;font-size:14px;cursor:pointer;">上传截图分析</button>'
           + '</div></div>';
         return;
       }
@@ -32076,10 +32208,12 @@ function renderTalentPanelKnowledge(t) {
         html += '</div></div>';
       });
       html += '</div></div>';
-      el.innerHTML = html;
+      // ★ commit 7: OCR 完整字段分组折叠区在 events 时间线后追加
+      el.innerHTML = _ocrHtml + html;
     })
     .catch(function(e){
-      el.innerHTML = '<div class="talents-panel-section"><div class="talents-panel-title">分析档案</div><div class="products-empty"><div class="products-empty-text">加载失败</div></div></div>';
+      el.innerHTML = _ocrHtml
+        + '<div class="talents-panel-section"><div class="talents-panel-title">分析档案</div><div class="products-empty"><div class="products-empty-text">加载失败</div></div></div>';
     });
 }
 
