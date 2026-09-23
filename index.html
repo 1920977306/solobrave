@@ -30954,6 +30954,27 @@ function parseTalentAIReport(text) {
     sections[m[1]] = {title: m[2].trim(), body: m[3]};
   }
 
+  // ★ ui/talent-detail-redesign-v2-cleanup commit 6 (老大 2026-09-23):
+  //   检测 "预估 GMV 50万/曝光 10万/转化率 5%" 等无来源数字, 给段落加 unverified 标志
+  //   渲染时整段不显示 + 提示 "无来源数据, 已隐藏" (前端防御 + 警示)
+  //   根因是 Helen LLM 编造数字, 治本靠修改 Helen system_prompt 加 "禁止编造数字" 规则
+  //   (后端 Mini 端在 data/agents.json 改, Mavis 不能碰 data/ 目录)
+  function _hasUnverifiedNumbers(body) {
+    if (!body) return false;
+    // 匹配: 预估 GMV 50万 / 预计曝光 10万次 / 预估转化率 5% / GMV 50-100万
+    var patterns = [
+      /预估[^\n]{0,20}(GMV|曝光|转化率|销售额|成交|GPM|佣金)/i,
+      /预计[^\n]{0,20}(GMV|曝光|转化率|销售额|成交|GPM|佣金)/i,
+      /(GMV|曝光|销售额)[^\n]{0,10}\d+\s*[万千wW]/i,
+      /\d+%\s*(转化率|转化|CTR|点击率)/,
+      /\d+\s*[万千wW]\s*(GMV|销售额|成交额)/i
+    ];
+    for (var i = 0; i < patterns.length; i++) {
+      if (patterns[i].test(body)) return true;
+    }
+    return false;
+  }
+
   // 1. 综合匹配度
   if (sections['1']) {
     var body = sections['1'].body;
@@ -30963,6 +30984,7 @@ function parseTalentAIReport(text) {
     if (ratingMatch) result.rating = ratingMatch[1];
     var summaryMatch = body.match(/一句话总结[：:]?\s*(.+)/);
     if (summaryMatch) result.summary = summaryMatch[1].trim();
+    if (_hasUnverifiedNumbers(body)) result.summaryUnverified = true;
   }
 
   // 2. 六维评分表格
@@ -30988,9 +31010,18 @@ function parseTalentAIReport(text) {
     }).map(function(l){ return l.replace(/^[-*✓!]\s+/, ''); });
   }
 
-  if (sections['3']) result.highlights = extractItems(sections['3'].body);
-  if (sections['4']) result.issues = extractItems(sections['4'].body);
-  if (sections['5']) result.risks = extractItems(sections['5'].body);
+  if (sections['3']) {
+    result.highlights = extractItems(sections['3'].body);
+    result.highlightsUnverified = _hasUnverifiedNumbers(sections['3'].body);
+  }
+  if (sections['4']) {
+    result.issues = extractItems(sections['4'].body);
+    result.issuesUnverified = _hasUnverifiedNumbers(sections['4'].body);
+  }
+  if (sections['5']) {
+    result.risks = extractItems(sections['5'].body);
+    result.risksUnverified = _hasUnverifiedNumbers(sections['5'].body);
+  }
 
   // 6. 合作建议 key-value
   if (sections['6']) {
@@ -30998,7 +31029,10 @@ function parseTalentAIReport(text) {
     sections['6'].body.split('\n').forEach(function(l){
       var line = l.trim();
       var kv = line.match(kvRe);
-      if (kv) result.cooperation.push({label: kv[1], value: kv[2]});
+      if (kv) {
+        result.cooperation.push({label: kv[1], value: kv[2]});
+        if (_hasUnverifiedNumbers(kv[2])) result.cooperationUnverified = true;
+      }
     });
   }
 
@@ -31013,6 +31047,14 @@ function renderTalentAIReport(text) {
     return formatMessageContent(text);
   }
 
+  // ★ ui/talent-detail-redesign-v2-cleanup commit 6 (老大 2026-09-23):
+  //   unverified 段整段不渲染, 改为占位 "❓ 此段含未验证数字, 已隐藏"
+  //   治本是修改 Helen system_prompt 加 "禁止编造具体数字" 规则 (后端 Mini 端)
+  //   前端做防御: 隐藏具体数字段, 等后端修
+  function _renderUnverifiedPlaceholder(title) {
+    return '<div class="ai-section"><div class="ai-section-title">' + escapeHtml(title) + ' <span style="font-size:11px;color:var(--color-status-lost,#FF3B30);font-weight:400;">⚠ 此段含未验证数字, 已隐藏</span></div><div class="products-empty-text">等待 AI 模型修复后重新生成</div></div>';
+  }
+
   var html = '<div class="ai-report-body">';
 
   // 顶部综合匹配度横幅
@@ -31022,10 +31064,16 @@ function renderTalentAIReport(text) {
   html += '<div class="ai-match-score">' + (report.score || '-') + '<span>分</span></div>';
   html += '<div class="ai-match-info"><div class="ai-match-label">综合匹配度</div><div class="ai-match-rating">' + escapeHtml(ratingText) + '</div></div>';
   html += '</div>';
-  if (report.summary) html += '<div class="ai-match-summary">' + escapeHtml(report.summary) + '</div>';
+  if (report.summary) {
+    if (report.summaryUnverified) {
+      html += '<div class="ai-match-summary" style="background:rgba(255,59,48,0.05);border-left:3px solid var(--color-status-lost,#FF3B30);padding:8px 12px;border-radius:6px;font-size:12px;">⚠ 此段含未验证数字, 已隐藏. 等待 AI 模型修复</div>';
+    } else {
+      html += '<div class="ai-match-summary">' + escapeHtml(report.summary) + '</div>';
+    }
+  }
   html += '</div>';
 
-  // 六维评分卡片
+  // 六维评分卡片 (6 维评分是表格格式, LLM 不会编造数字, 保留)
   if (report.dimensions.length) {
     html += '<div class="ai-dimension-grid">';
     report.dimensions.forEach(function(d){
@@ -31039,15 +31087,19 @@ function renderTalentAIReport(text) {
     html += '</div>';
   }
 
-  // 匹配亮点
-  if (report.highlights.length) {
+  // 匹配亮点 (含未验证数字时整段占位)
+  if (report.highlightsUnverified) {
+    html += _renderUnverifiedPlaceholder('匹配亮点');
+  } else if (report.highlights.length) {
     html += '<div class="ai-section"><div class="ai-section-title">匹配亮点</div><ul class="ai-section-list ai-highlights">';
     report.highlights.forEach(function(item){ html += '<li>' + formatMessageInline(item) + '</li>'; });
     html += '</ul></div>';
   }
 
-  // 潜在问题
-  if (report.issues.length) {
+  // 潜在问题 (含未验证数字时整段占位)
+  if (report.issuesUnverified) {
+    html += _renderUnverifiedPlaceholder('潜在问题');
+  } else if (report.issues.length) {
     html += '<div class="ai-section"><div class="ai-section-title">潜在问题</div><ul class="ai-section-list ai-issues">';
     report.issues.forEach(function(item){ html += '<li>' + formatMessageInline(item) + '</li>'; });
     html += '</ul></div>';
@@ -31057,8 +31109,10 @@ function renderTalentAIReport(text) {
     html += '<hr class="ai-section-divider">';
   }
 
-  // 合作建议表格
-  if (report.cooperation.length) {
+  // 合作建议表格 (含未验证数字时整段占位)
+  if (report.cooperationUnverified) {
+    html += _renderUnverifiedPlaceholder('合作建议');
+  } else if (report.cooperation.length) {
     html += '<div class="ai-section"><div class="ai-section-title">合作建议</div><table class="ai-cooperation-table">';
     report.cooperation.forEach(function(c){
       html += '<tr><th>' + escapeHtml(c.label) + '</th><td>' + formatMessageInline(c.value) + '</td></tr>';
@@ -31070,8 +31124,10 @@ function renderTalentAIReport(text) {
     html += '<hr class="ai-section-divider">';
   }
 
-  // 风险点与缓解建议
-  if (report.risks.length) {
+  // 风险点与缓解建议 (含未验证数字时整段占位)
+  if (report.risksUnverified) {
+    html += _renderUnverifiedPlaceholder('风险点与缓解建议');
+  } else if (report.risks.length) {
     html += '<div class="ai-section"><div class="ai-section-title">风险点与缓解建议</div><ul class="ai-section-list ai-risks">';
     report.risks.forEach(function(item){ html += '<li>' + formatMessageInline(item) + '</li>'; });
     html += '</ul></div>';
